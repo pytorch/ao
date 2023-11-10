@@ -1,6 +1,6 @@
 # torchao
 
-The torchao package contains apis and workflows used to apply AO techniques like quantization and pruning to GPU models using only native pytorch.
+The torchao package contains apis and workflows used to apply AO techniques like quantization and pruning to models using only native pytorch.
 
 ## Installation
 
