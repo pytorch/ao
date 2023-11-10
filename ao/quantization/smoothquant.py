@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+
 """
 Testing out accuracy-only implementation of SmoothQuant
 (https://arxiv.org/pdf/2211.10438.pdf)
