@@ -28,4 +28,4 @@ jobs:
 
     - name: Test import
       run: |
-        python -c "from segment_anything_fast import dynamic_quant, sam_model_registry"
+        python -c "from torchao import quantization"
