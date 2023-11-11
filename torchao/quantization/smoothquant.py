@@ -14,9 +14,9 @@ parts of transformer blocks.
 
 import torch
 import torch.nn.functional as F
-import quant_api
+import torchao.quantization.quant_api as quant_api
 
-from quant_primitives import (
+from .quant_primitives import (
     dynamically_quantize_per_channel,
     quant_int8_dynamic_per_token_linear,
 )

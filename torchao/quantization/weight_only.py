@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
-from quant_primitives import (
+from .quant_primitives import (
     dynamically_quantize_per_channel,
 )
 

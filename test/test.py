@@ -14,15 +14,15 @@ from torch._inductor.utils import run_and_get_code
 
 from torch.ao.quantization import MinMaxObserver, QConfigMapping
 
-from dynamic_quant import (
+from torchao.quantization.dynamic_quant import (
     DynamicallyPerAxisQuantizedLinear,
 )
-from quant_api import (
+from torchao.quantization.quant_api import (
     apply_dynamic_quant,
     apply_weight_only_int8_quant,
     change_linear_weights_to_dqtensors,
 )
-from quant_primitives import (
+from torchao.quantization.quant_primitives import (
     dequantize_per_channel,
     dequantize_per_tensor,
     dynamically_quantize_per_channel,
@@ -33,17 +33,17 @@ from quant_primitives import (
     safe_int_mm,
 )
 
-from smoothquant import (
+from torchao.quantization.smoothquant import (
     get_scale,
     replace_with_custom_fn_if_matches_filter,
     smooth_fq_linear_to_inference,
     SmoothFakeDynamicallyQuantizedLinear,
     swap_linear_with_smooth_fq_linear,
 )
-from subclass import (
+from torchao.quantization.subclass import (
     DynamicallyQuantizedLinearWeight,
 )
-from utils import (
+from torchao.quantization.utils import (
     apply_logging_hook,
     compute_error,
     compute_error as SQNR,
