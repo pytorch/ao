@@ -12,13 +12,13 @@ intended to be the actual long term quantization API for server GPUs.
 """
 
 import torch
-from dynamic_quant import (
+from .dynamic_quant import (
     DynamicallyPerAxisQuantizedLinear,
 )
-from subclass import (
+from .subclass import (
     DynamicallyQuantizedLinearWeight,
 )
-from weight_only import (
+from .weight_only import (
     WeightOnlyInt8QuantLinear,
 )
 

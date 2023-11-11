@@ -4,12 +4,12 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from smoothquant import *  # noqa: F403
-from quant_api import *  # noqa: F403
-from subclass import *  # noqa: F403
-from quant_primitives import *  # noqa: F403
-from utils import *  # noqa: F403
-from weight_only import *  # noqa: F403
+from .smoothquant import *  # noqa: F403
+from .quant_api import *  # noqa: F403
+from .subclass import *  # noqa: F403
+from .quant_primitives import *  # noqa: F403
+from .utils import *  # noqa: F403
+from .weight_only import *  # noqa: F403
 
 __all__ = [
     "DynamicallyPerAxisQuantizedLinear",
