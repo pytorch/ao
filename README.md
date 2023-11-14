@@ -1,7 +1,6 @@
 # torchao
 
-**Note: This repository is currently under heavy development - if you have suggestions on the API or use-cases you'd like to be covered, please open an github issue or reach out. We'd love to hear about how you're using the APIs.
-**
+**Note: This repository is currently under heavy development - if you have suggestions on the API or use-cases you'd like to be covered, please open an github issue or reach out. We'd love to hear about how you're using the APIs.**
 
 The torchao package contains apis and workflows used to apply AO techniques like quantization and pruning to models using only native pytorch.
 
