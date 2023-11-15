@@ -16,6 +16,11 @@ __all__ = ["DynamicallyQuantizedLinearWeight"]
 
 
 class DynamicallyQuantizedLinearWeight(torch.Tensor):
+    """
+    A Tensor subclass that when applied to a linear weight, change the linear op to a dynamically
+    quantized linear op with symmetric per-token and per-channel quantization on the activation
+    and weight respectively.
+    """
     @staticmethod
     def __new__(cls, input_data, q_scales, transposed=False, **kwargs):
         # input data is assumed to be input so that q_axis is the 1th axis
@@ -39,12 +44,18 @@ class DynamicallyQuantizedLinearWeight(torch.Tensor):
         return f"DynamicallyQuantizedLinearWeight(shape={self.shape}, data={self.dequantize()})"
 
     def dequantize(self, dtype=None):
+        """
+        Obtain the dequantized version of the quantized tensor subclass
+        """
         out = dequantize_per_channel(
             self.int_data.t(), self.q_scales, 0, self.dtype if dtype is None else dtype
         )
-        return out if self.transposed else out.t()  # already transposedd for dequantize
+        return out if self.transposed else out.t()  # already transposed for dequantize
 
     def int_repr(self):
+        """
+        Get internal integer representation of the quantized tensor
+        """
         return self.int_data.t() if self.transposed else self.int_data
 
     def _detach(self):
@@ -52,7 +63,7 @@ class DynamicallyQuantizedLinearWeight(torch.Tensor):
             self.int_data, self.q_scales, transposed=self.transposed
         )
 
-    def _transposed(self):
+    def _transpose(self):
         return DynamicallyQuantizedLinearWeight(
             self.int_data, self.q_scales, transposed=(not self.transposed)
         )
@@ -74,7 +85,7 @@ class DynamicallyQuantizedLinearWeight(torch.Tensor):
         # two scenarios where we currently fall back to vanilla mm:
         # 1 - when tensor is on CPU: we are missing qmm for CPU, but we should have a CPU implementation
         #     for consistency and to allow people to test
-        # 2 - we need to define what happens when we're given non-floats - quantizing long to int8 is probs craxy
+        # 2 - we need to define what happens when we're given non-floats - quantizing long to int8 is crazy
         if (
             func in [torch.ops.aten.mm.default, torch.ops.aten.addmm.default]
             and args[0].is_floating_point()
@@ -109,15 +120,25 @@ class DynamicallyQuantizedLinearWeight(torch.Tensor):
 
         if func is torch.ops.aten.t.default:
             return return_and_correct_aliasing(
-                func, args, kwargs, args[0]._transposed()
+                func, args, kwargs, args[0]._transpose()
             )
         breakpoint()
         return NotImplemented
 
     @classmethod
     def from_float(cls, input_float, qmin=-128, qmax=127, dtype=torch.int8):
+        """
+        Method used to convert a linear weight tensor to an instance of this
+        Tensor subclass.
+
+        Example usage::
+
+            model.lin_mod.weight = DynamicallyQuantizedLinearWeight.from_float(model.lin_mod.weight)
+        """
         w_int_repr, w_scales, _ = dynamically_quantize_per_channel(
             input_float, qmin, qmax, dtype
         )
-        # always store with quantized axis in dim=1 for fast matmul
+        # the desired representation shape for fast quantized matmul is
+        # transposed compared to how its stored as a linear weight,
+        # i.e. in_channels is dim=0 and out_channels (and quantized axis) is dim=1
         return cls(w_int_repr.contiguous().t(), w_scales, transposed=True)
