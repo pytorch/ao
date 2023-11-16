@@ -13,6 +13,10 @@ __all__ = ["WeightOnlyInt8QuantLinear"]
 
 
 class WeightOnlyInt8QuantLinear(torch.nn.Linear):
+    """
+    This class is a replacement for `torch.nn.Linear`. It implements a
+    mixed dtype matmul using int8 symmetric per-channel weight quantization
+    """
     def __init__(self, *args, **kwargs):
         w_int8 = kwargs.pop("w_int8")
         scales = kwargs.pop("scales")
@@ -21,6 +25,17 @@ class WeightOnlyInt8QuantLinear(torch.nn.Linear):
         self.scales = scales
 
     def forward(self, x):
+        """
+        Performs the forward pass of the quantized linear layer which consists
+        ofmixed dtype matmul using int8 symmetric per-channel weight quantization
+
+        Args:
+            X (torch.Tensor): The input floating point tensor to the quantized linear layer.
+
+        Returns:
+            torch.Tensor: The output floating point tensor after the quantized matmul and rescale.
+
+        """
         # if len(x.shape)<=2:
         #     y = torch.mm(x, self.w_int8.to(x.dtype)) * self.scales
         # else: # turn x into 2d tensor, then undo it for y
@@ -33,6 +48,17 @@ class WeightOnlyInt8QuantLinear(torch.nn.Linear):
 
     @classmethod
     def from_float(cls, mod):
+        """
+        Converts a `mod` of class `torch.nn.Linear` to the
+        `WeightOnlyInt8QuantLinear` class
+
+        Args:
+            mod (torch.nn.Linear): The original `torch.nn.Linear` module to convert.
+
+        Returns:
+            WeightOnlyInt8QuantLinear: The converted quantized linear module.
+
+        """
         w_fp32 = mod.weight
         w_int8, scales, _zp = dynamically_quantize_per_channel(
             w_fp32, -128, 127, torch.int8
