@@ -27,10 +27,8 @@ torchao                            0.0.1                   <install dir>
 
 Relevant APIs can be found in torchao.quantization.quant_api
 
-Note: Depending on the technique being applied to the model, you may see a perf degredation.
-This is because quantization adds additional overhead to the model that is hopefully made up for
-with faster matmuls. If your matmuls are small enough (or have odd shapes), the overhead can be larger than the gain
-from the quantized matmul.
+Note: While these techniques are designed to improve model performance, in some cases the opposite can occur.
+This is because quantization adds additional overhead to the model that is hopefully made up for by faster matmuls (for dynamic quantization) or loading weights faster (for weight-only quantization). If your matmuls are small enough or your non-quantized perf isn't bottlenecked by weight load time, these techniques may reduce performance.
 
 ### A8W8 Dynamic Quantization
 
@@ -88,7 +86,7 @@ other techniques.
 ### A8W8 Dynamic Quantization with Smoothquant
 
 We've also implemented a version of [smoothquant](https://arxiv.org/abs/2211.10438) with the same GEMM format as above.
-Due to requiring calibraiton the API is slightly more complicated
+Due to requiring calibration, the API is slightly more complicated
 
 Example
 
@@ -97,7 +95,7 @@ import torch
 from torchao.smoothquant import swap_linear_with_smooth_fq_linear, smooth_fq_linear_to_inference
 
 # some user model
-model = torch.nn.Sequential(torch.nn.Linear(32, 64)).cuda().to(torch.bfloat16)
+model = get_model()
 
 # convert linear modules to smoothquant
 # linear module in calibration mode
