@@ -27,6 +27,31 @@ torchao                            0.0.1                   <install dir>
 
 Relevant APIs can be found in torchao.quantization.quant_api
 
+Note: Depending on the technique being applied to the model, you may see a perf degredation.
+This is because quantization adds additional overhead to the model that is hopefully made up for
+with faster matmuls. If your matmuls are small enough (or have odd shapes), the overhead can be larger than the gain
+from the quantized matmul.
+
+### A8W8 Dynamic Quantization
+
+Similar to the weight only api above, the `apply_dynamic_quant` function swaps all
+linear modules to dynamically quantized quantized linear modules.
+
+Example
+
+```
+
+# some user model and example input
+...
+
+# convert linear modules to quantized linear modules
+quant_api.apply_dynamic_quant(model)
+
+# compile the model to improve performance
+...
+```
+
+This technique works best when the torch._inductor.config.force_fuse_int_mm_with_mul option is enabled. This allows fusion of the int8*int8 -> int32 matmul and subsequent mul op, thereby avoiding materialization of the int32 intermediary tensor.
 
 ### A16W8 WeightOnly Quantization
 
@@ -51,24 +76,7 @@ torch.compile(model, mode='max-autotune')
 model(input)
 ```
 
-### A8W8 Dynamic Quantization
-
-Similar to the weight only api above, the `apply_dynamic_quant` function swaps all
-linear modules to dynamically quantized quantized linear modules.
-
-Example
-
-```
-
-# some user model and example input
-...
-
-# convert linear modules to quantized linear modules
-quant_api.apply_dynamic_quant(model)
-
-# compile the model to improve performance
-...
-```
+This technique works best when the torch._inductor.config.use_mixed_mm option is enabled. This avoids dequantizing the weight tensor before the matmul, instead fusing the dequantization into the matmul, thereby avoiding materialization of a large floating point weight tensor.
 
 ## Other APIs
 
