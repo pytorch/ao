@@ -303,14 +303,13 @@ def quant_int8_dynamic_per_token_linear(
     w_vals_int8_t,
     w_scales,
     bias,
-    out_dtype=torch.float32,
-    use_fused_int_mm=0,
+    out_dtype,
 ):
     # like F.linear, but with int8 dynamic quantization of activation,
     # and a quantized weight
     x_vals_int8, x_scales = quantize_activation_per_token_absmax(x)
     mm_out = quant_int8_per_token_matmul(
-        x_vals_int8, x_scales, w_vals_int8_t, w_scales, out_dtype, use_fused_int_mm
+        x_vals_int8, x_scales, w_vals_int8_t, w_scales, out_dtype
     )
     if bias is not None:
         mm_out += bias
@@ -323,7 +322,6 @@ def quant_int8_per_token_matmul(
     w_vals_int8_t,
     w_scales,
     output_dtype=torch.float32,
-    use_fused_int_mm=0,
 ):
     # Quantized matmul of int8 operands that accumulates to int32 and returns
     # output_dtype. For now, this is written for approximate numerical
@@ -355,18 +353,6 @@ def quant_int8_per_token_matmul(
     #
 
     tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
-    # these branches use external triton fused_int_mm kernel's which fuse either 1 or 2 mul operations
-    if use_fused_int_mm == 2:
-        y = torch.ops.custom_int_mm.int_mm_dequant(
-            tmp, w_vals_int8_t, x_scales.view(-1, 1), w_scales, output_dtype
-        ).reshape(*x_vals_int8.shape[:-1], -1)
-        return y
-    elif use_fused_int_mm == 1:
-        y = torch.ops.custom_int_mm.int_mm_one_mul(
-            tmp, w_vals_int8_t, x_scales.view(-1, 1), output_dtype
-        ).reshape(*x_vals_int8.shape[:-1], -1)
-        y = y * w_scales
-        return y.to(output_dtype)
     y_dot_int32 = safe_int_mm(tmp, w_vals_int8_t)
 
     #
@@ -381,6 +367,7 @@ def quant_int8_per_token_matmul(
         torch.float,
         torch.bfloat16,
     ], f"x_scales needs to be a torch.float32 or torch.bfloat16 but got {x_scales.dtype}"
+
     y = (y_dot_int32 * x_scales.view(-1, 1) * w_scales).reshape(
         *x_vals_int8.shape[:-1], -1
     )

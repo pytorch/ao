@@ -21,6 +21,7 @@ from torchao.quantization.quant_api import (
     apply_dynamic_quant,
     apply_weight_only_int8_quant,
     change_linear_weights_to_dqtensors,
+    _replace_with_custom_fn_if_matches_filter,
 )
 from torchao.quantization.quant_primitives import (
     dequantize_per_channel,
@@ -35,7 +36,6 @@ from torchao.quantization.quant_primitives import (
 
 from torchao.quantization.smoothquant import (
     get_scale,
-    replace_with_custom_fn_if_matches_filter,
     smooth_fq_linear_to_inference,
     SmoothFakeDynamicallyQuantizedLinear,
     swap_linear_with_smooth_fq_linear,
@@ -284,7 +284,7 @@ class SmoothquantUnitTest(unittest.TestCase):
         x = torch.randn(4, 4)
         y_ref = m(x)
 
-        replace_with_custom_fn_if_matches_filter(
+        _replace_with_custom_fn_if_matches_filter(
             m,
             lambda mod: torch.compile(mod),
             lambda mod, fqn: isinstance(mod, nn.Linear) and fqn != "1.0",

@@ -13,7 +13,6 @@ from .weight_only import *  # noqa: F403
 
 __all__ = [
     "DynamicallyPerAxisQuantizedLinear",
-    "replace_with_custom_fn_if_matches_filter",
     "apply_weight_only_int8_quant",
     "apply_dynamic_quant",
     "change_linear_weights_to_dqtensors",
