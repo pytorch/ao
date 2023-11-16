@@ -28,7 +28,7 @@ torchao                            0.0.1                   <install dir>
 Relevant APIs can be found in torchao.quantization.quant_api
 
 Note: While these techniques are designed to improve model performance, in some cases the opposite can occur.
-This is because quantization adds additional overhead to the model that is hopefully made up for by faster matmuls (for dynamic quantization) or loading weights faster (for weight-only quantization). If your matmuls are small enough or your non-quantized perf isn't bottlenecked by weight load time, these techniques may reduce performance.
+This is because quantization adds additional overhead to the model that is hopefully made up for by faster matmuls (dynamic quantization) or loading weights faster (weight-only quantization). If your matmuls are small enough or your non-quantized perf isn't bottlenecked by weight load time, these techniques may reduce performance.
 
 ### A8W8 Dynamic Quantization
 
