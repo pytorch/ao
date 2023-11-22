@@ -799,7 +799,6 @@ class TestSubclass(unittest.TestCase):
 
         ref_f = lin(x)
         ref_q = linq(x)
-
         lin.weight = torch.nn.Parameter(
             test_class.from_float(lin.weight), requires_grad=False
         )
@@ -983,7 +982,6 @@ class UtilsUnitTest(unittest.TestCase):
                     pass
 
 
-
 class SmoothquantIntegrationTest(unittest.TestCase):
     @torch.inference_mode()
     def test_on_dummy_distilbert(self):
@@ -1038,7 +1036,6 @@ class SmoothquantIntegrationTest(unittest.TestCase):
         )
         print("sqnr_pt_quant", sqnr_pt_quant)
         self.assertTrue(sqnr_sq >= 8.0)
-
 
 
 if __name__ == "__main__":
