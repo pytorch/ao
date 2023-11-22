@@ -56,7 +56,7 @@ from torch.ao.quantization.quantize_fx import convert_to_reference_fx, prepare_f
 from torchao.quantization.weight_only import (
     WeightOnlyInt8QuantLinear
 )
-
+import os
 
 torch.manual_seed(0)
 
@@ -932,6 +932,63 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
                 sqnr = compute_error(y_ref, y_wo)
                 self.assertGreater(sqnr, 43.0)
 
+class TestSaveLoadMeta(unittest.TestCase):
+    @torch.no_grad()
+    def _test_handle_save_load_meta_impl(self, api):
+        m, k, n = 32, 64, 32
+        class test_model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.lin1 = nn.Linear(k, n)
+                self.relu = nn.ReLU()
+                self.lin2 = nn.Linear(n, n)
+
+            def forward(self, x):
+                x = self.lin1(x)
+                x = self.relu(x)
+                x = self.lin2(x)
+                return x
+
+        x = torch.randn(m, k, dtype=torch.bfloat16, device="cuda")
+
+        # get float reference
+        model = test_model().to(torch.bfloat16).cuda().eval()
+        ref_f = model(x)
+
+        # save quantized state_dict
+        api(model)
+        torch.save(model.state_dict(), "test.pth")
+        # get quantized reference
+        model_qc = torch.compile(model, mode="max-autotune")
+        ref_q = model_qc(x).detach()
+
+        assert SQNR(ref_f, ref_q) > 35
+
+        # load model structure
+        with torch.device('meta'):
+            model = test_model()
+        api(model)
+
+        # load quantized state_dict
+        state_dict = torch.load("test.pth", mmap=True)
+        os.remove("test.pth")
+        model.load_state_dict(state_dict, assign=True)
+        model = model.to(torch.bfloat16).cuda().eval()
+
+        # get quantized reference
+        model_qc = torch.compile(model, mode="max-autotune")
+        test = model_qc(x).detach()
+
+        assert SQNR(ref_f, test) > 35
+        self.assertTrue(torch.equal(ref_q, test))
+
+    @torch.no_grad()
+    def test_save_load_dqtensors(self):
+        self._test_handle_save_load_meta_impl(change_linear_weights_to_dqtensors)
+
+    @torch.no_grad()
+    def test_save_load_woqtensors(self):
+        self._test_handle_save_load_meta_impl(change_linear_weights_to_woqtensors)
 
 class TorchCompileUnitTest(unittest.TestCase):
     def test_fullgraph(self):

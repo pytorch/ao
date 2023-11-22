@@ -32,7 +32,7 @@ class Int8QuantizedLinearWeightBase(torch.Tensor):
         # transposed/detached, instead we can just pass the int_data to the
         # new instance and alter the transposed flag where needed.
         kwargs["device"] = int_data.device
-        kwargs["dtype"] = kwargs.get("dtype", torch.int8)
+        kwargs["dtype"] = kwargs.get("dtype", q_scales.dtype)
         size = int_data.shape[::-1] if transposed else int_data.shape
         kwargs["layout"] = (
             kwargs.get("layout") if kwargs.get("layout", False) else int_data.layout
