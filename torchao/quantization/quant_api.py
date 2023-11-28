@@ -20,8 +20,9 @@ from .dynamic_quant import (
     DynamicallyPerAxisQuantizedLinear,
 )
 from .subclass import (
-    DynamicallyQuantizedLinearWeight,
-    WeightOnlyQuantizedLinearWeight,
+    Int8DynamicallyQuantizedLinearWeight,
+    Int8WeightOnlyQuantizedLinearWeight,
+    Int4WeightOnlyQuantizedLinearWeight,
 )
 from .weight_only import (
     WeightOnlyInt8QuantLinear,
@@ -31,7 +32,8 @@ __all__ = [
     "apply_weight_only_int8_quant",
     "apply_dynamic_quant",
     "change_linear_weights_to_dqtensors",
-    "change_linear_weights_to_woqtensors",
+    "change_linear_weights_to_int8woqtensors",
+    "change_linear_weights_to_int4woqtensors",
 ]
 
 
@@ -77,34 +79,46 @@ def apply_dynamic_quant(model):
         lambda mod, fqn: isinstance(mod, torch.nn.Linear),
     )
 
-def _get_subclass_inserter(cls):
+def _get_subclass_inserter(cls, **kwargs):
     def insert_subclass(lin):
         lin.weight = torch.nn.Parameter(
-            cls.from_float(lin.weight), requires_grad=False
+            cls.from_float(lin.weight, **kwargs), requires_grad=False
         )
         return lin
     return insert_subclass
 
 def change_linear_weights_to_dqtensors(model):
     """
-    Converts all linear weight tensors to the `DynamicallyQuantizedLinearWeight`
+    Converts all linear weight tensors to the `Int8DynamicallyQuantizedLinearWeight`
     Tensor subclass, effectively applying the same form of quantization
     as apply_dynamic_quant while not modifying the linear modules.
     """
     _replace_with_custom_fn_if_matches_filter(
         model,
-        _get_subclass_inserter(DynamicallyQuantizedLinearWeight),
+        _get_subclass_inserter(Int8DynamicallyQuantizedLinearWeight),
         lambda mod, fqn: isinstance(mod, torch.nn.Linear)
     )
 
-def change_linear_weights_to_woqtensors(model):
+def change_linear_weights_to_int8woqtensors(model):
     """
-    Converts all linear weight tensors to the `WeightOnlyQuantizedLinearWeight`
+    Converts all linear weight tensors to the `Int8WeightOnlyQuantizedLinearWeight`
     Tensor subclass, effectively applying the same form of quantization
     as apply_dynamic_quant while not modifying the linear modules.
     """
     _replace_with_custom_fn_if_matches_filter(
         model,
-        _get_subclass_inserter(WeightOnlyQuantizedLinearWeight),
+        _get_subclass_inserter(Int8WeightOnlyQuantizedLinearWeight),
+        lambda mod, fqn: isinstance(mod, torch.nn.Linear)
+    )
+
+def change_linear_weights_to_int4woqtensors(model, **kwargs):
+    """
+    Converts all linear weight tensors to the `Int4WeightOnlyQuantizedLinearWeight`
+    Tensor subclass, effectively applying the same form of quantization
+    as apply_dynamic_quant while not modifying the linear modules.
+    """
+    _replace_with_custom_fn_if_matches_filter(
+        model,
+        _get_subclass_inserter(Int4WeightOnlyQuantizedLinearWeight, **kwargs),
         lambda mod, fqn: isinstance(mod, torch.nn.Linear)
     )
