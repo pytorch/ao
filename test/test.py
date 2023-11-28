@@ -21,6 +21,7 @@ from torchao.quantization.quant_api import (
     apply_dynamic_quant,
     apply_weight_only_int8_quant,
     change_linear_weights_to_dqtensors,
+    change_linear_weights_to_woqtensors,
     _replace_with_custom_fn_if_matches_filter,
 )
 from torchao.quantization.quant_primitives import (
@@ -42,6 +43,7 @@ from torchao.quantization.smoothquant import (
 )
 from torchao.quantization.subclass import (
     DynamicallyQuantizedLinearWeight,
+    WeightOnlyQuantizedLinearWeight
 )
 from torchao.quantization.utils import (
     apply_logging_hook,
@@ -51,6 +53,10 @@ from torchao.quantization.utils import (
     LoggingTensorMode,
 )
 from torch.ao.quantization.quantize_fx import convert_to_reference_fx, prepare_fx
+from torchao.quantization.weight_only import (
+    WeightOnlyInt8QuantLinear
+)
+
 
 torch.manual_seed(0)
 
@@ -782,84 +788,62 @@ class PythonQuantPrimitivesUnitTest(unittest.TestCase):
 
 
 class TestSubclass(unittest.TestCase):
-    def test_dq_lin_weight_subclass_aot(self):
-        m, k, n = 32, 64, 32
-        x = torch.randn(m, k, device="cuda", dtype=torch.float32)
-        lin = torch.nn.Linear(k, n, device="cuda")
+    def _test_lin_weight_subclass_impl(self,
+        test_subclass,
+        min_sqnr=35,
+        test_dtypes=[torch.float32, torch.float16, torch.bfloat16],
+        test_shape=[32, 64, 32]
+    ):
+        for test_dtype in test_dtypes:
+            m, k, n = test_shape
+            x = torch.randn(m, k, device="cuda", dtype=test_dtype)
+            lin = torch.nn.Linear(k, n, device="cuda").to(test_dtype)
+            ref_f = lin(x)
 
-        import copy
+            lin.weight = torch.nn.Parameter(
+                test_subclass.from_float(lin.weight), requires_grad=False
+            )
+            test = lin(x)
+            self.assertGreater(SQNR(ref_f, test), min_sqnr, f"{test_subclass.__name__} failed, no compile, dtype={test_dtype}, (m, k, n)={test_shape}")
+            lin_comp = torch.compile(lin, mode='max-autotune')
+            test_comp = lin_comp(x)
+            self.assertGreater(SQNR(ref_f, test_comp), min_sqnr, f"{test_subclass.__name__} failed at compile with dtype={test_dtype}, (m, k, n)={test_shape}")
 
-        linq = DynamicallyPerAxisQuantizedLinear.from_float(copy.deepcopy(lin))
+    def test_int8_dynamic_quant_subclass(self):
+        self._test_lin_weight_subclass_impl(DynamicallyQuantizedLinearWeight, 35)
 
-        ref_f = lin(x)
-        ref_q = linq(x)
-
-        print(SQNR(ref_f, ref_q), "float to dq")
-
-        lin.weight = torch.nn.Parameter(
-            DynamicallyQuantizedLinearWeight.from_float(lin.weight), requires_grad=False
-        )
-        test = lin(x)
-        print(SQNR(ref_f, test), "float to dq class")
-        print(SQNR(ref_q, test), "dq to dq class")
-        assert SQNR(ref_f, test) > 35
-        assert SQNR(ref_q, test) > 35
-
-        lin_comp = torch.compile(lin, backend="aot_eager")
-        linq_comp = torch.compile(linq, backend="aot_eager")
-        test_comp = lin_comp(x)
-        ref_q_comp = linq_comp(x)
-        print(SQNR(ref_f, test_comp), "float to dq class compiled")
-        print(SQNR(ref_q_comp, test_comp), "dq compiled to dq class compiled")
-        assert SQNR(ref_f, test_comp) > 35
-        assert SQNR(ref_q_comp, test_comp) > 35
-
-    def test_dq_lin_weight_subclass_max_autotune(self):
-        m, k, n = 32, 64, 32
-        x = torch.randn(m, k, device="cuda", dtype=torch.float32)
-        lin = torch.nn.Linear(k, n, device="cuda")
-
-        import copy
-
-        linq = DynamicallyPerAxisQuantizedLinear.from_float(copy.deepcopy(lin))
-
-        ref_f = lin(x)
-        ref_q = linq(x)
-
-        print(SQNR(ref_f, ref_q), "float to dq")
-
-        lin.weight = torch.nn.Parameter(
-            DynamicallyQuantizedLinearWeight.from_float(lin.weight), requires_grad=False
-        )
-        test = lin(x)
-        print(SQNR(ref_f, test), "float to dq class")
-        print(SQNR(ref_q, test), "dq to dq class")
-        assert SQNR(ref_f, test) > 35
-        assert SQNR(ref_q, test) > 35
-
-        lin_comp = torch.compile(lin, mode="max-autotune")
-        linq_comp = torch.compile(linq, mode="max-autotune")
-
-        test_comp = lin_comp(x)
-        ref_q_comp = linq_comp(x)
-        print(SQNR(ref_f, test_comp), "float to dq class compiled")
-        print(SQNR(ref_q_comp, test_comp), "dq compiled to dq class compiled")
-        assert SQNR(ref_f, test_comp) > 35
-        assert SQNR(ref_q_comp, test_comp) > 35
+    def test_int8_weight_only_quant_subclass(self):
+        self._test_lin_weight_subclass_impl(WeightOnlyQuantizedLinearWeight, 40)
 
     @torch.no_grad()
-    def test_dq_lin_weight_subclass_max_autotune_api(self):
-        m, k, n = 32, 64, 32
-        x = torch.randn(m, k, device="cuda", dtype=torch.float32)
+    def _test_lin_weight_subclass_api_impl(
+        self,
+        api,
+        min_sqnr=35,
+        test_dtypes=[torch.float32, torch.float16, torch.bfloat16],
+        test_shape=[32, 64, 32]
+    ):
+        for test_dtype in test_dtypes:
+            m, k, n = test_shape
+            x = torch.randn(m, k, device="cuda", dtype=test_dtype)
+            mod = nn.Sequential(
+                nn.Linear(k, n, device="cuda"), nn.ReLU(), nn.Linear(n, n, device="cuda")
+            ).to(test_dtype)
+            ref_f = mod(x)
+            api(mod)
+            test = mod(x)
+            self.assertGreater(SQNR(ref_f, test), min_sqnr, f"{api.__name__} failed, no compile dtype={test_dtype}, (m, k, n)={test_shape}")
 
-        mod = nn.Sequential(
-            nn.Linear(k, n, device="cuda"), nn.ReLU(), nn.Linear(n, n, device="cuda")
-        )
-        change_linear_weights_to_dqtensors(mod)
-        mod_qc = torch.compile(mod, mode="max-autotune")
-        mod_qc(x)
-        mod_qc(x)
+            mod_qc = torch.compile(mod, mode="max-autotune")
+            test_comp = mod_qc(x)
+            self.assertGreater(SQNR(ref_f, test_comp), min_sqnr, f"{api.__name__} failed when compiled with dtype={test_dtype}, (m, k, n)={test_shape}")
 
+
+    def test_int8_dynamic_quant_subclass_api(self):
+        self._test_lin_weight_subclass_api_impl(change_linear_weights_to_dqtensors, 35)
+
+    def test_int8_weight_only_quant_subclass_api(self):
+        self._test_lin_weight_subclass_api_impl(change_linear_weights_to_woqtensors, 40)
 
 class TestDynamicQuant(unittest.TestCase):
     def test_dynamic_quant(self):

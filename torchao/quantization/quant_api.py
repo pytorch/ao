@@ -21,6 +21,7 @@ from .dynamic_quant import (
 )
 from .subclass import (
     DynamicallyQuantizedLinearWeight,
+    WeightOnlyQuantizedLinearWeight,
 )
 from .weight_only import (
     WeightOnlyInt8QuantLinear,
@@ -30,6 +31,7 @@ __all__ = [
     "apply_weight_only_int8_quant",
     "apply_dynamic_quant",
     "change_linear_weights_to_dqtensors",
+    "change_linear_weights_to_woqtensors",
 ]
 
 
@@ -74,17 +76,35 @@ def apply_dynamic_quant(model):
         lambda mod: DynamicallyPerAxisQuantizedLinear.from_float(mod),
         lambda mod, fqn: isinstance(mod, torch.nn.Linear),
     )
+
+def _get_subclass_inserter(cls):
+    def insert_subclass(lin):
+        lin.weight = torch.nn.Parameter(
+            cls.from_float(lin.weight), requires_grad=False
+        )
+        return lin
+    return insert_subclass
+
 def change_linear_weights_to_dqtensors(model):
     """
     Converts all linear weight tensors to the `DynamicallyQuantizedLinearWeight`
     Tensor subclass, effectively applying the same form of quantization
     as apply_dynamic_quant while not modifying the linear modules.
     """
-    def insert_subclass(lin):
-        lin.weight = torch.nn.Parameter(
-            DynamicallyQuantizedLinearWeight.from_float(lin.weight), requires_grad=False
-        )
-        return lin
     _replace_with_custom_fn_if_matches_filter(
-        model, insert_subclass, lambda mod, fqn: isinstance(mod, torch.nn.Linear)
+        model,
+        _get_subclass_inserter(DynamicallyQuantizedLinearWeight),
+        lambda mod, fqn: isinstance(mod, torch.nn.Linear)
+    )
+
+def change_linear_weights_to_woqtensors(model):
+    """
+    Converts all linear weight tensors to the `WeightOnlyQuantizedLinearWeight`
+    Tensor subclass, effectively applying the same form of quantization
+    as apply_dynamic_quant while not modifying the linear modules.
+    """
+    _replace_with_custom_fn_if_matches_filter(
+        model,
+        _get_subclass_inserter(WeightOnlyQuantizedLinearWeight),
+        lambda mod, fqn: isinstance(mod, torch.nn.Linear)
     )
