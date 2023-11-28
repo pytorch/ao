@@ -12,7 +12,10 @@ from .quant_primitives import (
 )
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-__all__ = ["DynamicallyQuantizedLinearWeight"]
+__all__ = [
+    "DynamicallyQuantizedLinearWeight",
+    "WeightOnlyQuantizedLinearWeight"
+]
 
 
 class Int8QuantizedLinearWeightBase(torch.Tensor):
@@ -78,6 +81,16 @@ class Int8QuantizedLinearWeightBase(torch.Tensor):
         """
         return self.q_scales
 
+    def _detach(self):
+        return self.__class__(
+            self.int_data, self.q_scales, transposed=self._transposed
+        )
+
+    def _transpose(self):
+        return self.__class__(
+            self.int_data, self.q_scales, transposed=(not self._transposed)
+        )
+
     def __tensor_flatten__(self):
         return ["int_data", "q_scales"], self._transposed
 
@@ -134,18 +147,14 @@ class Int8QuantizedLinearWeightBase(torch.Tensor):
             )
 
         if func is torch.ops.aten.detach.default:
-            # just pass all info into constructor to copy
-            detached_qtensor = cls(
-                args[0].int_data, args[0].q_scales, args[0]._transposed
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._detach()
             )
-            return return_and_correct_aliasing(func, args, kwargs, detached_qtensor)
 
         if func is torch.ops.aten.t.default:
-            # just pass all info into constructor but swap transposed flag
-            transposed_qtensor = cls(
-                args[0].int_data, args[0].q_scales, not args[0]._transposed
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._transpose()
             )
-            return return_and_correct_aliasing(func, args, kwargs, transposed_qtensor)
 
     @classmethod
     def from_float(cls, input_float, qmin=-128, qmax=127, dtype=torch.int8):
@@ -189,6 +198,7 @@ class WeightOnlyQuantizedLinearWeight(Int8QuantizedLinearWeightBase, torch.Tenso
     def _quantized_op(act_mat, int_w_mat, q_scales, bias):
         act_mat = act_mat.view(-1, act_mat.shape[-1])
         y = torch.mm(act_mat, int_w_mat.to(act_mat.dtype)) * q_scales
+        y = y.reshape(*act_mat.shape[:-1], -1)
         if bias is not None:
             y += bias
         return y
