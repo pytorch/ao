@@ -19,6 +19,7 @@ __all__ = [
     "get_model_size_in_bytes",
 ]
 
+
 def find_multiple(n: int, k: int) -> int:
     if n % k == 0:
         return n
@@ -46,8 +47,8 @@ def clear_logs():
 
 # basic SQNR
 def compute_error(x, y):
-    Ps = torch.norm(x)
-    Pn = torch.norm(x - y)
+    Ps = torch.linalg.norm(x)
+    Pn = torch.linalg.norm(x - y)
     return 20 * torch.log10(Ps / Pn)
 
 

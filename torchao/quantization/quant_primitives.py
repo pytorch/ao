@@ -383,10 +383,9 @@ def quant_int8_per_token_matmul(
     y = y.to(output_dtype)
     return y
 
-def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128):
-    """
 
-    """
+def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128):
+    """ """
     if groupsize > w.shape[-1]:
         groupsize = w.shape[-1]
     assert groupsize > 1
@@ -405,6 +404,7 @@ def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128):
         torch.bfloat16
     ).reshape(w.shape[0], -1)
 
+
 def pack_tinygemm_scales_and_zeros(scales, zeros):
     assert scales.shape == zeros.shape
     assert scales.dtype == torch.bfloat16
@@ -421,12 +421,16 @@ def pack_tinygemm_scales_and_zeros(scales, zeros):
         .contiguous()
     )
 
+
 def unpack_tinygemm_scales_and_zeros(scales_and_zeros):
     assert len(scales_and_zeros.shape) == 3 and scales_and_zeros.shape[2] == 2
     assert scales_and_zeros.dtype == torch.float
     return torch.split(scales_and_zeros.transpose(0, 1), 1, 2)
 
-def groupwise_affine_quantize_tensor_from_qparams(w, scales, zeros, n_bit=4, groupsize=128):
+
+def groupwise_affine_quantize_tensor_from_qparams(
+    w, scales, zeros, n_bit=4, groupsize=128
+):
     assert groupsize > 1
     # needed for GPTQ single column quantize
     if groupsize > w.shape[-1] and scales.shape[-1] == 1:
@@ -454,6 +458,7 @@ def groupwise_affine_quantize_tensor_from_qparams(w, scales, zeros, n_bit=4, gro
 
     return w_int4x8
 
+
 def groupwise_affine_dequantize_tensor_from_qparams(
     w_int4x8, scales, zeros, n_bit=4, groupsize=128
 ):
@@ -469,17 +474,26 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     zeros = zeros.reshape(-1, 1)
 
     w_dq = (
-        w_int4x8_grouped.sub(2 ** (n_bit - 1)).mul(scales).add(zeros).reshape_as(w_int4x8)
+        w_int4x8_grouped.sub(2 ** (n_bit - 1))
+        .mul(scales)
+        .add(zeros)
+        .reshape_as(w_int4x8)
     )
     return w_dq
 
+
 def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128):
     scales, zeros = get_groupwise_affine_qparams(w, n_bit, groupsize)
-    w_int4x8 = groupwise_affine_quantize_tensor_from_qparams(w, scales, zeros, n_bit, groupsize)
+    w_int4x8 = groupwise_affine_quantize_tensor_from_qparams(
+        w, scales, zeros, n_bit, groupsize
+    )
     scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros)
     return w_int4x8, scales_and_zeros
 
-def groupwise_affine_dequantize_tensor(w_int4x8, scales_and_zeros, n_bit=4, groupsize=128):
+
+def groupwise_affine_dequantize_tensor(
+    w_int4x8, scales_and_zeros, n_bit=4, groupsize=128
+):
     scales, zeros = unpack_tinygemm_scales_and_zeros(scales_and_zeros)
     return groupwise_affine_dequantize_tensor_from_qparams(
         w_int4x8, scales, zeros, n_bit, groupsize
