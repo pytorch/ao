@@ -31,6 +31,7 @@ __all__ = [
     "apply_weight_only_int8_quant",
     "apply_dynamic_quant",
     "change_linear_weights_to_dqtensors",
+    "change_linear_weights_to_woqtensors",
 ]
 
 
