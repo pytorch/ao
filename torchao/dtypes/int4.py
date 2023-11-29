@@ -65,6 +65,18 @@ class UInt4Tensor(torch.Tensor):
     def tolist(self):
         return self.to(torch.uint8).tolist()
 
+    def __tensor_flatten__(self):
+        return ["elem"], None
+
+    @staticmethod
+    def __tensor_unflatten__(flattened, meta):
+        assert meta is None
+        elem = flattened["elem"]
+        return UInt4Tensor(elem)
+
+    def __hash__(self):
+        return hash(self.elem)
+
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
         if func is torch.ops.aten.view.default:
@@ -115,6 +127,19 @@ class UInt4Tensor(torch.Tensor):
             transposed = torch.ops.aten.t.default(unpacked)
             transposed_and_packed = pack_uint4(transposed)
             return UInt4Tensor(transposed_and_packed)
+        elif func is torch.ops.aten.as_strided.default:
+            self, size, stride, storage_offset = args
+            size = up_size(size)
+            new_stride = []
+            for s in stride:
+                if s != 1:
+                    # since two int4 equals to 1 byte
+                    new_stride.append(s // 2)
+                else:
+                    # wondering if we need to have 1/2 stride?
+                    new_stride.append(s)
+            stride = new_stride
+            return UInt4Tensor(torch.ops.aten.as_strided.default(self.elem, size, stride, storage_offset))
 
         raise NotImplementedError(f"{func}")
 

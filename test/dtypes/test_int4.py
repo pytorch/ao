@@ -72,6 +72,7 @@ class _WeightOnlyInt4QuantLinear(torch.nn.Linear):
         #     y = torch.mm(x, self.w_int8.to(x.dtype)) * self.scales
         # else: # turn x into 2d tensor, then undo it for y
         x_view = x.view(-1, x.shape[-1])
+        mm_res = torch.mm(x_view, self.w_int4.to(torch.uint8).to(x.dtype))
         y = torch.mm(x_view, self.w_int4.to(torch.uint8).to(x.dtype)) * self.scales
         y = y.reshape(*x.shape[:-1], -1)
         if self.bias is not None:
