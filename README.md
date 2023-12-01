@@ -11,7 +11,7 @@ The torchao package contains apis and workflows used to apply AO techniques like
 pip install torchao
 ```
 
-2. From source:
+2. From Source:
 
 ```
 git clone https://github.com/pytorch-labs/ao
@@ -19,13 +19,13 @@ cd ao
 python setup.py install
 ```
 
-verify installation:
+Verify Installation:
 
 ```
 pip list | grep torchao
 ```
 
-should show
+Expected Output
 ```
 torchao                            0.0.1                   <install dir>
 ```
