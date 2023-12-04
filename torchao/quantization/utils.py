@@ -11,12 +11,19 @@ import torch
 from torch.utils._python_dispatch import TorchDispatchMode
 
 __all__ = [
+    "find_multiple",
     "log_with_rank",
     "clear_logs",
     "compute_error",
     "apply_logging_hook",
     "get_model_size_in_bytes",
 ]
+
+
+def find_multiple(n: int, k: int) -> int:
+    if n % k == 0:
+        return n
+    return n + k - (n % k)
 
 
 def log_with_rank(*args):
@@ -40,8 +47,8 @@ def clear_logs():
 
 # basic SQNR
 def compute_error(x, y):
-    Ps = torch.norm(x)
-    Pn = torch.norm(x - y)
+    Ps = torch.linalg.norm(x)
+    Pn = torch.linalg.norm(x - y)
     return 20 * torch.log10(Ps / Pn)
 
 

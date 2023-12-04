@@ -127,8 +127,9 @@ class SmoothFakeDynQuantMixin(torch.nn.Module):
 
 class SmoothFakeDynamicallyQuantizedLinear(SmoothFakeDynQuantMixin, torch.nn.Linear):
     """
-    This is a replacement for `torch.nn.Linear` which implements fake quantization
-    based on Smoothquant scaling.
+    This is a replacement for `torch.nn.Linear` which implements dynamic per-token
+    activation quantization and dynamic per-channel weight quantization based on
+    Smoothquant scaling.
     """
 
     def __init__(self, *args, **kwargs):
@@ -142,8 +143,9 @@ class SmoothFakeDynamicallyQuantizedLinear(SmoothFakeDynQuantMixin, torch.nn.Lin
             Y = F.linear(X, self.weight, self.bias)
         else:
             if not self.debug_skip_scaling:
-                # TODO(future): fuse this into previous layer (LayerNorm,
-                # RMSNorm, etc) where appropriate
+                # Ideally this would be fused into preceding layers
+                # but in practice torch.compile fuses it with other
+                # ops so the slowdown is minimal
                 X = X / self.smooth_scale
             W_int_repr_t = (
                 self.W_int_repr if self.store_w_int_repr_t else self.W_int_repr.t()
@@ -203,6 +205,7 @@ source_cls_to_target_cls = {
 def swap_linear_with_smooth_fq_linear(
     model, skip_fqn_list=None, cur_fqn="", alpha=0.5
 ) -> None:
+
     name_to_child = dict(model.named_children())
     for name, child in name_to_child.items():
         if cur_fqn == "":
@@ -217,13 +220,6 @@ def swap_linear_with_smooth_fq_linear(
             setattr(model, name, new_child)
         else:
             swap_linear_with_smooth_fq_linear(child, skip_fqn_list, new_fqn, alpha)
-
-
-# code moved, avoid breaking callsites
-# TODO clean this up
-replace_with_custom_fn_if_matches_filter = (
-    quant_api.replace_with_custom_fn_if_matches_filter
-)
 
 
 def smooth_fq_linear_to_inference(model, debug_skip_calibration=False) -> None:
