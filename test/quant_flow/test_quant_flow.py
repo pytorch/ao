@@ -18,6 +18,7 @@ from torch.ao.quantization.quantizer.xnnpack_quantizer import (
 )
 
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
+from torchao.quantization.quant_api import apply_dynamic_quant
 
 def dynamic_quant(model, example_inputs):
     m = capture_pre_autograd_graph(model, example_inputs)
@@ -70,6 +71,15 @@ class DynamicQuantizer(QuantizerClass):
         )
         return model
 
+class EagerDynamicQuantizer(QuantizerClass):
+
+    def prepare(self, model: torch.nn.Module) -> torch.nn.Module:
+        return model
+
+    def convert(self, model: torch.nn.Module) -> torch.nn.Module:
+        apply_dynamic_quant(model)
+        return model
+
 class M(torch.nn.Module):
     def __init__(self):
         super().__init__()
@@ -87,7 +97,6 @@ class TestQuantFlow(unittest.TestCase):
         m = _apply_dynamic_quant(m)
         example_inputs = (torch.randn(1, 5).to(dtype=torch.float32),)
         quantized = m(*example_inputs)
-        print(m.linear1, m.linear2)
         # AssertionError: Expecting input to have dtype torch.float32, but got dtype: torch.float64
         # While executing %choose_qparams_tensor_1 : [num_users=2] = call_function[target=torch.ops.quantized_decomposed.choose_qparams.tensor](args = (%arg0_3, -128, 127, 0.000244140625, torch.int8), kwargs = {})
         # m = torch.compile(m, mode="max-autotune")
@@ -95,20 +104,33 @@ class TestQuantFlow(unittest.TestCase):
         # compiled = m(*example_inputs)
         # torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
 
-    def test_dynamic_quant_gpu_unified_api(self):
+    def test_dynamic_quant_gpu_unified_api_unified_impl(self):
         quantizer = DynamicQuantizer()
         m = M().eval()
         m = quantizer.prepare(m)
         m = quantizer.convert(m)
         example_inputs = (torch.randn(1, 5).to(dtype=torch.float32),)
         quantized = m(*example_inputs)
-        print(m.linear1, m.linear2)
         # AssertionError: Expecting input to have dtype torch.float32, but got dtype: torch.float64
         # While executing %choose_qparams_tensor_1 : [num_users=2] = call_function[target=torch.ops.quantized_decomposed.choose_qparams.tensor](args = (%arg0_3, -128, 127, 0.000244140625, torch.int8), kwargs = {})
-        # m = torch.compile(m, mode="max-autotune")
+        m = torch.compile(m, mode="max-autotune")
         # print(example_inputs[0].dtype)
-        # compiled = m(*example_inputs)
-        # torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
+        compiled = m(*example_inputs)
+        torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
+
+    def test_dynamic_quant_gpu_unified_api_eager_mode_impl(self):
+        quantizer = EagerDynamicQuantizer()
+        m = M().eval()
+        m = quantizer.convert(m)
+        example_inputs = (torch.randn(1, 5).to(dtype=torch.float32),)
+        quantized = m(*example_inputs)
+        m = torch.compile(m, mode="max-autotune")
+        compiled = m(*example_inputs)
+        torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
+
+    def test_gptq(self):
+        # should be similar to EagerDynamicQuantizer
+        pass
 
 if __name__ == "__main__":
     unittest.main()
