@@ -138,9 +138,6 @@ class QuantizedLinearWeightBase(torch.Tensor):
         if func is torch.ops.aten.detach.default:
             return return_and_correct_aliasing(func, args, kwargs, args[0]._detach())
 
-        if func is torch.ops.aten.clone.default:
-            return return_and_correct_aliasing(func, args, kwargs, args[0]._detach())
-
         if func is torch.ops.aten.t.default:
             return return_and_correct_aliasing(func, args, kwargs, args[0]._transpose())
 
@@ -158,7 +155,7 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
         return super().__new__(cls, int_data, transposed, shape, **kwargs)  # type: ignore[attr-defined]
 
     def __init__(self, int_data, q_scales, transposed, shape, **kwargs):
-        self.q_scales = q_scales.to(self.dtype)
+        self.q_scales = q_scales
         super().__init__(int_data, transposed)
 
     @staticmethod
@@ -201,7 +198,7 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
 
     def _detach(self):
         return self.__class__(
-            self.int_data.detach(), self.q_scales.detach(), self.transposed, self.shape, dtype=self.dtype
+            self.int_data, self.q_scales, self.transposed, self.shape, dtype=self.dtype
         )
 
     def _transpose(self):
@@ -359,8 +356,8 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
 
     def _detach(self):
         return self.__class__(
-            self.int_data.detach(),
-            self.scales_and_zeros.detach(),
+            self.int_data,
+            self.scales_and_zeros,
             self.transposed,
             self.shape,
             self.groupsize,
