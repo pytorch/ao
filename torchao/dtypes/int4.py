@@ -1,6 +1,9 @@
 import torch
 import torch._prims_common as utils
 
+# TODO: uint8 --> bits8
+# TODO: adding support for pt2e quant, after https://github.com/pytorch/pytorch/pull/115001 is landed
+
 def down_size(size):
     assert size[-1] % 2 == 0, f"{size} last dim not divisible by two"
     return (*size[:-1], size[-1] // 2)
@@ -128,17 +131,20 @@ class UInt4Tensor(torch.Tensor):
             transposed_and_packed = pack_uint4(transposed)
             return UInt4Tensor(transposed_and_packed)
         elif func is torch.ops.aten.as_strided.default:
+            # size, stride, storage_offset are referring to tensor elements, not physical bytes
             self, size, stride, storage_offset = args
-            size = up_size(size)
+            size = down_size(size)
+
             new_stride = []
             for s in stride:
                 if s != 1:
-                    # since two int4 equals to 1 byte
+                    # since two int4 equals to 1 bits8
                     new_stride.append(s // 2)
                 else:
-                    # wondering if we need to have 1/2 stride?
                     new_stride.append(s)
             stride = new_stride
+
+            storage_offset //= 2
             return UInt4Tensor(torch.ops.aten.as_strided.default(self.elem, size, stride, storage_offset))
 
         raise NotImplementedError(f"{func}")
