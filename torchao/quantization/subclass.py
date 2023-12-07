@@ -148,7 +148,7 @@ class QuantizedLinearWeightBase(torch.Tensor):
                 )
             else:
                 assert args[0].shape[-1] == args[1].shape[0], (
-                    f"need mat1 shape: {args[0].shape} final dim "
+                    f"need mat1 shape: {args[0].shape} final dim"
                     f"to match mat2 shape: {args[1].shape} first dim"
                 )
                 mat1, w_qtensor, bias = (
