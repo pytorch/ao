@@ -168,10 +168,7 @@ def dynamically_quantize_per_channel(x, quant_min, quant_max, target_dtype):
     eps = torch.finfo(torch.float32).eps
 
     # get min and max
-    try:
-        min_val, max_val = torch.aminmax(x, dim=1)
-    except:
-        breakpoint()
+    min_val, max_val = torch.aminmax(x, dim=1)
 
     # calculate scale and zero point based on min and max
     # reference: https://fburl.com/code/srbiybme
@@ -354,9 +351,6 @@ def quant_int8_per_token_matmul(
     assert (
         w_vals_int8_t.dtype == torch.int8
     ), f"w dtype {w_vals_int8_t.dtype} not yet supported"
-    # assert (
-    #     w_scales.dtype == output_dtype
-    # ), f"{w_scales.dtype} does not match {output_dtype}"
 
     #
     # 1. do the matrix form of dot(X_i, W_j)

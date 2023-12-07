@@ -104,7 +104,26 @@ class QuantizedLinearWeightBase(torch.Tensor):
     def from_float(cls, input_float):
         pass
 
-    __torch_function__ = torch._C._disabled_torch_function_impl
+    # __torch_function__ = torch._C._disabled_torch_function_impl
+
+    @classmethod
+    def __torch_function__(cls, func, types, args=(), kwargs=None):
+        kwargs = {} if kwargs is None else kwargs
+
+        if func is torch.nn.functional.linear:
+            mat1, w_qtensor, bias = (
+                args[0],
+                args[1],
+                args[2] if len(args)>2 else None
+            )
+            assert w_qtensor.transposed == False, "bad"
+            return cls._quantized_op(mat1, w_qtensor, bias)
+
+        try:
+            with torch._C.DisableTorchFunctionSubclass():
+                return func(*args, **kwargs)
+        except:
+            print(f"ERR: subclass doesn't implement {func}")
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
@@ -113,7 +132,7 @@ class QuantizedLinearWeightBase(torch.Tensor):
         #     for consistency and to allow people to test
         # 2 - we're given non-floats - quantizing long to int8 is crazy
         if (
-            func in [aten.mm.default, aten.addmm.default, aten.bmm.default]
+            func in [aten.mm.default, aten.addmm.default]
             and args[0].is_floating_point()
             and args[0].is_cuda
         ):
@@ -128,9 +147,7 @@ class QuantizedLinearWeightBase(torch.Tensor):
                     args[0],
                 )
             else:
-                # can reach a bmm through the dispatch of a linear, but will only
-                # hit bmm after an expand so we treat it as a normal linear op
-                assert args[0].shape[-1] == args[1].shape[0] or func==aten.bmm.default, (
+                assert args[0].shape[-1] == args[1].shape[0], (
                     f"need mat1 shape: {args[0].shape} final dim "
                     f"to match mat2 shape: {args[1].shape} first dim"
                 )
@@ -143,7 +160,6 @@ class QuantizedLinearWeightBase(torch.Tensor):
             # of quantized tensor subclass
             return cls._quantized_op(mat1, w_qtensor, bias)
 
-        # aten.clone.default
         if func is aten.detach.default:
             return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.detach))
 
@@ -157,43 +173,6 @@ class QuantizedLinearWeightBase(torch.Tensor):
 
         if func is aten._to_copy.default:
             return return_and_correct_aliasing(func, args, kwargs, args[0].to(*args[1:], **kwargs)._apply_fn_to_data(torch.clone))
-
-        if func is aten.view.default:
-            def list_prod(lst):
-                total = 1
-                for x in lst:
-                    total*=x
-                return total
-
-            shape = list(args[0].shape)
-            view_shape = args[1]
-            total_elem = list_prod(shape)
-            total_view = list_prod(view_shape)
-            if total_view == total_elem and min(view_shape)>=0:
-                final_shape = view_shape
-            elif total_view < 0 and total_elem % total_view == 0:
-                assert min(view_shape)==-1, f"no values less than -1 in view dims: {view_shape}"
-                assert len([x for x in view_shape if x == -1])==1, f"can't have more than one -1 in view dims: {view_shape}"
-                final_shape = [x if x>=0 else -total_elem/total_view for x in view_shape]
-            return return_and_correct_aliasing(func, args, kwargs, args[0]._change_shape(final_shape))
-
-        if func in [aten.expand.default]:
-            shape = list(args[0].shape)
-            expand_shape = args[1]
-
-            # add new dimensions to front of shape
-            shape = expand_shape[:-len(shape)] + shape
-
-            for dim, dim_size in enumerate(expand_shape):
-                if dim_size == -1:
-                    # shape[dim]<0 only for newly added dims
-                    assert shape[dim]>=0, f"The expanded size of the tensor {dim_size} isn't allowed in a leading, non-existing dimension {dim}"
-                else:
-                    assert (shape[dim]==1 or shape[dim]==dim_size), f"expanded size of tensor {dim_size} must match the existing size {shape[dim]} at non-singleton dimension {dim}, Target sizes: {expand_shape}. Tensor sizes: {args[0].shape}"
-                    assert dim_size>=0, f"expanded size of tensor {dim_size} must be greater than or equal to 0"
-                    shape[dim] = dim_size
-            return return_and_correct_aliasing(func, args, kwargs, args[0]._change_shape(shape))
-        breakpoint()
 
 
 class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
@@ -209,7 +188,6 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
         return super().__new__(cls, int_data, transposed, shape, **kwargs)  # type: ignore[attr-defined]
 
     def __init__(self, int_data, q_scales, transposed, shape, **kwargs):
-        # self.q_scales = q_scales.to(self.dtype)
         self.q_scales = q_scales
         super().__init__(int_data, transposed)
 
