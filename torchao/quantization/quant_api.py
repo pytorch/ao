@@ -20,6 +20,7 @@ from .dynamic_quant import (
     DynamicallyPerAxisQuantizedLinear,
 )
 from .subclass import (
+    QuantizedLinearWeightBase,
     Int8DynamicallyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
     Int4WeightOnlyQuantizedLinearWeight,
@@ -58,6 +59,15 @@ def _replace_with_custom_fn_if_matches_filter(
                 child, replacement_fn, filter_fn, new_fqn
             )
 
+def _is_linear(mod, *args):
+    return (
+        isinstance(mod, torch.nn.Linear) and
+        hasattr(mod, "weight") and
+        not isinstance(mod.weight, QuantizedLinearWeightBase)
+    )
+
+def _in_features_greater_than_16(mod, *args):
+    return hasattr(mod, "in_features") and mod.in_features > 16
 
 def apply_weight_only_int8_quant(model):
     """
@@ -67,7 +77,7 @@ def apply_weight_only_int8_quant(model):
     _replace_with_custom_fn_if_matches_filter(
         model,
         WeightOnlyInt8QuantLinear.from_float,
-        lambda mod, fqn: isinstance(mod, torch.nn.Linear),
+        _is_linear,
     )
 
 
@@ -80,7 +90,7 @@ def apply_dynamic_quant(model):
     _replace_with_custom_fn_if_matches_filter(
         model,
         lambda mod: DynamicallyPerAxisQuantizedLinear.from_float(mod),
-        lambda mod, fqn: isinstance(mod, torch.nn.Linear),
+        _is_linear,
     )
 
 
@@ -103,7 +113,9 @@ def change_linear_weights_to_int8_dqtensors(model):
     _replace_with_custom_fn_if_matches_filter(
         model,
         _get_subclass_inserter(Int8DynamicallyQuantizedLinearWeight),
-        lambda mod, fqn: isinstance(mod, torch.nn.Linear),
+        lambda *args:
+            _is_linear(*args) and
+            _in_features_greater_than_16(*args)
     )
 
 
@@ -117,7 +129,7 @@ def change_linear_weights_to_int8_woqtensors(model):
     _replace_with_custom_fn_if_matches_filter(
         model,
         _get_subclass_inserter(Int8WeightOnlyQuantizedLinearWeight),
-        lambda mod, fqn: isinstance(mod, torch.nn.Linear),
+        _is_linear,
     )
 
 
@@ -131,5 +143,5 @@ def change_linear_weights_to_int4_woqtensors(model, **kwargs):
     _replace_with_custom_fn_if_matches_filter(
         model,
         _get_subclass_inserter(Int4WeightOnlyQuantizedLinearWeight, **kwargs),
-        lambda mod, fqn: isinstance(mod, torch.nn.Linear),
+        _is_linear,
     )

@@ -15,6 +15,8 @@ from .quant_primitives import (
     unpack_tinygemm_scales_and_zeros,
 )
 from .utils import find_multiple
+import warnings
+
 
 __all__ = [
     "Int8DynamicallyQuantizedLinearWeight",
@@ -22,6 +24,7 @@ __all__ = [
     "Int4WeightOnlyQuantizedLinearWeight",
 ]
 
+aten = torch.ops.aten
 
 class QuantizedLinearWeightBase(torch.Tensor):
     """
@@ -67,6 +70,9 @@ class QuantizedLinearWeightBase(torch.Tensor):
     def q_params(self):
         pass
 
+    def half(self):
+        return self.to(torch.float16)
+
     def _get_to_kwargs(self, *args, **kwargs):
         device, dtype, _, memory_format = torch._C._nn._parse_to(*args, **kwargs)
         device = self.device if device is None else device
@@ -81,17 +87,17 @@ class QuantizedLinearWeightBase(torch.Tensor):
         }
         return kwargs
 
-    def _detach(self):
+    def _apply_fn_to_data(self, fn):
         pass
 
-    def _transpose(self):
+    def _change_shape(self):
         pass
 
     def __tensor_flatten__(self):
         pass
 
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data, tensor_attributes):
+    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride):
         pass
 
     @classmethod
@@ -107,11 +113,11 @@ class QuantizedLinearWeightBase(torch.Tensor):
         #     for consistency and to allow people to test
         # 2 - we're given non-floats - quantizing long to int8 is crazy
         if (
-            func in [torch.ops.aten.mm.default, torch.ops.aten.addmm.default]
+            func in [aten.mm.default, aten.addmm.default, aten.bmm.default]
             and args[0].is_floating_point()
             and args[0].is_cuda
         ):
-            if func == torch.ops.aten.addmm.default:
+            if func==aten.addmm.default:
                 assert args[1].shape[-1] == args[2].shape[0], (
                     f"need mat1 shape: {args[1].shape} final"
                     f"dim to match mat2 shape: {args[2].shape} first dim "
@@ -122,27 +128,72 @@ class QuantizedLinearWeightBase(torch.Tensor):
                     args[0],
                 )
             else:
-                assert args[0].shape[-1] == args[1].shape[0], (
-                    f"need mat1 shape: {args[0].shape} final dim"
+                # can reach a bmm through the dispatch of a linear, but will only
+                # hit bmm after an expand so we treat it as a normal linear op
+                assert args[0].shape[-1] == args[1].shape[0] or func==aten.bmm.default, (
+                    f"need mat1 shape: {args[0].shape} final dim "
                     f"to match mat2 shape: {args[1].shape} first dim"
                 )
                 mat1, w_qtensor, bias = (
                     args[0],
                     args[1],
-                    None,
+                    None if len(args)==2 else args[2],
                 )
             # call the quantized op for the specific type
             # of quantized tensor subclass
             return cls._quantized_op(mat1, w_qtensor, bias)
 
-        if func is torch.ops.aten.detach.default:
-            return return_and_correct_aliasing(func, args, kwargs, args[0]._detach())
+        # aten.clone.default
+        if func is aten.detach.default:
+            return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.detach))
 
-        if func is torch.ops.aten.clone.default:
-            return return_and_correct_aliasing(func, args, kwargs, args[0]._detach())
+        if func is aten.clone.default:
+            return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.clone))
 
-        if func is torch.ops.aten.t.default:
-            return return_and_correct_aliasing(func, args, kwargs, args[0]._transpose())
+        if func is aten.t.default:
+            args[0].transposed = not args[0].transposed
+            new = args[0]._change_shape(args[0].shape[::-1])
+            return return_and_correct_aliasing(func, args, kwargs, new)
+
+        if func is aten._to_copy.default:
+            return return_and_correct_aliasing(func, args, kwargs, args[0].to(*args[1:], **kwargs)._apply_fn_to_data(torch.clone))
+
+        if func is aten.view.default:
+            def list_prod(lst):
+                total = 1
+                for x in lst:
+                    total*=x
+                return total
+
+            shape = list(args[0].shape)
+            view_shape = args[1]
+            total_elem = list_prod(shape)
+            total_view = list_prod(view_shape)
+            if total_view == total_elem and min(view_shape)>=0:
+                final_shape = view_shape
+            elif total_view < 0 and total_elem % total_view == 0:
+                assert min(view_shape)==-1, f"no values less than -1 in view dims: {view_shape}"
+                assert len([x for x in view_shape if x == -1])==1, f"can't have more than one -1 in view dims: {view_shape}"
+                final_shape = [x if x>=0 else -total_elem/total_view for x in view_shape]
+            return return_and_correct_aliasing(func, args, kwargs, args[0]._change_shape(final_shape))
+
+        if func in [aten.expand.default]:
+            shape = list(args[0].shape)
+            expand_shape = args[1]
+
+            # add new dimensions to front of shape
+            shape = expand_shape[:-len(shape)] + shape
+
+            for dim, dim_size in enumerate(expand_shape):
+                if dim_size == -1:
+                    # shape[dim]<0 only for newly added dims
+                    assert shape[dim]>=0, f"The expanded size of the tensor {dim_size} isn't allowed in a leading, non-existing dimension {dim}"
+                else:
+                    assert (shape[dim]==1 or shape[dim]==dim_size), f"expanded size of tensor {dim_size} must match the existing size {shape[dim]} at non-singleton dimension {dim}, Target sizes: {expand_shape}. Tensor sizes: {args[0].shape}"
+                    assert dim_size>=0, f"expanded size of tensor {dim_size} must be greater than or equal to 0"
+                    shape[dim] = dim_size
+            return return_and_correct_aliasing(func, args, kwargs, args[0]._change_shape(shape))
+        breakpoint()
 
 
 class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
@@ -158,7 +209,8 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
         return super().__new__(cls, int_data, transposed, shape, **kwargs)  # type: ignore[attr-defined]
 
     def __init__(self, int_data, q_scales, transposed, shape, **kwargs):
-        self.q_scales = q_scales.to(self.dtype)
+        # self.q_scales = q_scales.to(self.dtype)
+        self.q_scales = q_scales
         super().__init__(int_data, transposed)
 
     @staticmethod
@@ -199,28 +251,24 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
             **kwargs,
         )
 
-    def _detach(self):
+    def _apply_fn_to_data(self, fn):
         return self.__class__(
-            self.int_data.detach(), self.q_scales.detach(), self.transposed, self.shape, dtype=self.dtype
+            fn(self.int_data), fn(self.q_scales), self.transposed, self.shape, dtype=self.dtype
         )
 
-    def _transpose(self):
+    def _change_shape(self, shape):
         return self.__class__(
-            self.int_data,
-            self.q_scales,
-            not self.transposed,
-            self.shape[::-1],
-            dtype=self.dtype,
+            self.int_data, self.q_scales, self.transposed, shape, dtype=self.dtype
         )
 
     def __tensor_flatten__(self):
-        return ["int_data", "q_scales"], [self.transposed, self.shape, self.dtype]
+        return ["int_data", "q_scales"], [self.transposed, self.dtype]
 
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data, tensor_attributes):
-        int_data, q_scales = tensor_data["int_data"], tensor_data["q_scales"]
-        transposed, shape, dtype = tensor_attributes
-        return cls(int_data, q_scales, transposed, shape, dtype=dtype)
+    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride):
+        int_data, q_scales = tensor_data_dict["int_data"], tensor_data_dict["q_scales"]
+        transposed, dtype = tensor_attributes
+        return cls(int_data, q_scales, transposed, outer_size, dtype=dtype, strides=outer_stride)
 
     @classmethod
     def from_float(cls, input_float, qmin=-128, qmax=127):
@@ -317,9 +365,13 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         act_mat = torch.nn.functional.pad(act_mat, (0, pad_size - act_mat.shape[1]))
 
         # matmul
-        y = torch.ops.aten._weight_int4pack_mm(
+        y = aten._weight_int4pack_mm(
             act_mat, w_qtensor.int_data, w_qtensor.groupsize, w_qtensor.scales_and_zeros
         )
+
+        # remove out_feature padding
+        orig_out_features = w_qtensor.shape[-1] if w_qtensor.transposed else w_qtensor.shape[-2]
+        y = y[:, :orig_out_features]
 
         y = y.reshape(*orig_act_size[:-1], -1)
         if bias is not None:
@@ -357,10 +409,10 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             **kwargs,
         )
 
-    def _detach(self):
+    def _apply_fn_to_data(self, fn):
         return self.__class__(
-            self.int_data.detach(),
-            self.scales_and_zeros.detach(),
+            fn(self.int_data),
+            fn(self.scales_and_zeros),
             self.transposed,
             self.shape,
             self.groupsize,
@@ -368,41 +420,41 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             dtype=self.dtype,
         )
 
-    def _transpose(self):
+    def _change_shape(self, shape):
         return self.__class__(
             self.int_data,
             self.scales_and_zeros,
-            not self.transposed,
-            self.shape[::-1],
+            self.transposed,
+            shape,
             self.groupsize,
             self.inner_k_tiles,
-            dtype=self.dtype,
+            dtype=self.dtype
         )
 
     def __tensor_flatten__(self):
         return ["int_data", "scales_and_zeros"], (
             self.transposed,
-            self.shape,
             self.groupsize,
             self.inner_k_tiles,
             self.dtype,
         )
 
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data, attributes):
+    def __tensor_unflatten__(cls, tensor_data_dict, attributes, outer_size, outer_stride):
         int_data, scales_and_zeros = (
-            tensor_data["int_data"],
-            tensor_data["scales_and_zeros"],
+            tensor_data_dict["int_data"],
+            tensor_data_dict["scales_and_zeros"],
         )
-        transposed, shape, groupsize, inner_k_tiles, dtype = attributes
+        transposed, groupsize, inner_k_tiles, dtype = attributes
         return cls(
             int_data,
             scales_and_zeros,
             transposed,
-            shape,
+            outer_size,
             groupsize,
             inner_k_tiles,
             dtype=dtype,
+            strides=outer_stride,
         )
 
     @classmethod
@@ -420,20 +472,20 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         assert groupsize in [256, 128, 64, 32]
         assert inner_k_tiles in [8, 4, 2]
         orig_shape = input_float.shape
-        out_features, orig_in_features = input_float.shape
-        assert out_features % 8 == 0, "require out_features % 8 == 0"
+        orig_out_features, orig_in_features = input_float.shape
 
         # padding
         in_features = find_multiple(orig_in_features, 1024)
+        out_features = find_multiple(orig_out_features, 8)
         input_float = torch.nn.functional.pad(
-            input_float, (0, in_features - orig_in_features)
+            input_float, (0, in_features - orig_in_features, 0, out_features - orig_out_features)
         )
 
         # quantization and packing
         input_int4x8, scales_and_zeros = groupwise_affine_quantize_tensor(
             input_float, 4, groupsize
         )
-        int_data = torch.ops.aten._convert_weight_to_int4pack(
+        int_data = aten._convert_weight_to_int4pack(
             input_int4x8, inner_k_tiles
         )
 

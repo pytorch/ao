@@ -832,11 +832,12 @@ class TestSubclass(unittest.TestCase):
         for groupsize in [256, 128]:
             for inner_k_tiles in [8, 2]:
                 for m in [1, 256]:
-                    self._test_dequantize_impl(
-                        lambda w: Int4WeightOnlyQuantizedLinearWeight.from_float(w, groupsize, inner_k_tiles),
-                        15,
-                        test_shape=[m, 256, 8]
-                    )
+                    for n in [8, 13]:
+                        self._test_dequantize_impl(
+                            lambda w: Int4WeightOnlyQuantizedLinearWeight.from_float(w, groupsize, inner_k_tiles),
+                            15,
+                            test_shape=[m, 256, n]
+                        )
 
     def _test_lin_weight_subclass_impl(
         self,
@@ -886,11 +887,12 @@ class TestSubclass(unittest.TestCase):
         for groupsize in [128, 64]:
             for inner_k_tiles in [4, 2]:
                 for m in [1, 256]:
-                    self._test_lin_weight_subclass_impl(
-                        lambda w: Int4WeightOnlyQuantizedLinearWeight.from_float(w, groupsize, inner_k_tiles),
-                        10,
-                        test_shape=[m, 256, 8]
-                    )
+                    for n in [8, 13]:
+                        self._test_lin_weight_subclass_impl(
+                            lambda w: Int4WeightOnlyQuantizedLinearWeight.from_float(w, groupsize, inner_k_tiles),
+                            10,
+                            test_shape=[m, 256, n]
+                        )
 
     @torch.no_grad()
     def _test_lin_weight_subclass_api_impl(
