@@ -136,7 +136,7 @@ class QuantizedLinearWeightBase(torch.Tensor):
             and args[0].is_floating_point()
             and args[0].is_cuda
         ):
-            if func==aten.addmm.default:
+            if func == aten.addmm.default:
                 assert args[1].shape[-1] == args[2].shape[0], (
                     f"need mat1 shape: {args[1].shape} final"
                     f"dim to match mat2 shape: {args[2].shape} first dim "
