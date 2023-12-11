@@ -116,7 +116,7 @@ class QuantizedLinearWeightBase(torch.Tensor):
                 args[1],
                 args[2] if len(args)>2 else None
             )
-            assert w_qtensor.transposed == False, "bad"
+            assert w_qtensor.transposed == False
             return cls._quantized_op(mat1, w_qtensor, bias)
 
         try:
@@ -283,10 +283,9 @@ class Int8WeightOnlyQuantizedLinearWeight(Int8DynamicallyQuantizedLinearWeight):
 
     @staticmethod
     def _quantized_op(act_mat, w_qtensor, bias):
-        act_mat = act_mat.view(-1, act_mat.shape[-1])
         orig_dtype = act_mat.dtype
-        y = torch.mm(act_mat, w_qtensor.int_data.to(act_mat.dtype)) * w_qtensor.q_scales
-        y = y.reshape(*act_mat.shape[:-1], -1)
+        y = torch.mm(act_mat.reshape(-1, act_mat.shape[-1]), w_qtensor.int_data.to(act_mat.dtype)) * w_qtensor.q_scales
+        y = y.reshape(*act_mat.shape[:-1], y.shape[-1])
         if bias is not None:
             y += bias
         return y.to(orig_dtype)
@@ -339,19 +338,19 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
 
         # reshape and pad activation
         act_mat = act_mat.reshape(-1, act_mat.shape[-1]).to(torch.bfloat16)
-        pad_size = find_multiple(act_mat.shape[1], 1024)
-        act_mat = torch.nn.functional.pad(act_mat, (0, pad_size - act_mat.shape[1]))
+        pad_size = find_multiple(act_mat.shape[-1], 1024)
+        act_mat = torch.nn.functional.pad(act_mat, (0, pad_size - act_mat.shape[-1]))
 
         # matmul
         y = aten._weight_int4pack_mm(
-            act_mat, w_qtensor.int_data, w_qtensor.groupsize, w_qtensor.scales_and_zeros
+            act_mat.contiguous(), w_qtensor.int_data, w_qtensor.groupsize, w_qtensor.scales_and_zeros
         )
 
         # remove out_feature padding
         orig_out_features = w_qtensor.shape[-1] if w_qtensor.transposed else w_qtensor.shape[-2]
         y = y[:, :orig_out_features]
 
-        y = y.reshape(*orig_act_size[:-1], -1)
+        y = y.reshape(*orig_act_size[:-1], orig_out_features)
         if bias is not None:
             y += bias
         return y.to(orig_dtype)
