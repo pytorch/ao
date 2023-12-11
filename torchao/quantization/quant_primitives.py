@@ -351,9 +351,6 @@ def quant_int8_per_token_matmul(
     assert (
         w_vals_int8_t.dtype == torch.int8
     ), f"w dtype {w_vals_int8_t.dtype} not yet supported"
-    assert (
-        w_scales.dtype == output_dtype
-    ), f"{w_scales.dtype} does not match {output_dtype}"
 
     #
     # 1. do the matrix form of dot(X_i, W_j)
@@ -375,8 +372,8 @@ def quant_int8_per_token_matmul(
         torch.bfloat16,
     ], f"x_scales needs to be a torch.float32 or torch.bfloat16 but got {x_scales.dtype}"
 
-    y = (y_dot_int32 * x_scales.view(-1, 1) * w_scales).reshape(
-        *x_vals_int8.shape[:-1], -1
+    y = (y_dot_int32 * x_scales.reshape(-1, 1) * w_scales).reshape(
+        *x_vals_int8.shape[:-1], y_dot_int32.shape[-1]
     )
 
     # can downcast only at the very end
