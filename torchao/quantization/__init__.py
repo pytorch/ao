@@ -39,7 +39,6 @@ __all__ = [
     "Int8WeightOnlyQuantizedLinearWeight",
     "Int4WeightOnlyQuantizedLinearWeight",
     "compute_error",
-    "_apply_logging_hook",
     "get_model_size_in_bytes",
     "WeightOnlyInt8QuantLinear",
 ]
