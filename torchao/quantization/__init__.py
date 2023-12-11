@@ -38,11 +38,8 @@ __all__ = [
     "Int8DynamicallyQuantizedLinearWeight",
     "Int8WeightOnlyQuantizedLinearWeight",
     "Int4WeightOnlyQuantizedLinearWeight",
-    "log_with_rank",
-    "clear_logs",
     "compute_error",
-    "forward_hook",
-    "apply_logging_hook",
+    "_apply_logging_hook",
     "get_model_size_in_bytes",
     "WeightOnlyInt8QuantLinear",
 ]

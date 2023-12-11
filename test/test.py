@@ -48,10 +48,10 @@ from torchao.quantization.subclass import (
     Int4WeightOnlyQuantizedLinearWeight
 )
 from torchao.quantization.utils import (
-    apply_logging_hook,
+    _apply_logging_hook,
     compute_error,
     compute_error as SQNR,
-    fqn_to_op_to_shape_to_count,
+    _fqn_to_op_to_shape_to_count,
     LoggingTensorMode,
 )
 from torch.ao.quantization.quantize_fx import convert_to_reference_fx, prepare_fx
@@ -1111,12 +1111,12 @@ class UtilsUnitTest(unittest.TestCase):
             ),
         )
 
-        apply_logging_hook(m)
+        _apply_logging_hook(m)
         with LoggingTensorMode():
             m(x)
             m(x)
 
-        for fqn, d1 in fqn_to_op_to_shape_to_count.items():  # noqa: PERF102
+        for fqn, d1 in _fqn_to_op_to_shape_to_count.items():  # noqa: PERF102
             for op, d2 in d1.items():  # noqa: PERF102
                 for shape, count in d2.items():  # noqa: PERF102
                     # print(fqn, op, shape, count)
