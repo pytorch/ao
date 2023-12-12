@@ -364,3 +364,10 @@ venv/
 # Log files
 *.log
 sweep/
+
+# Configuration files
+.arcconfig
+.pyre_client
+.pyre_configuration
+.pyre_configuration.codenav
+.stable_pyre_client
