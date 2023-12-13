@@ -59,6 +59,25 @@ def _replace_with_custom_fn_if_matches_filter(
                 child, replacement_fn, filter_fn, new_fqn
             )
 
+# def _replace_with_custom2_fn_if_matches_filter(
+#     mod, replacement_fn, filter_fn, cur_fqn=""
+# ) -> None:
+#     """
+#     For each `child` in `model`, replaces it with `replacement_fn(child)`
+#     if `filter_fn(child)` is `True`
+#     """
+#     if filter_fn(mod, cur_fqn):
+#         new_mod = replacement_fn(mod)
+#         return new_mod
+#     else:
+#         name_to_child = dict(model.named_children())
+#         for name, child in name_to_child.items():
+#             new_fqn = f"{cur_fqn}{name}."
+#             _replace_with_custom2_fn_if_matches_filter(
+#                 child, replacement_fn, filter_fn, new_fqn
+#             )
+
+
 def _is_linear(mod, *args):
     return (
         isinstance(mod, torch.nn.Linear) and
