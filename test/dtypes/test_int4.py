@@ -17,6 +17,7 @@ from torchao.quantization.utils import (
 from torchao.quantization.quant_api import (
     replace_with_custom_fn_if_matches_filter,
 )
+from torch.ao.quantization.observer import ObserverBase
 from torch import nn
 import copy
 
@@ -108,6 +109,30 @@ def _apply_weight_only_int4_quant(model):
         lambda mod, fqn: isinstance(mod, torch.nn.Linear),
     )
 
+from torch.library import Library, impl
+
+test_lib = Library("test_int4", "DEF")
+test_lib.define("quantize_per_tensor_int4(Tensor input, float scale, int zero_point) -> Tensor")
+
+@impl(test_lib, "quantize_per_tensor_int4", "CompositeExplicitAutograd")
+def quantize_per_tensor_int4(
+    input: torch.Tensor,
+    scale: float,
+    zero_point: int,
+) -> torch.Tensor:
+    inv_scale = 1.0 / scale
+    return torch.clamp(torch.round(input * inv_scale) + zero_point, 0, 15).to(torch.uint8).view(torch.bits8)
+
+test_lib.define("dequantize_per_tensor_int4(Tensor input, float scale, int zero_point) -> Tensor")
+@impl(test_lib, "dequantize_per_tensor_int4", "CompositeExplicitAutograd")
+def dequantize_per_tensor_int4(
+    input: torch.Tensor,
+    scale: float,
+    zero_point: int,
+) -> torch.Tensor:
+    return (input.view(torch.uint8).to(torch.float32) - zero_point) * scale
+
+
 class TestInt4(QuantizationTestCase):
     def test_basic_tensor_ops(self):
         x = UInt4Tensor(torch.tensor([
@@ -142,27 +167,6 @@ class TestInt4(QuantizationTestCase):
             opt(x)
 
     def test_aten_ir(self):
-        from torch.library import Library, impl
-        test_lib = Library("test_int4", "DEF")
-        test_lib.define("quantize_per_tensor_int4(Tensor input, float scale, int zero_point) -> Tensor")
-        @impl(test_lib, "quantize_per_tensor_int4", "CompositeExplicitAutograd")
-        def quantize_per_tensor_int4(
-            input: torch.Tensor,
-            scale: float,
-            zero_point: int,
-        ) -> torch.Tensor:
-            inv_scale = 1.0 / scale
-            return torch.clamp(torch.round(input * inv_scale) + zero_point, 0, 15).to(torch.uint8).view(torch.bits8)
-
-        test_lib.define("dequantize_per_tensor_int4(Tensor input, float scale, int zero_point) -> Tensor")
-        @impl(test_lib, "dequantize_per_tensor_int4", "CompositeExplicitAutograd")
-        def dequantize_per_tensor_int4(
-            input: torch.Tensor,
-            scale: float,
-            zero_point: int,
-        ) -> torch.Tensor:
-            return (input.view(torch.uint8).to(torch.float32) - zero_point) * scale
-
         # class QuantizePerTensorUInt4(torch.autograd.Function):
         #     @staticmethod
         #     def forward(
@@ -199,23 +203,46 @@ class TestInt4(QuantizationTestCase):
                     n.replace_input_with(n.args[0], dq)
         m.recompile()
 
-    # TODO: need more extension points from quant flow side
-    @unittest.skip("need more extension points from quant flow side")
     def test_pt2e_quant(self):
         from torch.ao.quantization.quantizer.xnnpack_quantizer_utils import (
             OP_TO_ANNOTATOR,
             QuantizationConfig,
         )
+        class int4_class():
+            pass
 
-        class Int4ActQuantizer(Quantizer):
+        torch.int4 = int4_class()
+
+        class Int4Observer(ObserverBase):
+            def __init__(self, *args, **kwargs):
+                # just faking a dtype here
+                # TODO: make flow work with new dtypes
+                super().__init__(dtype=torch.int8)
+
+            def forward(self, x):
+                return x
+
+            def calculate_qparams(self, **kwargs):
+                pass
+
+            def convert(self, model: torch.fx.GraphModule, observer_node: Node):
+                with model.graph.inserting_before(observer_node):
+                    q_node = model.graph.call_function(
+                        torch.ops.test_int4.quantize_per_tensor_int4, (observer_node.args[0], 1.0, 0), {})
+                    dq_node = model.graph.call_function(
+                        torch.ops.test_int4.dequantize_per_tensor_int4, (q_node, 1.0, 0), {})
+                    observer_node.replace_all_uses_with(dq_node)
+                    model.graph.erase_node(observer_node)
+
+        class Int4WeightQuantizer(Quantizer):
             def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
                 int4_qspec = QuantizationSpec(
-                    dtype=torch.int8,
+                    dtype=torch.int4,
                     quant_min=-2**3,
                     quant_max=2**3 - 1,
                     qscheme=torch.per_tensor_affine,
                     is_dynamic=False,
-                    observer_or_fake_quant_ctr=observer.default_observer,
+                    observer_or_fake_quant_ctr=Int4Observer,
                 )
                 int8_qspec = QuantizationSpec(
                     dtype=torch.int8,
@@ -244,15 +271,18 @@ class TestInt4(QuantizationTestCase):
             def forward(self, x):
                 return self.conv(x)
 
-        quantizer = Int4ActQuantizer()
+        quantizer = Int4WeightQuantizer()
         node_occurrence = {
-            # one for input of the first conv, one for output for the first conv
+            # for weight
+            torch.ops.test_int4.quantize_per_tensor_int4: 1,
+            torch.ops.test_int4.dequantize_per_tensor_int4: 1,
+            # for activation
             torch.ops.quantized_decomposed.quantize_per_tensor.default: 2,
-            torch.ops.quantized_decomposed.dequantize_per_tensor.default: 3,
+            torch.ops.quantized_decomposed.dequantize_per_tensor.default: 2,
         }
         node_list = [
             torch.ops.quantized_decomposed.dequantize_per_tensor.default,
-            torch.ops.quantized_decomposed.dequantize_per_tensor.default,
+            torch.ops.test_int4.dequantize_per_tensor_int4,
             torch.ops.aten.conv2d.default,
             torch.ops.quantized_decomposed.quantize_per_tensor.default,
         ]
@@ -269,7 +299,6 @@ class TestInt4(QuantizationTestCase):
         m = capture_pre_autograd_graph(
             m,
             example_inputs,
-            constraints=[dynamic_dim(example_inputs[0], 0)] if export_with_dynamic_shape else [],
         )
 
         m = prepare_pt2e(m, quantizer)

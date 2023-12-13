@@ -1,8 +1,11 @@
 import torch
 import torch._prims_common as utils
 
+# TODO: fix error from symbolic_context
+# TODO: adding support for pt2e quant
+# module swap --> subclass (for it to be composable with distributed, sparsity etc. subclasses)
 # TODO: uint8 --> bits8
-# TODO: adding support for pt2e quant, after https://github.com/pytorch/pytorch/pull/115001 is landed
+
 
 def down_size(size):
     assert size[-1] % 2 == 0, f"{size} last dim not divisible by two"
