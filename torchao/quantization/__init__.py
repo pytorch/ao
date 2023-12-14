@@ -18,7 +18,7 @@ __all__ = [
     "change_linear_weights_to_int8_dqtensors",
     "change_linear_weights_to_int8_woqtensors",
     "change_linear_weights_to_int4_woqtensors",
-    "insert_subclass",
+    "swap_conv2d_1x1_to_linear"
     "safe_int_mm",
     "dynamically_quantize_per_tensor",
     "quantize_activation_per_token_absmax",
