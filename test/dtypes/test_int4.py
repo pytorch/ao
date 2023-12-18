@@ -91,7 +91,8 @@ class _WeightOnlyInt4QuantLinear(torch.nn.Linear):
             fake_in_features,
             fake_out_features,
             bias=mod.bias is not None,
-            w_int4=w_int4.t().contiguous(),
+            # w_int4=w_int4.t().contiguous(),
+            w_int4=torch.ops.aten.transpose_copy(w_int4, 0, 1),
             scales=scales,
         )
         new_mod.in_features = mod.in_features

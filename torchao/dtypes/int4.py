@@ -133,6 +133,12 @@ class UInt4Tensor(torch.Tensor):
             transposed = torch.ops.aten.t.default(unpacked)
             transposed_and_packed = pack_uint4(transposed)
             return UInt4Tensor(transposed_and_packed)
+        elif func is torch.ops.aten.transpose_copy.int:
+            self, dim0, dim1 = args
+            unpacked = unpack_uint4(self.elem).view(self.shape)
+            transposed = torch.ops.aten.transpose_copy.int(unpacked, dim0, dim1)
+            transposed_and_packed = pack_uint4(transposed)
+            return UInt4Tensor(transposed_and_packed)
         elif func is torch.ops.aten.as_strided.default:
             # size, stride, storage_offset are referring to tensor elements, not physical bytes
             self, size, stride, storage_offset = args
