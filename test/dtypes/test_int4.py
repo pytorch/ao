@@ -141,7 +141,7 @@ class TestInt4(QuantizationTestCase):
             [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
             [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
         ], dtype=torch.uint8))
-        self.assertTrue(x.shape, (3, 8))
+        self.assertEqual(x.shape, (3, 16))
         # making sure these works
         x.to(torch.uint8)
         expected = UInt4Tensor(torch.tensor([
