@@ -17,14 +17,17 @@ class WeightOnlyInt8QuantLinear(torch.nn.Linear):
     This class is a replacement for `torch.nn.Linear`. It implements a
     mixed dtype matmul using int8 symmetric per-channel weight quantization
     """
-    def __init__(self, *args, **kwargs):
-        w_int8 = kwargs.pop("w_int8")
-        scales = kwargs.pop("scales")
-        super().__init__(*args, **kwargs)
-        self.w_int8 = w_int8
-        self.scales = scales
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        bias: bool = True,
+    ) -> None:
+        super().__init__(in_features, out_features, bias)
+        # self.w_int8 = w_int8
+        # self.scales = scales
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Performs the forward pass of the quantized linear layer which consists
         ofmixed dtype matmul using int8 symmetric per-channel weight quantization
@@ -39,7 +42,7 @@ class WeightOnlyInt8QuantLinear(torch.nn.Linear):
         # if len(x.shape)<=2:
         #     y = torch.mm(x, self.w_int8.to(x.dtype)) * self.scales
         # else: # turn x into 2d tensor, then undo it for y
-        x_view = x.view(-1, x.shape[-1])
+        x_view = x.reshape(-1, x.shape[-1])
         y = torch.mm(x_view, self.w_int8.to(x.dtype)) * self.scales
         y = y.reshape(*x.shape[:-1], -1)
         if self.bias is not None:
@@ -47,7 +50,7 @@ class WeightOnlyInt8QuantLinear(torch.nn.Linear):
         return y
 
     @classmethod
-    def from_float(cls, mod):
+    def from_float(cls, mod: torch.nn.Linear) -> "WeightOnlyInt8QuantLinear":
         """
         Converts a `mod` of class `torch.nn.Linear` to the
         `WeightOnlyInt8QuantLinear` class
@@ -69,9 +72,9 @@ class WeightOnlyInt8QuantLinear(torch.nn.Linear):
             fake_in_features,
             fake_out_features,
             bias=mod.bias is not None,
-            w_int8=w_int8.t().contiguous(),
-            scales=scales,
         )
+        new_mod.register_buffer("w_int8", w_int8.t())
+        new_mod.scales = torch.nn.Parameter(scales)
         new_mod.in_features = mod.in_features
         new_mod.out_features = mod.out_features
         del new_mod.weight
