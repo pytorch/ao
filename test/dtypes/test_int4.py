@@ -61,7 +61,7 @@ def _dynamically_quantize_per_channel_int4(x, quant_min, quant_max, target_dtype
     x_zp = x_zp.transpose(0, 1)
     quant = torch.clamp(x_zp, quant_min, quant_max)
     if target_dtype == "int4":
-        quant = UInt4Tensor.from_unpacked(quant.view(torch.bits8)).view(quant.size())
+        quant = UInt4Tensor.from_unpacked(quant.view(torch.uint8)).view(quant.size())
     else:
         quant = quant.to(target_dtype)
 
@@ -129,7 +129,7 @@ def quantize_per_tensor_int4(
     zero_point: int,
 ) -> torch.Tensor:
     inv_scale = 1.0 / scale
-    return torch.clamp(torch.round(input * inv_scale) + zero_point, 0, 15).to(torch.uint8).view(torch.bits8)
+    return UInt4Tensor.from_unpacked(torch.clamp(torch.round(input * inv_scale) + zero_point, 0, 15).to(torch.uint8).view(torch.uint8))
 
 test_lib.define("dequantize_per_tensor_int4(Tensor input, float scale, int zero_point) -> Tensor")
 @impl(test_lib, "dequantize_per_tensor_int4", "CompositeExplicitAutograd")
@@ -138,18 +138,23 @@ def dequantize_per_tensor_int4(
     scale: float,
     zero_point: int,
 ) -> torch.Tensor:
-    print("1", input.dtype)
-    a = input.to(torch.uint8)
-    print("2")
-    a = a.to(torch.float32)
-    print("3")
-    a = a - zero_point
-    print("4")
-    a = a * scale
-    print("5")
-    return a
-    # return (input.to(torch.uint8).to(torch.float32) - zero_point) * scale
+    return (input.to(torch.uint8).to(torch.float32) - zero_point) * scale
 
+@impl(test_lib, "quantize_per_tensor_int4", "Meta")
+def quantize_per_tensor_int4(
+    input: torch.Tensor,
+    scale: float,
+    zero_point: int,
+) -> torch.Tensor:
+    return torch.empty_like(input, dtype=torch.uint8)
+
+@impl(test_lib, "dequantize_per_tensor_int4", "Meta")
+def dequantize_per_tensor_int4(
+    input: torch.Tensor,
+    scale: float,
+    zero_point: int,
+) -> torch.Tensor:
+    return torch.empty_like(input, dtype=torch.float32)
 
 class TestInt4(QuantizationTestCase):
     def test_basic_tensor_ops(self):
@@ -157,19 +162,21 @@ class TestInt4(QuantizationTestCase):
             [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
             [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
             [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
-        ], dtype=torch.bits8))
+        ], dtype=torch.uint8))
         self.assertEqual(x.shape, (3, 16))
+        # TODO: make sure this returns torch.int4
+        print("dtype:", x.dtype)
         # making sure these works
         x.to(torch.uint8)
         expected = UInt4Tensor(torch.tensor([
             [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
-        ], dtype=torch.bits8))
+        ], dtype=torch.uint8))
         self.assertTrue(x[0:1, :] == expected)
         expected = UInt4Tensor(torch.tensor([
             [0x23, 0x45],
             [0x23, 0x45],
             [0x23, 0x45],
-        ], dtype=torch.bits8))
+        ], dtype=torch.uint8))
         self.assertTrue(x[:, 2:6] == expected)
 
     def test_gpu_quant(self):
@@ -194,7 +201,7 @@ class TestInt4(QuantizationTestCase):
         #         zero_point: int,
         #     ) -> torch.Tensor:
         #         inv_scale = 1.0 / scale
-        #         return UInt4Tensor(torch.clamp(torch.round(input * inv_scale) + zero_point, 0, 15).to(torch.bits8))
+        #         return UInt4Tensor(torch.clamp(torch.round(input * inv_scale) + zero_point, 0, 15).to(torch.uint8))
 
         # class DeQuantizePerTensorUInt4(torch.autograd.Function):
         #     @staticmethod
@@ -210,7 +217,7 @@ class TestInt4(QuantizationTestCase):
             def forward(self, x, y):
                 return x + y
 
-        example_inputs = (torch.randn(1, 2, 3, 3), torch.randn(1, 2, 3, 3),)
+        example_inputs = (torch.randn(1, 2, 10, 10), torch.randn(1, 2, 10, 10),)
         m = M().eval()
         m = capture_pre_autograd_graph(m, example_inputs)
         for n in m.graph.nodes:
@@ -226,11 +233,6 @@ class TestInt4(QuantizationTestCase):
             OP_TO_ANNOTATOR,
             QuantizationConfig,
         )
-        class int4_class():
-            pass
-
-        torch.int4 = int4_class()
-
         class Int4Observer(ObserverBase):
             def __init__(self, *args, **kwargs):
                 # just faking a dtype here
@@ -321,7 +323,7 @@ class TestInt4(QuantizationTestCase):
         class M(torch.nn.Module):
             def __init__(self):
                 super().__init__()
-                self.conv = torch.nn.Conv2d(3, 3, 3)
+                self.conv = torch.nn.Conv2d(4, 4, 4)
 
             def forward(self, x):
                 return self.conv(x)
@@ -341,13 +343,14 @@ class TestInt4(QuantizationTestCase):
             torch.ops.aten.conv2d.default,
             torch.ops.quantized_decomposed.quantize_per_tensor.default,
         ]
-        example_inputs = (torch.randn(1, 3, 3, 3),)
+        example_inputs = (torch.randn(1, 4, 8, 8),)
 
         # _test_quantizer in PT2EQuantizationTestCase
         # resetting dynamo cache
         export_with_dynamic_shape = False
         torch._dynamo.reset()
         m_eager = M().eval()
+        _ = torch._export.export(m_eager, example_inputs)
 
         # program capture
         m = copy.deepcopy(m_eager)
@@ -360,8 +363,11 @@ class TestInt4(QuantizationTestCase):
         # Calibrate
         m(*example_inputs)
         m = convert_pt2e(m, fold_quantize=False)
+        m = torch._export.export(m, example_inputs)
+        print("m:", m)
 
         pt2_quant_output = m(*example_inputs)
+        print("output:", pt2_quant_output)
         node_occurrence = {
             ns.call_function(k): v for k, v in node_occurrence.items()
         }
