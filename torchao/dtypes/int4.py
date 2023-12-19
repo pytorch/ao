@@ -1,11 +1,8 @@
 import torch
 import torch._prims_common as utils
 
-# TODO: fix error from symbolic_context
-# TODO: adding support for pt2e quant
-# module swap --> subclass (for it to be composable with distributed, sparsity etc. subclasses)
 # TODO: uint8 --> bits8
-
+# module swap --> subclass (for it to be composable with distributed, sparsity etc. subclasses)
 
 def down_size(size):
     assert size[-1] % 2 == 0, f"{size} last dim not divisible by two"
@@ -42,23 +39,23 @@ def fill_defaults(args, n, defaults_tail):
 # https://github.com/drisspg/transformer_nuggets/blob/9ad3a7fc552a954eb702ade0e276b8d8e09c3db6/transformer_nuggets/quant/qlora.py#L233
 def unpack_uint4(quantized_data) -> torch.Tensor:
     """Get the original weight from the normalized float weight format"""
-    # since we are using uint8 we will decode 2 entries per byte
+    # since we are using bits8 we will decode 2 entries per byte
     # Shift elements down 4 and select out the bottom 4 bits
-    first_elements = (quantized_data >> 4).to(torch.uint8)
-    second_elements = (quantized_data & 0b1111).to(torch.uint8)
+    first_elements = (quantized_data >> 4).to(torch.bits8)
+    second_elements = (quantized_data & 0b1111).to(torch.bits8)
     return torch.stack([first_elements, second_elements], dim=-1)
 
-def pack_uint4(uint8_data) -> torch.Tensor:
-    shape = uint8_data.shape
-    uint8_data = uint8_data.contiguous().view(-1)
-    return (uint8_data[::2] << 4 | uint8_data[1::2]).view(down_size(shape))
+def pack_uint4(bits8_data) -> torch.Tensor:
+    shape = bits8_data.shape
+    bits8_data = bits8_data.contiguous().view(-1)
+    return (bits8_data[::2] << 4 | bits8_data[1::2]).view(down_size(shape))
 
 class UInt4Tensor(torch.Tensor):
     @staticmethod
     def __new__(cls, elem):
         # TODO: uint64 here is wrong, need a real dtype.  Don't try to(int64)
         # weird shit will happen
-        assert elem.dtype is torch.uint8
+        assert elem.dtype is torch.bits8
         return torch.Tensor._make_wrapper_subclass(cls, up_size(elem.shape), dtype=torch.int64)
 
     def __init__(self, elem):
@@ -69,13 +66,13 @@ class UInt4Tensor(torch.Tensor):
         return UInt4Tensor(pack_uint4(unpacked))
 
     def tolist(self):
-        return self.to(torch.uint8).tolist()
+        return self.to(torch.bits8).tolist()
 
     def __tensor_flatten__(self):
         return ["elem"], None
 
     @staticmethod
-    def __tensor_unflatten__(flattened, meta):
+    def __tensor_unflatten__(flattened, meta, outer_size, outer_stride):
         assert meta is None
         elem = flattened["elem"]
         return UInt4Tensor(elem)
@@ -93,7 +90,8 @@ class UInt4Tensor(torch.Tensor):
             return UInt4Tensor(self.elem.reshape(down_size(size)))
         elif func is torch.ops.aten._to_copy.default:
             self, = args
-            if kwargs == {'dtype': torch.uint8}:
+            if kwargs == {'dtype': torch.bits8}:
+                print("_to_copy", args)
                 return unpack_uint4(self.elem).view(self.shape)  # no wrap
             else:
                 raise NotImplementedError(f"_to_copy {kwargs}")
@@ -101,14 +99,14 @@ class UInt4Tensor(torch.Tensor):
             # This is tricky.  Given torch.tensor([0, 1, 2, 3]) we want to
             # create four tensors containing one element each.  But we can't
             # do this with uint4 because such a tensor's size is not divisible
-            # by bytes.  What I am going to do instead is promote to uint8
+            # by bytes.  What I am going to do instead is promote to bits8
             # when this happens
             self, dim = fill_defaults(args, 2, [0])
             if dim != self.dim() - 1:
                 raise NotImplementedError(f"unbind dim={dim}")
             else:
                 # We're unbinding the last dimension, need to promote
-                return torch.ops.aten._to_copy.default(self, dtype=torch.uint8).unbind(dim)
+                return torch.ops.aten._to_copy.default(self, dtype=torch.bits8).unbind(dim)
         elif func is torch.ops.aten.select.int:
             self, dim, index = args
             if dim != self.dim() - 1:
@@ -128,6 +126,7 @@ class UInt4Tensor(torch.Tensor):
                 # easy case
                 return UInt4Tensor(torch.ops.aten.slice.Tensor(self.elem, dim, start, end, step))
         elif func is torch.ops.aten.t.default:
+            assert False, "transpose is not properly implemented currently"
             self, = args
             unpacked = unpack_uint4(self.elem).view(self.shape)
             transposed = torch.ops.aten.t.default(unpacked)

@@ -19,6 +19,13 @@ from torchao.quantization.quant_api import (
 )
 from torch.ao.quantization.observer import ObserverBase
 from torch import nn
+from torch.fx import (
+    Node,
+    GraphModule,
+)
+from torch.ao.quantization.quantizer import (
+    QuantizationAnnotation,
+)
 import copy
 
 def _dynamically_quantize_per_channel_int4(x, quant_min, quant_max, target_dtype):
@@ -54,7 +61,7 @@ def _dynamically_quantize_per_channel_int4(x, quant_min, quant_max, target_dtype
     x_zp = x_zp.transpose(0, 1)
     quant = torch.clamp(x_zp, quant_min, quant_max)
     if target_dtype == "int4":
-        quant = UInt4Tensor.from_unpacked(quant.to(torch.uint8)).view(quant.size())
+        quant = UInt4Tensor.from_unpacked(quant.view(torch.bits8)).view(quant.size())
     else:
         quant = quant.to(target_dtype)
 
@@ -131,7 +138,17 @@ def dequantize_per_tensor_int4(
     scale: float,
     zero_point: int,
 ) -> torch.Tensor:
-    return (input.view(torch.uint8).to(torch.float32) - zero_point) * scale
+    print("1")
+    a = input.to(torch.uint8)
+    print("2")
+    a = a.to(torch.float32)
+    print("3")
+    a = a - zero_point
+    print("4")
+    a = a * scale
+    print("5")
+    return a
+    # return (input.to(torch.uint8).to(torch.float32) - zero_point) * scale
 
 
 class TestInt4(QuantizationTestCase):
@@ -140,19 +157,19 @@ class TestInt4(QuantizationTestCase):
             [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
             [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
             [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
-        ], dtype=torch.uint8))
+        ], dtype=torch.bits8))
         self.assertEqual(x.shape, (3, 16))
         # making sure these works
         x.to(torch.uint8)
         expected = UInt4Tensor(torch.tensor([
             [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
-        ], dtype=torch.uint8))
+        ], dtype=torch.bits8))
         self.assertTrue(x[0:1, :] == expected)
         expected = UInt4Tensor(torch.tensor([
             [0x23, 0x45],
             [0x23, 0x45],
             [0x23, 0x45],
-        ], dtype=torch.uint8))
+        ], dtype=torch.bits8))
         self.assertTrue(x[:, 2:6] == expected)
 
     def test_gpu_quant(self):
@@ -177,7 +194,7 @@ class TestInt4(QuantizationTestCase):
         #         zero_point: int,
         #     ) -> torch.Tensor:
         #         inv_scale = 1.0 / scale
-        #         return UInt4Tensor(torch.clamp(torch.round(input * inv_scale) + zero_point, 0, 15).to(torch.uint8))
+        #         return UInt4Tensor(torch.clamp(torch.round(input * inv_scale) + zero_point, 0, 15).to(torch.bits8))
 
         # class DeQuantizePerTensorUInt4(torch.autograd.Function):
         #     @staticmethod
@@ -226,7 +243,7 @@ class TestInt4(QuantizationTestCase):
             def calculate_qparams(self, **kwargs):
                 pass
 
-            def convert(self, model: torch.fx.GraphModule, observer_node: Node):
+            def convert(self, model: GraphModule, observer_node: Node):
                 with model.graph.inserting_before(observer_node):
                     q_node = model.graph.call_function(
                         torch.ops.test_int4.quantize_per_tensor_int4, (observer_node.args[0], 1.0, 0), {})
@@ -234,6 +251,11 @@ class TestInt4(QuantizationTestCase):
                         torch.ops.test_int4.dequantize_per_tensor_int4, (q_node, 1.0, 0), {})
                     observer_node.replace_all_uses_with(dq_node)
                     model.graph.erase_node(observer_node)
+
+        from torch.ao.quantization.quantizer.xnnpack_quantizer_utils import (
+            _is_annotated,
+            _mark_nodes_as_annotated,
+        )
 
         class Int4WeightQuantizer(Quantizer):
             def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
@@ -251,7 +273,7 @@ class TestInt4(QuantizationTestCase):
                     quant_max=127,
                     qscheme=torch.per_tensor_symmetric,
                     is_dynamic=False,
-                    observer_or_fake_quant_ctr=observer.default_weight_observer,
+                    observer_or_fake_quant_ctr=torch.ao.quantization.observer.default_weight_observer,
                 )
                 quantization_config = QuantizationConfig(
                     input_activation=int8_qspec,
@@ -259,7 +281,39 @@ class TestInt4(QuantizationTestCase):
                     bias=None,
                     output_activation=int8_qspec,
                 )
-                OP_TO_ANNOTATOR["conv"](model, quantization_config)
+                for n in model.graph.nodes:
+                    if n.op != "call_function" or n.target not in [
+                        torch.ops.aten.conv1d.default,
+                        torch.ops.aten.conv2d.default,
+                    ]:
+                        continue
+                    conv_node = n
+
+                    input_qspec_map = {}
+                    input_act = conv_node.args[0]
+                    assert isinstance(input_act, Node)
+                    input_qspec_map[input_act] = quantization_config.input_activation
+
+                    weight = conv_node.args[1]
+                    assert isinstance(weight, Node)
+                    input_qspec_map[weight] = quantization_config.weight
+
+                    partition = [conv_node, conv_node.args[1]]
+
+                    bias = conv_node.args[2] if len(conv_node.args) > 2 else None
+                    if isinstance(bias, Node):
+                        input_qspec_map[bias] = quantization_config.bias
+                        partition.append(bias)
+
+                    if _is_annotated(partition):
+                        continue
+
+                    conv_node.meta["quantization_annotation"] = QuantizationAnnotation(
+                        input_qspec_map=input_qspec_map,
+                        output_qspec=quantization_config.output_activation,
+                        _annotated=True,
+                    )
+                    _mark_nodes_as_annotated(partition)
 
             def validate(self, model: torch.fx.GraphModule) -> None:
                 pass
@@ -305,15 +359,13 @@ class TestInt4(QuantizationTestCase):
         m = prepare_pt2e(m, quantizer)
         # Calibrate
         m(*example_inputs)
-        m = convert_pt2e(m, fold_quantize=True)
+        m = convert_pt2e(m, fold_quantize=False)
 
         pt2_quant_output = m(*example_inputs)
         node_occurrence = {
-            ns.call_function(k): v for k, v in expected_node_occurrence.items()
+            ns.call_function(k): v for k, v in node_occurrence.items()
         }
-        if expected_node_list is None:
-            expected_node_list = []
-        node_list = [ns.call_function(n) for n in expected_node_list]
+        node_list = [ns.call_function(n) for n in node_list]
         self.checkGraphModuleNodes(
             m, expected_node_occurrence=node_occurrence, expected_node_list=node_list
         )
