@@ -138,7 +138,7 @@ def dequantize_per_tensor_int4(
     scale: float,
     zero_point: int,
 ) -> torch.Tensor:
-    print("1")
+    print("1", input.dtype)
     a = input.to(torch.uint8)
     print("2")
     a = a.to(torch.float32)

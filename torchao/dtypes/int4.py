@@ -2,6 +2,7 @@ import torch
 import torch._prims_common as utils
 
 # TODO: uint8 --> bits8
+# TODO: change int4_tensor.dtype to return torch.int4
 # module swap --> subclass (for it to be composable with distributed, sparsity etc. subclasses)
 
 def down_size(size):
@@ -82,6 +83,7 @@ class UInt4Tensor(torch.Tensor):
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
+        print(f"func called: {func}")
         if func is torch.ops.aten.view.default:
             self, size = args
             size = utils.infer_size(size, self.numel())
@@ -89,9 +91,9 @@ class UInt4Tensor(torch.Tensor):
             # WARNING: views not preserved
             return UInt4Tensor(self.elem.reshape(down_size(size)))
         elif func is torch.ops.aten._to_copy.default:
+            print("_to_copy:", args)
             self, = args
             if kwargs == {'dtype': torch.bits8}:
-                print("_to_copy", args)
                 return unpack_uint4(self.elem).view(self.shape)  # no wrap
             else:
                 raise NotImplementedError(f"_to_copy {kwargs}")
