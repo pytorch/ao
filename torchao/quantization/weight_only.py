@@ -24,7 +24,7 @@ class WeightOnlyInt8QuantLinear(torch.nn.Linear):
         self.w_int8 = w_int8
         self.scales = scales
 
-    def forward(self, x):
+    def forward(self, x, *args, **kwargs):
         """
         Performs the forward pass of the quantized linear layer which consists
         ofmixed dtype matmul using int8 symmetric per-channel weight quantization

@@ -152,7 +152,7 @@ def change_linear_weights_to_int4_woqtensors(model, **kwargs):
         filter_fn,
     )
 
-def swap_conv2d_1x1_to_linear(model):
+def swap_conv2d_1x1_to_linear(model, filter_fn=None):
     """
     Changes all conv2d 1x1 modules to equivalent linear modules so that they can then be quantized.
     """
@@ -172,8 +172,11 @@ def swap_conv2d_1x1_to_linear(model):
         lin.bias = conv.bias
         return PermuteSandwich(lin)
 
+    if filter_fn is None:
+        filter_fn=lambda mod, *args: isinstance(mod, torch.nn.Conv2d) and mod.kernel_size==(1,1)
+
     _replace_with_custom_fn_if_matches_filter(
         model,
         replace_conv2d_1x1,
-        filter_fn=lambda mod, *args: isinstance(mod, torch.nn.Conv2d) and mod.kernel_size==(1,1)
+        filter_fn=filter_fn
     )

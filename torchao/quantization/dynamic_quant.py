@@ -29,7 +29,7 @@ class DynamicallyPerAxisQuantizedLinear(torch.nn.Linear):
     ) -> None:
         super().__init__(in_features, out_features, bias)
 
-    def forward(self, X: torch.Tensor) -> torch.Tensor:
+    def forward(self, X: torch.Tensor, *args, **kwargs) -> torch.Tensor:
         """
         Performs the forward pass of the quantized linear layer which consists
         of int8 dynamic symmetric per-token activation and int8 symmetric per-channel weight
