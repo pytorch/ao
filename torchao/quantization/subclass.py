@@ -240,13 +240,13 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
         )
 
     def __tensor_flatten__(self):
-        return ["int_data", "q_scales"], [self.transposed, self.dtype]
+        return ["int_data", "q_scales"], [self.transposed, self.dtype, self.shape]
 
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride):
+    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
         int_data, q_scales = tensor_data_dict["int_data"], tensor_data_dict["q_scales"]
-        transposed, dtype = tensor_attributes
-        return cls(int_data, q_scales, transposed, outer_size, dtype=dtype, strides=outer_stride)
+        transposed, dtype, shape = tensor_attributes
+        return cls(int_data, q_scales, transposed, shape if outer_size is None else outer_size, dtype=dtype, strides=outer_stride)
 
     @classmethod
     def from_float(cls, input_float, qmin=-128, qmax=127):
@@ -416,20 +416,21 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             self.groupsize,
             self.inner_k_tiles,
             self.dtype,
+            self.shape
         )
 
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data_dict, attributes, outer_size, outer_stride):
+    def __tensor_unflatten__(cls, tensor_data_dict, attributes, outer_size=None, outer_stride=None):
         int_data, scales_and_zeros = (
             tensor_data_dict["int_data"],
             tensor_data_dict["scales_and_zeros"],
         )
-        transposed, groupsize, inner_k_tiles, dtype = attributes
+        transposed, groupsize, inner_k_tiles, dtype, shape = attributes
         return cls(
             int_data,
             scales_and_zeros,
             transposed,
-            outer_size,
+            shape if outer_size is None else outer_size,
             groupsize,
             inner_k_tiles,
             dtype=dtype,
