@@ -54,7 +54,8 @@ def _replace_with_custom_fn_if_matches_filter(
             new_child = _replace_with_custom_fn_if_matches_filter(
                 child, replacement_fn, filter_fn, f"{cur_fqn}{name}."
             )
-            setattr(model, name, new_child)
+            if new_child is not child:
+                setattr(model, name, new_child)
         return model
 
 
@@ -68,7 +69,7 @@ def _is_linear(mod, *args):
 def _in_features_greater_than_16(mod, *args):
     return hasattr(mod, "in_features") and mod.in_features > 16
 
-def apply_weight_only_int8_quant(model):
+def apply_weight_only_int8_quant(model, filter_fn=None):
     """
     Applies weight-only symmetric per-channel int8 quantization to all linear layers
     in the given model using module swaps.
@@ -76,7 +77,7 @@ def apply_weight_only_int8_quant(model):
     _replace_with_custom_fn_if_matches_filter(
         model,
         WeightOnlyInt8QuantLinear.from_float,
-        _is_linear,
+        _is_linear if filter_fn is None else filter_fn,
     )
 
 
@@ -123,7 +124,7 @@ def change_linear_weights_to_int8_dqtensors(model, filter_fn=None):
     )
 
 
-def change_linear_weights_to_int8_woqtensors(model):
+def change_linear_weights_to_int8_woqtensors(model, filter_fn=None):
     """
     Converts all linear weight tensors to the
     `Int8WeightOnlyQuantizedLinearWeight` tensor subclass,
@@ -133,7 +134,7 @@ def change_linear_weights_to_int8_woqtensors(model):
     _replace_with_custom_fn_if_matches_filter(
         model,
         _get_subclass_inserter(Int8WeightOnlyQuantizedLinearWeight),
-        _is_linear,
+        _is_linear if filter_fn is None else filter_fn,
     )
 
 

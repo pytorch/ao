@@ -420,7 +420,7 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         )
 
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data_dict, attributes, outer_size, outer_stride):
+    def __tensor_unflatten__(cls, tensor_data_dict, attributes, outer_size=None, outer_stride=None):
         int_data, scales_and_zeros = (
             tensor_data_dict["int_data"],
             tensor_data_dict["scales_and_zeros"],
