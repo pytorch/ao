@@ -137,7 +137,7 @@ class SmoothFakeDynamicallyQuantizedLinear(SmoothFakeDynQuantMixin, torch.nn.Lin
         super().__init__(*args, **kwargs)
         self.init_smoothquant_variables(alpha)
 
-    def forward(self, X):
+    def forward(self, X, *args, **kwargs):
         if self.calibrating:
             self.update_x_running_abs_max(X)
             Y = F.linear(X, self.weight, self.bias)
