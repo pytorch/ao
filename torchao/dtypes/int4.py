@@ -261,30 +261,30 @@ class PerChannelSymmetricWeightUInt4Tensor(UInt4Tensor):
     def from_unpacked(cls, unpacked, scales):
         return cls(pack_uint4(unpacked), scales)
 
-    @classmethod
-    def __torch_function__(cls, func, types, args=(), kwargs=None):
-        kwargs = {} if kwargs is None else kwargs
+    # @classmethod
+    # def __torch_function__(cls, func, types, args=(), kwargs=None):
+    #     kwargs = {} if kwargs is None else kwargs
 
-        if func is torch.nn.functional.linear:
-            x, weight, bias = (
-                args[0],
-                args[1],
-                args[2] if len(args)>2 else None
-            )
-            x_view = x.view(-1, x.shape[-1])
-            weight_scales = weight.scales
-            weight = weight.to(torch.uint8).to(x.dtype)
-            out = torch.mm(x_view, weight.t())
-            out = out * weight_scales
-            out = out.reshape(*x.shape[:-1], -1)
-            if bias is not None:
-                out += bias
-            return out
-        try:
-            with torch._C.DisableTorchFunctionSubclass():
-                return func(*args, **kwargs)
-        except:
-            print(f"ERR: subclass doesn't implement {func}")
+    #     if func is torch.nn.functional.linear:
+    #         x, weight, bias = (
+    #             args[0],
+    #             args[1],
+    #             args[2] if len(args)>2 else None
+    #         )
+    #         x_view = x.view(-1, x.shape[-1])
+    #         weight_scales = weight.scales
+    #         weight = weight.to(torch.uint8).to(x.dtype)
+    #         out = torch.mm(x_view, weight.t())
+    #         out = out * weight_scales
+    #         out = out.reshape(*x.shape[:-1], -1)
+    #         if bias is not None:
+    #             out += bias
+    #         return out
+    #     try:
+    #         with torch._C.DisableTorchFunctionSubclass():
+    #             return func(*args, **kwargs)
+    #     except:
+    #         print(f"ERR: subclass doesn't implement {func}")
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
