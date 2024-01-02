@@ -3,9 +3,9 @@ import torch._prims_common as utils
 import torch.utils._pytree as pytree
 from torch.library import Library, impl
 
-# TODO: change int4_tensor.dtype to return torch.int4 (currently it's torch.bits8)
+# TODO: make test_gpu_quant work with __torch_dispatch__
 
-torch.int4 = torch.dtype(torch.bits8, "int4")
+torch.uint4 = torch.dtype(torch.bits8, "uint4")
 
 def down_size(size):
     assert size[-1] % 2 == 0, f"{size} last dim not divisible by two"
@@ -88,8 +88,7 @@ class UInt4Tensor(torch.Tensor):
         assert elem.dtype is torch.bits8
         assert not kwargs.get("requires_grad", False)
         kwargs["requires_grad"] = False
-        # TODO: right now tensor.dtype still displays bits8
-        return torch.Tensor._make_wrapper_subclass(cls, up_size(elem.shape), dtype=torch.int4, **kwargs)
+        return torch.Tensor._make_wrapper_subclass(cls, up_size(elem.shape), dtype=torch.uint4, **kwargs)
 
     def __init__(self, elem):
         self.elem = elem
@@ -112,6 +111,11 @@ class UInt4Tensor(torch.Tensor):
 
     def __hash__(self):
         return hash(self.elem)
+
+    def __getattribute__(self, name):
+        if name == "dtype":
+            return torch.uint4
+        return super().__getattribute__(name)
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
@@ -241,7 +245,8 @@ def _dynamically_quantize_per_channel_int4(x, quant_min, quant_max, target_dtype
     x_zp = x_round + zero_point
     x_zp = x_zp.transpose(0, 1)
     quant = torch.clamp(x_zp, quant_min, quant_max)
-    if target_dtype == "int4":
+    if target_dtype == torch.uint4:
+        # TODO: simplify (maybe implement to)
         quant = PerChannelSymmetricWeightUInt4Tensor.from_unpacked(quant.to(torch.uint8).view(torch.bits8), scale)
     else:
         quant = quant.to(target_dtype)
@@ -315,7 +320,7 @@ class PerChannelSymmetricWeightUInt4Tensor(UInt4Tensor):
     @classmethod
     def from_float(cls, w_fp32):
         w_int4, scales, _zp = _dynamically_quantize_per_channel_int4(
-            w_fp32, 0, 15, "int4"
+            w_fp32, 0, 15, torch.uint4
         )
         w_int4.to(device=w_fp32.device)
         return w_int4

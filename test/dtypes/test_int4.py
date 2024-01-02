@@ -50,8 +50,8 @@ class TestInt4(QuantizationTestCase):
             [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
         ], dtype=torch.uint8).view(torch.bits8))
         self.assertEqual(x.shape, (3, 16))
-        # TODO: make sure this returns torch.int4
-        self.assertEqual(x.dtype, torch.bits8)
+        # TODO: make sure this returns torch.uint4
+        self.assertEqual(x.dtype, torch.uint4)
         # making sure these works
         x.to(torch.uint8)
         expected = UInt4Tensor(torch.tensor([
@@ -111,9 +111,9 @@ class TestInt4(QuantizationTestCase):
         class Int8ActInt4WeightQuantizer(Quantizer):
             def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
                 int4_qspec = QuantizationSpec(
-                    dtype=torch.int4,
-                    quant_min=-2**3,
-                    quant_max=2**3 - 1,
+                    dtype=torch.uint4,
+                    quant_min=0,
+                    quant_max=2**4 - 1,
                     qscheme=torch.per_tensor_affine,
                     is_dynamic=False,
                     observer_or_fake_quant_ctr=Int4Observer,
