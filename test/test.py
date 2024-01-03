@@ -1124,6 +1124,23 @@ class UtilsUnitTest(unittest.TestCase):
 
 
 class SmoothquantIntegrationTest(unittest.TestCase):
+    @torch.no_grad()
+    def test_non_dynamically_quantizable_linear(self):
+        model = torch.nn.Sequential(
+            torch.nn.modules.linear.NonDynamicallyQuantizableLinear(32,32),
+            torch.nn.ReLU()
+        ).to("cuda").to(torch.bfloat16)
+        example_input = torch.randn(32,32, device="cuda", dtype=torch.bfloat16)
+        ref = model(example_input)
+        swap_linear_with_smooth_fq_linear(model)
+        model(ref)
+        smooth_fq_linear_to_inference(model)
+        model_c = torch.compile(model, mode="max-autotune")
+        out = model_c(example_input)
+        sqnr = SQNR(ref, out)
+        self.assertTrue(sqnr >= 25)
+        self.assertTrue(isinstance(model[0], SmoothFakeDynamicallyQuantizedLinear))
+
     @torch.inference_mode()
     def test_on_dummy_distilbert(self):
         # https://huggingface.co/distilbert-base-uncased#how-to-use
