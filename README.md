@@ -6,6 +6,8 @@ The torchao package contains apis and workflows used to apply AO techniques like
 
 ## Installation
 
+**Note: this library makes liberal use of several new features in pytorch, its recommended to use it with the current pytorch nightly if you want full feature coverage. If not, the subclass APIs may not work, though the module swap api's will still work.
+
 1. From PyPI:
 ```
 pip install torchao
