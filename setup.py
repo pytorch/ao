@@ -8,7 +8,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='torchao',
-    version='0.0.2a',
+    version='0.0.2',
     packages=find_packages(),
     install_requires=[
         'torch',
