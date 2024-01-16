@@ -5,8 +5,6 @@ from torch.library import Library, impl
 
 # TODO: make test_gpu_quant work with __torch_dispatch__
 
-torch.uint4 = torch.dtype(torch.bits8, "uint4")
-
 def down_size(size):
     assert size[-1] % 2 == 0, f"{size} last dim not divisible by two"
     return (*size[:-1], size[-1] // 2)
@@ -40,38 +38,36 @@ def fill_defaults(args, n, defaults_tail):
 
 # from
 # https://github.com/drisspg/transformer_nuggets/blob/9ad3a7fc552a954eb702ade0e276b8d8e09c3db6/transformer_nuggets/quant/qlora.py#L233
-def unpack_uint4(bits8_data) -> torch.Tensor:
+def unpack_uint4(uint8_data) -> torch.Tensor:
     """Get the original weight from the normalized float weight format"""
     # since we are using uint8 we will decode 2 entries per byte
     # Shift elements down 4 and select out the bottom 4 bits
-    uint8_data = bits8_data.view(torch.uint8)
     shape = uint8_data.shape
     first_elements = (uint8_data >> 4).to(torch.uint8)
     second_elements = (uint8_data & 0b1111).to(torch.uint8)
-    return torch.stack([first_elements, second_elements], dim=-1).view(up_size(shape)).view(torch.bits8)
+    return torch.stack([first_elements, second_elements], dim=-1).view(up_size(shape))
 
-def pack_uint4(bits8_data) -> torch.Tensor:
+def pack_uint4(uint8_data) -> torch.Tensor:
     # converting to uint8 for operations
-    uint8_data = bits8_data.view(torch.uint8)
     shape = uint8_data.shape
     assert shape[-1] % 2 == 0
     uint8_data = uint8_data.contiguous().view(-1)
-    return (uint8_data[::2] << 4 | uint8_data[1::2]).view(down_size(shape)).view(torch.bits8)
+    return (uint8_data[::2] << 4 | uint8_data[1::2]).view(down_size(shape))
 
-test_lib = Library("test_int4", "DEF")
-test_lib.define("quantize_per_tensor_int4(Tensor input, float scale, int zero_point) -> Tensor")
+qtensor_lib = Library("qtensors", "DEF")
+qtensor_lib.define("quantize_per_tensor_int4(Tensor input, float scale, int zero_point) -> Tensor")
 
-@impl(test_lib, "quantize_per_tensor_int4", "CompositeExplicitAutograd")
+@impl(qtensor_lib, "quantize_per_tensor_int4", "CompositeExplicitAutograd")
 def quantize_per_tensor_int4(
     input: torch.Tensor,
     scale: float,
     zero_point: int,
 ) -> torch.Tensor:
     inv_scale = 1.0 / scale
-    return pack_uint4(torch.clamp(torch.round(input * inv_scale) + zero_point, 0, 15).to(torch.uint8).view(torch.bits8))
+    return pack_uint4(torch.clamp(torch.round(input * inv_scale) + zero_point, 0, 15).to(torch.uint8))
 
-test_lib.define("dequantize_per_tensor_int4(Tensor input, float scale, int zero_point) -> Tensor")
-@impl(test_lib, "dequantize_per_tensor_int4", "CompositeExplicitAutograd")
+qtensor_lib.define("dequantize_per_tensor_int4(Tensor input, float scale, int zero_point) -> Tensor")
+@impl(qtensor_lib, "dequantize_per_tensor_int4", "CompositeExplicitAutograd")
 def dequantize_per_tensor_int4(
     input: torch.Tensor,
     scale: float,
@@ -85,7 +81,7 @@ class UInt4Tensor(torch.Tensor):
     def __new__(cls, elem, **kwargs):
         # TODO: uint64 here is wrong, need a real dtype.  Don't try to(int64)
         # weird shit will happen
-        assert elem.dtype is torch.bits8
+        assert elem.dtype is torch.uint8
         assert not kwargs.get("requires_grad", False)
         kwargs["requires_grad"] = False
         return torch.Tensor._make_wrapper_subclass(cls, up_size(elem.shape), dtype=torch.uint4, **kwargs)
@@ -98,7 +94,7 @@ class UInt4Tensor(torch.Tensor):
         return UInt4Tensor(pack_uint4(unpacked))
 
     def tolist(self):
-        return self.to(torch.bits8).tolist()
+        return self.to(torch.uint8).tolist()
 
     def __tensor_flatten__(self):
         return ["elem"], None
@@ -111,6 +107,9 @@ class UInt4Tensor(torch.Tensor):
 
     def __hash__(self):
         return hash(self.elem)
+
+    def __eq__(self, other):
+        return torch.equal(self.elem, other.elem)
 
     def __getattribute__(self, name):
         if name == "dtype":
@@ -142,21 +141,21 @@ class UInt4Tensor(torch.Tensor):
         elif func is torch.ops.aten._to_copy.default:
             self, = args
             if kwargs == {'dtype': torch.uint8}:
-                return unpack_uint4(self.elem).view(self.shape).view(torch.uint8)  # no wrap
+                return unpack_uint4(self.elem).view(self.shape) # no wrap
             else:
                 raise NotImplementedError(f"_to_copy {kwargs}")
         elif func is torch.ops.aten.unbind.int:
             # This is tricky.  Given torch.tensor([0, 1, 2, 3]) we want to
             # create four tensors containing one element each.  But we can't
             # do this with uint4 because such a tensor's size is not divisible
-            # by bytes.  What I am going to do instead is promote to bits8
+            # by bytes.  What I am going to do instead is promote to uint8
             # when this happens
             self, dim = fill_defaults(args, 2, [0])
             if dim != self.dim() - 1:
                 raise NotImplementedError(f"unbind dim={dim}")
             else:
                 # We're unbinding the last dimension, need to promote
-                return torch.ops.aten._to_copy.default(self, dtype=torch.bits8).unbind(dim)
+                return torch.ops.aten._to_copy.default(self, dtype=torch.uint8).unbind(dim)
         elif func is torch.ops.aten.select.int:
             self, dim, index = args
             if dim != self.dim() - 1:
@@ -196,7 +195,7 @@ class UInt4Tensor(torch.Tensor):
             new_stride = []
             for s in stride:
                 if s != 1:
-                    # since two int4 equals to 1 bits8
+                    # since two int4 equals to 1 uint8
                     new_stride.append(s // 2)
                 else:
                     new_stride.append(s)
@@ -206,9 +205,6 @@ class UInt4Tensor(torch.Tensor):
             return UInt4Tensor(torch.ops.aten.as_strided.default(self.elem, size, stride, storage_offset))
 
         raise NotImplementedError(f"{func}")
-
-    def __eq__(self, other):
-        return torch.equal(self.elem, other.elem)
 
     __torch_function__ = torch._C._disabled_torch_function_impl
 
@@ -247,7 +243,7 @@ def _dynamically_quantize_per_channel_int4(x, quant_min, quant_max, target_dtype
     quant = torch.clamp(x_zp, quant_min, quant_max)
     if target_dtype == torch.uint4:
         # TODO: simplify (maybe implement to)
-        quant = PerChannelSymmetricWeightUInt4Tensor.from_unpacked(quant.to(torch.uint8).view(torch.bits8), scale)
+        quant = PerChannelSymmetricWeightUInt4Tensor.from_unpacked(quant.to(torch.uint8), scale)
     else:
         quant = quant.to(target_dtype)
 
@@ -266,7 +262,6 @@ class PerChannelSymmetricWeightUInt4Tensor(UInt4Tensor):
     def from_unpacked(cls, unpacked, scales):
         return cls(pack_uint4(unpacked), scales)
 
-    # @classmethod
     # def __torch_function__(cls, func, types, args=(), kwargs=None):
     #     kwargs = {} if kwargs is None else kwargs
 

@@ -48,22 +48,26 @@ class TestInt4(QuantizationTestCase):
             [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
             [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
             [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
-        ], dtype=torch.uint8).view(torch.bits8))
+        ], dtype=torch.uint8))
         self.assertEqual(x.shape, (3, 16))
         # TODO: make sure this returns torch.uint4
-        self.assertEqual(x.dtype, torch.uint4)
+        self.assertIs(x.dtype, torch.uint4)
         # making sure these works
         x.to(torch.uint8)
         expected = UInt4Tensor(torch.tensor([
             [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
-        ], dtype=torch.uint8).view(torch.bits8))
+        ], dtype=torch.uint8))
         self.assertEqual(x[0:1, :], expected)
         expected = UInt4Tensor(torch.tensor([
             [0x23, 0x45],
             [0x23, 0x45],
             [0x23, 0x45],
-        ], dtype=torch.uint8).view(torch.bits8))
+        ], dtype=torch.uint8))
         self.assertEqual(x[:, 2:6], expected)
+        torch.save(x, "uint4_tensor.pt")
+        x = torch.load("uint4_tensor.pt")
+        self.assertEqual(x[:, 2:6], expected)
+        print("x:", x[0])
 
     def test_gpu_quant(self):
         for x_shape in [[2, 4], [5, 5, 5, 4], [1, 4, 4]]:
@@ -97,9 +101,9 @@ class TestInt4(QuantizationTestCase):
             def convert(self, model: GraphModule, observer_node: Node):
                 with model.graph.inserting_before(observer_node):
                     q_node = model.graph.call_function(
-                        torch.ops.test_int4.quantize_per_tensor_int4, (observer_node.args[0], 1.0, 0), {})
+                        torch.ops.qtensors.quantize_per_tensor_int4, (observer_node.args[0], 1.0, 0), {})
                     dq_node = model.graph.call_function(
-                        torch.ops.test_int4.dequantize_per_tensor_int4, (q_node, 1.0, 0), {})
+                        torch.ops.qtensors.dequantize_per_tensor_int4, (q_node, 1.0, 0), {})
                     observer_node.replace_all_uses_with(dq_node)
                     model.graph.erase_node(observer_node)
 
@@ -179,15 +183,15 @@ class TestInt4(QuantizationTestCase):
         quantizer = Int8ActInt4WeightQuantizer()
         node_occurrence = {
             # for weight
-            torch.ops.test_int4.quantize_per_tensor_int4: 1,
-            torch.ops.test_int4.dequantize_per_tensor_int4: 1,
+            torch.ops.qtensors.quantize_per_tensor_int4: 1,
+            torch.ops.qtensors.dequantize_per_tensor_int4: 1,
             # for activation
             torch.ops.quantized_decomposed.quantize_per_tensor.default: 2,
             torch.ops.quantized_decomposed.dequantize_per_tensor.default: 2,
         }
         node_list = [
             torch.ops.quantized_decomposed.dequantize_per_tensor.default,
-            torch.ops.test_int4.dequantize_per_tensor_int4,
+            torch.ops.qtensors.dequantize_per_tensor_int4,
             torch.ops.aten.linear.default,
             torch.ops.quantized_decomposed.quantize_per_tensor.default,
         ]
