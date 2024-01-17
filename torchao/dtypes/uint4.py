@@ -3,8 +3,6 @@ import torch._prims_common as utils
 import torch.utils._pytree as pytree
 from torch.library import Library, impl
 
-# TODO: make test_gpu_quant work with __torch_dispatch__
-
 def down_size(size):
     assert size[-1] % 2 == 0, f"{size} last dim not divisible by two"
     return (*size[:-1], size[-1] // 2)
@@ -55,10 +53,10 @@ def pack_uint4(uint8_data) -> torch.Tensor:
     return (uint8_data[::2] << 4 | uint8_data[1::2]).view(down_size(shape))
 
 qtensor_lib = Library("qtensors", "DEF")
-qtensor_lib.define("quantize_per_tensor_int4(Tensor input, float scale, int zero_point) -> Tensor")
+qtensor_lib.define("quantize_per_tensor_uint4(Tensor input, float scale, int zero_point) -> Tensor")
 
-@impl(qtensor_lib, "quantize_per_tensor_int4", "CompositeExplicitAutograd")
-def quantize_per_tensor_int4(
+@impl(qtensor_lib, "quantize_per_tensor_uint4", "CompositeExplicitAutograd")
+def quantize_per_tensor_uint4(
     input: torch.Tensor,
     scale: float,
     zero_point: int,
@@ -66,9 +64,9 @@ def quantize_per_tensor_int4(
     inv_scale = 1.0 / scale
     return pack_uint4(torch.clamp(torch.round(input * inv_scale) + zero_point, 0, 15).to(torch.uint8))
 
-qtensor_lib.define("dequantize_per_tensor_int4(Tensor input, float scale, int zero_point) -> Tensor")
-@impl(qtensor_lib, "dequantize_per_tensor_int4", "CompositeExplicitAutograd")
-def dequantize_per_tensor_int4(
+qtensor_lib.define("dequantize_per_tensor_uint4(Tensor input, float scale, int zero_point) -> Tensor")
+@impl(qtensor_lib, "dequantize_per_tensor_uint4", "CompositeExplicitAutograd")
+def dequantize_per_tensor_uint4(
     input: torch.Tensor,
     scale: float,
     zero_point: int,
@@ -79,8 +77,6 @@ def dequantize_per_tensor_int4(
 class UInt4Tensor(torch.Tensor):
     @staticmethod
     def __new__(cls, elem, **kwargs):
-        # TODO: uint64 here is wrong, need a real dtype.  Don't try to(int64)
-        # weird shit will happen
         assert elem.dtype is torch.uint8
         assert not kwargs.get("requires_grad", False)
         kwargs["requires_grad"] = False
@@ -111,10 +107,10 @@ class UInt4Tensor(torch.Tensor):
     def __eq__(self, other):
         return torch.equal(self.elem, other.elem)
 
-    def __getattribute__(self, name):
-        if name == "dtype":
-            return torch.uint4
-        return super().__getattribute__(name)
+    # def __getattribute__(self, name):
+    #     if name == "dtype":
+    #         return torch.uint4
+    #     return super().__getattribute__(name)
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
@@ -255,36 +251,24 @@ class PerChannelSymmetricWeightUInt4Tensor(UInt4Tensor):
         return super().__new__(cls, elem)
 
     def __init__(self, elem, scales):
-        super().__init__(elem)
+        # super().__init__(elem)
+        self.elem = elem
         self.scales = scales
+
+
+    def __tensor_flatten__(self):
+        return ["elem", "scales"], None
+
+    @staticmethod
+    def __tensor_unflatten__(flattened, meta, outer_size, outer_stride):
+        assert meta is None
+        elem = flattened["elem"]
+        scales = flattened["scales"]
+        return PerChannelSymmetricWeightUInt4Tensor(elem, scales)
 
     @classmethod
     def from_unpacked(cls, unpacked, scales):
         return cls(pack_uint4(unpacked), scales)
-
-    # def __torch_function__(cls, func, types, args=(), kwargs=None):
-    #     kwargs = {} if kwargs is None else kwargs
-
-    #     if func is torch.nn.functional.linear:
-    #         x, weight, bias = (
-    #             args[0],
-    #             args[1],
-    #             args[2] if len(args)>2 else None
-    #         )
-    #         x_view = x.view(-1, x.shape[-1])
-    #         weight_scales = weight.scales
-    #         weight = weight.to(torch.uint8).to(x.dtype)
-    #         out = torch.mm(x_view, weight.t())
-    #         out = out * weight_scales
-    #         out = out.reshape(*x.shape[:-1], -1)
-    #         if bias is not None:
-    #             out += bias
-    #         return out
-    #     try:
-    #         with torch._C.DisableTorchFunctionSubclass():
-    #             return func(*args, **kwargs)
-    #     except:
-    #         print(f"ERR: subclass doesn't implement {func}")
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
@@ -305,8 +289,7 @@ class PerChannelSymmetricWeightUInt4Tensor(UInt4Tensor):
             self, = args
             unpacked = unpack_uint4(self.elem)
             transposed = torch.ops.aten.t.default(unpacked)
-            transposed_and_packed = pack_uint4(transposed)
-            return cls(transposed_and_packed, self.scales)
+            return PerChannelSymmetricWeightUInt4Tensor.from_unpacked(transposed, self.scales)
         elif func is torch.ops.aten.detach.default:
             self, = args
             return self
@@ -317,5 +300,5 @@ class PerChannelSymmetricWeightUInt4Tensor(UInt4Tensor):
         w_int4, scales, _zp = _dynamically_quantize_per_channel_int4(
             w_fp32, 0, 15, torch.uint4
         )
-        w_int4.to(device=w_fp32.device)
+        w_int4 = w_int4.to(device=w_fp32.device)
         return w_int4

@@ -1,5 +1,5 @@
 import torch
-from torchao.dtypes.int4 import (
+from torchao.dtypes.uint4 import (
     UInt4Tensor,
     PerChannelSymmetricWeightUInt4Tensor,
 )
@@ -31,7 +31,7 @@ from torch.ao.quantization.quantizer import (
 )
 import copy
 
-def _apply_weight_only_int4_quant(model):
+def _apply_weight_only_uint4_quant(model):
     def fn(mod):
         mod.weight = torch.nn.Parameter(PerChannelSymmetricWeightUInt4Tensor.from_float(mod.weight), requires_grad=False)
         return mod
@@ -42,7 +42,7 @@ def _apply_weight_only_int4_quant(model):
         lambda mod, fqn: isinstance(mod, torch.nn.Linear),
     )
 
-class TestInt4(QuantizationTestCase):
+class TestUInt4(QuantizationTestCase):
     def test_basic_tensor_ops(self):
         x = UInt4Tensor(torch.tensor([
             [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
@@ -67,17 +67,18 @@ class TestInt4(QuantizationTestCase):
         torch.save(x, "uint4_tensor.pt")
         x = torch.load("uint4_tensor.pt")
         self.assertEqual(x[:, 2:6], expected)
-        print("x:", x[0])
+        # only test locally
+        # print("x:", x[0])
 
     def test_gpu_quant(self):
         for x_shape in [[2, 4], [5, 5, 5, 4], [1, 4, 4]]:
             x = torch.randn(*x_shape)
             m = nn.Sequential(nn.Linear(4, 16))
             y_ref = m(x)
-            _apply_weight_only_int4_quant(m)
+            _apply_weight_only_uint4_quant(m)
             y_wo = m(x)
             # sqnr = compute_error(y_ref, y_wo)
-            opt = torch.compile(m, mode="max-autotune")
+            opt = torch.compile(m, fullgraph=True, mode="max-autotune")
             # make sure it runs
             opt(x)
 
@@ -86,7 +87,7 @@ class TestInt4(QuantizationTestCase):
             OP_TO_ANNOTATOR,
             QuantizationConfig,
         )
-        class Int4Observer(ObserverBase):
+        class Uint4Observer(ObserverBase):
             def __init__(self, *args, **kwargs):
                 # just faking a dtype here
                 # TODO: make flow work with new dtypes
@@ -101,9 +102,9 @@ class TestInt4(QuantizationTestCase):
             def convert(self, model: GraphModule, observer_node: Node):
                 with model.graph.inserting_before(observer_node):
                     q_node = model.graph.call_function(
-                        torch.ops.qtensors.quantize_per_tensor_int4, (observer_node.args[0], 1.0, 0), {})
+                        torch.ops.qtensors.quantize_per_tensor_uint4, (observer_node.args[0], 1.0, 0), {})
                     dq_node = model.graph.call_function(
-                        torch.ops.qtensors.dequantize_per_tensor_int4, (q_node, 1.0, 0), {})
+                        torch.ops.qtensors.dequantize_per_tensor_uint4, (q_node, 1.0, 0), {})
                     observer_node.replace_all_uses_with(dq_node)
                     model.graph.erase_node(observer_node)
 
@@ -112,15 +113,15 @@ class TestInt4(QuantizationTestCase):
             _mark_nodes_as_annotated,
         )
 
-        class Int8ActInt4WeightQuantizer(Quantizer):
+        class Int8ActUint4WeightQuantizer(Quantizer):
             def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
-                int4_qspec = QuantizationSpec(
+                uint4_qspec = QuantizationSpec(
                     dtype=torch.uint4,
                     quant_min=0,
                     quant_max=2**4 - 1,
                     qscheme=torch.per_tensor_affine,
                     is_dynamic=False,
-                    observer_or_fake_quant_ctr=Int4Observer,
+                    observer_or_fake_quant_ctr=Uint4Observer,
                 )
                 int8_qspec = QuantizationSpec(
                     dtype=torch.int8,
@@ -132,7 +133,7 @@ class TestInt4(QuantizationTestCase):
                 )
                 quantization_config = QuantizationConfig(
                     input_activation=int8_qspec,
-                    weight=int4_qspec,
+                    weight=uint4_qspec,
                     bias=None,
                     output_activation=int8_qspec,
                 )
@@ -180,18 +181,18 @@ class TestInt4(QuantizationTestCase):
             def forward(self, x):
                 return self.linear(x)
 
-        quantizer = Int8ActInt4WeightQuantizer()
+        quantizer = Int8ActUint4WeightQuantizer()
         node_occurrence = {
             # for weight
-            torch.ops.qtensors.quantize_per_tensor_int4: 1,
-            torch.ops.qtensors.dequantize_per_tensor_int4: 1,
+            torch.ops.qtensors.quantize_per_tensor_uint4: 1,
+            torch.ops.qtensors.dequantize_per_tensor_uint4: 1,
             # for activation
             torch.ops.quantized_decomposed.quantize_per_tensor.default: 2,
             torch.ops.quantized_decomposed.dequantize_per_tensor.default: 2,
         }
         node_list = [
             torch.ops.quantized_decomposed.dequantize_per_tensor.default,
-            torch.ops.qtensors.dequantize_per_tensor_int4,
+            torch.ops.qtensors.dequantize_per_tensor_uint4,
             torch.ops.aten.linear.default,
             torch.ops.quantized_decomposed.quantize_per_tensor.default,
         ]
