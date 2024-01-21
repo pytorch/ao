@@ -62,7 +62,7 @@ input = torch.randn(32,32, dtype=torch.bfloat16, device='cuda')
 quant_api.change_linear_weights_to_int8_dqtensors(model)
 
 # compile the model to improve performance
-torch.compile(model, mode='max-autotune')
+model = torch.compile(model, mode='max-autotune')
 model(input)
 ```
 
@@ -125,7 +125,7 @@ Example
 
 ```
 import torch
-from torchao.smoothquant import swap_linear_with_smooth_fq_linear, smooth_fq_linear_to_inference
+from torchao.quantization.smoothquant import swap_linear_with_smooth_fq_linear, smooth_fq_linear_to_inference
 
 # some user model
 model = get_model()
@@ -143,7 +143,7 @@ for i in range(calibration_amount):
 smooth_fq_linear_to_inference(model)
 
 # compile the model to improve performance
-torch.compile(model, mode='max-autotune')
+model = torch.compile(model, mode='max-autotune')
 model(input)
 ```
 
