@@ -107,11 +107,6 @@ class UInt4Tensor(torch.Tensor):
     def __eq__(self, other):
         return torch.equal(self.elem, other.elem)
 
-    # def __getattribute__(self, name):
-    #     if name == "dtype":
-    #         return torch.uint4
-    #     return super().__getattribute__(name)
-
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
         if func is torch.ops.aten.view.default:
@@ -272,10 +267,6 @@ class PerChannelSymmetricWeightUInt4Tensor(UInt4Tensor):
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
-        # didin't hit this, there is a mysterious error if we try to go through this path
-        # torch._dynamo.exc.BackendCompilerFailed: backend='inductor' raised:
-        # Exception: Please convert all Tensors to FakeTensors first or
-        # instantiate FakeTensorMode with 'allow_non_fake_inputs'
         if func is torch.ops.aten.addmm.default:
             bias, x, weight = args
             x_view = x.view(-1, x.shape[-1])
@@ -285,7 +276,7 @@ class PerChannelSymmetricWeightUInt4Tensor(UInt4Tensor):
                 y += bias
             return y
         elif func is torch.ops.aten.t.default:
-            # assert False, "transpose is not properly implemented currently"
+            # TODO: add proper support for transpose
             self, = args
             unpacked = unpack_uint4(self.elem)
             transposed = torch.ops.aten.t.default(unpacked)
