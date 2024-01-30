@@ -22,7 +22,6 @@ from .dynamic_quant import (
 from .subclass import (
     QuantizedLinearWeightBase,
     Int8DynamicallyQuantizedLinearWeight,
-    Int8DynamicallyQuantizedSemiStructuredSparseLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
     Int4WeightOnlyQuantizedLinearWeight,
 )
@@ -34,7 +33,6 @@ __all__ = [
     "apply_weight_only_int8_quant",
     "apply_dynamic_quant",
     "change_linear_weights_to_int8_dqtensors",
-    "change_linear_weights_to_int8_dq_semi_structured_sparsetensors",
     "change_linear_weights_to_int8_woqtensors",
     "change_linear_weights_to_int4_woqtensors",
     "swap_conv2d_1x1_to_linear"
@@ -154,17 +152,6 @@ def change_linear_weights_to_int4_woqtensors(model, **kwargs):
         _get_subclass_inserter(Int4WeightOnlyQuantizedLinearWeight, **kwargs),
         filter_fn,
     )
-
-
-def change_linear_weights_to_int8_dq_semi_structured_sparsetensors(model, **kwargs):
-    filter_fn = kwargs.pop("filter_fn", _is_linear)
-
-    _replace_with_custom_fn_if_matches_filter(
-        model,
-        _get_subclass_inserter(Int8DynamicallyQuantizedSemiStructuredSparseLinearWeight, **kwargs),
-        filter_fn,
-    )
-
 
 def swap_conv2d_1x1_to_linear(model, filter_fn=None):
     """

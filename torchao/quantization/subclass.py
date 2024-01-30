@@ -14,14 +14,12 @@ from .quant_primitives import (
     quant_int8_dynamic_per_token_linear,
     unpack_tinygemm_scales_and_zeros,
 )
-from .dynamic_quant_sparse import sparse_quant_int8_dynamic_per_token_linear
 from .utils import find_multiple
 import warnings
 
 
 __all__ = [
     "Int8DynamicallyQuantizedLinearWeight",
-    "Int8DynamicallyQuantizedSemiStructuredSparseLinearWeight",
     "Int8WeightOnlyQuantizedLinearWeight",
     "Int4WeightOnlyQuantizedLinearWeight",
 ]
@@ -273,103 +271,6 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
         int_data = w_int_repr.contiguous().t()
         if cls is not Int8DynamicallyQuantizedLinearWeight:
             int_data = int_data.contiguous()
-        return cls(
-            int_data, w_scales, False, input_float.shape, dtype=input_float.dtype
-        )
-
-class Int8DynamicallyQuantizedSemiStructuredSparseLinearWeight(QuantizedLinearWeightBase):
-
-    @staticmethod
-    def __new__(cls, int_data, q_scales, transposed, shape, **kwargs):
-        kwargs["dtype"] = kwargs.get("dtype", q_scales.dtype)
-        return super().__new__(cls, int_data, transposed, shape, **kwargs)  # type: ignore[attr-defined]
-
-    def __init__(self, int_data, q_scales, transposed, shape, **kwargs):
-        self.q_scales = q_scales
-        super().__init__(int_data, transposed)
-
-    @staticmethod
-    def _quantized_op(act_mat, w_qtensor, bias):
-        return sparse_quant_int8_dynamic_per_token_linear(
-            act_mat, w_qtensor.int_data, w_qtensor.q_scales, bias, act_mat.dtype
-        )
-
-    def dequantize(self, dtype=None):
-        """
-        Obtain the dequantized version of the quantized tensor subclass
-        """
-        dq_t = dequantize_per_channel(
-            self.int_data.t(), self.q_scales, 0, self.dtype if dtype is None else dtype
-        ).to(self.dtype)
-        # data was transposed to dequantize so make sure shape is correct
-        return dq_t if not self.transposed else dq_t.t()
-
-    def int_repr(self):
-        """
-        Get the internal integer representation of the quantized tensor
-        """
-        return self.int_data if self.transposed else self.int_data.t()
-
-    def q_params(self):
-        """
-        Get the quantization scales for the quantized tensor
-        """
-        return {"q_scales": self.q_scales}
-
-    def to(self, *args, **kwargs):
-        kwargs = self._get_to_kwargs(*args, **kwargs)
-        return self.__class__(
-            self.int_data.to(kwargs["device"]),
-            self.q_scales.to(kwargs["device"]),
-            self.transposed,
-            self.shape,
-            **kwargs,
-        )
-
-    def _apply_fn_to_data(self, fn):
-        return self.__class__(
-            fn(self.int_data), fn(self.q_scales), self.transposed, self.shape, dtype=self.dtype
-        )
-
-    def _change_shape(self, shape):
-        return self.__class__(
-            self.int_data, self.q_scales, self.transposed, shape, dtype=self.dtype
-        )
-
-    def __tensor_flatten__(self):
-        return ["int_data", "q_scales"], [self.transposed, self.dtype, self.shape]
-
-    @classmethod
-    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
-        int_data, q_scales = tensor_data_dict["int_data"], tensor_data_dict["q_scales"]
-        transposed, dtype, shape = tensor_attributes
-        return cls(int_data, q_scales, transposed, shape if outer_size is None else outer_size, dtype=dtype, strides=outer_stride)
-
-    @classmethod
-    def from_float(cls, input_float, qmin=-128, qmax=127):
-        """
-        Method used to convert a linear weight tensor to an instance of the
-        Int8DynamicallyQuantizedLinearWeight subclass.
-
-        Example usage::
-
-            model.lin_mod.weight = (
-                Int8DynamicallyQuantizedLinearWeight.from_float(model.lin_mod.weight)
-            )
-        """
-        w_int_repr, w_scales, _ = dynamically_quantize_per_channel(
-            input_float, qmin, qmax, torch.int8
-        )
-        # the desired representation shape for fast quantized matmul is
-        # transposed compared to how it's stored as a linear weight,
-        # i.e. we want in_channels as dim=0 and out_channels (and quantized axis) as dim=1
-        # however the external representation of our tensor will maintain the correct
-        # shape attribute which needs to be tracked directly.
-        int_data = w_int_repr.contiguous().t()
-        if cls is not Int8DynamicallyQuantizedSemiStructuredSparseLinearWeight:
-            int_data = int_data.contiguous()
-
-        int_data = torch._cslt_compress(int_data)
         return cls(
             int_data, w_scales, False, input_float.shape, dtype=input_float.dtype
         )
