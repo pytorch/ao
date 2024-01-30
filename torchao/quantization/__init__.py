@@ -16,6 +16,7 @@ __all__ = [
     "apply_weight_only_int8_quant",
     "apply_dynamic_quant",
     "change_linear_weights_to_int8_dqtensors",
+    "change_linear_weights_to_int8_dq_semi_structured_sparsetensors",
     "change_linear_weights_to_int8_woqtensors",
     "change_linear_weights_to_int4_woqtensors",
     "swap_conv2d_1x1_to_linear"
