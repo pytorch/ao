@@ -22,7 +22,8 @@ from .dynamic_quant import (
 from .subclass import (
     QuantizedLinearWeightBase,
     Int8DynamicallyQuantizedLinearWeight,
-    Int8DynamicallyQuantizedSemiStructuredSparseLinearWeight,
+    Int8DynamicallyQuantized24CutlassLinearWeight,
+    Int8DynamicallyQuantized24CusparseltLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
     Int4WeightOnlyQuantizedLinearWeight,
 )
@@ -159,9 +160,15 @@ def change_linear_weights_to_int4_woqtensors(model, **kwargs):
 def change_linear_weights_to_int8_dq_semi_structured_sparsetensors(model, **kwargs):
     filter_fn = kwargs.pop("filter_fn", _is_linear)
 
+    from torch.sparse import SparseSemiStructuredTensor
+    if SparseSemiStructuredTensor._FORCE_CUTLASS:
+        subclass = Int8DynamicallyQuantized24CutlassLinearWeight
+    else:
+        subclass = Int8DynamicallyQuantized24CusparseltLinearWeight
+
     _replace_with_custom_fn_if_matches_filter(
         model,
-        _get_subclass_inserter(Int8DynamicallyQuantizedSemiStructuredSparseLinearWeight, **kwargs),
+        _get_subclass_inserter(subclass, **kwargs),
         filter_fn,
     )
 
