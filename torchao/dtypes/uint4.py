@@ -82,7 +82,7 @@ class UInt4Tensor(torch.Tensor):
         kwargs["requires_grad"] = False
         return torch.Tensor._make_wrapper_subclass(cls, up_size(elem.shape), dtype=torch.uint4, **kwargs)
 
-    def __init__(self, elem):
+    def __init__(self, elem, **kwargs):
         self.elem = elem
 
     @classmethod
@@ -242,12 +242,11 @@ def _dynamically_quantize_per_channel_int4(x, quant_min, quant_max, target_dtype
 
 class PerChannelSymmetricWeightUInt4Tensor(UInt4Tensor):
     @staticmethod
-    def __new__(cls, elem, scales):
-        return super().__new__(cls, elem)
+    def __new__(cls, elem, scales, **kwargs):
+        return super().__new__(cls, elem, **kwargs)
 
-    def __init__(self, elem, scales):
-        # super().__init__(elem)
-        self.elem = elem
+    def __init__(self, elem, scales, **kwargs):
+        super().__init__(elem, **kwargs)
         self.scales = scales
 
 
