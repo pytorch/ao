@@ -24,6 +24,7 @@ from torchao.quantization.quant_api import (
     change_linear_weights_to_int8_woqtensors,
     change_linear_weights_to_int4_woqtensors,
     _replace_with_custom_fn_if_matches_filter,
+    do_autoquant
 )
 from torchao.quantization.quant_primitives import (
     dequantize_per_channel,
@@ -1195,6 +1196,21 @@ class SmoothquantIntegrationTest(unittest.TestCase):
         print("sqnr_pt_quant", sqnr_pt_quant)
         self.assertTrue(sqnr_sq >= 8.0)
 
+class TestAutoQuant(unittest.TestCase):
+    def test_auto_quant(self):
+        model = torch.nn.Sequential(
+            # torch.nn.Linear(5120,1280),
+            # torch.nn.ReLU(),
+            torch.nn.Linear(1280,3840),
+            torch.nn.ReLU(),
+            torch.nn.Linear(3840,1280),
+        ).to("cuda").to(torch.bfloat16)
+        example_input = torch.randn(65536,1280, device="cuda", dtype=torch.bfloat16)
+        torch._inductor.config.epilogue_fusion = False
+        torch._inductor.config.use_mixed_mm = True
+        torch._inductor.config.force_fuse_int_mm_with_mul = True
+        torch._inductor.config.coordinate_descent_tuning = True
+        do_autoquant(model, example_input)
 
 if __name__ == "__main__":
     unittest.main()

@@ -28,6 +28,7 @@ from .subclass import (
 from .weight_only import (
     WeightOnlyInt8QuantLinear,
 )
+from .autoquant import AutoQuantizableLinearWeight, DEFAULT_CLASS_LIST
 
 __all__ = [
     "apply_weight_only_int8_quant",
@@ -95,9 +96,11 @@ def apply_dynamic_quant(model, filter_fn=None):
 
 
 def _get_subclass_inserter(cls, **kwargs):
+    method = kwargs.pop("method", "from_float")
     def insert_subclass(lin):
         lin.weight = torch.nn.Parameter(
-            cls.from_float(lin.weight, **kwargs), requires_grad=False
+            # cls.from_float(...)
+            getattr(cls, method)(lin.weight, **kwargs), requires_grad=False
         )
         return lin
 
@@ -152,6 +155,39 @@ def change_linear_weights_to_int4_woqtensors(model, **kwargs):
         _get_subclass_inserter(Int4WeightOnlyQuantizedLinearWeight, **kwargs),
         filter_fn,
     )
+
+
+def change_linears_to_autoquantizable(model, **kwargs):
+    filter_fn = kwargs.pop("filter_fn", _is_linear)
+    _replace_with_custom_fn_if_matches_filter(
+        model,
+        _get_subclass_inserter(AutoQuantizableLinearWeight, **kwargs),
+        filter_fn if filter_fn is not None else _is_linear,
+    )
+
+def change_autoquantizable_to_quantized(model, **kwargs):
+    filter_fn = kwargs.pop(
+        "filter_fn",
+        lambda mod, *args:
+            _is_linear(mod, *args) and
+            isinstance(mod.weight, AutoQuantizableLinearWeight)
+    )
+    _replace_with_custom_fn_if_matches_filter(
+        model,
+        _get_subclass_inserter(
+            AutoQuantizableLinearWeight, method="to_quantized", **kwargs
+        ),
+        filter_fn,
+    )
+
+@torch.no_grad()
+def do_autoquant(model, example_input, qtensor_class_list=DEFAULT_CLASS_LIST, filter_fn=_is_linear):
+    change_linears_to_autoquantizable(model, filter_fn=filter_fn, qtensor_class_list=qtensor_class_list)
+    if not isinstance(example_input, (tuple, list)):
+        example_input = [example_input]
+    model(*example_input)
+    change_autoquantizable_to_quantized(model)
+    return model
 
 def swap_conv2d_1x1_to_linear(model, filter_fn=None):
     """

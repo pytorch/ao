@@ -7,6 +7,7 @@ from typing import Dict, Optional
 
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
+from torch.utils.benchmark import Timer
 
 __all__ = [
     "find_multiple",
@@ -86,3 +87,15 @@ def get_model_size_in_bytes(model):
     for b in model.buffers():
         s += b.nelement() * b.element_size()
     return s
+
+def benchmark(f, *args, **kwargs):
+    t0 = Timer(
+        stmt="f(*args, **kwargs)", globals={"args": args, "kwargs": kwargs, "f": f}
+    )
+    # warmup
+    t0.timeit(10).median
+    t0.blocked_autorange()
+    res = t0.timeit(20)
+    print(res)
+
+    return res.median * 1e3
