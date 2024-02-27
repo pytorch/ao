@@ -206,6 +206,7 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
         q_c_op = torch.compile(cls._quantized_op, mode="max-autotune")
         with torch.no_grad():
             res=benchmark(q_c_op, act_mat, w_qtensor, bias)
+
         x_vals_int8, x_scales = quantize_activation_per_token_absmax(
             act_mat.reshape(-1, act_mat.shape[-1])
         )
@@ -217,6 +218,7 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
         with torch.no_grad():
             res2=benchmark(q_c_matmul, x_vals_int8, x_scales, w_qtensor.int_data)
         print(cls, res, res2)
+        breakpoint()
         return (res+res2)/2
 
     def dequantize(self, dtype=None):
@@ -331,8 +333,8 @@ class Int8WeightOnlyQuantizedLinearWeight(Int8DynamicallyQuantizedLinearWeight):
                 q_c_matmul,
                 act_mat.reshape(-1, act_mat.shape[-1]),
                 w_qtensor.int_data)
-        print(cls, res, res2
-        )
+
+        print(cls, res, res2)
         return (res+res2)/2
 
 class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):

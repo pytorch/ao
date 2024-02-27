@@ -1204,12 +1204,15 @@ class TestAutoQuant(unittest.TestCase):
             torch.nn.Linear(1280,3840),
             torch.nn.ReLU(),
             torch.nn.Linear(3840,1280),
+            torch.nn.ReLU(),
         ).to("cuda").to(torch.bfloat16)
-        example_input = torch.randn(65536,1280, device="cuda", dtype=torch.bfloat16)
+        example_input = torch.randn(65536, 1280, device="cuda", dtype=torch.bfloat16)
         torch._inductor.config.epilogue_fusion = False
         torch._inductor.config.use_mixed_mm = True
         torch._inductor.config.force_fuse_int_mm_with_mul = True
         torch._inductor.config.coordinate_descent_tuning = True
+        torch._dynamo.config.automatic_dynamic_shapes = False
+        torch._dynamo.reset() # TODO use in autoquantizer
         do_autoquant(model, example_input)
 
 if __name__ == "__main__":

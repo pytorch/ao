@@ -12,16 +12,11 @@ aten = torch.ops.aten
 
 AUTOQUANT_CACHE = {}
 
-def check_cache(shape, cls):
-    if shape in AUTOQUANT_CACHE:
-        return AUTOQUANT_CACHE[shape].get(cls, None)
-    else:
-        return None
+def check_cache(cls, shape, dtype):
+    return AUTOQUANT_CACHE.get((cls, shape, dtype), None)
 
-def update_cache(shape, cls, res):
-    if not shape in AUTOQUANT_CACHE:
-        AUTOQUANT_CACHE[shape] = {}
-    AUTOQUANT_CACHE[shape][cls] = res
+def update_cache(cls, shape, dtype, res):
+    AUTOQUANT_CACHE[(cls, shape, dtype)] = res
 
 class AutoQuantizableLinearWeight(torch.Tensor):
     """
@@ -43,7 +38,8 @@ class AutoQuantizableLinearWeight(torch.Tensor):
     def __init__(self, weight, qtensor_class_list, *args, **kwargs):
         self.weight = weight
         self.qtensor_class_list = qtensor_class_list
-        self.cache_shape = None
+        self.logged_shape = None
+        self.logged_dtype = None
 
     def __repr__(self):
         return (
@@ -52,36 +48,46 @@ class AutoQuantizableLinearWeight(torch.Tensor):
         )
 
     @staticmethod
-    def tune_autoquant(act_mat, w_autoquant, bias):
+    def log_shape(act_mat, w_autoquant, bias):
         orig_shape = act_mat.shape
         act_mat = act_mat.reshape(-1, act_mat.shape[-1])
-        cache_shape = (act_mat.shape, w_autoquant.shape, None if bias is None else bias.shape)
-        w_autoquant.cache_shape = cache_shape
-        for cur_cls in w_autoquant.qtensor_class_list:
-            if check_cache(cache_shape, cur_cls) is None:
-                with torch.no_grad():
-                    print(cur_cls, cache_shape)
-                    print(torch.cuda.max_memory_allocated()/1e6, torch.cuda.memory_usage())
-                    res = cur_cls._autoquant_test(act_mat.clone(), w_autoquant.weight.clone(), None if bias is None else bias.clone())
-                    update_cache(cache_shape, cur_cls, res)
-                    print(torch.cuda.max_memory_allocated()/1e6, torch.cuda.memory_usage())
+        logged_shape = (act_mat.shape, w_autoquant.shape, None if bias is None else bias.shape)
+        logged_dtype = act_mat.dtype
+        w_autoquant.logged_shape = logged_shape
+        w_autoquant.logged_dtype = logged_dtype
+        for q_cls in w_autoquant.qtensor_class_list:
+            if check_cache(q_cls, logged_shape, logged_dtype) is None:
+                update_cache(q_cls, logged_shape, logged_dtype, None)
         y = torch.mm(act_mat, w_autoquant.weight.t())
         y = y.reshape(*orig_shape[:-1], y.shape[-1])
         if bias is not None:
             y += bias
         return y
 
+    def tune_autoquant(self, q_cls):
+        act_shape, w_shape, bias_shape = self.logged_shape
+        if check_cache(q_cls, self.logged_shape, self.logged_dtype) is None:
+            with torch.no_grad():
+                act_mat = torch.randn(act_shape, dtype=self.logged_dtype, device=self.device)
+                bias = None if bias_shape is None else torch.randn(bias_shape, dtype=self.logged_dtype, device=self.device)
+                print(q_cls, self.logged_shape, self.logged_dtype)
+                print("mem", torch.cuda.max_memory_allocated()/1e6, torch.cuda.memory_usage())
+                res = q_cls._autoquant_test(act_mat, self.weight, bias)
+                update_cache(q_cls, self.logged_shape, self.logged_dtype, res)
+
     def to_quantized(self):
-        if self.cache_shape is None or self.cache_shape not in AUTOQUANT_CACHE:
-            raise RuntimeError("must run module normally to find best quantization option")
+        if self.logged_shape is None or self.logged_dtype is None:
+            raise RuntimeError("must run module normally to get shape, dtype info for autoquant")
         best_time = torch.inf
         best_cls = None
-        for cur_cls in self.qtensor_class_list:
-            cls_res = AUTOQUANT_CACHE[self.cache_shape].get(cur_cls, torch.inf)
+        for q_cls in self.qtensor_class_list:
+            if check_cache(q_cls, self.logged_shape, self.logged_dtype) is None:
+                self.tune_autoquant(q_cls)
+            cls_res = AUTOQUANT_CACHE.get((q_cls, self.logged_shape, self.logged_dtype), torch.inf)
             if best_time >= cls_res:
                 best_time = cls_res
-                best_cls = cur_cls
-        # need to handle random cls args/kwargs?
+                best_cls = q_cls
+        # TODO handle random cls args/kwargs? or should they be curried
         self = best_cls.from_float(self.weight)
         return self
 
@@ -113,7 +119,7 @@ class AutoQuantizableLinearWeight(torch.Tensor):
                 args[1],
                 args[2] if len(args)>2 else None
             )
-            return cls.tune_autoquant(mat1, w_autoquant, bias)
+            return cls.log_shape(mat1, w_autoquant, bias)
 
         try:
             with torch._C.DisableTorchFunctionSubclass():
@@ -155,9 +161,10 @@ class DefaultLinear(torch.Tensor):
         return weight
 
 DEFAULT_CLASS_LIST = [
+    Int8DynamicallyQuantizedLinearWeight,
     DefaultLinear,
     Int8WeightOnlyQuantizedLinearWeight,
-    Int8DynamicallyQuantizedLinearWeight,
+
 ]
 
 if False:

@@ -184,6 +184,7 @@ def change_autoquantizable_to_quantized(model, **kwargs):
 def do_autoquant(model, example_input, qtensor_class_list=DEFAULT_CLASS_LIST, filter_fn=_is_linear):
     change_linears_to_autoquantizable(model, filter_fn=filter_fn, qtensor_class_list=qtensor_class_list)
     if not isinstance(example_input, (tuple, list)):
+        assert isinstance(example_input, torch.Tensor)
         example_input = [example_input]
     model(*example_input)
     change_autoquantizable_to_quantized(model)
