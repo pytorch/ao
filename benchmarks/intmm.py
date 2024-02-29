@@ -5,6 +5,9 @@ import torch.utils.benchmark as benchmark
 import math
 import csv
 
+torch._dynamo.config.cache_size_limit = 128
+torch._dynamo.config.accumulated_cache_size_limit = 128
+
 dtype = torch.float16
 device = "cuda"
 
@@ -48,12 +51,13 @@ def run_benchmark(x, w, b):
 
     x_int = x.to(dtype=torch.int8)
     w_int = w.to(dtype=torch.int8)
-    print(f"w: {w.stride()} w_int: {w_int.stride()}")
+    # print(f"w: {w.stride()} w_int: {w_int.stride()}")
 
     int_mm_time = benchmark_in_ms(10, 100, compiled_int_mm, x_int, w_int)
     ratio = fp_time / int_mm_time
 
     return (",".join(map(str, [m, k, n, fp_time, int_mm_time, ratio]))), ratio
+
 
 positives = []
 dtype = torch.float16
@@ -67,6 +71,7 @@ for (m, k, n) in shapes:
     print(result)
     if ratio is not None and ratio > 1.0:
         positives += [result]
+
 
 # print(",".join(["weightsize", "batchsize", "blocksize", "seqlen", "sparsity", "dense_time", "sparse_time", "ratio"]))
 # print("\n".join(positives))
