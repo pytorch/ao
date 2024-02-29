@@ -64,7 +64,8 @@ dtype = torch.float16
 device = 'cuda'
 for (m, k, n) in shapes:
     x = torch.randn(m, k, dtype=dtype, device=device)
-    w = torch.randn(k, n, dtype=dtype, device=device)
+    # w = torch.randn(k, n, dtype=dtype, device=device)
+    w = torch.randn(n, k, dtype=dtype, device=device).t()
 
     b = torch.randn(m, n, dtype=dtype, device=device)
     result, ratio = run_benchmark(x, w, b)
