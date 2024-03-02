@@ -8,6 +8,8 @@ import torch
 from torch._dynamo import is_compiling as dynamo_is_compiling
 from torch._higher_order_ops.out_dtype import out_dtype
 
+from torchao import kernel
+
 __all__ = [
     "safe_int_mm",
     "dynamically_quantize_per_tensor",
@@ -46,6 +48,8 @@ def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
     Return:
         out (Tensor, int32): the result of the matmul with device matching that of the inputs
     """
+
+    return kernel.intmm_triton.int_matmul(input, mat2)
 
     # torch.compile path
     if dynamo_is_compiling() or "FakeTensor" in input.__repr__():
