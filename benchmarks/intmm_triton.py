@@ -140,5 +140,5 @@ def int_matmul(a, b):
     # 1D launch kernel where each block gets its own program.
     best_config = get_best_config_fn(int_matmul_kernel,
                                      [a, b, c],
-                                     int8_mm_kernel_configs[:5])
+                                     int8_mm_kernel_configs)
     return int_matmul_kernel(a, b, c, best_config)
