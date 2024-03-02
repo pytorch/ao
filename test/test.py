@@ -54,6 +54,7 @@ from torchao.quantization.utils import (
     compute_error as SQNR,
     _fqn_to_op_to_shape_to_count,
     LoggingTensorMode,
+    benchmark
 )
 from torch.ao.quantization.quantize_fx import convert_to_reference_fx, prepare_fx
 import os
@@ -1198,22 +1199,38 @@ class SmoothquantIntegrationTest(unittest.TestCase):
 
 class TestAutoQuant(unittest.TestCase):
     def test_auto_quant(self):
-        model = torch.nn.Sequential(
-            # torch.nn.Linear(5120,1280),
-            # torch.nn.ReLU(),
-            torch.nn.Linear(1280,3840),
-            torch.nn.ReLU(),
-            torch.nn.Linear(3840,1280),
-            torch.nn.ReLU(),
-        ).to("cuda").to(torch.bfloat16)
-        example_input = torch.randn(65536, 1280, device="cuda", dtype=torch.bfloat16)
         torch._inductor.config.epilogue_fusion = False
         torch._inductor.config.use_mixed_mm = True
         torch._inductor.config.force_fuse_int_mm_with_mul = True
         torch._inductor.config.coordinate_descent_tuning = True
         torch._dynamo.config.automatic_dynamic_shapes = False
-        torch._dynamo.reset() # TODO use in autoquantizer
-        do_autoquant(model, example_input)
+
+        for m,k,n in [
+            (1, 1024, 1024),
+            (64, 1024, 1024),
+            (4096, 1024, 1024),
+            (1, 1024, 4096),
+            (64, 1024, 4096),
+            (1, 4096, 1024),
+            (64, 4096, 1024),
+            (4096, 4096, 1024),
+        ]:
+            print("testing", m, k, n)
+            example_input = torch.randn(m, k, device="cuda", dtype=torch.bfloat16)
+            model = torch.nn.Sequential(
+                # torch.nn.ReLU(),
+                torch.nn.Linear(k,n),
+                # torch.nn.ReLU(),
+                # torch.nn.Linear(1280,3840),
+                # torch.nn.ReLU(),
+                # torch.nn.Linear(3840,1280),
+                # torch.nn.ReLU(),
+                # torch.nn.Linear(1280,1024),
+                # torch.nn.ReLU(),
+                # torch.nn.Linear(1024,4096),
+                # torch.nn.ReLU(),
+            ).to("cuda").to(torch.bfloat16)
+            do_autoquant(model, example_input)
 
 if __name__ == "__main__":
     unittest.main()

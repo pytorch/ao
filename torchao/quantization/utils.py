@@ -88,31 +88,14 @@ def get_model_size_in_bytes(model):
         s += b.nelement() * b.element_size()
     return s
 
-import time
-
-def benchmark_torch_function(iters, f, *args, **kwargs):
-    f(*args, **kwargs)
-    f(*args, **kwargs)
-    f(*args, **kwargs)
-    if torch.cuda.is_available():
-        torch.cuda.synchronize()
-        start_event = torch.cuda.Event(enable_timing=True)
-        end_event = torch.cuda.Event(enable_timing=True)
-        start_event.record()
-    else:
-        t0 = time.time()
-    for i in range(iters):
-        f(*args, **kwargs)
-    if torch.cuda.is_available():
-        end_event.record()
-        torch.cuda.synchronize()
-        return start_event.elapsed_time(end_event)
-    else:
-        return (time.time() - t0)
 
 def benchmark(f, *args, **kwargs):
     t0 = Timer(
         stmt="f(*args, **kwargs)", globals={"args": args, "kwargs": kwargs, "f": f}
     )
+
     # warmup
-    return benchmark_torch_function(10, f, *args, **kwargs)
+    t0.timeit(10)
+
+    res=t0.blocked_autorange(min_run_time=.5)
+    return res.median * 1e3

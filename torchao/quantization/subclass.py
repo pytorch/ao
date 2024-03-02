@@ -200,27 +200,6 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
             act_mat, w_qtensor.int_data, w_qtensor.q_scales, bias, act_mat.dtype
         )
 
-    @classmethod
-    def _autoquant_test(cls, act_mat, weight, bias):
-        w_qtensor = cls.from_float(weight)
-        q_c_op = torch.compile(cls._quantized_op, mode="max-autotune")
-        with torch.no_grad():
-            res=benchmark(q_c_op, act_mat, w_qtensor, bias)
-
-        x_vals_int8, x_scales = quantize_activation_per_token_absmax(
-            act_mat.reshape(-1, act_mat.shape[-1])
-        )
-        quantized_matmul = (
-            lambda x_vals_int8, x_scales, w_vals_int8:
-                safe_int_mm(x_vals_int8, w_vals_int8) * x_scales
-        )
-        q_c_matmul=torch.compile(quantized_matmul, mode="max-autotune")
-        with torch.no_grad():
-            res2=benchmark(q_c_matmul, x_vals_int8, x_scales, w_qtensor.int_data)
-        print(cls, res, res2)
-        breakpoint()
-        return (res+res2)/2
-
     def dequantize(self, dtype=None):
         """
         Obtain the dequantized version of the quantized tensor subclass
@@ -293,7 +272,7 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
         # however the external representation of our tensor will maintain the correct
         # shape attribute which needs to be tracked directly.
         int_data = w_int_repr.contiguous().t()
-        if cls is not Int8DynamicallyQuantizedLinearWeight:
+        if not issubclass(cls, Int8DynamicallyQuantizedLinearWeight):
             int_data = int_data.contiguous()
         return cls(
             int_data, w_scales, False, input_float.shape, dtype=input_float.dtype
@@ -316,26 +295,6 @@ class Int8WeightOnlyQuantizedLinearWeight(Int8DynamicallyQuantizedLinearWeight):
             y += bias
         return y.to(orig_dtype)
 
-    @classmethod
-    def _autoquant_test(cls, act_mat, weight, bias):
-        w_qtensor = cls.from_float(weight)
-        q_c_op = torch.compile(cls._quantized_op, mode="max-autotune")
-        with torch.no_grad():
-            res=benchmark(q_c_op, act_mat, w_qtensor, bias)
-
-        quantized_matmul = (
-            lambda act_mat, w_vals_int8:
-                torch.mm(act_mat, w_vals_int8.to(act_mat.dtype))
-        )
-        q_c_matmul=torch.compile(quantized_matmul, mode="max-autotune")
-        with torch.no_grad():
-            res2=benchmark(
-                q_c_matmul,
-                act_mat.reshape(-1, act_mat.shape[-1]),
-                w_qtensor.int_data)
-
-        print(cls, res, res2)
-        return (res+res2)/2
 
 class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
     """

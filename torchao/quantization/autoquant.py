@@ -7,6 +7,11 @@ from .subclass import ( # noqa
 )
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from .utils import benchmark
+from .quant_primitives import (
+    quantize_activation_per_token_absmax,
+    safe_int_mm,
+)
+import torch.nn.functional as F
 
 aten = torch.ops.aten
 
@@ -70,23 +75,30 @@ class AutoQuantizableLinearWeight(torch.Tensor):
             with torch.no_grad():
                 act_mat = torch.randn(act_shape, dtype=self.logged_dtype, device=self.device)
                 bias = None if bias_shape is None else torch.randn(bias_shape, dtype=self.logged_dtype, device=self.device)
-                print(q_cls, self.logged_shape, self.logged_dtype)
-                print("mem", torch.cuda.max_memory_allocated()/1e6, torch.cuda.memory_usage())
                 res = q_cls._autoquant_test(act_mat, self.weight, bias)
                 update_cache(q_cls, self.logged_shape, self.logged_dtype, res)
 
-    def to_quantized(self):
-        if self.logged_shape is None or self.logged_dtype is None:
+    def to_quantized(self, error_on_unseen, **kwargs):
+        if error_on_unseen and (self.logged_shape is None or self.logged_dtype is None):
             raise RuntimeError("must run module normally to get shape, dtype info for autoquant")
+        elif (self.logged_shape is None or self.logged_dtype is None) and not error_on_unseen:
+            # default back to non-quantized weight if not seen
+            self = AQFloatLinearWeight.from_float(self.weight)
+            return  self
         best_time = torch.inf
         best_cls = None
+        do_print=False
         for q_cls in self.qtensor_class_list:
             if check_cache(q_cls, self.logged_shape, self.logged_dtype) is None:
+                do_print=True
                 self.tune_autoquant(q_cls)
+                torch._dynamo.reset()
             cls_res = AUTOQUANT_CACHE.get((q_cls, self.logged_shape, self.logged_dtype), torch.inf)
             if best_time >= cls_res:
                 best_time = cls_res
                 best_cls = q_cls
+        if do_print:
+            print(f"shape={self.logged_shape}, dtype={self.logged_dtype}, best_cls={best_cls}")
         # TODO handle random cls args/kwargs? or should they be curried
         self = best_cls.from_float(self.weight)
         return self
@@ -132,25 +144,92 @@ class AutoQuantizableLinearWeight(torch.Tensor):
          if func is aten.detach.default:
             return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.detach))
 
-
-class DefaultLinear(torch.Tensor):
+class AQMixin():
     """
-    An class to be used in concert with AutoQuantizableLinearWeight to provide a
+    Mixin to turn normal quantized subclasses into autoquantizable ones
+    """
+    @classmethod
+    def _autoquant_test(cls, act_mat, weight, bias):
+        w_qtensor = cls.from_float(weight)
+        func = lambda act_mat, w_qtensor, bias: F.relu(cls._quantized_op(F.relu(act_mat), w_qtensor, bias))
+        q_c_op = torch.compile(func, mode="max-autotune")
+        # q_c_op = torch.compile(cls._quantized_op, mode="max-autotune")
+        with torch.no_grad():
+            torch.cuda.synchronize()
+            res = benchmark(q_c_op, act_mat, w_qtensor, bias)
+        print(cls, res)
+        return res
+
+class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, Int8DynamicallyQuantizedLinearWeight):
+    """
+    AutoQuantizable version of Int8DynamicallyQuantizedLinearWeight
+    """
+    @classmethod
+    def _autoquant_test(cls, act_mat, weight, bias):
+        res = super()._autoquant_test(act_mat, weight, bias)
+        w_qtensor = cls.from_float(weight)
+        x_vals_int8, x_scales = quantize_activation_per_token_absmax(
+            act_mat.reshape(-1, act_mat.shape[-1])
+        )
+        quantized_matmul = (
+            lambda x_vals_int8, x_scales, w_vals_int8:
+                safe_int_mm(x_vals_int8, w_vals_int8) * x_scales
+        )
+        q_c_matmul=torch.compile(quantized_matmul, mode="max-autotune")
+        with torch.no_grad():
+            res2=benchmark(q_c_matmul, x_vals_int8, x_scales, w_qtensor.int_data)
+        print(cls, "matmul", res2)
+        # for SAM best is between .458-.499, SDXL .45=3.094 .47=2.880 .48=3.036 .5=2.930
+        return res
+
+
+class AQWeightOnlyQuantizedLinearWeight(Int8WeightOnlyQuantizedLinearWeight, AQMixin):
+    """
+    AutoQuantizable version of Int8WeightOnlyQuantizedLinearWeight
+    """
+
+class AQWeightOnlyQuantizedLinearWeight2(Int8WeightOnlyQuantizedLinearWeight, AQMixin):
+    """
+    AutoQuantizable version of Int8WeightOnlyQuantizedLinearWeight that
+    uses a different kernel
+    """
+    @staticmethod
+    def _quantized_op(act_mat, w_qtensor, bias):
+        orig_dtype = act_mat.dtype
+        orig_shape = act_mat.shape
+        act_mat = act_mat.reshape(-1, act_mat.shape[-1], 1)
+        y = (act_mat*w_qtensor.int_data.unsqueeze(0)).sum(dim=-2)
+        y = y.reshape(*orig_shape[:-1], y.shape[-1])
+        if bias is not None:
+            y += bias
+        return y.to(orig_dtype)
+
+    @classmethod
+    def _autoquant_test(cls, act_mat, weight, bias):
+        # if act_mat has batchsize>2 don't use this kernel
+        if act_mat.reshape(-1, act_mat.shape[-1]).shape[0]>2:
+            return torch.inf
+        return super()._autoquant_test(act_mat, weight, bias)
+
+class AQWeightOnlyQuantizedLinearWeight3(Int8WeightOnlyQuantizedLinearWeight, AQMixin):
+    def _quantized_op(act_mat, w_qtensor, bias):
+        orig_shape = act_mat.shape
+        y = torch.mm(act_mat.reshape(-1, orig_shape[-1]), w_qtensor.int_data*w_qtensor.q_scales)
+        y=y.reshape(*orig_shape[:-1], y.shape[-1])
+        if bias is not None:
+            y += bias
+        return y
+
+
+class AQFloatLinearWeight(torch.Tensor, AQMixin):
+    """
+    A class to be used in concert with AutoQuantizableLinearWeight to provide a
     default/non-quantized option. Only implements the bare minimum needed to work with the
     AutoQuantizableLinearWeight class using the same interfaces that would normally be
     used by QTensor subclasses but for a default linear op instead.
     """
     def __init__(self):
         super().__init__()
-
-    @classmethod
-    def _autoquant_test(cls, act_mat, weight, bias):
-        w_qtensor = cls.from_float(weight)
-        q_c_op = torch.compile(cls._quantized_op, mode="max-autotune")
-        with torch.no_grad():
-            res=benchmark(q_c_op, act_mat, w_qtensor, bias)
-        print(cls, res)
-        return res
 
     @staticmethod
     def _quantized_op(act_mat, w_qtensor, bias):
@@ -161,10 +240,11 @@ class DefaultLinear(torch.Tensor):
         return weight
 
 DEFAULT_CLASS_LIST = [
-    Int8DynamicallyQuantizedLinearWeight,
-    DefaultLinear,
-    Int8WeightOnlyQuantizedLinearWeight,
-
+    AQFloatLinearWeight,
+    AQInt8DynamicallyQuantizedLinearWeight,
+    AQWeightOnlyQuantizedLinearWeight,
+    AQWeightOnlyQuantizedLinearWeight2,
+    AQWeightOnlyQuantizedLinearWeight3,
 ]
 
 if False:
