@@ -151,7 +151,7 @@ class AQMixin():
     @classmethod
     def _autoquant_test(cls, act_mat, weight, bias):
         w_qtensor = cls.from_float(weight)
-        func = lambda act_mat, w_qtensor, bias: F.relu(cls._quantized_op(F.relu(act_mat), w_qtensor, bias))
+        func = lambda a, b, c: F.relu(cls._quantized_op(F.relu(a), b, c))
         q_c_op = torch.compile(func, mode="max-autotune")
         # q_c_op = torch.compile(cls._quantized_op, mode="max-autotune")
         with torch.no_grad():
