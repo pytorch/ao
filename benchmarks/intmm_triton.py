@@ -106,21 +106,10 @@ def matmul_kernel_with_block_pointers(
                                     block_shape=(BLOCK_SIZE_M, BLOCK_SIZE_N), order=(1, 0))
     tl.store(c_block_ptr, c, boundary_check=(0, 1))
 
-
-# We can now create a convenience wrapper function that only takes two input tensors,
-# and (1) checks any shape constraint; (2) allocates the output; (3) launches the above kernel.
-def int_matmul(a, b):
-    # Check constraints.
-    assert a.shape[1] == b.shape[0], "Incompatible dimensions"
-    # assert a.is_contiguous(), "Matrix A must be contiguous"
-    # assert b.is_contiguous(), "Matrix B must be contiguous"
+def int_matmul_kernel(a, b, c, config):
     M, K = a.shape
     K, N = b.shape
-    # Allocates output.
-    c = torch.empty((M, N), device=a.device, dtype=torch.int32)
-    # 1D launch kernel where each block gets its own program.
     grid = lambda META: (triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(N, META['BLOCK_SIZE_N']), )
-    config = int8_mm_kernel_configs[0]
     matmul_kernel_with_block_pointers[grid](
         a, b, c,  #
         M, N, K,  #
@@ -131,10 +120,25 @@ def int_matmul(a, b):
         num_stages=config.num_stages,
         num_ctas=config.num_ctas,
         **config.kwargs,
-        # int8_mm_kernel_configs[0][1],
-        # int8_mm_kernel_configs[0][2],
-        # int8_mm_kernel_configs[0][3],
-        # num_stages=int8_mm_kernel_configs[0][4],
-        # num_warps=int8_mm_kernel_configs[0][5],
     )
     return c
+
+
+from autotuner import get_best_config_fn
+
+# We can now create a convenience wrapper function that only takes two input tensors,
+# and (1) checks any shape constraint; (2) allocates the output; (3) launches the above kernel.
+def int_matmul(a, b):
+    # Check constraints.
+    assert a.shape[1] == b.shape[0], "Incompatible dimensions"
+    # assert a.is_contiguous(), "Matrix A must be contiguous"
+    # assert b.is_contiguous(), "Matrix B must be contiguous"
+    # Allocates output.
+    M, K = a.shape
+    K, N = b.shape
+    c = torch.empty((M, N), device=a.device, dtype=torch.int32)
+    # 1D launch kernel where each block gets its own program.
+    best_config = get_best_config_fn(int_matmul_kernel,
+                                     [a, b, c],
+                                     int8_mm_kernel_configs[:5])
+    return int_matmul_kernel(a, b, c, best_config)
