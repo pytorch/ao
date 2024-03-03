@@ -187,12 +187,12 @@ def scaled_matmul_kernel_with_block_pointers(
 
     offs_m = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
     offs_n = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
-    # s1_ptrs = s1_ptr + offs_m[:, None] * stride_s1m + offs_n[None, :] * stride_s1n
-    # s2_ptrs = s2_ptr + offs_m[:, None] * stride_s2m + offs_n[None, :] * stride_s2n
-    # s1 = tl.load(s1_ptrs)
-    # c = c * s1
-    # s2 = tl.load(s2_ptrs)
-    # c = c * s2
+    s1_ptrs = s1_ptr + offs_m[:, None] * stride_s1m + offs_n[None, :] * stride_s1n
+    s1 = tl.load(s1_ptrs)
+    c = c * s1
+    s2_ptrs = s2_ptr + offs_m[:, None] * stride_s2m + offs_n[None, :] * stride_s2n
+    s2 = tl.load(s2_ptrs)
+    c = c * s2
     c = c.to(tl.bfloat16)
     # Epilogue
     tl.store(c_block_ptr, c) #, boundary_check=(0, 1))
@@ -215,19 +215,8 @@ def int_matmul_kernel(a, b, c, config):
     return c
 
 def int_scaled_matmul_kernel(a, b, scales1, scales2, c, config):
-    assert a.is_contiguous(), "Matrix A must be contiguous"
-    assert b.transpose(0, 1).is_contiguous(), "Matrix B must be transpose contiguous"
     M, K = a.shape
     K, N = b.shape
-    assert M == scales1.size(0)
-    assert 1 == scales1.size(1)
-    assert scales1.is_contiguous()
-    assert scales2.is_contiguous()
-    assert scales1.dtype == torch.bfloat16
-    scales1 = scales1.expand_as(c)
-    scales2 = scales2.expand_as(c)
-    assert scales1.dim() == 2
-    assert scales2.dim() == 2
     # print("a.sizes(): ", a.size(), "a.strides(): ", a.stride(), "a.dtype: ", a.dtype)
     # print("b.sizes(): ", b.size(), "b.strides(): ", b.stride(), "b.dtype: ", b.dtype)
     # print("c.sizes(): ", c.size(), "c.strides(): ", c.stride(), "c.dtype: ", c.dtype)
@@ -307,4 +296,17 @@ def int_scaled_matmul_cuda(a, b, scales1, scales2):
     return int_scaled_matmul_kernel(a, b, scales1, scales2, c, best_config)
 
 def int_scaled_matmul(a, b, scales1, scales2):
+    assert a.is_contiguous(), "Matrix A must be contiguous"
+    assert b.transpose(0, 1).is_contiguous(), "Matrix B must be transpose contiguous"
+    M, K = a.shape
+    K, N = b.shape
+    assert M == scales1.size(0)
+    assert 1 == scales1.size(1)
+    assert scales1.is_contiguous()
+    assert scales2.is_contiguous()
+    assert scales1.dtype == torch.bfloat16
+    scales1 = scales1.expand((M, N))
+    scales2 = scales2.expand((M, N))
+    assert scales1.dim() == 2
+    assert scales2.dim() == 2
     return torch.ops.torchao.int_scaled_matmul(a, b, scales1, scales2)

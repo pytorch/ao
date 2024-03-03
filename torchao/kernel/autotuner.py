@@ -182,21 +182,21 @@ def get_best_config_fn(fn, args, configs):
     # Search for the best config
     best_config = configs[0]
     best_time = do_bench(fn, args, configs[0])
-    print(key, best_time, best_config)
+    logging.info(" ".join(map(str, [key, best_time, best_config])))
     i = 1
     # TODO: Instead of walking this in order, a random selection
     # is maybe better to end up with a reasonable config that can be
     # used to filter bad configs sooner.
     for config in configs[1:]:
         time = do_bench(fn, args, config, best_time)
-        print(f"{i:4d}/{len(configs):4d}", f"{time:6.3f}", config)
+        logging.info(" ".join([f"{i:4d}/{len(configs):4d}", f"{time:6.3f}", str(config)]))
         if time < best_time:
             best_time = time
             best_config = config
         i += 1
     # Also store time, so it can be proven that the config works
     BEST_CONFIGS[key] = (best_config, best_time)
-    print("-- perfetto --")
-    print(best_time, best_config)
+    logging.info("-- perfetto --")
+    logging.info(" ".join(map(str, [best_time, best_config])))
     _save_best_configs(BEST_CONFIGS)
     return best_config
