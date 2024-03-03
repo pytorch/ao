@@ -8,7 +8,7 @@ import torch
 from torch._dynamo import is_compiling as dynamo_is_compiling
 from torch._higher_order_ops.out_dtype import out_dtype
 
-from torchao import kernel
+from torchao.kernel import intmm_triton
 
 __all__ = [
     "safe_int_mm",
@@ -49,7 +49,7 @@ def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
         out (Tensor, int32): the result of the matmul with device matching that of the inputs
     """
 
-    return kernel.intmm_triton.int_matmul(input, mat2)
+    return intmm_triton.int_matmul(input, mat2)
 
     # torch.compile path
     if dynamo_is_compiling() or "FakeTensor" in input.__repr__():
@@ -361,7 +361,7 @@ def quant_int8_per_token_matmul(
     #
 
     tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
-    y_dot_int32 = safe_int_mm(tmp, w_vals_int8_t)
+    # y_dot_int32 = safe_int_mm(tmp, w_vals_int8_t)
 
     #
     # 2. rescale the output
@@ -376,12 +376,21 @@ def quant_int8_per_token_matmul(
         torch.bfloat16,
     ], f"x_scales needs to be a torch.float32 or torch.bfloat16 but got {x_scales.dtype}"
 
-    y = (y_dot_int32 * x_scales.reshape(-1, 1) * w_scales).reshape(
-        *x_vals_int8.shape[:-1], y_dot_int32.shape[-1]
+    # print("2")
+    # y = (y_dot_int32 * x_scales.reshape(-1, 1) * w_scales).reshape(
+    #     *x_vals_int8.shape[:-1], y_dot_int32.shape[-1]
+    # )
+
+    x_scales_flat = x_scales.reshape(tmp.size(0), 1)
+    w_scales_flat = w_scales.unsqueeze(0)
+
+    y = intmm_triton.int_scaled_matmul(tmp, w_vals_int8_t, x_scales_flat, w_scales_flat)
+    y = y.reshape(
+        *x_vals_int8.shape[:-1], y.shape[-1]
     )
 
-    # can downcast only at the very end
-    y = y.to(output_dtype)
+    # # can downcast only at the very end
+    # y = y.to(output_dtype)
     return y
 
 

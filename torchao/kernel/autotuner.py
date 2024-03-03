@@ -1,4 +1,5 @@
 import torch
+import os
 import triton
 import pickle
 import logging
@@ -128,49 +129,67 @@ def do_bench_basic(fn, rep):
 
 
 def do_bench(fn, args, config, best_time=None):
+    #TODO: CUDA graph compatible version
     def wrapped_fn():
         return fn(*(args + [config]))
-    if best_time is None:
-        return triton.testing.do_bench(wrapped_fn)
+
     # Get fast estimate to abort stupid configs
 
     # Run it once and skip if it crashes or is 100x slower
     try:
         time = do_bench_basic(wrapped_fn, 1)
+    except RuntimeError as e:
+        time = None
     except triton.runtime.OutOfResources:
         time = None
-    if time is None or time > best_time * 100:
+    if time is None or (best_time is not None and time > best_time * 100):
         return float('inf')
 
     # Run it five times and skip if it is 10x slower
     time = do_bench_basic(wrapped_fn, 5)
-    if time > best_time * 10:
+    if best_time is not None and time > best_time * 10:
         return float('inf')
 
     # Do a regular bench
-    return do_bench(fn, args, config)
+    return do_bench_triton(wrapped_fn)
+
+
+ALWAYS_SEARCH = bool(int(os.getenv('TORCHAO_AUTOTUNER_ALWAYS_SEARCH', 0)))
+
+
+def get_best_config_by_key(key):
+    if not ALWAYS_SEARCH and key in BEST_CONFIGS:
+        return BEST_CONFIGS[key][0]
 
 
 def get_best_config_fn(fn, args, configs):
     global BEST_CONFIGS
     if BEST_CONFIGS is None:
         BEST_CONFIGS = _load_best_configs()
-    # This means no config file was found
+
+    # This means no config file was loaded
     if BEST_CONFIGS is None:
         BEST_CONFIGS = {}
 
     if len(configs) == 0:
         return None
+
+    key = get_args_key(args)
+    best_config = get_best_config_by_key(key)
+    if best_config is not None:
+        return best_config
+
+    # Search for the best config
     best_config = configs[0]
     best_time = do_bench(fn, args, configs[0])
-    key = get_args_key(args)
-    if key in BEST_CONFIGS:
-        return BEST_CONFIGS[key][0]
     print(key, best_time, best_config)
     i = 1
+    # TODO: Instead of walking this in order, a random selection
+    # is maybe better to end up with a reasonable config that can be
+    # used to filter bad configs sooner.
     for config in configs[1:]:
         time = do_bench(fn, args, config, best_time)
-        print(f"{i:4d}/{len(configs):4d}", f"{time:4.3f}", config)
+        print(f"{i:4d}/{len(configs):4d}", f"{time:6.3f}", config)
         if time < best_time:
             best_time = time
             best_config = config
