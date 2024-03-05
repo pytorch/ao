@@ -188,10 +188,10 @@ def scaled_matmul_kernel_with_block_pointers(
     offs_m = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
     offs_n = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
     s1_ptrs = s1_ptr + offs_m[:, None] * stride_s1m + offs_n[None, :] * stride_s1n
-    s1 = tl.load(s1_ptrs)
+    s1 = tl.load(s1_ptrs, eviction_policy='evict_last')
     c = c * s1
     s2_ptrs = s2_ptr + offs_m[:, None] * stride_s2m + offs_n[None, :] * stride_s2n
-    s2 = tl.load(s2_ptrs)
+    s2 = tl.load(s2_ptrs, eviction_policy='evict_last')
     c = c * s2
     c = c.to(tl.bfloat16)
     # Epilogue
