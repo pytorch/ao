@@ -2,7 +2,31 @@ from dataclasses import dataclass
 from typing import Dict, Tuple
 
 import torch
+from torch import Tensor
 import torch.nn.functional as F
+
+
+aten = torch.ops.aten
+c10d_functional = torch.ops.c10d_functional
+
+from typing import Any
+NF4_OPS_TABLE: Dict[Any, Any] = {}
+
+
+
+def implements(aten_ops):
+    """Use this decorator to implement a function for an aten op in __torch_dispatch__"""
+
+    def decorator(func):
+        for op in aten_ops:
+            NF4_OPS_TABLE[op] = func
+        return func
+
+    return decorator
+
+@implements([torch.ops.aten.detach.default, torch.ops.aten.detach])
+def noop_detach(func, *args, **kwargs):
+    return args[0][0]
 
 
 @dataclass
@@ -110,7 +134,7 @@ class NF4Tensor(torch.Tensor):
         assert inpt_tensor.dtype == torch.bfloat16
         assert (
             inpt_tensor.numel() % block_size == 0
-        ), "Input tensor must be divisible by block size"
+        ), f"Input tensor must be divisible by block size, got {inpt_tensor.numel()} and {block_size}"
         assert inpt_tensor.dtype == torch.bfloat16, "Input tensor must be bfloat16"
         assert inpt_tensor.is_contiguous, "Input tensor must be contiguous!"
         # I think I want do this
@@ -204,7 +228,7 @@ class NF4Tensor(torch.Tensor):
         # Second round of quantization
         assert (
             scalers_1.numel() % scaler_block_size == 0
-        ), "Number of scalers must be divisible by scaler block size"
+        ), f"Number of scalers must be divisible by scaler block size, got {scalers_1.numel()} scaler_block_size {scaler_block_size} "
         n_scaler_blocks = scalers_1.numel() // scaler_block_size
         scaler_blocks = scalers_1.view(n_scaler_blocks, scaler_block_size)
 
@@ -397,11 +421,27 @@ class NF4Tensor(torch.Tensor):
         """TODO we are not supporting torch dispatch at the moment
         instead we have created a Autograd.Function to handle the linear
         """
-        raise NotImplementedError("NF4Tensor does not support torch dispatch")
+        # All ops in the  NF4_OPS_TABLE expect NF4 Tensors as inputs
+        # And don't support mixed tensor subclasses. This will trigger the handler for
+        # the next type in the dispatch list
+        def allowed_subclasses(type):
+            return (
+                issubclass(cls, type)
+                or issubclass(torch._subclasses.fake_tensor.FakeTensor, type)
+                or issubclass(torch._subclasses.functional_tensor.FunctionalTensor, type)
+            )
+
+        if not all(allowed_subclasses(t) for t in types):
+            return NotImplemented("Up to the next one to handle")
+
+        if func in NF4_OPS_TABLE:
+            return NF4_OPS_TABLE[func](func, args, kwargs)
+        raise NotImplementedError(
+            f"NF4Tensor dispatch: attempting to run {func}, this is not supported"
+        )
 
     # Do not force the Float8Tensor type on the returned tensor
     __torch_function__ = torch._C._disabled_torch_function_impl
-
 
 class LinearNF4(torch.autograd.Function):
     @staticmethod
