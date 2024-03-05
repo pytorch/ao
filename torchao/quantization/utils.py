@@ -90,12 +90,20 @@ def get_model_size_in_bytes(model):
 
 
 def benchmark(f, *args, **kwargs):
+    if "best_time" in kwargs:
+        best_time = kwargs.pop("best_time")
+    else:
+        best_time = torch.inf
     t0 = Timer(
         stmt="f(*args, **kwargs)", globals={"args": args, "kwargs": kwargs, "f": f}
     )
 
     # warmup
     t0.timeit(10)
-
-    res=t0.blocked_autorange(min_run_time=.5)
+    res=t0.adaptive_autorange(min_run_time=.1)
+    # run more if median vs median minus iqr (interpolated based on number of runs left) is lower than best_time,
+    # stop if good res.iqr/res.median or have 20 samples
+    while res.median-res.iqr+res.iqr*len(res.times)/20 < best_time * 1e-3 and not (res.iqr/res.median<.02 or len(res.times)>=20):
+        res2 = t0.adaptive_autorange(min_run_time=.5)
+        res=res.merge([res2, res])[0]
     return res.median * 1e3

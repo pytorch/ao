@@ -69,13 +69,13 @@ class AutoQuantizableLinearWeight(torch.Tensor):
             y += bias
         return y
 
-    def tune_autoquant(self, q_cls):
+    def tune_autoquant(self, q_cls, best_time):
         act_shape, w_shape, bias_shape = self.logged_shape
         if check_cache(q_cls, self.logged_shape, self.logged_dtype) is None:
             with torch.no_grad():
                 act_mat = torch.randn(act_shape, dtype=self.logged_dtype, device=self.device)
                 bias = None if bias_shape is None else torch.randn(bias_shape, dtype=self.logged_dtype, device=self.device)
-                res = q_cls._autoquant_test(act_mat, self.weight, bias)
+                res = q_cls._autoquant_test(act_mat, self.weight, bias, best_time)
                 update_cache(q_cls, self.logged_shape, self.logged_dtype, res)
 
     def to_quantized(self, error_on_unseen, **kwargs):
@@ -91,7 +91,7 @@ class AutoQuantizableLinearWeight(torch.Tensor):
         for q_cls in self.qtensor_class_list:
             if check_cache(q_cls, self.logged_shape, self.logged_dtype) is None:
                 do_print=True
-                self.tune_autoquant(q_cls)
+                self.tune_autoquant(q_cls, best_time)
                 torch._dynamo.reset()
             cls_res = AUTOQUANT_CACHE.get((q_cls, self.logged_shape, self.logged_dtype), torch.inf)
             if best_time >= cls_res:
@@ -149,14 +149,12 @@ class AQMixin():
     Mixin to turn normal quantized subclasses into autoquantizable ones
     """
     @classmethod
-    def _autoquant_test(cls, act_mat, weight, bias):
+    def _autoquant_test(cls, act_mat, weight, bias, best_time, *args, **kwargs):
         w_qtensor = cls.from_float(weight)
-        func = lambda a, b, c: F.relu(cls._quantized_op(F.relu(a), b, c))
-        q_c_op = torch.compile(func, mode="max-autotune")
-        # q_c_op = torch.compile(cls._quantized_op, mode="max-autotune")
+        q_c_op = torch.compile(cls._quantized_op, mode="max-autotune")
         with torch.no_grad():
             torch.cuda.synchronize()
-            res = benchmark(q_c_op, act_mat, w_qtensor, bias)
+            res = benchmark(q_c_op, act_mat, w_qtensor, bias, best_time=best_time)
         print(cls, res)
         return res
 
@@ -165,8 +163,9 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, Int8DynamicallyQuantizedLi
     AutoQuantizable version of Int8DynamicallyQuantizedLinearWeight
     """
     @classmethod
-    def _autoquant_test(cls, act_mat, weight, bias):
-        res = super()._autoquant_test(act_mat, weight, bias)
+    def _autoquant_test(cls, act_mat, weight, bias, best_time):
+        # SAM best is between .51 to .60, SDXL also performs best in this range
+        INTERPOLATION_CONSTANT=.55
         w_qtensor = cls.from_float(weight)
         x_vals_int8, x_scales = quantize_activation_per_token_absmax(
             act_mat.reshape(-1, act_mat.shape[-1])
@@ -177,10 +176,18 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, Int8DynamicallyQuantizedLi
         )
         q_c_matmul=torch.compile(quantized_matmul, mode="max-autotune")
         with torch.no_grad():
-            res2=benchmark(q_c_matmul, x_vals_int8, x_scales, w_qtensor.int_data)
-        print(cls, "matmul", res2)
-        # for SAM best is between .458-.499, SDXL .45=3.094 .47=2.880 .48=3.036 .5=2.930
-        return res
+            res_matmul=benchmark(q_c_matmul, x_vals_int8, x_scales, w_qtensor.int_data, best_time=best_time)
+        print(cls, "matmul", res_matmul)
+
+        # if the (much faster) matmul kernel is already beat, don't bother benchmarking full op
+        if res_matmul>=best_time:
+            return res_matmul
+
+        # calculate what time full op needs to beat for dynamic quant to be best given INTERPOLATION_CONSTANT
+        to_beat = best_time + INTERPOLATION_CONSTANT/(1-INTERPOLATION_CONSTANT)*(best_time-res_matmul)
+        res = super()._autoquant_test(act_mat, weight, bias, to_beat)
+        print(cls, "full", INTERPOLATION_CONSTANT*res+(1-INTERPOLATION_CONSTANT)*res_matmul)
+        return INTERPOLATION_CONSTANT*res+(1-INTERPOLATION_CONSTANT)*res_matmul
 
 
 class AQWeightOnlyQuantizedLinearWeight(Int8WeightOnlyQuantizedLinearWeight, AQMixin):
@@ -205,11 +212,11 @@ class AQWeightOnlyQuantizedLinearWeight2(Int8WeightOnlyQuantizedLinearWeight, AQ
         return y.to(orig_dtype)
 
     @classmethod
-    def _autoquant_test(cls, act_mat, weight, bias):
+    def _autoquant_test(cls, act_mat, weight, bias, best_time):
         # if act_mat has batchsize>2 don't use this kernel
         if act_mat.reshape(-1, act_mat.shape[-1]).shape[0]>2:
             return torch.inf
-        return super()._autoquant_test(act_mat, weight, bias)
+        return super()._autoquant_test(act_mat, weight, bias, best_time)
 
 class AQWeightOnlyQuantizedLinearWeight3(Int8WeightOnlyQuantizedLinearWeight, AQMixin):
     def _quantized_op(act_mat, w_qtensor, bias):
@@ -246,42 +253,3 @@ DEFAULT_CLASS_LIST = [
     AQWeightOnlyQuantizedLinearWeight2,
     AQWeightOnlyQuantizedLinearWeight3,
 ]
-
-if False:
-    # def _get_to_kwargs(self, *args, **kwargs):
-    #     device, dtype, _, memory_format = torch._C._nn._parse_to(*args, **kwargs)
-    #     device = self.device if device is None else device
-    #     dtype = self.dtype if dtype is None else dtype
-    #     memory_format = (
-    #         memory_format if memory_format is not None else torch.preserve_format
-    #     )
-    #     kwargs = {
-    #         "device": device,
-    #         "dtype": dtype,
-    #         "memory_format": memory_format,
-    #     }
-    #     return kwargs
-
-    # def to(self, *args, **kwargs):
-    #     kwargs = self._get_to_kwargs(*args, **kwargs)
-    #     return self.__class__(
-    #         self.int_data.to(kwargs["device"]),
-    #         self.q_scales.to(kwargs["device"]),
-    #         self.transposed,
-    #         self.shape,
-    #         **kwargs,
-    #     )
-
-    # def _apply_fn_to_data(self, fn):
-    #     return self.__class__(
-    #         fn(self.int_data), fn(self.q_scales), self.transposed, self.shape, dtype=self.dtype
-    #     )
-
-    # def _change_shape(self, shape):
-    #     return self.__class__(
-    #         self.int_data, self.q_scales, self.transposed, shape, dtype=self.dtype
-    #     )
-
-    # def half(self):
-    #     return self.to(torch.float16)
-    pass

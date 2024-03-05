@@ -13,11 +13,8 @@ from .quant_primitives import (
     groupwise_affine_quantize_tensor,
     quant_int8_dynamic_per_token_linear,
     unpack_tinygemm_scales_and_zeros,
-    quantize_activation_per_token_absmax,
-    quant_int8_per_token_matmul,
-    safe_int_mm,
 )
-from .utils import find_multiple, benchmark
+from .utils import find_multiple
 import warnings
 
 

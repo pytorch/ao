@@ -1197,6 +1197,7 @@ class SmoothquantIntegrationTest(unittest.TestCase):
         print("sqnr_pt_quant", sqnr_pt_quant)
         self.assertTrue(sqnr_sq >= 8.0)
 
+# TODO FINISH TEST CODE
 class TestAutoQuant(unittest.TestCase):
     def test_auto_quant(self):
         torch._inductor.config.epilogue_fusion = False
@@ -1215,20 +1216,11 @@ class TestAutoQuant(unittest.TestCase):
             (64, 4096, 1024),
             (4096, 4096, 1024),
         ]:
-            print("testing", m, k, n)
             example_input = torch.randn(m, k, device="cuda", dtype=torch.bfloat16)
             model = torch.nn.Sequential(
-                # torch.nn.ReLU(),
+                torch.nn.ReLU(),
                 torch.nn.Linear(k,n),
-                # torch.nn.ReLU(),
-                # torch.nn.Linear(1280,3840),
-                # torch.nn.ReLU(),
-                # torch.nn.Linear(3840,1280),
-                # torch.nn.ReLU(),
-                # torch.nn.Linear(1280,1024),
-                # torch.nn.ReLU(),
-                # torch.nn.Linear(1024,4096),
-                # torch.nn.ReLU(),
+                torch.nn.ReLU(),
             ).to("cuda").to(torch.bfloat16)
             do_autoquant(model, example_input)
 
