@@ -382,9 +382,10 @@ def quant_int8_per_token_matmul(
     # )
 
     x_scales_flat = x_scales.reshape(tmp.size(0), 1)
-    w_scales_flat = w_scales.unsqueeze(0)
+    # w_scales_flat = w_scales.unsqueeze(0)
 
-    y = intmm_triton.int_scaled_matmul(tmp, w_vals_int8_t, x_scales_flat, w_scales_flat)
+    y = intmm_triton.int_scaled_matmul(tmp, w_vals_int8_t, x_scales_flat) #, w_scales_flat)
+    y = y * w_scales
     y = y.reshape(
         *x_vals_int8.shape[:-1], y.shape[-1]
     )
