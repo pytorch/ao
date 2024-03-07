@@ -53,7 +53,7 @@ def capture_and_prepare(model, example_inputs):
     m(*example_inputs)
     return m
 
-class DynamicQuantizer(TwoStepQuantizer):
+class XNNPackDynamicQuantizer(TwoStepQuantizer):
 
     def prepare(self, model: torch.nn.Module) -> torch.nn.Module:
         _replace_with_custom_fn_if_matches_filter(
@@ -71,7 +71,7 @@ class DynamicQuantizer(TwoStepQuantizer):
         )
         return model
 
-class EagerDynamicQuantizer(Quantizer):
+class TorchCompileDynamicQuantizer(Quantizer):
     def quantize(self, model: torch.nn.Module) -> torch.nn.Module:
         apply_dynamic_quant(model)
         return model
@@ -102,7 +102,7 @@ class TestQuantFlow(unittest.TestCase):
 
     @unittest.skip("skipping for now due to torch.compile error")
     def test_dynamic_quant_gpu_unified_api_unified_impl(self):
-        quantizer = DynamicQuantizer()
+        quantizer = XNNPackDynamicQuantizer()
         m = M().eval()
         m = quantizer.prepare(m)
         m = quantizer.convert(m)
@@ -116,7 +116,7 @@ class TestQuantFlow(unittest.TestCase):
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
 
     def test_dynamic_quant_gpu_unified_api_eager_mode_impl(self):
-        quantizer = EagerDynamicQuantizer()
+        quantizer = TorchCompileDynamicQuantizer()
         m = M().eval()
         m = quantizer.quantize(m)
         example_inputs = (torch.randn(1, 5).to(dtype=torch.float32),)
@@ -126,7 +126,7 @@ class TestQuantFlow(unittest.TestCase):
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
 
     def test_gptq(self):
-        # should be similar to EagerDynamicQuantizer
+        # should be similar to TorchCompileDynamicQuantizer
         pass
 
 if __name__ == "__main__":
