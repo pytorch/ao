@@ -48,10 +48,10 @@ from torchao.quantization.subclass import (
     Int4WeightOnlyQuantizedLinearWeight
 )
 from torchao.quantization.utils import (
-    apply_logging_hook,
+    _apply_logging_hook,
     compute_error,
     compute_error as SQNR,
-    fqn_to_op_to_shape_to_count,
+    _fqn_to_op_to_shape_to_count,
     LoggingTensorMode,
 )
 from torch.ao.quantization.quantize_fx import convert_to_reference_fx, prepare_fx
@@ -832,11 +832,12 @@ class TestSubclass(unittest.TestCase):
         for groupsize in [256, 128]:
             for inner_k_tiles in [8, 2]:
                 for m in [1, 256]:
-                    self._test_dequantize_impl(
-                        lambda w: Int4WeightOnlyQuantizedLinearWeight.from_float(w, groupsize, inner_k_tiles),
-                        15,
-                        test_shape=[m, 256, 8]
-                    )
+                    for n in [8, 13]:
+                        self._test_dequantize_impl(
+                            lambda w: Int4WeightOnlyQuantizedLinearWeight.from_float(w, groupsize, inner_k_tiles),
+                            15,
+                            test_shape=[m, 256, n]
+                        )
 
     def _test_lin_weight_subclass_impl(
         self,
@@ -886,11 +887,12 @@ class TestSubclass(unittest.TestCase):
         for groupsize in [128, 64]:
             for inner_k_tiles in [4, 2]:
                 for m in [1, 256]:
-                    self._test_lin_weight_subclass_impl(
-                        lambda w: Int4WeightOnlyQuantizedLinearWeight.from_float(w, groupsize, inner_k_tiles),
-                        10,
-                        test_shape=[m, 256, 8]
-                    )
+                    for n in [8, 13]:
+                        self._test_lin_weight_subclass_impl(
+                            lambda w: Int4WeightOnlyQuantizedLinearWeight.from_float(w, groupsize, inner_k_tiles),
+                            10,
+                            test_shape=[m, 256, n]
+                        )
 
     @torch.no_grad()
     def _test_lin_weight_subclass_api_impl(
@@ -1109,12 +1111,12 @@ class UtilsUnitTest(unittest.TestCase):
             ),
         )
 
-        apply_logging_hook(m)
+        _apply_logging_hook(m)
         with LoggingTensorMode():
             m(x)
             m(x)
 
-        for fqn, d1 in fqn_to_op_to_shape_to_count.items():  # noqa: PERF102
+        for fqn, d1 in _fqn_to_op_to_shape_to_count.items():  # noqa: PERF102
             for op, d2 in d1.items():  # noqa: PERF102
                 for shape, count in d2.items():  # noqa: PERF102
                     # print(fqn, op, shape, count)
@@ -1122,6 +1124,23 @@ class UtilsUnitTest(unittest.TestCase):
 
 
 class SmoothquantIntegrationTest(unittest.TestCase):
+    @torch.no_grad()
+    def test_non_dynamically_quantizable_linear(self):
+        model = torch.nn.Sequential(
+            torch.nn.modules.linear.NonDynamicallyQuantizableLinear(32,32),
+            torch.nn.ReLU()
+        ).to("cuda").to(torch.bfloat16)
+        example_input = torch.randn(32,32, device="cuda", dtype=torch.bfloat16)
+        ref = model(example_input)
+        swap_linear_with_smooth_fq_linear(model)
+        model(ref)
+        smooth_fq_linear_to_inference(model)
+        model_c = torch.compile(model, mode="max-autotune")
+        out = model_c(example_input)
+        sqnr = SQNR(ref, out)
+        self.assertTrue(sqnr >= 25)
+        self.assertTrue(isinstance(model[0], SmoothFakeDynamicallyQuantizedLinear))
+
     @torch.inference_mode()
     def test_on_dummy_distilbert(self):
         # https://huggingface.co/distilbert-base-uncased#how-to-use

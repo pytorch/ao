@@ -137,7 +137,7 @@ class SmoothFakeDynamicallyQuantizedLinear(SmoothFakeDynQuantMixin, torch.nn.Lin
         super().__init__(*args, **kwargs)
         self.init_smoothquant_variables(alpha)
 
-    def forward(self, X):
+    def forward(self, X, *args, **kwargs):
         if self.calibrating:
             self.update_x_running_abs_max(X)
             Y = F.linear(X, self.weight, self.bias)
@@ -199,6 +199,7 @@ class SmoothFakeDynamicallyQuantizedLinear(SmoothFakeDynQuantMixin, torch.nn.Lin
 
 source_cls_to_target_cls = {
     torch.nn.Linear: SmoothFakeDynamicallyQuantizedLinear,
+    torch.nn.modules.linear.NonDynamicallyQuantizableLinear: SmoothFakeDynamicallyQuantizedLinear,
 }
 
 
@@ -212,8 +213,8 @@ def swap_linear_with_smooth_fq_linear(
             new_fqn = name
         else:
             new_fqn = f"{cur_fqn}.{name}"
-        if ((skip_fqn_list is None) or (new_fqn not in skip_fqn_list)) and isinstance(
-            child, tuple(source_cls_to_target_cls.keys())
+        if ((skip_fqn_list is None) or (new_fqn not in skip_fqn_list)) and (
+            type(child) in source_cls_to_target_cls.keys()
         ):
             target_cls = source_cls_to_target_cls[type(child)]
             new_child = target_cls.from_float(child, alpha=alpha)
