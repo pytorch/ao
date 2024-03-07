@@ -35,9 +35,27 @@ __all__ = [
     "change_linear_weights_to_int8_dqtensors",
     "change_linear_weights_to_int8_woqtensors",
     "change_linear_weights_to_int4_woqtensors",
-    "swap_conv2d_1x1_to_linear"
+    "swap_conv2d_1x1_to_linear",
+    "Quantizer",
+    "TwoStepQuantizer",
 ]
 
+############################# Unified Quantization APIs ##############################
+# API 1, single quantize call to create a quantized model with quantized state_dict
+class Quantizer:
+    def quantize(self, model: torch.nn.Module, *args, **kwargs) -> torch.nn.Module:
+        pass
+
+
+# API 2, flow that needs calibration or training
+class TwoStepQuantizer:
+    def prepare(self, model: torch.nn.Module) -> torch.nn.Module:
+        pass
+
+    def convert(self, model: torch.nn.Module) -> torch.nn.Module:
+        pass
+
+############################# Unified Quantization APIs ##############################
 
 def _replace_with_custom_fn_if_matches_filter(
     model, replacement_fn, filter_fn, cur_fqn=""
