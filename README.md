@@ -6,22 +6,29 @@ The torchao package contains apis and workflows used to apply AO techniques like
 
 ## Installation
 
-clone repository and install package:
+**Note: this library makes liberal use of several new features in pytorch, its recommended to use it with the current pytorch nightly if you want full feature coverage. If not, the subclass APIs may not work, though the module swap api's will still work.**
 
+1. From PyPI:
+```Shell
+pip install torchao
 ```
+
+2. From Source:
+
+```Shell
 git clone https://github.com/pytorch-labs/ao
 cd ao
 python setup.py install
 ```
 
-verify installation:
+Verify Installation:
 
-```
+```Shell
 pip list | grep torchao
 ```
 
-should show
-```
+Expected Output
+```Shell
 torchao                            0.0.1                   <install dir>
 ```
 
@@ -43,7 +50,7 @@ converts the floating point linear matmul of the original linear op to a dynamic
 
 Example
 
-```
+```Python
 import torch
 from torchao.quantization import quant_api
 
@@ -55,7 +62,7 @@ input = torch.randn(32,32, dtype=torch.bfloat16, device='cuda')
 quant_api.change_linear_weights_to_int8_dqtensors(model)
 
 # compile the model to improve performance
-torch.compile(model, mode='max-autotune')
+model = torch.compile(model, mode='max-autotune')
 model(input)
 ```
 
@@ -69,7 +76,7 @@ converts the floating point linear matmul of the original linear op to a weight 
 
 Example
 
-```
+```Python
 # some user model and example input
 ...
 
@@ -90,7 +97,7 @@ converts the floating point linear matmul of the original linear op to a weight 
 
 Example
 
-```
+```Python
 # some user model and example input
 ...
 
@@ -116,9 +123,9 @@ Due to requiring calibration, the API is slightly more complicated and currently
 
 Example
 
-```
+```Python
 import torch
-from torchao.smoothquant import swap_linear_with_smooth_fq_linear, smooth_fq_linear_to_inference
+from torchao.quantization.smoothquant import swap_linear_with_smooth_fq_linear, smooth_fq_linear_to_inference
 
 # some user model
 model = get_model()
@@ -136,7 +143,7 @@ for i in range(calibration_amount):
 smooth_fq_linear_to_inference(model)
 
 # compile the model to improve performance
-torch.compile(model, mode='max-autotune')
+model = torch.compile(model, mode='max-autotune')
 model(input)
 ```
 

@@ -15,6 +15,8 @@ from .quant_primitives import (
     unpack_tinygemm_scales_and_zeros,
 )
 from .utils import find_multiple
+import warnings
+
 
 __all__ = [
     "Int8DynamicallyQuantizedLinearWeight",
@@ -22,6 +24,7 @@ __all__ = [
     "Int4WeightOnlyQuantizedLinearWeight",
 ]
 
+aten = torch.ops.aten
 
 class QuantizedLinearWeightBase(torch.Tensor):
     """
@@ -67,6 +70,9 @@ class QuantizedLinearWeightBase(torch.Tensor):
     def q_params(self):
         pass
 
+    def half(self):
+        return self.to(torch.float16)
+
     def _get_to_kwargs(self, *args, **kwargs):
         device, dtype, _, memory_format = torch._C._nn._parse_to(*args, **kwargs)
         device = self.device if device is None else device
@@ -81,24 +87,43 @@ class QuantizedLinearWeightBase(torch.Tensor):
         }
         return kwargs
 
-    def _detach(self):
+    def _apply_fn_to_data(self, fn):
         pass
 
-    def _transpose(self):
+    def _change_shape(self):
         pass
 
     def __tensor_flatten__(self):
         pass
 
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data, tensor_attributes):
+    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride):
         pass
 
     @classmethod
     def from_float(cls, input_float):
         pass
 
-    __torch_function__ = torch._C._disabled_torch_function_impl
+    # __torch_function__ = torch._C._disabled_torch_function_impl
+
+    @classmethod
+    def __torch_function__(cls, func, types, args=(), kwargs=None):
+        kwargs = {} if kwargs is None else kwargs
+
+        if func is torch.nn.functional.linear:
+            mat1, w_qtensor, bias = (
+                args[0],
+                args[1],
+                args[2] if len(args)>2 else None
+            )
+            assert w_qtensor.transposed == False
+            return cls._quantized_op(mat1, w_qtensor, bias)
+
+        try:
+            with torch._C.DisableTorchFunctionSubclass():
+                return func(*args, **kwargs)
+        except:
+            print(f"ERR: subclass doesn't implement {func}")
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
@@ -107,11 +132,11 @@ class QuantizedLinearWeightBase(torch.Tensor):
         #     for consistency and to allow people to test
         # 2 - we're given non-floats - quantizing long to int8 is crazy
         if (
-            func in [torch.ops.aten.mm.default, torch.ops.aten.addmm.default]
+            func in [aten.mm.default, aten.addmm.default]
             and args[0].is_floating_point()
             and args[0].is_cuda
         ):
-            if func == torch.ops.aten.addmm.default:
+            if func == aten.addmm.default:
                 assert args[1].shape[-1] == args[2].shape[0], (
                     f"need mat1 shape: {args[1].shape} final"
                     f"dim to match mat2 shape: {args[2].shape} first dim "
@@ -129,17 +154,25 @@ class QuantizedLinearWeightBase(torch.Tensor):
                 mat1, w_qtensor, bias = (
                     args[0],
                     args[1],
-                    None,
+                    None if len(args)==2 else args[2],
                 )
             # call the quantized op for the specific type
             # of quantized tensor subclass
             return cls._quantized_op(mat1, w_qtensor, bias)
 
-        if func is torch.ops.aten.detach.default:
-            return return_and_correct_aliasing(func, args, kwargs, args[0]._detach())
+        if func is aten.detach.default:
+            return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.detach))
 
-        if func is torch.ops.aten.t.default:
-            return return_and_correct_aliasing(func, args, kwargs, args[0]._transpose())
+        if func is aten.clone.default:
+            return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.clone))
+
+        if func is aten.t.default:
+            args[0].transposed = not args[0].transposed
+            new = args[0]._change_shape(args[0].shape[::-1])
+            return return_and_correct_aliasing(func, args, kwargs, new)
+
+        if func is aten._to_copy.default:
+            return return_and_correct_aliasing(func, args, kwargs, args[0].to(*args[1:], **kwargs)._apply_fn_to_data(torch.clone))
 
 
 class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
@@ -196,28 +229,24 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
             **kwargs,
         )
 
-    def _detach(self):
+    def _apply_fn_to_data(self, fn):
         return self.__class__(
-            self.int_data, self.q_scales, self.transposed, self.shape, dtype=self.dtype
+            fn(self.int_data), fn(self.q_scales), self.transposed, self.shape, dtype=self.dtype
         )
 
-    def _transpose(self):
+    def _change_shape(self, shape):
         return self.__class__(
-            self.int_data,
-            self.q_scales,
-            not self.transposed,
-            self.shape[::-1],
-            dtype=self.dtype,
+            self.int_data, self.q_scales, self.transposed, shape, dtype=self.dtype
         )
 
     def __tensor_flatten__(self):
-        return ["int_data", "q_scales"], [self.transposed, self.shape, self.dtype]
+        return ["int_data", "q_scales"], [self.transposed, self.dtype, self.shape]
 
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data, tensor_attributes):
-        int_data, q_scales = tensor_data["int_data"], tensor_data["q_scales"]
-        transposed, shape, dtype = tensor_attributes
-        return cls(int_data, q_scales, transposed, shape, dtype=dtype)
+    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
+        int_data, q_scales = tensor_data_dict["int_data"], tensor_data_dict["q_scales"]
+        transposed, dtype, shape = tensor_attributes
+        return cls(int_data, q_scales, transposed, shape if outer_size is None else outer_size, dtype=dtype, strides=outer_stride)
 
     @classmethod
     def from_float(cls, input_float, qmin=-128, qmax=127):
@@ -240,6 +269,8 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
         # however the external representation of our tensor will maintain the correct
         # shape attribute which needs to be tracked directly.
         int_data = w_int_repr.contiguous().t()
+        if cls is not Int8DynamicallyQuantizedLinearWeight:
+            int_data = int_data.contiguous()
         return cls(
             int_data, w_scales, False, input_float.shape, dtype=input_float.dtype
         )
@@ -254,10 +285,9 @@ class Int8WeightOnlyQuantizedLinearWeight(Int8DynamicallyQuantizedLinearWeight):
 
     @staticmethod
     def _quantized_op(act_mat, w_qtensor, bias):
-        act_mat = act_mat.view(-1, act_mat.shape[-1])
         orig_dtype = act_mat.dtype
-        y = torch.mm(act_mat, w_qtensor.int_data.to(act_mat.dtype)) * w_qtensor.q_scales
-        y = y.reshape(*act_mat.shape[:-1], -1)
+        y = torch.mm(act_mat.reshape(-1, act_mat.shape[-1]), w_qtensor.int_data.to(act_mat.dtype)) * w_qtensor.q_scales
+        y = y.reshape(*act_mat.shape[:-1], y.shape[-1])
         if bias is not None:
             y += bias
         return y.to(orig_dtype)
@@ -310,15 +340,19 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
 
         # reshape and pad activation
         act_mat = act_mat.reshape(-1, act_mat.shape[-1]).to(torch.bfloat16)
-        pad_size = find_multiple(act_mat.shape[1], 1024)
-        act_mat = torch.nn.functional.pad(act_mat, (0, pad_size - act_mat.shape[1]))
+        pad_size = find_multiple(act_mat.shape[-1], 1024)
+        act_mat = torch.nn.functional.pad(act_mat, (0, pad_size - act_mat.shape[-1]))
 
         # matmul
-        y = torch.ops.aten._weight_int4pack_mm(
-            act_mat, w_qtensor.int_data, w_qtensor.groupsize, w_qtensor.scales_and_zeros
+        y = aten._weight_int4pack_mm(
+            act_mat.contiguous(), w_qtensor.int_data, w_qtensor.groupsize, w_qtensor.scales_and_zeros
         )
 
-        y = y.reshape(*orig_act_size[:-1], -1)
+        # remove out_feature padding
+        orig_out_features = w_qtensor.shape[-1] if w_qtensor.transposed else w_qtensor.shape[-2]
+        y = y[:, :orig_out_features]
+
+        y = y.reshape(*orig_act_size[:-1], orig_out_features)
         if bias is not None:
             y += bias
         return y.to(orig_dtype)
@@ -354,10 +388,10 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             **kwargs,
         )
 
-    def _detach(self):
+    def _apply_fn_to_data(self, fn):
         return self.__class__(
-            self.int_data,
-            self.scales_and_zeros,
+            fn(self.int_data),
+            fn(self.scales_and_zeros),
             self.transposed,
             self.shape,
             self.groupsize,
@@ -365,41 +399,42 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             dtype=self.dtype,
         )
 
-    def _transpose(self):
+    def _change_shape(self, shape):
         return self.__class__(
             self.int_data,
             self.scales_and_zeros,
-            not self.transposed,
-            self.shape[::-1],
+            self.transposed,
+            shape,
             self.groupsize,
             self.inner_k_tiles,
-            dtype=self.dtype,
+            dtype=self.dtype
         )
 
     def __tensor_flatten__(self):
         return ["int_data", "scales_and_zeros"], (
             self.transposed,
-            self.shape,
             self.groupsize,
             self.inner_k_tiles,
             self.dtype,
+            self.shape
         )
 
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data, attributes):
+    def __tensor_unflatten__(cls, tensor_data_dict, attributes, outer_size=None, outer_stride=None):
         int_data, scales_and_zeros = (
-            tensor_data["int_data"],
-            tensor_data["scales_and_zeros"],
+            tensor_data_dict["int_data"],
+            tensor_data_dict["scales_and_zeros"],
         )
-        transposed, shape, groupsize, inner_k_tiles, dtype = attributes
+        transposed, groupsize, inner_k_tiles, dtype, shape = attributes
         return cls(
             int_data,
             scales_and_zeros,
             transposed,
-            shape,
+            shape if outer_size is None else outer_size,
             groupsize,
             inner_k_tiles,
             dtype=dtype,
+            strides=outer_stride,
         )
 
     @classmethod
@@ -417,20 +452,20 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         assert groupsize in [256, 128, 64, 32]
         assert inner_k_tiles in [8, 4, 2]
         orig_shape = input_float.shape
-        out_features, orig_in_features = input_float.shape
-        assert out_features % 8 == 0, "require out_features % 8 == 0"
+        orig_out_features, orig_in_features = input_float.shape
 
         # padding
         in_features = find_multiple(orig_in_features, 1024)
+        out_features = find_multiple(orig_out_features, 8)
         input_float = torch.nn.functional.pad(
-            input_float, (0, in_features - orig_in_features)
+            input_float, (0, in_features - orig_in_features, 0, out_features - orig_out_features)
         )
 
         # quantization and packing
         input_int4x8, scales_and_zeros = groupwise_affine_quantize_tensor(
             input_float, 4, groupsize
         )
-        int_data = torch.ops.aten._convert_weight_to_int4pack(
+        int_data = aten._convert_weight_to_int4pack(
             input_int4x8, inner_k_tiles
         )
 
