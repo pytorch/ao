@@ -22,7 +22,11 @@ from torchao.quantization.quant_api import apply_dynamic_quant
 from torchao.quantization.quant_api import (
     Quantizer,
     TwoStepQuantizer,
+    Int8DynActInt4WeightGPTQQuantizer,
 )
+from pathlib import Path
+from sentencepiece import SentencePieceProcessor
+
 
 def dynamic_quant(model, example_inputs):
     m = capture_pre_autograd_graph(model, example_inputs)
@@ -127,7 +131,31 @@ class TestQuantFlow(unittest.TestCase):
 
     def test_gptq(self):
         # should be similar to TorchCompileDynamicQuantizer
-        pass
+        m = M().eval()
+        checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        tokenizer_path = checkpoint_path.parent / "tokenizer.model"
+        assert tokenizer_path.is_file(), tokenizer_path
+        tokenizer = SentencePieceProcessor(  # pyre-ignore[28]
+            model_file=str(tokenizer_path)
+        )
+        blocksize = 128
+        percdamp = 0.01
+        groupsize = 128
+        calibration_tasks = ["hellaswag"]
+        calibration_limit = 1000
+        calibration_seq_length = 100
+        pad_calibration_inputs = False
+        quantizer = Int8DynActInt4WeightGPTQQuantizer(
+            tokenizer,
+            blocksize,
+            percdamp,
+            groupsize,
+            calibration_tasks,
+            calibration_limit,
+            calibration_seq_length,
+            pad_calibration_inputs,
+        )
+        m = quantizer.quantize(m)
 
 if __name__ == "__main__":
     unittest.main()
