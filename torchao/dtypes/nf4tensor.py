@@ -28,6 +28,10 @@ def implements(aten_ops):
 def noop_detach(func, *args, **kwargs):
     return args[0][0]
 
+@implements([torch.ops.aten._to_copy.default])
+def _to_copy(func, *args, **kwargs):
+    return args[0][0].get_original_weight().to(args[1]['dtype'])
+
 
 @dataclass
 class SubclassTensorArgs:
@@ -416,6 +420,10 @@ class NF4Tensor(torch.Tensor):
             inner_tensors["nf4"],
         )
 
+
+    def __str__(self):
+        return self.to(torch.float32).__str__()
+
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
         """TODO we are not supporting torch dispatch at the moment
@@ -465,3 +473,6 @@ def linear_nf4(input: torch.Tensor, weight: NF4Tensor) -> torch.Tensor:
         weight: NF4Tensor weight
     """
     return LinearNF4.apply(input, weight)
+
+def to_nf4(tensor):
+    return NF4Tensor.from_tensor(tensor)
