@@ -26,6 +26,7 @@ from torchao.quantization.quant_api import (
 )
 from pathlib import Path
 from sentencepiece import SentencePieceProcessor
+from model import Transformer
 
 
 def dynamic_quant(model, example_inputs):
@@ -131,8 +132,13 @@ class TestQuantFlow(unittest.TestCase):
 
     def test_gptq(self):
         # should be similar to TorchCompileDynamicQuantizer
-        m = M().eval()
+        precision = torch.bfloat16
+        device = "cuda"
         checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        model = Transformer.from_name(checkpoint_path.parent.name)
+        checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
+        model.load_state_dict(checkpoint, assign=True)
+        model = model.to(dtype=precision, device=device)
         tokenizer_path = checkpoint_path.parent / "tokenizer.model"
         assert tokenizer_path.is_file(), tokenizer_path
         tokenizer = SentencePieceProcessor(  # pyre-ignore[28]
@@ -155,7 +161,7 @@ class TestQuantFlow(unittest.TestCase):
             calibration_seq_length,
             pad_calibration_inputs,
         )
-        m = quantizer.quantize(m)
+        model = quantizer.quantize(model)
 
 if __name__ == "__main__":
     unittest.main()
