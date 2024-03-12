@@ -13,6 +13,10 @@ setup(
     install_requires=[
         'torch',
     ],
+    include_package_data=True,
+    package_data={
+        'torchao.kernel_configs': ["*.pkl"],
+    },
     description='Package for applying ao techniques to GPU models',
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',

@@ -92,11 +92,19 @@ def _save_best_configs(best_configs):
 
 
 def _load_best_configs():
-    from pathlib import Path
-    filename = Path('data.pkl')
-    if filename.is_file():
-        with open('data.pkl', 'rb') as f:
-            logging.info('Loading configs in data.pkl')
+    device_name = torch.cuda.get_device_name()
+    import importlib
+    saved_configs = importlib.resources.files("segment_anything_fast")
+    saved_configs = saved_configs / "configs" / "flash_4_configs_a100.p"
+    if not device_name.startswith('NVIDIA A100'):
+        cwd = pathlib.Path.cwd()
+        saved_configs = cwd / "flash_4_configs.p"
+        print(f"We will try to read previously created kernel configurations from {saved_configs}.")
+        print("You can disable this kernel by setting SEGMENT_ANYTHING_FAST_USE_FLASH_4=0")
+    if saved_configs.is_file():
+        import pickle
+        with open(saved_configs, 'rb') as f:
+            print(f"Loading best configs from file {saved_configs}")
             return pickle.load(f)
 
 
