@@ -168,8 +168,8 @@ class NF4Tensor(torch.Tensor):
     def from_tensor(
         cls,
         inpt_tensor: torch.Tensor,
-        block_size: int = 64,
-        scaler_block_size: int = 256,
+        block_size: int,
+        scaler_block_size: int,
     ):
         assert inpt_tensor.dtype == torch.bfloat16
         assert (
@@ -510,6 +510,8 @@ def linear_nf4(input: torch.Tensor, weight: NF4Tensor) -> torch.Tensor:
     """
     return LinearNF4.apply(input, weight)
 
-def to_nf4(tensor):
+def to_nf4(tensor,
+           block_size: int = 64,
+           scaler_block_size: int = 256):
     tensor1 = tensor.to(torch.bfloat16)
-    return NF4Tensor.from_tensor(tensor1)
+    return NF4Tensor.from_tensor(tensor1, block_size, scaler_block_size)
