@@ -6,7 +6,8 @@ from torch import nn
 from torch.testing._internal.common_utils import TestCase
 from torchao.dtypes.nf4tensor import linear_nf4, NF4Tensor
 import torch.nn.functional as F
-
+import io
+from collections import OrderedDict
 
 bnb_available = False
 
@@ -44,6 +45,16 @@ def _build_bnb_linear(input_weight, device):
 
 
 class TestNF4Linear(TestCase):
+    class TestMod(nn.Module):
+        def __init__(self, tensor, block_size, scaler_block_size):
+            super().__init__()
+            self.param = torch.nn.Parameter(NF4Tensor.from_tensor(tensor, block_size, scaler_block_size))
+
+    def save_state_dict_to_buffer(self, state_dict: OrderedDict):
+        buffer = io.BytesIO()
+        torch.save(state_dict, buffer)
+        buffer.seek(0)
+        return buffer
 
     def test_register_nf4_as_param(self):
         nf4_tensor = NF4Tensor.from_tensor(
@@ -121,6 +132,43 @@ class TestNF4Linear(TestCase):
         assert err_native < 0.5 * dim
         assert err_bnb < 0.5 * dim
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need cuda for test")
+    def test_load_from_bfloat16(self):
+        """Tests loading to and from different module state dicts"""
+        inpt_tensor = torch.rand(64, device='cuda', dtype=torch.bfloat16)
+        base_mod = self.TestMod(inpt_tensor, 32, 2)
+
+        bf16_dummy_dict = {"param": inpt_tensor}
+        base_mod.load_state_dict(bf16_dummy_dict)
+
+        assert base_mod.param.block_size == 32
+        assert base_mod.param.scaler_block_size == 2
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need cuda for test")
+    def test_load_from_nf4_same_meta(self):
+        """Tests loading to and from different module state dicts"""
+        inpt_tensor = torch.rand(64, device='cuda', dtype=torch.bfloat16)
+        base_mod = self.TestMod(inpt_tensor, 32, 2)
+        state_dict = base_mod.state_dict()
+        saved_state_dict = self.save_state_dict_to_buffer(state_dict)
+
+        other_mod = self.TestMod(inpt_tensor, 32, 2)
+        other_mod.load_state_dict(torch.load(saved_state_dict))
+        assert other_mod.param.block_size == 32
+        assert other_mod.param.scaler_block_size == 2
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need cuda for test")
+    def test_load_from_nf4_diff_meta(self):
+        """Tests loading to and from different module state dicts"""
+        inpt_tensor = torch.rand(128, device='cuda', dtype=torch.bfloat16)
+        base_mod = self.TestMod(inpt_tensor, 32, 2)
+        state_dict = base_mod.state_dict()
+        saved_state_dict = self.save_state_dict_to_buffer(state_dict)
+
+        other_mod = self.TestMod(inpt_tensor, 64, 1)
+        other_mod.load_state_dict(torch.load(saved_state_dict))
+        assert other_mod.param.block_size == 64
+        assert other_mod.param.scaler_block_size == 1
 
 if __name__ == "__main__":
     unittest.main()
