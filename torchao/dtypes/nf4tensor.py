@@ -511,4 +511,5 @@ def linear_nf4(input: torch.Tensor, weight: NF4Tensor) -> torch.Tensor:
     return LinearNF4.apply(input, weight)
 
 def to_nf4(tensor):
-    return NF4Tensor.from_tensor(tensor)
+    tensor1 = tensor.to(torch.bfloat16)
+    return NF4Tensor.from_tensor(tensor1)
