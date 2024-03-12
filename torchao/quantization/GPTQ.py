@@ -92,8 +92,9 @@ def setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
     input_pos = torch.arange(0, T, device=device)
 
     # no caches in executorch llama2 7b model?
-    # with torch.device(device):
-    #     model.setup_caches(max_batch_size=1, max_seq_length=max_seq_length)
+    print("setting up cache")
+    with torch.device(device):
+        model.setup_caches(max_batch_size=1, max_seq_length=max_seq_length)
 
     return seq, input_pos, max_seq_length
 
@@ -148,6 +149,7 @@ class GPTFastEvalWrapper(eval_wrapper):  # pyre-ignore[11]
         return decoded
 
     def _model_call(self, inps):
+        print("in model_call")
         # TODO: make batches work
         inps = inps.squeeze(0)
 
