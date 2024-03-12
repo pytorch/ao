@@ -31,11 +31,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - repository: pytorch/vision
+          - repository: pytorch-labs/ao
             pre-script: packaging/pre_build_script.sh
             post-script: packaging/post_build_script.sh
             smoke-test-script: test/smoke_test.py
-            package-name: torchvision
+            package-name: torchao
     name: ${{ matrix.repository }}
     uses: pytorch/test-infra/.github/workflows/build_wheels_linux.yml@main
     with:
