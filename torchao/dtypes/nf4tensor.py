@@ -38,6 +38,7 @@ def noop_detach(func, *args, **kwargs):
 
 @implements([torch.ops.aten._to_copy.default])
 def _to_copy(func, *args, **kwargs):
+    print("func: ", func)
     return args[0][0].get_original_weight().to(args[1]['dtype'])
 
 

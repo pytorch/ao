@@ -164,5 +164,18 @@ class TestNF4Linear(TestCase):
         assert other_mod.param.block_size == 64
         assert other_mod.param.scaler_block_size == 1
 
+    def test_to_copy(self):
+        inpt_tensor = torch.rand(128, device='cpu')
+        inpt_tensor_nf4 = to_nf4(inpt_tensor, 32, 2)
+        inpt_tensor_bfloat16 = inpt_tensor_nf4.to(torch.bfloat16)
+        torch.testing.assert_allclose(inpt_tensor, inpt_tensor_bfloat16, atol=0.13, rtol=0.13)
+
+        if torch.cuda.is_available():
+            inpt_tensor = torch.rand(128, device='cuda')
+            inpt_tensor_nf4 = to_nf4(inpt_tensor, 32, 2)
+            inpt_tensor_bfloat16 = inpt_tensor_nf4.to(torch.bfloat16)
+            torch.testing.assert_allclose(inpt_tensor, inpt_tensor_bfloat16, atol=0.13, rtol=0.13)
+
+
 if __name__ == "__main__":
     unittest.main()
