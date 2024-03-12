@@ -12,7 +12,6 @@ setup(
     packages=find_packages(),
     install_requires=[
         'torch',
-        'lm-eval',
     ],
     description='Package for applying ao techniques to GPU models',
     long_description=open('README.md').read(),

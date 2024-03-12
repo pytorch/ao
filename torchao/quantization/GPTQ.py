@@ -55,7 +55,8 @@ if lm_eval_available:
         eval_wrapper = base.BaseLM
         get_task_dict = tasks.get_task_dict
         evaluate = evaluator.evaluate
-
+else:
+    print("lm_eval is not installed, GPTQ may not be usable")
 
 def setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
     model: torch.nn.Module,  # pyre-ignore[11]
