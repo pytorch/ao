@@ -86,21 +86,23 @@ logging.basicConfig(level=logging.INFO)
 
 
 def _save_best_configs(best_configs):
-    with open('data.pkl', 'wb') as f:
+    saved_configs = pathlib.Path.cwd() / "data.pkl"
+    print(f"Trying to store configs for {device_name} locally under {saved_configs}")
+    with open(saved_configs, 'wb') as f:
+        import pickle
+        print(f"Saving best configs to file {saved_configs}")
         pickle.dump(best_configs, f)
-    logging.info('Saved configs in data.pkl')
 
 
 def _load_best_configs():
     device_name = torch.cuda.get_device_name()
     import importlib
     saved_configs = importlib.resources.files("segment_anything_fast")
-    saved_configs = saved_configs / "configs" / "flash_4_configs_a100.p"
+    saved_configs = saved_configs / "configs" / "data_a100.pkl"
     if not device_name.startswith('NVIDIA A100'):
         cwd = pathlib.Path.cwd()
-        saved_configs = cwd / "flash_4_configs.p"
+        saved_configs = cwd / "data.pkl"
         print(f"We will try to read previously created kernel configurations from {saved_configs}.")
-        print("You can disable this kernel by setting SEGMENT_ANYTHING_FAST_USE_FLASH_4=0")
     if saved_configs.is_file():
         import pickle
         with open(saved_configs, 'rb') as f:
