@@ -18,7 +18,7 @@ from torchao.quantization.utils import (
     compute_error,
 )
 from torchao.quantization.quant_api import (
-    replace_with_custom_fn_if_matches_filter,
+    _replace_with_custom_fn_if_matches_filter,
 )
 from torch.ao.quantization.observer import ObserverBase
 from torch import nn
@@ -36,7 +36,7 @@ def _apply_weight_only_uint4_quant(model):
         mod.weight = torch.nn.Parameter(PerChannelSymmetricWeightUInt4Tensor.from_float(mod.weight), requires_grad=False)
         return mod
 
-    replace_with_custom_fn_if_matches_filter(
+    _replace_with_custom_fn_if_matches_filter(
         model,
         lambda mod: fn(mod),
         lambda mod, fqn: isinstance(mod, torch.nn.Linear),

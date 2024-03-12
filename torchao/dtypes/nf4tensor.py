@@ -36,6 +36,10 @@ def implements(aten_ops):
 def noop_detach(func, *args, **kwargs):
     return args[0][0]
 
+@implements([torch.ops.aten._to_copy.default])
+def _to_copy(func, *args, **kwargs):
+    return args[0][0].get_original_weight().to(args[1]['dtype'])
+
 
 @implements(
     [
@@ -164,8 +168,8 @@ class NF4Tensor(torch.Tensor):
     def from_tensor(
         cls,
         inpt_tensor: torch.Tensor,
-        block_size: int = 64,
-        scaler_block_size: int = 256,
+        block_size: int,
+        scaler_block_size: int,
     ):
         assert inpt_tensor.dtype == torch.bfloat16
         assert (
@@ -452,6 +456,10 @@ class NF4Tensor(torch.Tensor):
             inner_tensors["nf4"],
         )
 
+
+    def __str__(self):
+        return self.to(torch.float32).__str__()
+
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
         """TODO we are not supporting torch dispatch at the moment
@@ -501,3 +509,9 @@ def linear_nf4(input: torch.Tensor, weight: NF4Tensor) -> torch.Tensor:
         weight: NF4Tensor weight
     """
     return LinearNF4.apply(input, weight)
+
+def to_nf4(tensor,
+           block_size: int = 64,
+           scaler_block_size: int = 256):
+    tensor1 = tensor.to(torch.bfloat16)
+    return NF4Tensor.from_tensor(tensor1, block_size, scaler_block_size)
