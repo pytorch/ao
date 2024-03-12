@@ -20,7 +20,7 @@ if [[ "$(uname)" == Darwin || "$OSTYPE" == "msys" ]]; then
   if [[ "$OSTYPE" == "msys" ]]; then
       python_exec="$(which python)"
       bin_path=$(dirname $python_exec)
-      cp "$bin_path/Library/bin/libjpeg.dll" torchvision
+      cp "$bin_path/Library/bin/libjpeg.dll" torchao
   fi
 else
 
@@ -42,8 +42,8 @@ else
 
   # Point to custom libraries
   export LD_LIBRARY_PATH=$(pwd)/ext_libraries/lib:$LD_LIBRARY_PATH
-  export TORCHVISION_INCLUDE=$(pwd)/ext_libraries/include
-  export TORCHVISION_LIBRARY=$(pwd)/ext_libraries/lib
+  # export TORCHVISION_INCLUDE=$(pwd)/ext_libraries/include
+  # export TORCHVISION_LIBRARY=$(pwd)/ext_libraries/lib
 fi
 
 pip install numpy pyyaml future ninja
