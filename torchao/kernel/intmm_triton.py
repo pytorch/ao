@@ -255,11 +255,15 @@ def int_matmul_cuda(a, b):
     best_config = get_best_config_fn(int_matmul_kernel,
                                      [a, b, c],
                                      int8_mm_kernel_configs)
+    if best_config is None:
+        # Fall back to decomposition
+        return torch.tensor([])
     return int_matmul_kernel(a, b, c, best_config)
 
 
 def int_matmul(a, b):
-    return torch.ops.torchao.int_matmul(a, b)
+    if torch.ops.torchao.int_matmul(a, b).numel() == 0:
+        return torch.ops.aten._int_mm(a, b)
 
 
 @torch.library.impl(lib, "int_scaled_matmul", "Meta")
@@ -283,6 +287,9 @@ def int_scaled_matmul_cuda(a, b, scales1):
     best_config = get_best_config_fn(int_scaled_matmul_kernel,
                                      [a, b, scales1, c],
                                      int8_mm_kernel_configs)
+    if best_config is None:
+        # Fall back to decomposition
+        return torch.tensor([])
     return int_scaled_matmul_kernel(a, b, scales1, c, best_config)
 
 def int_scaled_matmul(a, b, scales1):
@@ -296,4 +303,6 @@ def int_scaled_matmul(a, b, scales1):
     assert scales1.dtype == torch.bfloat16
     scales1 = scales1.expand((M, N))
     assert scales1.dim() == 2
-    return torch.ops.torchao.int_scaled_matmul(a, b, scales1)
+    if torch.ops.torchao.int_scaled_matmul(a, b, scales1).numel() == 0:
+        c = torch.ops.aten._int_mm(a, b)
+        return c * scales1
