@@ -16,6 +16,8 @@ and mixed GEMM kernels
 """
 
 import torch
+import torch.nn.functional as F
+import torch.nn as nn
 from .dynamic_quant import (
     DynamicallyPerAxisQuantizedLinear,
 )
@@ -28,7 +30,11 @@ from .subclass import (
 from .weight_only import (
     WeightOnlyInt8QuantLinear,
 )
-from typing import Dict
+from .quant_primitives import (
+    get_group_qparams_symmetric,
+    per_token_dynamic_quant,
+)
+from typing import Dict, Tuple
 
 __all__ = [
     "apply_weight_only_int8_quant",
@@ -382,7 +388,7 @@ if lm_eval_available:
                 self.pad_calibration_inputs,
             )
             model = self._convert_for_runtime(model)
-            model.load_state_dict(state_dict)
+            model.load_state_dict(state_dict, strict=False)
             return model
 
 
@@ -465,9 +471,47 @@ if lm_eval_available:
                 self.precision,
             )
 
+    from math import gcd
+    from functools import reduce
+
+
+    def find_multiple(n: int, *args: Tuple[int]) -> int:
+        # TODO: this change is reverted right now in gpt-fast
+        k: int = reduce(lambda x, y: x * y // gcd(x, y), args + (1,))  # type: ignore[9]
+        if n % k == 0:
+            return n
+        return n + k - (n % k)
+
 
     def _check_linear_int4_k(k, group_size=1):
         return k % group_size == 0
+
+
+    def _calc_padded_size_linear_int4(k, groupsize=1):
+        return find_multiple(k, groupsize)
+
+
+    def pack_scales_and_zeros(scales, zeros, precision=torch.float32):
+        assert scales.shape == zeros.shape
+        assert scales.dtype == precision
+        assert zeros.dtype == precision
+        return (
+            torch.cat(
+                [
+                    scales.reshape(scales.size(0), scales.size(1), 1),
+                    zeros.reshape(zeros.size(0), zeros.size(1), 1),
+                ],
+                2,
+            )
+            .transpose(0, 1)
+            .contiguous()
+        )
+
+
+    def unpack_scales_and_zeros(scales_and_zeros):
+        assert len(scales_and_zeros.shape) == 3 and scales_and_zeros.shape[2] == 2
+        assert scales_and_zeros.dtype == torch.float
+        return torch.split(scales_and_zeros.transpose(0, 1), 1, 2)
 
 
     def replace_linear_8da4w(
@@ -554,25 +598,27 @@ if lm_eval_available:
             ]
             # skip unless padding_allowed=True or its correctly sized
             self.skip_layer_func = lambda linear_weight: not (
-                _check_linear_int4_k(linear_weight.shape[-1], groupsize, inner_k_tiles)
+                _check_linear_int4_k(linear_weight.shape[-1], groupsize)
                 or padding_allowed
             )
 
             # we need to do the padding here, both for q and the qparams if necessary
             def make_names_and_values_dict_func(q, qparams):
                 k = q.shape[1]
-                new_k = _calc_padded_size_linear_int4(k, groupsize, inner_k_tiles)
+                new_k = _calc_padded_size_linear_int4(k, groupsize)
                 # how much we need to pad the weight
                 delta_k = new_k - q.shape[1]
                 final_q = F.pad(q, pad=(0, delta_k))
-                scales_and_zeros = pack_scales_and_zeros(*qparams, precision=self.precision)
+                scales = qparams[0].to(self.precision)
+                zeros = qparams[1].to(self.precision)
+                # scales_and_zeros = pack_scales_and_zeros(*qparams, precision=self.precision)
                 # how many new groups we need for padded weight
-                delta_groups = new_k // groupsize - scales_and_zeros.shape[0]
+                # delta_groups = new_k // groupsize - scales_and_zeros.shape[0]
                 # TODO: split scales and zero_points
-                final_s_and_z = F.pad(
-                    scales_and_zeros, pad=(0, 0, 0, 0, 0, delta_groups), value=1
-                )
-                return {"weight": final_q, "scales_and_zeros": final_s_and_z}
+                # final_s_and_z = F.pad(
+                #     scales_and_zeros, pad=(0, 0, 0, 0, 0, delta_groups), value=1
+                # )
+                return {"weight": final_q, "scales": scales, "zeros": zeros}
 
             self.make_names_and_values_dict_func = make_names_and_values_dict_func
             super().__init__()

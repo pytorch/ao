@@ -14,7 +14,6 @@ from torch.ao.quantization.fx._decomposed import (
 from torch.library import impl
 from typing import Tuple
 
-
 __all__ = [
     "safe_int_mm",
     "dynamically_quantize_per_tensor",
