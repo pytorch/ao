@@ -13,6 +13,7 @@ __all__ = [
     "compute_error",
     "_apply_logging_hook",
     "get_model_size_in_bytes",
+    "is_lm_eval_available",
 ]
 
 
@@ -86,3 +87,15 @@ def get_model_size_in_bytes(model):
     for b in model.buffers():
         s += b.nelement() * b.element_size()
     return s
+
+
+def is_lm_eval_available():
+    lm_eval_available = False
+    try:
+        import lm_eval  # pyre-ignore[21]  # noqa: F401
+
+        lm_eval_available = True
+    except:
+        lm_eval_available = False
+    print("func: is lm eval available:", lm_eval_available)
+    return lm_eval_available

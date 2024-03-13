@@ -17,11 +17,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 # from model import Transformer  # pyre-ignore[21]
 from torch.utils._pytree import tree_flatten, tree_unflatten
+from .utils import is_lm_eval_available
 
 aten = torch.ops.aten
 
 ## generate.py ##
-
 
 def encode_tokens(tokenizer, string, bos=True, device="cuda"):
 
@@ -37,14 +37,7 @@ def model_forward(model, x, input_pos):
 
 ## eval.py ##
 
-try:
-    import lm_eval  # pyre-ignore[21]  # noqa: F401
-
-    lm_eval_available = True
-except:
-    lm_eval_available = False
-
-if lm_eval_available:
+if is_lm_eval_available():
     try:  # lm_eval version 0.4
         from lm_eval.evaluator import evaluate  # pyre-ignore[21]
         from lm_eval.models.huggingface import HFLM as eval_wrapper  # pyre-ignore[21]
@@ -56,7 +49,7 @@ if lm_eval_available:
         get_task_dict = tasks.get_task_dict
         evaluate = evaluator.evaluate
 else:
-    print("lm_eval is not installed, GPTQ may not be usable")
+    raise Exception("lm_eval is not installed, can't import GPTQ")
 
 def setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
     model: torch.nn.Module,  # pyre-ignore[11]
@@ -93,7 +86,6 @@ def setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
     input_pos = torch.arange(0, T, device=device)
 
     # no caches in executorch llama2 7b model?
-    print("setting up cache")
     with torch.device(device):
         model.setup_caches(max_batch_size=1, max_seq_length=max_seq_length)
 

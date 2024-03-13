@@ -208,17 +208,18 @@ def swap_conv2d_1x1_to_linear(model, filter_fn=None):
     )
 
 
-from .GPTQ import lm_eval_available
+from .utils import is_lm_eval_available
 
-if lm_eval_available:
+print("lm_eval_available:", is_lm_eval_available())
+if is_lm_eval_available():
     from .GPTQ import (  # pyre-ignore[21]
         evaluate,
         GenericGPTQRunner,
         get_task_dict,
         InputRecorder,
-        lm_eval,
         MultiInput,
     )
+    print("after import")
 
 
     class GPTQQuantizer(Quantizer):
@@ -633,4 +634,4 @@ if lm_eval_available:
             )
             return model
 else:
-    print("lm_eval not available, skip defining GPTQQuantizer")
+    print("lm_eval not available, skip importing GPTQQuantizer")

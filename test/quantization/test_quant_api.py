@@ -17,6 +17,7 @@ from torch.ao.quantization.quantizer.xnnpack_quantizer import (
     get_symmetric_quantization_config,
 )
 
+import torchao.quantization.quant_api as quant_api
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.quantization.quant_api import apply_dynamic_quant
 from torchao.quantization.quant_api import (
@@ -24,6 +25,7 @@ from torchao.quantization.quant_api import (
     TwoStepQuantizer,
     Int8DynActInt4WeightGPTQQuantizer,
 )
+from torchao.quantization.utils import is_lm_eval_available
 from pathlib import Path
 from sentencepiece import SentencePieceProcessor
 from model import Transformer
@@ -130,11 +132,19 @@ class TestQuantFlow(unittest.TestCase):
         compiled = m(*example_inputs)
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
 
+    @unittest.skipIf(not is_lm_eval_available(), "Skipping the test when lm_eval is not available")
     def test_gptq(self):
         # should be similar to TorchCompileDynamicQuantizer
+        # from torchao.quantization.quant_api import Int8DynActInt4WeightGPTQQuantizer
+        # Int8DynActInt4WeightGPTQQuantizer = quant_api.Int8DynActInt4WeightGPTQQuantizer
+
         precision = torch.bfloat16
         device = "cpu"
-        checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        try:
+            checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        except:
+            print("didn't find model")
+            return
         model = Transformer.from_name(checkpoint_path.parent.name)
         checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
         model.load_state_dict(checkpoint, assign=True)
