@@ -99,169 +99,169 @@ def setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
 
     return seq, input_pos, max_seq_length
 
+if lm_eval_available:
+    class GPTFastEvalWrapper(eval_wrapper):  # pyre-ignore[11]
+        """
+        A wrapper class for GPTFast, providing integration with the lm-evaluation-harness library.
+        """
 
-class GPTFastEvalWrapper(eval_wrapper):  # pyre-ignore[11]
-    """
-    A wrapper class for GPTFast, providing integration with the lm-evaluation-harness library.
-    """
-
-    def __init__(
-        self,
-        model: torch.nn.Module,
-        tokenizer,
-        max_seq_length: Optional[int] = None,
-    ):
-        super().__init__()
-        self._model = model
-        self._tokenizer = tokenizer
-        self._device = torch.device("cuda")
-        self._max_seq_length = 2048 if max_seq_length is None else max_seq_length
-
-    @property
-    def eot_token_id(self):
-        return self._tokenizer.eos_id()
-
-    @property
-    def max_length(self):
-        return self._max_seq_length
-
-    @property
-    def max_gen_toks(self):
-        return 50
-
-    @property
-    def batch_size(self):
-        return 1
-
-    @property
-    def device(self):
-        return self._device
-
-    def tok_encode(self, string: str, **kwargs):
-        encoded = encode_tokens(self._tokenizer, string, bos=True, device=self._device)
-        # encoded is a pytorch tensor, but some internal logic in the
-        # eval harness expects it to be a list instead
-        # TODO: verify this for multi-batch as well
-        encoded = encoded.tolist()
-        return encoded
-
-    def tok_decode(self, tokens):
-        decoded = self._tokenizer.decode(tokens)
-        return decoded
-
-    def _model_call(self, inps):
-        print("in model_call")
-        # TODO: make batches work
-        inps = inps.squeeze(0)
-
-        max_new_tokens = 1
-        seq, input_pos, max_seq_length = (
-            setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
-                self._model,
-                inps,
-                max_new_tokens,
-                self.max_length,
-            )
-        )
-        x = seq.index_select(0, input_pos).view(1, -1)
-        logits = model_forward(self._model, x, input_pos)
-        return logits
-
-    def _model_generate(self, context, max_length, eos_token_id):
-        raise Exception("unimplemented")
-
-
-class InputRecorder(GPTFastEvalWrapper):
-    """
-    This is a fake evaluation wrapper that just records the inputs
-    so that they can be used in calibration.
-
-    If pad_calibration_inputs is enabled, the input recorder will take
-    each input and pad/truncate it down to the calibration_seq_length.
-    It will also edit the model embeddings to be zero for the 0 token used
-    in padding and avoid any inputs with the 0 token.
-
-    If not, it will only truncate inputs to the desired length.
-    """
-
-    def __init__(
-        self,
-        model: torch.nn.Module,
-        tokenizer,
-        calibration_seq_length,
-        pad_calibration_inputs=False,
-    ):
-        super().__init__(model, tokenizer, calibration_seq_length)
-        self._model = model
-        self._tokenizer = tokenizer
-        self._device = torch.device("cpu")
-        self.vocab_size = model.vocab_size
-        self.calibration_seq_length = calibration_seq_length
-        self.pad_calibration_inputs = pad_calibration_inputs
-        self.inputs = None
-
-        if self.pad_calibration_inputs:
-            # This is needed for the pad_calibration_inputs option
-            # to work properly, the 0 token's embeddings are set to 0 so that
-            # the padded inputs will not affect the model numerics. This token isn't used
-            # commonly in the eval tasks for the meta-llama tokenizer and we skip any inputs
-            # where it appears
-            try:
-                if isinstance(self._model.transformer.wte, nn.Embedding):
-                    self._model.transformer.wte.weight.data[0, :] *= 0
-            except:
-                print(
-                    "Did not find embeddings in model.transformer.wte, disabling padding"
-                )
-                self.pad_calibration_inputs = False
-
-    def add_input(self, args):
-        if self.inputs is None:
-            self.inputs = [MultiInput([arg]) for arg in args]
-        else:
-            self.inputs = [
-                multi.add_input(arg) for (multi, arg) in zip(self.inputs, args)
-            ]
-
-    def get_recorded_inputs(self):
-        return self.inputs
-
-    def _model_call(self, inps):
-        inps = inps.squeeze(0)
-        T = len(inps)
-        if (
-            # can't use inputs that are too short when padding disabled
-            (T < self.calibration_seq_length and not self.pad_calibration_inputs)
-            or
-            # can't use inputs that actually use token we use for padding
-            (self.pad_calibration_inputs and 0 in inps)
+        def __init__(
+            self,
+            model: torch.nn.Module,
+            tokenizer,
+            max_seq_length: Optional[int] = None,
         ):
-            # give random output
+            super().__init__()
+            self._model = model
+            self._tokenizer = tokenizer
+            self._device = torch.device("cuda")
+            self._max_seq_length = 2048 if max_seq_length is None else max_seq_length
+
+        @property
+        def eot_token_id(self):
+            return self._tokenizer.eos_id()
+
+        @property
+        def max_length(self):
+            return self._max_seq_length
+
+        @property
+        def max_gen_toks(self):
+            return 50
+
+        @property
+        def batch_size(self):
+            return 1
+
+        @property
+        def device(self):
+            return self._device
+
+        def tok_encode(self, string: str, **kwargs):
+            encoded = encode_tokens(self._tokenizer, string, bos=True, device=self._device)
+            # encoded is a pytorch tensor, but some internal logic in the
+            # eval harness expects it to be a list instead
+            # TODO: verify this for multi-batch as well
+            encoded = encoded.tolist()
+            return encoded
+
+        def tok_decode(self, tokens):
+            decoded = self._tokenizer.decode(tokens)
+            return decoded
+
+        def _model_call(self, inps):
+            print("in model_call")
+            # TODO: make batches work
+            inps = inps.squeeze(0)
+
+            max_new_tokens = 1
+            seq, input_pos, max_seq_length = (
+                setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
+                    self._model,
+                    inps,
+                    max_new_tokens,
+                    self.max_length,
+                )
+            )
+            x = seq.index_select(0, input_pos).view(1, -1)
+            logits = model_forward(self._model, x, input_pos)
+            return logits
+
+        def _model_generate(self, context, max_length, eos_token_id):
+            raise Exception("unimplemented")
+
+
+    class InputRecorder(GPTFastEvalWrapper):
+        """
+        This is a fake evaluation wrapper that just records the inputs
+        so that they can be used in calibration.
+
+        If pad_calibration_inputs is enabled, the input recorder will take
+        each input and pad/truncate it down to the calibration_seq_length.
+        It will also edit the model embeddings to be zero for the 0 token used
+        in padding and avoid any inputs with the 0 token.
+
+        If not, it will only truncate inputs to the desired length.
+        """
+
+        def __init__(
+            self,
+            model: torch.nn.Module,
+            tokenizer,
+            calibration_seq_length,
+            pad_calibration_inputs=False,
+        ):
+            super().__init__(model, tokenizer, calibration_seq_length)
+            self._model = model
+            self._tokenizer = tokenizer
+            self._device = torch.device("cpu")
+            self.vocab_size = model.vocab_size
+            self.calibration_seq_length = calibration_seq_length
+            self.pad_calibration_inputs = pad_calibration_inputs
+            self.inputs = None
+
+            if self.pad_calibration_inputs:
+                # This is needed for the pad_calibration_inputs option
+                # to work properly, the 0 token's embeddings are set to 0 so that
+                # the padded inputs will not affect the model numerics. This token isn't used
+                # commonly in the eval tasks for the meta-llama tokenizer and we skip any inputs
+                # where it appears
+                try:
+                    if isinstance(self._model.transformer.wte, nn.Embedding):
+                        self._model.transformer.wte.weight.data[0, :] *= 0
+                except:
+                    print(
+                        "Did not find embeddings in model.transformer.wte, disabling padding"
+                    )
+                    self.pad_calibration_inputs = False
+
+        def add_input(self, args):
+            if self.inputs is None:
+                self.inputs = [MultiInput([arg]) for arg in args]
+            else:
+                self.inputs = [
+                    multi.add_input(arg) for (multi, arg) in zip(self.inputs, args)
+                ]
+
+        def get_recorded_inputs(self):
+            return self.inputs
+
+        def _model_call(self, inps):
+            inps = inps.squeeze(0)
+            T = len(inps)
+            if (
+                # can't use inputs that are too short when padding disabled
+                (T < self.calibration_seq_length and not self.pad_calibration_inputs)
+                or
+                # can't use inputs that actually use token we use for padding
+                (self.pad_calibration_inputs and 0 in inps)
+            ):
+                # give random output
+                return torch.randn(
+                    (1, T, self.vocab_size), dtype=torch.bfloat16, device=self._device
+                )
+
+            # pad or truncate to the right size
+            if T >= self.calibration_seq_length:
+                inps = inps[: self.calibration_seq_length]
+            else:
+                inps = F.pad(inps, (0, self.calibration_seq_length - T))
+
+            max_new_tokens = 1
+            (
+                seq,
+                input_pos,
+                max_seq_length,
+            ) = setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
+                self._model, inps, max_new_tokens, self.max_length
+            )
+            x = seq.index_select(0, input_pos).view(1, -1)
+            self.add_input((x, input_pos))
+
+            # output `something` with correct shape to keep eval going
             return torch.randn(
                 (1, T, self.vocab_size), dtype=torch.bfloat16, device=self._device
             )
-
-        # pad or truncate to the right size
-        if T >= self.calibration_seq_length:
-            inps = inps[: self.calibration_seq_length]
-        else:
-            inps = F.pad(inps, (0, self.calibration_seq_length - T))
-
-        max_new_tokens = 1
-        (
-            seq,
-            input_pos,
-            max_seq_length,
-        ) = setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
-            self._model, inps, max_new_tokens, self.max_length
-        )
-        x = seq.index_select(0, input_pos).view(1, -1)
-        self.add_input((x, input_pos))
-
-        # output `something` with correct shape to keep eval going
-        return torch.randn(
-            (1, T, self.vocab_size), dtype=torch.bfloat16, device=self._device
-        )
 
 
 class MultiInput:
