@@ -18,14 +18,9 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install setuptools wheel twine
-    - name: Get current date
-      id: date
-      run: echo "::set-output name=date::$(date +'%Y%m%d')"
     - name: Build package
       run: |
-        version=$(python setup.py --version)
-        new_version="${version}.dev${{ steps.date.outputs.date }}"
-        sed -i "s/version=.*/version='${new_version}',/" setup.py
+        export TORCHAO_NIGHTLY=1
         python setup.py sdist bdist_wheel
     - name: Publish package to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
