@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 # mypy: ignore-errors
+# This test takes a long time to run
 import unittest
 import torch
 from torch._export import capture_pre_autograd_graph

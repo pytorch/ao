@@ -30,6 +30,8 @@ from torch.ao.quantization.quantizer import (
     QuantizationAnnotation,
 )
 import copy
+from packaging import version
+
 
 def _apply_weight_only_uint4_quant(model):
     def fn(mod):
@@ -42,7 +44,7 @@ def _apply_weight_only_uint4_quant(model):
         lambda mod, fqn: isinstance(mod, torch.nn.Linear),
     )
 
-@unittest.skip("This requires PyTorch nightlies")
+@unittest.skip("FAILED test/dtypes/test_uint4.py::TestUInt4::test_basic_tensor_ops - AttributeError: module 'torch' has no attribute 'uint4'")
 class TestUInt4(QuantizationTestCase):
     def test_basic_tensor_ops(self):
         x = UInt4Tensor(torch.tensor([
