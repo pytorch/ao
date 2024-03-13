@@ -1,4 +1,5 @@
 import torch
+import pathlib
 import os
 import triton
 import pickle
@@ -92,28 +93,28 @@ def _save_best_configs(best_configs):
         saved_configs = pathlib.Path.cwd() / "data.pkl"
     else:
         saved_configs = pathlib.Path(AUTOTUNER_DATA_PATH)
-    print(f"Trying to store configs for {device_name} locally under {saved_configs}")
+    logging.info(f"Trying to store configs for {device_name} locally under {saved_configs}")
     with open(saved_configs, 'wb') as f:
         import pickle
-        print(f"Saving best configs to file {saved_configs}")
+        logging.info(f"Saving best configs to file {saved_configs}")
         pickle.dump(best_configs, f)
 
 
 def _load_best_configs():
     device_name = torch.cuda.get_device_name()
     import importlib
-    if AUTOTUNER_DATA is None:
-        saved_configs = importlib.resources.files("segment_anything_fast")
-        saved_configs = saved_configs / "configs" / "data_a100.pkl"
+    if AUTOTUNER_DATA_PATH is None:
+        saved_configs = importlib.resources.files("torchao")
+        saved_configs = saved_configs / "kernel" / "configs" / "data_a100.pkl"
         if not device_name.startswith('NVIDIA A100'):
-            print("Warning! Loaded configurations are optimized for A100!")
+            logging.info("Warning! Loaded configurations are optimized for A100!")
     else:
         saved_configs = pathlib.Path(AUTOTUNER_DATA_PATH)
-    print(f"Trying to load configs for {device_name} from {saved_configs}")
+    logging.info(f"Trying to load configs for {device_name} from {saved_configs}")
     if saved_configs.is_file():
         import pickle
         with open(saved_configs, 'rb') as f:
-            print(f"Loading best configs from file {saved_configs}")
+            logging.info(f"Loading best configs from file {saved_configs}")
             return pickle.load(f)
 
 
@@ -173,10 +174,11 @@ def do_bench(fn, args, config, best_time=None):
 
 AUTOTUNER_ENABLE = bool(int(os.getenv('TORCHAO_AUTOTUNER_ENABLE', 0)))
 AUTOTUNER_SEARCH = bool(int(os.getenv('TORCHAO_AUTOTUNER_SEARCH', 0)))
+AUTOTUNER_SEARCH_ERROR = bool(int(os.getenv('TORCHAO_AUTOTUNER_SEARCH_ERROR', 0)))
 
 
 def get_best_config_by_key(key):
-    if not ALWAYS_SEARCH and key in BEST_CONFIGS:
+    if key in BEST_CONFIGS:
         return BEST_CONFIGS[key][0]
 
 
@@ -198,7 +200,7 @@ def get_best_config_fn(fn, args, configs):
         return best_config
 
     if not AUTOTUNER_SEARCH:
-        logging.info("TORCHAO_AUTOTUNER_SEARCH disabled. No config found.")
+        logging.info(f"TORCHAO_AUTOTUNER_SEARCH disabled. No config found for key {key}.")
         return None
 
     # Search for the best config

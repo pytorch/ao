@@ -1,5 +1,7 @@
 import torch
 from torchao.kernel.autotuner import get_best_config_fn
+from torch._higher_order_ops.out_dtype import out_dtype
+from torch._dynamo import is_compiling as dynamo_is_compiling
 
 import triton
 import triton.language as tl
@@ -63,7 +65,7 @@ def matmul_kernel_with_block_pointers(
         stride_bk, stride_bn,  #
         stride_cm, stride_cn,
         # Meta-parameters
-        BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr, GROUP_M: tl.constexpr):
+        BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr, GROUP_M: tl.constexpr):
     """Kernel for computing the matmul C = A x B.
     A has shape (M, K), B has shape (K, N) and C has shape (M, N)
     """
@@ -86,10 +88,10 @@ def matmul_kernel_with_block_pointers(
     # We will advance this pointer as we move in the K direction and accumulate.
     # See above `Make a Block Pointer` section for details.
     a_block_ptr = tl.make_block_ptr(base=a_ptr, shape=(M, K), strides=(stride_am, stride_ak),
-                                    offsets=(pid_m * BLOCK_M, 0), block_shape=(BLOCK_M, BLOCK_SIZE_K),
+                                    offsets=(pid_m * BLOCK_M, 0), block_shape=(BLOCK_M, BLOCK_K),
                                     order=(1, 0))
     b_block_ptr = tl.make_block_ptr(base=b_ptr, shape=(K, N), strides=(stride_bk, stride_bn),
-                                    offsets=(0, pid_n * BLOCK_N), block_shape=(BLOCK_SIZE_K, BLOCK_N),
+                                    offsets=(0, pid_n * BLOCK_N), block_shape=(BLOCK_K, BLOCK_N),
                                     order=(1, 0))
 
     # -----------------------------------------------------------
@@ -98,7 +100,7 @@ def matmul_kernel_with_block_pointers(
     # of fp32 values for higher accuracy.
     # `accumulator` will be converted back to fp16 after the loop.
     accumulator = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.int32)
-    for k in range(0, K, BLOCK_SIZE_K):
+    for k in range(0, K, BLOCK_K):
         # Load with boundary checks, no need to calculate the mask manually.
         # For better performance, you may remove some axis from the boundary
         # check, if you can guarantee that the access is always in-bound in
@@ -110,8 +112,8 @@ def matmul_kernel_with_block_pointers(
         accumulator += tl.dot(a, b)
         # Advance the block pointer to the next K block.
         # See above `Advance a Block Pointer` section for details.
-        a_block_ptr = tl.advance(a_block_ptr, (0, BLOCK_SIZE_K))
-        b_block_ptr = tl.advance(b_block_ptr, (BLOCK_SIZE_K, 0))
+        a_block_ptr = tl.advance(a_block_ptr, (0, BLOCK_K))
+        b_block_ptr = tl.advance(b_block_ptr, (BLOCK_K, 0))
     c = accumulator #.to(tl.float16)
 
     # ----------------------------------------------------------------
@@ -260,10 +262,47 @@ def int_matmul_cuda(a, b):
         return torch.tensor([])
     return int_matmul_kernel(a, b, c, best_config)
 
+def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
+    # torch.compile path
+    if dynamo_is_compiling() or "FakeTensor" in input.__repr__():
+        return out_dtype(torch.ops.aten.mm.default, torch.int32, input, mat2)
+
+    # error checking for cublas path
+    assert (
+        mat2.device == input.device
+    ), f"need both tensors to be on the same device but got {mat2.device} and {input.device}"
+    device_cpu = "cpu" in [mat2.device.type, input.device.type]
+    # with input.shape = [i,j] and mat2.shape = [j,k]
+    i_is_strictly_greater_than_16 = input.shape[0] > 16
+    j_is_nonzero_multiple_of_8 = (input.shape[1] % 8 == 0) and (input.shape[1] > 0)
+    k_is_nonzero_multiple_of_8 = (mat2.shape[1] % 8 == 0) and (mat2.shape[1] > 0)
+    bad_dimensions_for_cublas = not (
+        i_is_strictly_greater_than_16
+        and j_is_nonzero_multiple_of_8
+        and k_is_nonzero_multiple_of_8
+    )
+
+    if device_cpu or bad_dimensions_for_cublas:
+        # fallback path
+        return torch.matmul(input.cpu().to(torch.int32), mat2.cpu().to(torch.int32)).to(
+            input.device.type
+        )
+
+    # cublas paths
+    if not mat2.is_contiguous():  # silently gives incorrect result without this
+        mat2 = mat2.contiguous()
+    if (not input.is_contiguous()) and (
+        input.shape[0] % 8 != 0
+    ):  # gives cryptic error without this
+        input = (
+            input.contiguous()
+        )  # (it seems the transpose makes cublas check the above j constraint on i)
+    return out_dtype(torch.ops.aten.mm.default, torch.int32, input, mat2)
+
 
 def int_matmul(a, b):
     if torch.ops.torchao.int_matmul(a, b).numel() == 0:
-        return torch.ops.aten._int_mm(a, b)
+        return safe_int_mm(a, b)
 
 
 @torch.library.impl(lib, "int_scaled_matmul", "Meta")
@@ -304,5 +343,5 @@ def int_scaled_matmul(a, b, scales1):
     scales1 = scales1.expand((M, N))
     assert scales1.dim() == 2
     if torch.ops.torchao.int_scaled_matmul(a, b, scales1).numel() == 0:
-        c = torch.ops.aten._int_mm(a, b)
+        c = safe_int_mm(a, b)
         return c * scales1

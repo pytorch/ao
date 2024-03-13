@@ -13,6 +13,11 @@ Set this to a nonzero value to enable the autotuner. This is turned off by defau
 `TORCHAO_AUTOTUNER_SEARCH=0`
 
 Set this to a nonzero value to enable the search functionality of the autotuner for unseen shapes or on unknown hardware.
+If a config cannot be found, the kernel falls back to a native decomposition.
+
+`TORCHAO_AUTOTUNER_SEARCH_ERROR=0`
+
+Set this to a nonzero value to cause a hard error when a config was not found. This can help verify a config is present for each shape.
 
 Searching a new config can take a long time and we'll save the updated data in `data.pkl`. If you'd like to contributed updated configs for your hardware or shapes, please open a pull request.
 

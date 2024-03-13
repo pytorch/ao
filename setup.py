@@ -15,7 +15,7 @@ setup(
     ],
     include_package_data=True,
     package_data={
-        'torchao.kernel_configs': ["*.pkl"],
+        'torchao.kernel.configs': ["*.pkl"],
     },
     description='Package for applying ao techniques to GPU models',
     long_description=open('README.md').read(),
