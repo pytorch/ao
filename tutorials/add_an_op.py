@@ -2,9 +2,7 @@ import torch
 import torchao
 from torchao.dtypes import to_nf4
 
-
 # To create coverage for a new nf4 op we first attempt to run it
-
 
 # Construct a small nf4 Tensor of desired shaped
 a = torch.randn(64)
@@ -22,7 +20,7 @@ print(f"a_nf4: {a_nf4}")
 # NotImplementedError: NF4Tensor dispatch: attempting to run aten.gelu.default, this is not supported
 # torch.nn.functional.gelu(a_nf4)
 
-# Next you can add this function to torchao/dtypes/nf4tensor using the implements decorator
+# Next you can add this function using the implements decorator
 @torchao.dtypes.nf4tensor.implements([torch.ops.aten.gelu.default])
 def gelu(func, *args, **kwargs):
     # The torch dispatch convention is to pass all args and kwargs via the
@@ -36,3 +34,6 @@ def gelu(func, *args, **kwargs):
 
 print(f"gelu(a): {torch.nn.functional.gelu(a)}")
 print(f"gelu(a_nf4): {torch.nn.functional.gelu(a_nf4)}")
+
+# We collect these implementations in torchao.dtypes.nf4tensor, but you can also
+# just roll your own.
