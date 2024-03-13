@@ -10,8 +10,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-
+    runs-on: 4-core-ubuntu-gpu-t4
     steps:
     - uses: actions/checkout@v2
 
