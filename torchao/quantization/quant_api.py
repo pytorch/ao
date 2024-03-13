@@ -28,6 +28,7 @@ from .subclass import (
 from .weight_only import (
     WeightOnlyInt8QuantLinear,
 )
+from typing import Dict
 
 __all__ = [
     "apply_weight_only_int8_quant",
@@ -49,10 +50,10 @@ class Quantizer:
 
 # API 2, flow that needs calibration or training
 class TwoStepQuantizer:
-    def prepare(self, model: torch.nn.Module) -> torch.nn.Module:
+    def prepare(self, model: torch.nn.Module, *args, **kwargs) -> torch.nn.Module:
         pass
 
-    def convert(self, model: torch.nn.Module) -> torch.nn.Module:
+    def convert(self, model: torch.nn.Module, *args, **kwargs) -> torch.nn.Module:
         pass
 
 ############################# Unified Quantization APIs ##############################
@@ -199,3 +200,391 @@ def swap_conv2d_1x1_to_linear(model, filter_fn=None):
         replace_conv2d_1x1,
         filter_fn=filter_fn
     )
+
+
+from .GPTQ import lm_eval_available
+
+if lm_eval_available:
+    from .GPTQ import (  # pyre-ignore[21]
+        evaluate,
+        GenericGPTQRunner,
+        get_task_dict,
+        InputRecorder,
+        lm_eval,
+        MultiInput,
+    )
+
+
+    class GPTQQuantizer(Quantizer):
+        """
+        This class implements a GPTQ Quantizer that can be used to apply GPTQ to a model in concert with the GenericGPTQRunner class.
+        Unlike the base Quantizer class, the user does not need to implement the create_quantized_state_dict, instead they have to reimplement
+        __init__ such that it defines the functions for the quantization mode. User is expected to reimplement convert_for_runtime.
+
+        The following functions (which must be defined in __init__) are used to define the quantization mode for both GPTQ and
+        create_quantized_state_dict. Here is a description of each function.
+
+        get_qparams_func:
+            A function that calculates the quantization qparams for an input tensor.
+            Args:
+                weight: A 2d weight tensor with non-integer dtype.
+            Returns:
+                qparams: it can have any format but will need to be handled by the other defined functions below.
+
+        quantize_func:
+            A function that applies quantization to an input tensor. It should be noted
+            that this function needs to be able to handle quantizing the entire weight tensor, a single group,
+            or a single column.
+            Args:
+                weight: A 2d weight tensor with non-integer dtype.
+                qparams: the output from get_qparams_func
+            Returns:
+                quantized_weight: A 2d quantized weight tensor (generally with an integer dtype)
+
+
+        dequantize_func:
+            A function that dequantizes an input quantized weight tensor. It should be noted
+            that this function needs to be able to handle dequantizing the entire weight tensor, a single group,
+            or a single column.
+            Args:
+                quantized_weight: A 2d quantized weight tensor (generally with an integer dtype)
+                qparams: the output from get_qparams_func
+            Returns:
+                weight: A 2d weight tensor with non-integer dtype.
+
+        combine_qparams_list_func:
+            A function that combines several qparams into one qparam.
+            Args:
+                qparams_list: a list of qparams objects, each obtained by calling get_qparams_func
+                on a single group from a weight tensor
+            Returns:
+                qparams: an object of the same format as the qparams above.
+
+        skip_layer_func:
+            A function that determines which linear layers should be skipped during GPTQ
+            Args:
+                weight: A 2d weight tensor with non-integer dtype.
+            Returns:
+                skip: boolean indicating whether layer should be skipped
+
+        make_names_and_values_dict_func:
+            A function that prepares the qparams and quantized_weight and creates a dictionary indicating how they
+            should be inserted into the state_dict. Generally any packing of the weight and qparams should be done here.
+            Args:
+                quantized_weight: A 2d quantized weight tensor (generally with an integer dtype)
+                qparams: the output from get_qparams_func
+            Returns:
+                names_and_values_dict: a dictionary mapping the name of the parameters of the quantized module to the
+                corresponding quantized weights and qparams.
+        """
+
+        def __init__(self):
+            assert self.get_qparams_func is not None
+            assert self.quantize_func is not None
+            assert self.dequantize_func is not None
+            assert self.combine_qparams_list_func is not None
+            assert self.make_names_and_values_dict_func is not None
+
+        @staticmethod
+        def get_inputs(
+            model,
+            tokenizer,
+            calibration_tasks,
+            calibration_limit,
+            calibration_seq_length,
+            pad_calibration_inputs,
+        ) -> "MultiInput":  # pyre-ignore[11]
+            input_recorder = InputRecorder(
+                model,
+                tokenizer,
+                calibration_seq_length,
+                pad_calibration_inputs,
+            )
+
+            try:
+                lm_eval.tasks.initialize_tasks()
+            except:
+                pass
+            task_dict = get_task_dict(calibration_tasks)
+            print("Obtaining GPTQ calibration inputs on: ", calibration_tasks)
+
+            evaluate(
+                input_recorder,
+                task_dict,
+                limit=calibration_limit,
+            )
+            inputs = input_recorder.get_recorded_inputs()
+            assert inputs is not None, (
+                f"No inputs were collected, use a task other than {calibration_tasks}, "
+                + "use option pad_calibration_inputs, or decrease calibration_sequence_length (currently "
+                + f"{calibration_seq_length})"
+            )
+            print(f"Obtained {len(inputs[0].values)} calibration samples")
+            return inputs
+
+        @torch.no_grad()
+        def _create_quantized_state_dict(
+            self,
+            model,
+            tokenizer,
+            blocksize,
+            percdamp,
+            groupsize,
+            calibration_tasks,
+            calibration_limit,
+            calibration_seq_length,
+            pad_calibration_inputs,
+        ) -> Dict:
+            inputs = GPTQQuantizer.get_inputs(
+                model,
+                tokenizer,
+                calibration_tasks,
+                calibration_limit,
+                calibration_seq_length,
+                pad_calibration_inputs,
+            )
+            print("Tracing model for GPTQ")
+            GPTQ_runner = GenericGPTQRunner(
+                model,
+                inputs,
+                blocksize,
+                percdamp,
+                groupsize,
+            ).configure_quantization_mode(
+                self.get_qparams_func,  # pyre-ignore[16]
+                self.quantize_func,  # pyre-ignore[16]
+                self.dequantize_func,  # pyre-ignore[16]
+                self.combine_qparams_list_func,  # pyre-ignore[16]
+                self.make_names_and_values_dict_func,  # pyre-ignore[16]
+                self.skip_layer_func,  # pyre-ignore[16]
+            )
+            print("Applying GPTQ to weights")
+            GPTQ_runner.run()
+            return GPTQ_runner.get_quantized_state_dict()
+
+        def _convert_for_runtime(self, model: torch.nn.Module) -> "nn.Module":
+            raise NotImplementedError("_convert_for_runtime not implemented")
+
+        @torch.no_grad()
+        def quantize(
+            self,
+            model,
+        ) -> torch.nn.Module:
+            state_dict = self._create_quantized_state_dict(
+                model,
+                self.tokenizer,
+                self.blocksize,
+                self.percdamp,
+                self.groupsize,
+                self.calibration_tasks,
+                self.calibration_limit,
+                self.calibration_seq_length,
+                self.pad_calibration_inputs,
+            )
+            model = self._convert_for_runtime(model)
+            model.load_state_dict(state_dict)
+            return model
+
+
+    class Int8DynActInt4WeightLinear(torch.nn.Module):
+        __constants__ = ["in_features", "out_features"]
+
+        in_features: int
+        out_features: int
+        weight: torch.Tensor
+
+        """
+        This module implements a dynamic quantized linear layer with int4 weight.
+        Weights are per channel groupwise quantized. Parameters of importance
+        group_size: the number of elements in each quantized group
+        precision: precision of input and output. e.g. torch.float32 means input
+        activation is float32 and output is float32.
+        scales_precision: precision of per group scale.
+        """
+
+        def __init__(
+            self,
+            in_features: int,
+            out_features: int,
+            bias=True,
+            device=None,
+            dtype=None,
+            group_size: int = 256,
+            precision: torch.dtype = torch.float32,
+            scales_precision: torch.dtype = torch.float32,
+        ) -> None:
+            super().__init__()
+            # always pad if needed since it becomes a noop at runtime if not needed
+            # self.origin_in_features = in_features
+            assert (
+                in_features % group_size == 0
+            ), f"require in_features:{in_features} % group_size:{group_size} == 0"
+            # in_features = _calc_padded_size_linear_int4(
+            #    in_features, group_size
+            # )
+            self.in_features = in_features
+            self.out_features = out_features
+            assert not bias, "require bias=False"
+            self.group_size = group_size
+            # Precision of the activation which also indicates
+            # output precision of the dynamically quantized linear layer
+            # that his module represents.
+            self.precision = precision
+
+            # currently storing unpacked int8 weights
+            self.register_buffer(
+                "weight",
+                torch.empty((out_features, in_features), dtype=torch.int8),
+            )
+            self.register_buffer(
+                "scales",
+                torch.empty(
+                    (out_features, in_features // group_size),
+                    dtype=scales_precision,
+                ),
+            )
+            self.register_buffer(
+                "zeros",
+                torch.empty(
+                    (out_features, in_features // group_size),
+                    dtype=scales_precision,
+                ),
+            )
+
+        def forward(self, input: torch.Tensor) -> torch.Tensor:
+            input = input.to(self.precision)
+            # padding is removed for perf
+            # input = F.pad(input, pad=(0, self.in_features - self.origin_in_features))
+            return linear_forward_8da4w(
+                input,
+                self.weight,
+                self.scales,
+                self.zeros,
+                self.out_features,
+                self.groupsize,
+                self.precision,
+            )
+
+
+    def _check_linear_int4_k(k, group_size=1):
+        return k % group_size == 0
+
+
+    def replace_linear_8da4w(
+        module,
+        group_size,
+        padding_allowed,
+        precision,
+        scales_precision,
+    ):
+        for name, child in module.named_children():
+            if isinstance(child, nn.Linear):
+                if _check_linear_int4_k(child.in_features, group_size) or padding_allowed:
+                    setattr(
+                        module,
+                        name,
+                        Int8DynActInt4WeightLinear(
+                            child.in_features,
+                            child.out_features,
+                            bias=False,
+                            group_size=group_size,
+                            precision=precision,
+                            scales_precision=scales_precision,
+                        ),
+                    )
+            else:
+                replace_linear_8da4w(
+                    child,
+                    group_size,
+                    padding_allowed,
+                    precision,
+                    scales_precision,
+                )
+
+
+    class Int8DynActInt4WeightGPTQQuantizer(GPTQQuantizer):
+        def __init__(
+            self,
+            tokenizer,
+            blocksize,
+            percdamp,
+            groupsize,
+            calibration_tasks,
+            calibration_limit,
+            calibration_seq_length,
+            pad_calibration_inputs,
+            inner_k_tiles=8,
+            padding_allowed=True,
+            precision=torch.float32,
+        ):
+
+            self.tokenizer = tokenizer
+            self.blocksize = blocksize
+            self.percdamp = percdamp
+            self.groupsize = groupsize
+            self.calibration_tasks = calibration_tasks
+            self.calibration_limit = calibration_limit
+            self.calibration_seq_length = calibration_seq_length
+            self.pad_calibration_inputs = pad_calibration_inputs
+            self.inner_k_tiles = inner_k_tiles
+            self.padding_allowed = padding_allowed
+            self.precision = precision
+            self.dyn_quant_func = lambda x: per_token_dynamic_quant(x)
+            n_bit = 4
+            self.get_qparams_func = lambda w: get_group_qparams_symmetric(
+                w, n_bit, groupsize, self.precision
+            )
+            quant_min = -(2 ** (n_bit - 1))
+            quant_max = 2 ** (n_bit - 1) - 1
+            self.quantize_func = lambda w, qparams: torch.ops.quantized_decomposed.quantize_per_channel_group(
+                w, qparams[0], qparams[1], quant_min, quant_max, torch.int8, groupsize
+            )
+            self.dequantize_func = lambda q, qparams: torch.ops.quantized_decomposed.dequantize_per_channel_group(
+                q,
+                qparams[0],
+                qparams[1],
+                quant_min,
+                quant_max,
+                torch.int8,
+                groupsize,
+                self.precision,
+            )
+            self.combine_qparams_list_func = lambda qparams_list: [
+                torch.cat(x, dim=1) for x in zip(*qparams_list)
+            ]
+            # skip unless padding_allowed=True or its correctly sized
+            self.skip_layer_func = lambda linear_weight: not (
+                _check_linear_int4_k(linear_weight.shape[-1], groupsize, inner_k_tiles)
+                or padding_allowed
+            )
+
+            # we need to do the padding here, both for q and the qparams if necessary
+            def make_names_and_values_dict_func(q, qparams):
+                k = q.shape[1]
+                new_k = _calc_padded_size_linear_int4(k, groupsize, inner_k_tiles)
+                # how much we need to pad the weight
+                delta_k = new_k - q.shape[1]
+                final_q = F.pad(q, pad=(0, delta_k))
+                scales_and_zeros = pack_scales_and_zeros(*qparams, precision=self.precision)
+                # how many new groups we need for padded weight
+                delta_groups = new_k // groupsize - scales_and_zeros.shape[0]
+                # TODO: split scales and zero_points
+                final_s_and_z = F.pad(
+                    scales_and_zeros, pad=(0, 0, 0, 0, 0, delta_groups), value=1
+                )
+                return {"weight": final_q, "scales_and_zeros": final_s_and_z}
+
+            self.make_names_and_values_dict_func = make_names_and_values_dict_func
+            super().__init__()
+
+        def _convert_for_runtime(self, model):
+            replace_linear_8da4w(
+                model,
+                self.groupsize,
+                self.padding_allowed,
+                torch.int8,
+                self.precision,
+            )
+            return model
+else:
+    print("lm_eval not available, skip defining GPTQQuantizer")
