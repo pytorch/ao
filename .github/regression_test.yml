@@ -29,7 +29,4 @@ jobs:
 
     - name: Run tests
       run: |
-        pytest ./dtypes
-        pytest ./modules
-        pytest ./quantization
-        pytest ./sparsity
+        pytest test
