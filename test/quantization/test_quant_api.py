@@ -22,7 +22,12 @@ from torchao.quantization.quant_api import apply_dynamic_quant
 from torchao.quantization.quant_api import (
     Quantizer,
     TwoStepQuantizer,
+    Int8DynActInt4WeightGPTQQuantizer,
 )
+from pathlib import Path
+from sentencepiece import SentencePieceProcessor
+from model import Transformer
+
 
 def dynamic_quant(model, example_inputs):
     m = capture_pre_autograd_graph(model, example_inputs)
@@ -125,9 +130,39 @@ class TestQuantFlow(unittest.TestCase):
         compiled = m(*example_inputs)
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
 
+    @unittest.skip("skipping for now and will fix in next PR")
     def test_gptq(self):
         # should be similar to TorchCompileDynamicQuantizer
-        pass
+        precision = torch.bfloat16
+        device = "cuda"
+        checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        model = Transformer.from_name(checkpoint_path.parent.name)
+        checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
+        model.load_state_dict(checkpoint, assign=True)
+        model = model.to(dtype=precision, device=device)
+        tokenizer_path = checkpoint_path.parent / "tokenizer.model"
+        assert tokenizer_path.is_file(), tokenizer_path
+        tokenizer = SentencePieceProcessor(  # pyre-ignore[28]
+            model_file=str(tokenizer_path)
+        )
+        blocksize = 128
+        percdamp = 0.01
+        groupsize = 128
+        calibration_tasks = ["hellaswag"]
+        calibration_limit = 200 # 1000
+        calibration_seq_length = 100
+        pad_calibration_inputs = False
+        quantizer = Int8DynActInt4WeightGPTQQuantizer(
+            tokenizer,
+            blocksize,
+            percdamp,
+            groupsize,
+            calibration_tasks,
+            calibration_limit,
+            calibration_seq_length,
+            pad_calibration_inputs,
+        )
+        model = quantizer.quantize(model)
 
 if __name__ == "__main__":
     unittest.main()
