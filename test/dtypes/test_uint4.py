@@ -42,6 +42,7 @@ def _apply_weight_only_uint4_quant(model):
         lambda mod, fqn: isinstance(mod, torch.nn.Linear),
     )
 
+@unittest.skip("This requires PyTorch nightlies")
 class TestUInt4(QuantizationTestCase):
     def test_basic_tensor_ops(self):
         x = UInt4Tensor(torch.tensor([
