@@ -59,33 +59,28 @@ def run_int_scaled_mm_benchmark(x, w, b):
 
 
 def run_benchmarks(shapes):
-    # for fn in [int_matmul, int_scaled_matmul]:
-    for fn in [int_scaled_matmul]:
-        positives = []
-        dtype = torch.bfloat16
-        device = 'cuda'
-        for (m, k, n) in shapes:
-            x = torch.randn(m, k, dtype=dtype, device=device)
-            # w = torch.randn(k, n, dtype=dtype, device=device)
-            w = torch.randn(n, k, dtype=dtype, device=device).t()
-            m, k = x.size()
-            k1, n = w.size()
-            assert k == k1  # sanity check
-        
-            b = torch.randn(m, n, dtype=dtype, device=device)
-            fp_time, int_mm_time = run_int_mm_benchmark(x, w, b)
-            ratio = fp_time / int_mm_time
-            result = (",".join(map(str, [m, k, n, fp_time, int_mm_time, ratio])))
-            print(result)
+    print("m,k,n,fp_time,int_mm_time,ratio,use_scales")
+    positives = []
+    dtype = torch.bfloat16
+    device = 'cuda'
+    for (m, k, n) in shapes:
+        x = torch.randn(m, k, dtype=dtype, device=device)
+        # w = torch.randn(k, n, dtype=dtype, device=device)
+        w = torch.randn(n, k, dtype=dtype, device=device).t()
+        m, k = x.size()
+        k1, n = w.size()
+        assert k == k1  # sanity check
+    
+        b = torch.randn(m, n, dtype=dtype, device=device)
+        fp_time, int_mm_time = run_int_mm_benchmark(x, w, b)
+        ratio = fp_time / int_mm_time
+        result = (",".join(map(str, [m, k, n, fp_time, int_mm_time, ratio, False])))
+        print(result)
 
-            fp_time, int_scaled_mm_time = run_int_scaled_mm_benchmark(x, w, b)
-            ratio = fp_time / int_mm_time
-            result = (",".join(map(str, [m, k, n, fp_time, int_mm_time, ratio])))
-            print(result)
-            if ratio is not None and ratio > 1.0:
-                positives += [result]
-    # print(",".join(["weightsize", "batchsize", "blocksize", "seqlen", "sparsity", "dense_time", "sparse_time", "ratio"]))
-    # print("\n".join(positives))
+        fp_time, int_scaled_mm_time = run_int_scaled_mm_benchmark(x, w, b)
+        ratio = fp_time / int_mm_time
+        result = (",".join(map(str, [m, k, n, fp_time, int_mm_time, ratio, True])))
+        print(result)
 
 
 if __name__ == "__main__":

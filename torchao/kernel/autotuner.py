@@ -89,6 +89,7 @@ AUTOTUNER_DATA_PATH = os.getenv('TORCHAO_AUTOTUNER_DATA_PATH', None)
 
 
 def _save_best_configs(best_configs):
+    device_name = torch.cuda.get_device_name()
     if AUTOTUNER_DATA_PATH is None:
         saved_configs = pathlib.Path.cwd() / "data.pkl"
     else:
