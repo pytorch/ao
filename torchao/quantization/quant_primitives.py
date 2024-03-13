@@ -12,6 +12,8 @@ from torch.ao.quantization.fx._decomposed import (
     quantized_decomposed_lib,
 )
 from torch.library import impl
+from typing import Tuple
+
 
 __all__ = [
     "safe_int_mm",
