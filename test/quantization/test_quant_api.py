@@ -130,11 +130,10 @@ class TestQuantFlow(unittest.TestCase):
         compiled = m(*example_inputs)
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
 
-    @unittest.skip("skipping for now and will fix in next PR")
     def test_gptq(self):
         # should be similar to TorchCompileDynamicQuantizer
         precision = torch.bfloat16
-        device = "cuda"
+        device = "cpu"
         checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
         model = Transformer.from_name(checkpoint_path.parent.name)
         checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
