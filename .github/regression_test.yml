@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    runs-on: [self-hosted, 4-core-ubuntu-gpu-t4]
+    runs-on: [4-core-ubuntu-gpu-t4]
 
     steps:
     - uses: actions/checkout@v2
