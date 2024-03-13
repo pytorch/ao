@@ -204,7 +204,6 @@ def swap_conv2d_1x1_to_linear(model, filter_fn=None):
 
 from .GPTQ import lm_eval_available
 
-
 if lm_eval_available:
     from .GPTQ import (  # pyre-ignore[21]
         evaluate,

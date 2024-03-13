@@ -4,9 +4,10 @@ import unittest
 import torch
 from torch import nn
 from torch.testing._internal.common_utils import TestCase
-from torchao.dtypes.nf4tensor import linear_nf4, NF4Tensor
+from torchao.dtypes.nf4tensor import linear_nf4, NF4Tensor, to_nf4
 import torch.nn.functional as F
-
+import io
+from collections import OrderedDict
 
 bnb_available = False
 
@@ -44,11 +45,19 @@ def _build_bnb_linear(input_weight, device):
 
 
 class TestNF4Linear(TestCase):
+    class TestMod(nn.Module):
+        def __init__(self, tensor, block_size, scaler_block_size):
+            super().__init__()
+            self.param = torch.nn.Parameter(to_nf4(tensor, block_size, scaler_block_size))
+
+    def save_state_dict_to_buffer(self, state_dict: OrderedDict):
+        buffer = io.BytesIO()
+        torch.save(state_dict, buffer)
+        buffer.seek(0)
+        return buffer
 
     def test_register_nf4_as_param(self):
-        nf4_tensor = NF4Tensor.from_tensor(
-            inpt_tensor=torch.randn(512, 512, dtype=torch.bfloat16)
-        )
+        nf4_tensor = to_nf4(torch.randn(512, 512, dtype=torch.bfloat16))
 
         # Would raise if nn.Parameter registration fails, such as no detach()
         # impl when calling __torch_dispatch__
@@ -58,18 +67,14 @@ class TestNF4Linear(TestCase):
     def test_output_bf16(self):
         # Test to ensure W4 A16 produces A16
         inp = torch.randn(2, 512, dtype=torch.bfloat16, requires_grad=True)
-        nf4_tensor = NF4Tensor.from_tensor(
-            inpt_tensor=torch.randn(512, 512, dtype=torch.bfloat16)
-        )
+        nf4_tensor = to_nf4(torch.randn(512, 512, dtype=torch.bfloat16))
         out = linear_nf4(input=inp, weight=nf4_tensor)
         assert out.dtype == torch.bfloat16
 
     def test_backward_bf16(self):
         # Test to ensure backward pass gives activation a bf16 gradient and no gradient
         # to the linear's weight, as it is frozen.
-        nf4_tensor = NF4Tensor.from_tensor(
-            inpt_tensor=torch.randn(512, 512, dtype=torch.bfloat16)
-        )
+        nf4_tensor = to_nf4(torch.randn(512, 512, dtype=torch.bfloat16))
         inp = torch.randn(2, 512, dtype=torch.bfloat16, requires_grad=True)
         linear_nf4(inp, nf4_tensor).sum().backward()
         assert inp.grad is not None and inp.grad.dtype == torch.bfloat16
@@ -83,7 +88,7 @@ class TestNF4Linear(TestCase):
         device = "cuda"
         embed_dim = 512
         input_weight = _build_input_weight(embed_dim, device)
-        nf4_weight = NF4Tensor.from_tensor(input_weight)
+        nf4_weight = to_nf4(input_weight)
         bnb_linear = _build_bnb_linear(input_weight, device)
         bnb_reconstruction = bnb_linear(
             torch.eye(embed_dim, embed_dim, dtype=torch.bfloat16, device=device)
@@ -107,7 +112,7 @@ class TestNF4Linear(TestCase):
         dim = 512
         device = "cuda"
         input_weight = _build_input_weight(dim, device)
-        nf4_weight = NF4Tensor.from_tensor(input_weight)
+        nf4_weight = to_nf4(input_weight)
         bnb_linear = _build_bnb_linear(input_weight, device)
 
         inp = torch.randn(2, 512, dtype=torch.bfloat16, device="cuda")
@@ -120,6 +125,56 @@ class TestNF4Linear(TestCase):
         err_native = (out_nf4 - out_ref).abs().max()
         assert err_native < 0.5 * dim
         assert err_bnb < 0.5 * dim
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need cuda for test")
+    def test_load_from_bfloat16(self):
+        """Tests loading to and from different module state dicts"""
+        inpt_tensor = torch.rand(64, device='cuda', dtype=torch.bfloat16)
+        base_mod = self.TestMod(inpt_tensor, 32, 2)
+
+        bf16_dummy_dict = {"param": inpt_tensor}
+        base_mod.load_state_dict(bf16_dummy_dict)
+
+        assert base_mod.param.block_size == 32
+        assert base_mod.param.scaler_block_size == 2
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need cuda for test")
+    def test_load_from_nf4_same_meta(self):
+        """Tests loading to and from different module state dicts"""
+        inpt_tensor = torch.rand(64, device='cuda', dtype=torch.bfloat16)
+        base_mod = self.TestMod(inpt_tensor, 32, 2)
+        state_dict = base_mod.state_dict()
+        saved_state_dict = self.save_state_dict_to_buffer(state_dict)
+
+        other_mod = self.TestMod(inpt_tensor, 32, 2)
+        other_mod.load_state_dict(torch.load(saved_state_dict))
+        assert other_mod.param.block_size == 32
+        assert other_mod.param.scaler_block_size == 2
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need cuda for test")
+    def test_load_from_nf4_diff_meta(self):
+        """Tests loading to and from different module state dicts"""
+        inpt_tensor = torch.rand(128, device='cuda', dtype=torch.bfloat16)
+        base_mod = self.TestMod(inpt_tensor, 32, 2)
+        state_dict = base_mod.state_dict()
+        saved_state_dict = self.save_state_dict_to_buffer(state_dict)
+
+        other_mod = self.TestMod(inpt_tensor, 64, 1)
+        other_mod.load_state_dict(torch.load(saved_state_dict))
+        assert other_mod.param.block_size == 64
+        assert other_mod.param.scaler_block_size == 1
+
+    def test_to_copy(self):
+        inpt_tensor = torch.rand(128, device='cpu')
+        inpt_tensor_nf4 = to_nf4(inpt_tensor, 32, 2)
+        inpt_tensor_bfloat16 = inpt_tensor_nf4.to(torch.bfloat16)
+        torch.testing.assert_allclose(inpt_tensor, inpt_tensor_bfloat16, atol=0.13, rtol=0.13)
+
+        if torch.cuda.is_available():
+            inpt_tensor = torch.rand(128, device='cuda')
+            inpt_tensor_nf4 = to_nf4(inpt_tensor, 32, 2)
+            inpt_tensor_bfloat16 = inpt_tensor_nf4.to(torch.bfloat16)
+            torch.testing.assert_allclose(inpt_tensor, inpt_tensor_bfloat16, atol=0.13, rtol=0.13)
 
 
 if __name__ == "__main__":
