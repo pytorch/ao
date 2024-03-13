@@ -1,14 +1,21 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
-
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import os
 from setuptools import setup, find_packages
 
+def read_requirements(file_path):
+    with open(file_path, 'r') as file:
+        return file.read().splitlines()
+
+# Determine the package name based on the presence of an environment variable
+package_name = 'torchao-nightly' if os.environ.get('TORCHAO_NIGHTLY') else 'torchao'
+
 setup(
-    name='torchao',
-    version='0.0.3',
+    name=package_name,
+    version='0.0.3' if package_name == 'torchao' else '0.0.3.dev20240313',
     packages=find_packages(),
     install_requires=read_requirements('requirements.txt'),
     description='Package for applying ao techniques to GPU models',
