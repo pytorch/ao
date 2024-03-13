@@ -8,23 +8,25 @@ on:
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v3
-
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.x'
-
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install setuptools wheel twine
-
+    - name: Get current date
+      id: date
+      run: echo "::set-output name=date::$(date +'%Y%m%d')"
     - name: Build package
-      run: python setup.py sdist bdist_wheel
-
+      run: |
+        version=$(python setup.py --version)
+        new_version="${version}.dev${{ steps.date.outputs.date }}"
+        sed -i "s/version=.*/version='${new_version}',/" setup.py
+        python setup.py sdist bdist_wheel
     - name: Publish package to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
