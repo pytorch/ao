@@ -59,7 +59,7 @@ def run_int_scaled_mm_benchmark(x, w, b):
 
 
 def run_benchmarks(shapes):
-    print("fn,m,k,n,fp_time,int_mm_time,ratio,use_scales")
+    print("fn,m,k,n,fp_time,int_mm_time,ratio")
     positives = []
     dtype = torch.bfloat16
     device = 'cuda'
@@ -70,7 +70,7 @@ def run_benchmarks(shapes):
 
         fp_time, int_mm_time = fn(x, w, b)
         ratio = fp_time / int_mm_time
-        result = (",".join(map(str, [fn, m, k, n, fp_time, int_mm_time, ratio, False])))
+        result = (",".join(map(str, [fn, m, k, n, fp_time, int_mm_time, ratio])))
         print(result)
 
 
