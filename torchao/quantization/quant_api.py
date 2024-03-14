@@ -394,6 +394,40 @@ class GPTQQuantizer(Quantizer):
         return model
 
 
+def linear_forward_8da4w(
+    x, weight_int8, scales, zeros, out_features, group_size, precision
+):
+    x = per_token_dynamic_quant(x)
+    # TODO: verify and remove following reshape code
+    # origin_x_size = x.size()
+    # x = x.reshape(-1, origin_x_size[-1])
+
+    # TODO: better API
+    # weight_int8 = torch.ops.quantized_decomposed.unpack_int4_to_int8(weight_int4packed)
+    n_bit = 4
+    quant_min = -(2 ** (n_bit - 1))
+    quant_max = 2 ** (n_bit - 1) - 1
+    w_dq = torch.ops.quantized_decomposed.dequantize_per_channel_group(
+        weight_int8,
+        scales,
+        zeros,
+        quant_min,
+        quant_max,
+        torch.int8,
+        group_size,
+        precision,
+    )
+
+    # x = x.to(torch.float16)
+    # w_dq = w_dq.to(torch.float16)
+    c = torch.nn.functional.linear(x, w_dq)
+
+    # new_shape = origin_x_size[:-1] + (out_features,)
+    # c = c.reshape(new_shape)
+
+    return c
+
+
 class Int8DynActInt4WeightLinear(torch.nn.Module):
     __constants__ = ["in_features", "out_features"]
 
@@ -433,6 +467,7 @@ class Int8DynActInt4WeightLinear(torch.nn.Module):
         self.in_features = in_features
         self.out_features = out_features
         assert not bias, "require bias=False"
+        # TODO: align groupsize naming
         self.group_size = group_size
         # Precision of the activation which also indicates
         # output precision of the dynamically quantized linear layer
@@ -469,9 +504,10 @@ class Int8DynActInt4WeightLinear(torch.nn.Module):
             self.scales,
             self.zeros,
             self.out_features,
-            self.groupsize,
+            self.group_size,
             self.precision,
         )
+
 
 from math import gcd
 from functools import reduce
