@@ -303,7 +303,8 @@ def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
 
 def int_matmul(a, b):
     if AUTOTUNER_ENABLE:
-        return safe_int_mm(a, b)
+        return torch.ops.torchao.int_matmul(a, b)
+    return safe_int_mm(a, b)
 
 
 @torch.library.impl(lib, "int_scaled_matmul", "Meta")

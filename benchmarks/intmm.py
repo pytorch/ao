@@ -59,27 +59,18 @@ def run_int_scaled_mm_benchmark(x, w, b):
 
 
 def run_benchmarks(shapes):
-    print("m,k,n,fp_time,int_mm_time,ratio,use_scales")
+    print("fn,m,k,n,fp_time,int_mm_time,ratio,use_scales")
     positives = []
     dtype = torch.bfloat16
     device = 'cuda'
-    for (m, k, n) in shapes:
+    for fn, (m, k, n) in itertools.product([run_int_mm_benchmark, run_int_scaled_mm_benchmark], shapes):
         x = torch.randn(m, k, dtype=dtype, device=device)
-        # w = torch.randn(k, n, dtype=dtype, device=device)
         w = torch.randn(n, k, dtype=dtype, device=device).t()
-        m, k = x.size()
-        k1, n = w.size()
-        assert k == k1  # sanity check
-    
         b = torch.randn(m, n, dtype=dtype, device=device)
-        fp_time, int_mm_time = run_int_mm_benchmark(x, w, b)
-        ratio = fp_time / int_mm_time
-        result = (",".join(map(str, [m, k, n, fp_time, int_mm_time, ratio, False])))
-        print(result)
 
-        fp_time, int_scaled_mm_time = run_int_scaled_mm_benchmark(x, w, b)
+        fp_time, int_mm_time = fn(x, w, b)
         ratio = fp_time / int_mm_time
-        result = (",".join(map(str, [m, k, n, fp_time, int_mm_time, ratio, True])))
+        result = (",".join(map(str, [fn, m, k, n, fp_time, int_mm_time, ratio, False])))
         print(result)
 
 
