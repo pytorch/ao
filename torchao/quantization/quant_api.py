@@ -35,6 +35,7 @@ from .quant_primitives import (
     per_token_dynamic_quant,
 )
 from typing import Dict, Tuple
+import logging
 
 __all__ = [
     "apply_weight_only_int8_quant",
@@ -220,7 +221,7 @@ if lm_eval_available:
         MultiInput,
     )
 else:
-    print("lm_eval not available, skip defining GPTQQuantizer")
+    logging.info("lm_eval not available, skip defining GPTQQuantizer")
 
 
 class GPTQQuantizer(Quantizer):

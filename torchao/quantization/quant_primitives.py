@@ -13,6 +13,7 @@ from torch.ao.quantization.fx._decomposed import (
 )
 from torch.library import impl
 from typing import Tuple
+from torchao.kernel.intmm_triton import int_scaled_matmul
 
 __all__ = [
     "safe_int_mm",
@@ -55,7 +56,6 @@ def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
     Return:
         out (Tensor, int32): the result of the matmul with device matching that of the inputs
     """
-
     # torch.compile path
     if dynamo_is_compiling() or "FakeTensor" in input.__repr__():
         return out_dtype(torch.ops.aten.mm.default, torch.int32, input, mat2)
@@ -361,13 +361,14 @@ def quant_int8_per_token_matmul(
         w_vals_int8_t.dtype == torch.int8
     ), f"w dtype {w_vals_int8_t.dtype} not yet supported"
 
+    assert x_scales.dtype in [
+        torch.float,
+        torch.bfloat16,
+    ], f"x_scales needs to be a torch.float32 or torch.bfloat16 but got {x_scales.dtype}"
+
     #
     # 1. do the matrix form of dot(X_i, W_j)
     #
-
-    tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
-    y_dot_int32 = safe_int_mm(tmp, w_vals_int8_t)
-
     #
     # 2. rescale the output
     #
@@ -376,13 +377,11 @@ def quant_int8_per_token_matmul(
     # value of a float 16, (which results in a value of inf even if multiplying
     # by the other scale would bring it within the expected range)
 
-    assert x_scales.dtype in [
-        torch.float,
-        torch.bfloat16,
-    ], f"x_scales needs to be a torch.float32 or torch.bfloat16 but got {x_scales.dtype}"
+    tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
+    y_dot_scaled = int_scaled_matmul(tmp, w_vals_int8_t, x_scales.reshape(-1, 1))
 
-    y = (y_dot_int32 * x_scales.reshape(-1, 1) * w_scales).reshape(
-        *x_vals_int8.shape[:-1], y_dot_int32.shape[-1]
+    y = (y_dot_scaled * w_scales).reshape(
+        *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]
     )
 
     # can downcast only at the very end

@@ -6,6 +6,7 @@ from torch._dynamo import is_compiling as dynamo_is_compiling
 import triton
 import triton.language as tl
 import itertools
+import os
 int8_powers_of_two = [32, 64, 128, 256]
 int8_mm_kernel_configs = sum([
     # "BLOCK_M", "BLOCK_N", "BLOCK_K", "num_stages", "num_warps"
@@ -50,6 +51,7 @@ int8_mm_kernel_configs = sum([
 
 int8_mm_kernel_configs = [triton.Config({'BLOCK_M': i, 'BLOCK_N': j, 'BLOCK_K': k, 'GROUP_M': 8}, num_stages=s, num_warps = w) for (i, j, k, s, w) in int8_mm_kernel_configs]
 
+AUTOTUNER_ENABLE = bool(int(os.getenv('TORCHAO_AUTOTUNER_ENABLE', 0)))
 
 
 @triton.jit
@@ -235,7 +237,6 @@ lib = torch.library.Library("torchao", "FRAGMENT")
 lib.define("int_matmul(Tensor a, Tensor b) -> Tensor")
 lib.define("int_scaled_matmul(Tensor a, Tensor b, Tensor scales1) -> Tensor")
 
-
 @torch.library.impl(lib, "int_matmul", "Meta")
 def int_matmul_meta(a, b):
     M, K = a.shape
@@ -301,7 +302,7 @@ def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
 
 
 def int_matmul(a, b):
-    if torch.ops.torchao.int_matmul(a, b).numel() == 0:
+    if AUTOTUNER_ENABLE:
         return safe_int_mm(a, b)
 
 
@@ -326,10 +327,8 @@ def int_scaled_matmul_cuda(a, b, scales1):
     best_config = get_best_config_fn(int_scaled_matmul_kernel,
                                      [a, b, scales1, c],
                                      int8_mm_kernel_configs)
-    if best_config is None:
-        # Fall back to decomposition
-        return torch.tensor([])
     return int_scaled_matmul_kernel(a, b, scales1, c, best_config)
+
 
 def int_scaled_matmul(a, b, scales1):
     assert a.is_contiguous(), "Matrix A must be contiguous"
@@ -342,6 +341,8 @@ def int_scaled_matmul(a, b, scales1):
     assert scales1.dtype == torch.bfloat16
     scales1 = scales1.expand((M, N))
     assert scales1.dim() == 2
-    if torch.ops.torchao.int_scaled_matmul(a, b, scales1).numel() == 0:
-        c = safe_int_mm(a, b)
-        return c * scales1
+    if AUTOTUNER_ENABLE:
+        return torch.ops.torchao.int_scaled_matmul(a, b, scales1)
+
+    c = safe_int_mm(a, b)
+    return c * scales1

@@ -15,6 +15,7 @@ import torch
 import torch.fx as fx
 import torch.nn as nn
 import torch.nn.functional as F
+import logging
 # from model import Transformer  # pyre-ignore[21]
 from torch.utils._pytree import tree_flatten, tree_unflatten
 
@@ -56,7 +57,7 @@ if lm_eval_available:
         get_task_dict = tasks.get_task_dict
         evaluate = evaluator.evaluate
 else:
-    print("lm_eval is not installed, GPTQ may not be usable")
+    logging.info("lm_eval is not installed, GPTQ may not be usable")
 
 def setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
     model: torch.nn.Module,  # pyre-ignore[11]

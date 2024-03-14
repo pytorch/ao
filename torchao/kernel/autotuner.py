@@ -173,11 +173,6 @@ def do_bench(fn, args, config, best_time=None):
     return do_bench_triton(wrapped_fn)
 
 
-AUTOTUNER_ENABLE = bool(int(os.getenv('TORCHAO_AUTOTUNER_ENABLE', 0)))
-AUTOTUNER_SEARCH = bool(int(os.getenv('TORCHAO_AUTOTUNER_SEARCH', 0)))
-AUTOTUNER_SEARCH_ERROR = bool(int(os.getenv('TORCHAO_AUTOTUNER_SEARCH_ERROR', 0)))
-
-
 def get_best_config_by_key(key):
     if key in BEST_CONFIGS:
         return BEST_CONFIGS[key][0]
@@ -200,9 +195,7 @@ def get_best_config_fn(fn, args, configs):
     if best_config is not None:
         return best_config
 
-    if not AUTOTUNER_SEARCH:
-        logging.info(f"TORCHAO_AUTOTUNER_SEARCH disabled. No config found for key {key}.")
-        return None
+    logging.info(f"Starting autotune search. No config found for key {key}.")
 
     # Search for the best config
     best_config = configs[0]
