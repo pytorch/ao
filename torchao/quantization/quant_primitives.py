@@ -4,6 +4,8 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+from typing import Optional, Tuple
+
 import torch
 from torch._dynamo import is_compiling as dynamo_is_compiling
 from torch._higher_order_ops.out_dtype import out_dtype
@@ -12,7 +14,6 @@ from torch.ao.quantization.fx._decomposed import (
     quantized_decomposed_lib,
 )
 from torch.library import impl
-from typing import Tuple
 
 __all__ = [
     "safe_int_mm",
@@ -899,7 +900,7 @@ def group_quantize_tensor_symmetric(
 
 
 quantized_decomposed_lib.define(
-    "dequantize_per_channel_group(Tensor input, Tensor scales, Tensor zero_points, int quant_min, "
+    "dequantize_per_channel_group(Tensor input, Tensor scales, Tensor? zero_points, int quant_min, "
     "int quant_max, ScalarType dtype, int group_size, ScalarType output_dtype) -> Tensor"
 )
 
@@ -912,7 +913,7 @@ quantized_decomposed_lib.define(
 def dequantize_per_channel_group(
     w_int8: torch.Tensor,
     scales: torch.Tensor,
-    zero_points: torch.Tensor,
+    zero_points: Optional[torch.Tensor],
     quant_min: int,
     quant_max: int,
     dtype: torch.dtype,
@@ -947,10 +948,8 @@ def dequantize_per_channel_group(
 
     w_int8_grouped = w_int8.reshape(-1, group_size)
     scales = scales.reshape(-1, 1)
-    zero_points = zero_points.reshape(-1, 1)
-    w_dq = (
-        w_int8_grouped.sub(zero_points).mul(scales).reshape_as(w_int8).to(output_dtype)
-    )
+    zp = zero_points.reshape(-1, 1) if zero_points is not None else 0
+    w_dq = w_int8_grouped.sub(zp).mul(scales).reshape_as(w_int8).to(output_dtype)
     return w_dq
 
 
