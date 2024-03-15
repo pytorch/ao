@@ -19,20 +19,36 @@ inductorconfig.force_fuse_int_mm_with_mul = True
 
 model = torch.compile(model, mode='max-autotune')
 
-# warmup
-for _ in range(5):
-    model(input_tensor)
+def benchmark_model(model, num_runs, input_tensor):
+    torch.cuda.synchronize()
+    start_event = torch.cuda.Event(enable_timing=True)
+    end_event = torch.cuda.Event(enable_timing=True)
+    start_event.record()
+    
+    # benchmark
+    for _ in range(num_runs):
+        with torch.autograd.profiler.record_function("timed region"):
+            model(input_tensor)
+    
+    end_event.record()
+    torch.cuda.synchronize()
+    return start_event.elapsed_time(end_event) / num_runs
 
-torch.cuda.synchronize()
-start_event = torch.cuda.Event(enable_timing=True)
-end_event = torch.cuda.Event(enable_timing=True)
-start_event.record()
+# warmup
+benchmark_model(model, 5, input_tensor)
 
 # benchmark
-for _ in range(100):
-    model(input_tensor)
+print("elapsed_time: ", benchmark_model(model, 100, input_tensor), " milliseconds")
 
-end_event.record()
-torch.cuda.synchronize()
-elapsed_time = start_event.elapsed_time(end_event) / 100
-print("elapsed_time: ", elapsed_time, " milliseconds")
+# Create a trace
+
+def profiler_runner(path, fn, *args, **kwargs):
+    with torch.profiler.profile(
+            activities=[torch.profiler.ProfilerActivity.CPU,
+                        torch.profiler.ProfilerActivity.CUDA],
+            record_shapes=True) as prof:
+        result = fn(*args, **kwargs)
+    prof.export_chrome_trace(path)
+    return result
+
+profiler_runner("quant.json.gz", benchmark_model, model, 5, input_tensor)
