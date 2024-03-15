@@ -4,6 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import math
 from typing import Optional, Tuple
 
 import torch
@@ -118,7 +119,6 @@ def dynamically_quantize_per_tensor(
         # reference: https://fburl.com/code/srbiybme
         min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
         max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
-        device = min_val_neg.device
 
         scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
         # TODO(future): make torch.clamp with scalar work on cpu-half
