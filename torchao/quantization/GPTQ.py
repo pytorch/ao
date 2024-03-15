@@ -15,14 +15,17 @@ import torch
 import torch.fx as fx
 import torch.nn as nn
 import torch.nn.functional as F
-# from model import Transformer  # pyre-ignore[21]
+# from model import Transformer
 from torch.utils._pytree import tree_flatten, tree_unflatten
 
+# pyre-fixme[5]: Global expression must be annotated.
 aten = torch.ops.aten
 
 ## generate.py ##
 
 
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
 def encode_tokens(tokenizer, string, bos=True, device="cuda"):
 
     tokens = tokenizer.encode(string)
@@ -31,6 +34,8 @@ def encode_tokens(tokenizer, string, bos=True, device="cuda"):
     return torch.tensor(tokens, dtype=torch.int, device=device)
 
 
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
 def model_forward(model, x, input_pos):
     return model(x, input_pos)
 
@@ -58,8 +63,9 @@ if lm_eval_available:
 else:
     print("lm_eval is not installed, GPTQ may not be usable")
 
+# pyre-fixme[3]: Return type must be annotated.
 def setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
-    model: torch.nn.Module,  # pyre-ignore[11]
+    model: torch.nn.Module,
     prompt: torch.Tensor,
     max_new_tokens: int,
     max_seq_length: Optional[int] = None,
@@ -104,38 +110,49 @@ if lm_eval_available:
         A wrapper class for GPTFast, providing integration with the lm-evaluation-harness library.
         """
 
+        # pyre-fixme[3]: Return type must be annotated.
         def __init__(
             self,
             model: torch.nn.Module,
+            # pyre-fixme[2]: Parameter must be annotated.
             tokenizer,
             max_seq_length: Optional[int] = None,
         ):
             super().__init__()
             self._model = model
+            # pyre-fixme[4]: Attribute must be annotated.
             self._tokenizer = tokenizer
             self._device = torch.device("cuda")
+            # pyre-fixme[4]: Attribute must be annotated.
             self._max_seq_length = 2048 if max_seq_length is None else max_seq_length
 
         @property
+        # pyre-fixme[3]: Return type must be annotated.
         def eot_token_id(self):
             return self._tokenizer.eos_id()
 
         @property
+        # pyre-fixme[3]: Return type must be annotated.
         def max_length(self):
             return self._max_seq_length
 
         @property
+        # pyre-fixme[3]: Return type must be annotated.
         def max_gen_toks(self):
             return 50
 
         @property
+        # pyre-fixme[3]: Return type must be annotated.
         def batch_size(self):
             return 1
 
         @property
+        # pyre-fixme[3]: Return type must be annotated.
         def device(self):
             return self._device
 
+        # pyre-fixme[3]: Return type must be annotated.
+        # pyre-fixme[2]: Parameter must be annotated.
         def tok_encode(self, string: str, **kwargs):
             encoded = encode_tokens(self._tokenizer, string, bos=True, device=self._device)
             # encoded is a pytorch tensor, but some internal logic in the
@@ -144,10 +161,14 @@ if lm_eval_available:
             encoded = encoded.tolist()
             return encoded
 
+        # pyre-fixme[3]: Return type must be annotated.
+        # pyre-fixme[2]: Parameter must be annotated.
         def tok_decode(self, tokens):
             decoded = self._tokenizer.decode(tokens)
             return decoded
 
+        # pyre-fixme[3]: Return type must be annotated.
+        # pyre-fixme[2]: Parameter must be annotated.
         def _model_call(self, inps):
             print("in model_call")
             # TODO: make batches work
@@ -166,6 +187,8 @@ if lm_eval_available:
             logits = model_forward(self._model, x, input_pos)
             return logits
 
+        # pyre-fixme[3]: Return type must be annotated.
+        # pyre-fixme[2]: Parameter must be annotated.
         def _model_generate(self, context, max_length, eos_token_id):
             raise Exception("unimplemented")
 
@@ -183,20 +206,29 @@ if lm_eval_available:
         If not, it will only truncate inputs to the desired length.
         """
 
+        # pyre-fixme[3]: Return type must be annotated.
         def __init__(
             self,
             model: torch.nn.Module,
+            # pyre-fixme[2]: Parameter must be annotated.
             tokenizer,
+            # pyre-fixme[2]: Parameter must be annotated.
             calibration_seq_length,
+            # pyre-fixme[2]: Parameter must be annotated.
             pad_calibration_inputs=False,
         ):
             super().__init__(model, tokenizer, calibration_seq_length)
             self._model = model
+            # pyre-fixme[4]: Attribute must be annotated.
             self._tokenizer = tokenizer
             self._device = torch.device("cpu")
+            # pyre-fixme[4]: Attribute must be annotated.
             self.vocab_size = model.vocab_size
+            # pyre-fixme[4]: Attribute must be annotated.
             self.calibration_seq_length = calibration_seq_length
+            # pyre-fixme[4]: Attribute must be annotated.
             self.pad_calibration_inputs = pad_calibration_inputs
+            # pyre-fixme[4]: Attribute must be annotated.
             self.inputs = None
 
             if self.pad_calibration_inputs:
@@ -214,6 +246,8 @@ if lm_eval_available:
                     )
                     self.pad_calibration_inputs = False
 
+        # pyre-fixme[3]: Return type must be annotated.
+        # pyre-fixme[2]: Parameter must be annotated.
         def add_input(self, args):
             if self.inputs is None:
                 self.inputs = [MultiInput([arg]) for arg in args]
@@ -222,9 +256,12 @@ if lm_eval_available:
                     multi.add_input(arg) for (multi, arg) in zip(self.inputs, args)
                 ]
 
+        # pyre-fixme[3]: Return type must be annotated.
         def get_recorded_inputs(self):
             return self.inputs
 
+        # pyre-fixme[3]: Return type must be annotated.
+        # pyre-fixme[2]: Parameter must be annotated.
         def _model_call(self, inps):
             inps = inps.squeeze(0)
             T = len(inps)
@@ -264,16 +301,24 @@ if lm_eval_available:
 
 
 class MultiInput:
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def __init__(self, inputs):
+        # pyre-fixme[4]: Attribute must be annotated.
         self.values = list(inputs)
 
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def add_input(self, input):
         self.values.append(input)
         return self
 
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def __getitem__(self, slice):
         return MultiInput(self.values[slice])
 
+    # pyre-fixme[3]: Return type must be annotated.
     def cuda(self):
         self.values = [
             val.cuda() if isinstance(val, torch.Tensor) else val for val in self.values
@@ -293,9 +338,12 @@ class GenericGPTQRunner(fx.Interpreter):
     class to define the specific type of quantization being done.
     """
 
+    # pyre-fixme[3]: Return type must be annotated.
     def __init__(
+        # pyre-fixme[2]: Parameter must be annotated.
         self, model, inputs: MultiInput, blocksize=128, percdamp=0.01, groupsize=128
     ):
+        # pyre-fixme[4]: Attribute must be annotated.
         self.id_to_name = {
             id(value): name for name, value in dict(model.named_parameters()).items()
         }
@@ -306,51 +354,73 @@ class GenericGPTQRunner(fx.Interpreter):
             model, aten_graph=True, pre_dispatch=True, tracing_mode="fake"
         )(*one_input)
         super().__init__(exported_model.graph_module)
+        # pyre-fixme[4]: Attribute must be annotated.
         self.new_state_dict = model.state_dict()
+        # pyre-fixme[4]: Attribute must be annotated.
         self.blocksize = blocksize
+        # pyre-fixme[4]: Attribute must be annotated.
         self.percdamp = percdamp
+        # pyre-fixme[4]: Attribute must be annotated.
         self.groupsize = groupsize
         self.inputs = inputs
         self.gptq_done = False
         self.debug = False
 
+    # pyre-fixme[3]: Return type must be annotated.
     def configure_quantization_mode(
         self,
+        # pyre-fixme[2]: Parameter must be annotated.
         get_qparams_func,
+        # pyre-fixme[2]: Parameter must be annotated.
         quantize_func,
+        # pyre-fixme[2]: Parameter must be annotated.
         dequantize_func,
+        # pyre-fixme[2]: Parameter must be annotated.
         combine_qparams_list_func,
+        # pyre-fixme[2]: Parameter must be annotated.
         make_names_and_values_dict_func,
+        # pyre-fixme[2]: Parameter must be annotated.
         skip_layer_func,
     ):
         # these functions need to already be curried with all inputs other than weight, qparams
+        # pyre-fixme[16]: `GenericGPTQRunner` has no attribute `get_qparams_func`.
         self.get_qparams_func = (
             get_qparams_func  # accepts [2d weight tensor], outputs qparams.
         )
 
+        # pyre-fixme[16]: `GenericGPTQRunner` has no attribute `quantize_func`.
         self.quantize_func = quantize_func  # accepts [2d weight tensor], [qparams], outputs a 2d quantized tensor of desired dtype
 
+        # pyre-fixme[16]: `GenericGPTQRunner` has no attribute `dequantize_func`.
         self.dequantize_func = dequantize_func
         # accepts [quantized] tensor and [qparams], outputs a 2d dequantized tensor of type float,
         # assumes this output .to(w_orig_dtype) is ~eventual desired dequant behavior
 
+        # pyre-fixme[16]: `GenericGPTQRunner` has no attribute
+        #  `combine_qparams_list_func`.
         self.combine_qparams_list_func = combine_qparams_list_func
         # accepts [`list` of qparams] from quantizing one group at a time,
         # outputs a qparams object that could be passed into quant/dequantize_func
 
+        # pyre-fixme[16]: `GenericGPTQRunner` has no attribute `skip_layer_func`.
         self.skip_layer_func = skip_layer_func  # accepts [weight tensor], outputs a bool on whether or not to apply gptq to this layer
 
+        # pyre-fixme[16]: `GenericGPTQRunner` has no attribute
+        #  `make_names_and_values_dict_func`.
         self.make_names_and_values_dict_func = make_names_and_values_dict_func  # accepts [2d quantized tensor], [qparams], returns a dict of names, values to put in state_dict
         # note any final packing for storage should happen here
         return self
 
+    # pyre-fixme[3]: Return type must be annotated.
     def run(self):
         assert (
+            # pyre-fixme[16]: `GenericGPTQRunner` has no attribute `get_qparams_func`.
             self.get_qparams_func is not None
         ), "need to configure quantization mode before running"
         self.gptq_done = True
         super().run(*self.inputs)
 
+    # pyre-fixme[3]: Return type must be annotated.
     def get_quantized_state_dict(self):
         assert (
             self.gptq_done
@@ -365,7 +435,11 @@ class GenericGPTQRunner(fx.Interpreter):
             quantized_state_dict.pop(param_fqn)
         return quantized_state_dict
 
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def call_function(self, target, args, kwargs, skip_quant=False):  # noqa: C901
+        # pyre-fixme[3]: Return type must be annotated.
+        # pyre-fixme[2]: Parameter must be annotated.
         def tensors_to_cuda(args):
             new_args = []
             for x in args:
@@ -406,6 +480,7 @@ class GenericGPTQRunner(fx.Interpreter):
             and id(args[1]) in self.id_to_name  # and if we know the layer name
             and not skip_quant  # and if we weren't told to skip quantization
             # and if the skip_layer_func doesn't say we should skip
+            # pyre-fixme[16]: `GenericGPTQRunner` has no attribute `skip_layer_func`.
             and not (self.skip_layer_func is not None and self.skip_layer_func(args[1]))
         )  # then we will quantize this linear layer/weight
 
@@ -440,9 +515,13 @@ class GenericGPTQRunner(fx.Interpreter):
 
         if quantize_linear:
             mod_fqn = ".".join(self.id_to_name[id(args[1])].split(".")[:-1])
+            # pyre-fixme[16]: `float` has no attribute `device`.
             W = args[1].to(H.device)
+            # pyre-fixme[61]: `H` is undefined, or not always defined.
             Q, DQ, qparams = self.faster_quant(H, W.detach())
             print(mod_fqn)
+            # pyre-fixme[16]: `GenericGPTQRunner` has no attribute
+            #  `make_names_and_values_dict_func`.
             names_and_values_dict = self.make_names_and_values_dict_func(Q, qparams)
 
             # delete old weight
@@ -463,12 +542,16 @@ class GenericGPTQRunner(fx.Interpreter):
                     target, (args[0][:2], args[1], *args[2:]), kwargs, skip_quant=True
                 )
 
+                # pyre-fixme[3]: Return type must be annotated.
+                # pyre-fixme[2]: Parameter must be annotated.
                 def SQNR(x, y):
                     # TODO: Use of deprecated function torch.norm
                     return 20 * torch.log10(
                         torch.linalg.norm(x) / torch.linalg.norm(x - y)
                     )
 
+                # pyre-fixme[16]: `GenericGPTQRunner` has no attribute
+                #  `dequantize_func`.
                 DQ_after = self.dequantize_func(Q, qparams).to(W.dtype)
                 print(
                     "SQNR for QDQ (this should be inf)", SQNR(DQ, DQ_after)
@@ -487,7 +570,10 @@ class GenericGPTQRunner(fx.Interpreter):
                     ).mean(),
                 )
 
+                # pyre-fixme[16]: `GenericGPTQRunner` has no attribute
+                #  `get_qparams_func`.
                 qparams2 = self.get_qparams_func(W)
+                # pyre-fixme[16]: `GenericGPTQRunner` has no attribute `quantize_func`.
                 Q2 = self.quantize_func(W, qparams2)
                 DQ2 = self.dequantize_func(Q2, qparams2).to(W.dtype)
                 old_q_out = self.call_function(
@@ -507,6 +593,8 @@ class GenericGPTQRunner(fx.Interpreter):
 
         return MultiInput(outputs) if has_multi_input else outputs[0]
 
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def faster_quant(self, H, W):
         percdamp = self.percdamp
         blocksize = self.blocksize
@@ -517,6 +605,7 @@ class GenericGPTQRunner(fx.Interpreter):
         device = W.device
 
         if groupsize == -1:
+            # pyre-fixme[16]: `GenericGPTQRunner` has no attribute `get_qparams_func`.
             cur_qparams = self.get_qparams_func(W)
         dead = torch.diag(H) == 0
         H[dead, dead] = 1
@@ -552,7 +641,12 @@ class GenericGPTQRunner(fx.Interpreter):
                     )
                     all_qparams.append(cur_qparams)
 
+                # pyre-fixme[16]: `GenericGPTQRunner` has no attribute `quantize_func`.
+                # pyre-fixme[61]: `cur_qparams` is undefined, or not always defined.
                 q = self.quantize_func(w.unsqueeze(1), cur_qparams).flatten()
+                # pyre-fixme[16]: `GenericGPTQRunner` has no attribute
+                #  `dequantize_func`.
+                # pyre-fixme[61]: `cur_qparams` is undefined, or not always defined.
                 dq = self.dequantize_func(q.unsqueeze(1), cur_qparams).flatten()
 
                 DQ1[:, i] = dq
@@ -572,10 +666,13 @@ class GenericGPTQRunner(fx.Interpreter):
         torch.cuda.synchronize()
 
         if all_qparams == []:
+            # pyre-fixme[61]: `cur_qparams` is undefined, or not always defined.
             all_qparams.append(cur_qparams)
 
         # convert a list of qparams objects into a single one. enerally by
         # concatenating a bunch of n,1 scale/zeros tensors into a n,num_groups tensor
+        # pyre-fixme[16]: `GenericGPTQRunner` has no attribute
+        #  `combine_qparams_list_func`.
         all_qparams = self.combine_qparams_list_func(all_qparams)
         Q = self.quantize_func(DQ, all_qparams)
         return Q, DQ.to(orig_dtype), all_qparams

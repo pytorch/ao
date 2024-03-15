@@ -65,6 +65,7 @@ def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
     # error checking for cublas path
     assert (
         mat2.device == input.device
+    # pyre-fixme[16]: Callable `input` has no attribute `device`.
     ), f"need both tensors to be on the same device but got {mat2.device} and {input.device}"
     device_cpu = "cpu" in [mat2.device.type, input.device.type]
     # with input.shape = [i,j] and mat2.shape = [j,k]
@@ -96,11 +97,17 @@ def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
 
 
 # copy-pasta of https://www.internalfb.com/intern/anp/view/?id=3350736
+# pyre-fixme[3]: Return type must be annotated.
 def dynamically_quantize_per_tensor(
+    # pyre-fixme[2]: Parameter must be annotated.
     x,
+    # pyre-fixme[2]: Parameter must be annotated.
     quant_min,
+    # pyre-fixme[2]: Parameter must be annotated.
     quant_max,
+    # pyre-fixme[2]: Parameter must be annotated.
     target_dtype,
+    # pyre-fixme[2]: Parameter must be annotated.
     qscheme=torch.per_tensor_affine,  # for now, reuse existing qscheme enum
 ):
     # assumes affine quantization
@@ -150,6 +157,8 @@ def dynamically_quantize_per_tensor(
 # taken from
 # https://github.com/mit-han-lab/smoothquant/blob/2f87951dacfb9238d8d657f52ae83a82a3c9ba0c/smoothquant/fake_quant.py#L26
 # and slightly modified
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
 def quantize_activation_per_token_absmax(t):
     n_bits = 8
     # if the shape of t is [B, N, K], the shape of scales will be [B, N, 1]
@@ -168,6 +177,8 @@ def quantize_activation_per_token_absmax(t):
     return t, scales
 
 
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
 def dynamically_quantize_per_channel(x, quant_min, quant_max, target_dtype):
     # assumes symmetric quantization
     # assumes axis == 0
@@ -205,6 +216,8 @@ def dynamically_quantize_per_channel(x, quant_min, quant_max, target_dtype):
 
 
 # reference: https://fburl.com/code/vfsygwd0
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
 def dequantize_per_tensor(int_repr, scale, zero_point, out_dtype=torch.float32):
     y = int_repr.to(out_dtype)
     if zero_point is not None:
@@ -213,6 +226,8 @@ def dequantize_per_tensor(int_repr, scale, zero_point, out_dtype=torch.float32):
 
 
 # reference: https://fburl.com/code/org0fmi3
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
 def dequantize_per_channel(int_repr, scales, zero_points, out_dtype=torch.float32):
     # assumes axis is 0
     y = int_repr.transpose(0, 1)
@@ -223,15 +238,25 @@ def dequantize_per_channel(int_repr, scales, zero_points, out_dtype=torch.float3
     return y
 
 
+# pyre-fixme[3]: Return type must be annotated.
 def quant_int8_dynamic_linear(
+    # pyre-fixme[2]: Parameter must be annotated.
     x,
+    # pyre-fixme[2]: Parameter must be annotated.
     x_quant_min,
+    # pyre-fixme[2]: Parameter must be annotated.
     x_quant_max,
+    # pyre-fixme[2]: Parameter must be annotated.
     x_q_dtype,
+    # pyre-fixme[2]: Parameter must be annotated.
     w_vals_int8_t,
+    # pyre-fixme[2]: Parameter must be annotated.
     w_scales,
+    # pyre-fixme[2]: Parameter must be annotated.
     w_vals_int8_t_sums_int64,
+    # pyre-fixme[2]: Parameter must be annotated.
     bias,
+    # pyre-fixme[2]: Parameter must be annotated.
     out_dtype=torch.float32,
 ):
     # like F.linear, but with int8 dynamic quantization of activation,
@@ -254,13 +279,21 @@ def quant_int8_dynamic_linear(
     return mm_out
 
 
+# pyre-fixme[3]: Return type must be annotated.
 def quant_int8_matmul(
+    # pyre-fixme[2]: Parameter must be annotated.
     x_vals_int8,
+    # pyre-fixme[2]: Parameter must be annotated.
     x_scale,
+    # pyre-fixme[2]: Parameter must be annotated.
     x_zp,
+    # pyre-fixme[2]: Parameter must be annotated.
     w_vals_int8_t,
+    # pyre-fixme[2]: Parameter must be annotated.
     w_vals_int8_t_sums_int64,
+    # pyre-fixme[2]: Parameter must be annotated.
     w_scales,
+    # pyre-fixme[2]: Parameter must be annotated.
     out_dtype=torch.float32,
 ):
     # Quantized matmul of int8 operands that accumulates to int32 and returns
@@ -315,11 +348,17 @@ def quant_int8_matmul(
     return y
 
 
+# pyre-fixme[3]: Return type must be annotated.
 def quant_int8_dynamic_per_token_linear(
+    # pyre-fixme[2]: Parameter must be annotated.
     x,
+    # pyre-fixme[2]: Parameter must be annotated.
     w_vals_int8_t,
+    # pyre-fixme[2]: Parameter must be annotated.
     w_scales,
+    # pyre-fixme[2]: Parameter must be annotated.
     bias,
+    # pyre-fixme[2]: Parameter must be annotated.
     out_dtype,
 ):
     # like F.linear, but with int8 dynamic quantization of activation,
@@ -333,11 +372,17 @@ def quant_int8_dynamic_per_token_linear(
     return mm_out
 
 
+# pyre-fixme[3]: Return type must be annotated.
 def quant_int8_per_token_matmul(
+    # pyre-fixme[2]: Parameter must be annotated.
     x_vals_int8,
+    # pyre-fixme[2]: Parameter must be annotated.
     x_scales,
+    # pyre-fixme[2]: Parameter must be annotated.
     w_vals_int8_t,
+    # pyre-fixme[2]: Parameter must be annotated.
     w_scales,
+    # pyre-fixme[2]: Parameter must be annotated.
     output_dtype=torch.float32,
 ):
     # Quantized matmul of int8 operands that accumulates to int32 and returns
@@ -391,6 +436,8 @@ def quant_int8_per_token_matmul(
     return y
 
 
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
 def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128):
     """ """
     if groupsize > w.shape[-1]:
@@ -412,6 +459,8 @@ def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128):
     ).reshape(w.shape[0], -1)
 
 
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
 def pack_tinygemm_scales_and_zeros(scales, zeros):
     assert scales.shape == zeros.shape
     assert scales.dtype == torch.bfloat16
@@ -429,13 +478,17 @@ def pack_tinygemm_scales_and_zeros(scales, zeros):
     )
 
 
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
 def unpack_tinygemm_scales_and_zeros(scales_and_zeros):
     assert len(scales_and_zeros.shape) == 3 and scales_and_zeros.shape[2] == 2
     assert scales_and_zeros.dtype == torch.float
     return torch.split(scales_and_zeros.transpose(0, 1), 1, 2)
 
 
+# pyre-fixme[3]: Return type must be annotated.
 def groupwise_affine_quantize_tensor_from_qparams(
+    # pyre-fixme[2]: Parameter must be annotated.
     w, scales, zeros, n_bit=4, groupsize=128
 ):
     assert groupsize > 1
@@ -466,7 +519,9 @@ def groupwise_affine_quantize_tensor_from_qparams(
     return w_int4x8
 
 
+# pyre-fixme[3]: Return type must be annotated.
 def groupwise_affine_dequantize_tensor_from_qparams(
+    # pyre-fixme[2]: Parameter must be annotated.
     w_int4x8, scales, zeros, n_bit=4, groupsize=128
 ):
     assert groupsize > 1
@@ -489,6 +544,8 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     return w_dq
 
 
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
 def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128):
     scales, zeros = get_groupwise_affine_qparams(w, n_bit, groupsize)
     w_int4x8 = groupwise_affine_quantize_tensor_from_qparams(
@@ -498,7 +555,9 @@ def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128):
     return w_int4x8, scales_and_zeros
 
 
+# pyre-fixme[3]: Return type must be annotated.
 def groupwise_affine_dequantize_tensor(
+    # pyre-fixme[2]: Parameter must be annotated.
     w_int4x8, scales_and_zeros, n_bit=4, groupsize=128
 ):
     scales, zeros = unpack_tinygemm_scales_and_zeros(scales_and_zeros)
@@ -635,6 +694,8 @@ def choose_qparams_per_token_asymmetric_meta(
     )
 
 
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
 def _per_token_quant_qparam_dim_check(input, scales, zero_points):
     num_tokens = math.prod(list(input.size())[:-1])
     assert (
@@ -652,6 +713,7 @@ quantized_decomposed_lib.define(
 
 
 @impl(quantized_decomposed_lib, "quantize_per_token", "CompositeExplicitAutograd")
+# pyre-fixme[3]: Return type must be annotated.
 def quantize_per_token(
     input: torch.Tensor,
     scales: torch.Tensor,
@@ -687,6 +749,7 @@ def quantize_per_token(
 
 
 @impl(quantized_decomposed_lib, "quantize_per_token", "Meta")
+# pyre-fixme[3]: Return type must be annotated.
 def quantize_per_token_meta(
     input: torch.Tensor,
     scales: torch.Tensor,
@@ -706,6 +769,7 @@ quantized_decomposed_lib.define(
 
 
 @impl(quantized_decomposed_lib, "dequantize_per_token", "CompositeExplicitAutograd")
+# pyre-fixme[3]: Return type must be annotated.
 def dequantize_per_token(
     input: torch.Tensor,
     scales: torch.Tensor,
@@ -739,6 +803,7 @@ def dequantize_per_token(
 
 
 @impl(quantized_decomposed_lib, "dequantize_per_token", "Meta")
+# pyre-fixme[3]: Return type must be annotated.
 def dequantize_per_token_meta(
     input: torch.Tensor,
     scales: torch.Tensor,
@@ -753,6 +818,8 @@ def dequantize_per_token_meta(
     return torch.empty_like(input, dtype=output_dtype)
 
 
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
 def get_group_qparams_symmetric(w, n_bit=4, groupsize=128, precision=torch.float32):
     # needed for GPTQ with padding
     if groupsize > w.shape[-1]:
@@ -782,6 +849,8 @@ def get_group_qparams_symmetric(w, n_bit=4, groupsize=128, precision=torch.float
     )
 
 
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
 def pack_scales_and_zeros(scales, zeros, precision=torch.float16):
     assert scales.shape == zeros.shape
     assert scales.dtype == precision
@@ -809,6 +878,7 @@ quantized_decomposed_lib.define(
 @impl(
     quantized_decomposed_lib, "quantize_per_channel_group", "CompositeExplicitAutograd"
 )
+# pyre-fixme[3]: Return type must be annotated.
 def quantize_per_channel_group(
     input: torch.Tensor,
     scales: torch.Tensor,
@@ -816,6 +886,7 @@ def quantize_per_channel_group(
     quant_min: int,
     quant_max: int,
     dtype: torch.dtype,
+    # pyre-fixme[2]: Parameter must be annotated.
     group_size=128,
 ):
     assert group_size > 1
@@ -846,6 +917,7 @@ def quantize_per_channel_group(
 
 
 @impl(quantized_decomposed_lib, "quantize_per_channel_group", "Meta")
+# pyre-fixme[3]: Return type must be annotated.
 def quantize_per_channel_group_meta(
     input: torch.Tensor,
     scales: torch.Tensor,
@@ -853,6 +925,7 @@ def quantize_per_channel_group_meta(
     quant_min: int,
     quant_max: int,
     dtype: torch.dtype,
+    # pyre-fixme[2]: Parameter must be annotated.
     group_size=128,
 ):
     """Groupwise quantization within each channel for an 2-d Tensor using the quantization parameters
@@ -883,7 +956,9 @@ def quantize_per_channel_group_meta(
     return torch.empty_like(input, dtype=dtype)
 
 
+# pyre-fixme[3]: Return type must be annotated.
 def group_quantize_tensor_symmetric(
+    # pyre-fixme[2]: Parameter must be annotated.
     w, n_bit=4, group_size=128, precision=torch.float32
 ):
     scales, zeros = get_group_qparams_symmetric(w, n_bit, group_size, precision)
@@ -910,6 +985,7 @@ quantized_decomposed_lib.define(
     "dequantize_per_channel_group",
     "CompositeExplicitAutograd",
 )
+# pyre-fixme[3]: Return type must be annotated.
 def dequantize_per_channel_group(
     w_int8: torch.Tensor,
     scales: torch.Tensor,
@@ -953,11 +1029,15 @@ def dequantize_per_channel_group(
     return w_dq
 
 
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
 def down_size(size):
     assert size[-1] % 2 == 0, f"{size} last dim not divisible by two"
     return (*size[:-1], size[-1] // 2)
 
 
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
 def up_size(size):
     return (*size[:-1], size[-1] * 2)
 
