@@ -59,6 +59,37 @@ def _to_copy(func, *args, **kwargs):
 def to_dtype(func, *args, **kwargs):
     return args[0][0].get_original_weight().to(args[0][1])
 
+@implements([torch.ops.aten.t.default])
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
+def t_default(func, *args, **kwargs):
+    a = args[0][0]
+    tensor_meta = SubclassTensorArgs(
+            a.size(),
+            a.stride(),
+            a.storage_offset(),
+            torch.bits2x4,
+            a.device,
+            a.requires_grad)
+    b = NF4Tensor(
+            tensor_meta,
+            a.block_size,
+            a.n_blocks,
+            a.scaler_block_size,
+            a.quantized_scalers,
+            a.quantization_factor,
+            a.scaler_mean,
+            a.quantized_data,
+            a.nf4,
+            not a.transpose)
+    return b
+
+@implements([torch.ops.aten.mm.default])
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
+def mm_default(func, *args, **kwargs):
+    return linear_nf4(args[0][0], args[0][1])
+
 
 @implements(
     [
@@ -139,6 +170,7 @@ class NF4Tensor(torch.Tensor):
         scaler_mean: torch.Tensor,
         quantized_data: torch.Tensor,
         nf4: torch.Tensor,
+        transpose=False,
     ):
         """Create a new NF4Tensor object
         Args:
@@ -160,7 +192,7 @@ class NF4Tensor(torch.Tensor):
             tensor_meta.original_shape,
             tensor_meta.original_strides,
             tensor_meta.storage_offset,
-            dtype=torch.uint4,
+            dtype=torch.bits2x4,
             device=tensor_meta.device,
             requires_grad=tensor_meta.requires_grad,
         )
@@ -178,6 +210,7 @@ class NF4Tensor(torch.Tensor):
         scaler_mean: torch.Tensor,
         quantized_data: torch.Tensor,
         nf4: torch.Tensor,
+        transpose=False,
     ):
         """Initialize the NF4Tensor class"""
         self.block_size = block_size
@@ -188,6 +221,7 @@ class NF4Tensor(torch.Tensor):
         self.scaler_mean = scaler_mean
         self.quantized_data = quantized_data
         self.nf4 = nf4
+        self.transpose = transpose
 
     @classmethod
     @torch.no_grad()
@@ -546,7 +580,7 @@ class LinearNF4(torch.autograd.Function):
     def forward(ctx, input: torch.Tensor, weight: NF4Tensor):
         """Save the quantized nf4 weight for backward pass"""
         ctx.nf4_weight = weight
-        return F.linear(input, weight.get_original_weight())
+        return F.linear(input, weight.to(input.dtype))
 
     @staticmethod
     # pyre-fixme[14]: `backward` overrides method defined in `_SingleLevelFunction`
