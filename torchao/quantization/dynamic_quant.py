@@ -29,6 +29,8 @@ class DynamicallyPerAxisQuantizedLinear(torch.nn.Linear):
     ) -> None:
         super().__init__(in_features, out_features, bias)
 
+    # pyre-fixme[14]: `forward` overrides method defined in `Linear` inconsistently.
+    # pyre-fixme[2]: Parameter must be annotated.
     def forward(self, X: torch.Tensor, *args, **kwargs) -> torch.Tensor:
         """
         Performs the forward pass of the quantized linear layer which consists
