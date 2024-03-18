@@ -176,6 +176,12 @@ class TestNF4Linear(TestCase):
             inpt_tensor_bfloat16 = inpt_tensor_nf4.to(torch.bfloat16)
             torch.testing.assert_allclose(inpt_tensor, inpt_tensor_bfloat16, atol=0.13, rtol=0.13)
 
+    def test_to_bfloat16(self):
+        inpt_tensor = torch.rand(128, dtype=torch.bfloat16)
+        inpt_tensor_nf4 = to_nf4(inpt_tensor, 32, 2)
+        assert type(inpt_tensor_nf4) != torch.Tensor
+        assert type(inpt_tensor_nf4.to(torch.bfloat16)) == torch.Tensor
+
 
 if __name__ == "__main__":
     unittest.main()
