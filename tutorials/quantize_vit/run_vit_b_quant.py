@@ -34,14 +34,6 @@ def benchmark_model(model, num_runs, input_tensor):
     torch.cuda.synchronize()
     return start_event.elapsed_time(end_event) / num_runs
 
-# warmup
-benchmark_model(model, 5, input_tensor)
-
-# benchmark
-print("elapsed_time: ", benchmark_model(model, 100, input_tensor), " milliseconds")
-
-# Create a trace
-
 def profiler_runner(path, fn, *args, **kwargs):
     with torch.profiler.profile(
             activities=[torch.profiler.ProfilerActivity.CPU,
@@ -51,4 +43,11 @@ def profiler_runner(path, fn, *args, **kwargs):
     prof.export_chrome_trace(path)
     return result
 
-profiler_runner("quant.json.gz", benchmark_model, model, 5, input_tensor)
+# Must run with no_grad when optimizing for inference
+with torch.no_grad():
+    # warmup
+    benchmark_model(model, 5, input_tensor)
+    # benchmark
+    print("elapsed_time: ", benchmark_model(model, 100, input_tensor), " milliseconds")
+    # Create a trace
+    profiler_runner("quant.json.gz", benchmark_model, model, 5, input_tensor)
