@@ -462,7 +462,7 @@ class NF4Tensor(torch.Tensor):
     # pyre-fixme[40]: Static method `dequantize` cannot override a non-static method
     #  defined in `torch._C.TensorBase`.
     def dequantize(value: torch.Tensor, nf4: torch.Tensor) -> torch.Tensor:
-        """Dequantize a nf4 value to float16 format"""
+        """Dequantize a nf4 value to bfloat16 format"""
         # return nf4.index_select(0, value)
         return nf4[value]
 
