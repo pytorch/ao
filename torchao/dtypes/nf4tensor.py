@@ -160,7 +160,7 @@ class NF4Tensor(torch.Tensor):
             tensor_meta.original_shape,
             tensor_meta.original_strides,
             tensor_meta.storage_offset,
-            dtype=tensor_meta.dtype,
+            dtype=torch.uint4,
             device=tensor_meta.device,
             requires_grad=tensor_meta.requires_grad,
         )
