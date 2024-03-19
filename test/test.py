@@ -897,6 +897,12 @@ class TestSubclass(unittest.TestCase):
     def test_aq_int8_weight_only_quant_subclass(self):
         for test_dtype in [torch.float32, torch.float16, torch.bfloat16]:
             self._test_lin_weight_subclass_impl(
+                AQInt8DynamicallyQuantizedLinearWeight.from_float, 35, test_dtype
+            )
+
+    def test_aq_int8_weight_only_quant_subclass(self):
+        for test_dtype in [torch.float32, torch.float16, torch.bfloat16]:
+            self._test_lin_weight_subclass_impl(
                 AQWeightOnlyQuantizedLinearWeight.from_float, 35, test_dtype
             )
 
