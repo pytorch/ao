@@ -49,6 +49,12 @@ int8_mm_kernel_configs = sum([
 #     (256, 128, 128, 3, 8),
 # ]
 
+def reasonable_config(config):
+    # Add filters here to cut down on the number of configs.
+    # Some of these must obviously be very inefficient analytically.
+    return True
+
+int8_mm_kernel_configs = list(filter(lambda c: reasonable_config(c), int8_mm_kernel_configs))
 int8_mm_kernel_configs = [triton.Config({'BLOCK_M': i, 'BLOCK_N': j, 'BLOCK_K': k, 'GROUP_M': 8}, num_stages=s, num_warps = w) for (i, j, k, s, w) in int8_mm_kernel_configs]
 
 AUTOTUNER_ENABLE = bool(int(os.getenv('TORCHAO_AUTOTUNER_ENABLE', 0)))
