@@ -9,6 +9,7 @@ from torchao.quantization import (
     change_linears_to_autoquantizable,
     change_autoquantizable_to_quantized,
 )
+from . import dtypes
 
 __all__ = [
     "apply_weight_only_int8_quant",
@@ -21,4 +22,5 @@ __all__ = [
     "autoquant",
     "change_linears_to_autoquantizable",
     "change_autoquantizable_to_quantized",
+    "dtypes"
 ]

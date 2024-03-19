@@ -3,13 +3,19 @@ import torch._prims_common as utils
 import torch.utils._pytree as pytree
 from torch.library import Library, impl
 
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
 def down_size(size):
     assert size[-1] % 2 == 0, f"{size} last dim not divisible by two"
     return (*size[:-1], size[-1] // 2)
 
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
 def up_size(size):
     return (*size[:-1], size[-1] * 2)
 
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
 def fill_defaults(args, n, defaults_tail):
     """
     __torch_dispatch__ doesn't guarantee the number of arguments you are
@@ -36,6 +42,7 @@ def fill_defaults(args, n, defaults_tail):
 
 # from
 # https://github.com/drisspg/transformer_nuggets/blob/9ad3a7fc552a954eb702ade0e276b8d8e09c3db6/transformer_nuggets/quant/qlora.py#L233
+# pyre-fixme[2]: Parameter must be annotated.
 def unpack_uint4(uint8_data) -> torch.Tensor:
     """Get the original weight from the normalized float weight format"""
     # since we are using uint8 we will decode 2 entries per byte
@@ -45,6 +52,7 @@ def unpack_uint4(uint8_data) -> torch.Tensor:
     second_elements = (uint8_data & 0b1111).to(torch.uint8)
     return torch.stack([first_elements, second_elements], dim=-1).view(up_size(shape))
 
+# pyre-fixme[2]: Parameter must be annotated.
 def pack_uint4(uint8_data) -> torch.Tensor:
     # converting to uint8 for operations
     shape = uint8_data.shape
@@ -76,38 +84,56 @@ def dequantize_per_tensor_uint4(
 
 class UInt4Tensor(torch.Tensor):
     @staticmethod
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def __new__(cls, elem, **kwargs):
         assert elem.dtype is torch.uint8
         assert not kwargs.get("requires_grad", False)
         kwargs["requires_grad"] = False
+        # pyre-fixme[16]: `Tensor` has no attribute `_make_wrapper_subclass`.
+        # pyre-fixme[16]: Module `torch` has no attribute `uint4`.
         return torch.Tensor._make_wrapper_subclass(cls, up_size(elem.shape), dtype=torch.uint4, **kwargs)
 
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def __init__(self, elem, **kwargs):
+        # pyre-fixme[4]: Attribute must be annotated.
         self.elem = elem
 
     @classmethod
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def from_unpacked(cls, unpacked):
         return UInt4Tensor(pack_uint4(unpacked))
 
+    # pyre-fixme[3]: Return type must be annotated.
     def tolist(self):
         return self.to(torch.uint8).tolist()
 
+    # pyre-fixme[3]: Return type must be annotated.
     def __tensor_flatten__(self):
         return ["elem"], None
 
     @staticmethod
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def __tensor_unflatten__(flattened, meta, outer_size, outer_stride):
         assert meta is None
         elem = flattened["elem"]
         return UInt4Tensor(elem)
 
+    # pyre-fixme[3]: Return type must be annotated.
     def __hash__(self):
         return hash(self.elem)
 
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def __eq__(self, other):
         return torch.equal(self.elem, other.elem)
 
     @classmethod
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
         if func is torch.ops.aten.view.default:
             self, size = args
@@ -197,9 +223,12 @@ class UInt4Tensor(torch.Tensor):
 
         raise NotImplementedError(f"{func}")
 
+    # pyre-fixme[4]: Attribute must be annotated.
     __torch_function__ = torch._C._disabled_torch_function_impl
 
 
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
 def _dynamically_quantize_per_channel_int4(x, quant_min, quant_max, target_dtype):
     # assumes symmetric quantization
     # assumes axis == 0
@@ -232,6 +261,7 @@ def _dynamically_quantize_per_channel_int4(x, quant_min, quant_max, target_dtype
     x_zp = x_round + zero_point
     x_zp = x_zp.transpose(0, 1)
     quant = torch.clamp(x_zp, quant_min, quant_max)
+    # pyre-fixme[16]: Module `torch` has no attribute `uint4`.
     if target_dtype == torch.uint4:
         # TODO: simplify (maybe implement to)
         quant = PerChannelSymmetricWeightUInt4Tensor.from_unpacked(quant.to(torch.uint8), scale)
@@ -242,18 +272,26 @@ def _dynamically_quantize_per_channel_int4(x, quant_min, quant_max, target_dtype
 
 class PerChannelSymmetricWeightUInt4Tensor(UInt4Tensor):
     @staticmethod
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def __new__(cls, elem, scales, **kwargs):
         return super().__new__(cls, elem, **kwargs)
 
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def __init__(self, elem, scales, **kwargs):
         super().__init__(elem, **kwargs)
+        # pyre-fixme[4]: Attribute must be annotated.
         self.scales = scales
 
 
+    # pyre-fixme[3]: Return type must be annotated.
     def __tensor_flatten__(self):
         return ["elem", "scales"], None
 
     @staticmethod
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def __tensor_unflatten__(flattened, meta, outer_size, outer_stride):
         assert meta is None
         elem = flattened["elem"]
@@ -261,10 +299,16 @@ class PerChannelSymmetricWeightUInt4Tensor(UInt4Tensor):
         return PerChannelSymmetricWeightUInt4Tensor(elem, scales)
 
     @classmethod
+    # pyre-fixme[14]: `from_unpacked` overrides method defined in `UInt4Tensor`
+    #  inconsistently.
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def from_unpacked(cls, unpacked, scales):
         return cls(pack_uint4(unpacked), scales)
 
     @classmethod
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
         if func is torch.ops.aten.addmm.default:
             bias, x, weight = args
@@ -286,8 +330,11 @@ class PerChannelSymmetricWeightUInt4Tensor(UInt4Tensor):
         return super().__torch_dispatch__(func, types, args, kwargs)
 
     @classmethod
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def from_float(cls, w_fp32):
         w_int4, scales, _zp = _dynamically_quantize_per_channel_int4(
+            # pyre-fixme[16]: Module `torch` has no attribute `uint4`.
             w_fp32, 0, 15, torch.uint4
         )
         w_int4 = w_int4.to(device=w_fp32.device)

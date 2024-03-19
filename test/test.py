@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 from torch._inductor.utils import run_and_get_code
 from torch._dynamo import config
+import torchao
 from torch.ao.quantization import MinMaxObserver, QConfigMapping
 
 from torchao.quantization.dynamic_quant import (
@@ -24,7 +25,6 @@ from torchao.quantization.quant_api import (
     change_linear_weights_to_int8_woqtensors,
     change_linear_weights_to_int4_woqtensors,
     _replace_with_custom_fn_if_matches_filter,
-    do_autoquant
 )
 from torchao.quantization.quant_primitives import (
     dequantize_per_channel,
@@ -1234,7 +1234,7 @@ class SmoothquantIntegrationTest(unittest.TestCase):
         self.assertTrue(sqnr_sq >= 8.0)
 
 class TestAutoQuant(unittest.TestCase):
-    def test_autoquant(self):
+    def test_autoquant_one_input(self):
         torch._inductor.config.epilogue_fusion = False
         torch._inductor.config.use_mixed_mm = True
         torch._inductor.config.force_fuse_int_mm_with_mul = True
@@ -1257,10 +1257,27 @@ class TestAutoQuant(unittest.TestCase):
                 torch.nn.ReLU(),
             ).to("cuda").to(torch.bfloat16)
             out = model(example_input)
-            do_autoquant(model, example_input)
+            torchao.autoquant(model, example_input)
             out2 = model(example_input)
             sqnr = SQNR(out, out2)
             self.assertTrue(sqnr >= 30)
+
+    def test_autoquant_multi_input(self):
+        m1, m2, k, n = 1, 8, 1024, 1024
+        model = torch.nn.Sequential(
+            torch.nn.ReLU(),
+            torch.nn.Linear(k,n),
+            torch.nn.ReLU(),
+        ).cuda().to(torch.bfloat16)
+        example_input = torch.randn(m1, k, device="cuda", dtype=torch.bfloat16)
+        example_input2 = torch.randn(m2, k, device="cuda", dtype=torch.bfloat16)
+        torchao.change_linears_to_autoquantizable(model)
+        out=model(example_input)
+        model(example_input2)
+        torchao.change_autoquantizable_to_quantized(model)
+        out2 = model(example_input)
+        sqnr = SQNR(out, out2)
+        self.assertTrue(sqnr >= 30)
 
 if __name__ == "__main__":
     unittest.main()
