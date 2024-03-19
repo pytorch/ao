@@ -25,7 +25,7 @@ __all__ = [
     "dynamically_quantize_per_channel",
     "dequantize_per_tensor",
     "dequantize_per_channel",
-    "do_autoquant",
+    "autoquant",
     "change_linears_to_autoquantizable",
     "change_autoquantizable_to_quantized",
     "quant_int8_dynamic_linear",

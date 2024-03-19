@@ -1,6 +1,4 @@
 import torch
-import os
-from subprocess import check_output
 from .subclass import ( # noqa
     Int8DynamicallyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
@@ -79,26 +77,56 @@ class AutoQuantizableLinearWeight(torch.Tensor):
             # default back to non-quantized weight if not seen
             self = AQFloatLinearWeight.from_float(self.weight)
             return self
+
+
+        # only want to do shape+final print a single time if multiple layers
+        # see/have same shapes so we gate on check_cache being empty for
+        # at least one of the class/shape combinations.
+        do_final_print = False
+        print_once = True
+
+        def count_shapes(self, do_print=True):
+            differe_shape_count=0
+            for shapes_and_dtype, times_seen in self.logged_data.items():
+                differe_shape_count += 1
+                if do_print:
+                    act_shape, weight_shape, bias_shape, dtype = shapes_and_dtype
+                    print(f"activation_shapes: {act_shape}, times_seen: {times_seen}")
+            if do_print:
+                print(f"weight_shape: {weight_shape}, dtype: {dtype}, bias_shape: {bias_shape}")
+            return differe_shape_count
+
+        # check each class
         best_time = torch.inf
         best_cls = None
-        do_print=False
-        # check each class
         for q_cls in self.qtensor_class_list:
             # for each logged shape+dtype, benchmark
-            cls_res=0
+            cur_time=0
+            shape_count = count_shapes(self, do_print=False)
             for shapes_and_dtype, times_seen in self.logged_data.items():
                 if check_cache(q_cls, shapes_and_dtype) is None:
-                    do_print=True
-                    self.tune_autoquant(q_cls, shapes_and_dtype, best_time)
+                    # only do final print if we have to autotune at least one cls/shape pair
+                    do_final_print=True
+
+                    # only print shapes once
+                    if print_once == True:
+                        print_once = False
+                        count_shapes(self, do_print=True)
+
+                    time_for_best_shape = check_cache(best_cls, shapes_and_dtype)
+                    time_for_best_shape = torch.inf if time_for_best_shape is None else time_for_best_shape
+                    self.tune_autoquant(q_cls, shapes_and_dtype, time_for_best_shape)
                     torch._dynamo.reset()
-                cls_res += check_cache(q_cls, shapes_and_dtype) * times_seen
-            if best_time >= cls_res:
-                best_time = cls_res
+                cur_time += check_cache(q_cls, shapes_and_dtype) * times_seen
+            if shape_count is not None and shape_count > 1:
+                print(f">total_time: {cur_time:0.3f}ms for {q_cls}, prev_best: {best_time:0.3f}ms")
+            if best_time >= cur_time:
+                best_time = cur_time
                 best_cls = q_cls
         # only print if this is the first time seeing some cls+shape combo,
         # otherwise we will print the same thing for every layer.
-        if do_print:
-            print(f"for {self.logged_data}, best_cls={best_cls}")
+        if do_final_print:
+            print(f"best_cls={best_cls}\n")
         # TODO handle random cls args/kwargs? or should they be curried?
         self = best_cls.from_float(self.weight)
         return self
@@ -145,6 +173,9 @@ class AutoQuantizableLinearWeight(torch.Tensor):
             return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.detach))
 
 def do_autoquant_bench(op, *args, **kwargs):
+    """
+    runs benchmark op(*args, **kwargs) avoiding torch.compile overhead
+    """
     rep = kwargs.pop("rep", 100)
     warmup = kwargs.pop("warmup", 25)
     with torch.no_grad():
@@ -152,14 +183,14 @@ def do_autoquant_bench(op, *args, **kwargs):
         stream = torch.cuda.Stream()
         stream.wait_stream(torch.cuda.current_stream())
         with torch.cuda.stream(stream):
-            op(*args)
+            op(*args, **kwargs)
         stream.synchronize()
         torch.cuda.current_stream().wait_stream(stream)
         torch.cuda.synchronize()
 
         graph = torch.cuda.CUDAGraph()
         with torch.cuda.graph(graph, stream=stream):
-            op(*args)
+            op(*args, **kwargs)
         res = do_bench(lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median")
     return res
 
@@ -180,11 +211,11 @@ class AQMixin():
         else:
             func = lambda a,b,c: F.relu(cls._quantized_op(F.relu(a), b, c))
             q_c_op = torch.compile(func, mode="max-autotune-no-cudagraphs")
-        res = do_autoquant_bench(q_c_op, act_mat, w_qtensor, bias)
+        res = do_autoquant_bench(q_c_op, act_mat, w_qtensor, bias, warmup=25, rep=100)
         if res < best_time*1.1:
             res2 = do_autoquant_bench(q_c_op, act_mat, w_qtensor, bias, warmup=25, rep=900)
             res=(res2*.9+res*.1)
-        print(f"time: {res:0.3f}ms for {cls}, to_beat: {best_time:0.3f}ms ")
+        print(f">>time: {res:0.3f}ms for {cls}, to_beat: {best_time:0.3f}ms ")
         return res
 
 class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, Int8DynamicallyQuantizedLinearWeight):
@@ -196,7 +227,7 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, Int8DynamicallyQuantizedLi
         if not _is_interpolate_mode(mode):
             return super()._autoquant_test(act_mat, weight, bias, best_time, mode)
 
-        # SAM best is between .8 to 1, SDXL also performs best in this range
+        # SAM best is between .8 and 1, SDXL also performs best in this range
         INTERPOLATION_CONSTANT = mode[1]
         w_qtensor = cls.from_float(weight)
         x_vals_int8, x_scales = quantize_activation_per_token_absmax(
@@ -209,7 +240,7 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, Int8DynamicallyQuantizedLi
         q_c_matmul=torch.compile(quantized_matmul, mode="max-autotune-no-cudagraphs")
         with torch.no_grad():
             res_matmul = do_autoquant_bench(q_c_matmul, x_vals_int8, x_scales, w_qtensor.int_data)
-        print(f"time: {res_matmul:0.3f}ms for {cls} matmul, to_beat: {best_time:0.3f}ms")
+        print(f">>time: {res_matmul:0.3f}ms for {cls} matmul, to_beat: {best_time:0.3f}ms")
 
         # if the (much faster) matmul kernel is already beat, don't bother benchmarking full op
         if res_matmul>=best_time:
@@ -220,7 +251,7 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, Int8DynamicallyQuantizedLi
         res = super()._autoquant_test(act_mat, weight, bias, to_beat)
         max_int_const_win = (best_time-res_matmul)/(res-res_matmul)
         res_f = INTERPOLATION_CONSTANT*res+(1-INTERPOLATION_CONSTANT)*res_matmul
-        print(f"time: {res_f:0.3f}ms for {cls} interpolated, breakeven constant: {max_int_const_win:0.2f}")
+        print(f">>time: {res_f:0.3f}ms for {cls} interpolated, breakeven constant: {max_int_const_win:0.2f}")
         return res_f
 
 class AQWeightOnlyQuantizedLinearWeight(Int8WeightOnlyQuantizedLinearWeight, AQMixin):
@@ -252,6 +283,10 @@ class AQWeightOnlyQuantizedLinearWeight2(Int8WeightOnlyQuantizedLinearWeight, AQ
         return super()._autoquant_test(act_mat, *args)
 
 class AQWeightOnlyQuantizedLinearWeight3(Int8WeightOnlyQuantizedLinearWeight, AQMixin):
+    """
+    AutoQuantizable version of Int8WeightOnlyQuantizedLinearWeight that
+    uses a different kernel
+    """
     def _quantized_op(act_mat, w_qtensor, bias):
         orig_shape = act_mat.shape
         y = torch.mm(act_mat.reshape(-1, orig_shape[-1]), w_qtensor.int_data*w_qtensor.q_scales)
@@ -265,7 +300,8 @@ class AQFloatLinearWeight(torch.Tensor, AQMixin):
     A class to be used in concert with AutoQuantizableLinearWeight to provide a
     default/non-quantized option. Only implements the bare minimum needed to work with the
     AutoQuantizableLinearWeight class using the same interfaces that would normally be
-    used by QTensor subclasses but for a default linear op instead.
+    used by QTensor subclasses but for a default linear op instead. Result of from_float
+    is not a tensor subclass, but rather the float tensor.
     """
     def __init__(self):
         super().__init__()
@@ -284,5 +320,5 @@ DEFAULT_CLASS_LIST = [
     AQWeightOnlyQuantizedLinearWeight,
     AQWeightOnlyQuantizedLinearWeight2,
     # AQWeightOnlyQuantizedLinearWeight3,
-    # 3rd version gets picked in situations where it is slower for the interpolation mode
+    # TODO this gets picked in places where it makes perf worse, why?
 ]

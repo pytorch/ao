@@ -43,6 +43,32 @@ The following apis use quantized [tensor subclasses](https://pytorch.org/docs/st
 
 This tensor subclass method of quantization is preferred over older module swap based methods because it doesn't modify the graph and is generally more composable and flexible.
 
+### Autoquantization
+
+The `autoquant` api can be used to quickly and accurately quantize your model. When used as in the example below, the api first identifies the shapes
+of the activations that the different linear layers see, it then benchmarks these shapes across different types of quantized and non-quantized layers in order to pick the fastest one, attempting to take into account fusions where possible. Finally once the best class is found for each layer, it swaps the linear. Currently this api chooses between no quantization, int8 dynamic quantization and int8 weight only quantization for each layer.
+
+```
+import torch
+import torchao
+
+# inductor settings which improve torch.compile runtime for quantized modules
+torch._inductor.config.force_fuse_int_mm_with_mul
+torch._inductor.config.use_mixed_mm
+
+# some user model and example input
+model = torch.nn.Sequential(torch.nn.Linear(32, 64)).cuda().to(torch.bfloat16)
+input = torch.randn(32,32, dtype=torch.bfloat16, device='cuda')
+
+# perform autoquantization
+torchao.autoquant(model, (input))
+
+# compile the model to improve performance
+model = torch.compile(model, mode='max-autotune')
+model(input)
+```
+
+
 ### A8W8 Dynamic Quantization
 
 The `change_linear_weights_to_int8_dqtensors` function converts the linear weights in a model to a quantized tensor subclass `Int8DynamicallyQuantizedLinearWeight`. In practice this
@@ -51,19 +77,14 @@ converts the floating point linear matmul of the original linear op to a dynamic
 Example
 
 ```
-import torch
-from torchao.quantization import quant_api
-
 # some user model and example input
-model = torch.nn.Sequential(torch.nn.Linear(32, 64)).cuda().to(torch.bfloat16)
-input = torch.randn(32,32, dtype=torch.bfloat16, device='cuda')
+...
 
 # convert linear modules to quantized linear modules
-quant_api.change_linear_weights_to_int8_dqtensors(model)
+torchao.change_linear_weights_to_int8_dqtensors(model)
 
 # compile the model to improve performance
-model = torch.compile(model, mode='max-autotune')
-model(input)
+...
 ```
 
 This technique works best when the torch._inductor.config.force_fuse_int_mm_with_mul option is enabled. This allows fusion of the int8*int8 -> int32 matmul and subsequent mul op, thereby avoiding materialization of the int32 intermediary tensor.
@@ -81,7 +102,7 @@ Example
 ...
 
 # convert linear modules to quantized linear modules
-quant_api.change_linear_weights_to_int8_woqtensors(model)
+torchao.change_linear_weights_to_int8_woqtensors(model)
 
 # compile the model to improve performance
 ...
@@ -102,7 +123,7 @@ Example
 ...
 
 # convert linear modules to quantized linear modules
-quant_api.change_linear_weights_to_int4_woqtensors(model)
+torchao.change_linear_weights_to_int4_woqtensors(model)
 
 # compile the model to improve performance
 ...

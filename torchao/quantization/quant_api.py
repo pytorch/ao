@@ -37,7 +37,7 @@ __all__ = [
     "change_linear_weights_to_int8_woqtensors",
     "change_linear_weights_to_int4_woqtensors",
     "swap_conv2d_1x1_to_linear",
-    "do_autoquant",
+    "autoquant",
     "change_linears_to_autoquantizable",
     "change_autoquantizable_to_quantized",
 ]
@@ -182,6 +182,9 @@ def change_autoquantizable_to_quantized(model, **kwargs):
     on benchmark results. Expectation is that these modules are
     torch.compiled afterwards.
     """
+    hold =  torch._dynamo.config.automatic_dynamic_shapes
+    torch._dynamo.config.automatic_dynamic_shapes = False
+
     filter_fn = kwargs.pop(
         "filter_fn",
         lambda mod, *args:
@@ -195,24 +198,22 @@ def change_autoquantizable_to_quantized(model, **kwargs):
         ),
         filter_fn,
     )
+    torch._dynamo.config.automatic_dynamic_shapes = hold
+    torch._dynamo.reset()
 
 @torch.no_grad()
-def do_autoquant(model, example_input, qtensor_class_list=DEFAULT_CLASS_LIST, filter_fn=_is_linear, mode=["relu",None], **kwargs):
+def autoquant(model, example_input, qtensor_class_list=DEFAULT_CLASS_LIST, filter_fn=_is_linear, mode=["relu",None], **kwargs):
     """
     Runs the model with example_input to record shapes and then compares benchmark performance of the seen shape
     across the qtensor subclasses in qtensor_class_list. Determines best performing qtensor subclass for each layer
     and applies that type of quantization.
     """
-    hold =  torch._dynamo.config.automatic_dynamic_shapes
-    torch._dynamo.config.automatic_dynamic_shapes = False
     change_linears_to_autoquantizable(model, filter_fn=filter_fn, qtensor_class_list=qtensor_class_list, mode=mode, **kwargs)
     if not isinstance(example_input, (tuple, list)):
         assert isinstance(example_input, torch.Tensor)
         example_input = [example_input]
     model(*example_input)
     change_autoquantizable_to_quantized(model, **kwargs)
-    torch._dynamo.config.automatic_dynamic_shapes = hold
-    torch._dynamo.reset()
     return model
 
 def swap_conv2d_1x1_to_linear(model, filter_fn=None):
