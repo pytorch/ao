@@ -17,13 +17,20 @@ class WeightOnlyInt8QuantLinear(torch.nn.Linear):
     This class is a replacement for `torch.nn.Linear`. It implements a
     mixed dtype matmul using int8 symmetric per-channel weight quantization
     """
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def __init__(self, *args, **kwargs):
         w_int8 = kwargs.pop("w_int8")
         scales = kwargs.pop("scales")
         super().__init__(*args, **kwargs)
+        # pyre-fixme[4]: Attribute must be annotated.
         self.w_int8 = w_int8
+        # pyre-fixme[4]: Attribute must be annotated.
         self.scales = scales
 
+    # pyre-fixme[14]: `forward` overrides method defined in `Linear` inconsistently.
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def forward(self, x, *args, **kwargs):
         """
         Performs the forward pass of the quantized linear layer which consists
@@ -47,6 +54,8 @@ class WeightOnlyInt8QuantLinear(torch.nn.Linear):
         return y
 
     @classmethod
+    # pyre-fixme[3]: Return type must be annotated.
+    # pyre-fixme[2]: Parameter must be annotated.
     def from_float(cls, mod):
         """
         Converts a `mod` of class `torch.nn.Linear` to the
