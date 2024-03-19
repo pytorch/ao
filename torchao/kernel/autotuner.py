@@ -1,15 +1,26 @@
-import torch
-import pathlib
-import os
-import triton
-import pickle
 import logging
+import os
+import pathlib
+import pickle
 
-AUTOTUNER_DATA_PATH = os.getenv('TORCHAO_AUTOTUNER_DATA_PATH', None)
+import torch
+import triton
 
-def do_bench_triton(fn, warmup=25, rep=100, grad_to_none=None, quantiles=None, fast_flush=True, return_mode="mean"):
+AUTOTUNER_DATA_PATH = os.getenv("TORCHAO_AUTOTUNER_DATA_PATH", None)
+
+
+def do_bench_triton(
+    fn,
+    warmup=25,
+    rep=100,
+    grad_to_none=None,
+    quantiles=None,
+    fast_flush=True,
+    return_mode="mean",
+):
     assert return_mode in ["min", "max", "mean", "median"]
     import torch
+
     """
     Benchmark the runtime of the provided function. By default, return the median runtime of :code:`fn` along with
     the 20-th and 80-th performance percentile.
@@ -35,9 +46,9 @@ def do_bench_triton(fn, warmup=25, rep=100, grad_to_none=None, quantiles=None, f
     # before each kernel call to make sure that the L2
     # doesn't contain any input data before the run
     if fast_flush:
-        cache = torch.empty(int(256e6 // 4), dtype=torch.int, device='cuda')
+        cache = torch.empty(int(256e6 // 4), dtype=torch.int, device="cuda")
     else:
-        cache = torch.empty(int(256e6), dtype=torch.int8, device='cuda')
+        cache = torch.empty(int(256e6), dtype=torch.int8, device="cuda")
 
     # Estimate the runtime of the function
     start_event = torch.cuda.Event(enable_timing=True)
@@ -74,7 +85,9 @@ def do_bench_triton(fn, warmup=25, rep=100, grad_to_none=None, quantiles=None, f
         end_event[i].record()
     # Record clocks
     torch.cuda.synchronize()
-    times = torch.tensor([s.elapsed_time(e) for s, e in zip(start_event, end_event)], dtype=torch.float)
+    times = torch.tensor(
+        [s.elapsed_time(e) for s, e in zip(start_event, end_event)], dtype=torch.float
+    )
     if quantiles is not None:
         ret = torch.quantile(times, torch.tensor(quantiles, dtype=torch.float)).tolist()
         if len(ret) == 1:
@@ -82,8 +95,8 @@ def do_bench_triton(fn, warmup=25, rep=100, grad_to_none=None, quantiles=None, f
         return ret
     return getattr(torch, return_mode)(times).item()
 
-BEST_CONFIGS = None
 
+BEST_CONFIGS = None
 
 
 def _save_best_configs(best_configs):
@@ -92,9 +105,12 @@ def _save_best_configs(best_configs):
         saved_configs = pathlib.Path.cwd() / "data.pkl"
     else:
         saved_configs = pathlib.Path(AUTOTUNER_DATA_PATH)
-    logging.info(f"Trying to store configs for {device_name} locally under {saved_configs}")
-    with open(saved_configs, 'wb') as f:
+    logging.info(
+        f"Trying to store configs for {device_name} locally under {saved_configs}"
+    )
+    with open(saved_configs, "wb") as f:
         import pickle
+
         logging.info(f"Saving best configs to file {saved_configs}")
         pickle.dump(best_configs, f)
 
@@ -102,17 +118,19 @@ def _save_best_configs(best_configs):
 def _load_best_configs():
     device_name = torch.cuda.get_device_name()
     import importlib
+
     if AUTOTUNER_DATA_PATH is None:
         saved_configs = importlib.resources.files("torchao")
         saved_configs = saved_configs / "kernel" / "configs" / "data_a100.pkl"
-        if not device_name.startswith('NVIDIA A100'):
+        if not device_name.startswith("NVIDIA A100"):
             logging.info("Warning! Loaded configurations are optimized for A100!")
     else:
         saved_configs = pathlib.Path(AUTOTUNER_DATA_PATH)
     logging.info(f"Trying to load configs for {device_name} from {saved_configs}")
     if saved_configs.is_file():
         import pickle
-        with open(saved_configs, 'rb') as f:
+
+        with open(saved_configs, "rb") as f:
             logging.info(f"Loading best configs from file {saved_configs}")
             return pickle.load(f)
 
@@ -132,7 +150,7 @@ def do_bench_basic(fn, rep):
     fn()
     torch.cuda.synchronize()
     # Fast flush
-    cache = torch.empty(int(256e6 // 4), dtype=torch.int, device='cuda')
+    cache = torch.empty(int(256e6 // 4), dtype=torch.int, device="cuda")
     cache.zero_()
     start_event = torch.cuda.Event(enable_timing=True)
     end_event = torch.cuda.Event(enable_timing=True)
@@ -146,7 +164,7 @@ def do_bench_basic(fn, rep):
 
 
 def do_bench(fn, args, config, best_time=None):
-    #TODO: CUDA graph compatible version
+    # TODO: CUDA graph compatible version
     def wrapped_fn():
         return fn(*(args + [config]))
 
@@ -160,12 +178,12 @@ def do_bench(fn, args, config, best_time=None):
     except triton.runtime.OutOfResources:
         time = None
     if time is None or (best_time is not None and time > best_time * 100):
-        return float('inf')
+        return float("inf")
 
     # Run it five times and skip if it is 10x slower
     time = do_bench_basic(wrapped_fn, 5)
     if best_time is not None and time > best_time * 10:
-        return float('inf')
+        return float("inf")
 
     # Do a regular bench
     return do_bench_triton(wrapped_fn)
@@ -205,7 +223,9 @@ def get_best_config_fn(fn, args, configs):
     # used to filter bad configs sooner.
     for config in configs[1:]:
         time = do_bench(fn, args, config, best_time)
-        logging.info(" ".join([f"{i:4d}/{len(configs):4d}", f"{time:6.3f}", str(config)]))
+        logging.info(
+            " ".join([f"{i:4d}/{len(configs):4d}", f"{time:6.3f}", str(config)])
+        )
         if time < best_time:
             best_time = time
             best_config = config

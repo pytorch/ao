@@ -15,7 +15,7 @@ from torch.ao.quantization.fx._decomposed import (
     quantized_decomposed_lib,
 )
 from torch.library import impl
-from typing import Tuple
+
 from torchao.kernel.intmm_triton import int_scaled_matmul
 
 __all__ = [
@@ -65,8 +65,9 @@ def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
 
     # error checking for cublas path
     assert (
-        mat2.device == input.device
-    # pyre-fixme[16]: Callable `input` has no attribute `device`.
+        mat2.device
+        == input.device
+        # pyre-fixme[16]: Callable `input` has no attribute `device`.
     ), f"need both tensors to be on the same device but got {mat2.device} and {input.device}"
     device_cpu = "cpu" in [mat2.device.type, input.device.type]
     # with input.shape = [i,j] and mat2.shape = [j,k]
@@ -489,7 +490,11 @@ def unpack_tinygemm_scales_and_zeros(scales_and_zeros):
 # pyre-fixme[3]: Return type must be annotated.
 def groupwise_affine_quantize_tensor_from_qparams(
     # pyre-fixme[2]: Parameter must be annotated.
-    w, scales, zeros, n_bit=4, groupsize=128
+    w,
+    scales,
+    zeros,
+    n_bit=4,
+    groupsize=128,
 ):
     assert groupsize > 1
     # needed for GPTQ single column quantize
@@ -522,7 +527,11 @@ def groupwise_affine_quantize_tensor_from_qparams(
 # pyre-fixme[3]: Return type must be annotated.
 def groupwise_affine_dequantize_tensor_from_qparams(
     # pyre-fixme[2]: Parameter must be annotated.
-    w_int4x8, scales, zeros, n_bit=4, groupsize=128
+    w_int4x8,
+    scales,
+    zeros,
+    n_bit=4,
+    groupsize=128,
 ):
     assert groupsize > 1
     # needed for GPTQ single column dequantize
@@ -558,7 +567,10 @@ def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128):
 # pyre-fixme[3]: Return type must be annotated.
 def groupwise_affine_dequantize_tensor(
     # pyre-fixme[2]: Parameter must be annotated.
-    w_int4x8, scales_and_zeros, n_bit=4, groupsize=128
+    w_int4x8,
+    scales_and_zeros,
+    n_bit=4,
+    groupsize=128,
 ):
     scales, zeros = unpack_tinygemm_scales_and_zeros(scales_and_zeros)
     return groupwise_affine_dequantize_tensor_from_qparams(
@@ -959,7 +971,10 @@ def quantize_per_channel_group_meta(
 # pyre-fixme[3]: Return type must be annotated.
 def group_quantize_tensor_symmetric(
     # pyre-fixme[2]: Parameter must be annotated.
-    w, n_bit=4, group_size=128, precision=torch.float32
+    w,
+    n_bit=4,
+    group_size=128,
+    precision=torch.float32,
 ):
     scales, zeros = get_group_qparams_symmetric(w, n_bit, group_size, precision)
     n_bit = 4
@@ -1074,7 +1089,9 @@ def per_token_dynamic_quant(input: torch.Tensor) -> torch.Tensor:
     (
         scales,
         zero_points,
-    ) = torch.ops.quantized_decomposed.choose_qparams_per_token_asymmetric(input, torch.int8)
+    ) = torch.ops.quantized_decomposed.choose_qparams_per_token_asymmetric(
+        input, torch.int8
+    )
 
     # TODO: get these from torch.int8
     quant_min = -128

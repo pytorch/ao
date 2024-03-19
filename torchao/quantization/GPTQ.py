@@ -8,6 +8,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
 from typing import Optional
 
 import torch
@@ -15,7 +16,7 @@ import torch
 import torch.fx as fx
 import torch.nn as nn
 import torch.nn.functional as F
-import logging
+
 # from model import Transformer  # pyre-ignore[21]
 from torch.utils._pytree import tree_flatten, tree_unflatten
 
@@ -64,6 +65,7 @@ if lm_eval_available:
 else:
     logging.info("lm_eval is not installed, GPTQ may not be usable")
 
+
 # pyre-fixme[3]: Return type must be annotated.
 def setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
     model: torch.nn.Module,
@@ -105,7 +107,9 @@ def setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
 
     return seq, input_pos, max_seq_length
 
+
 if lm_eval_available:
+
     class GPTFastEvalWrapper(eval_wrapper):  # pyre-ignore[11]
         """
         A wrapper class for GPTFast, providing integration with the lm-evaluation-harness library.
@@ -155,7 +159,9 @@ if lm_eval_available:
         # pyre-fixme[3]: Return type must be annotated.
         # pyre-fixme[2]: Parameter must be annotated.
         def tok_encode(self, string: str, **kwargs):
-            encoded = encode_tokens(self._tokenizer, string, bos=True, device=self._device)
+            encoded = encode_tokens(
+                self._tokenizer, string, bos=True, device=self._device
+            )
             # encoded is a pytorch tensor, but some internal logic in the
             # eval harness expects it to be a list instead
             # TODO: verify this for multi-batch as well
@@ -192,7 +198,6 @@ if lm_eval_available:
         # pyre-fixme[2]: Parameter must be annotated.
         def _model_generate(self, context, max_length, eos_token_id):
             raise Exception("unimplemented")
-
 
     class InputRecorder(GPTFastEvalWrapper):
         """
@@ -342,7 +347,12 @@ class GenericGPTQRunner(fx.Interpreter):
     # pyre-fixme[3]: Return type must be annotated.
     def __init__(
         # pyre-fixme[2]: Parameter must be annotated.
-        self, model, inputs: MultiInput, blocksize=128, percdamp=0.01, groupsize=128
+        self,
+        model,
+        inputs: MultiInput,
+        blocksize=128,
+        percdamp=0.01,
+        groupsize=128,
     ):
         # pyre-fixme[4]: Attribute must be annotated.
         self.id_to_name = {
@@ -416,7 +426,8 @@ class GenericGPTQRunner(fx.Interpreter):
     def run(self):
         assert (
             # pyre-fixme[16]: `GenericGPTQRunner` has no attribute `get_qparams_func`.
-            self.get_qparams_func is not None
+            self.get_qparams_func
+            is not None
         ), "need to configure quantization mode before running"
         self.gptq_done = True
         super().run(*self.inputs)

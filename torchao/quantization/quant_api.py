@@ -15,27 +15,22 @@ come along with it and because that is how we access the intended quantized
 and mixed GEMM kernels
 """
 
+import logging
+from typing import Dict, Tuple
+
 import torch
-import torch.nn.functional as F
 import torch.nn as nn
-from .dynamic_quant import (
-    DynamicallyPerAxisQuantizedLinear,
-)
+import torch.nn.functional as F
+
+from .dynamic_quant import DynamicallyPerAxisQuantizedLinear
+from .quant_primitives import get_group_qparams_symmetric, per_token_dynamic_quant
 from .subclass import (
-    QuantizedLinearWeightBase,
+    Int4WeightOnlyQuantizedLinearWeight,
     Int8DynamicallyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
-    Int4WeightOnlyQuantizedLinearWeight,
+    QuantizedLinearWeightBase,
 )
-from .weight_only import (
-    WeightOnlyInt8QuantLinear,
-)
-from .quant_primitives import (
-    get_group_qparams_symmetric,
-    per_token_dynamic_quant,
-)
-from typing import Dict, Tuple
-import logging
+from .weight_only import WeightOnlyInt8QuantLinear
 
 __all__ = [
     "apply_weight_only_int8_quant",
@@ -47,6 +42,7 @@ __all__ = [
     "Quantizer",
     "TwoStepQuantizer",
 ]
+
 
 ############################# Unified Quantization APIs ##############################
 # API 1, single quantize call to create a quantized model with quantized state_dict
@@ -69,11 +65,16 @@ class TwoStepQuantizer:
         # pyre-fixme[7]: Expected `Module` but got implicit return value of `None`.
         pass
 
+
 ############################# Unified Quantization APIs ##############################
+
 
 def _replace_with_custom_fn_if_matches_filter(
     # pyre-fixme[2]: Parameter must be annotated.
-    model, replacement_fn, filter_fn, cur_fqn=""
+    model,
+    replacement_fn,
+    filter_fn,
+    cur_fqn="",
 ) -> None:
     """
     For each `child` in `model`, replaces it with `replacement_fn(child)`
@@ -96,15 +97,17 @@ def _replace_with_custom_fn_if_matches_filter(
 # pyre-fixme[2]: Parameter must be annotated.
 def _is_linear(mod, *args):
     return (
-        isinstance(mod, torch.nn.Linear) and
-        hasattr(mod, "weight") and
-        not isinstance(mod.weight, QuantizedLinearWeightBase)
+        isinstance(mod, torch.nn.Linear)
+        and hasattr(mod, "weight")
+        and not isinstance(mod.weight, QuantizedLinearWeightBase)
     )
+
 
 # pyre-fixme[3]: Return type must be annotated.
 # pyre-fixme[2]: Parameter must be annotated.
 def _in_features_greater_than_16(mod, *args):
     return hasattr(mod, "in_features") and mod.in_features > 16
+
 
 # pyre-fixme[3]: Return type must be annotated.
 # pyre-fixme[2]: Parameter must be annotated.
@@ -159,16 +162,12 @@ def change_linear_weights_to_int8_dqtensors(model, filter_fn=None):
     as apply_dynamic_quant while not modifying the linear modules.
     """
     if filter_fn is None:
-        filter_fn = (
-            lambda *args:
-            _is_linear(*args) and
-            _in_features_greater_than_16(*args)
+        filter_fn = lambda *args: _is_linear(*args) and _in_features_greater_than_16(
+            *args
         )
 
     _replace_with_custom_fn_if_matches_filter(
-        model,
-        _get_subclass_inserter(Int8DynamicallyQuantizedLinearWeight),
-        filter_fn
+        model, _get_subclass_inserter(Int8DynamicallyQuantizedLinearWeight), filter_fn
     )
 
 
@@ -205,37 +204,40 @@ def change_linear_weights_to_int4_woqtensors(model, **kwargs):
         filter_fn,
     )
 
+
 # pyre-fixme[3]: Return type must be annotated.
 # pyre-fixme[2]: Parameter must be annotated.
 def swap_conv2d_1x1_to_linear(model, filter_fn=None):
     """
     Changes all conv2d 1x1 modules to equivalent linear modules so that they can then be quantized.
     """
+
     class PermuteSandwich(torch.nn.Module):
         def __init__(self, mod):
             super().__init__()
             self.mod = mod
 
         def forward(self, *args):
-            return self.mod(args[0].permute(0, 2, 3, 1)).permute(-0,3,1,2)
-
+            return self.mod(args[0].permute(0, 2, 3, 1)).permute(-0, 3, 1, 2)
 
     # pyre-fixme[3]: Return type must be annotated.
     # pyre-fixme[2]: Parameter must be annotated.
     def replace_conv2d_1x1(conv):
         assert conv.kernel_size == (1, 1)
-        lin = torch.nn.Linear(conv.in_channels, conv.out_channels, bias=(conv.bias is None))
-        lin.weight=torch.nn.Parameter(conv.weight.squeeze(-1,-2))
+        lin = torch.nn.Linear(
+            conv.in_channels, conv.out_channels, bias=(conv.bias is None)
+        )
+        lin.weight = torch.nn.Parameter(conv.weight.squeeze(-1, -2))
         lin.bias = conv.bias
         return PermuteSandwich(lin)
 
     if filter_fn is None:
-        filter_fn=lambda mod, *args: isinstance(mod, torch.nn.Conv2d) and mod.kernel_size==(1,1)
+        filter_fn = lambda mod, *args: isinstance(
+            mod, torch.nn.Conv2d
+        ) and mod.kernel_size == (1, 1)
 
     _replace_with_custom_fn_if_matches_filter(
-        model,
-        replace_conv2d_1x1,
-        filter_fn=filter_fn
+        model, replace_conv2d_1x1, filter_fn=filter_fn
     )
 
 
@@ -398,8 +400,8 @@ class GPTQQuantizer(Quantizer):
         calibration_seq_length,
         # pyre-fixme[2]: Parameter must be annotated.
         pad_calibration_inputs,
-    # pyre-fixme[24]: Generic type `dict` expects 2 type parameters, use
-    #  `typing.Dict[<key type>, <value type>]` to avoid runtime subscripting errors.
+        # pyre-fixme[24]: Generic type `dict` expects 2 type parameters, use
+        #  `typing.Dict[<key type>, <value type>]` to avoid runtime subscripting errors.
     ) -> Dict:
         inputs = GPTQQuantizer.get_inputs(
             model,
@@ -465,7 +467,13 @@ class GPTQQuantizer(Quantizer):
 # pyre-fixme[3]: Return type must be annotated.
 def linear_forward_8da4w(
     # pyre-fixme[2]: Parameter must be annotated.
-    x, weight_int8, scales, zeros, out_features, group_size, precision
+    x,
+    weight_int8,
+    scales,
+    zeros,
+    out_features,
+    group_size,
+    precision,
 ):
     x = per_token_dynamic_quant(x)
     # TODO: verify and remove following reshape code
@@ -582,8 +590,8 @@ class Int8DynActInt4WeightLinear(torch.nn.Module):
         )
 
 
-from math import gcd
 from functools import reduce
+from math import gcd
 
 
 def find_multiple(n: int, *args: Tuple[int]) -> int:
@@ -752,8 +760,7 @@ class Int8DynActInt4WeightGPTQQuantizer(GPTQQuantizer):
         # skip unless padding_allowed=True or its correctly sized
         # pyre-fixme[4]: Attribute must be annotated.
         self.skip_layer_func = lambda linear_weight: not (
-            _check_linear_int4_k(linear_weight.shape[-1], groupsize)
-            or padding_allowed
+            _check_linear_int4_k(linear_weight.shape[-1], groupsize) or padding_allowed
         )
 
         # we need to do the padding here, both for q and the qparams if necessary

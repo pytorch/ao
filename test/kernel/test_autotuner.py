@@ -6,13 +6,14 @@
 
 # mypy: ignore-errors
 # This test takes a long time to run
-import unittest
-import torch
-import pytest
-from parameterized import parameterized
-
 import logging
 import os
+import unittest
+
+import pytest
+import torch
+from parameterized import parameterized
+
 logging.basicConfig(level=logging.INFO)
 
 
@@ -25,16 +26,18 @@ class TestQuantFlow(unittest.TestCase):
         del os.environ["TORCHAO_AUTOTUNER_ENABLE"]
 
     @parameterized.expand(
-            [
-                ("cuda", torch.bfloat16),
-                ("cuda", torch.bfloat16),
-                # TODO: ("cpu", torch.bfloat16),
-                ("cuda", torch.float16),
-                ("cuda", torch.float16),
-                # TODO: ("cpu", torch.float16),
-            ])
+        [
+            ("cuda", torch.bfloat16),
+            ("cuda", torch.bfloat16),
+            # TODO: ("cpu", torch.bfloat16),
+            ("cuda", torch.float16),
+            ("cuda", torch.float16),
+            # TODO: ("cpu", torch.float16),
+        ]
+    )
     def test_int_mm(self, device, dtype):
         from torchao.kernel import intmm_triton
+
         dtype = torch.bfloat16
         m, k, n = (128, 64, 16)
         x = torch.randn(m, k, dtype=dtype, device=device)
@@ -48,16 +51,18 @@ class TestQuantFlow(unittest.TestCase):
         torch.testing.assert_allclose(out32_1, out32_2)
 
     @parameterized.expand(
-            [
-                ("cuda", torch.bfloat16),
-                ("cuda", torch.bfloat16),
-                # TODO: ("cpu", torch.bfloat16),
-                ("cuda", torch.float16),
-                ("cuda", torch.float16),
-                # TODO: ("cpu", torch.float16),
-            ])
+        [
+            ("cuda", torch.bfloat16),
+            ("cuda", torch.bfloat16),
+            # TODO: ("cpu", torch.bfloat16),
+            ("cuda", torch.float16),
+            ("cuda", torch.float16),
+            # TODO: ("cpu", torch.float16),
+        ]
+    )
     def test_int_scaled_mm(self, device, dtype):
         from torchao.kernel import intmm_triton
+
         dtype = torch.bfloat16
         m, k, n = (128, 64, 16)
         x = torch.randn(m, k, dtype=dtype, device=device)
@@ -70,6 +75,7 @@ class TestQuantFlow(unittest.TestCase):
         out32_2 = intmm_triton.int_scaled_matmul(x_int, w_int, scales)
         assert out32_2.dtype == out32_1.dtype
         torch.testing.assert_allclose(out32_1, out32_2)
+
 
 if __name__ == "__main__":
     unittest.main()
