@@ -182,6 +182,19 @@ class TestNF4Linear(TestCase):
         assert type(inpt_tensor_nf4) != torch.Tensor
         assert type(inpt_tensor_nf4.to(torch.bfloat16)) == torch.Tensor
 
+    def test_linear(self):
+        import torchao
+        a = torch.randn(32, 32, dtype=torch.bfloat16, device='cuda')
+        a_nf4 = torchao.dtypes.to_nf4(a, 16, 2)
+        inp = torch.randn(2, 32, 32, dtype=a.dtype, device=a.device)
+        out1 = torch.nn.functional.linear(inp, a)
+        out2 = torch.nn.functional.linear(inp, a_nf4)
+        out3 = torch.compile(torch.nn.functional.linear, mode='max-autotune')(inp, a_nf4)
+
+        # torch.testing.assert_allclose(out1, out2)
+        # torch.testing.assert_allclose(out1, out3)
+
+
 
 if __name__ == "__main__":
     unittest.main()
