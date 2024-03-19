@@ -1,9 +1,5 @@
 ## Autotuner and custom Triton kernels
 
-### Use case
-
-### How to contribute
-
 ### Environment variables
 
 `TORCHAO_AUTOTUNER_ENABLE=0`

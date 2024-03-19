@@ -7,6 +7,9 @@ import triton
 import triton.language as tl
 import itertools
 import os
+
+AUTOTUNER_ENABLE = bool(int(os.getenv('TORCHAO_AUTOTUNER_ENABLE', 0)))
+
 int8_powers_of_two = [32, 64, 128, 256]
 int8_mm_kernel_configs = sum([
     # "BLOCK_M", "BLOCK_N", "BLOCK_K", "num_stages", "num_warps"
@@ -35,6 +38,8 @@ int8_mm_kernel_configs = sum([
                           int8_powers_of_two,
                           int8_powers_of_two)], [])
 
+# Baseline configs from pytorch/pytorch
+# https://github.com/pytorch/pytorch/blob/7718a1cd4f8e0b794c18a31ebd6353d6273c534e/torch/_inductor/kernel/mm_common.py#L132-L147 
 # int8_mm_kernel_configs = [
 #     (64, 64, 32, 2, 4),
 #     (64, 128, 32, 3, 4),
@@ -51,7 +56,6 @@ int8_mm_kernel_configs = sum([
 
 int8_mm_kernel_configs = [triton.Config({'BLOCK_M': i, 'BLOCK_N': j, 'BLOCK_K': k, 'GROUP_M': 8}, num_stages=s, num_warps = w) for (i, j, k, s, w) in int8_mm_kernel_configs]
 
-AUTOTUNER_ENABLE = bool(int(os.getenv('TORCHAO_AUTOTUNER_ENABLE', 0)))
 
 
 @triton.jit

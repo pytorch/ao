@@ -13,6 +13,7 @@ from parameterized import parameterized
 
 import logging
 import os
+logging.basicConfig(level=logging.INFO)
 
 
 class TestQuantFlow(unittest.TestCase):
@@ -27,14 +28,13 @@ class TestQuantFlow(unittest.TestCase):
             [
                 ("cuda", torch.bfloat16),
                 ("cuda", torch.bfloat16),
-                # ("cpu", torch.bfloat16),
+                # TODO: ("cpu", torch.bfloat16),
                 ("cuda", torch.float16),
                 ("cuda", torch.float16),
-                 #("cpu", torch.float16),
+                # TODO: ("cpu", torch.float16),
             ])
     def test_int_mm(self, device, dtype):
         from torchao.kernel import intmm_triton
-        logging.basicConfig(level=logging.INFO)
         dtype = torch.bfloat16
         m, k, n = (128, 64, 16)
         x = torch.randn(m, k, dtype=dtype, device=device)
@@ -51,14 +51,13 @@ class TestQuantFlow(unittest.TestCase):
             [
                 ("cuda", torch.bfloat16),
                 ("cuda", torch.bfloat16),
-                # ("cpu", torch.bfloat16),
+                # TODO: ("cpu", torch.bfloat16),
                 ("cuda", torch.float16),
                 ("cuda", torch.float16),
-                 #("cpu", torch.float16),
+                # TODO: ("cpu", torch.float16),
             ])
     def test_int_scaled_mm(self, device, dtype):
         from torchao.kernel import intmm_triton
-        logging.basicConfig(level=logging.INFO)
         dtype = torch.bfloat16
         m, k, n = (128, 64, 16)
         x = torch.randn(m, k, dtype=dtype, device=device)
