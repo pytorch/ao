@@ -1,5 +1,7 @@
 import torch
 import torchvision.models.vision_transformer as models
+import logging
+logging.basicConfig(level=logging.INFO)
 
 # Load Vision Transformer model
 model = models.vit_b_16(pretrained=True)
