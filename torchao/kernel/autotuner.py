@@ -83,8 +83,6 @@ def do_bench_triton(fn, warmup=25, rep=100, grad_to_none=None, quantiles=None, f
 
 BEST_CONFIGS = None
 
-logging.basicConfig(level=logging.INFO)
-
 AUTOTUNER_DATA_PATH = os.getenv('TORCHAO_AUTOTUNER_DATA_PATH', None)
 
 
