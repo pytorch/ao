@@ -161,8 +161,14 @@ def change_linear_weights_to_int4_woqtensors(model, **kwargs):
 
 
 def change_linears_to_autoquantizable(model, **kwargs):
+    """
+    Converts all linear weight tensors to the
+    AutoQuantizableLinearWeight tensor subclass. Expectation is that this is followed
+    by running the model and then calling change_autoquantizable_to_quantized
+    """
     filter_fn = kwargs.pop("filter_fn", _is_linear)
     kwargs["qtensor_class_list"] = kwargs.get("qtensor_class_list", DEFAULT_CLASS_LIST)
+    kwargs["mode"] = kwargs.get("mode", ["relu", None])
     _replace_with_custom_fn_if_matches_filter(
         model,
         _get_subclass_inserter(AutoQuantizableLinearWeight, **kwargs),
@@ -170,11 +176,16 @@ def change_linears_to_autoquantizable(model, **kwargs):
     )
 
 def change_autoquantizable_to_quantized(model, **kwargs):
+    """
+    Converts AutoQuantizableLinearWeight tensor subclasses
+    to various quantized/non-quantized tensor subclasses depending
+    on benchmark results. Expectation is that these modules are
+    torch.compiled afterwards.
+    """
     filter_fn = kwargs.pop(
         "filter_fn",
         lambda mod, *args:
-            _is_linear(mod, *args) and
-            isinstance(mod.weight, AutoQuantizableLinearWeight)
+            hasattr(mod, "weight") and isinstance(mod.weight, AutoQuantizableLinearWeight)
     )
     error_on_unseen=kwargs.pop("error_on_unseen", True)
     _replace_with_custom_fn_if_matches_filter(
@@ -186,15 +197,20 @@ def change_autoquantizable_to_quantized(model, **kwargs):
     )
 
 @torch.no_grad()
-def do_autoquant(model, example_input, qtensor_class_list=DEFAULT_CLASS_LIST, filter_fn=_is_linear):
+def do_autoquant(model, example_input, qtensor_class_list=DEFAULT_CLASS_LIST, filter_fn=_is_linear, mode=["relu",None], **kwargs):
+    """
+    Runs the model with example_input to record shapes and then compares benchmark performance of the seen shape
+    across the qtensor subclasses in qtensor_class_list. Determines best performing qtensor subclass for each layer
+    and applies that type of quantization.
+    """
     hold =  torch._dynamo.config.automatic_dynamic_shapes
     torch._dynamo.config.automatic_dynamic_shapes = False
-    change_linears_to_autoquantizable(model, filter_fn=filter_fn, qtensor_class_list=qtensor_class_list)
+    change_linears_to_autoquantizable(model, filter_fn=filter_fn, qtensor_class_list=qtensor_class_list, mode=mode, **kwargs)
     if not isinstance(example_input, (tuple, list)):
         assert isinstance(example_input, torch.Tensor)
         example_input = [example_input]
     model(*example_input)
-    change_autoquantizable_to_quantized(model)
+    change_autoquantizable_to_quantized(model, **kwargs)
     torch._dynamo.config.automatic_dynamic_shapes = hold
     torch._dynamo.reset()
     return model

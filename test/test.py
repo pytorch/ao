@@ -54,7 +54,13 @@ from torchao.quantization.utils import (
     compute_error as SQNR,
     _fqn_to_op_to_shape_to_count,
     LoggingTensorMode,
-    benchmark
+)
+from torchao.quantization.autoquant import (
+    AQInt8DynamicallyQuantizedLinearWeight,
+    AQWeightOnlyQuantizedLinearWeight,
+    AQWeightOnlyQuantizedLinearWeight2,
+    AQWeightOnlyQuantizedLinearWeight3
+
 )
 from torch.ao.quantization.quantize_fx import convert_to_reference_fx, prepare_fx
 import os
@@ -882,6 +888,36 @@ class TestSubclass(unittest.TestCase):
                 Int8WeightOnlyQuantizedLinearWeight.from_float, 40, test_dtype
             )
 
+    def test_aq_int8_dynamic_quant_subclass(self):
+        for test_dtype in [torch.float32, torch.float16, torch.bfloat16]:
+            self._test_lin_weight_subclass_impl(
+                AQInt8DynamicallyQuantizedLinearWeight.from_float, 35, test_dtype
+            )
+
+    def test_aq_int8_weight_only_quant_subclass(self):
+        for test_dtype in [torch.float32, torch.float16, torch.bfloat16]:
+            self._test_lin_weight_subclass_impl(
+                AQInt8DynamicallyQuantizedLinearWeight.from_float, 35, test_dtype
+            )
+
+    def test_aq_int8_weight_only_quant_subclass(self):
+        for test_dtype in [torch.float32, torch.float16, torch.bfloat16]:
+            self._test_lin_weight_subclass_impl(
+                AQWeightOnlyQuantizedLinearWeight.from_float, 35, test_dtype
+            )
+
+    def test_aq_int8_weight_only_quant_2_subclass(self):
+        for test_dtype in [torch.float32, torch.float16, torch.bfloat16]:
+            self._test_lin_weight_subclass_impl(
+                AQWeightOnlyQuantizedLinearWeight2.from_float, 35, test_dtype
+            )
+
+    def test_aq_int8_weight_only_quant_3_subclass(self):
+        for test_dtype in [torch.float32, torch.float16, torch.bfloat16]:
+            self._test_lin_weight_subclass_impl(
+                AQWeightOnlyQuantizedLinearWeight3.from_float, 35, test_dtype
+            )
+
     def test_int4_weight_only_quant_subclass(self):
         self._test_lin_weight_subclass_impl(
             Int4WeightOnlyQuantizedLinearWeight.from_float, 10, test_shape=[1, 1024, 8]
@@ -1197,19 +1233,17 @@ class SmoothquantIntegrationTest(unittest.TestCase):
         print("sqnr_pt_quant", sqnr_pt_quant)
         self.assertTrue(sqnr_sq >= 8.0)
 
-# TODO FINISH TEST CODE
 class TestAutoQuant(unittest.TestCase):
-    def test_auto_quant(self):
+    def test_autoquant(self):
         torch._inductor.config.epilogue_fusion = False
         torch._inductor.config.use_mixed_mm = True
         torch._inductor.config.force_fuse_int_mm_with_mul = True
-        torch._inductor.config.coordinate_descent_tuning = True
         torch._dynamo.config.automatic_dynamic_shapes = False
 
         for m,k,n in [
             (1, 1024, 1024),
             (64, 1024, 1024),
-            (4096, 1024, 1024),
+            (2**15, 1024, 1024),
             (1, 1024, 4096),
             (64, 1024, 4096),
             (1, 4096, 1024),
@@ -1222,7 +1256,11 @@ class TestAutoQuant(unittest.TestCase):
                 torch.nn.Linear(k,n),
                 torch.nn.ReLU(),
             ).to("cuda").to(torch.bfloat16)
+            out = model(example_input)
             do_autoquant(model, example_input)
+            out2 = model(example_input)
+            sqnr = SQNR(out, out2)
+            self.assertTrue(sqnr >= 30)
 
 if __name__ == "__main__":
     unittest.main()
