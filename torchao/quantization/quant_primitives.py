@@ -1070,10 +1070,11 @@ def unpack_int4_to_int8(int8_data: torch.Tensor) -> torch.Tensor:
 
 def per_token_dynamic_quant(input: torch.Tensor) -> torch.Tensor:
     orig_dtype = input.dtype
+    # TODO: we may need to make the choose_qparams op configurable
     (
         scales,
         zero_points,
-    ) = torch.ops.quantized_decomposed.choose_qparams_per_token(input, torch.int8)
+    ) = torch.ops.quantized_decomposed.choose_qparams_per_token_asymmetric(input, torch.int8)
 
     # TODO: get these from torch.int8
     quant_min = -128
