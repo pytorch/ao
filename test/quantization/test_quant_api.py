@@ -24,6 +24,8 @@ from torchao.quantization.quant_api import (
     Quantizer,
     TwoStepQuantizer,
     Int8DynActInt4WeightGPTQQuantizer,
+    Int8DynActInt4WeightQuantizer,
+    Int8DynActInt4WeightLinear,
 )
 from pathlib import Path
 from sentencepiece import SentencePieceProcessor
@@ -85,8 +87,8 @@ class TorchCompileDynamicQuantizer(Quantizer):
 class M(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.linear1 = torch.nn.Linear(5, 5).to(torch.float)
-        self.linear2 = torch.nn.Linear(5, 5).to(torch.float)
+        self.linear1 = torch.nn.Linear(64, 32).to(torch.float)
+        self.linear2 = torch.nn.Linear(32, 64).to(torch.float)
 
     def forward(self, x):
         x = self.linear1(x)
@@ -132,8 +134,15 @@ class TestQuantFlow(unittest.TestCase):
         compiled = m(*example_inputs)
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
 
+    def test_8da4w_quantizer(self):
+        quantizer = Int8DynActInt4WeightQuantizer(group_size=32)
+        m = M().eval()
+        m = quantizer.quantize(m)
+        assert isinstance(m.linear1, Int8DynActInt4WeightLinear)
+        assert isinstance(m.linear2, Int8DynActInt4WeightLinear)
+
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    def test_gptq(self):
+    def test_gptq_quantizer(self):
         # should be similar to TorchCompileDynamicQuantizer
         precision = torch.bfloat16
         device = "cpu"
