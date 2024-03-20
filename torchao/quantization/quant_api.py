@@ -63,7 +63,6 @@ class TwoStepQuantizer:
         # pyre-fixme[7]: Expected `Module` but got implicit return value of `None`.
         pass
 
-    # pyre-fixme[2]: Parameter must be annotated.
     def convert(self, model: torch.nn.Module, *args: Any, **kwargs: Any) -> torch.nn.Module:
         # pyre-fixme[7]: Expected `Module` but got implicit return value of `None`.
         pass
