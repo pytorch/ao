@@ -35,7 +35,7 @@ from .quant_primitives import (
     per_token_dynamic_quant,
     group_quantize_tensor_symmetric,
 )
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Any
 import logging
 
 __all__ = [
@@ -52,21 +52,19 @@ __all__ = [
 ############################# Unified Quantization APIs ##############################
 # API 1, single quantize call to create a quantized model with quantized state_dict
 class Quantizer:
-    # pyre-fixme[2]: Parameter must be annotated.
-    def quantize(self, model: torch.nn.Module, *args, **kwargs) -> torch.nn.Module:
+    def quantize(self, model: torch.nn.Module, *args: Any, **kwargs: Any) -> torch.nn.Module:
         # pyre-fixme[7]: Expected `Module` but got implicit return value of `None`.
         pass
 
 
 # API 2, flow that needs calibration or training
 class TwoStepQuantizer:
-    # pyre-fixme[2]: Parameter must be annotated.
-    def prepare(self, model: torch.nn.Module, *args, **kwargs) -> torch.nn.Module:
+    def prepare(self, model: torch.nn.Module, *args: Any, **kwargs: Any) -> torch.nn.Module:
         # pyre-fixme[7]: Expected `Module` but got implicit return value of `None`.
         pass
 
     # pyre-fixme[2]: Parameter must be annotated.
-    def convert(self, model: torch.nn.Module, *args, **kwargs) -> torch.nn.Module:
+    def convert(self, model: torch.nn.Module, *args: Any, **kwargs: Any) -> torch.nn.Module:
         # pyre-fixme[7]: Expected `Module` but got implicit return value of `None`.
         pass
 
@@ -671,19 +669,19 @@ def replace_linear_8da4w(
 class Int8DynActInt4WeightQuantizer(Quantizer):
     def __init__(
         self,
-        group_size=256,
-        padding_allowed=False,
-        precision=torch.float32,
-        scales_precision=torch.float32,
-    ):
-        self.group_size = group_size
-        self.padding_allowed = padding_allowed
-        self.precision = precision
-        self.scales_precision = scales_precision
+        group_size: int = 256,
+        padding_allowed: bool = False,
+        precision: torch.dtype = torch.float32,
+        scales_precision: torch.dtype = torch.float32,
+    ) -> None:
+        self.group_size: int = group_size
+        self.padding_allowed: bool = padding_allowed
+        self.precision: torch.dtype = precision
+        self.scales_precision: torch.dtype = scales_precision
         # assert group_size in [32, 64, 128, 256]
 
     @torch.no_grad()
-    def _create_quantized_state_dict(self, model: torch.nn.Module):
+    def _create_quantized_state_dict(self, model: torch.nn.Module) -> Dict[str, torch.Tensor]:
         cur_state_dict = model.state_dict()
         for fqn, mod in model.named_modules():
             if isinstance(mod, torch.nn.Linear):
@@ -745,7 +743,7 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
         )
         return model
 
-    def quantize(self, model: torch.nn.Module, *args, **kwargs) -> torch.nn.Module:
+    def quantize(self, model: torch.nn.Module, *args: Any, **kwargs: Any) -> torch.nn.Module:
         state_dict = self._create_quantized_state_dict(model)
         model = self._convert_for_runtime(model)
         # TODO: make it strict
