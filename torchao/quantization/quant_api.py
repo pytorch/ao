@@ -432,7 +432,7 @@ class GPTQQuantizer(Quantizer):
 
     @torch.no_grad()
     # pyre-fixme[14]: `quantize` overrides method defined in `Quantizer` inconsistently.
-    def quantize(self, model: torch.nn.Module, **kwargs) -> torch.nn.Module:
+    def quantize(self, model: torch.nn.Module, **kwargs: Any) -> torch.nn.Module:
         state_dict = self._create_quantized_state_dict(
             model,
             # pyre-fixme[16]: `GPTQQuantizer` has no attribute `tokenizer`.
