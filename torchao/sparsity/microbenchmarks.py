@@ -236,10 +236,8 @@ if __name__ == "__main__":
         batch_size = args.batch_size
 
         sam_shapes = [
-            (torch.Size([batch_size, 64, 64, 1280]), torch.Size([5120, 1280])),
-            (torch.Size([batch_size, 64, 64, 5120]), torch.Size([1280, 5120])),
-            (torch.Size([25 * batch_size, 14, 14, 1280]), torch.Size([3840, 1280])),
-            (torch.Size([25 * batch_size, 14, 14, 1280]), torch.Size([1280, 1280])),
+            (torch.Size([batch_size, 256, 3072]), torch.Size([768, 3072])),
+            (torch.Size([batch_size, 256, 768]), torch.Size([3072, 768])),
         ]
 
         from collections import defaultdict
@@ -247,35 +245,34 @@ if __name__ == "__main__":
         total_runtime = defaultdict(int)
 
         for (activation_shape, weight_shape) in tqdm(sam_shapes):
-            for backend in ["cutlass", "cusparselt"]:
-                result = run_benchmark(
-                    activation_shape,
-                    weight_shape,
-                    dtype,
-                    sparsity="24",
-                    backend=backend)
+            # for backend in ["cutlass", "cusparselt"]:
+                # result = run_benchmark(
+                    # activation_shape,
+                    # weight_shape,
+                    # dtype,
+                    # sparsity="24",
+                    # backend=backend)
 
-                blocksize = None
-                sparsity_level = 0.5
-                total_runtime[f"{backend}"] += 32 * result["sparse_latency (us)"]
-                results.append(result)
-            # for blocksize in [64]:
-            #     for sparsity_level in [0.8, 0.9]:
-            #         result = run_benchmark(
-            #             activation_shape,
-            #             weight_shape,
-            #             dtype,
-            #             sparsity="blocksparse",
-            #             blocksize=blocksize,
-            #             sparsity_level=sparsity_level)
-            #         total_runtime[f"{blocksize}_{sparsity_level}"] += 32 * result["sparse_latency (us)"]
-            #         results.append(result)
+                # blocksize = None
+                # sparsity_level = 0.5
+                # total_runtime[f"{backend}"] += 32 * result["sparse_latency (us)"]
+                # results.append(result)
+            for blocksize in [8, 16, 32, 64]:
+                for sparsity_level in [0.8, 0.9]:
+                    result = run_benchmark(
+                        activation_shape,
+                        weight_shape,
+                        dtype,
+                        sparsity="blocksparse",
+                        blocksize=blocksize,
+                        sparsity_level=sparsity_level)
+                    # total_runtime[f"{blocksize}_{sparsity_level}"] += 32 * result["sparse_latency (us)"]
+                    results.append(result)
 
-            total_runtime["dense"] += 32 * result["dense_latency (us)"]
+            # total_runtime["dense"] += 32 * result["dense_latency (us)"]
 
-        for line in total_runtime:
-            print(line, total_runtime[line], sep="\t")
-
+        # for line in total_runtime:
+            # print(line, total_runtime[line], sep="\t")
 
     elif args.mode == "nvidia-fixed-k":
         mn_vals = [

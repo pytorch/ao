@@ -14,7 +14,7 @@ from .quant_primitives import (
     quant_int8_dynamic_per_token_linear,
     unpack_tinygemm_scales_and_zeros,
 )
-from .dynamic_quant_sparse import sparse_quant_int8_dynamic_per_token_linear
+from .dynamic_quant_sparse import sparse_quant_int8_dynamic_cutlass_linear, sparse_quant_int8_dynamic_cusparselt_linear
 from .utils import find_multiple
 import warnings
 
@@ -285,8 +285,8 @@ class Int8DynamicallyQuantized24CusparseltLinearWeight(Int8DynamicallyQuantizedL
 
     @staticmethod
     def _quantized_op(act_mat, w_qtensor, bias):
-        return sparse_quant_int8_dynamic_per_token_linear(
-            act_mat, w_qtensor.int_data, None, w_qtensor.q_scales, bias, act_mat.dtype
+        return sparse_quant_int8_dynamic_cusparselt_linear(
+            act_mat, w_qtensor.int_data, w_qtensor.q_scales, bias, act_mat.dtype
         )
 
     @classmethod
@@ -384,7 +384,7 @@ class Int8DynamicallyQuantized24CutlassLinearWeight(QuantizedLinearWeightBase):
 
     @staticmethod
     def _quantized_op(act_mat, w_qtensor, bias):
-        return sparse_quant_int8_dynamic_per_token_linear(
+        return sparse_quant_int8_dynamic_cutlass_linear(
             act_mat, w_qtensor.int_data, w_qtensor.mask_meta, w_qtensor.q_scales, bias, act_mat.dtype
         )
 
