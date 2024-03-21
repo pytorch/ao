@@ -87,8 +87,8 @@ class TorchCompileDynamicQuantizer(Quantizer):
 class M(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.linear1 = torch.nn.Linear(64, 32).to(torch.float)
-        self.linear2 = torch.nn.Linear(32, 64).to(torch.float)
+        self.linear1 = torch.nn.Linear(64, 32, bias=False).to(torch.float)
+        self.linear2 = torch.nn.Linear(32, 64, bias=False).to(torch.float)
 
     def example_inputs(self):
         return (torch.randn(1, 64).to(torch.float),)
