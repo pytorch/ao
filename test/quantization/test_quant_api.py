@@ -24,6 +24,8 @@ from torchao.quantization.quant_api import (
     Quantizer,
     TwoStepQuantizer,
     Int8DynActInt4WeightGPTQQuantizer,
+    Int8DynActInt4WeightQuantizer,
+    Int8DynActInt4WeightLinear,
 )
 from pathlib import Path
 from sentencepiece import SentencePieceProcessor
@@ -85,8 +87,11 @@ class TorchCompileDynamicQuantizer(Quantizer):
 class M(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.linear1 = torch.nn.Linear(5, 5).to(torch.float)
-        self.linear2 = torch.nn.Linear(5, 5).to(torch.float)
+        self.linear1 = torch.nn.Linear(64, 32, bias=False).to(torch.float)
+        self.linear2 = torch.nn.Linear(32, 64, bias=False).to(torch.float)
+
+    def example_inputs(self):
+        return (torch.randn(1, 64).to(torch.float),)
 
     def forward(self, x):
         x = self.linear1(x)
@@ -97,8 +102,7 @@ class TestQuantFlow(unittest.TestCase):
     def test_dynamic_quant_gpu_singleline(self):
         m = M().eval()
         m = _apply_dynamic_quant(m)
-        example_inputs = (torch.randn(1, 5).to(dtype=torch.float32),)
-        quantized = m(*example_inputs)
+        quantized = m(*m.example_inputs())
         # AssertionError: Expecting input to have dtype torch.float32, but got dtype: torch.float64
         # While executing %choose_qparams_tensor_1 : [num_users=2] = call_function[target=torch.ops.quantized_decomposed.choose_qparams.tensor](args = (%arg0_3, -128, 127, 0.000244140625, torch.int8), kwargs = {})
         # m = torch.compile(m, mode="max-autotune")
@@ -110,9 +114,9 @@ class TestQuantFlow(unittest.TestCase):
     def test_dynamic_quant_gpu_unified_api_unified_impl(self):
         quantizer = XNNPackDynamicQuantizer()
         m = M().eval()
+        example_inputs = m.example_inputs()
         m = quantizer.prepare(m)
         m = quantizer.convert(m)
-        example_inputs = (torch.randn(1, 5).to(dtype=torch.float32),)
         quantized = m(*example_inputs)
         # AssertionError: Expecting input to have dtype torch.float32, but got dtype: torch.float64
         # While executing %choose_qparams_tensor_1 : [num_users=2] = call_function[target=torch.ops.quantized_decomposed.choose_qparams.tensor](args = (%arg0_3, -128, 127, 0.000244140625, torch.int8), kwargs = {})
@@ -125,15 +129,24 @@ class TestQuantFlow(unittest.TestCase):
     def test_dynamic_quant_gpu_unified_api_eager_mode_impl(self):
         quantizer = TorchCompileDynamicQuantizer()
         m = M().eval()
+        example_inputs = m.example_inputs()
         m = quantizer.quantize(m)
-        example_inputs = (torch.randn(1, 5).to(dtype=torch.float32),)
         quantized = m(*example_inputs)
         m = torch.compile(m, mode="max-autotune")
         compiled = m(*example_inputs)
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
 
+    def test_8da4w_quantizer(self):
+        quantizer = Int8DynActInt4WeightQuantizer(group_size=32)
+        m = M().eval()
+        example_inputs = m.example_inputs()
+        m = quantizer.quantize(m)
+        assert isinstance(m.linear1, Int8DynActInt4WeightLinear)
+        assert isinstance(m.linear2, Int8DynActInt4WeightLinear)
+        m(*example_inputs)
+
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    def test_gptq(self):
+    def test_gptq_quantizer(self):
         # should be similar to TorchCompileDynamicQuantizer
         precision = torch.bfloat16
         device = "cpu"
