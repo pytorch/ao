@@ -16,6 +16,8 @@ from torch.ao.quantization.fx._decomposed import (
 )
 from torch.library import impl
 
+from torchao.kernel.intmm_triton import int_scaled_matmul
+
 __all__ = [
     "safe_int_mm",
     "dynamically_quantize_per_tensor",
@@ -57,15 +59,15 @@ def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
     Return:
         out (Tensor, int32): the result of the matmul with device matching that of the inputs
     """
-
     # torch.compile path
     if dynamo_is_compiling() or "FakeTensor" in input.__repr__():
         return out_dtype(torch.ops.aten.mm.default, torch.int32, input, mat2)
 
     # error checking for cublas path
     assert (
-        mat2.device == input.device
-    # pyre-fixme[16]: Callable `input` has no attribute `device`.
+        mat2.device
+        == input.device
+        # pyre-fixme[16]: Callable `input` has no attribute `device`.
     ), f"need both tensors to be on the same device but got {mat2.device} and {input.device}"
     device_cpu = "cpu" in [mat2.device.type, input.device.type]
     # with input.shape = [i,j] and mat2.shape = [j,k]
@@ -407,13 +409,14 @@ def quant_int8_per_token_matmul(
         w_vals_int8_t.dtype == torch.int8
     ), f"w dtype {w_vals_int8_t.dtype} not yet supported"
 
+    assert x_scales.dtype in [
+        torch.float,
+        torch.bfloat16,
+    ], f"x_scales needs to be a torch.float32 or torch.bfloat16 but got {x_scales.dtype}"
+
     #
     # 1. do the matrix form of dot(X_i, W_j)
     #
-
-    tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
-    y_dot_int32 = safe_int_mm(tmp, w_vals_int8_t)
-
     #
     # 2. rescale the output
     #
@@ -422,13 +425,11 @@ def quant_int8_per_token_matmul(
     # value of a float 16, (which results in a value of inf even if multiplying
     # by the other scale would bring it within the expected range)
 
-    assert x_scales.dtype in [
-        torch.float,
-        torch.bfloat16,
-    ], f"x_scales needs to be a torch.float32 or torch.bfloat16 but got {x_scales.dtype}"
+    tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
+    y_dot_scaled = int_scaled_matmul(tmp, w_vals_int8_t, x_scales.reshape(-1, 1))
 
-    y = (y_dot_int32 * x_scales.reshape(-1, 1) * w_scales).reshape(
-        *x_vals_int8.shape[:-1], y_dot_int32.shape[-1]
+    y = (y_dot_scaled * w_scales).reshape(
+        *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]
     )
 
     # can downcast only at the very end
@@ -489,7 +490,11 @@ def unpack_tinygemm_scales_and_zeros(scales_and_zeros):
 # pyre-fixme[3]: Return type must be annotated.
 def groupwise_affine_quantize_tensor_from_qparams(
     # pyre-fixme[2]: Parameter must be annotated.
-    w, scales, zeros, n_bit=4, groupsize=128
+    w,
+    scales,
+    zeros,
+    n_bit=4,
+    groupsize=128,
 ):
     assert groupsize > 1
     # needed for GPTQ single column quantize
@@ -522,7 +527,11 @@ def groupwise_affine_quantize_tensor_from_qparams(
 # pyre-fixme[3]: Return type must be annotated.
 def groupwise_affine_dequantize_tensor_from_qparams(
     # pyre-fixme[2]: Parameter must be annotated.
-    w_int4x8, scales, zeros, n_bit=4, groupsize=128
+    w_int4x8,
+    scales,
+    zeros,
+    n_bit=4,
+    groupsize=128,
 ):
     assert groupsize > 1
     # needed for GPTQ single column dequantize
@@ -558,7 +567,10 @@ def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128):
 # pyre-fixme[3]: Return type must be annotated.
 def groupwise_affine_dequantize_tensor(
     # pyre-fixme[2]: Parameter must be annotated.
-    w_int4x8, scales_and_zeros, n_bit=4, groupsize=128
+    w_int4x8,
+    scales_and_zeros,
+    n_bit=4,
+    groupsize=128,
 ):
     scales, zeros = unpack_tinygemm_scales_and_zeros(scales_and_zeros)
     return groupwise_affine_dequantize_tensor_from_qparams(
@@ -959,7 +971,10 @@ def quantize_per_channel_group_meta(
 # pyre-fixme[3]: Return type must be annotated.
 def group_quantize_tensor_symmetric(
     # pyre-fixme[2]: Parameter must be annotated.
-    w, n_bit=4, group_size=128, precision=torch.float32
+    w,
+    n_bit=4,
+    group_size=128,
+    precision=torch.float32,
 ):
     scales, zeros = get_group_qparams_symmetric(w, n_bit, group_size, precision)
     n_bit = 4
@@ -1074,7 +1089,9 @@ def per_token_dynamic_quant(input: torch.Tensor) -> torch.Tensor:
     (
         scales,
         zero_points,
-    ) = torch.ops.quantized_decomposed.choose_qparams_per_token_asymmetric(input, torch.int8)
+    ) = torch.ops.quantized_decomposed.choose_qparams_per_token_asymmetric(
+        input, torch.int8
+    )
 
     # TODO: get these from torch.int8
     quant_min = -128
