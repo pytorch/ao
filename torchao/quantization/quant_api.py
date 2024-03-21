@@ -684,7 +684,7 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
         cur_state_dict = model.state_dict()
         for fqn, mod in model.named_modules():
             if isinstance(mod, torch.nn.Linear):
-                assert mod.bias is not None
+                assert not mod.bias
                 out_features = mod.out_features
                 in_features = mod.in_features
                 # assert out_features % 8 == 0, "require out_features % 8 == 0"

@@ -90,6 +90,9 @@ class M(torch.nn.Module):
         self.linear1 = torch.nn.Linear(64, 32).to(torch.float)
         self.linear2 = torch.nn.Linear(32, 64).to(torch.float)
 
+    def example_inputs(self):
+        return (torch.randn(1, 64),)
+
     def forward(self, x):
         x = self.linear1(x)
         x = self.linear2(x)
@@ -99,7 +102,7 @@ class TestQuantFlow(unittest.TestCase):
     def test_dynamic_quant_gpu_singleline(self):
         m = M().eval()
         m = _apply_dynamic_quant(m)
-        example_inputs = (torch.randn(1, 5).to(dtype=torch.float32),)
+        example_inputs = (torch.randn(1, 64).to(dtype=torch.float32),)
         quantized = m(*example_inputs)
         # AssertionError: Expecting input to have dtype torch.float32, but got dtype: torch.float64
         # While executing %choose_qparams_tensor_1 : [num_users=2] = call_function[target=torch.ops.quantized_decomposed.choose_qparams.tensor](args = (%arg0_3, -128, 127, 0.000244140625, torch.int8), kwargs = {})
@@ -112,9 +115,9 @@ class TestQuantFlow(unittest.TestCase):
     def test_dynamic_quant_gpu_unified_api_unified_impl(self):
         quantizer = XNNPackDynamicQuantizer()
         m = M().eval()
+        example_inputs = (m.example_inputs()[0].to(dtype=torch.float32),)
         m = quantizer.prepare(m)
         m = quantizer.convert(m)
-        example_inputs = (torch.randn(1, 5).to(dtype=torch.float32),)
         quantized = m(*example_inputs)
         # AssertionError: Expecting input to have dtype torch.float32, but got dtype: torch.float64
         # While executing %choose_qparams_tensor_1 : [num_users=2] = call_function[target=torch.ops.quantized_decomposed.choose_qparams.tensor](args = (%arg0_3, -128, 127, 0.000244140625, torch.int8), kwargs = {})
@@ -127,8 +130,8 @@ class TestQuantFlow(unittest.TestCase):
     def test_dynamic_quant_gpu_unified_api_eager_mode_impl(self):
         quantizer = TorchCompileDynamicQuantizer()
         m = M().eval()
+        example_inputs = (m.example_inputs()[0].to(dtype=torch.float32),)
         m = quantizer.quantize(m)
-        example_inputs = (torch.randn(1, 5).to(dtype=torch.float32),)
         quantized = m(*example_inputs)
         m = torch.compile(m, mode="max-autotune")
         compiled = m(*example_inputs)
