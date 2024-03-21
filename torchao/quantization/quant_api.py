@@ -36,10 +36,8 @@ from .weight_only import (
 from .quant_primitives import (
     get_group_qparams_symmetric,
     per_token_dynamic_quant,
-    group_quantize_tensor_symmetric,
 )
-from typing import Dict, Tuple, Any
-import logging
+from typing import Dict, Tuple
 
 __all__ = [
     "apply_weight_only_int8_quant",
@@ -56,18 +54,21 @@ __all__ = [
 ############################# Unified Quantization APIs ##############################
 # API 1, single quantize call to create a quantized model with quantized state_dict
 class Quantizer:
-    def quantize(self, model: torch.nn.Module, *args: Any, **kwargs: Any) -> torch.nn.Module:
+    # pyre-fixme[2]: Parameter must be annotated.
+    def quantize(self, model: torch.nn.Module, *args, **kwargs) -> torch.nn.Module:
         # pyre-fixme[7]: Expected `Module` but got implicit return value of `None`.
         pass
 
 
 # API 2, flow that needs calibration or training
 class TwoStepQuantizer:
-    def prepare(self, model: torch.nn.Module, *args: Any, **kwargs: Any) -> torch.nn.Module:
+    # pyre-fixme[2]: Parameter must be annotated.
+    def prepare(self, model: torch.nn.Module, *args, **kwargs) -> torch.nn.Module:
         # pyre-fixme[7]: Expected `Module` but got implicit return value of `None`.
         pass
 
-    def convert(self, model: torch.nn.Module, *args: Any, **kwargs: Any) -> torch.nn.Module:
+    # pyre-fixme[2]: Parameter must be annotated.
+    def convert(self, model: torch.nn.Module, *args, **kwargs) -> torch.nn.Module:
         # pyre-fixme[7]: Expected `Module` but got implicit return value of `None`.
         pass
 
@@ -259,7 +260,7 @@ if lm_eval_available:
         MultiInput,
     )
 else:
-    logging.info("lm_eval not available, skip defining GPTQQuantizer")
+    print("lm_eval not available, skip defining GPTQQuantizer")
 
 
 class GPTQQuantizer(Quantizer):
@@ -441,7 +442,11 @@ class GPTQQuantizer(Quantizer):
 
     @torch.no_grad()
     # pyre-fixme[14]: `quantize` overrides method defined in `Quantizer` inconsistently.
-    def quantize(self, model: torch.nn.Module, **kwargs: Any) -> torch.nn.Module:
+    def quantize(
+        self,
+        # pyre-fixme[2]: Parameter must be annotated.
+        model,
+    ) -> torch.nn.Module:
         state_dict = self._create_quantized_state_dict(
             model,
             # pyre-fixme[16]: `GPTQQuantizer` has no attribute `tokenizer`.
@@ -679,91 +684,6 @@ def replace_linear_8da4w(
                 precision,
                 scales_precision,
             )
-
-
-class Int8DynActInt4WeightQuantizer(Quantizer):
-    def __init__(
-        self,
-        group_size: int = 256,
-        padding_allowed: bool = False,
-        precision: torch.dtype = torch.float32,
-        scales_precision: torch.dtype = torch.float32,
-    ) -> None:
-        self.group_size: int = group_size
-        self.padding_allowed: bool = padding_allowed
-        self.precision: torch.dtype = precision
-        self.scales_precision: torch.dtype = scales_precision
-        # assert group_size in [32, 64, 128, 256]
-
-    @torch.no_grad()
-    def _create_quantized_state_dict(self, model: torch.nn.Module) -> Dict[str, torch.Tensor]:
-        cur_state_dict = model.state_dict()
-        for fqn, mod in model.named_modules():
-            if isinstance(mod, torch.nn.Linear):
-                assert mod.bias is not None
-                out_features = mod.out_features
-                in_features = mod.in_features
-                # assert out_features % 8 == 0, "require out_features % 8 == 0"
-                print(f"linear: {fqn}, in={in_features}, out={out_features}")
-
-                assert (
-                    in_features % self.group_size == 0
-                ), f"require in_features:{in_features} % self.group_size:{self.group_size} == 0"
-
-                weight = mod.weight.data
-                """
-                if not _check_linear_int4_k(
-                    in_features, self.group_size
-                ):
-                    if self.padding_allowed:
-                        print(
-                            f"warning: {fqn} is padded to satisfy in_features % 1024 == 0"
-                        )
-                        padded_in_features = _calc_padded_size_linear_int4(
-                            in_features, self.group_size
-                        )
-                        weight = F.pad(
-                            weight, pad=(0, padded_in_features - in_features)
-                        )
-                    else:
-                        raise RuntimeError(
-                            f"warning: {fqn} is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, "
-                            + "and that group_size"
-                        )
-                """
-                (
-                    weight_int8,
-                    scales,
-                    zeros,
-                ) = group_quantize_tensor_symmetric(
-                    weight.to(self.precision),
-                    4,  # n_bit
-                    self.group_size,
-                    self.scales_precision,
-                )
-                cur_state_dict[f"{fqn}.weight"] = weight_int8.to("cpu")
-                cur_state_dict[f"{fqn}.scales"] = scales.to("cpu")
-                cur_state_dict[f"{fqn}.zeros"] = zeros.to("cpu")
-                # TODO: support bias?
-
-        return cur_state_dict
-
-    def _convert_for_runtime(self, model: torch.nn.Module) -> torch.nn.Module:
-        replace_linear_8da4w(
-            model,
-            self.group_size,
-            self.padding_allowed,
-            self.precision,
-            self.scales_precision,
-        )
-        return model
-
-    def quantize(self, model: torch.nn.Module, *args: Any, **kwargs: Any) -> torch.nn.Module:
-        state_dict = self._create_quantized_state_dict(model)
-        model = self._convert_for_runtime(model)
-        # TODO: make it strict
-        model.load_state_dict(state_dict, strict=False)
-        return model
 
 
 class Int8DynActInt4WeightGPTQQuantizer(GPTQQuantizer):

@@ -19,7 +19,6 @@ import torch.nn.functional as F
 
 # from model import Transformer  # pyre-ignore[21]
 from torch.utils._pytree import tree_flatten, tree_unflatten
-import logging
 
 # pyre-fixme[5]: Global expression must be annotated.
 aten = torch.ops.aten
@@ -64,7 +63,7 @@ if lm_eval_available:
         get_task_dict = tasks.get_task_dict
         evaluate = evaluator.evaluate
 else:
-    logging.info("lm_eval is not installed, GPTQ may not be usable")
+    print("lm_eval is not installed, GPTQ may not be usable")
 
 # pyre-fixme[3]: Return type must be annotated.
 def setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
