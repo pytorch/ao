@@ -1,3 +1,4 @@
 pytest
 expecttest
+parameterized
 packaging
