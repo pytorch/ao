@@ -7,5 +7,7 @@ TORCH_LOGS='graph_breaks,recompiles' python run_vit_b.py
 TORCH_LOGS='graph_breaks,recompiles' python run_vit_b_quant.py
 
 # Store the output code for further inspection
-TORCH_LOGS='output_code' python run_vit_b.py 2> bfloat16_code
-TORCH_LOGS='output_code' python run_vit_b_quant.py 2> quant_code
+echo "bfloat16 generated code lives in:"
+TORCH_LOGS='output_code' python run_vit_b.py 2>&1 | grep "Output code written to: " | awk -F" " '{print $NF}'
+echo "quantization generated code lives in:"
+TORCH_LOGS='output_code' python run_vit_b_quant.py 2>&1 | grep "Output code written to: " | awk -F" " '{print $NF}'
