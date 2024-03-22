@@ -8,6 +8,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
 from typing import Optional
 
 import torch
@@ -15,8 +16,10 @@ import torch
 import torch.fx as fx
 import torch.nn as nn
 import torch.nn.functional as F
+
 # from model import Transformer  # pyre-ignore[21]
 from torch.utils._pytree import tree_flatten, tree_unflatten
+
 
 aten = torch.ops.aten
 
@@ -56,10 +59,11 @@ if lm_eval_available:
         get_task_dict = tasks.get_task_dict
         evaluate = evaluator.evaluate
 else:
-    print("lm_eval is not installed, GPTQ may not be usable")
+    logging.info("lm_eval is not installed, GPTQ may not be usable")
+
 
 def setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
-    model: torch.nn.Module,  # pyre-ignore[11]
+    model: torch.nn.Module,
     prompt: torch.Tensor,
     max_new_tokens: int,
     max_seq_length: Optional[int] = None,
@@ -98,7 +102,9 @@ def setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
 
     return seq, input_pos, max_seq_length
 
+
 if lm_eval_available:
+
     class GPTFastEvalWrapper(eval_wrapper):  # pyre-ignore[11]
         """
         A wrapper class for GPTFast, providing integration with the lm-evaluation-harness library.
@@ -112,8 +118,10 @@ if lm_eval_available:
         ):
             super().__init__()
             self._model = model
+
             self._tokenizer = tokenizer
             self._device = torch.device("cuda")
+
             self._max_seq_length = 2048 if max_seq_length is None else max_seq_length
 
         @property
@@ -137,7 +145,9 @@ if lm_eval_available:
             return self._device
 
         def tok_encode(self, string: str, **kwargs):
-            encoded = encode_tokens(self._tokenizer, string, bos=True, device=self._device)
+            encoded = encode_tokens(
+                self._tokenizer, string, bos=True, device=self._device
+            )
             # encoded is a pytorch tensor, but some internal logic in the
             # eval harness expects it to be a list instead
             # TODO: verify this for multi-batch as well
@@ -169,7 +179,6 @@ if lm_eval_available:
         def _model_generate(self, context, max_length, eos_token_id):
             raise Exception("unimplemented")
 
-
     class InputRecorder(GPTFastEvalWrapper):
         """
         This is a fake evaluation wrapper that just records the inputs
@@ -192,11 +201,16 @@ if lm_eval_available:
         ):
             super().__init__(model, tokenizer, calibration_seq_length)
             self._model = model
+
             self._tokenizer = tokenizer
             self._device = torch.device("cpu")
+
             self.vocab_size = model.vocab_size
+
             self.calibration_seq_length = calibration_seq_length
+
             self.pad_calibration_inputs = pad_calibration_inputs
+
             self.inputs = None
 
             if self.pad_calibration_inputs:
@@ -264,7 +278,9 @@ if lm_eval_available:
 
 
 class MultiInput:
+
     def __init__(self, inputs):
+
         self.values = list(inputs)
 
     def add_input(self, input):
@@ -294,8 +310,14 @@ class GenericGPTQRunner(fx.Interpreter):
     """
 
     def __init__(
-        self, model, inputs: MultiInput, blocksize=128, percdamp=0.01, groupsize=128
+        self,
+        model,
+        inputs: MultiInput,
+        blocksize=128,
+        percdamp=0.01,
+        groupsize=128,
     ):
+
         self.id_to_name = {
             id(value): name for name, value in dict(model.named_parameters()).items()
         }
@@ -306,9 +328,13 @@ class GenericGPTQRunner(fx.Interpreter):
             model, aten_graph=True, pre_dispatch=True, tracing_mode="fake"
         )(*one_input)
         super().__init__(exported_model.graph_module)
+
         self.new_state_dict = model.state_dict()
+
         self.blocksize = blocksize
+
         self.percdamp = percdamp
+
         self.groupsize = groupsize
         self.inputs = inputs
         self.gptq_done = False
@@ -324,6 +350,7 @@ class GenericGPTQRunner(fx.Interpreter):
         skip_layer_func,
     ):
         # these functions need to already be curried with all inputs other than weight, qparams
+
         self.get_qparams_func = (
             get_qparams_func  # accepts [2d weight tensor], outputs qparams.
         )
@@ -334,12 +361,14 @@ class GenericGPTQRunner(fx.Interpreter):
         # accepts [quantized] tensor and [qparams], outputs a 2d dequantized tensor of type float,
         # assumes this output .to(w_orig_dtype) is ~eventual desired dequant behavior
 
+        #  `combine_qparams_list_func`.
         self.combine_qparams_list_func = combine_qparams_list_func
         # accepts [`list` of qparams] from quantizing one group at a time,
         # outputs a qparams object that could be passed into quant/dequantize_func
 
         self.skip_layer_func = skip_layer_func  # accepts [weight tensor], outputs a bool on whether or not to apply gptq to this layer
 
+        #  `make_names_and_values_dict_func`.
         self.make_names_and_values_dict_func = make_names_and_values_dict_func  # accepts [2d quantized tensor], [qparams], returns a dict of names, values to put in state_dict
         # note any final packing for storage should happen here
         return self
@@ -366,6 +395,7 @@ class GenericGPTQRunner(fx.Interpreter):
         return quantized_state_dict
 
     def call_function(self, target, args, kwargs, skip_quant=False):  # noqa: C901
+
         def tensors_to_cuda(args):
             new_args = []
             for x in args:
@@ -440,9 +470,13 @@ class GenericGPTQRunner(fx.Interpreter):
 
         if quantize_linear:
             mod_fqn = ".".join(self.id_to_name[id(args[1])].split(".")[:-1])
+
             W = args[1].to(H.device)
+
             Q, DQ, qparams = self.faster_quant(H, W.detach())
             print(mod_fqn)
+
+            #  `make_names_and_values_dict_func`.
             names_and_values_dict = self.make_names_and_values_dict_func(Q, qparams)
 
             # delete old weight
@@ -469,6 +503,7 @@ class GenericGPTQRunner(fx.Interpreter):
                         torch.linalg.norm(x) / torch.linalg.norm(x - y)
                     )
 
+                #  `dequantize_func`.
                 DQ_after = self.dequantize_func(Q, qparams).to(W.dtype)
                 print(
                     "SQNR for QDQ (this should be inf)", SQNR(DQ, DQ_after)
@@ -487,7 +522,9 @@ class GenericGPTQRunner(fx.Interpreter):
                     ).mean(),
                 )
 
+                #  `get_qparams_func`.
                 qparams2 = self.get_qparams_func(W)
+
                 Q2 = self.quantize_func(W, qparams2)
                 DQ2 = self.dequantize_func(Q2, qparams2).to(W.dtype)
                 old_q_out = self.call_function(
@@ -517,6 +554,7 @@ class GenericGPTQRunner(fx.Interpreter):
         device = W.device
 
         if groupsize == -1:
+
             cur_qparams = self.get_qparams_func(W)
         dead = torch.diag(H) == 0
         H[dead, dead] = 1
@@ -553,6 +591,9 @@ class GenericGPTQRunner(fx.Interpreter):
                     all_qparams.append(cur_qparams)
 
                 q = self.quantize_func(w.unsqueeze(1), cur_qparams).flatten()
+
+                #  `dequantize_func`.
+
                 dq = self.dequantize_func(q.unsqueeze(1), cur_qparams).flatten()
 
                 DQ1[:, i] = dq
@@ -572,10 +613,13 @@ class GenericGPTQRunner(fx.Interpreter):
         torch.cuda.synchronize()
 
         if all_qparams == []:
+
             all_qparams.append(cur_qparams)
 
         # convert a list of qparams objects into a single one. enerally by
         # concatenating a bunch of n,1 scale/zeros tensors into a n,num_groups tensor
+
+        #  `combine_qparams_list_func`.
         all_qparams = self.combine_qparams_list_func(all_qparams)
         Q = self.quantize_func(DQ, all_qparams)
         return Q, DQ.to(orig_dtype), all_qparams

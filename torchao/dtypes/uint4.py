@@ -1,14 +1,17 @@
 import torch
 import torch._prims_common as utils
 import torch.utils._pytree as pytree
-from torch.library import Library, impl
+from torch.library import impl, Library
+
 
 def down_size(size):
     assert size[-1] % 2 == 0, f"{size} last dim not divisible by two"
     return (*size[:-1], size[-1] // 2)
 
+
 def up_size(size):
     return (*size[:-1], size[-1] * 2)
+
 
 def fill_defaults(args, n, defaults_tail):
     """
@@ -34,8 +37,11 @@ def fill_defaults(args, n, defaults_tail):
         r.append(defaults_tail[i - n + len(defaults_tail)])
     return r
 
+
 # from
 # https://github.com/drisspg/transformer_nuggets/blob/9ad3a7fc552a954eb702ade0e276b8d8e09c3db6/transformer_nuggets/quant/qlora.py#L233
+
+
 def unpack_uint4(uint8_data) -> torch.Tensor:
     """Get the original weight from the normalized float weight format"""
     # since we are using uint8 we will decode 2 entries per byte
@@ -45,6 +51,7 @@ def unpack_uint4(uint8_data) -> torch.Tensor:
     second_elements = (uint8_data & 0b1111).to(torch.uint8)
     return torch.stack([first_elements, second_elements], dim=-1).view(up_size(shape))
 
+
 def pack_uint4(uint8_data) -> torch.Tensor:
     # converting to uint8 for operations
     shape = uint8_data.shape
@@ -52,8 +59,12 @@ def pack_uint4(uint8_data) -> torch.Tensor:
     uint8_data = uint8_data.contiguous().view(-1)
     return (uint8_data[::2] << 4 | uint8_data[1::2]).view(down_size(shape))
 
+
 qtensor_lib = Library("qtensors", "DEF")
-qtensor_lib.define("quantize_per_tensor_uint4(Tensor input, float scale, int zero_point) -> Tensor")
+qtensor_lib.define(
+    "quantize_per_tensor_uint4(Tensor input, float scale, int zero_point) -> Tensor"
+)
+
 
 @impl(qtensor_lib, "quantize_per_tensor_uint4", "CompositeExplicitAutograd")
 def quantize_per_tensor_uint4(
@@ -62,9 +73,16 @@ def quantize_per_tensor_uint4(
     zero_point: int,
 ) -> torch.Tensor:
     inv_scale = 1.0 / scale
-    return pack_uint4(torch.clamp(torch.round(input * inv_scale) + zero_point, 0, 15).to(torch.uint8))
+    return pack_uint4(
+        torch.clamp(torch.round(input * inv_scale) + zero_point, 0, 15).to(torch.uint8)
+    )
 
-qtensor_lib.define("dequantize_per_tensor_uint4(Tensor input, float scale, int zero_point) -> Tensor")
+
+qtensor_lib.define(
+    "dequantize_per_tensor_uint4(Tensor input, float scale, int zero_point) -> Tensor"
+)
+
+
 @impl(qtensor_lib, "dequantize_per_tensor_uint4", "CompositeExplicitAutograd")
 def dequantize_per_tensor_uint4(
     input: torch.Tensor,
@@ -74,15 +92,20 @@ def dequantize_per_tensor_uint4(
     input = unpack_uint4(input)
     return (input.view(torch.uint8).to(torch.float32) - zero_point) * scale
 
+
 class UInt4Tensor(torch.Tensor):
     @staticmethod
     def __new__(cls, elem, **kwargs):
         assert elem.dtype is torch.uint8
         assert not kwargs.get("requires_grad", False)
         kwargs["requires_grad"] = False
-        return torch.Tensor._make_wrapper_subclass(cls, up_size(elem.shape), dtype=torch.uint4, **kwargs)
+
+        return torch.Tensor._make_wrapper_subclass(
+            cls, up_size(elem.shape), dtype=torch.uint4, **kwargs
+        )
 
     def __init__(self, elem, **kwargs):
+
         self.elem = elem
 
     @classmethod
@@ -126,13 +149,17 @@ class UInt4Tensor(torch.Tensor):
                 return unpack_uint4(self.elem).view(torch.uint8)
             return NotImplementedError(f"to {args}")
         elif func is torch.ops.aten.eq.Tensor:
-            args = pytree.tree_map_only(UInt4Tensor, lambda x: x.elem.view(torch.uint8), args)
-            kwargs = pytree.tree_map_only(UInt4Tensor, lambda x: x.elem.view(torch.uint8), kwargs)
+            args = pytree.tree_map_only(
+                UInt4Tensor, lambda x: x.elem.view(torch.uint8), args
+            )
+            kwargs = pytree.tree_map_only(
+                UInt4Tensor, lambda x: x.elem.view(torch.uint8), kwargs
+            )
             return torch.ops.aten.eq.Tensor(*args, **kwargs)
         elif func is torch.ops.aten._to_copy.default:
-            self, = args
-            if kwargs == {'dtype': torch.uint8}:
-                return unpack_uint4(self.elem).view(self.shape) # no wrap
+            (self,) = args
+            if kwargs == {"dtype": torch.uint8}:
+                return unpack_uint4(self.elem).view(self.shape)  # no wrap
             else:
                 raise NotImplementedError(f"_to_copy {kwargs}")
         elif func is torch.ops.aten.unbind.int:
@@ -146,7 +173,9 @@ class UInt4Tensor(torch.Tensor):
                 raise NotImplementedError(f"unbind dim={dim}")
             else:
                 # We're unbinding the last dimension, need to promote
-                return torch.ops.aten._to_copy.default(self, dtype=torch.uint8).unbind(dim)
+                return torch.ops.aten._to_copy.default(self, dtype=torch.uint8).unbind(
+                    dim
+                )
         elif func is torch.ops.aten.select.int:
             self, dim, index = args
             if dim != self.dim() - 1:
@@ -161,13 +190,17 @@ class UInt4Tensor(torch.Tensor):
                     raise NotImplementedError(f"slice step={step}")
                 assert start % 2 == 0, start
                 assert end >= self.shape[dim] or end % 2 == 0, end
-                return UInt4Tensor(torch.ops.aten.slice.Tensor(self.elem, dim, start // 2, end // 2, 1))
+                return UInt4Tensor(
+                    torch.ops.aten.slice.Tensor(self.elem, dim, start // 2, end // 2, 1)
+                )
             else:
                 # easy case
-                return UInt4Tensor(torch.ops.aten.slice.Tensor(self.elem, dim, start, end, step))
+                return UInt4Tensor(
+                    torch.ops.aten.slice.Tensor(self.elem, dim, start, end, step)
+                )
         elif func is torch.ops.aten.t.default:
             # assert False, "transpose is not properly implemented currently"
-            self, = args
+            (self,) = args
             unpacked = unpack_uint4(self.elem)
             transposed = torch.ops.aten.t.default(unpacked)
             transposed_and_packed = pack_uint4(transposed)
@@ -193,7 +226,11 @@ class UInt4Tensor(torch.Tensor):
             stride = new_stride
 
             storage_offset //= 2
-            return UInt4Tensor(torch.ops.aten.as_strided.default(self.elem, size, stride, storage_offset))
+            return UInt4Tensor(
+                torch.ops.aten.as_strided.default(
+                    self.elem, size, stride, storage_offset
+                )
+            )
 
         raise NotImplementedError(f"{func}")
 
@@ -232,13 +269,17 @@ def _dynamically_quantize_per_channel_int4(x, quant_min, quant_max, target_dtype
     x_zp = x_round + zero_point
     x_zp = x_zp.transpose(0, 1)
     quant = torch.clamp(x_zp, quant_min, quant_max)
+
     if target_dtype == torch.uint4:
         # TODO: simplify (maybe implement to)
-        quant = PerChannelSymmetricWeightUInt4Tensor.from_unpacked(quant.to(torch.uint8), scale)
+        quant = PerChannelSymmetricWeightUInt4Tensor.from_unpacked(
+            quant.to(torch.uint8), scale
+        )
     else:
         quant = quant.to(target_dtype)
 
     return quant, scale, zero_point
+
 
 class PerChannelSymmetricWeightUInt4Tensor(UInt4Tensor):
     @staticmethod
@@ -247,8 +288,8 @@ class PerChannelSymmetricWeightUInt4Tensor(UInt4Tensor):
 
     def __init__(self, elem, scales, **kwargs):
         super().__init__(elem, **kwargs)
-        self.scales = scales
 
+        self.scales = scales
 
     def __tensor_flatten__(self):
         return ["elem", "scales"], None
@@ -261,6 +302,9 @@ class PerChannelSymmetricWeightUInt4Tensor(UInt4Tensor):
         return PerChannelSymmetricWeightUInt4Tensor(elem, scales)
 
     @classmethod
+
+    #  inconsistently.
+
     def from_unpacked(cls, unpacked, scales):
         return cls(pack_uint4(unpacked), scales)
 
@@ -276,12 +320,14 @@ class PerChannelSymmetricWeightUInt4Tensor(UInt4Tensor):
             return y
         elif func is torch.ops.aten.t.default:
             # TODO: add proper support for transpose
-            self, = args
+            (self,) = args
             unpacked = unpack_uint4(self.elem)
             transposed = torch.ops.aten.t.default(unpacked)
-            return PerChannelSymmetricWeightUInt4Tensor.from_unpacked(transposed, self.scales)
+            return PerChannelSymmetricWeightUInt4Tensor.from_unpacked(
+                transposed, self.scales
+            )
         elif func is torch.ops.aten.detach.default:
-            self, = args
+            (self,) = args
             return self
         return super().__torch_dispatch__(func, types, args, kwargs)
 

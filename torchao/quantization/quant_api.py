@@ -15,26 +15,26 @@ come along with it and because that is how we access the intended quantized
 and mixed GEMM kernels
 """
 
+import logging
+from typing import Any, Dict, Tuple
+
 import torch
-import torch.nn.functional as F
 import torch.nn as nn
-from .dynamic_quant import (
-    DynamicallyPerAxisQuantizedLinear,
-)
-from .subclass import (
-    QuantizedLinearWeightBase,
-    Int8DynamicallyQuantizedLinearWeight,
-    Int8WeightOnlyQuantizedLinearWeight,
-    Int4WeightOnlyQuantizedLinearWeight,
-)
-from .weight_only import (
-    WeightOnlyInt8QuantLinear,
-)
+import torch.nn.functional as F
+
+from .dynamic_quant import DynamicallyPerAxisQuantizedLinear
 from .quant_primitives import (
     get_group_qparams_symmetric,
+    group_quantize_tensor_symmetric,
     per_token_dynamic_quant,
 )
-from typing import Dict, Tuple
+from .subclass import (
+    Int4WeightOnlyQuantizedLinearWeight,
+    Int8DynamicallyQuantizedLinearWeight,
+    Int8WeightOnlyQuantizedLinearWeight,
+    QuantizedLinearWeightBase,
+)
+from .weight_only import WeightOnlyInt8QuantLinear
 
 __all__ = [
     "apply_weight_only_int8_quant",
@@ -47,25 +47,40 @@ __all__ = [
     "TwoStepQuantizer",
 ]
 
+
 ############################# Unified Quantization APIs ##############################
 # API 1, single quantize call to create a quantized model with quantized state_dict
 class Quantizer:
-    def quantize(self, model: torch.nn.Module, *args, **kwargs) -> torch.nn.Module:
+    def quantize(
+        self, model: torch.nn.Module, *args: Any, **kwargs: Any
+    ) -> torch.nn.Module:
+
         pass
 
 
 # API 2, flow that needs calibration or training
 class TwoStepQuantizer:
-    def prepare(self, model: torch.nn.Module, *args, **kwargs) -> torch.nn.Module:
+    def prepare(
+        self, model: torch.nn.Module, *args: Any, **kwargs: Any
+    ) -> torch.nn.Module:
+
         pass
 
-    def convert(self, model: torch.nn.Module, *args, **kwargs) -> torch.nn.Module:
+    def convert(
+        self, model: torch.nn.Module, *args: Any, **kwargs: Any
+    ) -> torch.nn.Module:
+
         pass
+
 
 ############################# Unified Quantization APIs ##############################
 
+
 def _replace_with_custom_fn_if_matches_filter(
-    model, replacement_fn, filter_fn, cur_fqn=""
+    model,
+    replacement_fn,
+    filter_fn,
+    cur_fqn="",
 ) -> None:
     """
     For each `child` in `model`, replaces it with `replacement_fn(child)`
@@ -86,13 +101,15 @@ def _replace_with_custom_fn_if_matches_filter(
 
 def _is_linear(mod, *args):
     return (
-        isinstance(mod, torch.nn.Linear) and
-        hasattr(mod, "weight") and
-        not isinstance(mod.weight, QuantizedLinearWeightBase)
+        isinstance(mod, torch.nn.Linear)
+        and hasattr(mod, "weight")
+        and not isinstance(mod.weight, QuantizedLinearWeightBase)
     )
+
 
 def _in_features_greater_than_16(mod, *args):
     return hasattr(mod, "in_features") and mod.in_features > 16
+
 
 def apply_weight_only_int8_quant(model, filter_fn=None):
     """
@@ -120,6 +137,7 @@ def apply_dynamic_quant(model, filter_fn=None):
 
 
 def _get_subclass_inserter(cls, **kwargs):
+
     def insert_subclass(lin):
         lin.weight = torch.nn.Parameter(
             cls.from_float(lin.weight, **kwargs), requires_grad=False
@@ -136,16 +154,12 @@ def change_linear_weights_to_int8_dqtensors(model, filter_fn=None):
     as apply_dynamic_quant while not modifying the linear modules.
     """
     if filter_fn is None:
-        filter_fn = (
-            lambda *args:
-            _is_linear(*args) and
-            _in_features_greater_than_16(*args)
+        filter_fn = lambda *args: _is_linear(*args) and _in_features_greater_than_16(
+            *args
         )
 
     _replace_with_custom_fn_if_matches_filter(
-        model,
-        _get_subclass_inserter(Int8DynamicallyQuantizedLinearWeight),
-        filter_fn
+        model, _get_subclass_inserter(Int8DynamicallyQuantizedLinearWeight), filter_fn
     )
 
 
@@ -178,40 +192,43 @@ def change_linear_weights_to_int4_woqtensors(model, **kwargs):
         filter_fn,
     )
 
+
 def swap_conv2d_1x1_to_linear(model, filter_fn=None):
     """
     Changes all conv2d 1x1 modules to equivalent linear modules so that they can then be quantized.
     """
+
     class PermuteSandwich(torch.nn.Module):
         def __init__(self, mod):
             super().__init__()
             self.mod = mod
 
         def forward(self, *args):
-            return self.mod(args[0].permute(0, 2, 3, 1)).permute(-0,3,1,2)
-
+            return self.mod(args[0].permute(0, 2, 3, 1)).permute(-0, 3, 1, 2)
 
     def replace_conv2d_1x1(conv):
         assert conv.kernel_size == (1, 1)
-        lin = torch.nn.Linear(conv.in_channels, conv.out_channels, bias=(conv.bias is None))
-        lin.weight=torch.nn.Parameter(conv.weight.squeeze(-1,-2))
+        lin = torch.nn.Linear(
+            conv.in_channels, conv.out_channels, bias=(conv.bias is None)
+        )
+        lin.weight = torch.nn.Parameter(conv.weight.squeeze(-1, -2))
         lin.bias = conv.bias
         return PermuteSandwich(lin)
 
     if filter_fn is None:
-        filter_fn=lambda mod, *args: isinstance(mod, torch.nn.Conv2d) and mod.kernel_size==(1,1)
+        filter_fn = lambda mod, *args: isinstance(
+            mod, torch.nn.Conv2d
+        ) and mod.kernel_size == (1, 1)
 
     _replace_with_custom_fn_if_matches_filter(
-        model,
-        replace_conv2d_1x1,
-        filter_fn=filter_fn
+        model, replace_conv2d_1x1, filter_fn=filter_fn
     )
 
 
 from .GPTQ import lm_eval_available
 
 if lm_eval_available:
-    from .GPTQ import (  # pyre-ignore[21]
+    from .GPTQ import (
         evaluate,
         GenericGPTQRunner,
         get_task_dict,
@@ -220,7 +237,7 @@ if lm_eval_available:
         MultiInput,
     )
 else:
-    print("lm_eval not available, skip defining GPTQQuantizer")
+    logging.info("lm_eval not available, skip defining GPTQQuantizer")
 
 
 class GPTQQuantizer(Quantizer):
@@ -287,10 +304,16 @@ class GPTQQuantizer(Quantizer):
     """
 
     def __init__(self):
+
         assert self.get_qparams_func is not None
+
         assert self.quantize_func is not None
+
         assert self.dequantize_func is not None
+
         assert self.combine_qparams_list_func is not None
+
+        #  `make_names_and_values_dict_func`.
         assert self.make_names_and_values_dict_func is not None
 
     @staticmethod
@@ -301,7 +324,7 @@ class GPTQQuantizer(Quantizer):
         calibration_limit,
         calibration_seq_length,
         pad_calibration_inputs,
-    ) -> "MultiInput":  # pyre-ignore[11]
+    ) -> "MultiInput":
         input_recorder = InputRecorder(
             model,
             tokenizer,
@@ -310,9 +333,11 @@ class GPTQQuantizer(Quantizer):
         )
 
         try:
+
             lm_eval.tasks.initialize_tasks()
         except:
             pass
+
         task_dict = get_task_dict(calibration_tasks)
         print("Obtaining GPTQ calibration inputs on: ", calibration_tasks)
 
@@ -342,6 +367,7 @@ class GPTQQuantizer(Quantizer):
         calibration_limit,
         calibration_seq_length,
         pad_calibration_inputs,
+        #  `typing.Dict[<key type>, <value type>]` to avoid runtime subscripting errors.
     ) -> Dict:
         inputs = GPTQQuantizer.get_inputs(
             model,
@@ -374,10 +400,7 @@ class GPTQQuantizer(Quantizer):
         raise NotImplementedError("_convert_for_runtime not implemented")
 
     @torch.no_grad()
-    def quantize(
-        self,
-        model,
-    ) -> torch.nn.Module:
+    def quantize(self, model: torch.nn.Module, **kwargs: Any) -> torch.nn.Module:
         state_dict = self._create_quantized_state_dict(
             model,
             self.tokenizer,
@@ -395,7 +418,13 @@ class GPTQQuantizer(Quantizer):
 
 
 def linear_forward_8da4w(
-    x, weight_int8, scales, zeros, out_features, group_size, precision
+    x,
+    weight_int8,
+    scales,
+    zeros,
+    out_features,
+    group_size,
+    precision,
 ):
     x = per_token_dynamic_quant(x)
     # TODO: verify and remove following reshape code
@@ -509,8 +538,8 @@ class Int8DynActInt4WeightLinear(torch.nn.Module):
         )
 
 
-from math import gcd
 from functools import reduce
+from math import gcd
 
 
 def find_multiple(n: int, *args: Tuple[int]) -> int:
@@ -584,7 +613,97 @@ def replace_linear_8da4w(
             )
 
 
+class Int8DynActInt4WeightQuantizer(Quantizer):
+    def __init__(
+        self,
+        group_size: int = 256,
+        padding_allowed: bool = False,
+        precision: torch.dtype = torch.float32,
+        scales_precision: torch.dtype = torch.float32,
+    ) -> None:
+        self.group_size: int = group_size
+        self.padding_allowed: bool = padding_allowed
+        self.precision: torch.dtype = precision
+        self.scales_precision: torch.dtype = scales_precision
+        # assert group_size in [32, 64, 128, 256]
+
+    @torch.no_grad()
+    def _create_quantized_state_dict(
+        self, model: torch.nn.Module
+    ) -> Dict[str, torch.Tensor]:
+        cur_state_dict = model.state_dict()
+        for fqn, mod in model.named_modules():
+            if isinstance(mod, torch.nn.Linear):
+                assert not mod.bias
+                out_features = mod.out_features
+                in_features = mod.in_features
+                # assert out_features % 8 == 0, "require out_features % 8 == 0"
+                print(f"linear: {fqn}, in={in_features}, out={out_features}")
+
+                assert (
+                    in_features % self.group_size == 0
+                ), f"require in_features:{in_features} % self.group_size:{self.group_size} == 0"
+
+                weight = mod.weight.data
+                """
+                if not _check_linear_int4_k(
+                    in_features, self.group_size
+                ):
+                    if self.padding_allowed:
+                        print(
+                            f"warning: {fqn} is padded to satisfy in_features % 1024 == 0"
+                        )
+                        padded_in_features = _calc_padded_size_linear_int4(
+                            in_features, self.group_size
+                        )
+                        weight = F.pad(
+                            weight, pad=(0, padded_in_features - in_features)
+                        )
+                    else:
+                        raise RuntimeError(
+                            f"warning: {fqn} is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, "
+                            + "and that group_size"
+                        )
+                """
+                (
+                    weight_int8,
+                    scales,
+                    zeros,
+                ) = group_quantize_tensor_symmetric(
+                    weight.to(self.precision),
+                    4,  # n_bit
+                    self.group_size,
+                    self.scales_precision,
+                )
+                cur_state_dict[f"{fqn}.weight"] = weight_int8.to("cpu")
+                cur_state_dict[f"{fqn}.scales"] = scales.to("cpu")
+                cur_state_dict[f"{fqn}.zeros"] = zeros.to("cpu")
+                # TODO: support bias?
+
+        return cur_state_dict
+
+    def _convert_for_runtime(self, model: torch.nn.Module) -> torch.nn.Module:
+        replace_linear_8da4w(
+            model,
+            self.group_size,
+            self.padding_allowed,
+            self.precision,
+            self.scales_precision,
+        )
+        return model
+
+    def quantize(
+        self, model: torch.nn.Module, *args: Any, **kwargs: Any
+    ) -> torch.nn.Module:
+        state_dict = self._create_quantized_state_dict(model)
+        model = self._convert_for_runtime(model)
+        # TODO: make it strict
+        model.load_state_dict(state_dict, strict=False)
+        return model
+
+
 class Int8DynActInt4WeightGPTQQuantizer(GPTQQuantizer):
+
     def __init__(
         self,
         tokenizer,
@@ -601,26 +720,40 @@ class Int8DynActInt4WeightGPTQQuantizer(GPTQQuantizer):
     ):
 
         self.tokenizer = tokenizer
+
         self.blocksize = blocksize
+
         self.percdamp = percdamp
+
         self.groupsize = groupsize
+
         self.calibration_tasks = calibration_tasks
+
         self.calibration_limit = calibration_limit
+
         self.calibration_seq_length = calibration_seq_length
+
         self.pad_calibration_inputs = pad_calibration_inputs
+
         self.inner_k_tiles = inner_k_tiles
+
         self.padding_allowed = padding_allowed
+
         self.precision = precision
+
         self.dyn_quant_func = lambda x: per_token_dynamic_quant(x)
         n_bit = 4
+
         self.get_qparams_func = lambda w: get_group_qparams_symmetric(
             w, n_bit, groupsize, self.precision
         )
         quant_min = -(2 ** (n_bit - 1))
         quant_max = 2 ** (n_bit - 1) - 1
+
         self.quantize_func = lambda w, qparams: torch.ops.quantized_decomposed.quantize_per_channel_group(
             w, qparams[0], qparams[1], quant_min, quant_max, torch.int8, groupsize
         )
+
         self.dequantize_func = lambda q, qparams: torch.ops.quantized_decomposed.dequantize_per_channel_group(
             q,
             qparams[0],
@@ -631,16 +764,18 @@ class Int8DynActInt4WeightGPTQQuantizer(GPTQQuantizer):
             groupsize,
             self.precision,
         )
+
         self.combine_qparams_list_func = lambda qparams_list: [
             torch.cat(x, dim=1) for x in zip(*qparams_list)
         ]
         # skip unless padding_allowed=True or its correctly sized
+
         self.skip_layer_func = lambda linear_weight: not (
-            _check_linear_int4_k(linear_weight.shape[-1], groupsize)
-            or padding_allowed
+            _check_linear_int4_k(linear_weight.shape[-1], groupsize) or padding_allowed
         )
 
         # we need to do the padding here, both for q and the qparams if necessary
+
         def make_names_and_values_dict_func(q, qparams):
             k = q.shape[1]
             new_k = _calc_padded_size_linear_int4(k, groupsize)

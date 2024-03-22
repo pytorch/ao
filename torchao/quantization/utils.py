@@ -23,6 +23,8 @@ def find_multiple(n: int, k: int) -> int:
 
 
 # basic SQNR
+
+
 def compute_error(x, y):
     Ps = torch.linalg.norm(x)
     Pn = torch.linalg.norm(x - y)
@@ -35,6 +37,7 @@ _cur_fqn: Optional[str] = None
 
 
 def _get_logging_hook(fqn):
+
     def forward_hook(module, input):
         global _cur_fqn
         _cur_fqn = fqn
@@ -54,6 +57,7 @@ _fqn_to_op_to_shape_to_count: Dict[
 
 
 class LoggingTensorMode(TorchDispatchMode):
+
     def __torch_dispatch__(self, func, types, args=(), kwargs=None):
         if kwargs is None:
             kwargs = {}
@@ -79,6 +83,8 @@ class LoggingTensorMode(TorchDispatchMode):
 
 
 # https://discuss.pytorch.org/t/finding-model-size/130275
+
+
 def get_model_size_in_bytes(model):
     s = 0
     for p in model.parameters():
