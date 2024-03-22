@@ -8,11 +8,7 @@ model = models.vit_b_16(pretrained=True)
 model.eval().cuda().to(torch.bfloat16)
 
 # Input tensor (batch_size, channels, height, width)
-<<<<<<< HEAD
-input_tensor = torch.randn(1024, 3, 224, 224, dtype=torch.bfloat16, device='cuda')
-=======
 input_tensor = torch.randn(1, 3, 224, 224, dtype=torch.bfloat16, device='cuda')
->>>>>>> 645d654a5f2cad81d7d78de979a0f1190d670e38
 
 model = torch.compile(model, mode='max-autotune')
 
