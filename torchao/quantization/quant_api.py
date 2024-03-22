@@ -16,30 +16,25 @@ and mixed GEMM kernels
 """
 
 import logging
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from .dynamic_quant import DynamicallyPerAxisQuantizedLinear
-from .quant_primitives import get_group_qparams_symmetric, per_token_dynamic_quant
+from .quant_primitives import (
+    get_group_qparams_symmetric,
+    group_quantize_tensor_symmetric,
+    per_token_dynamic_quant,
+)
 from .subclass import (
     Int4WeightOnlyQuantizedLinearWeight,
     Int8DynamicallyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
     QuantizedLinearWeightBase,
 )
-from .weight_only import (
-    WeightOnlyInt8QuantLinear,
-)
-from .quant_primitives import (
-    get_group_qparams_symmetric,
-    per_token_dynamic_quant,
-    group_quantize_tensor_symmetric,
-)
-from typing import Dict, Tuple, Any
-import logging
+from .weight_only import WeightOnlyInt8QuantLinear
 
 __all__ = [
     "apply_weight_only_int8_quant",
@@ -56,19 +51,25 @@ __all__ = [
 ############################# Unified Quantization APIs ##############################
 # API 1, single quantize call to create a quantized model with quantized state_dict
 class Quantizer:
-    def quantize(self, model: torch.nn.Module, *args: Any, **kwargs: Any) -> torch.nn.Module:
-        # pyre-fixme[7]: Expected `Module` but got implicit return value of `None`.
+    def quantize(
+        self, model: torch.nn.Module, *args: Any, **kwargs: Any
+    ) -> torch.nn.Module:
+
         pass
 
 
 # API 2, flow that needs calibration or training
 class TwoStepQuantizer:
-    def prepare(self, model: torch.nn.Module, *args: Any, **kwargs: Any) -> torch.nn.Module:
-        # pyre-fixme[7]: Expected `Module` but got implicit return value of `None`.
+    def prepare(
+        self, model: torch.nn.Module, *args: Any, **kwargs: Any
+    ) -> torch.nn.Module:
+
         pass
 
-    def convert(self, model: torch.nn.Module, *args: Any, **kwargs: Any) -> torch.nn.Module:
-        # pyre-fixme[7]: Expected `Module` but got implicit return value of `None`.
+    def convert(
+        self, model: torch.nn.Module, *args: Any, **kwargs: Any
+    ) -> torch.nn.Module:
+
         pass
 
 
@@ -76,7 +77,6 @@ class TwoStepQuantizer:
 
 
 def _replace_with_custom_fn_if_matches_filter(
-    # pyre-fixme[2]: Parameter must be annotated.
     model,
     replacement_fn,
     filter_fn,
@@ -99,8 +99,6 @@ def _replace_with_custom_fn_if_matches_filter(
         return model
 
 
-# pyre-fixme[3]: Return type must be annotated.
-# pyre-fixme[2]: Parameter must be annotated.
 def _is_linear(mod, *args):
     return (
         isinstance(mod, torch.nn.Linear)
@@ -109,14 +107,10 @@ def _is_linear(mod, *args):
     )
 
 
-# pyre-fixme[3]: Return type must be annotated.
-# pyre-fixme[2]: Parameter must be annotated.
 def _in_features_greater_than_16(mod, *args):
     return hasattr(mod, "in_features") and mod.in_features > 16
 
 
-# pyre-fixme[3]: Return type must be annotated.
-# pyre-fixme[2]: Parameter must be annotated.
 def apply_weight_only_int8_quant(model, filter_fn=None):
     """
     Applies weight-only symmetric per-channel int8 quantization to all linear layers
@@ -129,8 +123,6 @@ def apply_weight_only_int8_quant(model, filter_fn=None):
     )
 
 
-# pyre-fixme[3]: Return type must be annotated.
-# pyre-fixme[2]: Parameter must be annotated.
 def apply_dynamic_quant(model, filter_fn=None):
     """
     Applies dynamic symmetric per-token activation and per-channel weight
@@ -144,12 +136,8 @@ def apply_dynamic_quant(model, filter_fn=None):
     )
 
 
-# pyre-fixme[3]: Return type must be annotated.
-# pyre-fixme[2]: Parameter must be annotated.
 def _get_subclass_inserter(cls, **kwargs):
-    # pyre-fixme[53]: Captured variable `cls` is not annotated.
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
+
     def insert_subclass(lin):
         lin.weight = torch.nn.Parameter(
             cls.from_float(lin.weight, **kwargs), requires_grad=False
@@ -159,8 +147,6 @@ def _get_subclass_inserter(cls, **kwargs):
     return insert_subclass
 
 
-# pyre-fixme[3]: Return type must be annotated.
-# pyre-fixme[2]: Parameter must be annotated.
 def change_linear_weights_to_int8_dqtensors(model, filter_fn=None):
     """
     Converts all linear weight tensors to the `Int8DynamicallyQuantizedLinearWeight`
@@ -177,8 +163,6 @@ def change_linear_weights_to_int8_dqtensors(model, filter_fn=None):
     )
 
 
-# pyre-fixme[3]: Return type must be annotated.
-# pyre-fixme[2]: Parameter must be annotated.
 def change_linear_weights_to_int8_woqtensors(model, filter_fn=None):
     """
     Converts all linear weight tensors to the
@@ -193,8 +177,6 @@ def change_linear_weights_to_int8_woqtensors(model, filter_fn=None):
     )
 
 
-# pyre-fixme[3]: Return type must be annotated.
-# pyre-fixme[2]: Parameter must be annotated.
 def change_linear_weights_to_int4_woqtensors(model, **kwargs):
     """
     Converts all linear weight tensors to the
@@ -211,8 +193,6 @@ def change_linear_weights_to_int4_woqtensors(model, **kwargs):
     )
 
 
-# pyre-fixme[3]: Return type must be annotated.
-# pyre-fixme[2]: Parameter must be annotated.
 def swap_conv2d_1x1_to_linear(model, filter_fn=None):
     """
     Changes all conv2d 1x1 modules to equivalent linear modules so that they can then be quantized.
@@ -226,8 +206,6 @@ def swap_conv2d_1x1_to_linear(model, filter_fn=None):
         def forward(self, *args):
             return self.mod(args[0].permute(0, 2, 3, 1)).permute(-0, 3, 1, 2)
 
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def replace_conv2d_1x1(conv):
         assert conv.kernel_size == (1, 1)
         lin = torch.nn.Linear(
@@ -325,33 +303,26 @@ class GPTQQuantizer(Quantizer):
             corresponding quantized weights and qparams.
     """
 
-    # pyre-fixme[3]: Return type must be annotated.
     def __init__(self):
-        # pyre-fixme[16]: `GPTQQuantizer` has no attribute `get_qparams_func`.
+
         assert self.get_qparams_func is not None
-        # pyre-fixme[16]: `GPTQQuantizer` has no attribute `quantize_func`.
+
         assert self.quantize_func is not None
-        # pyre-fixme[16]: `GPTQQuantizer` has no attribute `dequantize_func`.
+
         assert self.dequantize_func is not None
-        # pyre-fixme[16]: `GPTQQuantizer` has no attribute `combine_qparams_list_func`.
+
         assert self.combine_qparams_list_func is not None
-        # pyre-fixme[16]: `GPTQQuantizer` has no attribute
+
         #  `make_names_and_values_dict_func`.
         assert self.make_names_and_values_dict_func is not None
 
     @staticmethod
     def get_inputs(
-        # pyre-fixme[2]: Parameter must be annotated.
         model,
-        # pyre-fixme[2]: Parameter must be annotated.
         tokenizer,
-        # pyre-fixme[2]: Parameter must be annotated.
         calibration_tasks,
-        # pyre-fixme[2]: Parameter must be annotated.
         calibration_limit,
-        # pyre-fixme[2]: Parameter must be annotated.
         calibration_seq_length,
-        # pyre-fixme[2]: Parameter must be annotated.
         pad_calibration_inputs,
     ) -> "MultiInput":
         input_recorder = InputRecorder(
@@ -362,15 +333,14 @@ class GPTQQuantizer(Quantizer):
         )
 
         try:
-            # pyre-fixme[16]: Module `GPTQ` has no attribute `lm_eval`.
+
             lm_eval.tasks.initialize_tasks()
         except:
             pass
-        # pyre-fixme[16]: Module `GPTQ` has no attribute `get_task_dict`.
+
         task_dict = get_task_dict(calibration_tasks)
         print("Obtaining GPTQ calibration inputs on: ", calibration_tasks)
 
-        # pyre-fixme[16]: Module `GPTQ` has no attribute `evaluate`.
         evaluate(
             input_recorder,
             task_dict,
@@ -388,25 +358,15 @@ class GPTQQuantizer(Quantizer):
     @torch.no_grad()
     def _create_quantized_state_dict(
         self,
-        # pyre-fixme[2]: Parameter must be annotated.
         model,
-        # pyre-fixme[2]: Parameter must be annotated.
         tokenizer,
-        # pyre-fixme[2]: Parameter must be annotated.
         blocksize,
-        # pyre-fixme[2]: Parameter must be annotated.
         percdamp,
-        # pyre-fixme[2]: Parameter must be annotated.
         groupsize,
-        # pyre-fixme[2]: Parameter must be annotated.
         calibration_tasks,
-        # pyre-fixme[2]: Parameter must be annotated.
         calibration_limit,
-        # pyre-fixme[2]: Parameter must be annotated.
         calibration_seq_length,
-        # pyre-fixme[2]: Parameter must be annotated.
         pad_calibration_inputs,
-        # pyre-fixme[24]: Generic type `dict` expects 2 type parameters, use
         #  `typing.Dict[<key type>, <value type>]` to avoid runtime subscripting errors.
     ) -> Dict:
         inputs = GPTQQuantizer.get_inputs(
@@ -440,25 +400,16 @@ class GPTQQuantizer(Quantizer):
         raise NotImplementedError("_convert_for_runtime not implemented")
 
     @torch.no_grad()
-    # pyre-fixme[14]: `quantize` overrides method defined in `Quantizer` inconsistently.
     def quantize(self, model: torch.nn.Module, **kwargs: Any) -> torch.nn.Module:
         state_dict = self._create_quantized_state_dict(
             model,
-            # pyre-fixme[16]: `GPTQQuantizer` has no attribute `tokenizer`.
             self.tokenizer,
-            # pyre-fixme[16]: `GPTQQuantizer` has no attribute `blocksize`.
             self.blocksize,
-            # pyre-fixme[16]: `GPTQQuantizer` has no attribute `percdamp`.
             self.percdamp,
-            # pyre-fixme[16]: `GPTQQuantizer` has no attribute `groupsize`.
             self.groupsize,
-            # pyre-fixme[16]: `GPTQQuantizer` has no attribute `calibration_tasks`.
             self.calibration_tasks,
-            # pyre-fixme[16]: `GPTQQuantizer` has no attribute `calibration_limit`.
             self.calibration_limit,
-            # pyre-fixme[16]: `GPTQQuantizer` has no attribute `calibration_seq_length`.
             self.calibration_seq_length,
-            # pyre-fixme[16]: `GPTQQuantizer` has no attribute `pad_calibration_inputs`.
             self.pad_calibration_inputs,
         )
         model = self._convert_for_runtime(model)
@@ -466,9 +417,7 @@ class GPTQQuantizer(Quantizer):
         return model
 
 
-# pyre-fixme[3]: Return type must be annotated.
 def linear_forward_8da4w(
-    # pyre-fixme[2]: Parameter must be annotated.
     x,
     weight_int8,
     scales,
@@ -528,11 +477,8 @@ class Int8DynActInt4WeightLinear(torch.nn.Module):
         self,
         in_features: int,
         out_features: int,
-        # pyre-fixme[2]: Parameter must be annotated.
         bias=True,
-        # pyre-fixme[2]: Parameter must be annotated.
         device=None,
-        # pyre-fixme[2]: Parameter must be annotated.
         dtype=None,
         group_size: int = 256,
         precision: torch.dtype = torch.float32,
@@ -604,20 +550,14 @@ def find_multiple(n: int, *args: Tuple[int]) -> int:
     return n + k - (n % k)
 
 
-# pyre-fixme[3]: Return type must be annotated.
-# pyre-fixme[2]: Parameter must be annotated.
 def _check_linear_int4_k(k, group_size=1):
     return k % group_size == 0
 
 
-# pyre-fixme[3]: Return type must be annotated.
-# pyre-fixme[2]: Parameter must be annotated.
 def _calc_padded_size_linear_int4(k, groupsize=1):
     return find_multiple(k, groupsize)
 
 
-# pyre-fixme[3]: Return type must be annotated.
-# pyre-fixme[2]: Parameter must be annotated.
 def pack_scales_and_zeros(scales, zeros, precision=torch.float32):
     assert scales.shape == zeros.shape
     assert scales.dtype == precision
@@ -635,25 +575,17 @@ def pack_scales_and_zeros(scales, zeros, precision=torch.float32):
     )
 
 
-# pyre-fixme[3]: Return type must be annotated.
-# pyre-fixme[2]: Parameter must be annotated.
 def unpack_scales_and_zeros(scales_and_zeros):
     assert len(scales_and_zeros.shape) == 3 and scales_and_zeros.shape[2] == 2
     assert scales_and_zeros.dtype == torch.float
     return torch.split(scales_and_zeros.transpose(0, 1), 1, 2)
 
 
-# pyre-fixme[3]: Return type must be annotated.
 def replace_linear_8da4w(
-    # pyre-fixme[2]: Parameter must be annotated.
     module,
-    # pyre-fixme[2]: Parameter must be annotated.
     group_size,
-    # pyre-fixme[2]: Parameter must be annotated.
     padding_allowed,
-    # pyre-fixme[2]: Parameter must be annotated.
     precision,
-    # pyre-fixme[2]: Parameter must be annotated.
     scales_precision,
 ):
     for name, child in module.named_children():
@@ -696,7 +628,9 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
         # assert group_size in [32, 64, 128, 256]
 
     @torch.no_grad()
-    def _create_quantized_state_dict(self, model: torch.nn.Module) -> Dict[str, torch.Tensor]:
+    def _create_quantized_state_dict(
+        self, model: torch.nn.Module
+    ) -> Dict[str, torch.Tensor]:
         cur_state_dict = model.state_dict()
         for fqn, mod in model.named_modules():
             if isinstance(mod, torch.nn.Linear):
@@ -758,7 +692,9 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
         )
         return model
 
-    def quantize(self, model: torch.nn.Module, *args: Any, **kwargs: Any) -> torch.nn.Module:
+    def quantize(
+        self, model: torch.nn.Module, *args: Any, **kwargs: Any
+    ) -> torch.nn.Module:
         state_dict = self._create_quantized_state_dict(model)
         model = self._convert_for_runtime(model)
         # TODO: make it strict
@@ -767,69 +703,57 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
 
 
 class Int8DynActInt4WeightGPTQQuantizer(GPTQQuantizer):
-    # pyre-fixme[3]: Return type must be annotated.
+
     def __init__(
         self,
-        # pyre-fixme[2]: Parameter must be annotated.
         tokenizer,
-        # pyre-fixme[2]: Parameter must be annotated.
         blocksize,
-        # pyre-fixme[2]: Parameter must be annotated.
         percdamp,
-        # pyre-fixme[2]: Parameter must be annotated.
         groupsize,
-        # pyre-fixme[2]: Parameter must be annotated.
         calibration_tasks,
-        # pyre-fixme[2]: Parameter must be annotated.
         calibration_limit,
-        # pyre-fixme[2]: Parameter must be annotated.
         calibration_seq_length,
-        # pyre-fixme[2]: Parameter must be annotated.
         pad_calibration_inputs,
-        # pyre-fixme[2]: Parameter must be annotated.
         inner_k_tiles=8,
-        # pyre-fixme[2]: Parameter must be annotated.
         padding_allowed=True,
-        # pyre-fixme[2]: Parameter must be annotated.
         precision=torch.float32,
     ):
 
-        # pyre-fixme[4]: Attribute must be annotated.
         self.tokenizer = tokenizer
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.blocksize = blocksize
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.percdamp = percdamp
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.groupsize = groupsize
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.calibration_tasks = calibration_tasks
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.calibration_limit = calibration_limit
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.calibration_seq_length = calibration_seq_length
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.pad_calibration_inputs = pad_calibration_inputs
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.inner_k_tiles = inner_k_tiles
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.padding_allowed = padding_allowed
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.precision = precision
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.dyn_quant_func = lambda x: per_token_dynamic_quant(x)
         n_bit = 4
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.get_qparams_func = lambda w: get_group_qparams_symmetric(
             w, n_bit, groupsize, self.precision
         )
         quant_min = -(2 ** (n_bit - 1))
         quant_max = 2 ** (n_bit - 1) - 1
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.quantize_func = lambda w, qparams: torch.ops.quantized_decomposed.quantize_per_channel_group(
             w, qparams[0], qparams[1], quant_min, quant_max, torch.int8, groupsize
         )
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.dequantize_func = lambda q, qparams: torch.ops.quantized_decomposed.dequantize_per_channel_group(
             q,
             qparams[0],
@@ -840,20 +764,18 @@ class Int8DynActInt4WeightGPTQQuantizer(GPTQQuantizer):
             groupsize,
             self.precision,
         )
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.combine_qparams_list_func = lambda qparams_list: [
             torch.cat(x, dim=1) for x in zip(*qparams_list)
         ]
         # skip unless padding_allowed=True or its correctly sized
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.skip_layer_func = lambda linear_weight: not (
             _check_linear_int4_k(linear_weight.shape[-1], groupsize) or padding_allowed
         )
 
         # we need to do the padding here, both for q and the qparams if necessary
-        # pyre-fixme[53]: Captured variable `groupsize` is not annotated.
-        # pyre-fixme[3]: Return type must be annotated.
-        # pyre-fixme[2]: Parameter must be annotated.
+
         def make_names_and_values_dict_func(q, qparams):
             k = q.shape[1]
             new_k = _calc_padded_size_linear_int4(k, groupsize)
@@ -871,12 +793,9 @@ class Int8DynActInt4WeightGPTQQuantizer(GPTQQuantizer):
             # )
             return {"weight": final_q, "scales": scales, "zeros": zeros}
 
-        # pyre-fixme[4]: Attribute must be annotated.
         self.make_names_and_values_dict_func = make_names_and_values_dict_func
         super().__init__()
 
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def _convert_for_runtime(self, model):
         replace_linear_8da4w(
             model,

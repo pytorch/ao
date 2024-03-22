@@ -3,13 +3,13 @@ from torch.ao.quantization.observer import UniformQuantizationObserverBase
 
 __all__ = ["PerChannelNormObserver"]
 
+
 # Observers
 class PerChannelNormObserver(UniformQuantizationObserverBase):
     """
     A custom observer that computes the L2 norm of each channel and stores it in a buffer.
     """
 
-    # pyre-fixme[2]: Parameter must be annotated.
     def __init__(self, **kwargs) -> None:
         # init with fixed qparams for quantization flow
         super().__init__(
@@ -25,10 +25,8 @@ class PerChannelNormObserver(UniformQuantizationObserverBase):
         self.averaging_constant = 1.0
         self.register_buffer("norm", torch.tensor([]))
 
-    # pyre-fixme[14]: `forward` overrides method defined in `ObserverBase`
     #  inconsistently.
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
+
     def forward(self, x_orig):
         if x_orig.numel() == 0:
             return x_orig
@@ -49,8 +47,9 @@ class PerChannelNormObserver(UniformQuantizationObserverBase):
 
         return x_orig
 
-    # pyre-fixme[14]: `calculate_qparams` overrides method defined in `ObserverBase`
     #  inconsistently.
-    # pyre-fixme[3]: Return type must be annotated.
+
     def calculate_qparams(self):
-        raise NotImplementedError("PerChannelNormObserver is designed to store activations only. ")
+        raise NotImplementedError(
+            "PerChannelNormObserver is designed to store activations only. "
+        )
