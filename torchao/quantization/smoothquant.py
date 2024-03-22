@@ -14,6 +14,7 @@ parts of transformer blocks.
 
 import torch
 import torch.nn.functional as F
+
 import torchao.quantization.quant_api as quant_api
 
 from .quant_primitives import (
@@ -30,8 +31,7 @@ __all__ = [
     "set_smooth_fq_attribute",
 ]
 
-# pyre-fixme[3]: Return type must be annotated.
-# pyre-fixme[2]: Parameter must be annotated.
+
 def get_scale(X_absmax, W_absmax, alpha=0.5):
     """
     Calculate the scale based on abs(max(X)), abs(max(W)) and alpha
@@ -48,8 +48,7 @@ def get_scale(X_absmax, W_absmax, alpha=0.5):
 
 
 class SmoothFakeDynQuantMixin(torch.nn.Module):
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
+
     def init_smoothquant_variables(self, alpha):
         self.calibrating = True
         self.x_running_abs_max = None
@@ -70,8 +69,6 @@ class SmoothFakeDynQuantMixin(torch.nn.Module):
         # self.store_w_int_repr_t = True
         self.store_w_int_repr_t = False
 
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def update_x_running_abs_max(self, X):
         # update the running max of incoming activations
         all_dims_except_last = tuple(range(len(X.shape) - 1))
@@ -81,7 +78,6 @@ class SmoothFakeDynQuantMixin(torch.nn.Module):
         else:
             self.x_running_abs_max = torch.max(cur_abs_max, self.x_running_abs_max)
 
-    # pyre-fixme[3]: Return type must be annotated.
     def get_scaled_quantized_w(self):
         # inference
         assert (
@@ -108,11 +104,9 @@ class SmoothFakeDynQuantMixin(torch.nn.Module):
         W_int_repr = W_int_repr.contiguous()
         return W_int_repr, W_scales, W_zps
 
-    # pyre-fixme[3]: Return type must be annotated.
     def to_inference(self):
         raise NotImplementedError()
 
-    # pyre-fixme[3]: Return type must be annotated.
     def fold_weight(self):
         # note: _W_zps are zeroes and they are ignored
         # TODO(future PR): set up serialization for this
@@ -125,7 +119,6 @@ class SmoothFakeDynQuantMixin(torch.nn.Module):
             self.register_buffer("W_int_repr", W_int_repr.contiguous())
         del self.weight
 
-    # pyre-fixme[3]: Return type must be annotated.
     def set_debug_x_absmax(self):
         """
         Sets `self.x_running_abs_max` to a value which will lead to smooth scale
@@ -142,16 +135,11 @@ class SmoothFakeDynamicallyQuantizedLinear(SmoothFakeDynQuantMixin, torch.nn.Lin
     Smoothquant scaling.
     """
 
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def __init__(self, *args, **kwargs):
         alpha = kwargs.pop("alpha")
         super().__init__(*args, **kwargs)
         self.init_smoothquant_variables(alpha)
 
-    # pyre-fixme[14]: `forward` overrides method defined in `Linear` inconsistently.
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def forward(self, X, *args, **kwargs):
         if self.calibrating:
             self.update_x_running_abs_max(X)
@@ -171,8 +159,6 @@ class SmoothFakeDynamicallyQuantizedLinear(SmoothFakeDynQuantMixin, torch.nn.Lin
         return Y
 
     @classmethod
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def from_float(cls, mod, alpha=0.5):
         """
         Converts a `mod` of class `torch.nn.Linear` to the smooth fake quantized
@@ -192,7 +178,6 @@ class SmoothFakeDynamicallyQuantizedLinear(SmoothFakeDynQuantMixin, torch.nn.Lin
         new_mod.to(device_to_use)
         return new_mod
 
-    # pyre-fixme[3]: Return type must be annotated.
     def to_inference(self):
         """
         Calculates the smoothquant scale based on calibration
@@ -207,10 +192,10 @@ class SmoothFakeDynamicallyQuantizedLinear(SmoothFakeDynQuantMixin, torch.nn.Lin
         )
         self.fold_weight()
 
-    # pyre-fixme[3]: Return type must be annotated.
     def set_debug_x_absmax(self):
         w_absmax = torch.max(torch.abs(self.weight.transpose(0, 1)), dim=1).values
         self.x_running_abs_max = w_absmax
+
 
 #
 # utils to use the smooth linear on real models
@@ -223,7 +208,6 @@ source_cls_to_target_cls = {
 
 
 def swap_linear_with_smooth_fq_linear(
-    # pyre-fixme[2]: Parameter must be annotated.
     model, skip_fqn_list=None, cur_fqn="", alpha=0.5
 ) -> None:
 
@@ -243,7 +227,6 @@ def swap_linear_with_smooth_fq_linear(
             swap_linear_with_smooth_fq_linear(child, skip_fqn_list, new_fqn, alpha)
 
 
-# pyre-fixme[2]: Parameter must be annotated.
 def smooth_fq_linear_to_inference(model, debug_skip_calibration=False) -> None:
     for _, mod in model.named_modules():
         if isinstance(mod, tuple(source_cls_to_target_cls.values())):
@@ -254,8 +237,8 @@ def smooth_fq_linear_to_inference(model, debug_skip_calibration=False) -> None:
 
 # useful for quickly toggling smoothquant debug settings on all smoothquant
 # modules in a model
-# pyre-fixme[3]: Return type must be annotated.
-# pyre-fixme[2]: Parameter must be annotated.
+
+
 def set_smooth_fq_attribute(model, attribute_name, new_attribute_val):
     for _, mod in model.named_modules():
         if isinstance(mod, tuple(source_cls_to_target_cls.values())):

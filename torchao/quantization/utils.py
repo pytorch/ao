@@ -23,8 +23,8 @@ def find_multiple(n: int, k: int) -> int:
 
 
 # basic SQNR
-# pyre-fixme[3]: Return type must be annotated.
-# pyre-fixme[2]: Parameter must be annotated.
+
+
 def compute_error(x, y):
     Ps = torch.linalg.norm(x)
     Pn = torch.linalg.norm(x - y)
@@ -36,12 +36,8 @@ def compute_error(x, y):
 _cur_fqn: Optional[str] = None
 
 
-# pyre-fixme[3]: Return type must be annotated.
-# pyre-fixme[2]: Parameter must be annotated.
 def _get_logging_hook(fqn):
-    # pyre-fixme[53]: Captured variable `fqn` is not annotated.
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
+
     def forward_hook(module, input):
         global _cur_fqn
         _cur_fqn = fqn
@@ -49,8 +45,6 @@ def _get_logging_hook(fqn):
     return forward_hook
 
 
-# pyre-fixme[3]: Return type must be annotated.
-# pyre-fixme[2]: Parameter must be annotated.
 def _apply_logging_hook(model):
     for name, mod in model.named_modules():
         mod.register_forward_pre_hook(_get_logging_hook(name))
@@ -63,8 +57,7 @@ _fqn_to_op_to_shape_to_count: Dict[
 
 
 class LoggingTensorMode(TorchDispatchMode):
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
+
     def __torch_dispatch__(self, func, types, args=(), kwargs=None):
         if kwargs is None:
             kwargs = {}
@@ -90,8 +83,8 @@ class LoggingTensorMode(TorchDispatchMode):
 
 
 # https://discuss.pytorch.org/t/finding-model-size/130275
-# pyre-fixme[3]: Return type must be annotated.
-# pyre-fixme[2]: Parameter must be annotated.
+
+
 def get_model_size_in_bytes(model):
     s = 0
     for p in model.parameters():

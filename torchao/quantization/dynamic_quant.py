@@ -6,6 +6,7 @@
 
 import torch
 import torch.nn as nn
+
 from .quant_primitives import (
     dynamically_quantize_per_channel,
     quant_int8_dynamic_per_token_linear,
@@ -29,8 +30,6 @@ class DynamicallyPerAxisQuantizedLinear(torch.nn.Linear):
     ) -> None:
         super().__init__(in_features, out_features, bias)
 
-    # pyre-fixme[14]: `forward` overrides method defined in `Linear` inconsistently.
-    # pyre-fixme[2]: Parameter must be annotated.
     def forward(self, X: torch.Tensor, *args, **kwargs) -> torch.Tensor:
         """
         Performs the forward pass of the quantized linear layer which consists
@@ -51,9 +50,7 @@ class DynamicallyPerAxisQuantizedLinear(torch.nn.Linear):
         return Y
 
     @classmethod
-    def from_float(
-        cls, mod: torch.nn.Linear
-    ) -> "DynamicallyPerAxisQuantizedLinear":
+    def from_float(cls, mod: torch.nn.Linear) -> "DynamicallyPerAxisQuantizedLinear":
         """
         Converts a `mod` of class `torch.nn.Linear` to the
         `DynamicallyPerAxisQuantizedLinear` class
