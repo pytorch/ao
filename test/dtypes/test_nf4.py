@@ -192,9 +192,6 @@ class TestNF4Linear(TestCase):
         out2 = torch.nn.functional.linear(inp, a_nf4)
         out3 = torch.compile(torch.nn.functional.linear, mode='max-autotune')(inp, a_nf4)
 
-        # torch.testing.assert_allclose(out1, out2)
-        # torch.testing.assert_allclose(out1, out3)
-
 
 
 if __name__ == "__main__":
