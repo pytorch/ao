@@ -51,13 +51,49 @@ def noop_detach(func, *args, **kwargs):
 # pyre-fixme[3]: Return type must be annotated.
 # pyre-fixme[2]: Parameter must be annotated.
 def _to_copy(func, *args, **kwargs):
+    if not args[0][0].is_contiguous():
+        assert args[0][0].t().is_contiguous()
+        return func(args[0][0].t()).t()
     return args[0][0].get_original_weight().to(args[1]['dtype'])
 
 @implements([torch.ops.aten.to.dtype])
 # pyre-fixme[3]: Return type must be annotated.
 # pyre-fixme[2]: Parameter must be annotated.
 def to_dtype(func, *args, **kwargs):
+    if not args[0][0].is_contiguous():
+        assert args[0][0].t().is_contiguous()
+        return torch.ops.aten.to.dtype(args[0][0].t(), args[0][1]).t()
     return args[0][0].get_original_weight().to(args[0][1])
+
+@implements([torch.ops.aten.t.default])
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
+def t_default(func, *args, **kwargs):
+    a = args[0][0]
+    tensor_meta = SubclassTensorArgs(
+            a.size(),
+            (a.stride(1), a.stride(0)),
+            a.storage_offset(),
+            torch.bits2x4,
+            a.device,
+            a.requires_grad)
+    b = NF4Tensor(
+            tensor_meta,
+            a.block_size,
+            a.n_blocks,
+            a.scaler_block_size,
+            a.quantized_scalers,
+            a.quantization_factor,
+            a.scaler_mean,
+            a.quantized_data,
+            a.nf4)
+    return b
+
+@implements([torch.ops.aten.mm.default])
+# pyre-fixme[3]: Return type must be annotated.
+# pyre-fixme[2]: Parameter must be annotated.
+def mm_default(func, *args, **kwargs):
+    return linear_nf4(args[0][0], args[0][1])
 
 
 @implements(
@@ -160,7 +196,8 @@ class NF4Tensor(torch.Tensor):
             tensor_meta.original_shape,
             tensor_meta.original_strides,
             tensor_meta.storage_offset,
-            dtype=tensor_meta.dtype,
+            # Picked some floating dtype, but we need dtype extensibility
+            dtype=torch.float8_e5m2fnuz,
             device=tensor_meta.device,
             requires_grad=tensor_meta.requires_grad,
         )
@@ -198,6 +235,7 @@ class NF4Tensor(torch.Tensor):
         block_size: int,
         scaler_block_size: int,
     ):
+        assert inpt_tensor.dim() <= 2
         assert inpt_tensor.dtype == torch.bfloat16
         assert (
             inpt_tensor.numel() % block_size == 0
@@ -428,7 +466,7 @@ class NF4Tensor(torch.Tensor):
     # pyre-fixme[40]: Static method `dequantize` cannot override a non-static method
     #  defined in `torch._C.TensorBase`.
     def dequantize(value: torch.Tensor, nf4: torch.Tensor) -> torch.Tensor:
-        """Dequantize a nf4 value to float16 format"""
+        """Dequantize a nf4 value to bfloat16 format"""
         # return nf4.index_select(0, value)
         return nf4[value]
 
@@ -546,7 +584,7 @@ class LinearNF4(torch.autograd.Function):
     def forward(ctx, input: torch.Tensor, weight: NF4Tensor):
         """Save the quantized nf4 weight for backward pass"""
         ctx.nf4_weight = weight
-        return F.linear(input, weight.get_original_weight())
+        return F.linear(input, weight.to(input.dtype))
 
     @staticmethod
     # pyre-fixme[14]: `backward` overrides method defined in `_SingleLevelFunction`
