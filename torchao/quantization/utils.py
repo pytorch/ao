@@ -7,12 +7,14 @@ from typing import Dict, Optional
 
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
+from packaging import version
 
 __all__ = [
     "find_multiple",
     "compute_error",
     "_apply_logging_hook",
     "get_model_size_in_bytes",
+    "TORCH_VERSION_AFTER_2_4",
 ]
 
 
@@ -92,3 +94,9 @@ def get_model_size_in_bytes(model):
     for b in model.buffers():
         s += b.nelement() * b.element_size()
     return s
+
+
+if version.parse(torch.__version__) >= version.parse("2.4.0.dev"):
+    TORCH_VERSION_AFTER_2_4 = True
+else:
+    TORCH_VERSION_AFTER_2_4 = False

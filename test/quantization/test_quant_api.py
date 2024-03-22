@@ -23,9 +23,9 @@ from torchao.quantization.quant_api import apply_dynamic_quant
 from torchao.quantization.quant_api import (
     Quantizer,
     TwoStepQuantizer,
-    Int8DynActInt4WeightGPTQQuantizer,
-    Int8DynActInt4WeightQuantizer,
-    Int8DynActInt4WeightLinear,
+)
+from torchao.quantization.utils import (
+    TORCH_VERSION_AFTER_2_4,
 )
 from pathlib import Path
 from sentencepiece import SentencePieceProcessor
@@ -136,7 +136,11 @@ class TestQuantFlow(unittest.TestCase):
         compiled = m(*example_inputs)
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
 
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.3 or lower")
     def test_8da4w_quantizer(self):
+        from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
+        from torchao.quantization.quant_api import Int8DynActInt4WeightLinear
+
         quantizer = Int8DynActInt4WeightQuantizer(group_size=32)
         m = M().eval()
         example_inputs = m.example_inputs()
@@ -147,6 +151,7 @@ class TestQuantFlow(unittest.TestCase):
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_gptq_quantizer(self):
+        from torchao.quantization.quant_api import Int8DynActInt4WeightGPTQQuantizer
         # should be similar to TorchCompileDynamicQuantizer
         precision = torch.bfloat16
         device = "cpu"
@@ -163,8 +168,8 @@ class TestQuantFlow(unittest.TestCase):
         blocksize = 128
         percdamp = 0.01
         groupsize = 128
-        calibration_tasks = ["hellaswag"]
-        calibration_limit = 200 # 1000
+        calibration_tasks = ["wikitext"]
+        calibration_limit = 5
         calibration_seq_length = 100
         pad_calibration_inputs = False
         quantizer = Int8DynActInt4WeightGPTQQuantizer(
