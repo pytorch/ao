@@ -1,4 +1,5 @@
 import torch
+import torchao
 import torchvision.models.vision_transformer as models
 
 # Load Vision Transformer model
@@ -11,8 +12,7 @@ model.eval().cuda().to(torch.bfloat16)
 input_tensor = torch.randn(1, 3, 224, 224, dtype=torch.bfloat16, device='cuda')
 
 ## Quantization code - start
-from torchao.quantization import quant_api
-quant_api.change_linear_weights_to_int8_dqtensors(model)
+torchao.apply_dynamic_quant(model)
 from torch._inductor import config as inductorconfig
 inductorconfig.force_fuse_int_mm_with_mul = True
 ## Quantization code - end
