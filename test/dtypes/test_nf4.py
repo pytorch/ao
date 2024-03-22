@@ -8,6 +8,7 @@ from torchao.dtypes.nf4tensor import linear_nf4, NF4Tensor, to_nf4
 import torch.nn.functional as F
 import io
 from collections import OrderedDict
+import torchao
 
 bnb_available = False
 
@@ -181,9 +182,9 @@ class TestNF4Linear(TestCase):
         inpt_tensor_nf4 = to_nf4(inpt_tensor, 32, 2)
         assert type(inpt_tensor_nf4) != torch.Tensor
         assert type(inpt_tensor_nf4.to(torch.bfloat16)) == torch.Tensor
+        assert inpt_tensor_nf4.to(torch.bfloat16).dtype == torch.bfloat16
 
     def test_linear(self):
-        import torchao
         a = torch.randn(32, 32, dtype=torch.bfloat16, device='cuda')
         a_nf4 = torchao.dtypes.to_nf4(a, 16, 2)
         inp = torch.randn(2, 32, 32, dtype=a.dtype, device=a.device)
