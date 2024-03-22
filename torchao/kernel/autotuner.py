@@ -211,7 +211,7 @@ def get_best_config_fn(fn, args, configs):
     if best_config is not None:
         return best_config
 
-    logging.info(f"Starting autotune search. No config found for key {key}.")
+    print(f"Starting autotune search for {fn}. No config found for key {key}.")
 
     # Search for the best config
     best_config = configs[0]
@@ -223,16 +223,14 @@ def get_best_config_fn(fn, args, configs):
     # used to filter bad configs sooner.
     for config in configs[1:]:
         time = do_bench(fn, args, config, best_time)
-        logging.info(
-            " ".join([f"{i:4d}/{len(configs):4d}", f"{time:6.3f}", str(config)])
-        )
+        print(" ".join([f"{i:8d}/{len(configs):4d}", f"{time:8.3f}", f"{str(config):<120}"]), end='\r')
         if time < best_time:
             best_time = time
             best_config = config
         i += 1
     # Also store time, so it can be proven that the config works
     BEST_CONFIGS[key] = (best_config, best_time)
-    logging.info("-- perfetto --")
-    logging.info(" ".join(map(str, [best_time, best_config])))
+    print("-- best time and config --")
+    print(" ".join(map(str, [best_time, best_config])))
     _save_best_configs(BEST_CONFIGS)
     return best_config
