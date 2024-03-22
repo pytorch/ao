@@ -392,6 +392,7 @@ def int_matmul_cuda(a, b):
 
 
 def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
+    # return torch.sum(torch.mul(input.unsqueeze(-1).to(torch.int32), mat2.to(torch.int32)), dim=1)
     # torch.compile path
     if dynamo_is_compiling() or "FakeTensor" in input.__repr__():
         return out_dtype(torch.ops.aten.mm.default, torch.int32, input, mat2)
