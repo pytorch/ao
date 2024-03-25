@@ -8,6 +8,7 @@ from torchao.dtypes.nf4tensor import linear_nf4, NF4Tensor, to_nf4
 import torch.nn.functional as F
 import io
 from collections import OrderedDict
+import torchao
 
 bnb_available = False
 
@@ -175,6 +176,28 @@ class TestNF4Linear(TestCase):
             inpt_tensor_nf4 = to_nf4(inpt_tensor, 32, 2)
             inpt_tensor_bfloat16 = inpt_tensor_nf4.to(torch.bfloat16)
             torch.testing.assert_allclose(inpt_tensor, inpt_tensor_bfloat16, atol=0.13, rtol=0.13)
+
+    def test_to_bfloat16(self):
+        inpt_tensor = torch.rand(128, dtype=torch.bfloat16)
+        inpt_tensor_nf4 = to_nf4(inpt_tensor, 32, 2)
+        assert type(inpt_tensor_nf4) != torch.Tensor
+        assert type(inpt_tensor_nf4.to(torch.bfloat16)) == torch.Tensor
+        assert inpt_tensor_nf4.to(torch.bfloat16).dtype == torch.bfloat16
+
+    def test_smoketest_linear(self):
+        a = torch.randn(32, 32, dtype=torch.bfloat16, device='cuda')
+        a_nf4 = torchao.dtypes.to_nf4(a, 16, 2)
+        inp = torch.randn(2, 32, 32, dtype=a.dtype, device=a.device)
+        out1 = torch.nn.functional.linear(inp, a)
+        out2 = torch.nn.functional.linear(inp, a_nf4)
+
+    @unittest.skipIf(torch.__version__.split('+')[0] == '2.2.1', "Broken on stable.")
+    def test_smoketest_linear_compile(self):
+        a = torch.randn(32, 32, dtype=torch.bfloat16, device='cuda')
+        a_nf4 = torchao.dtypes.to_nf4(a, 16, 2)
+        inp = torch.randn(2, 32, 32, dtype=a.dtype, device=a.device)
+        out3 = torch.compile(torch.nn.functional.linear, mode='max-autotune')(inp, a_nf4)
+
 
 
 if __name__ == "__main__":

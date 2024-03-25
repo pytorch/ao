@@ -12,6 +12,8 @@ from torchao.quantization import (
 from . import dtypes
 
 __all__ = [
+    "dtypes",
+    "apply_dynamic_quant",
     "apply_weight_only_int8_quant",
     "apply_dynamic_quant",
     "change_linear_weights_to_int8_dqtensors",
