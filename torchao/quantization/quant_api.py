@@ -277,13 +277,6 @@ class GPTQQuantizer(Quantizer):
         Returns:
             weight: A 2d weight tensor with non-integer dtype.
 
-    dyn_quant_func (optional):
-         A function that dynamically quantizes inputs
-         Args:
-             input: input Tensor in f32/bf16/f16
-         Returns:
-             output: dynamically quantized and dequantized Tensor (with the same dtype as input)
-
     combine_qparams_list_func:
         A function that combines several qparams into one qparam.
         Args:
@@ -398,7 +391,6 @@ class GPTQQuantizer(Quantizer):
             self.combine_qparams_list_func,  # pyre-ignore[16]
             self.make_names_and_values_dict_func,  # pyre-ignore[16]
             self.skip_layer_func,  # pyre-ignore[16]
-            self.dyn_quant_func if hasattr(self, "dyn_quant_func") else None,
         )
         print("Applying GPTQ to weights")
         GPTQ_runner.run()
@@ -749,7 +741,7 @@ class Int8DynActInt4WeightGPTQQuantizer(GPTQQuantizer):
 
         self.precision = precision
 
-        self.dyn_quant_func = per_token_dynamic_quant
+        self.dyn_quant_func = lambda x: per_token_dynamic_quant(x)
         n_bit = 4
 
         self.get_qparams_func = lambda w: get_group_qparams_symmetric(
