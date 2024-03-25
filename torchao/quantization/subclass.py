@@ -4,6 +4,8 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import warnings
+
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
@@ -15,7 +17,6 @@ from .quant_primitives import (
     unpack_tinygemm_scales_and_zeros,
 )
 from .utils import find_multiple
-import warnings
 
 
 __all__ = [
@@ -24,8 +25,9 @@ __all__ = [
     "Int4WeightOnlyQuantizedLinearWeight",
 ]
 
-# pyre-fixme[5]: Global expression must be annotated.
+
 aten = torch.ops.aten
+
 
 class QuantizedLinearWeightBase(torch.Tensor):
     """
@@ -38,8 +40,6 @@ class QuantizedLinearWeightBase(torch.Tensor):
     """
 
     @staticmethod
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def __new__(cls, int_data, transposed, shape, *args, **kwargs):
         kwargs["device"] = int_data.device
         kwargs["layout"] = (
@@ -50,46 +50,34 @@ class QuantizedLinearWeightBase(torch.Tensor):
         kwargs["requires_grad"] = False
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def __init__(self, int_data, transposed, *args, **kwargs):
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.int_data = int_data
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.transposed = transposed
 
     @staticmethod
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def _quantized_op(act_mat, w_qtensor, bias):
         pass
 
-    # pyre-fixme[14]: `__repr__` overrides method defined in `Tensor` inconsistently.
-    # pyre-fixme[3]: Return type must be annotated.
     def __repr__(self):
         return (
             f"{self.__class__.__name__}(data={self.dequantize()}, shape={self.shape}, "
             f"device={self.device}, dtype={self.dtype}, requires_grad={self.requires_grad})"
         )
 
-    # pyre-fixme[3]: Return type must be annotated.
     def dequantize(self):
         pass
 
-    # pyre-fixme[3]: Return type must be annotated.
     def int_repr(self):
         pass
 
-    # pyre-fixme[3]: Return type must be annotated.
     def q_params(self):
         pass
 
-    # pyre-fixme[3]: Return type must be annotated.
     def half(self):
         return self.to(torch.float16)
 
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def _get_to_kwargs(self, *args, **kwargs):
         device, dtype, _, memory_format = torch._C._nn._parse_to(*args, **kwargs)
         device = self.device if device is None else device
@@ -104,36 +92,28 @@ class QuantizedLinearWeightBase(torch.Tensor):
         }
         return kwargs
 
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def _apply_fn_to_data(self, fn):
         pass
 
-    # pyre-fixme[3]: Return type must be annotated.
     def _change_shape(self):
         pass
 
-    # pyre-fixme[3]: Return type must be annotated.
     def __tensor_flatten__(self):
         pass
 
     @classmethod
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
-    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride):
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
+    ):
         pass
 
     @classmethod
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def from_float(cls, input_float):
         pass
 
     # __torch_function__ = torch._C._disabled_torch_function_impl
 
     @classmethod
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def __torch_function__(cls, func, types, args=(), kwargs=None):
         kwargs = {} if kwargs is None else kwargs
 
@@ -141,7 +121,7 @@ class QuantizedLinearWeightBase(torch.Tensor):
             mat1, w_qtensor, bias = (
                 args[0],
                 args[1],
-                args[2] if len(args)>2 else None
+                args[2] if len(args) > 2 else None,
             )
             assert w_qtensor.transposed == False
             return cls._quantized_op(mat1, w_qtensor, bias)
@@ -153,8 +133,6 @@ class QuantizedLinearWeightBase(torch.Tensor):
             print(f"ERR: subclass doesn't implement {func}")
 
     @classmethod
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def __torch_dispatch__(cls, func, types, args, kwargs):
         # two scenarios where we currently fall back to vanilla mm:
         # 1 - when tensor is on CPU: we are missing qmm for CPU, but we should have a CPU implementation
@@ -183,17 +161,21 @@ class QuantizedLinearWeightBase(torch.Tensor):
                 mat1, w_qtensor, bias = (
                     args[0],
                     args[1],
-                    None if len(args)==2 else args[2],
+                    None if len(args) == 2 else args[2],
                 )
             # call the quantized op for the specific type
             # of quantized tensor subclass
             return cls._quantized_op(mat1, w_qtensor, bias)
 
         if func is aten.detach.default:
-            return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.detach))
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+            )
 
         if func is aten.clone.default:
-            return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.clone))
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+            )
 
         if func is aten.t.default:
             args[0].transposed = not args[0].transposed
@@ -201,7 +183,12 @@ class QuantizedLinearWeightBase(torch.Tensor):
             return return_and_correct_aliasing(func, args, kwargs, new)
 
         if func is aten._to_copy.default:
-            return return_and_correct_aliasing(func, args, kwargs, args[0].to(*args[1:], **kwargs)._apply_fn_to_data(torch.clone))
+            return return_and_correct_aliasing(
+                func,
+                args,
+                kwargs,
+                args[0].to(*args[1:], **kwargs)._apply_fn_to_data(torch.clone),
+            )
 
 
 class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
@@ -212,29 +199,21 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
     """
 
     @staticmethod
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def __new__(cls, int_data, q_scales, transposed, shape, **kwargs):
         kwargs["dtype"] = kwargs.get("dtype", q_scales.dtype)
         return super().__new__(cls, int_data, transposed, shape, **kwargs)  # type: ignore[attr-defined]
 
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def __init__(self, int_data, q_scales, transposed, shape, **kwargs):
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.q_scales = q_scales
         super().__init__(int_data, transposed)
 
     @staticmethod
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def _quantized_op(act_mat, w_qtensor, bias):
         return quant_int8_dynamic_per_token_linear(
             act_mat, w_qtensor.int_data, w_qtensor.q_scales, bias, act_mat.dtype
         )
 
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def dequantize(self, dtype=None):
         """
         Obtain the dequantized version of the quantized tensor subclass
@@ -245,23 +224,18 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
         # data was transposed to dequantize so make sure shape is correct
         return dq_t if not self.transposed else dq_t.t()
 
-    # pyre-fixme[3]: Return type must be annotated.
     def int_repr(self):
         """
         Get the internal integer representation of the quantized tensor
         """
         return self.int_data if self.transposed else self.int_data.t()
 
-    # pyre-fixme[3]: Return type must be annotated.
     def q_params(self):
         """
         Get the quantization scales for the quantized tensor
         """
         return {"q_scales": self.q_scales}
 
-    # pyre-fixme[14]: `to` overrides method defined in `TensorBase` inconsistently.
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
         return self.__class__(
@@ -272,37 +246,41 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
             **kwargs,
         )
 
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def _apply_fn_to_data(self, fn):
         return self.__class__(
-            fn(self.int_data), fn(self.q_scales), self.transposed, self.shape, dtype=self.dtype
+            fn(self.int_data),
+            fn(self.q_scales),
+            self.transposed,
+            self.shape,
+            dtype=self.dtype,
         )
 
-    # pyre-fixme[14]: `_change_shape` overrides method defined in
     #  `QuantizedLinearWeightBase` inconsistently.
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
+
     def _change_shape(self, shape):
         return self.__class__(
             self.int_data, self.q_scales, self.transposed, shape, dtype=self.dtype
         )
 
-    # pyre-fixme[3]: Return type must be annotated.
     def __tensor_flatten__(self):
         return ["int_data", "q_scales"], [self.transposed, self.dtype, self.shape]
 
     @classmethod
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
-    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None
+    ):
         int_data, q_scales = tensor_data_dict["int_data"], tensor_data_dict["q_scales"]
         transposed, dtype, shape = tensor_attributes
-        return cls(int_data, q_scales, transposed, shape if outer_size is None else outer_size, dtype=dtype, strides=outer_stride)
+        return cls(
+            int_data,
+            q_scales,
+            transposed,
+            shape if outer_size is None else outer_size,
+            dtype=dtype,
+            strides=outer_stride,
+        )
 
     @classmethod
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def from_float(cls, input_float, qmin=-128, qmax=127):
         """
         Method used to convert a linear weight tensor to an instance of the
@@ -338,11 +316,15 @@ class Int8WeightOnlyQuantizedLinearWeight(Int8DynamicallyQuantizedLinearWeight):
     """
 
     @staticmethod
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def _quantized_op(act_mat, w_qtensor, bias):
         orig_dtype = act_mat.dtype
-        y = torch.mm(act_mat.reshape(-1, act_mat.shape[-1]), w_qtensor.int_data.to(act_mat.dtype)) * w_qtensor.q_scales
+        y = (
+            torch.mm(
+                act_mat.reshape(-1, act_mat.shape[-1]),
+                w_qtensor.int_data.to(act_mat.dtype),
+            )
+            * w_qtensor.q_scales
+        )
         y = y.reshape(*act_mat.shape[:-1], y.shape[-1])
         if bias is not None:
             y += bias
@@ -357,60 +339,42 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
     """
 
     @staticmethod
-    # pyre-fixme[3]: Return type must be annotated.
     def __new__(
         cls,
-        # pyre-fixme[2]: Parameter must be annotated.
         int_data,
-        # pyre-fixme[2]: Parameter must be annotated.
         scales_and_zeros,
-        # pyre-fixme[2]: Parameter must be annotated.
         transposed,
-        # pyre-fixme[2]: Parameter must be annotated.
         shape,
-        # pyre-fixme[2]: Parameter must be annotated.
         groupsize=128,
-        # pyre-fixme[2]: Parameter must be annotated.
         inner_k_tiles=8,
-        # pyre-fixme[2]: Parameter must be annotated.
         **kwargs,
     ):
         kwargs["dtype"] = kwargs.get("dtype", scales_and_zeros.dtype)
         return super().__new__(cls, int_data, transposed, shape, **kwargs)  # type: ignore[attr-defined]
 
-    # pyre-fixme[3]: Return type must be annotated.
     def __init__(
         self,
-        # pyre-fixme[2]: Parameter must be annotated.
         int_data,
-        # pyre-fixme[2]: Parameter must be annotated.
         scales_and_zeros,
-        # pyre-fixme[2]: Parameter must be annotated.
         transposed,
-        # pyre-fixme[2]: Parameter must be annotated.
         shape,
-        # pyre-fixme[2]: Parameter must be annotated.
         groupsize,
-        # pyre-fixme[2]: Parameter must be annotated.
         inner_k_tiles,
-        # pyre-fixme[2]: Parameter must be annotated.
         **kwargs,
     ):
         # the transposed flag tracks whether the tensor subclass has been transposed relative
         # to how a weight is normally stored in a linear i.e. [out_features, in_features].
         # tracking both transposed and shape is slightly redundant but corner cases like
         # square matrices can cause issues otherwise
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.scales_and_zeros = scales_and_zeros
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.groupsize = groupsize
-        # pyre-fixme[4]: Attribute must be annotated.
+
         self.inner_k_tiles = inner_k_tiles
         super().__init__(int_data, transposed)
 
     @staticmethod
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def _quantized_op(act_mat, w_qtensor, bias):
         orig_act_size = act_mat.size()
         orig_dtype = act_mat.dtype
@@ -422,11 +386,16 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
 
         # matmul
         y = aten._weight_int4pack_mm(
-            act_mat.contiguous(), w_qtensor.int_data, w_qtensor.groupsize, w_qtensor.scales_and_zeros
+            act_mat.contiguous(),
+            w_qtensor.int_data,
+            w_qtensor.groupsize,
+            w_qtensor.scales_and_zeros,
         )
 
         # remove out_feature padding
-        orig_out_features = w_qtensor.shape[-1] if w_qtensor.transposed else w_qtensor.shape[-2]
+        orig_out_features = (
+            w_qtensor.shape[-1] if w_qtensor.transposed else w_qtensor.shape[-2]
+        )
         y = y[:, :orig_out_features]
 
         y = y.reshape(*orig_act_size[:-1], orig_out_features)
@@ -434,7 +403,6 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             y += bias
         return y.to(orig_dtype)
 
-    # pyre-fixme[3]: Return type must be annotated.
     def dequantize(self):
         eye_shape = self.shape[1] if not self.transposed else self.shape[0]
         w_dq = self._quantized_op(
@@ -445,20 +413,15 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         w_dq = w_dq if self.transposed else w_dq.t()
         return w_dq.to(self.dtype)
 
-    # pyre-fixme[3]: Return type must be annotated.
     def int_repr(self):
         return self.int_data
 
-    # pyre-fixme[3]: Return type must be annotated.
     def q_params(self):
         scales, zero_points = unpack_tinygemm_scales_and_zeros(
             self.scales_and_zeros,
         )
         return {"q_scales": scales, "q_zero_points": zero_points}
 
-    # pyre-fixme[14]: `to` overrides method defined in `TensorBase` inconsistently.
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
         return self.__class__(
@@ -471,8 +434,6 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             **kwargs,
         )
 
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def _apply_fn_to_data(self, fn):
         return self.__class__(
             fn(self.int_data),
@@ -484,10 +445,8 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             dtype=self.dtype,
         )
 
-    # pyre-fixme[14]: `_change_shape` overrides method defined in
     #  `QuantizedLinearWeightBase` inconsistently.
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
+
     def _change_shape(self, shape):
         return self.__class__(
             self.int_data,
@@ -496,25 +455,25 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             shape,
             self.groupsize,
             self.inner_k_tiles,
-            dtype=self.dtype
+            dtype=self.dtype,
         )
 
-    # pyre-fixme[3]: Return type must be annotated.
     def __tensor_flatten__(self):
         return ["int_data", "scales_and_zeros"], (
             self.transposed,
             self.groupsize,
             self.inner_k_tiles,
             self.dtype,
-            self.shape
+            self.shape,
         )
 
     @classmethod
-    # pyre-fixme[14]: `__tensor_unflatten__` overrides method defined in
+
     #  `QuantizedLinearWeightBase` inconsistently.
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
-    def __tensor_unflatten__(cls, tensor_data_dict, attributes, outer_size=None, outer_stride=None):
+
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, attributes, outer_size=None, outer_stride=None
+    ):
         int_data, scales_and_zeros = (
             tensor_data_dict["int_data"],
             tensor_data_dict["scales_and_zeros"],
@@ -532,8 +491,6 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         )
 
     @classmethod
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     def from_float(cls, input_float, groupsize=128, inner_k_tiles=8):
         """
         Method used to convert a linear weight tensor to an instance of the
@@ -554,16 +511,15 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         in_features = find_multiple(orig_in_features, 1024)
         out_features = find_multiple(orig_out_features, 8)
         input_float = torch.nn.functional.pad(
-            input_float, (0, in_features - orig_in_features, 0, out_features - orig_out_features)
+            input_float,
+            (0, in_features - orig_in_features, 0, out_features - orig_out_features),
         )
 
         # quantization and packing
         input_int4x8, scales_and_zeros = groupwise_affine_quantize_tensor(
             input_float, 4, groupsize
         )
-        int_data = aten._convert_weight_to_int4pack(
-            input_int4x8, inner_k_tiles
-        )
+        int_data = aten._convert_weight_to_int4pack(input_int4x8, inner_k_tiles)
 
         return cls(
             int_data,

@@ -1,4 +1,3 @@
-
 import warnings
 
 from typing import Dict, List, Optional, Tuple
@@ -8,6 +7,7 @@ from torch import nn
 from torch.ao.pruning import BaseSparsifier
 from torch.ao.quantization import default_placeholder_observer, QConfig
 from torch.ao.quantization.quantize import _remove_qconfig
+
 from .utils import PerChannelNormObserver
 
 __all__ = ["WandaSparsifier"]
@@ -28,7 +28,6 @@ class WandaSparsifier(BaseSparsifier):
         model: The model to be sparsified;
     """
 
-    # pyre-fixme[3]: Return type must be annotated.
     def __init__(
         self,
         sparsity_level: float = 0.5,
@@ -45,7 +44,6 @@ class WandaSparsifier(BaseSparsifier):
             )
         super().__init__(defaults=defaults)
 
-    # pyre-fixme[24]: Generic type `dict` expects 2 type parameters, use
     #  `typing.Dict[<key type>, <value type>]` to avoid runtime subscripting errors.
     def prepare(self, model: nn.Module, config: List[Dict]) -> None:
         # activation: use PerChannelNormObserver
@@ -59,7 +57,6 @@ class WandaSparsifier(BaseSparsifier):
         super().prepare(model, config)
 
     def update_mask(  # type: ignore[override]
-        # pyre-fixme[2]: Parameter must be annotated.
         self, module: nn.Module, tensor_name: str, sparsity_level: float, **kwargs
     ) -> None:
         r"""Pruning function for WandaSparsifier
@@ -94,14 +91,11 @@ class WandaSparsifier(BaseSparsifier):
             1, pruning_inds, torch.zeros_like(pruning_inds, dtype=mask.dtype)
         )
 
-    # pyre-fixme[3]: Return type must be annotated.
     def squash_mask(
         self,
         params_to_keep: Optional[Tuple[str, ...]] = None,
         params_to_keep_per_layer: Optional[Dict[str, Tuple[str, ...]]] = None,
-        # pyre-fixme[2]: Parameter must be annotated.
         *args,
-        # pyre-fixme[2]: Parameter must be annotated.
         **kwargs,
     ):
         # remove quantization config
