@@ -119,11 +119,7 @@ def apply_weight_only_int8_quant(model, filter_fn=None):
     Applies weight-only symmetric per-channel int8 quantization to all linear layers
     in the given model using module swaps.
     """
-    _replace_with_custom_fn_if_matches_filter(
-        model,
-        WeightOnlyInt8QuantLinear.from_float,
-        _is_linear if filter_fn is None else filter_fn,
-    )
+    change_linear_weights_to_int8_woqtensors(model, filter_fn)
 
 
 def apply_dynamic_quant(model, filter_fn=None):

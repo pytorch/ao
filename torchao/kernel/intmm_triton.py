@@ -12,6 +12,7 @@ from torchao.kernel.autotuner import get_best_config_fn
 
 AUTOTUNER_ENABLE = bool(int(os.getenv("TORCHAO_AUTOTUNER_ENABLE", 0)))
 
+# Brute force
 int8_powers_of_two = [32, 64, 128, 256]
 int8_mm_kernel_configs = sum(
     [
@@ -39,6 +40,58 @@ int8_mm_kernel_configs = sum(
     ],
     [],
 )
+
+# Hand-tuned subset
+# def get_configs_io_bound(allow_split_k=True):
+#     assert allow_split_k is False
+#     configs = []
+#     for num_stages in [2, 3, 4, 5, 6]:
+#         for block_m in [16, 32]:
+#             for block_k in [32, 64]:
+#                 for block_n in [32, 64, 128, 256]:
+#                     num_warps = 2 if block_n <= 64 else 4
+#                     configs.append((block_m, block_n, block_k, num_stages, num_warps))
+#                     # # split_k
+#                     # k_splits = [2, 4, 8, 16] if allow_split_k else []
+#                     # for split_k in k_splits:
+#                     #     configs.append(
+#                     #         Config(
+#                     #             {
+#                     #                 "BLOCK_M": block_m,
+#                     #                 "BLOCK_N": block_n,
+#                     #                 "BLOCK_K": block_k,
+#                     #                 "SPLIT_K": split_k,
+#                     #             },
+#                     #             num_stages=num_stages,
+#                     #             num_warps=num_warps,
+#                     #             pre_hook=init_to_zero("C"),
+#                     #         )
+#                     #     )
+#     return configs
+# 
+# # "BLOCK_M", "BLOCK_N", "BLOCK_K", "num_stages", "num_warps"
+# int8_mm_kernel_configs=[
+# # basic configs for compute-bound matmuls
+#     (128, 256, 32,3,8),
+#     (256, 128, 32,3,8),
+#     (256, 64, 32,4,4),
+#     (64, 256, 32,4,4),
+#     (128, 128, 32,4,4),
+#     (128, 64, 32,4,4),
+#     (64, 128, 32,4,4),
+#     (128, 32, 32,4,4),
+#     (64, 32, 32,5,2),
+# # good for int8
+#     (128, 256, 128,3,8),
+#     (256, 128, 128,3,8),
+#     (256, 64, 128,4,4),
+#     (64, 256, 128,4,4),
+#     (128, 128, 128,4,4),
+#     (128, 64, 64,4,4),
+#     (64, 128, 64,4,4),
+#     (128, 32, 64,4,4),
+#     (64, 32, 64,5,2),
+# ] + get_configs_io_bound(allow_split_k=False)
 
 # Baseline configs from pytorch/pytorch
 # https://github.com/pytorch/pytorch/blob/7718a1cd4f8e0b794c18a31ebd6353d6273c534e/torch/_inductor/kernel/mm_common.py#L132-L147
@@ -339,6 +392,7 @@ def int_matmul_cuda(a, b):
 
 
 def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
+    # return torch.sum(torch.mul(input.unsqueeze(-1).to(torch.int32), mat2.to(torch.int32)), dim=1)
     # torch.compile path
     if dynamo_is_compiling() or "FakeTensor" in input.__repr__():
         return out_dtype(torch.ops.aten.mm.default, torch.int32, input, mat2)
