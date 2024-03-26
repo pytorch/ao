@@ -56,6 +56,15 @@ from torchao.quantization.utils import (
 )
 from torch.ao.quantization.quantize_fx import convert_to_reference_fx, prepare_fx
 import os
+from parameterized import parameterized
+COMMON_DEVICE_DTYPE=[
+    ("cpu", torch.float32),
+    ("cpu", torch.float16),
+    ("cpu", torch.bfloat16),
+    ("cuda", torch.float32),
+    ("cuda", torch.float16),
+    ("cuda", torch.bfloat16),
+]
 
 torch.manual_seed(0)
 config.cache_size_limit = 100
@@ -786,12 +795,15 @@ class TestSubclass(unittest.TestCase):
     def _test_dequantize_impl(
         self,
         test_subclass_from_float,
+        test_device,
         min_sqnr=35,
         test_dtype=torch.bfloat16,
         test_shape=(32, 64, 64),
     ):
+        if not torch.cuda.is_available():
+            self.skipTest("Need CUDA available.")
         m, k, n = test_shape
-        lin = torch.nn.Linear(k, n, device="cuda").to(test_dtype)
+        lin = torch.nn.Linear(k, n, device=test_device).to(test_dtype)
         w = lin.weight.detach()
         lin.weight = torch.nn.Parameter(
             test_subclass_from_float(lin.weight), requires_grad=False
@@ -808,21 +820,27 @@ class TestSubclass(unittest.TestCase):
             f"{lin.weight.__class__.__name__} failed transpose on dtype={test_dtype}"
         )
 
-    def test_dequantize_int8_dynamic_quant_subclass(self):
-        for test_dtype in [torch.float32, torch.float16, torch.bfloat16]:
-            self._test_dequantize_impl(
-                Int8DynamicallyQuantizedLinearWeight.from_float, 35, test_dtype
-            )
-
-    def test_dequantize_int8_weight_only_quant_subclass(self):
-        for test_dtype in [torch.float32, torch.float16, torch.bfloat16]:
-            self._test_dequantize_impl(
-                Int8WeightOnlyQuantizedLinearWeight.from_float, 35, test_dtype
-            )
-
-    def test_dequantize_int4_weight_only_quant_subclass(self):
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    def test_dequantize_int8_dynamic_quant_subclass(self, device, dtype):
         self._test_dequantize_impl(
-            Int4WeightOnlyQuantizedLinearWeight.from_float, 15, test_shape=[1, 1024, 8]
+            Int8DynamicallyQuantizedLinearWeight.from_float, device, 35, dtype
+        )
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    def test_dequantize_int8_weight_only_quant_subclass(self, device, dtype):
+        self._test_dequantize_impl(
+            Int8WeightOnlyQuantizedLinearWeight.from_float, device, 35, dtype
+        )
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    def test_dequantize_int4_weight_only_quant_subclass(self, device, dtype):
+        if dtype != torch.bfloat16:
+            # TODO: Add dtype coverage to int4_weight_only_quant_subclass
+            self.skipTest(f"int4_weight_only_quant_subclass can't be constructed from {dtype}")
+        if device != "cuda":
+            self.skipTest(f"int4_weight_only_quant_subclass can't be constructed on {device}")
+        self._test_dequantize_impl(
+            Int4WeightOnlyQuantizedLinearWeight.from_float, device, 15, test_shape=[1, 1024, 8]
         )
         for groupsize in [256, 128]:
             for inner_k_tiles in [8, 2]:
@@ -830,6 +848,7 @@ class TestSubclass(unittest.TestCase):
                     for n in [8, 13]:
                         self._test_dequantize_impl(
                             lambda w: Int4WeightOnlyQuantizedLinearWeight.from_float(w, groupsize, inner_k_tiles),
+                            device,
                             15,
                             test_shape=[m, 256, n]
                         )
