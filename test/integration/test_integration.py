@@ -955,12 +955,18 @@ class TestSubclass(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_int8_dynamic_quant_subclass_api(self, device, dtype):
+        if dtype == torch.bfloat16 and device == "cuda":
+            if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
+                self.skipTest(f"{device} and {dtype} requires SM capability of at least (8, 0).")
         self._test_lin_weight_subclass_api_impl(
             change_linear_weights_to_int8_dqtensors, device, 35, dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_int8_weight_only_quant_subclass_api(self, device, dtype):
+        if dtype == torch.bfloat16 and device == "cuda":
+            if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
+                self.skipTest(f"{device} and {dtype} requires SM capability of at least (8, 0).")
         self._test_lin_weight_subclass_api_impl(
             change_linear_weights_to_int8_woqtensors, device, 40, dtype
         )
@@ -973,6 +979,9 @@ class TestSubclass(unittest.TestCase):
             self.skipTest(f"int4_weight_only_quant_subclass can't be constructed from {dtype}")
         if device != "cuda":
             self.skipTest(f"int4_weight_only_quant_subclass can't be constructed on {device}")
+        if dtype == torch.bfloat16 and device == "cuda":
+            if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
+                self.skipTest(f"{device} and {dtype} requires SM capability of at least (8, 0).")
         self._test_lin_weight_subclass_api_impl(
             change_linear_weights_to_int4_woqtensors, device, 15, test_shape=[1, 1024, 256]
         )
