@@ -173,10 +173,8 @@ class SmoothquantUnitTest(unittest.TestCase):
     def test_smooth_linear_cpu(self):
         self._test_smooth_linear_impl((1, 5, 3), (3, 4), "cpu")
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_smooth_linear_cuda(self):
-        if not torch.cuda.is_available():
-            print("no cuda, skip")
-            return
         self._test_smooth_linear_impl((1, 32, 32), (32, 16), "cuda")
 
     def test_smooth_linear_edge_cases(self):
@@ -228,6 +226,7 @@ class SmoothquantUnitTest(unittest.TestCase):
         y = m_copy(x)
         assert torch.allclose(y_ref, y)
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_weight_t_and_non_t_numerics_match(self):
         # verify that numerics match whether weight is stored
         # in transposed format (for cuBLAS) vs non-transposed format
@@ -419,6 +418,7 @@ class PythonQuantPrimitivesUnitTest(unittest.TestCase):
         for row in test_cases:
             self._test_dynamic_quant_per_tensor_numerics_impl(*row)
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_dynamic_quant_per_tensor_numerics_cuda(self):
         # verifies that dynamic quant per tensor in plain pytorch matches
         # numerics of production AO code
@@ -542,10 +542,8 @@ class PythonQuantPrimitivesUnitTest(unittest.TestCase):
         for row in test_cases:
             self._test_dynamic_quant_per_channel_numerics_impl(*row)
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_dynamic_quant_per_channel_numerics_cuda(self):
-        if not torch.cuda.is_available():
-            print("no cuda, skip")
-            return
         test_cases = (
             (-128, 127, torch.int8, torch.qint8, torch.float32, "cuda"),
             (-128, 127, torch.int8, torch.qint8, torch.float16, "cuda"),
@@ -564,10 +562,8 @@ class PythonQuantPrimitivesUnitTest(unittest.TestCase):
         for dtype in (torch.float32, torch.float16, torch.bfloat16):
             self._test_quantize_per_token_impl("cpu", dtype)
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantize_per_token_cuda(self):
-        if not torch.cuda.is_available():
-            print("no cuda, skip")
-            return
         for dtype in (torch.float32, torch.float16, torch.bfloat16):
             self._test_quantize_per_token_impl("cuda", dtype)
 
@@ -589,19 +585,15 @@ class PythonQuantPrimitivesUnitTest(unittest.TestCase):
         for dtype in (torch.float32,):
             self._test_per_token_linear_impl("cpu", dtype)
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_per_token_linear_cuda(self):
-        if not torch.cuda.is_available():
-            print("no cuda, skip")
-            return
         for dtype in (torch.float32, torch.float16, torch.bfloat16):
             self._test_per_token_linear_impl("cuda", dtype)
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test__int_mm(self):
         # TODO(future): figure out what here needs to move to PT core,
         # if it's not already tested there
-        if not torch.cuda.is_available():
-            print("no cuda, skip")
-            return
 
         m, k, n = 32, 32, 16
         x = torch.randint(-128, 127, (m, k), dtype=torch.int8, device="cuda")
@@ -619,11 +611,8 @@ class PythonQuantPrimitivesUnitTest(unittest.TestCase):
         torch.testing.assert_close(y_ref, y_raw, atol=0, rtol=0)
         torch.testing.assert_close(y_ref, y_opt, atol=0, rtol=0)
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test__int_mm_eager_and_torch_compile_numerics(self):
-        if not torch.cuda.is_available():
-            print("no cuda, skip")
-            return
-
         def __int_mm_ref(x, w):
             x = x.cpu().to(torch.int32)
             w = w.cpu().to(torch.int32)
@@ -742,10 +731,8 @@ class PythonQuantPrimitivesUnitTest(unittest.TestCase):
         for test_case in test_cases:
             self._test_qlinear_per_channel_numerics(*test_case)
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_qlinear_per_channel_numerics_cuda(self):
-        if not torch.cuda.is_available():
-            print("no cuda, skip")
-            return
         test_cases = (
             # Note:  torch._int_mm needs int8 activations, so we don't test uint8
             # activations on CUDA at all
@@ -1083,10 +1070,8 @@ class TestSaveLoadMeta(unittest.TestCase):
 
 
 class TorchCompileUnitTest(unittest.TestCase):
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_fullgraph(self):
-        if not torch.cuda.is_available():
-            print("no cuda, skip")
-            return
         lin_fp16 = nn.Linear(32, 16, device="cuda", dtype=torch.float16)
         lin_smooth = SmoothFakeDynamicallyQuantizedLinear.from_float(
             lin_fp16, alpha=0.25
@@ -1133,6 +1118,7 @@ class UtilsUnitTest(unittest.TestCase):
 
 class SmoothquantIntegrationTest(unittest.TestCase):
     @torch.no_grad()
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_non_dynamically_quantizable_linear(self):
         model = torch.nn.Sequential(
             torch.nn.modules.linear.NonDynamicallyQuantizableLinear(32,32),
