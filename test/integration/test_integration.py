@@ -954,13 +954,13 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_int8_dynamic_quant_subclass_api(self, device, dtype):
         self._test_lin_weight_subclass_api_impl(
-            change_linear_weights_to_int8_dqtensors, device, 35, test_dtype
+            change_linear_weights_to_int8_dqtensors, device, 35, dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_int8_weight_only_quant_subclass_api(self, device, dtype):
         self._test_lin_weight_subclass_api_impl(
-            change_linear_weights_to_int8_woqtensors, device, 40, test_dtype
+            change_linear_weights_to_int8_woqtensors, device, 40, dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
