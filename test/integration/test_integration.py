@@ -903,7 +903,7 @@ class TestSubclass(unittest.TestCase):
         if device != "cuda":
             self.skipTest(f"int4_weight_only_quant_subclass can't be constructed on {device}")
         self._test_lin_weight_subclass_impl(
-            Int4WeightOnlyQuantizedLinearWeight.from_float, 10, test_shape=[1, 1024, 8]
+            Int4WeightOnlyQuantizedLinearWeight.from_float, device, 10, test_shape=[1, 1024, 8]
         )
         for groupsize in [128, 64]:
             for inner_k_tiles in [4, 2]:
