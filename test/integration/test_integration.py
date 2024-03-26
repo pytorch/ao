@@ -882,12 +882,18 @@ class TestSubclass(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_int8_dynamic_quant_subclass(self, device, dtype):
+        if dtype == torch.bfloat16 and device == "cuda":
+            if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
+                self.skipTest(f"{device} and {dtype} requires SM capability of at least (8, 0).")
         self._test_lin_weight_subclass_impl(
             Int8DynamicallyQuantizedLinearWeight.from_float, device, 35, dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_int8_weight_only_quant_subclass(self, device, dtype):
+        if dtype == torch.bfloat16 and device == "cuda":
+            if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
+                self.skipTest(f"{device} and {dtype} requires SM capability of at least (8, 0).")
         self._test_lin_weight_subclass_impl(
             Int8WeightOnlyQuantizedLinearWeight.from_float, device, 40, dtype
         )
