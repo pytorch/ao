@@ -301,7 +301,7 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
         # however the external representation of our tensor will maintain the correct
         # shape attribute which needs to be tracked directly.
         int_data = w_int_repr.contiguous().t()
-        if not issubclass(cls, Int8DynamicallyQuantizedLinearWeight):
+        if cls is not Int8DynamicallyQuantizedLinearWeight:
             int_data = int_data.contiguous()
         return cls(
             int_data, w_scales, False, input_float.shape, dtype=input_float.dtype
