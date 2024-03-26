@@ -184,6 +184,7 @@ class TestNF4Linear(TestCase):
         assert type(inpt_tensor_nf4.to(torch.bfloat16)) == torch.Tensor
         assert inpt_tensor_nf4.to(torch.bfloat16).dtype == torch.bfloat16
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_smoketest_linear(self):
         a = torch.randn(32, 32, dtype=torch.bfloat16, device='cuda')
         a_nf4 = torchao.dtypes.to_nf4(a, 16, 2)
@@ -192,6 +193,7 @@ class TestNF4Linear(TestCase):
         out2 = torch.nn.functional.linear(inp, a_nf4)
 
     @unittest.skipIf(torch.__version__.split('+')[0] == '2.2.1', "Broken on stable.")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_smoketest_linear_compile(self):
         a = torch.randn(32, 32, dtype=torch.bfloat16, device='cuda')
         a_nf4 = torchao.dtypes.to_nf4(a, 16, 2)
