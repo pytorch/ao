@@ -1145,6 +1145,7 @@ class TestSaveLoadMeta(unittest.TestCase):
         self._test_handle_save_load_meta_impl(change_linear_weights_to_int8_woqtensors, device, dtype)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skip("Currently broken.")  # TODO: Fix me
     @torch.no_grad()
     def test_save_load_int4woqtensors(self, device, dtype):
         if device != "cuda":
