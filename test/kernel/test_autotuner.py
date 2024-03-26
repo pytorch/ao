@@ -45,7 +45,7 @@ class TestQuantFlow(unittest.TestCase):
         w_int = w.to(dtype=torch.int8)
         out32_1 = intmm.safe_int_mm(x_int, w_int)
         assert out32_1.dtype == torch.int32
-        out32_2 = torch.ops.torchao.int_matmul(x_int, w_int)
+        out32_2 = intmm.int_matmul(x_int, w_int)
         assert out32_2.dtype == out32_1.dtype
         torch.testing.assert_allclose(out32_1, out32_2)
 
@@ -70,7 +70,7 @@ class TestQuantFlow(unittest.TestCase):
         w_int = w.to(dtype=torch.int8)
         out32_1 = intmm.safe_int_mm(x_int, w_int) * scales
         assert out32_1.dtype == torch.bfloat16
-        out32_2 = torch.ops.torchao.int_scaled_matmul(x_int, w_int, scales)
+        out32_2 = intmm.int_scaled_matmul(x_int, w_int, scales)
         assert out32_2.dtype == out32_1.dtype
         torch.testing.assert_allclose(out32_1, out32_2)
 
