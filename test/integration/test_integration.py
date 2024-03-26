@@ -800,7 +800,7 @@ class TestSubclass(unittest.TestCase):
         test_dtype=torch.bfloat16,
         test_shape=(32, 64, 64),
     ):
-        if not torch.cuda.is_available():
+        if test_device == "cuda" and not torch.cuda.is_available():
             self.skipTest("Need CUDA available.")
         m, k, n = test_shape
         lin = torch.nn.Linear(k, n, device=test_device).to(test_dtype)
@@ -861,7 +861,7 @@ class TestSubclass(unittest.TestCase):
         test_dtype=torch.bfloat16,
         test_shape=(32, 64, 32),
     ):
-        if not torch.cuda.is_available():
+        if test_device == "cuda" and not torch.cuda.is_available():
             self.skipTest("Need CUDA available.")
         m, k, n = test_shape
         x = torch.randn(m, k, device=test_device, dtype=test_dtype)
@@ -922,14 +922,17 @@ class TestSubclass(unittest.TestCase):
     def _test_lin_weight_subclass_api_impl(
         self,
         api,
+        test_device,
         min_sqnr=35,
         test_dtype=torch.bfloat16,
         test_shape=(32, 64, 32)
     ):
+        if test_device == "cuda" and not torch.cuda.is_available():
+            self.skipTest("Need CUDA available.")
         m, k, n = test_shape
-        x = torch.randn(m, k, device="cuda", dtype=test_dtype)
+        x = torch.randn(m, k, device=test_device, dtype=test_dtype)
         mod = nn.Sequential(
-            nn.Linear(k, n, device="cuda"), nn.ReLU(), nn.Linear(n, n, device="cuda")
+            nn.Linear(k, n, device=test_device), nn.ReLU(), nn.Linear(n, n, device=test_device)
         ).to(test_dtype)
         ref_f = mod(x)
         api(mod)
@@ -948,27 +951,34 @@ class TestSubclass(unittest.TestCase):
         )
 
 
-    def test_int8_dynamic_quant_subclass_api(self):
-        for test_dtype in [torch.float32, torch.float16, torch.bfloat16]:
-            self._test_lin_weight_subclass_api_impl(
-                change_linear_weights_to_int8_dqtensors, 35, test_dtype
-            )
-
-    def test_int8_weight_only_quant_subclass_api(self):
-        for test_dtype in [torch.float32, torch.float16, torch.bfloat16]:
-            self._test_lin_weight_subclass_api_impl(
-                change_linear_weights_to_int8_woqtensors, 40, test_dtype
-            )
-
-    def test_int4_weight_only_quant_subclass_api(self):
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    def test_int8_dynamic_quant_subclass_api(self, device, dtype):
         self._test_lin_weight_subclass_api_impl(
-            change_linear_weights_to_int4_woqtensors, 15, test_shape=[1, 1024, 256]
+            change_linear_weights_to_int8_dqtensors, device, 35, test_dtype
+        )
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    def test_int8_weight_only_quant_subclass_api(self, device, dtype):
+        self._test_lin_weight_subclass_api_impl(
+            change_linear_weights_to_int8_woqtensors, device, 40, test_dtype
+        )
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    def test_int4_weight_only_quant_subclass_api(self, device, dtype):
+        if dtype != torch.bfloat16:
+            # TODO: Add dtype coverage to int4_weight_only_quant_subclass
+            self.skipTest(f"int4_weight_only_quant_subclass can't be constructed from {dtype}")
+        if device != "cuda":
+            self.skipTest(f"int4_weight_only_quant_subclass can't be constructed on {device}")
+        self._test_lin_weight_subclass_api_impl(
+            change_linear_weights_to_int4_woqtensors, device, 15, test_shape=[1, 1024, 256]
         )
         for groupsize in [64, 32]:
             for inner_k_tiles in [4, 2]:
                 kwargs = {"groupsize": groupsize, "inner_k_tiles": inner_k_tiles}
                 self._test_lin_weight_subclass_api_impl(
                     lambda mod: change_linear_weights_to_int4_woqtensors(mod, **kwargs),
+                    device,
                     15,
                     test_shape=[256, 256, 8]
                 )
@@ -1001,37 +1011,37 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
             self.assertGreater(sqnr, 44.0)
 
     @torch.no_grad()
-    def test_weight_only_quant_force_mixed_mm(self):
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    def test_weight_only_quant_force_mixed_mm(self, device, dtype):
         torch._inductor.config.epilogue_fusion = True
         torch._inductor.config.force_mixed_mm = True
-        for x_dtype in [torch.float16, torch.bfloat16, torch.float32]:
-            for x_shape in [[2, 4], [5, 5, 5, 4], [1, 4, 4]]:
-                torch._dynamo.reset()
-                x = torch.randn(*x_shape).to("cuda").to(x_dtype)
-                m = nn.Sequential(nn.Linear(4, 5)).to("cuda").to(x_dtype)
-                y_ref = m(x)
-                apply_weight_only_int8_quant(m)
-                m(x)
-                m_c = torch.compile(m, mode="max-autotune")
-                y_wo, (code,) = run_and_get_code(m_c, x)
-                sqnr = compute_error(y_ref, y_wo)
-                self.assertGreater(sqnr, 43.0)
-                self.assertTrue("mixed_mm" in code)
+        for x_shape in [[2, 4], [5, 5, 5, 4], [1, 4, 4]]:
+            torch._dynamo.reset()
+            x = torch.randn(*x_shape).to(device).to(dtype)
+            m = nn.Sequential(nn.Linear(4, 5)).to(device).to(dtype)
+            y_ref = m(x)
+            apply_weight_only_int8_quant(m)
+            m(x)
+            m_c = torch.compile(m, mode="max-autotune")
+            y_wo, (code,) = run_and_get_code(m_c, x)
+            sqnr = compute_error(y_ref, y_wo)
+            self.assertGreater(sqnr, 43.0)
+            self.assertTrue("mixed_mm" in code)
 
-    def test_weight_only_quant_use_mixed_mm(self):
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    def test_weight_only_quant_use_mixed_mm(self, device, dtype):
         torch._inductor.config.epilogue_fusion = False
         torch._inductor.config.use_mixed_mm = True
-        for x_dtype in [torch.float32, torch.float16, torch.bfloat16]:
-            for x_shape in [[2, 4], [5, 5, 5, 4], [1, 4, 4]]:
-                torch._dynamo.reset()
-                x = torch.randn(*x_shape).to("cuda").to(x_dtype)
-                m = nn.Sequential(nn.Linear(4, 5)).to("cuda").to(x_dtype)
-                y_ref = m(x)
-                apply_weight_only_int8_quant(m)
-                m_c = torch.compile(m, mode="max-autotune")
-                y_wo, (code,) = run_and_get_code(m_c, x)
-                sqnr = compute_error(y_ref, y_wo)
-                self.assertGreater(sqnr, 43.0)
+        for x_shape in [[2, 4], [5, 5, 5, 4], [1, 4, 4]]:
+            torch._dynamo.reset()
+            x = torch.randn(*x_shape).to(device).to(dtype)
+            m = nn.Sequential(nn.Linear(4, 5)).to(device).to(dtype)
+            y_ref = m(x)
+            apply_weight_only_int8_quant(m)
+            m_c = torch.compile(m, mode="max-autotune")
+            y_wo, (code,) = run_and_get_code(m_c, x)
+            sqnr = compute_error(y_ref, y_wo)
+            self.assertGreater(sqnr, 43.0)
 
 
 class TestSaveLoadMeta(unittest.TestCase):
