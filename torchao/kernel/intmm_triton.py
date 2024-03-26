@@ -5,8 +5,6 @@ import torch
 
 import triton
 import triton.language as tl
-from torch._dynamo import is_compiling as dynamo_is_compiling
-from torch._higher_order_ops.out_dtype import out_dtype
 
 from torchao.kernel.autotuner import get_best_config_fn
 

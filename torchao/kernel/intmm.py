@@ -1,7 +1,10 @@
 import itertools
 import os
-
 import torch
+
+from torch._dynamo import is_compiling as dynamo_is_compiling
+from torch._higher_order_ops.out_dtype import out_dtype
+
 try:
     from torchao.kernel import intmm_triton
 except ImportError:
