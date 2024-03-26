@@ -861,6 +861,8 @@ class TestSubclass(unittest.TestCase):
         test_dtype=torch.bfloat16,
         test_shape=(32, 64, 32),
     ):
+        if not torch.cuda.is_available():
+            self.skipTest("Need CUDA available.")
         m, k, n = test_shape
         x = torch.randn(m, k, device=test_device, dtype=test_dtype)
         lin = torch.nn.Linear(k, n, device=test_device).to(test_dtype)
