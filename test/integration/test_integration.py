@@ -1014,6 +1014,8 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
     def test_weight_only_quant_force_mixed_mm(self, device, dtype):
+        if device != "cuda":
+            self.skipTest(f"weight_only_quant_force_mixed_mm can't be constructed on {device}")
         from torch._inductor import config
         with config.patch({
             "epilogue_fusion": True,
