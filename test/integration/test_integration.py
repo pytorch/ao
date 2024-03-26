@@ -1131,11 +1131,17 @@ class TestSaveLoadMeta(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
     def test_save_load_dqtensors(self, device, dtype):
+        if dtype == torch.bfloat16 and device == "cuda":
+            if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
+                self.skipTest(f"{device} and {dtype} requires SM capability of at least (8, 0).")
         self._test_handle_save_load_meta_impl(change_linear_weights_to_int8_dqtensors, device, dtype)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
     def test_save_load_int8woqtensors(self, device, dtype):
+        if dtype == torch.bfloat16 and device == "cuda":
+            if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
+                self.skipTest(f"{device} and {dtype} requires SM capability of at least (8, 0).")
         self._test_handle_save_load_meta_impl(change_linear_weights_to_int8_woqtensors, device, dtype)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
@@ -1143,6 +1149,9 @@ class TestSaveLoadMeta(unittest.TestCase):
     def test_save_load_int4woqtensors(self, device, dtype):
         if device != "cuda":
             self.skipTest(f"int4woqtensors can't be constructed on {device}")
+        if dtype == torch.bfloat16 and device == "cuda":
+            if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
+                self.skipTest(f"{device} and {dtype} requires SM capability of at least (8, 0).")
         self._test_handle_save_load_meta_impl(change_linear_weights_to_int4_woqtensors, device, dtype, 20)
 
 
