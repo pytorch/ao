@@ -10,7 +10,7 @@ from torch._higher_order_ops.out_dtype import out_dtype
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib
 from torch.library import impl
 
-from torchao.kernel.intmm_triton import int_scaled_matmul
+from torchao.kernel.intmm import int_scaled_matmul
 from .utils import TORCH_VERSION_AFTER_2_4
 
 
