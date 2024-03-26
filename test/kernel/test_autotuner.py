@@ -35,6 +35,7 @@ class TestQuantFlow(unittest.TestCase):
     )
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_int_mm(self, device, dtype):
+        from torchao.kernel import intmm
         from torchao.kernel import intmm_triton
 
         dtype = torch.bfloat16
@@ -43,7 +44,7 @@ class TestQuantFlow(unittest.TestCase):
         w = torch.randn(n, k, dtype=dtype, device=device).t()
         x_int = x.to(dtype=torch.int8)
         w_int = w.to(dtype=torch.int8)
-        out32_1 = intmm_triton.safe_int_mm(x_int, w_int)
+        out32_1 = intmm.safe_int_mm(x_int, w_int)
         assert out32_1.dtype == torch.int32
         out32_2 = intmm_triton.int_matmul(x_int, w_int)
         assert out32_2.dtype == out32_1.dtype
@@ -59,6 +60,7 @@ class TestQuantFlow(unittest.TestCase):
     )
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_int_scaled_mm(self, device, dtype):
+        from torchao.kernel import intmm
         from torchao.kernel import intmm_triton
 
         dtype = torch.bfloat16
@@ -68,7 +70,7 @@ class TestQuantFlow(unittest.TestCase):
         w = torch.randn(n, k, dtype=dtype, device=device).t()
         x_int = x.to(dtype=torch.int8)
         w_int = w.to(dtype=torch.int8)
-        out32_1 = intmm_triton.safe_int_mm(x_int, w_int) * scales
+        out32_1 = intmm.safe_int_mm(x_int, w_int) * scales
         assert out32_1.dtype == torch.bfloat16
         out32_2 = intmm_triton.int_scaled_matmul(x_int, w_int, scales)
         assert out32_2.dtype == out32_1.dtype
