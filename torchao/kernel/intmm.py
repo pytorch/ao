@@ -7,6 +7,8 @@ try:
 except ImportError:
     intmm_triton = None
 
+AUTOTUNER_ENABLE = bool(int(os.getenv("TORCHAO_AUTOTUNER_ENABLE", 0)))
+
 def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
     # torch.compile path
     if dynamo_is_compiling() or "FakeTensor" in input.__repr__():
