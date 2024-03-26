@@ -76,7 +76,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install -r dev-requirements.txt
-        pip install torch
+        pip install torch --index-url https://download.pytorch.org/whl/cpu
         
 
     - name: Install package
@@ -102,7 +102,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install -r dev-requirements.txt
-        pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu121
+        pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cpu
         
 
     - name: Install package
