@@ -240,9 +240,6 @@ class SmoothquantUnitTest(unittest.TestCase):
         # verify that numerics match whether weight is stored
         # in transposed format (for cuBLAS) vs non-transposed format
         # (for torch.compile)
-        if not torch.cuda.is_available():
-            print("no cuda, skip")
-            return
         dtype = torch.half
         device = "cuda"
         lin_ref = nn.Linear(32, 16, dtype=dtype, device=device)
@@ -431,9 +428,6 @@ class PythonQuantPrimitivesUnitTest(unittest.TestCase):
     def test_dynamic_quant_per_tensor_numerics_cuda(self):
         # verifies that dynamic quant per tensor in plain pytorch matches
         # numerics of production AO code
-        if not torch.cuda.is_available():
-            print("no cuda, skip")
-            return
         test_cases = (
             (
                 -128,
@@ -1060,7 +1054,9 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
 
 class TestSaveLoadMeta(unittest.TestCase):
     @torch.no_grad()
-    def _test_handle_save_load_meta_impl(self, api, min_sqnr=35):
+    def _test_handle_save_load_meta_impl(self, api, device, dtype, min_sqnr=35):
+        if device == "cuda" and not torch.cuda.is_available():
+            self.skipTest("Need CUDA available.")
         m, k, n = 32, 64, 32
 
         class test_model(nn.Module):
@@ -1076,10 +1072,10 @@ class TestSaveLoadMeta(unittest.TestCase):
                 x = self.lin2(x)
                 return x
 
-        x = torch.randn(m, k, dtype=torch.bfloat16, device="cuda")
+        x = torch.randn(m, k, dtype=dtype, device=device)
 
         # get float reference
-        model = test_model().to(torch.bfloat16).cuda().eval()
+        model = test_model().to(dtype=dtype, device=device).eval()
         ref_f = model(x)
 
         # save quantized state_dict
@@ -1100,7 +1096,7 @@ class TestSaveLoadMeta(unittest.TestCase):
         state_dict = torch.load("test.pth", mmap=True)
         os.remove("test.pth")
         model.load_state_dict(state_dict, assign=True)
-        model = model.to(torch.bfloat16).cuda().eval()
+        model = model.to(device=device, dtype=dtype).eval()
 
         # get quantized reference
         model_qc = torch.compile(model, mode="max-autotune")
@@ -1109,17 +1105,20 @@ class TestSaveLoadMeta(unittest.TestCase):
         assert SQNR(ref_f, test) > min_sqnr
         self.assertTrue(torch.equal(ref_q, test))
 
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
-    def test_save_load_dqtensors(self):
-        self._test_handle_save_load_meta_impl(change_linear_weights_to_int8_dqtensors)
+    def test_save_load_dqtensors(self, device, dtype):
+        self._test_handle_save_load_meta_impl(change_linear_weights_to_int8_dqtensors, device, dtype)
 
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
-    def test_save_load_int8woqtensors(self):
-        self._test_handle_save_load_meta_impl(change_linear_weights_to_int8_woqtensors)
+    def test_save_load_int8woqtensors(self, device, dtype):
+        self._test_handle_save_load_meta_impl(change_linear_weights_to_int8_woqtensors, device, dtype)
 
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
-    def test_save_load_int4woqtensors(self):
-        self._test_handle_save_load_meta_impl(change_linear_weights_to_int4_woqtensors, 20)
+    def test_save_load_int4woqtensors(self, device, dtype):
+        self._test_handle_save_load_meta_impl(change_linear_weights_to_int4_woqtensors, device, dtype, 20)
 
 
 class TorchCompileUnitTest(unittest.TestCase):
