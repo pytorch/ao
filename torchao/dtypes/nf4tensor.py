@@ -569,9 +569,9 @@ class LinearNF4(torch.autograd.Function):
     #  inconsistently.
 
     def backward(ctx, grad_output):
-        """The nf4 weight will never require grad so we can just return the grad_output @ weight.get_original_weight()"""
+        """The nf4 weight will never require grad so we can just return the grad_output @ weight.to(grad_output.dtype)"""
         weight: NF4Tensor = ctx.nf4_weight
-        return grad_output @ weight.get_original_weight(), None
+        return grad_output @ weight.to(grad_output.dtype), None
 
 
 def linear_nf4(input: torch.Tensor, weight: NF4Tensor) -> torch.Tensor:
