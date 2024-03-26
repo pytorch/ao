@@ -64,7 +64,7 @@ def int_scaled_matmul(a, b, scales1):
     assert M == scales1.size(0)
     assert 1 == scales1.size(1)
     assert scales1.is_contiguous()
-    assert scales1.dtype == torch.bfloat16
+
     scales1 = scales1.expand((M, N))
     assert scales1.dim() == 2
     if intmm_triton is not None and AUTOTUNER_ENABLE:
