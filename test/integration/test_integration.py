@@ -1037,19 +1037,25 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
                     self.assertTrue("mixed_mm" in code)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_weight_only_quant_use_mixed_mm(self, device, dtype):
-        torch._inductor.config.epilogue_fusion = False
-        torch._inductor.config.use_mixed_mm = True
-        for x_shape in [[2, 4], [5, 5, 5, 4], [1, 4, 4]]:
-            torch._dynamo.reset()
-            x = torch.randn(*x_shape).to(device).to(dtype)
-            m = nn.Sequential(nn.Linear(4, 5)).to(device).to(dtype)
-            y_ref = m(x)
-            apply_weight_only_int8_quant(m)
-            m_c = torch.compile(m, mode="max-autotune")
-            y_wo, (code,) = run_and_get_code(m_c, x)
-            sqnr = compute_error(y_ref, y_wo)
-            self.assertGreater(sqnr, 43.0)
+        if device != "cuda":
+            self.skipTest(f"weight_only_quant_force_mixed_mm can't be constructed on {device}")
+        from torch._inductor import config
+        with config.patch({
+            "epilogue_fusion": False,
+            "force_mixed_mm": True
+            }):
+            for x_shape in [[2, 4], [5, 5, 5, 4], [1, 4, 4]]:
+                torch._dynamo.reset()
+                x = torch.randn(*x_shape).to(device).to(dtype)
+                m = nn.Sequential(nn.Linear(4, 5)).to(device).to(dtype)
+                y_ref = m(x)
+                apply_weight_only_int8_quant(m)
+                m_c = torch.compile(m, mode="max-autotune")
+                y_wo, (code,) = run_and_get_code(m_c, x)
+                sqnr = compute_error(y_ref, y_wo)
+                self.assertGreater(sqnr, 43.0)
 
 
 class TestSaveLoadMeta(unittest.TestCase):
