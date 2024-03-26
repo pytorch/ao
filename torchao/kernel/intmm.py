@@ -57,8 +57,6 @@ def int_matmul(a, b):
 
 
 def int_scaled_matmul(a, b, scales1):
-    assert a.is_contiguous(), "Matrix A must be contiguous"
-    assert b.transpose(0, 1).is_contiguous(), "Matrix B must be transpose contiguous"
     M, K = a.shape
     K, N = b.shape
     assert M == scales1.size(0)

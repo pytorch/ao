@@ -103,6 +103,7 @@ class SmoothquantUnitTest(unittest.TestCase):
             assert torch.allclose(Y, Y_ref, atol=1e-3, rtol=1e-3), "not close!"
 
     def _test_smooth_linear_impl(self, x_shape, lin_shape, device):
+        orig_backend = torch.backends.quantized.engine
         # so we can use the full range
         torch.backends.quantized.engine = "qnnpack"
 
@@ -166,6 +167,9 @@ class SmoothquantUnitTest(unittest.TestCase):
         self.assertTrue(sqnr_dynamic_q.item() >= 40.0)
         self.assertTrue(sqnr_fq.item() >= 40.0)
 
+        # Restore backend
+        torch.backends.quantized.engine = orig_backend
+
     def test_smooth_linear_cpu(self):
         self._test_smooth_linear_impl((1, 5, 3), (3, 4), "cpu")
 
@@ -176,6 +180,7 @@ class SmoothquantUnitTest(unittest.TestCase):
         self._test_smooth_linear_impl((1, 32, 32), (32, 16), "cuda")
 
     def test_smooth_linear_edge_cases(self):
+        orig_backend = torch.backends.quantized.engine
         # so we can use the full range
         torch.backends.quantized.engine = "qnnpack"
         lin_fp32 = nn.Linear(3, 4)
@@ -198,6 +203,9 @@ class SmoothquantUnitTest(unittest.TestCase):
         _ = lin_smooth(x0)
         _ = lin_smooth(x1)
         _ = lin_smooth(x2)
+
+        # Restore backend
+        torch.backends.quantized.engine = orig_backend
 
     def test_swap(self):
         m = nn.Sequential(
