@@ -1126,6 +1126,8 @@ class TestSaveLoadMeta(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
     def test_save_load_int4woqtensors(self, device, dtype):
+        if device != "cuda":
+            self.skipTest(f"int4woqtensors can't be constructed on {device}")
         self._test_handle_save_load_meta_impl(change_linear_weights_to_int4_woqtensors, device, dtype, 20)
 
 
