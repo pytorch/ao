@@ -1028,6 +1028,9 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
     def test_weight_only_quant_force_mixed_mm(self, device, dtype):
         if device != "cuda":
             self.skipTest(f"weight_only_quant_force_mixed_mm can't be constructed on {device}")
+        if dtype == torch.bfloat16 and device == "cuda":
+            if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
+                self.skipTest(f"{device} and {dtype} requires SM capability of at least (8, 0).")
         from torch._inductor import config
         with config.patch({
             "epilogue_fusion": True,
@@ -1052,6 +1055,9 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
     def test_weight_only_quant_use_mixed_mm(self, device, dtype):
         if device != "cuda":
             self.skipTest(f"weight_only_quant_force_mixed_mm can't be constructed on {device}")
+        if dtype == torch.bfloat16 and device == "cuda":
+            if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
+                self.skipTest(f"{device} and {dtype} requires SM capability of at least (8, 0).")
         from torch._inductor import config
         with config.patch({
             "epilogue_fusion": False,
