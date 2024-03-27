@@ -826,13 +826,13 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_dequantize_int8_dynamic_quant_subclass(self, device, dtype):
         self._test_dequantize_impl(
-            Int8DynamicallyQuantizedLinearWeight.from_float, device, 35, dtype,
+            Int8DynamicallyQuantizedLinearWeight.from_float, device, 35, test_dtype=dtype,
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_dequantize_int8_weight_only_quant_subclass(self, device, dtype):
         self._test_dequantize_impl(
-            Int8WeightOnlyQuantizedLinearWeight.from_float, device, 35, dtype
+            Int8WeightOnlyQuantizedLinearWeight.from_float, device, 35, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
@@ -840,7 +840,7 @@ class TestSubclass(unittest.TestCase):
     def test_dequantize_int4_weight_only_quant_subclass(self, device, dtype):
         self._test_dequantize_impl(
             # Int4WeightOnlyQuantizedLinearWeight.from_float, device, 15, test_shape=[1, 1024, 8]
-            Int4WeightOnlyQuantizedLinearWeight.from_float, device, 15, test_shape=[16, 1024, 16]
+            Int4WeightOnlyQuantizedLinearWeight.from_float, device, 15, test_shape=[16, 1024, 16], test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
@@ -857,6 +857,7 @@ class TestSubclass(unittest.TestCase):
                             device,
                             15,
                             test_shape=[m, 256, n]
+                            test_dtype=dtype,
                         )
 
     @run_supported_device_dtype
@@ -895,13 +896,13 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_int8_dynamic_quant_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
-            Int8DynamicallyQuantizedLinearWeight.from_float, device, 35, dtype
+            Int8DynamicallyQuantizedLinearWeight.from_float, device, 35, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_int8_weight_only_quant_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
-            Int8WeightOnlyQuantizedLinearWeight.from_float, device, 40, dtype
+            Int8WeightOnlyQuantizedLinearWeight.from_float, device, 40, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
@@ -964,13 +965,13 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_int8_dynamic_quant_subclass_api(self, device, dtype):
         self._test_lin_weight_subclass_api_impl(
-            change_linear_weights_to_int8_dqtensors, device, 35, dtype
+            change_linear_weights_to_int8_dqtensors, device, 35, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_int8_weight_only_quant_subclass_api(self, device, dtype):
         self._test_lin_weight_subclass_api_impl(
-            change_linear_weights_to_int8_woqtensors, device, 40, dtype
+            change_linear_weights_to_int8_woqtensors, device, 40, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
