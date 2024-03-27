@@ -1157,6 +1157,7 @@ class TestSaveLoadMeta(unittest.TestCase):
 
 class TorchCompileUnitTest(unittest.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "fullgraph requires torch nightly.")
     def test_fullgraph(self):
         lin_fp16 = nn.Linear(32, 16, device="cuda", dtype=torch.float16)
         lin_smooth = SmoothFakeDynamicallyQuantizedLinear.from_float(
