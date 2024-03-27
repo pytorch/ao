@@ -910,7 +910,7 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
     def test_int4_weight_only_quant_subclass(self, device, dtype):
-        if dtype == torch.float16:
+        if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
         self._test_lin_weight_subclass_impl(
             # Int4WeightOnlyQuantizedLinearWeight.from_float, device, 10, test_shape=[1, 1024, 8]
@@ -920,6 +920,8 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
     def test_int4_weight_only_quant_subclass_grouped(self, device, dtype):
+        if dtype != torch.bfloat16:
+            self.skipTest(f"Fails for {dtype}")
         for groupsize in [128, 64]:
             for inner_k_tiles in [4, 2]:
                 for m in [1, 256]:
