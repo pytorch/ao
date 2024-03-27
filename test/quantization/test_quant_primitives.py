@@ -11,7 +11,7 @@ import torch
 from torchao.quantization.quant_primitives import get_group_qparams_symmetric
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
 
-class TestQuantPrimitives(unittest.TestCase)
+class TestQuantPrimitives(unittest.TestCase):
     SEED = 123
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.3 or lower")
