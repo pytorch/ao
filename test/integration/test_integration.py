@@ -74,9 +74,9 @@ COMMON_DEVICE_DTYPE=[
 def run_supported_device_dtype(test_method):
     def wrapper(*args, **kwargs):
         if args[2] == "cuda" and not torch.cuda.is_available():
-            if 'test_dtype' in kwargs and kwargs['test_dtype'] == torch.bfloat16 and torch.cuda.get_device_capability() < (8, 0):
-                raise unittest.SkipTest("Need CUDA and SM80+ available.")
             raise unittest.SkipTest(f"Need CUDA available.")
+        if args[2] == "cuda" and torch.cuda.is_available() and kwargs['test_dtype'] == torch.bfloat16 and torch.cuda.get_device_capability() < (8, 0):
+            raise unittest.SkipTest("Need CUDA and SM80+ available.")
         return test_method(*args, **kwargs)
     return wrapper
 
