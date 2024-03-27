@@ -57,6 +57,7 @@ from torchao.quantization.utils import (
 from torch.ao.quantization.quantize_fx import convert_to_reference_fx, prepare_fx
 import os
 from parameterized import parameterized
+from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
 
 torch.manual_seed(0)
 config.cache_size_limit = 100
@@ -835,6 +836,7 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
     def test_dequantize_int4_weight_only_quant_subclass(self, device, dtype):
         self._test_dequantize_impl(
             # Int4WeightOnlyQuantizedLinearWeight.from_float, device, 15, test_shape=[1, 1024, 8]
@@ -842,6 +844,7 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
     def test_dequantize_int4_weight_only_quant_subclass_grouped(self, device, dtype):
         for groupsize in [256, 128]:
             for inner_k_tiles in [8, 4, 2]:
@@ -902,6 +905,7 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
     def test_int4_weight_only_quant_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             # Int4WeightOnlyQuantizedLinearWeight.from_float, device, 10, test_shape=[1, 1024, 8]
@@ -909,6 +913,7 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
     def test_int4_weight_only_quant_subclass_grouped(self, device, dtype):
         for groupsize in [128, 64]:
             for inner_k_tiles in [4, 2]:
@@ -969,12 +974,14 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
     def test_int4_weight_only_quant_subclass_api(self, device, dtype):
         self._test_lin_weight_subclass_api_impl(
             change_linear_weights_to_int4_woqtensors, device, 15, test_shape=[16, 1024, 256]
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
     def test_int4_weight_only_quant_subclass_api_grouped(self, device, dtype):
         for groupsize in [64, 32]:
             for inner_k_tiles in [4, 2]:
@@ -1125,6 +1132,7 @@ class TestSaveLoadMeta(unittest.TestCase):
         self._test_handle_save_load_meta_impl(change_linear_weights_to_int8_woqtensors, device, dtype)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
     @torch.no_grad()
     def test_save_load_int4woqtensors(self, device, dtype):
         self._test_handle_save_load_meta_impl(change_linear_weights_to_int4_woqtensors, device, dtype, 20)
