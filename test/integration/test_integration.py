@@ -1105,10 +1105,10 @@ class TestSaveLoadMeta(unittest.TestCase):
                 x = self.lin2(x)
                 return x
 
-        x = torch.randn(m, k, dtype=dtype, device=device)
+        x = torch.randn(m, k, dtype=test_dtype, device=test_device)
 
         # get float reference
-        model = test_model().to(dtype=dtype, device=device).eval()
+        model = test_model().to(dtype=test_dtype, device=test_device).eval()
         ref_f = model(x)
 
         # save quantized state_dict
@@ -1129,7 +1129,7 @@ class TestSaveLoadMeta(unittest.TestCase):
         state_dict = torch.load("test.pth", mmap=True)
         os.remove("test.pth")
         model.load_state_dict(state_dict, assign=True)
-        model = model.to(device=device, dtype=dtype).eval()
+        model = model.to(device=test_device, dtype=test_dtype).eval()
 
         # get quantized reference
         model_qc = torch.compile(model, mode="max-autotune")
