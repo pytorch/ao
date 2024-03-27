@@ -840,22 +840,22 @@ class TestSubclass(unittest.TestCase):
     def test_dequantize_int4_weight_only_quant_subclass(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest("Currently only supports bfloat16.")
-        self._test_dequantize_impl(
-            # Int4WeightOnlyQuantizedLinearWeight.from_float, device, 15, test_shape=[1, 1024, 8]
-            Int4WeightOnlyQuantizedLinearWeight.from_float, device, 15, test_shape=[16, 1024, 16], test_dtype=dtype
-        )
+        for test_shape in ([(16, 1024, 16)] + ([(1, 1024, 8)] if device=='cuda' else [])):
+            self._test_dequantize_impl(
+                Int4WeightOnlyQuantizedLinearWeight.from_float, device, 15, test_shape=test_shape, test_dtype=dtype
+            )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
     def test_dequantize_int4_weight_only_quant_subclass_grouped(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest("Currently only supports bfloat16.")
+        m_shapes = [16, 256] + ([1] if device=="cuda" else [])
+        n_shapes = [16] + ([8, 13] if device=="cuda" else [])
         for groupsize in [256, 128]:
             for inner_k_tiles in [8, 4, 2]:
-                # for m in [1, 256]:
-                for m in [16, 256]:
-                    # for n in [8, 13]:
-                    for n in [16]:
+                for m in m_shapes:
+                    for n in n_shapes:
                         self._test_dequantize_impl(
                             lambda w: Int4WeightOnlyQuantizedLinearWeight.from_float(w, groupsize, inner_k_tiles),
                             device,
@@ -912,21 +912,22 @@ class TestSubclass(unittest.TestCase):
     def test_int4_weight_only_quant_subclass(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
-        self._test_lin_weight_subclass_impl(
-            # Int4WeightOnlyQuantizedLinearWeight.from_float, device, 10, test_shape=[1, 1024, 8]
-            Int4WeightOnlyQuantizedLinearWeight.from_float, device, 10, test_shape=[16, 1024, 16], test_dtype=dtype
-        )
+        for test_shape in ([(16, 1024, 16)] + ([(1, 1024, 8)] if device=='cuda' else [])):
+            self._test_lin_weight_subclass_impl(
+                Int4WeightOnlyQuantizedLinearWeight.from_float, device, 10, test_shape=test_shape, test_dtype=dtype
+            )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
     def test_int4_weight_only_quant_subclass_grouped(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
+        m_shapes = [16, 256] + ([1] if device=="cuda" else [])
+        n_shapes = [16] + ([8, 13] if device=="cuda" else [])
         for groupsize in [128, 64]:
-            for inner_k_tiles in [4, 2]:
-                for m in [1, 256]:
-                    # for n in [8, 13]:
-                    for n in [16]:
+            for inner_k_tiles in [8, 4, 2]:
+                for m in m_shapes:
+                    for n in n_shapes:
                         self._test_lin_weight_subclass_impl(
                             lambda w: Int4WeightOnlyQuantizedLinearWeight.from_float(w, groupsize, inner_k_tiles),
                             device,
@@ -984,30 +985,31 @@ class TestSubclass(unittest.TestCase):
     def test_int4_weight_only_quant_subclass_api(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
-        self._test_lin_weight_subclass_api_impl(
-            change_linear_weights_to_int4_woqtensors,
-            device,
-            15,
-            test_shape=[16, 1024, 256],
-            test_dtype=dtype
-        )
+        for test_shape in ([(16, 1024, 16)] + ([(1, 1024, 256)] if device=='cuda' else [])):
+            self._test_lin_weight_subclass_api_impl(
+                change_linear_weights_to_int4_woqtensors,
+                device,
+                15,
+                test_shape=test_shape,
+                test_dtype=dtype
+            )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
     def test_int4_weight_only_quant_subclass_api_grouped(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
-        for groupsize in [64, 32]:
-            for inner_k_tiles in [4, 2]:
-                kwargs = {"groupsize": groupsize, "inner_k_tiles": inner_k_tiles}
-                self._test_lin_weight_subclass_api_impl(
-                    lambda mod: change_linear_weights_to_int4_woqtensors(mod, **kwargs),
-                    device,
-                    15,
-                    # test_shape=[256, 256, 8]
-                    test_shape=[256, 256, 16],
-                    test_dtype=dtype,
-                )
+        for test_shape in ([(256, 256, 16)] + ([(256, 256, 8)] if device=='cuda' else [])):
+            for groupsize in [64, 32]:
+                for inner_k_tiles in [4, 2]:
+                    kwargs = {"groupsize": groupsize, "inner_k_tiles": inner_k_tiles}
+                    self._test_lin_weight_subclass_api_impl(
+                        lambda mod: change_linear_weights_to_int4_woqtensors(mod, **kwargs),
+                        device,
+                        15,
+                        test_shape=test_shape,
+                        test_dtype=dtype,
+                    )
 
 
 class TestDynamicQuant(unittest.TestCase):
