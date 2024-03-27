@@ -44,7 +44,7 @@ class TestQuantPrimitives(unittest.TestCase):
 
         # assert that scales are identical
         (scale_ao, _) = get_group_qparams_symmetric(weight, n_bit, groupsize)
-        torch.testing.assert_allclose(_scale_obs, scale_ao, rtol=0, atol=0)
+        torch.testing.assert_allclose(scale_obs, scale_ao, rtol=0, atol=0)
 
 if __name__ == "__main__":
     unittest.main()
