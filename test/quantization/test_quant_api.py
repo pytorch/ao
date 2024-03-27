@@ -184,5 +184,21 @@ class TestQuantFlow(unittest.TestCase):
         )
         model = quantizer.quantize(model)
 
+    def test_wo_int4_save_load(self):
+        from torchao.quantization.quant_api import change_linear_weights_to_int4_woqtensors
+
+        m = M().eval()
+
+        change_linear_weights_to_int4_woqtensors(m)
+
+        import tempfile
+        with tempfile.NamedTemporaryFile() as f:
+            torch.save(m.state_dict(), f.name)
+            state_dict = torch.load(f.name, map_location="cpu", mmap=True, weights_only=True)
+            m2 = M().eval()
+            change_linear_weights_to_int4_woqtensors(m2)
+            # make sure it runs
+            m2.load_state_dict(state_dict)
+
 if __name__ == "__main__":
     unittest.main()
