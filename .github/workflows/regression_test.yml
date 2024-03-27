@@ -33,7 +33,7 @@ jobs:
 
     - name: Run tests
       run: |
-        pytest test --verbose -s -x
+        pytest test --verbose -s
 
   test-nightly:
     runs-on: 4-core-ubuntu-gpu-t4
@@ -59,7 +59,7 @@ jobs:
 
     - name: Run tests
       run: |
-        pytest test --verbose -s -x
+        pytest test --verbose -s
 
   test-cpu:
     runs-on: 32-core-ubuntu
@@ -85,7 +85,7 @@ jobs:
 
     - name: Run tests
       run: |
-        pytest test --verbose -s -x
+        pytest test --verbose -s
 
   test-nightly-cpu:
     runs-on: 32-core-ubuntu
@@ -111,4 +111,4 @@ jobs:
 
     - name: Run tests
       run: |
-        pytest test --verbose -s -x
+        pytest test --verbose -s
