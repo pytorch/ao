@@ -14,11 +14,11 @@ from .quant_primitives import (
     quant_int8_dynamic_per_token_linear,
     unpack_tinygemm_scales_and_zeros,
 )
-from .dynamic_quant_sparse import sparse_quant_int8_dynamic_cutlass_linear, sparse_quant_int8_dynamic_cusparselt_linear
+from .dynamic_quant_sparse import sparse_quant_int8_dynamic_cutlass_linear, sparse_quant_int8_dynamic_cslt_linear
 from .utils import find_multiple
 import warnings
 
-from torch.sparse import SparseSemiStructuredTensor, to_sparse_semi_structured
+from torch.sparse import SparseSemiStructuredTensor, to_sparse_semi_structured, SparseSemiStructuredTensorCUTLASS
 
 
 __all__ = [
@@ -285,7 +285,7 @@ class Int8DynamicallyQuantized24CusparseltLinearWeight(Int8DynamicallyQuantizedL
 
     @staticmethod
     def _quantized_op(act_mat, w_qtensor, bias):
-        return sparse_quant_int8_dynamic_cusparselt_linear(
+        return sparse_quant_int8_dynamic_cslt_linear(
             act_mat, w_qtensor.int_data, w_qtensor.q_scales, bias, act_mat.dtype
         )
 
@@ -398,18 +398,15 @@ class Int8DynamicallyQuantized24CutlassLinearWeight(QuantizedLinearWeightBase):
         )
 
         int_data = w_int_repr.contiguous()
-
-        sparse_tensor = to_sparse_semi_structured(int_data).t()
-
-        if sparse_tensor.compressed_tensor_cusparselt is None:
-            int_data = sparse_tensor.sparse_tensor_cutlass
-            mask_meta = sparse_tensor.meta_tensor_cutlass
-        else:
-            int_data = sparse_tensor.compressed_tensor_cusparselt
-            mask_meta = None
+        sparse_tensor = SparseSemiStructuredTensorCUTLASS.from_dense(int_data).t()
 
         return cls(
-            int_data, mask_meta, w_scales, False, input_float.shape, dtype=input_float.dtype
+            sparse_tensor.packed,
+            sparse_tensor.meta,
+            w_scales,
+            False,
+            input_float.shape,
+            dtype=input_float.dtype
         )
 
 
