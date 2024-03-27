@@ -838,6 +838,8 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
     def test_dequantize_int4_weight_only_quant_subclass(self, device, dtype):
+        if dtype == torch.float32:
+            self.skipTest("Currently only supports (b)float16.")
         self._test_dequantize_impl(
             # Int4WeightOnlyQuantizedLinearWeight.from_float, device, 15, test_shape=[1, 1024, 8]
             Int4WeightOnlyQuantizedLinearWeight.from_float, device, 15, test_shape=[16, 1024, 16], test_dtype=dtype
@@ -846,6 +848,8 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
     def test_dequantize_int4_weight_only_quant_subclass_grouped(self, device, dtype):
+        if dtype == torch.float32:
+            self.skipTest("Currently only supports (b)float16.")
         for groupsize in [256, 128]:
             for inner_k_tiles in [8, 4, 2]:
                 # for m in [1, 256]:
