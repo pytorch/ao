@@ -22,9 +22,9 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
+        pip install torch
         pip install -r requirements.txt
         pip install -r dev-requirements.txt
-        pip install torch
         
 
     - name: Install package
@@ -33,7 +33,7 @@ jobs:
 
     - name: Run tests
       run: |
-        pytest test
+        pytest test --verbose -s -x
 
   test-nightly:
     runs-on: 4-core-ubuntu-gpu-t4
@@ -48,9 +48,9 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
+        pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu121
         pip install -r requirements.txt
         pip install -r dev-requirements.txt
-        pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu121
         
 
     - name: Install package
@@ -59,7 +59,7 @@ jobs:
 
     - name: Run tests
       run: |
-        pytest test
+        pytest test --verbose -s -x
 
   test-cpu:
     runs-on: 32-core-ubuntu
@@ -74,9 +74,9 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
+        pip install torch --index-url https://download.pytorch.org/whl/cpu
         pip install -r requirements.txt
         pip install -r dev-requirements.txt
-        pip install torch --index-url https://download.pytorch.org/whl/cpu
         
 
     - name: Install package
@@ -85,7 +85,7 @@ jobs:
 
     - name: Run tests
       run: |
-        pytest test
+        pytest test --verbose -s -x
 
   test-nightly-cpu:
     runs-on: 32-core-ubuntu
@@ -100,9 +100,9 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
+        pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cpu
         pip install -r requirements.txt
         pip install -r dev-requirements.txt
-        pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cpu
         
 
     - name: Install package
@@ -111,4 +111,4 @@ jobs:
 
     - name: Run tests
       run: |
-        pytest test
+        pytest test --verbose -s -x
