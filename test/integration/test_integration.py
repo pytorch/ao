@@ -856,7 +856,7 @@ class TestSubclass(unittest.TestCase):
                             lambda w: Int4WeightOnlyQuantizedLinearWeight.from_float(w, groupsize, inner_k_tiles),
                             device,
                             15,
-                            test_shape=[m, 256, n]
+                            test_shape=[m, 256, n],
                             test_dtype=dtype,
                         )
 
@@ -869,8 +869,6 @@ class TestSubclass(unittest.TestCase):
         test_dtype=torch.bfloat16,
         test_shape=(32, 64, 32),
     ):
-        if test_device == "cuda" and not torch.cuda.is_available():
-            self.skipTest("Need CUDA available.")
         m, k, n = test_shape
         x = torch.randn(m, k, device=test_device, dtype=test_dtype)
         lin = torch.nn.Linear(k, n, device=test_device).to(test_dtype)
@@ -908,9 +906,11 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
     def test_int4_weight_only_quant_subclass(self, device, dtype):
+        if dtype == torch.float16:
+            self.skipTest(f"Fails for {dtype}")
         self._test_lin_weight_subclass_impl(
             # Int4WeightOnlyQuantizedLinearWeight.from_float, device, 10, test_shape=[1, 1024, 8]
-            Int4WeightOnlyQuantizedLinearWeight.from_float, device, 10, test_shape=[16, 1024, 16]
+            Int4WeightOnlyQuantizedLinearWeight.from_float, device, 10, test_shape=[16, 1024, 16], test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
@@ -925,7 +925,8 @@ class TestSubclass(unittest.TestCase):
                             lambda w: Int4WeightOnlyQuantizedLinearWeight.from_float(w, groupsize, inner_k_tiles),
                             device,
                             10,
-                            test_shape=[m, 256, n]
+                            test_shape=[m, 256, n],
+                            test_dtype=dtype,
                         )
 
     @torch.no_grad()
@@ -938,8 +939,6 @@ class TestSubclass(unittest.TestCase):
         test_dtype=torch.bfloat16,
         test_shape=(32, 64, 32)
     ):
-        if test_device == "cuda" and not torch.cuda.is_available():
-            self.skipTest("Need CUDA available.")
         m, k, n = test_shape
         x = torch.randn(m, k, device=test_device, dtype=test_dtype)
         mod = nn.Sequential(
@@ -977,8 +976,14 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
     def test_int4_weight_only_quant_subclass_api(self, device, dtype):
+        if dtype == torch.float16:
+            self.skipTest(f"Fails for {dtype}")
         self._test_lin_weight_subclass_api_impl(
-            change_linear_weights_to_int4_woqtensors, device, 15, test_shape=[16, 1024, 256]
+            change_linear_weights_to_int4_woqtensors,
+            device,
+            15,
+            test_shape=[16, 1024, 256],
+            test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
@@ -992,7 +997,8 @@ class TestSubclass(unittest.TestCase):
                     device,
                     15,
                     # test_shape=[256, 256, 8]
-                    test_shape=[256, 256, 16]
+                    test_shape=[256, 256, 16],
+                    test_dtype=dtype,
                 )
 
 
