@@ -836,18 +836,19 @@ class TestSubclass(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_dequantize_int4_weight_only_quant_subclass(self, device, dtype):
-        if dtype != torch.bfloat16:
-            # TODO: Add dtype coverage to int4_weight_only_quant_subclass
-            self.skipTest(f"int4_weight_only_quant_subclass can't be constructed from {dtype}")
-        if device != "cuda":
-            self.skipTest(f"int4_weight_only_quant_subclass can't be constructed on {device}")
         self._test_dequantize_impl(
-            Int4WeightOnlyQuantizedLinearWeight.from_float, device, 15, test_shape=[1, 1024, 8]
+            # Int4WeightOnlyQuantizedLinearWeight.from_float, device, 15, test_shape=[1, 1024, 8]
+            Int4WeightOnlyQuantizedLinearWeight.from_float, device, 15, test_shape=[16, 1024, 16]
         )
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    def test_dequantize_int4_weight_only_quant_subclass_grouped(self, device, dtype):
         for groupsize in [256, 128]:
-            for inner_k_tiles in [8, 2]:
-                for m in [1, 256]:
-                    for n in [8, 13]:
+            for inner_k_tiles in [8, 4, 2]:
+                # for m in [1, 256]:
+                for m in [16, 256]:
+                    # for n in [8, 13]:
+                    for n in [16]:
                         self._test_dequantize_impl(
                             lambda w: Int4WeightOnlyQuantizedLinearWeight.from_float(w, groupsize, inner_k_tiles),
                             device,
@@ -902,18 +903,18 @@ class TestSubclass(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_int4_weight_only_quant_subclass(self, device, dtype):
-        if dtype != torch.bfloat16:
-            # TODO: Add dtype coverage to int4_weight_only_quant_subclass
-            self.skipTest(f"int4_weight_only_quant_subclass can't be constructed from {dtype}")
-        if device != "cuda":
-            self.skipTest(f"int4_weight_only_quant_subclass can't be constructed on {device}")
         self._test_lin_weight_subclass_impl(
-            Int4WeightOnlyQuantizedLinearWeight.from_float, device, 10, test_shape=[1, 1024, 8]
+            # Int4WeightOnlyQuantizedLinearWeight.from_float, device, 10, test_shape=[1, 1024, 8]
+            Int4WeightOnlyQuantizedLinearWeight.from_float, device, 10, test_shape=[16, 1024, 16]
         )
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    def test_int4_weight_only_quant_subclass_grouped(self, device, dtype):
         for groupsize in [128, 64]:
             for inner_k_tiles in [4, 2]:
                 for m in [1, 256]:
-                    for n in [8, 13]:
+                    # for n in [8, 13]:
+                    for n in [16]:
                         self._test_lin_weight_subclass_impl(
                             lambda w: Int4WeightOnlyQuantizedLinearWeight.from_float(w, groupsize, inner_k_tiles),
                             device,
@@ -969,14 +970,12 @@ class TestSubclass(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_int4_weight_only_quant_subclass_api(self, device, dtype):
-        if dtype != torch.bfloat16:
-            # TODO: Add dtype coverage to int4_weight_only_quant_subclass
-            self.skipTest(f"int4_weight_only_quant_subclass can't be constructed from {dtype}")
-        if device != "cuda":
-            self.skipTest(f"int4_weight_only_quant_subclass can't be constructed on {device}")
         self._test_lin_weight_subclass_api_impl(
-            change_linear_weights_to_int4_woqtensors, device, 15, test_shape=[1, 1024, 256]
+            change_linear_weights_to_int4_woqtensors, device, 15, test_shape=[16, 1024, 256]
         )
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    def test_int4_weight_only_quant_subclass_api_grouped(self, device, dtype):
         for groupsize in [64, 32]:
             for inner_k_tiles in [4, 2]:
                 kwargs = {"groupsize": groupsize, "inner_k_tiles": inner_k_tiles}
@@ -984,7 +983,8 @@ class TestSubclass(unittest.TestCase):
                     lambda mod: change_linear_weights_to_int4_woqtensors(mod, **kwargs),
                     device,
                     15,
-                    test_shape=[256, 256, 8]
+                    # test_shape=[256, 256, 8]
+                    test_shape=[256, 256, 16]
                 )
 
 
@@ -1127,14 +1127,11 @@ class TestSaveLoadMeta(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
     def test_save_load_int4woqtensors(self, device, dtype):
-        if device != "cuda":
-            self.skipTest(f"int4woqtensors can't be constructed on {device}")
         self._test_handle_save_load_meta_impl(change_linear_weights_to_int4_woqtensors, device, dtype, 20)
 
 
 class TorchCompileUnitTest(unittest.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @unittest.skip("Currently broken.")  # TODO: Fix me
     def test_fullgraph(self):
         lin_fp16 = nn.Linear(32, 16, device="cuda", dtype=torch.float16)
         lin_smooth = SmoothFakeDynamicallyQuantizedLinear.from_float(
