@@ -1082,9 +1082,14 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
 
 class TestSaveLoadMeta(unittest.TestCase):
     @torch.no_grad()
-    def _test_handle_save_load_meta_impl(self, api, device, dtype, min_sqnr=35):
-        if device == "cuda" and not torch.cuda.is_available():
-            self.skipTest("Need CUDA available.")
+    @run_supported_device_dtype
+    def _test_handle_save_load_meta_impl(
+        self,
+        api,
+        test_device,
+        min_sqnr=35,
+        test_dtype=torch.bfloat16
+    ):
         m, k, n = 32, 64, 32
 
         class test_model(nn.Module):
@@ -1136,18 +1141,18 @@ class TestSaveLoadMeta(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
     def test_save_load_dqtensors(self, device, dtype):
-        self._test_handle_save_load_meta_impl(change_linear_weights_to_int8_dqtensors, device, dtype)
+        self._test_handle_save_load_meta_impl(change_linear_weights_to_int8_dqtensors, device, test_dtype=dtype)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
     def test_save_load_int8woqtensors(self, device, dtype):
-        self._test_handle_save_load_meta_impl(change_linear_weights_to_int8_woqtensors, device, dtype)
+        self._test_handle_save_load_meta_impl(change_linear_weights_to_int8_woqtensors, device, test_dtype=dtype)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
     @torch.no_grad()
     def test_save_load_int4woqtensors(self, device, dtype):
-        self._test_handle_save_load_meta_impl(change_linear_weights_to_int4_woqtensors, device, dtype, 20)
+        self._test_handle_save_load_meta_impl(change_linear_weights_to_int4_woqtensors, device, 20, test_dtype=dtype)
 
 
 class TorchCompileUnitTest(unittest.TestCase):
