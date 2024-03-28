@@ -77,7 +77,7 @@ def run_test(kernel, exp_avg, exp_avg2, grad, proj_matrix, params, allow_tf32):
         )
 
     # Turn off autotune logging during benchmarking
-    from galore_torch.fused.triton_utils.custom_autotune import logger
+    from galore_fused.triton.custom_autotune import logger
 
     logger.setLevel(logging.WARNING)
 

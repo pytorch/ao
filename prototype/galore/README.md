@@ -18,17 +18,7 @@ Specifically:
 #### Installation
 
 ```
-pip install --editable
-```
-
-**NOTE**: install triton from source:
-
-```
-git clone https://github.com/openai/triton.git;
-cd triton;
-
-pip install ninja cmake wheel; # build-time dependencies
-pip install -e python
+pip install --editable .
 ```
 
 #### Implementation
@@ -39,5 +29,5 @@ See `galore_fused/NOTE.md` for implementation details
 
 - [ ] Implement `FusedGaLoreOptimizer`
 - [ ] `Cutlass` - given fixed GEMM shape, experiment with `Cutlass` GEMMs (`split-k`, `stream-k`, fast `tensorops`). Interestingly, profiling `torch.matmul` for down projection shows that `cuBlas` dispatches to a `Cutlass` kernel of shape `128x128x16`.
-- [ ] Repeat with `AdamW8bit`
+- [ ] Repeat with `AdamW8bit` - pure `triton` implementation of `bitsandbytes` `AdamW8bit`
 - [ ] More detailed analysis of `torch.compile` performance

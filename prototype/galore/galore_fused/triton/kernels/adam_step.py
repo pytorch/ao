@@ -1,7 +1,7 @@
 import torch
 import triton
 import triton.language as tl
-from triton.language.extra.cuda import libdevice
+from triton.language.math import sqrt
 from triton.runtime.autotuner import heuristics
 
 from galore_fused.triton.custom_autotune import Config, autotune
@@ -84,7 +84,7 @@ def _adam_update(
     avg = BETA1 * avg + (1.0 - BETA1) * grad
     avg2 = BETA2 * avg2 + (1.0 - BETA2) * (grad * grad)
 
-    denom = libdevice.sqrt(avg2) + EPS
+    denom = sqrt(avg2) + EPS
     # denom = tl.sqrt(avg2) + EPS
 
     norm_grad = avg / denom
