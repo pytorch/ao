@@ -100,3 +100,8 @@ if version.parse(torch.__version__) >= version.parse("2.4.0.dev"):
     TORCH_VERSION_AFTER_2_4 = True
 else:
     TORCH_VERSION_AFTER_2_4 = False
+
+if version.parse(torch.__version__) >= version.parse("2.2.0.dev"):
+    TORCH_VERSION_AFTER_2_2 = True
+else:
+    TORCH_VERSION_AFTER_2_2 = False

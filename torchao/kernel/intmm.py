@@ -4,10 +4,16 @@ import torch
 
 from torch._dynamo import is_compiling as dynamo_is_compiling
 from torch._higher_order_ops.out_dtype import out_dtype
+from torchao.quantization.utils import TORCH_VERSION_AFTER_2_2
 
 try:
-    from torchao.kernel import intmm_triton
+    # Only works for torch2.2 or newer.
+    if TORCH_VERSION_AFTER_2_2:
+        from torchao.kernel import intmm_triton
+    else:
+        intmm_triton = None
 except ImportError:
+    # On cpu-only builds might not be available.
     intmm_triton = None
 
 AUTOTUNER_ENABLE = bool(int(os.getenv("TORCHAO_AUTOTUNER_ENABLE", 0)))
