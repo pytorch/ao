@@ -9,7 +9,7 @@ on:
       - main
 
 jobs:
-  test-cuda-2.0.1:
+  test-cuda-2-0-1:
     runs-on: 4-core-ubuntu-gpu-t4
     steps:
     - uses: actions/checkout@v2
@@ -35,7 +35,7 @@ jobs:
       run: |
         pytest test --verbose -s -x
 
-  test-cuda-2.1.2:
+  test-cuda-2-1-2:
     runs-on: 4-core-ubuntu-gpu-t4
     steps:
     - uses: actions/checkout@v2
@@ -60,7 +60,7 @@ jobs:
       run: |
         pytest test --verbose -s -x
 
-  test-cuda-2.2.2:
+  test-cuda-2-2-2:
     runs-on: 4-core-ubuntu-gpu-t4
     steps:
     - uses: actions/checkout@v2
