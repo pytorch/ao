@@ -23,7 +23,7 @@ pip install --editable .
 
 #### Implementation
 
-See `galore_fused/NOTE.md` for implementation details
+See `galore_fused/README.md` for implementation details
 
 #### Next Steps
 
