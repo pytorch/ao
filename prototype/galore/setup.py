@@ -10,7 +10,7 @@ setup(
     version="1.0",
     description="Fused kernels for GaLore Optimizers",
     url="https://github.com/pytorch-labs/ao/prototype/galore",
-    author="Jiawei Zhao",
+    author="Jerome Ku",
     author_email="jerome.ku@gmail.com",
     license="Apache 2.0",
     packages=["galore_fused"],
