@@ -4,6 +4,8 @@ REQUIREMENTS = [
     "torch",
     "triton",
     "numpy",
+    "matplotlib",
+    "pandas"
 ]
 setup(
     name="galore-fused",

@@ -200,8 +200,8 @@ _Note:_ Passing in the additional flag `--verbose` will show `triton` autotuning
   - CC: `86`
   - Total_memory: `48676MB`
   - SM count: `84`
-- Torch: `2.3.0.dev20240310+cu118`
-- Triton: `3.0.0`
+- Torch: `2.2.2`
+- Triton: `2.2.0`
 
 #### Next Steps
 

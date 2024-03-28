@@ -1,6 +1,6 @@
 import argparse
 import logging
-
+import os
 import torch
 from test_utils import get_kernel, make_copy, make_data
 from triton.testing import do_bench
@@ -115,6 +115,8 @@ def run(args):
 
         benchmark = get_benchmark(M, N, dtype, allow_tf32=allow_tf32)
         save_path = f'benchmark_{M}x{N}_{rank}_{args.dtype}_{"tf32" if allow_tf32 else "no-tf32"}'
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
         print(
             f"Running benchmark for {M}x{N}, dtype {args.dtype}, allow_tf32 {allow_tf32}",
             flush=True,
