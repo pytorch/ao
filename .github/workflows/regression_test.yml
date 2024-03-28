@@ -9,7 +9,7 @@ on:
       - main
 
 jobs:
-  test:
+  test-cuda-2.0.1:
     runs-on: 4-core-ubuntu-gpu-t4
     steps:
     - uses: actions/checkout@v2
@@ -22,7 +22,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install torch
+        pip install torch=2.0.1
         pip install -r requirements.txt
         pip install -r dev-requirements.txt
         
@@ -35,7 +35,57 @@ jobs:
       run: |
         pytest test --verbose -s -x
 
-  test-nightly:
+  test-cuda-2.1.2:
+    runs-on: 4-core-ubuntu-gpu-t4
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.9
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install torch=2.1.2
+        pip install -r requirements.txt
+        pip install -r dev-requirements.txt
+
+    - name: Install package
+      run: |
+        pip install .
+
+    - name: Run tests
+      run: |
+        pytest test --verbose -s -x
+
+  test-cuda-2.2.2:
+    runs-on: 4-core-ubuntu-gpu-t4
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.9
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install torch=2.2.2
+        pip install -r requirements.txt
+        pip install -r dev-requirements.txt
+
+    - name: Install package
+      run: |
+        pip install .
+
+    - name: Run tests
+      run: |
+        pytest test --verbose -s -x
+
+  test-cuda-nightly:
     runs-on: 4-core-ubuntu-gpu-t4
     steps:
     - uses: actions/checkout@v2
@@ -103,7 +153,6 @@ jobs:
         pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cpu
         pip install -r requirements.txt
         pip install -r dev-requirements.txt
-        
 
     - name: Install package
       run: |
