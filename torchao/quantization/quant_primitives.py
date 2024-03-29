@@ -11,10 +11,10 @@ from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib
 from torch.library import impl
 
 from torchao.kernel.intmm import int_scaled_matmul
-from .utils import TORCH_VERSION_AFTER_2_4
+from .utils import TORCH_VERSION_AFTER_2_3
 
 
-_AFTER_TORCH_2_4_ONLY = [
+_AFTER_TORCH_2_3_ONLY = [
     "per_token_dynamic_quant",
     "get_group_qparams_symmetric",
 ]
@@ -38,7 +38,7 @@ __all__ = [
     "groupwise_affine_quantize_tensor",
     "groupwise_affine_dequantize_tensor",
     # TODO: need to clean up above functions
-] + (_AFTER_TORCH_2_4_ONLY if TORCH_VERSION_AFTER_2_4 else [])
+] + (_AFTER_TORCH_2_3_ONLY if TORCH_VERSION_AFTER_2_3 else [])
 
 
 def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
@@ -571,7 +571,7 @@ def pack_scales_and_zeros(scales, zeros, precision=torch.float16):
     )
 
 
-if TORCH_VERSION_AFTER_2_4:
+if TORCH_VERSION_AFTER_2_3:
     def group_quantize_tensor_symmetric(
         w,
         n_bit=4,
