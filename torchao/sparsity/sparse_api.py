@@ -1,6 +1,7 @@
 
 import torch
 from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensor
+from torchao.sparsity.dynamic_quant_sparse import Int8DynamicallyQuantized24CusparseltLinearWeight, Int8DynamicallyQuantized24CutlassLinearWeight
 
 # Sparsity helper functions
 def apply_fake_sparsity(model):
@@ -27,3 +28,21 @@ def apply_sparse(model):
     for name, mod in model.named_modules():
         if isinstance(mod, torch.nn.Linear):
             mod.weight = torch.nn.Parameter(to_sparse_semi_structured(mod.weight))
+
+
+def change_linear_weights_to_int8_dq_semi_structured_sparsetensors(model, **kwargs):
+    filter_fn = kwargs.pop("filter_fn", _is_linear)
+
+    from torch.sparse import SparseSemiStructuredTensor
+    if SparseSemiStructuredTensor._FORCE_CUTLASS:
+        subclass = Int8DynamicallyQuantized24CutlassLinearWeight
+    else:
+        subclass = Int8DynamicallyQuantized24CusparseltLinearWeight
+
+    _replace_with_custom_fn_if_matches_filter(
+        model,
+        _get_subclass_inserter(subclass, **kwargs),
+        filter_fn,
+    )
+
+

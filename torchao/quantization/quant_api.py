@@ -26,16 +26,9 @@ from .dynamic_quant import DynamicallyPerAxisQuantizedLinear
 from .utils import TORCH_VERSION_AFTER_2_4
 
 from .subclass import (
-<<<<<<< HEAD
     QuantizedLinearWeightBase,
     Int8DynamicallyQuantizedLinearWeight,
-    Int8DynamicallyQuantized24CutlassLinearWeight,
-    Int8DynamicallyQuantized24CusparseltLinearWeight,
-    Int8WeightOnlyQuantizedLinearWeight,
-=======
->>>>>>> main
     Int4WeightOnlyQuantizedLinearWeight,
-    Int8DynamicallyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
     QuantizedLinearWeightBase,
 )
@@ -200,25 +193,6 @@ def change_linear_weights_to_int4_woqtensors(model, **kwargs):
     )
 
 
-<<<<<<< HEAD
-def change_linear_weights_to_int8_dq_semi_structured_sparsetensors(model, **kwargs):
-    filter_fn = kwargs.pop("filter_fn", _is_linear)
-
-    from torch.sparse import SparseSemiStructuredTensor
-    if SparseSemiStructuredTensor._FORCE_CUTLASS:
-        subclass = Int8DynamicallyQuantized24CutlassLinearWeight
-    else:
-        subclass = Int8DynamicallyQuantized24CusparseltLinearWeight
-
-    _replace_with_custom_fn_if_matches_filter(
-        model,
-        _get_subclass_inserter(subclass, **kwargs),
-        filter_fn,
-    )
-
-
-=======
->>>>>>> main
 def swap_conv2d_1x1_to_linear(model, filter_fn=None):
     """
     Changes all conv2d 1x1 modules to equivalent linear modules so that they can then be quantized.

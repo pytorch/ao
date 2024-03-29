@@ -8,7 +8,9 @@ from torchao.quantization.quant_primitives import (
     quantize_activation_per_token_absmax
 )
 
-from torch.sparse import SparseSemiStructuredTensor
+from torchao.quantization.subclass import Int8DynamicallyQuantizedLinearWeight, QuantizedLinearWeightBase
+
+from torch.sparse import SparseSemiStructuredTensor, SparseSemiStructuredTensorCUTLASS
 
 # Quant + Sparse helper functinos
 
@@ -96,3 +98,132 @@ def sparse_quant_int8_cutlass_matmul(
     )
     y = y.to(out_dtype)
     return y
+
+
+class Int8DynamicallyQuantized24CusparseltLinearWeight(Int8DynamicallyQuantizedLinearWeight):
+
+    @staticmethod
+    def _quantized_op(act_mat, w_qtensor, bias):
+        return sparse_quant_int8_dynamic_cslt_linear(
+            act_mat, w_qtensor.int_data, w_qtensor.q_scales, bias, act_mat.dtype
+        )
+
+    @classmethod
+    def from_float(cls, input_float, qmin=-128, qmax=127):
+
+        assert input_float.is_cuda
+
+        w_int_repr, w_scales, _ = dynamically_quantize_per_channel(
+            input_float, qmin, qmax, torch.int8
+        )
+
+        int_data = w_int_repr.contiguous()
+
+
+        int_data = torch._cslt_compress(int_data)
+
+        return cls(
+            int_data, w_scales, False, input_float.shape, dtype=input_float.dtype,
+        )
+
+class Int8DynamicallyQuantized24CutlassLinearWeight(QuantizedLinearWeightBase):
+
+    @staticmethod
+    def __new__(cls, int_data, mask_meta, q_scales, transposed, shape, **kwargs):
+        kwargs["dtype"] = kwargs.get("dtype", q_scales.dtype)
+        return super().__new__(cls, int_data, transposed, shape, **kwargs)  # type: ignore[attr-defined]
+
+    def __init__(self, int_data, mask_meta, q_scales, transposed, shape, **kwargs):
+        self.q_scales = q_scales
+        self.mask_meta = mask_meta
+        super().__init__(int_data, transposed)
+
+    def dequantize(self, dtype=None):
+        """
+        Obtain the dequantized version of the quantized tensor subclass
+        """
+        dq_t = dequantize_per_channel(
+            self.int_data.t(), self.q_scales, 0, self.dtype if dtype is None else dtype
+        ).to(self.dtype)
+        # data was transposed to dequantize so make sure shape is correct
+        return dq_t if not self.transposed else dq_t.t()
+
+    def int_repr(self):
+        """
+        Get the internal integer representation of the quantized tensor
+        """
+        return self.int_data if self.transposed else self.int_data.t()
+
+    def q_params(self):
+        """
+        Get the quantization scales for the quantized tensor
+        """
+        return {"q_scales": self.q_scales}
+
+    def to(self, *args, **kwargs):
+        kwargs = self._get_to_kwargs(*args, **kwargs)
+        return self.__class__(
+            self.int_data.to(kwargs["device"]),
+            self.mask_meta.to(kwargs["device"]),
+            self.q_scales.to(kwargs["device"]),
+            self.transposed,
+            self.shape,
+            **kwargs,
+        )
+
+    def _apply_fn_to_data(self, fn):
+        return self.__class__(
+            fn(self.int_data),
+            fn(self.mask_meta),
+            fn(self.q_scales),
+            self.transposed,
+            self.shape,
+            dtype=self.dtype
+        )
+
+    def _change_shape(self, shape):
+        return self.__class__(
+            self.int_data,
+            self.mask_meta,
+            self.q_scales,
+            self.transposed,
+            shape,
+            dtype=self.dtype
+        )
+
+    def __tensor_flatten__(self):
+        return ["int_data", "mask_meta", "q_scales"], [self.transposed, self.dtype, self.shape]
+
+    @classmethod
+    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
+        int_data, q_scales = tensor_data_dict["int_data"], tensor_data_dict["q_scales"]
+        mask_meta = tensor_data_dict["mask_meta"]
+        transposed, dtype, shape = tensor_attributes
+        return cls(int_data, mask_meta, q_scales, transposed, shape if outer_size is None else outer_size, dtype=dtype, strides=outer_stride)
+
+    @staticmethod
+    def _quantized_op(act_mat, w_qtensor, bias):
+        return sparse_quant_int8_dynamic_cutlass_linear(
+            act_mat, w_qtensor.int_data, w_qtensor.mask_meta, w_qtensor.q_scales, bias, act_mat.dtype
+        )
+
+    @classmethod
+    def from_float(cls, input_float, qmin=-128, qmax=127):
+
+        assert input_float.is_cuda
+
+        w_int_repr, w_scales, _ = dynamically_quantize_per_channel(
+            input_float, qmin, qmax, torch.int8
+        )
+
+        int_data = w_int_repr.contiguous()
+        sparse_tensor = SparseSemiStructuredTensorCUTLASS.from_dense(int_data)
+
+        return cls(
+            sparse_tensor.packed,
+            sparse_tensor.meta,
+            w_scales,
+            False,
+            input_float.shape,
+            dtype=input_float.dtype
+        )

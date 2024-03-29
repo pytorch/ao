@@ -1,6 +1,6 @@
 import torch
 from torchao.quantization import change_linear_weights_to_int8_dqtensors
-from torchao.quantization import change_linear_weights_to_int8_dq_semi_structured_sparsetensors
+from torchao.sparsity.sparse_api import change_linear_weights_to_int8_dq_semi_structured_sparsetensors
 from segment_anything import sam_model_registry
 from torch.utils.benchmark import Timer
 
