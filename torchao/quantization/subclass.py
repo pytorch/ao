@@ -18,7 +18,8 @@ from .dynamic_quant_sparse import sparse_quant_int8_dynamic_cutlass_linear, spar
 from .utils import find_multiple
 import warnings
 
-from torch.sparse import SparseSemiStructuredTensor, to_sparse_semi_structured, SparseSemiStructuredTensorCUTLASS
+from torch.sparse import SparseSemiStructuredTensor, to_sparse_semi_structured
+from torch.sparse.semi_structured import SparseSemiStructuredTensorCUTLASS
 
 
 __all__ = [
@@ -398,7 +399,7 @@ class Int8DynamicallyQuantized24CutlassLinearWeight(QuantizedLinearWeightBase):
         )
 
         int_data = w_int_repr.contiguous()
-        sparse_tensor = SparseSemiStructuredTensorCUTLASS.from_dense(int_data).t()
+        sparse_tensor = SparseSemiStructuredTensorCUTLASS.from_dense(int_data)
 
         return cls(
             sparse_tensor.packed,
