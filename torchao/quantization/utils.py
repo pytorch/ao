@@ -14,7 +14,7 @@ __all__ = [
     "compute_error",
     "_apply_logging_hook",
     "get_model_size_in_bytes",
-    "TORCH_VERSION_AFTER_2_4",
+    "TORCH_VERSION_AFTER_2_3",
 ]
 
 
@@ -96,7 +96,7 @@ def get_model_size_in_bytes(model):
     return s
 
 
-if version.parse(torch.__version__) >= version.parse("2.4.0.dev"):
-    TORCH_VERSION_AFTER_2_4 = True
+if version.parse(torch.__version__) >= version.parse("2.3.0.dev"):
+    TORCH_VERSION_AFTER_2_3 = True
 else:
-    TORCH_VERSION_AFTER_2_4 = False
+    TORCH_VERSION_AFTER_2_3 = False
