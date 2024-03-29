@@ -26,9 +26,8 @@ from .dynamic_quant import DynamicallyPerAxisQuantizedLinear
 from .utils import TORCH_VERSION_AFTER_2_4
 
 from .subclass import (
-    QuantizedLinearWeightBase,
-    Int8DynamicallyQuantizedLinearWeight,
     Int4WeightOnlyQuantizedLinearWeight,
+    Int8DynamicallyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
     QuantizedLinearWeightBase,
 )
