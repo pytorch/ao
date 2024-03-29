@@ -14,6 +14,7 @@ parts of transformer blocks.
 
 import torch
 import torch.nn.functional as F
+
 import torchao.quantization.quant_api as quant_api
 
 from .quant_primitives import (
@@ -29,6 +30,7 @@ __all__ = [
     "smooth_fq_linear_to_inference",
     "set_smooth_fq_attribute",
 ]
+
 
 def get_scale(X_absmax, W_absmax, alpha=0.5):
     """
@@ -46,6 +48,7 @@ def get_scale(X_absmax, W_absmax, alpha=0.5):
 
 
 class SmoothFakeDynQuantMixin(torch.nn.Module):
+
     def init_smoothquant_variables(self, alpha):
         self.calibrating = True
         self.x_running_abs_max = None
@@ -193,6 +196,7 @@ class SmoothFakeDynamicallyQuantizedLinear(SmoothFakeDynQuantMixin, torch.nn.Lin
         w_absmax = torch.max(torch.abs(self.weight.transpose(0, 1)), dim=1).values
         self.x_running_abs_max = w_absmax
 
+
 #
 # utils to use the smooth linear on real models
 #
@@ -233,6 +237,8 @@ def smooth_fq_linear_to_inference(model, debug_skip_calibration=False) -> None:
 
 # useful for quickly toggling smoothquant debug settings on all smoothquant
 # modules in a model
+
+
 def set_smooth_fq_attribute(model, attribute_name, new_attribute_val):
     for _, mod in model.named_modules():
         if isinstance(mod, tuple(source_cls_to_target_cls.values())):

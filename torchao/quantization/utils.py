@@ -7,12 +7,14 @@ from typing import Dict, Optional
 
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
+from packaging import version
 
 __all__ = [
     "find_multiple",
     "compute_error",
     "_apply_logging_hook",
     "get_model_size_in_bytes",
+    "TORCH_VERSION_AFTER_2_4",
 ]
 
 
@@ -23,6 +25,8 @@ def find_multiple(n: int, k: int) -> int:
 
 
 # basic SQNR
+
+
 def compute_error(x, y):
     Ps = torch.linalg.norm(x)
     Pn = torch.linalg.norm(x - y)
@@ -35,6 +39,7 @@ _cur_fqn: Optional[str] = None
 
 
 def _get_logging_hook(fqn):
+
     def forward_hook(module, input):
         global _cur_fqn
         _cur_fqn = fqn
@@ -54,6 +59,7 @@ _fqn_to_op_to_shape_to_count: Dict[
 
 
 class LoggingTensorMode(TorchDispatchMode):
+
     def __torch_dispatch__(self, func, types, args=(), kwargs=None):
         if kwargs is None:
             kwargs = {}
@@ -79,6 +85,8 @@ class LoggingTensorMode(TorchDispatchMode):
 
 
 # https://discuss.pytorch.org/t/finding-model-size/130275
+
+
 def get_model_size_in_bytes(model):
     s = 0
     for p in model.parameters():
@@ -86,3 +94,9 @@ def get_model_size_in_bytes(model):
     for b in model.buffers():
         s += b.nelement() * b.element_size()
     return s
+
+
+if version.parse(torch.__version__) >= version.parse("2.4.0.dev"):
+    TORCH_VERSION_AFTER_2_4 = True
+else:
+    TORCH_VERSION_AFTER_2_4 = False

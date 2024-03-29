@@ -5,9 +5,8 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
-from .quant_primitives import (
-    dynamically_quantize_per_channel,
-)
+
+from .quant_primitives import dynamically_quantize_per_channel
 
 __all__ = ["WeightOnlyInt8QuantLinear"]
 
@@ -17,11 +16,14 @@ class WeightOnlyInt8QuantLinear(torch.nn.Linear):
     This class is a replacement for `torch.nn.Linear`. It implements a
     mixed dtype matmul using int8 symmetric per-channel weight quantization
     """
+
     def __init__(self, *args, **kwargs):
         w_int8 = kwargs.pop("w_int8")
         scales = kwargs.pop("scales")
         super().__init__(*args, **kwargs)
+
         self.w_int8 = w_int8
+
         self.scales = scales
 
     def forward(self, x, *args, **kwargs):

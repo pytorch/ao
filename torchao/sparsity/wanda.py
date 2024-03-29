@@ -1,4 +1,3 @@
-
 import warnings
 
 from typing import Dict, List, Optional, Tuple
@@ -8,6 +7,7 @@ from torch import nn
 from torch.ao.pruning import BaseSparsifier
 from torch.ao.quantization import default_placeholder_observer, QConfig
 from torch.ao.quantization.quantize import _remove_qconfig
+
 from .utils import PerChannelNormObserver
 
 __all__ = ["WandaSparsifier"]
@@ -44,6 +44,7 @@ class WandaSparsifier(BaseSparsifier):
             )
         super().__init__(defaults=defaults)
 
+    #  `typing.Dict[<key type>, <value type>]` to avoid runtime subscripting errors.
     def prepare(self, model: nn.Module, config: List[Dict]) -> None:
         # activation: use PerChannelNormObserver
         # use no-op placeholder weight observer

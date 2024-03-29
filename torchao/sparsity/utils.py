@@ -3,6 +3,7 @@ from torch.ao.quantization.observer import UniformQuantizationObserverBase
 
 __all__ = ["PerChannelNormObserver"]
 
+
 # Observers
 class PerChannelNormObserver(UniformQuantizationObserverBase):
     """
@@ -24,6 +25,8 @@ class PerChannelNormObserver(UniformQuantizationObserverBase):
         self.averaging_constant = 1.0
         self.register_buffer("norm", torch.tensor([]))
 
+    #  inconsistently.
+
     def forward(self, x_orig):
         if x_orig.numel() == 0:
             return x_orig
@@ -44,5 +47,9 @@ class PerChannelNormObserver(UniformQuantizationObserverBase):
 
         return x_orig
 
+    #  inconsistently.
+
     def calculate_qparams(self):
-        raise NotImplementedError("PerChannelNormObserver is designed to store activations only. ")
+        raise NotImplementedError(
+            "PerChannelNormObserver is designed to store activations only. "
+        )

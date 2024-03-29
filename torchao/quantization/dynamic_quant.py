@@ -6,6 +6,7 @@
 
 import torch
 import torch.nn as nn
+
 from .quant_primitives import (
     dynamically_quantize_per_channel,
     quant_int8_dynamic_per_token_linear,
@@ -49,9 +50,7 @@ class DynamicallyPerAxisQuantizedLinear(torch.nn.Linear):
         return Y
 
     @classmethod
-    def from_float(
-        cls, mod: torch.nn.Linear
-    ) -> "DynamicallyPerAxisQuantizedLinear":
+    def from_float(cls, mod: torch.nn.Linear) -> "DynamicallyPerAxisQuantizedLinear":
         """
         Converts a `mod` of class `torch.nn.Linear` to the
         `DynamicallyPerAxisQuantizedLinear` class
