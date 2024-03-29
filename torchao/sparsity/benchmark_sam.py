@@ -38,50 +38,48 @@ def get_sam_model(only_one_block=False, batchsize=1):
 
 print("BENCHMARKING")
 
-try:
-    model, image = get_sam_model(False, batchsize)
-    model = model.to(torch.bfloat16)
-    image = image.to(torch.bfloat16)
-    model_c = torch.compile(model, mode='max-autotune')
-    quant_res = benchmark(model_c, image)
-    print(f"bf16 compiled runtime of the compiled full model is {quant_res['time']:0.2f}ms and peak memory {quant_res['memory']: 0.2f}GB")
-    # bf16 compiled runtime of the compiled full model is 729.65ms and peak memory  23.96GB
+model, image = get_sam_model(False, batchsize)
+model = model.to(torch.bfloat16)
+image = image.to(torch.bfloat16)
+model_c = torch.compile(model, mode='max-autotune')
+quant_res = benchmark(model_c, image)
+print(f"bf16 compiled runtime of the compiled full model is {quant_res['time']:0.2f}ms and peak memory {quant_res['memory']: 0.2f}GB")
+# bf16 compiled runtime of the compiled full model is 729.65ms and peak memory  23.96GB
 
-    del model_c, model, image
-    torch._inductor.config.epilogue_fusion = False
-    torch._inductor.config.coordinate_descent_tuning = True
-    torch._inductor.config.coordinate_descent_check_all_directions = True
-    torch._inductor.config.force_fuse_int_mm_with_mul = True
-    model, image = get_sam_model(False, batchsize)
-    model = model.to(torch.bfloat16)
-    image = image.to(torch.bfloat16)
-    change_linear_weights_to_int8_dqtensors(model)
-    model_c = torch.compile(model, mode='max-autotune')
-    quant_res = benchmark(model_c, image)
-    print(f"bf16 compiled runtime of the quantized full model is {quant_res['time']:0.2f}ms and peak memory {quant_res['memory']: 0.2f}GB")
-    # bf16 compiled runtime of the quantized full model is 677.28ms and peak memory  24.93GB
+del model_c, model, image
+torch._inductor.config.epilogue_fusion = False
+torch._inductor.config.coordinate_descent_tuning = True
+torch._inductor.config.coordinate_descent_check_all_directions = True
+torch._inductor.config.force_fuse_int_mm_with_mul = True
+model, image = get_sam_model(False, batchsize)
+model = model.to(torch.bfloat16)
+image = image.to(torch.bfloat16)
+change_linear_weights_to_int8_dqtensors(model)
+model_c = torch.compile(model, mode='max-autotune')
+quant_res = benchmark(model_c, image)
+print(f"bf16 compiled runtime of the quantized full model is {quant_res['time']:0.2f}ms and peak memory {quant_res['memory']: 0.2f}GB")
+# bf16 compiled runtime of the quantized full model is 677.28ms and peak memory  24.93GB
 
-    del model_c, model, image
-    model, image = get_sam_model(False, batchsize)
-    model = model.to(torch.bfloat16)
-    image = image.to(torch.bfloat16)
-    from torch.sparse import SparseSemiStructuredTensor
-    SparseSemiStructuredTensor._FORCE_CUTLASS = False
-    change_linear_weights_to_int8_dq_semi_structured_sparsetensors(model)
-    model_c = torch.compile(model, mode='max-autotune')
-    quant_res = benchmark(model_c, image)
-    print(f"bf16 compiled runtime of the sparse + quantized full model is {quant_res['time']:0.2f}ms and peak memory {quant_res['memory']: 0.2f}GB")
-    # bf16 compiled runtime of the quantized full model is 677.28ms and peak memory  24.93GB
+del model_c, model, image
+model, image = get_sam_model(False, batchsize)
+model = model.to(torch.bfloat16)
+image = image.to(torch.bfloat16)
+from torch.sparse import SparseSemiStructuredTensor
+SparseSemiStructuredTensor._FORCE_CUTLASS = True
+change_linear_weights_to_int8_dq_semi_structured_sparsetensors(model)
+model_c = torch.compile(model, mode='max-autotune')
+quant_res = benchmark(model_c, image)
+print(f"bf16 compiled runtime of the 2:4 sparse CUTLASS + quantized full model is {quant_res['time']:0.2f}ms and peak memory {quant_res['memory']: 0.2f}GB")
+# bf16 compiled runtime of the quantized full model is 677.28ms and peak memory  24.93GB
 
-    # del model_c, model, image
-    # model, image = get_sam_model(False, batchsize)
-    # model = model.to(torch.bfloat16)
-    # image = image.to(torch.bfloat16)
-    # change_linear_weights_to_int8_dq_semi_structured_sparsetensors(model)
-    # model_c = torch.compile(model, mode='max-autotune')
-    # quant_res = benchmark(model_c, image)
-    # print(f"bf16 compiled runtime of the sparse + quantized full model is {quant_res['time']:0.2f}ms and peak memory {quant_res['memory']: 0.2f}GB")
-    # # bf16 compiled runtime of the quantized full model is 677.28ms and peak memory  24.93GB
-
-except Exception as e:
-    print("unable to run full model: ", e)
+del model_c, model, image
+model, image = get_sam_model(False, batchsize)
+model = model.to(torch.bfloat16)
+image = image.to(torch.bfloat16)
+from torch.sparse import SparseSemiStructuredTensor
+SparseSemiStructuredTensor._FORCE_CUTLASS = False
+change_linear_weights_to_int8_dq_semi_structured_sparsetensors(model)
+model_c = torch.compile(model, mode='max-autotune')
+quant_res = benchmark(model_c, image)
+print(f"bf16 compiled runtime of the 2:4 sparse cuSPARSELt + quantized full model is {quant_res['time']:0.2f}ms and peak memory {quant_res['memory']: 0.2f}GB")
+# bf16 compiled runtime of the quantized full model is 677.28ms and peak memory  24.93GB
