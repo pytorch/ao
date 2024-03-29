@@ -12,7 +12,7 @@ from torchao.quantization.subclass import Int8DynamicallyQuantizedLinearWeight, 
 
 from torch.sparse import SparseSemiStructuredTensor, SparseSemiStructuredTensorCUTLASS
 
-# Quant + Sparse helper functinos
+# Qunt + Sparse helper functinos
 
 def sparse_quant_int8_dynamic_cutlass_linear(
     x,

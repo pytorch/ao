@@ -2,8 +2,7 @@ from pprint import pprint
 
 import torch
 from torchao.quantization import change_linear_weights_to_int8_dqtensors
-from torchao.sparsity.sparse_api import change_linear_weights_to_int8_dq_24_sparsetensors
-from torchao.sparsity.sparse_api import apply_sparse
+from torchao.sparsity import change_linear_weights_to_int8_dq_24_sparsetensors, apply_sparse
 from segment_anything import sam_model_registry
 from torch.utils.benchmark import Timer
 from torch.sparse import SparseSemiStructuredTensor
@@ -81,7 +80,7 @@ def run_once(label, dtype=torch.bfloat16, batchsize=16, compile=True, quantize=F
     return res
 
 print("BENCHMARKING")
-run_once("baseline")
-run_once("quant", quantize=True)
-run_once("sparse", sparse="cusparselt")
+# run_once("baseline")
+# run_once("quant", quantize=True)
+# run_once("sparse", sparse="cusparselt")
 run_once("quant+sparse(mlp)", quantize=True, sparse="cusparselt")
