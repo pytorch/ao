@@ -184,5 +184,44 @@ class TestQuantFlow(unittest.TestCase):
         )
         model = quantizer.quantize(model)
 
+    @unittest.skip("skipping until we get checkpoints for gpt-fast")
+    def test_gptq_quantizer_gpt_fast(self):
+        from torchao.quantization.quant_api import Int8DynActInt4WeightGPTQQuantizer
+        # should be similar to TorchCompileDynamicQuantizer
+        precision = torch.bfloat16
+        device = "cuda"
+        checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        model = Transformer.from_name(checkpoint_path.parent.name)
+        checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
+        model.load_state_dict(checkpoint, assign=True)
+        model = model.to(dtype=precision, device=device)
+        tokenizer_path = checkpoint_path.parent / "tokenizer.model"
+        assert tokenizer_path.is_file(), tokenizer_path
+        tokenizer = SentencePieceProcessor(  # pyre-ignore[28]
+            model_file=str(tokenizer_path)
+        )
+        blocksize = 128
+        percdamp = 0.01
+        groupsize = 128
+        calibration_tasks = ["wikitext"]
+        calibration_limit = 5
+        calibration_seq_length = 100
+        pad_calibration_inputs = False
+        quantizer = Int8DynActInt4WeightGPTQQuantizer(
+            tokenizer,
+            blocksize,
+            percdamp,
+            groupsize,
+            calibration_tasks,
+            calibration_limit,
+            calibration_seq_length,
+            pad_calibration_inputs,
+            _is_gpt_fast=True,
+            _use_cuda=True,
+        )
+        model = quantizer.quantize(model)
+        compiled = torch.compile(model, mode="max-autotune")
+        print("model:", model)
+
 if __name__ == "__main__":
     unittest.main()

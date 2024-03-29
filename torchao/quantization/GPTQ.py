@@ -96,9 +96,9 @@ def setup_cache_padded_seq_input_pos_max_seq_length_for_prefill(
     seq = empty
     input_pos = torch.arange(0, T, device=device)
 
-    # no caches in executorch llama2 7b model?
-    # with torch.device(device):
-    #     model.setup_caches(max_batch_size=1, max_seq_length=max_seq_length)
+    with torch.device(device):
+        if hasattr(model, "setup_caches"):
+            model.setup_caches(max_batch_size=1, max_seq_length=max_seq_length)
 
     return seq, input_pos, max_seq_length
 
@@ -323,9 +323,9 @@ class GenericGPTQRunner(fx.Interpreter):
         }
 
         # trace model for one input
-        one_input = [multi.values[0] for multi in inputs]  # pyre-ignore[16]
+        one_input = [multi.values[0].cpu() for multi in inputs]  # pyre-ignore[16]
         exported_model = torch._dynamo.export(
-            model, aten_graph=True, pre_dispatch=True, tracing_mode="fake"
+            model.cpu(), aten_graph=True, pre_dispatch=True, tracing_mode="fake"
         )(*one_input)
         super().__init__(exported_model.graph_module)
 
