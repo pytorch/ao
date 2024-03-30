@@ -132,11 +132,7 @@ def apply_dynamic_quant(model, filter_fn=None):
     quantization to all linear layers by converting all linear weight
     tensors to the `Int8DynamicallyQuantizedLinearWeight` Tensor subclass.
     """
-    _replace_with_custom_fn_if_matches_filter(
-        model,
-        lambda mod: DynamicallyPerAxisQuantizedLinear.from_float(mod),
-        _is_linear if filter_fn is None else filter_fn,
-    )
+    change_linear_weights_to_int8_dqtensors(model, filter_fn)
 
 
 def _get_subclass_inserter(cls, **kwargs):
