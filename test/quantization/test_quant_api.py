@@ -193,7 +193,7 @@ class TestQuantFlow(unittest.TestCase):
         model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
         model = quantizer.quantize(model, inputs)
         compiled = torch.compile(model, mode="max-autotune")
-        compiled(inputs[0][0], inputs[1][0])
+        compiled(inputs[0].values[0], inputs[1].values[0])
 
     # @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_gptq_quantizer_gpt_fast(self):
@@ -243,7 +243,7 @@ class TestQuantFlow(unittest.TestCase):
 
         model = quantizer.quantize(model, inputs)
         compiled = torch.compile(model, mode="max-autotune")
-        compiled(inputs[0][0], inputs[1][0])
+        compiled(inputs[0].values[0], inputs[1].values[0])
 
 if __name__ == "__main__":
     unittest.main()

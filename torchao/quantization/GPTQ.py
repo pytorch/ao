@@ -54,11 +54,13 @@ else:
 if lm_eval_available:
     class InputRecorder(eval_wrapper):
         """
-        This is a fake evaluation wrapper that just records the inputs
+        This is a fake evaluation wrapper from the lm_eval library that just records the inputs
         so that they can be used in calibration.
 
         If pad_calibration_inputs is enabled, the input recorder will take
         each input and pad/truncate it down to the calibration_seq_length.
+        (if using padding you should set the embeddings for the pad_token to 0
+        in the model)
 
         Note: after padding/truncation, input_prep_function is called to bring
         it to the proper form to be inserted into a given model.
@@ -219,8 +221,7 @@ class GenericGPTQRunner(fx.Interpreter):
     into the state_dict so that the quantized model weights/qparams can be loaded
     directly into the model.
 
-    This class is expected to work in concert with a GPTQSimpleQuantizer
-    class to define the specific type of quantization being done.
+    intended to be used in concert with a GPTQQuantizer class to define the quantization mode.
     """
 
     def __init__(
