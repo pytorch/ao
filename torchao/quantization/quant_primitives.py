@@ -11,7 +11,6 @@ from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib
 from torch.library import impl
 
 from torchao.kernel.intmm import int_scaled_matmul
-from .utils import TORCH_VERSION_AFTER_2_4
 from torchao.kernel.intmm import safe_int_mm
 from .utils import TORCH_VERSION_AFTER_2_3
 
