@@ -19,7 +19,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .utils import TORCH_VERSION_AFTER_2_4
+from .dynamic_quant import DynamicallyPerAxisQuantizedLinear
+from .utils import TORCH_VERSION_AFTER_2_3
 
 from .subclass import (
     Int4WeightOnlyQuantizedLinearWeight,
@@ -41,7 +42,7 @@ __all__ = [
     "TwoStepQuantizer",
 ]
 
-if TORCH_VERSION_AFTER_2_4:
+if TORCH_VERSION_AFTER_2_3:
     from .GPTQ import (
         Int8DynActInt4WeightQuantizer,
         Int8DynActInt4WeightGPTQQuantizer,
@@ -196,5 +197,5 @@ def swap_conv2d_1x1_to_linear(model, filter_fn=None):
         model, replace_conv2d_1x1, filter_fn=filter_fn
     )
 
-if TORCH_VERSION_AFTER_2_4:
+if TORCH_VERSION_AFTER_2_3:
     from .GPTQ import Int8DynActInt4WeightQuantizer, Int8DynActInt4WeightGPTQQuantizer

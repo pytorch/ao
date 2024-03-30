@@ -550,7 +550,7 @@ if TORCH_VERSION_AFTER_2_4:
     from .quant_primitives import (
         get_group_qparams_symmetric,
         group_quantize_tensor_symmetric,
-        per_token_fake_dynamic_quant,
+        per_token_dynamic_quant,
     )
 
     class GPTQQuantizer(Quantizer):
@@ -683,7 +683,7 @@ if TORCH_VERSION_AFTER_2_4:
         groupsize,
         precision,
     ):
-        x = per_token_fake_dynamic_quant(x)
+        x = per_token_dynamic_quant(x)
         # TODO: verify and remove following reshape code
         # origin_x_size = x.size()
         # x = x.reshape(-1, origin_x_size[-1])
@@ -1101,7 +1101,7 @@ if TORCH_VERSION_AFTER_2_4:
             self.padding_allowed = padding_allowed
             self.precision = precision
 
-            self.act_fake_quant_func = per_token_fake_dynamic_quant
+            self.act_fake_quant_func = per_token_dynamic_quant
             n_bit = 4
             self.get_qparams_func = lambda w: get_group_qparams_symmetric(
                 w, n_bit, groupsize, self.precision

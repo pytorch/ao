@@ -89,11 +89,6 @@ class KVCache(nn.Module):
         k_out = torch.ops.aten.index_put_(self.k_cache, [None, None, input_pos], k_val)
         v_out = torch.ops.aten.index_put_(self.v_cache, [None, None, input_pos], v_val)
 
-
-        #         if isinstance(k_val)
-        # k_out = torch.ops.aten.index_put_(self.k_cache, [None, None, input_pos], k_val)
-        # v_out = torch.ops.aten.index_put_(self.v_cache, [None, None, input_pos], v_val)
-
         return k_out, v_out
 
 class Transformer(nn.Module):
