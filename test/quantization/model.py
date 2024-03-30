@@ -12,6 +12,11 @@ from torch import Tensor
 from torch.nn import functional as F
 
 def prepare_inputs_for_model(inps):
+    # this function is used to handle input from lm-eval, which is 2d by default
+    if input.dim() != 2:
+        raise ValueError(f"Expected input to be of dim 2, but got {input.dim()}")
+
+    inps = inps.squeeze(0)
     # setup inputs in correct format
     max_new_tokens = 1
     T = inps.size(0)
