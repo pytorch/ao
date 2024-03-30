@@ -15,7 +15,7 @@ from .utils import TORCH_VERSION_AFTER_2_4
 
 
 _AFTER_TORCH_2_4_ONLY = [
-    "per_token_dynamic_quant",
+    "per_token_fake_dynamic_quant",
     "get_group_qparams_symmetric",
 ]
 
@@ -626,7 +626,7 @@ if TORCH_VERSION_AFTER_2_4:
         return torch.stack([first_elements, second_elements], dim=-1).view(up_size(shape))
 
 
-    def per_token_dynamic_quant(input: torch.Tensor) -> torch.Tensor:
+    def per_token_fake_dynamic_quant(input: torch.Tensor) -> torch.Tensor:
         orig_dtype = input.dtype
         # TODO: we may need to make the choose_qparams op configurable
         (
