@@ -30,11 +30,6 @@ from .subclass import (
 from .weight_only import WeightOnlyInt8QuantLinear
 from .unified import Quantizer, TwoStepQuantizer
 
-_AFTER_TORCH_2_4_ONLY = [
-    "Int8DynActInt4WeightQuantizer",
-    "Int8DynActInt4WeightGPTQQuantizer",
-]
-
 __all__ = [
     "apply_weight_only_int8_quant",
     "apply_dynamic_quant",
@@ -44,7 +39,18 @@ __all__ = [
     "swap_conv2d_1x1_to_linear",
     "Quantizer",
     "TwoStepQuantizer",
-] + (_AFTER_TORCH_2_4_ONLY if TORCH_VERSION_AFTER_2_4 else [])
+]
+
+if TORCH_VERSION_AFTER_2_4:
+    from GPTQ import (
+        Int8DynActInt4WeightQuantizer,
+        Int8DynActInt4WeightGPTQQuantizer
+    )
+    __all__ += [
+        "Int8DynActInt4WeightQuantizer",
+        "Int8DynActInt4WeightGPTQQuantizer",
+    ]
+
 
 def _replace_with_custom_fn_if_matches_filter(
     model,
