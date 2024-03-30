@@ -23,7 +23,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .dynamic_quant import DynamicallyPerAxisQuantizedLinear
-from .utils import TORCH_VERSION_AFTER_2_4
+from .utils import TORCH_VERSION_AFTER_2_3
 
 from .subclass import (
     Int4WeightOnlyQuantizedLinearWeight,
@@ -33,7 +33,7 @@ from .subclass import (
 )
 from .weight_only import WeightOnlyInt8QuantLinear
 
-_AFTER_TORCH_2_4_ONLY = [
+_AFTER_TORCH_2_3_ONLY = [
     "Int8DynActInt4WeightQuantizer",
     "Int8DynActInt4WeightGPTQQuantizer",
 ]
@@ -48,7 +48,7 @@ __all__ = [
     "swap_conv2d_1x1_to_linear",
     "Quantizer",
     "TwoStepQuantizer",
-] + (_AFTER_TORCH_2_4_ONLY if TORCH_VERSION_AFTER_2_4 else [])
+] + (_AFTER_TORCH_2_3_ONLY if TORCH_VERSION_AFTER_2_3 else [])
 
 
 ############################# Unified Quantization APIs ##############################
@@ -224,7 +224,7 @@ def swap_conv2d_1x1_to_linear(model, filter_fn=None):
     )
 
 
-if TORCH_VERSION_AFTER_2_4:
+if TORCH_VERSION_AFTER_2_3:
     from .quant_primitives import (
         get_group_qparams_symmetric,
         group_quantize_tensor_symmetric,
