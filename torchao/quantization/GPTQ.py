@@ -680,7 +680,7 @@ if TORCH_VERSION_AFTER_2_4:
         scales,
         zeros,
         out_features,
-        group_size,
+        groupsize,
         precision,
     ):
         x = per_token_fake_dynamic_quant(x)
@@ -700,7 +700,7 @@ if TORCH_VERSION_AFTER_2_4:
             quant_min,
             quant_max,
             torch.int8,
-            group_size,
+            groupsize,
             precision,
         )
 
@@ -775,7 +775,7 @@ if TORCH_VERSION_AFTER_2_4:
         """
         This module implements a dynamic quantized linear layer with int4 weight.
         Weights are per channel groupwise quantized. Parameters of importance
-        group_size: the number of elements in each quantized group
+        groupsize: the number of elements in each quantized group
         precision: precision of input and output. e.g. torch.float32 means input
         activation is float32 and output is float32.
         scales_precision: precision of per group scale.
@@ -788,7 +788,7 @@ if TORCH_VERSION_AFTER_2_4:
             bias=True,
             device=None,
             dtype=None,
-            group_size: int = 256,
+            groupsize: int = 256,
             precision: torch.dtype = torch.float32,
             scales_precision: torch.dtype = torch.float32,
         ) -> None:
@@ -796,16 +796,16 @@ if TORCH_VERSION_AFTER_2_4:
             # always pad if needed since it becomes a noop at runtime if not needed
             # self.origin_in_features = in_features
             assert (
-                in_features % group_size == 0
-            ), f"require in_features:{in_features} % group_size:{group_size} == 0"
+                in_features % groupsize == 0
+            ), f"require in_features:{in_features} % groupsize:{groupsize} == 0"
             # in_features = _calc_padded_size_linear_int4(
-            #    in_features, group_size
+            #    in_features, groupsize
             # )
             self.in_features = in_features
             self.out_features = out_features
             assert not bias, "require bias=False"
             # TODO: align groupsize naming
-            self.group_size = group_size
+            self.groupsize = groupsize
             # Precision of the activation which also indicates
             # output precision of the dynamically quantized linear layer
             # that his module represents.
@@ -819,14 +819,14 @@ if TORCH_VERSION_AFTER_2_4:
             self.register_buffer(
                 "scales",
                 torch.empty(
-                    (out_features, in_features // group_size),
+                    (out_features, in_features // groupsize),
                     dtype=scales_precision,
                 ),
             )
             self.register_buffer(
                 "zeros",
                 torch.empty(
-                    (out_features, in_features // group_size),
+                    (out_features, in_features // groupsize),
                     dtype=scales_precision,
                 ),
             )
@@ -841,7 +841,7 @@ if TORCH_VERSION_AFTER_2_4:
                 self.scales,
                 self.zeros,
                 self.out_features,
-                self.group_size,
+                self.groupsize,
                 self.precision,
             )
 
@@ -904,14 +904,14 @@ if TORCH_VERSION_AFTER_2_4:
 
     def replace_linear_8da4w(
         module,
-        group_size,
+        groupsize,
         padding_allowed,
         precision,
         scales_precision,
     ):
         for name, child in module.named_children():
             if isinstance(child, nn.Linear):
-                if _check_linear_int4_k(child.in_features, group_size) or padding_allowed:
+                if _check_linear_int4_k(child.in_features, groupsize) or padding_allowed:
                     setattr(
                         module,
                         name,
@@ -919,7 +919,7 @@ if TORCH_VERSION_AFTER_2_4:
                             child.in_features,
                             child.out_features,
                             bias=False,
-                            group_size=group_size,
+                            groupsize=groupsize,
                             precision=precision,
                             scales_precision=scales_precision,
                         ),
@@ -927,7 +927,7 @@ if TORCH_VERSION_AFTER_2_4:
             else:
                 replace_linear_8da4w(
                     child,
-                    group_size,
+                    groupsize,
                     padding_allowed,
                     precision,
                     scales_precision,
@@ -953,7 +953,7 @@ if TORCH_VERSION_AFTER_2_4:
     class Int8DynActInt4WeightQuantizer(Quantizer):
         def __init__(
             self,
-            group_size: int = 256,
+            groupsize: int = 256,
             padding_allowed: bool = False,
             precision: torch.dtype = torch.float32,
             scales_precision: torch.dtype = torch.float32,
@@ -964,13 +964,13 @@ if TORCH_VERSION_AFTER_2_4:
             super().__init__()
             if _is_gpt_fast:
                 assert inner_k_tiles in [2, 4, 8]
-                assert group_size in [32, 64, 128, 256]
+                assert groupsize in [32, 64, 128, 256]
             else:
                 assert inner_k_tiles is None
             self._is_gpt_fast = _is_gpt_fast
             self._use_cuda = _use_cuda
             self.inner_k_tiles = inner_k_tiles
-            self.group_size: int = group_size
+            self.groupsize: int = groupsize
             self.padding_allowed: bool = padding_allowed
             self.precision: torch.dtype = precision
             self.scales_precision: torch.dtype = scales_precision
@@ -989,12 +989,12 @@ if TORCH_VERSION_AFTER_2_4:
                     print(f"linear: {fqn}, in={in_features}, out={out_features}")
 
                     assert (
-                        in_features % self.group_size == 0
-                    ), f"require in_features:{in_features} % self.group_size:{self.group_size} == 0"
+                        in_features % self.groupsize == 0
+                    ), f"require in_features:{in_features} % self.groupsize:{self.groupsize} == 0"
 
                     weight = mod.weight.data
                     if not _check_linear_int4_k(
-                        in_features, self.group_size, self.inner_k_tiles
+                        in_features, self.groupsize, self.inner_k_tiles
                     ):
                         if self.padding_allowed:
                             from model import find_multiple
@@ -1013,7 +1013,7 @@ if TORCH_VERSION_AFTER_2_4:
                     ) = group_quantize_tensor_symmetric(
                         weight.to(self.precision),
                         4,  # n_bit
-                        self.group_size,
+                        self.groupsize,
                         self.scales_precision,
                     )
                     if self._is_gpt_fast:
@@ -1034,7 +1034,7 @@ if TORCH_VERSION_AFTER_2_4:
                 # TODO: temporary path for gpt-fast, will remove later
                 replace_linear_int4(
                     model,
-                    self.group_size,
+                    self.groupsize,
                     self.inner_k_tiles,
                     self.padding_allowed,
                     self._use_cuda,
@@ -1063,14 +1063,14 @@ if TORCH_VERSION_AFTER_2_4:
     class Int4WeightQuantizer(Quantizer):
         def __init__(
             self,
-            group_size: int = 256,
+            groupsize: int = 256,
             padding_allowed: bool = False,
             precision: torch.dtype = torch.float32,
             inner_k_tiles: Optional[int] = None,
             _use_cuda: bool = True,
         ) -> None:
             super().__init__(
-                group_size,
+                groupsize,
                 padding_allowed,
                 precision,
                 torch.float32,  # scales_precision
@@ -1169,7 +1169,7 @@ if TORCH_VERSION_AFTER_2_4:
                 # TODO: temporary path for gpt-fast, will remove later
                 replace_linear_int4(
                     model,
-                    self.group_size,
+                    self.groupsize,
                     self.inner_k_tiles,
                     self.padding_allowed,
                     self._use_cuda,

@@ -44,7 +44,7 @@ __all__ = [
 if TORCH_VERSION_AFTER_2_4:
     from .GPTQ import (
         Int8DynActInt4WeightQuantizer,
-        Int8DynActInt4WeightGPTQQuantizer
+        Int8DynActInt4WeightGPTQQuantizer,
     )
     __all__ += [
         "Int8DynActInt4WeightQuantizer",

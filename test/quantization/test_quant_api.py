@@ -139,9 +139,9 @@ class TestQuantFlow(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.3 or lower")
     def test_8da4w_quantizer(self):
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
-        from torchao.quantization.quant_api import Int8DynActInt4WeightLinear
+        from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
 
-        quantizer = Int8DynActInt4WeightQuantizer(group_size=32)
+        quantizer = Int8DynActInt4WeightQuantizer(groupsize=32)
         m = M().eval()
         example_inputs = m.example_inputs()
         m = quantizer.quantize(m)
@@ -149,13 +149,13 @@ class TestQuantFlow(unittest.TestCase):
         assert isinstance(m.linear2, Int8DynActInt4WeightLinear)
         m(*example_inputs)
 
-    # @unittest.skip("skipping until we get checkpoints for gpt-fast")
+    @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_gptq_quantizer(self):
         from torchao.quantization.GPTQ import Int8DynActInt4WeightGPTQQuantizer, InputRecorder
         # should be similar to TorchCompileDynamicQuantizer
         precision = torch.bfloat16
         device = "cpu"
-        checkpoint_path = Path("/home/cdhernandez/local/gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
         model = Transformer.from_name(checkpoint_path.parent.name)
         checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
         model.load_state_dict(checkpoint, assign=True)
@@ -193,15 +193,16 @@ class TestQuantFlow(unittest.TestCase):
         model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
         model = quantizer.quantize(model, inputs)
         compiled = torch.compile(model, mode="max-autotune")
-        compiled(inputs[0].values[0], inputs[1].values[0])
+        with torch.no_grad():
+            compiled(inputs[0].values[0], inputs[1].values[0])
 
-    # @unittest.skip("skipping until we get checkpoints for gpt-fast")
+    @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_gptq_quantizer_gpt_fast(self):
         from torchao.quantization.GPTQ import Int8DynActInt4WeightGPTQQuantizer, InputRecorder
         # should be similar to TorchCompileDynamicQuantizer
         precision = torch.bfloat16
         device = "cuda"
-        checkpoint_path = Path("/home/cdhernandez/local/gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
         model = Transformer.from_name(checkpoint_path.parent.name)
         checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
         model.load_state_dict(checkpoint, assign=True)
@@ -243,7 +244,8 @@ class TestQuantFlow(unittest.TestCase):
 
         model = quantizer.quantize(model, inputs)
         compiled = torch.compile(model, mode="max-autotune")
-        compiled(inputs[0].values[0], inputs[1].values[0])
+        with torch.no_grad():
+            compiled(inputs[0].values[0], inputs[1].values[0])
 
 if __name__ == "__main__":
     unittest.main()
