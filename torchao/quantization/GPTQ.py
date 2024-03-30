@@ -20,7 +20,7 @@ import torch.nn.functional as F
 # from model import Transformer  # pyre-ignore[21]
 from torch.utils._pytree import tree_flatten, tree_unflatten
 
-from .utils import TORCH_VERSION_AFTER_2_4
+from .utils import TORCH_VERSION_AFTER_2_3
 from typing import Any, Dict, Tuple, Optional
 from .unified import Quantizer
 from functools import reduce
@@ -89,7 +89,7 @@ if lm_eval_available:
             # for model
             self.input_prep_func = (
                 input_prep_func if input_prep_func is not None
-                else lambda x: x
+                else lambda x: (x,)
             )
 
             self.pad_calibration_inputs = pad_calibration_inputs
@@ -180,6 +180,7 @@ if lm_eval_available:
             else:
                 inps = F.pad(inps, (self.pad_token, self.calibration_seq_length - T))
 
+            inps = inps.unsqueeze(0)
             model_in = self.input_prep_func(inps)
 
             self.add_input(model_in)
@@ -546,7 +547,7 @@ class GenericGPTQRunner(fx.Interpreter):
         return Q, DQ.to(orig_dtype), all_qparams
 
 
-if TORCH_VERSION_AFTER_2_4:
+if TORCH_VERSION_AFTER_2_3:
     from .quant_primitives import (
         get_group_qparams_symmetric,
         group_quantize_tensor_symmetric,

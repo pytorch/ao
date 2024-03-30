@@ -12,6 +12,7 @@ from torch import Tensor
 from torch.nn import functional as F
 
 def prepare_inputs_for_model(inps):
+    inps = inps.squeeze(0)
     # setup inputs in correct format
     max_new_tokens = 1
     T = inps.size(0)
