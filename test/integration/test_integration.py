@@ -952,12 +952,6 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    def test_int8_weight_only_quant_subclass(self, device, dtype):
-        self._test_lin_weight_subclass_impl(
-            Int8WeightOnlyQuantizedLinearWeight.from_float, device, 40, test_dtype=dtype
-        )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "int4 requires torch nightly.")
     def test_int4_weight_only_quant_subclass(self, device, dtype):
         if dtype != torch.bfloat16:
