@@ -10,6 +10,7 @@ from .subclass import *  # noqa: F403
 from .quant_primitives import *  # noqa: F403
 from .utils import *  # noqa: F403
 from .weight_only import *  # noqa: F403
+from .unified import *
 
 __all__ = [
     "DynamicallyPerAxisQuantizedLinear",
