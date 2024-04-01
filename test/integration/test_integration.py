@@ -953,6 +953,8 @@ class TestSubclass(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skip("flaky test, will fix in another PR")
+=======
+>>>>>>> main
     def test_int8_weight_only_quant_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             Int8WeightOnlyQuantizedLinearWeight.from_float, device, 40, test_dtype=dtype
@@ -1026,7 +1028,6 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skip("flaky test, will fix in another PR")
     def test_int8_weight_only_quant_subclass_api(self, device, dtype):
         self._test_lin_weight_subclass_api_impl(
             change_linear_weights_to_int8_woqtensors, device, 40, test_dtype=dtype
@@ -1207,7 +1208,6 @@ class TestSaveLoadMeta(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
-    @unittest.skip("flaky test, will fix in another PR")
     def test_save_load_int8woqtensors(self, device, dtype):
         self._test_handle_save_load_meta_impl(change_linear_weights_to_int8_woqtensors, device, test_dtype=dtype)
 
