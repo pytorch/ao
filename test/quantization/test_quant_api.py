@@ -20,10 +20,6 @@ from torch.ao.quantization.quantizer.xnnpack_quantizer import (
 
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.quantization.quant_api import apply_dynamic_quant
-from torchao.quantization.quant_api import (
-    Quantizer,
-    TwoStepQuantizer,
-)
 from torchao.quantization.utils import (
     TORCH_VERSION_AFTER_2_3,
     TORCH_VERSION_AFTER_2_4,
@@ -62,7 +58,7 @@ def capture_and_prepare(model, example_inputs):
     m(*example_inputs)
     return m
 
-class XNNPackDynamicQuantizer(TwoStepQuantizer):
+class XNNPackDynamicQuantizer:
 
     def prepare(self, model: torch.nn.Module) -> torch.nn.Module:
         _replace_with_custom_fn_if_matches_filter(
@@ -80,7 +76,7 @@ class XNNPackDynamicQuantizer(TwoStepQuantizer):
         )
         return model
 
-class TorchCompileDynamicQuantizer(Quantizer):
+class TorchCompileDynamicQuantizer:
     def quantize(self, model: torch.nn.Module) -> torch.nn.Module:
         apply_dynamic_quant(model)
         return model
