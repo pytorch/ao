@@ -10,6 +10,7 @@ from .subclass import *  # noqa: F403
 from .quant_primitives import *  # noqa: F403
 from .utils import *  # noqa: F403
 from .weight_only import *  # noqa: F403
+from .unified import *
 
 __all__ = [
     "DynamicallyPerAxisQuantizedLinear",
@@ -25,9 +26,6 @@ __all__ = [
     "dynamically_quantize_per_channel",
     "dequantize_per_tensor",
     "dequantize_per_channel",
-    "autoquant",
-    "change_linears_to_autoquantizable",
-    "change_autoquantizable_to_quantized",
     "quant_int8_dynamic_linear",
     "quant_int8_matmul",
     "quant_int8_dynamic_per_token_linear",

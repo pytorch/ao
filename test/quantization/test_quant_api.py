@@ -25,11 +25,12 @@ from torchao.quantization.quant_api import (
     TwoStepQuantizer,
 )
 from torchao.quantization.utils import (
+    TORCH_VERSION_AFTER_2_3,
     TORCH_VERSION_AFTER_2_4,
 )
 from pathlib import Path
 from sentencepiece import SentencePieceProcessor
-from model import Transformer
+from model import Transformer, prepare_inputs_for_model
 
 
 def dynamic_quant(model, example_inputs):
@@ -136,12 +137,12 @@ class TestQuantFlow(unittest.TestCase):
         compiled = m(*example_inputs)
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.3 or lower")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.4 or lower")
     def test_8da4w_quantizer(self):
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
-        from torchao.quantization.quant_api import Int8DynActInt4WeightLinear
+        from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
 
-        quantizer = Int8DynActInt4WeightQuantizer(group_size=32)
+        quantizer = Int8DynActInt4WeightQuantizer(groupsize=32)
         m = M().eval()
         example_inputs = m.example_inputs()
         m = quantizer.quantize(m)
@@ -151,7 +152,7 @@ class TestQuantFlow(unittest.TestCase):
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_gptq_quantizer(self):
-        from torchao.quantization.quant_api import Int8DynActInt4WeightGPTQQuantizer
+        from torchao.quantization.GPTQ import Int8DynActInt4WeightGPTQQuantizer, InputRecorder
         # should be similar to TorchCompileDynamicQuantizer
         precision = torch.bfloat16
         device = "cpu"
@@ -169,20 +170,83 @@ class TestQuantFlow(unittest.TestCase):
         percdamp = 0.01
         groupsize = 128
         calibration_tasks = ["wikitext"]
-        calibration_limit = 5
+        calibration_limit = 1
         calibration_seq_length = 100
+        input_prep_func = prepare_inputs_for_model
         pad_calibration_inputs = False
-        quantizer = Int8DynActInt4WeightGPTQQuantizer(
+
+        inputs = InputRecorder(
             tokenizer,
+            calibration_seq_length,
+            input_prep_func,
+            pad_calibration_inputs,
+            model.config.vocab_size,
+        ).record_inputs(
+            calibration_tasks,
+            calibration_limit,
+        ).get_inputs()
+
+        quantizer = Int8DynActInt4WeightGPTQQuantizer(
             blocksize,
             percdamp,
             groupsize,
+        )
+        model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
+        model = quantizer.quantize(model, inputs)
+        compiled = torch.compile(model, mode="max-autotune")
+        with torch.no_grad():
+            compiled(inputs[0].values[0], inputs[1].values[0])
+
+    @unittest.skip("skipping until we get checkpoints for gpt-fast")
+    def test_gptq_quantizer_gpt_fast(self):
+        from torchao.quantization.GPTQ import Int8DynActInt4WeightGPTQQuantizer, InputRecorder
+        # should be similar to TorchCompileDynamicQuantizer
+        precision = torch.bfloat16
+        device = "cuda"
+        checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        model = Transformer.from_name(checkpoint_path.parent.name)
+        checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
+        model.load_state_dict(checkpoint, assign=True)
+        model = model.to(dtype=precision, device=device)
+        tokenizer_path = checkpoint_path.parent / "tokenizer.model"
+        assert tokenizer_path.is_file(), tokenizer_path
+        tokenizer = SentencePieceProcessor(  # pyre-ignore[28]
+            model_file=str(tokenizer_path)
+        )
+        blocksize = 128
+        percdamp = 0.01
+        groupsize = 128
+        calibration_tasks = ["wikitext"]
+        calibration_limit = 1
+        calibration_seq_length = 100
+        input_prep_func = prepare_inputs_for_model
+        pad_calibration_inputs = False
+
+        inputs = InputRecorder(
+            tokenizer,
+            calibration_seq_length,
+            input_prep_func,
+            pad_calibration_inputs,
+            model.config.vocab_size,
+        ).record_inputs(
             calibration_tasks,
             calibration_limit,
-            calibration_seq_length,
-            pad_calibration_inputs,
+        ).get_inputs()
+
+        quantizer = Int8DynActInt4WeightGPTQQuantizer(
+            blocksize,
+            percdamp,
+            groupsize,
+            _is_gpt_fast=True,
+            _use_cuda=True,
         )
-        model = quantizer.quantize(model)
+
+        model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
+
+        model = quantizer.quantize(model, inputs)
+        compiled = torch.compile(model, mode="max-autotune")
+        with torch.no_grad():
+            compiled(inputs[0].values[0], inputs[1].values[0])
 
 if __name__ == "__main__":
     unittest.main()
