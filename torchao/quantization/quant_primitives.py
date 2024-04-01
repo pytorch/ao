@@ -11,10 +11,11 @@ from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib
 from torch.library import impl
 
 from torchao.kernel.intmm import int_scaled_matmul
-from .utils import TORCH_VERSION_AFTER_2_4
+from torchao.kernel.intmm import safe_int_mm
+from .utils import TORCH_VERSION_AFTER_2_3
 
 
-_AFTER_TORCH_2_4_ONLY = [
+_AFTER_TORCH_2_3_ONLY = [
     "per_token_dynamic_quant",
     "get_group_qparams_symmetric",
 ]
@@ -38,65 +39,9 @@ __all__ = [
     "groupwise_affine_quantize_tensor",
     "groupwise_affine_dequantize_tensor",
     # TODO: need to clean up above functions
-] + (_AFTER_TORCH_2_4_ONLY if TORCH_VERSION_AFTER_2_4 else [])
-
-
-def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
-    r"""
-    This function wraps torch._int_mm and avoids several undesirable behaviors of the function for certain inputs while still
-    returning correct results and being torch.compiled in a performant way.
-
-    Assumes both tensors have dimension of 2.
-
-    Note: no error checking for torch.compiled path, if input.shape = [i, j] and j<=16 then the triton kernel
-    will error.
-
-    Args:
-        input (Tensor, int8): the first tensor to be multiplied
-        mat2 (Tensor, int8): the second tensor to be multiplied
-
-    Return:
-        out (Tensor, int32): the result of the matmul with device matching that of the inputs
-    """
-    # torch.compile path
-    if dynamo_is_compiling() or "FakeTensor" in input.__repr__():
-        return out_dtype(torch.ops.aten.mm.default, torch.int32, input, mat2)
-
-    # error checking for cublas path
-    assert (
-        mat2.device == input.device
-    ), f"need both tensors to be on the same device but got {mat2.device} and {input.device}"
-    device_cpu = "cpu" in [mat2.device.type, input.device.type]
-    # with input.shape = [i,j] and mat2.shape = [j,k]
-    i_is_strictly_greater_than_16 = input.shape[0] > 16
-    j_is_nonzero_multiple_of_8 = (input.shape[1] % 8 == 0) and (input.shape[1] > 0)
-    k_is_nonzero_multiple_of_8 = (mat2.shape[1] % 8 == 0) and (mat2.shape[1] > 0)
-    bad_dimensions_for_cublas = not (
-        i_is_strictly_greater_than_16
-        and j_is_nonzero_multiple_of_8
-        and k_is_nonzero_multiple_of_8
-    )
-
-    if device_cpu or bad_dimensions_for_cublas:
-        # fallback path
-        return torch.matmul(input.cpu().to(torch.int32), mat2.cpu().to(torch.int32)).to(
-            input.device.type
-        )
-
-    # cublas paths
-    if not mat2.is_contiguous():  # silently gives incorrect result without this
-        mat2 = mat2.contiguous()
-    if (not input.is_contiguous()) and (
-        input.shape[0] % 8 != 0
-    ):  # gives cryptic error without this
-        input = (
-            input.contiguous()
-        )  # (it seems the transpose makes cublas check the above j constraint on i)
-    return out_dtype(torch.ops.aten.mm.default, torch.int32, input, mat2)
-
+] + (_AFTER_TORCH_2_3_ONLY if TORCH_VERSION_AFTER_2_3 else [])
 
 # copy-pasta of https://www.internalfb.com/intern/anp/view/?id=3350736
-
 
 def dynamically_quantize_per_tensor(
     x,
@@ -525,6 +470,7 @@ def groupwise_affine_dequantize_tensor(
     )
 
 
+# TODO: replace this with torch.ao.quantization.PerChannelMinMaxObserver
 def get_group_qparams_symmetric(w, n_bit=4, groupsize=128, precision=torch.float32):
     # needed for GPTQ with padding
     if groupsize > w.shape[-1]:
@@ -571,7 +517,7 @@ def pack_scales_and_zeros(scales, zeros, precision=torch.float16):
     )
 
 
-if TORCH_VERSION_AFTER_2_4:
+if TORCH_VERSION_AFTER_2_3:
     def group_quantize_tensor_symmetric(
         w,
         n_bit=4,
