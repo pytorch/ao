@@ -137,7 +137,7 @@ class TestQuantFlow(unittest.TestCase):
         compiled = m(*example_inputs)
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.4 or lower")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "skipping when torch version is 2.3 or lower")
     def test_8da4w_quantizer(self):
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
         from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
