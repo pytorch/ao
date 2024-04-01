@@ -1,10 +1,22 @@
-
 import torch
-from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensor, SparseSemiStructuredTensorCUTLASS, SparseSemiStructuredTensorCUSPARSELT
-from torchao.sparsity.dynamic_quant_sparse import Int8DynamicallyQuantized24CusparseltLinearWeight, Int8DynamicallyQuantized24CutlassLinearWeight
+from torch.sparse import (
+    to_sparse_semi_structured,
+    SparseSemiStructuredTensor,
+    SparseSemiStructuredTensorCUTLASS,
+    SparseSemiStructuredTensorCUSPARSELT,
+)
+from torchao.sparsity.dynamic_quant_sparse import (
+    Int8DynamicallyQuantized24CusparseltLinearWeight,
+    Int8DynamicallyQuantized24CutlassLinearWeight,
+)
 
-from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter, _get_subclass_inserter, _is_linear
+from torchao.quantization.quant_api import (
+    _replace_with_custom_fn_if_matches_filter,
+    _get_subclass_inserter,
+    _is_linear,
+)
 from torch.ao.pruning import WeightNormSparsifier
+
 
 # Sparsity helper functions
 def apply_fake_sparsity(model):
@@ -18,14 +30,15 @@ def apply_fake_sparsity(model):
         if isinstance(mod, torch.nn.Linear):
             sparse_config.append({"tensor_fqn": f"{name}.weight"})
 
-    sparsifier = WeightNormSparsifier(sparsity_level=1.0,
-                                      sparse_block_shape=(1,4),
-                                      zeros_per_block=2)
+    sparsifier = WeightNormSparsifier(
+        sparsity_level=1.0, sparse_block_shape=(1, 4), zeros_per_block=2
+    )
     sparsifier.prepare(model, sparse_config)
     sparsifier.step()
     sparsifier.squash_mask()
 
-def apply_sparse(model, **kwargs):
+
+def apply_sparse_semi_structured(model, **kwargs):
     filter_fn = kwargs.pop("filter_fn", _is_linear)
 
     apply_fake_sparsity(model)
@@ -34,9 +47,8 @@ def apply_sparse(model, **kwargs):
             mod.weight = torch.nn.Parameter(to_sparse_semi_structured(mod.weight))
 
 
-def change_linear_weights_to_int8_dq_24_sparsetensors(model, **kwargs):
+def change_linear_weights_to_int8_dq_semi_structured_sparsetensors(model, **kwargs):
     filter_fn = kwargs.pop("filter_fn", _is_linear)
-    use_experimental = kwargs.pop("use_experimental", False)
 
     if SparseSemiStructuredTensor._FORCE_CUTLASS:
         subclass = Int8DynamicallyQuantized24CutlassLinearWeight
