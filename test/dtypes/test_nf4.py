@@ -192,7 +192,6 @@ class TestNF4Linear(TestCase):
         out1 = torch.nn.functional.linear(inp, a)
         out2 = torch.nn.functional.linear(inp, a_nf4)
 
-    @unittest.skipIf(torch.__version__.split('+')[0] == '2.2.1', "Broken on stable.")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_smoketest_linear_compile(self):
         for dtype in [torch.bfloat16, torch.float16]:
