@@ -18,9 +18,7 @@ from torch.sparse import (
     SparseSemiStructuredTensorCUTLASS,
 )
 
-# Qunt + Sparse helper functinos
-
-
+# Quant + Sparse helper functinos
 def sparse_quant_int8_dynamic_linear(
     x : torch.Tensor,
     w_vals_int8_packed : torch.Tensor,

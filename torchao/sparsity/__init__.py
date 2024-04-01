@@ -6,11 +6,19 @@
 
 from .wanda import WandaSparsifier  # noqa: F403
 from .utils import PerChannelNormObserver  # noqa: F403
-from .sparse_api import change_linear_weights_to_int8_dq_semi_structured_sparsetensors, apply_sparse_semi_structured
+from .sparse_api import apply_sparse_semi_structured, apply_fake_sparsity
+from .dynamic_quant_sparse import (
+    Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight,
+    Int8DynamicallyQuantized24CusparseltLinearWeight,
+    Int8DynamicallyQuantized24CutlassLinearWeight
+)
 
 __all__ = [
     "WandaSparsifier",
     "PerChannelNormObserver",
     "apply_sparse_semi_structured",
-    "change_linear_weights_to_int8_dq_semi_structured_sparsetensors",
+    "apply_fake_sparsity",
+    "Int8DynamicallyQuantizedCusparseltLinearFuseMulWeight",
+    "Int8DynamicallyQuantizedCusparseltLinearWeight",
+    "Int8DynamicallyQuantizedCutlassLinearWeight",
 ]

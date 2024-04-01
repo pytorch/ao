@@ -1,10 +1,5 @@
-from pprint import pprint
 import pandas as pd
 import torch
-from torchao.quantization import change_linear_weights_to_int8_dqtensors
-from torchao.sparsity import change_linear_weights_to_int8_dq_semi_structured_sparsetensors
-from torchao.sparsity.sparse_api import apply_sparse_semi_structured, apply_fake_sparsity
-from torchao.sparsity.dynamic_quant_sparse import Int8DynamicallyQuantized24CusparseltLinearWeight, Int8DynamicallyQuantized24CutlassLinearWeight, Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight
 from segment_anything import sam_model_registry
 from torch.utils.benchmark import Timer
 from torch.sparse import SparseSemiStructuredTensor, SparseSemiStructuredTensorCUTLASS, SparseSemiStructuredTensorCUSPARSELT
@@ -14,6 +9,14 @@ from torchao.quantization.quant_api import (
     _is_linear,
     QuantizedLinearWeightBase,
     Int8DynamicallyQuantizedLinearWeight,
+)
+from torchao.quantization import change_linear_weights_to_int8_dqtensors
+from torchao.sparsity import (
+    apply_sparse_semi_structured,
+    apply_fake_sparsity,
+    Int8DynamicallyQuantized24CusparseltLinearWeight,
+    Int8DynamicallyQuantized24CutlassLinearWeight,
+    Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight,
 )
 from itertools import product
 from tqdm import tqdm
@@ -69,8 +72,8 @@ SUBCLASSES = {
     "quant+sparse (cutlass)"             : Int8DynamicallyQuantized24CutlassLinearWeight,
     "quant+sparse (cusparselt)"          : Int8DynamicallyQuantized24CusparseltLinearWeight,
     "quant+sparse (cusparselt fuse mul)" : Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight,
-    # "sparse (cutlass)"                   : SparseSemiStructuredTensorCUTLASS,
-    # "sparse (cusparselt)"                : SparseSemiStructuredTensorCUSPARSELT,
+    "sparse (cutlass)"                   : SparseSemiStructuredTensorCUTLASS,
+    "sparse (cusparselt)"                : SparseSemiStructuredTensorCUSPARSELT,
 }
 
 def run_once(block_only=False, dtype=torch.bfloat16, batchsize=32, compile=True, qkv=None, proj=None, lin1=None, lin2=None):
