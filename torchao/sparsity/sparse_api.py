@@ -30,12 +30,13 @@ def apply_sparse(model, **kwargs):
 
     apply_fake_sparsity(model)
     for name, mod in model.named_modules():
-        if filter_fn(name, mod):
+        if filter_fn(mod, name):
             mod.weight = torch.nn.Parameter(to_sparse_semi_structured(mod.weight))
 
 
 def change_linear_weights_to_int8_dq_24_sparsetensors(model, **kwargs):
     filter_fn = kwargs.pop("filter_fn", _is_linear)
+    use_experimental = kwargs.pop("use_experimental", False)
 
     if SparseSemiStructuredTensor._FORCE_CUTLASS:
         subclass = Int8DynamicallyQuantized24CutlassLinearWeight
@@ -47,5 +48,3 @@ def change_linear_weights_to_int8_dq_24_sparsetensors(model, **kwargs):
         _get_subclass_inserter(subclass, **kwargs),
         filter_fn,
     )
-
-

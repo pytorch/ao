@@ -10,11 +10,11 @@ from torchao.quantization.quant_primitives import (
 
 from torchao.quantization.subclass import Int8DynamicallyQuantizedLinearWeight, QuantizedLinearWeightBase
 
-from torch.sparse import SparseSemiStructuredTensor, SparseSemiStructuredTensorCUTLASS
+from torch.sparse import SparseSemiStructuredTensor, SparseSemiStructuredTensorCUTLASS, to_sparse_semi_structured
 
 # Qunt + Sparse helper functinos
 
-def sparse_quant_int8_dynamic_cutlass_linear(
+def sparse_quant_int8_dynamic_linear(
     x,
     w_vals_int8,
     w_meta_int32,
@@ -23,28 +23,16 @@ def sparse_quant_int8_dynamic_cutlass_linear(
     out_dtype,
 ):
     x_vals_int8, x_scales = quantize_activation_per_token_absmax(x)
-    mm_out = sparse_quant_int8_cutlass_matmul(
-        x_vals_int8, x_scales, w_vals_int8, w_meta_int32, w_scales, out_dtype)
+    if w_meta_int32 is None:
+        mm_out = sparse_quant_int8_cslt_matmul(
+            x_vals_int8, x_scales, w_vals_int8, w_scales, out_dtype)
+    else:
+        mm_out = sparse_quant_int8_cutlass_matmul(
+            x_vals_int8, x_scales, w_vals_int8, w_meta_int32, w_scales, out_dtype)
 
     if bias is not None:
         mm_out += bias
     return mm_out
-
-def sparse_quant_int8_dynamic_cslt_linear(
-    x,
-    w_vals_int8,
-    w_scales,
-    bias,
-    out_dtype,
-):
-    x_vals_int8, x_scales = quantize_activation_per_token_absmax(x)
-    mm_out = sparse_quant_int8_cslt_matmul(
-        x_vals_int8, x_scales, w_vals_int8, w_scales, out_dtype)
-
-    if bias is not None:
-        mm_out += bias
-    return mm_out
-
 
 def sparse_quant_int8_cslt_matmul(
     x_vals_int8,
@@ -56,7 +44,7 @@ def sparse_quant_int8_cslt_matmul(
 
     assert x_vals_int8.dtype == torch.int8, f'x dtype {x_vals_int8.dtype} not yet supported'
     assert w_vals_int8.dtype == torch.int8, f'w dtype {w_vals_int8.dtype} not yet supported'
-    assert w_scales.dtype == out_dtype, f'{w_scales.dtype} does not match {out_dtype}'
+    # assert w_scales.dtype == out_dtype, f'{w_scales.dtype} does not match {out_dtype}'
 
     tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1]).contiguous()
 
@@ -65,11 +53,12 @@ def sparse_quant_int8_cslt_matmul(
         torch.bfloat16,
     ], f"x_scales needs to be a torch.float32 or torch.bfloat16 but got {x_scales.dtype}"
 
-    y_dot_bf16_w_scales_fused = torch._cslt_sparse_mm(w_vals_int8, tmp.t(), alpha=w_scales, out_dtype=torch.bfloat16).t()
-    y = (y_dot_bf16_w_scales_fused* x_scales.reshape(-1, 1)).reshape(
+    y_dot_bf16_w_scales_fused = torch._cslt_sparse_mm(w_vals_int8, tmp.t(), alpha=w_scales.to(torch.float), out_dtype=torch.bfloat16).t()
+    y = (y_dot_bf16_w_scales_fused * x_scales.reshape(-1, 1)).reshape(
         *x_vals_int8.shape[:-1], y_dot_bf16_w_scales_fused.shape[-1]
     )
     y = y.to(out_dtype)
+
     return y
 
 def sparse_quant_int8_cutlass_matmul(
@@ -104,12 +93,12 @@ class Int8DynamicallyQuantized24CusparseltLinearWeight(Int8DynamicallyQuantizedL
 
     @staticmethod
     def _quantized_op(act_mat, w_qtensor, bias):
-        return sparse_quant_int8_dynamic_cslt_linear(
-            act_mat, w_qtensor.int_data, w_qtensor.q_scales, bias, act_mat.dtype
+        return sparse_quant_int8_dynamic_linear(
+            act_mat, w_qtensor.int_data, None, w_qtensor.q_scales, bias, act_mat.dtype
         )
 
     @classmethod
-    def from_float(cls, input_float, qmin=-128, qmax=127):
+    def from_float(cls, input_float, qmin=-8, qmax=7):
 
         assert input_float.is_cuda
 
@@ -118,13 +107,12 @@ class Int8DynamicallyQuantized24CusparseltLinearWeight(Int8DynamicallyQuantizedL
         )
 
         int_data = w_int_repr.contiguous()
-
-
         int_data = torch._cslt_compress(int_data)
 
         return cls(
             int_data, w_scales, False, input_float.shape, dtype=input_float.dtype,
         )
+
 
 class Int8DynamicallyQuantized24CutlassLinearWeight(QuantizedLinearWeightBase):
 
@@ -203,7 +191,7 @@ class Int8DynamicallyQuantized24CutlassLinearWeight(QuantizedLinearWeightBase):
 
     @staticmethod
     def _quantized_op(act_mat, w_qtensor, bias):
-        return sparse_quant_int8_dynamic_cutlass_linear(
+        return sparse_quant_int8_dynamic_linear(
             act_mat, w_qtensor.int_data, w_qtensor.mask_meta, w_qtensor.q_scales, bias, act_mat.dtype
         )
 

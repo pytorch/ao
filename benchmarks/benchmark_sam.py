@@ -1,5 +1,5 @@
 from pprint import pprint
-
+import pandas as pd
 import torch
 from torchao.quantization import change_linear_weights_to_int8_dqtensors
 from torchao.sparsity import change_linear_weights_to_int8_dq_24_sparsetensors, apply_sparse
@@ -12,10 +12,10 @@ model_type = 'vit_h'
 model_name = 'sam_vit_h_4b8939.pth'
 checkpoint_path = f"{sam_checkpoint_base_path}/{model_name}"
 
-torch._inductor.config.epilogue_fusion = False
-torch._inductor.config.coordinate_descent_tuning = False
-torch._inductor.config.coordinate_descent_check_all_directions = False
-torch._inductor.config.force_fuse_int_mm_with_mul = False
+torch._inductor.config.epilogue_fusion = True
+torch._inductor.config.coordinate_descent_tuning = True
+torch._inductor.config.coordinate_descent_check_all_directions = True
+torch._inductor.config.force_fuse_int_mm_with_mul = True
 
 @torch.no_grad()
 def benchmark(f, *args, **kwargs):
@@ -41,46 +41,46 @@ def get_sam_model(only_one_block=False, batchsize=1):
         image = torch.randn(batchsize, 64, 64, 1280, device='cuda')
     return model, image
 
-def mlp_only(mod, name):
-    return isinstance(mod, torch.nn.Linear) and "mlp" in name
-
-def attention_only(mod, name):
-    return isinstance(mod, torch.nn.Linear) and "mlp" not in name
-
-def run_once(label, dtype=torch.bfloat16, batchsize=16, compile=True, quantize=False, sparse=False):
+def run_once(label, dtype=torch.bfloat16, batchsize=16, compile=True, quantize=False, sparsify=False):
     res = {
         "label": label,
         "batchsize": batchsize,
         "dtype": dtype,
         "compile": compile,
         "quantize": quantize,
-        "sparse": sparse,
+        "sparsify": sparsify,
     }
 
     model, image = get_sam_model(False, batchsize)
     model = model.to(dtype)
     image = image.to(dtype)
 
-    if sparse and quantize:
-        SparseSemiStructuredTensor._FORCE_CUTLASS = (sparse == "cutlass")
-        change_linear_weights_to_int8_dq_24_sparsetensors(model, filter_fn=mlp_only)
-        change_linear_weights_to_int8_dqtensors(model, filter_fn=attention_only)
+    if sparsify and quantize:
+        SparseSemiStructuredTensor._FORCE_CUTLASS = (sparsify == "cutlass")
+        change_linear_weights_to_int8_dq_24_sparsetensors(model)
     elif quantize:
         change_linear_weights_to_int8_dqtensors(model)
-    elif sparse:
-        SparseSemiStructuredTensor._FORCE_CUTLASS = (sparse == "cutlass")
+    elif sparsify:
+        SparseSemiStructuredTensor._FORCE_CUTLASS = (sparsify == "cutlass")
         apply_sparse(model)
 
     if compile:
         model = torch.compile(model, mode='max-autotune')
 
     res.update(benchmark(model, image))
-    pprint(res)
-
+    print(f"{label} finished in {res['time']} and {res['memory']} run with {res['batchsize']} batchsize, {res['dtype']} dtype, {res['compile']} compile, {res['quantize']} quantize, {res['sparsify']} sparsify")
     return res
 
-print("BENCHMARKING")
-# run_once("baseline")
-# run_once("quant", quantize=True)
-# run_once("sparse", sparse="cusparselt")
-run_once("quant+sparse(mlp)", quantize=True, sparse="cusparselt")
+
+if __name__ == "__main__":
+    ALL_RUNS = []
+    print("BENCHMARKING")
+    ALL_RUNS.append(run_once("baseline"))
+    ALL_RUNS.append(run_once("quant", quantize=True))
+    ALL_RUNS.append(run_once("sparse", sparse="cusparselt"))
+    ALL_RUNS.append(run_once("sparse", sparse="cutlass"))
+    ALL_RUNS.append(run_once("quant+sparse (fuse one mul)", quantize=True, sparse="cusparselt"))
+    ALL_RUNS.append(run_once("quant+sparse", quantize=True, sparse="cutlass"))
+    df = pd.DataFrame(ALL_RUNS)
+    df.to_csv("sam_benchmark_results.csv")
+    print(df)
