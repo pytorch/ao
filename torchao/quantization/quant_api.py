@@ -29,7 +29,6 @@ from .subclass import (
     QuantizedLinearWeightBase,
 )
 from .weight_only import WeightOnlyInt8QuantLinear
-from .unified import Quantizer, TwoStepQuantizer
 
 __all__ = [
     "apply_weight_only_int8_quant",
@@ -38,8 +37,6 @@ __all__ = [
     "change_linear_weights_to_int8_woqtensors",
     "change_linear_weights_to_int4_woqtensors",
     "swap_conv2d_1x1_to_linear",
-    "Quantizer",
-    "TwoStepQuantizer",
 ]
 
 if TORCH_VERSION_AFTER_2_3:

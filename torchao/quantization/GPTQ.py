@@ -22,7 +22,6 @@ from torch.utils._pytree import tree_flatten, tree_unflatten
 
 from .utils import TORCH_VERSION_AFTER_2_3
 from typing import Any, Dict, Tuple, Optional
-from .unified import Quantizer
 from functools import reduce
 from math import gcd
 
@@ -554,7 +553,7 @@ if TORCH_VERSION_AFTER_2_3:
         per_token_dynamic_quant,
     )
 
-    class GPTQQuantizer(Quantizer):
+    class GPTQQuantizer:
         """
         This class implements a GPTQ Quantizer that can be used to apply GPTQ to a model in concert with the GenericGPTQRunner class.
         Unlike the base Quantizer class, the user does not need to implement the create_quantized_state_dict, instead they have to reimplement
@@ -951,7 +950,7 @@ if TORCH_VERSION_AFTER_2_3:
         )
 
 
-    class Int8DynActInt4WeightQuantizer(Quantizer):
+    class Int8DynActInt4WeightQuantizer:
         def __init__(
             self,
             groupsize: int = 256,
@@ -1061,7 +1060,7 @@ if TORCH_VERSION_AFTER_2_3:
 
 
     # TODO: consolidate with other quantizers
-    class Int4WeightQuantizer(Quantizer):
+    class Int4WeightQuantizer:
         def __init__(
             self,
             groupsize: int = 256,
