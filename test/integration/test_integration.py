@@ -904,49 +904,49 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    def test_int8_dynamic_quant_subclass(self):
-        for test_dtype in [torch.float32, torch.float16, torch.bfloat16]:
-            self._test_lin_weight_subclass_impl(
-                Int8DynamicallyQuantizedLinearWeight.from_float, 35, test_dtype
-            )
+    def test_int8_dynamic_quant_subclass(self, device, dtype):
+        self._test_lin_weight_subclass_impl(
+            Int8DynamicallyQuantizedLinearWeight.from_float, device, 35, test_dtype=dtype
+        )
 
-    def test_int8_weight_only_quant_subclass(self):
-        for test_dtype in [torch.float32, torch.float16, torch.bfloat16]:
-            self._test_lin_weight_subclass_impl(
-                Int8WeightOnlyQuantizedLinearWeight.from_float, 40, test_dtype
-            )
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    def test_int8_weight_only_quant_subclass(self, device, dtype):
+        self._test_lin_weight_subclass_impl(
+            Int8WeightOnlyQuantizedLinearWeight.from_float, device, 40, test_dtype=dtype
+        )
 
-    def test_aq_int8_dynamic_quant_subclass(self):
-        for test_dtype in [torch.float32, torch.float16, torch.bfloat16]:
-            self._test_lin_weight_subclass_impl(
-                AQInt8DynamicallyQuantizedLinearWeight.from_float, 35, test_dtype
-            )
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    def test_aq_int8_dynamic_quant_subclass(self, device, dtype):
+        self._test_lin_weight_subclass_impl(
+            AQInt8DynamicallyQuantizedLinearWeight.from_float, device, 35, test_dtype=dtype
+        )
 
-    def test_aq_int8_weight_only_quant_subclass(self):
-        for test_dtype in [torch.float32, torch.float16, torch.bfloat16]:
-            self._test_lin_weight_subclass_impl(
-                AQInt8DynamicallyQuantizedLinearWeight.from_float, 35, test_dtype
-            )
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    def test_aq_int8_weight_only_quant_subclass(self, device, dtype):
+        self._test_lin_weight_subclass_impl(
+            AQInt8DynamicallyQuantizedLinearWeight.from_float, device, 35, test_dtype=dtype
+        )
 
-    def test_aq_int8_weight_only_quant_subclass(self):
-        for test_dtype in [torch.float32, torch.float16, torch.bfloat16]:
-            self._test_lin_weight_subclass_impl(
-                AQWeightOnlyQuantizedLinearWeight.from_float, 35, test_dtype
-            )
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    def test_aq_int8_weight_only_quant_subclass(self, device, dtype):
+        self._test_lin_weight_subclass_impl(
+            AQWeightOnlyQuantizedLinearWeight.from_float, device, 35, test_dtype=dtype
+        )
 
-    def test_aq_int8_weight_only_quant_2_subclass(self):
-        for test_dtype in [torch.float32, torch.float16, torch.bfloat16]:
-            self._test_lin_weight_subclass_impl(
-                AQWeightOnlyQuantizedLinearWeight2.from_float, 35, test_dtype
-            )
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    def test_aq_int8_weight_only_quant_2_subclass(self, device, dtype):
+        self._test_lin_weight_subclass_impl(
+            AQWeightOnlyQuantizedLinearWeight2.from_float, device, 35, test_dtype=dtype
+        )
 
-    def test_aq_int8_weight_only_quant_3_subclass(self):
-        for test_dtype in [torch.float32, torch.float16, torch.bfloat16]:
-            self._test_lin_weight_subclass_impl(
-                AQWeightOnlyQuantizedLinearWeight3.from_float, 35, test_dtype
-            )
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    def test_aq_int8_weight_only_quant_3_subclass(self, device, dtype):
+        self._test_lin_weight_subclass_impl(
+            AQWeightOnlyQuantizedLinearWeight3.from_float, device, 35, test_dtype=dtype
+        )
 
-    def test_int4_weight_only_quant_subclass(self):
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    def test_int4_weight_only_quant_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             Int8DynamicallyQuantizedLinearWeight.from_float, device, 35, test_dtype=dtype
         )
@@ -1344,7 +1344,10 @@ class SmoothquantIntegrationTest(unittest.TestCase):
         self.assertTrue(sqnr_sq >= 8.0)
 
 class TestAutoQuant(unittest.TestCase):
-    def test_autoquant_one_input(self):
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    def test_autoquant_one_input(self, device, dtype):
+        if device != "cuda":
+            self.skipTest(f"autoquant currently does not support {device}")
         torch._inductor.config.epilogue_fusion = False
         torch._inductor.config.use_mixed_mm = True
         torch._inductor.config.force_fuse_int_mm_with_mul = True
@@ -1360,27 +1363,30 @@ class TestAutoQuant(unittest.TestCase):
             (64, 4096, 1024),
             (4096, 4096, 1024),
         ]:
-            example_input = torch.randn(m, k, device="cuda", dtype=torch.bfloat16)
+            example_input = torch.randn(m, k, device=device, dtype=dtype)
             model = torch.nn.Sequential(
                 torch.nn.ReLU(),
                 torch.nn.Linear(k,n),
                 torch.nn.ReLU(),
-            ).to("cuda").to(torch.bfloat16)
+            ).to(device).to(dtype)
             out = model(example_input)
             torchao.autoquant(model, example_input)
             out2 = model(example_input)
             sqnr = SQNR(out, out2)
             self.assertTrue(sqnr >= 30)
 
-    def test_autoquant_multi_input(self):
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    def test_autoquant_multi_input(self, device, dtype):
+        if device != "cuda":
+            self.skipTest(f"autoquant currently does not support {device}")
         m1, m2, k, n = 1, 8, 1024, 1024
         model = torch.nn.Sequential(
             torch.nn.ReLU(),
             torch.nn.Linear(k,n),
             torch.nn.ReLU(),
-        ).cuda().to(torch.bfloat16)
-        example_input = torch.randn(m1, k, device="cuda", dtype=torch.bfloat16)
-        example_input2 = torch.randn(m2, k, device="cuda", dtype=torch.bfloat16)
+        ).to(device).to(dtype)
+        example_input = torch.randn(m1, k, device=device, dtype=dtype)
+        example_input2 = torch.randn(m2, k, device=device, dtype=dtype)
         torchao.change_linears_to_autoquantizable(model)
         out=model(example_input)
         model(example_input2)

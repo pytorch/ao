@@ -31,7 +31,7 @@ from .subclass import (
 from .weight_only import WeightOnlyInt8QuantLinear
 from .unified import Quantizer, TwoStepQuantizer
 
-_AFTER_TORCH_2_4_ONLY = [
+_AFTER_TORCH_2_3_ONLY = [
     "Int8DynActInt4WeightQuantizer",
     "Int8DynActInt4WeightGPTQQuantizer",
 ]
@@ -65,39 +65,10 @@ if TORCH_VERSION_AFTER_2_3:
         "Int8DynActInt4WeightGPTQQuantizer",
         "Int4WeightQuantizer",
         "Int4WeightGPTQQuantizer",
-    ]
-=======
-    "autoquant",
-    "change_linears_to_autoquantizable",
-    "change_autoquantizable_to_quantized",
-] + (_AFTER_TORCH_2_4_ONLY if TORCH_VERSION_AFTER_2_4 else [])
-
-############################# Unified Quantization APIs ##############################
-# API 1, single quantize call to create a quantized model with quantized state_dict
-class Quantizer:
-    def quantize(
-        self, model: torch.nn.Module, *args: Any, **kwargs: Any
-    ) -> torch.nn.Module:
-
-        pass
-
-
-# API 2, flow that needs calibration or training
-class TwoStepQuantizer:
-    def prepare(
-        self, model: torch.nn.Module, *args: Any, **kwargs: Any
-    ) -> torch.nn.Module:
-
-        pass
-
-    def convert(
-        self, model: torch.nn.Module, *args: Any, **kwargs: Any
-    ) -> torch.nn.Module:
-
-        pass
-
-
-############################# Unified Quantization APIs ##############################
+        "autoquant",
+        "change_linears_to_autoquantizable",
+        "change_autoquantizable_to_quantized",
+    ] + (_AFTER_TORCH_2_3_ONLY if TORCH_VERSION_AFTER_2_3 else [])
 
 
 def _replace_with_custom_fn_if_matches_filter(
@@ -157,9 +128,6 @@ def apply_dynamic_quant(model, filter_fn=None):
 
 
 def _get_subclass_inserter(cls, **kwargs):
-    # pyre-fixme[53]: Captured variable `cls` is not annotated.
-    # pyre-fixme[3]: Return type must be annotated.
-    # pyre-fixme[2]: Parameter must be annotated.
     method = kwargs.pop("method", "from_float")
     def insert_subclass(lin):
         lin.weight = torch.nn.Parameter(
@@ -215,9 +183,6 @@ def change_linear_weights_to_int4_woqtensors(model, **kwargs):
         _get_subclass_inserter(Int4WeightOnlyQuantizedLinearWeight, **kwargs),
         filter_fn,
     )
-
-# pyre-fixme[3]: Return type must be annotated.
-# pyre-fixme[2]: Parameter must be annotated.
 
 def change_linears_to_autoquantizable(model, **kwargs):
     """
