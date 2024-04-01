@@ -1346,7 +1346,7 @@ class SmoothquantIntegrationTest(unittest.TestCase):
 class TestAutoQuant(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_autoquant_one_input(self, device, dtype):
-        if device != "cuda":
+        if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
         torch._inductor.config.epilogue_fusion = False
         torch._inductor.config.use_mixed_mm = True
@@ -1377,7 +1377,7 @@ class TestAutoQuant(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_autoquant_multi_input(self, device, dtype):
-        if device != "cuda":
+        if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
         m1, m2, k, n = 1, 8, 1024, 1024
         model = torch.nn.Sequential(
