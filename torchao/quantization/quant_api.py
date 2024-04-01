@@ -46,10 +46,14 @@ if TORCH_VERSION_AFTER_2_3:
     from .GPTQ import (
         Int8DynActInt4WeightQuantizer,
         Int8DynActInt4WeightGPTQQuantizer,
+        Int4WeightQuantizer,
+        Int4WeightGPTQQuantizer,
     )
     __all__ += [
         "Int8DynActInt4WeightQuantizer",
         "Int8DynActInt4WeightGPTQQuantizer",
+        "Int4WeightQuantizer",
+        "Int4WeightGPTQQuantizer",
     ]
 
 
@@ -196,6 +200,3 @@ def swap_conv2d_1x1_to_linear(model, filter_fn=None):
     _replace_with_custom_fn_if_matches_filter(
         model, replace_conv2d_1x1, filter_fn=filter_fn
     )
-
-if TORCH_VERSION_AFTER_2_3:
-    from .GPTQ import Int8DynActInt4WeightQuantizer, Int8DynActInt4WeightGPTQQuantizer
