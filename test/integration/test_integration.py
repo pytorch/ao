@@ -1372,7 +1372,7 @@ class TestAutoQuant(unittest.TestCase):
         ).to(device).to(dtype)
         example_input = torch.randn(m1, k, device=device, dtype=dtype)
         example_input2 = torch.randn(m2, k, device=device, dtype=dtype)
-        torchao.change_linears_to_autoquantizable(model)
+        torchao.quantization.change_linears_to_autoquantizable(model)
         out=model(example_input)
         model(example_input2)
         torchao.change_autoquantizable_to_quantized(model)
