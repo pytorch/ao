@@ -1224,9 +1224,9 @@ if TORCH_VERSION_AFTER_2_3:
                 calibration_limit,
                 calibration_seq_length,
                 pad_calibration_inputs,
-                inner_k_tiles=8,
-                padding_allowed=True,
-                precision=torch.float32,
-                _is_gpt_fast=True,
+                inner_k_tiles=inner_k_tiles,
+                padding_allowed=padding_allowed,
+                precision=precision,
+                _is_gpt_fast=_is_gpt_fast,
                 _use_cuda=_use_cuda,
             )
