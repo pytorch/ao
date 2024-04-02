@@ -35,11 +35,6 @@ _AFTER_TORCH_2_3_ONLY = [
     "Int8DynActInt4WeightQuantizer",
     "Int8DynActInt4WeightGPTQQuantizer",
 ]
-from .quant_primitives import (
-    get_group_qparams_symmetric,
-    per_token_dynamic_quant,
-)
-from typing import Dict, Tuple
 from .autoquant import AutoQuantizableLinearWeight, DEFAULT_CLASS_LIST
 
 __all__ = [
