@@ -1,4 +1,6 @@
 import torch
+import triton
+from triton.testing import do_bench
 
 from torchao.prototype.galore.kernels.adam_downproj_fused import fused_adam_mm_launcher
 from torchao.prototype.galore.kernels.adam_step import triton_adam_launcher
@@ -167,3 +169,89 @@ def get_kernel(kernel):
         raise ValueError(f"Unknown kernel {kernel}")
 
     return lambda *args, **kwargs: op(*args, **kwargs)
+
+
+def get_benchmark(
+    M, N, dtype, allow_tf32, fp8_fast_accum=False, quantiles=[0.5, 0.2, 0.8]
+):
+    config = triton.testing.Benchmark(
+        x_names=["rank"],  # Argument names to use as an x-axis for the plot
+        x_vals=[
+            32,
+            64,
+            128,
+            256,
+            512,
+        ],  # Different possible values for `x_name`
+        line_arg="kernel",  # Argument name whose value corresponds to a different line in the plot
+        # Possible values for `line_arg`
+        line_vals=["torch", "hybrid", "fused", "compiled"],
+        # Label name for the lines
+        line_names=["torch", "hybrid", "fused", "compiled"],
+        # Line styles
+        styles=[("black", "-"), ("blue", "-"), ("red", "-"), ("green", "-")],
+        ylabel="ms",  # Label name for the y-axis
+        plot_name=f"Adam Kernel Comparison Grad shape: {M}x{N}, dtype: {dtype}, allow_tf32: {allow_tf32}\nMedian times (ms)",  # Name for the plot, used also as a file name for saving the plot.
+        args={},
+    )
+
+    def benchmark(rank, kernel):
+        torch.backends.cuda.matmul.allow_tf32 = allow_tf32
+
+        exp_avg, exp_avg2, grad, proj_matrix, params = make_data(M, N, rank, dtype)
+
+        if kernel == "torch":
+            ms, min_ms, max_ms = do_bench(
+                lambda: _ref_op(
+                    grad,
+                    proj_matrix,
+                    exp_avg,
+                    exp_avg2,
+                    params,
+                ),
+                quantiles=quantiles,
+            )
+        if kernel == "hybrid":
+            ms, min_ms, max_ms = triton.testing.do_bench(
+                lambda: _tt_hybrid(
+                    grad,
+                    proj_matrix,
+                    exp_avg,
+                    exp_avg2,
+                    params,
+                    store=True,
+                    allow_tf32=allow_tf32,
+                    fp8_fast_accum=fp8_fast_accum,
+                ),
+                quantiles=quantiles,
+            )
+        if kernel == "fused":
+            ms, min_ms, max_ms = triton.testing.do_bench(
+                lambda: _tt_fused(
+                    grad,
+                    proj_matrix,
+                    exp_avg,
+                    exp_avg2,
+                    params,
+                    store=True,
+                    allow_tf32=allow_tf32,
+                    fp8_fast_accum=fp8_fast_accum,
+                ),
+                quantiles=quantiles,
+            )
+        if kernel == "compiled":
+            compiled_op = torch.compile(_ref_op, fullgraph=True, mode="max-autotune")
+            ms, min_ms, max_ms = triton.testing.do_bench(
+                lambda: compiled_op(
+                    grad,
+                    proj_matrix,
+                    exp_avg,
+                    exp_avg2,
+                    params,
+                ),
+                quantiles=quantiles,
+            )
+
+        return ms, max_ms, min_ms
+
+    return triton.testing.perf_report(config)(benchmark)
