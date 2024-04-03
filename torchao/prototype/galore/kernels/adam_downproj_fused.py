@@ -3,16 +3,14 @@ import logging
 import torch
 import triton
 import triton.language as tl
+from galore_fused.triton.kernels.matmul import get_mm_heuristics, to_tl_type
 from triton.ops.matmul import get_higher_dtype, init_to_zero
 from triton.ops.matmul_perf_model import early_config_prune, estimate_matmul_time
 
-from galore_fused.triton.custom_autotune import Config, autotune
-from galore_fused.triton.kernels.adam_step import BETA1, BETA2, EPS
-from galore_fused.triton.kernels.matmul import TRITON_ACC_TYPES
-from galore_fused.triton.kernels.matmul import (
-    get_autotuner as default_mm_autotuner,
-)
-from galore_fused.triton.kernels.matmul import get_mm_heuristics, to_tl_type
+from .adam_step import BETA1, BETA2, EPS
+from .custom_autotune import Config, autotune
+from .matmul import TRITON_ACC_TYPES
+from .matmul import get_autotuner as default_mm_autotuner
 
 logger = logging.getLogger(__name__)
 

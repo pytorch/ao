@@ -4,7 +4,7 @@ import triton.language as tl
 from triton.language.math import sqrt
 from triton.runtime.autotuner import heuristics
 
-from galore_fused.triton.custom_autotune import Config, autotune
+from .custom_autotune import Config, autotune
 
 BETA1, BETA2 = 0.9, 0.999
 EPS = 1e-8

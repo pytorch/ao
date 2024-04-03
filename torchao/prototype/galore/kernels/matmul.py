@@ -4,7 +4,7 @@ import triton.language as tl
 from triton.ops.matmul import get_higher_dtype, init_to_zero
 from triton.ops.matmul_perf_model import early_config_prune, estimate_matmul_time
 
-from ..custom_autotune import Config, autotune, heuristics
+from .custom_autotune import Config, autotune, heuristics
 
 # Allowed types for acc_type given the types of a and b.
 TRITON_ACC_TYPES = {
