@@ -327,7 +327,7 @@ class GenericGPTQRunner(fx.Interpreter):
         self.groupsize = groupsize
         self.inputs = inputs
         self.gptq_done = False
-        self.debug = False
+        self.debug = True
 
     def configure_quantization_mode(
         self,
