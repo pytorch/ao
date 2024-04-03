@@ -300,7 +300,6 @@ class TestQuantFlow(unittest.TestCase):
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_gptq_quantizer_int4wo(self):
         from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer, InputRecorder, TransformerEvalWrapper
-        # should be similar to TorchCompileDynamicQuantizer
         precision = torch.bfloat16
         device = "cuda"
         checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
@@ -355,6 +354,41 @@ class TestQuantFlow(unittest.TestCase):
         )
         assert result['results']['wikitext']['word_perplexity,none'] < 7.77, (
             f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
+        )
+
+    @unittest.skip("skipping until we get checkpoints for gpt-fast")
+    def test_quantizer_int4wo(self):
+        from torchao.quantization.GPTQ import Int4WeightOnlyQuantizer, TransformerEvalWrapper
+        precision = torch.bfloat16
+        device = "cuda"
+        checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        model = Transformer.from_name(checkpoint_path.parent.name)
+        checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
+        model.load_state_dict(checkpoint, assign=True)
+        model = model.to(dtype=precision, device=device)
+        model.eval()
+        tokenizer_path = checkpoint_path.parent / "tokenizer.model"
+        assert tokenizer_path.is_file(), tokenizer_path
+        tokenizer = SentencePieceProcessor(  # pyre-ignore[28]
+            model_file=str(tokenizer_path)
+        )
+        groupsize = 128
+        quantizer = Int4WeightOnlyQuantizer(
+            groupsize,
+        )
+        model = quantizer.quantize(model).cuda()
+        result = TransformerEvalWrapper(
+            model,
+            tokenizer,
+            model.config.block_size,
+            prepare_inputs_for_model,
+            device,
+        ).run_eval(
+            ["wikitext"],
+            1,
+        )
+        assert result['results']['wikitext']['word_perplexity,none'] < 8.24, (
+            f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
         )
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
