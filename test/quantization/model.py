@@ -10,12 +10,22 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 from torch.nn import functional as F
+from torchao.quantization.utils import find_multiple
 
+def prepare_inputs_for_model(inps, max_new_tokens=1):
+    # this is because input from lm-eval is 2d
+    if inps.dim() != 2:
+        raise ValueError(f"Expected input to be of dim 2, but got {inps.dim()}")
 
-def find_multiple(n: int, k: int) -> int:
-    if n % k == 0:
-        return n
-    return n + k - (n % k)
+    inps = inps.squeeze(0)
+    # setup inputs in correct format
+    T = inps.size(0)
+    T_new = T + max_new_tokens
+    seq = torch.empty(T_new, dtype=inps.dtype, device=inps.device)
+    seq[:T] = inps
+    input_pos = torch.arange(0, T, device=inps.device)
+    x = seq.index_select(0, input_pos).view(1, -1)
+    return (x, input_pos)
 
 @dataclass
 class ModelArgs:
@@ -76,10 +86,8 @@ class KVCache(nn.Module):
         # input_pos: [S], k_val: [B, H, S, D]
         assert input_pos.shape[0] == k_val.shape[2]
 
-        k_out = self.k_cache
-        v_out = self.v_cache
-        k_out[:, :, input_pos] = k_val
-        v_out[:, :, input_pos] = v_val
+        k_out = torch.ops.aten.index_put_(self.k_cache, [None, None, input_pos], k_val)
+        v_out = torch.ops.aten.index_put_(self.v_cache, [None, None, input_pos], v_val)
 
         return k_out, v_out
 

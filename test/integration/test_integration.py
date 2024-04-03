@@ -57,7 +57,7 @@ from torchao.quantization.utils import (
 from torch.ao.quantization.quantize_fx import convert_to_reference_fx, prepare_fx
 import os
 from parameterized import parameterized
-from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
+from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
 
 torch.manual_seed(0)
 config.cache_size_limit = 100
@@ -836,7 +836,7 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "int4 requires torch nightly.")
     def test_dequantize_int4_weight_only_quant_subclass(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest("Currently only supports bfloat16.")
@@ -846,7 +846,7 @@ class TestSubclass(unittest.TestCase):
             )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "int4 requires torch nightly.")
     def test_dequantize_int4_weight_only_quant_subclass_grouped(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest("Currently only supports bfloat16.")
@@ -908,7 +908,7 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "int4 requires torch nightly.")
     def test_int4_weight_only_quant_subclass(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
@@ -918,7 +918,7 @@ class TestSubclass(unittest.TestCase):
             )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "int4 requires torch nightly.")
     def test_int4_weight_only_quant_subclass_grouped(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
@@ -981,7 +981,7 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "int4 requires torch nightly.")
     def test_int4_weight_only_quant_subclass_api(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
@@ -995,7 +995,7 @@ class TestSubclass(unittest.TestCase):
             )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "int4 requires torch nightly.")
     def test_int4_weight_only_quant_subclass_api_grouped(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
@@ -1159,7 +1159,7 @@ class TestSaveLoadMeta(unittest.TestCase):
         self._test_handle_save_load_meta_impl(change_linear_weights_to_int8_woqtensors, device, test_dtype=dtype)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "int4 requires torch nightly.")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "int4 requires torch nightly.")
     @torch.no_grad()
     def test_save_load_int4woqtensors(self, device, dtype):
         if dtype != torch.bfloat16:
@@ -1169,7 +1169,7 @@ class TestSaveLoadMeta(unittest.TestCase):
 
 class TorchCompileUnitTest(unittest.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "fullgraph requires torch nightly.")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "fullgraph requires torch nightly.")
     def test_fullgraph(self):
         lin_fp16 = nn.Linear(32, 16, device="cuda", dtype=torch.float16)
         lin_smooth = SmoothFakeDynamicallyQuantizedLinear.from_float(
