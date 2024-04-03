@@ -151,8 +151,8 @@ class TestQuantFlow(unittest.TestCase):
         m(*example_inputs)
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    def test_gptq_quantizer(self):
-        from torchao.quantization.GPTQ import Int8DynActInt4WeightGPTQQuantizer, InputRecorder
+    def test_8da4w_gptq_quantizer(self):
+        from torchao.quantization.GPTQ import Int8DynActInt4WeightGPTQQuantizer, InputRecorder, TransformerEvalWrapper
         # should be similar to TorchCompileDynamicQuantizer
         precision = torch.bfloat16
         device = "cpu"
@@ -161,6 +161,7 @@ class TestQuantFlow(unittest.TestCase):
         checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
         model.load_state_dict(checkpoint, assign=True)
         model = model.to(dtype=precision, device=device)
+        model.eval()
         tokenizer_path = checkpoint_path.parent / "tokenizer.model"
         assert tokenizer_path.is_file(), tokenizer_path
         tokenizer = SentencePieceProcessor(  # pyre-ignore[28]
@@ -190,20 +191,68 @@ class TestQuantFlow(unittest.TestCase):
             blocksize,
             percdamp,
             groupsize,
+            precision=precision,
         )
         model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
         model = quantizer.quantize(model, inputs)
-        compiled = torch.compile(model, mode="max-autotune")
-        with torch.no_grad():
-            compiled(inputs[0].values[0], inputs[1].values[0])
+        result=TransformerEvalWrapper(
+            model,
+            tokenizer,
+            model.config.block_size,
+            prepare_inputs_for_model,
+            device,
+        ).run_eval(
+            ["wikitext"],
+            1,
+        )
 
-    # @unittest.skip("skipping until we get checkpoints for gpt-fast")
+        assert result['results']['wikitext']['word_perplexity,none'] < 7.88, (
+            f"accuracy regressed from 7.87 to {result['results']['wikitext']['word_perplexity,none']}"
+        )
+
+    @unittest.skip("skipping until we get checkpoints for gpt-fast")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.4 or lower")
+    def test_8da4w_quantizer_eval(self):
+        from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
+        from torchao.quantization.GPTQ import TransformerEvalWrapper
+
+        precision = torch.bfloat16
+        device = "cpu"
+        checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        model = Transformer.from_name(checkpoint_path.parent.name)
+        checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
+        model.load_state_dict(checkpoint, assign=True)
+        model = model.to(dtype=precision, device=device)
+        model.eval()
+        tokenizer_path = checkpoint_path.parent / "tokenizer.model"
+        assert tokenizer_path.is_file(), tokenizer_path
+        tokenizer = SentencePieceProcessor(  # pyre-ignore[28]
+            model_file=str(tokenizer_path)
+        )
+
+        quantizer = Int8DynActInt4WeightQuantizer(groupsize=128, precision=precision)
+        q_model = quantizer.quantize(model)
+        result=TransformerEvalWrapper(
+            q_model,
+            tokenizer,
+            q_model.config.block_size,
+            prepare_inputs_for_model,
+            device,
+        ).run_eval(
+            ["wikitext"],
+            1,
+        )
+        assert result['results']['wikitext']['word_perplexity,none'] < 8.24, (
+            f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
+        )
+
+    @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_gptq_quantizer_gpt_fast(self):
         from torchao.quantization.GPTQ import Int8DynActInt4WeightGPTQQuantizer, InputRecorder
         # should be similar to TorchCompileDynamicQuantizer
         precision = torch.bfloat16
         device = "cuda"
-        checkpoint_path = Path("/home/cdhernandez/local/gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
         model = Transformer.from_name(checkpoint_path.parent.name)
         checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
         model.load_state_dict(checkpoint, assign=True)
@@ -248,22 +297,83 @@ class TestQuantFlow(unittest.TestCase):
         with torch.no_grad():
             compiled(inputs[0].values[0], inputs[1].values[0])
 
-    # @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    def test_eval_wrapper(self):
-        from torchao.quantization.GPTQ import TransformerEvalWrapper
+    @unittest.skip("skipping until we get checkpoints for gpt-fast")
+    def test_gptq_quantizer_int4wo(self):
+        from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer, InputRecorder, TransformerEvalWrapper
+        # should be similar to TorchCompileDynamicQuantizer
         precision = torch.bfloat16
-        device = "cpu"
-        checkpoint_path = Path("/home/cdhernandez/local/gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        device = "cuda"
+        checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
         model = Transformer.from_name(checkpoint_path.parent.name)
         checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
         model.load_state_dict(checkpoint, assign=True)
-        model = model.to(dtype=precision, device=device)
+        model = model.to(dtype=precision, device="cpu")
+        model.eval()
         tokenizer_path = checkpoint_path.parent / "tokenizer.model"
         assert tokenizer_path.is_file(), tokenizer_path
         tokenizer = SentencePieceProcessor(  # pyre-ignore[28]
             model_file=str(tokenizer_path)
         )
-        results = TransformerEvalWrapper(
+        blocksize = 128
+        percdamp = 0.01
+        groupsize = 128
+        calibration_tasks = ["wikitext"]
+        calibration_limit = 1
+        calibration_seq_length = 100
+        input_prep_func = prepare_inputs_for_model
+        pad_calibration_inputs = False
+
+        inputs = InputRecorder(
+            tokenizer,
+            calibration_seq_length,
+            input_prep_func,
+            pad_calibration_inputs,
+            model.config.vocab_size,
+            device="cpu",
+        ).record_inputs(
+            calibration_tasks,
+            calibration_limit,
+        ).get_inputs()
+
+        quantizer = Int4WeightOnlyGPTQQuantizer(
+            blocksize,
+            percdamp,
+            groupsize,
+        )
+        model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
+
+        model = quantizer.quantize(model, inputs).cuda()
+        result = TransformerEvalWrapper(
+            model.cuda(),
+            tokenizer,
+            model.config.block_size,
+            prepare_inputs_for_model,
+            device,
+        ).run_eval(
+            ["wikitext"],
+            1,
+        )
+        assert result['results']['wikitext']['word_perplexity,none'] < 7.77, (
+            f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
+        )
+
+    @unittest.skip("skipping until we get checkpoints for gpt-fast")
+    def test_eval_wrapper(self):
+        from torchao.quantization.GPTQ import TransformerEvalWrapper
+        precision = torch.bfloat16
+        device = "cuda"
+        checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        model = Transformer.from_name(checkpoint_path.parent.name)
+        checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
+        model.load_state_dict(checkpoint, assign=True)
+        model = model.to(dtype=precision, device=device)
+        model.eval()
+        tokenizer_path = checkpoint_path.parent / "tokenizer.model"
+        assert tokenizer_path.is_file(), tokenizer_path
+        tokenizer = SentencePieceProcessor(  # pyre-ignore[28]
+            model_file=str(tokenizer_path)
+        )
+        result=TransformerEvalWrapper(
             model,
             tokenizer,
             model.config.block_size,
@@ -271,9 +381,11 @@ class TestQuantFlow(unittest.TestCase):
             device,
         ).run_eval(
             ["wikitext"],
-            100,
+            1,
         )
-        print(results)
+        assert result['results']['wikitext']['word_perplexity,none']<7.77, (
+            f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
+        )
 
 if __name__ == "__main__":
     unittest.main()

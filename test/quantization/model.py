@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 from torch.nn import functional as F
+from torchao.quantization.utils import find_multiple
 
 def prepare_inputs_for_model(inps, max_new_tokens=1):
     # this is because input from lm-eval is 2d
@@ -25,11 +26,6 @@ def prepare_inputs_for_model(inps, max_new_tokens=1):
     input_pos = torch.arange(0, T, device=inps.device)
     x = seq.index_select(0, input_pos).view(1, -1)
     return (x, input_pos)
-
-def find_multiple(n: int, k: int) -> int:
-    if n % k == 0:
-        return n
-    return n + k - (n % k)
 
 @dataclass
 class ModelArgs:

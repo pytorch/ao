@@ -31,8 +31,7 @@ from .subclass import (
 from .weight_only import WeightOnlyInt8QuantLinear
 from .unified import Quantizer, TwoStepQuantizer
 from .GPTQ import (
-    Int4WeightQuantizer,
-    Int4WeightGPTQQuantizer,
+    Int4WeightOnlyGPTQQuantizer,
 )
 
 
@@ -45,8 +44,7 @@ __all__ = [
     "swap_conv2d_1x1_to_linear",
     "Quantizer",
     "TwoStepQuantizer",
-    "Int4WeightQuantizer",
-    "Int4WeightGPTQQuantizer",
+    "Int4WeightOnlyGPTQQuantizer",
 ]
 
 if TORCH_VERSION_AFTER_2_3:
