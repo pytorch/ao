@@ -10,15 +10,15 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 from torch.nn import functional as F
+from torchao.quantization.utils import find_multiple
 
-def prepare_inputs_for_model(inps):
+def prepare_inputs_for_model(inps, max_new_tokens=1):
     # this is because input from lm-eval is 2d
-    if input.dim() != 2:
-        raise ValueError(f"Expected input to be of dim 2, but got {input.dim()}")
+    if inps.dim() != 2:
+        raise ValueError(f"Expected input to be of dim 2, but got {inps.dim()}")
 
     inps = inps.squeeze(0)
     # setup inputs in correct format
-    max_new_tokens = 1
     T = inps.size(0)
     T_new = T + max_new_tokens
     seq = torch.empty(T_new, dtype=inps.dtype, device=inps.device)
@@ -26,11 +26,6 @@ def prepare_inputs_for_model(inps):
     input_pos = torch.arange(0, T, device=inps.device)
     x = seq.index_select(0, input_pos).view(1, -1)
     return (x, input_pos)
-
-def find_multiple(n: int, k: int) -> int:
-    if n % k == 0:
-        return n
-    return n + k - (n % k)
 
 @dataclass
 class ModelArgs:
