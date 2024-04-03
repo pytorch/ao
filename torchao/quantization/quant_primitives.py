@@ -500,23 +500,6 @@ def get_group_qparams_symmetric(w, n_bit=4, groupsize=128, precision=torch.float
     )
 
 
-def pack_scales_and_zeros(scales, zeros, precision=torch.float16):
-    assert scales.shape == zeros.shape
-    assert scales.dtype == precision
-    assert zeros.dtype == precision
-    return (
-        torch.cat(
-            [
-                scales.reshape(scales.size(0), scales.size(1), 1),
-                zeros.reshape(zeros.size(0), zeros.size(1), 1),
-            ],
-            2,
-        )
-        .transpose(0, 1)
-        .contiguous()
-    )
-
-
 if TORCH_VERSION_AFTER_2_3:
     def group_quantize_tensor_symmetric(
         w,
@@ -591,4 +574,4 @@ if TORCH_VERSION_AFTER_2_3:
         input = torch.ops.quantized_decomposed.dequantize_per_token(
             input, scales, zero_points, quant_min, quant_max, torch.int8, orig_dtype
         )
-        return input
+        return input.to(orig_dtype)
