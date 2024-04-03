@@ -14,7 +14,7 @@
 7. **IMPORTANT** This gives rise to a small number of edge-case errors when trying to reproduce `bitsandbytes` quantization
    - Specifically, if a normalized value falls directly between two codes there is a degree of indeterminism. E.g., in the previous example, if the normalized value is `.0409`, it would be equidistant to the codes `.0402` and `.0416`. See the assertions in the `test_galore_quant.py` unittest that checks that these are the only discrepancies arising from the triton implementation.
 
-### BnB CUDA Source
+### bitsandbytes CUDA Source
 
 - Adam[W]8bit [update step](https://github.com/TimDettmers/bitsandbytes/blob/fd9d072e02b74348004f197e686e168448883a9e/csrc/kernels.cu#L1770)
 - Adam blockwise [quantization](https://github.com/TimDettmers/bitsandbytes/blob/fd9d072e02b74348004f197e686e168448883a9e/csrc/kernels.cu#L413) after update
