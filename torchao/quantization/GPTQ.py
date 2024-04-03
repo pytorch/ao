@@ -17,15 +17,12 @@ import torch.fx as fx
 import torch.nn as nn
 import torch.nn.functional as F
 
-# from model import Transformer  # pyre-ignore[21]
 from torch.utils._pytree import tree_flatten, tree_unflatten
 
 from .utils import TORCH_VERSION_AFTER_2_3, find_multiple
 from typing import Any, Dict, Optional
 from .unified import Quantizer
 
-
-from model import find_multiple
 from .quant_primitives import (
     get_groupwise_affine_qparams,
     groupwise_affine_quantize_tensor_from_qparams,
