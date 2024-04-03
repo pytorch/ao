@@ -197,13 +197,13 @@ class TestQuantFlow(unittest.TestCase):
         with torch.no_grad():
             compiled(inputs[0].values[0], inputs[1].values[0])
 
-    @unittest.skip("skipping until we get checkpoints for gpt-fast")
+    # @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_gptq_quantizer_gpt_fast(self):
         from torchao.quantization.GPTQ import Int8DynActInt4WeightGPTQQuantizer, InputRecorder
         # should be similar to TorchCompileDynamicQuantizer
         precision = torch.bfloat16
         device = "cuda"
-        checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        checkpoint_path = Path("/home/cdhernandez/local/gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
         model = Transformer.from_name(checkpoint_path.parent.name)
         checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
         model.load_state_dict(checkpoint, assign=True)
@@ -247,6 +247,33 @@ class TestQuantFlow(unittest.TestCase):
         compiled = torch.compile(model, mode="max-autotune")
         with torch.no_grad():
             compiled(inputs[0].values[0], inputs[1].values[0])
+
+    # @unittest.skip("skipping until we get checkpoints for gpt-fast")
+    def test_eval_wrapper(self):
+        from torchao.quantization.GPTQ import TransformerEvalWrapper
+        precision = torch.bfloat16
+        device = "cpu"
+        checkpoint_path = Path("/home/cdhernandez/local/gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        model = Transformer.from_name(checkpoint_path.parent.name)
+        checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
+        model.load_state_dict(checkpoint, assign=True)
+        model = model.to(dtype=precision, device=device)
+        tokenizer_path = checkpoint_path.parent / "tokenizer.model"
+        assert tokenizer_path.is_file(), tokenizer_path
+        tokenizer = SentencePieceProcessor(  # pyre-ignore[28]
+            model_file=str(tokenizer_path)
+        )
+        results = TransformerEvalWrapper(
+            model,
+            tokenizer,
+            model.config.block_size,
+            prepare_inputs_for_model,
+            device,
+        ).run_eval(
+            ["wikitext"],
+            100,
+        )
+        print(results)
 
 if __name__ == "__main__":
     unittest.main()

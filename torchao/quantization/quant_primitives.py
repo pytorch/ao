@@ -591,4 +591,4 @@ if TORCH_VERSION_AFTER_2_3:
         input = torch.ops.quantized_decomposed.dequantize_per_token(
             input, scales, zero_points, quant_min, quant_max, torch.int8, orig_dtype
         )
-        return input
+        return input.to(orig_dtype)
