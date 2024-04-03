@@ -297,7 +297,7 @@ class TestQuantFlow(unittest.TestCase):
         with torch.no_grad():
             compiled(inputs[0].values[0], inputs[1].values[0])
 
-    @unittest.skip("skipping until we get checkpoints for gpt-fast")
+    # @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_gptq_quantizer_int4wo(self):
         from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer, InputRecorder, TransformerEvalWrapper
         # should be similar to TorchCompileDynamicQuantizer
@@ -318,7 +318,7 @@ class TestQuantFlow(unittest.TestCase):
         percdamp = 0.01
         groupsize = 128
         calibration_tasks = ["wikitext"]
-        calibration_limit = 1
+        calibration_limit = 1 # 5
         calibration_seq_length = 100
         input_prep_func = prepare_inputs_for_model
         pad_calibration_inputs = False
@@ -351,11 +351,14 @@ class TestQuantFlow(unittest.TestCase):
             device,
         ).run_eval(
             ["wikitext"],
-            1,
+            None
         )
         assert result['results']['wikitext']['word_perplexity,none'] < 7.77, (
             f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
         )
+        # calibration_limit=1 limit=1 7.76
+        # calibration_limit=5 limit=None 12.798085443034763
+        # calibration_limit=1 limit=None 13.067532662732987
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_eval_wrapper(self):
