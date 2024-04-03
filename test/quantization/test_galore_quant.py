@@ -34,6 +34,8 @@ def test_quantize_blockwise(dim1, dim2, dtype, signed, blocksize):
         g, qmap, group_size=blocksize, return_normalized=True
     )
     tt_check = torch.allclose(ref_bnb, tt_q)
+
+    # see notes.md under `prototype.galore.kernels` for an explanation of the following conditions
     if not tt_check:
         print(
             f"Failed quantization check for {dim1} x {dim2}, {dtype}, signed {signed}"
@@ -41,14 +43,22 @@ def test_quantize_blockwise(dim1, dim2, dtype, signed, blocksize):
         print(f"Absmax: {(qstate.absmax - tt_absmax).abs().max()}")
         print(f"Norm diff: {(bnb_norm - tt_norm).abs().max()}")
 
-        idx_tt = (ref_bnb != tt_q).to("cuda")
-        print(f"Num diffs vs bnb: {idx_tt.sum()}")
+        idx_diff = (ref_bnb != tt_q).to("cuda")
+        print(f"Num code idx diffs: {idx_diff.sum()}")
         max_idx_diff = (ref_bnb - tt_q).abs().max()
-        print(f"Max idx diff vs bnb: {max_idx_diff}")
+        print(f"Max code idx diff: {max_idx_diff}")
 
-    assert tt_check or (not tt_check and max_idx_diff <= 1)
+        # This below checks that the value being quantized falls half-way between two code buckets
+        # where bitsandbytes assigns to one and the triton implementation assigns to the other
+        # Since either bucket is technically valid, we only check that the distance between the value and the
+        # adjacent buckets are the same.  I.e., we don't require that the triton implementation exactly matches
+        # bitsandbytes.
 
+        bnb_code = qmap[ref_bnb[idx_diff].tolist()]
+        tt_code = qmap[tt_q[idx_diff].tolist()]
+        bnb_dist = torch.abs(bnb_code - bnb_norm[idx_diff])
+        torch_dist = torch.abs(tt_code - bnb_norm[idx_diff])
 
-# if __name__ == "__main__":
-#     for d1, d2, dtype, signed, blocksize in QUANT_CONFIG:
-#         test_quantize_blockwise(d1, d2, dtype, signed, blocksize)
+        dist_sum = torch.sum(bnb_dist - torch_dist)
+        print(f"Distance sum: {torch.sum(bnb_dist - torch_dist)}")
+    assert tt_check or (not tt_check and dist_sum < 1e-4)
