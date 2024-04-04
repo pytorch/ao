@@ -957,9 +957,7 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
                 # how much we need to pad the weight
                 delta_k = new_k - q.shape[1]
                 q = q.to(torch.int32)
-
                 final_q = torch.ops.aten._convert_weight_to_int4pack(F.pad(q, pad=(0, delta_k)), inner_k_tiles)
-
                 scales = qparams[0].to(torch.bfloat16)
                 zeros = qparams[1].to(torch.bfloat16)
                 scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros)
