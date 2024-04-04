@@ -4,7 +4,10 @@ import bitsandbytes.functional as F
 import pytest
 import torch
 
-from torchao.prototype.galore.kernels import triton_quantize_blockwise
+from torchao.prototype.galore.kernels import (
+    triton_dequant_blockwise,
+    triton_quantize_blockwise,
+)
 
 SEED = 0
 torch.manual_seed(SEED)
@@ -15,12 +18,12 @@ SIGNS = [True, False]
 DTYPES = [torch.float32]  # , torch.float16]
 BLOCKSIZE = [2048]
 
-QUANT_CONFIG = list(itertools.product(DIM1, DIM2, DTYPES, SIGNS, BLOCKSIZE))
+TEST_CONFIGS = list(itertools.product(DIM1, DIM2, DTYPES, SIGNS, BLOCKSIZE))
 
 
 @pytest.mark.parametrize(
     "dim1,dim2,dtype,signed,blocksize",
-    QUANT_CONFIG,
+    TEST_CONFIGS,
 )
 def test_quantize_blockwise(dim1, dim2, dtype, signed, blocksize):
     g = torch.randn(dim1, dim2, device="cuda", dtype=dtype) * 0.01
@@ -62,3 +65,19 @@ def test_quantize_blockwise(dim1, dim2, dtype, signed, blocksize):
         dist_sum = torch.sum(bnb_dist - torch_dist)
         print(f"Distance sum: {torch.sum(bnb_dist - torch_dist)}")
     assert tt_check or (not tt_check and dist_sum < 1e-4)
+
+
+@pytest.mark.parametrize(
+    "dim1,dim2,dtype,signed,blocksize",
+    TEST_CONFIGS,
+)
+def test_galore_dequant_blockwise(dim1, dim2, dtype, signed, blocksize):
+    g = torch.randn(dim1, dim2, device="cuda", dtype=dtype) * 0.01
+
+    qmap = F.create_dynamic_map(signed).to(g.device)
+
+    q, qstate = F.quantize_blockwise(g, code=qmap, blocksize=blocksize)
+
+    dq_ref = F.dequantize_blockwise(q, qstate)
+    dq = triton_dequant_blockwise(q, qmap, qstate.absmax, group_size=blocksize)
+    assert torch.allclose(dq, dq_ref)

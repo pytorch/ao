@@ -3,6 +3,61 @@ import triton
 import triton.language as tl
 
 
+@triton.jit
+def _dequant_kernel(
+    q_idx_ptr,
+    absmax_ptr,
+    qmap_ptr,
+    dq_ptr,
+    stride_qm,
+    stride_qn,
+    GROUP_SIZE: tl.constexpr,
+    BLOCK_M: tl.constexpr,
+    BLOCK_N: tl.constexpr,
+):
+    pid_m = tl.program_id(0)
+    pid_n = tl.program_id(1)
+    rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+    # rm = tl.max_contiguous(tl.multiple_of(rm % M, BLOCK_M), BLOCK_M)
+    # rn = tl.max_contiguous(tl.multiple_of(rn % N, BLOCK_N), BLOCK_N)
+    offsets = rm[:, None] * stride_qm + rn[None, :] * stride_qn
+    tl.static_print(offsets)
+    group_offsets = offsets // GROUP_SIZE
+    tl.static_print("group_offsets", group_offsets)
+    q_idx = tl.load(q_idx_ptr + offsets)
+    tl.static_print(q_idx)
+    # NOTE: Must upcast q_idx to int32 (q_idx is tl.uint8, which does not work for pointer indexing)
+    q_vals = tl.load(qmap_ptr + q_idx.to(tl.int32))
+    absmax = tl.load(absmax_ptr + group_offsets)
+
+    dq = q_vals * absmax
+    tl.store(dq_ptr + offsets, dq)
+
+
+def triton_dequant_blockwise(
+    q: torch.Tensor, qmap: torch.Tensor, absmax: torch.Tensor, group_size: int
+):
+    M, N = q.shape
+    dq = torch.empty_like(q).to(absmax.dtype)
+    grid = lambda META: (
+        triton.cdiv(M, META["BLOCK_M"]),
+        triton.cdiv(N, META["BLOCK_N"]),
+    )
+    _dequant_kernel[grid](
+        q,
+        absmax,
+        qmap,
+        dq,
+        q.stride(0),
+        q.stride(1),
+        BLOCK_M=1,
+        BLOCK_N=group_size,
+        GROUP_SIZE=group_size,
+    )
+    return dq
+
+
 @triton.heuristics(
     values={
         "USE_MASK": lambda args: args["numels"] % args["BLOCK_SIZE"] != 0,
