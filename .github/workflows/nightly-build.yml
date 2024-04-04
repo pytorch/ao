@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '0 0 * * *'  # Runs at midnight UTC every day
   workflow_dispatch:
+    inputs:
+      torchao-nightly:
+        description: 'TORCHAO Nightly Flag'
+        required: false
+        default: '1'
 
 jobs:
   build-and-publish:
@@ -20,7 +25,7 @@ jobs:
         pip install setuptools wheel twine
     - name: Build package
       run: |
-        export TORCHAO_NIGHTLY=1
+        export TORCHAO_NIGHTLY=${{ github.event.inputs.torchao-nightly }}
         python setup.py sdist bdist_wheel
     - name: Publish package to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
