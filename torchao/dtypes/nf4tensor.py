@@ -4,6 +4,7 @@ from typing import Dict, Tuple
 import torch
 import torch.nn.functional as F
 from torch import Tensor
+import math
 
 
 aten = torch.ops.aten
@@ -35,88 +36,323 @@ def implements(aten_ops):
 
     return decorator
 
-
-@implements([torch.ops.aten.detach.default, torch.ops.aten.detach])
-def noop_detach(func, *args, **kwargs):
-    return args[0][0]
-
-
-@implements([torch.ops.aten._to_copy.default])
-def _to_copy(func, *args, **kwargs):
-    if not args[0][0].is_contiguous():
-        assert args[0][0].t().is_contiguous()
-        return func(args[0][0].t()).t()
-    return args[0][0].get_original_weight().to(args[1]["dtype"])
-
-
-@implements([torch.ops.aten.to.dtype])
-def to_dtype(func, *args, **kwargs):
-    if not args[0][0].is_contiguous():
-        assert args[0][0].t().is_contiguous()
-        return torch.ops.aten.to.dtype(args[0][0].t(), args[0][1]).t()
-    return args[0][0].get_original_weight().to(args[0][1])
-
-
-@implements([torch.ops.aten.t.default])
-def t_default(func, *args, **kwargs):
-    a = args[0][0]
+@implements(
+    [
+        aten.detach.default,
+    ]
+)
+def nf4_detach(aten_op, args, kwargs=None):
+    # nn.Parameter need detach
+    quantized_scalers = aten_op(args[0].quantized_scalers, *args[1:], **kwargs)
+    quantization_factor = aten_op(args[0].quantization_factor, *args[1:], **kwargs)
+    quantized_data = aten_op(args[0].quantized_data, *args[1:], **kwargs)
+    scaler_mean = aten_op(args[0].scaler_mean, *args[1:], **kwargs)
+    nf4 = aten_op(args[0].nf4, *args[1:], **kwargs)
     tensor_meta = SubclassTensorArgs(
-        a.size(),
-        (a.stride(1), a.stride(0)),
-        a.storage_offset(),
-        torch.bits2x4,
-        a.device,
-        a.requires_grad,
+        args[0].size(),
+        args[0].stride(),
+        args[0].storage_offset(),
+        args[0].dtype,
+        args[0].device,
+        args[0].requires_grad,
     )
-    b = NF4Tensor(
+    return NF4Tensor(
         tensor_meta,
-        a.block_size,
-        a.n_blocks,
-        a.scaler_block_size,
-        a.quantized_scalers,
-        a.quantization_factor,
-        a.scaler_mean,
-        a.quantized_data,
-        a.nf4,
+        args[0].block_size,
+        args[0].n_blocks,
+        args[0].scaler_block_size,
+        quantized_scalers,
+        quantization_factor,
+        scaler_mean,
+        quantized_data,
+        nf4,
     )
-    return b
+
+@implements(
+    [
+        aten.split.Tensor,
+    ]
+)
+def nf4_split(aten_op, args, kwargs=None):
+    # torch.chunk
+    # TODO: find if there are other args/kwargs in aten.split
+    assert len(args) == 2 and (kwargs is None or len(kwargs) == 0), "only support aten.split.Tensor with 2 args"
+    # TODO: assert on dim-0 sharding. how to get dim from torch.chunk?
+    num_chunks = args[0].size(0) // args[1]
+
+    # TODO: assert numel % num_chunks == 0
+    quantized_scalers_chunks = aten_op(args[0].quantized_scalers, args[0].quantized_scalers.numel() // num_chunks, **kwargs)
+    quantization_factor_chunks = aten_op(args[0].quantization_factor, args[0].quantization_factor.numel() // num_chunks, **kwargs)
+    quantized_data_chunks = aten_op(args[0].quantized_data, args[0].quantized_data.numel() // num_chunks, **kwargs)
 
 
-@implements([torch.ops.aten.mm.default])
-def mm_default(func, *args, **kwargs):
-    return linear_nf4(args[0][0], args[0][1])
+    assert len(args) == 2, "only support 2d because of tensor meta"
+    return [
+        NF4Tensor(
+            SubclassTensorArgs(
+                (args[0].size(0) // num_chunks, args[0].size(1)),
+                args[0].stride(),
+                args[0].storage_offset(),
+                args[0].dtype,
+                args[0].device,
+                args[0].requires_grad,
+            ),
+            args[0].block_size,
+            args[0].n_blocks,
+            args[0].scaler_block_size,
+            quantized_scalers,
+            quantization_factor,
+            args[0].scaler_mean,
+            quantized_data,
+            args[0].nf4,
+        ) for quantized_scalers, quantization_factor, quantized_data in zip(
+            quantized_scalers_chunks, quantization_factor_chunks, quantized_data_chunks
+        )
+    ]
 
+@implements(
+    [
+        aten.new_zeros.default,
+    ]
+)
+def nf4_new_zeros(aten_op, args, kwargs=None):
+    assert len(args[0].shape) == 2 and len(args[1]) == 2, "only support new zeros on 2D"
+    assert args[0].numel() % math.prod(args[1]) == 0
+    ratio = args[0].numel() // math.prod(args[1])
+
+    assert args[0].quantized_scalers.size(0) % ratio == 0, f"quantized_scalers.numel() must be divisible by {ratio}"
+    quantized_scalers_new_zeros = aten_op(args[0].quantized_scalers, [args[0].quantized_scalers.size(0) // ratio], **kwargs)
+
+    assert args[0].quantization_factor.size(0) % ratio == 0, f"quantization_factor.size(0) must be divisible by {ratio}"
+    quantization_factor_new_zeros = aten_op(args[0].quantization_factor, [args[0].quantization_factor.size(0) // ratio], **kwargs)
+
+    assert args[0].quantized_data.size(0) % ratio == 0, f"quantized_data.size(0) must be divisible by {ratio}"
+    quantized_data_new_zeros = aten_op(args[0].quantized_data, [args[0].quantized_data.size(0) // ratio], **kwargs)
+
+
+    return NF4Tensor(
+        SubclassTensorArgs(
+            (args[1][0], args[1][1]),
+            args[0].stride(),
+            args[0].storage_offset(),
+            args[0].dtype,
+            args[0].device,
+            args[0].requires_grad,
+        ),
+        args[0].block_size,
+        args[0].n_blocks,
+        args[0].scaler_block_size,
+        quantized_scalers_new_zeros,
+        quantization_factor_new_zeros,
+        args[0].scaler_mean,
+        quantized_data_new_zeros,
+        args[0].nf4,
+    )
+
+@implements(
+    [
+        aten.slice.Tensor,
+    ]
+)
+def nf4_slice(aten_op, args, kwargs=None):
+    assert len(args) == 4
+    assert args[1] == 0, f"only support dim=0 but got dim={args[1]}"
+    # TODO: maybe relax?
+    assert args[2] == 0, f"only support start=0 but got start={args[2]}"
+    assert args[3] == args[0].size(0), f"only support end == size(0) but got end={args[3]} and size(0)={args[0].size(0)}"
+    return NF4Tensor(
+        SubclassTensorArgs(
+            args[0].size(),
+            args[0].stride(),
+            args[0].storage_offset(),
+            args[0].dtype,
+            args[0].device,
+            args[0].requires_grad,
+        ),
+        args[0].block_size,
+        args[0].n_blocks,
+        args[0].scaler_block_size,
+        args[0].quantized_scalers,
+        args[0].quantization_factor,
+        args[0].scaler_mean,
+        args[0].quantized_data,
+        args[0].nf4,
+    )
 
 @implements(
     [
         aten.copy_.default,
     ]
 )
-def copy_(func, *args, **kwargs):
-    original: NF4Tensor = args[0][0]
-    copy_in: torch.Tensor = args[0][1]
-
-    # Base Case
-
-    if same_metadata(original, copy_in):
-        original_tensors = original.__tensor_flatten__()[0]
-        for tensor_name in original_tensors:
-            getattr(original, tensor_name).copy_(getattr(copy_in, tensor_name))
-        return
-
-    # Convert Non NF4Tensor into NF4 for copy in
-    if not isinstance(copy_in, NF4Tensor):
-        copy_in_nf4 = NF4Tensor.from_tensor(
-            copy_in, original.block_size, original.scaler_block_size
-        )
-        return original.copy_(copy_in_nf4)
-
-    # Other Tensor is not a NF4Tensor
-    full_precision = copy_in.get_original_weight()
-    same_meta_nf4 = NF4Tensor.from_tensor(
-        full_precision, original.block_size, original.scaler_block_size
+def nf4_copy_(aten_op, args, kwargs=None):
+    assert len(args) == 2 and (kwargs is None or len(kwargs) == 0), "only support aten.copy_.default with 2 args"
+    quantized_scalers = aten_op(args[0].quantized_scalers, args[1].quantized_scalers, **kwargs)
+    quantization_factor = aten_op(args[0].quantization_factor, args[1].quantization_factor, **kwargs)
+    quantized_data = aten_op(args[0].quantized_data, args[1].quantized_data, **kwargs)
+    scaler_mean = aten_op(args[0].scaler_mean, args[1].scaler_mean, **kwargs)
+    nf4 = aten_op(args[0].nf4, args[1].nf4, **kwargs)
+    tensor_meta = SubclassTensorArgs(
+        args[1].size(),
+        args[1].stride(),
+        args[1].storage_offset(),
+        args[1].dtype,
+        args[1].device,
+        args[1].requires_grad,
     )
-    return original.copy_(same_meta_nf4)
+    return NF4Tensor(
+        tensor_meta,
+        args[1].block_size,
+        args[1].n_blocks,
+        args[1].scaler_block_size,
+        quantized_scalers,
+        quantization_factor,
+        scaler_mean,
+        quantized_data,
+        nf4,
+    )
+
+@implements(
+    [
+        aten.view.default,
+    ]
+)
+def nf4_view(aten_op, args, kwargs=None):
+    assert len(args) == 2, args[1] == -1
+    quantized_scalers = aten_op(args[0].quantized_scalers, *(args[1:]), **kwargs)
+    quantization_factor = aten_op(args[0].quantization_factor, *(args[1:]), **kwargs)
+    quantized_data = aten_op(args[0].quantized_data, *(args[1:]), **kwargs)
+    tensor_meta = SubclassTensorArgs(
+        [args[0].numel()],
+        (1, ),
+        args[0].storage_offset(),
+        args[0].dtype,
+        args[0].device,
+        args[0].requires_grad,
+    )
+    return NF4Tensor(
+        tensor_meta,
+        args[0].block_size,
+        args[0].n_blocks,
+        args[0].scaler_block_size,
+        quantized_scalers,
+        quantization_factor,
+        args[0].scaler_mean,
+        quantized_data,
+        args[0].nf4,
+    )
+
+@implements(
+    [
+        aten.as_strided.default,
+    ]
+)
+def nf4_as_strided(aten_op, args, kwargs=None):
+    assert len(args[1]) == 2 and math.prod(args[1]) == args[0].numel(), "only support same numel"
+    assert args[2] == [args[1][1], 1], f"only support stride {[args[1][1], 1]}"
+    assert args[0].storage_offset() == args[3], f"only support same storage offset"
+    return NF4Tensor(
+        SubclassTensorArgs(
+            torch.Size(args[1]),
+            tuple(args[2]),
+            args[0].storage_offset(),
+            args[0].dtype,
+            args[0].device,
+            args[0].requires_grad,
+        ),
+        args[0].block_size,
+        args[0].n_blocks,
+        args[0].scaler_block_size,
+        args[0].quantized_scalers,
+        args[0].quantization_factor,
+        args[0].scaler_mean,
+        args[0].quantized_data,
+        args[0].nf4,
+    )
+
+# @implements([torch.ops.aten.detach])
+# def noop_detach(func, *args, **kwargs):
+#     assert False
+#     return args[0][0]
+
+
+# @implements([torch.ops.aten._to_copy.default])
+# def _to_copy(func, *args, **kwargs):
+#     if not args[0][0].is_contiguous():
+#         assert args[0][0].t().is_contiguous()
+#         return func(args[0][0].t()).t()
+#     return args[0][0].get_original_weight().to(args[1]["dtype"])
+
+
+# @implements([torch.ops.aten.to.dtype])
+# def to_dtype(func, *args, **kwargs):
+#     if not args[0][0].is_contiguous():
+#         assert args[0][0].t().is_contiguous()
+#         return torch.ops.aten.to.dtype(args[0][0].t(), args[0][1]).t()
+#     return args[0][0].get_original_weight().to(args[0][1])
+
+
+# @implements([torch.ops.aten.t.default])
+# def t_default(func, *args, **kwargs):
+#     a = args[0][0]
+#     tensor_meta = SubclassTensorArgs(
+#         a.size(),
+#         (a.stride(1), a.stride(0)),
+#         a.storage_offset(),
+#         torch.bits2x4,
+#         # a.dtype,
+#         a.device,
+#         a.requires_grad,
+#     )
+#     b = NF4Tensor(
+#         tensor_meta,
+#         a.block_size,
+#         a.n_blocks,
+#         a.scaler_block_size,
+#         a.quantized_scalers,
+#         a.quantization_factor,
+#         a.scaler_mean,
+#         a.quantized_data,
+#         a.nf4,
+#     )
+#     return b
+
+
+# @implements([torch.ops.aten.mm.default])
+# def mm_default(func, *args, **kwargs):
+#     return linear_nf4(args[0][0], args[0][1])
+
+
+# TODO: merge with above
+# @implements(
+#     [
+#         aten.copy_.default,
+#     ]
+# )
+# def copy_(func, *args, **kwargs):
+#     original: NF4Tensor = args[0][0]
+#     copy_in: torch.Tensor = args[0][1]
+
+#     # Base Case
+
+#     if same_metadata(original, copy_in):
+#         original_tensors = original.__tensor_flatten__()[0]
+#         for tensor_name in original_tensors:
+#             getattr(original, tensor_name).copy_(getattr(copy_in, tensor_name))
+#         return
+
+#     # Convert Non NF4Tensor into NF4 for copy in
+#     if not isinstance(copy_in, NF4Tensor):
+#         copy_in_nf4 = NF4Tensor.from_tensor(
+#             copy_in, original.block_size, original.scaler_block_size
+#         )
+#         return original.copy_(copy_in_nf4)
+
+#     # Other Tensor is not a NF4Tensor
+#     full_precision = copy_in.get_original_weight()
+#     same_meta_nf4 = NF4Tensor.from_tensor(
+#         full_precision, original.block_size, original.scaler_block_size
+#     )
+#     return original.copy_(same_meta_nf4)
 
 
 @dataclass
@@ -187,7 +423,8 @@ class NF4Tensor(torch.Tensor):
             tensor_meta.original_strides,
             tensor_meta.storage_offset,
             # Picked some floating dtype, but we need dtype extensibility
-            dtype=torch.float8_e5m2fnuz,
+            dtype=tensor_meta.dtype,
+            # dtype=torch.float8_e5m2fnuz,
             device=tensor_meta.device,
             requires_grad=tensor_meta.requires_grad,
         )
@@ -562,7 +799,9 @@ class LinearNF4(torch.autograd.Function):
     def forward(ctx, input: torch.Tensor, weight: NF4Tensor):
         """Save the quantized nf4 weight for backward pass"""
         ctx.nf4_weight = weight
-        return F.linear(input, weight.to(input.dtype))
+        assert input.dtype == torch.bfloat16 and input.dtype == weight.dtype
+        return F.linear(input, weight.get_original_weight())
+        # return F.linear(input, weight.to(input.dtype))
 
     @staticmethod
 
@@ -571,7 +810,8 @@ class LinearNF4(torch.autograd.Function):
     def backward(ctx, grad_output):
         """The nf4 weight will never require grad so we can just return the grad_output @ weight.to(grad_output.dtype)"""
         weight: NF4Tensor = ctx.nf4_weight
-        return grad_output @ weight.to(grad_output.dtype), None
+        # return grad_output @ weight.to(grad_output.dtype), None
+        return grad_output @ weight.get_original_weight(), None
 
 
 def linear_nf4(input: torch.Tensor, weight: NF4Tensor) -> torch.Tensor:
