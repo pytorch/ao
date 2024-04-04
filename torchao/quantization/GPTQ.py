@@ -950,11 +950,16 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
             # TODO: this is the gpt-fast version, merge with the main version later
             def make_names_and_values_dict_func(q, qparams):
                 k = q.shape[1]
-                new_k = find_multiple(k, 1024)
+                if not _check_linear_int4_k(k, groupsize):
+                    new_k = find_multiple(k, 1024)
+                else:
+                    new_k = k
                 # how much we need to pad the weight
                 delta_k = new_k - q.shape[1]
                 q = q.to(torch.int32)
+
                 final_q = torch.ops.aten._convert_weight_to_int4pack(F.pad(q, pad=(0, delta_k)), inner_k_tiles)
+
                 scales = qparams[0].to(torch.bfloat16)
                 zeros = qparams[1].to(torch.bfloat16)
                 scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros)
