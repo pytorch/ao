@@ -165,16 +165,12 @@ See this [`torch note`](https://pytorch.org/docs/stable/notes/cuda.html#tf32-on-
 
 #### Repro
 
-`tests/test_fused_kernels.py` is a `CLI` that has 2 modes, one for testing kernel accuracy, and the other for benchmarking across a number of configs.
-
-**Examples**
-
 _Accuracy_
 
 - Test accuracy of `torch` vs `hybrid` for `M=4096`, `N=4096`, `rank=128`, and `tf32` switched on:
 
   ```python
-  python tests/test_fused_kernels.py --mode=test --kernel=hybrid --M=4096 --N=4096 --rank=128 --allow_tf32
+  pytest test/kernel/test_fused_kernels.py
   ```
 
 _Benchmark_
@@ -182,16 +178,14 @@ _Benchmark_
 - Benchmark across all kernels without `tf32`:
 
   ```python
-  python tests/test_fused_kernels.py --mode=benchmark
+  python benchmarks/bench_galore_fused_kernels.py
   ```
 
-_Additional options_
+For additional benchmarking options:
 
 ```python
-  python tests/test_fused_kernels.py --help
+  python benchmarks/bench_galore_fused_kernels.py --help
 ```
-
-_Note:_ Passing in the additional flag `--verbose` will show `triton` autotuning logs -- I customized the `triton` autotuner spit out configs and other details.
 
 #### Test Env
 
@@ -202,10 +196,3 @@ _Note:_ Passing in the additional flag `--verbose` will show `triton` autotuning
   - SM count: `84`
 - Torch: `2.2.2`
 - Triton: `2.2.0`
-
-#### Next Steps
-
-- [ ] Implement `FusedGaLoreOptimizer`
-- [ ] `Cutlass` - given fixed GEMM shape, experiment with `Cutlass` GEMMs (`split-k`, `stream-k`, fast `tensorops`). Interestingly, profiling `torch.matmul` for down projection shows that `cuBlas` dispatches to a `Cutlass` kernel of shape `128x128x16`.
-- [ ] Repeat with `AdamW8bit`
-- [ ] More detailed analysis of `torch.compile` performance

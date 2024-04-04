@@ -25,7 +25,7 @@ TEST_CONFIGS = list(itertools.product(DIM1, DIM2, DTYPES, SIGNS, BLOCKSIZE))
     "dim1,dim2,dtype,signed,blocksize",
     TEST_CONFIGS,
 )
-def test_quantize_blockwise(dim1, dim2, dtype, signed, blocksize):
+def test_galore_quantize_blockwise(dim1, dim2, dtype, signed, blocksize):
     g = torch.randn(dim1, dim2, device="cuda", dtype=dtype) * 0.01
 
     qmap = F.create_dynamic_map(signed).to(g.device)
