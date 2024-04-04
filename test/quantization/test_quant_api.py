@@ -8,6 +8,7 @@
 # This test takes a long time to run
 import unittest
 import torch
+import os
 from torch._export import capture_pre_autograd_graph
 from torch.ao.quantization.quantize_pt2e import (
     prepare_pt2e,
@@ -18,9 +19,10 @@ from torch.ao.quantization.quantizer.xnnpack_quantizer import (
     get_symmetric_quantization_config,
 )
 
-from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
-from torchao.quantization.quant_api import apply_dynamic_quant
 from torchao.quantization.quant_api import (
+    _replace_with_custom_fn_if_matches_filter,
+    apply_dynamic_quant,
+    apply_weight_only_int8_quant,
     Quantizer,
     TwoStepQuantizer,
 )
@@ -136,6 +138,26 @@ class TestQuantFlow(unittest.TestCase):
         m = torch.compile(m, mode="max-autotune")
         compiled = m(*example_inputs)
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_int8_wo_quant_save_load(self):
+        m = M().eval().cpu()
+        apply_weight_only_int8_quant(m)
+        example_inputs = m.example_inputs()
+        ref = m(*example_inputs)
+        _TMP_FN = "_test.pt"
+        torch.save(m.state_dict(), _TMP_FN)
+
+        state_dict = torch.load(_TMP_FN)
+        os.remove(_TMP_FN)
+        m2 = M().eval()
+        apply_weight_only_int8_quant(m2)
+        m2.load_state_dict(state_dict)
+        m2 = m2.to(device="cuda")
+        example_inputs = map(lambda x: x.cuda(), example_inputs)
+        res = m2(*example_inputs)
+
+        torch.testing.assert_close(ref, res.cpu())
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.4 or lower")
     def test_8da4w_quantizer(self):
