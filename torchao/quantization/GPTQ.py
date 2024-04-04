@@ -28,6 +28,7 @@ from .quant_primitives import (
     groupwise_affine_quantize_tensor_from_qparams,
     groupwise_affine_dequantize_tensor_from_qparams,
     pack_tinygemm_scales_and_zeros,
+    groupwise_affine_quantize_tensor,
 )
 aten = torch.ops.aten
 
@@ -65,8 +66,8 @@ if TORCH_VERSION_AFTER_2_3:
 
 __all__ = [
     "MultiInput",
-    "WeightOnlyInt4Linear",
     "Int4WeightOnlyGPTQQuantizer",
+    "Int4WeightOnlyQuantizer",
 ] + add_ons
 
 if lm_eval_available:
@@ -117,7 +118,10 @@ if lm_eval_available:
 
         @property
         def eot_token_id(self):
-            return self._tokenizer.eos_id()
+            try:
+                return self._tokenizer.eos_id()
+            except:
+                return self._tokenizer.eos_id
 
         @property
         def max_length(self):
@@ -139,7 +143,10 @@ if lm_eval_available:
             # TODO: verify this for multi-batch as well
             tokens = self._tokenizer.encode(string)
             if hasattr(self._tokenizer, "bos_id"):
-                tokens = [self._tokenizer.bos_id()] + tokens
+                try:
+                    tokens = [self._tokenizer.bos_id()] + tokens
+                except:
+                    tokens = [self._tokenizer.bos_id] + tokens
             return tokens
 
         def tok_decode(self, tokens):
@@ -747,6 +754,12 @@ class GPTQQuantizer(Quantizer):
     def quantize(self, model: torch.nn.Module, inputs: List[MultiInput], **kwargs: Any) -> torch.nn.Module:
         pass
 
+def _check_linear_int4_k(k, groupsize = 1, inner_k_tiles = None):
+    k_divisible_by_groupsize = k % groupsize == 0
+    if inner_k_tiles is not None:
+        k_divisible_by_16_times_inner_k_tiles = k % (inner_k_tiles * 16) == 0
+        return k_divisible_by_groupsize and k_divisible_by_16_times_inner_k_tiles
+    return k_divisible_by_groupsize
 
 def linear_forward_int4(x, weight_int4pack, scales_and_zeros, out_features, groupsize):
     origin_x_size = x.size()
@@ -767,7 +780,7 @@ class WeightOnlyInt4Linear(torch.nn.Module):
             bias=False, device=None, dtype=None, groupsize: int = 128, inner_k_tiles: int = 8, use_cuda=True,
     ) -> None:
         super().__init__()
-        self.padding = _check_linear_int4_k(in_features, groupsize, inner_k_tiles)
+        self.padding = not _check_linear_int4_k(in_features, groupsize, inner_k_tiles)
         if self.padding:
             from model import find_multiple
             self.origin_in_features = in_features
@@ -806,14 +819,6 @@ class WeightOnlyInt4Linear(torch.nn.Module):
             self.weight, self.scales_and_zeros, self.out_features, self.groupsize
         )
 
-
-def _check_linear_int4_k(k, groupsize = 1, inner_k_tiles = None):
-    k_divisible_by_groupsize = k % groupsize == 0
-    if inner_k_tiles is not None:
-        k_divisible_by_16_times_inner_k_tiles = k % (inner_k_tiles * 16) == 0
-        return k_divisible_by_groupsize and k_divisible_by_16_times_inner_k_tiles
-    return k_divisible_by_groupsize
-
 def replace_linear_int4(module, groupsize, inner_k_tiles, padding_allowed, use_cuda=True, skip_layer_func = None):
 
     for name, child in module.named_children():
@@ -825,6 +830,83 @@ def replace_linear_int4(module, groupsize, inner_k_tiles, padding_allowed, use_c
                 ))
         else:
             replace_linear_int4(child, groupsize, inner_k_tiles, padding_allowed, use_cuda, skip_layer_func)
+
+class Int4WeightOnlyQuantizer(Quantizer):
+    def __init__(
+        self,
+        groupsize: int = 256,
+        padding_allowed: bool = True,
+        inner_k_tiles: Optional[int] = 8,
+    ) -> None:
+        super().__init__()
+        assert inner_k_tiles in [2, 4, 8]
+        assert groupsize in [32, 64, 128, 256]
+
+        self.inner_k_tiles = inner_k_tiles
+        self.groupsize: int = groupsize
+        self.padding_allowed: bool = padding_allowed
+
+    @torch.no_grad()
+    def _create_quantized_state_dict(
+        self, model: torch.nn.Module
+    ) -> Dict[str, torch.Tensor]:
+        cur_state_dict = model.state_dict()
+        for fqn, mod in model.named_modules():
+            if isinstance(mod, torch.nn.Linear):
+                assert not mod.bias
+                out_features = mod.out_features
+                in_features = mod.in_features
+                # assert out_features % 8 == 0, "require out_features % 8 == 0"
+                print(f"linear: {fqn}, in={in_features}, out={out_features}")
+
+                assert (
+                    in_features % self.groupsize == 0
+                ), f"require in_features:{in_features} % self.groupsize:{self.groupsize} == 0"
+
+                weight = mod.weight.data
+                if not _check_linear_int4_k(
+                    in_features, self.groupsize, self.inner_k_tiles
+                ):
+                    if self.padding_allowed:
+                        from .utils import find_multiple
+                        import torch.nn.functional as F
+                        print(f"warning: {fqn} is padded to satisfy in_features % 1024 == 0")
+                        padded_in_features = find_multiple(in_features, 1024)
+                        weight = F.pad(weight, pad=(0, padded_in_features - in_features))
+                    else:
+                        print(f"warning: {fqn} is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, " +
+                                "and that groupsize and inner_k_tiles*16 evenly divide into it")
+                        continue
+                (
+                    w_int4x8,
+                    scales_and_zeros
+                ) = groupwise_affine_quantize_tensor(
+                    weight,
+                    4,  # n_bit
+                    self.groupsize,
+                )
+                weight_int4pack = torch.ops.aten._convert_weight_to_int4pack(w_int4x8.to("cuda"), self.inner_k_tiles)
+                cur_state_dict[f"{fqn}.weight"] = weight_int4pack.to("cuda")
+                cur_state_dict[f"{fqn}.scales_and_zeros"] = scales_and_zeros.to("cuda")
+        return cur_state_dict
+
+    def _convert_for_runtime(self, model: torch.nn.Module) -> torch.nn.Module:
+        replace_linear_int4(
+            model,
+            self.groupsize,
+            self.inner_k_tiles,
+            self.padding_allowed,
+        )
+        return model
+
+    def quantize(
+        self, model: torch.nn.Module, *args: Any, **kwargs: Any
+    ) -> torch.nn.Module:
+        state_dict = self._create_quantized_state_dict(model)
+        model = self._convert_for_runtime(model)
+        # TODO: make it strict
+        model.load_state_dict(state_dict, strict=False)
+        return model
 
 class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
         def __init__(
