@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       torchao-nightly:
-        description: 'TORCHAO Nightly Flag'
+        description: 'Set to 1 to enable TORCHAO Nightly, or 0 to disable'
         required: false
         default: '1'
 
