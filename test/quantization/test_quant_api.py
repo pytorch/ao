@@ -8,6 +8,7 @@
 # This test takes a long time to run
 import unittest
 import torch
+import os
 from torch._export import capture_pre_autograd_graph
 from torch.ao.quantization.quantize_pt2e import (
     prepare_pt2e,
@@ -18,9 +19,10 @@ from torch.ao.quantization.quantizer.xnnpack_quantizer import (
     get_symmetric_quantization_config,
 )
 
-from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
-from torchao.quantization.quant_api import apply_dynamic_quant
 from torchao.quantization.quant_api import (
+    _replace_with_custom_fn_if_matches_filter,
+    apply_dynamic_quant,
+    apply_weight_only_int8_quant,
     Quantizer,
     TwoStepQuantizer,
 )
@@ -136,6 +138,26 @@ class TestQuantFlow(unittest.TestCase):
         m = torch.compile(m, mode="max-autotune")
         compiled = m(*example_inputs)
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_int8_wo_quant_save_load(self):
+        m = M().eval().cpu()
+        apply_weight_only_int8_quant(m)
+        example_inputs = m.example_inputs()
+        ref = m(*example_inputs)
+        _TMP_FN = "_test.pt"
+        torch.save(m.state_dict(), _TMP_FN)
+
+        state_dict = torch.load(_TMP_FN)
+        os.remove(_TMP_FN)
+        m2 = M().eval()
+        apply_weight_only_int8_quant(m2)
+        m2.load_state_dict(state_dict)
+        m2 = m2.to(device="cuda")
+        example_inputs = map(lambda x: x.cuda(), example_inputs)
+        res = m2(*example_inputs)
+
+        torch.testing.assert_close(ref, res.cpu())
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.4 or lower")
     def test_8da4w_quantizer(self):
@@ -300,7 +322,6 @@ class TestQuantFlow(unittest.TestCase):
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_gptq_quantizer_int4wo(self):
         from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer, InputRecorder, TransformerEvalWrapper
-        # should be similar to TorchCompileDynamicQuantizer
         precision = torch.bfloat16
         device = "cuda"
         checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
@@ -355,6 +376,41 @@ class TestQuantFlow(unittest.TestCase):
         )
         assert result['results']['wikitext']['word_perplexity,none'] < 7.77, (
             f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
+        )
+
+    @unittest.skip("skipping until we get checkpoints for gpt-fast")
+    def test_quantizer_int4wo(self):
+        from torchao.quantization.GPTQ import Int4WeightOnlyQuantizer, TransformerEvalWrapper
+        precision = torch.bfloat16
+        device = "cuda"
+        checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        model = Transformer.from_name(checkpoint_path.parent.name)
+        checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
+        model.load_state_dict(checkpoint, assign=True)
+        model = model.to(dtype=precision, device=device)
+        model.eval()
+        tokenizer_path = checkpoint_path.parent / "tokenizer.model"
+        assert tokenizer_path.is_file(), tokenizer_path
+        tokenizer = SentencePieceProcessor(  # pyre-ignore[28]
+            model_file=str(tokenizer_path)
+        )
+        groupsize = 128
+        quantizer = Int4WeightOnlyQuantizer(
+            groupsize,
+        )
+        model = quantizer.quantize(model).cuda()
+        result = TransformerEvalWrapper(
+            model,
+            tokenizer,
+            model.config.block_size,
+            prepare_inputs_for_model,
+            device,
+        ).run_eval(
+            ["wikitext"],
+            1,
+        )
+        assert result['results']['wikitext']['word_perplexity,none'] < 8.24, (
+            f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
         )
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
