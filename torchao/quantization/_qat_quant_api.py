@@ -10,6 +10,7 @@ import torch
 from torch.ao.quantization import (
     FakeQuantizeBase,
     ObserverBase,
+    PerChannelMinMaxObserver,
 )
 
 
@@ -61,3 +62,40 @@ class SimpleFakeQuantize(FakeQuantizeBase):
     @property
     def zero_point(self) -> torch.Tensor:
         return self.observer.zero_point
+
+
+class SymmetricPerChannelGroupMinMaxObserver(PerChannelMinMaxObserver):
+    """
+    Observer module for symmetric grouped per channel quantization.
+
+    TODO: make `PerChannelMinMaxObserver` inherit from this instead.
+    """
+    def __init__(
+        self,
+        ch_axis: int = 0,
+        quant_min: Optional[int] = None,
+        quant_max: Optional[int] = None,
+        group_size: int = 128,
+    ):
+        super().__init__(
+            ch_axis=ch_axis,
+            qscheme=torch.per_channel_symmetric,
+            quant_min=quant_min,
+            quant_max=quant_max,
+        )
+        self.group_size = group_size
+
+    def forward(self, x):
+        # TODO: may need some checks for GPTQ
+        x.reshape(-1, self.group_size)
+        x = super().forward(x)
+        self.output_shape = x.shape
+        return x
+
+    def calculate_qparams(self):
+        (scale, zp) = super().calculate_qparams()
+        scale = scale.reshape(self.output_shape[0], -1)
+        # Note: PerChannelMinMaxObserver does not always return 0 zp
+        # even for per_channel_symmetric qscheme, so we force it here
+        zp = torch.zeros_like(zp).reshape(self.output_shape[0], -1)
+        return scale, zp
