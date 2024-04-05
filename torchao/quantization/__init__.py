@@ -45,4 +45,6 @@ __all__ = [
     "compute_error",
     "get_model_size_in_bytes",
     "WeightOnlyInt8QuantLinear",
+    "Int4WeightOnlyGPTQQuantizer",
+    "Int4WeightOnlyQuantizer",
 ]
