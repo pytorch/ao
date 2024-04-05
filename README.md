@@ -48,8 +48,8 @@ import torch
 import torchao
 
 # inductor settings which improve torch.compile performance for quantized modules
-torch._inductor.config.force_fuse_int_mm_with_mul
-torch._inductor.config.use_mixed_mm
+torch._inductor.config.force_fuse_int_mm_with_mul = True
+torch._inductor.config.use_mixed_mm = True
 
 # Plug in your model and example input
 model = torch.nn.Sequential(torch.nn.Linear(32, 64)).cuda().to(torch.bfloat16)
@@ -67,14 +67,18 @@ model(input)
 ### A8W8 Dynamic Quantization
 
 ```python
-# convert linear modules to quantized linear modules
-torchao.change_linear_weights_to_int8_dqtensors(model)
+# Fuse the int8*int8 -> int32 matmul and subsequent mul op avoiding materialization of the int32 intermediary tensor
+torch._inductor.config.force_fuse_int_mm_with_mul = True
+from torchao.quantization import quant_api
+# convert linear modules to quantized tensor subclasses
+quant_api.change_linear_weights_to_int8_dqtensors(model)
 ```
 
 ### A16W8 WeightOnly Quantization
 
 ```python
-torchao.change_linear_weights_to_int8_woqtensors(model)
+from torchao.quantization import quant_api
+quant_api.change_linear_weights_to_int8_woqtensors(model)
 ```
 
 This technique works best when the torch._inductor.config.use_mixed_mm option is enabled. This avoids dequantizing the weight tensor before the matmul, instead fusing the dequantization into the matmul, thereby avoiding materialization of a large floating point weight tensor.
@@ -83,7 +87,8 @@ This technique works best when the torch._inductor.config.use_mixed_mm option is
 ### A16W4 WeightOnly Quantization
 
 ```python
-torchao.change_linear_weights_to_int4_woqtensors(model)
+from torchao.quantization import quant_api
+quant_api.change_linear_weights_to_int4_woqtensors(model)
 ```
 
 Note: The quantization error incurred by applying int4 quantization to your model can be fairly significant, so using external techniques like GPTQ may be necessary to obtain a usable model.
