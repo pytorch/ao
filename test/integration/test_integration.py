@@ -1368,12 +1368,16 @@ class TestAutoQuant(unittest.TestCase):
         sqnr = SQNR(out, out2)
         self.assertTrue(sqnr >= 30)
 
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @parameterized.expand(combine_parameters(COMMON_DEVICE_DTYPE,
+        [
+            (1,   1, 128, 128),
+            (1,  16, 128, 128),
+            (16, 16, 128, 128),
+        ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
-    def test_autoquant_multi_input(self, device, dtype):
+    def test_autoquant_multi_input(self, device, dtype, m1, m2, k, n):
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
-        m1, m2, k, n = 1, 16, 128, 128
         model = torch.nn.Sequential(
             torch.nn.ReLU(),
             torch.nn.Linear(k,n),
