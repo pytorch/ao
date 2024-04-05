@@ -1,8 +1,8 @@
-# torchao: PyTorch Architecture Optimization 
+# torchao: PyTorch Architecture Optimization
 
 **Note: This repository is currently under heavy development - if you have suggestions on the API or use-cases you'd like to be covered, please open an github issue**
 
-The `torchao` package allows you to quantize and prune your models using native PyTorch. 
+The `torchao` package allows you to quantize and prune your models using native PyTorch.
 
 The repo hosts both
 1. lower precision [dtypes](./torchao/dtypes) such as nf4, uint4
@@ -38,30 +38,46 @@ pip install -e .
 
 Typically quantization algorithms will have different schemes for how the activation and weights are quantized so A16W8 for instance means the activations are quantized to 16 bits wheras the weights are quantized to 8 bits. Trying out different quantization schemes in `torchao` is generally a 1 line change.
 
-### A8W8 Dynamic Quantization
+### Autoquantization
 
-```Python
+The `autoquant` api can be used to quickly and accurately quantize your model. When used as in the example below, the api first identifies the shapes
+of the activations that the different linear layers see, it then benchmarks these shapes across different types of quantized and non-quantized layers in order to pick the fastest one, attempting to take into account fusions where possible. Finally once the best class is found for each layer, it swaps the linear. Currently this api chooses between no quantization, int8 dynamic quantization and int8 weight only quantization for each layer.
+
+```python
 import torch
-from torchao.quantization import quant_api
+import torchao
 
-# Fuse the int8*int8 -> int32 matmul and subsequent mul op avoiding materialization of the int32 intermediary tensor
+# inductor settings which improve torch.compile performance for quantized modules
 torch._inductor.config.force_fuse_int_mm_with_mul = True
+torch._inductor.config.use_mixed_mm = True
 
 # Plug in your model and example input
 model = torch.nn.Sequential(torch.nn.Linear(32, 64)).cuda().to(torch.bfloat16)
 input = torch.randn(32,32, dtype=torch.bfloat16, device='cuda')
 
-# convert linear modules to quantized linear modules
-quant_api.change_linear_weights_to_int8_dqtensors(model)
+# perform autoquantization
+torchao.autoquant(model, (input))
 
 # compile the model to improve performance
 model = torch.compile(model, mode='max-autotune')
 model(input)
 ```
 
+
+### A8W8 Dynamic Quantization
+
+```python
+# Fuse the int8*int8 -> int32 matmul and subsequent mul op avoiding materialization of the int32 intermediary tensor
+torch._inductor.config.force_fuse_int_mm_with_mul = True
+from torchao.quantization import quant_api
+# convert linear modules to quantized tensor subclasses
+quant_api.change_linear_weights_to_int8_dqtensors(model)
+```
+
 ### A16W8 WeightOnly Quantization
 
 ```python
+from torchao.quantization import quant_api
 quant_api.change_linear_weights_to_int8_woqtensors(model)
 ```
 
@@ -71,6 +87,7 @@ This technique works best when the torch._inductor.config.use_mixed_mm option is
 ### A16W4 WeightOnly Quantization
 
 ```python
+from torchao.quantization import quant_api
 quant_api.change_linear_weights_to_int4_woqtensors(model)
 ```
 
