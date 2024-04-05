@@ -1351,6 +1351,8 @@ class TestAutoQuant(unittest.TestCase):
     def test_autoquant_one_input(self, device, dtype, m, k, n):
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
+        if torch.cuda.is_available() and dtype == torch.bfloat16 and torch.cuda.get_device_capability() < (8, 0):
+            self.skipTest(f"bfloat16 requires sm80+")
         torch._inductor.config.epilogue_fusion = False
         torch._inductor.config.use_mixed_mm = True
         torch._inductor.config.force_fuse_int_mm_with_mul = True
@@ -1378,6 +1380,8 @@ class TestAutoQuant(unittest.TestCase):
     def test_autoquant_multi_input(self, device, dtype, m1, m2, k, n):
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
+        if torch.cuda.is_available() and dtype == torch.bfloat16 and torch.cuda.get_device_capability() < (8, 0):
+            self.skipTest(f"bfloat16 requires sm80+")
         model = torch.nn.Sequential(
             torch.nn.ReLU(),
             torch.nn.Linear(k,n),
