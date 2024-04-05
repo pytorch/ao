@@ -1364,7 +1364,7 @@ class TestAutoQuant(unittest.TestCase):
     def test_autoquant_multi_input(self, device, dtype):
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
-        m1, m2, k, n = 1, 8, 128, 128
+        m1, m2, k, n = 1, 16, 128, 128
         model = torch.nn.Sequential(
             torch.nn.ReLU(),
             torch.nn.Linear(k,n),
