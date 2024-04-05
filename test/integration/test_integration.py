@@ -1330,6 +1330,7 @@ class SmoothquantIntegrationTest(unittest.TestCase):
 
 class TestAutoQuant(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
     def test_autoquant_one_input(self, device, dtype):
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
@@ -1361,6 +1362,7 @@ class TestAutoQuant(unittest.TestCase):
             self.assertTrue(sqnr >= 30)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
     def test_autoquant_multi_input(self, device, dtype):
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
