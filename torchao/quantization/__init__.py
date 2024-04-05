@@ -11,6 +11,7 @@ from .quant_primitives import *  # noqa: F403
 from .utils import *  # noqa: F403
 from .weight_only import *  # noqa: F403
 from .unified import *
+from .autoquant import *
 
 __all__ = [
     "DynamicallyPerAxisQuantizedLinear",

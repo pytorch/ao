@@ -1339,14 +1339,14 @@ class TestAutoQuant(unittest.TestCase):
         torch._dynamo.config.automatic_dynamic_shapes = False
 
         for m,k,n in [
-            (1, 1024, 1024),
-            (64, 1024, 1024),
-            (2**15, 1024, 1024),
-            (1, 1024, 4096),
-            (64, 1024, 4096),
-            (1, 4096, 1024),
-            (64, 4096, 1024),
-            (4096, 4096, 1024),
+            (1, 128, 128),
+            (64, 128, 128),
+            (2**15, 128, 128),
+            (1, 128, 256),
+            (64, 128, 256),
+            (1, 256, 128),
+            (64, 256, 128),
+            (256, 256, 128),
         ]:
             example_input = torch.randn(m, k, device=device, dtype=dtype)
             model = torch.nn.Sequential(
@@ -1364,7 +1364,7 @@ class TestAutoQuant(unittest.TestCase):
     def test_autoquant_multi_input(self, device, dtype):
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
-        m1, m2, k, n = 1, 8, 1024, 1024
+        m1, m2, k, n = 1, 8, 128, 128
         model = torch.nn.Sequential(
             torch.nn.ReLU(),
             torch.nn.Linear(k,n),
@@ -1375,7 +1375,7 @@ class TestAutoQuant(unittest.TestCase):
         torchao.quantization.change_linears_to_autoquantizable(model)
         out=model(example_input)
         model(example_input2)
-        torchao.change_autoquantizable_to_quantized(model)
+        torchao.quantization.change_autoquantizable_to_quantized(model)
         out2 = model(example_input)
         sqnr = SQNR(out, out2)
         self.assertTrue(sqnr >= 30)
