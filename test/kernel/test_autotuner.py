@@ -59,7 +59,7 @@ class TestQuantFlow(unittest.TestCase):
     )
     def test_int_scaled_mm(self, device, dtype):
         if device == "cuda" and not torch.cuda.is_available():
-            return
+            self.skipTest(f"{device} not available")
 
         from torchao.kernel import intmm
 
