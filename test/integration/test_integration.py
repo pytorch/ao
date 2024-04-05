@@ -7,6 +7,7 @@
 # mypy: ignore-errors
 import copy
 import unittest
+import itertools
 
 import torch
 import torch.nn as nn
@@ -78,6 +79,12 @@ COMMON_DEVICE_DTYPE=[
     ("cuda", torch.float16),
     ("cuda", torch.bfloat16),
 ]
+
+def combine_parameters(a, b):
+    new_tuples = []
+    for (tuple1, tuple2) in itertools.product(a, b):
+        new_tuples.append(tuple1 + tuple2)
+    return new_tuples
 
 def run_supported_device_dtype(test_method):
     def wrapper(*args, **kwargs):
@@ -1329,9 +1336,19 @@ class SmoothquantIntegrationTest(unittest.TestCase):
         self.assertTrue(sqnr_sq >= 8.0)
 
 class TestAutoQuant(unittest.TestCase):
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @parameterized.expand(combine_parameters(COMMON_DEVICE_DTYPE,
+        [
+            (16, 128, 128),
+            (64, 128, 128),
+            (2**15, 128, 128),
+            (16, 128, 256),
+            (64, 128, 256),
+            (16, 256, 128),
+            (64, 256, 128),
+            (256, 256, 128),
+        ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
-    def test_autoquant_one_input(self, device, dtype):
+    def test_autoquant_one_input(self, device, dtype, m, k, n):
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
         torch._inductor.config.epilogue_fusion = False
@@ -1339,27 +1356,17 @@ class TestAutoQuant(unittest.TestCase):
         torch._inductor.config.force_fuse_int_mm_with_mul = True
         torch._dynamo.config.automatic_dynamic_shapes = False
 
-        for m,k,n in [
-            (1, 128, 128),
-            (64, 128, 128),
-            (2**15, 128, 128),
-            (1, 128, 256),
-            (64, 128, 256),
-            (1, 256, 128),
-            (64, 256, 128),
-            (256, 256, 128),
-        ]:
-            example_input = torch.randn(m, k, device=device, dtype=dtype)
-            model = torch.nn.Sequential(
-                torch.nn.ReLU(),
-                torch.nn.Linear(k,n),
-                torch.nn.ReLU(),
-            ).to(device).to(dtype)
-            out = model(example_input)
-            torchao.autoquant(model, example_input)
-            out2 = model(example_input)
-            sqnr = SQNR(out, out2)
-            self.assertTrue(sqnr >= 30)
+        example_input = torch.randn(m, k, device=device, dtype=dtype)
+        model = torch.nn.Sequential(
+            torch.nn.ReLU(),
+            torch.nn.Linear(k,n),
+            torch.nn.ReLU(),
+        ).to(device).to(dtype)
+        out = model(example_input)
+        torchao.autoquant(model, example_input)
+        out2 = model(example_input)
+        sqnr = SQNR(out, out2)
+        self.assertTrue(sqnr >= 30)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
