@@ -36,10 +36,6 @@ from .GPTQ import (
 )
 
 
-_AFTER_TORCH_2_3_ONLY = [
-    "Int8DynActInt4WeightQuantizer",
-    "Int8DynActInt4WeightGPTQQuantizer",
-]
 from .autoquant import AutoQuantizableLinearWeight, DEFAULT_CLASS_LIST
 
 __all__ = [
@@ -64,12 +60,7 @@ if TORCH_VERSION_AFTER_2_3:
     __all__ += [
         "Int8DynActInt4WeightQuantizer",
         "Int8DynActInt4WeightGPTQQuantizer",
-        "Int4WeightQuantizer",
-        "Int4WeightGPTQQuantizer",
-        "autoquant",
-        "change_linears_to_autoquantizable",
-        "change_autoquantizable_to_quantized",
-    ] + (_AFTER_TORCH_2_3_ONLY if TORCH_VERSION_AFTER_2_3 else [])
+    ]
 
 
 def _replace_with_custom_fn_if_matches_filter(
