@@ -1340,12 +1340,12 @@ class TestAutoQuant(unittest.TestCase):
         [
             (16, 128, 128),
             (64, 128, 128),
-            # (2**15, 128, 128), TODO: Runs out of shared memory on T4
+            (2**15, 128, 128), # TODO: Runs out of shared memory on T4
             (16, 128, 256),
-            # (64, 128, 256), # TODO: Runs out of shared memory on T4
+            (64, 128, 256), # TODO: Runs out of shared memory on T4
             (16, 256, 128),
             (64, 256, 128),
-            # (256, 256, 128), TODO: Runs out of shared memory on T4
+            (256, 256, 128), # TODO: Runs out of shared memory on T4
         ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
     def test_autoquant_one_input(self, device, dtype, m, k, n):
