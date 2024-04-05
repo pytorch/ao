@@ -1340,7 +1340,7 @@ class TestAutoQuant(unittest.TestCase):
         [
             (16, 128, 128),
             (64, 128, 128),
-            (2**15, 128, 128),
+            # (2**15, 128, 128), TODO: Runs out of shared memory on T4
             (16, 128, 256),
             (64, 128, 256),
             (16, 256, 128),
@@ -1349,6 +1349,7 @@ class TestAutoQuant(unittest.TestCase):
         ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
     def test_autoquant_one_input(self, device, dtype, m, k, n):
+        print("(m, k, n): ", (m, k, n))
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
