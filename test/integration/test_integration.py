@@ -1376,8 +1376,8 @@ class TestAutoQuant(unittest.TestCase):
     @parameterized.expand(combine_parameters(COMMON_DEVICE_DTYPE,
         [
             (1,   1, 128, 128),
-            (1,  16, 128, 128),
-            (16, 16, 128, 128),
+            (1,  32, 128, 128),
+            (32, 32, 128, 128),
         ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
     def test_autoquant_multi_input(self, device, dtype, m1, m2, k, n):
