@@ -36,8 +36,6 @@ from .GPTQ import (
 )
 
 
-from .autoquant import AutoQuantizableLinearWeight, DEFAULT_CLASS_LIST
-
 __all__ = [
     "apply_weight_only_int8_quant",
     "apply_dynamic_quant",
