@@ -356,9 +356,3 @@ def int_scaled_matmul_cuda(a, b, scales1):
         int_scaled_matmul_kernel, [a, b, scales1, c], int8_mm_kernel_configs
     )
     return int_scaled_matmul_kernel(a, b, scales1, c, best_config)
-
-
-@torch.library.impl(lib, "int_scaled_matmul", "CPU")
-def int_scaled_matmul_cpu(a, b, scales1):
-    c = torch._int_mm(a, b)
-    return c.to(scales1.dtype) * scales1

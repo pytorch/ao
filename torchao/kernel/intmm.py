@@ -77,8 +77,12 @@ def int_scaled_matmul(a, b, scales1):
     assert scales1.is_contiguous()
     scales1 = scales1.expand((M, N))
     assert scales1.dim() == 2
-    if intmm_triton is not None and AUTOTUNER_ENABLE:
+    if intmm_triton is not None and AUTOTUNER_ENABLE and \
+        a.device != torch.device('cpu') and b.device != torch.device('cpu'):
         return torch.ops.torchao.int_scaled_matmul(a, b, scales1)
+    if a.device == torch.device('cpu') and b.device == torch.device('cpu'):
+        c = torch._int_mm(a, b)
+        return c.to(scales1.dtype) * scales1
 
     c = safe_int_mm(a, b)
     return c * scales1
