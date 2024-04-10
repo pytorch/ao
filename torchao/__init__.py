@@ -4,6 +4,9 @@ from torchao.quantization import (
     autoquant,
 )
 from . import dtypes
+import torch
+from . import _C
+from . import ops
 
 __all__ = [
     "dtypes",
