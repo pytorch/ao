@@ -172,7 +172,7 @@ class TestQuantFlow(unittest.TestCase):
         assert isinstance(m.linear2, Int8DynActInt4WeightLinear)
         m(*example_inputs)
 
-    @unittest.skip("skipping until we get checkpoints for gpt-fast")
+    # @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_8da4w_gptq_quantizer(self):
         from torchao.quantization.GPTQ import Int8DynActInt4WeightGPTQQuantizer, InputRecorder, TransformerEvalWrapper
         # should be similar to TorchCompileDynamicQuantizer
@@ -193,7 +193,7 @@ class TestQuantFlow(unittest.TestCase):
         percdamp = 0.01
         groupsize = 128
         calibration_tasks = ["wikitext"]
-        calibration_limit = 1
+        calibration_limit = 5
         calibration_seq_length = 100
         input_prep_func = prepare_inputs_for_model
         pad_calibration_inputs = False
@@ -216,24 +216,29 @@ class TestQuantFlow(unittest.TestCase):
             precision=precision,
         )
         model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
-        model = quantizer.quantize(model, inputs)
+        model = quantizer.quantize(model, inputs).to("cuda")
         result=TransformerEvalWrapper(
             model,
             tokenizer,
             model.config.block_size,
             prepare_inputs_for_model,
-            device,
+            "cuda",
         ).run_eval(
             ["wikitext"],
-            1,
+            None,
         )
 
         assert result['results']['wikitext']['word_perplexity,none'] < 7.88, (
             f"accuracy regressed from 7.87 to {result['results']['wikitext']['word_perplexity,none']}"
         )
+        # cal=1 eval=all wikitext: {'word_perplexity,none': 15.179413346163496, 'word_perplexity_stderr,none': 'N/A', 'byte_perplexity,none': 1.6630319288539204, 'byte_perplexity_stderr,none': 'N/A', 'bits_per_byte,none': 0.7338158674568223, 'bits_per_byte_stderr,none': 'N/A', 'alias': 'wikitext'}
+        # cal=1 evla=all wikitext: {'word_perplexity,none': 15.652681759772047, 'word_perplexity_stderr,none': 'N/A', 'byte_perplexity,none': 1.6726076112218886, 'byte_perplexity_stderr,none': 'N/A', 'bits_per_byte,none': 0.7420990330980423, 'bits_per_byte_stderr,none': 'N/A', 'alias': 'wikitext'}
+        # cal=5 eval=5 wikitext: {'word_perplexity,none': 17.56614480518656, 'word_perplexity_stderr,none': 'N/A', 'byte_perplexity,none': 1.750262395607681, 'byte_perplexity_stderr,none': 'N/A', 'bits_per_byte,none': 0.8075712240372138, 'bits_per_byte_stderr,none': 'N/A', 'alias': 'wikitext'}
+        # no_dyn cal=5 eval=5 wikitext: {'word_perplexity,none': 11.461788750598641, 'word_perplexity_stderr,none': 'N/A', 'byte_perplexity,none': 1.6102272956132853, 'byte_perplexity_stderr,none': 'N/A', 'bits_per_byte,none': 0.687264349898251, 'bits_per_byte_stderr,none': 'N/A', 'alias': 'wikitext'}
+        # no_dyn cal=5 eval=all wikitext: {'word_perplexity,none': 12.826275573373177, 'word_perplexity_stderr,none': 'N/A', 'byte_perplexity,none': 1.6114630248462083, 'byte_perplexity_stderr,none': 'N/A', 'bits_per_byte,none': 0.6883710860189309, 'bits_per_byte_stderr,none': 'N/A', 'alias': 'wikitext'}
 
-    @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.4 or lower")
+    # @unittest.skip("skipping until we get checkpoints for gpt-fast")
+    # @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.4 or lower")
     def test_8da4w_quantizer_eval(self):
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
         from torchao.quantization.GPTQ import TransformerEvalWrapper
@@ -253,20 +258,25 @@ class TestQuantFlow(unittest.TestCase):
         )
 
         quantizer = Int8DynActInt4WeightQuantizer(groupsize=128, precision=precision)
-        q_model = quantizer.quantize(model)
+        q_model = quantizer.quantize(model).to("cuda")
         result=TransformerEvalWrapper(
             q_model,
             tokenizer,
             q_model.config.block_size,
             prepare_inputs_for_model,
-            device,
+            "cuda",
         ).run_eval(
             ["wikitext"],
-            1,
+            None,
         )
         assert result['results']['wikitext']['word_perplexity,none'] < 8.24, (
             f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
         )
+        #no_dyn eval=all wikitext: {'word_perplexity,none': 13.284947841658525, 'word_perplexity_stderr,none': 'N/A', 'byte_perplexity,none': 1.6220861196463254, 'byte_perplexity_stderr,none': 'N/A', 'bits_per_byte,none': 0.6978504170203109, 'bits_per_byte_stderr,none': 'N/A', 'alias': 'wikitext'}
+        #no_dyn eval=5 wikitext: {'word_perplexity,none': 12.117232314697018, 'word_perplexity_stderr,none': 'N/A', 'byte_perplexity,none': 1.6278119323461193, 'byte_perplexity_stderr,none': 'N/A', 'bits_per_byte,none': 0.7029340288765229, 'bits_per_byte_stderr,none': 'N/A', 'alias': 'wikitext'}
+        #no_dyn eval=1 wikitext: {'word_perplexity,none': 8.35281287303361, 'word_perplexity_stderr,none': 'N/A', 'byte_perplexity,none': 1.5058954175033206, 'byte_perplexity_stderr,none': 'N/A', 'bits_per_byte,none': 0.5906215801768828, 'bits_per_byte_stderr,none': 'N/A', 'alias': 'wikitext'}
+        #eval=5 wikitext: {'word_perplexity,none': 12.150691831583948, 'word_perplexity_stderr,none': 'N/A', 'byte_perplexity,none': 1.6286888778883073, 'byte_perplexity_stderr,none': 'N/A', 'bits_per_byte,none': 0.7037110377514786, 'bits_per_byte_stderr,none': 'N/A', 'alias': 'wikitext'}
+        #eval=all wikitext: {'word_perplexity,none': 13.331669008220858, 'word_perplexity_stderr,none': 'N/A', 'byte_perplexity,none': 1.6231513927415857, 'byte_perplexity_stderr,none': 'N/A', 'bits_per_byte,none': 0.6987975675823629, 'bits_per_byte_stderr,none': 'N/A', 'alias': 'wikitext'}
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_gptq_quantizer_gpt_fast(self):
@@ -319,7 +329,7 @@ class TestQuantFlow(unittest.TestCase):
         with torch.no_grad():
             compiled(inputs[0].values[0], inputs[1].values[0])
 
-    @unittest.skip("skipping until we get checkpoints for gpt-fast")
+    # @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_gptq_quantizer_int4wo(self):
         from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer, InputRecorder, TransformerEvalWrapper
         precision = torch.bfloat16
@@ -339,7 +349,7 @@ class TestQuantFlow(unittest.TestCase):
         percdamp = 0.01
         groupsize = 128
         calibration_tasks = ["wikitext"]
-        calibration_limit = 1
+        calibration_limit = 5
         calibration_seq_length = 100
         input_prep_func = prepare_inputs_for_model
         pad_calibration_inputs = False
@@ -372,13 +382,16 @@ class TestQuantFlow(unittest.TestCase):
             device,
         ).run_eval(
             ["wikitext"],
-            1,
+            None,
         )
         assert result['results']['wikitext']['word_perplexity,none'] < 7.77, (
             f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
         )
+        #cal=1, eval=5, 11.962302077650287
+        #cal=5, eval=5, 11.509295952891462
+        #w/dq cal=5, eval=5, 11.4828
 
-    @unittest.skip("skipping until we get checkpoints for gpt-fast")
+    # @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_quantizer_int4wo(self):
         from torchao.quantization.GPTQ import Int4WeightOnlyQuantizer, TransformerEvalWrapper
         precision = torch.bfloat16
@@ -407,11 +420,14 @@ class TestQuantFlow(unittest.TestCase):
             device,
         ).run_eval(
             ["wikitext"],
-            1,
+            None,
         )
         assert result['results']['wikitext']['word_perplexity,none'] < 8.24, (
             f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
         )
+
+        #w/dq eval=5, 8.35281287303361
+        #eval=5, 12.000847928254762
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_eval_wrapper(self):
