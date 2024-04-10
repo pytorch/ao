@@ -52,13 +52,15 @@ class TestQuantFlow(unittest.TestCase):
     @parameterized.expand(
         [
             ("cuda", torch.bfloat16),
-            # TODO: ("cpu", torch.bfloat16),
+            ("cpu", torch.bfloat16),
             ("cuda", torch.float16),
-            # TODO: ("cpu", torch.float16),
+            ("cpu", torch.float16),
         ]
     )
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_int_scaled_mm(self, device, dtype):
+        if device == "cuda" and not torch.cuda.is_available():
+            self.skipTest(f"{device} not available")
+
         from torchao.kernel import intmm
 
         dtype = torch.bfloat16
