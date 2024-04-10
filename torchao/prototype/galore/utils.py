@@ -17,7 +17,7 @@ def get_orthogonal_matrix(weights, rank, type):
 
     # make the smaller matrix always to be orthogonal matrix
     if type == "right":
-        A = U[:, :rank] @ torch.diag(s[:rank])
+        # A = U[:, :rank] @ torch.diag(s[:rank])
         B = Vh[:rank, :]
 
         if not float_data:
@@ -25,7 +25,7 @@ def get_orthogonal_matrix(weights, rank, type):
         return B
     elif type == "left":
         A = U[:, :rank]
-        B = torch.diag(s[:rank]) @ Vh[:rank, :]
+        # B = torch.diag(s[:rank]) @ Vh[:rank, :]
         if not float_data:
             A = A.to(original_device).type(original_type)
         return A
