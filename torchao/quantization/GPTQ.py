@@ -276,9 +276,10 @@ if lm_eval_available:
 
 class MultiInput:
 
-    def __init__(self, inputs):
-
-        self.values = list(inputs)
+    def __init__(self, inputs=[]):
+        self.values = []
+        for input in inputs:
+            self.add_input(input)
 
     def add_input(self, input):
         self.values.append(input)
@@ -503,8 +504,31 @@ class GenericGPTQRunner(fx.Interpreter):
             )
 
             if self.debug:
-                old_out = self.call_function(
-                    target, (args[0][:2], args[1], *args[2:]), kwargs, already_quantized=True
+                baseline = []
+                for x in args[0].values:
+                    try:
+                        new = linear_forward_8da4w(
+                            x.to("cuda"),
+                            names_and_values_dict["weight"].to("cuda"),
+                            names_and_values_dict["scales"].to("cuda"),
+                            names_and_values_dict["zeros"].to("cuda"),
+                            DQ.shape[0],
+                            self.groupsize,
+                            torch.bfloat16
+                        )
+                        baseline.append(new)
+                    except Exception as e:
+                        print(e)
+                        breakpoint()
+                        print(e)
+
+
+
+                old_no_fq = self.call_function(
+                    target, (args[0], args[1]+0, *args[2:]), kwargs, already_quantized=False
+                )
+                old_w_fq = self.call_function(
+                    target, (args[0], args[1], *args[2:]), kwargs, already_quantized=True
                 )
 
                 def SQNR(x, y):
@@ -516,19 +540,28 @@ class GenericGPTQRunner(fx.Interpreter):
                 #  `dequantize_func`.
                 DQ_after = self.dequantize_func(Q, qparams).to(W.dtype)
                 print(
-                    "SQNR for QDQ (this should be inf)", SQNR(DQ, DQ_after)
+                    "SQNR for QDQ (this should be inf)", SQNR(DQ, DQ_after).item()
                 )  # matches
                 print(
-                    "SQNR for weight (can be low)", SQNR(W, DQ.cuda())
+                    "SQNR for weight (can be low)", SQNR(W, DQ.cuda()).item()
                 )  # fine to not match
                 print(
-                    "SQNR for output with GPTQ (hopefully 35+)",
+                    "SQNR for GPTQ weight + dyn_act vs orig",
                     torch.cat(
                         [
                             SQNR(old.cpu(), new.cpu()).unsqueeze(0)
-                            for (old, new) in zip(old_out.values, new_out.values[:2])
+                            for (old, new) in zip(old_no_fq.values, new_out.values)
                         ]
-                    ).mean(),
+                    ).mean().item(),
+                )
+                print(
+                    "SQNR for GPTQ weight + dyn_act vs orig + dyn_act",
+                    torch.cat(
+                        [
+                            SQNR(old.cpu(), new.cpu()).unsqueeze(0)
+                            for (old, new) in zip(old_w_fq.values, new_out.values)
+                        ]
+                    ).mean().item(),
                 )
 
                 #  `get_qparams_func`.
@@ -537,18 +570,37 @@ class GenericGPTQRunner(fx.Interpreter):
                 Q2 = self.quantize_func(W, qparams2)
                 DQ2 = self.dequantize_func(Q2, qparams2).to(W.dtype)
                 old_q_out = self.call_function(
-                    target, (args[0][:2], DQ2, *args[2:]), kwargs, already_quantized=True
+                    target, (args[0], DQ2, *args[2:]), kwargs, already_quantized=True
                 )
 
                 print(
-                    "SQNR for output without GPTQ (should be less than above)",
+                    "SQNR non-GPTQ Q weight + dyn_act vs orig",
                     torch.cat(
                         [
                             SQNR(old.cpu(), old_q.cpu()).unsqueeze(0)
-                            for (old, old_q) in zip(old_out.values, old_q_out.values)
+                            for (old, old_q) in zip(old_no_fq.values, old_q_out.values)
                         ]
-                    ).mean(),
+                    ).mean().item(),
                 )
+                print(
+                "SQNR non-GPTQ Q weight + dyn_act vs orig + dyn_act",
+                    torch.cat(
+                        [
+                            SQNR(old.cpu(), old_q.cpu()).unsqueeze(0)
+                            for (old, old_q) in zip(old_w_fq.values, old_q_out.values)
+                        ]
+                    ).mean().item(),
+                )
+                print(
+                    "SQNR baseline vs GPTQ + dyn_act",
+                    torch.cat(
+                        [
+                            SQNR(base.cpu(), new.cpu()).unsqueeze(0)
+                            for (base, new) in zip(baseline, new_out.values)
+                        ]
+                    ).mean().item(),
+                )
+
             return new_out
 
         return MultiInput(outputs) if has_multi_input else outputs[0]
@@ -1231,23 +1283,13 @@ if TORCH_VERSION_AFTER_2_3:
             return cur_state_dict
 
         def _convert_for_runtime(self, model: torch.nn.Module) -> torch.nn.Module:
-            if self._is_gpt_fast:
-                # TODO: temporary path for gpt-fast, will remove later
-                replace_linear_int4(
-                    model,
-                    self.groupsize,
-                    self.inner_k_tiles,
-                    self.padding_allowed,
-                    self._use_cuda,
-                )
-            else:
-                replace_linear_8da4w(
-                    model,
-                    self.groupsize,
-                    self.padding_allowed,
-                    self.precision,
-                    self.precision,
-                )
+            replace_linear_8da4w(
+                model,
+                self.groupsize,
+                self.padding_allowed,
+                self.precision,
+                self.precision,
+            )
             return model
 
         def quantize(
@@ -1336,32 +1378,26 @@ if TORCH_VERSION_AFTER_2_3:
                 new_k = find_multiple(k, 1 if groupsize is None else groupsize)
                 # how much we need to pad the weight
                 delta_k = new_k - q.shape[1]
+                if delta_k>0:
+                    print("doing padding")
+                    breakpoint()
+                    print("here")
                 final_q = F.pad(q, pad=(0, delta_k))
                 scales = qparams[0].to(self.precision)
                 zeros = qparams[1].to(self.precision)
                 return {"weight": final_q, "scales": scales, "zeros": zeros}
 
-            self.make_names_and_values_dict_func = make_names_and_values_dict_func_gpt_fast if self._is_gpt_fast else make_names_and_values_dict_func
+            self.make_names_and_values_dict_func = make_names_and_values_dict_func
             super().__init__()
 
         def _convert_for_runtime(self, model):
-            if self._is_gpt_fast:
-                # TODO: temporary path for gpt-fast, will remove later
-                replace_linear_int4(
-                    model,
-                    self.groupsize,
-                    self.inner_k_tiles,
-                    self.padding_allowed,
-                    self._use_cuda,
-                )
-            else:
-                replace_linear_8da4w(
-                    model,
-                    self.groupsize,
-                    self.padding_allowed,
-                    self.precision,
-                    self.precision,
-                )
+            replace_linear_8da4w(
+                model,
+                self.groupsize,
+                self.padding_allowed,
+                self.precision,
+                self.precision,
+            )
             return model
 
         def quantize(self, model: torch.nn.Module, inputs: List[MultiInput], **kwargs: Any) -> torch.nn.Module:

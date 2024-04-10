@@ -555,22 +555,26 @@ if TORCH_VERSION_AFTER_2_3:
 
 
     def per_token_dynamic_quant(input: torch.Tensor) -> torch.Tensor:
-        orig_dtype = input.dtype
-        # TODO: we may need to make the choose_qparams op configurable
-        (
-            scales,
-            zero_points,
-        ) = torch.ops.quantized_decomposed.choose_qparams_per_token_asymmetric(
-            input, torch.int8
-        )
+        x_int, scales =  quantize_activation_per_token_absmax(input)
+        return (x_int*scales).to(input.dtype)
 
-        # TODO: get these from torch.int8
-        quant_min = -128
-        quant_max = 127
-        input = torch.ops.quantized_decomposed.quantize_per_token(
-            input, scales, zero_points, quant_min, quant_max, torch.int8
-        )
-        input = torch.ops.quantized_decomposed.dequantize_per_token(
-            input, scales, zero_points, quant_min, quant_max, torch.int8, orig_dtype
-        )
-        return input.to(orig_dtype)
+
+        # orig_dtype = input.dtype
+        # # TODO: we may need to make the choose_qparams op configurable
+        # (
+        #     scales,
+        #     zero_points,
+        # ) = torch.ops.quantized_decomposed.choose_qparams_per_token_asymmetric(
+        #     input, torch.int8
+        # )
+
+        # # TODO: get these from torch.int8
+        # quant_min = -128
+        # quant_max = 127
+        # input = torch.ops.quantized_decomposed.quantize_per_token(
+        #     input, scales, zero_points, quant_min, quant_max, torch.int8
+        # )
+        # input = torch.ops.quantized_decomposed.dequantize_per_token(
+        #     input, scales, zero_points, quant_min, quant_max, torch.int8, orig_dtype
+        # )
+        # return input.to(orig_dtype)
