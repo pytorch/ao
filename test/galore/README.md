@@ -159,3 +159,12 @@ After running the `test_memory_usage`, the output directory (defaults to `profil
 - The `Total` column shows the allocation stats across all categories across all sampled timepoints. (Should not be interpreted as the row-wise sums).
 
 **NOTE**: The `json` output of the torch profiler memory trace is unlabeled. However, we can infer -- and confirm -- the labels by comparing the plots of the parsed dataframe with that of the direct `html` export of the profiler.
+
+- For example, after creating the dataframes per above, the following will plot the raw data, which should roughly reproduce the direct `html` export from `torch.profiler`, albeit with different timescale:
+
+```python
+_ = adamW_df.plot(kind="area", stacked=True, ylabel="Memory (MB)" )
+_ = adamW8bit_df.plot(kind="area", stacked=True, ylabel="Memory (MB)" )
+_ = galore_adamW_df_128.plot(kind="area", stacked=True, ylabel="Memory (MB)" )
+_ = galore_adamW8bit_df_128.plot(kind="area", stacked=True, ylabel="Memory (MB)" )
+```

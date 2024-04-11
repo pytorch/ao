@@ -92,8 +92,15 @@ def run(args, file_prefix):
     model = LlamaForCausalLM(model_config).to("cuda")
 
     # Load sample batch
-    batch = torch.load(args.data_path)
-    batch = {k: v.to("cuda") for k, v in batch.items()}
+    input_ids = torch.randint(
+        0,
+        model_config.vocab_size,
+        size=(args.batch_size, args.max_seq_len),
+        dtype=torch.int64,
+        device="cuda",
+    )
+    attention_mask = torch.ones_like(input_ids)
+    batch = dict(input_ids=input_ids, attention_mask=attention_mask)
     labels = batch["input_ids"].clone()
 
     n_total_params = sum(p.numel() for p in model.parameters())
@@ -222,13 +229,16 @@ if __name__ == "__main__":
         default="llama100M",
         type=str,
         choices=["llama100M", "llama1B"],
-        help="Model configuration",
+        help="Model configuration (see model_configs.py)",
     )
     parser.add_argument(
-        "--data_path",
-        default="./data/sample_batch.pt",
-        type=str,
-        help="Path to sample batch",
+        "--batch_size", default=5, type=int, help="Batch size to use for train step"
+    )
+    parser.add_argument(
+        "--max_seq_len",
+        default=256,
+        type=int,
+        help="Sequence length to use for train step, should be less than that in the specific model config",
     )
     parser.add_argument(
         "--output_dir",
@@ -236,12 +246,6 @@ if __name__ == "__main__":
         type=str,
         help="Directory for profiler outputs",
     )
-    # parser.add_argument(
-    #     "--output_prefix",
-    #     default="llama",
-    #     type=str,
-    #     help="Prefix for profiler output files",
-    # )
 
     parser.add_argument(
         "-lr",
