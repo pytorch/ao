@@ -95,6 +95,7 @@ TEST_CONFIGS = list(
 # TEST_CONFIGS = TEST_CONFIGS[0:1]
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires GPU")
 @pytest.mark.parametrize("kernel, dtype, M, N, rank, allow_tf32", TEST_CONFIGS)
 def test_galore_fused_kernels(kernel, dtype, M, N, rank, allow_tf32):
     torch.backends.cuda.matmul.allow_tf32 = allow_tf32
