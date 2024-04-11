@@ -80,44 +80,82 @@ After running the `test_memory_usage`, the output directory (defaults to `profil
 - Memory Usage over Time
 
   - We can see a long delay between the first backwards step for `GaLoreAdamW` due to the calculation of the projection matrix (calls `torch.linalg.svd` on the `grad`).
+  - To visualize, paste the following into a jupyter notebook (replacing the filenames with the those after running the profiler script):
 
-- Memory Usage Stats (all in `MB`)
-  - torch.optim.AdamW
+  ```python
+    adamW_html_trace = "./profiler_out/adamw_04-09-23.html"
+    adamW8bit_html_trace = "./profiler_out/adamw8bit_04-11-01.html"
+    galore_adamw_128_html_trace = "./profiler_out/galore_adamw-128-1.0-50_04-09-23.html"
+    galore_adamw8bit_128_html_trace = "./profiler_out/galore_adamw8bit-128-1.0-50_04-11-01.html"
 
-|        | Parameter | Optimizer_State | Input | Temporary | Activation | Gradient | Autograd_Detail | Unknown |
-| ------ | --------- | --------------- | ----- | --------- | ---------- | -------- | --------------- | ------- |
-| mean   | 381.9     | 628.1           | 0.0   | 0.2       | 356.0      | 162.8    | 6.6             | 29.5    |
-| min    | 381.9     | 0.0             | 0.0   | 0.0       | 0.0        | 0.0      | 0.0             | 0.0     |
-| median | 381.9     | 769.6           | 0.0   | 0.0       | 337.8      | 171.7    | 3.1             | 16.3    |
-| max    | 382.0     | 769.6           | 0.3   | 6.7       | 1,338.1    | 395.7    | 312.9           | 402.8   |
+    plot_memory_timeline(adamW_html_trace)
+    plot_memory_timeline(adamW8bit_html_trace)
+    plot_memory_timeline(galore_adamw_128_html_trace)
+    plot_memory_timeline(galore_adamw8bit_128_html_trace)
+  ```
+
+- Memory Usage Stats
+
+  - Summary stats for memory usage by type as well as total across all types can be viewed by running the following in jupyter notebook, again replacing the respective filepaths:
+
+  ```python
+  adamW_trace = "./profiler_out/adamw_04-11-21-memory-timeline.json"
+  adamW8bit_trace = "./profiler_out/adamw8bit_04-11-21-memory-timeline.json"
+  galore_adamW_trace_128 = "./profiler_out/galore_adamw-128-1.0-50_04-11-21-memory-timeline.json"
+  galore_adamW8bit_trace_128 = "./profiler_out/galore_adamw8bit-128-1.0-50_04-11-21-memory-timeline.json"
+
+  adamW_df = create_mem_df(adamW_trace, units="MB")
+  adamW8bit_df = create_mem_df(adamW8bit_trace, units="MB")
+  galore_adamW_df_128 = create_mem_df(galore_adamW_trace_128, units="MB")
+  galore_adamW8bit_df_128 = create_mem_df(galore_adamW8bit_trace_128, units="MB")
+
+  show_memory_stats(adamW_df)
+  show_memory_stats(adamW8bit_df)
+  show_memory_stats(galore_adamW_df_128)
+  show_memory_stats(galore_adamW8bit_df_128)
+  ```
+
+  The following are results from sample runs of `Llama1B` model config with the following optimizers (all units in MB):
+
+- torch.optim.AdamW
+
+  |        | Parameter | Optimizer_State | Input | Temporary | Activation | Gradient | Autograd_Detail | Unknown | Total    |
+  | ------ | --------- | --------------- | ----- | --------- | ---------- | -------- | --------------- | ------- | -------- |
+  | mean   | 5,108.2   | 8,330.3         | 0.0   | 0.6       | 2,249.5    | 2,113.8  | 19.0            | 197.3   | 18,018.8 |
+  | min    | 5,108.2   | 0.0             | 0.0   | 0.0       | 0.0        | 0.0      | 0.0             | 0.0     | 5,108.2  |
+  | median | 5,108.2   | 10,216.4        | 0.0   | 0.0       | 2,151.1    | 1,930.1  | 10.0            | 16.3    | 20,306.5 |
+  | max    | 5,108.3   | 10,216.4        | 0.3   | 20.0      | 5,946.4    | 5,108.2  | 312.2           | 5,124.4 | 25,557.3 |
 
 - GaLoreAdamW reference, rank 128
 
-|        | Parameter | Optimizer_State | Input | Temporary | Activation | Gradient | Autograd_Detail | Unknown |
-| ------ | --------- | --------------- | ----- | --------- | ---------- | -------- | --------------- | ------- |
-| mean   | 491.4     | 349.0           | 0.0   | 0.2       | 226.6      | 246.1    | 4.2             | 18.7    |
-| min    | 381.9     | 0.0             | 0.0   | 0.0       | 0.0        | 0.0      | 0.0             | 0.0     |
-| median | 516.3     | 403.6           | 0.0   | 0.0       | 75.7       | 272.8    | 0.0             | 18.1    |
-| max    | 595.0     | 403.6           | 0.3   | 6.6       | 1,336.0    | 395.3    | 312.9           | 173.6   |
+  |        | Parameter | Optimizer_State | Input | Temporary | Activation | Gradient | Autograd_Detail | Unknown | Total    |
+  | ------ | --------- | --------------- | ----- | --------- | ---------- | -------- | --------------- | ------- | -------- |
+  | mean   | 7,298.0   | 1,348.4         | 0.0   | 0.7       | 1,455.6    | 3,183.6  | 12.2            | 31.3    | 13,330.0 |
+  | min    | 5,108.2   | 0.0             | 0.0   | 0.0       | 0.0        | 0.0      | 0.0             | 0.0     | 5,108.2  |
+  | median | 7,796.2   | 1,576.7         | 0.0   | 0.0       | 545.4      | 3,898.2  | 0.0             | 26.2    | 14,422.8 |
+  | max    | 8,047.2   | 1,576.7         | 0.3   | 42.7      | 5,960.0    | 5,108.2  | 312.2           | 518.2   | 15,349.2 |
 
 - bitsandbytes AdamW8bit
 
-|        | Parameter | Optimizer_State | Input | Temporary | Activation | Gradient | Autograd_Detail | Unknown |
-| ------ | --------- | --------------- | ----- | --------- | ---------- | -------- | --------------- | ------- |
-| mean   | 381.9     | 157.3           | 0.0   | 0.2       | 376.0      | 149.4    | 6.9             | 17.1    |
-| min    | 381.9     | 0.0             | 0.0   | 0.0       | 0.0        | 0.0      | 0.0             | 0.0     |
-| median | 381.9     | 196.8           | 0.0   | 0.0       | 367.5      | 157.4    | 3.1             | 16.3    |
-| max    | 382.0     | 196.8           | 0.3   | 6.4       | 1,336.8    | 395.3    | 312.9           | 25.8    |
+  |        | Parameter | Optimizer_State | Input | Temporary | Activation | Gradient | Autograd_Detail | Unknown | Total    |
+  | ------ | --------- | --------------- | ----- | --------- | ---------- | -------- | --------------- | ------- | -------- |
+  | mean   | 5,108.2   | 2,047.4         | 0.0   | 0.7       | 2,390.0    | 1,925.2  | 20.1            | 20.3    | 11,511.9 |
+  | min    | 5,108.2   | 0.0             | 0.0   | 0.0       | 0.0        | 0.0      | 0.0             | 0.0     | 5,108.2  |
+  | median | 5,108.2   | 2,560.4         | 0.0   | 0.0       | 2,351.0    | 1,738.1  | 10.0            | 16.3    | 12,621.3 |
+  | max    | 5,108.3   | 2,560.4         | 0.3   | 20.0      | 5,946.4    | 5,108.2  | 312.2           | 46.9    | 13,631.3 |
 
 - GaLore AdamW8bit
 
-|        | Parameter | Optimizer_State | Input | Temporary | Activation | Gradient | Autograd_Detail | Unknown |
-| ------ | --------- | --------------- | ----- | --------- | ---------- | -------- | --------------- | ------- |
-| mean   | 378.0     | 87.9            | 0.0   | 0.2       | 260.7      | 186.1    | 4.8             | 142.7   |
-| min    | 156.8     | 0.0             | 0.0   | 0.0       | 0.0        | 0.0      | 0.0             | 0.0     |
-| median | 383.9     | 102.9           | 0.0   | 0.0       | 164.2      | 210.5    | 0.0             | 157.4   |
-| max    | 392.1     | 102.9           | 0.3   | 6.8       | 1,337.7    | 395.6    | 312.9           | 438.5   |
+  |        | Parameter | Optimizer_State | Input | Temporary | Activation | Gradient | Autograd_Detail | Unknown | Total    |
+  | ------ | --------- | --------------- | ----- | --------- | ---------- | -------- | --------------- | ------- | -------- |
+  | mean   | 4,971.0   | 334.7           | 0.1   | 0.8       | 1,644.0    | 2,130.9  | 13.8            | 2,360.3 | 11,455.6 |
+  | min    | 500.4     | 0.0             | 0.0   | 0.0       | 0.0        | 0.0      | 0.0             | 0.0     | 5,108.2  |
+  | median | 5,108.2   | 395.6           | 0.0   | 0.0       | 1,076.4    | 2,106.1  | 0.0             | 2,704.3 | 11,673.8 |
+  | max    | 5,153.5   | 395.6           | 85.4  | 42.7      | 5,947.8    | 5,109.2  | 312.2           | 7,685.4 | 14,155.9 |
 
-- The `optimizer state` is indeed smaller for the `GaLoreAdamW` optimizer. Interestingly, the `Parameter` sizes balloons in the `GaLore` optimizer, likely due to extra data copies. Admittedly, the implementation is only a reference (per original repo) and leaves much room for optimization.
+- The `optimizer state` is indeed smaller for the `GaLoreAdamW` optimizer.
+- Interestingly, the `Parameter` sizes balloons in the `GaLore` optimizer, likely due to extra data copies. Admittedly, the implementation is only a reference (per original repo) and leaves much room for optimization.
+- The memory usage is in terms of memory allocated, which we can confirm by printing the max cuda memory allocated vs reserved (which the profiler script prints automatically).
+- The `Total` column shows the allocation stats across all categories across all sampled timepoints. (Should not be interpreted as the row-wise sums).
 
 **NOTE**: The `json` output of the torch profiler memory trace is unlabeled. However, we can infer -- and confirm -- the labels by comparing the plots of the parsed dataframe with that of the direct `html` export of the profiler.

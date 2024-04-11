@@ -52,6 +52,7 @@ def create_mem_df(mem_trace, units="GB"):
     df = pd.DataFrame(
         [l[1:] for l in df.iloc[:, 1].to_list()], columns=COL_NAMES
     ).assign(**convert_cols_to_MB)
+    df["Total"] = df.sum(axis=1)
     return df
 
 
