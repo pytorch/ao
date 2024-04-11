@@ -26,6 +26,9 @@ def flush_cuda_mem():
     gc.collect()
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats()
+    torch.cuda.reset_max_memory_allocated()
+    torch.cuda.reset_max_memory_cached()
+    torch.cuda.reset_accumulated_memory_stats()
 
 
 @contextmanager
@@ -39,6 +42,36 @@ def cuda_max_memory():
         print(f"{mem_miB} MB of CUDA memory allocated")
         flush_cuda_mem()
     return mem_miB
+
+
+def get_cuda_memory_usage(units="MB", show=True):
+    """
+    Get maximum allocated / reserved CUDA memory in given units
+
+    Args:
+        units: MB, GB, or B
+    """
+    units = units.upper()
+    if units == "MB":
+        divisor = 1024**2
+    elif units == "GB":
+        divisor = 1024**3
+    else:
+        units = "B"
+        divisor = 1
+    max_memory_allocated = torch.cuda.max_memory_allocated() / divisor
+    max_memory_reserved = torch.cuda.max_memory_reserved() / divisor
+    if show:
+        print(
+            "Max Memory Allocated:",
+            f"{max_memory_allocated:,.1f} {units}",
+        )
+        print(
+            "Max Memory Reserved:",
+            f"{max_memory_reserved:,.1f} {units}",
+        )
+
+    return max_memory_allocated, max_memory_reserved
 
 
 def export_memory_snapshot(prefix) -> None:
@@ -56,7 +89,7 @@ def export_memory_snapshot(prefix) -> None:
 
 
 @contextmanager
-def memory_recorder(file_name="cuda_memory_snapshot") -> None:
+def memory_recorder(file_name="cuda_memory_snapshot", export=False) -> None:
     assert (
         torch.cuda.is_available()
     ), "Memory profiler requires GPU, check torch.cuda.is_available()"
@@ -69,7 +102,8 @@ def memory_recorder(file_name="cuda_memory_snapshot") -> None:
     finally:
         logger.info("Stopping snapshot record_memory_history")
         torch.cuda.memory._record_memory_history(enabled=None)
-        export_memory_snapshot(file_name)
+        if export:
+            export_memory_snapshot(file_name)
 
 
 def trace_handler(

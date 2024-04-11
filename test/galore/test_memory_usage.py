@@ -3,18 +3,20 @@ import contextlib
 import logging
 import os
 
+import model_configs
 import profiling_utils
 import torch
 import torch.nn as nn
 import torch.utils.data
+from bitsandbytes.optim import AdamW8bit
 from torch.profiler import record_function
+from transformers import LlamaConfig, LlamaForCausalLM
+
 from torchao.prototype.galore.optim.galore_torch import AdamW as GaLoreAdamW
 from torchao.prototype.galore.optim.galore_torch import AdamW8bit as GaLoreAdamW8bit
-from transformers import AutoConfig, LlamaForCausalLM
-
-from bitsandbytes.optim import AdamW8bit
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 def setup_galore(model, lr, weight_decay, rank, galore_scale, update_proj_gap):
@@ -27,7 +29,7 @@ def setup_galore(model, lr, weight_decay, rank, galore_scale, update_proj_gap):
         if not any(target_key in module_name for target_key in target_modules_list):
             continue
 
-        print("Enabling GaLore for weights in module: ", module_name)
+        logger.debug("Enabling GaLore for weights in module: ", module_name)
         galore_params.append(module.weight)
     id_galore_params = [id(p) for p in galore_params]
     # make parameters without "rank" to another group
@@ -80,8 +82,13 @@ def train_step(model, batch, labels, optimizer, profiler=None):
 def run(args, file_prefix):
     torch.manual_seed(args.seed)
 
-    # Initialize model from config file
-    model_config = AutoConfig.from_pretrained(args.model_config)
+    # Initialize model from config dict
+    model_config = LlamaConfig()
+    try:
+        model_config_dict = getattr(model_configs, args.model_config.upper())
+    except:
+        raise ValueError(f"Model config {args.model_config} not found")
+    model_config.update(model_config_dict)
     model = LlamaForCausalLM(model_config).to("cuda")
 
     # Load sample batch
@@ -136,7 +143,7 @@ def run(args, file_prefix):
         f"Profiling {args.model_config} with {args.optimizer.upper()} for {total_steps} steps (wait_steps={args.wait_steps}, warmup_steps={args.warmup_steps}, profiler_steps={args.profiler_steps})"
     )
     with prof_ctx as prof:
-        print(f"Prof: {prof}")
+        logger.debug(f"Profiler: {prof}")
         for _ in range(total_steps):
             with record_function("TRAIN_STEP"):
                 train_step(
@@ -212,9 +219,10 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--model_config",
-        default="./configs/llama_100m.json",
+        default="llama100M",
         type=str,
-        help="Path to Llama config file see `https://github.com/jiaweizzhao/GaLore/tree/master/configs`",
+        choices=["llama100M", "llama1B"],
+        help="Model configuration",
     )
     parser.add_argument(
         "--data_path",
@@ -273,6 +281,8 @@ if __name__ == "__main__":
         if args.torch_memory_snapshot
         else contextlib.nullcontext()
     )
-
+    profiling_utils.flush_cuda_mem()
     with mem_ctx:
         run(args, file_prefix)
+
+    profiling_utils.get_cuda_memory_usage(units="MB", show=True)
