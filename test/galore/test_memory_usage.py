@@ -8,9 +8,11 @@ import torch
 import torch.nn as nn
 import torch.utils.data
 from torch.profiler import record_function
+from torchao.prototype.galore.optim.galore_torch import AdamW as GaLoreAdamW
+from torchao.prototype.galore.optim.galore_torch import AdamW8bit as GaLoreAdamW8bit
 from transformers import AutoConfig, LlamaForCausalLM
 
-from torchao.prototype.galore.optim.galore_torch import AdamW as GaLoreAdamW
+from bitsandbytes.optim import AdamW8bit
 
 logging.basicConfig(level=logging.INFO)
 
@@ -50,7 +52,13 @@ def setup_galore(model, lr, weight_decay, rank, galore_scale, update_proj_gap):
             "proj_type": "std",
         },
     ]
-    optimizer = GaLoreAdamW(param_groups, lr=lr, weight_decay=weight_decay)
+    if "adamw" in args.optimizer:
+        if "8bit" in args.optimizer:
+            optimizer = GaLoreAdamW8bit(param_groups, lr=lr, weight_decay=weight_decay)
+        else:
+            optimizer = GaLoreAdamW(param_groups, lr=lr, weight_decay=weight_decay)
+    else:
+        raise ValueError(f"Unknown optimizer: {args.optimizer}")
     return optimizer
 
 
@@ -92,7 +100,7 @@ def run(args, file_prefix):
             trainable_params, lr=args.learning_rate, weight_decay=args.weight_decay
         )
 
-    elif args.optimizer.lower() == "galore_adamw":
+    elif "galore" in args.optimizer.lower():
         optimizer = setup_galore(
             model,
             args.learning_rate,
@@ -100,6 +108,10 @@ def run(args, file_prefix):
             rank=args.rank,
             galore_scale=args.galore_scale,
             update_proj_gap=args.update_proj_gap,
+        )
+    elif args.optimizer.lower() == "adamw8bit":
+        optimizer = AdamW8bit(
+            trainable_params, lr=args.learning_rate, weight_decay=args.weight_decay
         )
     else:
         raise "Unsupported optimizer"
@@ -165,7 +177,7 @@ if __name__ == "__main__":
         "--optimizer",
         default="adamw",
         type=str,
-        choices=["adamw", "galore_adamw"],
+        choices=["adamw", "galore_adamw", "adamw8bit", "galore_adamw8bit"],
         help="Which optimizer to use",
     )
     parser.add_argument("--rank", type=int, default=128)
