@@ -11,7 +11,7 @@ aten = torch.ops.aten
 
 c10d_functional = torch.ops.c10d_functional
 
-from typing import Any
+from typing import Any, Optional, Tuple, Union, List
 
 NF4_OPS_TABLE: Dict[Any, Any] = {}
 
@@ -789,6 +789,65 @@ class NF4Tensor(torch.Tensor):
     # Do not force the Float8Tensor type on the returned tensor
 
     __torch_function__ = torch._C._disabled_torch_function_impl
+
+    def fsdp_pre_all_gather(self) -> Tuple[Tuple[torch.Tensor, ...], Any]:
+        return (
+            self.quantized_scalers,
+            self.quantization_factor,
+            self.quantized_data,
+        ), (
+            SubclassTensorArgs(
+                self.size(),
+                self.stride(),
+                self.storage_offset(),
+                self.dtype,
+                self.device,
+                self.requires_grad,
+            ),
+            self.block_size,
+            self.n_blocks,
+            self.scaler_block_size,
+            self.scaler_mean,
+            self.nf4,
+        )
+
+    def fsdp_post_all_gather(
+        self,
+        all_gather_outputs: Tuple[torch.Tensor, ...],
+        metadata: Any,
+        param_dtype: torch.dtype,
+        *,
+        out: Optional[torch.Tensor] = None,
+    ) -> Union[Tuple[torch.Tensor, Tuple[torch.Tensor, ...]], None]:
+        (quantized_scalers, quantization_factor, quantized_data) = all_gather_outputs
+        (tensor_meta, block_size, n_blocks, scaler_block_size, scaler_mean, nf4)  = metadata
+        world_size = quantized_data.numel() * 2 // math.prod(tensor_meta.original_shape)
+        len(tensor_meta.original_shape) == 2, "only support 2D shape"
+        tensor_meta.original_shape = torch.Size((tensor_meta.original_shape[0] * world_size, tensor_meta.original_shape[1]))
+        if out is not None:
+            # TODO: add param dtype
+            assert isinstance(out, NF4Tensor), f"{type(out)}"
+            assert (
+                quantized_scalers.untyped_storage().data_ptr()
+                == out.quantized_scalers.untyped_storage().data_ptr() and
+                quantization_factor.untyped_storage().data_ptr()
+                == out.quantization_factor.untyped_storage().data_ptr() and
+                quantized_data.untyped_storage().data_ptr()
+                == out.quantized_data.untyped_storage().data_ptr()
+            ), f"Expects out's data to be the all-gather output"
+            return
+
+        return NF4Tensor(
+            tensor_meta,
+            block_size,
+            n_blocks,
+            scaler_block_size,
+            quantized_scalers,
+            quantization_factor,
+            scaler_mean,
+            quantized_data,
+            nf4,
+        ), (quantized_scalers, quantization_factor, quantized_data)
 
 
 class LinearNF4(torch.autograd.Function):
