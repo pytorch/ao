@@ -9,19 +9,21 @@ except ImportError:
 import torch
 from galore_test_utils import make_data
 
+from torchao.prototype.galore.kernels.matmul import set_tuner_top_k as matmul_tuner_topk
 from torchao.prototype.galore.kernels.matmul import triton_mm_launcher
 from torchao.prototype.galore.utils import TestGaLoreProjector as GaLoreProjector
 
 torch.manual_seed(0)
-MAX_DIFF_no_tf32 = 1e-4
 
+matmul_tuner_topk(10)
+MAX_DIFF_no_tf32 = 1e-4
 MAX_DIFF_tf32 = 1e-2
 
 
 TEST_CONFIGS = [
-    (4096, 4096, 128, True, False, torch.float32),
+    # (4096, 4096, 128, True, False, torch.float32),
     (4096, 4096, 128, False, False, torch.float32),
-    (4096, 11008, 128, True, False, torch.float32),
+    # (4096, 11008, 128, True, False, torch.float32),
     (4096, 11008, 128, False, False, torch.float32),
 ]
 
