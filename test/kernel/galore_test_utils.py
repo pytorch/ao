@@ -1,11 +1,18 @@
 import torch
 
 from torchao.prototype.galore.kernels.adam_downproj_fused import fused_adam_mm_launcher
+from torchao.prototype.galore.kernels.adam_downproj_fused import (
+    set_tuner_top_k as adam_downproj_tuner_topk,
+)
 from torchao.prototype.galore.kernels.adam_step import triton_adam_launcher
+from torchao.prototype.galore.kernels.matmul import set_tuner_top_k as matmul_tuner_topk
 from torchao.prototype.galore.kernels.matmul import triton_mm_launcher
 from torchao.prototype.galore.utils import TestGaLoreProjector as GaLoreProjector
 
 torch.manual_seed(0)
+
+adam_downproj_tuner_topk(10)
+matmul_tuner_topk(10)
 
 BETA1 = 0.9
 BETA2 = 0.999

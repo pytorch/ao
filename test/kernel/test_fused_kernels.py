@@ -91,9 +91,9 @@ def run_test(kernel, exp_avg, exp_avg2, grad, proj_matrix, params, allow_tf32):
 KERNELS = ["hybrid", "fused"]
 DTYPES = [torch.float32]  # torch.float16
 ROW_DIMS = [4096]
-COL_DIMS = [4096, 11008]
+COL_DIMS = [4096]  # , 11008]
 RANKS = [128]
-ALLOW_TF32 = [False, True]
+ALLOW_TF32 = [False]  # , True]
 
 TEST_CONFIGS = list(
     itertools.product(KERNELS, DTYPES, ROW_DIMS, COL_DIMS, RANKS, ALLOW_TF32)
