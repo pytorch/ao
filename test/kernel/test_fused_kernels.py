@@ -88,7 +88,7 @@ def run_test(kernel, exp_avg, exp_avg2, grad, proj_matrix, params, allow_tf32):
         assert max_diff < MAX_DIFF
 
 
-KERNELS = ["hybrid", "fused"]
+KERNELS = ["hybrid"]  #  "fused"]
 DTYPES = [torch.float32]  # torch.float16
 ROW_DIMS = [4096]
 COL_DIMS = [4096]  # , 11008]

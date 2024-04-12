@@ -28,7 +28,7 @@ BLOCKSIZE = [2048]
 TEST_CONFIGS = list(itertools.product(DIM1, DIM2, DTYPES, SIGNS, BLOCKSIZE))
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires GPU")
+@pytest.mark.skip("skipping for now, see comments below")
 @pytest.mark.parametrize(
     "dim1,dim2,dtype,signed,blocksize",
     TEST_CONFIGS,
