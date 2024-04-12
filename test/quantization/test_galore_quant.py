@@ -1,7 +1,14 @@
 import itertools
 
-import bitsandbytes.functional as F
 import pytest
+
+# Skip entire test if triton is not available, otherwise CI failure
+try:
+    import triton
+except ImportError:
+    pytest.skip("triton is not installed", allow_module_level=True)
+
+import bitsandbytes.functional as F
 import torch
 
 from torchao.prototype.galore.kernels import (

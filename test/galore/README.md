@@ -25,9 +25,9 @@ python galore_mem_prof.py -t --optimizer=galore_adamw --rank=128
 More options
 
 ```
-python test_memory_usage.py --help
+python profile_memory_usage.py --help
 
-usage: test_memory_usage.py [-h] [-t] [-m] [-ns] [--optimizer {adamw,galore_adamw}] [--rank RANK] [--update_proj_gap UPDATE_PROJ_GAP]
+usage: profile_memory_usage.py [-h] [-t] [-m] [-ns] [--optimizer {adamw,galore_adamw}] [--rank RANK] [--update_proj_gap UPDATE_PROJ_GAP]
                             [--galore_scale GALORE_SCALE] [--wait_steps WAIT_STEPS] [--warmup_steps WARMUP_STEPS] [--profiler_steps PROFILER_STEPS]
                             [--max_steps MAX_STEPS] [--model_config MODEL_CONFIG] [--data_path DATA_PATH] [--output_dir OUTPUT_DIR] [-lr LEARNING_RATE]
                             [--weight_decay WEIGHT_DECAY] [--seed SEED]
@@ -67,7 +67,7 @@ options:
 
 #### Analysis
 
-After running the `test_memory_usage`, the output directory (defaults to `profiler_out`) will have three types of files:
+After running the `profile_memory_usage`, the output directory (defaults to `profiler_out`) will have three types of files:
 
 - `*.{json,html} - these are the memory trace exports of `torch.profiler`
   - the `html` contains the memory timeline plot

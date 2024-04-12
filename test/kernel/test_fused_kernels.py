@@ -1,8 +1,15 @@
 import itertools
 
 import pytest
+
+# Skip entire test if triton is not available, otherwise CI failure
+try:
+    import triton
+except ImportError:
+    pytest.skip("triton is not installed", allow_module_level=True)
+
 import torch
-from test_utils import get_kernel, make_copy, make_data
+from galore_test_utils import get_kernel, make_copy, make_data
 
 torch.manual_seed(0)
 MAX_DIFF_no_tf32 = 1e-5

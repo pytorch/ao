@@ -1,6 +1,13 @@
 import pytest
+
+# Skip entire test if triton is not available, otherwise CI failure
+try:
+    import triton
+except ImportError:
+    pytest.skip("triton is not installed", allow_module_level=True)
+
 import torch
-from test_utils import make_data
+from galore_test_utils import make_data
 
 from torchao.prototype.galore.kernels.matmul import triton_mm_launcher
 from torchao.prototype.galore.utils import TestGaLoreProjector as GaLoreProjector
