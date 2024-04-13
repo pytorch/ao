@@ -186,8 +186,7 @@ class NF4Tensor(torch.Tensor):
             tensor_meta.original_shape,
             tensor_meta.original_strides,
             tensor_meta.storage_offset,
-            # Picked some floating dtype, but we need dtype extensibility
-            dtype=torch.float8_e5m2fnuz,
+            dtype=tensor_meta.dtype, # Dtype broadcast to the world matches input
             device=tensor_meta.device,
             requires_grad=tensor_meta.requires_grad,
         )
@@ -224,14 +223,11 @@ class NF4Tensor(torch.Tensor):
         scaler_block_size: int,
     ):
         assert inpt_tensor.dim() <= 2
-        assert inpt_tensor.dtype == torch.bfloat16
         assert (
             inpt_tensor.numel() % block_size == 0
         ), f"Input tensor must be divisible by block size, got {inpt_tensor.numel()} and {block_size}"
-        assert inpt_tensor.dtype == torch.bfloat16, "Input tensor must be bfloat16"
         assert inpt_tensor.is_contiguous, "Input tensor must be contiguous!"
-        # I think I want do this
-        # assert not inpt_tensor.requires_grad, "Input tensor must not require grad"
+        assert not inpt_tensor.requires_grad, "Input tensor must not require grad"
         device = inpt_tensor.device
         # Cache the tensor on the class def
         nf4 = torch.tensor(
@@ -254,7 +250,7 @@ class NF4Tensor(torch.Tensor):
                 1.0000,
             ],
             device=device,
-            dtype=torch.bfloat16,
+            dtype=inpt_tensor.dtype,
         )
         n_blocks = inpt_tensor.numel() // block_size
         # Double quantization
@@ -370,7 +366,7 @@ class NF4Tensor(torch.Tensor):
         n_scaler_blocks = inpt_tensor.numel() // scaler_block_size
         inpt_tensor = inpt_tensor.view(n_scaler_blocks, scaler_block_size)
         dequantized = (inpt_tensor / quantization_factor.unsqueeze(-1)).flatten().to(
-            torch.bfloat16
+            self.dtype
         ) + self.scaler_mean
         return dequantized
 
