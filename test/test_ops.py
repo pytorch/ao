@@ -5,7 +5,7 @@ import torchao
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
 import unittest
 
-def is_nightly_with_dev_cud(version):
+def is_nightly_with_dev_cuda(version):
     return "dev" in version and "cu" in version
 
 # torch.testing._internal.optests.generate_tests.OpCheckError: opcheck(op, ...):
@@ -28,7 +28,7 @@ class TestOps(TestCase):
         scores = torch.rand(N)
         return boxes, scores
 
-    @unittest.skipIf(is_nightly_with_dev(torch.__version__), " NotImplementedError: Could not run 'torchao::nms' with arguments from the 'CUDA' backend")
+    @unittest.skipIf(is_nightly_with_dev_cuda(torch.__version__), " NotImplementedError: Could not run 'torchao::nms' with arguments from the 'CUDA' backend")
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.3 or lower")
     def test_nms(self):
