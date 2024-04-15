@@ -54,7 +54,7 @@ jobs:
     - name: Install package
       run: |
         source env/bin/activate
-        python -m pip install .
+        python setup.py install
 
     - name: Run tests
       run: |
