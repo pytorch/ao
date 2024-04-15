@@ -5,8 +5,8 @@ import torchao
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
 import unittest
 
-def is_nightly_with_dev(version):
-    return "dev" in version
+def is_nightly_with_dev_cud(version):
+    return "dev" in version and "cu" in version
 
 # torch.testing._internal.optests.generate_tests.OpCheckError: opcheck(op, ...):
 # test_faketensor failed with module 'torch' has no attribute '_custom_ops' (scroll up for stack trace)
