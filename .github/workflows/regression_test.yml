@@ -51,7 +51,7 @@ jobs:
 
     - name: Install package
       run: |
-        pip install .
+        pip install . -vvv
 
     - name: Run tests
       run: |
