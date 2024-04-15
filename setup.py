@@ -4,17 +4,11 @@
 # LICENSE file in the root directory of this source tree.
 
 import os
-# import torch
 import glob
 from datetime import datetime
 
 from setuptools import find_packages, setup
-from torch.utils.cpp_extension import (
-    CppExtension,
-    CUDAExtension,
-    BuildExtension,
-    CUDA_HOME,
-)
+
 
 
 current_date = datetime.now().strftime("%Y.%m.%d")
@@ -31,8 +25,20 @@ package_name = "torchao-nightly" if os.environ.get("TORCHAO_NIGHTLY") else "torc
 # Version is year.month.date if using nightlies
 version = current_date if package_name == "torchao-nightly" else "0.1"
 
+def getBuildExtension():
+    import torch
+    from torch.utils.cpp_extension import BuildExtension
+    return BuildExtension
 
 def get_extensions():
+    import torch
+
+    from torch.utils.cpp_extension import (
+    CppExtension,
+    CUDAExtension,
+    BuildExtension,
+    CUDA_HOME,
+    )
     debug_mode = os.getenv('DEBUG', '0') == '1'
     if debug_mode:
         print("Compiling in debug mode")
@@ -92,5 +98,5 @@ setup(
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/pytorch-labs/ao",
-    cmdclass={"build_ext": BuildExtension},
+    cmdclass={"build_ext": getBuildExtension()},
 )
