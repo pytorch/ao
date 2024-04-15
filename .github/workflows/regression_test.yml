@@ -51,6 +51,12 @@ jobs:
         python -m pip install -r requirements.txt
         python -m pip install -r dev-requirements.txt
 
+    - name: List dependencies
+      run: |
+        source env/bin/activate
+        pip list
+        which python
+
     - name: Install package
       run: |
         source env/bin/activate
