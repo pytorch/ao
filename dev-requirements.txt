@@ -3,3 +3,4 @@ expecttest
 parameterized
 packaging
 transformers
+ninja
