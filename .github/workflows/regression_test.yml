@@ -45,9 +45,9 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python pip install ${{ matrix.torch-spec }}
-        python pip install -r requirements.txt
-        python pip install -r dev-requirements.txt
+        python -m pip install ${{ matrix.torch-spec }}
+        python -m pip install -r requirements.txt
+        python -m pip install -r dev-requirements.txt
 
     - name: Install package
       run: |
