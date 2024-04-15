@@ -9,7 +9,6 @@ import glob
 from datetime import datetime
 
 from setuptools import find_packages, setup
-import torch
 from torch.utils.cpp_extension import (
     CppExtension,
     CUDAExtension,

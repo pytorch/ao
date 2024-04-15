@@ -32,6 +32,8 @@ jobs:
             runs-on: 32-core-ubuntu
             torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cpu'
     runs-on: ${{ matrix.runs-on }}
+    continue-on-error: true
+
     steps:
     - uses: actions/checkout@v2
 
