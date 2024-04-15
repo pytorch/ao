@@ -44,16 +44,17 @@ jobs:
 
     - name: Install dependencies
       run: |
-        # python -m venv env
-        # source env/bin/activate
-        # pip install --upgrade pip
-        pip install ${{ matrix.torch-spec }}
-        pip install -r requirements.txt
-        pip install -r dev-requirements.txt
+        python -m venv env
+        source env/bin/activate
+        python -m pip install --upgrade pip
+        python -m pip install ${{ matrix.torch-spec }}
+        python -m pip install -r requirements.txt
+        python -m pip install -r dev-requirements.txt
 
     - name: Install package
       run: |
-        pip install --no-build-isolation .
+        source env/bin/activate
+        python -m pip install .
 
     - name: Run tests
       run: |
