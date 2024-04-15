@@ -26,6 +26,7 @@ class TestOps(TestCase):
         scores = torch.rand(N)
         return boxes, scores
 
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.3 or lower")
     def test_nms(self):
         iou = 0.2
