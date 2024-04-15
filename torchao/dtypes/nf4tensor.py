@@ -461,11 +461,11 @@ class NF4Tensor(torch.Tensor):
         scaler_block_size: int,
     ):
         assert inpt_tensor.dim() <= 2
-        assert inpt_tensor.dtype == torch.bfloat16
+        # assert inpt_tensor.dtype == torch.bfloat16
         assert (
             inpt_tensor.numel() % block_size == 0
         ), f"Input tensor must be divisible by block size, got {inpt_tensor.numel()} and {block_size}"
-        assert inpt_tensor.dtype == torch.bfloat16, "Input tensor must be bfloat16"
+        # assert inpt_tensor.dtype == torch.bfloat16, "Input tensor must be bfloat16"
         assert inpt_tensor.is_contiguous, "Input tensor must be contiguous!"
         # I think I want do this
         # assert not inpt_tensor.requires_grad, "Input tensor must not require grad"
@@ -491,7 +491,7 @@ class NF4Tensor(torch.Tensor):
                 1.0000,
             ],
             device=device,
-            dtype=torch.bfloat16,
+            dtype=inpt_tensor.dtype,
         )
         n_blocks = inpt_tensor.numel() // block_size
         # Double quantization
@@ -607,7 +607,7 @@ class NF4Tensor(torch.Tensor):
         n_scaler_blocks = inpt_tensor.numel() // scaler_block_size
         inpt_tensor = inpt_tensor.view(n_scaler_blocks, scaler_block_size)
         dequantized = (inpt_tensor / quantization_factor.unsqueeze(-1)).flatten().to(
-            torch.bfloat16
+            self.dtype
         ) + self.scaler_mean
         return dequantized
 
@@ -858,7 +858,8 @@ class LinearNF4(torch.autograd.Function):
     def forward(ctx, input: torch.Tensor, weight: NF4Tensor):
         """Save the quantized nf4 weight for backward pass"""
         ctx.nf4_weight = weight
-        assert input.dtype == torch.bfloat16 and input.dtype == weight.dtype
+        # assert input.dtype == torch.bfloat16 and input.dtype == weight.dtype
+        assert input.dtype == weight.dtype
         return F.linear(input, weight.get_original_weight())
         # return F.linear(input, weight.to(input.dtype))
 
@@ -884,5 +885,6 @@ def linear_nf4(input: torch.Tensor, weight: NF4Tensor) -> torch.Tensor:
 
 
 def to_nf4(tensor, block_size: int = 64, scaler_block_size: int = 256):
-    tensor1 = tensor.to(torch.bfloat16)
-    return NF4Tensor.from_tensor(tensor1, block_size, scaler_block_size)
+    # tensor1 = tensor.to(torch.bfloat16)
+    # return NF4Tensor.from_tensor(tensor1, block_size, scaler_block_size)
+    return NF4Tensor.from_tensor(tensor, block_size, scaler_block_size)
