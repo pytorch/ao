@@ -47,6 +47,13 @@ __all__ = [
 ] + (_AFTER_TORCH_2_3_ONLY if TORCH_VERSION_AFTER_2_3 else [])
 
 
+def guard_dtype_size(tensor_arg, arg_name, dtype=None, size=None):
+    if dtype is not None and tensor_arg.dtype != dtype:
+        raise ValueError("Expected Tensor argument {arg_name} to have dtype {dtype}, but got {tensor_arg.dtype} instead.")
+    if size is not None and tensor_arg.size() != size:
+        raise ValueError("Expected Tensor argument {arg_name} to have size {size}, but got {tensor_arg.size()} instead.")
+
+
 _DTYPE_TO_QVALUE_BOUNDS = {
     torch.uint8: (0, 255),
     torch.int8: (-128, 127),
@@ -494,7 +501,7 @@ def quant_int8_dynamic_per_token_linear(
         x_vals_int8, x_scales, w_vals_int8_t, w_scales, out_dtype
     )
     if bias is not None:
-        mm_out += bias
+        mm_out = mm_out + bias
     return mm_out
 
 
@@ -555,7 +562,7 @@ def quant_int8_per_token_matmul(
     return y
 
 
-def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128):
+def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16):
     """This is tinygemm specific, we'll keep this for now"""
     if groupsize > w.shape[-1]:
         groupsize = w.shape[-1]
@@ -571,15 +578,14 @@ def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128):
     max_int = 2**n_bit - 1
     scales = (max_val - min_val).clamp(min=1e-6) / max_int
     zeros = min_val + scales * (2 ** (n_bit - 1))
-    return scales.to(torch.bfloat16).reshape(w.shape[0], -1), zeros.to(
-        torch.bfloat16
+    return scales.to(dtype=dtype).reshape(w.shape[0], -1), zeros.to(
+        dtype=dtype
     ).reshape(w.shape[0], -1)
 
 
 def pack_tinygemm_scales_and_zeros(scales, zeros):
-    assert scales.shape == zeros.shape
-    assert scales.dtype == torch.bfloat16
-    assert zeros.dtype == torch.bfloat16
+    guard_dtype_size(scales, "scales", dtype=torch.bfloat16, size=zeros.size())
+    guard_dtype_size(zeros, "zeros", dtype=torch.bfloat16)
     return (
         torch.cat(
             [
@@ -662,8 +668,8 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     return w_dq
 
 
-def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128):
-    scales, zeros = get_groupwise_affine_qparams(w, n_bit, groupsize)
+def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128, dtype=torch.bfloat16):
+    scales, zeros = get_groupwise_affine_qparams(w, n_bit, groupsize, dtype)
     w_int4x8 = groupwise_affine_quantize_tensor_from_qparams(
         w, scales, zeros, n_bit, groupsize
     )
