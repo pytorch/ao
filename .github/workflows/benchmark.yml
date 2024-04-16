@@ -1,4 +1,4 @@
-name: Run Regression Tests
+name: Run Benchmarks
 
 on:
   push:
