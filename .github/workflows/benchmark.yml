@@ -7,7 +7,7 @@ on:
   pull_request:
     branches:
       - main
-  workflow-dispatch:
+  workflow_dispatch:
 
 jobs:
   benchmark:
