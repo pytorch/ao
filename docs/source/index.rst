@@ -12,7 +12,7 @@ to quantize and prune your models using native PyTorch.
         :link: getting-started.html
         :link-type: url
 
-        Learn about how to get started with TorchAO
+        Learn about how to get started with torchao
         and ts application in your projects.
 
      .. grid-item-card:: :octicon:`file-code;1em`
@@ -21,7 +21,7 @@ to quantize and prune your models using native PyTorch.
         :link: dtypes.html
         :link-type: url
 
-        Learn about the key TorchAO concepts such
+        Learn about the key torchao concepts such
         as dtypes, quantization, sparsity, among others.
 
      .. grid-item-card:: :octicon:`file-code;1em`
@@ -30,7 +30,7 @@ to quantize and prune your models using native PyTorch.
         :link: api_ref_intro.html
         :link-type: url
 
-        A comprehensive reference for the TorchAO
+        A comprehensive reference for the torchao
         API and its functionalities.
 
 Tutorials
