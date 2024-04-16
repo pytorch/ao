@@ -61,7 +61,40 @@ sphinx_gallery_conf = {
 napoleon_use_ivar = True
 napoleon_numpy_docstring = False
 napoleon_google_docstring = True
+project = "torchao"
 
+# Get TORCHAO_VERSION_DOCS during the build.
+torchao_version_docs = os.environ.get("TORCHAO_VERSION_DOCS", None)
+
+# The code below will cut version displayed in the dropdown like this:
+# tags like v0.1.0 = > 0.1
+# branch like release/0.1 => 0.1
+# main will remain main
+# if not set will fail back to main
+# the version varible is used in layout.html: https://github.com/pytorch/torchao/blob/main/docs/source/_templates/layout.html#L29
+if torchao_version_docs:
+    # Check if starts with release/ and set the version to the number after slash
+    if torchao_version_docs.startswith("release/"):
+        version = torchao_version_docs.split("/")[-1]
+    else:
+        # Remove "v" prefix if present
+        if torchao_version_docs.startswith("v"):
+            torchao_version_docs = torchao_version_docs[1:]
+        # Split to major, minor, and patch
+        version_components = torchao_version_docs.split(".")
+
+        # Combine the major and minor version components:
+        if len(version_components) >= 2:
+            version = release = ".".join(version_components[:2])
+        else:
+            # If there are not enough components, use the full version
+            version = release = torchao_version_docs
+
+    html_title = " ".join((project, version, "documentation"))
+# IF TORCHAO_VERSION_DOCS not set, set version to main.
+else:
+    version = "main"
+    release = "main"
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
@@ -75,7 +108,6 @@ source_suffix = [".rst"]
 master_doc = "index"
 
 # General information about the project.
-project = "torchao"
 copyright = "2024-present, torchao Contributors"
 author = "torchao Contributors"
 
