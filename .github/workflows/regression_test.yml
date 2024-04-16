@@ -43,7 +43,6 @@ jobs:
         auto-update-conda: true
         python-version: '3.9'
         activate-environment: test-env
-        environment-file: environment.yml
         use-only-tar-bz2: true # optional: use only bzip2 archives, smaller bandwidth usage
 
     - name: Install CUDA Toolkit
