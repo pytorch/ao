@@ -52,6 +52,7 @@ jobs:
     - name: Install PyTorch and other dependencies
       run: |
         source $CONDA/etc/profile.d/conda.sh
+        conda init
         conda activate test-env
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
