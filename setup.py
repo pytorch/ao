@@ -9,10 +9,7 @@ from datetime import datetime
 
 from setuptools import find_packages, setup
 
-
-
 current_date = datetime.now().strftime("%Y.%m.%d")
-
 
 def read_requirements(file_path):
     with open(file_path, "r") as file:
@@ -24,6 +21,8 @@ package_name = "torchao-nightly" if os.environ.get("TORCHAO_NIGHTLY") else "torc
 
 # Version is year.month.date if using nightlies
 version = current_date if package_name == "torchao-nightly" else "0.1"
+
+
 
 def BuildExtension(*args, **kwargs):
     import torch
@@ -62,7 +61,6 @@ def get_extensions():
         extra_compile_args["nvcc"].append("-g")
         extra_link_args.extend(["-O0", "-g"])
 
-    # this_dir = os.path.dirname(os.path.abspath(__file__))
     this_dir = os.path.dirname(os.path.curdir)
     extensions_dir = os.path.join(this_dir, "torchao", "csrc")
     sources = list(glob.glob(os.path.join(extensions_dir, "*.cpp")))
@@ -83,7 +81,6 @@ def get_extensions():
     ]
 
     return ext_modules
-
 
 setup(
     name=package_name,
