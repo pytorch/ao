@@ -6,11 +6,17 @@ import sys
 import pathlib
 
 import torch
+from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
+
 
 # Check if CUDA is available, if not, exit the script
 if not torch.cuda.is_available():
     print("CUDA is not available. Exiting the script.")
-    sys.exit()
+    sys.exit(0)
+
+if not TORCH_VERSION_AFTER_2_4:
+    print("torch version must be 2.4 or higher")
+    sys.exit(0)
 
 import torch.nn.functional as F
 import torch.utils.benchmark as benchmark
