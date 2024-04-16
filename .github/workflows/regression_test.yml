@@ -51,22 +51,18 @@ jobs:
 
     - name: Install PyTorch
       run: |
-        conda activate test-env
         pip install --pre -f https://download.pytorch.org/whl/nightly/cu113 ${MATRIX.TORCH_SPEC}
 
     - name: List dependencies
       run: |
-        conda activate test-env
         pip list
         which python
 
     - name: Install package
       run: |
-        conda activate test-env
         python -c "import torch; print(torch.__version__)"
         pip install .
 
     - name: Run tests
       run: |
-        conda activate test-env
         pytest test --verbose -s
