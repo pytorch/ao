@@ -55,5 +55,5 @@ jobs:
     - name: Run benchmark
       run: |
         cd benchmarks
-        python intmm.py --filepath intmm_shapes.csv
-        python intmm.py --filepath sam_vit_b_shapes.csv
+        python intmm.py --file_path intmm_shapes.csv
+        python intmm.py --file_path sam_vit_b_shapes.csv
