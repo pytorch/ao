@@ -61,17 +61,20 @@ jobs:
 
     - name: List dependencies
       run: |
+        conda init
         conda activate test-env
         pip list
         which python
 
     - name: Install package
       run: |
+        conda init
         conda activate test-env
         python -c "import torch; print(torch.__version__)"
         pip install .
 
     - name: Run tests
       run: |
+        conda init
         conda activate test-env
         pytest test --verbose -s
