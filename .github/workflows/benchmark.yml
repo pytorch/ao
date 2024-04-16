@@ -10,7 +10,7 @@ on:
   workflow-dispatch:
 
 jobs:
-  test:
+  benchmark:
     strategy:
       matrix:
         include:
