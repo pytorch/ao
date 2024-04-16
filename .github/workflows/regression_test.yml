@@ -57,8 +57,10 @@ jobs:
         python -m pip list
         which python
 
+
     - name: Install package
       run: |
+        python -c "import torch; print(torch.__version__)"
         source env/bin/activate
         python -m pip install .
 
