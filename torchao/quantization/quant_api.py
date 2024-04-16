@@ -58,7 +58,6 @@ if TORCH_VERSION_AFTER_2_3:
     __all__ += [
         "Int8DynActInt4WeightQuantizer",
         "Int8DynActInt4WeightGPTQQuantizer",
-
     ]
 
 
@@ -119,10 +118,11 @@ def apply_dynamic_quant(model, filter_fn=None):
 
 
 def _get_subclass_inserter(cls, **kwargs):
-
+    method = kwargs.pop("method", "from_float")
     def insert_subclass(lin):
         lin.weight = torch.nn.Parameter(
-            cls.from_float(lin.weight, **kwargs), requires_grad=False
+            # cls.from_float(...)
+            getattr(cls, method)(lin.weight, **kwargs), requires_grad=False
         )
         return lin
 
@@ -173,7 +173,6 @@ def change_linear_weights_to_int4_woqtensors(model, **kwargs):
         _get_subclass_inserter(Int4WeightOnlyQuantizedLinearWeight, **kwargs),
         filter_fn,
     )
-
 
 def swap_conv2d_1x1_to_linear(model, filter_fn=None):
     """
