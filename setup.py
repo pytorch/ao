@@ -8,14 +8,7 @@ import glob
 from datetime import datetime
 
 from setuptools import find_packages, setup
-import torch
 
-from torch.utils.cpp_extension import (
-CppExtension,
-CUDAExtension,
-BuildExtension,
-CUDA_HOME,
-)
 
 
 current_date = datetime.now().strftime("%Y.%m.%d")
@@ -32,7 +25,20 @@ package_name = "torchao-nightly" if os.environ.get("TORCHAO_NIGHTLY") else "torc
 # Version is year.month.date if using nightlies
 version = current_date if package_name == "torchao-nightly" else "0.1"
 
+def BuildExtension(*args, **kwargs):
+    import torch
+    from torch.utils.cpp_extension import BuildExtension as BE
+    return BE(*args, **kwargs)
+
 def get_extensions():
+    import torch
+
+    from torch.utils.cpp_extension import (
+    CppExtension,
+    CUDAExtension,
+    BuildExtension,
+    CUDA_HOME,
+    )
 
     debug_mode = os.getenv('DEBUG', '0') == '1'
     if debug_mode:
@@ -89,6 +95,7 @@ setup(
     },
     ext_modules=get_extensions(),
     install_requires=read_requirements("requirements.txt"),
+    setup_requires=['torch'],
     description="Package for applying ao techniques to GPU models",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
