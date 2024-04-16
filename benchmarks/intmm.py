@@ -14,10 +14,6 @@ if not torch.cuda.is_available():
     print("CUDA is not available. Exiting the script.")
     sys.exit(0)
 
-if not TORCH_VERSION_AFTER_2_2:
-    print("torch version must be 2.2 or higher")
-    sys.exit(0)
-
 import torch.nn.functional as F
 import torch.utils.benchmark as benchmark
 from torchao.kernel.intmm import int_matmul, int_scaled_matmul
@@ -94,7 +90,7 @@ def run_benchmarks(shapes):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="integer matmul benchmarks")
-    parser.add_argument("file_path", type=str, help="Path to csv file with shapes")
+    parser.add_argument("--file_path", type=str, required=True, help="Path to csv file with shapes")
     args = parser.parse_args()
     # Access the file path provided as an argument
     file_path = args.file_path
