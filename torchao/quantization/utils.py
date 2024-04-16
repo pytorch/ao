@@ -3,22 +3,26 @@
 
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
 from packaging import version
+from functools import reduce
+from math import gcd
+
 
 __all__ = [
     "find_multiple",
     "compute_error",
     "_apply_logging_hook",
     "get_model_size_in_bytes",
-    "TORCH_VERSION_AFTER_2_4",
+    "TORCH_VERSION_AFTER_2_3",
 ]
 
 
-def find_multiple(n: int, k: int) -> int:
+def find_multiple(n: int, *args: Tuple[int]) -> int:
+    k: int = reduce(lambda x, y: x * y // gcd(x, y), args + (1,))  # type: ignore[9]
     if n % k == 0:
         return n
     return n + k - (n % k)
@@ -95,8 +99,17 @@ def get_model_size_in_bytes(model):
         s += b.nelement() * b.element_size()
     return s
 
-
 if version.parse(torch.__version__) >= version.parse("2.4.0.dev"):
     TORCH_VERSION_AFTER_2_4 = True
 else:
     TORCH_VERSION_AFTER_2_4 = False
+
+if version.parse(torch.__version__) >= version.parse("2.3.0.dev"):
+    TORCH_VERSION_AFTER_2_3 = True
+else:
+    TORCH_VERSION_AFTER_2_3 = False
+
+if version.parse(torch.__version__) >= version.parse("2.2.0.dev"):
+    TORCH_VERSION_AFTER_2_2 = True
+else:
+    TORCH_VERSION_AFTER_2_2 = False

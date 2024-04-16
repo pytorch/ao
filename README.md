@@ -1,18 +1,37 @@
-# torchao: PyTorch Architecture Optimization 
+# torchao: PyTorch Architecture Optimization
 
 **Note: This repository is currently under heavy development - if you have suggestions on the API or use-cases you'd like to be covered, please open an github issue**
 
-The `torchao` package allows you to quantize and prune your models using native PyTorch. 
+## Introduction
 
-The repo hosts both
-1. lower precision [dtypes](./torchao/dtypes) such as nf4, uint4
-2. Quantization [algorithms](./torchao/quantization) such as dynamic quant, smoothquant
-3. Sparsity [algorithms](./torchao/sparsity) such as Wanda
+torchao is a PyTorch native library for optimizing your models using lower precision dtypes, techniques like quantization and sparsity and performant kernels.
+
+The library provides
+1. Support for lower precision [dtypes](./torchao/dtypes) such as nf4, uint4 that are torch.compile friendly
+2. Quantization [algorithms](./torchao/quantization) such as dynamic quant, smoothquant, GPTQ that run on CPU/GPU and Mobile.
+3. Sparsity [algorithms](./torchao/sparsity) such as Wanda that help improve accuracy of sparse networks
+4. Integration with other PyTorch native libraries like torchtune and ExecuTorch
+
+## Key Features
+* Native PyTorch techniques, composable with torch.compile
+* High level `autoquant` API and kernel auto tuner targeting SOTA performance across varying model shapes on consumer/enterprise GPUs.
+* Quantization techniques and kernels that work with both eager and torch.compile 
+  * Int8 dynamic activation quantization
+  * Int8 and int4 weight-only quantization
+  * Int8 dynamic activation quantization with int4 weight quantization
+  * [GPTQ](https://arxiv.org/abs/2210.17323) and [Smoothquant](https://arxiv.org/abs/2211.10438)
+
+## Interoperability with PyTorch Libraries
+
+torchao has been integrated with other repositories to ease usage
+
+* [torchtune](https://github.com/pytorch/torchtune/blob/main/recipes/quantization.md) is integrated with 8 and 4 bit weight-only quantization techniques with and without GPTQ.
+* [Executorch](https://github.com/pytorch/executorch/tree/main/examples/models/llama2#quantization) is integrated with GPTQ for both 8da4w (int8 dynamic activation, with int4 weight) and int4 weight only quantization.
 
 ## Success stories
 Our kernels have has been used to achieve SOTA inference performance on
 
-1. Image segmentation modelss with [sam-fast](pytorch.org/blog/accelerating-generative-ai)
+1. Image segmentation models with [sam-fast](pytorch.org/blog/accelerating-generative-ai)
 2. Language models with [gpt-fast](pytorch.org/blog/accelerating-generative-ai-2)
 3. Diffusion models with [sd-fast](pytorch.org/blog/accelerating-generative-ai-3)
 
@@ -34,34 +53,63 @@ cd ao
 pip install -e .
 ```
 
+## Our Goals
+torchao embodies PyTorch’s design philosophy [details](https://pytorch.org/docs/stable/community/design.html), especially "usability over everything else". Our vision for this repository is the following:
+
+* Composability: Native solutions for optimization techniques that compose with both `torch.compile` and `FSDP` 
+    * For example, for QLoRA for new dtypes support
+* Interoperability: Work with the rest of the PyTorch ecosystem such as torchtune, gpt-fast and ExecuTorch
+* Transparent Benchmarks: Regularly run performance benchmarking of our APIs across a suite of Torchbench models and across hardware backends
+* Heterogeneous Hardware: Efficient kernels that can run on CPU/GPU based server (w/ torch.compile) and mobile backends (w/ ExecuTorch).
+* Infrastructure Support: Release packaging solution for kernels and a CI/CD setup that runs these kernels on different backends. 
+
+
+
 ## Examples
 
 Typically quantization algorithms will have different schemes for how the activation and weights are quantized so A16W8 for instance means the activations are quantized to 16 bits wheras the weights are quantized to 8 bits. Trying out different quantization schemes in `torchao` is generally a 1 line change.
 
-### A8W8 Dynamic Quantization
 
-```Python
+### Autoquantization
+
+The `autoquant` api can be used to quickly and accurately quantize your model. When used as in the example below, the api first identifies the shapes
+of the activations that the different linear layers see, it then benchmarks these shapes across different types of quantized and non-quantized layers in order to pick the fastest one, attempting to take into account fusions where possible. Finally once the best class is found for each layer, it swaps the linear. Currently this api chooses between no quantization, int8 dynamic quantization and int8 weight only quantization for each layer.
+
+```python
 import torch
-from torchao.quantization import quant_api
+import torchao
 
-# Fuse the int8*int8 -> int32 matmul and subsequent mul op avoiding materialization of the int32 intermediary tensor
+# inductor settings which improve torch.compile performance for quantized modules
 torch._inductor.config.force_fuse_int_mm_with_mul = True
+torch._inductor.config.use_mixed_mm = True
 
 # Plug in your model and example input
 model = torch.nn.Sequential(torch.nn.Linear(32, 64)).cuda().to(torch.bfloat16)
 input = torch.randn(32,32, dtype=torch.bfloat16, device='cuda')
 
-# convert linear modules to quantized linear modules
-quant_api.change_linear_weights_to_int8_dqtensors(model)
+# perform autoquantization
+torchao.autoquant(model, (input))
 
 # compile the model to improve performance
 model = torch.compile(model, mode='max-autotune')
 model(input)
 ```
 
+
+### A8W8 Dynamic Quantization
+
+```python
+# Fuse the int8*int8 -> int32 matmul and subsequent mul op avoiding materialization of the int32 intermediary tensor
+torch._inductor.config.force_fuse_int_mm_with_mul = True
+from torchao.quantization import quant_api
+# convert linear modules to quantized tensor subclasses
+quant_api.change_linear_weights_to_int8_dqtensors(model)
+```
+
 ### A16W8 WeightOnly Quantization
 
 ```python
+from torchao.quantization import quant_api
 quant_api.change_linear_weights_to_int8_woqtensors(model)
 ```
 
@@ -71,6 +119,7 @@ This technique works best when the torch._inductor.config.use_mixed_mm option is
 ### A16W4 WeightOnly Quantization
 
 ```python
+from torchao.quantization import quant_api
 quant_api.change_linear_weights_to_int4_woqtensors(model)
 ```
 
@@ -116,10 +165,12 @@ model = torch.compile(model, mode='max-autotune')
 model(input)
 ```
 
-## Sharp edges
 
-1. While these techniques are designed to improve model performance, in some cases the opposite can occur. This is because quantization adds additional overhead to the model that is hopefully made up for by faster matmuls (dynamic quantization) or loading weights faster (weight-only quantization). If your matmuls are small enough or your non-quantized perf isn't bottlenecked by weight load time, these techniques may reduce performance.
-2. Use the PyTorch nightlies so you can leverage [tensor subclasses](https://pytorch.org/docs/stable/notes/extending.html#subclassing-torch-tensor) which is preferred over older module swap based methods because it doesn't modify the graph and is generally more composable and flexible.
+## Notes
+
+1. APIs have been hardware tested on A100 and T4(colab) 
+2. While these techniques are designed to improve model performance, in some cases the opposite can occur. This is because quantization adds additional overhead to the model that is hopefully made up for by faster matmuls (dynamic quantization) or loading weights faster (weight-only quantization). If your matmuls are small enough or your non-quantized perf isn't bottlenecked by weight load time, these techniques may reduce performance.
+3. Use the PyTorch nightlies so you can leverage [tensor subclasses](https://pytorch.org/docs/stable/notes/extending.html#subclassing-torch-tensor) which is preferred over older module swap based methods because it doesn't modify the graph and is generally more composable and flexible.
 
 
 ## License

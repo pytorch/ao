@@ -22,9 +22,8 @@ class WeightOnlyInt8QuantLinear(torch.nn.Linear):
         scales = kwargs.pop("scales")
         super().__init__(*args, **kwargs)
 
-        self.w_int8 = w_int8
-
-        self.scales = scales
+        self.register_buffer("w_int8", w_int8)
+        self.register_buffer("scales", scales)
 
     def forward(self, x, *args, **kwargs):
         """
