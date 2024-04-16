@@ -62,7 +62,7 @@ jobs:
       run: |
         source env/bin/activate
         python -c "import torch; print(torch.__version__)"
-        python setup.py install
+        python -m pip install .
 
     - name: Run tests
       run: |
