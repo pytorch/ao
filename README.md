@@ -1,20 +1,30 @@
-# torchao: PyTorch Architecture Optimization
-
 **Note: This repository is currently under heavy development - if you have suggestions on the API or use-cases you'd like to be covered, please open an github issue**
 
-The `torchao` package allows you to quantize and prune your models using native PyTorch.
+## Introduction
 
-The repo hosts both
-1. lower precision [dtypes](./torchao/dtypes) such as nf4, uint4
-2. Quantization [algorithms](./torchao/quantization) such as dynamic quant, smoothquant
-3. Sparsity [algorithms](./torchao/sparsity) such as Wanda
+torchao is a PyTorch native library for optimizing your models using lower precision dtypes, techniques like quantization and sparsity and performant kernels.
 
-## Success stories
-Our kernels have has been used to achieve SOTA inference performance on
+The library provides
+1. Support for lower precision [dtypes](./torchao/dtypes) such as nf4, uint4 that are torch.compile friendly
+2. Quantization [algorithms](./torchao/quantization) such as dynamic quant, smoothquant, GPTQ that run on CPU/GPU and Mobile.
+3. Sparsity [algorithms](./torchao/sparsity) such as Wanda that help improve accuracy of sparse networks
+4. Integration with other PyTorch native libraries like TorchTune and ExecuTorch
 
-1. Image segmentation modelss with [sam-fast](pytorch.org/blog/accelerating-generative-ai)
-2. Language models with [gpt-fast](pytorch.org/blog/accelerating-generative-ai-2)
-3. Diffusion models with [sd-fast](pytorch.org/blog/accelerating-generative-ai-3)
+## Key Features
+* Native PyTorch techniques, composable with torch.compile
+* APIs tested on following hardware - A100, T4(colab) 
+* Supports the following eager quantization techniques. 
+  * Int8 dynamic activation quantization with Smoothquant
+  * Int8 and int4 weight-only quantization.
+  * Int8 dynamic activation quantization with int4 weight quantization
+  * GPTQ
+
+## Interoperability with PyTorch Libraries
+
+torchao has been integrated with other repositories to ease usage
+
+* [TorchTune](https://github.com/pytorch/torchtune/blob/main/recipes/quantization.md) is integrated with 8 and 4 bit weight-only quantization techniques with and without GPTQ.
+* [Executorch](https://github.com/pytorch/executorch/tree/main/examples/models/llama2#quantization) is integrated with GPTQ for both 8da4w (int8 dynamic activation, with int4 weight) and int4 weight only quantization.
 
 
 ## Installation
@@ -33,6 +43,20 @@ git clone https://github.com/pytorch-labs/ao
 cd ao
 pip install -e .
 ```
+
+## Our Goals
+torchao embodies PyTorch’s design philosophy [details](https://pytorch.org/docs/stable/community/design.html), especially "usability over everything else". Our vision for this repository is the following:
+
+* PyTorch Native: Provide PyTorch native solutions for optimization techniques for transformer models, offering composability with torch.compile and distributed 
+    * For example, for QLoRA for new dtypes support
+* Interoperability: Integration with other major transformer accel libraries in PyTorch enabling smooth user journey and accelerating visibility and adoption
+    * Examples - TorchTune, gpt-fast, ExecuTorch.
+* Transparent Benchmarks: Regularly run performance benchmarking of our APIs across a suite of Torchbench models and across hardware backends
+* Heterogeneous Hardware: Efficient kernels that can run on CPU/GPU based server (w/ torch.compile) and mobile backends (w/ ExecuTorch).
+* Autotuner: Invest in building a kernel auto tuner targeting SOTA performance across varying model shapes. 
+* Infrastructure Support: Release packaging solution for kernels and a CI/CD setup that runs these kernels on different backends. 
+
+
 
 ## Examples
 
@@ -132,6 +156,13 @@ smooth_fq_linear_to_inference(model)
 model = torch.compile(model, mode='max-autotune')
 model(input)
 ```
+## Success stories
+Our kernels have has been used to achieve SOTA inference performance on
+
+1. Image segmentation modelss with [sam-fast](pytorch.org/blog/accelerating-generative-ai)
+2. Language models with [gpt-fast](pytorch.org/blog/accelerating-generative-ai-2)
+3. Diffusion models with [sd-fast](pytorch.org/blog/accelerating-generative-ai-3)
+
 
 ## Sharp edges
 
