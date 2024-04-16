@@ -5,6 +5,12 @@ import math
 import pathlib
 
 import torch
+
+# Check if CUDA is available, if not, exit the script
+if not torch.cuda.is_available():
+    print("CUDA is not available. Exiting the script.")
+    sys.exit()
+
 import torch.nn.functional as F
 import torch.utils.benchmark as benchmark
 from torchao.kernel.intmm_triton import int_matmul, int_scaled_matmul
