@@ -49,9 +49,11 @@ jobs:
     - name: Install CUDA Toolkit
       run: conda install -c nvidia/label/cuda-12.1.0 cuda-toolkit
 
-    - name: Install PyTorch
+    - name: Install PyTorch and other dependencies
       run: |
-        pip install --pre -f https://download.pytorch.org/whl/nightly/cu113 ${MATRIX.TORCH_SPEC}
+        pip install ${{ matrix.torch-spec }}
+        pip install -r requirements.txt
+        pip install -r dev-requirements.txt
 
     - name: List dependencies
       run: |
