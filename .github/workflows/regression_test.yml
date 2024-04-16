@@ -46,15 +46,15 @@ jobs:
       run: |
         python -m venv env
         source env/bin/activate
-        python -m pip install --upgrade pip
-        python -m pip install ${{ matrix.torch-spec }}
-        # python -m pip install -r requirements.txt
-        # python -m pip install -r dev-requirements.txt
+        python -m pip3 install --upgrade pip
+        python -m pip3 install ${{ matrix.torch-spec }}
+        python -m pip3 install -r requirements.txt
+        python -m pip3 install -r dev-requirements.txt
 
     - name: List dependencies
       run: |
         source env/bin/activate
-        python -m pip list
+        python -m pip3 list
         which python
 
 
@@ -62,7 +62,7 @@ jobs:
       run: |
         source env/bin/activate
         python -c "import torch; print(torch.__version__)"
-        python -m pip install .
+        python -m pip3 install .
 
     - name: Run tests
       run: |
