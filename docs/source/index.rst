@@ -1,7 +1,7 @@
-Welcome to the TorchAO Documentation
+Welcome to the torchao Documentation
 =======================================
 
-**TorchAO** is an open-source library that provides the functionality
+**torchao** is an open-source library that provides the functionality
 to quantize and prune your models using native PyTorch.
 
 .. grid:: 3
@@ -37,7 +37,7 @@ Tutorials
 ~~~~~~~~~
 
 Ready to experiment? Check out some of the
-TorchAO tutorials.
+torchao tutorials.
 
 .. customcardstart::
 

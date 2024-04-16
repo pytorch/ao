@@ -1,8 +1,8 @@
-TorchAO API Reference
-=====================
+``torchao`` API Reference
+=========================
 
-This section introduces the TorchAO API reference.
-Dive into the details of how TorchAO integrates with PyTorch to
+This section introduces the torchao API reference.
+Dive into the details of how torchao integrates with PyTorch to
 optimize your machine learning models.
 
 .. toctree::
