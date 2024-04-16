@@ -93,6 +93,7 @@ setup(
     ext_modules=get_extensions(),
     install_requires=read_requirements("requirements.txt"),
     setup_requires=['torch'],
+    extras_require={"dev": read_requirements("dev-requirements.txt")},
     description="Package for applying ao techniques to GPU models",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
