@@ -54,7 +54,7 @@ jobs:
     - name: List dependencies
       run: |
         source env/bin/activate
-        pip list
+        python -m pip list
         which python
 
     - name: Install package
