@@ -22,27 +22,22 @@ package_name = "torchao-nightly" if os.environ.get("TORCHAO_NIGHTLY") else "torc
 # Version is year.month.date if using nightlies
 version = current_date if package_name == "torchao-nightly" else "0.1"
 
+import torch
 
-
-def BuildExtension(*args, **kwargs):
-    import torch
-    from torch.utils.cpp_extension import BuildExtension as BE
-    return BE(*args, **kwargs)
-
-def get_extensions():
-    import torch
-
-    from torch.utils.cpp_extension import (
+from torch.utils.cpp_extension import (
     CppExtension,
     CUDAExtension,
     BuildExtension,
     CUDA_HOME,
-    )
+)
 
+
+def get_extensions():
     debug_mode = os.getenv('DEBUG', '0') == '1'
     if debug_mode:
         print("Compiling in debug mode")
 
+    # TODO: And cudatoolkit is available
     use_cuda = torch.cuda.is_available() and CUDA_HOME is not None
     extension = CUDAExtension if use_cuda else CppExtension
 
