@@ -66,19 +66,24 @@ from torchao.quantization.autoquant import (
 from torch.ao.quantization.quantize_fx import convert_to_reference_fx, prepare_fx
 import os
 from parameterized import parameterized
+import itertools
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
 
 torch.manual_seed(0)
 config.cache_size_limit = 100
 
-COMMON_DEVICE_DTYPE=[
-    ("cpu", torch.float32),
-    ("cpu", torch.float16),
-    ("cpu", torch.bfloat16),
-    ("cuda", torch.float32),
-    ("cuda", torch.float16),
-    ("cuda", torch.bfloat16),
+TENSOR_SUBCLASS_APIS = [
+    (change_linear_weights_to_int8_dqtensors,),
+    (change_linear_weights_to_int8_woqtensors,),
+    (change_linear_weights_to_int4_woqtensors,),
 ]
+
+COMMON_DEVICES = ["cpu", "cuda"]
+
+COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
+
+COMMON_DEVICE_DTYPE = itertools.product(COMMON_DEVICES, COMMON_DTYPES)
+
 
 def combine_parameters(a, b):
     new_tuples = []
@@ -1403,6 +1408,44 @@ class TestAutoQuant(unittest.TestCase):
         out2 = model(example_input)
         sqnr = SQNR(out, out2)
         self.assertTrue(sqnr >= 30)
+
+
+class TestAOTI(unittest.TestCase):
+    @parameterized.expand(itertools.product(TENSOR_SUBCLASS_APIS, COMMON_DEVICES, COMMON_DTYPES))
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "int4 requires torch nightly.")
+    @run_supported_device_dtype
+    @unittest.skip("traceable tensor subclass + AOTI is not supported right now")
+    @torch.no_grad()
+    def test_aoti(self, api, test_device, test_dtype):
+        if dtype != torch.bfloat16:
+            self.skipTest(f"Fails for {dtype}")
+
+        m, k, n = 32, 64, 32
+
+        class test_model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.lin1 = nn.Linear(k, n)
+                self.relu = nn.ReLU()
+                self.lin2 = nn.Linear(n, n)
+
+            def forward(self, x):
+                x = self.lin1(x)
+                x = self.relu(x)
+                x = self.lin2(x)
+                return x
+
+        x = torch.randn(m, k, dtype=test_dtype, device=test_device)
+
+        # get float reference
+        model = test_model().to(dtype=test_dtype, device=test_device).eval()
+        ref_f = model(x)
+
+        api(model)
+
+        # make sure it compiles
+        example_inputs = (x,)
+        torch._export.aot_compile(model, example_inputs)
 
 if __name__ == "__main__":
     unittest.main()
