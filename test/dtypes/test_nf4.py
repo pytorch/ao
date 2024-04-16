@@ -134,13 +134,15 @@ class TestNF4Linear():
         assert err_bnb < 0.5 * dim
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need cuda for test")
-    def test_load_from_bfloat16(self):
+    # @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+    @pytest.mark.parametrize("dtype", [torch.bfloat16])
+    def test_load_from_state_dicts(self, dtype: torch.dtype):
         """Tests loading to and from different module state dicts"""
-        inpt_tensor = torch.rand(64, device='cuda', dtype=torch.bfloat16)
+        inpt_tensor = torch.rand(64, device='cuda', dtype=dtype)
         base_mod = self.TestMod(inpt_tensor, 32, 2)
 
-        bf16_dummy_dict = {"param": inpt_tensor}
-        base_mod.load_state_dict(bf16_dummy_dict)
+        dummy_dict = {"param": inpt_tensor}
+        base_mod.load_state_dict(dummy_dict)
 
         assert base_mod.param.block_size == 32
         assert base_mod.param.scaler_block_size == 2
