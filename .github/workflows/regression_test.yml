@@ -45,7 +45,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m venv env
-        source /home/runner/work/ao/ao/env/bin/activate
+        source env/bin/activate
         python -m pip install --upgrade pip
         python -m pip install ${{ matrix.torch-spec }}
         python -m pip install -r requirements.txt
@@ -53,16 +53,16 @@ jobs:
 
     - name: List dependencies
       run: |
-        source /home/runner/work/ao/ao/env/bin/activate
+        source env/bin/activate
         pip list
         which python
 
     - name: Install package
       run: |
-        source /home/runner/work/ao/ao/env/bin/activate
+        source env/bin/activate
         python -m pip install .
 
     - name: Run tests
       run: |
-        source /home/runner/work/ao/ao/env/bin/activate
+        source env/bin/activate
         pytest test --verbose -s
