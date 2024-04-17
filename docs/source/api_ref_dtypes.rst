@@ -14,4 +14,5 @@ torchao.dtypes
     UInt4Tensor
 
 ..
-  _NF4Tensor - add after fixing torchao/dtypes/nf4tensor.py:docstring of torchao.dtypes.nf4tensor.NF4Tensor.dequantize_scalers:6:Unexpec   ted indentation.
+  _NF4Tensor - add after fixing torchao/dtypes/nf4tensor.py:docstring
+  of torchao.dtypes.nf4tensor.NF4Tensor.dequantize_scalers:6:Unexpected indentation.
