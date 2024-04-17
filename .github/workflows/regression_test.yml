@@ -52,4 +52,4 @@ jobs:
     - name: Run tests
       run: |
         source venv/bin/activate
-        pytest test test/test_ops.py
+        pytest test/test_ops.py
