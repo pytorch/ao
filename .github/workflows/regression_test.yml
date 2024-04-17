@@ -18,11 +18,11 @@ jobs:
             torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu121'
             cuda: '12.1.0'
     runs-on: ${{ matrix.runs-on }}
-    # container:
-    #   image: nvidia/cuda:12.1.0-devel-ubuntu20.04
-    #   ports:
-    #     - 80
-    #   options: --gpus all --shm-size "8G"
+    container:
+      image: nvidia/cuda:12.1.0-devel-ubuntu20.04
+      ports:
+        - 80
+      options: --gpus all --shm-size "8G"
 
     steps:
     - uses: actions/checkout@v2
@@ -32,19 +32,19 @@ jobs:
       with:
         python-version: '3.9'
 
-    - name: Setup conda env
-      uses: conda-incubator/setup-miniconda@v2
-      with:
-        auto-update-conda: true
-        miniconda-version: "latest"
-        activate-environment: test
+    # - name: Setup conda env
+    #   uses: conda-incubator/setup-miniconda@v2
+    #   with:
+    #     auto-update-conda: true
+    #     miniconda-version: "latest"
+    #     activate-environment: test
 
     - name: Install dependencies
       run: |
         pip install ${{ matrix.torch-spec }}
         pip install -r requirements.txt
         pip install -r dev-requirements.txt
-        conda install nvidia/label/cuda-12.1.0::cuda-toolkit
+        # conda install nvidia/label/cuda-12.1.0::cuda-toolkit
 
     - name: Install package
       run: |
