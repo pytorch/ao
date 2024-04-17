@@ -134,8 +134,7 @@ class TestNF4Linear():
         assert err_bnb < 0.5 * dim
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need cuda for test")
-    # @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
-    @pytest.mark.parametrize("dtype", [torch.bfloat16])
+    @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_load_from_state_dicts(self, dtype: torch.dtype):
         """Tests loading to and from different module state dicts"""
         inpt_tensor = torch.rand(64, device='cuda', dtype=dtype)
@@ -148,9 +147,10 @@ class TestNF4Linear():
         assert base_mod.param.scaler_block_size == 2
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need cuda for test")
-    def test_load_from_nf4_same_meta(self):
+    @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+    def test_load_from_nf4_same_meta(self, dtype: torch.dtype):
         """Tests loading to and from different module state dicts"""
-        inpt_tensor = torch.rand(64, device='cuda', dtype=torch.bfloat16)
+        inpt_tensor = torch.rand(64, device='cuda', dtype=dtype)
         base_mod = self.TestMod(inpt_tensor, 32, 2)
         state_dict = base_mod.state_dict()
         saved_state_dict = self.save_state_dict_to_buffer(state_dict)
@@ -161,9 +161,10 @@ class TestNF4Linear():
         assert other_mod.param.scaler_block_size == 2
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need cuda for test")
-    def test_load_from_nf4_diff_meta(self):
+    @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+    def test_load_from_nf4_diff_meta(self, dtype: torch.dtype):
         """Tests loading to and from different module state dicts"""
-        inpt_tensor = torch.rand(128, device='cuda', dtype=torch.bfloat16)
+        inpt_tensor = torch.rand(128, device='cuda', dtype=dtype)
         base_mod = self.TestMod(inpt_tensor, 32, 2)
         state_dict = base_mod.state_dict()
         saved_state_dict = self.save_state_dict_to_buffer(state_dict)
