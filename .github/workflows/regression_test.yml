@@ -33,14 +33,20 @@ jobs:
           #   runs-on: 32-core-ubuntu
           #   torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cpu'
     runs-on: ${{ matrix.runs-on }}
+    container:
+      image: nvidia/cuda:12.1.0-devel-ubuntu20.04
+      ports:
+        - 80
+      options: --gpus all --shm-size "8G"
+
     steps:
     - uses: actions/checkout@v2
 
-    - uses: Jimver/cuda-toolkit@v0.2.11
-      id: cuda-toolkit
-      with:
-        cuda: ${{ matrix.cuda }}
-        method: network
+    # - uses: Jimver/cuda-toolkit@v0.2.11
+    #   id: cuda-toolkit
+    #   with:
+    #     cuda: ${{ matrix.cuda }}
+    #     method: network
 
     - name: Set up Python
       uses: actions/setup-python@v2
