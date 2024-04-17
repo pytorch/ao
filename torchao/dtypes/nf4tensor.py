@@ -1,6 +1,6 @@
+import functools
 from dataclasses import dataclass
 from typing import Dict, Tuple
-import functools
 
 import torch
 import torch.nn.functional as F
@@ -11,7 +11,7 @@ aten = torch.ops.aten
 
 c10d_functional = torch.ops.c10d_functional
 
-from typing import Any, Optional, Tuple, Union, List
+from typing import Any, Tuple
 
 NF4_OPS_TABLE: Dict[Any, Any] = {}
 
@@ -35,7 +35,6 @@ def implements(aten_ops):
         return func
 
     return decorator
-
 
 
 @implements([torch.ops.aten.detach.default, torch.ops.aten.detach])
@@ -549,7 +548,6 @@ class NF4Tensor(torch.Tensor):
             f"NF4Tensor dispatch: attempting to run {func}, this is not supported"
         )
 
-
     # Do not force the Float8Tensor type on the returned tensor
 
     @classmethod
@@ -600,12 +598,15 @@ def to_nf4(tensor, block_size: int = 64, scaler_block_size: int = 256):
 
 NF4_TORCH_FUNCTIONS = {}
 
+
 def implements_torch_function(torch_function):
     def decorator(func):
         functools.update_wrapper(func, torch_function)
         NF4_TORCH_FUNCTIONS[torch_function] = func
         return func
+
     return decorator
+
 
 @implements_torch_function(torch.Tensor.to)
 def function_to_dtype(*args, **kwargs):
