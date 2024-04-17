@@ -3,7 +3,12 @@ import unittest
 
 import torch
 from torch import nn
-from torch.testing._internal.common_utils import TestCase
+from torch.testing._internal.common_utils import (
+    TestCase,
+    instantiate_parametrized_tests,
+    parametrize,
+    run_tests,
+)
 from torchao.dtypes.nf4tensor import linear_nf4, NF4Tensor, to_nf4
 import torch.nn.functional as F
 import io
@@ -45,19 +50,19 @@ def _build_bnb_linear(input_weight, device):
     bnb_linear.to(device)
     return bnb_linear
 
-class TestMod(nn.Module):
-    def __init__(self, tensor, block_size, scaler_block_size):
-        super().__init__()
-        self.param = torch.nn.Parameter(to_nf4(tensor, block_size, scaler_block_size))
+class TestNF4Linear(TestCase):
+    class TestMod(nn.Module):
+        def __init__(self, tensor, block_size, scaler_block_size):
+            super().__init__()
+            self.param = torch.nn.Parameter(to_nf4(tensor, block_size, scaler_block_size))
 
-class TestNF4Linear():
     def save_state_dict_to_buffer(self, state_dict: OrderedDict):
         buffer = io.BytesIO()
         torch.save(state_dict, buffer)
         buffer.seek(0)
         return buffer
 
-    @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+    @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_register_nf4_as_param(self, dtype: torch.dtype):
         nf4_tensor = to_nf4(torch.randn(512, 512, dtype=dtype))
 
@@ -66,7 +71,7 @@ class TestNF4Linear():
         param = torch.nn.Parameter(nf4_tensor, requires_grad=False)
         assert not param.requires_grad
 
-    @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+    @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_output_dtype_match(self, dtype:torch.dtype):
         # Test to ensure W4 A16 produces A16
         inp = torch.randn(2, 512, dtype=dtype, requires_grad=True)
@@ -74,7 +79,7 @@ class TestNF4Linear():
         out = linear_nf4(input=inp, weight=nf4_tensor)
         assert out.dtype == dtype
 
-    @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+    @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_backward_dtype_match(self, dtype:torch.dtype):
         # Test to ensure backward pass gives activation a bf16 gradient and no gradient
         # to the linear's weight, as it is frozen.
@@ -86,7 +91,7 @@ class TestNF4Linear():
 
     @unittest.skipIf(not bnb_available, "Need bnb availble")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+    @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_reconstruction_qlora_vs_bnb(self, dtype: torch.dtype):
         # From https://github.com/drisspg/transformer_nuggets/blob/f05afad68ad9086d342268f46a7f344617a02314/test/test_qlora.py#L65C1-L81C47
         torch.manual_seed(0)
@@ -108,7 +113,7 @@ class TestNF4Linear():
 
     @unittest.skipIf(not bnb_available, "Need bnb availble")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+    @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_nf4_bnb_linear(self, dtype: torch.dtype):
         """
         This test ensures that nf4_linear is "no worse" than BNB by ensuring the
@@ -133,11 +138,11 @@ class TestNF4Linear():
         assert err_bnb < 0.5 * dim
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need cuda for test")
-    @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+    @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_load_from_state_dicts(self, dtype: torch.dtype):
         """Tests loading to and from different module state dicts"""
         inpt_tensor = torch.rand(64, device='cuda', dtype=dtype)
-        base_mod = TestMod(inpt_tensor, 32, 2)
+        base_mod = self.TestMod(inpt_tensor, 32, 2)
 
         dummy_dict = {"param": inpt_tensor}
         base_mod.load_state_dict(dummy_dict)
@@ -146,34 +151,34 @@ class TestNF4Linear():
         assert base_mod.param.scaler_block_size == 2
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need cuda for test")
-    @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+    @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_load_from_nf4_same_meta(self, dtype: torch.dtype):
         """Tests loading to and from different module state dicts"""
         inpt_tensor = torch.rand(64, device='cuda', dtype=dtype)
-        base_mod = TestMod(inpt_tensor, 32, 2)
+        base_mod = self.TestMod(inpt_tensor, 32, 2)
         state_dict = base_mod.state_dict()
         saved_state_dict = self.save_state_dict_to_buffer(state_dict)
 
-        other_mod = TestMod(inpt_tensor, 32, 2)
+        other_mod = self.TestMod(inpt_tensor, 32, 2)
         other_mod.load_state_dict(torch.load(saved_state_dict))
         assert other_mod.param.block_size == 32
         assert other_mod.param.scaler_block_size == 2
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need cuda for test")
-    @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+    @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_load_from_nf4_diff_meta(self, dtype: torch.dtype):
         """Tests loading to and from different module state dicts"""
         inpt_tensor = torch.rand(128, device='cuda', dtype=dtype)
-        base_mod = TestMod(inpt_tensor, 32, 2)
+        base_mod = self.TestMod(inpt_tensor, 32, 2)
         state_dict = base_mod.state_dict()
         saved_state_dict = self.save_state_dict_to_buffer(state_dict)
 
-        other_mod = TestMod(inpt_tensor, 64, 1)
+        other_mod = self.TestMod(inpt_tensor, 64, 1)
         other_mod.load_state_dict(torch.load(saved_state_dict))
         assert other_mod.param.block_size == 64
         assert other_mod.param.scaler_block_size == 1
 
-    @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+    @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_to_copy(self, dtype: torch.dtype):
         inpt_tensor = torch.rand(128, device='cpu')
         inpt_tensor_nf4 = to_nf4(inpt_tensor, 32, 2)
@@ -186,7 +191,7 @@ class TestNF4Linear():
             nf4_to_dtype = inpt_tensor_nf4.to(dtype)
             torch.testing.assert_allclose(inpt_tensor, nf4_to_dtype, atol=0.13, rtol=0.13)
 
-    @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+    @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_to_dtype(self, dtype: torch.dtype):
         inpt_tensor = torch.rand(128, dtype=dtype)
         inpt_tensor_nf4 = to_nf4(inpt_tensor, 32, 2)
@@ -195,7 +200,7 @@ class TestNF4Linear():
         assert inpt_tensor_nf4.to(dtype).dtype == dtype
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+    @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_smoketest_linear(self, dtype: torch.dtype):
         a = torch.randn(32, 32, dtype=dtype, device='cuda')
         a_nf4 = torchao.dtypes.to_nf4(a, 16, 2)
@@ -204,7 +209,7 @@ class TestNF4Linear():
         out2 = torch.nn.functional.linear(inp, a_nf4)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+    @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_smoketest_linear_compile(self, dtype: torch.dtype):
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0) and dtype == torch.bfloat16:
             self.skipTest("test requires SM capability of at least (8, 0).")
@@ -214,6 +219,7 @@ class TestNF4Linear():
         out3 = torch.compile(torch.nn.functional.linear, mode='max-autotune')(inp, a_nf4)
 
 
+instantiate_parametrized_tests(TestNF4Linear)
 
 if __name__ == "__main__":
-    unittest.main()
+    run_tests()
