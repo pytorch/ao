@@ -32,18 +32,20 @@ jobs:
       with:
         python-version: '3.9'
 
-    - name: Set up virtual environment
-      run: |
-        python -m venv venv
-        source venv/bin/activate
+    - name: Setup conda env
+      uses: conda-incubator/setup-miniconda@v2
+      with:
+        auto-update-conda: true
+        miniconda-version: "latest"
+        activate-environment: test
 
     - name: Install dependencies
       run: |
-        source venv/bin/activate
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
         pip install -r requirements.txt
         pip install -r dev-requirements.txt
+        conda install nvidia/label/cuda-12.1.0::cuda-toolkit
 
     - name: Install package
       run: |
@@ -51,5 +53,4 @@ jobs:
 
     - name: Run tests
       run: |
-        source venv/bin/activate
         pytest test/test_ops.py
