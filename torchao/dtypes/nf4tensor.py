@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Dict, Tuple
 import functools
-from torch.overrides import get_default_nowrap_functions
 
 import torch
 import torch.nn.functional as F
@@ -772,32 +771,6 @@ class NF4Tensor(torch.Tensor):
     def __str__(self):
         return self.to(torch.float32).__str__()
 
-    # Do not force the Float8Tensor type on the returned tensor
-
-    @classmethod
-    def __torch_function__(cls, func, types, args=(), kwargs=None):
-        if kwargs is None:
-            kwargs = {}
-
-        if func in NF4_TORCH_FUNCTIONS:
-            return NF4_TORCH_FUNCTIONS[func](*args, **kwargs)
-
-        # if not all(
-        #     issubclass(t, (torch.Tensor, NF4Tensor))
-        #     for t in types
-        # ):
-        #     return NotImplemented
-        if not all(issubclass(cls, t) for t in types):
-            return NotImplemented
-
-        with torch._C.DisableTorchFunctionSubclass():
-            ret = func(*args, **kwargs)
-            if func in get_default_nowrap_functions():
-                return ret
-            else:
-                return torch._tensor._convert(ret, cls)
-
-
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
         """TODO we are not supporting torch dispatch at the moment
@@ -825,6 +798,19 @@ class NF4Tensor(torch.Tensor):
             f"NF4Tensor dispatch: attempting to run {func}, this is not supported"
         )
 
+
+    # Do not force the Float8Tensor type on the returned tensor
+
+    @classmethod
+    def __torch_function__(cls, func, types, args=(), kwargs=None):
+        if kwargs is None:
+            kwargs = {}
+
+        if func in NF4_TORCH_FUNCTIONS:
+            return NF4_TORCH_FUNCTIONS[func](*args, **kwargs)
+
+        with torch._C.DisableTorchFunctionSubclass():
+            return func(*args, **kwargs)
 
 
     def fsdp_pre_all_gather(self) -> Tuple[Tuple[torch.Tensor, ...], Any]:
