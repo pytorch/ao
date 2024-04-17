@@ -45,13 +45,12 @@ def _build_bnb_linear(input_weight, device):
     bnb_linear.to(device)
     return bnb_linear
 
+class TestMod(nn.Module):
+    def __init__(self, tensor, block_size, scaler_block_size):
+        super().__init__()
+        self.param = torch.nn.Parameter(to_nf4(tensor, block_size, scaler_block_size))
 
 class TestNF4Linear():
-    class TestMod(nn.Module):
-        def __init__(self, tensor, block_size, scaler_block_size):
-            super().__init__()
-            self.param = torch.nn.Parameter(to_nf4(tensor, block_size, scaler_block_size))
-
     def save_state_dict_to_buffer(self, state_dict: OrderedDict):
         buffer = io.BytesIO()
         torch.save(state_dict, buffer)
@@ -138,7 +137,7 @@ class TestNF4Linear():
     def test_load_from_state_dicts(self, dtype: torch.dtype):
         """Tests loading to and from different module state dicts"""
         inpt_tensor = torch.rand(64, device='cuda', dtype=dtype)
-        base_mod = self.TestMod(inpt_tensor, 32, 2)
+        base_mod = TestMod(inpt_tensor, 32, 2)
 
         dummy_dict = {"param": inpt_tensor}
         base_mod.load_state_dict(dummy_dict)
@@ -151,11 +150,11 @@ class TestNF4Linear():
     def test_load_from_nf4_same_meta(self, dtype: torch.dtype):
         """Tests loading to and from different module state dicts"""
         inpt_tensor = torch.rand(64, device='cuda', dtype=dtype)
-        base_mod = self.TestMod(inpt_tensor, 32, 2)
+        base_mod = TestMod(inpt_tensor, 32, 2)
         state_dict = base_mod.state_dict()
         saved_state_dict = self.save_state_dict_to_buffer(state_dict)
 
-        other_mod = self.TestMod(inpt_tensor, 32, 2)
+        other_mod = TestMod(inpt_tensor, 32, 2)
         other_mod.load_state_dict(torch.load(saved_state_dict))
         assert other_mod.param.block_size == 32
         assert other_mod.param.scaler_block_size == 2
@@ -165,33 +164,35 @@ class TestNF4Linear():
     def test_load_from_nf4_diff_meta(self, dtype: torch.dtype):
         """Tests loading to and from different module state dicts"""
         inpt_tensor = torch.rand(128, device='cuda', dtype=dtype)
-        base_mod = self.TestMod(inpt_tensor, 32, 2)
+        base_mod = TestMod(inpt_tensor, 32, 2)
         state_dict = base_mod.state_dict()
         saved_state_dict = self.save_state_dict_to_buffer(state_dict)
 
-        other_mod = self.TestMod(inpt_tensor, 64, 1)
+        other_mod = TestMod(inpt_tensor, 64, 1)
         other_mod.load_state_dict(torch.load(saved_state_dict))
         assert other_mod.param.block_size == 64
         assert other_mod.param.scaler_block_size == 1
 
-    def test_to_copy(self):
+    @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+    def test_to_copy(self, dtype: torch.dtype):
         inpt_tensor = torch.rand(128, device='cpu')
         inpt_tensor_nf4 = to_nf4(inpt_tensor, 32, 2)
-        inpt_tensor_bfloat16 = inpt_tensor_nf4.to(torch.bfloat16)
-        torch.testing.assert_allclose(inpt_tensor, inpt_tensor_bfloat16, atol=0.13, rtol=0.13)
+        nf4_to_dtype = inpt_tensor_nf4.to(dtype)
+        torch.testing.assert_allclose(inpt_tensor, nf4_to_dtype, atol=0.13, rtol=0.13)
 
         if torch.cuda.is_available():
             inpt_tensor = torch.rand(128, device='cuda')
             inpt_tensor_nf4 = to_nf4(inpt_tensor, 32, 2)
-            inpt_tensor_bfloat16 = inpt_tensor_nf4.to(torch.bfloat16)
-            torch.testing.assert_allclose(inpt_tensor, inpt_tensor_bfloat16, atol=0.13, rtol=0.13)
+            nf4_to_dtype = inpt_tensor_nf4.to(dtype)
+            torch.testing.assert_allclose(inpt_tensor, nf4_to_dtype, atol=0.13, rtol=0.13)
 
-    def test_to_bfloat16(self):
-        inpt_tensor = torch.rand(128, dtype=torch.bfloat16)
+    @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+    def test_to_dtype(self, dtype: torch.dtype):
+        inpt_tensor = torch.rand(128, dtype=dtype)
         inpt_tensor_nf4 = to_nf4(inpt_tensor, 32, 2)
         assert type(inpt_tensor_nf4) != torch.Tensor
-        assert type(inpt_tensor_nf4.to(torch.bfloat16)) == torch.Tensor
-        assert inpt_tensor_nf4.to(torch.bfloat16).dtype == torch.bfloat16
+        assert type(inpt_tensor_nf4.to(dtype)) == torch.Tensor
+        assert inpt_tensor_nf4.to(dtype).dtype == dtype
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
