@@ -31,50 +31,26 @@ jobs:
           - name: Nightly CPU
             runs-on: 32-core-ubuntu
             torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cpu'
-
     runs-on: ${{ matrix.runs-on }}
-
     steps:
     - uses: actions/checkout@v2
 
-    - name: Set up Conda
-      uses: conda-incubator/setup-miniconda@v2
+    - name: Set up Python
+      uses: actions/setup-python@v2
       with:
-        miniconda-version: "latest"
-        auto-update-conda: true
         python-version: '3.9'
-        activate-environment: test-env
-        use-only-tar-bz2: true # optional: use only bzip2 archives, smaller bandwidth usage
 
-    - name: Install CUDA Toolkit
-      run: conda install -c nvidia/label/cuda-12.1.0 cuda-toolkit
-
-    - name: Install PyTorch and other dependencies
+    - name: Install dependencies
       run: |
-        source $CONDA/etc/profile.d/conda.sh
-        conda init
-        conda activate test-env
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
         pip install -r requirements.txt
         pip install -r dev-requirements.txt
 
-    - name: List dependencies
-      run: |
-        conda init
-        conda activate test-env
-        pip list
-        which python
-
     - name: Install package
       run: |
-        conda init
-        conda activate test-env
-        python -c "import torch; print(torch.__version__)"
         pip install .
 
     - name: Run tests
       run: |
-        conda init
-        conda activate test-env
         pytest test --verbose -s
