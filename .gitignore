@@ -258,6 +258,10 @@ docs/gathered
 _site
 doxygen
 docs/dev
+docs/build
+docs/source/tutorials/*
+docs/source/gen_modules/*
+docs/source/sg_execution_times.rst
 
 # LevelDB files
 *.sst
