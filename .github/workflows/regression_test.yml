@@ -41,7 +41,6 @@ jobs:
       with:
         cuda: ${{ matrix.cuda }}
         method: network
-        sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "thrust", "visual_studio_integration"]'
 
     - name: Set up Python
       uses: actions/setup-python@v2
