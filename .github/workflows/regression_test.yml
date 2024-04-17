@@ -34,6 +34,11 @@ jobs:
     runs-on: ${{ matrix.runs-on }}
     steps:
     - uses: actions/checkout@v2
+              
+    - name: Install cuda-toolkit        
+      uses: Jimver/cuda-toolkit@v0.2.14
+      with:
+        cuda: '12.1.0'
 
     - name: Set up Python
       uses: actions/setup-python@v2
