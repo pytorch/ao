@@ -22,7 +22,7 @@ jobs:
           - name: CUDA Nightly
             runs-on: 4-core-ubuntu-gpu-t4
             torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu121'
-            cuda: '12.0.0'
+            cuda: '12.1.0'
           # - name: CPU 2.2.2
           #   runs-on: 32-core-ubuntu
           #   torch-spec: 'torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu'
