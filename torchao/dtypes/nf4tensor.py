@@ -26,18 +26,7 @@ def implements_torch_function(torch_function):
 
 @implements_torch_function(torch.Tensor.to)
 def function_to_dtype(*args, **kwargs):
-    if not args[0].is_contiguous():
-        breakpoint()
-        assert args[0].t().is_contiguous()
-        return torch.ops.aten.to.dtype(args[0].t(), args[1]).t()
     return args[0].get_original_weight().to(args[1])
-
-# @implements_torch_function([torch.Tensor.to])
-# def to_dtype(func, *args, **kwargs):
-#     if not args[0][0].is_contiguous():
-#         assert args[0][0].t().is_contiguous()
-#         return torch.ops.aten.to.dtype(args[0][0].t(), args[0][1]).t()
-#     return args[0][0].get_original_weight().to(args[0][1])
 
 
 def same_metadata(a: "NF4Tensor", b: "NF4Tensor"):
@@ -320,7 +309,6 @@ def noop_detach(func, *args, **kwargs):
 
 @implements([torch.ops.aten._to_copy.default])
 def _to_copy(func, *args, **kwargs):
-    breakpoint()
     if not args[0][0].is_contiguous():
         assert args[0][0].t().is_contiguous()
         return func(args[0][0].t()).t()
@@ -329,7 +317,6 @@ def _to_copy(func, *args, **kwargs):
 
 @implements([torch.ops.aten.to.dtype])
 def to_dtype(func, *args, **kwargs):
-    breakpoint()
     if not args[0][0].is_contiguous():
         assert args[0][0].t().is_contiguous()
         return torch.ops.aten.to.dtype(args[0][0].t(), args[0][1]).t()
@@ -881,10 +868,7 @@ class LinearNF4(torch.autograd.Function):
     def forward(ctx, input: torch.Tensor, weight: NF4Tensor):
         """Save the quantized nf4 weight for backward pass"""
         ctx.nf4_weight = weight
-        # assert input.dtype == torch.bfloat16 and input.dtype == weight.dtype
-        assert input.dtype == weight.dtype
-        return F.linear(input, weight.get_original_weight())
-        # return F.linear(input, weight.to(input.dtype))
+        return F.linear(input, weight.to(input.dtype))
 
     @staticmethod
 
@@ -893,8 +877,7 @@ class LinearNF4(torch.autograd.Function):
     def backward(ctx, grad_output):
         """The nf4 weight will never require grad so we can just return the grad_output @ weight.to(grad_output.dtype)"""
         weight: NF4Tensor = ctx.nf4_weight
-        # return grad_output @ weight.to(grad_output.dtype), None
-        return grad_output @ weight.get_original_weight(), None
+        return grad_output @ weight.to(grad_output.dtype), None
 
 
 def linear_nf4(input: torch.Tensor, weight: NF4Tensor) -> torch.Tensor:
@@ -908,6 +891,4 @@ def linear_nf4(input: torch.Tensor, weight: NF4Tensor) -> torch.Tensor:
 
 
 def to_nf4(tensor, block_size: int = 64, scaler_block_size: int = 256):
-    # tensor1 = tensor.to(torch.bfloat16)
-    # return NF4Tensor.from_tensor(tensor1, block_size, scaler_block_size)
     return NF4Tensor.from_tensor(tensor, block_size, scaler_block_size)
