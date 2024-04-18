@@ -67,7 +67,7 @@ jobs:
       # Grant write permission here so that the doc can be pushed to gh-pages branch
       contents: write
     needs: build_docs
-    if: github.repository == 'pytorch-labs/ao' && github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/tags/v'))
+    if: github.repository == 'pytorch-labs/ao' && github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -87,10 +87,7 @@ jobs:
             find docs -name "*.html" -print0 | xargs -0 sed -i '/<head>/a \ \ <meta name="robots" content="noindex">';
           fi
       - name: Move and commit changes
-        env:
-          GITHUB_PYTORCHBOT_TOKEN: ${{ secrets.GH_PYTORCHBOT_TOKEN }}
         run: |
-          git remote set-url origin https://pytorchbot:${GITHUB_PYTORCHBOT_TOKEN}@github.com/pytorch-labs/ao.git
           set -euo pipefail
           REF_TYPE=${{ github.ref_type }}
           REF_NAME=${{ github.ref_name }}
