@@ -78,7 +78,10 @@ else:
 
 @torch.library.impl(lib, "int_scaled_matmul", "CPU")
 def int_scaled_matmul_cpu(a, b, scales1):
-    c = torch._int_mm(a, b)
+    try:
+        c = torch._int_mm(a, b)
+    except NotImplementedError:
+        c = torch.matmul(a.to(scales1.dtype), b.to(scales1.dtype))
     return c.to(scales1.dtype) * scales1
 
 
