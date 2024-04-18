@@ -2,12 +2,21 @@ import argparse
 import csv
 import itertools
 import math
+import sys
 import pathlib
 
 import torch
+from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4, TORCH_VERSION_AFTER_2_2
+
+
+# Check if CUDA is available, if not, exit the script
+if not torch.cuda.is_available():
+    print("CUDA is not available. Exiting the script.")
+    sys.exit(0)
+
 import torch.nn.functional as F
 import torch.utils.benchmark as benchmark
-from torchao.kernel.intmm_triton import int_matmul, int_scaled_matmul
+from torchao.kernel.intmm import int_matmul, int_scaled_matmul
 
 torch._dynamo.config.cache_size_limit = 128
 torch._dynamo.config.accumulated_cache_size_limit = 128
@@ -81,7 +90,7 @@ def run_benchmarks(shapes):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="integer matmul benchmarks")
-    parser.add_argument("file_path", type=str, help="Path to csv file with shapes")
+    parser.add_argument("--file_path", type=str, required=True, help="Path to csv file with shapes")
     args = parser.parse_args()
     # Access the file path provided as an argument
     file_path = args.file_path
