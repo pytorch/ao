@@ -210,7 +210,7 @@ class TestNF4Linear(TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_smoketest_linear_compile(self, dtype: torch.dtype):
-        if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0) and dtype in [torch.bfloat16, torch.float16]:
+        if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0) and dtype == torch.bfloat16:
             self.skipTest("test requires SM capability of at least (8, 0).")
         a = torch.randn(32, 32, dtype=dtype, device='cuda')
         a_nf4 = torchao.dtypes.to_nf4(a, 16, 2)
