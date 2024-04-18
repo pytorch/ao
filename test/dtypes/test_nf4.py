@@ -197,6 +197,7 @@ class TestNF4Linear(TestCase):
         for dtype in [torch.bfloat16, torch.float16]:
             if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0) and dtype == torch.bfloat16:
                 self.skipTest("test requires SM capability of at least (8, 0).")
+            dummy = 1
             a = torch.randn(32, 32, dtype=dtype, device='cuda')
             a_nf4 = torchao.dtypes.to_nf4(a, 16, 2)
             inp = torch.randn(2, 32, 32, dtype=a.dtype, device=a.device)
