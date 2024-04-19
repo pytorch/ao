@@ -9,7 +9,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-from typing import Optional, List
+from typing import Optional, List, Type
 
 import torch
 
@@ -1120,13 +1120,13 @@ if TORCH_VERSION_AFTER_2_3:
                 self.precision,
             )
 
-
-    def replace_linear_8da4w(
-        module,
-        groupsize,
-        padding_allowed,
-        precision,
-        scales_precision,
+    def _replace_linear_8da4w(
+        module: torch.nn.Module,
+        groupsize: int,
+        padding_allowed: bool,
+        precision: torch.dtype,
+        scales_precision: torch.dtype,
+        linear_class: Type[torch.nn.Module],
     ):
         for name, child in module.named_children():
             if isinstance(child, nn.Linear):
@@ -1134,7 +1134,7 @@ if TORCH_VERSION_AFTER_2_3:
                     setattr(
                         module,
                         name,
-                        Int8DynActInt4WeightLinear(
+                        linear_class(
                             child.in_features,
                             child.out_features,
                             bias=False,
@@ -1144,13 +1144,29 @@ if TORCH_VERSION_AFTER_2_3:
                         ),
                     )
             else:
-                replace_linear_8da4w(
+                _replace_linear_8da4w(
                     child,
                     groupsize,
                     padding_allowed,
                     precision,
                     scales_precision,
                 )
+
+    def replace_linear_8da4w(
+        module: torch.nn.Module,
+        groupsize: int,
+        padding_allowed: bool,
+        precision: torch.dtype,
+        scales_precision: torch.dtype,
+    ):
+        _replace_linear_8da4w(
+            module,
+            groupsize,
+            padding_allowed,
+            precision,
+            scales_precision,
+            Int8DynActInt4WeightLinear,
+        )
 
     class Int8DynActInt4WeightQuantizer(Quantizer):
         def __init__(
