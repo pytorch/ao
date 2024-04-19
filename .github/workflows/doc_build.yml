@@ -1,0 +1,117 @@
+name: Build Docs
+
+on:
+  push:
+    branches:
+      - main
+      - release/*
+    tags:
+      - v[0-9]+.[0-9]+.[0-9]
+      - v[0-9]+.[0-9]+.[0-9]+-rc[0-9]+
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-docs-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash -l -eo pipefail {0}
+
+jobs:
+  build_docs:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11']
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v3
+      - name: Setup conda env
+        uses: conda-incubator/setup-miniconda@v2
+        with:
+          auto-update-conda: true
+          miniconda-version: "latest"
+          activate-environment: test
+          python-version: ${{ matrix.python-version }}
+      - name: Update pip
+        run: python -m pip install --upgrade pip
+      - name: Install dependencies
+        run: |
+          python -m pip install torch
+          python -m pip install -e .
+          cd docs
+          python -m pip install -r requirements.txt
+      - name: Get the torchtune version
+        run: |
+          # Get the github.ref_name and save into the
+          # REF_NAME variable. This will be passed in
+          # conf.py to display the version in the
+          # site dropdown
+          REF_NAME=${{ github.ref_name }}
+          TORCHAO_VERSION_DOCS="${REF_NAME}"
+          echo "$TORCHAO_VERSION_DOCS"
+      - name: Build docs
+        run: |
+          cd docs
+          make html
+      - uses: actions/upload-artifact@v3
+        with:
+          name: Doc-Build
+          path: docs/build/html/
+
+  upload:
+    runs-on: ubuntu-latest
+    permissions:
+      # Grant write permission here so that the doc can be pushed to gh-pages branch
+      contents: write
+    needs: build_docs
+    if: github.repository == 'pytorch-labs/ao' && github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          ref: gh-pages
+          persist-credentials: false
+      - name: Download artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: Doc-Build
+          path: docs
+      - name: Add no-index tag
+        run: |
+          REF_NAME=$(echo "${{ github.ref }}")
+          echo "Ref name: ${REF_NAME}"
+          if [[ "${{ github.ref }}" == 'refs/heads/main' ]]; then
+            find docs -name "*.html" -print0 | xargs -0 sed -i '/<head>/a \ \ <meta name="robots" content="noindex">';
+          fi
+      - name: Move and commit changes
+        run: |
+          set -euo pipefail
+          REF_TYPE=${{ github.ref_type }}
+          REF_NAME=${{ github.ref_name }}
+          if [[ "${REF_TYPE}" == branch ]]; then
+            TARGET_FOLDER="${REF_NAME}"
+          elif [[ "${REF_TYPE}" == tag ]]; then
+            case "${REF_NAME}" in
+              *-rc*)
+                echo "Aborting upload since this is an RC tag: ${REF_NAME}"
+                exit 0
+                ;;
+              *)
+                TARGET_FOLDER=$(echo "${REF_NAME}" | sed 's/v\([0-9]\+\)\.\([0-9]\+\)\.[0-9]\+/\1.\2/')
+                ;;
+            esac
+          fi
+
+          echo "Target Folder: ${TARGET_FOLDER}"
+          mkdir -p "${TARGET_FOLDER}"
+          rm -rf "${TARGET_FOLDER}"/*
+          mv docs/* "${TARGET_FOLDER}"
+
+          git config user.name 'pytorchbot'
+          git config user.email 'soumith+bot@pytorch.org'
+          git add "${TARGET_FOLDER}" || true
+          git commit -m "auto-generating sphinx docs" || true
+          git push -f      
