@@ -1,11 +1,12 @@
 import functools
 from dataclasses import dataclass
 from typing import Dict, Tuple
+import math
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor
-import math
+from torch.distributed.device_mesh import DeviceMesh
 
 
 aten = torch.ops.aten
@@ -784,7 +785,7 @@ class NF4Tensor(torch.Tensor):
             return func(*args, **kwargs)
 
 
-    def fsdp_pre_all_gather(self) -> Tuple[Tuple[torch.Tensor, ...], Any]:
+    def fsdp_pre_all_gather(self, mesh: DeviceMesh) -> Tuple[Tuple[torch.Tensor, ...], Any]:
         return (
             self.quantized_scalers,
             self.quantization_factor,
@@ -803,6 +804,7 @@ class NF4Tensor(torch.Tensor):
             self.scaler_block_size,
             self.scaler_mean,
             self.nf4,
+            mesh.get_group().size(),
         )
 
     def fsdp_post_all_gather(
@@ -814,10 +816,9 @@ class NF4Tensor(torch.Tensor):
         out: Optional[torch.Tensor] = None,
     ) -> Union[Tuple[torch.Tensor, Tuple[torch.Tensor, ...]], None]:
         (quantized_scalers, quantization_factor, quantized_data) = all_gather_outputs
-        (tensor_meta, block_size, n_blocks, scaler_block_size, scaler_mean, nf4)  = metadata
-        world_size = quantized_data.numel() * 2 // math.prod(tensor_meta.original_shape)
+        (tensor_meta, block_size, n_blocks, scaler_block_size, scaler_mean, nf4, pg_size)  = metadata
         len(tensor_meta.original_shape) == 2, "only support 2D shape"
-        tensor_meta.original_shape = torch.Size((tensor_meta.original_shape[0] * world_size, tensor_meta.original_shape[1]))
+        tensor_meta.original_shape = torch.Size((tensor_meta.original_shape[0] * pg_size, tensor_meta.original_shape[1]))
         if out is not None:
             # TODO: add param dtype for mixed precision
             assert isinstance(out, NF4Tensor), f"{type(out)}"
