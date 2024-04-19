@@ -555,8 +555,11 @@ class NF4Tensor(torch.Tensor):
         if kwargs is None:
             kwargs = {}
 
-        if func in NF4_TORCH_FUNCTIONS:
-            return NF4_TORCH_FUNCTIONS[func](*args, **kwargs)
+        try:
+            if func in NF4_TORCH_FUNCTIONS:
+                return NF4_TORCH_FUNCTIONS[func](*args, **kwargs)
+        except NotImplementedError:
+            pass
 
         with torch._C.DisableTorchFunctionSubclass():
             return func(*args, **kwargs)
@@ -617,5 +620,5 @@ def function_to_dtype(*args, **kwargs):
         # Tensor.to(device, dtype, non_blocking, copy, memory_format)
         # Tensor.to(other, non_blocking, copy)
         raise NotImplementedError(
-            f"NF4Tensor.to({args[1:]}, {kwargs}) is not supported"
+            f"NF4Tensor.to({args[1:]}, {kwargs}) is not supported, passing to dispatch"
         )
