@@ -331,15 +331,13 @@ def t_default(func, *args, **kwargs):
     )
     return b
 
+@implements([torch.ops.aten.detach])
+def noop_detach(func, *args, **kwargs):
+    return args[0][0]
 
 @implements([torch.ops.aten.mm.default])
 def mm_default(func, *args, **kwargs):
     return linear_nf4(args[0][0], args[0][1])
-
-
-@implements([torch.ops.aten.detach])
-def noop_detach(func, *args, **kwargs):
-    return args[0][0]
 
 
 @dataclass
