@@ -610,4 +610,12 @@ def implements_torch_function(torch_function):
 
 @implements_torch_function(torch.Tensor.to)
 def function_to_dtype(*args, **kwargs):
-    return args[0].get_original_weight().to(args[1])
+    if isinstance(args[0], NF4Tensor) and isinstance(args[1], torch.dtype):
+        # Tensor.to(dtype, non_blocking, copy, memory_format)
+        return args[0].get_original_weight().to(*args[1:], **kwargs)
+    else:
+        # Tensor.to(device, dtype, non_blocking, copy, memory_format)
+        # Tensor.to(other, non_blocking, copy)
+        raise NotImplementedError(
+            f"NF4Tensor.to({args[1:]}, {kwargs}) is not supported"
+        )

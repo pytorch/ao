@@ -214,8 +214,8 @@ class TestNF4Linear(TestCase):
     def test_smoketest_linear_compile(self, dtype: torch.dtype):
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0) and dtype == torch.bfloat16:
             self.skipTest("test requires SM capability of at least (8, 0).")
-        if version.parse(torch.__version__) <= version.parse("2.2.2"):
-            self.skipTest("test requires 2.3.0+ for tracing NF4Tensor")
+        if version.parse(torch.__version__) < version.parse("2.3.0"):
+            self.skipTest("test requires 2.3.0 and above for tracing NF4Tensor")
         a = torch.randn(32, 32, dtype=dtype, device='cuda')
         a_nf4 = torchao.dtypes.to_nf4(a, 16, 2)
         inp = torch.randn(2, 32, 32, dtype=a.dtype, device=a.device)
