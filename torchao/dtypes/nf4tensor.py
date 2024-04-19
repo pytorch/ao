@@ -408,6 +408,7 @@ class NF4Tensor(torch.Tensor):
             tensor_meta.original_shape,
             tensor_meta.original_strides,
             tensor_meta.storage_offset,
+            # Picked some floating dtype, but we need dtype extensibility
             dtype=tensor_meta.dtype,
             device=tensor_meta.device,
             requires_grad=tensor_meta.requires_grad,
