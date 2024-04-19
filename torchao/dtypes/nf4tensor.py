@@ -76,17 +76,16 @@ def nf4_detach(aten_op, args, kwargs=None):
     ]
 )
 def nf4_split(aten_op, args, kwargs=None):
-    # torch.chunk
-    # TODO: find if there are other args/kwargs in aten.split
     assert len(args) == 2 and (kwargs is None or len(kwargs) == 0), "only support aten.split.Tensor with 2 args"
     # TODO: assert on dim-0 sharding. how to get dim from torch.chunk?
     num_chunks = args[0].size(0) // args[1]
 
-    # TODO: assert numel % num_chunks == 0
+    assert args[0].quantized_scalers.numel() % num_chunks == 0, f"NF4Tensor.quantized_scalers.numel() not divisible by {num_chunks}"
     quantized_scalers_chunks = aten_op(args[0].quantized_scalers, args[0].quantized_scalers.numel() // num_chunks, **kwargs)
+    assert args[0].quantization_factor.numel() % num_chunks == 0, f"NF4Tensor.quantization_factor.numel() not divisible by {num_chunks}"
     quantization_factor_chunks = aten_op(args[0].quantization_factor, args[0].quantization_factor.numel() // num_chunks, **kwargs)
+    assert args[0].quantized_data.numel() % num_chunks == 0, f"NF4Tensor.quantized_data.numel() not divisible by {num_chunks}"
     quantized_data_chunks = aten_op(args[0].quantized_data, args[0].quantized_data.numel() // num_chunks, **kwargs)
-
 
     assert len(args) == 2, "only support 2d because of tensor meta"
     return [
@@ -159,7 +158,6 @@ def nf4_new_zeros(aten_op, args, kwargs=None):
 def nf4_slice(aten_op, args, kwargs=None):
     assert len(args) == 4
     assert args[1] == 0, f"only support dim=0 but got dim={args[1]}"
-    # TODO: maybe relax?
     assert args[2] == 0, f"only support start=0 but got start={args[2]}"
     assert args[3] == args[0].size(0), f"only support end == size(0) but got end={args[3]} and size(0)={args[0].size(0)}"
     return NF4Tensor(
