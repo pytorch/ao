@@ -240,11 +240,6 @@ def nf4_as_strided(aten_op, args, kwargs=None):
     )
 
 
-@implements([torch.ops.aten.detach])
-def noop_detach(func, *args, **kwargs):
-    return args[0][0]
-
-
 @implements([torch.ops.aten._to_copy.default])
 def _to_copy(func, *args, **kwargs):
     if not args[0][0].is_contiguous():
@@ -340,6 +335,11 @@ def t_default(func, *args, **kwargs):
 @implements([torch.ops.aten.mm.default])
 def mm_default(func, *args, **kwargs):
     return linear_nf4(args[0][0], args[0][1])
+
+
+@implements([torch.ops.aten.detach])
+def noop_detach(func, *args, **kwargs):
+    return args[0][0]
 
 
 @dataclass
