@@ -15,6 +15,7 @@ import torch.nn.functional as F
 import io
 from collections import OrderedDict
 import torchao
+from typing import Tuple, Union
 
 
 bnb_available = False
@@ -222,7 +223,98 @@ class TestNF4Linear(TestCase):
         out3 = torch.compile(torch.nn.functional.linear, mode='max-autotune')(inp, a_nf4)
 
 
+class TestFSDPOps(TestCase):
+    @parametrize("input_size", [512 * 512, (512 * 512,), (512, 512)])
+    def test_torch_chunk_valid(self, input_size: Union[Tuple[int], int]):
+        num_chunks = 2
+        nf4_tensor = to_nf4(torch.randn(input_size))
+        chunks = list(torch.chunk(nf4_tensor, num_chunks))
+        self.assertEqual(len(chunks), num_chunks)
+        if isinstance(input_size, int):
+            expected_size0 = input_size // num_chunks
+        else:
+            expected_size0 = input_size[0] // num_chunks
+        for chunk in chunks:
+            self.assertEqual(chunk.size(0), expected_size0)
+
+    @parametrize("input_size", [511 * 512, (511 * 512,), (511, 512), (512, 512, 512)])
+    def test_torch_chunk_invalid(self, input_size: Union[Tuple[int], int]):
+        num_chunks = 2
+        with self.assertRaises(AssertionError):
+            nf4_tensor = to_nf4(torch.randn(input_size))
+            torch.chunk(nf4_tensor, num_chunks)
+
+    @parametrize("input_size", [512 * 512, (512 * 512,), (512, 512)])
+    def test_tensor_new_zeros_valid(self, input_size: Union[Tuple[int], int]):
+        nf4_tensor = to_nf4(torch.randn(input_size))
+        nf4_tensor_zeros = nf4_tensor.new_zeros(input_size)
+        for attr in ["quantized_scalers", "quantization_factor", "quantized_data"]:
+            inner_tensor = getattr(nf4_tensor_zeros, attr)
+            self.assertEqual(torch.count_nonzero(inner_tensor), 0)
+        expected_size = input_size if not isinstance(input_size, int) else (input_size, )
+        self.assertEqual(nf4_tensor_zeros.size(), torch.Size(expected_size))
+
+    @parametrize("input_size", [512 * 512, (512 * 512,), (512, 512)])
+    def test_tensor_new_zeros_invalid(self, input_size: Union[Tuple[int], int]):
+        if isinstance(input_size, int):
+            new_size = input_size + 1
+        elif len(input_size) == 1:
+            new_size = (input_size[0] + 1, )
+        else:
+            new_size = (input_size[0] + 1, input_size[1])
+        nf4_tensor = to_nf4(torch.randn(input_size))
+        with self.assertRaisesRegex(NotImplementedError, "aten.new_zeros\(NF4Tensor\) with new size"):
+            nf4_tensor_zeros = nf4_tensor.new_zeros(new_size)
+
+    @parametrize("input_size", [512 * 512, (512 * 512,), (512, 512)])
+    def test_tensor_slice_valid(self, input_size: Union[Tuple[int], int]):
+        nf4_tensor = to_nf4(torch.randn(input_size))
+        end_idx = input_size if isinstance(input_size, int) else input_size[0]
+        sliced_tensor = nf4_tensor[:end_idx]
+        self.assertEqual(nf4_tensor.size(), sliced_tensor.size())
+        attrs, _ = sliced_tensor.__tensor_flatten__()
+        for attr in attrs:
+            orig_storage = getattr(nf4_tensor, attr).untyped_storage().data_ptr()
+            self.assertEqual(getattr(sliced_tensor, attr).untyped_storage().data_ptr(), orig_storage)
+
+    def test_tensor_slice_1d_invalid(self):
+        nf4_tensor = to_nf4(torch.randn(512 * 512))
+        with self.assertRaisesRegex(NotImplementedError, "aten.slice\(NF4Tensor\) with step"):
+            nf4_tensor[..., ::2]
+        with self.assertRaisesRegex(NotImplementedError, "aten.slice\(NF4Tensor\) with start"):
+            nf4_tensor[1:]
+        with self.assertRaisesRegex(NotImplementedError, "aten.slice\(NF4Tensor\) with end "):
+            nf4_tensor[:2]
+
+    def test_tensor_slice_2d_invalid(self):
+        nf4_tensor = to_nf4(torch.randn((512, 512)))
+        with self.assertRaisesRegex(NotImplementedError, "aten.slice\(NF4Tensor\) with dim"):
+            nf4_tensor[:, :511]
+        with self.assertRaisesRegex(NotImplementedError, "aten.slice\(NF4Tensor\) with start"):
+            nf4_tensor[1:]
+        with self.assertRaisesRegex(NotImplementedError, "aten.slice\(NF4Tensor\) with end"):
+            nf4_tensor[:2]
+
+    @parametrize("input_size", [(512 * 512,), (512, 512)])
+    def test_tensor_view_valid(self, input_size: Union[Tuple[int], int]):
+        nf4_tensor = to_nf4(torch.randn(input_size))
+        viewed_tensor = nf4_tensor.view(-1)
+        self.asssertEqual(viewed_tensor.dim(), 1)
+        self.asssertEqual(viewed_tensor.numel(), math.prod(input_size))
+        attrs, _ = sliced_tensor.__tensor_flatten__()
+        for attr in attrs:
+            orig_storage = getattr(nf4_tensor, attr).untyped_storage().data_ptr()
+            inner_tensor = getattr(sliced_tensor, attr)
+            self.asssertEqual(inner_tensor.dim(), 1)
+            self.assertEqual(inner_tensor.untyped_storage().data_ptr(), orig_storage)
+
+
+    # def test_tensor_as_strided(self):
+    #     pass
+
+
 instantiate_parametrized_tests(TestNF4Linear)
+instantiate_parametrized_tests(TestFSDPOps)
 
 if __name__ == "__main__":
     run_tests()
