@@ -1,6 +1,6 @@
 # torchao sparsity
 
-Sparsity is the technique of removing parameters from a neural network in order to reduce its memory overhead or latency. By carefully choosing the way a model is pruned, one can achieve significant reduction in memory overhead and latency, while paying a reasonably low or no price in terms of model quality (accuracy / f1).
+Sparsity is the technique of removing parameters from a neural network in order to reduce its memory overhead or latency. By carefully choosing the elements thare are removed, one can achieve significant reduction in memory overhead and latency, while paying a reasonably low or no price in terms of model quality (accuracy / f1).
 
 ## Goal
 
@@ -673,23 +673,19 @@ _Table 4.4: Description of some common sparsity patterns. _
 
 # Design
 
-Pruning, like quantization, is an accuracy/performance trade-off, where we care not only about the speedup but also on the accuracy degradation of our architecture optimization technique.
+Sparsity, like quantization, is an accuracy/performance trade-off, where we care not only about the speedup but also on the accuracy degradation of our architecture optimization technique.
 
-In quantization, the theoretical performance gain is generally determined by the data type that we are quantizing to - quantizing from float32 to float16 yields a theoretical 2x speedup. For pruning, the analogous variable would be the sparsity level/ sparsity pattern that we prune to. For semi-structured, the sparsity level is fixed at 50%, so we expect a theoretical 2x improvement. For block-sparse matrices and unstructured sparsity, the speedup is variable and depends on the sparsity level of the tensor.
+In quantization, the theoretical performance gain is generally determined by the data type that we are quantizing to - quantizing from float32 to float16 yields a theoretical 2x speedup. For pruning/sparsity, the analogous variable would be the sparsity level/ sparsity pattern. For semi-structured, the sparsity level is fixed at 50%, so we expect a theoretical 2x improvement. For block-sparse matrices and unstructured sparsity, the speedup is variable and depends on the sparsity level of the tensor.
 
-One key difference between pruning and quantization is in how the accuracy degradation is determined: The accuracy degradation of quantization is determined by the scale and zero_point chosen. However, in pruning the accuracy degradation is determined by the mask. By carefully choosing the specified elements and retraining the network, pruning can achieve negligible accuracy degradation and in some cases even provide a slight accuracy gain. This is an active area of research with no agreed-upon consensus. We expect users will have a target sparsity pattern and mind and to prune to that pattern.
+One key difference between sparsity and quantization is in how the accuracy degradation is determined: The accuracy degradation of quantization is determined by the scale and zero_point chosen. However, in pruning the accuracy degradation is determined by the mask. By carefully choosing the specified elements and retraining the network, pruning can achieve negligible accuracy degradation and in some cases even provide a slight accuracy gain. This is an active area of research with no agreed-upon consensus. We expect users will have a target sparsity pattern and mind and to prune to that pattern.
 
 Given a target sparsity pattern, pruning a model can then be thought of as two separate subproblems:
-
-
 
 * How can I find a set of sparse weights which satisfy my target sparsity pattern that minimize the accuracy degradation of my model?
 * How can I accelerate my sparse weights for inference and reduced memory overhead?
 
 
-
 Our workflow is designed to consist of two parts that answer each question independently:
-
 
 
 * a frontend python user-facing API to find sparse weights for any arbitrary sparsity pattern.
