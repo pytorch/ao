@@ -53,7 +53,7 @@ Note that this section focuses on **pruning**, instead of **sparse training**. T
 
 Roughly, the flow for achieving a more performant pruned model looks like this:
 
-![flow](https://private-user-images.githubusercontent.com/8041643/324607153-ba91eaca-14ce-4608-9db8-6cbb9ea1f9ec.png)
+![flow](https://private-user-images.githubusercontent.com/8041643/324612485-c7008b1d-6c1a-4424-b3d1-34c55a25460d.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3MTM4MjA0MjUsIm5iZiI6MTcxMzgyMDEyNSwicGF0aCI6Ii84MDQxNjQzLzMyNDYxMjQ4NS1jNzAwOGIxZC02YzFhLTQ0MjQtYjNkMS0zNGM1NWEyNTQ2MGQucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI0MDQyMiUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNDA0MjJUMjEwODQ1WiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9YjU3OWMwNWUyMTFjODY0OWUwMGYwNDg1YzA4NTAxYmE0MGYxM2IyZTYyZmYxY2MxY2ZmYzk2NTc5OWI0MTU2OCZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QmYWN0b3JfaWQ9MCZrZXlfaWQ9MCZyZXBvX2lkPTAifQ.ZSh_JSvMDZsPnQb4S89qzP3IXIaHI9Uaw60n_ffwhAc)
 
 The general idea behind pruning is that we can mask out some of the weights of a trained neural network and recover any accuracy loss. The resultant pruned model can be run on optimized kernels that take advantage of this sparsity for accelerated inference.
 
@@ -138,14 +138,6 @@ Not all layers in a neural network are created equal. Some layers can be more se
 Determining the best pruning configuration and sparsity level for a given model is an open problem and a general solution does not exist. This is in part because the optimal pruning configuration is dependent on the subsequent pruning criteria and strategy, and there are an infinite number of ways to decide how to prune models and how to recover lost accuracy.
 
 One common method to determine which layers to prune and to what degree is to perform sensitivity analysis  by pruning each layer in the model at different sparsity levels and seeing the subsequent accuracy drop (without retraining). This gives a user a sparsity-accuracy curve for each layer that the user can then use as a proxy to determine the best pruning configuration.
-
-
-
-![alt_text](https://private-user-images.githubusercontent.com/8041643/324607151-3e3ec603-c2a8-4f2c-bdfe-718799a26867.png)
-
-
-_From this graph, we would expect to prune features.modules.0 less than the other layers. _
-
 
 ### Pruning Criteria
 
@@ -697,7 +689,7 @@ The handoff point between these two pieces are sparse weights stored in a dense 
 
 This also allows users with existing sparse weights in a dense format to take advantage of our fast sparse kernels. We anticipate many users to come up with their own custom frontend masking solution or to use another third party solution, as this is an active area of research.
 
-![alt_text](https://private-user-images.githubusercontent.com/8041643/324607146-53542488-65ce-4d99-a3ae-21e724f89467.png)
+![alt_text](https://private-user-images.githubusercontent.com/8041643/324612475-3873655f-3eab-40c7-8070-722b3eef4444.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3MTM4MjA0MjUsIm5iZiI6MTcxMzgyMDEyNSwicGF0aCI6Ii84MDQxNjQzLzMyNDYxMjQ3NS0zODczNjU1Zi0zZWFiLTQwYzctODA3MC03MjJiM2VlZjQ0NDQucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI0MDQyMiUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNDA0MjJUMjEwODQ1WiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9NDUwZTlmZjQwNjk4ZTZiODVjMTJjOWU4NWQ0NTA2NDQ3MjUzMmI5ZmVhNzY4OTIyZDc3YjUyNzcxOTc4ZDg3OCZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QmYWN0b3JfaWQ9MCZrZXlfaWQ9MCZyZXBvX2lkPTAifQ.fQjPxrsZZHWgJn34oCjcNjWBw_b5HQkRw_n54f9O_uk)
 
 Fundamentally, the flow works by manipulating `torch.Tensors`. In the frontend, we specify the tensors by their fully-qualified-name in a sparse_config dictionary. The frontend is designed to follow the quantization API, with a `prepare` function, which attaches FakeSparsity paramerizations to the tensors specified in the config.
 
