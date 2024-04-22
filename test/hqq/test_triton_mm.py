@@ -11,7 +11,6 @@ import pytest
 import torch
 
 from hqq.core.quantize import HQQLinear, BaseQuantizeConfig
-from hqq.kernels.custom_quant.triton import triton_mixed_mm, pack_2xint4
 from torchao.prototype.hqq import triton_mixed_mm, pack_2xint4
 
 
