@@ -7,7 +7,7 @@ The kernel packs `u8 / s8` weights and fuses dequantization with the matmul.
 - tested for `float16 / bfloat16` activations, scales, and zeros
 - autotuned for both compute-bound and io-bound configs
 - assumes operand B of the `gemm` is is the quantized type.
-- requires quantization along in-features, i.e., the `K` dimension, or `axis=1`, of `torch.linear.weight`.
+- requires quantization along `in-features`, i.e., the `K` dimension, or `axis=1`, of `torch.linear.weight`.
 
 ### Performance
 
@@ -34,7 +34,7 @@ _CudaDeviceProperties(name='NVIDIA RTX A6000', major=8, minor=6, total_memory=48
 
 ### NOTE
 
-> This implementation requires `triton >= 3.0.0`.
+This implementation requires **`triton >= 3.0.0`**.
 
 - Running tests / benchmarks requires installation of `hqq`:
 
