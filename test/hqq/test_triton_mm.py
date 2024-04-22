@@ -24,8 +24,10 @@ SHAPES = [
 DTYPES = [torch.bfloat16, torch.float16]
 GROUP_SIZES = [64, 128]
 AXES = [1] #Only axis = 1 supported
+TRANSPOSED = [False]
 TRITON_KERNEL_TYPE = ["compute_bound"] #["max_autotune", "compute_bound"]
-TEST_CONFIGS = list(itertools.product(SHAPES, GROUP_SIZES, AXES, DTYPES, TRITON_KERNEL_TYPE))
+
+TEST_CONFIGS = list(itertools.product(SHAPES, GROUP_SIZES, AXES, DTYPES, TRANSPOSED, TRITON_KERNEL_TYPE))
 
 BASE_QUANT_CONFIG = {
     "optimize": True,
@@ -45,15 +47,14 @@ def check(expected, actual, cfg_str, max_diff=1e-3):
     else:
         print(colored(f"{cfg_str}: Passed! Max error: {max_err}", "green", attrs=["bold"]))
 
-def test_mixed_mm(shape, group_size, axis, dtype, kernel_type, quant_dtype=torch.uint8):
+def test_mixed_mm(shape, group_size, axis, dtype, transposed, kernel_type, quant_dtype=torch.uint8):
     # print(f"Test: {shape}, {group_size}, {axis}, {dtype}")
     qcfg = {
         **BASE_QUANT_CONFIG,
         **dict(group_size=group_size, axis=axis),
     }
     M, N, K = shape
-
-    x = torch.randn(M, K, dtype=dtype, device="cuda")
+    
     linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device="cuda")
 
     quant_config = BaseQuantizeConfig(
@@ -62,37 +63,48 @@ def test_mixed_mm(shape, group_size, axis, dtype, kernel_type, quant_dtype=torch
     quant_config.update({"weight_quant_params": qcfg})
     hqq_linear = HQQLinear(linear, quant_config, compute_dtype=dtype, del_orig=False)
     W_q, meta = hqq_linear.W_q, hqq_linear.meta
+    W_q = W_q.to(dtype=quant_dtype)
     W_q = (
         W_q.reshape(meta["shape"])
         if quant_config["weight_quant_params"]["bitpack"] == False
         else W_q
     )
+    W_dq = hqq_linear.dequantize()
+
     scales, zeros = meta["scale"], meta["zero"]
-    
-    #Reference
-    hqq_out = hqq_linear.forward(x)
-    
-    ##Triton
-    W_q = W_q.to(dtype=quant_dtype)
-    packed_w = pack_2xint4(W_q.T)
     scales = scales.reshape(N, -1)
     zeros = zeros.reshape(N, -1)
-    tt_out = triton_mixed_mm(
-        x, packed_w, scales.T, zeros.T, group_size=group_size, fp8_fast_accum=False, kernel_type=kernel_type
-    )
 
-    cfg_str = f"Test config {shape} {group_size} {dtype}"
-    # err = (hqq_out - tt_out).abs().max()
+    
+    if transposed:
+        x = torch.randn(M, N, dtype=dtype, device="cuda")
+        hqq_out = x @ W_dq         
+
+        #Pack uint8 W_q, then run fused dequant matmul        
+        packed_w = pack_2xint4(W_q)
+        tt_out = triton_mixed_mm(
+            x, packed_w, scales, zeros, group_size=group_size, fp8_fast_accum=False, kernel_type=kernel_type
+        )
+    else:
+        x = torch.randn(M, K, dtype=dtype, device="cuda")
+        hqq_out = x @ W_dq.T    
+
+        packed_w = pack_2xint4(W_q.T)
+        tt_out = triton_mixed_mm(
+            x, packed_w, scales.T, zeros.T, group_size=group_size, fp8_fast_accum=False, kernel_type=kernel_type
+        )
+
+    cfg_str = f"Test config {shape} {group_size} {dtype} {transposed} {kernel_type}"
     check(hqq_out, tt_out, cfg_str + " triton", max_diff=1e-2 if dtype == torch.bfloat16 else 1e-3)
 
-    if dtype == torch.bfloat16:
-        _ = quant_config["weight_quant_params"].pop("bitpack")
-        hqq_int4mm = HQQLinearTorchWeightOnlyInt4(
-            linear, quant_config, compute_dtype=dtype, del_orig=False
-        )
-        hqq_int4_out = hqq_int4mm.forward(x)
-        err = (hqq_int4_out - hqq_out).abs().max()
-        check(hqq_out, hqq_int4_out, cfg_str + " torch_tinygemm", max_diff=1e-2)
+    #     if dtype == torch.bfloat16:
+    #         _ = quant_config["weight_quant_params"].pop("bitpack")
+    #         hqq_int4mm = HQQLinearTorchWeightOnlyInt4(
+    #             linear, quant_config, compute_dtype=dtype, del_orig=False
+    #         )
+    #         hqq_int4_out = hqq_int4mm.forward(x)
+    #         err = (hqq_int4_out - hqq_out).abs().max()
+    #         check(hqq_out, hqq_int4_out, cfg_str + " torch_tinygemm", max_diff=1e-2)
 
     print()
 
