@@ -12,36 +12,11 @@ We feel that the main problem current researchers / users face is fragmentation.
 
 We feel like the above problems can be solved once, by `torchao`, letting researchers focus on pushing sparse kernel performance or more accurate pruning algorithms.
 
-More concretely, we hope to provide tutorials and APIs for both sparse kernels (tensor subclassing) and pruning algorithms (torch.ao.pruning.Sparsifier) that users can extend. We also aim to accelerate not only inference with our fast sparse matmul kernels, but also GenAI training.
+More concretely, we hope to provide tutorials and APIs for both sparse kernels (tensor subclassing) and pruning algorithms (torch.ao.pruning.Sparsifier) that users can extend. We aim to provide modular building blocks, that can be used to accelerate not only inference but training as well, and that compose nicely with `torchao` quantization workflows.
 
 1. Train sparse models from scratch with hardware acceleration, with minimal accuracy loss.
 2. Recover accuracy loss of pruned model with custom pruning algorthim.
 3. Accelerate masked/pruned models on sparsity-supported hardware to realize performance improvements.
-
-## Guiding Principles
-
-Our APIs should be done in a modular manner, so that users should be able to come to our flow with existing dense weights that satisfy a given sparsity pattern that they could have obtained from custom code or other third-party libraries.
-
-For (2), we have the following goals for our flow:
-
-* **Pruning nn.Linear**: This is the most common module and what we aim to speed up.
-* **Support for a wide range of user pruning options**:
-    * Pruning Config:
-        * Support for users to specify what weight tensors to prune and to what sparsity level.
-    * Pruning Criteria:
-        * Support for local and global pruning techniques
-        * Support for first-order pruning techniques that take in gradient information
-        * Support for out-of-place mask updates.
-        * Support for users to implement their own pruning criteria by building off of our API.
-    * Pruning Strategy:
-        * Support for PAT training and one-shot pruning approaches.
-
-
-For (3), we are especially interested in providing an accelerated inference solution for nn.Linear, as this is the simplest and most common module.
-
-* Users should be able to use our flow to run their pruned models on optimized sparse kernels and see reduced memory / latency.
-    * **NVIDIA 2:4 semi-structured sparsity** for accelerated GPU inference via CUSPARSELT/CUTLASS
-    * **Block sparsity** via OpenAI Triton kernels.
 
 # Design
 
