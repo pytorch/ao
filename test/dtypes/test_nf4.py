@@ -192,6 +192,16 @@ class TestNF4Linear(TestCase):
             nf4_to_dtype = inpt_tensor_nf4.to(dtype)
             torch.testing.assert_allclose(inpt_tensor, nf4_to_dtype, atol=0.13, rtol=0.13)
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need cuda for test")
+    def test_to_copy_device(self):
+        inpt_tensor = torch.rand(128, device='cpu')
+        t = to_nf4(inpt_tensor, 32, 2)
+        assert t.device == torch.device('cpu')
+        z = t.cuda()
+        assert z.device.type == "cuda" # Because the device could be cuda:0
+        x = z.cpu()
+        assert x.device == torch.device('cpu')
+
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_to_dtype(self, dtype: torch.dtype):
         inpt_tensor = torch.rand(128, dtype=dtype)
