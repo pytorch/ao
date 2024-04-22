@@ -12,9 +12,9 @@ from .quant_primitives import (
 import torch.nn.functional as F
 from .utils import TORCH_VERSION_AFTER_2_4
 if TORCH_VERSION_AFTER_2_4:
-    from torch._inductor.utils import do_bench
-else:
     from torch._inductor.runtime.runtime_utils import do_bench
+else:
+    from torch._inductor.utils import do_bench
 
 aten = torch.ops.aten
 
