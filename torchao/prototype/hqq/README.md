@@ -2,10 +2,11 @@
 
 Fused gemm for asymmetric quantized weights. Tested and benchmarked for `HQQ` but could theoretically be used for any asymmetric quantization scheme.
 
-The kernel packs `u4 / s4` weights and fuses dequantization with the matmul.
+The kernel takes packed `u4 / s4` weights and fuses dequantization with matmul.
 
+- bitpacking is simple row interleave, no need for extensive preprocessing (e.g., `tinygemm` or `fastertransformer`)
 - tested for `float16 / bfloat16` activations, scales, and zeros
-- autotuned for both compute-bound and io-bound configs
+- autotuned for both compute-bound and memory-bound configs
 - assumes operand B of the `gemm` is is the quantized type.
 - requires quantization along `in-features`, i.e., the `K` dimension, or `axis=1`, of `torch.linear.weight`.
 
