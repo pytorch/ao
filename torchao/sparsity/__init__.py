@@ -8,9 +8,8 @@ from .wanda import WandaSparsifier  # noqa: F403
 from .utils import PerChannelNormObserver  # noqa: F403
 from .sparse_api import apply_sparse_semi_structured, apply_fake_sparsity
 from .dynamic_quant_sparse import (
+    Int8DynamicallyQuantizedSemiStructuredSparseLinearWeight,
     Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight,
-    Int8DynamicallyQuantized24CusparseltLinearWeight,
-    Int8DynamicallyQuantized24CutlassLinearWeight
 )
 
 __all__ = [
@@ -19,6 +18,5 @@ __all__ = [
     "apply_sparse_semi_structured",
     "apply_fake_sparsity",
     "Int8DynamicallyQuantizedCusparseltLinearFuseMulWeight",
-    "Int8DynamicallyQuantizedCusparseltLinearWeight",
-    "Int8DynamicallyQuantizedCutlassLinearWeight",
+    "Int8DynamicallyQuantizedSemiStructuredSparseLinearWeight",
 ]

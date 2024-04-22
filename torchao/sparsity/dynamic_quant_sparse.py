@@ -13,10 +13,7 @@ from torchao.quantization.subclass import (
     QuantizedLinearWeightBase,
 )
 
-from torch.sparse import (
-    SparseSemiStructuredTensor,
-    SparseSemiStructuredTensorCUTLASS,
-)
+from torch.sparse import to_sparse_semi_structured
 
 # Quant + Sparse helper functinos
 def sparse_quant_int8_dynamic_linear(
@@ -148,37 +145,6 @@ def sparse_quant_int8_cutlass_matmul(
     y = y.to(out_dtype)
     return y
 
-
-class Int8DynamicallyQuantized24CusparseltLinearWeight(
-    Int8DynamicallyQuantizedLinearWeight
-):
-
-    @staticmethod
-    def _quantized_op(act_mat, w_qtensor, bias):
-        return sparse_quant_int8_dynamic_linear(
-            act_mat, w_qtensor.int_data, None, w_qtensor.q_scales, bias, act_mat.dtype
-        )
-
-    @classmethod
-    def from_float(cls, input_float, qmin=-8, qmax=7):
-
-        assert input_float.is_cuda
-
-        w_int_repr, w_scales, _ = dynamically_quantize_per_channel(
-            input_float, qmin, qmax, torch.int8
-        )
-
-        int_data = w_int_repr.contiguous()
-        int_data = torch._cslt_compress(int_data)
-
-        return cls(
-            int_data,
-            w_scales,
-            False,
-            input_float.shape,
-            dtype=input_float.dtype,
-        )
-
 class Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight(
     Int8DynamicallyQuantizedLinearWeight
 ):
@@ -211,7 +177,7 @@ class Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight(
         )
 
 
-class Int8DynamicallyQuantized24CutlassLinearWeight(QuantizedLinearWeightBase):
+class Int8DynamicallyQuantizedSemiStructuredSparseLinearWeight(QuantizedLinearWeightBase):
 
     @staticmethod
     def __new__(cls, int_data, mask_meta, q_scales, transposed, shape, **kwargs):
@@ -321,7 +287,7 @@ class Int8DynamicallyQuantized24CutlassLinearWeight(QuantizedLinearWeightBase):
         )
 
         int_data = w_int_repr.contiguous()
-        sparse_tensor = SparseSemiStructuredTensorCUTLASS.from_dense(int_data)
+        sparse_tensor = to_sparse_semi_structured(int_data)
 
         return cls(
             sparse_tensor.packed,
