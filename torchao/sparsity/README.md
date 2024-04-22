@@ -2,19 +2,25 @@
 
 Sparsity is the technique of removing parameters from a neural network in order to reduce its memory overhead or latency. By carefully choosing the way a model is pruned, one can achieve significant reduction in memory overhead and latency, while paying a reasonably low or no price in terms of model quality (accuracy / f1).
 
-# Goal
+## Goal
 
-We feel that the main problem current researchers / users face is fragmentation. Researchers rightfully aim to show end-to-end results, but this means a lot of time is spent figuring out how to integrate with PyTorch and implementation questions like: When should I mask? When/how should I store the compressed representation? Do I want in-place or out-of-place mask updates? How can I call sparse matmul instead of dense?
+We feel that the main problem current researchers / users face is fragmentation. Researchers rightfully aim to show end-to-end results, but this means a lot of time is spent figuring out how to integrate with PyTorch and implementation questions like:
+- *When should I mask?*
+- *When/how should I store the compressed representation?*
+- *Do I want in-place or out-of-place mask updates?*
+- *How can I call sparse matmul instead of dense?*
 
-We hope to change that by providing tutorials and APIs for both sparse kernels (tensor subclassing) and pruning algorithms (torch.ao.pruning.Sparsifier) that users can extend. We feel like the above problems can be solved once, by torchao, letting researchers focus on pushing sparse kernel performance or more accurate pruning algorithms.
+We feel like the above problems can be solved once, by `torchao`, letting researchers focus on pushing sparse kernel performance or more accurate pruning algorithms.
 
-Our flow should be modular, so that users need not use our flow for (1) in order to realize (2). Users should be able to come to our flow with existing dense weights that satisfy a given sparsity pattern that they could have obtained from custom code or other third-party libraries.
+More concretely, we hope to provide tutorials and APIs for both sparse kernels (tensor subclassing) and pruning algorithms (torch.ao.pruning.Sparsifier) that users can extend. We also aim to accelerate not only inference with our fast sparse matmul kernels, but also GenAI training.
 
-We also aim to accelerate not only inference with our fast sparse matmul kernels, but also GenAI training.
+1. Train sparse models from scratch with hardware acceleration, with minimal accuracy loss.
+2. Recover accuracy loss of pruned model with custom pruning algorthim.
+3. Accelerate masked/pruned models on sparsity-supported hardware to realize performance improvements.
 
-1. Train sparse models with hardware acceleration, with minimal accuracy loss.
-2. Prune their model weights to an arbitrary sparsity pattern.
-3. Run their model on sparsity-supported hardware to realize performance improvements.
+## Guiding Principles
+
+Our APIs should be done in a modular manner, so that users should be able to come to our flow with existing dense weights that satisfy a given sparsity pattern that they could have obtained from custom code or other third-party libraries.
 
 For (2), we have the following goals for our flow:
 
@@ -34,21 +40,20 @@ For (3), we are especially interested in providing an accelerated inference solu
 
 * Users should be able to use our flow to run their pruned models on optimized sparse kernels and see reduced memory / latency.
     * **NVIDIA 2:4 semi-structured sparsity** for accelerated GPU inference via CUSPARSELT/CUTLASS
-    * **Block sparse**via Open AI Triton
+    * **Block sparsity** via OpenAI Triton kernels.
 
 
-# Context
+## Context
 
 This section provides some context on neural network pruning as well as definitions for some common pruning terms. In academia / industry, **pruning** and **sparsity** are often used interchangeably to refer to the same thing. This can be confusing, especially since sparsity is an overloaded term that can refer to many other things, such as sparse tensor representations.
 
-**In order to avoid confusion, we generally try to use sparsity to refer to tensors. Note that a sparse tensor can refer to a dense tensor with many zero values, or a tensor stored using a sparse representation. **We describe the flow as **pruning** and the resultant model as a **pruned** **model. **
+Note that this section focuses on **pruning**, instead of **sparse training**. The distinction being that in **pruning** we start with a pretrained dense model.
+
+**In order to avoid confusion, we generally try to use sparsity to refer to tensors. Note that a sparse tensor can refer to a dense tensor with many zero values, or a tensor stored using a sparse representation. We describe the flow as *pruning* and the resultant model as a *pruned* model.**
 
 Roughly, the flow for achieving a more performant pruned model looks like this:
 
-
-![alt_text](images/image1.png "image_tooltip")
-
-_Fig 4.1: General Neural Network Pruning Flow_
+![flow](https://private-user-images.githubusercontent.com/8041643/324607153-ba91eaca-14ce-4608-9db8-6cbb9ea1f9ec.png)
 
 The general idea behind pruning is that we can mask out some of the weights of a trained neural network and recover any accuracy loss. The resultant pruned model can be run on optimized kernels that take advantage of this sparsity for accelerated inference.
 
@@ -120,8 +125,6 @@ While the general idea of pruning is quite simple, there are many details that a
 
 These can be loosely broken down as follows:
 
-
-
 * **Pruning Configuration** - What layers should I prune? What sparsity level should I prune to?
 * **Pruning Criteria** - How should I decide which parameters to remove?
 * **Pruning Strategy** - Once I have removed parameters, how can I recover any accuracy degradation?
@@ -138,13 +141,8 @@ One common method to determine which layers to prune and to what degree is to pe
 
 
 
-<p id="gdcalert2" ><span style="color: red; font-weight: bold">>>>>>  gd2md-html alert: inline image link here (to images/image2.png). Store image on your image server and adjust path/filename/extension if necessary. </span><br>(<a href="#">Back to top</a>)(<a href="#gdcalert3">Next alert</a>)<br><span style="color: red; font-weight: bold">>>>>> </span></p>
+![alt_text](https://private-user-images.githubusercontent.com/8041643/324607151-3e3ec603-c2a8-4f2c-bdfe-718799a26867.png)
 
-
-![alt_text](images/image2.png "image_tooltip")
-
-
-_Fig 4.2: Sensitivity analysis curves for weight norm pruning for AlexNet._
 
 _From this graph, we would expect to prune features.modules.0 less than the other layers. _
 
@@ -729,17 +727,9 @@ The handoff point between these two pieces are sparse weights stored in a dense 
 
 This also allows users with existing sparse weights in a dense format to take advantage of our fast sparse kernels. We anticipate many users to come up with their own custom frontend masking solution or to use another third party solution, as this is an active area of research.
 
+![alt_text](https://private-user-images.githubusercontent.com/8041643/324607146-53542488-65ce-4d99-a3ae-21e724f89467.png)
 
-
-<p id="gdcalert9" ><span style="color: red; font-weight: bold">>>>>>  gd2md-html alert: inline image link here (to images/image3.png). Store image on your image server and adjust path/filename/extension if necessary. </span><br>(<a href="#">Back to top</a>)(<a href="#gdcalert10">Next alert</a>)<br><span style="color: red; font-weight: bold">>>>>> </span></p>
-
-
-![alt_text](images/image3.png "image_tooltip")
-
-
-_Fig 5.1: Overview of PyTorch pruning APIs _
-
-Fundamentally, the flow works by manipulating torch.Tensors. In the frontend, we specify the tensors by their fully-qualified-name in a sparse_config dictionary. The frontend is designed to follow the quantization API, with a `prepare` function, which attaches FakeSparsity paramerizations to the tensors specified in the config.
+Fundamentally, the flow works by manipulating `torch.Tensors``. In the frontend, we specify the tensors by their fully-qualified-name in a sparse_config dictionary. The frontend is designed to follow the quantization API, with a `prepare` function, which attaches FakeSparsity paramerizations to the tensors specified in the config.
 
 FakeSparsity is a parameterization which simulates unstructured sparsity, where each element has a mask. Because of this, we can use it to simulate any sparsity pattern we want.
 
