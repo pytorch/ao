@@ -1,4 +1,5 @@
 # Skip entire test if triton is not available, otherwise CI failure
+import pytest
 try:
     import triton
     import hqq
@@ -8,7 +9,6 @@ except ImportError:
     pytest.skip("triton and hqq required to run this test", allow_module_level=True)
 
 import itertools
-import pytest
 import torch
 
 from hqq.core.quantize import HQQLinear, BaseQuantizeConfig
