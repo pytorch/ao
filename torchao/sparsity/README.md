@@ -1,16 +1,16 @@
 # torchao sparsity
 
-Sparsity is the technique of removing parameters from a neural network in order to reduce its memory overhead or latency. By carefully choosing the elements thare are removed, one can achieve significant reduction in memory overhead and latency, while paying a reasonably low or no price in terms of model quality (accuracy / f1).
+Sparsity is the technique of removing parameters from a neural network in order to reduce its memory overhead or latency. By carefully choosing the elements that are removed, one can achieve significant reduction in memory overhead and latency, while paying a reasonably low or no price in terms of model quality (accuracy / f1).
 
 ## Goal
 
-We feel that the main problem current researchers / users face is fragmentation. Researchers rightfully aim to show end-to-end results, but this means a lot of time is spent figuring out how to integrate with PyTorch and implementation questions like:
+We feel that the main problem current sparsity researchers / users face is fragmentation. Researchers rightfully aim to show end-to-end results, but this means a lot of time is spent figuring out how to integrate with PyTorch and implementation questions like:
 - *When should I mask?*
 - *When/how should I store the compressed representation?*
 - *Do I want in-place or out-of-place mask updates?*
 - *How can I call sparse matmul instead of dense?*
 
-We feel like the above problems can be solved once, by `torchao`, letting researchers focus on pushing sparse kernel performance or more accurate pruning algorithms.
+We feel like the above problems can be solved once by `torchao`, letting researchers focus on what really matters - pushing sparse kernel performance or more accurate pruning algorithms.
 
 More concretely, we hope to provide tutorials and APIs for both sparse kernels (tensor subclassing) and pruning algorithms (torch.ao.pruning.Sparsifier) that users can extend. We aim to provide modular building blocks, that can be used to accelerate not only inference but training as well, and that compose nicely with `torchao` quantization workflows.
 
