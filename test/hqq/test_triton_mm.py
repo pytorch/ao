@@ -1,7 +1,6 @@
 import itertools
-
+import pytest
 import torch
-from termcolor import colored
 
 from hqq.core.quantize import HQQLinear, BaseQuantizeConfig
 from hqq.kernels.custom_quant.triton import triton_mixed_mm, pack_2xint4
@@ -26,22 +25,29 @@ BASE_QUANT_CONFIG = {
     "optimize": True,
     "view_as_float": False,
     "nbits": 4,
-    # "quant_dtype": torch.uint8,
     "bitpack": False,
     "axis": 1,
 }
 
 
-def check(expected, actual, cfg_str, max_diff=1e-3):
+def check(expected, actual, msg="", max_diff=1e-3, verbose=False):
     passed = torch.allclose(expected, actual, atol=max_diff, rtol=max_diff)
-    max_err = (expected - actual).abs().max()
-    if not passed:
-        print(colored(f"{cfg_str}: Failed! Max error: {max_err}", "red", attrs=["bold"]))
-    else:
-        print(colored(f"{cfg_str}: Passed! Max error: {max_err}", "green", attrs=["bold"]))
+    if verbose:
+        max_err = (expected - actual).abs().max()
+        if not passed:
+            print(f"{msg}: Failed! Max error: {max_err}")
+        else:
+            print(f"{msg}: Passed! Max error: {max_err}")
 
+    return passed
+
+def _arg_to_id(arg):
+    if isinstance(arg, list):
+        return "x".join([str(x) for x in arg])
+    return str(arg)
+
+@pytest.mark.parametrize("shape, group_size, axis, dtype, transposed, kernel_type", TEST_CONFIGS, ids=_arg_to_id)
 def test_mixed_mm(shape, group_size, axis, dtype, transposed, kernel_type, quant_dtype=torch.uint8):
-    # print(f"Test: {shape}, {group_size}, {axis}, {dtype}")
     qcfg = {
         **BASE_QUANT_CONFIG,
         **dict(group_size=group_size, axis=axis),
@@ -67,7 +73,6 @@ def test_mixed_mm(shape, group_size, axis, dtype, transposed, kernel_type, quant
     scales, zeros = meta["scale"], meta["zero"]
     scales = scales.reshape(N, -1)
     zeros = zeros.reshape(N, -1)
-
     
     if transposed:
         x = torch.randn(M, N, dtype=dtype, device="cuda")
@@ -87,25 +92,5 @@ def test_mixed_mm(shape, group_size, axis, dtype, transposed, kernel_type, quant
             x, packed_w, scales.T, zeros.T, transposed=False, group_size=group_size, fp8_fast_accum=False, kernel_type=kernel_type
         )
 
-    cfg_str = f"Test config {shape} {group_size} {dtype} {transposed} {kernel_type}"
-    # print(cfg_str)
-    # print("packed_w", packed_w.shape)
-    # print("hqq_out", hqq_out.shape)
-    # print("tt_out", tt_out.shape)
+    assert check(hqq_out, tt_out, max_diff=1e-2 if dtype == torch.bfloat16 else 1e-3)
 
-    check(hqq_out, tt_out, cfg_str + " triton", max_diff=1e-2 if dtype == torch.bfloat16 else 1e-3)
-
-    #     if dtype == torch.bfloat16:
-    #         _ = quant_config["weight_quant_params"].pop("bitpack")
-    #         hqq_int4mm = HQQLinearTorchWeightOnlyInt4(
-    #             linear, quant_config, compute_dtype=dtype, del_orig=False
-    #         )
-    #         hqq_int4_out = hqq_int4mm.forward(x)
-    #         err = (hqq_int4_out - hqq_out).abs().max()
-    #         check(hqq_out, hqq_int4_out, cfg_str + " torch_tinygemm", max_diff=1e-2)
-
-    print()
-
-
-for test in TEST_CONFIGS:
-    test_mixed_mm(*test)
