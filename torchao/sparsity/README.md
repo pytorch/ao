@@ -216,7 +216,7 @@ See <a href="https://arxiv.org/abs/2005.07683">https://arxiv.org/abs/2005.07683<
 </table>
 
 
-_Table 4.2: Description of some common pruning criteria. _
+_Table 4.2: Description of some common pruning criteria._
 
 
 ### Pruning Strategy
@@ -290,7 +290,7 @@ The retraining strategy is to simply repeat the training process again.
 </table>
 
 
-_Table 4.3: Description of some common pruning strategies. _
+_Table 4.3: Description of some common pruning strategies._
 
 
 ### Sparsity Pattern
@@ -661,4 +661,4 @@ _Fig 2.6: row-wise structured sparsity_
 </table>
 
 
-_Table 4.4: Description of some common sparsity patterns. _
+_Table 4.4: Description of some common sparsity patterns._
