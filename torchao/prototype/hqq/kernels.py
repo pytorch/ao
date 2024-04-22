@@ -280,14 +280,14 @@ def _mixed_mm_kernel(
         scales = tl.load(scales_ptr + offsets_scale_n + scale_offset_k)
         zeros = tl.load(zeros_ptr + offsets_scale_n + scale_offset_k)
 
-        # Unpack qweights -- credit jlebar!
+        # Unpack qweights -- h/t jlebar!
         _4_i8 = tl.full((1,), 4, dtype=tl.int8)
         qb_lo = (qb << _4_i8) >> _4_i8
         qb_hi = qb >> _4_i8
 
         # Upcast to fp16
-        # TODO add bfloat16
-        if IS_BFLOAT16:
+        # TODO: better bfloat16 conversion? compilation error if direct conversion from int8 to bfloat16
+        if IS_BFLOAT16: 
             dq_b = (
                 tl.join(
                     qb_lo.to(tl.float16).to(A.dtype.element_ty),

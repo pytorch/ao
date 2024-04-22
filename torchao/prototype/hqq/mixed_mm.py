@@ -3,7 +3,7 @@ from triton import cdiv
 import triton.language as tl
 from .kernels import mixed_mm_kernel_compute_bound, mixed_mm_kernel_max_autotune
 
-#credit jlebar from triton slack discord discussion
+#h/t jlebar for the bit packing / unpacking logic (source: Triton Slack thread)
 def pack_2xint4(t):
     """
     The packing format is such that consecutive rows are packed into a lower / upper bits

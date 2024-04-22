@@ -1,5 +1,14 @@
+
+try:
+    import triton
+    import hqq
+    if int(triton.__version__.split(".")[0]) < 3:
+        raise "triton >= 3.0.0 is required to run this test"
+except ImportError:
+    raise "triton and hqq required to run this benchmark"
+
 import torch
-from termcolor import colored
+from io import StringIO
 
 import pandas as pd
 from hqq.core.quantize import HQQLinear, BaseQuantizeConfig
@@ -85,12 +94,12 @@ def run_benchmark(shape, group_size, dtype, axis=1, quant_dtype=torch.uint8):
         )
         int4_time = bench_hqq(x, hqq_int4mm)
 
-    print(colored(f"{shape=} {group_size=} {dtype=}:", attrs=["bold"]))
+    print(f"{shape=} {group_size=} {dtype=}:")
 
     print(
-        colored(f"Ref: {ref_time:.4f}", "blue"),
-        colored(f"Triton: {tt_time:.4f}", "green"),
-        colored(f"Torch int4mm: {int4_time:.4f}", "yellow")
+        f"Ref: {ref_time:.4f}",
+        f"Triton: {tt_time:.4f}",
+        f"Torch int4mm: {int4_time:.4f}"
         if dtype == torch.bfloat16
         else "",
     )
@@ -110,7 +119,6 @@ SHAPES = [
 DTYPES = [torch.bfloat16]  # , torch.float16]
 GROUP_SIZES = [128]
 
-print(torch.cuda.get_device_properties(0))
 
 HEADERS = [
     "M",
@@ -123,12 +131,17 @@ HEADERS = [
     "tinygemm",
 ]
 data = []
-for shape in SHAPES:
-    for group_size in GROUP_SIZES:
-        for dtype in DTYPES:
-            timings = run_benchmark(shape, group_size, dtype)
-            data.append((*shape, group_size, dtype, *timings))
 
+if __name__ == "__main__":
+    print(torch.cuda.get_device_properties(0))
 
-df = pd.DataFrame(data, columns=HEADERS)
-df.to_csv("benchmark_triton.csv", index=False)
+    for shape in SHAPES:
+        for group_size in GROUP_SIZES:
+            for dtype in DTYPES:
+                timings = run_benchmark(shape, group_size, dtype)
+                data.append((*shape, group_size, dtype, *timings))
+
+    output = StringIO()
+    df = pd.DataFrame(data, columns=HEADERS)
+    df.to_csv(output, index=False)
+    print(output.getvalue())

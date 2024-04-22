@@ -1,10 +1,11 @@
 # Skip entire test if triton is not available, otherwise CI failure
 try:
     import triton
+    import hqq
     if int(triton.__version__.split(".")[0]) < 3:
         pytest.skip("triton >= 3.0.0 is required to run this test", allow_module_level=True)
 except ImportError:
-    pytest.skip("triton is not installed", allow_module_level=True)
+    pytest.skip("triton and hqq required to run this test", allow_module_level=True)
 
 import itertools
 import pytest
