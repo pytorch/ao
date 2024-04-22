@@ -6,6 +6,8 @@ The kernel packs `u8 / s8` weights and fuses dequantization with the matmul.
 
 - tested for `float16 / bfloat16` activations, scales, and zeros
 - autotuned for both compute-bound and io-bound configs
+- assumes operand B of the `gemm` is is the quantized type.
+- requires quantization along in-features, i.e., the `K` dimension, or `axis=1`, of `torch.linear.weight`.
 
 ### Performance
 
