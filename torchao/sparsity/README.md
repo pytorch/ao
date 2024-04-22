@@ -169,36 +169,10 @@ However, even with a simple pruning criteria such as weight magnitude, there are
     * **Gradients**: Compute importance based on both weights and gradient norms. Common for pre-training based methods. Currently CTR_mobile_feed uses a gradient-based pruning algorithm.
     * **Activations**: In some research papers, the norm of the activations that are applied with the weight of interest are used to compute the importance score.
 * In place or out of place mask updates
-    * **In-place** updates the sparse tensor by performing
-
-<p id="gdcalert3" ><span style="color: red; font-weight: bold">>>>>>  gd2md-html alert: equation: use MathJax/LaTeX if your publishing platform supports it. </span><br>(<a href="#">Back to top</a>)(<a href="#gdcalert4">Next alert</a>)<br><span style="color: red; font-weight: bold">>>>>> </span></p>
-
-, where
-
-<p id="gdcalert4" ><span style="color: red; font-weight: bold">>>>>>  gd2md-html alert: equation: use MathJax/LaTeX if your publishing platform supports it. </span><br>(<a href="#">Back to top</a>)(<a href="#gdcalert5">Next alert</a>)<br><span style="color: red; font-weight: bold">>>>>> </span></p>
-
- is the tensor to be updated, and the
-
-<p id="gdcalert5" ><span style="color: red; font-weight: bold">>>>>>  gd2md-html alert: equation: use MathJax/LaTeX if your publishing platform supports it. </span><br>(<a href="#">Back to top</a>)(<a href="#gdcalert6">Next alert</a>)<br><span style="color: red; font-weight: bold">>>>>> </span></p>
-
- is the sparsity mask. Once the tensor
-
-<p id="gdcalert6" ><span style="color: red; font-weight: bold">>>>>>  gd2md-html alert: equation: use MathJax/LaTeX if your publishing platform supports it. </span><br>(<a href="#">Back to top</a>)(<a href="#gdcalert7">Next alert</a>)<br><span style="color: red; font-weight: bold">>>>>> </span></p>
-
-is updated, the sparse values are zeroed-out.
+    * **In-place** updates the sparse tensor by performing W = W (Mask). Once the weight tenosr is udpated, the sparse values are zeroed out and cannot be recovered.
         * **Pros**: Requires only one copy of the sparse tensor to be stored (+ mask)
         * **Cons**: Once a mask is applied to a weight, it is zeroed out, all past history is lost. These weights cannot regrow.
-    * **Out-of-place **updates don't modify the tensor directly, but perform the following: \
-
-
-<p id="gdcalert7" ><span style="color: red; font-weight: bold">>>>>>  gd2md-html alert: equation: use MathJax/LaTeX if your publishing platform supports it. </span><br>(<a href="#">Back to top</a>)(<a href="#gdcalert8">Next alert</a>)<br><span style="color: red; font-weight: bold">>>>>> </span></p>
-
- \
-
-
-<p id="gdcalert8" ><span style="color: red; font-weight: bold">>>>>>  gd2md-html alert: equation: use MathJax/LaTeX if your publishing platform supports it. </span><br>(<a href="#">Back to top</a>)(<a href="#gdcalert9">Next alert</a>)<br><span style="color: red; font-weight: bold">>>>>> </span></p>
-
-
+    * **Out-of-place** updates don't modify the tensor directly, but perform the following: W' = W (Mask) and dW'= dW (Mask)
         * **Pros**: The original tensor is preserved (the masked elements are not updated via backprop). Weights can regrow if the mask changes. This is necessary for PAT.
         * **Cons**: In addition to the unmasked weights (W), the masked weights (W’) are computed and resident in memory for forward/backward computations.
 
@@ -729,7 +703,7 @@ This also allows users with existing sparse weights in a dense format to take ad
 
 ![alt_text](https://private-user-images.githubusercontent.com/8041643/324607146-53542488-65ce-4d99-a3ae-21e724f89467.png)
 
-Fundamentally, the flow works by manipulating `torch.Tensors``. In the frontend, we specify the tensors by their fully-qualified-name in a sparse_config dictionary. The frontend is designed to follow the quantization API, with a `prepare` function, which attaches FakeSparsity paramerizations to the tensors specified in the config.
+Fundamentally, the flow works by manipulating `torch.Tensors`. In the frontend, we specify the tensors by their fully-qualified-name in a sparse_config dictionary. The frontend is designed to follow the quantization API, with a `prepare` function, which attaches FakeSparsity paramerizations to the tensors specified in the config.
 
 FakeSparsity is a parameterization which simulates unstructured sparsity, where each element has a mask. Because of this, we can use it to simulate any sparsity pattern we want.
 
