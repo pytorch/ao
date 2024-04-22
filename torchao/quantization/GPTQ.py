@@ -1150,6 +1150,7 @@ if TORCH_VERSION_AFTER_2_3:
                     padding_allowed,
                     precision,
                     scales_precision,
+                    linear_class,
                 )
 
     def replace_linear_8da4w(
