@@ -240,15 +240,19 @@ def _mixed_mm_kernel(
     B = B + (rbk[:, None] * stride_bk + rbn[None, :] * stride_bn)
 
     #In the forward pass, we have a K x N matrix
-    #In the transposed (backward) pass, we have an N x K matrix
+    #In the transposed (backward) pass, we have an N x K matrix, where N and K refer to the how the weight was originally quantized
+    #note that N refers to offsets_scale_k and K refers to offsets_scale_n when it comes to the gemm indexing logic below
+    
     #Grouping is along K, so in the forward pass, each block loads a row vector of BLK_K x BLK_N
     #where grouping varies along N, hence the mainloop marches down the K dimension, where
     #group idx is given by K // QGROUP_SIZE
-    # FOr the transposed case, we load a column vector of BLK_N x BLK_K
-    # we march down the N dimension during the mainloop
-    # Hence blocks now load K // QGROUP_SIZE (slow varying)
-    # while each block now loads differen groups on each main loop iteration
-    # scale offsets is thus a single idx along N and range along K 
+    
+    # For the transposed case, we load a column vector of BLK_N x BLK_K
+    # we march down the N dimension during the mainloop ("K" in gemm)
+    # Hence blocks now load K // QGROUP_SIZE along pid_n (slow varying)
+    # while each block now loads column vector of groups along "K" gemm dim on each main loop iteration
+    # scale offsets is thus a single idx along "N" and range along "K" for the transposed case
+    
     if not TRANSPOSED:
         # scale_offset_n = pid_n * stride_scale_n * BLOCK_N
         offsets_scale_n = pid_n * stride_scale_n * BLOCK_N + tl.arange(0, BLOCK_N) * stride_scale_n
