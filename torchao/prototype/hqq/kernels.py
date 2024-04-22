@@ -148,7 +148,8 @@ def init_to_zero(name):
 
 MIXED_MM_HEURISTICS = {
     "EVEN_K": lambda args: args["K"] % (args["BLOCK_K"] * args["SPLIT_K"]) == 0,
-    "BLOCK_K": lambda args: min(args["BLOCK_K"], args["QGROUP_SIZE"]),
+    "BLOCK_K": lambda args: min(args["BLOCK_K"], args["QGROUP_SIZE"]) if not args["TRANSPOSED"] else args["BLOCK_K"], 
+    "BLOCK_N": lambda args: min(args["BLOCK_N"], args["QGROUP_SIZE"]) if args["TRANSPOSED"] else args["BLOCK_N"],
     "SPLIT_K": lambda args: 1
     if args["IS_BFLOAT16"]
     else args["SPLIT_K"],  # atomic add not supported for bfloat16
@@ -185,6 +186,7 @@ def _mixed_mm_kernel(
     BLOCK_K: tl.constexpr,  # = 16,  #
     SPLIT_K: tl.constexpr,  # = 1,
     EVEN_K: tl.constexpr,  # = True,
+    TRANSPOSED: tl.constexpr = False,
     GROUP_M: tl.constexpr = 8,  # 32,
     # tl.dot options
     acc_dtype: tl.constexpr = tl.float32,
@@ -206,8 +208,11 @@ def _mixed_mm_kernel(
     """
 
     # tl.static_assert(B.dtype.element_ty == tl.int8 or B.dtype.element_ty == tl.uint8)
-    tl.static_assert(QGROUP_SIZE % BLOCK_K == 0)
-
+    if not TRANSPOSED:
+        tl.static_assert(QGROUP_SIZE % BLOCK_K == 0)
+    else:
+        tl.static_assert(QGROUP_SIZE % BLOCK_N == 0)
+    
     # Threadblock swizzling
     pid = tl.program_id(0)
     pid_z = tl.program_id(1)
@@ -234,9 +239,22 @@ def _mixed_mm_kernel(
     A = A + (ram[:, None] * stride_am + rak[None, :] * stride_ak)
     B = B + (rbk[:, None] * stride_bk + rbn[None, :] * stride_bn)
 
-    scale_offset_n = pid_n * stride_scale_n * BLOCK_N
-    offsets_scale_n = scale_offset_n + tl.arange(0, BLOCK_N) * stride_scale_n
-
+    #In the forward pass, we have a K x N matrix
+    #In the transposed (backward) pass, we have an N x K matrix
+    #Grouping is along K, so in the forward pass, each block loads a row vector of BLK_K x BLK_N
+    #where grouping varies along N, hence the mainloop marches down the K dimension, where
+    #group idx is given by K // QGROUP_SIZE
+    # FOr the transposed case, we load a column vector of BLK_N x BLK_K
+    # we march down the N dimension during the mainloop
+    # Hence blocks now load K // QGROUP_SIZE (slow varying)
+    # while each block now loads differen groups on each main loop iteration
+    # scale offsets is thus a single idx along N and range along K 
+    if not TRANSPOSED:
+        # scale_offset_n = pid_n * stride_scale_n * BLOCK_N
+        offsets_scale_n = pid_n * stride_scale_n * BLOCK_N + tl.arange(0, BLOCK_N) * stride_scale_n
+    else:
+        offsets_scale_n = pid_n * stride_scale_n * BLOCK_N // QGROUP_SIZE
+    
     acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=acc_dtype)
     for k in range(0, tl.cdiv(K, BLOCK_K * SPLIT_K)):
         if EVEN_K:
@@ -250,7 +268,11 @@ def _mixed_mm_kernel(
             a = tl.load(A, mask=rak[None, :] < k_remaining_a, other=_0)
             qb = tl.load(B, mask=rbk[:, None] < k_remaining_b, other=_0)
 
-        scale_offset_k = k * BLOCK_K * SPLIT_K * stride_scale_k // QGROUP_SIZE
+        if not TRANSPOSED:
+            scale_offset_k = k * BLOCK_K * SPLIT_K * stride_scale_k // QGROUP_SIZE
+        else:
+            scale_offset_k = k * BLOCK_K * SPLIT_K * stride_scale_k + tl.arange(0, BLOCK_K) * stride_scale_k
+        
         scales = tl.load(scales_ptr + offsets_scale_n + scale_offset_k)
         zeros = tl.load(zeros_ptr + offsets_scale_n + scale_offset_k)
 
@@ -283,7 +305,16 @@ def _mixed_mm_kernel(
         # Scale upcasted weights
         # Note that we broadcast the scales --> the assumption is that all scales fall within a single QGROUP
         # This condition is statically check (see assertions above)
-        dq_b = (dq_b - zeros[None, :]) * scales[None, :]
+        if not TRANSPOSED:
+            zeros = zeros[None, :]
+            scales = scales[None, :]
+        else:
+            zeros = zeros[:, None]
+            scales = scales[:, None]
+            
+        dq_b = (dq_b - zeros) * scales
+
+        # dq_b = (dq_b - zeros[None, :]) * scales[None, :]
 
         if fp8_fast_accum:
             acc = tl.dot(

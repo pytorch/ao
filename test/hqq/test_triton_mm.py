@@ -6,25 +6,18 @@ from termcolor import colored
 from hqq.core.quantize import HQQLinear, BaseQuantizeConfig
 from hqq.kernels.custom_quant.triton import triton_mixed_mm, pack_2xint4
 from torchao.prototype.hqq import triton_mixed_mm, pack_2xint4
-from torchao.prototype.hqq.hqq_tinygemm_linear import HQQLinearTorchWeightOnlyInt4
 
-
-#TODO: refactor to pytest
 
 #Test configs
 SHAPES = [
-    # [16, 128],
     [16, 128, 128],
     [16, 4096, 4096],
-    # [1024, 4096],
-    # [4096, 4096],
-    # [4096, 11008],
 ]
 
 DTYPES = [torch.bfloat16, torch.float16]
 GROUP_SIZES = [64, 128]
 AXES = [1] #Only axis = 1 supported
-TRANSPOSED = [False]
+TRANSPOSED = [True]
 TRITON_KERNEL_TYPE = ["compute_bound"] #["max_autotune", "compute_bound"]
 
 TEST_CONFIGS = list(itertools.product(SHAPES, GROUP_SIZES, AXES, DTYPES, TRANSPOSED, TRITON_KERNEL_TYPE))
@@ -83,7 +76,7 @@ def test_mixed_mm(shape, group_size, axis, dtype, transposed, kernel_type, quant
         #Pack uint8 W_q, then run fused dequant matmul        
         packed_w = pack_2xint4(W_q)
         tt_out = triton_mixed_mm(
-            x, packed_w, scales, zeros, group_size=group_size, fp8_fast_accum=False, kernel_type=kernel_type
+            x, packed_w, scales, zeros, transposed=True, group_size=group_size, fp8_fast_accum=False, kernel_type=kernel_type
         )
     else:
         x = torch.randn(M, K, dtype=dtype, device="cuda")
@@ -91,10 +84,15 @@ def test_mixed_mm(shape, group_size, axis, dtype, transposed, kernel_type, quant
 
         packed_w = pack_2xint4(W_q.T)
         tt_out = triton_mixed_mm(
-            x, packed_w, scales.T, zeros.T, group_size=group_size, fp8_fast_accum=False, kernel_type=kernel_type
+            x, packed_w, scales.T, zeros.T, transposed=False, group_size=group_size, fp8_fast_accum=False, kernel_type=kernel_type
         )
 
     cfg_str = f"Test config {shape} {group_size} {dtype} {transposed} {kernel_type}"
+    # print(cfg_str)
+    # print("packed_w", packed_w.shape)
+    # print("hqq_out", hqq_out.shape)
+    # print("tt_out", tt_out.shape)
+
     check(hqq_out, tt_out, cfg_str + " triton", max_diff=1e-2 if dtype == torch.bfloat16 else 1e-3)
 
     #     if dtype == torch.bfloat16:

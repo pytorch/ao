@@ -31,6 +31,7 @@ def triton_mixed_mm(
     scales,
     zeros,
     group_size,
+    transposed=False,
     acc_dtype=None,
     input_precision="ieee",
     fp8_fast_accum=False,
@@ -50,8 +51,9 @@ def triton_mixed_mm(
     
     M, K = a.shape
     _, N = b.shape
-    assert scales.shape[1] == N
-    assert scales.shape[0] == K // group_size
+    # N = b.shape[1] if not transposed else b.shape[0]
+    # assert scales.shape[1] == N if not transposed else scales.shape[0] == N
+    # assert scales.shape[0] == K // group_size if not transposed else scales.shape[1] == K // group_size
     assert scales.dtype == a.dtype
     assert scales.shape == zeros.shape
     assert zeros.dtype == a.dtype
@@ -88,6 +90,7 @@ def triton_mixed_mm(
             c.stride(1),
             scales.stride(0),
             scales.stride(1),
+            TRANSPOSED=transposed,
             IS_BFLOAT16=a.dtype == torch.bfloat16,
             QGROUP_SIZE=group_size,
             acc_dtype=acc_dtype,
