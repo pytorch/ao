@@ -202,6 +202,10 @@ class TestNF4Linear(TestCase):
         x = z.cpu()
         assert x.device == torch.device('cpu')
 
+        inpt_tensor = torch.rand(128, device='cuda')
+        t = to_nf4(inpt_tensor, 32, 2)
+        assert t.device.type == "cuda"
+
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_to_dtype(self, dtype: torch.dtype):
         inpt_tensor = torch.rand(128, dtype=dtype)
