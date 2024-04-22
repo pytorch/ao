@@ -2,7 +2,7 @@
 
 Fused gemm for asymmetric quantized weights. Tested and benchmarked for `HQQ` but could theoretically be used for any asymmetric quantization scheme.
 
-The kernel packs `u8 / s8` weights and fuses dequantization with the matmul.
+The kernel packs `u4 / s4` weights and fuses dequantization with the matmul.
 
 - tested for `float16 / bfloat16` activations, scales, and zeros
 - autotuned for both compute-bound and io-bound configs
