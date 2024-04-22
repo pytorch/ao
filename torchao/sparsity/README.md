@@ -36,12 +36,46 @@ For (2), we have the following goals for our flow:
     * Pruning Strategy:
         * Support for PAT training and one-shot pruning approaches.
 
-For (3), we are especially interested in providing an accelerated inference solution for nn.Linear, as this is the simplest and most common module. In addition, we are especially interested in semi-structured sparse GPU inference, for gen AI applications.
+
+For (3), we are especially interested in providing an accelerated inference solution for nn.Linear, as this is the simplest and most common module.
 
 * Users should be able to use our flow to run their pruned models on optimized sparse kernels and see reduced memory / latency.
     * **NVIDIA 2:4 semi-structured sparsity** for accelerated GPU inference via CUSPARSELT/CUTLASS
     * **Block sparsity** via OpenAI Triton kernels.
 
+# Design
+
+Sparsity, like quantization, is an accuracy/performance trade-off, where we care not only about the speedup but also on the accuracy degradation of our architecture optimization technique.
+
+In quantization, the theoretical performance gain is generally determined by the data type that we are quantizing to - quantizing from float32 to float16 yields a theoretical 2x speedup. For pruning/sparsity, the analogous variable would be the sparsity level/ sparsity pattern. For semi-structured, the sparsity level is fixed at 50%, so we expect a theoretical 2x improvement. For block-sparse matrices and unstructured sparsity, the speedup is variable and depends on the sparsity level of the tensor.
+
+One key difference between sparsity and quantization is in how the accuracy degradation is determined: The accuracy degradation of quantization is determined by the scale and zero_point chosen. However, in pruning the accuracy degradation is determined by the mask. By carefully choosing the specified elements and retraining the network, pruning can achieve negligible accuracy degradation and in some cases even provide a slight accuracy gain. This is an active area of research with no agreed-upon consensus. We expect users will have a target sparsity pattern and mind and to prune to that pattern.
+
+Given a target sparsity pattern, pruning a model can then be thought of as two separate subproblems:
+
+* How can I find a set of sparse weights which satisfy my target sparsity pattern that minimize the accuracy degradation of my model?
+* How can I accelerate my sparse weights for inference and reduced memory overhead?
+
+Our workflow is designed to consist of two parts that answer each question independently:
+
+* a frontend python user-facing API to find sparse weights for any arbitrary sparsity pattern.
+* a backend collection of sparse kernels / ops to reduce memory/latency.
+
+The handoff point between these two pieces are sparse weights stored in a dense format, with 0 in the place of missing elements. This is a natural handoff point because sparse matrix multiplication and dense matrix multiplication with this tensor will be numerically equivalent. This lets us present a clear contract to the user for our backend, for a given sparsity pattern:
+
+**_If you can get your dense matrix into a [2:4 sparse format], we can speed up matrix multiplication up to [1.7x] with no numerical loss._**
+
+This also allows users with existing sparse weights in a dense format to take advantage of our fast sparse kernels. We anticipate many users to come up with their own custom frontend masking solution or to use another third party solution, as this is an active area of research.
+
+![alt_text](https://private-user-images.githubusercontent.com/8041643/324612475-3873655f-3eab-40c7-8070-722b3eef4444.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3MTM4MjA0MjUsIm5iZiI6MTcxMzgyMDEyNSwicGF0aCI6Ii84MDQxNjQzLzMyNDYxMjQ3NS0zODczNjU1Zi0zZWFiLTQwYzctODA3MC03MjJiM2VlZjQ0NDQucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI0MDQyMiUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNDA0MjJUMjEwODQ1WiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9NDUwZTlmZjQwNjk4ZTZiODVjMTJjOWU4NWQ0NTA2NDQ3MjUzMmI5ZmVhNzY4OTIyZDc3YjUyNzcxOTc4ZDg3OCZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QmYWN0b3JfaWQ9MCZrZXlfaWQ9MCZyZXBvX2lkPTAifQ.fQjPxrsZZHWgJn34oCjcNjWBw_b5HQkRw_n54f9O_uk)
+
+Fundamentally, the flow works by manipulating `torch.Tensors`. In the frontend, we specify the tensors by their fully-qualified-name in a sparse_config dictionary. The frontend is designed to follow the quantization API, with a `prepare` function, which attaches FakeSparsity paramerizations to the tensors specified in the config.
+
+FakeSparsity is a parameterization which simulates unstructured sparsity, where each element has a mask. Because of this, we can use it to simulate any sparsity pattern we want.
+
+The user will then train the prepared model using their own custom code, calling .step() to update the mask if necessary. Once they’ve found a suitable mask, they call `squash_mask()` to fuse the mask into the weights, creating a dense tensor with 0s in the right spot.
+
+Users will then convert their model for accelerated sparse inference by either using the quantization flow for quantized block sparse CPU inference or by calling `to_sparse_semi_structured` on the specified weight tensors.
 
 ## Context
 
@@ -77,7 +111,6 @@ Loosely speaking, these sparse representations allow us to skip calculations inv
    <td>COOrdinate format to store sparse matrices. The matrices are stored as a combination of the non-sparse data vector and the index locations of those elements in the dense matrix.
    </td>
    <td>sparse matrix = {Index: Tensor of coordinate locations,
-<p>
                            Data: Tensor of values corresponding to index locations }
    </td>
   </tr>
@@ -87,9 +120,7 @@ Loosely speaking, these sparse representations allow us to skip calculations inv
    <td>Block sparse row format to store sparse matrices. The matrices are stored as data blocks and the index locations of those blocks in the dense matrix. Very similar to COO, except that individual data consists of blocks, not scalars.
    </td>
    <td>sparse matrix = {Index: Tensor of coordinate locations, two dimensional for a matrix,
-<p>
                            Data: Tensor of blocks corresponding to index locations }
-<p>
 where a block is a matrix corresponding to the sparsity pattern.
    </td>
   </tr>
@@ -99,9 +130,7 @@ where a block is a matrix corresponding to the sparsity pattern.
    <td>Compressed sparse row /column format to store sparse matrices. The sparse matrices are stored as data blocks on columns / rows and indices of those rows/columns in a dense matrix. This is the most compact format for storing block sparse matrices.
    </td>
    <td>sparse_matrix = {Index: 1D tensor of column indices,
-<p>
                             IndexPtr: 1D tensor specifying the start and end indices of columns for rows, starting from row 0,
-<p>
                             Data: Tensor of blocks corresponding to Index locations.}
    </td>
   </tr>
@@ -110,10 +139,7 @@ where a block is a matrix corresponding to the sparsity pattern.
    </td>
    <td>Custom NVIDIA compressed storage format for 2:4 semi-structured sparsity. We store the sparse matrix as a compressed dense matrix (½ the size) containing the non-pruned elements and a bitmask index. When multiplying our sparse matrix by another dense matrix, we use the mask to index into the dense matrix and multiply with our compressed dense matrix.
    </td>
-   <td>sparse_matrix = {Bitmask: 2bit indices of pruned elements,
-<p>
-
-            Compressed dense matrix: contains all unpruned elements, half the size of original dense matrix}
+   <td>sparse_matrix = {Bitmask: 2bit indices of pruned elements Compressed dense matrix: contains all unpruned elements, half the size of original dense matrix}
    </td>
   </tr>
 </table>
@@ -661,40 +687,3 @@ _Fig 2.6: row-wise structured sparsity_
 
 
 _Table 4.4: Description of some common sparsity patterns. _
-
-
-# Design
-
-Sparsity, like quantization, is an accuracy/performance trade-off, where we care not only about the speedup but also on the accuracy degradation of our architecture optimization technique.
-
-In quantization, the theoretical performance gain is generally determined by the data type that we are quantizing to - quantizing from float32 to float16 yields a theoretical 2x speedup. For pruning/sparsity, the analogous variable would be the sparsity level/ sparsity pattern. For semi-structured, the sparsity level is fixed at 50%, so we expect a theoretical 2x improvement. For block-sparse matrices and unstructured sparsity, the speedup is variable and depends on the sparsity level of the tensor.
-
-One key difference between sparsity and quantization is in how the accuracy degradation is determined: The accuracy degradation of quantization is determined by the scale and zero_point chosen. However, in pruning the accuracy degradation is determined by the mask. By carefully choosing the specified elements and retraining the network, pruning can achieve negligible accuracy degradation and in some cases even provide a slight accuracy gain. This is an active area of research with no agreed-upon consensus. We expect users will have a target sparsity pattern and mind and to prune to that pattern.
-
-Given a target sparsity pattern, pruning a model can then be thought of as two separate subproblems:
-
-* How can I find a set of sparse weights which satisfy my target sparsity pattern that minimize the accuracy degradation of my model?
-* How can I accelerate my sparse weights for inference and reduced memory overhead?
-
-
-Our workflow is designed to consist of two parts that answer each question independently:
-
-
-* a frontend python user-facing API to find sparse weights for any arbitrary sparsity pattern.
-* a backend collection of sparse kernels / ops to reduce memory/latency.
-
-The handoff point between these two pieces are sparse weights stored in a dense format, with 0 in the place of missing elements. This is a natural handoff point because sparse matrix multiplication and dense matrix multiplication with this tensor will be numerically equivalent. This lets us present a clear contract to the user for our backend, for a given sparsity pattern:
-
-**_If you can get your dense matrix into a [2:4 sparse format], we can speed up matrix multiplication up to [1.7x] with no numerical loss._**
-
-This also allows users with existing sparse weights in a dense format to take advantage of our fast sparse kernels. We anticipate many users to come up with their own custom frontend masking solution or to use another third party solution, as this is an active area of research.
-
-![alt_text](https://private-user-images.githubusercontent.com/8041643/324612475-3873655f-3eab-40c7-8070-722b3eef4444.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3MTM4MjA0MjUsIm5iZiI6MTcxMzgyMDEyNSwicGF0aCI6Ii84MDQxNjQzLzMyNDYxMjQ3NS0zODczNjU1Zi0zZWFiLTQwYzctODA3MC03MjJiM2VlZjQ0NDQucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI0MDQyMiUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNDA0MjJUMjEwODQ1WiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9NDUwZTlmZjQwNjk4ZTZiODVjMTJjOWU4NWQ0NTA2NDQ3MjUzMmI5ZmVhNzY4OTIyZDc3YjUyNzcxOTc4ZDg3OCZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QmYWN0b3JfaWQ9MCZrZXlfaWQ9MCZyZXBvX2lkPTAifQ.fQjPxrsZZHWgJn34oCjcNjWBw_b5HQkRw_n54f9O_uk)
-
-Fundamentally, the flow works by manipulating `torch.Tensors`. In the frontend, we specify the tensors by their fully-qualified-name in a sparse_config dictionary. The frontend is designed to follow the quantization API, with a `prepare` function, which attaches FakeSparsity paramerizations to the tensors specified in the config.
-
-FakeSparsity is a parameterization which simulates unstructured sparsity, where each element has a mask. Because of this, we can use it to simulate any sparsity pattern we want.
-
-The user will then train the prepared model using their own custom code, calling .step() to update the mask if necessary. Once they’ve found a suitable mask, they call `squash_mask()` to fuse the mask into the weights, creating a dense tensor with 0s in the right spot.
-
-Users will then convert their model for accelerated sparse inference by either using the quantization flow for quantized block sparse CPU inference or by calling `to_sparse_semi_structured` on the specified weight tensors.
