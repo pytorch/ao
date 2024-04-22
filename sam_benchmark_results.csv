@@ -1,2 +1,0 @@
-,block_only,batchsize,dtype,compile,qkv,proj,lin1,lin2,time,memory,img/s
-0,False,32,torch.bfloat16,True,quant+sparse (cutlass),quant,quant+sparse (cutlass),quant+sparse (cutlass),1269.7276677936316,28.195974144,25.202254634338605
