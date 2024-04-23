@@ -15,8 +15,8 @@ from torchao.sparsity import (
     apply_sparse_semi_structured,
     apply_fake_sparsity,
     Int8DynamicallyQuantizedSemiStructuredSparseLinearWeight,
-    Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight,
 )
+from torchao.sparsity.dynamic_quant_sparse import Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight
 from itertools import product
 from tqdm import tqdm
 
