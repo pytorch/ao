@@ -38,5 +38,8 @@ jobs:
           cat .git/config
           echo 'yet another line' >> data.txt
           git add .
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+
           git commit -m "update"
           git push origin csl/test1
