@@ -61,7 +61,7 @@ jobs:
           name: Doc-Build
           path: docs/build/html/
 
-doc-preview:
+  doc-preview:
     runs-on: [self-hosted, linux.2xlarge]
     needs: build_docs
     if: ${{ github.event_name == 'pull_request' }}
