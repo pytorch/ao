@@ -6,6 +6,7 @@ from torchao.quantization.quant_primitives import (
     dynamically_quantize_per_channel,
     quant_int8_dynamic_per_token_linear,
     quantize_activation_per_token_absmax,
+    dequantize_per_channel,
 )
 
 from torchao.quantization.subclass import (
@@ -194,7 +195,7 @@ class Int8DynamicallyQuantizedSemiStructuredSparseLinearWeight(QuantizedLinearWe
         Obtain the dequantized version of the quantized tensor subclass
         """
         dq_t = dequantize_per_channel(
-            self.int_data.t(), self.q_scales, 0, self.dtype if dtype is None else dtype
+            self.int_data, self.q_scales, 0, self.dtype if dtype is None else dtype
         ).to(self.dtype)
         # data was transposed to dequantize so make sure shape is correct
         return dq_t if not self.transposed else dq_t.t()
