@@ -29,12 +29,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
         with:
-          ref: gh-pages
           persist-credentials: true
 
       - name: Move and commit changes
         run: |
           echo 'yet another line' >> data.txt
+          git checkout csl/test1
           git add .
           git commit -m "update"
           git push origin csl/test1
