@@ -11,6 +11,7 @@ on:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - name: CUDA 2.2.2
@@ -31,6 +32,7 @@ jobs:
           - name: Nightly CPU
             runs-on: 32-core-ubuntu
             torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cpu'
+      
     runs-on: ${{ matrix.runs-on }}
     steps:
     - uses: actions/checkout@v2
