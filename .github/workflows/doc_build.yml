@@ -30,7 +30,6 @@ jobs:
         uses: actions/checkout@v3
         with:
           ref: csl/test1
-          persist-credentials: true
 
       - name: Move and commit changes
         run: |
