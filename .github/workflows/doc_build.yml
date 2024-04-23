@@ -71,7 +71,7 @@ jobs:
       - name: Download artifact
         uses: actions/download-artifact@v3
         with:
-          name: Built-Docs
+          name: Doc-Build
           path: docs
       - name: Upload docs preview
         uses: seemethere/upload-artifact-s3@v5
