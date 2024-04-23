@@ -35,6 +35,7 @@ jobs:
       - name: Move and commit changes
         run: |
           set -ex
+          cat .git/config
           echo 'yet another line' >> data.txt
           git add .
           git commit -m "update"
