@@ -1,18 +1,24 @@
 ## Fused `int4 / fp16` Quant Matmul
 
-Fused gemm for asymmetric quantized weights. Tested and benchmarked for `HQQ` but could theoretically be used for any asymmetric quantization scheme.
+Fused kernel that combines asymmetric dequantization and gemm:
 
-The kernel takes packed `u4 / s4` weights and fuses dequantization with matmul.
+- Dequantization: upcasts `u4 / s4` weights to `float16 / bfloat16`, followed by groupwise scaling and shifting by scales / zeropoints
+- GEMM: standard matmul on dequantized weights and activations.
 
-- bitpacking is simple row interleave, no need for extensive preprocessing (e.g., `tinygemm` or `fastertransformer`)
-- tested for `float16 / bfloat16` activations, scales, and zeros
-- autotuned for both compute-bound and memory-bound configs
-- assumes operand B of the `gemm` is is the quantized type.
-- requires quantization along `in-features`, i.e., the `K` dimension, or `axis=1`, of `torch.linear.weight`.
+Tested and benchmarked for `HQQ` but could theoretically be used for any asymmetric quantization scheme.
+
+### Implementation Details
+
+- Bitpacking is simple row interleave, no need for extensive preprocessing (e.g., `tinygemm` or `fastertransformer`)
+- Tested for `float16 / bfloat16` activations, scales, and zeros
+- Autotuned for both compute-bound and memory-bound configs
+- Assumes operand B of the `gemm` is is the quantized type.
+- Requires quantization along `in-features`, i.e., the `K` dimension, or `axis=1`, of `torch.linear.weight`.
+- Implementation handles both transposed and non-tranposed quantized weights, useful for forward / backward training passes.
 
 ### Performance
 
-Initial benchmarking demonstrates promising results, scaling well across io-bound and compute-bound workloads:
+Initial benchmarking demonstrates promising results, scaling well across memory-bound and compute-bound workloads:
 
 |     | M    | N    | K    | group_size | dtype          | hqq_ref | triton | tinygemm |
 | --- | ---- | ---- | ---- | ---------- | -------------- | ------- | ------ | -------- |
