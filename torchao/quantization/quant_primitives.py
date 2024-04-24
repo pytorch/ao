@@ -171,7 +171,7 @@ def dequantize_per_channel(int_repr, scales, zero_points, out_dtype=torch.float3
     y = int_repr.transpose(0, 1)
     y = y.to(out_dtype)
     y = y - zero_points
-    y = y * scales
+    y = scales * y
     y = y.transpose(0, 1)
     return y
 

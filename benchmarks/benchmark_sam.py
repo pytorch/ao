@@ -1,32 +1,21 @@
-import pandas as pd
 import torch
+import pandas as pd
+
+from itertools import product
 from segment_anything import sam_model_registry
+
 from torch.utils.benchmark import Timer
-from torch.sparse import (
-    SparseSemiStructuredTensor,
-    SparseSemiStructuredTensorCUTLASS,
-    SparseSemiStructuredTensorCUSPARSELT,
-    to_sparse_semi_structured,
-)
-from torchao.quantization.quant_api import (
-    _replace_with_custom_fn_if_matches_filter,
-    _get_subclass_inserter,
-    _is_linear,
-    QuantizedLinearWeightBase,
-    Int8DynamicallyQuantizedLinearWeight,
-    apply_dynamic_quant,
-)
-from torchao.quantization import change_linear_weights_to_int8_dqtensors
+from torch.sparse import SparseSemiStructuredTensor
+from torchao.quantization import apply_dynamic_quant
 from torchao.sparsity import (
     apply_sparse_semi_structured,
-    apply_fake_sparsity,
+    apply_fake_sparse_semi_structured,
+    apply_dynamic_quant_sparse_semi_structured,
 )
 from torchao.sparsity.prototype.dynamic_quant_sparse import (
     Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight,
     Int8DynamicallyQuantizedSemiStructuredSparseLinearWeight,
 )
-from itertools import product
-from tqdm import tqdm
 
 sam_checkpoint_base_path = "/home/jessecai/local/MODELS"
 model_type = 'vit_h'
@@ -74,14 +63,6 @@ def lin1_only(mod, name):
 def lin2_only(mod, name):
     return isinstance(mod, torch.nn.Linear) and 'lin2' in name
 
-SUBCLASSES = {
-    "quant"                              : Int8DynamicallyQuantizedLinearWeight,
-    "quant+sparse (cutlass)"             : Int8DynamicallyQuantizedSemiStructuredSparseLinearWeight,
-    "quant+sparse (cusparselt)"          : Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight,
-    "sparse (cutlass)"                   : SparseSemiStructuredTensorCUTLASS,
-    "sparse (cusparselt)"                : SparseSemiStructuredTensorCUSPARSELT,
-}
-
 def run_once(block_only=False, dtype=torch.bfloat16, batchsize=32, compile=True, qkv=None, proj=None, lin1=None, lin2=None):
     res = {
         "block_only": block_only,
@@ -100,18 +81,22 @@ def run_once(block_only=False, dtype=torch.bfloat16, batchsize=32, compile=True,
 
         # 2:4 prune model
         apply_fake_sparse_semi_structured(model)
-        option_and_filter_fn = zip([qkv, proj, lin1, lin2], [qkv_only, proj_only, lin1_only, lin2_only])
+        apply_dynamic_quant_sparse_semi_structured(model)
+        # option_and_filter_fn = zip([qkv, proj, lin1, lin2], [qkv_only, proj_only, lin1_only, lin2_only])
 
-        for option, filter_fn in option_and_filter_fn:
-            if option:
-                if "quant" in option:
-                    apply_dynamic_quant(model, filter_fn=filter_fn)
-                if "sparse" in option:
-                    if "cusparselt" in option:
-                        SparseSemiStructuredTensor._FORCE_CUTLASS = False
-                    else:
-                        SparseSemiStructuredTensor._FORCE_CUTLASS = True
-                    apply_sparse_semi_structured(model, filter_fn=filter_fn, prune=False)
+        # for option, filter_fn in option_and_filter_fn:
+        #     print(option)
+        #     if option:
+        #         if "quant" in option:
+        #             print("quant")
+        #             apply_dynamic_quant(model, filter_fn=filter_fn)
+        #         if "sparse" in option:
+        #             print("sparse")
+        #             if "cusparselt" in option:
+        #                 SparseSemiStructuredTensor._FORCE_CUTLASS = False
+        #             else:
+        #                 SparseSemiStructuredTensor._FORCE_CUTLASS = True
+        #             apply_sparse_semi_structured(model, filter_fn=filter_fn)
 
         if compile:
             model = torch.compile(model, mode='max-autotune')
@@ -122,18 +107,15 @@ def run_once(block_only=False, dtype=torch.bfloat16, batchsize=32, compile=True,
 
 if __name__ == "__main__":
     print("BENCHMARKING")
+
     # ALL_RUNS = [run_once_composed(qkv="quant+sparse (cutlass)", proj="quant", lin1="quant+sparse (cutlass)", lin2="quant+sparse (cutlass)")]
-                # for option in tqdm(SUBCLASSES)]
 
     ALL_RUNS = [
-        run_once(),
-        run_once(qkv="quant",                     proj="quant",                     lin1="quant",                        lin2="quant"),
-        run_once(qkv="quant+sparse (cusparselt)", proj="quant+sparse (cusparselt)", lin1="quant+sparse (cusparselt)",    lin2="quant+sparse (cutlass)"),
-        run_once(qkv="quant+sparse (cusparselt)", proj="quant",                     lin1="quant+sparse (cutlass)",       lin2="quant+sparse (cutlass)"),
-        run_once(qkv="quant",                     proj="quant",                     lin1="quant+sparse (cusparselt)",    lin2="quant+sparse (cusparselt)"),
-        run_once(qkv="sparse (cusparselt)",       proj="sparse (cusparselt)",       lin1="sparse (cusparselt)",          lin2="sparse (cusparselt)"),
-        run_once(qkv="sparse (cutlass)",          proj="sparse (cutlass)",          lin1="sparse (cutlass)",             lin2="sparse (cutlass)"),
-        run_once(qkv="quant+sparse (cutlass)",    proj="quant+sparse (cutlass)",    lin1="quant+sparse (cutlass)",       lin2="quant+sparse (cutlass)"),
+        # run_once(),
+        # run_once(qkv="quant",                     proj="quant",                     lin1="quant",                        lin2="quant"),
+        # run_once(qkv="sparse (cusparselt)",       proj="sparse (cusparselt)",       lin1="sparse (cusparselt)",          lin2="sparse (cusparselt)"),
+        # run_once(qkv="sparse (cutlass)",          proj="sparse (cutlass)",          lin1="sparse (cutlass)",             lin2="sparse (cutlass)"),
+        run_once(qkv="quant+sparse (cusparselt)",    proj="quant",    lin1="quant+sparse (cusparselt)",       lin2="quant+sparse (cusparselt)"),
     ]
     df = pd.DataFrame(ALL_RUNS)
     df.to_csv("sam_benchmark_results.csv")
