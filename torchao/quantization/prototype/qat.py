@@ -24,7 +24,7 @@ if TORCH_VERSION_AFTER_2_3:
         dynamic per token fake quantized activations and int4 fake quantized
         grouped per channel weights.
         """
-    
+
         def __init__(
             self,
             groupsize: int = 256,
@@ -37,7 +37,7 @@ if TORCH_VERSION_AFTER_2_3:
             self.padding_allowed: bool = padding_allowed
             self.precision: torch.dtype = precision
             self.scales_precision: torch.dtype = scales_precision
-    
+
         def prepare(
             self,
             model: torch.nn.Module,
@@ -53,7 +53,7 @@ if TORCH_VERSION_AFTER_2_3:
                 Int8DynActInt4WeightQATLinear,
             )
             return model
-    
+
         def convert(
             self,
             model: torch.nn.Module,
@@ -62,19 +62,19 @@ if TORCH_VERSION_AFTER_2_3:
         ) -> torch.nn.Module:
             # TODO: replace Int8DynActInt4WeightQATLinear -> Int8DynActInt4WeightLinear
             pass
-    
-    
+
+
     class Int8DynActInt4WeightQATLinear(torch.nn.Linear):
         """
         This module implements a linear layer with int8 dynamic per token fake
         quantized activations with int4 fake quantized grouped per channel weights.
-    
+
         args:
             groupsize: the number of elements in each quantized group for weights
             precision: precision of weights
             scales_precision: precision of per group scales and zero points
         """
-    
+
         def __init__(
             self,
             in_features: int,
@@ -97,7 +97,7 @@ if TORCH_VERSION_AFTER_2_3:
             assert not bias, "require bias=False"
             self.groupsize = groupsize
             self.scales_precision = scales_precision
-    
+
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             # activations: int8 dynamic asymmetric quant
             (act_qmin, act_qmax) = self._get_qmin_qmax(8)
@@ -107,7 +107,7 @@ if TORCH_VERSION_AFTER_2_3:
             x_fq = fake_quantize_per_token(
                 x, act_scales, act_zp, act_qmin, act_qmax,
             )
-    
+
             # weights: int4 grouped per channel symmetric quant
             (weight_qmin, weight_qmax) = self._get_qmin_qmax(4)
             (weight_scales, weight_zp) = get_group_qparams_symmetric(
@@ -122,7 +122,7 @@ if TORCH_VERSION_AFTER_2_3:
                 self.groupsize,
             )
             return torch.nn.functional.linear(x_fq, w_fq)
-    
+
         def _get_qmin_qmax(self, n_bit: int):
             qmin = -(2 ** (n_bit - 1))
             qmax = 2 ** (n_bit - 1) - 1

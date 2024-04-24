@@ -49,8 +49,8 @@ jobs:
           # REF_NAME variable. This will be passed in
           # conf.py to display the version in the
           # site dropdown
-          REF_NAME=${{ github.ref_name }}
-          TORCHAO_VERSION_DOCS="${REF_NAME}"
+          GITHUB_REF=${{ github.ref }}
+          TORCHAO_VERSION_DOCS="${GITHUB_REF}"
           echo "$TORCHAO_VERSION_DOCS"
       - name: Build docs
         run: |
@@ -61,19 +61,41 @@ jobs:
           name: Doc-Build
           path: docs/build/html/
 
+  doc-preview:
+    runs-on: [self-hosted, linux.2xlarge]
+    needs: build_docs
+    if: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Download artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: Doc-Build
+          path: docs
+      - name: Upload docs preview
+        uses: seemethere/upload-artifact-s3@v5
+        if: ${{ github.event_name == 'pull_request' }}
+        with:
+          retention-days: 14
+          s3-bucket: doc-previews
+          if-no-files-found: error
+          path: docs
+          s3-prefix: pytorch/ao/${{ github.event.pull_request.number }}
+
   upload:
     runs-on: ubuntu-latest
     permissions:
       # Grant write permission here so that the doc can be pushed to gh-pages branch
       contents: write
     needs: build_docs
-    if: github.repository == 'pytorch-labs/ao' && github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
+    if: github.repository == 'pytorch/ao' && github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
     steps:
       - name: Checkout
         uses: actions/checkout@v3
         with:
           ref: gh-pages
-          persist-credentials: false
+          persist-credentials: true
       - name: Download artifact
         uses: actions/download-artifact@v3
         with:
@@ -89,23 +111,20 @@ jobs:
       - name: Move and commit changes
         run: |
           set -euo pipefail
-          REF_TYPE=${{ github.ref_type }}
-          REF_NAME=${{ github.ref_name }}
-          if [[ "${REF_TYPE}" == branch ]]; then
-            TARGET_FOLDER="${REF_NAME}"
-          elif [[ "${REF_TYPE}" == tag ]]; then
-            case "${REF_NAME}" in
-              *-rc*)
-                echo "Aborting upload since this is an RC tag: ${REF_NAME}"
-                exit 0
-                ;;
-              *)
-                TARGET_FOLDER=$(echo "${REF_NAME}" | sed 's/v\([0-9]\+\)\.\([0-9]\+\)\.[0-9]\+/\1.\2/')
-                ;;
-            esac
-          fi
+          # Get github.ref for the output doc folder. By default "main"
+          # If matches a tag like refs/tags/v1.12.0-rc3 or
+          # refs/tags/v1.12.0 convert to 1.12
+          GITHUB_REF=${{ github.ref }}
 
+          # Convert refs/tags/v1.12.0rc3 into 1.12.
+          # Adopted from https://github.com/pytorch/pytorch/blob/main/.github/workflows/_docs.yml#L150C11-L155C13
+          if [[ "${GITHUB_REF}" =~ ^refs/tags/v([0-9]+\.[0-9]+)\.* ]]; then
+            TARGET_FOLDER="${BASH_REMATCH[1]}"
+          else
+            TARGET_FOLDER="main"
+          fi
           echo "Target Folder: ${TARGET_FOLDER}"
+
           mkdir -p "${TARGET_FOLDER}"
           rm -rf "${TARGET_FOLDER}"/*
           mv docs/* "${TARGET_FOLDER}"
@@ -114,4 +133,4 @@ jobs:
           git config user.email 'soumith+bot@pytorch.org'
           git add "${TARGET_FOLDER}" || true
           git commit -m "auto-generating sphinx docs" || true
-          git push -f      
+          git push -f
