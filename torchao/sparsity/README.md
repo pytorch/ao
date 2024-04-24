@@ -53,8 +53,10 @@ import torch
 from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensor
 from torch.ao.pruning import WeightNormSparsifier
 
+# bfloat16 CUDA model
+model = model.half().cuda()
 
-
+# Accuracy: Finding a sparse subnetwork
 sparse_config = []
 for name, mod in model.named_modules():
    if isinstance(mod, torch.nn.Linear):
@@ -63,11 +65,14 @@ for name, mod in model.named_modules():
 sparsifier = WeightNormSparsifier(sparsity_level=1.0,
                                  sparse_block_shape=(1,4),
                                  zeros_per_block=2)
+
+# attach FakeSparsity
 sparsifier.prepare(model, sparse_config)
 sparsifier.step()
 sparsifier.squash_mask()
+# now we have dense model with sparse weights
 
-model = model.half().cuda()
+# Performance: Accelerated sparse inference
 for name, mod in model.named_modules():
    if isinstance(mod, torch.nn.Linear):
       mod.weight = torch.nn.Parameter(to_sparse_semi_structured(mod.weight))
