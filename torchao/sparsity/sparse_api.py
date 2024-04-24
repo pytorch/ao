@@ -1,10 +1,10 @@
 import torch
 from torch.ao.pruning import WeightNormSparsifier
 from torch.sparse import to_sparse_semi_structured
-from torchao.quantization.quant_api import _is_linear
+from torchao.quantization.quant_api import _is_linear, Int8DynamicallyQuantizedLinearWeight, apply_dynamic_quant
 
 # Sparsity helper functions
-def apply_fake_sparsity(model):
+def apply_fake_sparse_semi_structured(model):
     """
     This function simulates 2:4 sparsity on all linear layers in a model.
     It uses the torch.ao.pruning flow.
@@ -22,11 +22,16 @@ def apply_fake_sparsity(model):
     sparsifier.step()
     sparsifier.squash_mask()
 
-
 def apply_sparse_semi_structured(model, **kwargs):
     filter_fn = kwargs.pop("filter_fn", _is_linear)
 
-    apply_fake_sparsity(model)
     for name, mod in model.named_modules():
         if filter_fn(mod, name):
-            mod.weight = torch.nn.Parameter(to_sparse_semi_structured(mod.weight))
+            if isinstance(mod.weight.data, Int8DynamicallyQuantizedLinearWeight):
+                mod.weight.data.int_data = to_sparse_semi_structured(mod.weight.data.int_data.t())
+            else:
+                mod.weight.data = to_sparse_semi_structured(mod.weight.data)
+
+def apply_dynamic_quant_sparse_semi_structured(model, **kwargs):
+    apply_dynamic_quant(model, **kwargs)
+    apply_sparse_semi_structured(model, **kwargs)

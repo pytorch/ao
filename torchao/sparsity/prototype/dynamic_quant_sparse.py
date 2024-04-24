@@ -132,6 +132,7 @@ def sparse_quant_int8_cutlass_matmul(
 
     tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1]).contiguous()
 
+
     assert x_scales.dtype in [
         torch.float,
         torch.bfloat16,
