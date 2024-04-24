@@ -4,7 +4,8 @@ import unittest
 import torch
 from torch import nn
 
-from torchao.sparsity import apply_fake_sparsity, apply_sparse_semi_structured, Int8DynamicallyQuantizedSemiStructuredSparseLinearWeight
+from torchao.sparsity import apply_fake_sparsity, apply_sparse_semi_structured
+from torchao.sparsity.prototype import Int8DynamicallyQuantizedSemiStructuredSparseLinearWeight
 from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
     _get_subclass_inserter,
