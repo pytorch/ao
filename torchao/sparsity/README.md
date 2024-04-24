@@ -28,10 +28,10 @@ One key difference between sparsity and quantization is in how the accuracy degr
 
 By carefully choosing the specified elements and retraining the network, pruning can achieve negligible accuracy degradation and in some cases even provide a slight accuracy gain. This is an active area of research with no agreed-upon consensus. We expect users will have a target sparsity pattern and mind and to prune to that pattern.
 
-Given a target sparsity pattern, pruning a model can then be thought of as two separate subproblems:
+Given a target sparsity pattern, pruning/sparsifying a model can then be thought of as two separate subproblems:
 
-* How can I find a set of sparse weights which satisfy my target sparsity pattern that minimize the accuracy degradation of my model?
-* How can I accelerate my sparse weights for inference and reduced memory overhead?
+* **Accuracy** - How can I find a set of sparse weights which satisfy my target sparsity pattern that minimize the accuracy degradation of my model?
+* **Perforance** - How can I accelerate my sparse weights for inference and reduce memory overhead?
 
 Our workflow is designed to consist of two parts that answer each question independently:
 
@@ -46,11 +46,14 @@ This also allows users with existing sparse weights in a dense format to take ad
 
 ![pruning_flow](https://private-user-images.githubusercontent.com/8041643/324612475-3873655f-3eab-40c7-8070-722b3eef4444.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3MTM5MjYwODAsIm5iZiI6MTcxMzkyNTc4MCwicGF0aCI6Ii84MDQxNjQzLzMyNDYxMjQ3NS0zODczNjU1Zi0zZWFiLTQwYzctODA3MC03MjJiM2VlZjQ0NDQucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI0MDQyNCUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNDA0MjRUMDIyOTQwWiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9N2ZjZTAwNzgyMjc4MGE3ZDZlYTQ3MDZkOTA3YTkwM2I3ODJiYjg4NzE2N2E3ZGJjZGVkZDhjYjJhMTgwOThhOSZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QmYWN0b3JfaWQ9MCZrZXlfaWQ9MCZyZXBvX2lkPTAifQ.SXj5_j7CC61CB6hanWrubY7k4Fq9Oko985qD7qaOAy4)
 
+Below, we provide an example of accelerating a model with 2:4 sparsity + bf16 using our PyTorch APIs.
 
 ```python
 import torch
 from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensor
 from torch.ao.pruning import WeightNormSparsifier
+
+
 
 sparse_config = []
 for name, mod in model.named_modules():
@@ -62,10 +65,9 @@ sparsifier = WeightNormSparsifier(sparsity_level=1.0,
                                  zeros_per_block=2)
 sparsifier.prepare(model, sparse_config)
 sparsifier.step()
-
-sparsifier.step()
 sparsifier.squash_mask()
 
+model = model.half().cuda()
 for name, mod in model.named_modules():
    if isinstance(mod, torch.nn.Linear):
       mod.weight = torch.nn.Parameter(to_sparse_semi_structured(mod.weight))
