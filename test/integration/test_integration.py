@@ -36,6 +36,7 @@ from torchao.quantization.quant_primitives import (
     quant_int8_dynamic_per_token_linear,
     quantize_activation_per_token_absmax,
     safe_int_mm,
+    dequantize_affine,
 )
 
 from torchao.quantization.smoothquant import (
@@ -385,11 +386,11 @@ class PythonQuantPrimitivesUnitTest(unittest.TestCase):
             # to rounding
             assert torch.max(torch.abs(y_vals - y_ref.int_repr())).item() <= 1
         torch.testing.assert_close(
-            y_scale, torch.tensor([y_ref.q_scale()], device=device, dtype=float_dtype)
+            y_scale, torch.tensor(y_ref.q_scale(), device=device, dtype=float_dtype)
         )
         if y_zero_point is not None:
             assert torch.equal(
-                y_zero_point, torch.tensor([y_ref.q_zero_point()], device=device)
+                y_zero_point, torch.tensor(y_ref.q_zero_point(), device=device)
             )
         else:
             self.assertTrue(y_ref.q_zero_point() == 0)
@@ -558,8 +559,8 @@ class PythonQuantPrimitivesUnitTest(unittest.TestCase):
         assert torch.max(torch.abs(y_vals - y_ref.int_repr())) <= 1
 
         # dequantize
-        x_dq = dequantize_per_channel(y_vals, y_scale, y_zero_point)
-        x_ref_dq = y_ref.dequantize()
+        x_dq = dequantize_per_channel(y_vals, y_scale, y_zero_point, out_dtype=float_dtype)
+        x_ref_dq = y_ref.dequantize().to(float_dtype)
         # off-by-one for scale is okay
         torch.testing.assert_close(
             x_dq, x_ref_dq, atol=torch.max(y_scale).item() * 1.01, rtol=0.0001
@@ -582,7 +583,8 @@ class PythonQuantPrimitivesUnitTest(unittest.TestCase):
     def _test_quantize_per_token_impl(self, device, dtype):
         x = torch.randn(3, 3, 3, device=device, dtype=dtype)
         xq, scales = quantize_activation_per_token_absmax(x)
-        x_dq = dequantize_per_tensor(xq, scales, None).to(x.dtype)
+        block_size = (1, 1, 3)
+        x_dq = dequantize_affine(xq, block_size, scales, None, torch.int8, output_dtype=x.dtype)
         sqnr = compute_error(x, x_dq)
         self.assertTrue(sqnr >= 45.0)
 
@@ -1173,7 +1175,7 @@ class TestSaveLoadMeta(unittest.TestCase):
         model_qc = torch.compile(model, mode="max-autotune")
         ref_q = model_qc(x).detach()
 
-        assert SQNR(ref_f, ref_q) > min_sqnr
+        assert SQNR(ref_f, ref_q) > min_sqnr, f"got sqnr: {SQNR(ref_f, ref_q)}, expected: {min_sqnr}"
 
         # load model structure
         with torch.device('meta'):
@@ -1190,7 +1192,7 @@ class TestSaveLoadMeta(unittest.TestCase):
         model_qc = torch.compile(model, mode="max-autotune")
         test = model_qc(x).detach()
 
-        assert SQNR(ref_f, test) > min_sqnr
+        assert SQNR(ref_f, test) > min_sqnr, f"got sqnr: {SQNR(ref_f, ref_q)}, expected: {min_sqnr}"
         self.assertTrue(torch.equal(ref_q, test))
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
