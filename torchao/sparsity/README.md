@@ -1,6 +1,6 @@
 # torchao sparsity
 
-Sparsity is the technique of removing parameters from a neural network in order to reduce its memory overhead or latency. By carefully choosing the elements that are removed, one can achieve significant reduction in memory overhead and latency, while paying a reasonably low or no price in terms of model quality (accuracy / f1).
+Sparsity is the technique of removing parameters from a neural network in order to reduce its memory overhead or latency. By carefully choosing how the elements are pruned, one can achieve significant reduction in memory overhead and latency, while paying a reasonably low or no price in terms of model quality (accuracy / f1).
 
 ## Goal
 
@@ -24,7 +24,9 @@ Sparsity, like quantization, is an accuracy/performance trade-off, where we care
 
 In quantization, the theoretical performance gain is generally determined by the data type that we are quantizing to - quantizing from float32 to float16 yields a theoretical 2x speedup. For pruning/sparsity, the analogous variable would be the sparsity level/ sparsity pattern. For semi-structured, the sparsity level is fixed at 50%, so we expect a theoretical 2x improvement. For block-sparse matrices and unstructured sparsity, the speedup is variable and depends on the sparsity level of the tensor.
 
-One key difference between sparsity and quantization is in how the accuracy degradation is determined: The accuracy degradation of quantization is determined by the scale and zero_point chosen. However, in pruning the accuracy degradation is determined by the mask. By carefully choosing the specified elements and retraining the network, pruning can achieve negligible accuracy degradation and in some cases even provide a slight accuracy gain. This is an active area of research with no agreed-upon consensus. We expect users will have a target sparsity pattern and mind and to prune to that pattern.
+One key difference between sparsity and quantization is in how the accuracy degradation is determined: In general, the accuracy degradation of quantization is determined by the scale and zero_point chosen. However, in pruning the accuracy degradation is determined by the mask. Sparsity and quantization are closely related and share accuracy mitigation techniques like quantization/sparsity aware training.
+
+By carefully choosing the specified elements and retraining the network, pruning can achieve negligible accuracy degradation and in some cases even provide a slight accuracy gain. This is an active area of research with no agreed-upon consensus. We expect users will have a target sparsity pattern and mind and to prune to that pattern.
 
 Given a target sparsity pattern, pruning a model can then be thought of as two separate subproblems:
 
@@ -44,11 +46,37 @@ This also allows users with existing sparse weights in a dense format to take ad
 
 ![alt_text](https://private-user-images.githubusercontent.com/8041643/324612475-3873655f-3eab-40c7-8070-722b3eef4444.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3MTM4MjA0MjUsIm5iZiI6MTcxMzgyMDEyNSwicGF0aCI6Ii84MDQxNjQzLzMyNDYxMjQ3NS0zODczNjU1Zi0zZWFiLTQwYzctODA3MC03MjJiM2VlZjQ0NDQucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI0MDQyMiUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNDA0MjJUMjEwODQ1WiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9NDUwZTlmZjQwNjk4ZTZiODVjMTJjOWU4NWQ0NTA2NDQ3MjUzMmI5ZmVhNzY4OTIyZDc3YjUyNzcxOTc4ZDg3OCZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QmYWN0b3JfaWQ9MCZrZXlfaWQ9MCZyZXBvX2lkPTAifQ.fQjPxrsZZHWgJn34oCjcNjWBw_b5HQkRw_n54f9O_uk)
 
+
+```python
+import torch
+from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensor
+from torch.ao.pruning import WeightNormSparsifier
+
+sparse_config = []
+for name, mod in model.named_modules():
+   if isinstance(mod, torch.nn.Linear):
+      sparse_config.append({"tensor_fqn": f"{name}.weight"})
+
+sparsifier = WeightNormSparsifier(sparsity_level=1.0,
+                                 sparse_block_shape=(1,4),
+                                 zeros_per_block=2)
+sparsifier.prepare(model, sparse_config)
+sparsifier.step()
+
+sparsifier.step()
+sparsifier.squash_mask()
+
+for name, mod in model.named_modules():
+   if isinstance(mod, torch.nn.Linear):
+      mod.weight = torch.nn.Parameter(to_sparse_semi_structured(mod.weight))
+
+```
+
 Fundamentally, the flow works by manipulating `torch.Tensors`. In the frontend, we specify the tensors by their fully-qualified-name in a sparse_config dictionary. The frontend is designed to follow the quantization API, with a `prepare` function, which attaches FakeSparsity paramerizations to the tensors specified in the config.
 
 FakeSparsity is a parameterization which simulates unstructured sparsity, where each element has a mask. Because of this, we can use it to simulate any sparsity pattern we want.
 
-The user will then train the prepared model using their own custom code, calling .step() to update the mask if necessary. Once they’ve found a suitable mask, they call `squash_mask()` to fuse the mask into the weights, creating a dense tensor with 0s in the right spot.
+The user will then train the prepared model using their own custom code, calling `.step()` to update the mask if necessary. Once they’ve found a suitable mask, they call `squash_mask()` to fuse the mask into the weights, creating a dense tensor with 0s in the right spot.
 
 Users will then convert their model for accelerated sparse inference by either using the quantization flow for quantized block sparse CPU inference or by calling `to_sparse_semi_structured` on the specified weight tensors.
 
