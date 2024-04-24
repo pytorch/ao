@@ -25,7 +25,7 @@ checkpoint_path = f"{sam_checkpoint_base_path}/{model_name}"
 torch._inductor.config.epilogue_fusion = True
 torch._inductor.config.coordinate_descent_tuning = True
 torch._inductor.config.coordinate_descent_check_all_directions = True
-torch._inductor.config.force_fuse_int_mm_with_mul = True
+# torch._inductor.config.force_fuse_int_mm_with_mul = True
 
 @torch.no_grad()
 def benchmark(f, *args, **kwargs):
@@ -98,8 +98,8 @@ def run_once(block_only=False, dtype=torch.bfloat16, batchsize=32, compile=True,
         #                 SparseSemiStructuredTensor._FORCE_CUTLASS = True
         #             apply_sparse_semi_structured(model, filter_fn=filter_fn)
 
-        if compile:
-            model = torch.compile(model, mode='max-autotune')
+        # if compile:
+        #     model = torch.compile(model, mode='max-autotune')
 
         res.update(benchmark(model, image))
         res["img/s"] = 1 / (res['time'] / 1000 / res['batchsize'])
@@ -111,11 +111,11 @@ if __name__ == "__main__":
     # ALL_RUNS = [run_once_composed(qkv="quant+sparse (cutlass)", proj="quant", lin1="quant+sparse (cutlass)", lin2="quant+sparse (cutlass)")]
 
     ALL_RUNS = [
-        # run_once(),
+        run_once(),
         # run_once(qkv="quant",                     proj="quant",                     lin1="quant",                        lin2="quant"),
         # run_once(qkv="sparse (cusparselt)",       proj="sparse (cusparselt)",       lin1="sparse (cusparselt)",          lin2="sparse (cusparselt)"),
         # run_once(qkv="sparse (cutlass)",          proj="sparse (cutlass)",          lin1="sparse (cutlass)",             lin2="sparse (cutlass)"),
-        run_once(qkv="quant+sparse (cusparselt)",    proj="quant",    lin1="quant+sparse (cusparselt)",       lin2="quant+sparse (cusparselt)"),
+        # run_once(qkv="quant+sparse (cusparselt)",    proj="quant",    lin1="quant+sparse (cusparselt)",       lin2="quant+sparse (cusparselt)"),
     ]
     df = pd.DataFrame(ALL_RUNS)
     df.to_csv("sam_benchmark_results.csv")

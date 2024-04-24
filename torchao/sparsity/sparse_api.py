@@ -30,9 +30,18 @@ def apply_sparse_semi_structured(model, **kwargs):
     for name, mod in model.named_modules():
         if filter_fn(mod, name):
             if isinstance(mod.weight.data, Int8DynamicallyQuantizedLinearWeight):
-                mod.weight.data = Int8DynamicallyQuantizedLinearWeight.to_sparse_semi_structured(mod.weight.data)
+                temp = mod.weight.data
+
+                if isinstance(temp.int_data, SparseSemiStructuredTensor):
+                    int_data = temp.int_data
+                else:
+                    int_data = to_sparse_semi_structured(temp.int_data.contiguous())
+
+                new = Int8DynamicallyQuantizedLinearWeight(int_data, temp.q_scales, temp.transposed, temp.shape, dtype=temp.dtype)
+
+                mod.weight = torch.nn.Parameter(new)
             else:
-                mod.weight.data = to_sparse_semi_structured(mod.weight.data)
+                mod.weight = torch.nn.Parameter(to_sparse_semi_structured(mod.weight))
 
 def apply_dynamic_quant_sparse_semi_structured(model, **kwargs):
     apply_dynamic_quant(model, **kwargs)
@@ -54,8 +63,6 @@ def sparse24_pointwise_op(
         args_updated.append(tensor)
 
 
-    print(args_updated)
-    print(*[(x.packed_t.shape if isinstance(x, SparseSemiStructuredTensor) else x.shape) for x in args_updated])
     assert isinstance(self, SparseSemiStructuredTensorCUTLASS)
     return SparseSemiStructuredTensorCUTLASS(
         self.shape,

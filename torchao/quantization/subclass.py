@@ -18,7 +18,7 @@ from .quant_primitives import (
 )
 from .utils import find_multiple
 
-from torch.sparse import to_sparse_semi_structured
+from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensor
 
 
 __all__ = [
@@ -307,20 +307,6 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
             int_data = int_data.contiguous()
         return cls(
             int_data, w_scales, False, input_float.shape, dtype=input_float.dtype
-        )
-
-    @classmethod
-    def to_sparse_semi_structured(cls, input_float):
-
-        assert isinstance(input_float, cls)
-
-        if isinstance(input_float.int_data, SparseSemiStructuredTensor):
-            int_data = input_float.int_data
-        elif isinstance(input_float.int_data, torch.Tensor):
-            int_data = to_sparse_semi_structured(input_float.int_data.contiguous())
-
-        return cls(
-            int_data, input_float.q_scales, input_float.transposed, input_float.shape, dtype=input_float.dtype
         )
 
 
