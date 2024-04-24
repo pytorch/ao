@@ -1,9 +1,11 @@
 ## Fused `int4 / fp16` Quant Matmul
 
-Fused kernel that combines asymmetric dequantization and gemm:
+Fused kernel that combines asymmetric dequantization and gemm. Useful primarily for compute-bound (M > 16) scenarios and not for memory-bound / inference scenarios.
+
+The kernel fuses two ops:
 
 - Dequantization: upcasts `u4 / s4` weights to `float16 / bfloat16`, followed by groupwise scaling and shifting by scales / zeropoints
-- GEMM: standard matmul on dequantized weights and activations.
+- GEMM: matmul on dequantized weights and activations.
 
 Tested and benchmarked for `HQQ` but could theoretically be used for any asymmetric quantization scheme.
 
@@ -18,7 +20,7 @@ Tested and benchmarked for `HQQ` but could theoretically be used for any asymmet
 
 ### Performance
 
-Initial benchmarking demonstrates promising results, scaling well across memory-bound and compute-bound workloads:
+Initial benchmarking (on `A6000`) demonstrates promising results, scaling well for compute-bound workloads:
 
 |     | M    | N    | K    | group_size | dtype          | hqq_ref | triton | tinygemm |
 | --- | ---- | ---- | ---- | ---------- | -------------- | ------- | ------ | -------- |
