@@ -67,34 +67,17 @@ project = "torchao"
 torchao_version_docs = os.environ.get("TORCHAO_VERSION_DOCS", None)
 
 # The code below will cut version displayed in the dropdown like this:
-# tags like v0.1.0 = > 0.1
-# branch like release/0.1 => 0.1
-# main will remain main
-# if not set will fail back to main
+# by default "main" is set.
+# tags like v0.1.0 or with the -rc suffix like v0.1.0-rc3 = > 0.1
 # the version varible is used in layout.html: https://github.com/pytorch/torchao/blob/main/docs/source/_templates/layout.html#L29
+version = release = "main"
 if torchao_version_docs:
-    # Check if starts with release/ and set the version to the number after slash
-    if torchao_version_docs.startswith("release/"):
-        version = torchao_version_docs.split("/")[-1]
-    else:
-        # Remove "v" prefix if present
-        if torchao_version_docs.startswith("v"):
-            torchao_version_docs = torchao_version_docs[1:]
-        # Split to major, minor, and patch
-        version_components = torchao_version_docs.split(".")
-
-        # Combine the major and minor version components:
-        if len(version_components) >= 2:
-            version = release = ".".join(version_components[:2])
-        else:
-            # If there are not enough components, use the full version
-            version = release = torchao_version_docs
-
-    html_title = " ".join((project, version, "documentation"))
-# IF TORCHAO_VERSION_DOCS not set, set version to main.
-else:
-    version = "main"
-    release = "main"
+    if torchao_version_docs.startswith("refs/tags/v"):
+        version = ".".join(
+            torchao_version_docs.split("/")[-1].split("-")[0].lstrip("v").split(".")[:2]
+        )
+print(f"Version: {version}")
+html_title = " ".join((project, version, "documentation"))
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]

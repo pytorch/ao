@@ -22,10 +22,22 @@ from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
 
 
 # TODO: put this in a common test utils file
+class Sub(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear = torch.nn.Linear(32, 32, bias=False).to(torch.float)
+
+    def example_inputs(self):
+        return (torch.randn(1, 32).to(torch.float),)
+
+    def forward(self, x):
+        return self.linear(x)
+
 class M(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.linear1 = torch.nn.Linear(64, 32, bias=False).to(torch.float)
+        self.sub = Sub()
         self.linear2 = torch.nn.Linear(32, 64, bias=False).to(torch.float)
 
     def example_inputs(self):
@@ -33,6 +45,7 @@ class M(torch.nn.Module):
 
     def forward(self, x):
         x = self.linear1(x)
+        x = self.sub(x)
         x = self.linear2(x)
         return x
 
@@ -159,6 +172,9 @@ class TestQAT(unittest.TestCase):
         # Force the weights to be the same
         self._set_ptq_weight(
             ptq_model.linear1, qat_model.linear1.weight, group_size,
+        )
+        self._set_ptq_weight(
+            ptq_model.sub.linear, qat_model.sub.linear.weight, group_size,
         )
         self._set_ptq_weight(
             ptq_model.linear2, qat_model.linear2.weight, group_size,
