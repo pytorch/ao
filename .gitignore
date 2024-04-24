@@ -261,7 +261,7 @@ docs/dev
 docs/build
 docs/source/tutorials/*
 docs/source/gen_modules/*
-docs/source/sg_execution_times.rst
+docs/source/sg_execution_times
 
 # LevelDB files
 *.sst

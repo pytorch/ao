@@ -1150,6 +1150,7 @@ if TORCH_VERSION_AFTER_2_3:
                     padding_allowed,
                     precision,
                     scales_precision,
+                    linear_class,
                 )
 
     def replace_linear_8da4w(
@@ -1175,17 +1176,8 @@ if TORCH_VERSION_AFTER_2_3:
             padding_allowed: bool = False,
             precision: torch.dtype = torch.float32,
             scales_precision: torch.dtype = torch.float32,
-            inner_k_tiles: Optional[int] = None,
-            _is_gpt_fast: bool = False,
         ) -> None:
             super().__init__()
-            if _is_gpt_fast:
-                assert inner_k_tiles in [2, 4, 8]
-                assert groupsize in [32, 64, 128, 256]
-            else:
-                assert inner_k_tiles is None
-            self._is_gpt_fast = _is_gpt_fast
-            self.inner_k_tiles = inner_k_tiles
             self.groupsize: int = groupsize
             self.padding_allowed: bool = padding_allowed
             self.precision: torch.dtype = precision
@@ -1209,9 +1201,7 @@ if TORCH_VERSION_AFTER_2_3:
                     ), f"require in_features:{in_features} % self.groupsize:{self.groupsize} == 0"
 
                     weight = mod.weight.data
-                    if not _check_linear_int4_k(
-                        in_features, self.groupsize, self.inner_k_tiles
-                    ):
+                    if not _check_linear_int4_k(in_features, self.groupsize):
                         if self.padding_allowed:
                             from .utils import find_multiple
                             import torch.nn.functional as F
@@ -1232,36 +1222,21 @@ if TORCH_VERSION_AFTER_2_3:
                         self.groupsize,
                         self.scales_precision,
                     )
-                    if self._is_gpt_fast:
-                        weight_int4pack = torch.ops.aten._convert_weight_to_int4pack(weight_int8.to(torch.int32), self.inner_k_tiles)
-                        scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros)
-                        cur_state_dict[f"{fqn}.weight"] = weight_int4pack.to("cpu")
-                        cur_state_dict[f"{fqn}.scales_and_zeros"] = scales_and_zeros.to("cpu")
-                    else:
-                        cur_state_dict[f"{fqn}.weight"] = weight_int8.to("cpu")
-                        cur_state_dict[f"{fqn}.scales"] = scales.to("cpu")
-                        cur_state_dict[f"{fqn}.zeros"] = zeros.to("cpu")
+                    cur_state_dict[f"{fqn}.weight"] = weight_int8.to("cpu")
+                    cur_state_dict[f"{fqn}.scales"] = scales.to("cpu")
+                    cur_state_dict[f"{fqn}.zeros"] = zeros.to("cpu")
                     # TODO: support bias?
 
             return cur_state_dict
 
         def _convert_for_runtime(self, model: torch.nn.Module) -> torch.nn.Module:
-            if self._is_gpt_fast:
-                # TODO: temporary path for gpt-fast, will remove later
-                replace_linear_int4(
-                    model,
-                    self.groupsize,
-                    self.inner_k_tiles,
-                    self.padding_allowed,
-                )
-            else:
-                replace_linear_8da4w(
-                    model,
-                    self.groupsize,
-                    self.padding_allowed,
-                    self.precision,
-                    self.precision,
-                )
+            replace_linear_8da4w(
+                model,
+                self.groupsize,
+                self.padding_allowed,
+                self.precision,
+                self.precision,
+            )
             return model
 
         def quantize(
@@ -1283,9 +1258,7 @@ if TORCH_VERSION_AFTER_2_3:
             inner_k_tiles=8,
             padding_allowed=True,
             precision=torch.float32,
-            _is_gpt_fast=False,
         ):
-            self._is_gpt_fast = _is_gpt_fast
             self.blocksize = blocksize
             self.percdamp = percdamp
             self.groupsize = groupsize
@@ -1326,23 +1299,6 @@ if TORCH_VERSION_AFTER_2_3:
             )
 
             # we need to do the padding here, both for q and the qparams if necessary
-
-            # TODO: this is the gpt-fast version, merge with the main version later
-            def make_names_and_values_dict_func_gpt_fast(q, qparams):
-                k = q.shape[1]
-                new_k = find_multiple(k, 1024)
-                # how much we need to pad the weight
-                delta_k = new_k - q.shape[1]
-                q = q.to(torch.int32)
-                final_q = torch.ops.aten._convert_weight_to_int4pack(F.pad(q, pad=(0, delta_k)), inner_k_tiles)
-                scales = qparams[0].to(torch.bfloat16)
-                zeros = qparams[1].to(torch.bfloat16)
-                scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros)
-                # how many new groups we need for padded weight
-                delta_groups = new_k // groupsize - scales_and_zeros.shape[0]
-                final_s_and_z = F.pad(scales_and_zeros, pad=(0,0,0,0,0, delta_groups), value=1)
-                return {"weight": final_q, "scales_and_zeros": final_s_and_z}
-
             def make_names_and_values_dict_func(q, qparams):
                 k = q.shape[1]
                 new_k = find_multiple(k, 1 if groupsize is None else groupsize)
@@ -1353,26 +1309,17 @@ if TORCH_VERSION_AFTER_2_3:
                 zeros = qparams[1].to(self.precision)
                 return {"weight": final_q, "scales": scales, "zeros": zeros}
 
-            self.make_names_and_values_dict_func = make_names_and_values_dict_func_gpt_fast if self._is_gpt_fast else make_names_and_values_dict_func
+            self.make_names_and_values_dict_func = make_names_and_values_dict_func
             super().__init__()
 
         def _convert_for_runtime(self, model):
-            if self._is_gpt_fast:
-                # TODO: temporary path for gpt-fast, will remove later
-                replace_linear_int4(
-                    model,
-                    self.groupsize,
-                    self.inner_k_tiles,
-                    self.padding_allowed,
-                )
-            else:
-                replace_linear_8da4w(
-                    model,
-                    self.groupsize,
-                    self.padding_allowed,
-                    self.precision,
-                    self.precision,
-                )
+            replace_linear_8da4w(
+                model,
+                self.groupsize,
+                self.padding_allowed,
+                self.precision,
+                self.precision,
+            )
             return model
 
         def quantize(self, model: torch.nn.Module, inputs: List[MultiInput], **kwargs: Any) -> torch.nn.Module:
