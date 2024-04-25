@@ -22,10 +22,22 @@ from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
 
 
 # TODO: put this in a common test utils file
+class Sub(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear = torch.nn.Linear(32, 32, bias=False).to(torch.float)
+
+    def example_inputs(self):
+        return (torch.randn(1, 32).to(torch.float),)
+
+    def forward(self, x):
+        return self.linear(x)
+
 class M(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.linear1 = torch.nn.Linear(64, 32, bias=False).to(torch.float)
+        self.sub = Sub()
         self.linear2 = torch.nn.Linear(32, 64, bias=False).to(torch.float)
 
     def example_inputs(self):
@@ -33,6 +45,7 @@ class M(torch.nn.Module):
 
     def forward(self, x):
         x = self.linear1(x)
+        x = self.sub(x)
         x = self.linear2(x)
         return x
 
@@ -161,6 +174,9 @@ class TestQAT(unittest.TestCase):
             ptq_model.linear1, qat_model.linear1.weight, group_size,
         )
         self._set_ptq_weight(
+            ptq_model.sub.linear, qat_model.sub.linear.weight, group_size,
+        )
+        self._set_ptq_weight(
             ptq_model.linear2, qat_model.linear2.weight, group_size,
         )
 
@@ -171,6 +187,18 @@ class TestQAT(unittest.TestCase):
         qat_out = qat_model(*x)
         ptq_out = ptq_model(*x2)
         torch.testing.assert_close(ptq_out, qat_out, atol=0, rtol=0)
+
+        # Convert QAT model and compare model values
+        converted_model = qat_quantizer.convert(qat_model)
+        converted_out = converted_model(*x)
+        torch.testing.assert_close(ptq_out, converted_out, atol=0, rtol=0)
+
+        # Compare converted state dict
+        ptq_state_dict = ptq_model.state_dict()
+        converted_state_dict = converted_model.state_dict()
+        self.assertEqual(ptq_state_dict.keys(), converted_state_dict.keys())
+        for k in ptq_state_dict.keys():
+            torch.testing.assert_close(ptq_state_dict[k], converted_state_dict[k], atol=0, rtol=0)
 
 
 if __name__ == "__main__":
