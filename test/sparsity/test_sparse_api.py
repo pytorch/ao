@@ -23,7 +23,7 @@ class TestSemiStructuredSparse(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_sparse(self):
-        input = torch.rand((128, 128), device="cuda").half()
+        input = torch.rand((128, 128)).half().cuda()
         model = (
             nn.Sequential(
                 nn.Linear(128, 256),
@@ -46,7 +46,7 @@ class TestQuantSemiSparse(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quant_semi_sparse(self):
-        input = torch.rand((128, 128), device="cuda").half()
+        input = torch.rand((128, 128)).half().cuda()
         model = (
             nn.Sequential(
                 nn.Linear(128, 256),
