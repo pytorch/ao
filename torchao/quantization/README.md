@@ -28,11 +28,11 @@ torch._inductor.config.use_mixed_mm = True
 model = torch.nn.Sequential(torch.nn.Linear(32, 64)).cuda().to(torch.bfloat16)
 input = torch.randn(32,32, dtype=torch.bfloat16, device='cuda')
 
-# perform autoquantization
-torchao.autoquant(model, (input))
+# perform autoquantization and torch.compile
+torchao.autoquant(torch.compile(model, mode='max-autotune'))
 
-# compile the model to improve performance
-model = torch.compile(model, mode='max-autotune')
+# pass in an input which is used in order to pick fastest quantization operations
+# and apply torch compilation.
 model(input)
 ```
 
@@ -167,6 +167,6 @@ model(input)
 
 ## Notes
 
-1. APIs have been hardware tested on A100 and T4(colab) 
+1. APIs have been hardware tested on A100 and T4(colab)
 2. While these techniques are designed to improve model performance, in some cases the opposite can occur. This is because quantization adds additional overhead to the model that is hopefully made up for by faster matmuls (dynamic quantization) or loading weights faster (weight-only quantization). If your matmuls are small enough or your non-quantized perf isn't bottlenecked by weight load time, these techniques may reduce performance.
 3. Use the PyTorch nightlies so you can leverage [tensor subclasses](https://pytorch.org/docs/stable/notes/extending.html#subclassing-torch-tensor) which is preferred over older module swap based methods because it doesn't modify the graph and is generally more composable and flexible.
