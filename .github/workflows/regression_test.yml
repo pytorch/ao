@@ -47,7 +47,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
-        python-version: '3.9'
+        python-version: '3.9.0'
 
     - name: Install dependencies
       run: |
@@ -56,7 +56,12 @@ jobs:
         pip install -r requirements.txt
         pip install -r dev-requirements.txt
 
+    - name: Check for GPU
+      id: check_gpu
+      run: |
+        echo "HAS_GPU=$(python -c 'import torch; print(torch.cuda.is_available())')" >> $GITHUB_ENV
     - name: Print CUDA Capability
+      if: env.HAS_GPU == 'True'
       run: |
         python -c "import torch; print(torch.cuda.get_device_capability())"
 
