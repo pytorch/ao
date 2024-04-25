@@ -65,7 +65,7 @@ project = "torchao"
 
 # Get TORCHAO_VERSION_DOCS during the build.
 torchao_version_docs = os.environ.get("TORCHAO_VERSION_DOCS", None)
-print(f"et_version_docs: {et_version_docs}")
+print(f"torchao_version_docs: {torchao_version_docs}")
 
 # The code below will cut version displayed in the dropdown like this:
 # by default "main" is set.
@@ -77,8 +77,8 @@ if torchao_version_docs:
         version = ".".join(
             torchao_version_docs.split("/")[-1].split("-")[0].lstrip("v").split(".")[:2]
         )
-    elif et_version_docs.startswith("refs/heads/release/"):
-        version = et_version_docs.split("/")[-1]
+    elif torchao_version_docs.startswith("refs/heads/release/"):
+        version = torchao_version_docs.split("/")[-1]
 print(f"Version: {version}")
 html_title = " ".join((project, version, "documentation"))
 
