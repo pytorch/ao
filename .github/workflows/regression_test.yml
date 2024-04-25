@@ -24,7 +24,7 @@ jobs:
           - name: CUDA 2.2.2
             runs-on: 4-core-ubuntu-gpu-t4
             torch-spec: 'torch==2.2.2'
-          - name: CUDA 2.3 RC
+          - name: CUDA 2.3
             runs-on: 4-core-ubuntu-gpu-t4
             torch-spec: 'torch==2.3.0'
           - name: CUDA Nightly
@@ -33,7 +33,7 @@ jobs:
           - name: CPU 2.2.2
             runs-on: 32-core-ubuntu
             torch-spec: 'torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu'
-          - name: CPU 2.3 RC
+          - name: CPU 2.3
             runs-on: 32-core-ubuntu
             torch-spec: 'torch==2.3.0 --index-url https://download.pytorch.org/whl/cpu'
           - name: Nightly CPU
