@@ -10,7 +10,11 @@ from .quant_primitives import (
     safe_int_mm,
 )
 import torch.nn.functional as F
-from torch._inductor.utils import do_bench
+try:
+    from torch._inductor.utils import do_bench
+except:
+    from torch._inductor.runtime.runtime_utils import do_bench
+
 aten = torch.ops.aten
 
 AUTOQUANT_CACHE = {}
@@ -387,4 +391,3 @@ def autoquant(model, example_input, qtensor_class_list=DEFAULT_CLASS_LIST, filte
     model(*example_input)
     change_autoquantizable_to_quantized(model, **kwargs)
     return model
-
