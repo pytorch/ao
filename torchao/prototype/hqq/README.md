@@ -9,6 +9,9 @@ The kernel fuses two ops:
 
 Tested and benchmarked for `HQQ` but could theoretically be used for any asymmetric quantization scheme.
 
+> **NOTE**: Benchmark below is only indicative of performance on consumer-grade `Ampere` GPUs (`A6000` specifically). When tested on `H100`, the performance is on par / marginally worse than native / compiled `torch`.  
+> The intended use is thus for fine-tuning / training models on non-datacenter GPUs (`80 <= compute capability < 90`).
+
 ### Implementation Details
 
 - Bitpacking is simple row interleave, no need for extensive preprocessing (e.g., `tinygemm` or `fastertransformer`)
