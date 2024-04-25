@@ -66,7 +66,7 @@ from torchao.quantization.autoquant import (
 from torch.ao.quantization.quantize_fx import convert_to_reference_fx, prepare_fx
 import os
 from parameterized import parameterized
-from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
+from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
 
 torch.manual_seed(0)
 config.cache_size_limit = 100
@@ -641,7 +641,7 @@ class PythonQuantPrimitivesUnitTest(unittest.TestCase):
         torch.testing.assert_close(y_ref, y_opt, atol=0, rtol=0)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @unittest.skipIf(TORCH_VERSION_AFTER_2_3 and torch.cuda.is_available(), "SystemError: AST constructor recursion depth mismatch (before=45, after=84)")
+    @unittest.skipIf(TORCH_VERSION_AFTER_2_4 and torch.cuda.is_available(), "SystemError: AST constructor recursion depth mismatch (before=45, after=84)")
 
     def test__int_mm_eager_and_torch_compile_numerics(self):
         def __int_mm_ref(x, w):
@@ -950,7 +950,7 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(TORCH_VERSION_AFTER_2_3 and torch.cuda.is_available(), "SystemError: AST constructor recursion depth mismatch (before=45, after=84)")
+    @unittest.skipIf(TORCH_VERSION_AFTER_2_4 and torch.cuda.is_available(), "SystemError: AST constructor recursion depth mismatch (before=45, after=84)")
     def test_aq_int8_weight_only_quant_3_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             AQWeightOnlyQuantizedLinearWeight3.from_float, device, 35, test_dtype=dtype
@@ -1024,7 +1024,7 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(TORCH_VERSION_AFTER_2_3 and torch.cuda.is_available(), "SystemError: AST constructor recursion depth mismatch (before=45, after=84)")
+    @unittest.skipIf(TORCH_VERSION_AFTER_2_4 and torch.cuda.is_available(), "SystemError: AST constructor recursion depth mismatch (before=45, after=84)")
 
     def test_int8_weight_only_quant_subclass_api(self, device, dtype):
         self._test_lin_weight_subclass_api_impl(
@@ -1092,7 +1092,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @unittest.skipIf(TORCH_VERSION_AFTER_2_3 and torch.cuda.is_available(), "SystemError: AST constructor recursion depth mismatch (before=45, after=84)")
+    @unittest.skipIf(TORCH_VERSION_AFTER_2_4 and torch.cuda.is_available(), "SystemError: AST constructor recursion depth mismatch (before=45, after=84)")
     def test_weight_only_quant_force_mixed_mm(self, device, dtype):
         if device != "cuda":
             self.skipTest(f"weight_only_quant_force_mixed_mm can't be constructed on {device}")
@@ -1355,7 +1355,7 @@ class TestAutoQuant(unittest.TestCase):
             # (256, 256, 128), TODO: Runs out of shared memory on T4
         ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
-    @unittest.skipIf(TORCH_VERSION_AFTER_2_3 and torch.cuda.is_available(), "SystemError: AST constructor recursion depth mismatch (before=45, after=84)")
+    @unittest.skipIf(TORCH_VERSION_AFTER_2_4 and torch.cuda.is_available(), "SystemError: AST constructor recursion depth mismatch (before=45, after=84)")
 
     def test_autoquant_one_input(self, device, dtype, m, k, n):
         print("(m, k, n): ", (m, k, n))
@@ -1390,7 +1390,7 @@ class TestAutoQuant(unittest.TestCase):
             (32, 32, 128, 128),
         ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
-    @unittest.skipIf(TORCH_VERSION_AFTER_2_3 and torch.cuda.is_available(), "SystemError: AST constructor recursion depth mismatch (before=45, after=84)")
+    @unittest.skipIf(TORCH_VERSION_AFTER_2_4 and torch.cuda.is_available(), "SystemError: AST constructor recursion depth mismatch (before=45, after=84)")
 
     def test_autoquant_multi_input(self, device, dtype, m1, m2, k, n):
         if device != "cuda" or not torch.cuda.is_available():
