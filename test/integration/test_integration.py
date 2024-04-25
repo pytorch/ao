@@ -1119,6 +1119,8 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(TORCH_VERSION_AFTER_2_4 and torch.cuda.is_available(), "SystemError: AST constructor recursion depth mismatch (before=45, after=84)")
+
     def test_weight_only_quant_use_mixed_mm(self, device, dtype):
         if device != "cuda":
             self.skipTest(f"weight_only_quant_force_mixed_mm can't be constructed on {device}")
