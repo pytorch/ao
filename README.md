@@ -1,6 +1,6 @@
 # torchao: PyTorch Architecture Optimization
 
-**Note: This repository is currently under heavy development - if you have suggestions on the API or use-cases you'd like to be covered, please open an github issue**
+**Note: This repository is currently under heavy development - if you have suggestions on the API or use-cases you'd like to be covered, please open an GitHub issue**
 
 ## Introduction
 torchao is a PyTorch native library for optimizing your models using lower precision dtypes, techniques like quantization and sparsity and performant kernels.
@@ -9,7 +9,7 @@ torchao is a PyTorch native library for optimizing your models using lower preci
 To try out our APIs, you can check out API examples in [quantization](./torchao/quantization) (including `autoquant`), [sparsity](./torchao/sparsity), [dtypes](./torchao/dtypes).
 
 ## Installation
-**Note: this library makes liberal use of several new features in pytorch, its recommended to use it with the current nightly or latest stable version of PyTorch.**
+**Note: this library makes liberal use of several new features in pytorch, it's recommended to use it with the current nightly or latest stable version of PyTorch.**
 
 1. From PyPI:
 ```Shell
@@ -55,7 +55,7 @@ torchao has been integrated with other repositories to ease usage
 * [Executorch](https://github.com/pytorch/executorch/tree/main/examples/models/llama2#quantization) is integrated with GPTQ for both 8da4w (int8 dynamic activation, with int4 weight) and int4 weight only quantization.
 
 ## Success stories
-Our kernels have has been used to achieve SOTA inference performance on
+Our kernels have been used to achieve SOTA inference performance on
 
 1. Image segmentation models with [sam-fast](pytorch.org/blog/accelerating-generative-ai)
 2. Language models with [gpt-fast](pytorch.org/blog/accelerating-generative-ai-2)
