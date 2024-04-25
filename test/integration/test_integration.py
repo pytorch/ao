@@ -641,6 +641,8 @@ class PythonQuantPrimitivesUnitTest(unittest.TestCase):
         torch.testing.assert_close(y_ref, y_opt, atol=0, rtol=0)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(TORCH_VERSION_AFTER_2_3 and torch.cuda.is_available(), "SystemError: AST constructor recursion depth mismatch (before=45, after=84)")
+
     def test__int_mm_eager_and_torch_compile_numerics(self):
         def __int_mm_ref(x, w):
             x = x.cpu().to(torch.int32)
@@ -1022,6 +1024,8 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(TORCH_VERSION_AFTER_2_3 and torch.cuda.is_available(), "SystemError: AST constructor recursion depth mismatch (before=45, after=84)")
+
     def test_int8_weight_only_quant_subclass_api(self, device, dtype):
         self._test_lin_weight_subclass_api_impl(
             change_linear_weights_to_int8_woqtensors, device, 40, test_dtype=dtype
@@ -1088,6 +1092,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(TORCH_VERSION_AFTER_2_3 and torch.cuda.is_available(), "SystemError: AST constructor recursion depth mismatch (before=45, after=84)")
     def test_weight_only_quant_force_mixed_mm(self, device, dtype):
         if device != "cuda":
             self.skipTest(f"weight_only_quant_force_mixed_mm can't be constructed on {device}")
