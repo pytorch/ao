@@ -42,12 +42,15 @@ jobs:
 
     runs-on: ${{ matrix.runs-on }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
+    - name: Setup conda env
+      uses: conda-incubator/setup-miniconda@v2
       with:
-        python-version: '3.10'
+        auto-update-conda: true
+        miniconda-version: "latest"
+        activate-environment: test
+        python-version: "3.10"
 
     - name: Install dependencies
       run: |
