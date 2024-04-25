@@ -45,7 +45,7 @@ jobs:
           python -m pip install -r requirements.txt
       - name: Build docs
         env:
-          ET_VERSION_DOCS: ${{ github.ref }}
+          TORCHAO_VERSION_DOCS: ${{ github.ref }}
         run: |
           cd docs
           make html
