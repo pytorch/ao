@@ -34,6 +34,7 @@ from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
     Int4WeightOnlyQuantizer,
 )
+from .autoquant import autoquant
 
 
 __all__ = [
@@ -46,7 +47,8 @@ __all__ = [
     "Quantizer",
     "TwoStepQuantizer",
     "Int4WeightOnlyGPTQQuantizer",
-    "Int4WeightOnlyQuantizer"
+    "Int4WeightOnlyQuantizer",
+    "autoquant"
 ]
 
 if TORCH_VERSION_AFTER_2_3:

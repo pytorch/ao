@@ -74,6 +74,7 @@ class AutoQuantizableLinearWeight(torch.Tensor):
                 res = q_cls._autoquant_test(act_mat, self.weight, bias, best_time, self.mode)
                 update_cache(q_cls, shapes_and_dtype, res)
 
+    @torch.no_grad()
     def to_quantized(self, error_on_unseen, **kwargs):
         if error_on_unseen and self.logged_data == {}:
             raise RuntimeError("must run module normally to get shape, dtype info for autoquant")
@@ -176,6 +177,7 @@ class AutoQuantizableLinearWeight(torch.Tensor):
          if func is aten.detach.default:
             return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.detach))
 
+@torch.no_grad()
 def do_autoquant_bench(op, *args, **kwargs):
     """
     runs benchmark op(*args, **kwargs) avoiding torch.compile overhead
@@ -374,20 +376,68 @@ def change_autoquantizable_to_quantized(model, **kwargs):
     torch._dynamo.reset()
 
 @torch.no_grad()
-def autoquant(model, example_input, qtensor_class_list=DEFAULT_CLASS_LIST, filter_fn=None, mode=["relu",None], **kwargs):
+def autoquant(model, example_input=None, qtensor_class_list=DEFAULT_CLASS_LIST, filter_fn=None, mode=["relu",None], **aq_kwargs):
     """
-    Runs the model with example_input to record shapes and then compares benchmark performance of the seen shape
-    across the qtensor subclasses in qtensor_class_list. Determines best performing qtensor subclass for each layer
-    and applies that type of quantization.
-    """
-    if filter_fn is None:
-        from torchao.quantization.quant_api import _is_linear
-        filter_fn = _is_linear
+    wraps model in AutoQuantWrapper, if example_input is provided, runs forward on it, otherwise returns the wrapped model.
+    AutoQuantWrapper handles instances where model is torch.compiled by first performing autoquantization on the original
+    model and then letting the torch.compile run/tracing occur.
 
-    change_linears_to_autoquantizable(model, filter_fn=filter_fn, qtensor_class_list=qtensor_class_list, mode=mode, **kwargs)
-    if not isinstance(example_input, (tuple, list)):
-        assert isinstance(example_input, torch.Tensor)
+    Example usage::
+
+        torchao.autoquant(torch.compile(model))
+        model(*example_input)
+
+    """
+    # the hook we will use to intercept the model forward and perform
+    # autoquantization
+    def autoquant_prehook(module, args, kwargs):
+        module.forward_log_only(*args, **kwargs)
+        change_autoquantizable_to_quantized(
+            module,
+            **aq_kwargs,
+        )
+        module.clean_up_autoquant_hooks_and_attrs()
+        return args, kwargs
+
+    # perform initial swap from linear weights
+    # to AutoQuantizableLinearWeight
+    change_linears_to_autoquantizable(
+        model,
+        filter_fn=filter_fn,
+        qtensor_class_list=qtensor_class_list,
+        mode=mode,
+        **aq_kwargs
+    )
+
+    # access actual model of torch.compile wrapper if needed
+    if isinstance(model, torch._dynamo.eval_frame.OptimizedModule):
+        real_model = model._orig_mod
+    else:
+        real_model = model
+
+    # we need a consistent way to run the model which bypasses both
+    # A) the torch.compile tracing (so we need to run the inner model directly)
+    # B) the autoquant_prehook we're about to register (so we call forward directly)
+    model.forward_log_only = lambda *args, **kwargs: real_model.forward(*args, **kwargs)
+
+    # the autoquant_prehook intercepts the forward call and performs autoquantization
+    # and then deletes the hook. if model is a torch.compile wrapper, it then
+    # does the tracing/compile since the prehook is naturally followed by the normal.
+    # model run.
+    handle = model.register_forward_pre_hook(autoquant_prehook, with_kwargs=True)
+
+    # note the torch.compile wrapper eval_frame moved the assignment of any assigned
+    # attributes to the inner model, so we have to call delattr on the inner model
+    def clean_up_autoquant_hooks_and_attrs():
+        handle.remove()
+        delattr(real_model, "clean_up_autoquant_hooks_and_attrs")
+        delattr(real_model, "forward_log_only")
+    model.clean_up_autoquant_hooks_and_attrs = clean_up_autoquant_hooks_and_attrs
+
+    # if example input was provided, check it and run it
+    if isinstance(example_input, torch.Tensor):
         example_input = [example_input]
-    model(*example_input)
-    change_autoquantizable_to_quantized(model, **kwargs)
+    if isinstance(example_input, (tuple, list)):
+        model(*example_input)
+
     return model
