@@ -50,12 +50,10 @@ jobs:
         auto-update-conda: true
         miniconda-version: "latest"
         activate-environment: test
-        python-version: "3.10"
+        # python-version: "3.10"
 
     - name: Install dependencies
       run: |
-        curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
-        python get-pip.py
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
         pip install -r requirements.txt
