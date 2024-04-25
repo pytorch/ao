@@ -641,8 +641,6 @@ class PythonQuantPrimitivesUnitTest(unittest.TestCase):
         torch.testing.assert_close(y_ref, y_opt, atol=0, rtol=0)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @unittest.skipIf(TORCH_VERSION_AFTER_2_4 and torch.cuda.is_available(), "SystemError: AST constructor recursion depth mismatch (before=45, after=84)")
-
     def test__int_mm_eager_and_torch_compile_numerics(self):
         def __int_mm_ref(x, w):
             x = x.cpu().to(torch.int32)
