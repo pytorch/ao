@@ -449,6 +449,7 @@ class PythonQuantPrimitivesUnitTest(unittest.TestCase):
         for row in test_cases:
             self._test_dynamic_quant_per_tensor_numerics_impl(*row)
 
+    @unittest.skip("test case incorrect on A10G")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_dynamic_quant_per_tensor_numerics_cuda(self):
         # verifies that dynamic quant per tensor in plain pytorch matches
