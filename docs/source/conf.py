@@ -65,6 +65,7 @@ project = "torchao"
 
 # Get TORCHAO_VERSION_DOCS during the build.
 torchao_version_docs = os.environ.get("TORCHAO_VERSION_DOCS", None)
+print(f"et_version_docs: {et_version_docs}")
 
 # The code below will cut version displayed in the dropdown like this:
 # by default "main" is set.
