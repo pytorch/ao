@@ -188,6 +188,18 @@ class TestQAT(unittest.TestCase):
         ptq_out = ptq_model(*x2)
         torch.testing.assert_close(ptq_out, qat_out, atol=0, rtol=0)
 
+        # Convert QAT model and compare model values
+        converted_model = qat_quantizer.convert(qat_model)
+        converted_out = converted_model(*x)
+        torch.testing.assert_close(ptq_out, converted_out, atol=0, rtol=0)
+
+        # Compare converted state dict
+        ptq_state_dict = ptq_model.state_dict()
+        converted_state_dict = converted_model.state_dict()
+        self.assertEqual(ptq_state_dict.keys(), converted_state_dict.keys())
+        for k in ptq_state_dict.keys():
+            torch.testing.assert_close(ptq_state_dict[k], converted_state_dict[k], atol=0, rtol=0)
+
 
 if __name__ == "__main__":
     unittest.main()

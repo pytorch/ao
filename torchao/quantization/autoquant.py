@@ -391,4 +391,3 @@ def autoquant(model, example_input, qtensor_class_list=DEFAULT_CLASS_LIST, filte
     model(*example_input)
     change_autoquantizable_to_quantized(model, **kwargs)
     return model
-
