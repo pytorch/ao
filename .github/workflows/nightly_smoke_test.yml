@@ -4,6 +4,7 @@ on:
   schedule:
     # 6 am PST every day 
     - cron: "0 14 * * *"
+  workflow_dispatch:
 
 concurrency:
   group: regression_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
