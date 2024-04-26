@@ -1,4 +1,4 @@
-name: CUDA Nightly Smoke Test
+name: PyTorch CUDA Nightly Smoke Test
 
 on:
   # run every day at 1:15pm
