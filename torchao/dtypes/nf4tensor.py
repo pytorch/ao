@@ -273,7 +273,7 @@ def _to_copy(func, *args, **kwargs):
     if not args[0][0].is_contiguous():
         assert args[0][0].t().is_contiguous()
         return func(args[0][0].t()).t()
-    return args[0][0].get_original_weight().to(args[1]["dtype"])
+    return args[0][0].get_original_weight().to(args[1]["dtype"]).to(args[1]["device"])
 
 
 @implements([torch.ops.aten.to.dtype])
