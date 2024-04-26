@@ -31,6 +31,11 @@ jobs:
             torch-spec: 'torch==2.3.0'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.1"
+          - name: CUDA 2.4.0.dev20240424
+            runs-on: linux.g5.12xlarge.nvidia.gpu
+            torch-spec: '--pre torch==torch-2.4.0.dev20240424 --index-url https://download.pytorch.org/whl/nightly/cu121'
+            gpu-arch-type: "cuda"
+            gpu-arch-version: "12.1"
           - name: CUDA Nightly
             runs-on: linux.g5.12xlarge.nvidia.gpu
             torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu121'
