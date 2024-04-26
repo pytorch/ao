@@ -1,9 +1,9 @@
 name: PyTorch CUDA Nightly Smoke Test
 
 on:
-  # run every day at 1:15pm
   schedule:
-    - cron: "15 13 * * *"
+    # 6 am PST every day 
+    - cron: "0 14 * * *"
 
 concurrency:
   group: regression_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
