@@ -341,22 +341,6 @@ def nf4_copy_(aten_op, args, kwargs=None):
         quantized_data = aten_op(original.quantized_data, copy_in.quantized_data, **kwargs)
         scaler_mean = aten_op(original.scaler_mean, copy_in.scaler_mean, **kwargs)
         nf4 = aten_op(original.nf4, copy_in.nf4, **kwargs)
-        if (
-            original.size(),
-            original.stride(),
-            original.storage_offset(),
-            original.dtype,
-            original.device,
-            original.requires_grad
-        ) != (
-            copy_in.size(),
-            copy_in.stride(),
-            copy_in.storage_offset(),
-            copy_in.dtype,
-            copy_in.device,
-            copy_in.requires_grad
-        ):
-            raise NotImplementedError(f"aten.copy_(NF4Tensor) with different metadata")
         return original
 
     # Convert Non NF4Tensor into NF4 for copy in
