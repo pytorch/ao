@@ -381,6 +381,7 @@ class TestFSDPOps(TestCase):
         nf4_tensor = to_nf4(torch.randn(512 * 512, device='cuda'))
         self.assertFalse(nf4_tensor.is_pinned())
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_to_cuda(self):
         nf4_tensor = to_nf4(torch.randn(512 * 512))
         self.assertEqual(nf4_tensor.device.type, "cpu")
