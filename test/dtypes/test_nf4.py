@@ -371,6 +371,7 @@ class TestFSDPOps(TestCase):
                 stride = (nf4_tensor.stride()[1], nf4_tensor.stride()[0])
                 torch.as_strided(nf4_tensor, nf4_tensor.size(), stride, nf4_tensor.storage_offset())
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_pin_memory(self):
         nf4_tensor = to_nf4(torch.randn(512 * 512))
         self.assertFalse(nf4_tensor.is_pinned())
@@ -378,9 +379,9 @@ class TestFSDPOps(TestCase):
         nf4_tensor = nf4_tensor.pin_memory()
         self.assertTrue(nf4_tensor.is_pinned())
 
-        if torch.cuda.is_available():
-            nf4_tensor = to_nf4(torch.randn(512 * 512, device='cuda'))
-            self.assertFalse(nf4_tensor.is_pinned())
+        nf4_tensor = to_nf4(torch.randn(512 * 512, device='cuda'))
+        self.assertFalse(nf4_tensor.is_pinned())
+
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_to_cuda(self):
