@@ -1,3 +1,4 @@
+import functools
 from dataclasses import dataclass
 from typing import Dict, Tuple
 
@@ -10,7 +11,7 @@ aten = torch.ops.aten
 
 c10d_functional = torch.ops.c10d_functional
 
-from typing import Any
+from typing import Any, Tuple
 
 NF4_OPS_TABLE: Dict[Any, Any] = {}
 
@@ -46,7 +47,7 @@ def _to_copy(func, *args, **kwargs):
     if not args[0][0].is_contiguous():
         assert args[0][0].t().is_contiguous()
         return func(args[0][0].t()).t()
-    return args[0][0].get_original_weight().to(args[1]["dtype"])
+    return args[0][0].get_original_weight().to(args[1]["dtype"]).to(args[1]["device"])
 
 
 @implements([torch.ops.aten.to.dtype])
@@ -64,7 +65,7 @@ def t_default(func, *args, **kwargs):
         a.size(),
         (a.stride(1), a.stride(0)),
         a.storage_offset(),
-        torch.bits2x4,
+        a.dtype,
         a.device,
         a.requires_grad,
     )
@@ -187,7 +188,7 @@ class NF4Tensor(torch.Tensor):
             tensor_meta.original_strides,
             tensor_meta.storage_offset,
             # Picked some floating dtype, but we need dtype extensibility
-            dtype=torch.float8_e5m2fnuz,
+            dtype=tensor_meta.dtype,
             device=tensor_meta.device,
             requires_grad=tensor_meta.requires_grad,
         )
@@ -224,11 +225,9 @@ class NF4Tensor(torch.Tensor):
         scaler_block_size: int,
     ):
         assert inpt_tensor.dim() <= 2
-        assert inpt_tensor.dtype == torch.bfloat16
         assert (
             inpt_tensor.numel() % block_size == 0
         ), f"Input tensor must be divisible by block size, got {inpt_tensor.numel()} and {block_size}"
-        assert inpt_tensor.dtype == torch.bfloat16, "Input tensor must be bfloat16"
         assert inpt_tensor.is_contiguous, "Input tensor must be contiguous!"
         # I think I want do this
         # assert not inpt_tensor.requires_grad, "Input tensor must not require grad"
@@ -254,7 +253,7 @@ class NF4Tensor(torch.Tensor):
                 1.0000,
             ],
             device=device,
-            dtype=torch.bfloat16,
+            dtype=inpt_tensor.dtype,
         )
         n_blocks = inpt_tensor.numel() // block_size
         # Double quantization
@@ -370,7 +369,7 @@ class NF4Tensor(torch.Tensor):
         n_scaler_blocks = inpt_tensor.numel() // scaler_block_size
         inpt_tensor = inpt_tensor.view(n_scaler_blocks, scaler_block_size)
         dequantized = (inpt_tensor / quantization_factor.unsqueeze(-1)).flatten().to(
-            torch.bfloat16
+            self.dtype
         ) + self.scaler_mean
         return dequantized
 
@@ -551,7 +550,19 @@ class NF4Tensor(torch.Tensor):
 
     # Do not force the Float8Tensor type on the returned tensor
 
-    __torch_function__ = torch._C._disabled_torch_function_impl
+    @classmethod
+    def __torch_function__(cls, func, types, args=(), kwargs=None):
+        if kwargs is None:
+            kwargs = {}
+
+        try:
+            if func in NF4_TORCH_FUNCTIONS:
+                return NF4_TORCH_FUNCTIONS[func](*args, **kwargs)
+        except NotImplementedError:
+            pass
+
+        with torch._C.DisableTorchFunctionSubclass():
+            return func(*args, **kwargs)
 
 
 class LinearNF4(torch.autograd.Function):
@@ -585,5 +596,29 @@ def linear_nf4(input: torch.Tensor, weight: NF4Tensor) -> torch.Tensor:
 
 
 def to_nf4(tensor, block_size: int = 64, scaler_block_size: int = 256):
-    tensor1 = tensor.to(torch.bfloat16)
-    return NF4Tensor.from_tensor(tensor1, block_size, scaler_block_size)
+    return NF4Tensor.from_tensor(tensor, block_size, scaler_block_size)
+
+
+NF4_TORCH_FUNCTIONS = {}
+
+
+def implements_torch_function(torch_function):
+    def decorator(func):
+        functools.update_wrapper(func, torch_function)
+        NF4_TORCH_FUNCTIONS[torch_function] = func
+        return func
+
+    return decorator
+
+
+@implements_torch_function(torch.Tensor.to)
+def function_to_dtype(*args, **kwargs):
+    if isinstance(args[0], NF4Tensor) and isinstance(args[1], torch.dtype):
+        # Tensor.to(dtype, non_blocking, copy, memory_format)
+        return args[0].get_original_weight().to(*args[1:], **kwargs)
+    else:
+        # Tensor.to(device, dtype, non_blocking, copy, memory_format)
+        # Tensor.to(other, non_blocking, copy)
+        raise NotImplementedError(
+            f"NF4Tensor.to({args[1:]}, {kwargs}) is not supported, passing to dispatch"
+        )

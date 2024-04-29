@@ -3,11 +3,14 @@
 
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
 from packaging import version
+from functools import reduce
+from math import gcd
+
 
 __all__ = [
     "find_multiple",
@@ -18,7 +21,8 @@ __all__ = [
 ]
 
 
-def find_multiple(n: int, k: int) -> int:
+def find_multiple(n: int, *args: Tuple[int]) -> int:
+    k: int = reduce(lambda x, y: x * y // gcd(x, y), args + (1,))  # type: ignore[9]
     if n % k == 0:
         return n
     return n + k - (n % k)

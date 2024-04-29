@@ -4,6 +4,8 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+from enum import Enum
+from typing import List, Optional, Tuple
 import torch
 from torch._dynamo import is_compiling as dynamo_is_compiling
 from torch._higher_order_ops.out_dtype import out_dtype
@@ -40,6 +42,255 @@ __all__ = [
     "groupwise_affine_dequantize_tensor",
     # TODO: need to clean up above functions
 ] + (_AFTER_TORCH_2_3_ONLY if TORCH_VERSION_AFTER_2_3 else [])
+
+
+_DTYPE_TO_QVALUE_BOUNDS = {
+    torch.uint8: (0, 255),
+    torch.int8: (-128, 127),
+    torch.int16: (-(2**15), 2**15 - 1),
+    torch.int32: (-(2**31), 2**31 - 1),
+}
+
+if TORCH_VERSION_AFTER_2_3:
+    _DTYPE_TO_QVALUE_BOUNDS.update({
+        torch.uint1: (0, 2**1-1),
+        torch.uint2: (0, 2**2-1),
+        torch.uint3: (0, 2**3-1),
+        torch.uint4: (0, 2**4-1),
+        torch.uint5: (0, 2**5-1),
+        torch.uint6: (0, 2**6-1),
+        torch.uint7: (0, 2**7-1),
+    })
+
+# TODO: decide on if we want to allow custom quant_min/quant_max here
+def _get_and_check_qmin_qmax(dtype, quant_min, quant_max):
+    """Get quant_min and quant_max args based on dtype and also
+    verify that they are within the range of possible quant_min/quant_max
+    for dtype
+    """
+    if dtype not in _DTYPE_TO_QVALUE_BOUNDS:
+        raise ValueError(f"Unsupported dtype: {dtype}")
+    quant_min_lower_bound, quant_max_upper_bound = _DTYPE_TO_QVALUE_BOUNDS[dtype]
+    if quant_min is None:
+        quant_min = quant_min_lower_bound
+    if quant_max is None:
+        quant_max = quant_max_upper_bound
+
+    assert quant_min >= quant_min_lower_bound, \
+        "quant_min out of bound for dtype, " \
+        f"quant_min_lower_bound: {quant_min_lower_bound} quant_min: {quant_min}"
+
+    assert quant_max <= quant_max_upper_bound, \
+        "quant_max out of bound for dtype, " \
+        f"quant_max_upper_bound: {quant_max_upper_bound} quant_max: {quant_max}"
+    return quant_min, quant_max
+
+def _get_reduction_params(block_size, input_size):
+    """Given block_size and input size find the parameters for reduction:
+
+    Output:
+        shape_for_reduction: the shape we use to `view` input to prepare it for reduction
+        reduction_dims: the dims we'll do reduction over
+
+    Example::
+        Input:
+          block_size: (3, 3, 2, 10)
+          input_size: (3, 3, 10, 10)
+
+        Output:
+          shape_for_reduction: (3, 3, 5, 2, 10)
+          reduction_dim: [0, 1, 3, 4]
+    """
+    assert len(block_size) == len(input_size)
+    shape_for_reduction = []
+    reduction_dims = []
+    cur_dim = 0
+    for i in range(len(block_size)):
+        if block_size[i] != input_size[i] and block_size[i] > 1:
+            assert input_size[i] % block_size[i] == 0, f"Expecting input size at {i} dimension: {input_size[i]} to be divisible by block_size at {i} dimension: {block_size[i]}"
+            shape_for_reduction.append(input_size[i] // block_size[i])
+            shape_for_reduction.append(block_size[i])
+            # reduce over the block_size[i] dim
+            reduction_dims.append(cur_dim + 1)
+            cur_dim += 2
+        else:
+            # block_size[i] == input_size[i] or block_size[i] == 1
+            shape_for_reduction.append(input_size[i])
+            # we only need to reduce over the dimension if block_size is greater than 1
+            # otherwise it's already the same as reduced dimension
+            if block_size[i] != 1:
+                reduction_dims.append(cur_dim)
+            cur_dim += 1
+    return shape_for_reduction, reduction_dims
+
+
+def quantize_affine(
+    input: torch.Tensor,
+    block_size: List[int],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    output_dtype: torch.dtype,
+    quant_min: Optional[int] = None,
+    quant_max: Optional[int] = None
+):
+    """
+    Args:
+      input (torch.Tensor): original float32 or bfloat16 Tensor
+      block_size: (List[int]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
+                           e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
+      scale (float): quantization parameter for affine quantization
+      zero_point (int): quantization parameter for affine quantization
+      output_dtype (torch.dtype): requested dtype (e.g. torch.uint8) for output Tensor
+      quant_min (Optional[int]): minimum quantized value for output Tensor, if not specified, it will be derived from dtype
+      quant_max (Optional[int]): maximum quantized value for output Tensor, if not specified, it will be derived from dtype
+
+    Note:
+      How can block_size represent different granularities?
+      let's say we have a Tensor of size: (3, 3, 10, 10), here is the table showing how block_size represents different
+      granularities:
+
+       granularity type       |     block_size
+         per_tensor           |    (3, 3, 10, 10)
+         per_axis (axis=0)    |    (1, 3, 10, 10)
+         per_axis (axis=1)    |    (3, 1, 10, 10)
+     per_group (groupsize=2)  |    (3, 3, 10, 2)
+     per_group (groupsize=2) for axis = 3 | (3, 3, 2, 10)
+
+
+    Output:
+      quantized tensor with requested dtype
+    """
+    # TODO: validations
+    quant_min, quant_max = _get_and_check_qmin_qmax(output_dtype, quant_min, quant_max)
+    shape_for_reduction, reduction_dims = _get_reduction_params(block_size, input.size())
+    original_shape = input.shape
+    input = input.view(shape_for_reduction)
+    shape_after_reduction = shape_for_reduction
+    for i in reduction_dims:
+        shape_after_reduction[i] = 1
+    scale = scale.view(shape_after_reduction)
+    if zero_point is not None:
+        zero_point = zero_point.view(shape_after_reduction)
+
+    quant = torch.clamp(
+        torch.round(input / scale) + zero_point, quant_min, quant_max
+    ).to(output_dtype)
+    quant = quant.view(original_shape)
+
+    return quant
+
+def dequantize_affine(
+    input: torch.Tensor,
+    block_size: List[int],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    input_dtype: torch.dtype,
+    quant_min: Optional[int] = None,
+    quant_max: Optional[int] = None,
+    *,
+    output_dtype: Optional[torch.dtype] = None,
+):
+    """
+    Args:
+      input (torch.Tensor): quantized tensor, should match the dtype `dtype` argument
+      block_size: (List[int]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
+                               e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
+      scale (Tensor): quantization parameter for affine quantization
+      zero_point (Tensor): quantization parameter for affine quantization
+      dtype (torch.dtype): requested dtype (e.g. torch.uint8) for output Tensor
+      quant_min (Optional[int]): minimum quantized value for input Tensor
+      quant_max (Optional[int]): maximum quantized value for input Tensor
+      output_dtype (torch.dtype?): optional dtype for output Tensor, default is fp32
+
+    Output:
+      dequantized Tensor, with requested dtype or fp32
+    """
+    # TODO: validations
+    assert input.dtype == input_dtype
+    quant_min, quant_max = _get_and_check_qmin_qmax(input_dtype, quant_min, quant_max)
+
+    shape_for_reduction, reduction_dims = _get_reduction_params(block_size, input.size())
+    original_shape = input.shape
+    input = input.view(shape_for_reduction)
+    shape_after_reduction = shape_for_reduction
+    for i in reduction_dims:
+        shape_after_reduction[i] = 1
+    scale = scale.view(shape_after_reduction)
+    if zero_point is not None:
+        zero_point = zero_point.view(shape_after_reduction)
+
+    dequant = input.to(torch.float32)
+    scale = scale.to(torch.float32)
+    if zero_point is not None:
+        zero_point = zero_point.to(torch.float32)
+        dequant -= zero_point
+    dequant *= scale
+    dequant = dequant.view(original_shape)
+    return dequant.to(output_dtype)
+
+
+class MappingType(Enum):
+    SYMMETRIC = 0
+    ASYMMETRIC = 1
+
+def choose_qparams_affine(
+   input: torch.Tensor,
+   mapping_type: MappingType,
+   block_size: List[int],
+   target_dtype: torch.dtype,
+   quant_min: Optional[int] = None,
+   quant_max: Optional[int] = None,
+   eps: Optional[float] = None,
+   scale_dtype: Optional[torch.dtype] = None,
+   zero_point_dtype: Optional[torch.dtype] = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Args:
+        input (torch.Tensor): fp32, bf16, fp16 input Tensor
+        mapping_type (MappingType): determines how the qparams are calculated, symmetric or asymmetric
+        target_dtype (torch.dtype): dtype for target quantized Tensor
+        quant_min (Optional[int]): minimum quantized value for target quantized Tensor
+        quant_max (Optioanl[int]): maximum quantized value for target quantized Tensor
+        eps (Optional[float]: minimum scale
+        scale_dtype (torch.dtype): dtype for scales
+        zero_point_dtype (torch.dtype): dtype for zero_points
+
+    Output:
+        Tuple of scales and zero_points Tensor with requested dtype
+    """
+    quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
+    if scale_dtype is None:
+        scale_dtype = torch.float32
+    if zero_point_dtype is None:
+        zero_point_dtype = torch.float32
+
+    assert len(block_size) == input.dim()
+    shape_for_reduction, reduction_dims = _get_reduction_params(block_size, input.size())
+    input = input.view(shape_for_reduction)
+
+    if mapping_type == MappingType.SYMMETRIC:
+        amax = torch.amax(torch.abs(input), dim=reduction_dims, keepdim=False)
+        scale = amax / (float(quant_max - quant_min) / 2)
+        zero_point = torch.ones_like(scale)
+        zero_point *= int((quant_min + quant_max + 1) / 2)
+    elif mapping_type == MappingType.ASYMMETRIC:
+        min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
+        max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
+
+        min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
+        max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
+
+        scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
+        zero_point = quant_min - torch.round(min_val_neg / scale)
+        zero_point = torch.clamp(zero_point, quant_min, quant_max)
+    else:
+        raise RuntimeError(f"Unsupported mapping type: {mapping_type}")
+
+    if eps is not None:
+        scale = torch.clamp(scale, min=eps)
+
+    return scale.to(dtype=scale_dtype), zero_point.to(dtype=zero_point_dtype)
+
 
 # copy-pasta of https://www.internalfb.com/intern/anp/view/?id=3350736
 
@@ -383,7 +634,6 @@ def pack_tinygemm_scales_and_zeros(scales, zeros):
 
 def unpack_tinygemm_scales_and_zeros(scales_and_zeros):
     assert len(scales_and_zeros.shape) == 3 and scales_and_zeros.shape[2] == 2
-    assert scales_and_zeros.dtype == torch.float
     return torch.split(scales_and_zeros.transpose(0, 1), 1, 2)
 
 
@@ -500,23 +750,6 @@ def get_group_qparams_symmetric(w, n_bit=4, groupsize=128, precision=torch.float
     )
 
 
-def pack_scales_and_zeros(scales, zeros, precision=torch.float16):
-    assert scales.shape == zeros.shape
-    assert scales.dtype == precision
-    assert zeros.dtype == precision
-    return (
-        torch.cat(
-            [
-                scales.reshape(scales.size(0), scales.size(1), 1),
-                zeros.reshape(zeros.size(0), zeros.size(1), 1),
-            ],
-            2,
-        )
-        .transpose(0, 1)
-        .contiguous()
-    )
-
-
 if TORCH_VERSION_AFTER_2_3:
     def group_quantize_tensor_symmetric(
         w,
@@ -591,4 +824,4 @@ if TORCH_VERSION_AFTER_2_3:
         input = torch.ops.quantized_decomposed.dequantize_per_token(
             input, scales, zero_points, quant_min, quant_max, torch.int8, orig_dtype
         )
-        return input
+        return input.to(orig_dtype)
