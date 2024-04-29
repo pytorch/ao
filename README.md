@@ -21,7 +21,7 @@ pip install torchao
 ```Shell
 git clone https://github.com/pytorch-labs/ao
 cd ao
-pip install -e .
+python setup.py develop
 ```
 
 ## Key Features
@@ -35,17 +35,18 @@ The library provides
   * High level `autoquant` API and kernel auto tuner targeting SOTA performance across varying model shapes on consumer/enterprise GPUs.
 3. [Sparsity algorithms](./torchao/sparsity) such as Wanda that help improve accuracy of sparse networks
 4. Integration with other PyTorch native libraries like [torchtune](https://github.com/pytorch/torchtune) and [ExecuTorch](https://github.com/pytorch/executorch)
+5. [Custom C++/CUDA Extension support](./torchao/csrc/)
 
 
 ## Our Goals
 torchao embodies PyTorch’s design philosophy [details](https://pytorch.org/docs/stable/community/design.html), especially "usability over everything else". Our vision for this repository is the following:
 
-* Composability: Native solutions for optimization techniques that compose with both `torch.compile` and `FSDP` 
+* Composability: Native solutions for optimization techniques that compose with both `torch.compile` and `FSDP`
     * For example, for QLoRA for new dtypes support
 * Interoperability: Work with the rest of the PyTorch ecosystem such as torchtune, gpt-fast and ExecuTorch
 * Transparent Benchmarks: Regularly run performance benchmarking of our APIs across a suite of Torchbench models and across hardware backends
 * Heterogeneous Hardware: Efficient kernels that can run on CPU/GPU based server (w/ torch.compile) and mobile backends (w/ ExecuTorch).
-* Infrastructure Support: Release packaging solution for kernels and a CI/CD setup that runs these kernels on different backends. 
+* Infrastructure Support: Release packaging solution for kernels and a CI/CD setup that runs these kernels on different backends.
 
 ## Interoperability with PyTorch Libraries
 
