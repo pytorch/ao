@@ -11,7 +11,7 @@
         :class: sphx-glr-download-link-note
 
         :ref:`Go to the end <sphx_glr_download_tutorials_template_tutorial.py>`
-        to download the full example code
+        to download the full example code.
 
 .. rst-class:: sphx-glr-example-title
 
@@ -66,11 +66,11 @@ Example code (the output below is generated automatically):
 
  .. code-block:: none
 
-    tensor([[0.4756, 0.0708, 0.7696],
-            [0.7639, 0.8431, 0.6560],
-            [0.6889, 0.2083, 0.9593],
-            [0.1716, 0.5499, 0.5556],
-            [0.8401, 0.8920, 0.9443]])
+    tensor([[0.6620, 0.0693, 0.5152],
+            [0.1014, 0.9022, 0.9255],
+            [0.8210, 0.5820, 0.9291],
+            [0.1089, 0.2803, 0.7781],
+            [0.8665, 0.1278, 0.4397]])
 
 
 
@@ -100,7 +100,7 @@ Further Reading
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 0.003 seconds)
+   **Total running time of the script:** (0 minutes 0.004 seconds)
 
 
 .. _sphx_glr_download_tutorials_template_tutorial.py:
