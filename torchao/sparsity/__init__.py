@@ -6,8 +6,11 @@
 
 from .wanda import WandaSparsifier  # noqa: F403
 from .utils import PerChannelNormObserver  # noqa: F403
+from .sparse_api import apply_sparse_semi_structured, apply_fake_sparsity
 
 __all__ = [
     "WandaSparsifier",
-    "PerChannelNormObserver"
+    "PerChannelNormObserver",
+    "apply_sparse_semi_structured",
+    "apply_fake_sparsity",
 ]
