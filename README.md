@@ -87,18 +87,19 @@ To learn more try out our APIs, you can check out API examples in
 
 ## Supported Features
 1. [Quantization algorithms](./torchao/quantization)
-  * [Int8 weight-only](https://github.com/pytorch/ao/blob/main/torchao/quantization/weight_only.py) quantization
-  * Int8 dynamic activation quantization with int4 weight quantization
-  * [GPTQ](https://github.com/pytorch/ao/blob/main/torchao/quantization/GPTQ.py)
-  * [Smoothquant](https://github.com/pytorch/ao/blob/main/torchao/quantization/smoothquant.py)
-  * High level [torchao.autoquant API](https://github.com/pytorch/ao/blob/main/torchao/quantization/autoquant.py) and [kernel autotuner](https://github.com/pytorch/ao/blob/main/torchao/kernel/autotuner.py) targeting SOTA performance across varying model shapes on consumer and enterprise GPUs
+    - Int4 weight-only quantization TODO: Where is this?
+
+    - [Int8 weight-only](https://github.com/pytorch/ao/blob/main/torchao/quantization/weight_only.py) quantization
+    - Int8 dynamic activation quantization with int4 weight quantization TODO: Where is this?
+    - [GPTQ](https://github.com/pytorch/ao/blob/main/torchao/quantization/GPTQ.py) and [Smoothquant](https://github.com/pytorch/ao/blob/main/torchao/quantization/smoothquant.py) for low latency inference
+    - High level [torchao.autoquant API](https://github.com/pytorch/ao/blob/main/torchao/quantization/autoquant.py) and [kernel autotuner](https://github.com/pytorch/ao/blob/main/torchao/kernel/autotuner.py) targeting SOTA performance across varying model shapes on consumer and enterprise GPUs
 2. [Sparsity algorithms](./torchao/sparsity) such as Wanda that help improve accuracy of sparse networks
 3. Support for lower precision [dtypes](./torchao/dtypes) such as
-  * [nf4](https://github.com/pytorch/ao/blob/main/torchao/dtypes/nf4tensor.py) which was used to [implement QLoRA](https://github.com/pytorch/torchtune/blob/main/docs/source/tutorials/qlora_finetune.rst) without writing custom Triton or CUDA code
-  * [uint4](https://github.com/pytorch/ao/blob/main/torchao/dtypes/uint4.py)
-4. [Bleeding Edge Kernels](./torchao/prototype/)
-  * [GaLore](https://github.com/pytorch/ao/tree/main/torchao/prototype/galore) for memory efficient finetuning
-  * [fused HQQ Gemm Kernel](https://github.com/pytorch/ao/tree/main/torchao/prototype/hqq) for compute bound workloads
+    - [nf4](https://github.com/pytorch/ao/blob/main/torchao/dtypes/nf4tensor.py) which was used to [implement QLoRA](https://github.com/pytorch/torchtune/blob/main/docs/source/tutorials/qlora_finetune.rst) without writing custom Triton or CUDA code
+    - [uint4](https://github.com/pytorch/ao/blob/main/torchao/dtypes/uint4.py) TODO: What is this useful for?
+4. [Bleeding Edge Kernels](./torchao/prototype/) for experimental kernels without backwards compatibility guarantees
+    - [GaLore](https://github.com/pytorch/ao/tree/main/torchao/prototype/galore) for memory efficient finetuning
+    - [fused HQQ Gemm Kernel](https://github.com/pytorch/ao/tree/main/torchao/prototype/hqq) for compute bound workloads
 
 ## Our Goals
 
