@@ -88,7 +88,6 @@ class KVCache(nn.Module):
 
 class Transformer(nn.Module):
     def __init__(self, config: ModelArgs) -> None:
-        print("AJSKDLAJSD")
         super().__init__()
         self.config = config
 
