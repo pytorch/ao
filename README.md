@@ -17,6 +17,11 @@ Stable Release
 pip install torchao
 ```
 
+Nightly Release
+```Shell
+pip install torchao-nightly
+```
+
 From source
 
 ```Shell
@@ -42,7 +47,7 @@ input = torch.randn(32,32, dtype=torch.bfloat16, device='cuda')
 # perform autoquantization
 torchao.autoquant(model, (input))
 
-# compile the model to improve performance
+# compile the model to recover performance
 model = torch.compile(model, mode='max-autotune')
 model(input)
 ```
