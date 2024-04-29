@@ -27,7 +27,7 @@ From source
 ```Shell
 git clone https://github.com/pytorch/ao
 cd ao
-python setup.py develop
+pip install .
 ```
 
 ### Quantization
@@ -92,8 +92,6 @@ To learn more try out our APIs, you can check out API examples in
 
 ## Supported Features
 1. [Quantization algorithms](./torchao/quantization)
-    - Int4 weight-only quantization TODO: Where is this?
-
     - [Int8 weight-only](https://github.com/pytorch/ao/blob/main/torchao/quantization/weight_only.py) quantization
     - [Int4 weight-only](https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/native/cuda/int4mm.cu) quantization
     - [GPTQ](https://github.com/pytorch/ao/blob/main/torchao/quantization/GPTQ.py) and [Smoothquant](https://github.com/pytorch/ao/blob/main/torchao/quantization/smoothquant.py) for low latency inference
