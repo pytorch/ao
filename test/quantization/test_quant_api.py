@@ -139,7 +139,6 @@ class TestQuantFlow(unittest.TestCase):
         compiled = m(*example_inputs)
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
 
-
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_int8_wo_quant_save_load(self):
         m = M().eval().cpu()
@@ -159,7 +158,8 @@ class TestQuantFlow(unittest.TestCase):
         res = m2(*example_inputs)
 
         torch.testing.assert_close(ref, res.cpu())
-
+    
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "skipping when torch verion is 2.3 or lower")
     def test_8da4w_quantizer(self):
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
         from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
