@@ -5,7 +5,7 @@
 This repository is currently under heavy development - if you have suggestions on the API or use-cases you'd like to be covered, please open an [issue](https://github.com/pytorch/ao/issues)
 
 ## Introduction
-`torchao` is a PyTorch library for quantization and sparsity that compose out of the box with `torch.compile` and `FSDP`
+`torchao` is a PyTorch library for quantization and sparsity.
 
 ## Get Started
 
