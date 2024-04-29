@@ -60,7 +60,7 @@ from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensor
 from torch.ao.pruning import WeightNormSparsifier
 
 # bfloat16 CUDA model
-model = model.half().cuda()
+model = torch.nn.Sequential(torch.nn.Linear(64, 64)).cuda().to(torch.bfloat16)
 
 # Accuracy: Finding a sparse subnetwork
 sparse_config = []
