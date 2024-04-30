@@ -33,8 +33,7 @@ jobs:
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
       script: |
-        python -m pip install --upgrade pip
-        pip install ${{ matrix.torch-spec }}
+        pip install --pre torch--index-url https://download.pytorch.org/whl/nightly/cu121
         pip install -r requirements.txt
         pip install -r dev-requirements.txt
         python setup.py install
