@@ -218,8 +218,11 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
         """
         Obtain the dequantized version of the quantized tensor subclass
         """
+        zero_points = torch.zeros(self.q_scales.shape, device=self.q_scales.device, dtype=self.q_scales.dtype)
+        # zero_points = 0
+        # TODO: fix dtype here? `to(self.dtype)` is not overwritten by `dtype` arg?
         dq_t = dequantize_per_channel(
-            self.int_data.t(), self.q_scales, 0, self.dtype if dtype is None else dtype
+            self.int_data.t(), self.q_scales, zero_points, self.dtype if dtype is None else dtype
         ).to(self.dtype)
         # data was transposed to dequantize so make sure shape is correct
         return dq_t if not self.transposed else dq_t.t()
@@ -292,6 +295,7 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
                 Int8DynamicallyQuantizedLinearWeight.from_float(model.lin_mod.weight)
             )
         """
+        # because we call transpose in dequantization
         w_int_repr, w_scales, _ = dynamically_quantize_per_channel(
             input_float, qmin, qmax, torch.int8
         )
