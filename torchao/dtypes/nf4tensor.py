@@ -53,24 +53,25 @@ def noop_detach(func, *args, **kwargs):
 )
 def nf4_detach(aten_op, args, kwargs=None):
     # nn.Parameter need detach
-    quantized_scalers = aten_op(args[0].quantized_scalers, *args[1:], **kwargs)
-    quantization_factor = aten_op(args[0].quantization_factor, *args[1:], **kwargs)
-    quantized_data = aten_op(args[0].quantized_data, *args[1:], **kwargs)
-    scaler_mean = aten_op(args[0].scaler_mean, *args[1:], **kwargs)
-    nf4 = aten_op(args[0].nf4, *args[1:], **kwargs)
+    nf4tensor = args[0]
+    quantized_scalers = aten_op(nf4tensor.quantized_scalers, *args[1:], **kwargs)
+    quantization_factor = aten_op(nf4tensor.quantization_factor, *args[1:], **kwargs)
+    quantized_data = aten_op(nf4tensor.quantized_data, *args[1:], **kwargs)
+    scaler_mean = aten_op(nf4tensor.scaler_mean, *args[1:], **kwargs)
+    nf4 = aten_op(nf4tensor.nf4, *args[1:], **kwargs)
     tensor_meta = SubclassTensorArgs(
-        args[0].size(),
-        args[0].stride(),
-        args[0].storage_offset(),
-        args[0].dtype,
-        args[0].device,
-        args[0].requires_grad,
+        nf4tensor.size(),
+        nf4tensor.stride(),
+        nf4tensor.storage_offset(),
+        nf4tensor.dtype,
+        nf4tensor.device,
+        nf4tensor.requires_grad,
     )
     return NF4Tensor(
         tensor_meta,
-        args[0].block_size,
-        args[0].n_blocks,
-        args[0].scaler_block_size,
+        nf4tensor.block_size,
+        nf4tensor.n_blocks,
+        nf4tensor.scaler_block_size,
         quantized_scalers,
         quantization_factor,
         scaler_mean,
@@ -86,22 +87,22 @@ def nf4_detach(aten_op, args, kwargs=None):
 def nf4_split(aten_op, args, kwargs=None):
     if len(args) == 3 and args[2] != 0:
         raise NotImplementedError(f"aten.split(NF4Tensor, dim={args[2]})")
-    outer_wrapper = args[0]
-    num_chunks = outer_wrapper.size(0) // args[1]
+    nf4tensor = args[0]
+    num_chunks = nf4tensor.size(0) // args[1]
 
-    assert outer_wrapper.quantized_scalers.numel() % num_chunks == 0, f"NF4Tensor.quantized_scalers.numel() not divisible by {num_chunks}"
-    quantized_scalers_chunks = aten_op(outer_wrapper.quantized_scalers, outer_wrapper.quantized_scalers.numel() // num_chunks, **kwargs)
-    assert outer_wrapper.quantization_factor.numel() % num_chunks == 0, f"NF4Tensor.quantization_factor.numel() not divisible by {num_chunks}"
-    quantization_factor_chunks = aten_op(outer_wrapper.quantization_factor, outer_wrapper.quantization_factor.numel() // num_chunks, **kwargs)
-    assert outer_wrapper.quantized_data.numel() % num_chunks == 0, f"NF4Tensor.quantized_data.numel() not divisible by {num_chunks}"
-    quantized_data_chunks = aten_op(outer_wrapper.quantized_data, outer_wrapper.quantized_data.numel() // num_chunks, **kwargs)
+    assert nf4tensor.quantized_scalers.numel() % num_chunks == 0, f"NF4Tensor.quantized_scalers.numel() not divisible by {num_chunks}"
+    quantized_scalers_chunks = aten_op(nf4tensor.quantized_scalers, nf4tensor.quantized_scalers.numel() // num_chunks, **kwargs)
+    assert nf4tensor.quantization_factor.numel() % num_chunks == 0, f"NF4Tensor.quantization_factor.numel() not divisible by {num_chunks}"
+    quantization_factor_chunks = aten_op(nf4tensor.quantization_factor, nf4tensor.quantization_factor.numel() // num_chunks, **kwargs)
+    assert nf4tensor.quantized_data.numel() % num_chunks == 0, f"NF4Tensor.quantized_data.numel() not divisible by {num_chunks}"
+    quantized_data_chunks = aten_op(nf4tensor.quantized_data, nf4tensor.quantized_data.numel() // num_chunks, **kwargs)
 
-    orig_dim = outer_wrapper.dim()
+    orig_dim = nf4tensor.dim()
 
     if orig_dim == 1:
-        chunked_size = (outer_wrapper.size(0) // num_chunks, )
+        chunked_size = (nf4tensor.size(0) // num_chunks, )
     elif orig_dim == 2:
-        chunked_size = (outer_wrapper.size(0) // num_chunks, outer_wrapper.size(1))
+        chunked_size = (nf4tensor.size(0) // num_chunks, nf4tensor.size(1))
     else:
         chunked_size = ()
         raise NotImplementedError(f"aten.split(NF4Tensor) wherer NF4Tensor.dim() = {orig_dim}")
@@ -110,20 +111,20 @@ def nf4_split(aten_op, args, kwargs=None):
         NF4Tensor(
             SubclassTensorArgs(
                 chunked_size,
-                outer_wrapper.stride(),
-                outer_wrapper.storage_offset(),
-                outer_wrapper.dtype,
-                outer_wrapper.device,
-                outer_wrapper.requires_grad,
+                nf4tensor.stride(),
+                nf4tensor.storage_offset(),
+                nf4tensor.dtype,
+                nf4tensor.device,
+                nf4tensor.requires_grad,
             ),
-            outer_wrapper.block_size,
-            outer_wrapper.n_blocks,
-            outer_wrapper.scaler_block_size,
+            nf4tensor.block_size,
+            nf4tensor.n_blocks,
+            nf4tensor.scaler_block_size,
             quantized_scalers,
             quantization_factor,
-            outer_wrapper.scaler_mean,
+            nf4tensor.scaler_mean,
             quantized_data,
-            outer_wrapper.nf4,
+            nf4tensor.nf4,
         ) for quantized_scalers, quantization_factor, quantized_data in zip(
             quantized_scalers_chunks, quantization_factor_chunks, quantized_data_chunks
         )
@@ -135,21 +136,21 @@ def nf4_split(aten_op, args, kwargs=None):
     ]
 )
 def nf4_new_zeros(aten_op, args, kwargs=None):
-    outer_wrapper = args[0]
+    nf4_tensor = args[0]
     new_size = args[1]
     new_size_dim = len(new_size)
-    if (not new_size_dim in [1, 2]) or outer_wrapper.numel() % math.prod(new_size) != 0:
+    if (not new_size_dim in [1, 2]) or nf4_tensor.numel() % math.prod(new_size) != 0:
         raise NotImplementedError(f"aten.new_zeros(NF4Tensor) with new size {new_size}")
-    ratio = outer_wrapper.numel() // math.prod(new_size)
+    ratio = nf4_tensor.numel() // math.prod(new_size)
 
-    assert outer_wrapper.quantized_scalers.size(0) % ratio == 0, f"quantized_scalers.numel() must be divisible by {ratio}"
-    quantized_scalers_new_zeros = aten_op(outer_wrapper.quantized_scalers, [outer_wrapper.quantized_scalers.size(0) // ratio], **kwargs)
+    assert nf4_tensor.quantized_scalers.size(0) % ratio == 0, f"quantized_scalers.numel() must be divisible by {ratio}"
+    quantized_scalers_new_zeros = aten_op(nf4_tensor.quantized_scalers, [nf4_tensor.quantized_scalers.size(0) // ratio], **kwargs)
 
-    assert outer_wrapper.quantization_factor.size(0) % ratio == 0, f"quantization_factor.size(0) must be divisible by {ratio}"
-    quantization_factor_new_zeros = aten_op(outer_wrapper.quantization_factor, [outer_wrapper.quantization_factor.size(0) // ratio], **kwargs)
+    assert nf4_tensor.quantization_factor.size(0) % ratio == 0, f"quantization_factor.size(0) must be divisible by {ratio}"
+    quantization_factor_new_zeros = aten_op(nf4_tensor.quantization_factor, [nf4_tensor.quantization_factor.size(0) // ratio], **kwargs)
 
-    assert outer_wrapper.quantized_data.size(0) % ratio == 0, f"quantized_data.size(0) must be divisible by {ratio}"
-    quantized_data_new_zeros = aten_op(outer_wrapper.quantized_data, [outer_wrapper.quantized_data.size(0) // ratio], **kwargs)
+    assert nf4_tensor.quantized_data.size(0) % ratio == 0, f"quantized_data.size(0) must be divisible by {ratio}"
+    quantized_data_new_zeros = aten_op(nf4_tensor.quantized_data, [nf4_tensor.quantized_data.size(0) // ratio], **kwargs)
 
     if new_size_dim == 1:
         new_size = (new_size[0], )
@@ -159,20 +160,20 @@ def nf4_new_zeros(aten_op, args, kwargs=None):
     return NF4Tensor(
         SubclassTensorArgs(
             new_size,
-            outer_wrapper.stride(),
-            outer_wrapper.storage_offset(),
-            outer_wrapper.dtype,
-            outer_wrapper.device,
-            outer_wrapper.requires_grad,
+            nf4_tensor.stride(),
+            nf4_tensor.storage_offset(),
+            nf4_tensor.dtype,
+            nf4_tensor.device,
+            nf4_tensor.requires_grad,
         ),
-        outer_wrapper.block_size,
-        outer_wrapper.n_blocks,
-        outer_wrapper.scaler_block_size,
+        nf4_tensor.block_size,
+        nf4_tensor.n_blocks,
+        nf4_tensor.scaler_block_size,
         quantized_scalers_new_zeros,
         quantization_factor_new_zeros,
-        outer_wrapper.scaler_mean,
+        nf4_tensor.scaler_mean,
         quantized_data_new_zeros,
-        outer_wrapper.nf4,
+        nf4_tensor.nf4,
     )
 
 @implements(
@@ -181,6 +182,7 @@ def nf4_new_zeros(aten_op, args, kwargs=None):
     ]
 )
 def nf4_slice(aten_op, args, kwargs=None):
+    nf4tensor = args[0]
     if len(args) == 5:
         raise NotImplementedError(f"aten.slice(NF4Tensor) with step={args[4]}")
     if not args[1] == 0:
@@ -189,25 +191,25 @@ def nf4_slice(aten_op, args, kwargs=None):
         raise NotImplementedError(f"aten.slice(NF4Tensor) with start={args[2]}")
     # for tensor 512 x 512, tensor[:, :512] dispatch to
     # aten.slice(dim = 0, end=sys.maxsize)
-    if not args[3] in [args[0].size(0), sys.maxsize]:
+    if not args[3] in [nf4tensor.size(0), sys.maxsize]:
         raise NotImplementedError(f"aten.slice(NF4Tensor) with end={args[3]}")
     return NF4Tensor(
         SubclassTensorArgs(
-            args[0].size(),
-            args[0].stride(),
-            args[0].storage_offset(),
-            args[0].dtype,
-            args[0].device,
-            args[0].requires_grad,
+            nf4tensor.size(),
+            nf4tensor.stride(),
+            nf4tensor.storage_offset(),
+            nf4tensor.dtype,
+            nf4tensor.device,
+            nf4tensor.requires_grad,
         ),
-        args[0].block_size,
-        args[0].n_blocks,
-        args[0].scaler_block_size,
-        args[0].quantized_scalers,
-        args[0].quantization_factor,
-        args[0].scaler_mean,
-        args[0].quantized_data,
-        args[0].nf4,
+        nf4tensor.block_size,
+        nf4tensor.n_blocks,
+        nf4tensor.scaler_block_size,
+        nf4tensor.quantized_scalers,
+        nf4tensor.quantization_factor,
+        nf4tensor.scaler_mean,
+        nf4tensor.quantized_data,
+        nf4tensor.nf4,
     )
 
 @implements(
@@ -219,27 +221,28 @@ def nf4_view(aten_op, args, kwargs=None):
     size = args[1]
     if not (len(size) == 1 and size[0] == -1):
         raise NotImplementedError(f"aten.view(NF4Tensor) with size {size}")
-    quantized_scalers = aten_op(args[0].quantized_scalers, *(args[1:]), **kwargs)
-    quantization_factor = aten_op(args[0].quantization_factor, *(args[1:]), **kwargs)
-    quantized_data = aten_op(args[0].quantized_data, *(args[1:]), **kwargs)
+    nf4tensor = args[0]
+    quantized_scalers = aten_op(nf4tensor.quantized_scalers, *(args[1:]), **kwargs)
+    quantization_factor = aten_op(nf4tensor.quantization_factor, *(args[1:]), **kwargs)
+    quantized_data = aten_op(nf4tensor.quantized_data, *(args[1:]), **kwargs)
     tensor_meta = SubclassTensorArgs(
-        [args[0].numel()],
+        [nf4tensor.numel()],
         (1, ),
-        args[0].storage_offset(),
-        args[0].dtype,
-        args[0].device,
-        args[0].requires_grad,
+        nf4tensor.storage_offset(),
+        nf4tensor.dtype,
+        nf4tensor.device,
+        nf4tensor.requires_grad,
     )
     return NF4Tensor(
         tensor_meta,
-        args[0].block_size,
-        args[0].n_blocks,
-        args[0].scaler_block_size,
+        nf4tensor.block_size,
+        nf4tensor.n_blocks,
+        nf4tensor.scaler_block_size,
         quantized_scalers,
         quantization_factor,
-        args[0].scaler_mean,
+        nf4tensor.scaler_mean,
         quantized_data,
-        args[0].nf4,
+        nf4tensor.nf4,
     )
 
 @implements(
@@ -248,34 +251,35 @@ def nf4_view(aten_op, args, kwargs=None):
     ]
 )
 def nf4_as_strided(aten_op, args, kwargs=None):
+    nf4tensor = args[0]
     size = args[1]
     stride = tuple(args[2])
     storage_offset = args[3]
     if not len(size) <= 2:
         raise NotImplementedError(f"aten.as_strided(NF4Tensor) only support dim <= 2 but got dim={len(size)}")
-    if math.prod(size) != args[0].numel():
-        raise NotImplementedError(f"aten.as_strided(NF4Tensor) different numel={args[0].numel()} and size={size}")
+    if math.prod(size) != nf4tensor.numel():
+        raise NotImplementedError(f"aten.as_strided(NF4Tensor) different numel={nf4tensor.numel()} and size={size}")
     if stride != make_contiguous_strides_for(size):
         raise NotImplementedError(f"aten.as_strided(NF4Tensor) only support continuous stride={make_contiguous_strides_for(size)} but got stride={stride}")
-    if args[0].storage_offset() != storage_offset:
-        raise NotImplementedError(f"aten.as_strided(NF4Tensor) only support original storage offset {args[0].storage_offset()} but got {storage_offset}")
+    if nf4tensor.storage_offset() != storage_offset:
+        raise NotImplementedError(f"aten.as_strided(NF4Tensor) only support original storage offset {nf4tensor.storage_offset()} but got {storage_offset}")
     return NF4Tensor(
         SubclassTensorArgs(
             torch.Size(size),
             stride,
             storage_offset,
-            args[0].dtype,
-            args[0].device,
-            args[0].requires_grad,
+            nf4tensor.dtype,
+            nf4tensor.device,
+            nf4tensor.requires_grad,
         ),
-        args[0].block_size,
-        args[0].n_blocks,
-        args[0].scaler_block_size,
-        args[0].quantized_scalers,
-        args[0].quantization_factor,
-        args[0].scaler_mean,
-        args[0].quantized_data,
-        args[0].nf4,
+        nf4tensor.block_size,
+        nf4tensor.n_blocks,
+        nf4tensor.scaler_block_size,
+        nf4tensor.quantized_scalers,
+        nf4tensor.quantization_factor,
+        nf4tensor.scaler_mean,
+        nf4tensor.quantized_data,
+        nf4tensor.nf4,
     )
 
 
@@ -364,10 +368,11 @@ def nf4_copy_(aten_op, args, kwargs=None):
     ]
 )
 def nf4_is_pinned(aten_op, args, kwargs=None):
+    nf4tensor = args[0]
     return (
-        aten_op(args[0].quantized_scalers, *(args[1:]), **kwargs) and
-        aten_op(args[0].quantization_factor, *(args[1:]), **kwargs) and
-        aten_op(args[0].quantized_data, *(args[1:]), **kwargs)
+        aten_op(nf4tensor.quantized_scalers, *(args[1:]), **kwargs) and
+        aten_op(nf4tensor.quantization_factor, *(args[1:]), **kwargs) and
+        aten_op(nf4tensor.quantized_data, *(args[1:]), **kwargs)
     )
 
 
@@ -377,26 +382,27 @@ def nf4_is_pinned(aten_op, args, kwargs=None):
     ]
 )
 def nf4_pin_memory(aten_op, args, kwargs=None):
-    quantized_scalers = aten_op(args[0].quantized_scalers, *(args[1:]), **kwargs)
-    quantization_factor = aten_op(args[0].quantization_factor, *(args[1:]), **kwargs)
-    quantized_data = aten_op(args[0].quantized_data, *(args[1:]), **kwargs)
+    nf4_tensor = args[0]
+    quantized_scalers = aten_op(nf4_tensor.quantized_scalers, *(args[1:]), **kwargs)
+    quantization_factor = aten_op(nf4_tensor.quantization_factor, *(args[1:]), **kwargs)
+    quantized_data = aten_op(nf4_tensor.quantized_data, *(args[1:]), **kwargs)
     return NF4Tensor(
         SubclassTensorArgs(
-            args[0].size(),
-            args[0].stride(),
-            args[0].storage_offset(),
-            args[0].dtype,
-            args[0].device,
-            args[0].requires_grad,
+            nf4_tensor.size(),
+            nf4_tensor.stride(),
+            nf4_tensor.storage_offset(),
+            nf4_tensor.dtype,
+            nf4_tensor.device,
+            nf4_tensor.requires_grad,
         ),
-        args[0].block_size,
-        args[0].n_blocks,
-        args[0].scaler_block_size,
+        nf4_tensor.block_size,
+        nf4_tensor.n_blocks,
+        nf4_tensor.scaler_block_size,
         quantized_scalers,
         quantization_factor,
-        args[0].scaler_mean,
+        nf4_tensor.scaler_mean,
         quantized_data,
-        args[0].nf4,
+        nf4_tensor.nf4,
     )
 
 
@@ -953,10 +959,11 @@ def implements_torch_function(torch_function):
 
 @implements_torch_function(torch.Tensor.to)
 def function_to_dtype(*args, **kwargs):
-    if isinstance(args[0], NF4Tensor) and isinstance(args[1], torch.dtype):
+    tensor = args[0]
+    if isinstance(tensor, NF4Tensor) and isinstance(args[1], torch.dtype):
         # Tensor.to(dtype, non_blocking, copy, memory_format)
-        return args[0].get_original_weight().to(*args[1:], **kwargs)
-    elif isinstance(args[0], NF4Tensor) and (
+        return tensor.get_original_weight().to(*args[1:], **kwargs)
+    elif isinstance(tensor, NF4Tensor) and (
         isinstance(args[1], torch.device) or (
             isinstance(args[1], str) and (
                 args[1] == "cpu" or args[1].startswith("cuda")
@@ -965,26 +972,26 @@ def function_to_dtype(*args, **kwargs):
     ) and len(args) == 2:
         # Tensor.to(device, non_blocking)
         device = args[1]
-        quantized_scalers = args[0].quantized_scalers.to(*(args[1:]), **kwargs)
-        quantization_factor = args[0].quantization_factor.to(*(args[1:]), **kwargs)
-        quantized_data = args[0].quantized_data.to(*(args[1:]), **kwargs)
+        quantized_scalers = tensor.quantized_scalers.to(*(args[1:]), **kwargs)
+        quantization_factor = tensor.quantization_factor.to(*(args[1:]), **kwargs)
+        quantized_data = tensor.quantized_data.to(*(args[1:]), **kwargs)
         return NF4Tensor(
             SubclassTensorArgs(
-                args[0].size(),
-                args[0].stride(),
-                args[0].storage_offset(),
-                args[0].dtype,
+                tensor.size(),
+                tensor.stride(),
+                tensor.storage_offset(),
+                tensor.dtype,
                 device,
-                args[0].requires_grad,
+                tensor.requires_grad,
             ),
-            args[0].block_size,
-            args[0].n_blocks,
-            args[0].scaler_block_size,
+            tensor.block_size,
+            tensor.n_blocks,
+            tensor.scaler_block_size,
             quantized_scalers,
             quantization_factor,
-            args[0].scaler_mean,
+            tensor.scaler_mean,
             quantized_data,
-            args[0].nf4,
+            tensor.nf4,
         )
     else:
         # Tensor.to(device, dtype, non_blocking, copy, memory_format)
@@ -996,24 +1003,25 @@ def function_to_dtype(*args, **kwargs):
 
 @implements_torch_function(torch.Tensor.cpu)
 def function_cpu(*args, **kwargs):
-    quantized_scalers = args[0].quantized_scalers.cpu(*(args[1:]), **kwargs)
-    quantization_factor = args[0].quantization_factor.cpu(*(args[1:]), **kwargs)
-    quantized_data = args[0].quantized_data.cpu(*(args[1:]), **kwargs)
+    nf4tensor = args[0]
+    quantized_scalers = nf4tensor.quantized_scalers.cpu(*(args[1:]), **kwargs)
+    quantization_factor = nf4tensor.quantization_factor.cpu(*(args[1:]), **kwargs)
+    quantized_data = nf4tensor.quantized_data.cpu(*(args[1:]), **kwargs)
     return NF4Tensor(
         SubclassTensorArgs(
-            args[0].size(),
-            args[0].stride(),
-            args[0].storage_offset(),
-            args[0].dtype,
+            nf4tensor.size(),
+            nf4tensor.stride(),
+            nf4tensor.storage_offset(),
+            nf4tensor.dtype,
             'cpu',
-            args[0].requires_grad,
+            nf4tensor.requires_grad,
         ),
-        args[0].block_size,
-        args[0].n_blocks,
-        args[0].scaler_block_size,
+        nf4tensor.block_size,
+        nf4tensor.n_blocks,
+        nf4tensor.scaler_block_size,
         quantized_scalers,
         quantization_factor,
-        args[0].scaler_mean,
+        nf4tensor.scaler_mean,
         quantized_data,
-        args[0].nf4,
+        nf4tensor.nf4,
     )
