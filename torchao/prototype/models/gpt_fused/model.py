@@ -206,12 +206,20 @@ class Attention(nn.Module):
 class FeedForward(nn.Module):
     def __init__(self, config: ModelArgs) -> None:
         super().__init__()
-        self.w1 = nn.Linear(config.dim, config.intermediate_size, bias=False)
-        self.w3 = nn.Linear(config.dim, config.intermediate_size, bias=False)
+        self.w13 = nn.Linear(config.dim, 2 * config.intermediate_size, bias=False)
         self.w2 = nn.Linear(config.intermediate_size, config.dim, bias=False)
+        self.dim = config.intermediate_size
+        self._register_load_state_dict_pre_hook(self.load_hook)
+
+    def load_hook(self, state_dict, prefix, *args):
+        if prefix + "w1.weight" in state_dict:
+            w1 = state_dict.pop(prefix + "w1.weight")
+            w3 = state_dict.pop(prefix + "w3.weight")
+            state_dict[prefix + "w13.weight"] = torch.cat([w1, w3])
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.w2(F.silu(self.w1(x)) * self.w3(x))
+        x1, x3 = self.w13(x).split([self.dim, self.dim], dim=-1)
+        return self.w2(F.silu(x1) * x3)
 
 
 class RMSNorm(nn.Module):
