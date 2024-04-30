@@ -404,7 +404,11 @@ class TestFSDPOps(TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_to_cpu(self):
         nf4_tensor = to_nf4(torch.randn(512 * 512, device='cuda'))
-        nf4_tensor.cpu()
+        nf4_tensor = nf4_tensor.cpu()
+        self.assertEqual(nf4_tensor.device.type, "cpu")
+        for attr in ["quantized_scalers", "quantization_factor", "quantized_data"]:
+            inner_tensor = getattr(nf4_tensor, attr)
+            self.assertEqual(inner_tensor.device.type, "cpu")
 
 instantiate_parametrized_tests(TestNF4Linear)
 instantiate_parametrized_tests(TestFSDPOps)
