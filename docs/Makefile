@@ -6,7 +6,12 @@ ifneq ($(EXAMPLES_PATTERN),)
 endif
 
 # You can set these variables from the command line.
-SPHINXOPTS    = -W -j auto $(EXAMPLES_PATTERN_OPTS)
+
+# TODO: Revert this when have docs on pytorch.org/ao
+# SPHINXOPTS    = -W -j auto $(EXAMPLES_PATTERN_OPTS)
+SPHINXOPTS    = -WT --keep-going
+
+
 SPHINXBUILD   = sphinx-build
 SPHINXPROJ    = torchao
 SOURCEDIR     = source
