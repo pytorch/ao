@@ -4,7 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Any, Tuple
+from typing import Any, Optional, Tuple
 
 import torch
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib
@@ -129,30 +129,43 @@ if TORCH_VERSION_AFTER_2_3:
             self.groupsize = groupsize
             self.precision = precision
             self.scales_precision = scales_precision
+            self._fake_quant_enabled = True
+
+        def enable_fake_quant(self, enabled: bool = True):
+            self._fake_quant_enabled = enabled
+
+        def disable_fake_quant(self):
+            self.enable_fake_quant(False)
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             # activations: int8 dynamic asymmetric quant
-            (act_qmin, act_qmax) = self._get_qmin_qmax(8)
-            (act_scales, act_zp) = _choose_qparams_per_token_asymmetric(
-                x, torch.int8,  # dtype not used
-            )
-            x_fq = fake_quantize_per_token(
-                x, act_scales, act_zp, act_qmin, act_qmax,
-            )
+            if self._fake_quant_enabled:
+                (act_scales, act_zp) =_choose_qparams_per_token_asymmetric(
+                    x, torch.int8,  # dtype not used
+                )
+                (act_qmin, act_qmax) = self._get_qmin_qmax(8)
+                x_fq = fake_quantize_per_token(
+                    x, act_scales, act_zp, act_qmin, act_qmax,
+                )
+            else:
+                x_fq = x
 
             # weights: int4 grouped per channel symmetric quant
-            (weight_qmin, weight_qmax) = self._get_qmin_qmax(4)
-            (weight_scales, weight_zp) = get_group_qparams_symmetric(
-                self.weight, 4, self.groupsize, self.scales_precision,
-            )
-            w_fq = fake_quantize_per_channel_group(
-                self.weight,
-                weight_scales,
-                weight_zp,
-                weight_qmin,
-                weight_qmax,
-                self.groupsize,
-            )
+            if self._fake_quant_enabled:
+                (weight_scales, weight_zp) = get_group_qparams_symmetric(
+                    self.weight, 4, self.groupsize, self.scales_precision,
+                )
+                (weight_qmin, weight_qmax) = self._get_qmin_qmax(4)
+                w_fq = fake_quantize_per_channel_group(
+                    self.weight,
+                    weight_scales,
+                    weight_zp,
+                    weight_qmin,
+                    weight_qmax,
+                    self.groupsize,
+                )
+            else:
+                w_fq = self.weight
             return torch.nn.functional.linear(x_fq, w_fq)
 
         # TODO: move this to common util
@@ -160,6 +173,20 @@ if TORCH_VERSION_AFTER_2_3:
             qmin = -(2 ** (n_bit - 1))
             qmax = 2 ** (n_bit - 1) - 1
             return (qmin, qmax)
+
+    def enable_8da4w_fake_quant(mod: torch.nn.Module):
+        """
+        Enable fake quantization for `Int8DynActInt4WeightQATLinear`.
+        """
+        if isinstance(mod, Int8DynActInt4WeightQATLinear):
+            mod.enable_fake_quant()
+
+    def disable_8da4w_fake_quant(mod: torch.nn.Module):
+        """
+        Disable fake quantization for `Int8DynActInt4WeightQATLinear`.
+        """
+        if isinstance(mod, Int8DynActInt4WeightQATLinear):
+            mod.disable_fake_quant()
 
 
 # ========================
