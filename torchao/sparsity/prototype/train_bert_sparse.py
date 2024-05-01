@@ -176,27 +176,21 @@ class SemiSparseLinear(nn.Linear):
         w_sparse = sparsify24(self.weight, backend="cusparselt")
         return F.linear(x, w_sparse, self.bias)
 
-class SemiSparseActivationLinear(nn.Linear):
+    @classmethod
+    def from_dense(cls, linear):
+        mod = cls(linear.in_features, linear.out_features)
+        mod.weight = linear.weight
+        mod.bias = linear.bias
+        return mod
 
-    def forward(self, x, sparsify_activations=False):
-        x_sparse = sparsify24(x, backend="cusparselt")
-        # no bias for activation sparsity
-        return F.linear(x_sparse, self.weight, None)
-
-
-def swap_linear_with_semi_sparse_linear_(model, config, cur_fqn=""):
+def swap_linear_with_semi_sparse_linear_(model, config, current=""):
         name_to_child = dict(model.named_children())
         for name, child in name_to_child.items():
-            if isinstance(child, torch.nn.Linear):
-                for name, module in config.items():
-                    if name in cur_fqn:
-                        new_child = module(child.in_features, child.out_features)
-                        new_child.weight = child.weight
-                        new_child.bias = child.bias
-                        setattr(model, name, new_child)
-                        del child
+            if isinstance(child, torch.nn.Linear) and max(child.in_features, child.out_features) > 768:
+                setattr(model, name, SemiSparseLinear.from_dense(child))
+                del child
             else:
-                swap_linear_with_semi_sparse_linear_(child, config, cur_fqn=f"{cur_fqn}.{name}")
+                swap_linear_with_semi_sparse_linear_(child, config, current=f"{current}.{name}")
 
 if __name__ == "__main__":
     # load model
@@ -218,17 +212,16 @@ if __name__ == "__main__":
         batched=True,
         remove_columns=squad_dataset["train"].column_names,
     )
-
     data_collator = transformers.DataCollatorWithPadding(tokenizer=tokenizer)
 
-    config = {
-        # "key": DENSE,
-        # "query": DENSE,
-        # "value": DENSE,
-        # "attention.output": DENSE,
-        # "intermediate": SemiSparseLinear,
-        # "output": SemiSparseLinear,
-    }
+    # config = {
+    #     # "key": DENSE,
+    #     # "query": DENSE,
+    #     # "value": DENSE,
+    #     # "attention.output": DENSE,
+    #     "intermediate": SemiSparseLinear,
+    #     "output": SemiSparseLinear,
+    # }
     swap_linear_with_semi_sparse_linear_(model, config)
 
     for name, mod in model.named_modules():
@@ -243,8 +236,9 @@ if __name__ == "__main__":
         per_device_eval_batch_size=256,
         torch_compile=True,
         bf16=True,
-        # optim="adamw_torch_fused",
-        dataloader_drop_last=True, # since we compile, drop last batch to avoid shape error
+        optim="adamw_torch_fused",
+        # since we compile
+        dataloader_drop_last=True,
         dataloader_num_workers=8,
         logging_strategy="no",
     )
@@ -262,11 +256,10 @@ if __name__ == "__main__":
 
 
     print("Evaluating")
-    training_args = transformers.TrainingArguments(
+    eval_args = transformers.TrainingArguments(
         "eval",
         per_device_train_batch_size=256,
         per_device_eval_batch_size=256,
-        dataloader_drop_last=False, # since we compile, drop last batch to avoid shape error
         bf16=True,
         dataloader_num_workers=8,
         logging_strategy="no",
@@ -274,7 +267,7 @@ if __name__ == "__main__":
 
     trainer = transformers.Trainer(
         model,
-        training_args,
+        eval_args,
         train_dataset=tokenized_squad_dataset["train"],
         eval_dataset=tokenized_squad_dataset["validation"],
         data_collator=data_collator,
