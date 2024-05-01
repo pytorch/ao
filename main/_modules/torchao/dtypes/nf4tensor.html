@@ -339,11 +339,11 @@
   <h1>Source code for torchao.dtypes.nf4tensor</h1><div class="highlight"><pre>
 <span></span><span class="kn">import</span> <span class="nn">functools</span>
 <span class="kn">from</span> <span class="nn">dataclasses</span> <span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">import</span> <span class="nn">math</span>
 <span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Tuple</span>
 
 <span class="kn">import</span> <span class="nn">torch</span>
 <span class="kn">import</span> <span class="nn">torch.nn.functional</span> <span class="k">as</span> <span class="nn">F</span>
-<span class="kn">from</span> <span class="nn">torch</span> <span class="kn">import</span> <span class="n">Tensor</span>
 
 
 <span class="n">aten</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span>
@@ -353,6 +353,14 @@
 <span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Tuple</span>
 
 <span class="n">NF4_OPS_TABLE</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+
+<span class="c1"># Note: Quantize in Chunks</span>
+<span class="c1"># During quantization to NF4, one of the steps to convert from the original float number</span>
+<span class="c1"># to the index of the nearest value in the NF4 format. This can cause a large memory spike</span>
+<span class="c1"># Due to intermediates of the quantization process. Instead we process the original</span>
+<span class="c1"># tensor in chunks. This is a tradeoff between memory and speed. This number seems to</span>
+<span class="c1"># strike a good balance between memory and speed</span>
+<span class="n">CHUNK_SIZE</span> <span class="o">=</span> <span class="mi">1024</span><span class="o">**</span><span class="mi">2</span>
 
 
 <span class="k">def</span> <span class="nf">same_metadata</span><span class="p">(</span><span class="n">a</span><span class="p">:</span> <span class="s2">&quot;NF4Tensor&quot;</span><span class="p">,</span> <span class="n">b</span><span class="p">:</span> <span class="s2">&quot;NF4Tensor&quot;</span><span class="p">):</span>
@@ -714,7 +722,7 @@
 
     <span class="nd">@staticmethod</span>
     <span class="k">def</span> <span class="nf">convert_to_norm_float_weight</span><span class="p">(</span>
-        <span class="n">inpt_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">n_blocks</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">nf4</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span>
+        <span class="n">inpt_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">n_blocks</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">nf4</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Convert a tensor to the normalized float weight format&quot;&quot;&quot;</span>
         <span class="n">flattened_tensor</span> <span class="o">=</span> <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
@@ -732,9 +740,13 @@
         <span class="n">scaled_blocks</span> <span class="o">=</span> <span class="n">blocks</span> <span class="o">/</span> <span class="n">scales</span>
 
         <span class="c1"># Returns a flattened tensor with each element quantized to nf4 index</span>
-        <span class="n">quantized_blocks</span> <span class="o">=</span> <span class="n">NF4Tensor</span><span class="o">.</span><span class="n">quantize_tensor_nearest</span><span class="p">(</span>
-            <span class="n">scaled_blocks</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span> <span class="n">nf4</span>
-        <span class="p">)</span>
+        <span class="c1"># See Note: Quantize in Chunks</span>
+        <span class="n">quantized_blocks</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">numel</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">inpt_tensor</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+        <span class="n">flattened</span> <span class="o">=</span> <span class="n">scaled_blocks</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">chunk_num</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">numel</span> <span class="o">/</span> <span class="n">CHUNK_SIZE</span><span class="p">)):</span>
+            <span class="n">start</span> <span class="o">=</span> <span class="n">chunk_num</span> <span class="o">*</span> <span class="n">CHUNK_SIZE</span>
+            <span class="n">end</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">start</span> <span class="o">+</span> <span class="n">CHUNK_SIZE</span><span class="p">,</span> <span class="n">numel</span><span class="p">)</span>
+            <span class="n">quantized_blocks</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">end</span><span class="p">]</span> <span class="o">=</span> <span class="n">NF4Tensor</span><span class="o">.</span><span class="n">quantize_tensor_nearest</span><span class="p">(</span><span class="n">flattened</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">end</span><span class="p">],</span> <span class="n">nf4</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
 
         <span class="c1"># Combine the quantized elements into uint8 values</span>
         <span class="c1"># This lays out two consecutive elements in the same byte</span>
@@ -774,7 +786,7 @@
 
     <span class="nd">@staticmethod</span>
     <span class="k">def</span> <span class="nf">quantize_tensor_nearest</span><span class="p">(</span>
-        <span class="n">value</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">float16</span><span class="p">,</span> <span class="n">nf4</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
+        <span class="n">value</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">nf4</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Quantize a float16 tensor to nf4 format to nearest and not rounded up&quot;&quot;&quot;</span>
         <span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>  <span class="c1"># (numel, 1)</span>
@@ -784,36 +796,15 @@
         <span class="k">return</span> <span class="n">closest_nf4</span>
 
     <span class="nd">@staticmethod</span>
-
-    <span class="c1">#  inconsistently.</span>
-
-    <span class="c1">#  defined in `torch._C.TensorBase`.</span>
     <span class="k">def</span> <span class="nf">dequantize</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">nf4</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Dequantize a nf4 value to bfloat16 format&quot;&quot;&quot;</span>
         <span class="c1"># return nf4.index_select(0, value)</span>
         <span class="k">return</span> <span class="n">nf4</span><span class="p">[</span><span class="n">value</span><span class="p">]</span>
 
-    <span class="k">def</span> <span class="nf">unpack</span><span class="p">(</span>
-        <span class="bp">self</span><span class="p">,</span>
-    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span>
-        <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span>
-    <span class="p">]:</span>
-
-        <span class="c1">#  Size]` but got `Tuple[int, int, int, Tensor, Tensor, Tensor, Tensor]`.</span>
-        <span class="k">return</span> <span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">n_blocks</span><span class="p">,</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">scaler_block_size</span><span class="p">,</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">quantized_scalers</span><span class="p">,</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">quantization_factor</span><span class="p">,</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">scaler_mean</span><span class="p">,</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">quantized_data</span><span class="p">,</span>
-        <span class="p">)</span>
-
-    <span class="k">def</span> <span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
         <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Quantized Data: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">quantized_data</span><span class="si">}</span><span class="se">\n</span><span class="s2">Scalers: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">quantized_scalers</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
 
-    <span class="k">def</span> <span class="fm">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
         <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;NF4Tensor(</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="si">}</span><span class="s2">)&quot;</span>
 
     <span class="k">def</span> <span class="nf">__tensor_flatten__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
@@ -840,9 +831,6 @@
         <span class="p">],</span> <span class="n">ctx</span>
 
     <span class="nd">@staticmethod</span>
-
-    <span class="c1">#  `typing.Dict[&lt;key type&gt;, &lt;value type&gt;]` to avoid runtime subscripting errors.</span>
-
     <span class="k">def</span> <span class="nf">__tensor_unflatten__</span><span class="p">(</span><span class="n">inner_tensors</span><span class="p">:</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">metadata</span><span class="p">,</span> <span class="n">outer_size</span><span class="p">,</span> <span class="n">outer_stride</span><span class="p">):</span>
         <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">inner_tensors</span><span class="p">)</span> <span class="o">==</span> <span class="mi">5</span><span class="p">,</span> <span class="s2">&quot;Expected 5 inner tensors&quot;</span>
         <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span>
@@ -906,18 +894,12 @@
 
 <span class="k">class</span> <span class="nc">LinearNF4</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">autograd</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
     <span class="nd">@staticmethod</span>
-
-    <span class="c1">#  inconsistently.</span>
-
     <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">weight</span><span class="p">:</span> <span class="n">NF4Tensor</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Save the quantized nf4 weight for backward pass&quot;&quot;&quot;</span>
         <span class="n">ctx</span><span class="o">.</span><span class="n">nf4_weight</span> <span class="o">=</span> <span class="n">weight</span>
         <span class="k">return</span> <span class="n">F</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">weight</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="nb">input</span><span class="o">.</span><span class="n">dtype</span><span class="p">))</span>
 
     <span class="nd">@staticmethod</span>
-
-    <span class="c1">#  inconsistently.</span>
-
     <span class="k">def</span> <span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">grad_output</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;The nf4 weight will never require grad so we can just return the grad_output @ weight.to(grad_output.dtype)&quot;&quot;&quot;</span>
         <span class="n">weight</span><span class="p">:</span> <span class="n">NF4Tensor</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">nf4_weight</span>
