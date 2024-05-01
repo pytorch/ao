@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Dict, Tuple
 import math
 import sys
+from enum import Enum, auto
 
 import torch
 import torch.nn.functional as F
@@ -82,6 +83,43 @@ def call_from_inner_tensors(nf4tensor: "NF4Tensor", method_name: str, args, kwar
         attr_to_tensor[attr] = func(*args, **kwargs)
     return attr_to_tensor
 
+class CompareOp(Enum):
+    EQ = auto()
+    LT = auto()
+
+def expect_num_of_args(op: CompareOp, num: int, msg: str):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(aten_op, args, kwargs=None):
+            if op == CompareOp.LT and not (len(args) < num):
+                raise NotImplementedError(msg)
+            return func(aten_op, args, kwargs)
+        return wrapper
+    return decorator
+
+def expect_arg_value_at_k(k: int, op: CompareOp, value: Any, msg: str):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(aten_op, args, kwargs=None):
+            if op == CompareOp.EQ and not (args[k] == value):
+                raise NotImplementedError(msg + str(args[k]))
+            return func(aten_op, args, kwargs)
+        return wrapper
+    return decorator
+
+def expect_args_len_at_k(k: int, op: CompareOp, value: Any, msg: str):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(aten_op, args, kwargs=None):
+            if op == CompareOp.LT and not (len(args[k]) < value):
+                raise NotImplementedError(msg + str(len(args[k])))
+            elif op == CompareOp.EQ and not (len(args[k]) == value):
+                raise NotImplementedError(msg + str(len(args[k])))
+            return func(aten_op, args, kwargs)
+        return wrapper
+    return decorator
+
+
 @implements([torch.ops.aten.detach])
 def noop_detach(func, *args, **kwargs):
     return args[0][0]
@@ -146,11 +184,12 @@ def nf4_split(aten_op, args, kwargs=None):
         aten.new_zeros.default,
     ]
 )
+@expect_args_len_at_k(1, CompareOp.LT, 3, "aten.view(NF4Tensor) with len(size)=")
 def nf4_new_zeros(aten_op, args, kwargs=None):
     nf4tensor = args[0]
     new_size = tuple(args[1])
     new_size_dim = len(new_size)
-    if (not new_size_dim in [1, 2]) or nf4tensor.numel() % math.prod(new_size) != 0:
+    if nf4tensor.numel() % math.prod(new_size) != 0:
         raise NotImplementedError(f"aten.new_zeros(NF4Tensor) with new size {new_size}")
     ratio = nf4tensor.numel() // math.prod(new_size)
 
@@ -180,14 +219,11 @@ def nf4_new_zeros(aten_op, args, kwargs=None):
         aten.slice.Tensor,
     ]
 )
+@expect_num_of_args(CompareOp.LT, 5, "aten.slice(NF4Tensor) with customized step")
+@expect_arg_value_at_k(1, CompareOp.EQ, 0, "aten.slice(NF4Tensor) with dim=")
+@expect_arg_value_at_k(2, CompareOp.EQ, 0, "aten.slice(NF4Tensor) with start=")
 def nf4_slice(aten_op, args, kwargs=None):
     nf4tensor = args[0]
-    if len(args) == 5:
-        raise NotImplementedError(f"aten.slice(NF4Tensor) with step={args[4]}")
-    if not args[1] == 0:
-        raise NotImplementedError(f"aten.slice(NF4Tensor) with dim={args[1]}")
-    if not args[2] == 0:
-        raise NotImplementedError(f"aten.slice(NF4Tensor) with start={args[2]}")
     # for tensor 512 x 512, tensor[:, :512] dispatch to
     # aten.slice(dim = 0, end=sys.maxsize)
     if not args[3] in [nf4tensor.size(0), sys.maxsize]:
@@ -199,11 +235,12 @@ def nf4_slice(aten_op, args, kwargs=None):
         aten.view.default,
     ]
 )
+@expect_args_len_at_k(1, CompareOp.EQ, 1, "aten.view(NF4Tensor) with len(size)=")
 def nf4_view(aten_op, args, kwargs=None):
     nf4tensor = args[0]
     size = args[1]
-    if not (len(size) == 1 and size[0] == -1):
-        raise NotImplementedError(f"aten.view(NF4Tensor) with size {size}")
+    if size[0] != -1:
+        raise NotImplementedError(f"aten.view(NF4Tensor) with size={size}")
     updated_attrs = apply_to_inner_tensors(nf4tensor, aten_op, args[1:], kwargs)
     updated_attrs.update({
         "size": [nf4tensor.numel()],
@@ -216,13 +253,12 @@ def nf4_view(aten_op, args, kwargs=None):
         aten.as_strided.default,
     ]
 )
+@expect_args_len_at_k(1, CompareOp.LT, 3, "aten.as_strided(NF4Tensor) only support dim <= 2 but got dim=")
 def nf4_as_strided(aten_op, args, kwargs=None):
     nf4tensor = args[0]
     size = args[1]
     stride = tuple(args[2])
     storage_offset = args[3]
-    if not len(size) <= 2:
-        raise NotImplementedError(f"aten.as_strided(NF4Tensor) only support dim <= 2 but got dim={len(size)}")
     if math.prod(size) != nf4tensor.numel():
         raise NotImplementedError(f"aten.as_strided(NF4Tensor) different numel={nf4tensor.numel()} and size={size}")
     if stride != make_contiguous_strides_for(size):
@@ -289,7 +325,6 @@ def mm_default(func, *args, **kwargs):
     ]
 )
 def copy_(func, *args, **kwargs):
-    assert len(args[0]) == 2 and len(kwargs) == 0, "only support aten.copy_.default with 2 args"
     original: NF4Tensor = args[0][0]
     copy_in: torch.Tensor = args[0][1]
 
