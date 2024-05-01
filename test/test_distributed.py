@@ -21,7 +21,7 @@ from torch.testing._internal.common_fsdp import (
 from torch.testing._internal.common_utils import (
     run_tests,
 )
-class TestFullyShard1DTrainingCore(FSDPTestMultiThread):
+class TestFullyShard1DTrainingCore(FSDPTest):
     @property
     def world_size(self) -> int:
         return 2
