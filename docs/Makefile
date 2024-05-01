@@ -9,7 +9,7 @@ endif
 
 # TODO: Revert this when have docs on pytorch.org/ao
 # SPHINXOPTS    = -W -j auto $(EXAMPLES_PATTERN_OPTS)
-SPHINXOPTS    = -WT --keep-going
+# SPHINXOPTS    = -WT -j auto --keep-going # enable later when the files are included in the doc build 
 
 
 SPHINXBUILD   = sphinx-build
