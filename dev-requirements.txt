@@ -1,4 +1,4 @@
-pytest
+pytest==7.4.0
 expecttest
 parameterized
 packaging
