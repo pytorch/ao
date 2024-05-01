@@ -67,9 +67,11 @@ class TestQuantPrimitives(unittest.TestCase):
         mapping_type = MappingType.SYMMETRIC
         dtype = torch.int8
         block_size = (1, 2)
-        scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, eps=torch.finfo(torch.float32).eps)
+        eps = torch.finfo(torch.float32).eps
+        precision = torch.float32
+        scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, eps=eps, scale_dtype=precision, zero_point_dtype=precision)
 
-        scale_ref, zp_ref = get_group_qparams_symmetric(input, n_bit=8, groupsize=2)
+        scale_ref, zp_ref = get_group_qparams_symmetric(input, n_bit=8, groupsize=2, precision=precision)
 
         self.assertTrue(torch.equal(scale, scale_ref))
         self.assertTrue(torch.equal(zero_point, zp_ref))
