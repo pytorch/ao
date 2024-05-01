@@ -1,4 +1,5 @@
 pytest
+unittest
 expecttest
 parameterized
 packaging
