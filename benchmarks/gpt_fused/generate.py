@@ -61,6 +61,9 @@ def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torc
     new_tokens, new_probs = [], []
     for i in range(num_new_tokens):
         with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_mem_efficient=False, enable_math=True): # Actually better for Inductor to codegen attention here
+        # with torch.backends.cuda.sdp_kernel(enable_flash=True, enable_mem_efficient=True, enable_math=True): # Actually better for Inductor to codegen attention here
+            # with torch.autograd.profiler.record_function(f"generate token {i}"):
+            # torch.cuda.synchronize()
             next_token, next_prob = decode_one_token(
                 model, cur_token, input_pos, **sampling_kwargs
             )
@@ -68,6 +71,7 @@ def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torc
             new_tokens.append(next_token.clone())
             new_probs.append(next_prob.clone())
             cur_token = next_token.view(1, -1)
+            # torch.cuda.synchronize()
 
     return new_tokens, new_probs
 
@@ -96,6 +100,9 @@ def generate(
     with torch.device(device):
         model.setup_caches(max_batch_size=1, max_seq_length=max_seq_length)
 
+    from torchao.quantization import apply_weight_only_int8_quant
+    apply_weight_only_int8_quant(model)
+
     # create an empty tensor of the expected final shape and fill in the current tokens
     empty = torch.empty(T_new, dtype=dtype, device=device)
     empty[:T] = prompt
@@ -106,10 +113,14 @@ def generate(
     seq[T] = next_token
 
     input_pos = torch.tensor([T], device=device, dtype=torch.int)
+    torch.cuda.synchronize(device)
+    t0 = time.perf_counter()
     generated_tokens, _ = decode_n_tokens(model, next_token.view(1, -1), input_pos, max_new_tokens - 1, **sampling_kwargs)
     seq[T + 1:] = torch.cat(generated_tokens)
+    torch.cuda.synchronize(device)
+    t = time.perf_counter() - t0
 
-    return seq
+    return seq, t
 
 def encode_tokens(tokenizer, string, bos=True, device=default_device):
     tokens = tokenizer.encode(string)
@@ -197,9 +208,7 @@ def main(
 
     for i in range(num_samples):
         with torch.autograd.profiler.record_function(f"timed region for inference {i}"):
-            torch.cuda.synchronize(device)
-            t0 = time.perf_counter()
-            y = generate(
+            y, t = generate(
                 model,
                 encoded,
                 max_new_tokens,
@@ -208,8 +217,6 @@ def main(
             )
             if i == 0:
                 print(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
-            torch.cuda.synchronize(device)
-            t = time.perf_counter() - t0
 
         # print(tokenizer.decode(y.tolist()))
         tokens_generated = y.size(0) - prompt_length
