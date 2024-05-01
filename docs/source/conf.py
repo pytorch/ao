@@ -58,6 +58,12 @@ sphinx_gallery_conf = {
     "remove_config_comments": True,
 }
 
+### TODO: Delete this when we have content
+suppress_warnings = [
+    'toc.unlisted',
+]
+###
+
 napoleon_use_ivar = True
 napoleon_numpy_docstring = False
 napoleon_google_docstring = True
