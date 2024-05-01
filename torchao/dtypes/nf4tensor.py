@@ -20,7 +20,7 @@ from typing import Any, Optional, Tuple, Union, List
 
 NF4_OPS_TABLE: Dict[Any, Any] = {}
 
-INNER_TENSOR_NAMES_FOR_SHARDING = ["quantized_scalers", "quantization_factor", "quantized_data"]
+_INNER_TENSOR_NAMES_FOR_SHARDING = ["quantized_scalers", "quantization_factor", "quantized_data"]
 
 def same_metadata(a: "NF4Tensor", b: "NF4Tensor"):
     both_nf4 = isinstance(a, NF4Tensor) and isinstance(b, NF4Tensor)
@@ -70,14 +70,14 @@ def construct_nf4_args(nf4tensor: "NF4Tensor", kwargs: Optional[Dict[str, Any]] 
 # __torch_dispatch__ utils: apply aten op to inner tensors
 def apply_to_inner_tensors(nf4tensor: "NF4Tensor", aten_op, args, kwargs):
     attr_to_tensor = {}
-    for attr in INNER_TENSOR_NAMES_FOR_SHARDING:
+    for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
         attr_to_tensor[attr] = aten_op(getattr(nf4tensor, attr), *args, **kwargs)
     return attr_to_tensor
 
 # __torch_function__ utils: call tensor ops from inner tensors
 def call_from_inner_tensors(nf4tensor: "NF4Tensor", method_name: str, args, kwargs):
     attr_to_tensor = {}
-    for attr in INNER_TENSOR_NAMES_FOR_SHARDING:
+    for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
         inner_tensor = getattr(nf4tensor, attr)
         func = getattr(inner_tensor, method_name)
         attr_to_tensor[attr] = func(*args, **kwargs)
@@ -148,7 +148,7 @@ def nf4_split(aten_op, args, kwargs=None):
     num_chunks = nf4tensor.size(0) // args[1]
 
     attr_to_chunks = {}
-    for attr in INNER_TENSOR_NAMES_FOR_SHARDING:
+    for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
         inner_tensor = getattr(nf4tensor, attr)
         assert inner_tensor.numel() % num_chunks == 0, f"{attr}.numel() not divisible by {num_chunks}"
         chunks = aten_op(inner_tensor, inner_tensor.numel() // num_chunks, **kwargs)
@@ -188,7 +188,7 @@ def nf4_new_zeros(aten_op, args, kwargs=None):
     ratio = nf4tensor.numel() // math.prod(new_size)
 
     updated_attrs = {}
-    for attr in INNER_TENSOR_NAMES_FOR_SHARDING:
+    for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
         inner_tensor = getattr(nf4tensor, attr)
         assert inner_tensor.size(0) % ratio == 0, f"{attr}.numel() must be divisible by {ratio}"
         inner_tensor = aten_op(inner_tensor, [inner_tensor.size(0) // ratio], **kwargs)
@@ -341,7 +341,7 @@ def copy_(func, *args, **kwargs):
 )
 def nf4_is_pinned(aten_op, args, kwargs=None):
     nf4tensor = args[0]
-    for attr in INNER_TENSOR_NAMES_FOR_SHARDING:
+    for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
         inner_tensor = getattr(nf4tensor, attr)
         if not aten_op(inner_tensor, *(args[1:]), **kwargs):
             return False
