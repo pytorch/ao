@@ -50,6 +50,7 @@ def prefill(model: Transformer, x: torch.Tensor, input_pos: torch.Tensor, **samp
     logits = model(x, input_pos)
     return sample(logits, **sampling_kwargs)[0]
 
+@torch.compile(mode='max-autotune', fullgraph=True)
 def decode_one_token(model: Transformer, x: torch.Tensor, input_pos: torch.Tensor, **sampling_kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
     # input_pos: [B, 1]
     assert input_pos.shape[-1] == 1
@@ -105,15 +106,10 @@ def generate(
     seq[T] = next_token
 
     input_pos = torch.tensor([T], device=device, dtype=torch.int)
-    accept_counts = [0] * (1)
-
     generated_tokens, _ = decode_n_tokens(model, next_token.view(1, -1), input_pos, max_new_tokens - 1, **sampling_kwargs)
     seq[T + 1:] = torch.cat(generated_tokens)
 
-    generate_stats = {
-        'accept_counts': accept_counts
-    }
-    return seq, generate_stats
+    return seq
 
 def encode_tokens(tokenizer, string, bos=True, device=default_device):
     tokens = tokenizer.encode(string)
@@ -121,7 +117,7 @@ def encode_tokens(tokenizer, string, bos=True, device=default_device):
         tokens = [tokenizer.bos_id()] + tokens
     return torch.tensor(tokens, dtype=torch.int, device=device)
 
-def _load_model(checkpoint_path, device, precision, use_tp):
+def _load_model(checkpoint_path, device, precision):
     use_cuda = 'cuda' in device
     with torch.device('meta'):
         model = Transformer.from_name(checkpoint_path.parent.name)
@@ -147,15 +143,19 @@ def _load_model(checkpoint_path, device, precision, use_tp):
         checkpoint = checkpoint["model"]
     model.load_state_dict(checkpoint, assign=True)
 
-    if use_tp:
-        from tp import apply_tp
-        print("Applying tensor parallel to model ...")
-        apply_tp(model)
-
     model = model.to(device=device, dtype=precision)
     return model.eval()
 
 B_INST, E_INST = "[INST]", "[/INST]"
+
+def profiler_runner(path, fn, *args, **kwargs):
+    with torch.profiler.profile(
+            activities=[torch.profiler.ProfilerActivity.CPU,
+                        torch.profiler.ProfilerActivity.CUDA],
+            record_shapes=True) as prof:
+        result = fn(*args, **kwargs)
+    prof.export_chrome_trace(path)
+    return result
 
 def main(
     prompt: str = "Hello, my name is",
@@ -164,8 +164,6 @@ def main(
     top_k: int = 200,
     temperature: float = 0.8,
     checkpoint_path: Path = Path("checkpoints/meta-Transformer/Transformer-2-7b-chat-hf/model.pth"),
-    compile: bool = True,
-    compile_prefill: bool = False,
     device=default_device,
 ) -> None:
     """Generates text samples based on a pre-trained Transformer model and tokenizer.
@@ -175,22 +173,12 @@ def main(
     tokenizer_path = checkpoint_path.parent / "tokenizer.model"
     assert tokenizer_path.is_file(), str(tokenizer_path)
 
-    # global print
-    # from tp import maybe_init_dist
-    # rank = maybe_init_dist()
-    # use_tp = rank is not None
-    # if use_tp:
-    #     if rank != 0:
-    #         # only print on rank 0
-    #         print = lambda *args, **kwargs: None
-    use_tp = False
-
     print(f"Using device={device}")
     precision = torch.bfloat16
 
     print("Loading model ...")
     t0 = time.time()
-    model = _load_model(checkpoint_path, device, precision, use_tp)
+    model = _load_model(checkpoint_path, device, precision)
 
     torch.cuda.synchronize(device)
     print(f"Time to load model: {time.time() - t0:.02f} seconds")
@@ -202,45 +190,36 @@ def main(
 
     torch.manual_seed(1234)
     model_size = sum([p.numel() * p.dtype.itemsize for p in itertools.chain(model.parameters(), model.buffers())])
-    if compile:
-        global decode_one_token, prefill
-        print("compiling wiht max-autotune")
-        model = torch.compile(model, mode="max-autotune", fullgraph=True)
-
-        # Uncomment to squeeze more perf out of prefill
-        if compile_prefill:
-            prefill = torch.compile(prefill, fullgraph=True, dynamic=True)
-
 
     aggregate_metrics = {
         'tokens_per_sec': [],
-        'accept_counts': [],
     }
-    start = -1 if compile else 0
 
-    for i in range(start, num_samples):
-        torch.cuda.synchronize(device)
-        t0 = time.perf_counter()
-        y, metrics = generate(
-            model,
-            encoded,
-            max_new_tokens,
-            temperature=temperature,
-            top_k=top_k,
-        )
-        aggregate_metrics['accept_counts'].append(metrics['accept_counts'])
-        if i == -1:
-            print(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
-            continue
-        torch.cuda.synchronize(device)
-        t = time.perf_counter() - t0
+    for i in range(num_samples):
+        with torch.autograd.profiler.record_function(f"timed region for inference {i}"):
+            torch.cuda.synchronize(device)
+            t0 = time.perf_counter()
+            y = generate(
+                model,
+                encoded,
+                max_new_tokens,
+                temperature=temperature,
+                top_k=top_k,
+            )
+            if i == 0:
+                print(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
+            torch.cuda.synchronize(device)
+            t = time.perf_counter() - t0
 
-        print(tokenizer.decode(y.tolist()))
+        # print(tokenizer.decode(y.tolist()))
         tokens_generated = y.size(0) - prompt_length
         tokens_sec = tokens_generated / t
-        aggregate_metrics['tokens_per_sec'].append(tokens_sec)
         print(f"Time for inference {i + 1}: {t:.02f} sec total, {tokens_sec:.02f} tokens/sec")
         print(f"Bandwidth achieved: {model_size * tokens_sec / 1e9:.02f} GB/s")
+        if i > 0:
+            aggregate_metrics['tokens_per_sec'].append(tokens_sec)
+        else:
+            print("Don't count first inference run.")
     print("==========")
     print(f"Average tokens/sec: {torch.mean(torch.tensor(aggregate_metrics['tokens_per_sec'])).item():.2f}")
     print(f"Memory used: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB")
@@ -256,13 +235,12 @@ if __name__ == '__main__':
     parser.add_argument('--top_k', type=int, default=200, help='Top-k for sampling.')
     parser.add_argument('--temperature', type=float, default=0.8, help='Temperature for sampling.')
     parser.add_argument('--checkpoint_path', type=Path, default=Path("checkpoints/meta-Transformer/Transformer-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
-    parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
-    parser.add_argument('--compile_prefill', action='store_true', help='Whether to compile the prefill (improves prefill perf, but higher compile times)')
     parser.add_argument('--device', type=str, default=default_device, help='Device to use')
 
     args = parser.parse_args()
+    # profiler_runner("profile.json.gz", main,
     main(
         args.prompt, args.num_samples, args.max_new_tokens, args.top_k,
-        args.temperature, args.checkpoint_path, args.compile, args.compile_prefill,
+        args.temperature, args.checkpoint_path,
         args.device
     )
