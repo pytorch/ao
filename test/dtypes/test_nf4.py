@@ -241,6 +241,20 @@ class TestNF4Linear(TestCase):
         a_nf4 = torchao.dtypes.to_nf4(a, 16, 2)
         inp = torch.randn(2, 32, 32, dtype=a.dtype, device=a.device)
         out3 = torch.compile(torch.nn.functional.linear, mode='max-autotune')(inp, a_nf4)
+    
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+    @parametrize("shape", [(16, 16), (32, 16)])
+    @parametrize("chunk_size", [8, 16, 32])
+    def test_chunk_size_equivalence(self, dtype: torch.dtype, shape, chunk_size):
+        a = torch.randn(shape, device='cuda', dtype=dtype)
+        with unittest.mock.patch("torchao.dtypes.nf4tensor.CHUNK_SIZE", chunk_size):
+            nf4_patched = to_nf4(a, 16, 2)
+        # This will be essentially no chunking since the numel is alot smaller than default chunk_size
+        nf4_base = to_nf4(a, 16, 2)
+
+        torch.testing.assert_close(nf4_patched.quantized_data, nf4_base.quantized_data)
+
 
 
 class TestFSDPOps(TestCase):
@@ -416,6 +430,7 @@ class TestFSDPOps(TestCase):
         for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
             inner_tensor = getattr(nf4_tensor, attr)
             self.assertEqual(inner_tensor.device.type, "cpu")
+    
 
 instantiate_parametrized_tests(TestNF4Linear)
 instantiate_parametrized_tests(TestFSDPOps)

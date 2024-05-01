@@ -1,5 +1,6 @@
 import functools
 from dataclasses import dataclass
+import math
 from typing import Dict, Tuple
 import math
 import sys
@@ -20,7 +21,17 @@ from typing import Any, Optional, Tuple, Union, List
 
 NF4_OPS_TABLE: Dict[Any, Any] = {}
 
+
 _INNER_TENSOR_NAMES_FOR_SHARDING = ["quantized_scalers", "quantization_factor", "quantized_data"]
+
+# Note: Quantize in Chunks
+# During quantization to NF4, one of the steps to convert from the original float number
+# to the index of the nearest value in the NF4 format. This can cause a large memory spike
+# Due to intermediates of the quantization process. Instead we process the original
+# tensor in chunks. This is a tradeoff between memory and speed. This number seems to
+# strike a good balance between memory and speed
+CHUNK_SIZE = 1024**2
+
 
 def same_metadata(a: "NF4Tensor", b: "NF4Tensor"):
     both_nf4 = isinstance(a, NF4Tensor) and isinstance(b, NF4Tensor)
@@ -614,7 +625,7 @@ class NF4Tensor(torch.Tensor):
 
     @staticmethod
     def convert_to_norm_float_weight(
-        inpt_tensor: torch.Tensor, n_blocks: int, block_size: int, nf4: torch.tensor
+        inpt_tensor: torch.Tensor, n_blocks: int, block_size: int, nf4: torch.Tensor
     ) -> torch.Tensor:
         """Convert a tensor to the normalized float weight format"""
         flattened_tensor = inpt_tensor.flatten()
@@ -632,9 +643,13 @@ class NF4Tensor(torch.Tensor):
         scaled_blocks = blocks / scales
 
         # Returns a flattened tensor with each element quantized to nf4 index
-        quantized_blocks = NF4Tensor.quantize_tensor_nearest(
-            scaled_blocks.flatten(), nf4
-        )
+        # See Note: Quantize in Chunks
+        quantized_blocks = torch.empty(numel, dtype=torch.uint8, device=inpt_tensor.device)
+        flattened = scaled_blocks.flatten()
+        for chunk_num in range(math.ceil(numel / CHUNK_SIZE)):
+            start = chunk_num * CHUNK_SIZE
+            end = min(start + CHUNK_SIZE, numel)
+            quantized_blocks[start:end] = NF4Tensor.quantize_tensor_nearest(flattened[start:end], nf4).to(torch.uint8)
 
         # Combine the quantized elements into uint8 values
         # This lays out two consecutive elements in the same byte
@@ -674,7 +689,7 @@ class NF4Tensor(torch.Tensor):
 
     @staticmethod
     def quantize_tensor_nearest(
-        value: torch.float16, nf4: torch.Tensor
+        value: torch.Tensor, nf4: torch.Tensor
     ) -> torch.Tensor:
         """Quantize a float16 tensor to nf4 format to nearest and not rounded up"""
         value = value.unsqueeze(-1)  # (numel, 1)
@@ -684,36 +699,15 @@ class NF4Tensor(torch.Tensor):
         return closest_nf4
 
     @staticmethod
-
-    #  inconsistently.
-
-    #  defined in `torch._C.TensorBase`.
     def dequantize(value: torch.Tensor, nf4: torch.Tensor) -> torch.Tensor:
         """Dequantize a nf4 value to bfloat16 format"""
         # return nf4.index_select(0, value)
         return nf4[value]
 
-    def unpack(
-        self,
-    ) -> Tuple[
-        int, int, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Size
-    ]:
-
-        #  Size]` but got `Tuple[int, int, int, Tensor, Tensor, Tensor, Tensor]`.
-        return (
-            self.block_size,
-            self.n_blocks,
-            self.scaler_block_size,
-            self.quantized_scalers,
-            self.quantization_factor,
-            self.scaler_mean,
-            self.quantized_data,
-        )
-
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"Quantized Data: {self.quantized_data}\nScalers: {self.quantized_scalers}\n"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"NF4Tensor({self.shape}, {self.block_size})"
 
     def __tensor_flatten__(self):
@@ -740,9 +734,6 @@ class NF4Tensor(torch.Tensor):
         ], ctx
 
     @staticmethod
-
-    #  `typing.Dict[<key type>, <value type>]` to avoid runtime subscripting errors.
-
     def __tensor_unflatten__(inner_tensors: Dict, metadata, outer_size, outer_stride):
         assert len(inner_tensors) == 5, "Expected 5 inner tensors"
         return NF4Tensor(
@@ -867,18 +858,12 @@ class NF4Tensor(torch.Tensor):
 
 class LinearNF4(torch.autograd.Function):
     @staticmethod
-
-    #  inconsistently.
-
     def forward(ctx, input: torch.Tensor, weight: NF4Tensor):
         """Save the quantized nf4 weight for backward pass"""
         ctx.nf4_weight = weight
         return F.linear(input, weight.to(input.dtype))
 
     @staticmethod
-
-    #  inconsistently.
-
     def backward(ctx, grad_output):
         """The nf4 weight will never require grad so we can just return the grad_output @ weight.to(grad_output.dtype)"""
         weight: NF4Tensor = ctx.nf4_weight
