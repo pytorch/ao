@@ -165,20 +165,9 @@ def measure_execution_time(model, batch_sizes, dataset):
             p50 = timer.blocked_autorange().median * 1000
             batch_size_to_time_sec[batch_size] = p50
 
-            #model_c = torch.compile(model, fullgraph=True)
-            #timer = benchmark.Timer(
-            #    stmt="model(**batch)", globals={"model": model_c, "batch": batch}
-            #)
-            #p50 = timer.blocked_autorange().median * 1000
-            #batch_size_to_time_sec[f"{batch_size}_compile"] = p50
-            #new_predictions = model_c(**batch)
-
     return batch_size_to_time_sec
 from torchao.sparsity.prototype.fast_sparse_training import sparsify24
 
-DENSE = 0
-WEIGHT = 1
-ACTIVATION = 2
 
 
 class SemiSparseLinear(nn.Linear):
@@ -222,7 +211,7 @@ if __name__ == "__main__":
     tokenized_squad_dataset = {}
     tokenized_squad_dataset["train"] = squad_dataset["train"].map(
         lambda x: preprocess_train_function(x, tokenizer), batched=True,
-        remove_columns=squad_dataset["train"].column_names,
+        # remove_columns=squad_dataset["train"].column_names,
     )
     tokenized_squad_dataset["validation"] = squad_dataset["validation"].map(
         lambda x: preprocess_validation_function(x, tokenizer),
@@ -251,12 +240,11 @@ if __name__ == "__main__":
         num_train_epochs=1,
         lr_scheduler_type="constant",
         per_device_train_batch_size=256,
-        per_device_eval_batch_size=512,
+        per_device_eval_batch_size=256,
         torch_compile=True,
         bf16=True,
-        optim="adamw_torch_fused",
-        # since we compile
-        dataloader_drop_last=True,
+        # optim="adamw_torch_fused",
+        dataloader_drop_last=True, # since we compile, drop last batch to avoid shape error
         dataloader_num_workers=8,
         logging_strategy="no",
     )
@@ -271,3 +259,34 @@ if __name__ == "__main__":
     )
 
     trainer.train()
+
+
+    print("Evaluating")
+    training_args = transformers.TrainingArguments(
+        "eval",
+        per_device_train_batch_size=256,
+        per_device_eval_batch_size=256,
+        dataloader_drop_last=False, # since we compile, drop last batch to avoid shape error
+        bf16=True,
+        dataloader_num_workers=8,
+        logging_strategy="no",
+    )
+
+    trainer = transformers.Trainer(
+        model,
+        training_args,
+        train_dataset=tokenized_squad_dataset["train"],
+        eval_dataset=tokenized_squad_dataset["validation"],
+        data_collator=data_collator,
+        tokenizer=tokenizer,
+    )
+
+    predictions = trainer.predict(tokenized_squad_dataset["validation"])
+    start_logits, end_logits = predictions.predictions
+    metrics = compute_metrics(
+        start_logits,
+        end_logits,
+        tokenized_squad_dataset["validation"],
+        squad_dataset["validation"],
+    )
+    print(metrics)

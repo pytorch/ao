@@ -12,30 +12,30 @@ from pathlib import Path
 from typing import Any, Callable, Optional, Tuple, TypeVar, cast
 
 import torch
+from torch.sparse import SparseSemiStructuredTensor, SparseSemiStructuredTensorCUTLASS, SparseSemiStructuredTensorCUSPARSELT
 
-from torch.sparse import SparseSemiStructuredTensorCUSPARSELT as Sparse24TensorCuSparseLt
-from torch.sparse import SparseSemiStructuredTensorCUTLASS as Sparse24TensorCutlass
-from torch.sparse import SparseSemiStructuredTensor as Sparse24Tensor
-
-def sparse24_pointwise_op(
-    func, types, args=(), kwargs=None, allow_sparsify_args_list=()
-):
+def semi_sparse_pointwise_op(func, types, args=(), kwargs=None, allow_sparsify_args_list=()):
+    """
+    adds pointwise op support for semi-structured tensors
+    """
     self = None
     for tensor in args:
-        if isinstance(tensor, Sparse24Tensor):
+        if isinstance(tensor, SparseSemiStructuredTensor):
             self = tensor
-    assert self is not None
-    args_updated = []
+    # assert self is not None
+    assert isinstance(self, SparseSemiStructuredTensorCUTLASS), "Only implemented for CUTLASS tensors"
 
-    for i, tensor in enumerate(args):
+    args_updated = [sparsify_if_allowed(i, tensor) for i, tensor in enumerate(args)]
+
+    def sparsify_if_allowed(i, tensor):
         if isinstance(tensor, torch.Tensor):
-            if not isinstance(tensor, Sparse24Tensor):
+            if not isinstance(tensor, SparseSemiStructuredTensor):
                 if i in allow_sparsify_args_list:
                     tensor = sparsify24_like(tensor, self)
                 else:
                     raise ValueError(
-                        f"Operation {func.__module__}.{func.__name__} on Sparse24Tensor requires all operands to "
-                        f"be Sparse24Tensors, but operand {i} is a {type(tensor)}"
+                        f"Operation {func.__module__}.{func.__name__} on SparseSemiStructuredTensor requires all operands to "
+                        f"be SparseSemiStructuredTensors, but operand {i} is a {type(tensor)}"
                     )
             if (
                 tensor.compressed_swizzled_bitmask is None
@@ -44,79 +44,71 @@ def sparse24_pointwise_op(
                 or tensor.compressed_swizzled_bitmask.stride() != self.compressed_swizzled_bitmask.stride()
             ):
                 raise ValueError(
-                    f"Operation {func.__module__}.{func.__name__} on Sparse24Tensor requires all operands to be "
-                    "Sparse24Tensors with the same sparsity pattern"
+                    f"Operation {func.__module__}.{func.__name__} on SparseSemiStructuredTensor requires all operands to be "
+                    "SparseSemiStructuredTensors with the same sparsity pattern"
                 )
-        args_updated.append(tensor)
-    assert isinstance(
-        self, Sparse24TensorCutlass
-    ), "Only implemented for CUTLASS tensors"
-    return Sparse24TensorCutlass(
+        return tensor
+
+    return SparseSemiStructuredTensorCUTLASS(
         self.shape,
         func(
-            *[(x.packed if isinstance(x, Sparse24Tensor) else x) for x in args_updated]
+            *[(x.packed if isinstance(x, SparseSemiStructuredTensor) else x) for x in args_updated]
         ),
         self.meta,
         func(
             *[
-                (x.packed_t if isinstance(x, Sparse24Tensor) else x)
-                for x in args_updated
+                x.packed_t if isinstance(x, SparseSemiStructuredTensor)
+                else x for x in args_updated
             ]
         ),
         self.meta_t,
         self.compressed_swizzled_bitmask,
     )
 
-SPARSE24_DISPATCH_CUTLASS = {
-    torch.ops.aten.relu: sparse24_pointwise_op,
-    torch.ops.aten.gelu: sparse24_pointwise_op,
-    torch.ops.aten.silu: sparse24_pointwise_op,
+CUTLASS_POINTWISE_OP_DISPATCH_TABLE = {
+    torch.ops.aten.relu: semi_sparse_pointwise_op,
+    torch.ops.aten.gelu: semi_sparse_pointwise_op,
+    torch.ops.aten.silu: semi_sparse_pointwise_op,
     torch.ops.aten.mul: partial(
         # `mul` BW in swiglu
-        sparse24_pointwise_op,
-        allow_sparsify_args_list=(
-            0,
-            1,
-        ),
+        semi_sparse_pointwise_op,
+        allow_sparsify_args_list=(0, 1),
     ),
-    torch.ops.aten.add: sparse24_pointwise_op,
+    torch.ops.aten.add: semi_sparse_pointwise_op,
     # Note: for these ops, we allow the gradient to come in as a `torch.Tensor`
     # and we will run the sparsification right before calling the BW aten func
     torch.ops.aten.gelu_backward: partial(
-        sparse24_pointwise_op, allow_sparsify_args_list=(0,)
+        semi_sparse_pointwise_op,
+        allow_sparsify_args_list=(0,)
     ),
     torch.ops.aten.silu_backward: partial(
-        sparse24_pointwise_op, allow_sparsify_args_list=(0, 1)
+        semi_sparse_pointwise_op,
+        allow_sparsify_args_list=(0, 1)
     ),
     torch.ops.aten.threshold_backward: partial(  # relu BW
-        sparse24_pointwise_op,
+        semi_sparse_pointwise_op,
         allow_sparsify_args_list=(0,),
     ),
 }
 
-Sparse24TensorCutlass._load_dispatch_table(SPARSE24_DISPATCH_CUTLASS)
+SparseSemiStructuredTensorCUTLASS._load_dispatch_table(CUTLASS_POINTWISE_OP_DISPATCH_TABLE)
 
 if torch.__version__ >= "2.1.0":
-    torch._dynamo.allow_in_graph(Sparse24TensorCuSparseLt)
-    torch._dynamo.allow_in_graph(Sparse24TensorCutlass)
-
-GRADIENT_SP24 = "24sparse"
-GRADIENT_DENSE = "24dense"
-
-BACKEND_CUTLASS = "cutlass"
-BACKEND_CUSPARSELT = "cusparselt"
+    torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUSPARSELT)
+    torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUTLASS)
 
 
 class _Sparsify24Func(torch.autograd.Function):
+
     @staticmethod
     def forward(ctx, x: torch.Tensor, algo: str, backend: str):  # type: ignore[override]
-        use_cutlass = (backend == BACKEND_CUTLASS)
-        if not isinstance(x, Sparse24Tensor):
+        use_cutlass = (backend == "cutlass")
+        if not isinstance(x, SparseSemiStructuredTensor):
             (packed, meta, packed_t, meta_t, bitmask) = torch._sparse_semi_structured_tile(
                 x, algorithm=algo, use_cutlass=use_cutlass
             )
             cls = (
-                Sparse24TensorCutlass if use_cutlass else Sparse24TensorCuSparseLt
+                SparseSemiStructuredTensorCUTLASS if use_cutlass else SparseSemiStructuredTensorCUSPARSELT
             )
             out = cls(
                 x.shape,
@@ -141,21 +133,20 @@ class _Sparsify24Func(torch.autograd.Function):
 
 
 class _Sparsify24LikeFunc(torch.autograd.Function):
+
     @staticmethod
-    def forward(ctx, x: torch.Tensor, pattern: Sparse24Tensor):  # type: ignore[override]
-        assert isinstance(pattern, Sparse24Tensor)
-        if not isinstance(pattern, Sparse24TensorCutlass):
+    def forward(ctx, x: torch.Tensor, pattern: SparseSemiStructuredTensor):  # type: ignore[override]
+        assert isinstance(pattern, SparseSemiStructuredTensor)
+
+        if not isinstance(pattern, SparseSemiStructuredTensorCUTLASS):
             raise NotImplementedError(
                 "`sparsify24_like(x, pattern)` is only implemented for CUTLASS backend"
             )
         if not pattern.compressed_swizzled_bitmask.is_contiguous():
             raise NotImplementedError(
-                "`sparsify24_like(x, pattern)` is not implemented when `pattern` is transposed"
+                "`sparsify24_like(x, pattern)` is not implemented when `bitmask` is transposed"
             )
-        ctx.threads_masks = pattern.compressed_swizzled_bitmask
-        ctx.meta = pattern.meta
-        ctx.meta_t = pattern.meta_t
-        ctx.dtype = pattern.dtype
+
         packed, packed_t = torch._sparse_semi_structured_apply(x, pattern.compressed_swizzled_bitmask)
         return pattern.__class__(
             x.shape,
@@ -184,17 +175,18 @@ def allow_in_graph(func: F) -> F:
 def sparsify24(
     x: torch.Tensor,
     algo: str = "",
-    backend: str = BACKEND_CUTLASS,
-) -> Sparse24Tensor:
+    backend: str = "cutlass",
+) -> SparseSemiStructuredTensor:
     return _Sparsify24Func.apply(x, algo, backend)
 
 
 @allow_in_graph
 def sparsify24_like(
-    x: torch.Tensor, pattern: torch.Tensor
-) -> Sparse24Tensor:
-    if not isinstance(pattern, Sparse24Tensor):
+    x: torch.Tensor,
+    pattern: SparseSemiStructuredTensor,
+) -> SparseSemiStructuredTensor:
+    if not isinstance(pattern, SparseSemiStructuredTensor):
         raise ValueError(
-            f"`pattern` must be a `Sparse24Tensor` but got a {type(pattern)}"
+            f"`pattern` must be a `SparseSemiStructuredTensor` but got a {type(pattern)}"
         )
     return _Sparsify24LikeFunc.apply(x, pattern)
