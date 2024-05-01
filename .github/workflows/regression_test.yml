@@ -37,4 +37,4 @@ jobs:
         pip install -r requirements.txt
         pip install -r dev-requirements.txt
         python setup.py install
-        pytest test/test_distributed.py --verbose -s
+        python test/test_distributed.py
