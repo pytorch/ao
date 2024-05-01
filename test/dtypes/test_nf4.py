@@ -15,7 +15,7 @@ from torchao.dtypes.nf4tensor import (
     linear_nf4,
     NF4Tensor,
     to_nf4,
-    INNER_TENSOR_NAMES_FOR_FSDP,
+    INNER_TENSOR_NAMES_FOR_SHARDING,
 )
 import torch.nn.functional as F
 import io
@@ -275,7 +275,7 @@ class TestFSDPOps(TestCase):
     def test_tensor_new_zeros_valid(self, input_size: Union[Tuple[int], int]):
         nf4_tensor = to_nf4(torch.randn(input_size))
         nf4_tensor_zeros = nf4_tensor.new_zeros(input_size)
-        for attr in INNER_TENSOR_NAMES_FOR_FSDP:
+        for attr in INNER_TENSOR_NAMES_FOR_SHARDING:
             inner_tensor = getattr(nf4_tensor_zeros, attr)
             self.assertEqual(torch.count_nonzero(inner_tensor), 0)
         expected_size = input_size if not isinstance(input_size, int) else (input_size, )
@@ -332,7 +332,7 @@ class TestFSDPOps(TestCase):
         viewed_tensor = nf4_tensor.view(-1)
         self.assertEqual(viewed_tensor.dim(), 1)
         self.assertEqual(viewed_tensor.numel(), math.prod(input_size))
-        for attr in INNER_TENSOR_NAMES_FOR_FSDP:
+        for attr in INNER_TENSOR_NAMES_FOR_SHARDING:
             inner_tensor = getattr(viewed_tensor, attr)
             self.assertEqual(inner_tensor.size(0), inner_tensor.numel())
 
@@ -353,7 +353,7 @@ class TestFSDPOps(TestCase):
         self.assertEqual(nf4_tensor_strided.size(), nf4_tensor.size())
         self.assertEqual(nf4_tensor_strided.stride(), nf4_tensor.stride())
         self.assertEqual(nf4_tensor_strided.storage_offset(), nf4_tensor.storage_offset())
-        for attr in INNER_TENSOR_NAMES_FOR_FSDP:
+        for attr in INNER_TENSOR_NAMES_FOR_SHARDING:
             inner_tensor_orig = getattr(nf4_tensor, attr)
             inner_tensor_strided = getattr(nf4_tensor_strided, attr)
             self.assertEqual(inner_tensor_strided.size(), inner_tensor_orig.size())
@@ -413,7 +413,7 @@ class TestFSDPOps(TestCase):
         nf4_tensor = to_nf4(torch.randn(512 * 512, device='cuda'))
         nf4_tensor = nf4_tensor.cpu()
         self.assertEqual(nf4_tensor.device.type, "cpu")
-        for attr in INNER_TENSOR_NAMES_FOR_FSDP:
+        for attr in INNER_TENSOR_NAMES_FOR_SHARDING:
             inner_tensor = getattr(nf4_tensor, attr)
             self.assertEqual(inner_tensor.device.type, "cpu")
 

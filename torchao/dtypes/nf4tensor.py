@@ -20,7 +20,7 @@ from typing import Any, Optional, Tuple, Union, List
 
 NF4_OPS_TABLE: Dict[Any, Any] = {}
 
-INNER_TENSOR_NAMES_FOR_FSDP = ["quantized_scalers", "quantization_factor", "quantized_data"]
+INNER_TENSOR_NAMES_FOR_SHARDING = ["quantized_scalers", "quantization_factor", "quantized_data"]
 
 def same_metadata(a: "NF4Tensor", b: "NF4Tensor"):
     both_nf4 = isinstance(a, NF4Tensor) and isinstance(b, NF4Tensor)
@@ -70,14 +70,14 @@ def construct_nf4_args(nf4tensor: "NF4Tensor", kwargs: Optional[Dict[str, Any]] 
 # __torch_dispatch__ utils: apply aten op to inner tensors
 def apply_to_inner_tensors(nf4tensor: "NF4Tensor", aten_op, args, kwargs):
     attr_to_tensor = {}
-    for attr in INNER_TENSOR_NAMES_FOR_FSDP:
+    for attr in INNER_TENSOR_NAMES_FOR_SHARDING:
         attr_to_tensor[attr] = aten_op(getattr(nf4tensor, attr), *args, **kwargs)
     return attr_to_tensor
 
 # __torch_function__ utils: call tensor ops from inner tensors
 def call_from_inner_tensors(nf4tensor: "NF4Tensor", method_name: str, args, kwargs):
     attr_to_tensor = {}
-    for attr in INNER_TENSOR_NAMES_FOR_FSDP:
+    for attr in INNER_TENSOR_NAMES_FOR_SHARDING:
         inner_tensor = getattr(nf4tensor, attr)
         func = getattr(inner_tensor, method_name)
         attr_to_tensor[attr] = func(*args, **kwargs)
@@ -147,12 +147,12 @@ def nf4_split(aten_op, args, kwargs=None):
     nf4tensor = args[0]
     num_chunks = nf4tensor.size(0) // args[1]
 
-    assert nf4tensor.quantized_scalers.numel() % num_chunks == 0, f"NF4Tensor.quantized_scalers.numel() not divisible by {num_chunks}"
-    quantized_scalers_chunks = aten_op(nf4tensor.quantized_scalers, nf4tensor.quantized_scalers.numel() // num_chunks, **kwargs)
-    assert nf4tensor.quantization_factor.numel() % num_chunks == 0, f"NF4Tensor.quantization_factor.numel() not divisible by {num_chunks}"
-    quantization_factor_chunks = aten_op(nf4tensor.quantization_factor, nf4tensor.quantization_factor.numel() // num_chunks, **kwargs)
-    assert nf4tensor.quantized_data.numel() % num_chunks == 0, f"NF4Tensor.quantized_data.numel() not divisible by {num_chunks}"
-    quantized_data_chunks = aten_op(nf4tensor.quantized_data, nf4tensor.quantized_data.numel() // num_chunks, **kwargs)
+    attr_to_chunks = {}
+    for attr in INNER_TENSOR_NAMES_FOR_SHARDING:
+        inner_tensor = getattr(nf4tensor, attr)
+        assert inner_tensor.numel() % num_chunks == 0, f"{attr}.numel() not divisible by {num_chunks}"
+        chunks = aten_op(inner_tensor, inner_tensor.numel() // num_chunks, **kwargs)
+        attr_to_chunks[attr] = chunks
 
     orig_dim = nf4tensor.dim()
     if orig_dim == 1:
@@ -163,21 +163,15 @@ def nf4_split(aten_op, args, kwargs=None):
         chunked_size = ()
         raise NotImplementedError(f"aten.split(NF4Tensor) wherer NF4Tensor.dim() = {orig_dim}")
 
-    return [
-        NF4Tensor(
-            *construct_nf4_args(
-                nf4tensor,
-                {
-                    "size": chunked_size,
-                    "quantized_scalers": quantized_scalers,
-                    "quantization_factor": quantization_factor,
-                    "quantized_data": quantized_data,
-                }
-            )
-        ) for quantized_scalers, quantization_factor, quantized_data in zip(
-            quantized_scalers_chunks, quantization_factor_chunks, quantized_data_chunks
-        )
-    ]
+    nf4_chunks = []
+    for idx in range(num_chunks):
+        updated_attrs = {
+            "size": chunked_size
+        }
+        for attr, chunks in attr_to_chunks.items():
+            updated_attrs[attr] = chunks[idx]
+        nf4_chunks.append(NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs)))
+    return nf4_chunks
 
 @implements(
     [
@@ -193,26 +187,15 @@ def nf4_new_zeros(aten_op, args, kwargs=None):
         raise NotImplementedError(f"aten.new_zeros(NF4Tensor) with new size {new_size}")
     ratio = nf4tensor.numel() // math.prod(new_size)
 
-    assert nf4tensor.quantized_scalers.size(0) % ratio == 0, f"quantized_scalers.numel() must be divisible by {ratio}"
-    quantized_scalers = aten_op(nf4tensor.quantized_scalers, [nf4tensor.quantized_scalers.size(0) // ratio], **kwargs)
+    updated_attrs = {}
+    for attr in INNER_TENSOR_NAMES_FOR_SHARDING:
+        inner_tensor = getattr(nf4tensor, attr)
+        assert inner_tensor.size(0) % ratio == 0, f"{attr}.numel() must be divisible by {ratio}"
+        inner_tensor = aten_op(inner_tensor, [inner_tensor.size(0) // ratio], **kwargs)
+        updated_attrs[attr] = inner_tensor
+    updated_attrs["size"] = new_size
 
-    assert nf4tensor.quantization_factor.size(0) % ratio == 0, f"quantization_factor.size(0) must be divisible by {ratio}"
-    quantization_factor = aten_op(nf4tensor.quantization_factor, [nf4tensor.quantization_factor.size(0) // ratio], **kwargs)
-
-    assert nf4tensor.quantized_data.size(0) % ratio == 0, f"quantized_data.size(0) must be divisible by {ratio}"
-    quantized_data = aten_op(nf4tensor.quantized_data, [nf4tensor.quantized_data.size(0) // ratio], **kwargs)
-
-    return NF4Tensor(
-        *construct_nf4_args(
-            nf4tensor,
-            {
-                "size": new_size,
-                "quantized_scalers": quantized_scalers,
-                "quantization_factor": quantization_factor,
-                "quantized_data": quantized_data,
-            }
-        )
-    )
+    return NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
 
 @implements(
     [
@@ -358,7 +341,7 @@ def copy_(func, *args, **kwargs):
 )
 def nf4_is_pinned(aten_op, args, kwargs=None):
     nf4tensor = args[0]
-    for attr in INNER_TENSOR_NAMES_FOR_FSDP:
+    for attr in INNER_TENSOR_NAMES_FOR_SHARDING:
         inner_tensor = getattr(nf4tensor, attr)
         if not aten_op(inner_tensor, *(args[1:]), **kwargs):
             return False
