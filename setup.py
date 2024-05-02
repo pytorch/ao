@@ -37,7 +37,12 @@ def get_extensions():
     if debug_mode:
         print("Compiling in debug mode")
 
-    # TODO: And cudatoolkit is available
+    if not torch.cuda.is_available():
+        print("PyTorch GPU support is not available. Skipping compilation of CUDA extensions")
+    if CUDA_HOME is None and torch.cuda.is_available():
+        print("CUDA toolkit is not available. Skipping compilation of CUDA extensions")
+        print("If you'd like to compile CUDA extensions locally please install the cudatoolkit from https://anaconda.org/nvidia/cuda-toolkit")
+        
     use_cuda = torch.cuda.is_available() and CUDA_HOME is not None
     extension = CUDAExtension if use_cuda else CppExtension
 
