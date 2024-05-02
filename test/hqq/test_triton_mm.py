@@ -1,15 +1,11 @@
 # Skip entire test if triton is not available, otherwise CI failure
 import pytest
-try:
-    import triton
-    import hqq
-    if int(triton.__version__.split(".")[0]) < 3:
-        pytest.skip("triton >= 3.0.0 is required to run this test", allow_module_level=True)
-except ImportError:
-    pytest.skip("triton and hqq required to run this test", allow_module_level=True)
 
-import itertools
-import torch
+pytest.importorskip("triton", minversion="3.0.0", reason="triton >= 3.0.0 required to run this test")
+pytest.importorskip("hqq", reason="hqq required to run this test")
+
+import triton
+import hqq
 
 from hqq.core.quantize import HQQLinear, BaseQuantizeConfig
 from torchao.prototype.hqq import triton_mixed_mm, pack_2xint4
@@ -61,7 +57,7 @@ def test_mixed_mm(shape, group_size, axis, dtype, transposed, kernel_type, quant
         **dict(group_size=group_size, axis=axis),
     }
     M, N, K = shape
-    
+
     linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device="cuda")
 
     quant_config = BaseQuantizeConfig(
@@ -81,19 +77,19 @@ def test_mixed_mm(shape, group_size, axis, dtype, transposed, kernel_type, quant
     scales, zeros = meta["scale"], meta["zero"]
     scales = scales.reshape(N, -1)
     zeros = zeros.reshape(N, -1)
-    
+
     if transposed:
         x = torch.randn(M, N, dtype=dtype, device="cuda")
-        hqq_out = x @ W_dq         
+        hqq_out = x @ W_dq
 
-        #Pack uint8 W_q, then run fused dequant matmul        
+        #Pack uint8 W_q, then run fused dequant matmul
         packed_w = pack_2xint4(W_q)
         tt_out = triton_mixed_mm(
             x, packed_w, scales, zeros, transposed=True, group_size=group_size, fp8_fast_accum=False, kernel_type=kernel_type
         )
     else:
         x = torch.randn(M, K, dtype=dtype, device="cuda")
-        hqq_out = x @ W_dq.T    
+        hqq_out = x @ W_dq.T
 
         packed_w = pack_2xint4(W_q.T)
         tt_out = triton_mixed_mm(
@@ -101,4 +97,3 @@ def test_mixed_mm(shape, group_size, axis, dtype, transposed, kernel_type, quant
         )
 
     assert check(hqq_out, tt_out, max_diff=1e-2 if dtype == torch.bfloat16 else 1e-3)
-
