@@ -1,11 +1,8 @@
 # Skip entire test if triton is not available, otherwise CI failure
 import pytest
 
-pytest.importorskip("triton", minversion="3.0.0", reason="triton >= 3.0.0 required to run this test")
-pytest.importorskip("hqq", reason="hqq required to run this test")
-
-import triton
-import hqq
+triton = pytest.importorskip("triton", minversion="3.0.0", reason="triton >= 3.0.0 required to run this test")
+hqq = pytest.importorskip("hqq", reason="hqq required to run this test")
 
 from hqq.core.quantize import HQQLinear, BaseQuantizeConfig
 from torchao.prototype.hqq import triton_mixed_mm, pack_2xint4
