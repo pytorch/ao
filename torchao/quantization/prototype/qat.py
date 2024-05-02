@@ -54,6 +54,7 @@ if TORCH_VERSION_AFTER_2_3:
                 self.precision,
                 self.scales_precision,
                 Int8DynActInt4WeightQATLinear,
+                copy_weights = True,
             )
             return model
 
@@ -111,6 +112,7 @@ if TORCH_VERSION_AFTER_2_3:
             in_features: int,
             out_features: int,
             bias: bool = False,
+            device: torch.device = None,
             groupsize: int = 256,
             precision: torch.dtype = torch.float32,
             scales_precision: torch.dtype = torch.float32,
@@ -119,7 +121,7 @@ if TORCH_VERSION_AFTER_2_3:
                 in_features,
                 out_features,
                 bias,
-                device=None,
+                device=device,
                 dtype=precision,
             )
             assert (
