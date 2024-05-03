@@ -47,6 +47,13 @@ __all__ = [
 ] + (_AFTER_TORCH_2_3_ONLY if TORCH_VERSION_AFTER_2_3 else [])
 
 
+def guard_dtype_size(tensor_arg, arg_name, dtype=None, size=None):
+    if dtype is not None and tensor_arg.dtype != dtype:
+        raise ValueError("Expected Tensor argument {arg_name} to have dtype {dtype}, but got {tensor_arg.dtype} instead.")
+    if size is not None and tensor_arg.size() != size:
+        raise ValueError("Expected Tensor argument {arg_name} to have size {size}, but got {tensor_arg.size()} instead.")
+
+
 _DTYPE_TO_QVALUE_BOUNDS = {
     torch.uint8: (0, 255),
     torch.int8: (-128, 127),
@@ -260,6 +267,8 @@ def choose_qparams_affine(
         Tuple of scales and zero_points Tensor with requested dtype
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
+    assert mapping_type in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC], f"Unsupported mapping type: {mapping_type}"
+
     if scale_dtype is None:
         scale_dtype = input.dtype
     if zero_point_dtype is None:
@@ -269,26 +278,24 @@ def choose_qparams_affine(
     shape_for_reduction, reduction_dims = _get_reduction_params(block_size, input.size())
     input = input.view(shape_for_reduction)
 
+    min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
+    max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
+
+    min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
+    max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
+
     if mapping_type == MappingType.SYMMETRIC:
-        amax = torch.amax(torch.abs(input), dim=reduction_dims, keepdim=False)
-        scale = amax / (float(quant_max - quant_min) / 2)
-        zero_point = torch.ones_like(scale)
-        zero_point *= int((quant_min + quant_max + 1) / 2)
-    elif mapping_type == MappingType.ASYMMETRIC:
-        min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
-        max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
-
-        min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
-        max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
-
+        max_val_pos = torch.max(-min_val_neg, max_val_pos)
+        scale = max_val_pos / (float(quant_max - quant_min) / 2)
+        zero_point = torch.full_like(scale, int((quant_min + quant_max + 1) / 2))
+    else:
         scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
         zero_point = quant_min - torch.round(min_val_neg / scale)
         zero_point = torch.clamp(zero_point, quant_min, quant_max)
-    else:
-        raise RuntimeError(f"Unsupported mapping type: {mapping_type}")
 
-    if eps is not None:
-        scale = torch.clamp(scale, min=eps)
+    if eps is None:
+        eps = torch.finfo(input.dtype).eps
+    scale = torch.clamp(scale, min=eps)
 
     return scale.to(dtype=scale_dtype), zero_point.to(dtype=zero_point_dtype)
 
@@ -493,7 +500,7 @@ def quant_int8_dynamic_per_token_linear(
         x_vals_int8, x_scales, w_vals_int8_t, w_scales, out_dtype
     )
     if bias is not None:
-        mm_out += bias
+        mm_out = mm_out + bias
     return mm_out
 
 
@@ -554,7 +561,7 @@ def quant_int8_per_token_matmul(
     return y
 
 
-def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128):
+def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16):
     """This is tinygemm specific, we'll keep this for now"""
     if groupsize > w.shape[-1]:
         groupsize = w.shape[-1]
@@ -570,15 +577,14 @@ def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128):
     max_int = 2**n_bit - 1
     scales = (max_val - min_val).clamp(min=1e-6) / max_int
     zeros = min_val + scales * (2 ** (n_bit - 1))
-    return scales.to(torch.bfloat16).reshape(w.shape[0], -1), zeros.to(
-        torch.bfloat16
+    return scales.to(dtype=dtype).reshape(w.shape[0], -1), zeros.to(
+        dtype=dtype
     ).reshape(w.shape[0], -1)
 
 
 def pack_tinygemm_scales_and_zeros(scales, zeros):
-    assert scales.shape == zeros.shape
-    assert scales.dtype == torch.bfloat16
-    assert zeros.dtype == torch.bfloat16
+    guard_dtype_size(scales, "scales", dtype=torch.bfloat16, size=zeros.size())
+    guard_dtype_size(zeros, "zeros", dtype=torch.bfloat16)
     return (
         torch.cat(
             [
@@ -661,8 +667,8 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     return w_dq
 
 
-def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128):
-    scales, zeros = get_groupwise_affine_qparams(w, n_bit, groupsize)
+def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128, dtype=torch.bfloat16):
+    scales, zeros = get_groupwise_affine_qparams(w, n_bit, groupsize, dtype)
     w_int4x8 = groupwise_affine_quantize_tensor_from_qparams(
         w, scales, zeros, n_bit, groupsize
     )
