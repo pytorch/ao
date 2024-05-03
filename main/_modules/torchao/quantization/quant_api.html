@@ -359,7 +359,7 @@
 <span class="kn">import</span> <span class="nn">torch.nn.functional</span> <span class="k">as</span> <span class="nn">F</span>
 
 <span class="kn">from</span> <span class="nn">.dynamic_quant</span> <span class="kn">import</span> <span class="n">DynamicallyPerAxisQuantizedLinear</span>
-<span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="n">TORCH_VERSION_AFTER_2_3</span>
+<span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="n">TORCH_VERSION_AFTER_2_3</span><span class="p">,</span> <span class="n">TORCH_VERSION_AFTER_2_4</span>
 
 <span class="kn">from</span> <span class="nn">.subclass</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">Int4WeightOnlyQuantizedLinearWeight</span><span class="p">,</span>
@@ -456,19 +456,27 @@
     <span class="n">change_linear_weights_to_int8_dqtensors</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">filter_fn</span><span class="p">)</span></div>
 
 
-<span class="k">def</span> <span class="nf">_get_subclass_inserter</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
-    <span class="n">method</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;method&quot;</span><span class="p">,</span> <span class="s2">&quot;from_float&quot;</span><span class="p">)</span>
+<span class="kn">import</span> <span class="nn">torch.nn.utils.parametrize</span> <span class="k">as</span> <span class="nn">parametrize</span>
+
+<span class="k">def</span> <span class="nf">_get_subclass_inserter</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">enable_parametrization</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="n">constructor</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;constructor&quot;</span><span class="p">,</span> <span class="s2">&quot;subclass_constructor&quot;</span><span class="p">)</span>
+    <span class="n">from_float</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;method&quot;</span><span class="p">,</span> <span class="s2">&quot;from_float&quot;</span><span class="p">)</span>
     <span class="k">def</span> <span class="nf">insert_subclass</span><span class="p">(</span><span class="n">lin</span><span class="p">):</span>
-        <span class="n">lin</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span>
-            <span class="c1"># cls.from_float(...)</span>
-            <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">method</span><span class="p">)(</span><span class="n">lin</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">),</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span>
-        <span class="p">)</span>
+        <span class="k">if</span> <span class="n">enable_parametrization</span><span class="p">:</span>
+            <span class="n">lin</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="bp">cls</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span><span class="n">lin</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">),</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+            <span class="n">_</span><span class="p">,</span> <span class="n">args</span> <span class="o">=</span> <span class="n">lin</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">__tensor_flatten__</span><span class="p">()</span>
+            <span class="n">parametrize</span><span class="o">.</span><span class="n">register_parametrization</span><span class="p">(</span><span class="n">lin</span><span class="p">,</span> <span class="s2">&quot;weight&quot;</span><span class="p">,</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">constructor</span><span class="p">)(</span><span class="o">*</span><span class="n">args</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">lin</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span>
+                <span class="c1"># cls.from_float(...)</span>
+                <span class="nb">getattr</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">from_float</span><span class="p">)(</span><span class="n">lin</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">),</span> <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span>
+            <span class="p">)</span>
         <span class="k">return</span> <span class="n">lin</span>
 
     <span class="k">return</span> <span class="n">insert_subclass</span>
 
 
-<div class="viewcode-block" id="change_linear_weights_to_int8_dqtensors"><a class="viewcode-back" href="../../../generated/torchao.quantization.change_linear_weights_to_int8_dqtensors.html#torchao.quantization.change_linear_weights_to_int8_dqtensors">[docs]</a><span class="k">def</span> <span class="nf">change_linear_weights_to_int8_dqtensors</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">filter_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<div class="viewcode-block" id="change_linear_weights_to_int8_dqtensors"><a class="viewcode-back" href="../../../generated/torchao.quantization.change_linear_weights_to_int8_dqtensors.html#torchao.quantization.change_linear_weights_to_int8_dqtensors">[docs]</a><span class="k">def</span> <span class="nf">change_linear_weights_to_int8_dqtensors</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">filter_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Converts all linear weight tensors to the `Int8DynamicallyQuantizedLinearWeight`</span>
 <span class="sd">    Tensor subclass, effectively applying the same form of quantization</span>
@@ -480,11 +488,11 @@
         <span class="p">)</span>
 
     <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
-        <span class="n">model</span><span class="p">,</span> <span class="n">_get_subclass_inserter</span><span class="p">(</span><span class="n">Int8DynamicallyQuantizedLinearWeight</span><span class="p">),</span> <span class="n">filter_fn</span>
+        <span class="n">model</span><span class="p">,</span> <span class="n">_get_subclass_inserter</span><span class="p">(</span><span class="n">Int8DynamicallyQuantizedLinearWeight</span><span class="p">,</span> <span class="n">enable_parametrization</span><span class="o">=</span><span class="n">TORCH_VERSION_AFTER_2_4</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">),</span> <span class="n">filter_fn</span>
     <span class="p">)</span></div>
 
 
-<div class="viewcode-block" id="change_linear_weights_to_int8_woqtensors"><a class="viewcode-back" href="../../../generated/torchao.quantization.change_linear_weights_to_int8_woqtensors.html#torchao.quantization.change_linear_weights_to_int8_woqtensors">[docs]</a><span class="k">def</span> <span class="nf">change_linear_weights_to_int8_woqtensors</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">filter_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<div class="viewcode-block" id="change_linear_weights_to_int8_woqtensors"><a class="viewcode-back" href="../../../generated/torchao.quantization.change_linear_weights_to_int8_woqtensors.html#torchao.quantization.change_linear_weights_to_int8_woqtensors">[docs]</a><span class="k">def</span> <span class="nf">change_linear_weights_to_int8_woqtensors</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">filter_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Converts all linear weight tensors to the</span>
 <span class="sd">    `Int8WeightOnlyQuantizedLinearWeight` tensor subclass,</span>
@@ -493,7 +501,7 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
         <span class="n">model</span><span class="p">,</span>
-        <span class="n">_get_subclass_inserter</span><span class="p">(</span><span class="n">Int8WeightOnlyQuantizedLinearWeight</span><span class="p">),</span>
+        <span class="n">_get_subclass_inserter</span><span class="p">(</span><span class="n">Int8WeightOnlyQuantizedLinearWeight</span><span class="p">,</span> <span class="n">enable_parametrization</span><span class="o">=</span><span class="n">TORCH_VERSION_AFTER_2_4</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">),</span>
         <span class="n">_is_linear</span> <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">filter_fn</span><span class="p">,</span>
     <span class="p">)</span></div>
 
@@ -509,7 +517,7 @@
 
     <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
         <span class="n">model</span><span class="p">,</span>
-        <span class="n">_get_subclass_inserter</span><span class="p">(</span><span class="n">Int4WeightOnlyQuantizedLinearWeight</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">),</span>
+        <span class="n">_get_subclass_inserter</span><span class="p">(</span><span class="n">Int4WeightOnlyQuantizedLinearWeight</span><span class="p">,</span> <span class="n">enable_parametrization</span><span class="o">=</span><span class="n">TORCH_VERSION_AFTER_2_4</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">),</span>
         <span class="n">filter_fn</span><span class="p">,</span>
     <span class="p">)</span></div>
 
