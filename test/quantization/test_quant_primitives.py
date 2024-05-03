@@ -126,6 +126,34 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(scale, scale_ref))
         self.assertTrue(torch.equal(zero_point, zp_ref))
 
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.4 or lower")
+    def test_quantize_activation_per_token_abs_max(self):
+        from torchao.quantization.quant_primitives import quantize_activation_per_token_absmax
+        input = torch.randn(10, 10)
+        quantized_ref, scale_ref = quantize_activation_per_token_absmax(input)
+
+        mapping_type = MappingType.SYMMETRIC
+        block_size = list(input.shape)
+        for i in range(len(block_size) - 1):
+            block_size[i] = 1
+        dtype = torch.int8
+        eps = 1e-5
+        quant_min = -127
+        quant_max = 127
+        scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, quant_min, quant_max, eps=eps, scale_dtype=torch.float)
+
+        quantized = quantize_affine(input, block_size, scale, zero_point, dtype, quant_min, quant_max)
+
+        self.assertTrue(torch.equal(quantized, quantized_ref))
+        self.assertTrue(torch.equal(scale, scale_ref))
+
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.4 or lower")
+    def test_quantize_activation_per_token_abs_max_zero_input(self):
+        from torchao.quantization.quant_primitives import quantize_activation_per_token_absmax
+        input = torch.zeros(10, 10)
+        # make sure it still works
+        quantized_ref, scale_ref = quantize_activation_per_token_absmax(input)
+
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "skipping when torch verion is 2.3 or lower")
     def test_quantize_dequantize_group_sym(self):
@@ -231,6 +259,25 @@ class TestQuantPrimitives(unittest.TestCase):
         # we don't have corresponding ops in existing primitives, so just make sure it runs and it's close to float
         torch.testing.assert_allclose(dequantized, input, rtol=2, atol=0.02)
 
+    def test_choose_qparams_tensor_asym_eps(self):
+        input = torch.zeros(10, 10)
+        mapping_type = MappingType.ASYMMETRIC
+        dtype = torch.int8
+        block_size = (10, 10)
+        scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype)
+        eps = torch.finfo(torch.float32).eps
+        self.assertEqual(scale, eps)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "skipping when cuda is not available")
+    def test_get_group_qparams_symmetric_memory(self):
+        """Check the memory usage of the op"""
+        weight = torch.randn(1024, 1024).to(device="cuda")
+        original_mem_use = torch.cuda.memory_allocated()
+        n_bit = 4
+        groupsize = 128
+        (scale_ao, _) = get_group_qparams_symmetric(weight, n_bit, groupsize)
+        after_choose_qparams_mem_use = torch.cuda.memory_allocated()
+        self.assertTrue(after_choose_qparams_mem_use < 1.2 * original_mem_use)
 
 if __name__ == "__main__":
     unittest.main()
