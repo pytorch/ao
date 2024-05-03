@@ -183,7 +183,7 @@ class _GenericFakeQuantize(torch.autograd.Function):
         q = input.div(scales).add(zero_points).round()
         dq = q.clamp(quant_min, quant_max).sub(zero_points).mul(scales)
         # TODO: do we need this mask?
-        mask = torch.logical_and((q >= quant_min), (dq <= quant_max))
+        mask = torch.logical_and((q >= quant_min), (q <= quant_max))
         ctx.save_for_backward(mask)
         return dq
 
