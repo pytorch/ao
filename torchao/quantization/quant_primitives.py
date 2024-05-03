@@ -287,8 +287,9 @@ def choose_qparams_affine(
     else:
         raise RuntimeError(f"Unsupported mapping type: {mapping_type}")
 
-    if eps is not None:
-        scale = torch.clamp(scale, min=eps)
+    if eps is None:
+        eps = torch.finfo(input.dtype).eps
+    scale = torch.clamp(scale, min=eps)
 
     return scale.to(dtype=scale_dtype), zero_point.to(dtype=zero_point_dtype)
 
