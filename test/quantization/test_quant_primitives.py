@@ -259,6 +259,25 @@ class TestQuantPrimitives(unittest.TestCase):
         # we don't have corresponding ops in existing primitives, so just make sure it runs and it's close to float
         torch.testing.assert_allclose(dequantized, input, rtol=2, atol=0.02)
 
+    def test_choose_qparams_tensor_asym_eps(self):
+        input = torch.zeros(10, 10)
+        mapping_type = MappingType.ASYMMETRIC
+        dtype = torch.int8
+        block_size = (10, 10)
+        scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype)
+        eps = torch.finfo(torch.float32).eps
+        self.assertEqual(scale, eps)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "skipping when cuda is not available")
+    def test_get_group_qparams_symmetric_memory(self):
+        """Check the memory usage of the op"""
+        weight = torch.randn(1024, 1024).to(device="cuda")
+        original_mem_use = torch.cuda.memory_allocated()
+        n_bit = 4
+        groupsize = 128
+        (scale_ao, _) = get_group_qparams_symmetric(weight, n_bit, groupsize)
+        after_choose_qparams_mem_use = torch.cuda.memory_allocated()
+        self.assertTrue(after_choose_qparams_mem_use < 1.2 * original_mem_use)
 
 if __name__ == "__main__":
     unittest.main()

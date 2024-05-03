@@ -260,6 +260,8 @@ def choose_qparams_affine(
         Tuple of scales and zero_points Tensor with requested dtype
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
+    assert mapping_type in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC], f"Unsupported mapping type: {mapping_type}"
+
     if scale_dtype is None:
         scale_dtype = input.dtype
     if zero_point_dtype is None:
@@ -269,26 +271,24 @@ def choose_qparams_affine(
     shape_for_reduction, reduction_dims = _get_reduction_params(block_size, input.size())
     input = input.view(shape_for_reduction)
 
+    min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
+    max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
+
+    min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
+    max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
+
     if mapping_type == MappingType.SYMMETRIC:
-        amax = torch.amax(torch.abs(input), dim=reduction_dims, keepdim=False)
-        scale = amax / (float(quant_max - quant_min) / 2)
-        zero_point = torch.ones_like(scale)
-        zero_point *= int((quant_min + quant_max + 1) / 2)
-    elif mapping_type == MappingType.ASYMMETRIC:
-        min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
-        max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
-
-        min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
-        max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
-
+        max_val_pos = torch.max(-min_val_neg, max_val_pos)
+        scale = max_val_pos / (float(quant_max - quant_min) / 2)
+        zero_point = torch.full_like(scale, int((quant_min + quant_max + 1) / 2))
+    else:
         scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
         zero_point = quant_min - torch.round(min_val_neg / scale)
         zero_point = torch.clamp(zero_point, quant_min, quant_max)
-    else:
-        raise RuntimeError(f"Unsupported mapping type: {mapping_type}")
 
-    if eps is not None:
-        scale = torch.clamp(scale, min=eps)
+    if eps is None:
+        eps = torch.finfo(input.dtype).eps
+    scale = torch.clamp(scale, min=eps)
 
     return scale.to(dtype=scale_dtype), zero_point.to(dtype=zero_point_dtype)
 
