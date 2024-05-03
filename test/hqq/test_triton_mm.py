@@ -1,21 +1,20 @@
-# Skip entire test if triton is not available, otherwise CI failure
+# Skip entire test if following module not available, otherwise CI failure
 import pytest
 
-try:
-    import hqq
-    import triton
-
-    if int(triton.__version__.split(".")[0]) < 3:
-        pytest.skip(
-            "triton >= 3.0.0 is required to run this test", allow_module_level=True
-        )
-except ImportError:
-    pytest.skip("triton and hqq required to run this test", allow_module_level=True)
+triton = pytest.importorskip(
+    "triton", minversion="3.0.0", reason="Triton > 3.0.0 required to run this test"
+)
+hqq = pytest.importorskip("hqq", reason="hqq required to run this test")
+HQQLinear = pytest.importorskip(
+    "hqq.core.quantize.HQQLinear", reason="HQQLinear required to run this test"
+)
+BaseQuantizeConfig = pytest.importorskip(
+    "hqq.core.quantize.BaseQuantizeConfig", reason="HQQLinear required to run this test"
+)
 
 import itertools
 
 import torch
-from hqq.core.quantize import BaseQuantizeConfig, HQQLinear
 
 from torchao.prototype.hqq import pack_2xint4, triton_mixed_mm
 
@@ -173,9 +172,7 @@ def _test_mixed_mm(
     quant_config.update({"weight_quant_params": qcfg})
     W_q = torch.randint(0, int(2**4), size=(N, K), dtype=quant_dtype, device="cuda")
 
-    scales = torch.arange((N * K) // group_size, dtype=dtype, device="cuda")[
-        :, None
-    ]  # .reshape(N, -1)
+    scales = torch.arange((N * K) // group_size, dtype=dtype, device="cuda")[:, None]
     zeros = torch.zeros_like(scales)
     W_dq = ((W_q.reshape(-1, group_size) - zeros) * scales).reshape(N, K)
     scales = scales.reshape(N, -1)
@@ -205,7 +202,6 @@ def _test_mixed_mm(
         x = torch.randn(M, K, dtype=dtype, device="cuda")
         hqq_out = x @ W_dq.T
 
-        # packed_w = pack_2xint4(W_q.T)
         tt_out = triton_mixed_mm(
             x,
             packed_w,

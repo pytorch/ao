@@ -1,6 +1,6 @@
 # torchao: PyTorch Architecture Optimization
 
-[![](https://dcbadge.vercel.app/api/server/cudamode?style=flat)](discord.gg/cudamode)
+[![](https://dcbadge.vercel.app/api/server/cudamode?style=flat)](https://discord.gg/cudamode)
 
 This repository is currently under heavy development - if you have suggestions on the API or use-cases you'd like to be covered, please open an [issue](https://github.com/pytorch/ao/issues)
 
