@@ -1432,9 +1432,7 @@ class TestAOTI(unittest.TestCase):
         if not TORCH_VERSION_AFTER_2_4:
             self.skipTest("aoti compatibility requires 2.4+.")
 
-        if test_device == "cuda":
-            self.skipTest("AOTI has some issues in cuda test right now, skipping")
-
+        print(f"TestAOTI: {api}, {test_device}, {test_dtype}")
         logger.info(f"TestAOTI: {api}, {test_device}, {test_dtype}")
         if api is change_linear_weights_to_int8_dqtensors and test_device == "cuda":
             self.skipTest(f"{api} in {test_device} is not support for aoti compilation yet")
