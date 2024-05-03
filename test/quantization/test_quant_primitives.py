@@ -231,6 +231,15 @@ class TestQuantPrimitives(unittest.TestCase):
         # we don't have corresponding ops in existing primitives, so just make sure it runs and it's close to float
         torch.testing.assert_allclose(dequantized, input, rtol=2, atol=0.02)
 
+    def test_choose_qparams_tensor_asym_eps(self):
+        input = torch.zeros(10, 10)
+        mapping_type = MappingType.ASYMMETRIC
+        dtype = torch.int8
+        block_size = (10, 10)
+        scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype)
+        eps = torch.finfo(torch.float32).eps
+        self.assertEqual(scale, eps)
+
 
 if __name__ == "__main__":
     unittest.main()
