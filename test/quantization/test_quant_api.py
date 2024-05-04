@@ -87,7 +87,7 @@ class TorchCompileDynamicQuantizer(Quantizer):
         apply_dynamic_quant(model)
         return model
 
-class M(torch.nn.Module):
+class ToyLinearModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.linear1 = torch.nn.Linear(64, 32, bias=False).to(torch.float)
@@ -103,7 +103,7 @@ class M(torch.nn.Module):
 
 class TestQuantFlow(unittest.TestCase):
     def test_dynamic_quant_gpu_singleline(self):
-        m = M().eval()
+        m = ToyLinearModel().eval()
         m = _apply_dynamic_quant(m)
         quantized = m(*m.example_inputs())
         # AssertionError: Expecting input to have dtype torch.float32, but got dtype: torch.float64
@@ -116,7 +116,7 @@ class TestQuantFlow(unittest.TestCase):
     @unittest.skip("skipping for now due to torch.compile error")
     def test_dynamic_quant_gpu_unified_api_unified_impl(self):
         quantizer = XNNPackDynamicQuantizer()
-        m = M().eval()
+        m = ToyLinearModel().eval()
         example_inputs = m.example_inputs()
         m = quantizer.prepare(m)
         m = quantizer.convert(m)
@@ -131,7 +131,7 @@ class TestQuantFlow(unittest.TestCase):
     @unittest.skip("FAILED test/quantization/test_quant_api.py::TestQuantFlow::test_dynamic_quant_gpu_unified_api_eager_mode_impl - AssertionError: Tensor-likes are not equal!")
     def test_dynamic_quant_gpu_unified_api_eager_mode_impl(self):
         quantizer = TorchCompileDynamicQuantizer()
-        m = M().eval()
+        m = ToyLinearModel().eval()
         example_inputs = m.example_inputs()
         m = quantizer.quantize(m)
         quantized = m(*example_inputs)
@@ -141,7 +141,7 @@ class TestQuantFlow(unittest.TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_int8_wo_quant_save_load(self):
-        m = M().eval().cpu()
+        m = ToyLinearModel().eval().cpu()
         apply_weight_only_int8_quant(m)
         example_inputs = m.example_inputs()
         ref = m(*example_inputs)
@@ -150,7 +150,7 @@ class TestQuantFlow(unittest.TestCase):
 
         state_dict = torch.load(_TMP_FN)
         os.remove(_TMP_FN)
-        m2 = M().eval()
+        m2 = ToyLinearModel().eval()
         apply_weight_only_int8_quant(m2)
         m2.load_state_dict(state_dict)
         m2 = m2.to(device="cuda")
@@ -165,7 +165,7 @@ class TestQuantFlow(unittest.TestCase):
         from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
 
         quantizer = Int8DynActInt4WeightQuantizer(groupsize=32)
-        m = M().eval()
+        m = ToyLinearModel().eval()
         example_inputs = m.example_inputs()
         m = quantizer.quantize(m)
         assert isinstance(m.linear1, Int8DynActInt4WeightLinear)
@@ -391,6 +391,59 @@ class TestQuantFlow(unittest.TestCase):
         assert result['results']['wikitext']['word_perplexity,none']<7.77, (
             f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
         )
+
+    # TODO: move to a separate test file
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
+    def test_quantized_tensor_subclass_8da4w(self):
+        from torchao.quantization.subclass import AffineQuantizedTensor
+        from torchao.quantization.quant_primitives import MappingType
+        import copy
+
+        # weight settings
+        groupsize = 32
+        mapping_type = MappingType.SYMMETRIC
+        block_size = (1, groupsize)
+        target_dtype = torch.int8
+        eps = torch.finfo(torch.float32).eps
+        quant_min = -8
+        quant_max = 7
+
+        # TODO: make a general helper function?
+        def get_per_token_block_size(x):
+            block_size = []
+            for i in range(len(x.shape)-1):
+                block_size.append(1)
+            block_size.append(x.shape[-1])
+            return block_size
+
+        # input settings
+        input_mapping_type = MappingType.ASYMMETRIC
+        input_target_dtype = torch.int8
+        input_quant_func = lambda x: AffineQuantizedTensor.from_float(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype)
+
+        m = ToyLinearModel().eval()
+        m_copy = copy.deepcopy(m)
+        example_inputs = m.example_inputs()
+        m.linear1.weight = torch.nn.Parameter(AffineQuantizedTensor.from_float(m.linear1.weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, input_quant_func=input_quant_func), requires_grad=False)
+        m.linear2.weight = torch.nn.Parameter(AffineQuantizedTensor.from_float(m.linear2.weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, input_quant_func=input_quant_func), requires_grad=False)
+        assert isinstance(m.linear1.weight, AffineQuantizedTensor)
+        assert isinstance(m.linear2.weight, AffineQuantizedTensor)
+
+        # reference
+        from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
+        from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
+
+        quantizer = Int8DynActInt4WeightQuantizer(groupsize=groupsize)
+        m_copy = quantizer.quantize(m_copy)
+        assert isinstance(m_copy.linear1, Int8DynActInt4WeightLinear)
+        assert isinstance(m_copy.linear2, Int8DynActInt4WeightLinear)
+
+        res = m(*example_inputs)
+        ref = m_copy(*example_inputs)
+        self.assertTrue(torch.equal(res, ref))
+
+
+
 
 if __name__ == "__main__":
     unittest.main()
