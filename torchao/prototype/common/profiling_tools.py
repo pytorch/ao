@@ -67,6 +67,44 @@ class CudaProfilerCtx:
         pass
 
 
+def trace_handler(
+    prof: torch.profiler.profile,
+    group_by_stack: int = 5,
+    group_by_input_shapes: bool = False,
+    prefix="",
+    out_dir=None,
+    export_events=False,
+    export_trace=True,
+    export_memory_timeline=False,
+):
+    # Prefix for file names.
+    out_dir = out_dir or PROFILE_DIR
+    timestamp = datetime.now().strftime(TIME_FORMAT_STR)
+    file_prefix = os.path.join(out_dir, f"{prefix}-{timestamp}")
+
+    if export_events:
+        evt_list = prof.key_averages(
+            group_by_stack_n=group_by_stack, group_by_input_shape=group_by_input_shapes
+        )
+        torch.save(evt_list, f"{file_prefix}-key_averages.pt")
+
+    # Construct the trace file.
+    if export_trace:
+        prof.export_chrome_trace(f"{file_prefix}-chrome-trace.json")
+
+    # Construct the memory timeline file.
+    if export_memory_timeline:
+        prof.export_memory_timeline(
+            f"{file_prefix}-memory-timeline.html", device="cuda:0"
+        )
+        prof.export_memory_timeline(
+            f"{file_prefix}-memory-timeline.json", device="cuda:0"
+        )
+
+
+# print(prof.key_averages().table(sort_by="self_cuda_time_total", row_limit=10))
+
+
 def get_torch_profiler(
     name,
     with_stack=True,
@@ -75,7 +113,7 @@ def get_torch_profiler(
     record_shapes=False,
     export_events=False,
     export_trace=True,
-    export_memory_timeline=True,
+    export_memory_timeline=False,
     out_dir=None,
     warmup=1,
     active=5,
@@ -118,7 +156,7 @@ class TorchProfilerCtx:
         with_stack=True,
         export_events=False,
         export_trace=True,
-        export_memory_timeline=True,
+        export_memory_timeline=False,
     ):
         return get_torch_profiler(
             name,
@@ -132,39 +170,6 @@ class TorchProfilerCtx:
             active=active,
         )
 
-    def __init__(
-        self,
-        name,
-        out_dir,
-        warmup=1,
-        active=5,
-        record_shapes=False,
-        with_stack=True,
-        export_events=False,
-        export_trace=True,
-        export_memory_timeline=True,
-    ):
-        self.profiler = get_torch_profiler(
-            name,
-            with_stack=with_stack,
-            record_shapes=export_memory_timeline or record_shapes,
-            export_events=export_events,
-            export_trace=export_trace,
-            export_memory_timeline=export_memory_timeline,
-            out_dir=out_dir,
-            warmup=warmup,
-            active=active,
-        )
-
-    def __enter__(self):
-        return self.profiler.__enter__()
-
-    def __exit__(self, exc_type, exc_value, exc_traceback) -> None:
-        return self.profiler.__exit__(exc_type, exc_value, exc_traceback)
-
-    # def step(self):
-    #     return self.profiler.step()
-
 
 def get_annotation_ctx(profiler_type):
     assert profiler_type in ["nsys", "torch"]
@@ -172,43 +177,6 @@ def get_annotation_ctx(profiler_type):
         return nvtx_range
     else:
         return record_function
-
-
-def trace_handler(
-    prof: torch.profiler.profile,
-    group_by_stack: int = 5,
-    group_by_input_shapes: bool = False,
-    prefix="",
-    out_dir=None,
-    export_events=False,
-    export_trace=True,
-    export_memory_timeline=True,
-):
-    # Prefix for file names.
-    out_dir = out_dir or PROFILE_DIR
-    timestamp = datetime.now().strftime(TIME_FORMAT_STR)
-    file_prefix = os.path.join(out_dir, f"{prefix}-{timestamp}")
-
-    if export_events:
-        evt_list = prof.key_averages(
-            group_by_stack_n=group_by_stack, group_by_input_shape=group_by_input_shapes
-        )
-        torch.save(evt_list, f"{file_prefix}-key_averages.pt")
-
-    # Construct the trace file.
-    if export_trace:
-        prof.export_chrome_trace(f"{file_prefix}-chrome-trace.json")
-
-    # Construct the memory timeline file.
-    if export_memory_timeline:
-        prof.export_memory_timeline(
-            f"{file_prefix}-memory-timeline.html", device="cuda:0"
-        )
-        prof.export_memory_timeline(
-            f"{file_prefix}-memory-timeline.json", device="cuda:0"
-        )
-    print(prof.key_averages().table(sort_by="self_cuda_time_total", row_limit=10))
-    print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
 
 
 _PERF_COLUMNS = [
