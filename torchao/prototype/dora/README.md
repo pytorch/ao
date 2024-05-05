@@ -58,7 +58,7 @@ Combining these two observations, we can write a fused kernel where:
 Altogether, this allows us to fuse the following computation into a single kernel:
 
 ```python
-    magnitude_scale = (base_weight + lora_B.weight @ lora_A.weight).norm(p=2, dim=1) * magnitude_vector
+    magnitude_scale = magnitude_vector / (base_weight + lora_B.weight @ lora_A.weight).norm(p=2, dim=1)
 ```
 
 **2 - Fused Epilogue GEMM**
