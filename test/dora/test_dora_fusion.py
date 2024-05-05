@@ -1,6 +1,8 @@
+import pytest
+
+triton = pytest.importorskip("triton", reason="requires triton")
 import itertools
 
-import pytest
 import torch
 
 from torchao.prototype.dora.kernels.matmul import triton_mm
@@ -52,6 +54,7 @@ def check(expected, actual, dtype):
     print(f"diff: {diff}")
     # assert diff < atol
     return diff
+
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires GPU")
 @pytest.mark.parametrize(
@@ -129,6 +132,7 @@ FUSED_MATMUL_TEST_CONFIGS = list(
         EPILOGUE_BROADCAST_SCALE,
     )
 )
+
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires GPU")
 @pytest.mark.parametrize(
