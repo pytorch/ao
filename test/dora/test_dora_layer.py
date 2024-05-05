@@ -2,6 +2,9 @@ import sys
 
 import pytest
 
+if sys.version_info < (3, 11):
+    pytest.skip("requires Python >= 3.11", allow_module_level=True)
+
 bnbnn = pytest.importorskip("bitsandbytes.nn", reason="requires bitsandbytes")
 hqq_core = pytest.importorskip("hqq.core.quantize", reason="requires hqq")
 
@@ -58,7 +61,6 @@ TEST_CONFIGS = list(
 )
 
 
-@pytest.mark.skipif(sys.version_info < (3, 11), reason="requires Python >= 3.11")
 @pytest.mark.parametrize(
     "bs, seqlen, in_features, out_features, lora_rank, dtype, model_type",
     TEST_CONFIGS,
