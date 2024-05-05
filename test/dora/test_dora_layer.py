@@ -1,18 +1,19 @@
-# Linear4bit = pytest.importorskip(
-#     "bitsandbytes.nn.Linear4bit", reason="requires bitsandbytes"
-# )
-# HQQLinear = pytest.importorskip("hqq.core.quantize.HQQLinear", reason="requires hqq")
-# BaseQuantizeConfig = pytest.importorskip(
-#     "hqq.core.quantize.BaseQuantizeConfig", reason="requires hqq"
-# )
+import pytest
+
+bnbnn = pytest.importorskip(
+    "bitsandbytes.nn", reason="requires bitsandbytes"
+)
+hqq_core = pytest.importorskip("hqq.core.quantize", reason="requires hqq")
+
 import itertools
 
-import pytest
 import torch
-from bitsandbytes.nn import Linear4bit
-from hqq.core.quantize import BaseQuantizeConfig, HQQLinear
 
-from prototypes.dora.dora_layer import BNBDoRALinear, DoRALinear, HQQDoRALinear
+#Import modules as opposed to classes directly, otherwise pytest.importorskip always skips
+Linear4bit = bnbnn.Linear4bit
+BaseQuantizeConfig = hqq_core.BaseQuantizeConfig
+HQQLinear = hqq_core.HQQLinear
+from torchao.prototype.dora.dora_layer import BNBDoRALinear, DoRALinear, HQQDoRALinear
 
 
 def check(expected, actual, dtype):
