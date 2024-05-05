@@ -1,15 +1,15 @@
+import sys
+
 import pytest
 
-bnbnn = pytest.importorskip(
-    "bitsandbytes.nn", reason="requires bitsandbytes"
-)
+bnbnn = pytest.importorskip("bitsandbytes.nn", reason="requires bitsandbytes")
 hqq_core = pytest.importorskip("hqq.core.quantize", reason="requires hqq")
 
 import itertools
 
 import torch
 
-#Import modules as opposed to classes directly, otherwise pytest.importorskip always skips
+# Import modules as opposed to classes directly, otherwise pytest.importorskip always skips
 Linear4bit = bnbnn.Linear4bit
 BaseQuantizeConfig = hqq_core.BaseQuantizeConfig
 HQQLinear = hqq_core.HQQLinear
@@ -58,6 +58,7 @@ TEST_CONFIGS = list(
 )
 
 
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="requires Python >= 3.11")
 @pytest.mark.parametrize(
     "bs, seqlen, in_features, out_features, lora_rank, dtype, model_type",
     TEST_CONFIGS,

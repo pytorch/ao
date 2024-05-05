@@ -1,3 +1,5 @@
+import sys
+
 import pytest
 
 triton = pytest.importorskip("triton", reason="requires triton")
@@ -56,6 +58,7 @@ def check(expected, actual, dtype):
     return diff
 
 
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="requires Python >= 3.11")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires GPU")
 @pytest.mark.parametrize(
     "shape, store_acc, epilogue_norm, add_source, magnitude_vector, dtype",
@@ -134,6 +137,7 @@ FUSED_MATMUL_TEST_CONFIGS = list(
 )
 
 
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="requires Python >= 3.11")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires GPU")
 @pytest.mark.parametrize(
     "shape, dtype, epilogue_add, epilogue_scale",
