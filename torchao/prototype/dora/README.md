@@ -143,12 +143,3 @@ nsys profile --capture_range=cudaProfilerApi ... python dora_profile.py --profil
 ```
 
 where `...` are other desired `nsys` options. Note that `--capture_range=cudaProfilerApi` is required.
-
-#### Next steps
-
-- [ ] `torch.compile` entire DoRA layer with fused k
-      ernels
-
-- [ ] Implement backwards pass
-
-- [ ] Refactor! Lots of repeated profiling / kernel functions across `galore`, `hqq`, and `dora` can now be refactored into single module. Separate PR?
