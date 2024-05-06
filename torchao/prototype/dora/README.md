@@ -11,7 +11,6 @@ Fused DoRA layer implementation that reduces number of individual kernels from ~
 - [Tests](#tests)
 - [Benchmarks](#benchmarks)
 - [Profiling](#profiling)
-- [Next Steps](#next-steps)
 
 ## Background
 
