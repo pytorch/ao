@@ -50,17 +50,6 @@ class DoRALayer(nn.Module):
         return output, column_norm
 
 
-# class MagnitudeLayer(nn.Module):
-#     "FSDP doesn't work with nn.ParameterDict hence this module: https://github.com/pytorch/pytorch/issues/79605"
-
-#     def __init__(self, vector_data, device, dtype):
-#         super().__init__()
-#         self.magnitude = nn.Parameter(vector_data.to(device=device, dtype=dtype))
-
-#     def forward(self, x):
-#         return x * self.magnitude.view(1, 1, -1)
-
-
 class DoRALinear(nn.Module):
     """Reference DoRA Update Layer
 
@@ -203,58 +192,3 @@ class HQQDoRALinear(DoRALinear):
         return self.base_layer.dequantize()
 
 
-if __name__ == "__main__":
-    # bnb_dora_layer = BNBDoraLayer(in_features=128, out_features=32, lora_rank=16)
-
-    bs, seqlen = 1, 16
-    in_features, out_features = 128, 256
-    x = torch.randn(bs, seqlen, in_features).cuda().to(torch.float32)
-
-    torch_base = nn.Linear(128, 256, bias=False).cuda()
-    torch_dora = DoRALinear(torch_base, lora_rank=16).cuda()
-
-    bnb_base = Linear4bit(
-        input_features=in_features,
-        output_features=out_features,
-        bias=False,
-        quant_type="nf4",
-        compute_dtype=torch.float32,
-        quant_storage=torch.float32,
-    )
-    bnb_base.load_state_dict(torch_base.state_dict())
-    # print((bnb_base.weight - torch_base.weight).abs().max())
-    bnb_base = bnb_base.to(0)
-    # print((W_dq - torch_base.weight.data).abs().max())
-    # y = torch_base(x)
-    # y_bnb = bnb_base(x)
-    # y_bnb_ref = x @ W_dq.T
-    # print((y - y_bnb_ref).abs().max())
-    # print((y - y_bnb).abs().max())
-    # bnb_dora = BNBDoRALinear(bnb_base, lora_rank=16).cuda()
-    # y = torch_dora.forward(x)
-    # y_bnb = bnb_dora.forward(x)
-    # print((y - y_bnb).abs().max())
-    # print((torch_base(x) - bnb_base(x)).abs().max())
-    quant_config = BaseQuantizeConfig(
-        nbits=4,
-        group_size=64,
-        quant_zero=False,
-        quant_scale=False,
-        offload_meta=True,
-        view_as_float=True,
-    )
-
-    hqq_base = HQQLinear(
-        torch_base,
-        quant_config,
-        compute_dtype=torch.float32,
-    )
-
-    print(hqq_base.meta.keys())
-    hqq_base.set_backend(HQQBackend.PYTORCH)
-    hqq_dora = HQQDoRALinear(hqq_base, lora_rank=16)
-    # print(hqq_dora.base_layer.meta)
-    # print(hqq_dora.base_layer.meta["nbits"])
-    # print(hqq_dora.base_layer.meta["zero_scale"])
-    # print(hqq_dora.dequantize().shape)
-    print(hqq_dora(x).shape)
