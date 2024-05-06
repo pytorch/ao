@@ -9,7 +9,7 @@ def nms(boxes: Tensor, scores: Tensor, iou_threshold: float) -> Tensor:
 
 
 # Defines the meta kernel / fake kernel / abstract impl
-@torch.library.impl_abstract("torchao::nms")
+@torch.library.register_fake("torchao::nms")
 def _(dets, scores, iou_threshold):
     torch._check(dets.dim() == 2, lambda: f"boxes should be a 2d tensor, got {dets.dim()}D")
     torch._check(dets.size(1) == 4, lambda: f"boxes should have 4 elements in dimension 1, got {dets.size(1)}")
