@@ -169,17 +169,6 @@ class TestQAT(unittest.TestCase):
         qat_model = qat_quantizer.prepare(m)
         ptq_model = ptq_quantizer.quantize(m2)
 
-        # Force the weights to be the same
-        self._set_ptq_weight(
-            ptq_model.linear1, qat_model.linear1.weight, group_size,
-        )
-        self._set_ptq_weight(
-            ptq_model.sub.linear, qat_model.sub.linear.weight, group_size,
-        )
-        self._set_ptq_weight(
-            ptq_model.linear2, qat_model.linear2.weight, group_size,
-        )
-
         # Compare model values
         torch.manual_seed(self.SEED)
         x = m.example_inputs()
@@ -199,6 +188,18 @@ class TestQAT(unittest.TestCase):
         self.assertEqual(ptq_state_dict.keys(), converted_state_dict.keys())
         for k in ptq_state_dict.keys():
             torch.testing.assert_close(ptq_state_dict[k], converted_state_dict[k], atol=0, rtol=0)
+
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "skipping when torch verion is 2.3 or lower")
+    def test_qat_8da4w_quantizer_meta_weights(self):
+        from torchao.quantization.prototype.qat import Int8DynActInt4WeightQATQuantizer
+
+        with torch.device("meta"):
+            m = M()
+        self.assertTrue(all(v.is_meta for v in m.state_dict().values()))
+        group_size = 16
+        qat_quantizer = Int8DynActInt4WeightQATQuantizer(groupsize=group_size)
+        qat_model = qat_quantizer.prepare(m)
+        self.assertTrue(all(v.is_meta for v in qat_model.state_dict().values()))
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "skipping when torch verion is 2.3 or lower")
     def test_qat_8da4w_quantizer_disable_fake_quant(self):

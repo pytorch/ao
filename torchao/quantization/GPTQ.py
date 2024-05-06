@@ -1127,22 +1127,26 @@ if TORCH_VERSION_AFTER_2_3:
         precision: torch.dtype,
         scales_precision: torch.dtype,
         linear_class: Type[torch.nn.Module],
+        copy_weights: bool = False,
     ):
         for name, child in module.named_children():
             if isinstance(child, nn.Linear):
                 if _check_linear_int4_k(child.in_features, groupsize) or padding_allowed:
-                    setattr(
-                        module,
-                        name,
-                        linear_class(
-                            child.in_features,
-                            child.out_features,
-                            bias=False,
-                            groupsize=groupsize,
-                            precision=precision,
-                            scales_precision=scales_precision,
-                        ),
+                    new_linear = linear_class(
+                        child.in_features,
+                        child.out_features,
+                        bias=False,
+                        device=child.weight.device,
+                        groupsize=groupsize,
+                        precision=precision,
+                        scales_precision=scales_precision,
                     )
+                    # In distributed training, the model may be instantiated
+                    # on the meta device, in which case there is no need to
+                    # copy the weights, and doing so will result in an error
+                    if copy_weights and child.weight.device != torch.device("meta"):
+                        new_linear.weight = child.weight
+                    setattr(module, name, new_linear)
             else:
                 _replace_linear_8da4w(
                     child,
@@ -1151,6 +1155,7 @@ if TORCH_VERSION_AFTER_2_3:
                     precision,
                     scales_precision,
                     linear_class,
+                    copy_weights,
                 )
 
     def replace_linear_8da4w(
