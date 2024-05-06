@@ -123,9 +123,9 @@ torchao has been integrated with other libraries including
 ## Success stories
 Our kernels have been used to achieve SOTA inference performance on
 
-* Image segmentation models with [sam-fast](pytorch.org/blog/accelerating-generative-ai)
-* Language models with [gpt-fast](pytorch.org/blog/accelerating-generative-ai-2)
-* Diffusion models with [sd-fast](pytorch.org/blog/accelerating-generative-ai-3)
+* Image segmentation models with [sam-fast](https://pytorch.org/blog/accelerating-generative-ai)
+* Language models with [gpt-fast](https://pytorch.org/blog/accelerating-generative-ai-2)
+* Diffusion models with [sd-fast](https://pytorch.org/blog/accelerating-generative-ai-3)
 
 ## License
 
