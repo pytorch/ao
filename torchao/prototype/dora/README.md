@@ -1,8 +1,19 @@
-### Fused DoRA Kernels
+## Fused DoRA Kernels
 
 Fused DoRA layer implementation that reduces number of individual kernels from ~10 -> 5.
 
-#### Background
+## Contents
+
+- [Background](#background)
+- [Optimization](#optimization)
+- [Key Contributions](#key-contributions)
+- [Usage](#usage)
+- [Tests](#tests)
+- [Benchmarks](#benchmarks)
+- [Profiling](#profiling)
+- [Next Steps](#next-steps)
+
+## Background
 
 [DoRA](https://arxiv.org/abs/2402.09353) (weight-decomposed low-rank adaptation) is a variant of LoRA that decomposes the LoRA update into magnitude and vector components.
 
@@ -24,7 +35,7 @@ where:
 - `magnitude_vector` is initialized as the columnwise `2-norm` of the frozen weight (shape `out-features`).
 - `x` are the inputs of shape `batch_size x seqlen x in_features`
 
-#### Optimization
+## Optimization
 
 After initial profiling, and as outlined above, the `DoRA` update layer requires multiple kernels.
 
@@ -39,7 +50,7 @@ In order of compute intensity:
 
 While `torch.compile` (and `CUDA` graphs) can partially mitigate the overhead of multiple small kernels and improve compute efficiency of individual kernels, there remains room for additional optimization by reordering the computations to facilitate fusions, and more importantly, exploiting the unique shapes of the GEMMs, thereby decreasing the number of kernel launches and increasing the compute intensity of each kernel.
 
-#### Key Contributions
+## Key Contributions
 
 **1 - Small K Fused Kernel**
 
@@ -75,7 +86,7 @@ Additionally, instead of computing the base layer output before the `DoRA / LoRA
     final_out = (x @ base_weight.T + lora_out) * magnitude_scale
 ```
 
-#### Usage
+## Usage
 
 The fused kernels can be used to implement `DoRA` / `QDoRA` layers.
 
@@ -113,11 +124,11 @@ _Example_
 
 See `test/test_dora_layer.py` and `benchmarks/dora_bench.py` for more detailed usage.
 
-#### Tests
+### Tests
 
 See `test/dora/test*`, for correctness checks of the fused kernels and layers.
 
-#### Benchmarks
+## Benchmarks
 
 See `benchmarks/dora_bench.py`.
 
@@ -129,7 +140,7 @@ Run with flag `--kernel` set to one of `{dora-colnorm,dora-mm-epilogue}`, to ben
 
 Additionally, passing either `--kernel={dora-bnb, dora-hqq}` will bench a reference `QDoRA` layer against their fused implementations.
 
-#### Profiling
+## Profiling
 
 The reference `DoRALinear` layer described above also has an instrumented forward pass with annotated regions for each of the `DoRA` ops.
 
