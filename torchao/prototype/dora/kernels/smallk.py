@@ -262,7 +262,7 @@ _AUTOTUNE_TOPK = 10
 
 # @heuristics(SMALLK_HEURISTICS)
 @autotune(
-    get_small_k_configs()[:10],
+    get_small_k_configs(),
     key=["M", "N", "K"],
     prune_configs_by={
         "early_config_prune": small_k_early_config_prune,
