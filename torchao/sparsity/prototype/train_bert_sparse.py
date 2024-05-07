@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.utils.benchmark as benchmark
 from torch import nn
-from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensor
+from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensor, SparseSemiStructuredTensorCUSPARSELT, SparseSemiStructuredTensorCUTLASS
 from torch.ao.pruning import WeightNormSparsifier
 import transformers
 import torch.nn.functional as F
@@ -186,11 +186,23 @@ class SemiSparseLinear(nn.Linear):
 def swap_linear_with_semi_sparse_linear_(model, config, current=""):
         name_to_child = dict(model.named_children())
         for name, child in name_to_child.items():
-            if isinstance(child, torch.nn.Linear) and max(child.in_features, child.out_features) > 768:
+            if isinstance(child, torch.nn.Linear) and max(child.out_features, child.in_features) > 1024:
                 setattr(model, name, SemiSparseLinear.from_dense(child))
                 del child
             else:
                 swap_linear_with_semi_sparse_linear_(child, config, current=f"{current}.{name}")
+
+def swap_semi_sparse_linear_to_linear(model, config, current=""):
+        name_to_child = dict(model.named_children())
+        for name, child in name_to_child.items():
+            if isinstance(child, SemiSparseLinear):
+                new_module = nn.Linear(child.in_features, child.out_features)
+                new_module.weight = nn.Parameter(to_sparse_semi_structured(child.weight))
+                new_module.bias.data = child.bias.data
+                setattr(model, name, new_module)
+                del child
+            else:
+                swap_semi_sparse_linear_to_linear(child, config, current=f"{current}.{name}")
 
 if __name__ == "__main__":
     # load model
@@ -214,33 +226,38 @@ if __name__ == "__main__":
     )
     data_collator = transformers.DataCollatorWithPadding(tokenizer=tokenizer)
 
-    # config = {
-    #     # "key": DENSE,
-    #     # "query": DENSE,
-    #     # "value": DENSE,
-    #     # "attention.output": DENSE,
-    #     "intermediate": SemiSparseLinear,
-    #     "output": SemiSparseLinear,
-    # }
-    swap_linear_with_semi_sparse_linear_(model, config)
+    swap_linear_with_semi_sparse_linear_(model, {})
 
     for name, mod in model.named_modules():
-        if isinstance(mod, torch.nn.Linear):
-            print(f"{name:50s} | {mod.__class__.__name__} | {mod.weight.shape}")
+        if isinstance(mod, SemiSparseLinear):
+            (packed, meta, packed_t, meta_t, bitmask) = torch._sparse_semi_structured_tile(
+                mod.weight.data.cuda().to(torch.bfloat16), algorithm="", use_cutlass=True
+            )
+            out = SparseSemiStructuredTensorCUTLASS(
+                mod.weight.data.shape,
+                packed=packed,
+                meta=meta,
+                packed_t=packed_t,
+                meta_t=meta_t,
+                compressed_swizzled_bitmask=bitmask,
+                requires_grad=False,
+                fuse_transpose_cusparselt=True,
+            )
+            mod.weight = nn.Parameter(out)
 
     training_args = transformers.TrainingArguments(
         "trainer",
         num_train_epochs=1,
         lr_scheduler_type="constant",
-        per_device_train_batch_size=256,
-        per_device_eval_batch_size=256,
+        per_device_train_batch_size=64,
+        per_device_eval_batch_size=64,
         torch_compile=True,
         bf16=True,
-        optim="adamw_torch_fused",
-        # since we compile
-        dataloader_drop_last=True,
+        # optim="adamw_torch_fused",
+        dataloader_drop_last=True, # since we compile, drop the last training batch because it does not have the right dims.
         dataloader_num_workers=8,
         logging_strategy="no",
+        save_strategy="no"
     )
 
     trainer = transformers.Trainer(
@@ -254,15 +271,16 @@ if __name__ == "__main__":
 
     trainer.train()
 
-
+    # swap_semi_sparse_linear_to_linear(model, {})
     print("Evaluating")
     eval_args = transformers.TrainingArguments(
         "eval",
-        per_device_train_batch_size=256,
-        per_device_eval_batch_size=256,
+        per_device_train_batch_size=64,
+        per_device_eval_batch_size=64,
         bf16=True,
         dataloader_num_workers=8,
         logging_strategy="no",
+        save_strategy="no"
     )
 
     trainer = transformers.Trainer(
