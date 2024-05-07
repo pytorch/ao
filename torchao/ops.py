@@ -21,3 +21,16 @@ def _(dets, scores, iou_threshold):
     ctx = torch._custom_ops.get_ctx()
     num_to_keep = ctx.create_unbacked_symint()
     return dets.new_empty(num_to_keep, dtype=torch.long)
+
+
+def prepack_fp6_weight(fp6_weight: Tensor) -> Tensor:
+    return torch.ops.torchao.prepack_fp6_weight.default(fp6_weight)
+
+
+@torch.library.impl_abstract("torchao::prepack_fp6_weight")
+def _(fp6_weight):
+    torch._check(fp6_weight.dim() == 2, lambda: f"weight should be a 2d tensor, got {dets.dim()}D")
+    # ctx = torch._custom_ops.get_ctx()
+    # num_to_keep = ctx.create_unbacked_symint()
+    # return fp6_weight.new_empty(num_to_keep, dtype=torch.long)
+    return torch.empty_like(fp6_weight)

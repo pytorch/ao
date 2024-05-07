@@ -42,6 +42,18 @@ class TestOps(TestCase):
         test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
         opcheck(torch.ops.torchao.nms, (boxes, scores, iou), test_utils=test_utils)
 
+    def test_prepack_fp6_weight(self):
+        OC = 256
+        IC = 256
+        fp6_weight = torch.randint(4294967295, (OC, IC // 16 * 3)).to(torch.int)
+
+        # smoke test
+        torchao.ops.prepack_fp6_weight(fp6_weight)
+
+        # comprehensive testing
+        test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
+        opcheck(torch.ops.torchao.prepack_fp6_weight, (fp6_weight,), test_utils=test_utils)
+
 
 if __name__ == "__main__":
     unittest.main()

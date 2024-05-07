@@ -198,7 +198,7 @@ at::Tensor weight_matrix_prepacking_cpu(at::Tensor fp6_tensor)
 }
 
 TORCH_LIBRARY_IMPL(torchao, CPU, m) {
-  m.impl("torchao::weight_matrix_prepacking_cpu", &weight_matrix_prepacking_cpu);
+  m.impl("torchao::prepack_fp6_weight", &weight_matrix_prepacking_cpu);
 }
 
 }
