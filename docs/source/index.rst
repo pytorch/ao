@@ -92,6 +92,7 @@ with more content coming soon.
    :maxdepth: 1
    :caption: API Reference
 
+   api_ref_sparsity
    api_ref_intro
    api_ref_quantization
    api_ref_dtypes
