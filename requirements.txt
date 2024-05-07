@@ -3,3 +3,4 @@ numpy
 sentencepiece
 packaging
 expecttest # So we can use IS_FBCODE flag
+hypothesis # Avoid test derandomization warning
