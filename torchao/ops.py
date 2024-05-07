@@ -34,3 +34,7 @@ def _(fp6_weight):
     # num_to_keep = ctx.create_unbacked_symint()
     # return fp6_weight.new_empty(num_to_keep, dtype=torch.long)
     return torch.empty_like(fp6_weight)
+
+
+def fp16act_fp6weight_linear(_in_feats: Tensor, _weights: Tensor, _scales: Tensor, splitK: int = 1) -> Tensor:
+    return torch.ops.torchao.fp16act_fp6weight_linear.default(_in_feats, _weights, _scales, splitK)

@@ -68,6 +68,7 @@ def get_extensions():
 
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
     cuda_sources = list(glob.glob(os.path.join(extensions_cuda_dir, "*.cu")))
+    cuda_sources += list(glob.glob(os.path.join(extensions_cuda_dir, "fp6_test/*.cu")))
 
     if use_cuda:
         sources += cuda_sources

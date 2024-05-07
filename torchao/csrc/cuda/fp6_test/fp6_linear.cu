@@ -1,8 +1,5 @@
 #include "kernel_matmul.cuh"
 #include "kernel_reduction.cuh"
-#include "weight_prepacking.h"
-#include "weight_dequant.h"
-#include "weight_quant.h"
 
 #include <stdio.h>
 #include <assert.h>
@@ -103,12 +100,9 @@ cudaError_t fp6_linear_kernel(cudaStream_t    stream,
 }
 
 
-
-
-
-#ifndef NO_PYTORCH
 #include <torch/extension.h>
 #include <ATen/ATen.h>
+#include <torch/library.h>
 
 namespace torchao {
 /*
@@ -129,7 +123,7 @@ After Equivalent transformation    :    trans(Out) = W * trans(In). Note that we
 torch::Tensor fp6_linear_forward_cuda(torch::Tensor _in_feats,
                                       torch::Tensor _weights,
                                       torch::Tensor _scales,
-                                      int           splitK=1)
+                                      int64_t       splitK=1)
 {
     int num_in_feats      = _in_feats.size(0);
     int num_in_channels   = _in_feats.size(1);
@@ -167,54 +161,8 @@ torch::Tensor fp6_linear_forward_cuda(torch::Tensor _in_feats,
     return _out_feats;
 }
 
-
-/*
- * Weight prepacking (Pytorch interface).
- * [Input & Output]
- *  fp6_tensor: int tensor of shape [OC, IC // 16 * 3];   // 3 INT32 words contains 16 FP6 weights.
- * [Output]
- *  packed_tensor: int tensor of shape [OC, IC // 16 * 3];
- */
-torch::Tensor weight_matrix_prepacking_cpu(torch::Tensor fp6_tensor)
-{
-    size_t OC = fp6_tensor.size(0);
-    size_t IC = fp6_tensor.size(1);
-    assert (IC%3==0);   
-    IC = IC*16/3;
-    assert( (OC%256==0) && (IC%64==0) );
-    auto packed_tensor = torch::empty_like(fp6_tensor);
-    auto packed_tensor_ptr = reinterpret_cast<int*>(packed_tensor.data_ptr<int>());
-    auto fp6_tensor_ptr = reinterpret_cast<int*>(fp6_tensor.data_ptr<int>());
-    weight_matrix_prepacking(packed_tensor_ptr, fp6_tensor_ptr, OC, IC);
-    return packed_tensor;
+TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
+  m.impl("torchao::fp16act_fp6weight_linear", &fp6_linear_forward_cuda);
 }
 
-/*
- * Dequant a FP6 matrix to a equivalent FP16 matrix using CPUs.
- * A useful tool to construct input matrices for the FP16 GEMM baseline.
- * [Input]
- *  fp6_tensor:  int  tensor of shape [OC, IC // 16 * 3];   // 3 INT32 words contains 16 FP6  weights.
- *  fp16_scale:  half tensor of shape [OC];                 // for row-wise quantization.
- * [Output]
- *  fp16_tensor: half tensor of shape [OC, IC].     
- */
-torch::Tensor weight_matrix_dequant_cpu(torch::Tensor fp6_tensor, torch::Tensor fp16_scale) 
-{
-    int OC = fp6_tensor.size(0);
-    assert(fp6_tensor.size(1) % 3 == 0);
-    int IC = fp6_tensor.size(1) / 3 * 16;
-    assert(fp16_scale.size(0)==OC);
-    //
-    auto fp6_tensor_ptr = reinterpret_cast<int*>(fp6_tensor.data_ptr<int>());
-    auto fp16_scale_ptr = reinterpret_cast<half*>(fp16_scale.data_ptr<at::Half>());
-    //
-    auto options = torch::TensorOptions().dtype(fp16_scale.dtype()).device(fp16_scale.device());
-    at::Tensor fp16_tensor = torch::empty({OC, IC}, options);
-    auto fp16_tensor_ptr = reinterpret_cast<half*>(fp16_tensor.data_ptr<at::Half>());
-    //
-    DeQuantMatrix_FP6_To_FP16(fp16_tensor_ptr, (unsigned char*)fp6_tensor_ptr, OC, IC, fp16_scale_ptr);
-    //
-    return fp16_tensor;
-}
-}
-#endif
+} // namespace torchao
