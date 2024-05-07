@@ -10,7 +10,6 @@ optimize your machine learning models.
    :maxdepth: 1
    :caption: Python API Reference
 
-   api_ref_sparsity
    api_ref_quantization
    api_ref_dtypes
    api_ref_kernel
