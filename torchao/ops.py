@@ -38,3 +38,12 @@ def _(fp6_weight):
 
 def fp16act_fp6weight_linear(_in_feats: Tensor, _weights: Tensor, _scales: Tensor, splitK: int = 1) -> Tensor:
     return torch.ops.torchao.fp16act_fp6weight_linear.default(_in_feats, _weights, _scales, splitK)
+
+
+@torch.library.impl_abstract("torchao::fp16act_fp6weight_linear")
+def _(_in_feats, _weights, _scales, splitK = 1):
+    torch._check(fp6_weight.dim() == 2, lambda: f"weight should be a 2d tensor, got {dets.dim()}D")
+    # ctx = torch._custom_ops.get_ctx()
+    # num_to_keep = ctx.create_unbacked_symint()
+    # return fp6_weight.new_empty(num_to_keep, dtype=torch.long)
+    return torch.empty_like(_in_feats)
