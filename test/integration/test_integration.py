@@ -1449,11 +1449,11 @@ class TestAutoQuant(unittest.TestCase):
         example_input2 = torch.randn(m1, k, device=device, dtype=dtype)
         out = model(example_input)
 
-        torchao.autoquant(torch.compile(model))
-        model.forward_log_only(example_input)
-        model(example_input2)
+        mod = torchao.autoquant(torch.compile(model))
+        mod.forward_log_only(example_input)
+        mod(example_input2)
 
-        out2 = model(example_input)
+        out2 = mod(example_input)
         sqnr = SQNR(out, out2)
         self.assertTrue(sqnr >= 30)
 
@@ -1480,17 +1480,60 @@ class TestAutoQuant(unittest.TestCase):
             torch.nn.ReLU(),
         ).to(device).to(dtype)
         example_input = torch.randn(m1, k, device=device, dtype=dtype)
-        example_input2 = torch.randn(m1, k, device=device, dtype=dtype)
+        example_input2 = torch.randn(m1+1, k, device=device, dtype=dtype)
         out = model(example_input)
 
-        torchao.autoquant(torch.compile(model))
-        model.forward_log_only(example_input)
-        model(example_input2)
+        mod = torchao.autoquant(torch.compile(model))
+        mod.forward_log_only(example_input)
+        mod(example_input2)
 
-        out2 = model(example_input)
+        out2 = mod(example_input)
         sqnr = SQNR(out, out2)
         self.assertTrue(sqnr >= 30)
 
+    @parameterized.expand(combine_parameters(COMMON_DEVICE_DTYPE,
+        [
+            (1,   1, 128, 128),
+            (1,  32, 128, 128),
+            (32, 32, 128, 128),
+        ]))
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
+    def test_autoquant_kwargs(self, device, dtype, m1, m2, k, n):
+        if device != "cuda" and dtype != torch.bfloat16:
+            self.skipTest(f"autoquant currently does not support {device}")
+        if device != "cuda" or not torch.cuda.is_available():
+            self.skipTest(f"autoquant currently does not support {device}")
+        if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
+            if dtype == torch.bfloat16:
+                self.skipTest(f"bfloat16 requires sm80+")
+            if m1 == 1 or m2 == 1:
+                self.skipTest(f"Shape {(m1, m2, k, n)} requires sm80+")
+
+        class NeedsKwargs(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.rel = torch.nn.ReLU()
+                self.lin = torch.nn.Linear(k,n)
+
+            def forward(self, x, y):
+                x = self.rel(x)
+                z = self.lin(x + y)
+                return z
+
+        model = NeedsKwargs().to(device).to(dtype)
+        example_input = {
+            "x": torch.randn(m1, k, device=device, dtype=dtype),
+            "y": torch.randn(m1, k, device=device, dtype=dtype),
+        }
+        out = model(**example_input)
+
+        mod = torchao.autoquant(torch.compile(model))
+        mod.forward_log_only(**example_input)
+        mod(**example_input)
+
+        out2 = mod(**example_input)
+        sqnr = SQNR(out, out2)
+        self.assertTrue(sqnr >= 30)
 
 class TestAOTI(unittest.TestCase):
     @parameterized.expand(
