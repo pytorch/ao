@@ -136,7 +136,7 @@ def _get_reduction_params(block_size, input_size):
 
 def quantize_affine(
     input: torch.Tensor,
-    block_size: List[int],
+    block_size: Tuple[int, ...],
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     output_dtype: torch.dtype,
@@ -146,7 +146,7 @@ def quantize_affine(
     """
     Args:
       input (torch.Tensor): original float32 or bfloat16 Tensor
-      block_size: (List[int]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
+      block_size: (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
                            e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
       scale (float): quantization parameter for affine quantization
       zero_point (int): quantization parameter for affine quantization
@@ -191,7 +191,7 @@ def quantize_affine(
 
 def dequantize_affine(
     input: torch.Tensor,
-    block_size: List[int],
+    block_size: Tuple[int, ...],
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     input_dtype: torch.dtype,
@@ -244,7 +244,7 @@ class MappingType(Enum):
 def choose_qparams_affine(
    input: torch.Tensor,
    mapping_type: MappingType,
-   block_size: List[int],
+   block_size: Tuple[int, ...],
    target_dtype: torch.dtype,
    quant_min: Optional[int] = None,
    quant_max: Optional[int] = None,
@@ -256,12 +256,14 @@ def choose_qparams_affine(
     Args:
         input (torch.Tensor): fp32, bf16, fp16 input Tensor
         mapping_type (MappingType): determines how the qparams are calculated, symmetric or asymmetric
+      block_size: (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
+                           e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
         target_dtype (torch.dtype): dtype for target quantized Tensor
         quant_min (Optional[int]): minimum quantized value for target quantized Tensor
         quant_max (Optioanl[int]): maximum quantized value for target quantized Tensor
-        eps (Optional[float]: minimum scale
-        scale_dtype (torch.dtype): dtype for scales
-        zero_point_dtype (torch.dtype): dtype for zero_points
+        eps (Optional[float]): minimum scale, if not provided, default to eps of input.dtype
+        scale_dtype (torch.dtype): dtype for scale Tensor
+        zero_point_dtype (torch.dtype): dtype for zero_point Tensor
 
     Output:
         Tuple of scales and zero_points Tensor with requested dtype
