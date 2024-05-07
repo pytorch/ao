@@ -10,6 +10,7 @@ import unittest
 import torch
 from torchao.quantization.quant_primitives import (
     get_group_qparams_symmetric,
+    get_groupwise_affine_qparams,
     quantize_affine,
     dequantize_affine,
     choose_qparams_affine,
@@ -56,8 +57,8 @@ class TestQuantPrimitives(unittest.TestCase):
         scale_obs = scale_obs.reshape(weight.shape[0], -1)
 
         # assert that scales are identical
-        (scale_ao, _) = get_group_qparams_symmetric(weight, n_bit, groupsize)
-        torch.testing.assert_allclose(scale_obs, scale_ao, rtol=0, atol=0)
+        (scale_ao, _) = get_group_qparams_symmetric(weight, n_bit, groupsize, precision=torch.float16)
+        torch.testing.assert_close(scale_obs, scale_ao, rtol=0, atol=0)
 
     def test_choose_qparams_group_sym(self):
         """Note: groupwise asymmetric quant is using a different way of computing zero_points, so
@@ -88,7 +89,7 @@ class TestQuantPrimitives(unittest.TestCase):
         scale_ref = scale_ref.squeeze()
         zp_ref = zp_ref.squeeze()
 
-        torch.testing.assert_allclose(scale, scale_ref, atol=10e-3, rtol=10e-3)
+        torch.testing.assert_close(scale, scale_ref, atol=10e-3, rtol=10e-3)
         self.assertTrue(torch.equal(zero_point, zp_ref))
 
     def test_choose_qparams_tensor_asym(self):
@@ -257,7 +258,7 @@ class TestQuantPrimitives(unittest.TestCase):
         quantized = quantize_affine(input, block_size, scale, zero_point, dtype)
         dequantized = dequantize_affine(quantized, block_size, scale, zero_point, dtype, output_dtype=torch.float32)
         # we don't have corresponding ops in existing primitives, so just make sure it runs and it's close to float
-        torch.testing.assert_allclose(dequantized, input, rtol=2, atol=0.02)
+        torch.testing.assert_close(dequantized, input, rtol=2, atol=0.02)
 
     def test_choose_qparams_tensor_asym_eps(self):
         input = torch.zeros(10, 10)
@@ -297,6 +298,70 @@ class TestQuantPrimitives(unittest.TestCase):
         block_size = (1, 1)
         with self.assertRaisesRegex(RuntimeError, "is invalid for input of size 1"):
             _ = quantize_affine(input, block_size, scale, zero_point, dtype)
+
+    def test_not_preserve_zero_not_supported(self):
+        """Making sure preserve_zero == False is not supported for symmetric quant"""
+        input = torch.randn(10, 256)
+        n_bit = 4
+        mapping_type = MappingType.SYMMETRIC
+        dtype = torch.int8
+        block_size = (1, 128)
+        quant_min = 0
+        quant_max = 2**n_bit - 1
+        eps = 1e-6
+        scale_dtype = torch.bfloat16
+        zero_point_dtype = torch.bfloat16
+        with self.assertRaisesRegex(ValueError, "preserve_zero == False is not supported for symmetric quantization"):
+            choose_qparams_affine(
+                input,
+                mapping_type,
+                block_size,
+                dtype,
+                quant_min,
+                quant_max,
+                eps,
+                scale_dtype=scale_dtype,
+                zero_point_dtype=zero_point_dtype,
+                preserve_zero=False,
+            )
+
+
+    def test_tinygemm_get_groupwise_affine_qparams(self):
+        input = torch.randn(10, 256)
+        n_bit = 4
+        scale_ref, zero_point_ref = get_groupwise_affine_qparams(input, n_bit=n_bit, groupsize=128, dtype=torch.bfloat16)
+
+        mapping_type = MappingType.ASYMMETRIC
+        dtype = torch.int8
+        block_size = (1, 128)
+        quant_min = 0
+        quant_max = 2**n_bit - 1
+        eps = 1e-6
+        scale_dtype = torch.bfloat16
+        zero_point_dtype = torch.bfloat16
+        scale, zero_point = \
+            choose_qparams_affine(
+                input,
+                mapping_type,
+                block_size,
+                dtype,
+                quant_min,
+                quant_max,
+                eps,
+                scale_dtype=scale_dtype,
+                zero_point_dtype=zero_point_dtype,
+                preserve_zero=False,
+            )
+
+        def int_zero_point_to_float(zero_point, scale, qaunt_min, mid_point):
+            return (quant_min - zero_point + mid_point) * scale
+
+        mid_point = 2 ** (n_bit - 1)
+        zero_point_float = int_zero_point_to_float(zero_point, scale, quant_min, mid_point)
+
+        self.assertTrue(torch.equal(scale, scale_ref))
+        torch.testing.assert_close(zero_point_float, zero_point_ref, rtol=0.00001, atol=torch.max(scale)*0.03)
+
 
 if __name__ == "__main__":
     unittest.main()
