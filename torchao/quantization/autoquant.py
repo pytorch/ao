@@ -124,7 +124,7 @@ class AutoQuantizableLinearWeight(torch.Tensor):
                     torch._dynamo.reset()
                 cur_time += check_cache(q_cls, shapes_and_dtype) * times_seen
             if shape_count is not None and shape_count > 1:
-                print(f">total_time: {cur_time:0.3f}ms for {q_cls}, prev_best: {best_time:0.3f}ms")
+                print(f">time (all shapes): {cur_time:0.3f}ms for {q_cls}, prev_best: {best_time:0.3f}ms")
             if best_time >= cur_time:
                 best_time = cur_time
                 best_cls = q_cls
@@ -337,6 +337,7 @@ def change_linears_to_autoquantizable(model, **kwargs):
     """
     from torchao.quantization.quant_api import _is_linear
     filter_fn = kwargs.pop("filter_fn", _is_linear)
+    _ = kwargs.pop("error_on_unseen", True) # same kwargs used for this and to_quantized
     kwargs["qtensor_class_list"] = kwargs.get("qtensor_class_list", DEFAULT_CLASS_LIST)
     kwargs["mode"] = kwargs.get("mode", ["relu", None])
     from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
