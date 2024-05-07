@@ -1,4 +1,0 @@
-Sparsity
-========
-
-TBA
