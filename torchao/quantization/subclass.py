@@ -4,11 +4,13 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
 import warnings
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
+import torchao.ops
 from .quant_primitives import (
     dequantize_per_channel,
     dynamically_quantize_per_channel,
@@ -865,3 +867,85 @@ class AffineQuantizedTensor(torch.Tensor):
                 kwargs,
                 args[0].to(*args[1:], **kwargs)._apply_fn_to_data(torch.clone),
             )
+
+
+class Fp6WeightOnlyQuantizedLinearWeight(torch.Tensor):
+
+    @staticmethod
+    def __new__(
+        cls,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        shape: torch.Size,
+        dtype=None,
+        *args,
+        **kwargs
+    ):
+        kwargs["device"] = int_data.device
+        # kwargs["layout"] = (
+        #     kwargs.get("layout") if kwargs.get("layout", False) else int_data.layout
+        # )
+        if dtype is None:
+            dtype = scale.dtype
+        kwargs["dtype"] = dtype
+        assert not kwargs.get("requires_grad", False)
+        kwargs["requires_grad"] = False
+        return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
+
+    def __init__(
+        self,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        shape: torch.Size,
+        dtype=None,
+        *args,
+        **kwargs
+    ):
+        self.int_data = int_data
+        self.scale = scale
+
+    def dequantize(self, output_dtype=torch.float16):
+        return torchao.ops.fp6_weight_dequant(self.int_data.cpu(), self.scale.cpu()).to(output_dtype).to(self.int_data.device)
+
+    # https://github.com/microsoft/DeepSpeed/blob/0b224edcf7d83713b95ad6b989694a8bdf01809e/deepspeed/inference/v2/modules/implementations/linear/quantized_linear.py
+    @classmethod
+    def from_float(cls, input_float):
+        try:
+            from qtorch.quant import float_quantize
+        except:
+            logging.exception("qtorch is not available. Please install qtorch to use FP6 weight")
+            raise
+
+        device = input_float.device
+        input_float = input_float.cpu().float()
+
+        num_bits = 6
+        exp_bits = 3
+        q_range = 28
+
+        man_bits = num_bits - exp_bits - 1
+
+        max_input = input_float.abs().amax(dim=1)  # symmetric quantization
+        scales = max_input / q_range  # q_range + 1
+        scales[scales == 0] = 1  # avoid zero scales
+        scaled_input = input_float / scales.view(-1, 1)
+        scales = scales.half()
+
+        quantized_fake_fp6 = float_quantize(scaled_input, exp_bits, man_bits, rounding="nearest").half()
+        fp6_weight = torchao.ops.fake_fp6_to_fp6(quantized_fake_fp6)
+        fp6_weight = torchao.ops.prepack_fp6_weight(fp6_weight.view(torch.int32))
+
+        return cls(
+            fp6_weight.to(device),
+            scales.to(device),
+            input_float.shape,
+            dtype=torch.float16,
+        )
+
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs):
+        print(func)
+        if func is aten.linear.default:
+            return torchao.ops.fp16act_fp6weight_linear(args[1], args[0].int_data, args[0].scale)
+
+        raise NotImplementedError
