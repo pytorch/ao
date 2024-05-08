@@ -430,9 +430,12 @@ def autoquant(model, example_input=None, qtensor_class_list=DEFAULT_CLASS_LIST, 
     # note the torch.compile wrapper eval_frame moved the assignment of any assigned
     # attributes to the inner model, so we have to call delattr on the inner model
     def clean_up_autoquant_hooks_and_attrs():
-        handle.remove()
-        delattr(real_model, "clean_up_autoquant_hooks_and_attrs")
-        delattr(real_model, "forward_log_only")
+        try:
+            handle.remove()
+            delattr(real_model, "clean_up_autoquant_hooks_and_attrs")
+            delattr(real_model, "forward_log_only")
+        except:
+            pass
     model.clean_up_autoquant_hooks_and_attrs = clean_up_autoquant_hooks_and_attrs
 
     # if example input was provided, check it and run it
