@@ -29,7 +29,7 @@ model = torch.nn.Sequential(torch.nn.Linear(32, 64)).cuda().to(torch.bfloat16)
 input = torch.randn(32,32, dtype=torch.bfloat16, device='cuda')
 
 # perform autoquantization and torch.compile
-torchao.autoquant(torch.compile(model, mode='max-autotune'))
+model = torchao.autoquant(torch.compile(model, mode='max-autotune'))
 
 # pass in an input which is used in order to pick fastest quantization operations
 # and apply torch compilation.
