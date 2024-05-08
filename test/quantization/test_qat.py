@@ -14,6 +14,7 @@ import torch
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
 from torchao.quantization.prototype.qat import (
     _choose_qparams_per_token_asymmetric,
+    _GenericFakeQuantize,
     fake_quantize_per_channel_group,
     fake_quantize_per_token,
 )
@@ -67,6 +68,7 @@ class TestQAT(unittest.TestCase):
         torch.manual_seed(self.SEED)
         x = torch.randn(100, 256).requires_grad_()
         (s, zp) = get_group_qparams_symmetric(x, n_bit, group_size)
+        zp = zp.to(torch.int32)
         x2 = copy.deepcopy(x)
 
         # fake quant op
@@ -92,10 +94,7 @@ class TestQAT(unittest.TestCase):
         x = torch.randn(100, 256).requires_grad_()
         x2 = copy.deepcopy(x)
         # TODO: use torch.ops.aten.quantized_decomposed version instead
-        (s, zp) = _choose_qparams_per_token_asymmetric(
-            x,
-            torch.int8,  # not used
-        )
+        (s, zp) = _choose_qparams_per_token_asymmetric(x, torch.float32, torch.int32)
 
         # fake quant op
         out = fake_quantize_per_token(x, s, zp, qmin, qmax)
@@ -298,6 +297,30 @@ class TestQAT(unittest.TestCase):
         torch.testing.assert_close(nn_model.linear1.weight, qat_model.linear1.weight, atol=0, rtol=0)
         torch.testing.assert_close(nn_model.linear2.weight, qat_model.linear2.weight, atol=0, rtol=0)
         torch.testing.assert_close(nn_model.sub.linear.weight, qat_model.sub.linear.weight, atol=0, rtol=0)
+
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "skipping when torch verion is 2.3 or lower")
+    def test_qat_generic_fake_quantize(self):
+        """
+        Test that the generic fake quantize used in 8da4w QAT matches
+        the numerics of existing fake quantize ops in Pytorch in both
+        the forward and the backward passes.
+        """
+        (qmin, qmax) = self._get_qmin_qmax(4)
+        py_input = torch.randn(16, 64).float().requires_grad_()
+        py_s = torch.randn(16).float()
+        py_zp = torch.randint(qmax, size=(16,), dtype=torch.int32)
+        py_out = torch.fake_quantize_per_channel_affine(py_input, py_s, py_zp, 0, qmin, qmax)
+        py_out.sum().backward()
+
+        ao_input = copy.deepcopy(py_input)
+        ao_input.grad.data.zero_()
+        ao_s = copy.deepcopy(py_s).reshape(-1, 1)
+        ao_zp = copy.deepcopy(py_zp).reshape(-1, 1)
+        ao_out = _GenericFakeQuantize.apply(ao_input, ao_s, ao_zp, qmin, qmax)
+        ao_out.sum().backward()
+
+        torch.testing.assert_close(py_out, ao_out, atol=0, rtol=0)
+        torch.testing.assert_close(py_input.grad, ao_input.grad, atol=0, rtol=0)
 
 
 if __name__ == "__main__":
