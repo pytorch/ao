@@ -279,5 +279,24 @@ class TestQuantPrimitives(unittest.TestCase):
         after_choose_qparams_mem_use = torch.cuda.memory_allocated()
         self.assertTrue(after_choose_qparams_mem_use < 1.2 * original_mem_use)
 
+    def test_raises(self):
+        """Make sure some errors are raised when user requested an unsupported type of quantization
+        """
+        input = torch.randn(10, 10)
+        mapping_type = MappingType.ASYMMETRIC
+        dtype = torch.int8
+        block_size = (10, 10)
+        scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype)
+
+
+        # make sure we can't quantize int32 tensors:
+        with self.assertRaisesRegex(AssertionError, "Unsupported input dtype:"):
+            _ = quantize_affine(input.to(torch.int32), block_size, scale, zero_point, dtype)
+
+        # block_size and scale/zero_point shape mismatch
+        block_size = (1, 1)
+        with self.assertRaisesRegex(RuntimeError, "is invalid for input of size 1"):
+            _ = quantize_affine(input, block_size, scale, zero_point, dtype)
+
 if __name__ == "__main__":
     unittest.main()
