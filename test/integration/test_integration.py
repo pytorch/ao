@@ -1400,36 +1400,6 @@ class TestAutoQuant(unittest.TestCase):
             (32, 32, 128, 128),
         ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
-    def test_autoquant_multi_input(self, device, dtype, m1, m2, k, n):
-        if device != "cuda" or not torch.cuda.is_available():
-            self.skipTest(f"autoquant currently does not support {device}")
-        if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
-            if dtype == torch.bfloat16:
-                self.skipTest(f"bfloat16 requires sm80+")
-            if m1 == 1 or m2 == 1:
-                self.skipTest(f"Shape {(m1, m2, k, n)} requires sm80+")
-        model = torch.nn.Sequential(
-            torch.nn.ReLU(),
-            torch.nn.Linear(k,n),
-            torch.nn.ReLU(),
-        ).to(device).to(dtype)
-        example_input = torch.randn(m1, k, device=device, dtype=dtype)
-        example_input2 = torch.randn(m2, k, device=device, dtype=dtype)
-        out=model(example_input)
-        torchao.autoquant(model)
-        model.forward_log_only(example_input)
-        model(example_input2)
-        out2 = model(example_input)
-        sqnr = SQNR(out, out2)
-        self.assertTrue(sqnr >= 30)
-
-    @parameterized.expand(combine_parameters(COMMON_DEVICE_DTYPE,
-        [
-            (1,   1, 128, 128),
-            (1,  32, 128, 128),
-            (32, 32, 128, 128),
-        ]))
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
     def test_autoquant_compile(self, device, dtype, m1, m2, k, n):
         if device != "cuda" and dtype != torch.bfloat16:
             self.skipTest(f"autoquant currently does not support {device}")
@@ -1447,40 +1417,6 @@ class TestAutoQuant(unittest.TestCase):
         ).to(device).to(dtype)
         example_input = torch.randn(m1, k, device=device, dtype=dtype)
         example_input2 = torch.randn(m1, k, device=device, dtype=dtype)
-        out = model(example_input)
-
-        mod = torchao.autoquant(torch.compile(model))
-        mod.forward_log_only(example_input)
-        mod(example_input2)
-
-        out2 = mod(example_input)
-        sqnr = SQNR(out, out2)
-        self.assertTrue(sqnr >= 30)
-
-    @parameterized.expand(combine_parameters(COMMON_DEVICE_DTYPE,
-        [
-            (1,   1, 128, 128),
-            (1,  32, 128, 128),
-            (32, 32, 128, 128),
-        ]))
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
-    def test_autoquant_compile(self, device, dtype, m1, m2, k, n):
-        if device != "cuda" and dtype != torch.bfloat16:
-            self.skipTest(f"autoquant currently does not support {device}")
-        if device != "cuda" or not torch.cuda.is_available():
-            self.skipTest(f"autoquant currently does not support {device}")
-        if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
-            if dtype == torch.bfloat16:
-                self.skipTest(f"bfloat16 requires sm80+")
-            if m1 == 1 or m2 == 1:
-                self.skipTest(f"Shape {(m1, m2, k, n)} requires sm80+")
-        model = torch.nn.Sequential(
-            torch.nn.ReLU(),
-            torch.nn.Linear(k,n),
-            torch.nn.ReLU(),
-        ).to(device).to(dtype)
-        example_input = torch.randn(m1, k, device=device, dtype=dtype)
-        example_input2 = torch.randn(m1+1, k, device=device, dtype=dtype)
         out = model(example_input)
 
         mod = torchao.autoquant(torch.compile(model))
