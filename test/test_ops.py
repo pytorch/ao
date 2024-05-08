@@ -45,6 +45,8 @@ class TestOps(TestCase):
     def test_prepack_fp6_weight(self):
         OC = 256
         IC = 256
+
+        # Randomly initialize each bytes. The highest value for randint() is set the the max value of uint32_t.
         fp6_weight = torch.randint(4294967295, (OC, IC // 16 * 3)).to(torch.int)
 
         # smoke test
@@ -54,6 +56,7 @@ class TestOps(TestCase):
         test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
         opcheck(torch.ops.torchao.prepack_fp6_weight, (fp6_weight,), test_utils=test_utils)
 
+    # this may fail in CPU, since there is no compiled function without CUDA
     def test_fake_fp6_to_fp6(self):
         OC = 256
         IC = 256
@@ -72,6 +75,30 @@ class TestOps(TestCase):
         # comprehensive testing
         test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
         opcheck(torch.ops.torchao.fake_fp6_to_fp6, (fake_fp6_weight,), test_utils=test_utils)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    def test_fp16act_fp6weight_linear(self):
+        BS = 2
+        OC = 256
+        IC = 256
+        splitK = 1
+
+        # Randomly initialize each bytes. The highest value for randint() is set the the max value of uint32_t.
+        fp6_weight = torch.randint(4294967295, (OC, IC // 16 * 3)).to(torch.int)
+        fp16_scale = torch.rand(OC).to(torch.float16) + 0.5
+        fp16_activation = torch.rand(BS, IC).to(torch.float16) + 0.5
+
+        fp6_weight_packed = torchao.ops.prepack_fp6_weight(fp6_weight)
+        act_cuda = fp16_activation.cuda()
+        weight_cuda = fp6_weight_packed.cuda()
+        scale_cuda = fp16_scale.cuda()
+
+        # smoke test
+        torchao.ops.fp16act_fp6weight_linear(act_cuda, weight_cuda, scale_cuda, splitK)
+
+        # comprehensive testing
+        test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
+        opcheck(torch.ops.torchao.fp16act_fp6weight_linear, (act_cuda, weight_cuda, scale_cuda, splitK), test_utils=test_utils)
 
 
 if __name__ == "__main__":
