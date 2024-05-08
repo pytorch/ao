@@ -56,7 +56,7 @@ class TestOps(TestCase):
         test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
         opcheck(torch.ops.torchao.prepack_fp6_weight, (fp6_weight,), test_utils=test_utils)
 
-    # this may fail in CPU, since there is no compiled function without CUDA
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_fake_fp6_to_fp6(self):
         OC = 256
         IC = 256
@@ -100,6 +100,7 @@ class TestOps(TestCase):
         test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
         opcheck(torch.ops.torchao.fp16act_fp6weight_linear, (act_cuda, weight_cuda, scale_cuda, splitK), test_utils=test_utils)
 
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_fp6_weight_dequant(self):
         OC = 256
         IC = 256
