@@ -45,8 +45,8 @@ model = torch.nn.Sequential(torch.nn.Linear(32, 64)).cuda().to(torch.bfloat16)
 input = torch.randn(32,32, dtype=torch.bfloat16, device='cuda')
 
 # perform autoquantization and compilation
-q_model = torchao.autoquant(torch.compile(model))
-model(input)
+q_model = torchao.autoquant(torch.compile(model, mode='max-autotune'))
+q_model(input)
 ```
 
 ### Sparsity
