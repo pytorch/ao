@@ -205,13 +205,14 @@ class _GenericFakeQuantize(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, input, scales, zero_points, quant_min, quant_max):
+        scales = scales.to(torch.float32)
+        zero_points = zero_points.to(torch.int32)
         # Note: this diverges from `torch.fake_quantize_per_channel_affine`,
-        # which rounds first before adding the zero points. However, this
-        # is what `quantize_per_channel_group` and `quantize_per_token`
-        # do and here we try to match that behavior as closely as possible.
-        q = input.div(scales).add(zero_points).round()
+        # which rounds first before adding the zero points. However, since
+        # zero points are integers here, the ordering of these two ops
+        # shouldn't matter in practice.
+        q = input.mul(1.0 / scales).add(zero_points).round()
         dq = q.clamp(quant_min, quant_max).sub(zero_points).mul(scales)
-        # TODO: do we need this mask?
         mask = torch.logical_and((q >= quant_min), (q <= quant_max))
         ctx.save_for_backward(mask)
         return dq
