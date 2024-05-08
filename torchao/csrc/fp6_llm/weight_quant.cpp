@@ -1,8 +1,9 @@
 // Author: Zhen Zheng
 // To be used in the future as a tool to generating the FP6 matrix from the FP16 matrix.
 
-#include <iostream>
 #include <cuda_fp16.h>
+#include <iostream>
+#include <assert.h>
 
 /*
  * Function to pack 4 fake quantized FP16 value into continuously stored 4 FP6 values.
@@ -137,4 +138,44 @@ void DeQuantMatrix_FP6_To_FP16(half* A_16bit_h, unsigned char* A_6bit_h, size_t 
         //
         OutPTR +=4;
     }
+}
+
+
+#include <ATen/ATen.h>
+#include <torch/library.h>
+
+namespace torchao {
+
+/*
+ * Dequant a FP6 matrix to a equivalent FP16 matrix using CPUs.
+ * A useful tool to construct input matrices for the FP16 GEMM baseline.
+ * [Input]
+ *  fp6_tensor:  int  tensor of shape [OC, IC // 16 * 3];   // 3 INT32 words contains 16 FP6  weights.
+ *  fp16_scale:  half tensor of shape [OC];                 // for row-wise quantization.
+ * [Output]
+ *  fp16_tensor: half tensor of shape [OC, IC].     
+ */
+at::Tensor weight_matrix_dequant_cpu(at::Tensor fp6_tensor, at::Tensor fp16_scale) 
+{
+    int OC = fp6_tensor.size(0);
+    assert(fp6_tensor.size(1) % 3 == 0);
+    int IC = fp6_tensor.size(1) / 3 * 16;
+    assert(fp16_scale.size(0)==OC);
+    //
+    auto fp6_tensor_ptr = reinterpret_cast<int*>(fp6_tensor.data_ptr<int>());
+    auto fp16_scale_ptr = reinterpret_cast<half*>(fp16_scale.data_ptr<at::Half>());
+    //
+    auto options = at::TensorOptions().dtype(fp16_scale.dtype()).device(fp16_scale.device());
+    at::Tensor fp16_tensor = at::empty({OC, IC}, options);
+    auto fp16_tensor_ptr = reinterpret_cast<half*>(fp16_tensor.data_ptr<at::Half>());
+    //
+    DeQuantMatrix_FP6_To_FP16(fp16_tensor_ptr, (unsigned char*)fp6_tensor_ptr, OC, IC, fp16_scale_ptr);
+    //
+    return fp16_tensor;
+}
+
+TORCH_LIBRARY_IMPL(torchao, CPU, m) {
+  m.impl("torchao::fp6_weight_dequant", &weight_matrix_dequant_cpu);
+}
+
 }
