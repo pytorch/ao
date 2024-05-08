@@ -29,11 +29,21 @@ def prepack_fp6_weight(fp6_weight: Tensor) -> Tensor:
 
 @torch.library.impl_abstract("torchao::prepack_fp6_weight")
 def _(fp6_weight):
-    torch._check(fp6_weight.dim() == 2, lambda: f"weight should be a 2d tensor, got {dets.dim()}D")
-    # ctx = torch._custom_ops.get_ctx()
-    # num_to_keep = ctx.create_unbacked_symint()
-    # return fp6_weight.new_empty(num_to_keep, dtype=torch.long)
+    torch._check(fp6_weight.dim() == 2, lambda: f"weight should be a 2d tensor, got {fp6_weight.dim()}D")
     return torch.empty_like(fp6_weight)
+
+
+def fake_fp6_to_fp6(fake_fp6_tensor: Tensor) -> Tensor:
+    return torch.ops.torchao.fake_fp6_to_fp6.default(fake_fp6_tensor)
+
+
+@torch.library.impl_abstract("torchao::fake_fp6_to_fp6")
+def _(fake_fp6_tensor):
+    torch._check(fake_fp6_tensor.dim() == 2, lambda: f"weight should be a 2d tensor, got {fake_fp6_tensor.dim()}D")
+    torch._check(fake_fp6_tensor.dtype is torch.float16, lambda: f"weight must be FP16, got {fake_fp6_tensor.dtype}")
+    M, K = fake_fp6_tensor.shape
+    torch._check(K % 4  == 0, lambda: f"second dimension must be a multiple of 4, got {K}")
+    return torch.empty((M, K * 6 // 8), dtype=torch.uint8, device=fake_fp6_tensor.device)
 
 
 def fp16act_fp6weight_linear(_in_feats: Tensor, _weights: Tensor, _scales: Tensor, splitK: int = 1) -> Tensor:
