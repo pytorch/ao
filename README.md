@@ -44,11 +44,8 @@ torch._inductor.config.use_mixed_mm = True
 model = torch.nn.Sequential(torch.nn.Linear(32, 64)).cuda().to(torch.bfloat16)
 input = torch.randn(32,32, dtype=torch.bfloat16, device='cuda')
 
-# perform autoquantization
-torchao.autoquant(model, (input))
-
-# compile the model to recover performance
-model = torch.compile(model, mode='max-autotune')
+# perform autoquantization and compilation
+q_model = torchao.autoquant(torch.compile(model))
 model(input)
 ```
 
