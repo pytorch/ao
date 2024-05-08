@@ -57,7 +57,7 @@ def _(_in_feats, _weights, _scales, splitK = 1):
     torch._check(_weights.dim() == 2, lambda: f"weight should be a 2d tensor, got {_weights.dim()}D")
     torch._check(_weights.dtype is torch.int32, lambda: f"weight must be INT32, got {_weights.dtype}")
     torch._check(_scales.dim() == 1, lambda: f"scale should be a 2d tensor, got {_scales.dim()}D")
-    torch._check(_scales.dtype is torch.float16, lambda: f"weight must be INT32, got {_scales.dtype}")
+    torch._check(_scales.dtype is torch.float16, lambda: f"scale must be FP16, got {_scales.dtype}")
 
     BS, IC = _in_feats.shape
     OC, _ = _weights.shape
@@ -69,3 +69,16 @@ def _(_in_feats, _weights, _scales, splitK = 1):
 
 def fp6_weight_dequant(fp6_tensor: Tensor, fp16_scale: Tensor) -> Tensor:
     return torch.ops.torchao.fp6_weight_dequant.default(fp6_tensor, fp16_scale)
+
+
+@torch.library.impl_abstract("torchao::fp6_weight_dequant")
+def _(fp6_tensor, fp16_scale):
+    torch._check(fp6_tensor.dim() == 2, lambda: f"weight should be a 2d tensor, got {fp6_tensor.dim()}D")
+    torch._check(fp6_tensor.dtype is torch.int32, lambda: f"weight must be INT32, got {fp6_tensor.dtype}")
+    torch._check(fp16_scale.dim() == 1, lambda: f"scale should be a 2d tensor, got {fp16_scale.dim()}D")
+    torch._check(fp16_scale.dtype is torch.float16, lambda: f"scale must be FP16, got {fp16_scale.dtype}")
+
+    OC, _IC = fp6_tensor.shape
+    torch._check(OC == fp16_scale.shape[0], lambda: "Dimensions mismatched")
+
+    return fp16_scale.new_empty((OC, _IC * 16 // 3))

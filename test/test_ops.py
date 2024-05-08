@@ -100,6 +100,21 @@ class TestOps(TestCase):
         test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
         opcheck(torch.ops.torchao.fp16act_fp6weight_linear, (act_cuda, weight_cuda, scale_cuda, splitK), test_utils=test_utils)
 
+    def test_fp6_weight_dequant(self):
+        OC = 256
+        IC = 256
+
+        # Randomly initialize each bytes. The highest value for randint() is set the the max value of uint32_t.
+        fp6_weight = torch.randint(4294967295, (OC, IC // 16 * 3)).to(torch.int)
+        fp16_scale = torch.rand(OC).to(torch.float16) + 0.5
+
+        # smoke test
+        torchao.ops.fp6_weight_dequant(fp6_weight, fp16_scale)
+
+        # comprehensive testing
+        test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
+        opcheck(torch.ops.torchao.fp6_weight_dequant, (fp6_weight, fp16_scale), test_utils=test_utils)
+
 
 if __name__ == "__main__":
     unittest.main()
