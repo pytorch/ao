@@ -163,7 +163,7 @@ at::Tensor fp16_to_fp6_cpu(at::Tensor fp16_tensor)
     auto packed_fp6_tensor = at::empty({M, K * 6 / 8}, options);
     uint8_t* packed_fp6_ptr = packed_fp6_tensor.data_ptr<uint8_t>();
 
-    uint16_t* fake_fp6_ptr = reinterpret_cast<uint16_t*>(fake_fp6_tensor.data_ptr<at::Half>());
+    uint16_t* fake_fp6_ptr = reinterpret_cast<uint16_t*>(fp16_tensor.data_ptr<at::Half>());
     weight_prepacking_fp16_to_fp6(fake_fp6_ptr, packed_fp6_ptr, M, K);
 
     return packed_fp6_tensor;
