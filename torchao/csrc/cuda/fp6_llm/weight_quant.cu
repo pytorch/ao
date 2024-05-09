@@ -181,18 +181,18 @@ at::Tensor fp16_to_fp6_cpu(at::Tensor fp16_tensor)
 at::Tensor weight_matrix_dequant_cpu(at::Tensor fp6_tensor, at::Tensor fp16_scale) 
 {
     int OC = fp6_tensor.size(0);
-    assert(fp6_tensor.size(1) % 3 == 0);
+    TORCH_CHECK(fp6_tensor.size(1) % 3 == 0);
     int IC = fp6_tensor.size(1) / 3 * 16;
-    assert(fp16_scale.size(0)==OC);
+    TORCH_CHECK(fp16_scale.size(0) == OC);
     //
-    auto fp6_tensor_ptr = reinterpret_cast<int*>(fp6_tensor.data_ptr<int>());
+    auto fp6_tensor_ptr = reinterpret_cast<unsigned char*>(fp6_tensor.data_ptr<int>());
     auto fp16_scale_ptr = reinterpret_cast<half*>(fp16_scale.data_ptr<at::Half>());
     //
-    auto options = at::TensorOptions().dtype(fp16_scale.dtype()).device(fp16_scale.device());
+    auto options = at::TensorOptions().dtype(at::kHalf).device(fp16_scale.device());
     at::Tensor fp16_tensor = at::empty({OC, IC}, options);
     auto fp16_tensor_ptr = reinterpret_cast<half*>(fp16_tensor.data_ptr<at::Half>());
     //
-    DeQuantMatrix_FP6_To_FP16(fp16_tensor_ptr, (unsigned char*)fp6_tensor_ptr, OC, IC, fp16_scale_ptr);
+    DeQuantMatrix_FP6_To_FP16(fp16_tensor_ptr, fp6_tensor_ptr, OC, IC, fp16_scale_ptr);
     //
     return fp16_tensor;
 }
