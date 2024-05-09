@@ -5,8 +5,12 @@ from torchao.quantization import (
 )
 from . import dtypes
 import torch
-from torch.testing._internal.common_utils import IS_FBCODE
-if not IS_FBCODE:
+_IS_FBCODE = (
+    hasattr(torch._utils_internal, "IS_FBSOURCE") and
+    torch._utils_internal.IS_FBSOURCE
+)
+
+if not _IS_FBCODE:
     from . import _C
     from . import ops
 
