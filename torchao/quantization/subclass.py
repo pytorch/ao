@@ -952,7 +952,6 @@ class Fp6WeightOnlyQuantizedLinearWeight(torch.Tensor):
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
-        print(func)
         if func is aten.mm.default:
             fp16_act = args[0]
             fp6_weight = args[1]
