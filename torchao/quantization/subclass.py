@@ -951,16 +951,39 @@ class Fp6WeightOnlyQuantizedLinearWeight(torch.Tensor):
             self.int_data, self.scale, shape, dtype=self.dtype, transposed=self.transposed
         )
 
+    def _apply_fn_to_data(self, fn):
+        return self.__class__(
+            fn(self.int_data),
+            fn(self.scale),
+            self.shape,
+            dtype=self.dtype,
+            transposed=self.transposed,
+        )
+
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
-        if func is aten.mm.default:
-            fp16_act = args[0]
-            fp6_weight = args[1]
+        if func in (aten.mm.default, aten.addmm.default):
+            if func is aten.mm.default:
+                fp16_act = args[0]
+                fp6_weight = args[1]
+                bias = False
+            else:
+                fp16_act = args[1]
+                fp6_weight = args[2]
+                bias = args[0]
 
             if not fp6_weight.transposed:
                 raise NotImplementedError("FP8 weight must be transposed in matmul")
     
-            return torchao.ops.fp16act_fp6weight_linear(fp16_act, fp6_weight.int_data, fp6_weight.scale)
+            out = torchao.ops.fp16act_fp6weight_linear(fp16_act, fp6_weight.int_data, fp6_weight.scale)
+            if bias is not None:  # we don't have fused bias kernel
+                out = out + bias
+            return out
+
+        if func is aten.detach.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+            )
 
         if func is aten.clone.default:
             return return_and_correct_aliasing(
@@ -972,4 +995,4 @@ class Fp6WeightOnlyQuantizedLinearWeight(torch.Tensor):
             new = args[0]._change_shape(args[0].shape[::-1])
             return return_and_correct_aliasing(func, args, kwargs, new)
 
-        raise NotImplementedError
+        raise NotImplementedError(f"{func} is not implemented for {cls.__name__}")
