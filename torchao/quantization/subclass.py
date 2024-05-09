@@ -878,6 +878,7 @@ class Fp6WeightOnlyQuantizedLinearWeight(torch.Tensor):
         scale: torch.Tensor,
         shape: torch.Size,
         dtype=None,
+        transposed: bool = False,
         *args,
         **kwargs
     ):
@@ -898,11 +899,13 @@ class Fp6WeightOnlyQuantizedLinearWeight(torch.Tensor):
         scale: torch.Tensor,
         shape: torch.Size,
         dtype=None,
+        transposed: bool = False,
         *args,
         **kwargs
     ):
         self.int_data = int_data
         self.scale = scale
+        self.transposed = transposed
 
     def dequantize(self, output_dtype=torch.float16):
         return torchao.ops.fp6_weight_dequant(self.int_data.cpu(), self.scale.cpu()).to(output_dtype).to(self.int_data.device)
@@ -942,10 +945,31 @@ class Fp6WeightOnlyQuantizedLinearWeight(torch.Tensor):
             dtype=torch.float16,
         )
 
+    def _change_shape(self, shape):
+        return self.__class__(
+            self.int_data, self.scale, shape, dtype=self.dtype, transposed=self.transposed
+        )
+
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
         print(func)
-        if func is aten.linear.default:
-            return torchao.ops.fp16act_fp6weight_linear(args[1], args[0].int_data, args[0].scale)
+        if func is aten.mm.default:
+            fp16_act = args[0]
+            fp6_weight = args[1]
+
+            if not fp6_weight.transposed:
+                raise NotImplementedError("FP8 weight must be transposed in matmul")
+    
+            return torchao.ops.fp16act_fp6weight_linear(fp16_act, fp6_weight.int_data, fp6_weight.scale)
+
+        if func is aten.clone.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+            )
+
+        if func is aten.t.default:
+            args[0].transposed = not args[0].transposed
+            new = args[0]._change_shape(args[0].shape[::-1])
+            return return_and_correct_aliasing(func, args, kwargs, new)
 
         raise NotImplementedError
