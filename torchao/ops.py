@@ -24,6 +24,15 @@ def _(dets, scores, iou_threshold):
 
 
 def prepack_fp6_weight(fp6_weight: Tensor) -> Tensor:
+    """
+    Pack FP6 tensor in a layout for use with FP6-LLM. See https://arxiv.org/abs/2401.14112 for more details.
+
+    Arguments
+        fp6_weight: tightly-packed fp6_weight, inside a `torch.int32` container
+
+    Returns
+        packed FP6 tensor for use with FP6-LLM, inside a `torch.int32` container
+    """
     return torch.ops.torchao.prepack_fp6_weight.default(fp6_weight)
 
 
@@ -33,20 +42,35 @@ def _(fp6_weight):
     return torch.empty_like(fp6_weight)
 
 
-def fake_fp6_to_fp6(fake_fp6_tensor: Tensor) -> Tensor:
-    return torch.ops.torchao.fake_fp6_to_fp6.default(fake_fp6_tensor)
+def fp16_to_fp6(fp16_tensor: Tensor) -> Tensor:
+    """
+    Pack FP16 tensor (containing only FP6 values) into FP6 tensor.
+    """
+    return torch.ops.torchao.fp16_to_fp6.default(fp16_tensor)
 
 
-@torch.library.impl_abstract("torchao::fake_fp6_to_fp6")
-def _(fake_fp6_tensor):
-    torch._check(fake_fp6_tensor.dim() == 2, lambda: f"weight should be a 2d tensor, got {fake_fp6_tensor.dim()}D")
-    torch._check(fake_fp6_tensor.dtype is torch.float16, lambda: f"weight must be FP16, got {fake_fp6_tensor.dtype}")
-    M, K = fake_fp6_tensor.shape
+@torch.library.impl_abstract("torchao::fp16_to_fp6")
+def _(fp16_tensor):
+    torch._check(fp16_tensor.dim() == 2, lambda: f"weight should be a 2d tensor, got {fp16_tensor.dim()}D")
+    torch._check(fp16_tensor.dtype is torch.float16, lambda: f"weight must be FP16, got {fp16_tensor.dtype}")
+    M, K = fp16_tensor.shape
     torch._check(K % 4  == 0, lambda: f"second dimension must be a multiple of 4, got {K}")
-    return torch.empty((M, K * 6 // 8), dtype=torch.uint8, device=fake_fp6_tensor.device)
+    return torch.empty((M, K * 6 // 8), dtype=torch.uint8, device=fp16_tensor.device)
 
 
 def fp16act_fp6weight_linear(_in_feats: Tensor, _weights: Tensor, _scales: Tensor, splitK: int = 1) -> Tensor:
+    """
+    FP6-LLM linear layer A @ W.T. See https://arxiv.org/abs/2401.14112 for more details.
+
+    Arguments
+        _in_feats: input activations in FP16
+        _weights: packed FP6 weights. See :func:prepack_fp6_weight and :func:fp16_to_fp6
+        _scales: scale
+        splitK: split K
+
+    Returns
+        output of linear layer
+    """
     return torch.ops.torchao.fp16act_fp6weight_linear.default(_in_feats, _weights, _scales, splitK)
 
 

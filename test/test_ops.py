@@ -57,7 +57,7 @@ class TestOps(TestCase):
         opcheck(torch.ops.torchao.prepack_fp6_weight, (fp6_weight,), test_utils=test_utils)
 
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
-    def test_fake_fp6_to_fp6(self):
+    def test_fp16_to_fp6(self):
         OC = 256
         IC = 256
 
@@ -65,16 +65,16 @@ class TestOps(TestCase):
         # also, we don't have nan/inf
         fp6_absmax = 28.0  # 2 ** (0b111 - 0b011) * (1 + 0.5 + 0.25), where E=111, M=11
         fp6_absmin = 0.0625  # 2 ** (-0b010) * 0.25, where E=000, M=01 (subnormal number)
-        fake_fp6_weight = torch.randn((OC, IC), dtype=torch.float16)
-        fake_fp6_weight.clip_(-fp6_absmax, fp6_absmax)
-        fake_fp6_weight[fake_fp6_weight.abs() < fp6_absmin] = 0
+        fp16_weight = torch.randn((OC, IC), dtype=torch.float16)
+        fp16_weight.clip_(-fp6_absmax, fp6_absmax)
+        fp16_weight[fp16_weight.abs() < fp6_absmin] = 0
 
         # smoke test
-        torchao.ops.fake_fp6_to_fp6(fake_fp6_weight)
+        torchao.ops.fp16_to_fp6(fp16_weight)
 
         # comprehensive testing
         test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
-        opcheck(torch.ops.torchao.fake_fp6_to_fp6, (fake_fp6_weight,), test_utils=test_utils)
+        opcheck(torch.ops.torchao.fp16_to_fp6, (fp16_weight,), test_utils=test_utils)
 
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_fp16act_fp6weight_linear(self):

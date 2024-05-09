@@ -148,14 +148,14 @@ void DeQuantMatrix_FP6_To_FP16(half* A_16bit_h, unsigned char* A_6bit_h, size_t 
 namespace torchao {
 
 // https://github.com/microsoft/DeepSpeed/blob/0fc19b6a320cf8aa0a5f6c2b1fa310bae9a70d94/deepspeed/inference/v2/kernels/core_ops/cuda_linear/linear_kernels.cpp#L194
-at::Tensor fake_fp6_to_fp6_cpu(at::Tensor fake_fp6_tensor)
+at::Tensor fp16_to_fp6_cpu(at::Tensor fp16_tensor)
 {
-    TORCH_CHECK(fake_fp6_tensor.dim() == 2, "weight must be 2-dimensional");
-    TORCH_CHECK(fake_fp6_tensor.scalar_type() == torch::kFloat16, "weight must be FP16");
-    TORCH_CHECK(fake_fp6_tensor.is_contiguous(), "weight must be contiguous");
-    TORCH_CHECK(fake_fp6_tensor.device().type() == torch::kCPU, "weight must be on CPU");
-    auto M = fake_fp6_tensor.size(0);
-    auto K = fake_fp6_tensor.size(1);
+    TORCH_CHECK(fp16_tensor.dim() == 2, "weight must be 2-dimensional");
+    TORCH_CHECK(fp16_tensor.scalar_type() == torch::kFloat16, "weight must be FP16");
+    TORCH_CHECK(fp16_tensor.is_contiguous(), "weight must be contiguous");
+    TORCH_CHECK(fp16_tensor.device().type() == torch::kCPU, "weight must be on CPU");
+    auto M = fp16_tensor.size(0);
+    auto K = fp16_tensor.size(1);
     TORCH_CHECK(K % 4 == 0, "K must be multiple of 4");
 
     // Pack weight from FP16 to FP6.
@@ -198,7 +198,7 @@ at::Tensor weight_matrix_dequant_cpu(at::Tensor fp6_tensor, at::Tensor fp16_scal
 }
 
 TORCH_LIBRARY_IMPL(torchao, CPU, m) {
-  m.impl("torchao::fake_fp6_to_fp6", &fake_fp6_to_fp6_cpu);
+  m.impl("torchao::fp16_to_fp6", &fp16_to_fp6_cpu);
   m.impl("torchao::fp6_weight_dequant", &weight_matrix_dequant_cpu);
 }
 

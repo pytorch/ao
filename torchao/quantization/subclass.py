@@ -936,7 +936,7 @@ class Fp6WeightOnlyQuantizedLinearWeight(torch.Tensor):
         scales = scales.half()
 
         quantized_fake_fp6 = float_quantize(scaled_input, exp_bits, man_bits, rounding="nearest").half()
-        fp6_weight = torchao.ops.fake_fp6_to_fp6(quantized_fake_fp6)
+        fp6_weight = torchao.ops.fp16_to_fp6(quantized_fake_fp6)
         fp6_weight = torchao.ops.prepack_fp6_weight(fp6_weight.view(torch.int32))
 
         return cls(
