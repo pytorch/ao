@@ -963,6 +963,12 @@ class Fp6WeightOnlyQuantizedLinearWeight(torch.Tensor):
             transposed=self.transposed,
         )
 
+    def __repr__(self):
+        return (
+            f"{self.__class__.__name__}(shape={self.shape}, transposed={self.transposed}, "
+            f"device={self.device}, dtype={self.dtype}, requires_grad={self.requires_grad})"
+        )
+
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
         if func in (aten.mm.default, aten.addmm.default):
@@ -994,8 +1000,8 @@ class Fp6WeightOnlyQuantizedLinearWeight(torch.Tensor):
             )
 
         if func is aten.t.default:
-            args[0].transposed = not args[0].transposed
             new = args[0]._change_shape(args[0].shape[::-1])
+            new.transposed = not args[0].transposed
             return return_and_correct_aliasing(func, args, kwargs, new)
 
         raise NotImplementedError(f"{func} is not implemented for {cls.__name__}")
