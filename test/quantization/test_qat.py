@@ -13,7 +13,6 @@ import unittest
 import torch
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
 from torchao.quantization.prototype.qat import (
-    _choose_qparams_per_token_asymmetric,
     fake_quantize_per_channel_group,
     fake_quantize_per_token,
 )
@@ -91,8 +90,7 @@ class TestQAT(unittest.TestCase):
         torch.manual_seed(self.SEED)
         x = torch.randn(100, 256).requires_grad_()
         x2 = copy.deepcopy(x)
-        # TODO: use torch.ops.aten.quantized_decomposed version instead
-        (s, zp) = _choose_qparams_per_token_asymmetric(
+        (s, zp) = torch.ops.quantized_decomposed._choose_qparams_per_token_asymmetric_impl(
             x,
             torch.int8,  # not used
         )
