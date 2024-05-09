@@ -870,6 +870,9 @@ class AffineQuantizedTensor(torch.Tensor):
 
 
 class Fp6WeightOnlyQuantizedLinearWeight(torch.Tensor):
+    """
+    FP6 weight for use with FP6-LLM. See https://arxiv.org/abs/2401.14112 for more details.
+    """
 
     @staticmethod
     def __new__(
