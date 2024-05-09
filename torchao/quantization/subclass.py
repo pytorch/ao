@@ -925,7 +925,7 @@ class Fp6WeightOnlyQuantizedLinearWeight(torch.Tensor):
 
         num_bits = 6
         exp_bits = 3
-        q_range = 28
+        q_range = 28  # max value for E3M2
 
         man_bits = num_bits - exp_bits - 1
 
