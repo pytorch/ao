@@ -907,8 +907,9 @@ class Fp6WeightOnlyQuantizedLinearWeight(torch.Tensor):
         self.scale = scale
         self.transposed = transposed
 
-    def dequantize(self, output_dtype=torch.float16):
-        return torchao.ops.fp6_weight_dequant(self.int_data.cpu(), self.scale.cpu()).to(output_dtype).to(self.int_data.device)
+    def dequantize(self, output_dtype=torch.float32):
+        raise NotImplementedError
+        # we don't have a kernel to revert torchao.ops.prepack_fp6_weight()
 
     # https://github.com/microsoft/DeepSpeed/blob/0b224edcf7d83713b95ad6b989694a8bdf01809e/deepspeed/inference/v2/modules/implementations/linear/quantized_linear.py
     @classmethod
