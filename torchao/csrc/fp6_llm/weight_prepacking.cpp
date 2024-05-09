@@ -187,9 +187,9 @@ at::Tensor weight_matrix_prepacking_cpu(at::Tensor fp6_tensor)
 {
     size_t OC = fp6_tensor.size(0);
     size_t IC = fp6_tensor.size(1);
-    TORCH_CHECK(IC % 3 == 0);   
+    TORCH_CHECK(IC % 3 == 0, "Expect packed input dim % 3 == 0, but receive ", IC, " instead.");
     IC = IC * 16 / 3;
-    TORCH_CHECK((OC % 256 == 0) && (IC % 64 == 0));
+    TORCH_CHECK((OC % 256 == 0) && (IC % 64 == 0), "Expect output dim % 256 == 0 and input dim % 64 == 0, but receive ", OC, " and ", IC, " instead.");
     auto packed_tensor = at::empty_like(fp6_tensor);
     auto packed_tensor_ptr = reinterpret_cast<int*>(packed_tensor.data_ptr<int>());
     auto fp6_tensor_ptr = reinterpret_cast<int*>(fp6_tensor.data_ptr<int>());
