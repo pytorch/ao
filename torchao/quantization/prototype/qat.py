@@ -240,14 +240,13 @@ def fake_quantize_per_channel_group(
     assert group_size > 1
     assert input.shape[-1] % group_size == 0
     assert input.dim() == 2
-    assert torch.isnan(input).sum() == 0
-    grouped_input = input.reshape(-1, group_size)
-    scales = scales.reshape(-1, 1)
-    zero_points = zero_points.reshape(-1, 1)
-    fq = _GenericFakeQuantize.apply(
-        grouped_input, scales, zero_points, quant_min, quant_max,
+    grouped_input = input.reshape(-1, group_size).to(torch.float32)
+    scales = scales.flatten().detach().to(torch.float32)
+    zero_points = zero_points.flatten().detach().to(torch.int32)
+    fq = torch.fake_quantize_per_channel_affine(
+        grouped_input, scales, zero_points, 0, quant_min, quant_max,
     )
-    return fq.reshape_as(input)
+    return fq.reshape_as(input).to(input.dtype)
 
 # TODO: move this to core
 quantized_decomposed_lib.define(
@@ -267,9 +266,15 @@ def fake_quantize_per_token(
     from torch.ao.quantization.fx._decomposed import _per_token_quant_qparam_dim_check
 
     _per_token_quant_qparam_dim_check(input, scales, zero_points)
-    return _GenericFakeQuantize.apply(
-        input, scales, zero_points, quant_min, quant_max,
+    # Merge all but the last dimension
+    # e.g. torch.Size([2, 85, 4096]) -> torch.Size([170, 4096])
+    flattened_input = input.flatten(0, -2).to(torch.float32)
+    scales = scales.flatten().detach().to(torch.float32)
+    zero_points = zero_points.flatten().detach().to(torch.int32)
+    fq = torch.fake_quantize_per_channel_affine(
+        flattened_input, scales, zero_points, 0, quant_min, quant_max
     )
+    return fq.reshape_as(input).to(input.dtype)
 
 # TODO: This is copied from torch/ao/quantization/fx/_decomposed.py.
 # The version in pytorch does not have backward support yet so we add
