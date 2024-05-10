@@ -877,7 +877,7 @@ class Fp6WeightOnlyQuantizedLinearWeight(torch.Tensor):
     @staticmethod
     def __new__(
         cls,
-        int_data: torch.Tensor,
+        fp6_data: torch.Tensor,
         scale: torch.Tensor,
         shape: torch.Size,
         dtype=None,
@@ -885,10 +885,7 @@ class Fp6WeightOnlyQuantizedLinearWeight(torch.Tensor):
         *args,
         **kwargs
     ):
-        kwargs["device"] = int_data.device
-        # kwargs["layout"] = (
-        #     kwargs.get("layout") if kwargs.get("layout", False) else int_data.layout
-        # )
+        kwargs["device"] = fp6_data.device
         if dtype is None:
             dtype = scale.dtype
         kwargs["dtype"] = dtype
@@ -898,7 +895,7 @@ class Fp6WeightOnlyQuantizedLinearWeight(torch.Tensor):
 
     def __init__(
         self,
-        int_data: torch.Tensor,
+        fp6_data: torch.Tensor,
         scale: torch.Tensor,
         shape: torch.Size,
         dtype=None,
@@ -906,7 +903,7 @@ class Fp6WeightOnlyQuantizedLinearWeight(torch.Tensor):
         *args,
         **kwargs
     ):
-        self.int_data = int_data
+        self.fp6_data = fp6_data
         self.scale = scale
         self.transposed = transposed
 
@@ -951,12 +948,12 @@ class Fp6WeightOnlyQuantizedLinearWeight(torch.Tensor):
 
     def _change_shape(self, shape):
         return self.__class__(
-            self.int_data, self.scale, shape, dtype=self.dtype, transposed=self.transposed
+            self.fp6_data, self.scale, shape, dtype=self.dtype, transposed=self.transposed
         )
 
     def _apply_fn_to_data(self, fn):
         return self.__class__(
-            fn(self.int_data),
+            fn(self.fp6_data),
             fn(self.scale),
             self.shape,
             dtype=self.dtype,
@@ -984,7 +981,7 @@ class Fp6WeightOnlyQuantizedLinearWeight(torch.Tensor):
             if not fp6_weight.transposed:
                 raise NotImplementedError("FP8 weight must be transposed in matmul")
     
-            out = torchao.ops.fp16act_fp6weight_linear(fp16_act, fp6_weight.int_data, fp6_weight.scale)
+            out = torchao.ops.fp16act_fp6weight_linear(fp16_act, fp6_weight.fp6_data, fp6_weight.scale)
             if bias is not None:  # we don't have fused bias kernel
                 out = out + bias
             return out
