@@ -4,13 +4,11 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-import logging
 import warnings
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-import torchao.ops
 from .quant_primitives import (
     dequantize_per_channel,
     dynamically_quantize_per_channel,

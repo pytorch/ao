@@ -48,7 +48,7 @@ from torchao.quantization.smoothquant import (
 from torchao.quantization.subclass import (
     Int8DynamicallyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
-    Int4WeightOnlyQuantizedLinearWeight,
+    Int4WeightOnlyQuantizedLinearWeight
 )
 from torchao.quantization.utils import (
     _apply_logging_hook,

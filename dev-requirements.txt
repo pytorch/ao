@@ -12,5 +12,3 @@ pandas
 
 # Custom CUDA Extensions
 ninja
-
-qtorch  # for FP6-LLM
