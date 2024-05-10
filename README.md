@@ -2,7 +2,7 @@
 
 [![](https://dcbadge.vercel.app/api/server/cudamode?style=flat)](https://discord.gg/cudamode)
 
-This repository is currently under heavy development - if you have suggestions on the API or use-cases you'd like to be covered, please open an [issue](https://github.com/pytorch/ao/issues)
+This repository is currently under active development - if you have suggestions on the API or use-cases you'd like to be covered, please open an [issue](https://github.com/pytorch/ao/issues)
 
 ## Introduction
 `torchao` is a PyTorch library for quantization and sparsity.
