@@ -205,8 +205,8 @@ class _GenericFakeQuantize(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, input, scales, zero_points, quant_min, quant_max):
-        scales = scales.to(torch.float32)
-        zero_points = zero_points.to(torch.int32)
+        assert scales.dtype == torch.float32
+        assert zero_points.dtype == torch.int32
         # Note: this diverges from `torch.fake_quantize_per_channel_affine`,
         # which rounds first before adding the zero points. However, since
         # zero points are integers here, the ordering of these two ops
@@ -241,10 +241,10 @@ def fake_quantize_per_channel_group(
     assert input.shape[-1] % group_size == 0
     assert input.dim() == 2
     grouped_input = input.reshape(-1, group_size).to(torch.float32)
-    scales = scales.flatten().detach().to(torch.float32)
-    zero_points = zero_points.flatten().detach().to(torch.int32)
-    fq = torch.fake_quantize_per_channel_affine(
-        grouped_input, scales, zero_points, 0, quant_min, quant_max,
+    scales = scales.reshape(-1, 1).to(torch.float32)
+    zero_points = zero_points.reshape(-1, 1).to(torch.int32)
+    fq = _GenericFakeQuantize.apply(
+        grouped_input, scales, zero_points, quant_min, quant_max,
     )
     return fq.reshape_as(input).to(input.dtype)
 
@@ -266,13 +266,10 @@ def fake_quantize_per_token(
     from torch.ao.quantization.fx._decomposed import _per_token_quant_qparam_dim_check
 
     _per_token_quant_qparam_dim_check(input, scales, zero_points)
-    # Merge all but the last dimension
-    # e.g. torch.Size([2, 85, 4096]) -> torch.Size([170, 4096])
-    flattened_input = input.flatten(0, -2).to(torch.float32)
-    scales = scales.flatten().detach().to(torch.float32)
-    zero_points = zero_points.flatten().detach().to(torch.int32)
-    fq = torch.fake_quantize_per_channel_affine(
-        flattened_input, scales, zero_points, 0, quant_min, quant_max
+    scales = scales.to(torch.float32)
+    zero_points = zero_points.to(torch.int32)
+    fq = _GenericFakeQuantize.apply(
+        input, scales, zero_points, quant_min, quant_max,
     )
     return fq.reshape_as(input).to(input.dtype)
 
