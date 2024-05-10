@@ -9,6 +9,7 @@ from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensor, 
 from torch.ao.pruning import WeightNormSparsifier
 import transformers
 import torch.nn.functional as F
+from torchao.sparsity.prototype.fast_sparse_training import swap_linear_with_semi_sparse_linear_, SemiSparseLinear
 
 # force CUTLASS use if cuSPARSELt is not available
 torch.manual_seed(100)
@@ -166,43 +167,7 @@ def measure_execution_time(model, batch_sizes, dataset):
             batch_size_to_time_sec[batch_size] = p50
 
     return batch_size_to_time_sec
-from torchao.sparsity.prototype.fast_sparse_training import sparsify24
 
-
-
-class SemiSparseLinear(nn.Linear):
-
-    def forward(self, x, sparsify_activations=False):
-        w_sparse = sparsify24(self.weight, backend="cusparselt")
-        return F.linear(x, w_sparse, self.bias)
-
-    @classmethod
-    def from_dense(cls, linear):
-        mod = cls(linear.in_features, linear.out_features)
-        mod.weight = linear.weight
-        mod.bias = linear.bias
-        return mod
-
-def swap_linear_with_semi_sparse_linear_(model, config, current=""):
-        name_to_child = dict(model.named_children())
-        for name, child in name_to_child.items():
-            if isinstance(child, torch.nn.Linear) and max(child.out_features, child.in_features) > 1024:
-                setattr(model, name, SemiSparseLinear.from_dense(child))
-                del child
-            else:
-                swap_linear_with_semi_sparse_linear_(child, config, current=f"{current}.{name}")
-
-def swap_semi_sparse_linear_to_linear(model, config, current=""):
-        name_to_child = dict(model.named_children())
-        for name, child in name_to_child.items():
-            if isinstance(child, SemiSparseLinear):
-                new_module = nn.Linear(child.in_features, child.out_features)
-                new_module.weight = nn.Parameter(to_sparse_semi_structured(child.weight))
-                new_module.bias.data = child.bias.data
-                setattr(model, name, new_module)
-                del child
-            else:
-                swap_semi_sparse_linear_to_linear(child, config, current=f"{current}.{name}")
 
 if __name__ == "__main__":
     # load model
@@ -226,38 +191,31 @@ if __name__ == "__main__":
     )
     data_collator = transformers.DataCollatorWithPadding(tokenizer=tokenizer)
 
-    swap_linear_with_semi_sparse_linear_(model, {})
-
+    config = set()
     for name, mod in model.named_modules():
-        if isinstance(mod, SemiSparseLinear):
-            (packed, meta, packed_t, meta_t, bitmask) = torch._sparse_semi_structured_tile(
-                mod.weight.data.cuda().to(torch.bfloat16), algorithm="", use_cutlass=True
-            )
-            out = SparseSemiStructuredTensorCUTLASS(
-                mod.weight.data.shape,
-                packed=packed,
-                meta=meta,
-                packed_t=packed_t,
-                meta_t=meta_t,
-                compressed_swizzled_bitmask=bitmask,
-                requires_grad=False,
-                fuse_transpose_cusparselt=True,
-            )
-            mod.weight = nn.Parameter(out)
+        if isinstance(mod, nn.Linear) and "qa" not in name and "attention" not in name:
+            # print(name)
+            config.add(name)
+
+    # swap_linear_with_semi_sparse_linear_(model, config)
+    print(model)
 
     training_args = transformers.TrainingArguments(
         "trainer",
         num_train_epochs=1,
         lr_scheduler_type="constant",
-        per_device_train_batch_size=64,
-        per_device_eval_batch_size=64,
-        torch_compile=True,
+        max_steps=100,
+        warmup_ratio=0.1,
+        per_device_train_batch_size=256,
+        per_device_eval_batch_size=256,
+        # torch_compile=True,
         bf16=True,
-        # optim="adamw_torch_fused",
+        optim="adamw_torch_fused",
         dataloader_drop_last=True, # since we compile, drop the last training batch because it does not have the right dims.
         dataloader_num_workers=8,
+        evaluation_strategy="steps",
         logging_strategy="no",
-        save_strategy="no"
+        save_strategy="no",
     )
 
     trainer = transformers.Trainer(
@@ -271,7 +229,6 @@ if __name__ == "__main__":
 
     trainer.train()
 
-    # swap_semi_sparse_linear_to_linear(model, {})
     print("Evaluating")
     eval_args = transformers.TrainingArguments(
         "eval",

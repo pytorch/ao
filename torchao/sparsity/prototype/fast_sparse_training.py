@@ -10,16 +10,26 @@ import warnings
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Optional, Tuple, TypeVar, cast
-
 import torch
 from torch.sparse import SparseSemiStructuredTensor, SparseSemiStructuredTensorCUTLASS, SparseSemiStructuredTensorCUSPARSELT
+from collections.abc import Iterable
 
 
-def semi_sparse_zeros_like_(func, types, args=(), kwargs=None):
-    x = args[0]
-    temp = torch.zeros(x.shape, dtype=x.dtype, device=x.device)
-    return sparsify24_like(temp, x)
+def semi_sparse_last_resort(func, types, args=(), kwargs=None, allow_sparsify_args_list=()):
+    args_updated = []
+    for a in args:
+        if isinstance(a, SparseSemiStructuredTensor):
+            args_updated.append(a.to_dense())
+        elif isinstance(a, Iterable):
+            args_updated.append([x.to_dense() if isinstance(x, SparseSemiStructuredTensor) else x for x in a])
+        else:
+            args_updated.append(a)
 
+    return torch.ops.aten._fused_adamw_(*args_updated, **kwargs)
+
+def semi_sparse_zeros_like(func, types, args=(), kwargs=None):
+    self = args[0]
+    return torch.zeros(self.shape, dtype=self.dtype, device=self.device)
 
 def semi_sparse_pointwise_op(func, types, args=(), kwargs=None, allow_sparsify_args_list=()):
     """
@@ -38,8 +48,8 @@ def semi_sparse_pointwise_op(func, types, args=(), kwargs=None, allow_sparsify_a
                     tensor = sparsify24_like(tensor, self)
                 else:
                     raise ValueError(
-                        f"Operation {func.__module__}.{func.__name__} on Sparse24Tensor requires all operands to "
-                        f"be Sparse24Tensors, but operand {i} is a {type(tensor)}"
+                        f"Operation {func.__module__}.{func.__name__} on {type(self)} requires all operands to "
+                        f"be {type(self)}, but operand {i} is a {type(tensor)}"
                     )
             else:
                 if (
@@ -49,8 +59,8 @@ def semi_sparse_pointwise_op(func, types, args=(), kwargs=None, allow_sparsify_a
                     or tensor.compressed_swizzled_bitmask.stride() != self.compressed_swizzled_bitmask.stride()
                 ):
                     raise ValueError(
-                        f"Operation {func.__module__}.{func.__name__} on Sparse24Tensor requires all operands to be "
-                        "Sparse24Tensors with the same sparsity pattern"
+                        f"Operation {func.__module__}.{func.__name__} on {type(self)} requires all operands to be "
+                        f"{type(self)} with the same sparsity pattern"
                     )
         args_updated.append(tensor)
 
@@ -70,20 +80,8 @@ def semi_sparse_pointwise_op(func, types, args=(), kwargs=None, allow_sparsify_a
         self.compressed_swizzled_bitmask,
     )
 
-# BETTER_DISPATCH = {
-#     torch.ops.aten.zeros_like: semi_sparse_zeros_like_,
-#     torch.ops.aten.mul_: partial(
-#         # `mul` BW in swiglu
-#         semi_sparse_pointwise_op,
-#         allow_sparsify_args_list=(0, 1),
-#     # ),
-#     # torch.ops.aten.addcdiv_: semi_sparse_pointwise_op,,
-# }
 
 CUTLASS_POINTWISE_OP_DISPATCH_TABLE = {
-    torch.ops.aten.zeros_like: semi_sparse_zeros_like_,
-    torch.ops.aten.mul_: semi_sparse_pointwise_op,
-    torch.ops.aten.addcdiv_: semi_sparse_pointwise_op,
     torch.ops.aten.relu: semi_sparse_pointwise_op,
     torch.ops.aten.gelu: semi_sparse_pointwise_op,
     torch.ops.aten.silu: semi_sparse_pointwise_op,
@@ -109,8 +107,13 @@ CUTLASS_POINTWISE_OP_DISPATCH_TABLE = {
     ),
 }
 
+TABLE = {
+    torch.ops.aten.zeros_like: semi_sparse_zeros_like,
+    torch.ops.aten._fused_adamw_: semi_sparse_last_resort
+}
+
 SparseSemiStructuredTensorCUTLASS._load_dispatch_table(CUTLASS_POINTWISE_OP_DISPATCH_TABLE)
-# SparseSemiStructuredTensorCUSPARSELT._load_dispatch_table(BETTER_DISPATCH)
+SparseSemiStructuredTensorCUSPARSELT._load_dispatch_table(TABLE)
 
 if torch.__version__ >= "2.1.0":
     torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUSPARSELT)
@@ -120,7 +123,7 @@ if torch.__version__ >= "2.1.0":
 class _Sparsify24Func(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, x: torch.Tensor, algo: str, backend: str):  # type: ignore[override]
+    def forward(ctx, x: torch.Tensor, algo: str, backend: str, alg_id_cusparselt: int):  # type: ignore[override]
         use_cutlass = (backend == "cutlass")
         if not isinstance(x, SparseSemiStructuredTensor):
             (packed, meta, packed_t, meta_t, bitmask) = torch._sparse_semi_structured_tile(
@@ -137,7 +140,8 @@ class _Sparsify24Func(torch.autograd.Function):
                 meta_t=meta_t,
                 compressed_swizzled_bitmask=bitmask,
                 requires_grad=False,
-                fuse_transpose_cusparselt=False,
+                fuse_transpose_cusparselt=True,
+                alg_id_cusparselt=alg_id_cusparselt
             )
         else:
             out = x.detach()
@@ -146,7 +150,7 @@ class _Sparsify24Func(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_out: torch.Tensor):  # type: ignore[override]
-        return grad_out, None, None
+        return grad_out, None, None, None
 
 GRADIENT_STE = "ste"
 GRADIENT_DENSE = "dense"
@@ -229,16 +233,9 @@ def sparsify24(
     x: torch.Tensor,
     algo: str = "",
     backend: str = "cutlass",
+    alg_id_cusparselt: int = 0,
 ) -> SparseSemiStructuredTensor:
-    return _Sparsify24Func.apply(x, algo, backend)
-
-@allow_in_graph
-def static_sparsify24(
-    x: torch.Tensor,
-    algo: str = "",
-    backend: str = "cutlass",
-) -> SparseSemiStructuredTensor:
-    return _Sparsify24Func.apply(x, algo, backend)
+    return _Sparsify24Func.apply(x, algo, backend, alg_id_cusparselt)
 
 
 @allow_in_graph
@@ -251,3 +248,32 @@ def sparsify24_like(
             f"`pattern` must be a `SparseSemiStructuredTensor` but got a {type(pattern)}"
         )
     return _Sparsify24LikeFunc.apply(x, pattern)
+
+
+from torch import nn
+class SemiSparseLinear(nn.Linear):
+
+    def forward(self, x):
+        w_sparse = sparsify24(self.weight, backend="cusparselt", alg_id_cusparselt=self.alg_id)
+        return torch.nn.functional.linear(x, w_sparse, self.bias)
+
+    @classmethod
+    def from_dense(cls, linear, cslt_alg_id):
+        mod = cls(linear.in_features, linear.out_features)
+        # mod.weight = nn.Parameter(sparsify24(mod.weight.cuda().to(torch.bfloat16), backend="cusparselt", alg_id_cusparselt=cslt_alg_id))
+        mod.weight = linear.weight
+        mod.bias = linear.bias
+        mod.alg_id = cslt_alg_id
+        return mod
+
+
+def swap_linear_with_semi_sparse_linear_(model, config, current=""):
+        name_to_child = dict(model.named_children())
+        for name, child in name_to_child.items():
+            if isinstance(child, torch.nn.Linear):
+                fqn = ".".join([current, name])
+                if fqn in config:
+                    setattr(model, name, SemiSparseLinear.from_dense(child, 2))
+                    del child
+            else:
+                swap_linear_with_semi_sparse_linear_(child, config, current=f"{current}.{name}" if current else name)
