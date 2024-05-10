@@ -49,7 +49,6 @@ from torchao.quantization.subclass import (
     Int8DynamicallyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
     Int4WeightOnlyQuantizedLinearWeight,
-    Fp6WeightOnlyQuantizedLinearWeight,
 )
 from torchao.quantization.utils import (
     _apply_logging_hook,
@@ -1074,15 +1073,6 @@ class TestSubclass(unittest.TestCase):
                         test_shape=test_shape,
                         test_dtype=dtype,
                     )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    def test_fp6_weight_only_quant_subclass(self, device, dtype):
-        if device != "cuda" or dtype != torch.float16:
-            self.skipTest(f"Not implemented for {device} {dtype}")
-        for test_shape in [(16, 1024, 256), (1, 1024, 256)]:
-            self._test_lin_weight_subclass_impl(
-                Fp6WeightOnlyQuantizedLinearWeight.from_float, device, 10, test_shape=test_shape, test_dtype=dtype
-            )
 
 
 class TestDynamicQuant(unittest.TestCase):
