@@ -68,6 +68,7 @@ class TestQAT(unittest.TestCase):
         torch.manual_seed(self.SEED)
         x = torch.randn(100, 256).requires_grad_()
         (s, zp) = get_group_qparams_symmetric(x, n_bit, group_size)
+        zp = zp.to(torch.int32)
         x2 = copy.deepcopy(x)
 
         # fake quant op
@@ -93,10 +94,7 @@ class TestQAT(unittest.TestCase):
         x = torch.randn(100, 256).requires_grad_()
         x2 = copy.deepcopy(x)
         # TODO: use torch.ops.aten.quantized_decomposed version instead
-        (s, zp) = _choose_qparams_per_token_asymmetric(
-            x,
-            torch.int8,  # not used
-        )
+        (s, zp) = _choose_qparams_per_token_asymmetric(x, torch.float32, torch.int32)
 
         # fake quant op
         out = fake_quantize_per_token(x, s, zp, qmin, qmax)

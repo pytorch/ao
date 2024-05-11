@@ -131,6 +131,8 @@ if TORCH_VERSION_AFTER_2_3:
             self.groupsize = groupsize
             self.precision = precision
             self.scales_precision = scales_precision
+            # TODO: make this configurable
+            self.zero_points_precision = torch.int32
             self._fake_quant_enabled = True
 
         def enable_fake_quant(self, enabled: bool = True):
@@ -142,8 +144,8 @@ if TORCH_VERSION_AFTER_2_3:
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             # activations: int8 dynamic asymmetric quant
             if self._fake_quant_enabled:
-                (act_scales, act_zp) =_choose_qparams_per_token_asymmetric(
-                    x, torch.int8,  # dtype not used
+                (act_scales, act_zp) = _choose_qparams_per_token_asymmetric(
+                    x, self.scales_precision, self.zero_points_precision,
                 )
                 (act_qmin, act_qmax) = self._get_qmin_qmax(8)
                 x_fq = fake_quantize_per_token(
@@ -157,6 +159,8 @@ if TORCH_VERSION_AFTER_2_3:
                 (weight_scales, weight_zp) = get_group_qparams_symmetric(
                     self.weight, 4, self.groupsize, self.scales_precision,
                 )
+                # TODO: pass zp dtype to `get_group_qparams_symmetric` instead
+                weight_zp = weight_zp.to(self.zero_points_precision)
                 (weight_qmin, weight_qmax) = self._get_qmin_qmax(4)
                 w_fq = fake_quantize_per_channel_group(
                     self.weight,
@@ -205,6 +209,7 @@ class _GenericFakeQuantize(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, input, scales, zero_points, quant_min, quant_max):
+        assert input.dtype == torch.float32
         assert scales.dtype == torch.float32
         assert zero_points.dtype == torch.int32
         # Note: this diverges from `torch.fake_quantize_per_channel_affine`,
@@ -241,8 +246,8 @@ def fake_quantize_per_channel_group(
     assert input.shape[-1] % group_size == 0
     assert input.dim() == 2
     grouped_input = input.reshape(-1, group_size).to(torch.float32)
-    scales = scales.reshape(-1, 1).to(torch.float32)
-    zero_points = zero_points.reshape(-1, 1).to(torch.int32)
+    scales = scales.reshape(-1, 1)
+    zero_points = zero_points.reshape(-1, 1)
     fq = _GenericFakeQuantize.apply(
         grouped_input, scales, zero_points, quant_min, quant_max,
     )
@@ -266,10 +271,9 @@ def fake_quantize_per_token(
     from torch.ao.quantization.fx._decomposed import _per_token_quant_qparam_dim_check
 
     _per_token_quant_qparam_dim_check(input, scales, zero_points)
-    scales = scales.to(torch.float32)
-    zero_points = zero_points.to(torch.int32)
+    fq_input = input.to(torch.float32)
     fq = _GenericFakeQuantize.apply(
-        input, scales, zero_points, quant_min, quant_max,
+        fq_input, scales, zero_points, quant_min, quant_max,
     )
     return fq.reshape_as(input).to(input.dtype)
 
@@ -279,7 +283,8 @@ def fake_quantize_per_token(
 # is landed.
 def _choose_qparams_per_token_asymmetric(
     input: torch.Tensor,
-    dtype: torch.dtype,
+    scales_precision: torch.dtype = torch.float32,
+    zero_points_precision: torch.dtype = torch.float32,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Choose quantization parameters for per token quantization. This means for a N dimension Tensor
     (M1, M2, ...Mn, N), we calculate scales/zero_points for each N elements and quantize
@@ -288,7 +293,8 @@ def _choose_qparams_per_token_asymmetric(
 
     Args:
        input (torch.Tensor): original float32/float16 Tensor
-       dtype (torch.dtype): dtype (e.g. torch.uint8) for input Tensor
+       scales_precision (torch.dtype): precision of returned scales
+       zero_points_precision (torch.dtype): precision of returned zero points
 
     Returns:
         scales and zero_points, both float32 Tensors
@@ -317,4 +323,4 @@ def _choose_qparams_per_token_asymmetric(
     )
     zero_point = torch.clamp(zero_point, qmin, qmax).round()
 
-    return scale.to(torch.float32), zero_point.to(torch.float32)
+    return scale.to(scales_precision), zero_point.to(zero_points_precision)
