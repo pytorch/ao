@@ -1017,7 +1017,7 @@ if TORCH_VERSION_AFTER_2_3:
 
         # TODO: better API
         # weight_int8 = torch.ops.quantized_decomposed.unpack_int4_to_int8(weight_int4packed)
-        n_bit = 4
+        n_bit = 8
         quant_min = -(2 ** (n_bit - 1))
         quant_max = 2 ** (n_bit - 1) - 1
         w_dq = torch.ops.quantized_decomposed.dequantize_per_channel_group(
@@ -1223,7 +1223,7 @@ if TORCH_VERSION_AFTER_2_3:
                         zeros,
                     ) = group_quantize_tensor_symmetric(
                         weight.to(self.precision),
-                        4,  # n_bit
+                        8,  # n_bit
                         self.groupsize,
                         self.scales_precision,
                     )
