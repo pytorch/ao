@@ -3,7 +3,7 @@ import torchao
 import torchvision.models.vision_transformer as models
 
 from util import benchmark_model, profiler_runner
-
+torch.set_float32_matmul_precision("high")
 # Load Vision Transformer model
 model = models.vit_b_16(pretrained=True)
 
