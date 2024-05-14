@@ -15,6 +15,8 @@ try:
 except:
     from torch._inductor.runtime.runtime_utils import do_bench
 
+from .utils import TORCH_VERSION_AFTER_2_4
+
 aten = torch.ops.aten
 
 AUTOQUANT_CACHE = {}
@@ -197,7 +199,11 @@ def do_autoquant_bench(op, *args, **kwargs):
         graph = torch.cuda.CUDAGraph()
         with torch.cuda.graph(graph, stream=stream):
             op(*args, **kwargs)
-        res = do_bench(lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median")
+        if TORCH_VERSION_AFTER_2_4:
+            from torch._inductor.runtime.runtime_utils import do_bench_gpu
+            res = do_bench_gpu(lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median")
+        else:
+            res = do_bench(lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median")
     return res
 
 def _is_interpolate_mode(mode):
