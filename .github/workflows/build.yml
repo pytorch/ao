@@ -4,6 +4,14 @@ on:
   schedule:
     - cron: '0 0 * * *'  # Runs at midnight UTC every day
   workflow_dispatch:
+    inputs:
+      build-type:
+        description: 'Choose build type: nightly or release'
+        required: true
+        default: 'nightly'
+        options:
+          - nightly
+          - release
 
 jobs:
   build-and-publish:
@@ -20,8 +28,10 @@ jobs:
         pip install setuptools wheel twine
     - name: Build package
       run: |
-        export TORCHAO_NIGHTLY=1
-        python setup.py sdist bdist_wheel
+        if [ "${{ github.event.inputs['build-type'] }}" = "nightly" ]; then
+          export TORCHAO_NIGHTLY=1
+        fi
+        pip install .
     - name: Publish package to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
