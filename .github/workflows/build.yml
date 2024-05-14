@@ -12,18 +12,12 @@ on:
         options:
           - nightly
           - release
-      ref:
-        description: 'Branch or tag name'
-        required: false
-        default: 'main'
 
 jobs:
   build-and-publish:
-    runs-on: ubuntu-latest
+    runs-on: linux.g5.12xlarge.nvidia.gpu
     steps:
     - uses: actions/checkout@v3
-      with:
-        ref: ${{ github.event.inputs.ref }}
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
@@ -33,6 +27,23 @@ jobs:
         python -m pip install --upgrade pip
         pip install setuptools wheel twine
         pip install -r requirements.txt
+
+    - uses: pytorch/test-infra/.github/workflows/linux_job.yml@main
+      with:
+        runner: ${{ matrix.runs-on }}
+        gpu-arch-type: "cuda"
+        gpu-arch-version: "12.1"
+        script: |
+          conda create -n venv python=3.9 -y
+          conda activate venv
+          echo "::group::Install newer objcopy that supports --set-section-alignment"
+          yum install -y  devtoolset-10-binutils
+          export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
+          python -m pip install --upgrade pip
+          pip install torch
+          pip install -r requirements.txt
+          pip install -r dev-requirements.txt
+
     - name: Build package
       run: |
         if [ "${{ github.event_name }}" = "schedule" ]; then
@@ -40,7 +51,8 @@ jobs:
         elif [ "${{ github.event.inputs['build-type'] }}" = "nightly" ]; then
           export TORCHAO_NIGHTLY=1
         fi
-        pip install .
+        python setup.py sdist bdist_wheel
+        pytest test --verbose -s
     - name: Publish package to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
@@ -49,11 +61,11 @@ jobs:
         repository_url: https://upload.pypi.org/legacy/
         packages_dir: dist/
 
-    - name: Open issue on failure
-      if: ${{ failure() && github.event_name  == 'schedule' }}
-      uses: dacbd/create-issue-action@v1
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        title: Nightly Build failed
-        body:  Commit ${{ github.sha }} daily scheduled [CI run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) failed, please check why
-        assignees: ''
+    # - name: Open issue on failure
+    #   if: ${{ failure() && github.event_name  == 'schedule' }}
+    #   uses: dacbd/create-issue-action@v1
+    #   with:
+    #     token: ${{ secrets.GITHUB_TOKEN }}
+    #     title: Nightly Build failed
+    #     body:  Commit ${{ github.sha }} daily scheduled [CI run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) failed, please check why
+    #     assignees: ''
