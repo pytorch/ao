@@ -14,10 +14,13 @@ from .quant_primitives import (
     dynamically_quantize_per_channel,
     groupwise_affine_quantize_tensor,
     quant_int8_dynamic_per_token_linear,
+    pack_tinygemm_scales_and_zeros,
     unpack_tinygemm_scales_and_zeros,
+    groupwise_affine_quantize_tensor_from_qparams,
     choose_qparams_affine,
     quantize_affine,
     dequantize_affine,
+    ZeroPointDomain,
 )
 from .utils import find_multiple
 from typing import Tuple, Optional, Callable
@@ -619,7 +622,13 @@ class AffineQuantizedTensor(torch.Tensor):
       shape (torch.Size): the shape for the Tensor
       quant_min (Optional[int]): minimum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`
       quant_max (Optional[int]): maximum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`
-      input_quant_func (Optional[Callable]): function for quantizing the input float Tensor to a quantized tensor subclass object, that takes input Tensor as input and outputs an AffineQuantizedTensor object
+      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be eitehr integer or float
+        if zero_point is in integer domain, zero point is added to the quantized integer value during
+        quantization
+        if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
+        value during quantization
+        default is ZeroPointDomain.INT
+      input_quant_func (Optional[Callable]): function for quantizing the input float Tensor to a quantized tensor subclass object, that takes float Tensor as input and outputs an AffineQuantizedTensor object
       dtype: dtype for external representation of the tensor, e.g. torch.float32
     """
 
@@ -633,8 +642,10 @@ class AffineQuantizedTensor(torch.Tensor):
         shape: torch.Size,
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
+        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
         input_quant_func: Optional[Callable] = None,
         dtype=None,
+        # TODO: remove args and kwargs
         *args,
         **kwargs
     ):
@@ -658,6 +669,7 @@ class AffineQuantizedTensor(torch.Tensor):
         shape: torch.Size,
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
+        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
         input_quant_func: Optional[Callable] = None,
         dtype=None,
         *args,
@@ -669,6 +681,7 @@ class AffineQuantizedTensor(torch.Tensor):
         self.block_size = block_size
         self.quant_min = quant_min
         self.quant_max = quant_max
+        self.zero_point_domain = zero_point_domain
         self.input_quant_func = input_quant_func
 
     def __repr__(self):
@@ -677,18 +690,20 @@ class AffineQuantizedTensor(torch.Tensor):
             f"device={self.device}, dtype={self.dtype}, input_quant_func={self.input_quant_func}, requires_grad={self.requires_grad})"
         )
 
-    def dequantize(self, output_dtype=torch.float32):
-        return dequantize_affine(self.int_data, self.block_size, self.scale, self.zero_point, self.int_data.dtype, self.quant_min, self.quant_max, output_dtype=output_dtype)
+    def dequantize(self, output_dtype=None):
+        if output_dtype is None:
+            output_dtype = self.dtype
+        return dequantize_affine(self.int_data, self.block_size, self.scale, self.zero_point, self.int_data.dtype, self.quant_min, self.quant_max, self.zero_point_domain, output_dtype=output_dtype)
 
     def __tensor_flatten__(self):
-        return ["int_data", "scales", "zero_point"], [self.block_size, self.shape, self.quant_min, self.quant_max, self.input_quant_func, self.dtype]
+        return ["int_data", "scales", "zero_point"], [self.block_size, self.shape, self.quant_min, self.quant_max, self.zero_point_domain, self.input_quant_func, self.dtype]
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
         int_data, scale, zero_point = tensor_data_dict["int_data"], tensor_data_dict["scale"], tensor_data_dict["zero_point"]
-        block_size, shape, quant_min, quant_max, input_quant_func, dtype = tensor_attributes
+        block_size, shape, quant_min, quant_max, zero_point_domain, input_quant_func, dtype = tensor_attributes
         return cls(
             int_data,
             scale,
@@ -697,6 +712,7 @@ class AffineQuantizedTensor(torch.Tensor):
             shape if outer_size is None else outer_size,
             quant_min,
             quant_max,
+            zero_point_domain,
             input_quant_func=input_quant_func,
             dtype=dtype,
             strides=outer_stride,
@@ -715,9 +731,11 @@ class AffineQuantizedTensor(torch.Tensor):
         scale_dtype = None,
         zero_point_dtype = None,
         input_quant_func = None,
+        preserve_zero = True,
+        zero_point_domain = ZeroPointDomain.INT,
     ):
-        scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype)
-        int_data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max)
+        scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain)
+        int_data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
         return cls(
             int_data,
             scale,
@@ -726,6 +744,7 @@ class AffineQuantizedTensor(torch.Tensor):
             input_float.shape,
             quant_min,
             quant_max,
+            zero_point_domain,
             input_quant_func=input_quant_func,
             dtype=input_float.dtype
         )
@@ -740,7 +759,54 @@ class AffineQuantizedTensor(torch.Tensor):
                 args[1],
                 args[2] if len(args) > 2 else None,
             )
-            if weight_qtensor.input_quant_func is not None:
+            if weight_qtensor.input_quant_func is None:
+                is_cuda = args[0].is_cuda
+                is_cpu = args[0].device == torch.device("cpu")
+                # weight only quantization
+                is_int8 = (
+                    weight_qtensor.int_data.dtype == torch.int8 and
+                    weight_qtensor.quant_min is None or weight_qtensor.quant_min == -128 and
+                    weight_qtensor.quant_max is None or weight_qtensor.quant_max == 127
+                )
+                is_uint4 = (
+                    weight_qtensor.int_data.dtype == torch.int32 and
+                    weight_qtensor.quant_min == 0 and
+                    weight_qtensor.quant_max == 15
+                )
+
+                # TODO: enable cpu and mps path as well
+                # TODO: make sure weight dimension matches the expectation of the int4mm kernel
+                # TODO: move this to TinygemmAffineQuantizedTensor
+                if (
+                    is_cuda and
+                    is_uint4 and
+                    weight_qtensor.dtype == torch.bfloat16 and
+                    len(weight_qtensor.shape) == 2 and
+                    weight_qtensor.block_size[0] == 1 and
+                    weight_qtensor.zero_point_domain == ZeroPointDomain.FLOAT
+                ):
+                    # groupwise int4 quantization
+                    # TODO: currently doing packing on the fly, we'll need to figure out
+                    # the API to do packing before hand
+                    # TODO: expose the arg
+                    innerKTiles = 8
+                    packed_weight = torch.ops.aten._convert_weight_to_int4pack(weight_qtensor.int_data.to(torch.int32), innerKTiles)
+                    scales_and_zeros = pack_tinygemm_scales_and_zeros(weight_qtensor.scale, weight_qtensor.zero_point)
+                    groupsize = weight_qtensor.block_size[-1]
+                    return torch.ops.aten._weight_int4pack_mm(input_tensor.contiguous(), packed_weight, groupsize, scales_and_zeros)
+                elif (
+                    is_cpu and
+                    is_int8 and
+                    len(weight_qtensor.shape) == 2 and
+                    len(weight_qtensor.block_size) == 2 and
+                    weight_qtensor.block_size[0] == 1 and
+                    weight_qtensor.block_size[1] == weight_qtensor.shape[1]
+                ):
+                    # TODO: enable mps path as well
+                    # per channel int8 weight only quantizated mm
+                    return torch.ops.aten._weight_int8pack_mm(input_tensor.contiguous(), weight_qtensor.int_data, weight_qtensor.scale)
+            else:
+                # dynamic quantization
                 input_tensor = weight_qtensor.input_quant_func(input_tensor)
                 input_tensor = input_tensor.dequantize()
             weight_tensor = weight_qtensor.dequantize()
@@ -777,6 +843,7 @@ class AffineQuantizedTensor(torch.Tensor):
             self.shape,
             self.quant_min,
             self.quant_max,
+            self.zero_point_domain,
             self.input_quant_func,
             **kwargs,
         )
@@ -790,6 +857,7 @@ class AffineQuantizedTensor(torch.Tensor):
             self.shape,
             self.quant_min,
             self.quant_max,
+            self.zero_point_domain,
             self.input_quant_func,
             dtype=self.dtype,
         )

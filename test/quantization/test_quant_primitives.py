@@ -327,6 +327,8 @@ class TestQuantPrimitives(unittest.TestCase):
 
 
     def test_tinygemm_get_groupwise_affine_qparams(self):
+        from torchao.quantization.quant_primitives import ZeroPointDomain
+
         input = torch.randn(10, 256)
         n_bit = 4
         scale_ref, zero_point_ref = get_groupwise_affine_qparams(input, n_bit=n_bit, groupsize=128, dtype=torch.bfloat16)
@@ -351,16 +353,11 @@ class TestQuantPrimitives(unittest.TestCase):
                 scale_dtype=scale_dtype,
                 zero_point_dtype=zero_point_dtype,
                 preserve_zero=False,
+                zero_point_domain=ZeroPointDomain.FLOAT,
             )
 
-        def int_zero_point_to_float(zero_point, scale, qaunt_min, mid_point):
-            return (quant_min - zero_point + mid_point) * scale
-
-        mid_point = 2 ** (n_bit - 1)
-        zero_point_float = int_zero_point_to_float(zero_point, scale, quant_min, mid_point)
-
         self.assertTrue(torch.equal(scale, scale_ref))
-        torch.testing.assert_close(zero_point_float, zero_point_ref, rtol=0.00001, atol=torch.max(scale)*0.03)
+        self.assertTrue(torch.equal(zero_point, zero_point_ref))
 
 
 if __name__ == "__main__":
