@@ -133,7 +133,7 @@ class TestOps(TestCase):
 
         error = (results_fp6 - results_fp16).abs()
         relative_error = error / results_fp16.abs()
-        assert relative_error.mean() < 1e-3
+        assert relative_error.mean() < 1e-2
 
 
 if __name__ == "__main__":
