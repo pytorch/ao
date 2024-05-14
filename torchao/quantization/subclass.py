@@ -15,14 +15,19 @@ from .quant_primitives import (
     groupwise_affine_quantize_tensor,
     quant_int8_dynamic_per_token_linear,
     unpack_tinygemm_scales_and_zeros,
+    choose_qparams_affine,
+    quantize_affine,
+    dequantize_affine,
 )
 from .utils import find_multiple
+from typing import Tuple, Optional, Callable
 
 
 __all__ = [
     "Int8DynamicallyQuantizedLinearWeight",
     "Int8WeightOnlyQuantizedLinearWeight",
     "Int4WeightOnlyQuantizedLinearWeight",
+    "AffineQuantizedTensor",
 ]
 
 
@@ -190,6 +195,29 @@ class QuantizedLinearWeightBase(torch.Tensor):
                 args[0].to(*args[1:], **kwargs)._apply_fn_to_data(torch.clone),
             )
 
+class ConstructTensorSubclass(torch.nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.args = args
+        self.kwargs = kwargs
+
+    def forward(self, x):
+        pass
+
+    def right_inverse(self, tensor_subclass_instance):
+        fields, _ = tensor_subclass_instance.__tensor_flatten__()
+        return [getattr(tensor_subclass_instance, field) for field in fields]
+
+
+@torch._dynamo.allow_in_graph
+def from_qtensor_components_int8dyn(*args, **kwargs):
+    return Int8DynamicallyQuantizedLinearWeight(*args, **kwargs)
+
+
+class ConstructTensorSubclassInt8Dyn(ConstructTensorSubclass):
+    def forward(self, int_data, q_scales):
+        return from_qtensor_components_int8dyn(int_data, q_scales, *self.args, **self.kwargs)
+
 
 class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
     """
@@ -197,13 +225,16 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
     linear op to a dynamically quantized linear op with symmetric per-token and per-channel
     quantization on the activation and weight respectively.
     """
+    subclass_constructor = ConstructTensorSubclassInt8Dyn
 
     @staticmethod
-    def __new__(cls, int_data, q_scales, transposed, shape, **kwargs):
-        kwargs["dtype"] = kwargs.get("dtype", q_scales.dtype)
+    def __new__(cls, int_data, q_scales, transposed, shape, dtype=None, **kwargs):
+        if dtype is None:
+            dtype = qscales.dtype
+        kwargs["dtype"] = dtype
         return super().__new__(cls, int_data, transposed, shape, **kwargs)  # type: ignore[attr-defined]
 
-    def __init__(self, int_data, q_scales, transposed, shape, **kwargs):
+    def __init__(self, int_data, q_scales, transposed, shape, dtype=None, **kwargs):
 
         self.q_scales = q_scales
         super().__init__(int_data, transposed)
@@ -218,8 +249,11 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
         """
         Obtain the dequantized version of the quantized tensor subclass
         """
+        zero_points = torch.zeros(self.q_scales.shape, device=self.q_scales.device, dtype=self.q_scales.dtype)
+        # zero_points = 0
+        # TODO: fix dtype here? `to(self.dtype)` is not overwritten by `dtype` arg?
         dq_t = dequantize_per_channel(
-            self.int_data.t(), self.q_scales, 0, self.dtype if dtype is None else dtype
+            self.int_data.t(), self.q_scales, zero_points, self.dtype if dtype is None else dtype
         ).to(self.dtype)
         # data was transposed to dequantize so make sure shape is correct
         return dq_t if not self.transposed else dq_t.t()
@@ -263,14 +297,15 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
         )
 
     def __tensor_flatten__(self):
-        return ["int_data", "q_scales"], [self.transposed, self.dtype, self.shape]
+        # note: the order of args must match the order of args in __init__
+        return ["int_data", "q_scales"], [self.transposed, self.shape, self.dtype]
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None
     ):
         int_data, q_scales = tensor_data_dict["int_data"], tensor_data_dict["q_scales"]
-        transposed, dtype, shape = tensor_attributes
+        transposed, shape, dtype = tensor_attributes
         return cls(
             int_data,
             q_scales,
@@ -281,7 +316,7 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
         )
 
     @classmethod
-    def from_float(cls, input_float, qmin=-128, qmax=127):
+    def from_float(cls, input_float, qmin=-128, qmax=127, dtype=None):
         """
         Method used to convert a linear weight tensor to an instance of the
         Int8DynamicallyQuantizedLinearWeight subclass.
@@ -292,6 +327,10 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
                 Int8DynamicallyQuantizedLinearWeight.from_float(model.lin_mod.weight)
             )
         """
+        if dtype is None:
+            dtype = input_float.dtype
+
+        # because we call transpose in dequantization
         w_int_repr, w_scales, _ = dynamically_quantize_per_channel(
             input_float, qmin, qmax, torch.int8
         )
@@ -304,8 +343,18 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
         if not issubclass(cls, Int8DynamicallyQuantizedLinearWeight):
             int_data = int_data.contiguous()
         return cls(
-            int_data, w_scales, False, input_float.shape, dtype=input_float.dtype
+            int_data, w_scales, False, input_float.shape, dtype=dtype,
         )
+
+
+@torch._dynamo.allow_in_graph
+def from_qtensor_components_int8wo(*args, **kwargs):
+    return Int8WeightOnlyQuantizedLinearWeight(*args, **kwargs)
+
+
+class ConstructTensorSubclassInt8wo(ConstructTensorSubclass):
+    def forward(self, int_data, q_scales):
+        return from_qtensor_components_int8wo(int_data, q_scales, *self.args, **self.kwargs)
 
 
 class Int8WeightOnlyQuantizedLinearWeight(Int8DynamicallyQuantizedLinearWeight):
@@ -314,6 +363,7 @@ class Int8WeightOnlyQuantizedLinearWeight(Int8DynamicallyQuantizedLinearWeight):
     changes the linear op to a weight-only quantized linear op with symmetric
     per-channel quantization on the weight.
     """
+    subclass_constructor = ConstructTensorSubclassInt8wo
 
     @staticmethod
     def _quantized_op(act_mat, w_qtensor, bias):
@@ -331,12 +381,21 @@ class Int8WeightOnlyQuantizedLinearWeight(Int8DynamicallyQuantizedLinearWeight):
         return y.to(orig_dtype)
 
 
+@torch._dynamo.allow_in_graph
+def from_qtensor_components_int4wo(*args, **kwargs):
+    return Int4WeightOnlyQuantizedLinearWeight(*args, **kwargs)
+
+class ConstructTensorSubclassInt4wo(ConstructTensorSubclass):
+    def forward(self, int_data, scales_and_zeros):
+        return from_qtensor_components_int4wo(int_data, scales_and_zeros, *self.args, **self.kwargs)
+
 class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
     """
     A Tensor subclass that when applied to a weight used in a linear op/module,
     changes that linear op to a weight-only int4 quantized linear op with groupwise
     affine quantization on the weight.
     """
+    subclass_constructor = ConstructTensorSubclassInt4wo
 
     @staticmethod
     def __new__(
@@ -347,9 +406,12 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         shape,
         groupsize=128,
         inner_k_tiles=8,
+        dtype=None,
         **kwargs,
     ):
-        kwargs["dtype"] = kwargs.get("dtype", scales_and_zeros.dtype)
+        if dtype is None:
+            dtype = scales_and_zeros.dtype
+        kwargs["dtype"] = dtype
         return super().__new__(cls, int_data, transposed, shape, **kwargs)  # type: ignore[attr-defined]
 
     def __init__(
@@ -360,6 +422,7 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         shape,
         groupsize,
         inner_k_tiles,
+        dtype,
         **kwargs,
     ):
         # the transposed flag tracks whether the tensor subclass has been transposed relative
@@ -368,9 +431,7 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         # square matrices can cause issues otherwise
 
         self.scales_and_zeros = scales_and_zeros
-
         self.groupsize = groupsize
-
         self.inner_k_tiles = inner_k_tiles
         super().__init__(int_data, transposed)
 
@@ -461,10 +522,10 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
     def __tensor_flatten__(self):
         return ["int_data", "scales_and_zeros"], (
             self.transposed,
+            self.shape,
             self.groupsize,
             self.inner_k_tiles,
             self.dtype,
-            self.shape,
         )
 
     @classmethod
@@ -478,7 +539,7 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             tensor_data_dict["int_data"],
             tensor_data_dict["scales_and_zeros"],
         )
-        transposed, groupsize, inner_k_tiles, dtype, shape = attributes
+        transposed, shape, groupsize, inner_k_tiles, dtype = attributes
         return cls(
             int_data,
             scales_and_zeros,
@@ -491,7 +552,7 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         )
 
     @classmethod
-    def from_float(cls, input_float, groupsize=128, inner_k_tiles=8):
+    def from_float(cls, input_float, groupsize=128, inner_k_tiles=8, dtype=None):
         """
         Method used to convert a linear weight tensor to an instance of the
         Int4WeightOnlyQuantizedLinearWeight subclass.
@@ -502,9 +563,24 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
                 Int4WeightOnlyQuantizedLinearWeight.from_float(model.lin_mod.weight)
             )
         """
+        if dtype is None:
+            dtype = input_float.dtype
+
+        int_data, scales_and_zeros, transposed, groupsize, inner_k_tils = cls.to_qtensor_components(input_float, groupsize, inner_k_tiles)
+        return cls(
+            int_data,
+            scales_and_zeros,
+            transposed,
+            input_float.shape,
+            groupsize,
+            inner_k_tiles,
+            dtype=dtype,
+        )
+
+    @classmethod
+    def to_qtensor_components(cls, input_float, groupsize=128, inner_k_tiles=8):
         assert groupsize in [256, 128, 64, 32]
         assert inner_k_tiles in [8, 4, 2]
-        orig_shape = input_float.shape
         orig_out_features, orig_in_features = input_float.shape
 
         # padding
@@ -517,16 +593,275 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
 
         # quantization and packing
         input_int4x8, scales_and_zeros = groupwise_affine_quantize_tensor(
-            input_float, 4, groupsize
+            input_float, 4, groupsize, dtype=input_float.dtype
         )
         int_data = aten._convert_weight_to_int4pack(input_int4x8, inner_k_tiles)
+        return int_data, scales_and_zeros, False, groupsize, inner_k_tiles
 
+
+class AffineQuantizedTensor(torch.Tensor):
+    """
+    Base affine quantized tensor subclass. When the from_float method is used,
+    to create an instance of any AffineQuantizedTensor
+
+    The shape and dtype of the tensor subclass represent how the tensor subclass looks externally,
+    regardless of the internal representation's type or orientation.
+
+    Affine quantization means we quantize the floating point tensor with an affine transformation:
+       quantized_tensor = float_tensor / scale + zero_point
+
+    fields:
+      int_data (torch.Tensor): the quantized integer data Tensor
+      scale (torch.Tensor): the scale Tensor used to map between floating point tensor to quantized tensor
+      zero_point (torch.Tensor): the zero_point Tensor used to map between floating point tensor to quantized tensor
+      block_size (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
+         e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
+      shape (torch.Size): the shape for the Tensor
+      quant_min (Optional[int]): minimum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`
+      quant_max (Optional[int]): maximum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`
+      input_quant_func (Optional[Callable]): function for quantizing the input float Tensor to a quantized tensor subclass object, that takes input Tensor as input and outputs an AffineQuantizedTensor object
+      dtype: dtype for external representation of the tensor, e.g. torch.float32
+    """
+
+    @staticmethod
+    def __new__(
+        cls,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        block_size: Tuple[int, ...],
+        shape: torch.Size,
+        quant_min: Optional[int] = None,
+        quant_max: Optional[int] = None,
+        input_quant_func: Optional[Callable] = None,
+        dtype=None,
+        *args,
+        **kwargs
+    ):
+        kwargs["device"] = int_data.device
+        kwargs["layout"] = (
+            kwargs.get("layout") if kwargs.get("layout", False) else int_data.layout
+        )
+        if dtype is None:
+            dtype = scale.dtype
+        kwargs["dtype"] = dtype
+        assert not kwargs.get("requires_grad", False)
+        kwargs["requires_grad"] = False
+        return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
+
+    def __init__(
+        self,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        block_size: Tuple[int, ...],
+        shape: torch.Size,
+        quant_min: Optional[int] = None,
+        quant_max: Optional[int] = None,
+        input_quant_func: Optional[Callable] = None,
+        dtype=None,
+        *args,
+        **kwargs
+    ):
+        self.int_data = int_data
+        self.scale = scale
+        self.zero_point = zero_point
+        self.block_size = block_size
+        self.quant_min = quant_min
+        self.quant_max = quant_max
+        self.input_quant_func = input_quant_func
+
+    def __repr__(self):
+        return (
+            f"{self.__class__.__name__}(data={self.dequantize()}, shape={self.shape}, "
+            f"device={self.device}, dtype={self.dtype}, input_quant_func={self.input_quant_func}, requires_grad={self.requires_grad})"
+        )
+
+    def dequantize(self, output_dtype=torch.float32):
+        return dequantize_affine(self.int_data, self.block_size, self.scale, self.zero_point, self.int_data.dtype, self.quant_min, self.quant_max, output_dtype=output_dtype)
+
+    def __tensor_flatten__(self):
+        return ["int_data", "scales", "zero_point"], [self.block_size, self.shape, self.quant_min, self.quant_max, self.input_quant_func, self.dtype]
+
+    @classmethod
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
+    ):
+        int_data, scale, zero_point = tensor_data_dict["int_data"], tensor_data_dict["scale"], tensor_data_dict["zero_point"]
+        block_size, shape, quant_min, quant_max, input_quant_func, dtype = tensor_attributes
         return cls(
             int_data,
-            scales_and_zeros,
-            False,
-            orig_shape,
-            groupsize,
-            inner_k_tiles,
-            dtype=input_float.dtype,
+            scale,
+            zero_point,
+            block_size,
+            shape if outer_size is None else outer_size,
+            quant_min,
+            quant_max,
+            input_quant_func=input_quant_func,
+            dtype=dtype,
+            strides=outer_stride,
         )
+
+    @classmethod
+    def from_float(
+        cls,
+        input_float,
+        mapping_type,
+        block_size,
+        target_dtype,
+        quant_min = None,
+        quant_max = None,
+        eps = None,
+        scale_dtype = None,
+        zero_point_dtype = None,
+        input_quant_func = None,
+    ):
+        scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype)
+        int_data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max)
+        return cls(
+            int_data,
+            scale,
+            zero_point,
+            block_size,
+            input_float.shape,
+            quant_min,
+            quant_max,
+            input_quant_func=input_quant_func,
+            dtype=input_float.dtype
+        )
+
+    @classmethod
+    def __torch_function__(cls, func, types, args=(), kwargs=None):
+        kwargs = {} if kwargs is None else kwargs
+
+        if func is torch.nn.functional.linear:
+            input_tensor, weight_qtensor, bias = (
+                args[0],
+                args[1],
+                args[2] if len(args) > 2 else None,
+            )
+            if weight_qtensor.input_quant_func is not None:
+                input_tensor = weight_qtensor.input_quant_func(input_tensor)
+                input_tensor = input_tensor.dequantize()
+            weight_tensor = weight_qtensor.dequantize()
+            return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
+
+        try:
+            with torch._C.DisableTorchFunctionSubclass():
+                return func(*args, **kwargs)
+        except:
+            print(f"ERR: subclass doesn't implement {func}")
+
+
+    def _get_to_kwargs(self, *args, **kwargs):
+        device, dtype, _, memory_format = torch._C._nn._parse_to(*args, **kwargs)
+        device = self.device if device is None else device
+        dtype = self.dtype if dtype is None else dtype
+        memory_format = (
+            memory_format if memory_format is not None else torch.preserve_format
+        )
+        kwargs = {
+            "device": device,
+            "dtype": dtype,
+            "memory_format": memory_format,
+        }
+        return kwargs
+
+    def to(self, *args, **kwargs):
+        kwargs = self._get_to_kwargs(*args, **kwargs)
+        return self.__class__(
+            self.int_data.to(kwargs["device"]),
+            self.scale.to(kwargs["device"]),
+            self.zero_point.to(kwargs["device"]),
+            self.block_size,
+            self.shape,
+            self.quant_min,
+            self.quant_max,
+            self.input_quant_func,
+            **kwargs,
+        )
+
+    def _apply_fn_to_data(self, fn):
+        return self.__class__(
+            fn(self.int_data),
+            fn(self.scale),
+            fn(self.zero_point),
+            self.block_size,
+            self.shape,
+            self.quant_min,
+            self.quant_max,
+            self.input_quant_func,
+            dtype=self.dtype,
+        )
+
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs):
+        # Note: we only added cpu path here for 8da4w, this is for executorch, in the future
+        # 1. we'll add cpu/cuda version (int4mm etc.)
+        # 2. we'll need to hide the 8da4w executorch version under things like layouts (we also have multiple impl for cpu kernel as Michael mentioned), so it will be something like
+        #   cpu device + et laytout --> gives current 8da4w executorch representation
+        #   cpu device + avx layout --> gives optimized kernel for 8da4w in avx cpu etc.
+        #   cuda device + some layout --> gives cuda kernel
+
+        # two scenarios where we currently fall back to vanilla mm:
+        # 1 - when tensor is on CUDA: we'll add this later, we'll also enable dispatching to optimized
+        #     kernels in CPU as well, see the note above
+        # 2 - we're given non-floats - quantizing long to int8 is crazy
+        if (
+            func in [aten.mm.default, aten.addmm.default]
+            and args[0].is_floating_point()
+            and args[0].device == torch.device("cpu")
+        ):
+            if func == aten.addmm.default:
+                assert args[1].shape[-1] == args[2].shape[0], (
+                    f"need mat1 shape: {args[1].shape} final"
+                    f"dim to match mat2 shape: {args[2].shape} first dim "
+                )
+                input_tensor, weight_qtensor, bias = (
+                    args[1],
+                    args[2],
+                    args[0],
+                )
+            else:
+                assert args[0].shape[-1] == args[1].shape[0], (
+                    f"need mat1 shape: {args[0].shape} final dim"
+                    f"to match mat2 shape: {args[1].shape} first dim"
+                )
+                input_tensor, weight_qtensor, bias = (
+                    args[0],
+                    args[1],
+                    None if len(args) == 2 else args[2],
+                )
+            if weight_qtensor.input_quant_func is not None:
+                # dynamic quantization
+                input_tensor = weight_qtensor.input_quant_func(input_tensor)
+                input_tensor = input_tensor.dequantize()
+            weight_tensor = weight_qtensor.dequantize()
+            return func(input_tensor, weight_tensor, bias)
+
+        if (func is aten.detach.default or
+            func is aten.clone.default or
+            func is aten._to_copy.default):
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+            )
+
+        if func is aten.clone.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+            )
+
+        if func is aten.t.default:
+            # TODO: need to implement this
+            # args[0].transposed = not args[0].transposed
+            # new = args[0]._change_shape(args[0].shape[::-1])
+            # return return_and_correct_aliasing(func, args, kwargs, new)
+            raise Exception("transpose not implemented yet")
+
+        if func is aten._to_copy.default:
+            return return_and_correct_aliasing(
+                func,
+                args,
+                kwargs,
+                args[0].to(*args[1:], **kwargs)._apply_fn_to_data(torch.clone),
+            )

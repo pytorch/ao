@@ -12,6 +12,53 @@ Tested and benchmarked for `HQQ` but could theoretically be used for any asymmet
 > **NOTE**: Benchmark below is only indicative of performance on consumer-grade `Ampere` GPUs (`A6000` specifically). When tested on `H100`, the performance is on par / marginally worse than native / compiled `torch`.  
 > The intended use is thus for fine-tuning / training models on non-datacenter GPUs (`80 <= compute capability < 90`). If interested in optimizing the kernel for other architectures, please drop a note in the CUDA-MODE Discord channel.
 
+### Usage
+
+Typical workflow:
+
+- quantize `float16 / bfloat16` weights to `s4 / u4` using a group-wise asymmetric quantization scheme, outputs are the quantized 4b weights stored as `torch.int8 / torch.uint8`
+- pack weights using `pack_2xint4` such that 2 weights are packed per `torch.int8 / torch.uint8`.
+- pass the packed weights, scales, and zeros to the kernel
+
+If running transposed matmul (e.g., for backwards passes during training), there is no need to unpack / re-pack the weights, simply pass `transposed=True` to the kernel.
+
+The pseudocode below explains the expected shapes and dtypes. Also see `test/hqq/test_triton_mm.py` for a concrete example of usage with `HQQ`.
+
+```python
+
+#The reason we use N x K is to match that shape of the weight for a torch.nn.Linear layer, where N -> out-features, K -> in-features
+weights = torch.randn(N, K, dtype=torch.float16, device="cuda")
+
+#Perform groupwise asymmetric quantization along axis=1 (in-features). E.g., `scales = Wq.reshape(-1, group_size).max(axis=1)`.
+#Wq are `s4 / u4` stored as dtype = torch.int8 / torch.uint8, shape N x K
+# scales and zeros are shape (N * K // group_size)
+Wq, scales, zeros = quantize(weights) #Choose your favorite quantization library
+
+#Pack i4 stored as i8 to packed 2xi4 i8.
+#Note that we transpose W_q such that the packed shape is (K // 2) x N, and when unpacked K x N
+packed_w = pack_2xint4(W_q.T)
+
+#Reshape scales such that they can be broadcasted within kernel
+scales = scales.reshape(N, -1)
+zeros = zeros.reshape(N, -1)
+
+#Sample input
+x = torch.randn(M, K, dtype=torch.float16, device="cuda")
+
+#Run fused dequant matmul
+#If running transposed case such as for backwards pass,
+#switch transposed to True
+tt_out = triton_mixed_mm(
+          x,
+          packed_w,
+          scales.T,
+          zeros.T,
+          transposed=False,
+          group_size=group_size,
+          fp8_fast_accum=False,
+      )
+```
+
 ### Implementation Details
 
 - Bitpacking is simple row interleave, no need for extensive preprocessing (e.g., `tinygemm` or `fastertransformer`)

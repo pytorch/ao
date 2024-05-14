@@ -20,7 +20,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .dynamic_quant import DynamicallyPerAxisQuantizedLinear
-from .utils import TORCH_VERSION_AFTER_2_3
+from .utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
 
 from .subclass import (
     Int4WeightOnlyQuantizedLinearWeight,
@@ -34,6 +34,7 @@ from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
     Int4WeightOnlyQuantizer,
 )
+from .autoquant import autoquant
 
 
 __all__ = [
@@ -46,7 +47,8 @@ __all__ = [
     "Quantizer",
     "TwoStepQuantizer",
     "Int4WeightOnlyGPTQQuantizer",
-    "Int4WeightOnlyQuantizer"
+    "Int4WeightOnlyQuantizer",
+    "autoquant"
 ]
 
 if TORCH_VERSION_AFTER_2_3:
@@ -117,19 +119,27 @@ def apply_dynamic_quant(model, filter_fn=None):
     change_linear_weights_to_int8_dqtensors(model, filter_fn)
 
 
-def _get_subclass_inserter(cls, **kwargs):
-    method = kwargs.pop("method", "from_float")
+import torch.nn.utils.parametrize as parametrize
+
+def _get_subclass_inserter(cls, enable_parametrization=False, **kwargs):
+    constructor = kwargs.pop("constructor", "subclass_constructor")
+    from_float = kwargs.pop("method", "from_float")
     def insert_subclass(lin):
-        lin.weight = torch.nn.Parameter(
-            # cls.from_float(...)
-            getattr(cls, method)(lin.weight, **kwargs), requires_grad=False
-        )
+        if enable_parametrization:
+            lin.weight = torch.nn.Parameter(cls.from_float(lin.weight, **kwargs), requires_grad=False)
+            _, args = lin.weight.__tensor_flatten__()
+            parametrize.register_parametrization(lin, "weight", getattr(cls, constructor)(*args))
+        else:
+            lin.weight = torch.nn.Parameter(
+                # cls.from_float(...)
+                getattr(cls, from_float)(lin.weight, **kwargs), requires_grad=False
+            )
         return lin
 
     return insert_subclass
 
 
-def change_linear_weights_to_int8_dqtensors(model, filter_fn=None):
+def change_linear_weights_to_int8_dqtensors(model, filter_fn=None, **kwargs):
     """
     Converts all linear weight tensors to the `Int8DynamicallyQuantizedLinearWeight`
     Tensor subclass, effectively applying the same form of quantization
@@ -141,11 +151,11 @@ def change_linear_weights_to_int8_dqtensors(model, filter_fn=None):
         )
 
     _replace_with_custom_fn_if_matches_filter(
-        model, _get_subclass_inserter(Int8DynamicallyQuantizedLinearWeight), filter_fn
+        model, _get_subclass_inserter(Int8DynamicallyQuantizedLinearWeight, enable_parametrization=TORCH_VERSION_AFTER_2_4, **kwargs), filter_fn
     )
 
 
-def change_linear_weights_to_int8_woqtensors(model, filter_fn=None):
+def change_linear_weights_to_int8_woqtensors(model, filter_fn=None, **kwargs):
     """
     Converts all linear weight tensors to the
     `Int8WeightOnlyQuantizedLinearWeight` tensor subclass,
@@ -154,7 +164,7 @@ def change_linear_weights_to_int8_woqtensors(model, filter_fn=None):
     """
     _replace_with_custom_fn_if_matches_filter(
         model,
-        _get_subclass_inserter(Int8WeightOnlyQuantizedLinearWeight),
+        _get_subclass_inserter(Int8WeightOnlyQuantizedLinearWeight, enable_parametrization=TORCH_VERSION_AFTER_2_4, **kwargs),
         _is_linear if filter_fn is None else filter_fn,
     )
 
@@ -170,7 +180,7 @@ def change_linear_weights_to_int4_woqtensors(model, **kwargs):
 
     _replace_with_custom_fn_if_matches_filter(
         model,
-        _get_subclass_inserter(Int4WeightOnlyQuantizedLinearWeight, **kwargs),
+        _get_subclass_inserter(Int4WeightOnlyQuantizedLinearWeight, enable_parametrization=TORCH_VERSION_AFTER_2_4, **kwargs),
         filter_fn,
     )
 

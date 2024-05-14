@@ -36,6 +36,7 @@ from torchao.quantization.quant_primitives import (
     quant_int8_dynamic_per_token_linear,
     quantize_activation_per_token_absmax,
     safe_int_mm,
+    dequantize_affine,
 )
 
 from torchao.quantization.smoothquant import (
@@ -66,19 +67,27 @@ from torchao.quantization.autoquant import (
 from torch.ao.quantization.quantize_fx import convert_to_reference_fx, prepare_fx
 import os
 from parameterized import parameterized
+import itertools
+import logging
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
+
+logger = logging.getLogger("INFO")
 
 torch.manual_seed(0)
 config.cache_size_limit = 100
 
-COMMON_DEVICE_DTYPE=[
-    ("cpu", torch.float32),
-    ("cpu", torch.float16),
-    ("cpu", torch.bfloat16),
-    ("cuda", torch.float32),
-    ("cuda", torch.float16),
-    ("cuda", torch.bfloat16),
+# TODO: use this to reduce the number of tests
+TENSOR_SUBCLASS_APIS = [
+    change_linear_weights_to_int8_dqtensors,
+    change_linear_weights_to_int8_woqtensors,
+    change_linear_weights_to_int4_woqtensors,
 ]
+
+COMMON_DEVICES = ["cpu", "cuda"]
+
+COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
+
+COMMON_DEVICE_DTYPE = list(itertools.product(COMMON_DEVICES, COMMON_DTYPES)).copy()
 
 def combine_parameters(a, b):
     new_tuples = []
@@ -87,10 +96,17 @@ def combine_parameters(a, b):
     return new_tuples
 
 def run_supported_device_dtype(test_method):
+    """Assumes that the 3rd arg (args[2]) of the decorated method is device and
+    there is a `test_dtype` kwarg or the 4th arg (args[3]) that indicates the dtype for testing
+    """
     def wrapper(*args, **kwargs):
-        if args[2] == "cuda" and not torch.cuda.is_available():
+        if len(args) < 3:
+            raise unittest.SkipTest(f"Not enough args. Expected more than or equal to 3, but got {len(args)}")
+        device = args[2]
+        dtype = kwargs["test_dtype"] if "test_dtype" in kwargs else args[3]
+        if device == "cuda" and not torch.cuda.is_available():
             raise unittest.SkipTest(f"Need CUDA available.")
-        if args[2] == "cuda" and torch.cuda.is_available() and kwargs['test_dtype'] == torch.bfloat16 and torch.cuda.get_device_capability() < (8, 0):
+        if device == "cuda" and torch.cuda.is_available() and dtype == torch.bfloat16 and torch.cuda.get_device_capability() < (8, 0):
             raise unittest.SkipTest("Need CUDA and SM80+ available.")
         return test_method(*args, **kwargs)
     return wrapper
@@ -385,11 +401,11 @@ class PythonQuantPrimitivesUnitTest(unittest.TestCase):
             # to rounding
             assert torch.max(torch.abs(y_vals - y_ref.int_repr())).item() <= 1
         torch.testing.assert_close(
-            y_scale, torch.tensor([y_ref.q_scale()], device=device, dtype=float_dtype)
+            y_scale, torch.tensor(y_ref.q_scale(), device=device, dtype=float_dtype)
         )
         if y_zero_point is not None:
             assert torch.equal(
-                y_zero_point, torch.tensor([y_ref.q_zero_point()], device=device)
+                y_zero_point, torch.tensor(y_ref.q_zero_point(), device=device)
             )
         else:
             self.assertTrue(y_ref.q_zero_point() == 0)
@@ -559,8 +575,8 @@ class PythonQuantPrimitivesUnitTest(unittest.TestCase):
         assert torch.max(torch.abs(y_vals - y_ref.int_repr())) <= 1
 
         # dequantize
-        x_dq = dequantize_per_channel(y_vals, y_scale, y_zero_point)
-        x_ref_dq = y_ref.dequantize()
+        x_dq = dequantize_per_channel(y_vals, y_scale, y_zero_point, out_dtype=float_dtype)
+        x_ref_dq = y_ref.dequantize().to(float_dtype)
         # off-by-one for scale is okay
         torch.testing.assert_close(
             x_dq, x_ref_dq, atol=torch.max(y_scale).item() * 1.01, rtol=0.0001
@@ -583,7 +599,8 @@ class PythonQuantPrimitivesUnitTest(unittest.TestCase):
     def _test_quantize_per_token_impl(self, device, dtype):
         x = torch.randn(3, 3, 3, device=device, dtype=dtype)
         xq, scales = quantize_activation_per_token_absmax(x)
-        x_dq = dequantize_per_tensor(xq, scales, None).to(x.dtype)
+        block_size = (1, 1, 3)
+        x_dq = dequantize_affine(xq, block_size, scales, None, torch.int8, output_dtype=x.dtype)
         sqnr = compute_error(x, x_dq)
         self.assertTrue(sqnr >= 45.0)
 
@@ -1146,6 +1163,7 @@ class TestSaveLoadMeta(unittest.TestCase):
         min_sqnr=35,
         test_dtype=torch.bfloat16
     ):
+        logger.info(f"TestSaveLoad: {api}, {test_device}, {test_dtype}")
         m, k, n = 32, 64, 32
 
         class test_model(nn.Module):
@@ -1174,11 +1192,11 @@ class TestSaveLoadMeta(unittest.TestCase):
         model_qc = torch.compile(model, mode="max-autotune")
         ref_q = model_qc(x).detach()
 
-        assert SQNR(ref_f, ref_q) > min_sqnr
+        assert SQNR(ref_f, ref_q) > min_sqnr, f"got sqnr: {SQNR(ref_f, ref_q)}, expected: {min_sqnr}"
 
         # load model structure
         with torch.device('meta'):
-            model = test_model()
+            model = test_model().to(dtype=test_dtype)
         api(model)
 
         # load quantized state_dict
@@ -1191,7 +1209,7 @@ class TestSaveLoadMeta(unittest.TestCase):
         model_qc = torch.compile(model, mode="max-autotune")
         test = model_qc(x).detach()
 
-        assert SQNR(ref_f, test) > min_sqnr
+        assert SQNR(ref_f, test) > min_sqnr, f"got sqnr: {SQNR(ref_f, ref_q)}, expected: {min_sqnr}"
         self.assertTrue(torch.equal(ref_q, test))
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
@@ -1370,7 +1388,7 @@ class TestAutoQuant(unittest.TestCase):
             torch.nn.ReLU(),
         ).to(device).to(dtype)
         out = model(example_input)
-        torchao.autoquant(model, example_input)
+        torchao.autoquant(model)
         out2 = model(example_input)
         sqnr = SQNR(out, out2)
         self.assertTrue(sqnr >= 30)
@@ -1382,7 +1400,9 @@ class TestAutoQuant(unittest.TestCase):
             (32, 32, 128, 128),
         ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
-    def test_autoquant_multi_input(self, device, dtype, m1, m2, k, n):
+    def test_autoquant_compile(self, device, dtype, m1, m2, k, n):
+        if device != "cuda" and dtype != torch.bfloat16:
+            self.skipTest(f"autoquant currently does not support {device}")
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
@@ -1396,14 +1416,159 @@ class TestAutoQuant(unittest.TestCase):
             torch.nn.ReLU(),
         ).to(device).to(dtype)
         example_input = torch.randn(m1, k, device=device, dtype=dtype)
-        example_input2 = torch.randn(m2, k, device=device, dtype=dtype)
-        torchao.quantization.change_linears_to_autoquantizable(model)
-        out=model(example_input)
-        model(example_input2)
-        torchao.quantization.change_autoquantizable_to_quantized(model)
-        out2 = model(example_input)
+        example_input2 = torch.randn(m1, k, device=device, dtype=dtype)
+        out = model(example_input)
+
+        mod = torchao.autoquant(torch.compile(model))
+        mod.forward_log_only(example_input)
+        mod(example_input2)
+
+        out2 = mod(example_input)
         sqnr = SQNR(out, out2)
         self.assertTrue(sqnr >= 30)
+
+    @parameterized.expand(combine_parameters(COMMON_DEVICE_DTYPE,
+        [
+            (1,   1, 128, 128),
+            (1,  32, 128, 128),
+            (32, 32, 128, 128),
+        ]))
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
+    def test_autoquant_kwargs(self, device, dtype, m1, m2, k, n):
+        if device != "cuda" and dtype != torch.bfloat16:
+            self.skipTest(f"autoquant currently does not support {device}")
+        if device != "cuda" or not torch.cuda.is_available():
+            self.skipTest(f"autoquant currently does not support {device}")
+        if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
+            if dtype == torch.bfloat16:
+                self.skipTest(f"bfloat16 requires sm80+")
+            if m1 == 1 or m2 == 1:
+                self.skipTest(f"Shape {(m1, m2, k, n)} requires sm80+")
+
+        class NeedsKwargs(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.rel = torch.nn.ReLU()
+                self.lin = torch.nn.Linear(k,n)
+
+            def forward(self, x, y):
+                x = self.rel(x)
+                z = self.lin(x + y)
+                return z
+
+        model = NeedsKwargs().to(device).to(dtype)
+        example_input = {
+            "x": torch.randn(m1, k, device=device, dtype=dtype),
+            "y": torch.randn(m1, k, device=device, dtype=dtype),
+        }
+        out = model(**example_input)
+
+        mod = torchao.autoquant(torch.compile(model))
+        mod.forward_log_only(**example_input)
+        mod(**example_input)
+
+        out2 = mod(**example_input)
+        sqnr = SQNR(out, out2)
+        self.assertTrue(sqnr >= 30)
+
+class TestAOTI(unittest.TestCase):
+    @parameterized.expand(
+        list(itertools.product(TENSOR_SUBCLASS_APIS, COMMON_DEVICES, COMMON_DTYPES)),
+    )
+    @run_supported_device_dtype
+    def test_aoti(self, api, test_device, test_dtype):
+        if not TORCH_VERSION_AFTER_2_4:
+            self.skipTest("aoti compatibility requires 2.4+.")
+
+        if test_device == "cuda":
+            self.skipTest("AOTI has some issues in cuda test right now, skipping")
+
+        logger.info(f"TestAOTI: {api}, {test_device}, {test_dtype}")
+        if api is change_linear_weights_to_int8_dqtensors and test_device == "cuda":
+            self.skipTest(f"{api} in {test_device} is not support for aoti compilation yet")
+
+        if test_dtype != torch.bfloat16:
+            self.skipTest(f"{api} in {test_dtype} is not support for aoti compilation yet")
+
+        m, k, n = 32, 64, 32
+
+        class test_model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.lin1 = nn.Linear(k, n)
+                self.relu = nn.ReLU()
+                self.lin2 = nn.Linear(n, n)
+
+            def forward(self, x):
+                x = self.lin1(x)
+                x = self.relu(x)
+                x = self.lin2(x)
+                return x
+
+        x = torch.randn(m, k, dtype=test_dtype, device=test_device)
+
+        # get float reference
+        model = test_model().to(dtype=test_dtype, device=test_device).eval()
+        ref_f = model(x)
+
+        kwargs = {"dtype": test_dtype}
+        api(model, **kwargs)
+
+        # running model
+        model(x)
+
+        # make sure it compiles
+        example_inputs = (x,)
+        torch._export.aot_compile(model, example_inputs)
+
+
+class TestExport(unittest.TestCase):
+    @parameterized.expand(
+        list(itertools.product(TENSOR_SUBCLASS_APIS, COMMON_DEVICES, COMMON_DTYPES)),
+    )
+    @run_supported_device_dtype
+    def test_aoti(self, api, test_device, test_dtype):
+        if not TORCH_VERSION_AFTER_2_4:
+            self.skipTest("aoti compatibility requires 2.4+.")
+
+        logger.info(f"TestExport: {api}, {test_device}, {test_dtype}")
+
+        if test_dtype != torch.bfloat16:
+            self.skipTest(f"{api} in {test_dtype} is not support for aoti compilation yet")
+
+        m, k, n = 32, 64, 32
+
+        class test_model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.lin1 = nn.Linear(k, n)
+                self.relu = nn.ReLU()
+                self.lin2 = nn.Linear(n, n)
+
+            def forward(self, x):
+                x = self.lin1(x)
+                x = self.relu(x)
+                x = self.lin2(x)
+                return x
+
+        x = torch.randn(m, k, dtype=test_dtype, device=test_device)
+
+        # get float reference
+        model = test_model().to(dtype=test_dtype, device=test_device).eval()
+        ref_f = model(x)
+
+        kwargs = {"dtype": test_dtype}
+        api(model, **kwargs)
+
+        # running model
+        ref = model(x)
+
+        # make sure it compiles
+        example_inputs = (x,)
+        model = torch.export.export(model, example_inputs).module()
+        after_export = model(x)
+        self.assertTrue(torch.equal(after_export, ref))
+
 
 if __name__ == "__main__":
     unittest.main()

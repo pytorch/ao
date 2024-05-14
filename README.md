@@ -1,6 +1,6 @@
 # torchao: PyTorch Architecture Optimization
 
-[![](https://dcbadge.vercel.app/api/server/cudamode?style=flat)](discord.gg/cudamode)
+[![](https://dcbadge.vercel.app/api/server/cudamode?style=flat)](https://discord.gg/cudamode)
 
 This repository is currently under heavy development - if you have suggestions on the API or use-cases you'd like to be covered, please open an [issue](https://github.com/pytorch/ao/issues)
 
@@ -27,7 +27,7 @@ From source
 ```Shell
 git clone https://github.com/pytorch/ao
 cd ao
-python setup.py develop
+pip install .
 ```
 
 ### Quantization
@@ -44,12 +44,9 @@ torch._inductor.config.use_mixed_mm = True
 model = torch.nn.Sequential(torch.nn.Linear(32, 64)).cuda().to(torch.bfloat16)
 input = torch.randn(32,32, dtype=torch.bfloat16, device='cuda')
 
-# perform autoquantization
-torchao.autoquant(model, (input))
-
-# compile the model to recover performance
-model = torch.compile(model, mode='max-autotune')
-model(input)
+# perform autoquantization and compilation
+q_model = torchao.autoquant(torch.compile(model, mode='max-autotune'))
+q_model(input)
 ```
 
 ### Sparsity
@@ -92,8 +89,6 @@ To learn more try out our APIs, you can check out API examples in
 
 ## Supported Features
 1. [Quantization algorithms](./torchao/quantization)
-    - Int4 weight-only quantization TODO: Where is this?
-
     - [Int8 weight-only](https://github.com/pytorch/ao/blob/main/torchao/quantization/weight_only.py) quantization
     - [Int4 weight-only](https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/native/cuda/int4mm.cu) quantization
     - [GPTQ](https://github.com/pytorch/ao/blob/main/torchao/quantization/GPTQ.py) and [Smoothquant](https://github.com/pytorch/ao/blob/main/torchao/quantization/smoothquant.py) for low latency inference
@@ -125,9 +120,9 @@ torchao has been integrated with other libraries including
 ## Success stories
 Our kernels have been used to achieve SOTA inference performance on
 
-* Image segmentation models with [sam-fast](pytorch.org/blog/accelerating-generative-ai)
-* Language models with [gpt-fast](pytorch.org/blog/accelerating-generative-ai-2)
-* Diffusion models with [sd-fast](pytorch.org/blog/accelerating-generative-ai-3)
+* Image segmentation models with [sam-fast](https://pytorch.org/blog/accelerating-generative-ai)
+* Language models with [gpt-fast](https://pytorch.org/blog/accelerating-generative-ai-2)
+* Diffusion models with [sd-fast](https://pytorch.org/blog/accelerating-generative-ai-3)
 
 ## License
 

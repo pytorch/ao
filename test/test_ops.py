@@ -1,5 +1,5 @@
 import torch
-from torch.testing._internal.common_utils import TestCase
+from torch.testing._internal.common_utils import TestCase, IS_FBCODE
 from torch.testing._internal.optests import opcheck
 import torchao
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
@@ -8,6 +8,7 @@ import unittest
 
 # torch.testing._internal.optests.generate_tests.OpCheckError: opcheck(op, ...):
 # test_faketensor failed with module 'torch' has no attribute '_custom_ops' (scroll up for stack trace)
+@unittest.skipIf(IS_FBCODE, "Skipping the test in fbcode since we don't have TARGET file for kernels")
 class TestOps(TestCase):
     def _create_tensors_with_iou(self, N, iou_thresh):
         # force last box to have a pre-defined iou with the first box
