@@ -9,7 +9,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-from typing import Optional, List, Type
+from typing import Callable, Optional, List, Type
 
 import torch
 
@@ -1128,8 +1128,13 @@ if TORCH_VERSION_AFTER_2_3:
         scales_precision: torch.dtype,
         linear_class: Type[torch.nn.Module],
         copy_weights: bool = False,
+        skip_quantize_filter: Optional[Callable] = None,
+        fqn: str = "",
     ):
         for name, child in module.named_children():
+            new_fqn = (fqn + "." + name).lstrip(".")
+            if skip_quantize_filter is not None and skip_quantize_filter(new_fqn):
+                continue
             if isinstance(child, nn.Linear):
                 if _check_linear_int4_k(child.in_features, groupsize) or padding_allowed:
                     new_linear = linear_class(
@@ -1156,6 +1161,8 @@ if TORCH_VERSION_AFTER_2_3:
                     scales_precision,
                     linear_class,
                     copy_weights,
+                    skip_quantize_filter,
+                    new_fqn,
                 )
 
     def replace_linear_8da4w(
@@ -1164,6 +1171,7 @@ if TORCH_VERSION_AFTER_2_3:
         padding_allowed: bool,
         precision: torch.dtype,
         scales_precision: torch.dtype,
+        skip_quantize_filter: Optional[Callable] = None,
     ):
         _replace_linear_8da4w(
             module,
@@ -1172,6 +1180,7 @@ if TORCH_VERSION_AFTER_2_3:
             precision,
             scales_precision,
             Int8DynActInt4WeightLinear,
+            skip_quantize_filter=skip_quantize_filter,
         )
 
     class Int8DynActInt4WeightQuantizer(Quantizer):
@@ -1190,10 +1199,14 @@ if TORCH_VERSION_AFTER_2_3:
 
         @torch.no_grad()
         def _create_quantized_state_dict(
-            self, model: torch.nn.Module
+            self,
+            model: torch.nn.Module,
+            skip_quantize_filter: Optional[Callable] = None,
         ) -> Dict[str, torch.Tensor]:
             cur_state_dict = model.state_dict()
             for fqn, mod in model.named_modules():
+                if skip_quantize_filter is not None and skip_quantize_filter(fqn):
+                    continue
                 if isinstance(mod, torch.nn.Linear):
                     assert not mod.bias
                     out_features = mod.out_features
@@ -1234,21 +1247,27 @@ if TORCH_VERSION_AFTER_2_3:
 
             return cur_state_dict
 
-        def _convert_for_runtime(self, model: torch.nn.Module) -> torch.nn.Module:
+        def _convert_for_runtime(
+            self,
+            model: torch.nn.Module,
+            skip_quantize_filter: Optional[Callable] = None,
+        ) -> torch.nn.Module:
             replace_linear_8da4w(
                 model,
                 self.groupsize,
                 self.padding_allowed,
                 self.precision,
                 self.precision,
+                skip_quantize_filter=skip_quantize_filter,
             )
             return model
 
         def quantize(
             self, model: torch.nn.Module, *args: Any, **kwargs: Any
         ) -> torch.nn.Module:
-            state_dict = self._create_quantized_state_dict(model)
-            model = self._convert_for_runtime(model)
+            skip_quantize_filter = kwargs.get("skip_quantize_filter")
+            state_dict = self._create_quantized_state_dict(model, skip_quantize_filter)
+            model = self._convert_for_runtime(model, skip_quantize_filter)
             # TODO: make it strict
             model.load_state_dict(state_dict, strict=False)
             return model
