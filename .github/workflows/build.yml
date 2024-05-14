@@ -45,3 +45,12 @@ jobs:
         password: ${{ secrets.PYPI_API_TOKEN }}
         repository_url: https://upload.pypi.org/legacy/
         packages_dir: dist/
+
+    - name: Open issue on failure
+      if: ${{ failure() && github.event_name  == 'schedule' }}
+      uses: dacbd/create-issue-action@v1
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        title: Nightly Build failed
+        body:  Commit ${{ github.sha }} daily scheduled [CI run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) failed, please check why
+        assignees: ''
