@@ -40,7 +40,7 @@ jobs:
         elif [ "${{ github.event.inputs['build-type'] }}" = "nightly" ]; then
           export TORCHAO_NIGHTLY=1
         fi
-        pip install .
+        python setup.py sdist bdist_wheel
     - name: Publish package to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
