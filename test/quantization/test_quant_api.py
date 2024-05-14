@@ -591,6 +591,22 @@ class TestQuantFlow(unittest.TestCase):
 
         self.assertTrue(torch.equal(res, ref))
 
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
+    def test_8da4w_quantizer_skip_quantize_filter(self):
+        from torchao.quantization.GPTQ import (
+            Int8DynActInt4WeightLinear,
+            Int8DynActInt4WeightQuantizer,
+        )
+
+        def my_skip_quantize(fqn):
+            return fqn == "linear2"
+
+        m = ToyLinearModel()
+        quantizer = Int8DynActInt4WeightQuantizer(groupsize=16)
+        m = quantizer.quantize(m, skip_quantize_filter=my_skip_quantize)
+        self.assertEqual(type(m.linear1), Int8DynActInt4WeightLinear)
+        self.assertEqual(type(m.linear2), torch.nn.Linear)
+
 
 if __name__ == "__main__":
     unittest.main()
