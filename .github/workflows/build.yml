@@ -28,7 +28,7 @@ jobs:
         pip install setuptools wheel twine
         pip install -r requirements.txt
 
-      uses: pytorch/test-infra/.github/workflows/linux_job.yml@main
+    - uses: pytorch/test-infra/.github/workflows/linux_job.yml@main
       with:
         runner: ${{ matrix.runs-on }}
         gpu-arch-type: "cuda"
@@ -43,8 +43,6 @@ jobs:
           pip install torch
           pip install -r requirements.txt
           pip install -r dev-requirements.txt
-          pip install .
-          pytest test --verbose -s
 
     - name: Build package
       run: |
@@ -54,6 +52,7 @@ jobs:
           export TORCHAO_NIGHTLY=1
         fi
         python setup.py sdist bdist_wheel
+        pytest test --verbose -s
     - name: Publish package to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
