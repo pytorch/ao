@@ -4,7 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Any, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 import torch
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib
@@ -47,6 +47,15 @@ if TORCH_VERSION_AFTER_2_4:
             *args: Any,
             **kwargs: Any
         ) -> torch.nn.Module:
+            """
+            Prepare a model for QAT by swapping `torch.nn.Linear` with
+            `Int8DynActInt4WeightQATLinear`, which performs 8da4w fake quantize.
+
+            Users may optionally specify `skip_quantize_filter`, a function
+            that takes in a fully-qualified name corresponding to a submodule,
+            and returns True if we should skip quantizing that submodule.
+            """
+            skip_quantize_filter = kwargs.get("skip_quantize_filter")
             _replace_linear_8da4w(
                 model,
                 self.groupsize,
@@ -55,6 +64,7 @@ if TORCH_VERSION_AFTER_2_4:
                 self.scales_precision,
                 Int8DynActInt4WeightQATLinear,
                 copy_weights=True,
+                skip_quantize_filter = skip_quantize_filter,
             )
             return model
 
@@ -64,14 +74,29 @@ if TORCH_VERSION_AFTER_2_4:
             *args: Any,
             **kwargs: Any
         ) -> torch.nn.Module:
-            _convert_qat_linear_8da4w(model)
+            """
+            Convert a float QAT model to a 8da4w quantized model.
+
+            Users may optionally specify `skip_quantize_filter`, a function
+            that takes in a fully-qualified name corresponding to a submodule,
+            and returns True if we should skip quantizing that submodule.
+            """
+            skip_quantize_filter = kwargs.get("skip_quantize_filter")
+            _convert_qat_linear_8da4w(model, skip_quantize_filter)
             return model
 
-    def _convert_qat_linear_8da4w(module: torch.nn.Module):
+    def _convert_qat_linear_8da4w(
+        module: torch.nn.Module,
+        skip_quantize_filter: Optional[Callable] = None,
+        fqn: str = "",
+    ):
         """
         Replace all `Int8DynActInt4WeightQATLinear` with `Int8DynActInt4WeightLinear`.
         """
         for name, child in module.named_children():
+            new_fqn = (fqn + "." + name).lstrip(".")
+            if skip_quantize_filter is not None and skip_quantize_filter(new_fqn):
+                continue
             if isinstance(child, Int8DynActInt4WeightQATLinear):
                 quantized_linear = Int8DynActInt4WeightLinear(
                     child.in_features,
@@ -94,8 +119,8 @@ if TORCH_VERSION_AFTER_2_4:
                 quantized_linear.scales = s
                 quantized_linear.zeros = zp
             else:
-                _convert_qat_linear_8da4w(child)
-
+                _convert_qat_linear_8da4w(child, skip_quantize_filter, new_fqn)
+    
     class Int8DynActInt4WeightQATLinear(torch.nn.Linear):
         """
         This module implements a linear layer with int8 dynamic per token fake

@@ -322,6 +322,30 @@ class TestQAT(unittest.TestCase):
         torch.testing.assert_close(py_out, ao_out, atol=0, rtol=0)
         torch.testing.assert_close(py_input.grad, ao_input.grad, atol=0, rtol=0)
 
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
+    def test_qat_8da4w_quantizer_skip_quantize_filter(self):
+        from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
+        from torchao.quantization.prototype.qat import (
+            Int8DynActInt4WeightQATLinear,
+            Int8DynActInt4WeightQATQuantizer,
+        )
+
+        def my_skip_quantize(fqn):
+            return fqn.startswith("sub") or fqn == "linear2"
+
+        group_size = 16
+        torch.manual_seed(self.SEED)
+        m = M()
+        qat_quantizer = Int8DynActInt4WeightQATQuantizer(groupsize=group_size)
+        qat_model = qat_quantizer.prepare(m, skip_quantize_filter=my_skip_quantize)
+        self.assertEqual(type(qat_model.linear1), Int8DynActInt4WeightQATLinear)
+        self.assertEqual(type(qat_model.sub.linear), torch.nn.Linear)
+        self.assertEqual(type(qat_model.linear2), torch.nn.Linear)
+        quantized_model = qat_quantizer.convert(m, skip_quantize_filter=my_skip_quantize)
+        self.assertEqual(type(qat_model.linear1), Int8DynActInt4WeightLinear)
+        self.assertEqual(type(qat_model.sub.linear), torch.nn.Linear)
+        self.assertEqual(type(qat_model.linear2), torch.nn.Linear)
+
 
 if __name__ == "__main__":
     unittest.main()
