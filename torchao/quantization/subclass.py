@@ -21,6 +21,7 @@ from .quant_primitives import (
     quantize_affine,
     dequantize_affine,
     ZeroPointDomain,
+    MappingType,
 )
 from .utils import find_multiple
 from typing import Tuple, Optional, Callable
@@ -643,7 +644,6 @@ class AffineQuantizedTensor(torch.Tensor):
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
-        input_quant_func: Optional[Callable] = None,
         dtype=None,
         # TODO: remove args and kwargs
         *args,
@@ -670,7 +670,6 @@ class AffineQuantizedTensor(torch.Tensor):
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
-        input_quant_func: Optional[Callable] = None,
         dtype=None,
         *args,
         **kwargs
@@ -682,12 +681,11 @@ class AffineQuantizedTensor(torch.Tensor):
         self.quant_min = quant_min
         self.quant_max = quant_max
         self.zero_point_domain = zero_point_domain
-        self.input_quant_func = input_quant_func
 
     def __repr__(self):
         return (
             f"{self.__class__.__name__}(data={self.dequantize()}, shape={self.shape}, "
-            f"device={self.device}, dtype={self.dtype}, input_quant_func={self.input_quant_func}, requires_grad={self.requires_grad})"
+            f"device={self.device}, dtype={self.dtype}, requires_grad={self.requires_grad})"
         )
 
     def dequantize(self, output_dtype=None):
@@ -696,14 +694,14 @@ class AffineQuantizedTensor(torch.Tensor):
         return dequantize_affine(self.int_data, self.block_size, self.scale, self.zero_point, self.int_data.dtype, self.quant_min, self.quant_max, self.zero_point_domain, output_dtype=output_dtype)
 
     def __tensor_flatten__(self):
-        return ["int_data", "scales", "zero_point"], [self.block_size, self.shape, self.quant_min, self.quant_max, self.zero_point_domain, self.input_quant_func, self.dtype]
+        return ["int_data", "scales", "zero_point"], [self.block_size, self.shape, self.quant_min, self.quant_max, self.zero_point_domain, self.dtype]
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
         int_data, scale, zero_point = tensor_data_dict["int_data"], tensor_data_dict["scale"], tensor_data_dict["zero_point"]
-        block_size, shape, quant_min, quant_max, zero_point_domain, input_quant_func, dtype = tensor_attributes
+        block_size, shape, quant_min, quant_max, zero_point_domain, dtype = tensor_attributes
         return cls(
             int_data,
             scale,
@@ -713,7 +711,6 @@ class AffineQuantizedTensor(torch.Tensor):
             quant_min,
             quant_max,
             zero_point_domain,
-            input_quant_func=input_quant_func,
             dtype=dtype,
             strides=outer_stride,
         )
@@ -730,7 +727,6 @@ class AffineQuantizedTensor(torch.Tensor):
         eps = None,
         scale_dtype = None,
         zero_point_dtype = None,
-        input_quant_func = None,
         preserve_zero = True,
         zero_point_domain = ZeroPointDomain.INT,
     ):
@@ -745,7 +741,6 @@ class AffineQuantizedTensor(torch.Tensor):
             quant_min,
             quant_max,
             zero_point_domain,
-            input_quant_func=input_quant_func,
             dtype=input_float.dtype
         )
 
@@ -759,56 +754,52 @@ class AffineQuantizedTensor(torch.Tensor):
                 args[1],
                 args[2] if len(args) > 2 else None,
             )
-            if weight_qtensor.input_quant_func is None:
-                is_cuda = args[0].is_cuda
-                is_cpu = args[0].device == torch.device("cpu")
-                # weight only quantization
-                is_int8 = (
-                    weight_qtensor.int_data.dtype == torch.int8 and
-                    weight_qtensor.quant_min is None or weight_qtensor.quant_min == -128 and
-                    weight_qtensor.quant_max is None or weight_qtensor.quant_max == 127
-                )
-                is_uint4 = (
-                    weight_qtensor.int_data.dtype == torch.int32 and
-                    weight_qtensor.quant_min == 0 and
-                    weight_qtensor.quant_max == 15
-                )
+            is_cuda = args[1].is_cuda
+            is_cpu = args[1].device == torch.device("cpu")
+            # weight only quantization
+            is_int8 = (
+                weight_qtensor.int_data.dtype == torch.int8 and
+                weight_qtensor.quant_min is None or weight_qtensor.quant_min == -128 and
+                weight_qtensor.quant_max is None or weight_qtensor.quant_max == 127
+            )
+            is_uint4 = (
+                weight_qtensor.int_data.dtype == torch.int32 and
+                weight_qtensor.quant_min == 0 and
+                weight_qtensor.quant_max == 15
+            )
 
-                # TODO: enable cpu and mps path as well
-                # TODO: make sure weight dimension matches the expectation of the int4mm kernel
-                # TODO: move this to TinygemmAffineQuantizedTensor
-                if (
-                    is_cuda and
-                    is_uint4 and
-                    weight_qtensor.dtype == torch.bfloat16 and
-                    len(weight_qtensor.shape) == 2 and
-                    weight_qtensor.block_size[0] == 1 and
-                    weight_qtensor.zero_point_domain == ZeroPointDomain.FLOAT
-                ):
-                    # groupwise int4 quantization
-                    # TODO: currently doing packing on the fly, we'll need to figure out
-                    # the API to do packing before hand
-                    # TODO: expose the arg
-                    innerKTiles = 8
-                    packed_weight = torch.ops.aten._convert_weight_to_int4pack(weight_qtensor.int_data.to(torch.int32), innerKTiles)
-                    scales_and_zeros = pack_tinygemm_scales_and_zeros(weight_qtensor.scale, weight_qtensor.zero_point)
-                    groupsize = weight_qtensor.block_size[-1]
-                    return torch.ops.aten._weight_int4pack_mm(input_tensor.contiguous(), packed_weight, groupsize, scales_and_zeros)
-                elif (
-                    is_cpu and
-                    is_int8 and
-                    len(weight_qtensor.shape) == 2 and
-                    len(weight_qtensor.block_size) == 2 and
-                    weight_qtensor.block_size[0] == 1 and
-                    weight_qtensor.block_size[1] == weight_qtensor.shape[1]
-                ):
-                    # TODO: enable mps path as well
-                    # per channel int8 weight only quantizated mm
-                    return torch.ops.aten._weight_int8pack_mm(input_tensor.contiguous(), weight_qtensor.int_data, weight_qtensor.scale)
-            else:
-                # dynamic quantization
-                input_tensor = weight_qtensor.input_quant_func(input_tensor)
-                input_tensor = input_tensor.dequantize()
+            # TODO: enable cpu and mps path as well
+            # TODO: make sure weight dimension matches the expectation of the int4mm kernel
+            # TODO: move this to TinygemmAffineQuantizedTensor
+            if (
+                is_cuda and
+                is_uint4 and
+                weight_qtensor.dtype == torch.bfloat16 and
+                len(weight_qtensor.shape) == 2 and
+                weight_qtensor.block_size[0] == 1 and
+                weight_qtensor.zero_point_domain == ZeroPointDomain.FLOAT
+            ):
+                # groupwise int4 quantization
+                # TODO: currently doing packing on the fly, we'll need to figure out
+                # the API to do packing before hand
+                # TODO: expose the arg
+                innerKTiles = 8
+                packed_weight = torch.ops.aten._convert_weight_to_int4pack(weight_qtensor.int_data.to(torch.int32), innerKTiles)
+                scales_and_zeros = pack_tinygemm_scales_and_zeros(weight_qtensor.scale, weight_qtensor.zero_point)
+                groupsize = weight_qtensor.block_size[-1]
+                return torch.ops.aten._weight_int4pack_mm(input_tensor.contiguous(), packed_weight, groupsize, scales_and_zeros)
+            elif (
+                is_cpu and
+                is_int8 and
+                len(weight_qtensor.shape) == 2 and
+                len(weight_qtensor.block_size) == 2 and
+                weight_qtensor.block_size[0] == 1 and
+                weight_qtensor.block_size[1] == weight_qtensor.shape[1]
+            ):
+                # TODO: enable mps path as well
+                # per channel int8 weight only quantizated mm
+                return torch.ops.aten._weight_int8pack_mm(input_tensor.contiguous(), weight_qtensor.int_data, weight_qtensor.scale)
+
             weight_tensor = weight_qtensor.dequantize()
             return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
@@ -816,7 +807,7 @@ class AffineQuantizedTensor(torch.Tensor):
             with torch._C.DisableTorchFunctionSubclass():
                 return func(*args, **kwargs)
         except:
-            print(f"ERR: subclass doesn't implement {func}")
+            print(f"ERR: AffineQuantizedTensor subclass doesn't implement {func}")
 
 
     def _get_to_kwargs(self, *args, **kwargs):
@@ -844,7 +835,6 @@ class AffineQuantizedTensor(torch.Tensor):
             self.quant_min,
             self.quant_max,
             self.zero_point_domain,
-            self.input_quant_func,
             **kwargs,
         )
 
@@ -858,7 +848,6 @@ class AffineQuantizedTensor(torch.Tensor):
             self.quant_min,
             self.quant_max,
             self.zero_point_domain,
-            self.input_quant_func,
             dtype=self.dtype,
         )
 
@@ -900,16 +889,10 @@ class AffineQuantizedTensor(torch.Tensor):
                     args[1],
                     None if len(args) == 2 else args[2],
                 )
-            if weight_qtensor.input_quant_func is not None:
-                # dynamic quantization
-                input_tensor = weight_qtensor.input_quant_func(input_tensor)
-                input_tensor = input_tensor.dequantize()
             weight_tensor = weight_qtensor.dequantize()
             return func(input_tensor, weight_tensor, bias)
 
-        if (func is aten.detach.default or
-            func is aten.clone.default or
-            func is aten._to_copy.default):
+        if func is aten.detach.default:
             return return_and_correct_aliasing(
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
             )
@@ -933,3 +916,160 @@ class AffineQuantizedTensor(torch.Tensor):
                 kwargs,
                 args[0].to(*args[1:], **kwargs)._apply_fn_to_data(torch.clone),
             )
+
+        raise NotImplementedError(
+            f"AffineQuantizedTensor dispatch: attempting to run {func}, this is not supported"
+        )
+
+
+class LinearActAffineQuantizedTensor(torch.Tensor):
+    """
+    Activation quantization with AffineQuantizedTensor
+    Applies activation affine quantization for linear operator
+    """
+    def __new__(
+        cls,
+        float_tensor: torch.Tensor,
+        mapping_type: MappingType,
+        get_block_size: Callable[[torch.Tensor], Tuple[int, ...]],
+        target_dtype: torch.dtype,
+        quant_min: Optional[int] = None,
+        quant_max: Optional[int] = None,
+        eps: Optional[float] = None,
+        scale_dtype: Optional[torch.dtype] = None,
+        zero_point_dtype: Optional[torch.dtype] = None,
+        preserve_zero = True,
+        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+    ):
+        kwargs = {}
+        dtype = float_tensor.dtype
+        kwargs["dtype"] = dtype
+        kwargs["requires_grad"] = False
+        shape = float_tensor.shape
+        return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
+
+    def __init__(
+        self,
+        float_tensor: torch.Tensor,
+        mapping_type: MappingType,
+        get_block_size: Callable[[torch.Tensor], Tuple[int, ...]],
+        target_dtype: torch.dtype,
+        quant_min: Optional[int] = None,
+        quant_max: Optional[int] = None,
+        eps: Optional[float] = None,
+        scale_dtype: Optional[torch.dtype] = None,
+        zero_point_dtype: Optional[torch.dtype] = None,
+        preserve_zero = True,
+        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+    ):
+        self.mapping_type = mapping_type
+        self.get_block_size = get_block_size
+        self.target_dtype = target_dtype
+        self.quant_min = quant_min
+        self.quant_max = quant_max
+        self.eps = eps
+        self.scale_dtype = scale_dtype
+        self.zero_point_dtype = zero_point_dtype
+        self.preserve_zero = preserve_zero
+        self.zero_point_domain = zero_point_domain
+
+    def __tensor_flatten__(self):
+        return ["float_tensor"], [self.mapping_type, self.get_block_size, self.target_dtype, self.quant_min, self.quant_max, self.eps, self.scale_dtype, self.zero_point_dtype, self.preserve_zero, self.zer_point_domain]
+
+    @classmethod
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
+    ):
+        float_tensor = tensor_data_dict["float_tensor"]
+        mapping_type, get_block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain = tensor_attributes
+        return cls(
+            float_tensor,
+            mapping_type,
+            get_block_size,
+            target_dtype,
+            quant_min,
+            quant_max,
+            eps,
+            scale_dtype,
+            zero_point_dtype,
+            preserve_zero,
+            zero_point_domain,
+        )
+
+    @classmethod
+    def from_float(
+        cls,
+        input_float,
+        mapping_type,
+        get_block_size,
+        target_dtype,
+        quant_min = None,
+        quant_max = None,
+        eps = None,
+        scale_dtype = None,
+        zero_point_dtype = None,
+        preserve_zero = True,
+        zero_point_domain = ZeroPointDomain.INT,
+    ):
+        return cls(
+            input_float,
+            mapping_type,
+            get_block_size,
+            target_dtype,
+            quant_min,
+            quant_max,
+            eps,
+            scale_dtype,
+            zero_point_dtype,
+            preserve_zero,
+            zero_point_domain,
+        )
+
+    @classmethod
+    def __torch_function__(cls, func, types, args=(), kwargs=None):
+        kwargs = {} if kwargs is None else kwargs
+
+        if func is torch.nn.functional.linear:
+            input_tensor, weight_tensor, bias = (
+                args[0],
+                args[1],
+                args[2] if len(args) > 2 else None,
+            )
+            block_size = self.get_block_size(args[0])
+            aqt = AffineQuantizedTensor.from_float(input_tensor, self.mapping_type, block_size, self.target_dtype, self.quant_min, self.quant_max, self.eps, self.scale_dtype, self.zero_point_dtype, self.preserve_zero, self.zero_point_domain)
+            return F.linear(aqt, weight_tensor, bias)
+
+        try:
+            with torch._C.DisableTorchFunctionSubclass():
+                return func(*args, **kwargs)
+        except:
+            print(f"ERR: LinearActAffineQuantizedTensor subclass doesn't implement {func}")
+
+    def _apply_fn_to_data(self, fn):
+        return self.__class__(
+            fn(self.float_tensor),
+            self.mapping_type,
+            self.get_block_size,
+            self.target_dtype,
+            self.quant_min,
+            self.quant_max,
+            self.scale_dtype,
+            self.zero_point_dtype,
+            self.preserve_zero,
+            self.zero_point_domain,
+        )
+
+    def __torch_dispatch__(cls, func, types, args, kwargs):
+        if func is aten.detach.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+            )
+
+        if func is aten.clone.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+            )
+
+        raise NotImplementedError(
+            f"LinearActAffineQuantizedTensor dispatch: attempting to run {func}, this is not supported"
+        )
