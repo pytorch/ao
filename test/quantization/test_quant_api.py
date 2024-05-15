@@ -397,7 +397,7 @@ class TestQuantFlow(unittest.TestCase):
     def test_quantized_tensor_subclass_8da4w(self):
         from torchao.quantization.subclass import (
             AffineQuantizedTensor,
-            LinearActAffineQuantizedTensor,
+            LinearActQuantizedTensor,
         )
         from torchao.quantization.quant_primitives import MappingType
         import copy
@@ -428,15 +428,15 @@ class TestQuantFlow(unittest.TestCase):
         def dynamic_quant(linear):
             # note: order is important
             linear.weight = torch.nn.Parameter(AffineQuantizedTensor.from_float(linear.weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps), requires_grad=False)
-            linear.weight = torch.nn.Parameter(LinearActAffineQuantizedTensor.from_float(linear.weight, input_quant_func), requires_grad=False)
+            linear.weight = torch.nn.Parameter(LinearActQuantizedTensor.from_float(linear.weight, input_quant_func), requires_grad=False)
 
         m = ToyLinearModel().eval()
         m_copy = copy.deepcopy(m)
         example_inputs = m.example_inputs()
         dynamic_quant(m.linear1)
         dynamic_quant(m.linear2)
-        assert isinstance(m.linear1.weight, LinearActAffineQuantizedTensor)
-        assert isinstance(m.linear2.weight, LinearActAffineQuantizedTensor)
+        assert isinstance(m.linear1.weight, LinearActQuantizedTensor)
+        assert isinstance(m.linear2.weight, LinearActQuantizedTensor)
 
         # reference
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
@@ -538,7 +538,7 @@ class TestQuantFlow(unittest.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantized_tensor_subclass_int8_dyn_quant(self):
         from torchao.quantization.subclass import AffineQuantizedTensor
-        from torchao.quantization.subclass import LinearActAffineQuantizedTensor
+        from torchao.quantization.subclass import LinearActQuantizedTensor
         from torchao.quantization.quant_primitives import MappingType
         from torchao.quantization.quant_primitives import ZeroPointDomain
         import copy
@@ -573,12 +573,12 @@ class TestQuantFlow(unittest.TestCase):
         def dynamic_quant(linear):
             # note: order is important
             linear.weight = torch.nn.Parameter(AffineQuantizedTensor.from_float(linear.weight, mapping_type, get_weight_block_size(linear.weight), target_dtype, eps=eps, zero_point_dtype=zero_point_dtype), requires_grad=False)
-            linear.weight = torch.nn.Parameter(LinearActAffineQuantizedTensor.from_float(linear.weight, input_quant_func), requires_grad=False)
+            linear.weight = torch.nn.Parameter(LinearActQuantizedTensor.from_float(linear.weight, input_quant_func), requires_grad=False)
 
         dynamic_quant(m.linear1)
         dynamic_quant(m.linear2)
-        assert isinstance(m.linear1.weight, LinearActAffineQuantizedTensor)
-        assert isinstance(m.linear2.weight, LinearActAffineQuantizedTensor)
+        assert isinstance(m.linear1.weight, LinearActQuantizedTensor)
+        assert isinstance(m.linear2.weight, LinearActQuantizedTensor)
         assert isinstance(m.linear1.weight.original_weight_tensor, AffineQuantizedTensor)
         assert isinstance(m.linear2.weight.original_weight_tensor, AffineQuantizedTensor)
 

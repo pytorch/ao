@@ -46,10 +46,10 @@ def _aqt_is_int8(aqt):
         aqt.quant_max is None or aqt.quant_max == 127
     )
 
-def _aqt_is_int8_reduce_range(aqt):
+def _aqt_is_int8_reduced_range(aqt):
     return (
         aqt.int_data.dtype == torch.int8 and
-        aqt.quant_min is None or aqt.quant_min == -127 and
+        aqt.quant_min == -127 and
         aqt.quant_max is None or aqt.quant_max == 127
     )
 
@@ -788,7 +788,7 @@ class AffineQuantizedTensor(torch.Tensor):
                 if isinstance(input_tensor, AffineQuantizedTensor):
                     # if input tensor is quantized, either dispatch to the int8 mm kernel
                     # or just dequantize the input tensor
-                    input_is_int8 = _aqt_is_int8_reduce_range(input_tensor)
+                    input_is_int8 = _aqt_is_int8_reduced_range(input_tensor)
                     input_tensor_dtype_is_expected = input_tensor.dtype in [
                         torch.float,
                         torch.bfloat16
@@ -830,7 +830,6 @@ class AffineQuantizedTensor(torch.Tensor):
                         input_tensor = input_tensor.dequantize()
 
                 # weight only quantization
-
                 # TODO: enable cpu and mps path as well
                 # TODO: make sure weight dimension matches the expectation of the int4mm kernel
                 # TODO: move this to TinygemmAffineQuantizedTensor
@@ -862,15 +861,16 @@ class AffineQuantizedTensor(torch.Tensor):
                     # TODO: enable mps path as well
                     # per channel int8 weight only quantizated mm
                     return torch.ops.aten._weight_int8pack_mm(input_tensor.contiguous(), weight_qtensor.int_data, weight_qtensor.scale)
+                else:
+                    weight_tensor = weight_qtensor.dequantize()
+                    return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
             else:
                 if isinstance(input_tensor, AffineQuantizedTensor):
                     input_tensor = input_tensor.dequantize()
                 return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
-        try:
-            with torch._C.DisableTorchFunctionSubclass():
-                return func(*args, **kwargs)
-        except:
-            print(f"ERR: AffineQuantizedTensor subclass doesn't implement {func}")
+
+        with torch._C.DisableTorchFunctionSubclass():
+            return func(*args, **kwargs)
 
 
     def _get_to_kwargs(self, *args, **kwargs):
@@ -985,10 +985,9 @@ class AffineQuantizedTensor(torch.Tensor):
         )
 
 
-class LinearActAffineQuantizedTensor(torch.Tensor):
+class LinearActQuantizedTensor(torch.Tensor):
     """
-    Activation quantization with AffineQuantizedTensor
-    Applies activation affine quantization for linear operator
+    Applies activation quantization for linear operator
     """
     def __new__(
         cls,
@@ -1045,16 +1044,14 @@ class LinearActAffineQuantizedTensor(torch.Tensor):
                 args[1],
                 args[2] if len(args) > 2 else None,
             )
-            if isinstance(weight_tensor, LinearActAffineQuantizedTensor):
+            if isinstance(weight_tensor, LinearActQuantizedTensor):
                 input_quant_func = weight_tensor.input_quant_func
                 original_weight_tensor = weight_tensor.original_weight_tensor
                 aqt = input_quant_func(input_tensor)
                 return torch.nn.functional.linear(aqt, original_weight_tensor, bias)
-        try:
-            with torch._C.DisableTorchFunctionSubclass():
-                return func(*args, **kwargs)
-        except:
-            print(f"ERR: LinearActAffineQuantizedTensor subclass doesn't implement {func}")
+
+        with torch._C.DisableTorchFunctionSubclass():
+            return func(*args, **kwargs)
 
     def _apply_fn_to_data(self, fn):
         return self.__class__(
@@ -1103,5 +1100,5 @@ class LinearActAffineQuantizedTensor(torch.Tensor):
             )
 
         raise NotImplementedError(
-            f"LinearActAffineQuantizedTensor dispatch: attempting to run {func}, this is not supported"
+            f"LinearActQuantizedTensor dispatch: attempting to run {func}, this is not supported"
         )
