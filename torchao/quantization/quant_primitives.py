@@ -201,7 +201,7 @@ def quantize_affine(
 
     if zero_point_domain == ZeroPointDomain.INT:
         quant = torch.clamp(
-            torch.round(input / scale) + zero_point, quant_min, quant_max
+            torch.round(input * (1.0 / scale)) + zero_point, quant_min, quant_max
         ).to(output_dtype)
     else:
         assert zero_point_domain == ZeroPointDomain.FLOAT

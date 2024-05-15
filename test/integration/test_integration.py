@@ -1124,7 +1124,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
                 m_c = torch.compile(m, mode="max-autotune")
                 y_wo, (code,) = run_and_get_code(m_c, x)
                 sqnr = compute_error(y_ref, y_wo)
-                self.assertGreater(sqnr, 43.0)
+                self.assertGreaterEqual(sqnr, 42.75)
                 if device == "cuda":
                     self.assertTrue("mixed_mm" in code)
 
