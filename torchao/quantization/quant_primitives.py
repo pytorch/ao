@@ -72,14 +72,6 @@ if TORCH_VERSION_AFTER_2_3:
         torch.uint7: (0, 2**7-1),
     })
 
-class MappingType(Enum):
-    SYMMETRIC = 0
-    ASYMMETRIC = 1
-
-class ZeroPointDomain(Enum):
-    INT = 0
-    FLOAT = 1
-
 # TODO: decide on if we want to allow custom quant_min/quant_max here
 def _get_and_check_qmin_qmax(dtype, quant_min, quant_max):
     """Get quant_min and quant_max args based on dtype and also
@@ -149,8 +141,7 @@ def quantize_affine(
     zero_point: Optional[torch.Tensor],
     output_dtype: torch.dtype,
     quant_min: Optional[int] = None,
-    quant_max: Optional[int] = None,
-    zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+    quant_max: Optional[int] = None
 ):
     """
     Args:
@@ -162,12 +153,6 @@ def quantize_affine(
       output_dtype (torch.dtype): requested dtype (e.g. torch.uint8) for output Tensor
       quant_min (Optional[int]): minimum quantized value for output Tensor, if not specified, it will be derived from dtype
       quant_max (Optional[int]): maximum quantized value for output Tensor, if not specified, it will be derived from dtype
-      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be eitehr integer or float
-        if zero_point is in integer domain, zero point is added to the quantized integer value during
-        quantization
-        if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
-        value during quantization
-        default is ZeroPointDomain.INT
 
     Note:
       How can block_size represent different granularities?
@@ -199,19 +184,9 @@ def quantize_affine(
     if zero_point is not None:
         zero_point = zero_point.view(shape_after_reduction)
 
-    if zero_point_domain == ZeroPointDomain.INT:
-        quant = torch.clamp(
-            torch.round(input / scale) + zero_point, quant_min, quant_max
-        ).to(output_dtype)
-    else:
-        assert zero_point_domain == ZeroPointDomain.FLOAT
-        mid_point = (quant_max + quant_min + 1) / 2
-        min_val = zero_point - scale * mid_point
-        quant = (
-            torch.clamp(
-                torch.round((input - min_val) / scale),
-                quant_min, quant_max)
-        ).to(output_dtype)
+    quant = torch.clamp(
+        torch.round(input / scale) + zero_point, quant_min, quant_max
+    ).to(output_dtype)
     quant = quant.view(original_shape)
 
     return quant
@@ -224,7 +199,6 @@ def dequantize_affine(
     input_dtype: torch.dtype,
     quant_min: Optional[int] = None,
     quant_max: Optional[int] = None,
-    zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
     *,
     output_dtype: torch.dtype = torch.float32,
 ):
@@ -239,12 +213,6 @@ def dequantize_affine(
       quant_min (Optional[int]): minimum quantized value for input Tensor
       quant_max (Optional[int]): maximum quantized value for input Tensor
       output_dtype (torch.dtype): dtype for output Tensor, default is fp32
-      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be eitehr integer or float
-        if zero_point is in integer domain, zero point is added to the quantized integer value during
-        quantization
-        if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
-        value during quantization
-        default is ZeroPointDomain.INT
 
     Output:
       dequantized Tensor, with requested dtype or fp32
@@ -265,22 +233,18 @@ def dequantize_affine(
     if zero_point is not None:
         zero_point = zero_point.view(shape_after_reduction)
 
-    if zero_point_domain == ZeroPointDomain.INT:
-        dequant = input.to(torch.int32)
-        if zero_point is not None:
-            dequant -= zero_point.to(torch.int32)
-        dequant = dequant.to(output_dtype)
-        dequant *= scale
-    else:
-        assert zero_point_domain == ZeroPointDomain.FLOAT, f"Unexpected zero point domain: {zero_point_domain}"
-        mid_point = (quant_max + quant_min + 1) / 2
-        dequant = input - mid_point
-        dequant = dequant.to(output_dtype)
-        dequant *= scale
-        if zero_point is not None:
-            dequant += zero_point
+    dequant = input.to(torch.int32)
+    if zero_point is not None:
+        dequant -= zero_point.to(torch.int32)
+    dequant = dequant.to(output_dtype)
+    dequant *= scale
+    dequant = dequant.view(original_shape)
+    return dequant.to(output_dtype)
 
-    return dequant.view(original_shape).to(output_dtype)
+
+class MappingType(Enum):
+    SYMMETRIC = 0
+    ASYMMETRIC = 1
 
 def choose_qparams_affine(
    input: torch.Tensor,
@@ -292,8 +256,7 @@ def choose_qparams_affine(
    eps: Optional[float] = None,
    scale_dtype: Optional[torch.dtype] = None,
    zero_point_dtype: Optional[torch.dtype] = None,
-   preserve_zero: bool = True,
-   zero_point_domain = ZeroPointDomain.INT,
+   preserve_zero = True,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Args:
@@ -316,13 +279,6 @@ def choose_qparams_affine(
           gurantee.
 
           If we don't need zero to be exactly representable, we won't do rounding and clamping for zero_point
-
-        zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be eitehr integer or float
-            if zero_point is in integer domain, zero point is added to the quantized integer value during
-            quantization
-            if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
-            value during quantization
-            default is ZeroPointDomain.INT
 
     Output:
         Tuple of scales and zero_points Tensor with requested dtype
@@ -354,18 +310,15 @@ def choose_qparams_affine(
         scale = max_val_pos / (float(quant_max - quant_min) / 2)
         if not preserve_zero:
             raise ValueError("preserve_zero == False is not supported for symmetric quantization")
-        if zero_point_domain != ZeroPointDomain.INT:
-            raise ValueError("zero_point_domain != ZeroPointDomain.INT is not supported for symmetric quantization")
-        zero_point = torch.full_like(scale, int((quant_max + quant_min + 1) / 2))
+        zero_point = torch.full_like(scale, int((quant_min + quant_max + 1) / 2))
     else:
         scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
         if preserve_zero:
             zero_point = quant_min - torch.round(min_val_neg / scale)
             zero_point = torch.clamp(zero_point, quant_min, quant_max)
         else:
-            assert zero_point_domain == ZeroPointDomain.FLOAT, "if not preserve_zero, zero_point must be in FLOAT domain"
-            mid_point = (quant_max + quant_min + 1) / 2
-            zero_point = min_val_neg + scale * mid_point
+            zero_point = quant_min - min_val_neg / scale
+
 
     if eps is None:
         eps = torch.finfo(input.dtype).eps
