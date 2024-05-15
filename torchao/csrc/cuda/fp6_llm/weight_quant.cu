@@ -36,17 +36,17 @@ unsigned char fp16_to_fp6(const __half a) {
     } else if (fp16_bits >= 0b0'10011'1110000000u) {  // FP6 overflow
         result = sign | 0b0'111'11;
     } else if (fp16_bits >= 0b0'01101'0000000000u) {  // FP6 normal number
-        remainder = fp16_bits << 8u;         // truncated mantissa bits
-        fp16_bits -= 0b0'01100'0000000000u;  // update exponent bits
-        fp16_bits >>= 8u;                    // truncate mantissa bits
+        remainder = fp16_bits << 8u;         // truncated mantissa
+        fp16_bits -= 0b0'01100'0000000000u;  // update exponent
+        fp16_bits >>= 8u;                    // truncate mantissa
         result = sign | fp16_bits;           // add sign bit
     } else if (fp16_bits >= 0'01111010'0000000001u) {  // FP6 subnormal number
-        unsigned short fp16_exp_bits = fp16_bits >> 10u;
-        unsigned short shift = 0xEu - fp16_exp_bits;
-        unsigned short fp16_man_bits = fp16_bits & 0x3FFu;
-        fp16_man_bits |= 0x400u;  // add implicit 1 to mantissa
-        remainder = fp16_man_bits << (16u - shift);
-        result = sign | (fp16_man_bits >> shift);
+        unsigned short fp16_exp = fp16_bits >> 10u;
+        unsigned short shift = 0xEu - fp16_exp;
+        unsigned short fp16_man = fp16_bits & 0x3FFu;
+        fp16_man |= 0x400u;  // add implicit 1 to mantissa
+        remainder = fp16_man << (16u - shift);
+        result = sign | (fp16_man >> shift);
         result &= 0x3Fu;
     } else {  // FP6 underflow
         result = sign;
