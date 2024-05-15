@@ -18,6 +18,47 @@
 #include <cuda_fp16.h>
 #include <iostream>
 #include <assert.h>
+#include <cstring>
+
+
+// inspired by __internal_float2half() and float2half() from "cuda_fp16.h"
+unsigned char fp16_to_fp6(const __half a) {
+    unsigned short fp16_bits;
+    std::memcpy(&fp16_bits, &a, sizeof(a));
+
+    unsigned short result;
+    unsigned short remainder = 0u;
+    unsigned short sign = (fp16_bits >> 15u) << 5u;
+    fp16_bits &= 0x7FFFu;  // clear sign bit
+
+    if (fp16_bits >= 0b0'11111'0000000000u) {
+        throw std::invalid_argument("Encounter +/-inf or NaN, which is not representable in FP6.");
+    } else if (fp16_bits >= 0b0'10011'1110000000u) {  // FP6 overflow
+        result = sign | 0b0'111'11;
+    } else if (fp16_bits >= 0b0'01101'0000000000u) {  // FP6 normal number
+        remainder = fp16_bits << 8u;         // truncated mantissa bits
+        fp16_bits -= 0b0'01100'0000000000u;  // update exponent bits
+        fp16_bits >>= 8u;                    // truncate mantissa bits
+        result = sign | fp16_bits;           // add sign bit
+    } else if (fp16_bits >= 0'01111010'0000000001u) {  // FP6 subnormal number
+        unsigned short fp16_exp_bits = fp16_bits >> 10u;
+        unsigned short shift = 0xEu - fp16_exp_bits;
+        unsigned short fp16_man_bits = fp16_bits & 0x3FFu;
+        fp16_man_bits |= 0x400u;  // add implicit 1 to mantissa
+        remainder = fp16_man_bits << (16u - shift);
+        result = sign | (fp16_man_bits >> shift);
+        result &= 0x3Fu;
+    } else {  // FP6 underflow
+        result = sign;
+    }
+
+    // round to nearest even
+    if ((remainder > 0x80u) || ((remainder == 0x80u) && ((result & 1u) == 1u))) {
+        result += 1;
+    }
+
+    return result;
+}
 
 /*
  * Function to pack 4 fake quantized FP16 value into continuously stored 4 FP6 values.
