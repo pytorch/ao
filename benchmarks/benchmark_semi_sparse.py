@@ -15,6 +15,7 @@ from utils import DTYPE2STR, benchmark_main_helper2, product_dict
 from torchao.sparsity.prototype.fast_sparse_training import swap_linear_with_semi_sparse_linear_
 
 from transformers import AutoModelForQuestionAnswering, logging
+from benchmark_sam import get_sam_model, checkpoint_path
 
 logging.set_verbosity_error()
 
@@ -23,22 +24,24 @@ device = torch.device("cuda")
 
 
 configs = [
-    (),
-    # ("attention.self", ),
-    # ("attention.output", ),
-    # ("intermediate", ),
-    # ("output", ),
-    ("attention.self", "attention.output"),
-    ("intermediate", "output"),
-    ("attention.output", "intermediate", "output"),
-    ("attention.self", "attention.output", "intermediate", "output"),
+    "dense",
+    "all",
+    # (),
+    # # ("attention.self", ),
+    # # ("attention.output", ),
+    # # ("intermediate", ),
+    # # ("output", ),
+    # ("attention"),
+    # ("intermediate", "output"),
+    # ("attention.output", "intermediate", "output"),
+    # ("attention.self", "attention.output", "intermediate", "output"),
 ]
 
 CASES = list(
     product_dict(
-        model_str=["bert-large-cased"],
+        model_str=["vit-b/"],
         config = configs,
-        batch_size=[64],
+        batch_size=[1],
         dtype=[torch.bfloat16],
     )
 )
@@ -65,15 +68,45 @@ class BertTest(nn.Module):
     def bw(self):
         self.out.backward(self.grad, retain_graph=True)
 
+
+class SAMTest(nn.Module):
+
+    def __init__(self, model_str, config, batch_size, dtype, bw) -> None:
+        super().__init__()
+        self.label = "sam"
+        self.model, self.input = get_sam_model(batchsize=batch_size)
+        self.model = self.model.to(dtype)
+        self.input = self.input.to(device)
+        self.grad = torch.clone(self.input)
+        sparse_config = []
+        for name, mod in self.model.named_modules():
+            if isinstance(mod, torch.nn.Linear) and "mlp" in name:
+                if config != "dense":
+                    sparse_config.append(name)
+
+        if config != "dense":
+            swap_linear_with_semi_sparse_linear_(self.model, sparse_config)
+
+        self.sub_label = f"{DTYPE2STR[dtype]} ({self.label} | {batch_size} | {config}"
+
+    def fw(self):
+        out = self.model(self.input)
+        self.out = out
+
+    def bw(self):
+        self.out.backward(self.grad, retain_graph=True)
+
+
 functions = {
-    "runtime": BertTest
+    "runtime": SAMTest
 }
 
 benchmark_main_helper2(
-    "bert_mlp_fwbw",
+    "sam_fw_bw",
     fw=True,
-    bw=True,
+    # bw=True,
     cases=CASES,
     functions=functions,
+    cuda_graph=False,
     min_run_time=min_run_time,
 )
