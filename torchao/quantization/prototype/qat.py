@@ -209,7 +209,7 @@ class _GenericFakeQuantize(torch.autograd.Function):
         # which rounds first before adding the zero points. However, this
         # is what `quantize_per_channel_group` and `quantize_per_token`
         # do and here we try to match that behavior as closely as possible.
-        q = input.div(scales).add(zero_points).round()
+        q = input.mul(1.0 / scales).add(zero_points).round()
         dq = q.clamp(quant_min, quant_max).sub(zero_points).mul(scales)
         # TODO: do we need this mask?
         mask = torch.logical_and((q >= quant_min), (q <= quant_max))
