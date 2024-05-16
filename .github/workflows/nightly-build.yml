@@ -7,8 +7,8 @@ on:
 
   ### Comment this out before merge
   push:
-  branches:
-    - main
+    branches:
+      - main
   ###
 
 jobs:
