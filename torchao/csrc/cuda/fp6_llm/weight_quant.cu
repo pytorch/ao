@@ -23,31 +23,30 @@
 
 // inspired by __internal_float2half() and float2half() from "cuda_fp16.h"
 unsigned char fp16_to_fp6(const __half a) {
-    unsigned short fp16_bits;
-    std::memcpy(&fp16_bits, &a, sizeof(a));
+    unsigned short bits;
+    std::memcpy(&bits, &a, sizeof(a));
 
-    unsigned short result;
     unsigned short remainder = 0u;
-    unsigned short sign = (fp16_bits >> 15u) << 5u;
-    fp16_bits &= 0x7FFFu;  // clear sign bit
+    unsigned short sign = bits >> 15u << 5u;
+    bits &= 0x7FFFu;  // clear sign bit
+    unsigned short result;
 
-    if (fp16_bits >= 0b0'11111'0000000000u) {
+    if (bits >= 0b11111'0000000000u) {
         throw std::invalid_argument("Encounter +/-inf or NaN, which is not representable in FP6.");
-    } else if (fp16_bits >= 0b0'10011'1110000000u) {  // FP6 overflow
-        result = sign | 0b0'111'11;
-    } else if (fp16_bits >= 0b0'01101'0000000000u) {  // FP6 normal number
-        remainder = fp16_bits << 8u;         // truncated mantissa
-        fp16_bits -= 0b0'01100'0000000000u;  // update exponent
-        fp16_bits >>= 8u;                    // truncate mantissa
-        result = sign | fp16_bits;           // add sign bit
-    } else if (fp16_bits >= 0'01111010'0000000001u) {  // FP6 subnormal number
-        unsigned short fp16_exp = fp16_bits >> 10u;
-        unsigned short shift = 0xEu - fp16_exp;
-        unsigned short fp16_man = fp16_bits & 0x3FFu;
-        fp16_man |= 0x400u;  // add implicit 1 to mantissa
-        remainder = fp16_man << (16u - shift);
-        result = sign | (fp16_man >> shift);
-        result &= 0x3Fu;
+    } else if (bits >= 0b10011'1110000000u) {  // FP6 overflow. clamp to max
+        result = sign | 0b111'11u;
+    } else if (bits >= 0b01101'0000000000u) {  // FP6 normal number
+        remainder = bits << 8u;
+        bits -= (0b01100u << 10u);  // update exponent
+        result = sign | (bits >> 8u);
+    } else if (bits >= 0b01010'0000000001u) {  // FP6 subnormal number
+        unsigned short exp = bits >> 10u;
+        unsigned short man = bits & 0x3FFu;
+        unsigned short shift = 0b01111u - 0b011u + 1u + 8u - exp;
+        man |= 0x400u;  // set implicit 1 to mantissa
+        remainder = man << (16u - shift);
+        man >>= shift;
+        result = sign | man;
     } else {  // FP6 underflow
         result = sign;
     }
