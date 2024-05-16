@@ -30,6 +30,21 @@ jobs:
       secrets-env: PYPI_API_TOKEN
       docker-image: "pytorch/manylinux-builder:cuda12.1"
       script: |
+        # Install conda
+        PYTHON_VERSION=3.9
+        MINICONDA_VERSION=24.3.0-0
+        BASE_URL="https://repo.anaconda.com/miniconda"
+        CONDA_FILE="Miniconda3-py${PYTHON_VERSION//./}_${MINICONDA_VERSION}-Linux-x86_64.sh"
+        
+        mkdir -p /opt/conda    
+        pushd /tmp
+        wget -q "${BASE_URL}/${CONDA_FILE}"
+        bash "${CONDA_FILE}" -b -f -p "/opt/conda"        
+        rm "${CONDA_FILE}"
+        popd
+
+        sed -e 's|PATH="\(.*\)"|PATH="/opt/conda/bin:\1"|g' -i /etc/environment
+        export PATH="/opt/conda/bin:$PATH"
 
         # Install dependencies
         conda create -n venv python=3.9 -y
