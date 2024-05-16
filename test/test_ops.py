@@ -80,7 +80,7 @@ class TestOps(TestCase):
 
         # comprehensive testing
         test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
-        opcheck(torch.ops.torchao.fp16_to_fp6, (fp16_weight,), test_utils=test_utils)
+        opcheck(torch.ops.torchao.fp16_to_fp6_original, (fp16_weight,), test_utils=test_utils)
 
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_fp16act_fp6weight_linear(self):
