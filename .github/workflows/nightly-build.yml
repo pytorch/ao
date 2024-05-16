@@ -37,4 +37,4 @@ jobs:
         python setup.py sdist bdist_wheel
         pytest test --verbose -s
         REPOSITORY_URL="https://upload.pypi.org/legacy/"
-        twine upload --repository-url $REPOSITORY_URL -u __token__ -p ${{ secrets.PYPI_API_TOKEN }} dist/
+        twine upload --repository-url $REPOSITORY_URL -u __token__ -p $PYPI_API_TOKEN dist/
