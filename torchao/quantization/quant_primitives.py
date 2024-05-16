@@ -201,7 +201,7 @@ def quantize_affine(
 
     if zero_point_domain == ZeroPointDomain.INT:
         quant = torch.clamp(
-            torch.round(input / scale) + zero_point, quant_min, quant_max
+            torch.round(input * (1.0 / scale)) + zero_point, quant_min, quant_max
         ).to(output_dtype)
     else:
         assert zero_point_domain == ZeroPointDomain.FLOAT
@@ -764,7 +764,7 @@ def groupwise_affine_dequantize_tensor(
     )
 
 
-# TODO: replace this with torch.ao.quantization.PerChannelMinMaxObserver
+# TODO: separate scale and zero point precision
 def get_group_qparams_symmetric(w, n_bit=4, groupsize=128, precision=torch.float32):
     # needed for GPTQ with padding
     if groupsize > w.shape[-1]:
