@@ -13,28 +13,24 @@ on:
 
 jobs:
   build-and-publish:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-
-      - uses: pytorch/test-infra/.github/workflows/linux_job.yml@main
-        with:
-          runner: "linux.g5.12xlarge.nvidia.gpu"
-          gpu-arch-type: "cuda"
-          gpu-arch-version: "12.1"
-          script: |
-            conda create -n venv python=3.9 -y
-            conda activate venv
-            echo "::group::Install newer objcopy that supports --set-section-alignment"
-            yum install -y  devtoolset-10-binutils
-            export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
-            python -m pip install --upgrade pip
-            pip install setuptools wheel twine
-            pip install torch
-            pip install -r requirements.txt
-            pip install -r dev-requirements.txt
-            export TORCHAO_NIGHTLY=1
-            python setup.py sdist bdist_wheel
-            pytest test --verbose -s
-            REPOSITORY_URL="https://upload.pypi.org/legacy/"
-            twine upload --repository-url $REPOSITORY_URL -u __token__ -p ${{ secrets.PYPI_API_TOKEN }} dist/
+    uses: pytorch/test-infra/.github/workflows/linux_job.yml@main
+    with:
+      runner: "linux.g5.12xlarge.nvidia.gpu"
+      gpu-arch-type: "cuda"
+      gpu-arch-version: "12.1"
+      script: |
+        conda create -n venv python=3.9 -y
+        conda activate venv
+        echo "::group::Install newer objcopy that supports --set-section-alignment"
+        yum install -y devtoolset-10-binutils
+        export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
+        python -m pip install --upgrade pip
+        pip install setuptools wheel twine
+        pip install torch
+        pip install -r requirements.txt
+        pip install -r dev-requirements.txt
+        export TORCHAO_NIGHTLY=1
+        python setup.py sdist bdist_wheel
+        pytest test --verbose -s
+        REPOSITORY_URL="https://upload.pypi.org/legacy/"
+        twine upload --repository-url $REPOSITORY_URL -u __token__ -p ${{ secrets.PYPI_API_TOKEN }} dist/
