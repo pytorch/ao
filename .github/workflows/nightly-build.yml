@@ -47,4 +47,4 @@ jobs:
 
         # Upload
         REPOSITORY_URL="https://upload.pypi.org/legacy/"
-        twine upload --repository-url $REPOSITORY_URL -u __token__ -p $SECRET_PYPI_API_TOKEN dist/*
+        twine upload --repository-url $REPOSITORY_URL -u __token__ -p $SECRET_PYPI_API_TOKEN torchao*.whl
