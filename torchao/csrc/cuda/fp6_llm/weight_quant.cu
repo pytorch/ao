@@ -22,7 +22,7 @@
 
 
 // inspired by __internal_float2half() and float2half() from "cuda_fp16.h"
-uint8_t fp16_to_fp6(const __half a) {
+__device__ __host__ uint8_t fp16_to_fp6(const __half a) {
     uint16_t bits;
     std::memcpy(&bits, &a, sizeof(a));
 
@@ -32,9 +32,13 @@ uint8_t fp16_to_fp6(const __half a) {
     uint16_t result;
 
     if (bits >= 0b11111'0000000000u) {
+#ifndef __CUDACC__
         throw std::invalid_argument("Encounter +/-inf or NaN, which is not representable in FP6.");
+#endif
     } else if (bits >= 0b10011'1110000000u) {
+#ifndef __CUDACC__
         throw std::invalid_argument("FP6 overflow. FP6 cannot represent +/-inf.");
+#endif
     } else if (bits >= 0b01101'0000000000u) {  // FP6 normal number
         remainder = bits << 8u;
         bits -= (0b01100u << 10u);  // update exponent
@@ -252,13 +256,14 @@ at::Tensor weight_matrix_dequant_cpu(at::Tensor fp6_tensor, at::Tensor fp16_scal
 }
 
 // this is used for debugging
-at::Tensor _fp16_to_fp6_unpacked_cpu(at::Tensor fp16_tensor) {
+at::Tensor fp16_to_fp6_unpacked_cpu(at::Tensor fp16_tensor) {
     TORCH_CHECK(fp16_tensor.dtype() == torch::kFloat16);
+    TORCH_CHECK(fp16_tensor.is_cpu());
     
     at::TensorOptions options = at::TensorOptions().dtype(torch::kUInt8).device(fp16_tensor.device());
     at::Tensor fp6_tensor = at::empty(fp16_tensor.sizes(), options);
 
-    __half *fp16_ptr = reinterpret_cast<__half*>(fp16_tensor.data_ptr<at::Half>());
+    const __half *fp16_ptr = reinterpret_cast<__half*>(fp16_tensor.data_ptr<at::Half>());
     uint8_t *fp6_ptr = fp6_tensor.data_ptr<uint8_t>();
 
     for (int i = 0; i < fp16_tensor.numel(); i++) {
@@ -268,10 +273,39 @@ at::Tensor _fp16_to_fp6_unpacked_cpu(at::Tensor fp16_tensor) {
     return fp6_tensor;
 }
 
+__global__ void fp16_to_fp6_unpacked_kernel(const __half *fp16_ptr, uint8_t *fp6_ptr, int n) {
+    const int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid < n) {
+        fp6_ptr[tid] = fp16_to_fp6(fp16_ptr[tid]);
+    }
+}
+
+at::Tensor fp16_to_fp6_unpacked_cuda(at::Tensor fp16_tensor) {
+    TORCH_CHECK(fp16_tensor.dtype() == torch::kFloat16);
+    TORCH_CHECK(fp16_tensor.is_cuda());
+    
+    at::TensorOptions options = at::TensorOptions().dtype(torch::kUInt8).device(fp16_tensor.device());
+    at::Tensor fp6_tensor = at::empty(fp16_tensor.sizes(), options);
+
+    const __half *fp16_ptr = reinterpret_cast<__half*>(fp16_tensor.data_ptr<at::Half>());
+    uint8_t *fp6_ptr = fp6_tensor.data_ptr<uint8_t>();
+    int n = fp16_tensor.numel();
+
+    int block_size = 256;
+    int grid_size = (n + block_size - 1) / block_size;
+    fp16_to_fp6_unpacked_kernel<<<block_size, grid_size>>>(fp16_ptr, fp6_ptr, n);
+
+    return fp6_tensor;
+}
+
 TORCH_LIBRARY_IMPL(torchao, CPU, m) {
   m.impl("torchao::fp16_to_fp6", &fp16_to_fp6_cpu);
   m.impl("torchao::fp6_weight_dequant", &weight_matrix_dequant_cpu);
-  m.impl("torchao::_fp16_to_fp6_unpacked", &_fp16_to_fp6_unpacked_cpu);
+  m.impl("torchao::fp16_to_fp6_unpacked", &fp16_to_fp6_unpacked_cpu);
+}
+
+TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
+  m.impl("torchao::fp16_to_fp6_unpacked", &fp16_to_fp6_unpacked_cuda);
 }
 
 }
