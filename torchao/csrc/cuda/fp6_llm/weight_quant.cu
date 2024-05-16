@@ -53,7 +53,7 @@ unsigned char fp16_to_fp6(const __half a) {
     }
 
     // round to nearest even
-    if ((remainder > 0x80u) || ((remainder == 0x80u) && ((result & 1u) == 1u))) {
+    if ((remainder > 0x8000u) || ((remainder == 0x8000u) && ((result & 1u) == 1u))) {
         result += 1;
     }
 
