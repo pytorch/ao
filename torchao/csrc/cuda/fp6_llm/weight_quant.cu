@@ -21,7 +21,7 @@
 #include <cstring>
 
 
-// inspired by __internal_float2half() and float2half() from "cuda_fp16.h"
+// inspired by __internal_float2half() and float2half() from "cuda_fp16.hpp"
 __device__ __host__ uint8_t fp16_to_fp6(const __half a) {
     uint16_t bits;
     std::memcpy(&bits, &a, sizeof(a));
@@ -32,11 +32,11 @@ __device__ __host__ uint8_t fp16_to_fp6(const __half a) {
     uint16_t result;
 
     if (bits >= 0b11111'0000000000u) {
-#ifndef __CUDACC__
+#ifndef __CUDA_ARCH__
         throw std::invalid_argument("Encounter +/-inf or NaN, which is not representable in FP6.");
 #endif
     } else if (bits >= 0b10011'1110000000u) {
-#ifndef __CUDACC__
+#ifndef __CUDA_ARCH__
         throw std::invalid_argument("FP6 overflow. FP6 cannot represent +/-inf.");
 #endif
     } else if (bits >= 0b01101'0000000000u) {  // FP6 normal number
@@ -206,7 +206,7 @@ void DeQuantMatrix_FP6_To_FP16(half* A_16bit_h, unsigned char* A_6bit_h, size_t 
 namespace torchao {
 
 // https://github.com/microsoft/DeepSpeed/blob/0fc19b6a320cf8aa0a5f6c2b1fa310bae9a70d94/deepspeed/inference/v2/kernels/core_ops/cuda_linear/linear_kernels.cpp#L194
-at::Tensor fp16_to_fp6_cpu(at::Tensor fp16_tensor)
+at::Tensor fp16_to_fp6_original_cpu(at::Tensor fp16_tensor)
 {
     TORCH_CHECK(fp16_tensor.dim() == 2, "weight must be 2-dimensional");
     TORCH_CHECK(fp16_tensor.scalar_type() == torch::kFloat16, "weight must be FP16");
@@ -293,7 +293,7 @@ at::Tensor fp16_to_fp6_unpacked_cuda(at::Tensor fp16_tensor) {
     uint8_t *fp6_ptr = fp6_tensor.data_ptr<uint8_t>();
     int n = fp16_tensor.numel();
 
-    int block_size = 256;
+    constexpr int block_size = 256;
     int grid_size = (n + block_size - 1) / block_size;
     fp16_to_fp6_unpacked_kernel<<<block_size, grid_size>>>(fp16_ptr, fp6_ptr, n);
 
@@ -330,8 +330,46 @@ at::Tensor fp16_to_fp6_packed_cpu(at::Tensor fp16_tensor) {
     return fp6_tensor;
 }
 
+__global__ void fp16_to_fp6_packed_kernel(const __half *fp16_ptr, uint8_t *fp6_ptr, int n) {
+    const int idx = (blockIdx.x * blockDim.x + threadIdx.x) * 4;
+    if (idx < n) {
+        uint8_t val0 = fp16_to_fp6(fp16_ptr[idx]);
+        uint8_t val1 = fp16_to_fp6(fp16_ptr[idx + 1]);
+        uint8_t val2 = fp16_to_fp6(fp16_ptr[idx + 2]);
+        uint8_t val3 = fp16_to_fp6(fp16_ptr[idx + 3]);
+
+        fp6_ptr[idx / 4 * 3]     = (val0 << 2) | (val1 >> 4);  // 0000 0011
+        fp6_ptr[idx / 4 * 3 + 1] = (val1 << 4) | (val2 >> 2);  // 1111 2222
+        fp6_ptr[idx / 4 * 3 + 2] = (val2 << 6) | (val3);       // 2233 3333
+    }
+}
+
+at::Tensor fp16_to_fp6_packed_cuda(at::Tensor fp16_tensor) {
+    TORCH_CHECK(fp16_tensor.dtype() == torch::kFloat16);
+    TORCH_CHECK(fp16_tensor.is_contiguous());
+    TORCH_CHECK(fp16_tensor.is_cuda());
+    TORCH_CHECK(fp16_tensor.ndimension() == 2);
+
+    int M = fp16_tensor.size(0);
+    int N = fp16_tensor.size(1);
+    TORCH_CHECK(N % 4 == 0, "Last dimension must be a multiple of 4, receives ", N);
+
+    at::TensorOptions options = at::TensorOptions().dtype(torch::kUInt8).device(fp16_tensor.device());
+    at::Tensor fp6_tensor = at::empty({M, N * 3 / 4}, options);
+
+    const __half *fp16_ptr = reinterpret_cast<__half*>(fp16_tensor.data_ptr<at::Half>());
+    uint8_t *fp6_ptr = fp6_tensor.data_ptr<uint8_t>();
+    int n = fp16_tensor.numel();
+
+    constexpr int block_size = 256;
+    int grid_size = (n + block_size * 4 - 1) / block_size * 4;
+    fp16_to_fp6_packed_kernel<<<block_size, grid_size>>>(fp16_ptr, fp6_ptr, n);
+
+    return fp6_tensor;
+}
+
 TORCH_LIBRARY_IMPL(torchao, CPU, m) {
-  m.impl("torchao::fp16_to_fp6", &fp16_to_fp6_cpu);
+  m.impl("torchao::fp16_to_fp6_original", &fp16_to_fp6_original_cpu);
   m.impl("torchao::fp6_weight_dequant", &weight_matrix_dequant_cpu);
   m.impl("torchao::fp16_to_fp6_unpacked", &fp16_to_fp6_unpacked_cpu);
   m.impl("torchao::fp16_to_fp6_packed", &fp16_to_fp6_packed_cpu);
@@ -339,6 +377,7 @@ TORCH_LIBRARY_IMPL(torchao, CPU, m) {
 
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl("torchao::fp16_to_fp6_unpacked", &fp16_to_fp6_unpacked_cuda);
+  m.impl("torchao::fp16_to_fp6_packed", &fp16_to_fp6_packed_cuda);
 }
 
 }
