@@ -28,7 +28,7 @@ jobs:
       gpu-arch-type: cuda
       gpu-arch-version: "12.1"
       secrets-env: PYPI_API_TOKEN
-      docker-image: "pytorch/manylinux-builder:12.1"
+      docker-image: "pytorch/manylinux-builder:cuda12.1"
       script: |
 
         # Install dependencies
