@@ -21,6 +21,7 @@ jobs:
       runner: "linux.g5.12xlarge.nvidia.gpu"
       gpu-arch-type: "cuda"
       gpu-arch-version: "12.1"
+      secrets-env: "PYPI_API_TOKEN"
       script: |
         conda create -n venv python=3.9 -y
         conda activate venv
