@@ -17,11 +17,12 @@ on:
 jobs:
   build-and-publish:
     uses: pytorch/test-infra/.github/workflows/linux_job.yml@main
+    secrets: inherit
     with:
-      runner: "linux.g5.12xlarge.nvidia.gpu"
-      gpu-arch-type: "cuda"
+      runner: linux.g5.12xlarge.nvidia.gpu
+      gpu-arch-type: cuda
       gpu-arch-version: "12.1"
-      secrets-env: “PYPI_API_TOKEN”
+      secrets-env: PYPI_API_TOKEN
       script: |
 
         # Install dependencies
