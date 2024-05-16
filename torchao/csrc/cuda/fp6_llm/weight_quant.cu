@@ -22,27 +22,27 @@
 
 
 // inspired by __internal_float2half() and float2half() from "cuda_fp16.h"
-unsigned char fp16_to_fp6(const __half a) {
-    unsigned short bits;
+uint8_t fp16_to_fp6(const __half a) {
+    uint16_t bits;
     std::memcpy(&bits, &a, sizeof(a));
 
-    unsigned short remainder = 0u;
-    unsigned short sign = bits >> 15u << 5u;
+    uint16_t remainder = 0u;
+    uint16_t sign = bits >> 15u << 5u;
     bits &= 0x7FFFu;  // clear sign bit
-    unsigned short result;
+    uint16_t result;
 
     if (bits >= 0b11111'0000000000u) {
         throw std::invalid_argument("Encounter +/-inf or NaN, which is not representable in FP6.");
-    } else if (bits >= 0b10011'1110000000u) {  // FP6 overflow. clamp to max
-        result = sign | 0b111'11u;
+    } else if (bits >= 0b10011'1110000000u) {  // FP6 overflow
+        throw std::invalid_argument("FP6 overflow. FP6 cannot represent +/-inf.");
     } else if (bits >= 0b01101'0000000000u) {  // FP6 normal number
         remainder = bits << 8u;
         bits -= (0b01100u << 10u);  // update exponent
         result = sign | (bits >> 8u);
     } else if (bits >= 0b01010'0000000001u) {  // FP6 subnormal number
-        unsigned short exp = bits >> 10u;
-        unsigned short man = bits & 0x3FFu;
-        unsigned short shift = 0b01111u - 0b011u + 1u + 8u - exp;
+        uint16_t exp = bits >> 10u;
+        uint16_t man = bits & 0x3FFu;
+        uint16_t shift = 0b01111u - 0b011u + 1u + 8u - exp;
         man |= 0x400u;  // set implicit 1 to mantissa
         remainder = man << (16u - shift);
         man >>= shift;
@@ -251,9 +251,27 @@ at::Tensor weight_matrix_dequant_cpu(at::Tensor fp6_tensor, at::Tensor fp16_scal
     return fp16_tensor;
 }
 
+// this is used for debugging
+at::Tensor _fp16_to_fp6_unpacked_cpu(at::Tensor fp16_tensor) {
+    TORCH_CHECK(fp16_tensor.dtype() == torch::kFloat16);
+    
+    at::TensorOptions options = at::TensorOptions().dtype(torch::kUInt8).device(fp16_tensor.device());
+    at::Tensor fp6_tensor = at::empty(fp16_tensor.sizes(), options);
+
+    __half *fp16_ptr = reinterpret_cast<__half*>(fp16_tensor.data_ptr<at::Half>());
+    uint8_t *fp6_ptr = fp6_tensor.data_ptr<uint8_t>();
+
+    for (int i = 0; i < fp16_tensor.numel(); i++) {
+        fp6_ptr[i] = fp16_to_fp6(fp16_ptr[i]);
+    }
+
+    return fp6_tensor;
+}
+
 TORCH_LIBRARY_IMPL(torchao, CPU, m) {
   m.impl("torchao::fp16_to_fp6", &fp16_to_fp6_cpu);
   m.impl("torchao::fp6_weight_dequant", &weight_matrix_dequant_cpu);
+  m.impl("torchao::_fp16_to_fp6_unpacked", &_fp16_to_fp6_unpacked_cpu);
 }
 
 }
