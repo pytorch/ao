@@ -5,7 +5,7 @@ on:
     - cron: '0 0 * * *'  # Runs at midnight UTC every day
   workflow_dispatch:
 
-  ### Comment this out before merge
+### Comment this out before merge
   push:
     branches:
       - main
@@ -14,8 +14,8 @@ on:
       - main
 
 concurrency:
-group: regression_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
-cancel-in-progress: true
+  group: regression_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
+  cancel-in-progress: true
 ###
 
 
