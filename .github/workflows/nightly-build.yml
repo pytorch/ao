@@ -23,6 +23,8 @@ jobs:
       gpu-arch-version: "12.1"
       secrets-env: "PYPI_API_TOKEN"
       script: |
+
+        # Install dependencies
         conda create -n venv python=3.9 -y
         conda activate venv
         echo "::group::Install newer objcopy that supports --set-section-alignment"
@@ -33,8 +35,15 @@ jobs:
         pip install torch
         pip install -r requirements.txt
         pip install -r dev-requirements.txt
+
+        # Create wheel file
         export TORCHAO_NIGHTLY=1
         python setup.py sdist bdist_wheel
+
+        # Binary validation
+        pip install dist/torchao*.whl
         pytest test --verbose -s
+
+        # Upload
         REPOSITORY_URL="https://upload.pypi.org/legacy/"
         twine upload --repository-url $REPOSITORY_URL -u __token__ -p $PYPI_API_TOKEN dist/
