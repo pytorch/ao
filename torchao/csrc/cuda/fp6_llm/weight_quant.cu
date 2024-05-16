@@ -258,6 +258,7 @@ at::Tensor weight_matrix_dequant_cpu(at::Tensor fp6_tensor, at::Tensor fp16_scal
 // this is used for debugging
 at::Tensor fp16_to_fp6_unpacked_cpu(at::Tensor fp16_tensor) {
     TORCH_CHECK(fp16_tensor.dtype() == torch::kFloat16);
+    TORCH_CHECK(fp16_tensor.is_contiguous());
     TORCH_CHECK(fp16_tensor.is_cpu());
     
     at::TensorOptions options = at::TensorOptions().dtype(torch::kUInt8).device(fp16_tensor.device());
@@ -282,6 +283,7 @@ __global__ void fp16_to_fp6_unpacked_kernel(const __half *fp16_ptr, uint8_t *fp6
 
 at::Tensor fp16_to_fp6_unpacked_cuda(at::Tensor fp16_tensor) {
     TORCH_CHECK(fp16_tensor.dtype() == torch::kFloat16);
+    TORCH_CHECK(fp16_tensor.is_contiguous());
     TORCH_CHECK(fp16_tensor.is_cuda());
     
     at::TensorOptions options = at::TensorOptions().dtype(torch::kUInt8).device(fp16_tensor.device());
@@ -298,10 +300,41 @@ at::Tensor fp16_to_fp6_unpacked_cuda(at::Tensor fp16_tensor) {
     return fp6_tensor;
 }
 
+at::Tensor fp16_to_fp6_packed_cpu(at::Tensor fp16_tensor) {
+    TORCH_CHECK(fp16_tensor.dtype() == torch::kFloat16);
+    TORCH_CHECK(fp16_tensor.is_contiguous());
+    TORCH_CHECK(fp16_tensor.is_cpu());
+    TORCH_CHECK(fp16_tensor.ndimension() == 2);
+
+    int M = fp16_tensor.size(0);
+    int N = fp16_tensor.size(1);
+    TORCH_CHECK(N % 4 == 0, "Last dimension must be a multiple of 4, receives ", N);
+
+    at::TensorOptions options = at::TensorOptions().dtype(torch::kUInt8).device(fp16_tensor.device());
+    at::Tensor fp6_tensor = at::empty({M, N * 3 / 4}, options);
+
+    const __half *fp16_ptr = reinterpret_cast<__half*>(fp16_tensor.data_ptr<at::Half>());
+    uint8_t *fp6_ptr = fp6_tensor.data_ptr<uint8_t>();
+
+    for (int i = 0, j = 0; i < fp16_tensor.numel(); i += 4, j += 3) {
+        uint8_t val0 = fp16_to_fp6(fp16_ptr[i]);
+        uint8_t val1 = fp16_to_fp6(fp16_ptr[i + 1]);
+        uint8_t val2 = fp16_to_fp6(fp16_ptr[i + 2]);
+        uint8_t val3 = fp16_to_fp6(fp16_ptr[i + 3]);
+
+        fp6_ptr[j]     = (val0 << 2) | (val1 >> 4);  // 0000 0011
+        fp6_ptr[j + 1] = (val1 << 4) | (val2 >> 2);  // 1111 2222
+        fp6_ptr[j + 2] = (val2 << 6) | (val3);       // 2233 3333
+    }
+
+    return fp6_tensor;
+}
+
 TORCH_LIBRARY_IMPL(torchao, CPU, m) {
   m.impl("torchao::fp16_to_fp6", &fp16_to_fp6_cpu);
   m.impl("torchao::fp6_weight_dequant", &weight_matrix_dequant_cpu);
   m.impl("torchao::fp16_to_fp6_unpacked", &fp16_to_fp6_unpacked_cpu);
+  m.impl("torchao::fp16_to_fp6_packed", &fp16_to_fp6_packed_cpu);
 }
 
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {

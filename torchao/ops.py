@@ -46,6 +46,10 @@ def fp16_to_fp6_unpacked(fp16_tensor: Tensor) -> Tensor:
     return torch.ops.torchao.fp16_to_fp6_unpacked.default(fp16_tensor)
 
 
+def fp16_to_fp6_packed(fp16_tensor: Tensor) -> Tensor:
+    return torch.ops.torchao.fp16_to_fp6_packed.default(fp16_tensor)
+
+
 def fp16_to_fp6(fp16_tensor: Tensor) -> Tensor:
     """
     Pack FP16 tensor (containing only FP6 values) into FP6 tensor.

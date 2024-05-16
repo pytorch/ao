@@ -8,5 +8,6 @@ TORCH_LIBRARY_FRAGMENT(torchao, m) {
   m.def("prepack_fp6_weight(Tensor fp6_tensor) -> Tensor");
   m.def("fp16_to_fp6(Tensor fp16_tensor) -> Tensor");
   m.def("fp16_to_fp6_unpacked(Tensor fp16_tensor) -> Tensor");
+  m.def("fp16_to_fp6_packed(Tensor fp16_tensor) -> Tensor");
   m.def("fp6_weight_dequant(Tensor fp6_tensor, Tensor fp16_scale) -> Tensor");
 }
