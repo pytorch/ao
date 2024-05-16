@@ -33,7 +33,7 @@ uint8_t fp16_to_fp6(const __half a) {
 
     if (bits >= 0b11111'0000000000u) {
         throw std::invalid_argument("Encounter +/-inf or NaN, which is not representable in FP6.");
-    } else if (bits >= 0b10011'1110000000u) {  // FP6 overflow
+    } else if (bits >= 0b10011'1110000000u) {
         throw std::invalid_argument("FP6 overflow. FP6 cannot represent +/-inf.");
     } else if (bits >= 0b01101'0000000000u) {  // FP6 normal number
         remainder = bits << 8u;
