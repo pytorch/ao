@@ -46,18 +46,32 @@ def fp16_to_fp6_unpacked(fp16_tensor: Tensor) -> Tensor:
     return torch.ops.torchao.fp16_to_fp6_unpacked.default(fp16_tensor)
 
 
+@torch.library.impl_abstract("torchao::fp16_to_fp6_unpacked")
+def _(fp16_tensor):
+    return torch.empty_like(fp16_tensor, dtype=torch.uint8)
+
+
 def fp16_to_fp6_packed(fp16_tensor: Tensor) -> Tensor:
-    return torch.ops.torchao.fp16_to_fp6_packed.default(fp16_tensor)
+    *leading_dims, last_dim = fp16_tensor.shape
+    return torch.ops.torchao.fp16_to_fp6_packed.default(fp16_tensor.view(-1, last_dim)).view(*leading_dims, -1)
 
 
-def fp16_to_fp6(fp16_tensor: Tensor) -> Tensor:
+@torch.library.impl_abstract("torchao::fp16_to_fp6_packed")
+def _(fp16_tensor):
+    torch._check(fp16_tensor.dtype is torch.float16, lambda: f"weight must be FP16, got {fp16_tensor.dtype}")
+    *leading_dims, last_dim = fp16_tensor.shape
+    torch._check(last_dim % 4  == 0, lambda: f"last dimension must be a multiple of 4, got {last_dim}")
+    return torch.empty(*leading_dims, last_dim * 3 / 4, device=fp16_tensor.device, dtype=torch.uint8)
+
+
+def fp16_to_fp6_original(fp16_tensor: Tensor) -> Tensor:
     """
     Pack FP16 tensor (containing only FP6 values) into FP6 tensor.
     """
-    return torch.ops.torchao.fp16_to_fp6.default(fp16_tensor)
+    return torch.ops.torchao.fp16_to_fp6_original.default(fp16_tensor)
 
 
-@torch.library.impl_abstract("torchao::fp16_to_fp6")
+@torch.library.impl_abstract("torchao::fp16_to_fp6_original")
 def _(fp16_tensor):
     torch._check(fp16_tensor.dim() == 2, lambda: f"weight should be a 2d tensor, got {fp16_tensor.dim()}D")
     torch._check(fp16_tensor.dtype is torch.float16, lambda: f"weight must be FP16, got {fp16_tensor.dtype}")

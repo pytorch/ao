@@ -76,7 +76,7 @@ class TestOps(TestCase):
         fp16_weight[fp16_weight.abs() < fp6_absmin] = 0
 
         # smoke test
-        torchao.ops.fp16_to_fp6(fp16_weight)
+        torchao.ops.fp16_to_fp6_original(fp16_weight)
 
         # comprehensive testing
         test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
