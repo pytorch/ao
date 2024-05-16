@@ -27,6 +27,8 @@ From source
 ```Shell
 git clone https://github.com/pytorch/ao
 cd ao
+pip install -r requirements.txt
+pip install -r dev-requirements.txt
 pip install .
 ```
 
