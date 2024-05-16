@@ -45,6 +45,7 @@ jobs:
 
         sed -e 's|PATH="\(.*\)"|PATH="/opt/conda/bin:\1"|g' -i /etc/environment
         export PATH="/opt/conda/bin:$PATH"
+        conda init
 
         # Install dependencies
         conda create -n venv python=3.9 -y
