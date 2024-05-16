@@ -32,14 +32,14 @@ jobs:
         yum install -y devtoolset-10-binutils
         export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
         python -m pip install --upgrade pip
-        pip install setuptools wheel twine build
+        pip install setuptools wheel twine
         pip install torch
         pip install -r requirements.txt
         pip install -r dev-requirements.txt
 
         # Create wheel file
         export TORCHAO_NIGHTLY=1
-        python -m pip install build
+        python setup.py sdist bdist_wheel
 
         # Binary validation
         # pip install dist/torchao*.whl
@@ -47,4 +47,4 @@ jobs:
 
         # Upload
         REPOSITORY_URL="https://upload.pypi.org/legacy/"
-        twine upload --repository-url $REPOSITORY_URL -u __token__ -p $SECRET_PYPI_API_TOKEN torchao*.whl
+        twine upload --repository-url $REPOSITORY_URL -u __token__ -p $SECRET_PYPI_API_TOKEN dist/*
