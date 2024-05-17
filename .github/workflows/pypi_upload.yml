@@ -39,6 +39,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(inputs.build-matrix) }}
+    # NB: This is a work around to upload only CUDA 12.1 built by python 3.9
+    if: ${{ matrix.desired_cuda == 'cu121' && matrix.python_version == '3.9' }}
     timeout-minutes: 30
     name: ${{ matrix.build_name }}
     steps:
@@ -64,21 +66,13 @@ jobs:
           name: ${{ env.ARTIFACT_NAME }}
           path: ${{ inputs.repository }}/dist/
 
-      - name: Is this a scheduled event?
-        if: ${{ inputs.trigger-event == 'schedule' }}
-        shell: bash
-        run: |
-          set -ex
-          echo "SCHEDULE=1" >> "${GITHUB_ENV}"
+      - name: Upload CUDA 12.1 package to pypi on schedule
+        # TODO (huydhn): Uncomment this before committing
+        # if: ${{ inputs.trigger-event == 'schedule' }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          repository-url: https://upload.pypi.org/legacy/
+          packages-dir: ${{ inputs.repository }}/dist/
 
-      - name: Upload package to pypi on schedule
-        shell: bash
-        working-directory: ${{ inputs.repository }}
-        run: |
-          set -ex
-
-          for pkg in dist/*; do
-            ls "$pkg"
-          done
-
-          echo ${{ secrets.PYPI_API_TOKEN }}
