@@ -27,9 +27,9 @@ on:
         description: Architecture to build for x86_64 for default Linux, or aarch64 for Linux aarch64 builds
         required: false
         type: string
-        default: ''
+        default: x86_64
       trigger-event:
-        description: "Trigger Event in caller that determines whether or not to upload"
+        description: "Trigger event in caller that determines whether or not to upload"
         type: string
         default: ''
 
@@ -64,14 +64,14 @@ jobs:
           name: ${{ env.ARTIFACT_NAME }}
           path: ${{ inputs.repository }}/dist/
 
-      - name: Nightly
-        if: ${{ (inputs.trigger-event == 'push' && startsWith(github.event.ref, 'refs/heads/nightly')) }}
+      - name: Is this a scheduled event?
+        if: ${{ inputs.trigger-event == 'schedule' }}
         shell: bash
         run: |
           set -ex
-          echo "NIGHTLY=1" >> "${GITHUB_ENV}"
+          echo "SCHEDULE=1" >> "${GITHUB_ENV}"
 
-      - name: Upload package to pypi
+      - name: Upload package to pypi on schedule
         shell: bash
         working-directory: ${{ inputs.repository }}
         run: |
