@@ -12,3 +12,10 @@
 if [[ ${CHANNEL:-nightly} == "nightly" ]]; then
   export TORCHAO_NIGHTLY=1
 fi
+
+# Set ARCH list so that we can build fp16 with SM75+, the logic is copied from
+# pytorch/builder
+TORCH_CUDA_ARCH_LIST="7.5;8.0;8.6"
+if [[ ${CU_VERSION:-} == "cu124" ]]; then
+  TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST};9.0"
+fi

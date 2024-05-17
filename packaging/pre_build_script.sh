@@ -12,7 +12,3 @@ echo "This script is run before building torchao binaries"
 pip install torch setuptools wheel twine
 pip install -r requirements.txt
 pip install -r dev-requirements.txt
-
-echo "Install newer objcopy that supports --set-section-alignment"
-yum install -y devtoolset-10-binutils
-export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
