@@ -9,6 +9,6 @@ set -eux
 
 echo "This script is run before building torchao binaries"
 
-pip install torch setuptools wheel twine
+pip install torch setuptools wheel twine auditwheel
 pip install -r requirements.txt
 pip install -r dev-requirements.txt

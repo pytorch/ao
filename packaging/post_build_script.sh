@@ -7,4 +7,10 @@
 
 set -eux
 
-echo "This script is run before building torchao binaries"
+WHEEL_NAME=$(ls dist/)
+
+pushd dist
+# Prepare manywheel
+auditwheel repair "${WHEEL_NAME}"
+ls -lah
+popd
