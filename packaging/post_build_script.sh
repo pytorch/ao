@@ -19,6 +19,7 @@ auditwheel repair --plat manylinux2014_x86_64 -w . \
     --exclude libc10.so \
     --exclude libc10_cuda.so \
     --exclude libcudart.so.12 \
+    --exclude libcudart.so.11.0 \
     "${WHEEL_NAME}"
 
 ls -lah .

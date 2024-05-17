@@ -65,11 +65,11 @@ jobs:
           path: ${{ inputs.repository }}/dist/
 
       - name: Upload CUDA 12.1 package to pypi on schedule
-        # NB: This is a work around to upload only CUDA 12.1 built by python 3.9 to pypi.
-        # Other binaries for different python and CUDA versions will be available to download
-        # from download.pytorch.org
-        # if: ${{ matrix.desired_cuda == 'cu121' && matrix.python_version == '3.9' }}
-        if: ${{ inputs.trigger-event == 'schedule' }}
+        # TODO (huydhn): This is a work around to upload only CUDA 12.1 built by python 3.9
+        # to pypi. Other binaries for different python and CUDA versions will be available
+        # to download from download.pytorch.org
+        if: ${{ matrix.desired_cuda == 'cu121' && matrix.python_version == '3.9' }}
+        # if: ${{ inputs.trigger-event == 'schedule' }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           user: __token__
