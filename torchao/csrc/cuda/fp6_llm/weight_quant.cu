@@ -297,7 +297,7 @@ at::Tensor fp16_to_fp6_unpacked_cuda(at::Tensor fp16_tensor) {
 
     constexpr int block_size = 256;
     int grid_size = (n + block_size - 1) / block_size;
-    fp16_to_fp6_unpacked_kernel<<<block_size, grid_size>>>(fp16_ptr, fp6_ptr, n);
+    fp16_to_fp6_unpacked_kernel<<<grid_size, block_size>>>(fp16_ptr, fp6_ptr, n);
 
     return fp6_tensor;
 }
@@ -367,8 +367,8 @@ at::Tensor fp16_to_fp6_packed_cuda(at::Tensor fp16_tensor) {
     int n = fp16_tensor.numel();
 
     constexpr int block_size = 256;
-    int grid_size = (n + block_size * 4 - 1) / block_size * 4;
-    fp16_to_fp6_packed_kernel<<<block_size, grid_size>>>(fp16_ptr, fp6_ptr, n);
+    int grid_size = (n + block_size * 4 - 1) / (block_size * 4);
+    fp16_to_fp6_packed_kernel<<<grid_size, block_size>>>(fp16_ptr, fp6_ptr, n);
 
     return fp6_tensor;
 }
