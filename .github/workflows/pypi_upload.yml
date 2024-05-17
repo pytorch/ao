@@ -39,8 +39,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(inputs.build-matrix) }}
-    # NB: This is a work around to upload only CUDA 12.1 built by python 3.9
-    if: ${{ matrix.desired_cuda == 'cu121' && matrix.python_version == '3.9' }}
     timeout-minutes: 30
     name: ${{ matrix.build_name }}
     steps:
@@ -67,6 +65,8 @@ jobs:
           path: ${{ inputs.repository }}/dist/
 
       - name: Upload CUDA 12.1 package to pypi on schedule
+        # NB: This is a work around to upload only CUDA 12.1 built by python 3.9
+        if: ${{ matrix.desired_cuda == 'cu121' && matrix.python_version == '3.9' }}
         # TODO (huydhn): Uncomment this before committing
         # if: ${{ inputs.trigger-event == 'schedule' }}
         uses: pypa/gh-action-pypi-publish@release/v1
@@ -75,4 +75,3 @@ jobs:
           password: ${{ secrets.PYPI_API_TOKEN }}
           repository-url: https://upload.pypi.org/legacy/
           packages-dir: ${{ inputs.repository }}/dist/
-
