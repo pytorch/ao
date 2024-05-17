@@ -9,8 +9,6 @@ set -eux
 
 WHEEL_NAME=$(ls dist/)
 
-sleep 3600
-
 pushd dist
 # Prepare manywheel
 auditwheel repair --plat manylinux2014_x86_64 -w . \
@@ -20,6 +18,7 @@ auditwheel repair --plat manylinux2014_x86_64 -w . \
     --exclude libtorch_cpu.so \
     --exclude libc10.so \
     --exclude libc10_cuda.so \
+    --exclude libcudart.so.12 \
     "${WHEEL_NAME}"
 
 ls -lah .
