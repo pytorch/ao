@@ -66,8 +66,8 @@ jobs:
 
       - name: Upload CUDA 12.1 package to pypi on schedule
         # NB: This is a work around to upload only CUDA 12.1 built by python 3.9
-        if: ${{ matrix.desired_cuda == 'cu121' && matrix.python_version == '3.9' }}
-        # if: ${{ inputs.trigger-event == 'schedule' }}
+        # if: ${{ matrix.desired_cuda == 'cu121' && matrix.python_version == '3.9' }}
+        if: ${{ inputs.trigger-event == 'schedule' }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           user: __token__
