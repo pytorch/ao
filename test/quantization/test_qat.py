@@ -119,7 +119,7 @@ class TestQAT(unittest.TestCase):
         Set the weight to the quantized version of the given fp32 weights,
         for making linear outputs comparable with QAT.
         """
-        n_bit = 2
+        n_bit = 3
         (qmin, qmax) = self._get_qmin_qmax(n_bit)
         (s, zp) = get_group_qparams_symmetric(fp32_weight, n_bit, group_size)
         q_weight = torch.ops.quantized_decomposed.quantize_per_channel_group(

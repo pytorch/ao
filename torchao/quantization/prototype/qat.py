@@ -109,7 +109,7 @@ if TORCH_VERSION_AFTER_2_4:
                 setattr(module, name, quantized_linear)
 
                 # Load weights and qparams into quantized linear
-                n_bit = 2
+                n_bit = 3
                 (qmin, qmax) = child._get_qmin_qmax(n_bit)
                 (s, zp) = get_group_qparams_symmetric(child.weight, n_bit, child.groupsize)
                 q_weight = torch.ops.quantized_decomposed.quantize_per_channel_group(
@@ -159,7 +159,7 @@ if TORCH_VERSION_AFTER_2_4:
             # TODO: make this configurable?
             self.zero_points_precision = torch.int32
             self._fake_quant_enabled = True
-            print("QAT: I'm runining 2-bit weight only quant!")
+            print("QAT: I'm runining 3-bit weight only quant!")
 
         def enable_fake_quant(self, enabled: bool = True):
             self._fake_quant_enabled = enabled
@@ -181,14 +181,14 @@ if TORCH_VERSION_AFTER_2_4:
             #    x_fq = x
             x_fq = x
 
-            # weights: int2 grouped per channel symmetric quant
+            # weights: int3 grouped per channel symmetric quant
             if self._fake_quant_enabled:
                 (weight_scales, weight_zp) = get_group_qparams_symmetric(
-                    self.weight, 2, self.groupsize, self.scales_precision,
+                    self.weight, 3, self.groupsize, self.scales_precision,
                 )
                 # TODO: pass zp dtype to `get_group_qparams_symmetric` instead
                 weight_zp = weight_zp.to(self.zero_points_precision)
-                (weight_qmin, weight_qmax) = self._get_qmin_qmax(2)
+                (weight_qmin, weight_qmax) = self._get_qmin_qmax(3)
                 w_fq = fake_quantize_per_channel_group(
                     self.weight,
                     weight_scales,

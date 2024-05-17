@@ -1017,7 +1017,7 @@ if TORCH_VERSION_AFTER_2_3:
 
         # TODO: better API
         # weight_int8 = torch.ops.quantized_decomposed.unpack_int4_to_int8(weight_int4packed)
-        n_bit = 2
+        n_bit = 3
         quant_min = -(2 ** (n_bit - 1))
         quant_max = 2 ** (n_bit - 1) - 1
         w_dq = torch.ops.quantized_decomposed.dequantize_per_channel_group(
@@ -1196,7 +1196,7 @@ if TORCH_VERSION_AFTER_2_3:
             self.padding_allowed: bool = padding_allowed
             self.precision: torch.dtype = precision
             self.scales_precision: torch.dtype = scales_precision
-            print("PTQ is running 2-bit weight only quant!")
+            print("PTQ is running 3-bit weight only quant!")
 
         @torch.no_grad()
         def _create_quantized_state_dict(
@@ -1237,7 +1237,7 @@ if TORCH_VERSION_AFTER_2_3:
                         zeros,
                     ) = group_quantize_tensor_symmetric(
                         weight.to(self.precision),
-                        2,  # n_bit
+                        3,  # n_bit
                         self.groupsize,
                         self.scales_precision,
                     )
