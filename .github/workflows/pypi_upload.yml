@@ -1,0 +1,84 @@
+name: upload-pypi
+
+on:
+  workflow_call:
+    inputs:
+      repository:
+        description: 'Repository to checkout, defaults to ""'
+        default: ''
+        type: string
+      ref:
+        description: 'Reference to checkout, defaults to "nightly"'
+        default: 'nightly'
+        type: string
+      test-infra-repository:
+        description: "Test infra repository to use"
+        default: "pytorch/test-infra"
+        type: string
+      test-infra-ref:
+        description: "Test infra reference to use"
+        default: ""
+        type: string
+      build-matrix:
+        description: "Build matrix to utilize"
+        default: ''
+        type: string
+      architecture:
+        description: Architecture to build for x86_64 for default Linux, or aarch64 for Linux aarch64 builds
+        required: false
+        type: string
+        default: ''
+      trigger-event:
+        description: "Trigger Event in caller that determines whether or not to upload"
+        type: string
+        default: ''
+
+jobs:
+  upload:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(inputs.build-matrix) }}
+    timeout-minutes: 30
+    name: ${{ matrix.build_name }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          repository: ${{ inputs.test-infra-repository }}
+          ref: ${{ inputs.test-infra-ref }}
+          path: test-infra
+
+      - uses: ./test-infra/.github/actions/set-channel
+
+      - uses: ./test-infra/.github/actions/setup-binary-upload
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          python-version: ${{ matrix.python_version }}
+          cuda-version: ${{ matrix.desired_cuda }}
+          arch: ${{ inputs.architecture }}
+
+      - name: Download the artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ inputs.repository }}/dist/
+
+      - name: Nightly
+        if: ${{ (inputs.trigger-event == 'push' && startsWith(github.event.ref, 'refs/heads/nightly')) }}
+        shell: bash
+        run: |
+          set -ex
+          echo "NIGHTLY=1" >> "${GITHUB_ENV}"
+
+      - name: Upload package to pypi
+        shell: bash
+        working-directory: ${{ inputs.repository }}
+        run: |
+          set -ex
+
+          for pkg in dist/*; do
+            ls "$pkg"
+          done
+
+          echo ${{ secrets.PYPI_API_TOKEN }}
