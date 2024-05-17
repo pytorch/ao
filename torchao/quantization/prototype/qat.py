@@ -109,7 +109,7 @@ if TORCH_VERSION_AFTER_2_4:
                 setattr(module, name, quantized_linear)
 
                 # Load weights and qparams into quantized linear
-                n_bit = 4
+                n_bit = 2
                 (qmin, qmax) = child._get_qmin_qmax(n_bit)
                 (s, zp) = get_group_qparams_symmetric(child.weight, n_bit, child.groupsize)
                 q_weight = torch.ops.quantized_decomposed.quantize_per_channel_group(
@@ -159,6 +159,7 @@ if TORCH_VERSION_AFTER_2_4:
             # TODO: make this configurable?
             self.zero_points_precision = torch.int32
             self._fake_quant_enabled = True
+            print("QAT: I'm runining 2-bit weight only quant!")
 
         def enable_fake_quant(self, enabled: bool = True):
             self._fake_quant_enabled = enabled
@@ -168,25 +169,26 @@ if TORCH_VERSION_AFTER_2_4:
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             # activations: int8 dynamic asymmetric quant
-            if self._fake_quant_enabled:
-                (act_scales, act_zp) = _choose_qparams_per_token_asymmetric(
-                    x, self.scales_precision, self.zero_points_precision,
-                )
-                (act_qmin, act_qmax) = self._get_qmin_qmax(8)
-                x_fq = fake_quantize_per_token(
-                    x, act_scales, act_zp, act_qmin, act_qmax,
-                )
-            else:
-                x_fq = x
+            #if self._fake_quant_enabled:
+            #    (act_scales, act_zp) = _choose_qparams_per_token_asymmetric(
+            #        x, self.scales_precision, self.zero_points_precision,
+            #    )
+            #    (act_qmin, act_qmax) = self._get_qmin_qmax(8)
+            #    x_fq = fake_quantize_per_token(
+            #        x, act_scales, act_zp, act_qmin, act_qmax,
+            #    )
+            #else:
+            #    x_fq = x
+            x_fq = x
 
-            # weights: int4 grouped per channel symmetric quant
+            # weights: int2 grouped per channel symmetric quant
             if self._fake_quant_enabled:
                 (weight_scales, weight_zp) = get_group_qparams_symmetric(
-                    self.weight, 4, self.groupsize, self.scales_precision,
+                    self.weight, 2, self.groupsize, self.scales_precision,
                 )
                 # TODO: pass zp dtype to `get_group_qparams_symmetric` instead
                 weight_zp = weight_zp.to(self.zero_points_precision)
-                (weight_qmin, weight_qmax) = self._get_qmin_qmax(4)
+                (weight_qmin, weight_qmax) = self._get_qmin_qmax(2)
                 w_fq = fake_quantize_per_channel_group(
                     self.weight,
                     weight_scales,

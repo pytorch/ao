@@ -795,7 +795,6 @@ if TORCH_VERSION_AFTER_2_3:
         precision=torch.float32,
     ):
         scales, zeros = get_group_qparams_symmetric(w, n_bit, group_size, precision)
-        n_bit = 4
         max_int = 2 ** (n_bit - 1) - 1
         min_int = -(2 ** (n_bit - 1))
         # TODO: currently we don't know how to express torch.int4, we'll
