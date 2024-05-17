@@ -266,8 +266,10 @@ at::Tensor fp16_to_fp6_unpacked_cpu(at::Tensor fp16_tensor) {
 
     const __half *fp16_ptr = reinterpret_cast<__half*>(fp16_tensor.data_ptr<at::Half>());
     uint8_t *fp6_ptr = fp6_tensor.data_ptr<uint8_t>();
+    int n = fp16_tensor.numel();
 
-    for (int i = 0; i < fp16_tensor.numel(); i++) {
+#pragma omp parallel for num_threads(4)
+    for (int i = 0; i < n; i++) {
         fp6_ptr[i] = fp16_to_fp6(fp16_ptr[i]);
     }
 
@@ -315,13 +317,16 @@ at::Tensor fp16_to_fp6_packed_cpu(at::Tensor fp16_tensor) {
 
     const __half *fp16_ptr = reinterpret_cast<__half*>(fp16_tensor.data_ptr<at::Half>());
     uint8_t *fp6_ptr = fp6_tensor.data_ptr<uint8_t>();
+    int n = fp16_tensor.numel();
 
-    for (int i = 0, j = 0; i < fp16_tensor.numel(); i += 4, j += 3) {
+#pragma omp parallel for num_threads(4)
+    for (int i = 0; i < n; i += 4) {
         uint8_t val0 = fp16_to_fp6(fp16_ptr[i]);
         uint8_t val1 = fp16_to_fp6(fp16_ptr[i + 1]);
         uint8_t val2 = fp16_to_fp6(fp16_ptr[i + 2]);
         uint8_t val3 = fp16_to_fp6(fp16_ptr[i + 3]);
 
+        int j = i / 4 * 3;
         fp6_ptr[j]     = (val0 << 2) | (val1 >> 4);  // 0000 0011
         fp6_ptr[j + 1] = (val1 << 4) | (val2 >> 2);  // 1111 2222
         fp6_ptr[j + 2] = (val2 << 6) | (val3);       // 2233 3333
