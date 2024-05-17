@@ -35,6 +35,7 @@ __all__ = [
     "Int8WeightOnlyQuantizedLinearWeight",
     "Int4WeightOnlyQuantizedLinearWeight",
     "AffineQuantizedTensor",
+    "LinearActQuantizedTensor",
 ]
 
 
@@ -266,7 +267,6 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
         return super().__new__(cls, int_data, transposed, shape, **kwargs)  # type: ignore[attr-defined]
 
     def __init__(self, int_data, q_scales, transposed, shape, dtype=None, **kwargs):
-
         self.q_scales = q_scales
         super().__init__(int_data, transposed)
 
@@ -629,32 +629,6 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         int_data = aten._convert_weight_to_int4pack(input_int4x8, inner_k_tiles)
         return int_data, scales_and_zeros, False, groupsize, inner_k_tiles
 
-def to_aqt(
-    input_float,
-    mapping_type,
-    block_size,
-    target_dtype,
-    quant_min = None,
-    quant_max = None,
-    eps = None,
-    scale_dtype = None,
-    zero_point_dtype = None,
-    preserve_zero = True,
-    zero_point_domain = ZeroPointDomain.INT,
-):
-    return AffineQuantizedTensor.from_float(
-        input_float,
-        mapping_type,
-        block_size,
-        target_dtype,
-        quant_min=quant_min,
-        quant_max=quant_max,
-        eps=eps,
-        scale_dtype=scale_dtype,
-        zero_point_dtype=zero_point_dtype,
-        preserve_zero=preserve_zero,
-        zero_point_domain=zero_point_domain
-    )
 
 # TODO: merge with nf4 implements decorator
 # aten op to their __torch_dispatch__ implemnetations for the tensor subclass
@@ -777,7 +751,7 @@ class AffineQuantizedTensor(torch.Tensor):
         return dequantize_affine(self.int_data, self.block_size, self.scale, self.zero_point, self.int_data.dtype, self.quant_min, self.quant_max, self.zero_point_domain, output_dtype=output_dtype)
 
     def __tensor_flatten__(self):
-        return ["int_data", "scales", "zero_point"], [self.block_size, self.shape, self.quant_min, self.quant_max, self.zero_point_domain, self.dtype]
+        return ["int_data", "scale", "zero_point"], [self.block_size, self.shape, self.quant_min, self.quant_max, self.zero_point_domain, self.dtype]
 
     @classmethod
     def __tensor_unflatten__(
@@ -1091,7 +1065,7 @@ class LinearActQuantizedTensor(torch.Tensor):
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
         original_weight_tensor = tensor_data_dict["original_weight_tensor"]
-        input_quant_func = tensor_attributes
+        input_quant_func, = tensor_attributes
         return cls(
             original_weight_tensor,
             input_quant_func,
@@ -1176,3 +1150,6 @@ class LinearActQuantizedTensor(torch.Tensor):
         raise NotImplementedError(
             f"LinearActQuantizedTensor dispatch: attempting to run {func}, this is not supported"
         )
+
+to_aqt = AffineQuantizedTensor.from_float
+to_laqt = LinearActQuantizedTensor.from_float

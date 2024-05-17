@@ -10,6 +10,7 @@ from torch.utils._python_dispatch import TorchDispatchMode
 from packaging import version
 from functools import reduce
 from math import gcd
+import torch.nn.utils.parametrize as parametrize
 
 
 __all__ = [
@@ -17,6 +18,7 @@ __all__ = [
     "compute_error",
     "_apply_logging_hook",
     "get_model_size_in_bytes",
+    "unwrap_tensor_subclass",
     "TORCH_VERSION_AFTER_2_3",
 ]
 
@@ -86,6 +88,53 @@ class LoggingTensorMode(TorchDispatchMode):
         _fqn_to_op_to_shape_to_count[_cur_fqn][op_name][shape_str] += 1
 
         return rs
+
+
+class UnwrapTensorSubclass(torch.nn.Module):
+    def forward(self, *tensors):
+        todo = list(tensors)
+        for tp, meta, inner_tensors in reversed(self.rebuild_stack):
+            nb_tensor = len(inner_tensors)
+            inner_tensors = {a: b for a, b in zip(inner_tensors, todo[-nb_tensor:])}
+            todo = todo[nb_tensor:]
+            rebuilt = tp.__tensor_unflatten__(inner_tensors, meta, None, None)
+            todo.append(rebuilt)
+
+        assert len(todo) == 1
+        return todo[0]
+
+    def right_inverse(self, tensor):
+        assert type(tensor) is not torch.Tensor
+        rebuild_stack = []
+        plain_tensors = []
+        todo = [tensor]
+        while todo:
+            obj = todo.pop()
+            inner_tensors, metadata = obj.__tensor_flatten__()
+            rebuild_stack.append((type(obj), metadata, inner_tensors))
+            for attr_name in inner_tensors:
+                val = getattr(obj, attr_name)
+                if type(val) is torch.Tensor:
+                    plain_tensors.append(val)
+                else:
+                    assert isinstance(val, torch.Tensor)
+                    todo.append(val)
+
+        self.rebuild_stack = rebuild_stack
+
+        return plain_tensors
+
+def unwrap_tensor_subclass(model, filter_fn=None):
+    for name, child in model.named_children():
+        if (
+            isinstance(child, torch.nn.Linear) and
+            hasattr(child, "weight") and
+            type(child.weight) is not torch.Tensor and
+            isinstance(child.weight, torch.Tensor)
+        ):
+            parametrize.register_parametrization(child, "weight", UnwrapTensorSubclass())
+        unwrap_tensor_subclass(child)
+    return model
 
 
 # https://discuss.pytorch.org/t/finding-model-size/130275
