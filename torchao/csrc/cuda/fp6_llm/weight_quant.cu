@@ -18,8 +18,6 @@
 #include <cuda_fp16.h>
 #include <iostream>
 #include <assert.h>
-#include <cstring>
-
 
 /*
  * Function to pack 4 fake quantized FP16 value into continuously stored 4 FP6 values.

@@ -7,9 +7,9 @@ TORCH_LIBRARY_FRAGMENT(torchao, m) {
   m.def("fp16act_fp6weight_linear(Tensor _in_feats, Tensor _weights, Tensor _scales, int splitK) -> Tensor");
   m.def("prepack_fp6_weight(Tensor fp6_tensor) -> Tensor");
   m.def("fp16_to_fp6_original(Tensor fp16_tensor) -> Tensor");
+  m.def("fp6_weight_dequant(Tensor fp6_tensor, Tensor fp16_scale) -> Tensor");
   m.def("fp16_to_fp6_unpacked(Tensor fp16_tensor) -> Tensor");
   m.def("fp16_to_fp6_packed(Tensor fp16_tensor) -> Tensor");
   m.def("fp6_unpacked_to_fp32(Tensor fp6_tensor) -> Tensor");
   m.def("fp6_packed_to_fp32(Tensor fp6_tensor) -> Tensor");
-  m.def("fp6_weight_dequant(Tensor fp6_tensor, Tensor fp16_scale) -> Tensor");
 }
