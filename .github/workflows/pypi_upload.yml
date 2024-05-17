@@ -68,8 +68,7 @@ jobs:
         # TODO (huydhn): This is a work around to upload only CUDA 12.1 to pypi.
         # Other binaries for different CUDA versions will be available on
         # download.pytorch.org
-        if: ${{ matrix.desired_cuda == 'cu121' }}
-        # if: ${{ inputs.trigger-event == 'schedule' }}
+        if: ${{ inputs.trigger-event == 'schedule' && matrix.desired_cuda == 'cu121' }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           user: __token__
