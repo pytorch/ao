@@ -11,6 +11,16 @@ WHEEL_NAME=$(ls dist/)
 
 pushd dist
 # Prepare manywheel
-auditwheel repair "${WHEEL_NAME}"
-ls -lah
+auditwheel repair --plat manylinux2014_x86_64 -w . \
+    --exclude libtorch.so \
+    --exclude libtorch_python.so \
+    --exclude libtorch_cuda.so \
+    --exclude libtorch_cpu.so \
+    --exclude libc10.so \
+    --exclude libc10_cuda.so \
+    "${WHEEL_NAME}"
+
+ls -lah .
+# Clean up the linux_x86_64 wheel
+rm "${WHEEL_NAME}"
 popd
