@@ -10,8 +10,16 @@ set -eux
 echo "This script is run before building torchao binaries"
 
 pip install setuptools wheel twine auditwheel
-# NB: This will make the nightly wheel compatible with torch 2.3.0, maybe we could
-# remove this to make it compatible with PyTorch nighly instead
-pip install torch==2.3.0
+
+# NB: This will make the nightly wheel compatible with the latest stable torch,
+# maybe we could remove this line to make it compatible with PyTorch nightly
+# instead
+pip uninstall torch
+if [[ "${CU_VERSION:-}" == "cu118" ]]; then
+  pip install torch --index-url "https://download.pytorch.org/whl/${CU_VERSION}"
+else
+  pip install torch
+fi
+
 pip install -r requirements.txt
 pip install -r dev-requirements.txt
