@@ -9,6 +9,8 @@ set -eux
 
 WHEEL_NAME=$(ls dist/)
 
+sleep 3600
+
 pushd dist
 # Prepare manywheel
 auditwheel repair --plat manylinux2014_x86_64 -w . \
