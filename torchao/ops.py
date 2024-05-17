@@ -64,6 +64,15 @@ def _(fp16_tensor):
     return torch.empty(*leading_dims, last_dim * 3 / 4, device=fp16_tensor.device, dtype=torch.uint8)
 
 
+def fp6_unpacked_to_fp32(fp6_tensor: Tensor) -> Tensor:
+    return torch.ops.torchao.fp6_unpacked_to_fp32.default(fp6_tensor)
+
+
+def fp6_packed_to_fp32(fp6_tensor: Tensor) -> Tensor:
+    *leading_dims, last_dim = fp6_tensor.shape
+    return torch.ops.torchao.fp6_packed_to_fp32.default(fp6_tensor.view(-1, last_dim)).view(*leading_dims, -1)
+
+
 def fp16_to_fp6_original(fp16_tensor: Tensor) -> Tensor:
     """
     Pack FP16 tensor (containing only FP6 values) into FP6 tensor.
