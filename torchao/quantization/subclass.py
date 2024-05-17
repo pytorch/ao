@@ -670,10 +670,9 @@ class AffineQuantizedTensor(torch.Tensor):
         quant_max: Optional[int] = None,
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
         dtype=None,
-        # TODO: remove args and kwargs
-        *args,
-        **kwargs
+        strides=None,
     ):
+        kwargs = {}
         kwargs["device"] = int_data.device
         kwargs["layout"] = (
             kwargs.get("layout") if kwargs.get("layout", False) else int_data.layout
@@ -681,7 +680,8 @@ class AffineQuantizedTensor(torch.Tensor):
         if dtype is None:
             dtype = scale.dtype
         kwargs["dtype"] = dtype
-        assert not kwargs.get("requires_grad", False)
+        if strides is not None:
+            kwargs["strides"] = strides
         kwargs["requires_grad"] = False
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
@@ -696,8 +696,7 @@ class AffineQuantizedTensor(torch.Tensor):
         quant_max: Optional[int] = None,
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
         dtype=None,
-        *args,
-        **kwargs
+        strides=None,
     ):
         self.int_data = int_data
         self.scale = scale
@@ -912,6 +911,7 @@ class AffineQuantizedTensor(torch.Tensor):
             self.quant_max,
             self.zero_point_domain,
             dtype=self.dtype,
+            strides=self.stride(),
         )
 
     @classmethod
