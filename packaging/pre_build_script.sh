@@ -14,7 +14,7 @@ pip install setuptools wheel twine auditwheel
 # NB: This will make the nightly wheel compatible with the latest stable torch,
 # maybe we could remove this line to make it compatible with PyTorch nightly
 # instead
-pip uninstall torch
+pip uninstall -y torch
 if [[ "${CU_VERSION:-}" == "cu118" ]]; then
   pip install torch --index-url "https://download.pytorch.org/whl/${CU_VERSION}"
 else

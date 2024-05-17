@@ -4,23 +4,23 @@ on:
   workflow_call:
     inputs:
       repository:
-        description: 'Repository to checkout, defaults to ""'
+        description: Repository to checkout
         default: ''
         type: string
       ref:
-        description: 'Reference to checkout, defaults to "nightly"'
-        default: 'nightly'
+        description: Reference to checkout
+        default: nightly
         type: string
       test-infra-repository:
-        description: "Test infra repository to use"
-        default: "pytorch/test-infra"
+        description: Test infra repository to use
+        default: pytorch/test-infra
         type: string
       test-infra-ref:
-        description: "Test infra reference to use"
-        default: ""
+        description: Test infra reference to use
+        default: ''
         type: string
       build-matrix:
-        description: "Build matrix to utilize"
+        description: Build matrix to utilize
         default: ''
         type: string
       architecture:
@@ -29,7 +29,7 @@ on:
         type: string
         default: x86_64
       trigger-event:
-        description: "Trigger event in caller that determines whether or not to upload"
+        description: Trigger event in caller that determines whether or not to upload
         type: string
         default: ''
 
@@ -65,7 +65,9 @@ jobs:
           path: ${{ inputs.repository }}/dist/
 
       - name: Upload CUDA 12.1 package to pypi on schedule
-        # NB: This is a work around to upload only CUDA 12.1 built by python 3.9
+        # NB: This is a work around to upload only CUDA 12.1 built by python 3.9 to pypi.
+        # Other binaries for different python and CUDA versions will be available to download
+        # from download.pytorch.org
         # if: ${{ matrix.desired_cuda == 'cu121' && matrix.python_version == '3.9' }}
         if: ${{ inputs.trigger-event == 'schedule' }}
         uses: pypa/gh-action-pypi-publish@release/v1
