@@ -5,13 +5,15 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import subprocess
+import torchao.ops
+
 
 def main():
     """
-    Run torchao binary smoke tests. This is a placeholder for future tests. See
-    https://github.com/pytorch/test-infra/wiki/Using-Nova-Reusable-Build-Workflows
-    for more information about Nova binary workflow.
+    Run torchao binary smoke tests like importing and performing simple ops
     """
+    print(dir(torchao.ops))
 
 
 if __name__ == "__main__":

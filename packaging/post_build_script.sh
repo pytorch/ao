@@ -26,3 +26,9 @@ ls -lah .
 # Clean up the linux_x86_64 wheel
 rm "${WHEEL_NAME}"
 popd
+
+MANYWHEEL_NAME=$(ls dist/)
+# Try to install the new wheel
+pip install "${MANYWHEEL_NAME}"
+# and validating it by running the unit tests, more tests coult be added later
+pytest -v test/test_ops.py
