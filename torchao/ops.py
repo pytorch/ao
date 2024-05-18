@@ -82,6 +82,12 @@ def fp16_to_fp6_original(fp16_tensor: Tensor) -> Tensor:
     """
     Pack FP16 tensor (containing only FP6 values) into FP6 tensor.
     """
+    try:
+        from qtorch.quant import float_quantize
+    except ImportError as e:
+        raise RuntimeError("Please install qtorch to use this function") from e
+
+    fp16_tensor = float_quantize(fp16_tensor.float(), 3, 2, rounding="nearest").half()
     return torch.ops.torchao.fp16_to_fp6_original.default(fp16_tensor)
 
 

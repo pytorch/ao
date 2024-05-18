@@ -3,6 +3,31 @@
 #include <assert.h>
 #include <cstring>
 
+// reference implementation. this doesn't have a lot of bit manipulation, so it's less error-prone
+__device__ __host__ static uint8_t fp32_to_fp6_ref(float a) {
+#ifndef __CUDA_ARCH__
+    if (std::isnan(a) | std::isinf(a))
+        throw std::invalid_argument("Encounter +/-inf or NaN, which is not representable in FP6.");
+    if (std::abs(a) >= 30.0f)
+        throw std::invalid_argument("FP6 overflow. FP6 cannot represent +/-inf.");
+#endif
+
+    a *= 0x1p-124;  // 2^(127-3)
+    uint32_t bits;
+    std::memcpy(&bits, &a, sizeof(a));
+
+    uint8_t sign = bits >> 31u << 5u;
+    uint8_t exp_and_man = (bits >> 21u) & 0x1Fu;
+    uint8_t result = sign | exp_and_man;
+
+    // round to nearest even
+    uint32_t remainder = bits << 11u;
+    if ((remainder > 0x8000'0000u) || ((remainder == 0x8000'0000u) && (result & 1u))) {
+        result += 1;
+    }
+
+    return result;
+}
 
 // inspired by __internal_float2half() and float2half() from "cuda_fp16.hpp"
 __device__ __host__ static uint8_t fp16_to_fp6(const __half a) {
@@ -14,64 +39,53 @@ __device__ __host__ static uint8_t fp16_to_fp6(const __half a) {
     bits &= 0x7FFFu;  // clear sign bit
     uint16_t result;
 
+    constexpr uint16_t EXP_BIAS_DIFF = 15u - 3u;
+
+    // only checks for invalid values on CPU, since we can't throw exception in CUDA
 #ifndef __CUDA_ARCH__
-    if (bits >= 0b11111'0000000000u)
+    // all exponent bits are 1s
+    if (bits >= (0x1Fu << 10u))
         throw std::invalid_argument("Encounter +/-inf or NaN, which is not representable in FP6.");
-    if (bits >= 0b10011'1110000000u)
+    // max FP6 (28) + half of least significand (2) = 30
+    if (bits >= (((EXP_BIAS_DIFF + 7u) << 10u) | (0x7u << 7u)))
         throw std::invalid_argument("FP6 overflow. FP6 cannot represent +/-inf.");
 #endif
 
-    if (bits >= 0b01101'0000000000u) {  // FP6 normal number
-        remainder = bits << 8u;
-        bits -= (0b01100u << 10u);  // update exponent
-        result = sign | (bits >> 8u);
-    } else if (bits >= 0b01010'0000000001u) {  // FP6 subnormal number
+    // FP6 normal number (E>=001)
+    if (bits >= ((EXP_BIAS_DIFF + 1u) << 10u)) {
+        remainder = bits << (1u + 5u + 2u);
+        bits -= (EXP_BIAS_DIFF << 10u);  // update exponent
+        result = sign | (bits >> (10u - 2u));
+    }
+    // FP6 subnormal number (more than half of min FP6 subnormal = 0.0625 * 0.5)
+    else if (bits > ((EXP_BIAS_DIFF - 2u) << 10u)) {
         uint16_t exp = bits >> 10u;
         uint16_t man = bits & 0x3FFu;
-        uint16_t shift = 0b01111u - 0b011u + 1u + 8u - exp;
-        man |= 0x400u;  // set implicit 1 to mantissa
-        remainder = man << (16u - shift);
-        man >>= shift;
-        result = sign | man;
-    } else {  // FP6 underflow
+
+        // to make subnormal FP6 from normal FP16
+        // step 1: add implicit 1 to mantissa
+        man |= 0x400u;
+
+        // step 2: shift mantissa right so that exponent value is equal to
+        // exponent value of FP6 subnormal, which is -2 (equivalent to E=001)
+        uint16_t shift = EXP_BIAS_DIFF + 1u - exp;
+        remainder = man << (1u + 5u + 2u + shift);
+        result = sign | (man >> (shift + (10u - 2u)));  // implicit E=000
+    }
+    // FP6 underflow. E=000, M=00
+    else {
         result = sign;
     }
 
     // round to nearest even
-    if ((remainder > 0x8000u) || ((remainder == 0x8000u) && ((result & 1u) == 1u))) {
+    if ((remainder > 0x8000u) || ((remainder == 0x8000u) && (result & 1u))) {
         result += 1;
     }
-
-    return result;
-}
-
-__device__ __host__ static uint8_t fp32_to_fp6_v1(float a) {
-#ifndef __CUDA_ARCH__
-    if (std::isnan(a) | std::isinf(a))
-        throw std::invalid_argument("Encounter +/-inf or NaN, which is not representable in FP6.");
-    if (std::abs(a) >= 30.0f)  // 2^4 * (1 + 0.5 + 0.25 + 0.125)
-        throw std::invalid_argument("FP6 overflow. FP6 cannot represent +/-inf.");
-#endif
-
-    a *= 0x1p-124;
-    uint32_t bits;
-    std::memcpy(&bits, &a, sizeof(a));
-
-    uint8_t sign = bits >> 31u << 5u;
-    uint8_t exp_and_man = (bits >> 21u) & 0x1Fu;
-    uint8_t result = sign | exp_and_man;
-
-    // round to nearest even
-    uint32_t remainder = bits << 11u;
-    if ((remainder > 0x8000'0000u) || ((remainder == 0x8000'0000u) && ((result & 1u) == 1u))) {
-        result += 1;
-    }
-
     return result;
 }
 
 // inspired by __internal_float2half() and float2half() from "cuda_fp16.hpp"
-__device__ __host__ static uint8_t fp32_to_fp6_v2(const float a) {
+__device__ __host__ static uint8_t fp32_to_fp6(const float a) {
     uint32_t bits;
     std::memcpy(&bits, &a, sizeof(a));
 
@@ -85,22 +99,21 @@ __device__ __host__ static uint8_t fp32_to_fp6_v2(const float a) {
     // only checks for invalid values on CPU, since we can't throw exception in CUDA
 #ifndef __CUDA_ARCH__
     // all exponent bits are 1s
-    if (bits >= (255u << 23u))
+    if (bits >= (0xFFu << 23u))
         throw std::invalid_argument("Encounter +/-inf or NaN, which is not representable in FP6.");
-
-    // FP6 overflow when FP32 value is more than (or equal to) half way above max FP6 value
-    // max FP6 is E=111, M=11. add extra 1 to M to get half way above it.
-    if (bits >= (((EXP_BIAS_DIFF + 7u) << 23u) | (0b111 << 20u)))
+    // max FP6 (28) + half of least significand (2) = 30
+    if (bits >= (((EXP_BIAS_DIFF + 7u) << 23u) | (0x7u << 20u)))
         throw std::invalid_argument("FP6 overflow. FP6 cannot represent +/-inf.");
 #endif
 
-    // min FP6 subnormal number is 2^(-2) * 2^(-2)
-
-    if (bits >= ((EXP_BIAS_DIFF + 1u) << 23u)) {  // FP6 normal number (E>=001)
+    // FP6 normal number (E>=001)
+    if (bits >= ((EXP_BIAS_DIFF + 1u) << 23u)) {
         remainder = bits << (1u + 8u + 2u);
-        bits -= (EXP_BIAS_DIFF << 23u);           // update exponent
-        result = sign | (bits >> 21u);
-    } else if (bits > ((EXP_BIAS_DIFF - 2u) << 23u)) {     // FP6 subnormal number
+        bits -= (EXP_BIAS_DIFF << 23u);  // update exponent
+        result = sign | (bits >> (23u - 2u));
+    }
+    // FP6 subnormal number (more than half of min FP6 subnormal = 0.0625 * 0.5)
+    else if (bits > ((EXP_BIAS_DIFF - 2u) << 23u)) {
         uint32_t exp = bits >> 23u;
         uint32_t man = bits & 0x7F'FFFFu;
 
@@ -109,24 +122,24 @@ __device__ __host__ static uint8_t fp32_to_fp6_v2(const float a) {
         man |= 0x80'0000u;
 
         // step 2: shift mantissa right so that exponent value is equal to
-        // FP6 subnormal exponent value, which is -2
-        uint32_t shift = 127u - 2u - exp;
+        // exponent value of FP6 subnormal, which is -2 (equivalent to E=001)
+        uint32_t shift = EXP_BIAS_DIFF + 1u - exp;
         remainder = man << (1u + 8u + 2u + shift);
-        man >>= shift;
-        result = sign | (man >> 21u);  // implicit E=000
-    } else {            // FP6 underflow
-        result = sign;  // implicit E=000 and M=00
+        result = sign | (man >> (shift + (23u - 2u)));  // implicit E=000
+    }
+    // FP6 underflow. E=000, M=00
+    else {
+        result = sign;
     }
 
     // round to nearest even
-    if ((remainder > 0x8000'0000u) || ((remainder == 0x8000'0000u) && ((result & 1u) == 1u))) {
+    if ((remainder > 0x8000'0000u) || ((remainder == 0x8000'0000u) && (result & 1u))) {
         result += 1;
     }
-
     return result;
 }
 
-#define fp32_to_fp6 fp32_to_fp6_v1
+#define fp32_to_fp6 fp32_to_fp6
 
 // assume the lower 6 bits contain the data
 __device__ __host__ static float fp6_to_fp32(const uint8_t a) {
@@ -134,19 +147,16 @@ __device__ __host__ static float fp6_to_fp32(const uint8_t a) {
     // this also handles subnormal numbers correctly.
     // FP6:                                  SE EEMM
     // FP32: S000 00EE EMM0 0000 0000 0000 0000 0000
-    uint32_t bits = a;
+    uint32_t bits = a;  // bit extension
     uint32_t sign = bits >> 5u << 31u;
     uint32_t exp_and_man = (bits & 0x1Fu) << 21u;
     uint32_t result_bits = sign | exp_and_man;
 
-    // the result will be off by the difference in exponent bias
-    // FP6:  Ebias =   3
-    // FP32: Ebias = 127
-    // correction = 2^(127-3)
-    // we can correct this by direct FP32 multiplication, which also handles subnormal numbers correctly.
+    // the result will be off by the difference in exponent bias (3 in FP6 and 127 in FP32)
+    // we can correct this by direct FP32 multiplication, which also handles subnormal numbers.
     float result;
     std::memcpy(&result, &result_bits, sizeof(result));
-    return result * 0x1p124;
+    return result * 0x1p124;  // 2^(127-3)
 }
 
 #include <torch/extension.h>
@@ -187,18 +197,21 @@ at::Tensor fp16_to_fp6_unpacked(at::Tensor fp16_tensor) {
     return fp6_tensor;
 }
 
+__device__ __host__ static void _fp16_to_fp6_packed(const __half *fp16_ptr, uint8_t *fp6_ptr) {
+    uint8_t val0 = fp16_to_fp6(fp16_ptr[0]);
+    uint8_t val1 = fp16_to_fp6(fp16_ptr[1]);
+    uint8_t val2 = fp16_to_fp6(fp16_ptr[2]);
+    uint8_t val3 = fp16_to_fp6(fp16_ptr[3]);
+
+    fp6_ptr[0] = (val0 << 2) | (val1 >> 4);  // 0000 0011
+    fp6_ptr[1] = (val1 << 4) | (val2 >> 2);  // 1111 2222
+    fp6_ptr[2] = (val2 << 6) | (val3);       // 2233 3333
+}
+
 __global__ void fp16_to_fp6_packed_kernel(const __half *fp16_ptr, uint8_t *fp6_ptr, int n) {
     const int idx = (blockIdx.x * blockDim.x + threadIdx.x) * 4;
-    if (idx < n) {
-        uint8_t val0 = fp16_to_fp6(fp16_ptr[idx]);
-        uint8_t val1 = fp16_to_fp6(fp16_ptr[idx + 1]);
-        uint8_t val2 = fp16_to_fp6(fp16_ptr[idx + 2]);
-        uint8_t val3 = fp16_to_fp6(fp16_ptr[idx + 3]);
-
-        fp6_ptr[idx / 4 * 3]     = (val0 << 2) | (val1 >> 4);  // 0000 0011
-        fp6_ptr[idx / 4 * 3 + 1] = (val1 << 4) | (val2 >> 2);  // 1111 2222
-        fp6_ptr[idx / 4 * 3 + 2] = (val2 << 6) | (val3);       // 2233 3333
-    }
+    if (idx < n)
+        _fp16_to_fp6_packed(fp16_ptr + idx, fp6_ptr + idx / 4 * 3);
 }
 
 at::Tensor fp16_to_fp6_packed(at::Tensor fp16_tensor) {
@@ -220,17 +233,8 @@ at::Tensor fp16_to_fp6_packed(at::Tensor fp16_tensor) {
 
     if (fp16_tensor.is_cpu()) {
         #pragma omp parallel for num_threads(4)
-        for (int i = 0; i < n; i += 4) {
-            uint8_t val0 = fp16_to_fp6(fp16_ptr[i]);
-            uint8_t val1 = fp16_to_fp6(fp16_ptr[i + 1]);
-            uint8_t val2 = fp16_to_fp6(fp16_ptr[i + 2]);
-            uint8_t val3 = fp16_to_fp6(fp16_ptr[i + 3]);
-
-            int j = i / 4 * 3;
-            fp6_ptr[j]     = (val0 << 2) | (val1 >> 4);  // 0000 0011
-            fp6_ptr[j + 1] = (val1 << 4) | (val2 >> 2);  // 1111 2222
-            fp6_ptr[j + 2] = (val2 << 6) | (val3);       // 2233 3333
-        }
+        for (int i = 0; i < n; i += 4)
+            _fp16_to_fp6_packed(fp16_ptr + i, fp6_ptr + i / 4 * 3);
     } else {
         constexpr int block_size = 256;
         int grid_size = (n + block_size * 4 - 1) / (block_size * 4);
@@ -240,18 +244,21 @@ at::Tensor fp16_to_fp6_packed(at::Tensor fp16_tensor) {
     return fp6_tensor;
 }
 
+__device__ __host__ static void _fp32_to_fp6_packed(const float *fp32_ptr, uint8_t *fp6_ptr) {
+    uint8_t val0 = fp32_to_fp6(fp32_ptr[0]);
+    uint8_t val1 = fp32_to_fp6(fp32_ptr[1]);
+    uint8_t val2 = fp32_to_fp6(fp32_ptr[2]);
+    uint8_t val3 = fp32_to_fp6(fp32_ptr[3]);
+
+    fp6_ptr[0] = (val0 << 2) | (val1 >> 4);  // 0000 0011
+    fp6_ptr[1] = (val1 << 4) | (val2 >> 2);  // 1111 2222
+    fp6_ptr[2] = (val2 << 6) | (val3);       // 2233 3333
+}
+
 __global__ void fp32_to_fp6_packed_kernel(const float *fp32_ptr, uint8_t *fp6_ptr, int n) {
     const int idx = (blockIdx.x * blockDim.x + threadIdx.x) * 4;
-    if (idx < n) {
-        uint8_t val0 = fp32_to_fp6(fp32_ptr[idx]);
-        uint8_t val1 = fp32_to_fp6(fp32_ptr[idx + 1]);
-        uint8_t val2 = fp32_to_fp6(fp32_ptr[idx + 2]);
-        uint8_t val3 = fp32_to_fp6(fp32_ptr[idx + 3]);
-
-        fp6_ptr[idx / 4 * 3]     = (val0 << 2) | (val1 >> 4);  // 0000 0011
-        fp6_ptr[idx / 4 * 3 + 1] = (val1 << 4) | (val2 >> 2);  // 1111 2222
-        fp6_ptr[idx / 4 * 3 + 2] = (val2 << 6) | (val3);       // 2233 3333
-    }
+    if (idx < n)
+        _fp32_to_fp6_packed(fp32_ptr + idx, fp6_ptr + idx / 4 * 3);
 }
 
 at::Tensor fp32_to_fp6_packed(at::Tensor fp32_tensor) {
@@ -273,17 +280,8 @@ at::Tensor fp32_to_fp6_packed(at::Tensor fp32_tensor) {
 
     if (fp32_tensor.is_cpu()) {
         #pragma omp parallel for num_threads(4)
-        for (int i = 0; i < n; i += 4) {
-            uint8_t val0 = fp32_to_fp6(fp32_ptr[i]);
-            uint8_t val1 = fp32_to_fp6(fp32_ptr[i + 1]);
-            uint8_t val2 = fp32_to_fp6(fp32_ptr[i + 2]);
-            uint8_t val3 = fp32_to_fp6(fp32_ptr[i + 3]);
-
-            int j = i / 4 * 3;
-            fp6_ptr[j]     = (val0 << 2) | (val1 >> 4);  // 0000 0011
-            fp6_ptr[j + 1] = (val1 << 4) | (val2 >> 2);  // 1111 2222
-            fp6_ptr[j + 2] = (val2 << 6) | (val3);       // 2233 3333
-        }
+        for (int i = 0; i < n; i += 4)
+            _fp32_to_fp6_packed(fp32_ptr + i, fp6_ptr + i / 4 * 3);
     } else {
         constexpr int block_size = 256;
         int grid_size = (n + block_size * 4 - 1) / (block_size * 4);
@@ -324,19 +322,21 @@ at::Tensor fp6_unpacked_to_fp32(at::Tensor fp6_tensor) {
     return fp32_tensor;
 }
 
+__device__ __host__ static void _fp6_packed_to_fp32(const uint8_t *fp6_ptr, float *fp32_ptr) {
+    uint8_t bits0 = fp6_ptr[0];  // 0000 0011
+    uint8_t bits1 = fp6_ptr[1];  // 1111 2222
+    uint8_t bits2 = fp6_ptr[2];  // 2233 3333
+
+    fp32_ptr[0] = fp6_to_fp32(bits0 >> 2);
+    fp32_ptr[1] = fp6_to_fp32(((bits0 & 0x3u) << 4) | (bits1 >> 4));
+    fp32_ptr[2] = fp6_to_fp32(((bits1 & 0xFu) << 2) | (bits2 >> 6));
+    fp32_ptr[3] = fp6_to_fp32(bits2 & 0x3Fu);
+}
+
 __global__ void fp6_packed_to_fp32_kernel(const uint8_t *fp6_ptr, float *fp32_ptr, int n) {
     const int idx = (blockIdx.x * blockDim.x + threadIdx.x) * 3;
-    if (idx < n) {
-        uint8_t bits0 = fp6_ptr[idx];      // 0000 0011
-        uint8_t bits1 = fp6_ptr[idx + 1];  // 1111 2222
-        uint8_t bits2 = fp6_ptr[idx + 2];  // 2233 3333
-
-        int j = idx / 3 * 4;
-        fp32_ptr[j]     = fp6_to_fp32(bits0 >> 2);
-        fp32_ptr[j + 1] = fp6_to_fp32(((bits0 & 0x3u) << 4) | (bits1 >> 4));
-        fp32_ptr[j + 2] = fp6_to_fp32(((bits1 & 0xFu) << 2) | (bits2 >> 6));
-        fp32_ptr[j + 3] = fp6_to_fp32(bits2 & 0x3Fu);
-    }
+    if (idx < n)
+        _fp6_packed_to_fp32(fp6_ptr + idx, fp32_ptr + idx / 3 * 4);
 }
 
 at::Tensor fp6_packed_to_fp32(at::Tensor fp6_tensor) {
@@ -358,17 +358,8 @@ at::Tensor fp6_packed_to_fp32(at::Tensor fp6_tensor) {
 
     if (fp6_tensor.is_cpu()) {
         #pragma omp parallel for num_threads(4)
-        for (int i = 0; i < n; i += 3) {
-            uint8_t bits0 = fp6_ptr[i];      // 0000 0011
-            uint8_t bits1 = fp6_ptr[i + 1];  // 1111 2222
-            uint8_t bits2 = fp6_ptr[i + 2];  // 2233 3333
-
-            int j = i / 3 * 4;
-            fp32_ptr[j]     = fp6_to_fp32(bits0 >> 2);
-            fp32_ptr[j + 1] = fp6_to_fp32(((bits0 & 0x3u) << 4) | (bits1 >> 4));
-            fp32_ptr[j + 2] = fp6_to_fp32(((bits1 & 0xFu) << 2) | (bits2 >> 6));
-            fp32_ptr[j + 3] = fp6_to_fp32(bits2 & 0x3Fu);
-        }
+        for (int i = 0; i < n; i += 3)
+            _fp6_packed_to_fp32(fp6_ptr + i, fp32_ptr + i / 3 * 4);
     } else {
         constexpr int block_size = 256;
         int grid_size = (n + block_size * 3 - 1) / (block_size * 3);
@@ -380,18 +371,18 @@ at::Tensor fp6_packed_to_fp32(at::Tensor fp6_tensor) {
 
 TORCH_LIBRARY_IMPL(torchao, CPU, m) {
   m.impl("torchao::fp16_to_fp6_unpacked", &fp16_to_fp6_unpacked);
-  m.impl("torchao::fp16_to_fp6_packed", &fp16_to_fp6_packed);
-  m.impl("torchao::fp32_to_fp6_packed", &fp32_to_fp6_packed);
+  m.impl("torchao::fp16_to_fp6_packed", &_fp16_to_fp6_packed);
+  m.impl("torchao::fp32_to_fp6_packed", &_fp32_to_fp6_packed);
   m.impl("torchao::fp6_unpacked_to_fp32", &fp6_unpacked_to_fp32);
-  m.impl("torchao::fp6_packed_to_fp32", &fp6_packed_to_fp32);
+  m.impl("torchao::fp6_packed_to_fp32", &_fp6_packed_to_fp32);
 }
 
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl("torchao::fp16_to_fp6_unpacked", &fp16_to_fp6_unpacked);
-  m.impl("torchao::fp16_to_fp6_packed", &fp16_to_fp6_packed);
-  m.impl("torchao::fp32_to_fp6_packed", &fp32_to_fp6_packed);
+  m.impl("torchao::fp16_to_fp6_packed", &_fp16_to_fp6_packed);
+  m.impl("torchao::fp32_to_fp6_packed", &_fp32_to_fp6_packed);
   m.impl("torchao::fp6_unpacked_to_fp32", &fp6_unpacked_to_fp32);
-  m.impl("torchao::fp6_packed_to_fp32", &fp6_packed_to_fp32);
+  m.impl("torchao::fp6_packed_to_fp32", &_fp6_packed_to_fp32);
 }
 
 }
