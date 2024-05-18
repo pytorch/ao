@@ -29,6 +29,6 @@ popd
 
 MANYWHEEL_NAME=$(ls dist/)
 # Try to install the new wheel
-pip install "${MANYWHEEL_NAME}"
+pip install "dist/${MANYWHEEL_NAME}"
 # and validating it by running the unit tests
 pytest -v test/
