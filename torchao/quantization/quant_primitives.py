@@ -416,7 +416,9 @@ def quantize_activation_per_token_absmax(t):
     # if we don't clamp.  TODO(future) look into this further.
     quant_min = -127
     quant_max = 127
-    scale, zero_point = choose_qparams_affine(t, mapping_type, block_size, dtype, quant_min, quant_max, eps, scale_dtype=torch.float)
+    scale_dtype = torch.float32 if t.dtype == torch.float16 else None
+
+    scale, zero_point = choose_qparams_affine(t, mapping_type, block_size, dtype, quant_min, quant_max, eps, scale_dtype=scale_dtype)
 
     quantized = quantize_affine(t, block_size, scale, zero_point, dtype, quant_min, quant_max)
 
