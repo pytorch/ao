@@ -30,5 +30,5 @@ popd
 MANYWHEEL_NAME=$(ls dist/)
 # Try to install the new wheel
 pip install "${MANYWHEEL_NAME}"
-# and validating it by running the unit tests, more tests coult be added later
-pytest -v test/test_ops.py
+# and validating it by running the unit tests
+pytest -v test/
