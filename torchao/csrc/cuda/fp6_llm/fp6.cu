@@ -80,32 +80,46 @@ __device__ __host__ static uint8_t fp32_to_fp6_v2(const float a) {
     bits &= 0x7FFF'FFFFu;  // clear sign bit
     uint32_t result;
 
+    constexpr uint32_t EXP_BIAS_DIFF = 127u - 3u;
+
+    // only checks for invalid values on CPU, since we can't throw exception in CUDA
 #ifndef __CUDA_ARCH__
-    constexpr uint32_t exp_max = 7u + 127u - 3u;
-    if (bits >= 0x7F80'0000u)
+    // all exponent bits are 1s
+    if (bits >= (255u << 23u))
         throw std::invalid_argument("Encounter +/-inf or NaN, which is not representable in FP6.");
-    if (bits >= ((exp_max) << 23u) | (0b111 << 20u))
+
+    // FP6 overflow when FP32 value is more than (or equal to) half way above max FP6 value
+    // max FP6 is E=111, M=11. add extra 1 to M to get half way above it.
+    if (bits >= (((EXP_BIAS_DIFF + 7u) << 23u) | (0b111 << 20u)))
         throw std::invalid_argument("FP6 overflow. FP6 cannot represent +/-inf.");
 #endif
 
-    if (bits >= ((1u + 15u - 3u) << 23u)) {  // FP6 normal number
-        remainder = bits << 8u;
-        bits -= (0b01100u << 10u);  // update exponent
-        result = sign | (bits >> 8u);
-    } else if (bits >= 0b01010'0000000001u) {  // FP6 subnormal number
-        uint32_t exp = bits >> 10u;
-        uint32_t man = bits & 0x3FFu;
-        uint32_t shift = 0b01111u - 0b011u + 1u + 8u - exp;
-        man |= 0x400u;  // set implicit 1 to mantissa
-        remainder = man << (16u - shift);
+    // min FP6 subnormal number is 2^(-2) * 2^(-2)
+
+    if (bits >= ((EXP_BIAS_DIFF + 1u) << 23u)) {  // FP6 normal number (E>=001)
+        remainder = bits << (1u + 8u + 2u);
+        bits -= (EXP_BIAS_DIFF << 23u);           // update exponent
+        result = sign | (bits >> 21u);
+    } else if (bits > ((EXP_BIAS_DIFF - 2u) << 23u)) {     // FP6 subnormal number
+        uint32_t exp = bits >> 23u;
+        uint32_t man = bits & 0x7F'FFFFu;
+
+        // to make subnormal FP6 from normal FP16
+        // step 1: add implicit 1 to mantissa
+        man |= 0x80'0000u;
+
+        // step 2: shift mantissa right so that exponent value is equal to
+        // FP6 subnormal exponent value, which is -2
+        uint32_t shift = 127u - 2u - exp;
+        remainder = man << (1u + 8u + 2u + shift);
         man >>= shift;
-        result = sign | man;
-    } else {  // FP6 underflow
-        result = sign;
+        result = sign | (man >> 21u);  // implicit E=000
+    } else {            // FP6 underflow
+        result = sign;  // implicit E=000 and M=00
     }
 
     // round to nearest even
-    if ((remainder > 0x8000u) || ((remainder == 0x8000u) && ((result & 1u) == 1u))) {
+    if ((remainder > 0x8000'0000u) || ((remainder == 0x8000'0000u) && ((result & 1u) == 1u))) {
         result += 1;
     }
 
