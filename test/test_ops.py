@@ -158,7 +158,7 @@ class TestFp6(TestCase):
         self._skip_cpu()
         configs = [
             (torch.half, torchao.ops.fp16_to_fp6_unpacked),
-            # (torch.float, torchao.ops.fp32_to_fp6_unpacked),
+            (torch.float, torchao.ops.fp32_to_fp6_unpacked),
         ]
         for dtype, func in configs:
             x = torch.tensor(input, dtype=dtype)

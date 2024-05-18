@@ -245,6 +245,38 @@ at::Tensor fp16_to_fp6_packed(at::Tensor fp16_tensor) {
     return fp6_tensor;
 }
 
+__global__ void fp32_to_fp6_unpacked_kernel(const float *fp32_ptr, uint8_t *fp6_ptr, int n) {
+    const int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid < n)
+        fp6_ptr[tid] = fp32_to_fp6(fp32_ptr[tid]);
+}
+
+// this is useful for debugging
+at::Tensor fp32_to_fp6_unpacked(at::Tensor fp32_tensor) {
+    TORCH_CHECK(fp32_tensor.dtype() == torch::kFloat32);
+    TORCH_CHECK(fp32_tensor.is_contiguous());
+    TORCH_CHECK(fp32_tensor.is_cpu() || fp32_tensor.is_cuda());
+    
+    at::TensorOptions options = at::TensorOptions().dtype(torch::kUInt8).device(fp32_tensor.device());
+    at::Tensor fp6_tensor = at::empty(fp32_tensor.sizes(), options);
+
+    const float *fp32_ptr = fp32_tensor.data_ptr<float>();
+    uint8_t *fp6_ptr = fp6_tensor.data_ptr<uint8_t>();
+    int n = fp32_tensor.numel();
+
+    if (fp32_tensor.is_cpu()) {
+        #pragma omp parallel for num_threads(4)
+        for (int i = 0; i < n; i++)
+            fp6_ptr[i] = fp16_to_fp6(fp32_ptr[i]);
+    } else {
+        constexpr int block_size = 256;
+        int grid_size = (n + block_size - 1) / block_size;
+        fp32_to_fp6_unpacked_kernel<<<grid_size, block_size>>>(fp32_ptr, fp6_ptr, n);
+    }
+
+    return fp6_tensor;
+}
+
 __device__ __host__ static void fp32_4_to_fp6_4_packed(const float *fp32_ptr, uint8_t *fp6_ptr) {
     uint8_t val0 = fp32_to_fp6(fp32_ptr[0]);
     uint8_t val1 = fp32_to_fp6(fp32_ptr[1]);
@@ -373,6 +405,7 @@ at::Tensor fp6_packed_to_fp32(at::Tensor fp6_tensor) {
 TORCH_LIBRARY_IMPL(torchao, CPU, m) {
   m.impl("torchao::fp16_to_fp6_unpacked", &fp16_to_fp6_unpacked);
   m.impl("torchao::fp16_to_fp6_packed", &fp16_to_fp6_packed);
+  m.impl("torchao::fp32_to_fp6_unpacked", &fp32_to_fp6_unpacked);
   m.impl("torchao::fp32_to_fp6_packed", &fp32_to_fp6_packed);
   m.impl("torchao::fp6_unpacked_to_fp32", &fp6_unpacked_to_fp32);
   m.impl("torchao::fp6_packed_to_fp32", &fp6_packed_to_fp32);
@@ -381,6 +414,7 @@ TORCH_LIBRARY_IMPL(torchao, CPU, m) {
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl("torchao::fp16_to_fp6_unpacked", &fp16_to_fp6_unpacked);
   m.impl("torchao::fp16_to_fp6_packed", &fp16_to_fp6_packed);
+  m.impl("torchao::fp32_to_fp6_unpacked", &fp32_to_fp6_unpacked);
   m.impl("torchao::fp32_to_fp6_packed", &fp32_to_fp6_packed);
   m.impl("torchao::fp6_unpacked_to_fp32", &fp6_unpacked_to_fp32);
   m.impl("torchao::fp6_packed_to_fp32", &fp6_packed_to_fp32);
