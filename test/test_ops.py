@@ -136,5 +136,44 @@ class TestOps(TestCase):
         assert relative_error.mean() < 1e-2
 
 
+class TestFp6(TestCase):
+    def _skip_cpu(self):
+        if not torch.cuda.is_available():
+            self.skipTest("CUDA not available. We don't compile for CPU-only build")
+
+    @parameterized.expand(
+        [
+            (0.0, 0b000000),     # simple values
+            (1.0, 0b001100),     # normal numbers
+            (1.25, 0b001101),
+            (28.0, 0b011111),    # max
+            (0.1875, 0b00011),   # subnormal number
+            (0.0625, 0b000001),  # min
+            (29.0, 0b011111),    # rounding
+            (26.0, 0b011110),    # round to nearest even
+            (0.03, 0b000000),    # underflow
+        ]
+    )
+    def test_to_fp6_correctness(self, input, output):
+        self._skip_cpu()
+        configs = [
+            (torch.half, torchao.ops.fp16_to_fp6_unpacked),
+            # (torch.float, torchao.ops.fp32_to_fp6_unpacked),
+        ]
+        for dtype, func in configs:
+            x = torch.tensor(input, dtype=dtype)
+            assert func(x).item() == output
+            assert func(-x).item() == (output | 0b100000)
+            assert func(x.cuda()).item() == output
+            assert func(-x.cuda()).item() == (output | 0b100000)
+
+    @parameterized.expand([30.0, 100.0, float("inf"), float("nan")])
+    def test_fp16_to_fp6_exception(self, input):
+        self._skip_cpu()
+        x = torch.tensor(input).half()
+        with self.assertRaises(Exception):
+            torchao.ops.fp16_to_fp6_unpacked(x)
+
+
 if __name__ == "__main__":
     unittest.main()

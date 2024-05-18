@@ -85,7 +85,7 @@ __device__ __host__ static uint8_t fp16_to_fp6(const __half a) {
 }
 
 // inspired by __internal_float2half() and float2half() from "cuda_fp16.hpp"
-__device__ __host__ static uint8_t fp32_to_fp6(const float a) {
+__device__ __host__ static uint8_t fp32_to_fp6_bits(const float a) {
     uint32_t bits;
     std::memcpy(&bits, &a, sizeof(a));
 
@@ -139,7 +139,8 @@ __device__ __host__ static uint8_t fp32_to_fp6(const float a) {
     return result;
 }
 
-#define fp32_to_fp6 fp32_to_fp6
+// #define fp32_to_fp6 fp32_to_fp6_ref
+#define fp32_to_fp6 fp32_to_fp6_bits
 
 // assume the lower 6 bits contain the data
 __device__ __host__ static float fp6_to_fp32(const uint8_t a) {
@@ -197,7 +198,7 @@ at::Tensor fp16_to_fp6_unpacked(at::Tensor fp16_tensor) {
     return fp6_tensor;
 }
 
-__device__ __host__ static void _fp16_to_fp6_packed(const __half *fp16_ptr, uint8_t *fp6_ptr) {
+__device__ __host__ static void fp16_4_to_fp6_4_packed(const __half *fp16_ptr, uint8_t *fp6_ptr) {
     uint8_t val0 = fp16_to_fp6(fp16_ptr[0]);
     uint8_t val1 = fp16_to_fp6(fp16_ptr[1]);
     uint8_t val2 = fp16_to_fp6(fp16_ptr[2]);
@@ -211,7 +212,7 @@ __device__ __host__ static void _fp16_to_fp6_packed(const __half *fp16_ptr, uint
 __global__ void fp16_to_fp6_packed_kernel(const __half *fp16_ptr, uint8_t *fp6_ptr, int n) {
     const int idx = (blockIdx.x * blockDim.x + threadIdx.x) * 4;
     if (idx < n)
-        _fp16_to_fp6_packed(fp16_ptr + idx, fp6_ptr + idx / 4 * 3);
+        fp16_4_to_fp6_4_packed(fp16_ptr + idx, fp6_ptr + idx / 4 * 3);
 }
 
 at::Tensor fp16_to_fp6_packed(at::Tensor fp16_tensor) {
@@ -234,7 +235,7 @@ at::Tensor fp16_to_fp6_packed(at::Tensor fp16_tensor) {
     if (fp16_tensor.is_cpu()) {
         #pragma omp parallel for num_threads(4)
         for (int i = 0; i < n; i += 4)
-            _fp16_to_fp6_packed(fp16_ptr + i, fp6_ptr + i / 4 * 3);
+            fp16_4_to_fp6_4_packed(fp16_ptr + i, fp6_ptr + i / 4 * 3);
     } else {
         constexpr int block_size = 256;
         int grid_size = (n + block_size * 4 - 1) / (block_size * 4);
@@ -244,7 +245,7 @@ at::Tensor fp16_to_fp6_packed(at::Tensor fp16_tensor) {
     return fp6_tensor;
 }
 
-__device__ __host__ static void _fp32_to_fp6_packed(const float *fp32_ptr, uint8_t *fp6_ptr) {
+__device__ __host__ static void fp32_4_to_fp6_4_packed(const float *fp32_ptr, uint8_t *fp6_ptr) {
     uint8_t val0 = fp32_to_fp6(fp32_ptr[0]);
     uint8_t val1 = fp32_to_fp6(fp32_ptr[1]);
     uint8_t val2 = fp32_to_fp6(fp32_ptr[2]);
@@ -258,7 +259,7 @@ __device__ __host__ static void _fp32_to_fp6_packed(const float *fp32_ptr, uint8
 __global__ void fp32_to_fp6_packed_kernel(const float *fp32_ptr, uint8_t *fp6_ptr, int n) {
     const int idx = (blockIdx.x * blockDim.x + threadIdx.x) * 4;
     if (idx < n)
-        _fp32_to_fp6_packed(fp32_ptr + idx, fp6_ptr + idx / 4 * 3);
+        fp32_4_to_fp6_4_packed(fp32_ptr + idx, fp6_ptr + idx / 4 * 3);
 }
 
 at::Tensor fp32_to_fp6_packed(at::Tensor fp32_tensor) {
@@ -281,7 +282,7 @@ at::Tensor fp32_to_fp6_packed(at::Tensor fp32_tensor) {
     if (fp32_tensor.is_cpu()) {
         #pragma omp parallel for num_threads(4)
         for (int i = 0; i < n; i += 4)
-            _fp32_to_fp6_packed(fp32_ptr + i, fp6_ptr + i / 4 * 3);
+            fp32_4_to_fp6_4_packed(fp32_ptr + i, fp6_ptr + i / 4 * 3);
     } else {
         constexpr int block_size = 256;
         int grid_size = (n + block_size * 4 - 1) / (block_size * 4);
@@ -371,18 +372,18 @@ at::Tensor fp6_packed_to_fp32(at::Tensor fp6_tensor) {
 
 TORCH_LIBRARY_IMPL(torchao, CPU, m) {
   m.impl("torchao::fp16_to_fp6_unpacked", &fp16_to_fp6_unpacked);
-  m.impl("torchao::fp16_to_fp6_packed", &_fp16_to_fp6_packed);
-  m.impl("torchao::fp32_to_fp6_packed", &_fp32_to_fp6_packed);
+  m.impl("torchao::fp16_to_fp6_packed", &fp16_to_fp6_packed);
+  m.impl("torchao::fp32_to_fp6_packed", &fp32_to_fp6_packed);
   m.impl("torchao::fp6_unpacked_to_fp32", &fp6_unpacked_to_fp32);
-  m.impl("torchao::fp6_packed_to_fp32", &_fp6_packed_to_fp32);
+  m.impl("torchao::fp6_packed_to_fp32", &fp6_packed_to_fp32);
 }
 
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl("torchao::fp16_to_fp6_unpacked", &fp16_to_fp6_unpacked);
-  m.impl("torchao::fp16_to_fp6_packed", &_fp16_to_fp6_packed);
-  m.impl("torchao::fp32_to_fp6_packed", &_fp32_to_fp6_packed);
+  m.impl("torchao::fp16_to_fp6_packed", &fp16_to_fp6_packed);
+  m.impl("torchao::fp32_to_fp6_packed", &fp32_to_fp6_packed);
   m.impl("torchao::fp6_unpacked_to_fp32", &fp6_unpacked_to_fp32);
-  m.impl("torchao::fp6_packed_to_fp32", &_fp6_packed_to_fp32);
+  m.impl("torchao::fp6_packed_to_fp32", &fp6_packed_to_fp32);
 }
 
 }
