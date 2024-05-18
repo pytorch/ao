@@ -267,7 +267,7 @@ at::Tensor fp32_to_fp6_unpacked(at::Tensor fp32_tensor) {
     if (fp32_tensor.is_cpu()) {
         #pragma omp parallel for num_threads(4)
         for (int i = 0; i < n; i++)
-            fp6_ptr[i] = fp16_to_fp6(fp32_ptr[i]);
+            fp6_ptr[i] = fp32_to_fp6(fp32_ptr[i]);
     } else {
         constexpr int block_size = 256;
         int grid_size = (n + block_size - 1) / block_size;
