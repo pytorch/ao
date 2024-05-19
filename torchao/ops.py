@@ -42,35 +42,29 @@ def _(fp6_weight):
     return torch.empty_like(fp6_weight)
 
 
-def fp16_to_fp6_unpacked(fp16_tensor: Tensor) -> Tensor:
-    return torch.ops.torchao.fp16_to_fp6_unpacked.default(fp16_tensor)
+def to_fp6_unpacked(fp_tensor: Tensor) -> Tensor:
+    return torch.ops.torchao.to_fp6_unpacked.default(fp_tensor)
 
 
-@torch.library.impl_abstract("torchao::fp16_to_fp6_unpacked")
-def _(fp16_tensor):
-    return torch.empty_like(fp16_tensor, dtype=torch.uint8)
+@torch.library.impl_abstract("torchao::to_fp6_unpacked")
+def _(fp_tensor):
+    return torch.empty_like(fp_tensor, dtype=torch.uint8)
 
 
-def fp16_to_fp6_packed(fp16_tensor: Tensor) -> Tensor:
-    *leading_dims, last_dim = fp16_tensor.shape
-    return torch.ops.torchao.fp16_to_fp6_packed.default(fp16_tensor.view(-1, last_dim)).view(*leading_dims, -1)
+def to_fp6_packed(fp_tensor: Tensor) -> Tensor:
+    *leading_dims, last_dim = fp_tensor.shape
+    return torch.ops.torchao.to_fp6_packed.default(fp_tensor.view(-1, last_dim)).view(*leading_dims, -1)
 
 
-@torch.library.impl_abstract("torchao::fp16_to_fp6_packed")
-def _(fp16_tensor):
-    torch._check(fp16_tensor.dtype is torch.float16, lambda: f"weight must be FP16, got {fp16_tensor.dtype}")
-    *leading_dims, last_dim = fp16_tensor.shape
+@torch.library.impl_abstract("torchao::to_fp6_packed")
+def _(fp_tensor):
+    torch._check(
+        fp_tensor.dtype in (torch.float32, torch.float16, torch.bfloat16), 
+        lambda: f"weight must be FP32, FP16, or BF16, got {fp_tensor.dtype}",
+    )
+    *leading_dims, last_dim = fp_tensor.shape
     torch._check(last_dim % 4  == 0, lambda: f"last dimension must be a multiple of 4, got {last_dim}")
-    return torch.empty(*leading_dims, last_dim * 3 / 4, device=fp16_tensor.device, dtype=torch.uint8)
-
-
-def fp32_to_fp6_packed(fp32_tensor: Tensor) -> Tensor:
-    *leading_dims, last_dim = fp32_tensor.shape
-    return torch.ops.torchao.fp32_to_fp6_packed.default(fp32_tensor.view(-1, last_dim)).view(*leading_dims, -1)
-
-
-def fp32_to_fp6_unpacked(fp32_tensor: Tensor) -> Tensor:
-    return torch.ops.torchao.fp32_to_fp6_unpacked.default(fp32_tensor)
+    return torch.empty(*leading_dims, last_dim * 3 / 4, device=fp_tensor.device, dtype=torch.uint8)
 
 
 def fp6_unpacked_to_fp32(fp6_tensor: Tensor) -> Tensor:

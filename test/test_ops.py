@@ -156,23 +156,19 @@ class TestFp6(TestCase):
     )
     def test_to_fp6_correctness(self, input, output):
         self._skip_cpu()
-        configs = [
-            (torch.half, torchao.ops.fp16_to_fp6_unpacked),
-            (torch.float, torchao.ops.fp32_to_fp6_unpacked),
-        ]
-        for dtype, func in configs:
+        for dtype in (torch.float32, torch.float16, torch.bfloat16):
             x = torch.tensor(input, dtype=dtype)
-            assert func(x).item() == output
-            assert func(-x).item() == (output | 0b100000)
-            assert func(x.cuda()).item() == output
-            assert func(-x.cuda()).item() == (output | 0b100000)
+            assert torchao.ops.to_fp6_unpacked(x).item() == output
+            assert torchao.ops.to_fp6_unpacked(-x).item() == (output | 0b100000)
+            assert torchao.ops.to_fp6_unpacked(x.cuda()).item() == output
+            assert torchao.ops.to_fp6_unpacked(-x.cuda()).item() == (output | 0b100000)
 
     @parameterized.expand([30.0, 100.0, float("inf"), float("nan")])
     def test_fp16_to_fp6_exception(self, input):
         self._skip_cpu()
         x = torch.tensor(input).half()
         with self.assertRaises(Exception):
-            torchao.ops.fp16_to_fp6_unpacked(x)
+            torchao.ops.to_fp6_unpacked(x)
 
 
 if __name__ == "__main__":
