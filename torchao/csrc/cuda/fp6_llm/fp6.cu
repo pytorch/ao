@@ -1,4 +1,5 @@
 #include <cuda_fp16.h>
+#include <cuda_bf16.h>
 #include <iostream>
 #include <assert.h>
 #include <cstring>
@@ -29,48 +30,57 @@ __device__ __host__ static uint8_t fp32_to_fp6_ref(float a) {
     return result;
 }
 
+__device__ __host__ static constexpr uint32_t ones_mask(uint32_t len) { return (1u << len) - 1u; }
+
 // inspired by __internal_float2half() and float2half() from "cuda_fp16.hpp"
-__device__ __host__ static uint8_t fp16_to_fp6(const __half a) {
-    uint16_t bits;
-    std::memcpy(&bits, &a, sizeof(a));
+template <typename T, uint32_t N_EXP_BITS, uint32_t N_MAN_BITS>
+__device__ __host__ static uint8_t bits_to_fp6(T bits) {
+    // sanity checks. will be removed in template specialization.
+#ifndef __CUDA_ARCH__
+    if (N_EXP_BITS < 3)
+        throw std::invalid_argument("Number of exponent bits must be >= 3.");
+    if (N_MAN_BITS < 3)
+        throw std::invalid_argument("Number of mantissa bits must be >= 3.");
+#endif
 
-    uint16_t remainder = 0u;
-    uint16_t sign = bits >> 15u << 5u;
-    bits &= 0x7FFFu;  // clear sign bit
-    uint16_t result;
+    constexpr uint32_t N_EXP_MAN_BITS = N_EXP_BITS + N_MAN_BITS;
+    T remainder = 0u;
+    T sign = bits >> N_EXP_MAN_BITS << 5u;
+    bits &= ones_mask(N_EXP_MAN_BITS);  // clear sign bit
+    T result;
 
-    constexpr uint16_t EXP_BIAS_DIFF = 15u - 3u;
+    constexpr uint32_t EXP_BIAS_DIFF = ones_mask(N_EXP_BITS - 1u) - 3u;
 
     // only checks for invalid values on CPU, since we can't throw exception in CUDA
 #ifndef __CUDA_ARCH__
     // all exponent bits are 1s
-    if (bits >= (0x1Fu << 10u))
+    if (bits >= (ones_mask(N_EXP_BITS) << N_MAN_BITS))
         throw std::invalid_argument("Encounter +/-inf or NaN, which is not representable in FP6.");
-    // max FP6 (28) + half of least significand (2) = 30
-    if (bits >= (((EXP_BIAS_DIFF + 7u) << 10u) | (0x7u << 7u)))
+    // max FP6 (28) + half of least significand (2) = 30 (assume N_MAN_BITS >= 3)
+    if (bits >= (((EXP_BIAS_DIFF + 7u) << N_MAN_BITS) | (0x7u << (N_MAN_BITS - 3u))))
         throw std::invalid_argument("FP6 overflow. FP6 cannot represent +/-inf.");
 #endif
 
     // FP6 normal number (E>=001)
-    if (bits >= ((EXP_BIAS_DIFF + 1u) << 10u)) {
-        remainder = bits << (1u + 5u + 2u);
-        bits -= (EXP_BIAS_DIFF << 10u);  // update exponent
-        result = sign | (bits >> (10u - 2u));
+    if (bits >= ((EXP_BIAS_DIFF + 1u) << N_MAN_BITS)) {
+        remainder = bits << (1u + N_EXP_BITS + 2u);
+        bits -= (EXP_BIAS_DIFF << N_MAN_BITS);  // update exponent
+        result = sign | (bits >> (N_MAN_BITS - 2u));
     }
     // FP6 subnormal number (more than half of min FP6 subnormal = 0.0625 * 0.5)
-    else if (bits > ((EXP_BIAS_DIFF - 2u) << 10u)) {
-        uint16_t exp = bits >> 10u;
-        uint16_t man = bits & 0x3FFu;
+    else if (bits > ((EXP_BIAS_DIFF - 2u) << N_MAN_BITS)) {
+        T exp = bits >> N_MAN_BITS;
+        T man = bits & ones_mask(N_MAN_BITS);
 
         // to make subnormal FP6 from normal FP16
         // step 1: add implicit 1 to mantissa
-        man |= 0x400u;
+        man |= (1u << N_MAN_BITS);
 
         // step 2: shift mantissa right so that exponent value is equal to
         // exponent value of FP6 subnormal, which is -2 (equivalent to E=001)
-        uint16_t shift = EXP_BIAS_DIFF + 1u - exp;
-        remainder = man << (1u + 5u + 2u + shift);
-        result = sign | (man >> (shift + (10u - 2u)));  // implicit E=000
+        T shift = EXP_BIAS_DIFF + 1u - exp;
+        remainder = man << (1u + N_EXP_BITS + 2u + shift);
+        result = sign | (man >> (shift + (N_MAN_BITS - 2u)));  // implicit E=000
     }
     // FP6 underflow. E=000, M=00
     else {
@@ -78,65 +88,29 @@ __device__ __host__ static uint8_t fp16_to_fp6(const __half a) {
     }
 
     // round to nearest even
-    if ((remainder > 0x8000u) || ((remainder == 0x8000u) && (result & 1u))) {
+    constexpr T HALF_REMAINDER = 1u << N_EXP_MAN_BITS;
+    if ((remainder > HALF_REMAINDER) || ((remainder == HALF_REMAINDER) && (result & 0x1u))) {
         result += 1;
     }
     return result;
 }
 
-// inspired by __internal_float2half() and float2half() from "cuda_fp16.hpp"
 __device__ __host__ static uint8_t fp32_to_fp6_bits(const float a) {
     uint32_t bits;
     std::memcpy(&bits, &a, sizeof(a));
+    return bits_to_fp6<uint32_t, 8u, 23u>(bits);
+}
 
-    uint32_t remainder = 0u;
-    uint32_t sign = bits >> 31u << 5u;
-    bits &= 0x7FFF'FFFFu;  // clear sign bit
-    uint32_t result;
+__device__ __host__ static uint8_t fp16_to_fp6(const __half a) {
+    uint16_t bits;
+    std::memcpy(&bits, &a, sizeof(a));
+    return bits_to_fp6<uint16_t, 5u, 10u>(bits);
+}
 
-    constexpr uint32_t EXP_BIAS_DIFF = 127u - 3u;
-
-    // only checks for invalid values on CPU, since we can't throw exception in CUDA
-#ifndef __CUDA_ARCH__
-    // all exponent bits are 1s
-    if (bits >= (0xFFu << 23u))
-        throw std::invalid_argument("Encounter +/-inf or NaN, which is not representable in FP6.");
-    // max FP6 (28) + half of least significand (2) = 30
-    if (bits >= (((EXP_BIAS_DIFF + 7u) << 23u) | (0x7u << 20u)))
-        throw std::invalid_argument("FP6 overflow. FP6 cannot represent +/-inf.");
-#endif
-
-    // FP6 normal number (E>=001)
-    if (bits >= ((EXP_BIAS_DIFF + 1u) << 23u)) {
-        remainder = bits << (1u + 8u + 2u);
-        bits -= (EXP_BIAS_DIFF << 23u);  // update exponent
-        result = sign | (bits >> (23u - 2u));
-    }
-    // FP6 subnormal number (more than half of min FP6 subnormal = 0.0625 * 0.5)
-    else if (bits > ((EXP_BIAS_DIFF - 2u) << 23u)) {
-        uint32_t exp = bits >> 23u;
-        uint32_t man = bits & 0x7F'FFFFu;
-
-        // to make subnormal FP6 from normal FP16
-        // step 1: add implicit 1 to mantissa
-        man |= 0x80'0000u;
-
-        // step 2: shift mantissa right so that exponent value is equal to
-        // exponent value of FP6 subnormal, which is -2 (equivalent to E=001)
-        uint32_t shift = EXP_BIAS_DIFF + 1u - exp;
-        remainder = man << (1u + 8u + 2u + shift);
-        result = sign | (man >> (shift + (23u - 2u)));  // implicit E=000
-    }
-    // FP6 underflow. E=000, M=00
-    else {
-        result = sign;
-    }
-
-    // round to nearest even
-    if ((remainder > 0x8000'0000u) || ((remainder == 0x8000'0000u) && (result & 1u))) {
-        result += 1;
-    }
-    return result;
+__device__ __host__ static uint8_t bf16_to_fp6(const __nv_bfloat16 a) {
+    uint16_t bits;
+    std::memcpy(&bits, &a, sizeof(a));
+    return bits_to_fp6<uint16_t, 8u, 7u>(bits);
 }
 
 // #define fp32_to_fp6 fp32_to_fp6_ref
