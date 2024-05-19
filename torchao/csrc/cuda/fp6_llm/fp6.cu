@@ -286,12 +286,57 @@ at::Tensor to_fp6_packed_cpu(at::Tensor fp_tensor) {
     return fp6_tensor;
 }
 
-template <typename T, uint32_t FP_SPEC>
+template <typename T, uint32_t FP_SPEC, int BLOCK_SIZE>
 __global__ void bits_to_fp6_packed_kernel(const T *bits_ptr, uint8_t *fp6_ptr, int n) {
+    // naive version
     // times 4 since each thread will handle 4 values
     const int idx = (blockIdx.x * blockDim.x + threadIdx.x) * 4;
     if (idx < n)
         bits_4_to_fp6_4_packed<T, FP_SPEC>(bits_ptr + idx, fp6_ptr + idx / 4 * 3);
+    return;
+
+    // more optimized version. coalesced memory write (speedup is minimal)
+    // const int tid = threadIdx.x;
+    // const int input_offset = (blockIdx.x * blockDim.x) * 4;
+    // const int output_offset = (blockIdx.x * blockDim.x) * 3;
+
+    // bits_ptr += input_offset;
+    // fp6_ptr += output_offset;
+
+    // __shared__ uint8_t shmem[BLOCK_SIZE * 3];
+
+    // if (input_offset + tid * 4 < n) {
+    //     uint8_t val0, val1, val2, val3;
+    //     if (std::is_same_v<T, uint32_t>) {
+    //         uint4 values = reinterpret_cast<const uint4 *>(bits_ptr)[tid * 4];
+    //         val0 = bits_to_fp6<T, FP_SPEC>(values.x);
+    //         val1 = bits_to_fp6<T, FP_SPEC>(values.y);
+    //         val2 = bits_to_fp6<T, FP_SPEC>(values.z);
+    //         val3 = bits_to_fp6<T, FP_SPEC>(values.w);
+    //     } else if (std::is_same_v<T, uint16_t>) {
+    //         ushort4 values = reinterpret_cast<const ushort4 *>(bits_ptr)[tid * 4];
+    //         val0 = bits_to_fp6<T, FP_SPEC>(values.x);
+    //         val1 = bits_to_fp6<T, FP_SPEC>(values.y);
+    //         val2 = bits_to_fp6<T, FP_SPEC>(values.z);
+    //         val3 = bits_to_fp6<T, FP_SPEC>(values.w);
+    //     } else {
+    //         val0 = bits_to_fp6<T, FP_SPEC>(bits_ptr[tid * 4]);
+    //         val1 = bits_to_fp6<T, FP_SPEC>(bits_ptr[tid * 4 + 1]);
+    //         val2 = bits_to_fp6<T, FP_SPEC>(bits_ptr[tid * 4 + 2]);
+    //         val3 = bits_to_fp6<T, FP_SPEC>(bits_ptr[tid * 4 + 3]);
+    //     }
+    //     shmem[tid * 3]     = (val0 << 2) | (val1 >> 4);  // 0000 0011
+    //     shmem[tid * 3 + 1] = (val1 << 4) | (val2 >> 2);  // 1111 2222
+    //     shmem[tid * 3 + 2] = (val2 << 6) | (val3);       // 2233 3333
+    // }
+    // __syncthreads();
+
+    // // TODO: write in larger word size
+    // for (int i = 0; i < 3; i++) {
+    //     if (output_offset + BLOCK_SIZE * i + tid < n / 4 * 3) {
+    //         fp6_ptr[BLOCK_SIZE * i + tid] = shmem[BLOCK_SIZE * i + tid];
+    //     }
+    // }
 }
 
 at::Tensor to_fp6_packed_cuda(at::Tensor fp_tensor) {
@@ -316,15 +361,15 @@ at::Tensor to_fp6_packed_cuda(at::Tensor fp_tensor) {
 
     if (dtype == torch::kFloat32) {
         const uint32_t *fp32_ptr = reinterpret_cast<uint32_t *>(fp_tensor.data_ptr<float>());
-        bits_to_fp6_packed_kernel<uint32_t, FP32_SPEC><<<grid_size, block_size>>>(fp32_ptr, fp6_ptr, n);
+        bits_to_fp6_packed_kernel<uint32_t, FP32_SPEC, block_size><<<grid_size, block_size>>>(fp32_ptr, fp6_ptr, n);
 
     } else if (dtype == torch::kFloat16) {
         const uint16_t *fp16_ptr = reinterpret_cast<uint16_t *>(fp_tensor.data_ptr<at::Half>());
-        bits_to_fp6_packed_kernel<uint16_t, FP16_SPEC><<<grid_size, block_size>>>(fp16_ptr, fp6_ptr, n);
+        bits_to_fp6_packed_kernel<uint16_t, FP16_SPEC, block_size><<<grid_size, block_size>>>(fp16_ptr, fp6_ptr, n);
 
     } else if (dtype == torch::kBFloat16) {
         const uint16_t *bf16_ptr = reinterpret_cast<uint16_t *>(fp_tensor.data_ptr<at::BFloat16>());
-        bits_to_fp6_packed_kernel<uint16_t, BF16_SPEC><<<grid_size, block_size>>>(bf16_ptr, fp6_ptr, n);
+        bits_to_fp6_packed_kernel<uint16_t, BF16_SPEC, block_size><<<grid_size, block_size>>>(bf16_ptr, fp6_ptr, n);
 
     } else {
         throw std::invalid_argument("Only FP32, FP16, and BF16 inputs are accepted.");
