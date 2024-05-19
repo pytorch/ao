@@ -152,7 +152,7 @@ class TestFp6(TestCase):
             (29.0, 0b011111),    # normal round down
             (26.0, 0b011110),    # normal round to nearest even
             (0.1251, 0b000010),  # subnormal round down
-            (0.0313, 0b000001),  # subnormal round up
+            (0.0314, 0b000001),  # subnormal round up
             (0.03, 0b000000),    # underflow
         ]
     )

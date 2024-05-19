@@ -114,7 +114,7 @@ __device__ __host__ static uint8_t bits_to_fp6(T bits) {
         // step 2: shift mantissa right so that exponent value is equal to
         // exponent value of FP6 subnormal, which is -2 (equivalent to E=001)
         T shift = EXP_BIAS_DIFF + 1u - exp;
-        remainder = man << (1u + N_EXP + 2u + shift);  // THIS IS WRONG, need to change
+        remainder = man << (1u + N_EXP + 2u - shift);
         result = sign | (man >> (shift + (N_MAN - 2u)));  // implicit E=000
     }
     // FP6 underflow. E=000, M=00
