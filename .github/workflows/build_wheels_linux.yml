@@ -16,8 +16,6 @@ jobs:
     with:
       package-type: wheel
       os: linux
-      test-infra-repository: pytorch/test-infra
-      test-infra-ref: main
       with-cpu: disable
       with-cuda: enable
       with-rocm: disable
@@ -27,41 +25,22 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - repository: pytorch/ao
-            pre-script: packaging/pre_build_script.sh
-            post-script: packaging/post_build_script.sh
-            smoke-test-script: packaging/smoke_test.py
-            package-name: torchao
-    name: ${{ matrix.repository }}
-    uses: pytorch/test-infra/.github/workflows/build_wheels_linux.yml@main
+    # TODO (huydhn): Switch back to main after https://github.com/pytorch/test-infra/pull/5217 lands
+    uses: pytorch/test-infra/.github/workflows/build_wheels_linux.yml@nova-workflow-upload-to-pypi
     with:
-      repository: ${{ matrix.repository }}
-      ref: ""
-      test-infra-repository: pytorch/test-infra
-      test-infra-ref: main
-      build-matrix: ${{ needs.generate-matrix.outputs.matrix }}
-      env-var-script: packaging/env_var_script_linux.sh
-      pre-script: ${{ matrix.pre-script }}
-      post-script: ${{ matrix.post-script }}
-      package-name: ${{ matrix.package-name }}
-      smoke-test-script: ${{ matrix.smoke-test-script }}
-      trigger-event: ${{ github.event_name }}
-
-  upload-pypi:
-    needs:
-      - generate-matrix
-      - build
-    uses: ./.github/workflows/pypi_upload.yml
-    secrets: inherit
-    if: always()
-    with:
+      # Set the ref to an empty string instead of the default nightly because
+      # torchao doesn't have nightly branch setup yet, instead the build is
+      # triggered daily from main with a schedule
       repository: pytorch/ao
       ref: ""
-      test-infra-repository: pytorch/test-infra
-      test-infra-ref: main
       build-matrix: ${{ needs.generate-matrix.outputs.matrix }}
+      env-var-script: packaging/env_var_script_linux.sh
+      pre-script: packaging/pre_build_script.sh
+      post-script: packaging/post_build_script.sh
+      smoke-test-script: packaging/smoke_test.py
+      package-name: torchao
       trigger-event: ${{ github.event_name }}
+      # This is the CUDA version to be uploaded to torchao-nightly pypi
+      upload-to-pypi: cu121
+    secrets:
+      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
