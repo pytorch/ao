@@ -1,10 +1,9 @@
-#include <cuda_fp16.h>
-#include <cuda_bf16.h>
-#include <iostream>
-#include <assert.h>
+#include <stdint.h>
+#include <stdexcept>
 #include <cstring>
 
 // reference implementation. this doesn't have a lot of bit manipulation, so it's less error-prone
+// this is not exposed to PyTorch
 __device__ __host__ static uint8_t fp32_to_fp6_ref(float a) {
 #ifndef __CUDA_ARCH__
     if (std::isnan(a) | std::isinf(a))
@@ -30,57 +29,71 @@ __device__ __host__ static uint8_t fp32_to_fp6_ref(float a) {
     return result;
 }
 
+// we need to do this because C++17 does not allow using struct as template non-type parameter
+// use the upper 16 bits for num exponent, lower 16 bits for num mantissa
+static constexpr uint32_t encode_fp_spec(uint32_t n_exp_bits, uint32_t n_man_bits) {
+    return (n_exp_bits << 16u) | n_man_bits;
+}
+
+static constexpr uint32_t FP32_SPEC = encode_fp_spec(8u, 23u);
+static constexpr uint32_t FP16_SPEC = encode_fp_spec(5u, 10u);
+static constexpr uint32_t BF16_SPEC = encode_fp_spec(8u, 7u);
+
+// NOTE: only works for len < 32
 __device__ __host__ static constexpr uint32_t ones_mask(uint32_t len) { return (1u << len) - 1u; }
 
 // inspired by __internal_float2half() and float2half() from "cuda_fp16.hpp"
-template <typename T, uint32_t N_EXP_BITS, uint32_t N_MAN_BITS>
+template <typename T, uint32_t FP_SPEC>
 __device__ __host__ static uint8_t bits_to_fp6(T bits) {
+    constexpr uint32_t N_EXP = FP_SPEC >> 16u;
+    constexpr uint32_t N_MAN = FP_SPEC & ones_mask(16u);
+    constexpr uint32_t N_EXP_MAN = N_EXP + N_MAN;
+
     // sanity checks. will be removed in template specialization.
 #ifndef __CUDA_ARCH__
-    if (N_EXP_BITS < 3)
+    if (N_EXP < 3)
         throw std::invalid_argument("Number of exponent bits must be >= 3.");
-    if (N_MAN_BITS < 3)
+    if (N_MAN < 3)
         throw std::invalid_argument("Number of mantissa bits must be >= 3.");
 #endif
 
-    constexpr uint32_t N_EXP_MAN_BITS = N_EXP_BITS + N_MAN_BITS;
     T remainder = 0u;
-    T sign = bits >> N_EXP_MAN_BITS << 5u;
-    bits &= ones_mask(N_EXP_MAN_BITS);  // clear sign bit
+    T sign = bits >> N_EXP_MAN << 5u;
+    bits &= ones_mask(N_EXP_MAN);  // clear sign bit
     T result;
 
-    constexpr uint32_t EXP_BIAS_DIFF = ones_mask(N_EXP_BITS - 1u) - 3u;
+    constexpr uint32_t EXP_BIAS_DIFF = ones_mask(N_EXP - 1u) - 3u;
 
     // only checks for invalid values on CPU, since we can't throw exception in CUDA
 #ifndef __CUDA_ARCH__
     // all exponent bits are 1s
-    if (bits >= (ones_mask(N_EXP_BITS) << N_MAN_BITS))
+    if (bits >= (ones_mask(N_EXP) << N_MAN))
         throw std::invalid_argument("Encounter +/-inf or NaN, which is not representable in FP6.");
     // max FP6 (28) + half of least significand (2) = 30 (assume N_MAN_BITS >= 3)
-    if (bits >= (((EXP_BIAS_DIFF + 7u) << N_MAN_BITS) | (0x7u << (N_MAN_BITS - 3u))))
+    if (bits >= (((EXP_BIAS_DIFF + 7u) << N_MAN) | (0x7u << (N_MAN- 3u))))
         throw std::invalid_argument("FP6 overflow. FP6 cannot represent +/-inf.");
 #endif
 
     // FP6 normal number (E>=001)
-    if (bits >= ((EXP_BIAS_DIFF + 1u) << N_MAN_BITS)) {
-        remainder = bits << (1u + N_EXP_BITS + 2u);
-        bits -= (EXP_BIAS_DIFF << N_MAN_BITS);  // update exponent
-        result = sign | (bits >> (N_MAN_BITS - 2u));
+    if (bits >= ((EXP_BIAS_DIFF + 1u) << N_MAN)) {
+        remainder = bits << (1u + N_EXP + 2u);
+        bits -= (EXP_BIAS_DIFF << N_MAN);  // update exponent
+        result = sign | (bits >> (N_MAN - 2u));
     }
     // FP6 subnormal number (more than half of min FP6 subnormal = 0.0625 * 0.5)
-    else if (bits > ((EXP_BIAS_DIFF - 2u) << N_MAN_BITS)) {
-        T exp = bits >> N_MAN_BITS;
-        T man = bits & ones_mask(N_MAN_BITS);
+    else if (bits > ((EXP_BIAS_DIFF - 2u) << N_MAN)) {
+        T exp = bits >> N_MAN;
+        T man = bits & ones_mask(N_MAN);
 
         // to make subnormal FP6 from normal FP16
         // step 1: add implicit 1 to mantissa
-        man |= (1u << N_MAN_BITS);
+        man |= (1u << N_MAN);
 
         // step 2: shift mantissa right so that exponent value is equal to
         // exponent value of FP6 subnormal, which is -2 (equivalent to E=001)
         T shift = EXP_BIAS_DIFF + 1u - exp;
-        remainder = man << (1u + N_EXP_BITS + 2u + shift);
-        result = sign | (man >> (shift + (N_MAN_BITS - 2u)));  // implicit E=000
+        remainder = man << (1u + N_EXP + 2u + shift);
+        result = sign | (man >> (shift + (N_MAN - 2u)));  // implicit E=000
     }
     // FP6 underflow. E=000, M=00
     else {
@@ -88,33 +101,38 @@ __device__ __host__ static uint8_t bits_to_fp6(T bits) {
     }
 
     // round to nearest even
-    constexpr T HALF_REMAINDER = 1u << N_EXP_MAN_BITS;
+    constexpr T HALF_REMAINDER = 1u << N_EXP_MAN;
     if ((remainder > HALF_REMAINDER) || ((remainder == HALF_REMAINDER) && (result & 0x1u))) {
         result += 1;
     }
     return result;
 }
 
-__device__ __host__ static uint8_t fp32_to_fp6_bits(const float a) {
-    uint32_t bits;
-    std::memcpy(&bits, &a, sizeof(a));
-    return bits_to_fp6<uint32_t, 8u, 23u>(bits);
+template <typename T, uint32_t FP_SPEC>
+__device__ __host__ static void bits_4_to_fp6_4_packed(const T *bits_ptr, uint8_t *fp6_ptr) {
+    uint8_t val0 = bits_to_fp6<T, FP_SPEC>(bits_ptr[0]);
+    uint8_t val1 = bits_to_fp6<T, FP_SPEC>(bits_ptr[1]);
+    uint8_t val2 = bits_to_fp6<T, FP_SPEC>(bits_ptr[2]);
+    uint8_t val3 = bits_to_fp6<T, FP_SPEC>(bits_ptr[3]);
+
+    fp6_ptr[0] = (val0 << 2) | (val1 >> 4);  // 0000 0011
+    fp6_ptr[1] = (val1 << 4) | (val2 >> 2);  // 1111 2222
+    fp6_ptr[2] = (val2 << 6) | (val3);       // 2233 3333
 }
 
-__device__ __host__ static uint8_t fp16_to_fp6(const __half a) {
-    uint16_t bits;
-    std::memcpy(&bits, &a, sizeof(a));
-    return bits_to_fp6<uint16_t, 5u, 10u>(bits);
+template <typename T, uint32_t FP_SPEC>
+__global__ void bits_to_fp6_unpacked_kernel(const T *bits_ptr, uint8_t *fp6_ptr, int n) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n)
+        fp6_ptr[idx] = bits_to_fp6<T, FP_SPEC>(bits_ptr[idx]);
 }
 
-__device__ __host__ static uint8_t bf16_to_fp6(const __nv_bfloat16 a) {
-    uint16_t bits;
-    std::memcpy(&bits, &a, sizeof(a));
-    return bits_to_fp6<uint16_t, 8u, 7u>(bits);
+template <typename T, uint32_t FP_SPEC>
+__global__ void bits_to_fp6_packed_kernel(const T *bits_ptr, uint8_t *fp6_ptr, int n) {
+    const int idx = (blockIdx.x * blockDim.x + threadIdx.x) * 4;
+    if (idx < n)
+        bits_4_to_fp6_4_packed<T, FP_SPEC>(bits_ptr + idx, fp6_ptr + idx / 4 * 3);
 }
-
-// #define fp32_to_fp6 fp32_to_fp6_ref
-#define fp32_to_fp6 fp32_to_fp6_bits
 
 // assume the lower 6 bits contain the data
 __device__ __host__ static float fp6_to_fp32(const uint8_t a) {
@@ -134,17 +152,28 @@ __device__ __host__ static float fp6_to_fp32(const uint8_t a) {
     return result * 0x1p124;  // 2^(127-3)
 }
 
+__device__ __host__ static void fp6_4_packed_to_fp32_4(const uint8_t *fp6_ptr, float *fp32_ptr) {
+    uint8_t bits0 = fp6_ptr[0];  // 0000 0011
+    uint8_t bits1 = fp6_ptr[1];  // 1111 2222
+    uint8_t bits2 = fp6_ptr[2];  // 2233 3333
+
+    fp32_ptr[0] = fp6_to_fp32(bits0 >> 2);
+    fp32_ptr[1] = fp6_to_fp32(((bits0 & 0x3u) << 4) | (bits1 >> 4));
+    fp32_ptr[2] = fp6_to_fp32(((bits1 & 0xFu) << 2) | (bits2 >> 6));
+    fp32_ptr[3] = fp6_to_fp32(bits2 & 0x3Fu);
+}
+
+__global__ void fp6_packed_to_fp32_kernel(const uint8_t *fp6_ptr, float *fp32_ptr, int n) {
+    const int idx = (blockIdx.x * blockDim.x + threadIdx.x) * 3;
+    if (idx < n)
+        fp6_4_packed_to_fp32_4(fp6_ptr + idx, fp32_ptr + idx / 3 * 4);
+}
+
 #include <torch/extension.h>
 #include <ATen/ATen.h>
 #include <torch/library.h>
 
 namespace torchao {
-
-__global__ void fp16_to_fp6_unpacked_kernel(const __half *fp16_ptr, uint8_t *fp6_ptr, int n) {
-    const int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid < n)
-        fp6_ptr[tid] = fp16_to_fp6(fp16_ptr[tid]);
-}
 
 // this is useful for debugging
 at::Tensor fp16_to_fp6_unpacked(at::Tensor fp16_tensor) {
@@ -155,38 +184,21 @@ at::Tensor fp16_to_fp6_unpacked(at::Tensor fp16_tensor) {
     at::TensorOptions options = at::TensorOptions().dtype(torch::kUInt8).device(fp16_tensor.device());
     at::Tensor fp6_tensor = at::empty(fp16_tensor.sizes(), options);
 
-    const __half *fp16_ptr = reinterpret_cast<__half*>(fp16_tensor.data_ptr<at::Half>());
+    const uint16_t *fp16_ptr = reinterpret_cast<uint16_t *>(fp16_tensor.data_ptr<at::Half>());
     uint8_t *fp6_ptr = fp6_tensor.data_ptr<uint8_t>();
     int n = fp16_tensor.numel();
 
     if (fp16_tensor.is_cpu()) {
         #pragma omp parallel for num_threads(4)
         for (int i = 0; i < n; i++)
-            fp6_ptr[i] = fp16_to_fp6(fp16_ptr[i]);
+            fp6_ptr[i] = bits_to_fp6<uint16_t, FP16_SPEC>(fp16_ptr[i]);
     } else {
         constexpr int block_size = 256;
         int grid_size = (n + block_size - 1) / block_size;
-        fp16_to_fp6_unpacked_kernel<<<grid_size, block_size>>>(fp16_ptr, fp6_ptr, n);
+        bits_to_fp6_unpacked_kernel<uint16_t, FP16_SPEC><<<grid_size, block_size>>>(fp16_ptr, fp6_ptr, n);
     }
 
     return fp6_tensor;
-}
-
-__device__ __host__ static void fp16_4_to_fp6_4_packed(const __half *fp16_ptr, uint8_t *fp6_ptr) {
-    uint8_t val0 = fp16_to_fp6(fp16_ptr[0]);
-    uint8_t val1 = fp16_to_fp6(fp16_ptr[1]);
-    uint8_t val2 = fp16_to_fp6(fp16_ptr[2]);
-    uint8_t val3 = fp16_to_fp6(fp16_ptr[3]);
-
-    fp6_ptr[0] = (val0 << 2) | (val1 >> 4);  // 0000 0011
-    fp6_ptr[1] = (val1 << 4) | (val2 >> 2);  // 1111 2222
-    fp6_ptr[2] = (val2 << 6) | (val3);       // 2233 3333
-}
-
-__global__ void fp16_to_fp6_packed_kernel(const __half *fp16_ptr, uint8_t *fp6_ptr, int n) {
-    const int idx = (blockIdx.x * blockDim.x + threadIdx.x) * 4;
-    if (idx < n)
-        fp16_4_to_fp6_4_packed(fp16_ptr + idx, fp6_ptr + idx / 4 * 3);
 }
 
 at::Tensor fp16_to_fp6_packed(at::Tensor fp16_tensor) {
@@ -202,27 +214,21 @@ at::Tensor fp16_to_fp6_packed(at::Tensor fp16_tensor) {
     at::TensorOptions options = at::TensorOptions().dtype(torch::kUInt8).device(fp16_tensor.device());
     at::Tensor fp6_tensor = at::empty({M, N * 3 / 4}, options);
 
-    const __half *fp16_ptr = reinterpret_cast<__half*>(fp16_tensor.data_ptr<at::Half>());
+    const uint16_t *fp16_ptr = reinterpret_cast<uint16_t *>(fp16_tensor.data_ptr<at::Half>());
     uint8_t *fp6_ptr = fp6_tensor.data_ptr<uint8_t>();
     int n = fp16_tensor.numel();
 
     if (fp16_tensor.is_cpu()) {
         #pragma omp parallel for num_threads(4)
         for (int i = 0; i < n; i += 4)
-            fp16_4_to_fp6_4_packed(fp16_ptr + i, fp6_ptr + i / 4 * 3);
+            bits_4_to_fp6_4_packed<uint16_t, FP16_SPEC>(fp16_ptr + i, fp6_ptr + i / 4 * 3);
     } else {
         constexpr int block_size = 256;
         int grid_size = (n + block_size * 4 - 1) / (block_size * 4);
-        fp16_to_fp6_packed_kernel<<<grid_size, block_size>>>(fp16_ptr, fp6_ptr, n);
+        bits_to_fp6_packed_kernel<uint16_t, FP16_SPEC><<<grid_size, block_size>>>(fp16_ptr, fp6_ptr, n);
     }
 
     return fp6_tensor;
-}
-
-__global__ void fp32_to_fp6_unpacked_kernel(const float *fp32_ptr, uint8_t *fp6_ptr, int n) {
-    const int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid < n)
-        fp6_ptr[tid] = fp32_to_fp6(fp32_ptr[tid]);
 }
 
 // this is useful for debugging
@@ -234,38 +240,21 @@ at::Tensor fp32_to_fp6_unpacked(at::Tensor fp32_tensor) {
     at::TensorOptions options = at::TensorOptions().dtype(torch::kUInt8).device(fp32_tensor.device());
     at::Tensor fp6_tensor = at::empty(fp32_tensor.sizes(), options);
 
-    const float *fp32_ptr = fp32_tensor.data_ptr<float>();
+    const uint32_t *fp32_ptr = reinterpret_cast<uint32_t *>(fp32_tensor.data_ptr<float>());
     uint8_t *fp6_ptr = fp6_tensor.data_ptr<uint8_t>();
     int n = fp32_tensor.numel();
 
     if (fp32_tensor.is_cpu()) {
         #pragma omp parallel for num_threads(4)
         for (int i = 0; i < n; i++)
-            fp6_ptr[i] = fp32_to_fp6(fp32_ptr[i]);
+            fp6_ptr[i] = bits_to_fp6<uint32_t, FP32_SPEC>(fp32_ptr[i]);
     } else {
         constexpr int block_size = 256;
         int grid_size = (n + block_size - 1) / block_size;
-        fp32_to_fp6_unpacked_kernel<<<grid_size, block_size>>>(fp32_ptr, fp6_ptr, n);
+        bits_to_fp6_unpacked_kernel<uint32_t, FP32_SPEC><<<grid_size, block_size>>>(fp32_ptr, fp6_ptr, n);
     }
 
     return fp6_tensor;
-}
-
-__device__ __host__ static void fp32_4_to_fp6_4_packed(const float *fp32_ptr, uint8_t *fp6_ptr) {
-    uint8_t val0 = fp32_to_fp6(fp32_ptr[0]);
-    uint8_t val1 = fp32_to_fp6(fp32_ptr[1]);
-    uint8_t val2 = fp32_to_fp6(fp32_ptr[2]);
-    uint8_t val3 = fp32_to_fp6(fp32_ptr[3]);
-
-    fp6_ptr[0] = (val0 << 2) | (val1 >> 4);  // 0000 0011
-    fp6_ptr[1] = (val1 << 4) | (val2 >> 2);  // 1111 2222
-    fp6_ptr[2] = (val2 << 6) | (val3);       // 2233 3333
-}
-
-__global__ void fp32_to_fp6_packed_kernel(const float *fp32_ptr, uint8_t *fp6_ptr, int n) {
-    const int idx = (blockIdx.x * blockDim.x + threadIdx.x) * 4;
-    if (idx < n)
-        fp32_4_to_fp6_4_packed(fp32_ptr + idx, fp6_ptr + idx / 4 * 3);
 }
 
 at::Tensor fp32_to_fp6_packed(at::Tensor fp32_tensor) {
@@ -281,18 +270,18 @@ at::Tensor fp32_to_fp6_packed(at::Tensor fp32_tensor) {
     at::TensorOptions options = at::TensorOptions().dtype(torch::kUInt8).device(fp32_tensor.device());
     at::Tensor fp6_tensor = at::empty({M, N * 3 / 4}, options);
 
-    const float *fp32_ptr = fp32_tensor.data_ptr<float>();
+    const uint32_t *fp32_ptr = reinterpret_cast<uint32_t *>(fp32_tensor.data_ptr<float>());
     uint8_t *fp6_ptr = fp6_tensor.data_ptr<uint8_t>();
     int n = fp32_tensor.numel();
 
     if (fp32_tensor.is_cpu()) {
         #pragma omp parallel for num_threads(4)
         for (int i = 0; i < n; i += 4)
-            fp32_4_to_fp6_4_packed(fp32_ptr + i, fp6_ptr + i / 4 * 3);
+            bits_4_to_fp6_4_packed<uint32_t, FP32_SPEC>(fp32_ptr + i, fp6_ptr + i / 4 * 3);
     } else {
         constexpr int block_size = 256;
         int grid_size = (n + block_size * 4 - 1) / (block_size * 4);
-        fp32_to_fp6_packed_kernel<<<grid_size, block_size>>>(fp32_ptr, fp6_ptr, n);
+        bits_to_fp6_packed_kernel<uint32_t, FP32_SPEC><<<grid_size, block_size>>>(fp32_ptr, fp6_ptr, n);
     }
 
     return fp6_tensor;
@@ -329,23 +318,6 @@ at::Tensor fp6_unpacked_to_fp32(at::Tensor fp6_tensor) {
     return fp32_tensor;
 }
 
-__device__ __host__ static void _fp6_packed_to_fp32(const uint8_t *fp6_ptr, float *fp32_ptr) {
-    uint8_t bits0 = fp6_ptr[0];  // 0000 0011
-    uint8_t bits1 = fp6_ptr[1];  // 1111 2222
-    uint8_t bits2 = fp6_ptr[2];  // 2233 3333
-
-    fp32_ptr[0] = fp6_to_fp32(bits0 >> 2);
-    fp32_ptr[1] = fp6_to_fp32(((bits0 & 0x3u) << 4) | (bits1 >> 4));
-    fp32_ptr[2] = fp6_to_fp32(((bits1 & 0xFu) << 2) | (bits2 >> 6));
-    fp32_ptr[3] = fp6_to_fp32(bits2 & 0x3Fu);
-}
-
-__global__ void fp6_packed_to_fp32_kernel(const uint8_t *fp6_ptr, float *fp32_ptr, int n) {
-    const int idx = (blockIdx.x * blockDim.x + threadIdx.x) * 3;
-    if (idx < n)
-        _fp6_packed_to_fp32(fp6_ptr + idx, fp32_ptr + idx / 3 * 4);
-}
-
 at::Tensor fp6_packed_to_fp32(at::Tensor fp6_tensor) {
     TORCH_CHECK(fp6_tensor.dtype() == torch::kUInt8);
     TORCH_CHECK(fp6_tensor.is_contiguous());
@@ -366,7 +338,7 @@ at::Tensor fp6_packed_to_fp32(at::Tensor fp6_tensor) {
     if (fp6_tensor.is_cpu()) {
         #pragma omp parallel for num_threads(4)
         for (int i = 0; i < n; i += 3)
-            _fp6_packed_to_fp32(fp6_ptr + i, fp32_ptr + i / 3 * 4);
+            fp6_4_packed_to_fp32_4(fp6_ptr + i, fp32_ptr + i / 3 * 4);
     } else {
         constexpr int block_size = 256;
         int grid_size = (n + block_size * 3 - 1) / (block_size * 3);
