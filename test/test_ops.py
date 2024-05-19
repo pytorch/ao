@@ -152,7 +152,7 @@ class TestFp6(TestCase):
             (29.0, 0b011111),    # normal round down
             (26.0, 0b011110),    # normal round to nearest even
             (0.1251, 0b000010),  # subnormal round down
-            (0.03128, 0b000001), # subnormal round up
+            (0.0313, 0b000001),  # subnormal round up
             (0.03, 0b000000),    # underflow
         ]
     )
@@ -165,12 +165,12 @@ class TestFp6(TestCase):
             assert torchao.ops.to_fp6_unpacked(x.cuda()).item() == output
             assert torchao.ops.to_fp6_unpacked(-x.cuda()).item() == (output | 0b100000)
 
-    # @parameterized.expand([30.0, 100.0, float("inf"), float("nan")])
-    # def test_fp16_to_fp6_exception(self, input):
-    #     self._skip_cpu()
-    #     x = torch.tensor(input).half()
-    #     with self.assertRaises(Exception):
-    #         torchao.ops.to_fp6_unpacked(x)
+    @parameterized.expand([30.0, 100.0, float("inf"), float("nan")])
+    def test_to_fp6_exception(self, input):
+        self._skip_cpu()
+        x = torch.tensor(input)
+        with self.assertRaises(Exception):
+            torchao.ops.to_fp6_unpacked(x)
 
 
 if __name__ == "__main__":

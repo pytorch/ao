@@ -47,7 +47,7 @@ def get_extensions():
     extension = CUDAExtension if use_cuda else CppExtension
 
     extra_link_args = []
-    extra_link_args.append("-fopenmp")
+    # extra_link_args.append("-fopenmp")
     extra_compile_args = {
         "cxx": [
             "-O3" if not debug_mode else "-O0",
@@ -55,7 +55,7 @@ def get_extensions():
         ],
         "nvcc": [
             "-O3" if not debug_mode else "-O0",
-            "-Xcompiler", "-fopenmp",
+            # "-Xcompiler", "-fopenmp",
         ]
     }
     if debug_mode:

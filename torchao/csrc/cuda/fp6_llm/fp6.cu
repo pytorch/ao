@@ -55,7 +55,7 @@ __device__ __host__ static uint8_t bits_to_fp6(T bits) {
         std::memcpy(&a, &bits, sizeof(bits));
         return fp32_to_fp6_value(a);
     }
-    if (std::is_same_v<T, uint32_t> && (FP_SPEC == FP16_SPEC)) {
+    if (std::is_same_v<T, uint16_t> && (FP_SPEC == FP16_SPEC)) {
         __half a;
         std::memcpy(&a, &bits, sizeof(bits));
         return fp32_to_fp6_value(__half2float(a));
