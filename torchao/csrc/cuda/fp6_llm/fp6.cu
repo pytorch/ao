@@ -176,21 +176,21 @@ at::Tensor to_fp6_unpacked_cpu(at::Tensor fp_tensor) {
     if (dtype == torch::kFloat32) {
         const uint32_t *fp32_ptr = reinterpret_cast<uint32_t *>(fp_tensor.data_ptr<float>());
 
-        #pragma omp parallel for num_threads(4)
+        #pragma omp parallel for
         for (int i = 0; i < n; i++)
             fp6_ptr[i] = bits_to_fp6<uint32_t, FP32_SPEC>(fp32_ptr[i]);
 
     } else if (dtype == torch::kFloat16) {
         const uint16_t *fp16_ptr = reinterpret_cast<uint16_t *>(fp_tensor.data_ptr<at::Half>());
 
-        #pragma omp parallel for num_threads(4)
+        #pragma omp parallel for
         for (int i = 0; i < n; i++)
             fp6_ptr[i] = bits_to_fp6<uint16_t, FP16_SPEC>(fp16_ptr[i]);
 
     } else if (dtype == torch::kBFloat16) {
         const uint16_t *bf16_ptr = reinterpret_cast<uint16_t *>(fp_tensor.data_ptr<at::BFloat16>());
 
-        #pragma omp parallel for num_threads(4)
+        #pragma omp parallel for
         for (int i = 0; i < n; i++)
             fp6_ptr[i] = bits_to_fp6<uint16_t, BF16_SPEC>(bf16_ptr[i]);
 
@@ -261,21 +261,21 @@ at::Tensor to_fp6_packed_cpu(at::Tensor fp_tensor) {
     if (dtype == torch::kFloat32) {
         const uint32_t *fp32_ptr = reinterpret_cast<uint32_t *>(fp_tensor.data_ptr<float>());
 
-        #pragma omp parallel for num_threads(4)
+        #pragma omp parallel for
         for (int i = 0; i < n; i += 4)
             bits_4_to_fp6_4_packed<uint32_t, FP32_SPEC>(fp32_ptr + i, fp6_ptr + i / 4 * 3);
 
     } else if (dtype == torch::kFloat16) {
         const uint16_t *fp16_ptr = reinterpret_cast<uint16_t *>(fp_tensor.data_ptr<at::Half>());
 
-        #pragma omp parallel for num_threads(4)
+        #pragma omp parallel for
         for (int i = 0; i < n; i += 4)
             bits_4_to_fp6_4_packed<uint16_t, FP16_SPEC>(fp16_ptr + i, fp6_ptr + i / 4 * 3);
 
     } else if (dtype == torch::kBFloat16) {
         const uint16_t *bf16_ptr = reinterpret_cast<uint16_t *>(fp_tensor.data_ptr<at::BFloat16>());
 
-        #pragma omp parallel for num_threads(4)
+        #pragma omp parallel for
         for (int i = 0; i < n; i += 4)
             bits_4_to_fp6_4_packed<uint16_t, BF16_SPEC>(bf16_ptr + i, fp6_ptr + i / 4 * 3);
 
@@ -352,7 +352,7 @@ at::Tensor fp6_unpacked_to_fp32(at::Tensor fp6_tensor) {
     int n = fp6_tensor.numel();
 
     if (fp6_tensor.is_cpu()) {
-        #pragma omp parallel for num_threads(4)
+        #pragma omp parallel for
         for (int i = 0; i < n; i++)
             fp32_ptr[i] = fp6_to_fp32(fp6_ptr[i]);
     } else {
@@ -382,7 +382,7 @@ at::Tensor fp6_packed_to_fp32(at::Tensor fp6_tensor) {
     int n = fp6_tensor.numel();
 
     if (fp6_tensor.is_cpu()) {
-        #pragma omp parallel for num_threads(4)
+        #pragma omp parallel for
         for (int i = 0; i < n; i += 3)
             fp6_4_packed_to_fp32_4(fp6_ptr + i, fp32_ptr + i / 3 * 4);
     } else {
