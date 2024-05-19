@@ -69,8 +69,8 @@ __device__ __host__ static uint8_t bits_to_fp6(T bits) {
     // all exponent bits are 1s
     if (bits >= (ones_mask(N_EXP) << N_MAN))
         throw std::invalid_argument("Encounter +/-inf or NaN, which is not representable in FP6.");
-    // max FP6 (28) + half of least significand (2) = 30 (assume N_MAN_BITS >= 3)
-    if (bits >= (((EXP_BIAS_DIFF + 7u) << N_MAN) | (0x7u << (N_MAN- 3u))))
+    // max FP6 (28) + half of least significand (2) = 30 (assume N_MAN >= 3)
+    if (bits >= (((EXP_BIAS_DIFF + 7u) << N_MAN) | (0x7u << (N_MAN - 3u))))
         throw std::invalid_argument("FP6 overflow. FP6 cannot represent +/-inf.");
 #endif
 
