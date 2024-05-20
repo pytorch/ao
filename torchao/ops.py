@@ -187,3 +187,32 @@ def _(fp6_tensor, fp16_scale):
     torch._check(OC == fp16_scale.shape[0], lambda: "Dimensions mismatched")
 
     return fp16_scale.new_empty((OC, _IC * 16 // 3))
+
+
+def to_fp6_pt(tensor: torch.Tensor, unpacked: bool = False) -> Tensor:
+    tensor = tensor.float()
+    tensor = tensor * 2.0 ** (-124)
+    bits = tensor.view(torch.int32)
+
+    sign = ((bits >> 31) & 0x1) << 5
+    exp_and_man = (bits >> 21) & 0x1F
+    result = sign | exp_and_man
+
+    remainder = bits & 0x1F_FFFF
+    do_round_up = torch.logical_or(
+        remainder > 0x10_0000,
+        torch.logical_and(remainder == 0x10_0000, result & 1)
+    )
+    result = torch.where(do_round_up, result + 1, result)
+    result = result.to(torch.uint8)
+
+    if unpacked:
+        return result
+
+    # pre-allocate output tensor is faster than using torch.stack()
+    outputs = torch.empty(tensor.shape[:-1] + (tensor.shape[-1] // 4, 3), device=tensor.device, dtype=torch.uint8)
+    val0, val1, val2, val3 = result.unflatten(-1, (-1, 4)).unbind(-1)
+    outputs[..., 0] = (val0 << 2) | (val1 >> 4)  # 0000 0011
+    outputs[..., 1] = (val1 << 4) | (val2 >> 2)  # 1111 2222
+    outputs[..., 2] = (val2 << 6) | (val3);      # 2233 3333
+    return outputs.flatten(-2)
