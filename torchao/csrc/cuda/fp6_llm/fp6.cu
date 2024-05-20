@@ -171,8 +171,8 @@ template <typename T, uint32_t FP_SPEC> void to_fp6_unpacked_cpu_impl(const T *b
 #pragma omp parallel for
     for (int i = 0; i < n; i++) {
         try { fp6_ptr[i] = to_fp6_bits<T, FP_SPEC>(bits_ptr[i]); }
-        catch (fp6_nan_inf &e) { found_nan_inf = true; }
-        catch (fp6_overflow &e) { found_overflow = true; }
+        catch (fp6_nan_inf) { found_nan_inf = true; }
+        catch (fp6_overflow) { found_overflow = true; }
     }
 
     if (found_nan_inf) throw fp6_nan_inf();
@@ -255,17 +255,29 @@ at::Tensor to_fp6_unpacked_cuda(at::Tensor fp_tensor) {
 }
 
 template <typename T, uint32_t FP_SPEC> void to_fp6_packed_cpu_impl(const T *bits_ptr, uint8_t *fp6_ptr, int n) {
+    // exception within OpenMP parallel region must be caught.
+    // set a flag when exception occurs, then re-raise it.
+    bool found_nan_inf = false;
+    bool found_overflow = false;
+
 #pragma omp parallel for
     for (int i = 0; i < n / 4; i++) {
-        uint8_t val0 = to_fp6_bits<T, FP_SPEC>(bits_ptr[i * 4]);
-        uint8_t val1 = to_fp6_bits<T, FP_SPEC>(bits_ptr[i * 4 + 1]);
-        uint8_t val2 = to_fp6_bits<T, FP_SPEC>(bits_ptr[i * 4 + 2]);
-        uint8_t val3 = to_fp6_bits<T, FP_SPEC>(bits_ptr[i * 4 + 3]);
+        try {
+            uint8_t val0 = to_fp6_bits<T, FP_SPEC>(bits_ptr[i * 4]);
+            uint8_t val1 = to_fp6_bits<T, FP_SPEC>(bits_ptr[i * 4 + 1]);
+            uint8_t val2 = to_fp6_bits<T, FP_SPEC>(bits_ptr[i * 4 + 2]);
+            uint8_t val3 = to_fp6_bits<T, FP_SPEC>(bits_ptr[i * 4 + 3]);
 
-        fp6_ptr[i * 3]     = (val0 << 2) | (val1 >> 4);  // 0000 0011
-        fp6_ptr[i * 3 + 1] = (val1 << 4) | (val2 >> 2);  // 1111 2222
-        fp6_ptr[i * 3 + 2] = (val2 << 6) | (val3);       // 2233 3333
+            fp6_ptr[i * 3]     = (val0 << 2) | (val1 >> 4);  // 0000 0011
+            fp6_ptr[i * 3 + 1] = (val1 << 4) | (val2 >> 2);  // 1111 2222
+            fp6_ptr[i * 3 + 2] = (val2 << 6) | (val3);       // 2233 3333
+        }
+        catch (fp6_nan_inf) { found_nan_inf = true; }
+        catch (fp6_overflow) { found_overflow = true; }
     }
+
+    if (found_nan_inf) throw fp6_nan_inf();
+    if (found_overflow) throw fp6_overflow();
 }
 
 at::Tensor to_fp6_packed_cpu(at::Tensor fp_tensor) {
