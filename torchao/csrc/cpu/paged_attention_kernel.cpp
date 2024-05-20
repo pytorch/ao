@@ -365,8 +365,6 @@ for (auto token_id = 0; token_id < max_context_len; token_id++) {
           attn_w_start, scale, head_mask_start, context_len, attn_w_start);
     }
   }
-  // std::cout << "after softmax attn_weights\n";
-  // std::cout << attn_weights << "\n";
   auto thread_numbers = omp_get_max_threads();
   auto private_attn_outs = at::empty(
       {thread_numbers, num_seqs, num_heads, head_size}, accumulate_dtype);
@@ -499,7 +497,7 @@ void paged_attention_kernel_impl(
 
 
 } // namespace
-TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
+TORCH_LIBRARY_IMPL(torchao, CPU, m) {
   m.impl("torchao::paged_attention", &paged_attention_kernel_impl);
 }
 
