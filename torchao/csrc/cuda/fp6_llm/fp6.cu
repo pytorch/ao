@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdexcept>
 #include <cstring>
+#include <assert.h>
 
 // This implementation doesn't have a lot of bit manipulation, so it's less error-prone.
 // On CPU, for FP32->FP6, bit manipulation (to_fp6_bits()) is 20% faster than this.
@@ -16,14 +17,18 @@ template <typename T>
 __device__ __host__ static uint8_t to_fp6_value(T a) {
     float fp32_value;
 
-    if (std::is_same_v<T, float>)
+    // need to use if constexpr so that the branches are pruned at compile-time.
+    // without it, expression in each branch must be valid regardless of template type T.
+    if constexpr (std::is_same_v<T, float>)
         fp32_value = a;
-    else if (std::is_same_v<T, __half>)
+    else if constexpr (std::is_same_v<T, __half>)
         fp32_value = __half2float(a);
-    else if (std::is_same_v<T, __nv_bfloat16>)
+    else if constexpr (std::is_same_v<T, __nv_bfloat16>)
         fp32_value = __bfloat162float(a);
-    else if (std::is_same_v<T, at::Half> || std::is_same_v<T, at::BFloat16>)
+    else if constexpr (std::is_same_v<T, at::Half> || std::is_same_v<T, at::BFloat16>)
         fp32_value = static_cast<float>(a);
+    else
+        assert(false);
 
 #ifndef __CUDA_ARCH__
     if (std::isnan(a) | std::isinf(a))
@@ -32,9 +37,9 @@ __device__ __host__ static uint8_t to_fp6_value(T a) {
         throw std::invalid_argument("FP6 overflow. FP6 cannot represent +/-inf.");
 #endif
 
-    a *= 0x1p-124;  // 2^(127-3)
+    fp32_value *= 0x1p-124;  // 2^(127-3)
     uint32_t bits;
-    std::memcpy(&bits, &a, sizeof(a));
+    std::memcpy(&bits, &fp32_value, sizeof(fp32_value));
 
     uint8_t sign = bits >> 31u << 5u;
     uint8_t exp_and_man = (bits >> 21u) & 0x1Fu;
@@ -217,11 +222,11 @@ at::Tensor to_fp6_unpacked_cpu(at::Tensor fp_tensor) {
     return fp6_tensor;
 }
 
-template <typename T, uint32_t FP_SPEC>
+template <typename T>
 __global__ void bits_to_fp6_unpacked_kernel(const T *bits_ptr, uint8_t *fp6_ptr, int n) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n)
-        fp6_ptr[idx] = to_fp6_bits<T, FP_SPEC>(bits_ptr[idx]);
+        fp6_ptr[idx] = to_fp6_value(bits_ptr[idx]);
 }
 
 // this is useful for debugging
@@ -240,16 +245,16 @@ at::Tensor to_fp6_unpacked_cuda(at::Tensor fp_tensor) {
     int grid_size = (n + block_size - 1) / block_size;
 
     if (dtype == torch::kFloat32) {
-        const uint32_t *fp32_ptr = reinterpret_cast<uint32_t *>(fp_tensor.data_ptr<float>());
-        bits_to_fp6_unpacked_kernel<uint32_t, FP32_SPEC><<<grid_size, block_size>>>(fp32_ptr, fp6_ptr, n);
+        const float *fp32_ptr = fp_tensor.data_ptr<float>();
+        bits_to_fp6_unpacked_kernel<<<grid_size, block_size>>>(fp32_ptr, fp6_ptr, n);
 
     } else if (dtype == torch::kFloat16) {
-        const uint16_t *fp16_ptr = reinterpret_cast<uint16_t *>(fp_tensor.data_ptr<at::Half>());
-        bits_to_fp6_unpacked_kernel<uint16_t, FP16_SPEC><<<grid_size, block_size>>>(fp16_ptr, fp6_ptr, n);
+        const at::Half *fp16_ptr = fp_tensor.data_ptr<at::Half>();
+        bits_to_fp6_unpacked_kernel<<<grid_size, block_size>>>(fp16_ptr, fp6_ptr, n);
 
     } else if (dtype == torch::kBFloat16) {
-        const uint16_t *bf16_ptr = reinterpret_cast<uint16_t *>(fp_tensor.data_ptr<at::BFloat16>());
-        bits_to_fp6_unpacked_kernel<uint16_t, BF16_SPEC><<<grid_size, block_size>>>(bf16_ptr, fp6_ptr, n);
+        const at::BFloat16 *bf16_ptr = fp_tensor.data_ptr<at::BFloat16>();
+        bits_to_fp6_unpacked_kernel<<<grid_size, block_size>>>(bf16_ptr, fp6_ptr, n);
 
     } else {
         throw std::invalid_argument("Only FP32, FP16, and BF16 inputs are accepted.");
