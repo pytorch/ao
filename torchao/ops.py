@@ -43,6 +43,11 @@ def _(fp6_weight):
 
 
 def to_fp6_unpacked(fp_tensor: Tensor) -> Tensor:
+    """
+    Convert FP32/FP16/BF16 tensor to FP6. Each FP6 value is stored in the lower 6 bits of an uint8,
+    thus 2 bits are wasted. This is useful for debugging, since you can access the bits of FP6
+    directly via tensor indexing.
+    """
     return torch.ops.torchao.to_fp6_unpacked.default(fp_tensor)
 
 
@@ -56,6 +61,10 @@ def _(fp_tensor):
 
 
 def to_fp6_packed(fp_tensor: Tensor) -> Tensor:
+    """
+    Convert FP32/FP16/BF16 tensor to FP6. Every 4 FP32/FP16/BF16 values are packed into 3 uint8
+    (4 x 6 bits = 3 x 8 bits). The last dimension must be a multiple of 4.
+    """
     *leading_dims, last_dim = fp_tensor.shape
     return torch.ops.torchao.to_fp6_packed.default(fp_tensor.view(-1, last_dim)).view(*leading_dims, -1)
 
@@ -72,11 +81,15 @@ def _(fp_tensor):
 
 
 def from_fp6_unpacked(fp6_tensor: Tensor, dtype: torch.dtype) -> Tensor:
+    """
+    Inverse of to_fp6_unpacked().
+    """
     return torch.ops.torchao.from_fp6_unpacked.default(fp6_tensor, dtype)
 
 
 @torch.library.impl_abstract("torchao::from_fp6_unpacked")
 def _(fp6_tensor, dtype):
+    torch._check(fp6_tensor.dtype == torch.uint8, lambda: f"inputs must be uint8, got {fp6_tensor.dtype}")
     torch._check(
         dtype in (torch.float32, torch.float16, torch.bfloat16), 
         lambda: f"outputs must be FP32, FP16, or BF16, got {dtype}",
@@ -85,12 +98,16 @@ def _(fp6_tensor, dtype):
 
 
 def from_fp6_packed(fp6_tensor: Tensor, dtype: torch.dtype) -> Tensor:
+    """
+    Inverse of to_fp6_packed(). The last dimension must be a multiple of 3.
+    """
     *leading_dims, last_dim = fp6_tensor.shape
     return torch.ops.torchao.from_fp6_packed.default(fp6_tensor.view(-1, last_dim), dtype).view(*leading_dims, -1)
 
 
 @torch.library.impl_abstract("torchao::from_fp6_packed")
 def _(fp6_tensor, dtype):
+    torch._check(fp6_tensor.dtype == torch.uint8, lambda: f"inputs must be uint8, got {fp6_tensor.dtype}")
     torch._check(
         dtype in (torch.float32, torch.float16, torch.bfloat16), 
         lambda: f"outputs must be FP32, FP16, or BF16, got {dtype}",
@@ -102,7 +119,7 @@ def _(fp6_tensor, dtype):
 
 def fp16_to_fp6_original(fp16_tensor: Tensor) -> Tensor:
     """
-    Pack FP16 tensor (containing only FP6 values) into FP6 tensor.
+    Pack FP16 tensor to FP6 tensor. qtorch is required to use this function.
     """
     try:
         from qtorch.quant import float_quantize
