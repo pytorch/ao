@@ -1,11 +1,30 @@
+#include <torch/extension.h>
+#include <ATen/ATen.h>
+#include <torch/library.h>
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 #include <stdint.h>
 #include <stdexcept>
 #include <cstring>
 
-// reference implementation. this doesn't have a lot of bit manipulation, so it's less error-prone
-__device__ __host__ static uint8_t fp32_to_fp6_value(float a) {
+// This implementation doesn't have a lot of bit manipulation, so it's less error-prone.
+// On CPU, for FP32->FP6, bit manipulation (to_fp6_bits()) is 20% faster than this.
+// On CUDA, dtype conversion kernels are memory-bound. Thus, using to_fp6_value() or 
+// to_fp6_bits() does not matter much. However, to_fp6_bits() has a lot of branching
+// based on input value, thus it will cause warp divergence.
+template <typename T>
+__device__ __host__ static uint8_t to_fp6_value(T a) {
+    float fp32_value;
+
+    if (std::is_same_v<T, float>)
+        fp32_value = a;
+    else if (std::is_same_v<T, __half>)
+        fp32_value = __half2float(a);
+    else if (std::is_same_v<T, __nv_bfloat16>)
+        fp32_value = __bfloat162float(a);
+    else if (std::is_same_v<T, at::Half> || std::is_same_v<T, at::BFloat16>)
+        fp32_value = static_cast<float>(a);
+
 #ifndef __CUDA_ARCH__
     if (std::isnan(a) | std::isinf(a))
         throw std::invalid_argument("Encounter +/-inf or NaN, which is not representable in FP6.");
@@ -45,28 +64,7 @@ __device__ __host__ static constexpr uint32_t ones_mask(uint32_t len) { return (
 
 // inspired by __internal_float2half() and float2half() from "cuda_fp16.hpp"
 template <typename T, uint32_t FP_SPEC>
-__device__ __host__ static uint8_t bits_to_fp6(T bits) {
-    // on CUDA, dtype conversion kernels are memory-bound. thus, using fp32_to_fp6_value()
-    // does not impact the speed. fp32_to_fp6_value() also won't cause warp divergence.
-    // on CPU, for FP32->FP6, bit manipulation is 20% faster than fp32_to_fp6_value().
-#ifdef __CUDA_ARCH__
-    if (std::is_same_v<T, uint32_t> && (FP_SPEC == FP32_SPEC)) {
-        float a;
-        std::memcpy(&a, &bits, sizeof(bits));
-        return fp32_to_fp6_value(a);
-    }
-    if (std::is_same_v<T, uint16_t> && (FP_SPEC == FP16_SPEC)) {
-        __half a;
-        std::memcpy(&a, &bits, sizeof(bits));
-        return fp32_to_fp6_value(__half2float(a));
-    }
-    if (std::is_same_v<T, uint16_t> && (FP_SPEC == BF16_SPEC)) {
-        __nv_bfloat16 a;
-        std::memcpy(&a, &bits, sizeof(bits));
-        return fp32_to_fp6_value(__bfloat162float(a));
-    }
-#endif
-
+__device__ __host__ static uint8_t to_fp6_bits(T bits) {
     constexpr uint32_t N_EXP = FP_SPEC >> 16u;
     constexpr uint32_t N_MAN = FP_SPEC & ones_mask(16u);
     constexpr uint32_t N_EXP_MAN = N_EXP + N_MAN;
@@ -132,10 +130,10 @@ __device__ __host__ static uint8_t bits_to_fp6(T bits) {
 
 template <typename T, uint32_t FP_SPEC>
 __device__ __host__ static void bits_4_to_fp6_4_packed(const T *bits_ptr, uint8_t *fp6_ptr) {
-    uint8_t val0 = bits_to_fp6<T, FP_SPEC>(bits_ptr[0]);
-    uint8_t val1 = bits_to_fp6<T, FP_SPEC>(bits_ptr[1]);
-    uint8_t val2 = bits_to_fp6<T, FP_SPEC>(bits_ptr[2]);
-    uint8_t val3 = bits_to_fp6<T, FP_SPEC>(bits_ptr[3]);
+    uint8_t val0 = to_fp6_bits<T, FP_SPEC>(bits_ptr[0]);
+    uint8_t val1 = to_fp6_bits<T, FP_SPEC>(bits_ptr[1]);
+    uint8_t val2 = to_fp6_bits<T, FP_SPEC>(bits_ptr[2]);
+    uint8_t val3 = to_fp6_bits<T, FP_SPEC>(bits_ptr[3]);
 
     fp6_ptr[0] = (val0 << 2) | (val1 >> 4);  // 0000 0011
     fp6_ptr[1] = (val1 << 4) | (val2 >> 2);  // 1111 2222
@@ -177,10 +175,6 @@ __global__ void fp6_packed_to_fp32_kernel(const uint8_t *fp6_ptr, float *fp32_pt
         fp6_4_packed_to_fp32_4(fp6_ptr + idx, fp32_ptr + idx / 3 * 4);
 }
 
-#include <torch/extension.h>
-#include <ATen/ATen.h>
-#include <torch/library.h>
-
 namespace torchao {
 
 // this is useful for debugging
@@ -200,21 +194,21 @@ at::Tensor to_fp6_unpacked_cpu(at::Tensor fp_tensor) {
 
         #pragma omp parallel for
         for (int i = 0; i < n; i++)
-            fp6_ptr[i] = bits_to_fp6<uint32_t, FP32_SPEC>(fp32_ptr[i]);
+            fp6_ptr[i] = to_fp6_bits<uint32_t, FP32_SPEC>(fp32_ptr[i]);
 
     } else if (dtype == torch::kFloat16) {
         const uint16_t *fp16_ptr = reinterpret_cast<uint16_t *>(fp_tensor.data_ptr<at::Half>());
 
         #pragma omp parallel for
         for (int i = 0; i < n; i++)
-            fp6_ptr[i] = bits_to_fp6<uint16_t, FP16_SPEC>(fp16_ptr[i]);
+            fp6_ptr[i] = to_fp6_bits<uint16_t, FP16_SPEC>(fp16_ptr[i]);
 
     } else if (dtype == torch::kBFloat16) {
         const uint16_t *bf16_ptr = reinterpret_cast<uint16_t *>(fp_tensor.data_ptr<at::BFloat16>());
 
         #pragma omp parallel for
         for (int i = 0; i < n; i++)
-            fp6_ptr[i] = bits_to_fp6<uint16_t, BF16_SPEC>(bf16_ptr[i]);
+            fp6_ptr[i] = to_fp6_bits<uint16_t, BF16_SPEC>(bf16_ptr[i]);
 
     } else {
         throw std::invalid_argument("Only FP32, FP16, and BF16 inputs are accepted.");
@@ -227,7 +221,7 @@ template <typename T, uint32_t FP_SPEC>
 __global__ void bits_to_fp6_unpacked_kernel(const T *bits_ptr, uint8_t *fp6_ptr, int n) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n)
-        fp6_ptr[idx] = bits_to_fp6<T, FP_SPEC>(bits_ptr[idx]);
+        fp6_ptr[idx] = to_fp6_bits<T, FP_SPEC>(bits_ptr[idx]);
 }
 
 // this is useful for debugging
@@ -331,21 +325,21 @@ __global__ void bits_to_fp6_packed_kernel(const T *bits_ptr, uint8_t *fp6_ptr, i
     //     uint8_t val0, val1, val2, val3;
     //     if (std::is_same_v<T, uint32_t>) {
     //         uint4 values = reinterpret_cast<const uint4 *>(bits_ptr)[tid * 4];
-    //         val0 = bits_to_fp6<T, FP_SPEC>(values.x);
-    //         val1 = bits_to_fp6<T, FP_SPEC>(values.y);
-    //         val2 = bits_to_fp6<T, FP_SPEC>(values.z);
-    //         val3 = bits_to_fp6<T, FP_SPEC>(values.w);
+    //         val0 = to_fp6_bits<T, FP_SPEC>(values.x);
+    //         val1 = to_fp6_bits<T, FP_SPEC>(values.y);
+    //         val2 = to_fp6_bits<T, FP_SPEC>(values.z);
+    //         val3 = to_fp6_bits<T, FP_SPEC>(values.w);
     //     } else if (std::is_same_v<T, uint16_t>) {
     //         ushort4 values = reinterpret_cast<const ushort4 *>(bits_ptr)[tid * 4];
-    //         val0 = bits_to_fp6<T, FP_SPEC>(values.x);
-    //         val1 = bits_to_fp6<T, FP_SPEC>(values.y);
-    //         val2 = bits_to_fp6<T, FP_SPEC>(values.z);
-    //         val3 = bits_to_fp6<T, FP_SPEC>(values.w);
+    //         val0 = to_fp6_bits<T, FP_SPEC>(values.x);
+    //         val1 = to_fp6_bits<T, FP_SPEC>(values.y);
+    //         val2 = to_fp6_bits<T, FP_SPEC>(values.z);
+    //         val3 = to_fp6_bits<T, FP_SPEC>(values.w);
     //     } else {
-    //         val0 = bits_to_fp6<T, FP_SPEC>(bits_ptr[tid * 4]);
-    //         val1 = bits_to_fp6<T, FP_SPEC>(bits_ptr[tid * 4 + 1]);
-    //         val2 = bits_to_fp6<T, FP_SPEC>(bits_ptr[tid * 4 + 2]);
-    //         val3 = bits_to_fp6<T, FP_SPEC>(bits_ptr[tid * 4 + 3]);
+    //         val0 = to_fp6_bits<T, FP_SPEC>(bits_ptr[tid * 4]);
+    //         val1 = to_fp6_bits<T, FP_SPEC>(bits_ptr[tid * 4 + 1]);
+    //         val2 = to_fp6_bits<T, FP_SPEC>(bits_ptr[tid * 4 + 2]);
+    //         val3 = to_fp6_bits<T, FP_SPEC>(bits_ptr[tid * 4 + 3]);
     //     }
     //     shmem[tid * 3]     = (val0 << 2) | (val1 >> 4);  // 0000 0011
     //     shmem[tid * 3 + 1] = (val1 << 4) | (val2 >> 2);  // 1111 2222
