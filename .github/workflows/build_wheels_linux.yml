@@ -25,8 +25,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    # TODO (huydhn): Switch back to main after https://github.com/pytorch/test-infra/pull/5217 lands
-    uses: pytorch/test-infra/.github/workflows/build_wheels_linux.yml@nova-workflow-upload-to-pypi
+    uses: pytorch/test-infra/.github/workflows/build_wheels_linux.yml@main
     with:
       # Set the ref to an empty string instead of the default nightly because
       # torchao doesn't have nightly branch setup yet, instead the build is
