@@ -61,10 +61,7 @@ __device__ __host__ static uint8_t to_fp6_value(T a) {
 
 // we need to do this because C++17 does not allow using struct as template non-type parameter
 // use the upper 16 bits for num exponent, lower 16 bits for num mantissa
-static constexpr uint32_t encode_fp_spec(uint32_t n_exp_bits, uint32_t n_man_bits) {
-    return (n_exp_bits << 16u) | n_man_bits;
-}
-
+static constexpr uint32_t encode_fp_spec(uint32_t n_exp, uint32_t n_man) { return (n_exp << 16u) | n_man; }
 static constexpr uint32_t FP32_SPEC = encode_fp_spec(8u, 23u);
 static constexpr uint32_t FP16_SPEC = encode_fp_spec(5u, 10u);
 static constexpr uint32_t BF16_SPEC = encode_fp_spec(8u, 7u);
@@ -79,13 +76,10 @@ __device__ __host__ static uint8_t to_fp6_bits(T bits) {
     constexpr uint32_t N_MAN = FP_SPEC & ones_mask(16u);
     constexpr uint32_t N_EXP_MAN = N_EXP + N_MAN;
 
-    // sanity checks. will be removed in template specialization.
-#ifndef __CUDA_ARCH__
-    if (N_EXP < 3)
-        throw std::invalid_argument("Number of exponent bits must be >= 3.");
-    if (N_MAN < 3)
-        throw std::invalid_argument("Number of mantissa bits must be >= 3.");
-#endif
+    // sanity checks. will be removed in template instantiation.
+    // minimum 1 bit above FP6 (3 exponent bits and 2 mantissa bits) to avoid edge cases.
+    static_assert(N_EXP >= 4, "Number of exponent bits must be >= 4.");
+    static_assert(N_MAN >= 3, "Number of mantissa bits must be >= 3.");
 
     T remainder = 0u;
     T sign = bits >> N_EXP_MAN << 5u;
@@ -138,18 +132,6 @@ __device__ __host__ static uint8_t to_fp6_bits(T bits) {
     return result;
 }
 
-template <typename T, uint32_t FP_SPEC>
-__device__ __host__ static void bits_4_to_fp6_4_packed(const T *bits_ptr, uint8_t *fp6_ptr) {
-    uint8_t val0 = to_fp6_bits<T, FP_SPEC>(bits_ptr[0]);
-    uint8_t val1 = to_fp6_bits<T, FP_SPEC>(bits_ptr[1]);
-    uint8_t val2 = to_fp6_bits<T, FP_SPEC>(bits_ptr[2]);
-    uint8_t val3 = to_fp6_bits<T, FP_SPEC>(bits_ptr[3]);
-
-    fp6_ptr[0] = (val0 << 2) | (val1 >> 4);  // 0000 0011
-    fp6_ptr[1] = (val1 << 4) | (val2 >> 2);  // 1111 2222
-    fp6_ptr[2] = (val2 << 6) | (val3);       // 2233 3333
-}
-
 // assume the lower 6 bits contain the data
 __device__ __host__ static float fp6_to_fp32(const uint8_t a) {
     // we shift the bits so that sign, exponent, and mantissa bits are in their correct positions in FP32.
@@ -179,13 +161,13 @@ __device__ __host__ static void fp6_4_packed_to_fp32_4(const uint8_t *fp6_ptr, f
     fp32_ptr[3] = fp6_to_fp32(bits2 & 0x3Fu);
 }
 
-__global__ void fp6_packed_to_fp32_kernel(const uint8_t *fp6_ptr, float *fp32_ptr, int n) {
-    const int idx = (blockIdx.x * blockDim.x + threadIdx.x) * 3;
-    if (idx < n)
-        fp6_4_packed_to_fp32_4(fp6_ptr + idx, fp32_ptr + idx / 3 * 4);
-}
-
 namespace torchao {
+
+template <typename T, uint32_t FP_SPEC> void to_fp6_unpacked_cpu_impl(const T *bits_ptr, uint8_t *fp6_ptr, int n) {
+#pragma omp parallel for
+    for (int i = 0; i < n; i++)
+        fp6_ptr[i] = to_fp6_bits<T, FP_SPEC>(bits_ptr[i]);
+}
 
 // this is useful for debugging
 at::Tensor to_fp6_unpacked_cpu(at::Tensor fp_tensor) {
@@ -201,24 +183,15 @@ at::Tensor to_fp6_unpacked_cpu(at::Tensor fp_tensor) {
 
     if (dtype == torch::kFloat32) {
         const uint32_t *fp32_ptr = reinterpret_cast<uint32_t *>(fp_tensor.data_ptr<float>());
-
-        #pragma omp parallel for
-        for (int i = 0; i < n; i++)
-            fp6_ptr[i] = to_fp6_bits<uint32_t, FP32_SPEC>(fp32_ptr[i]);
+        to_fp6_unpacked_cpu_impl<uint32_t, FP32_SPEC>(fp32_ptr, fp6_ptr, n);
 
     } else if (dtype == torch::kFloat16) {
         const uint16_t *fp16_ptr = reinterpret_cast<uint16_t *>(fp_tensor.data_ptr<at::Half>());
-
-        #pragma omp parallel for
-        for (int i = 0; i < n; i++)
-            fp6_ptr[i] = to_fp6_bits<uint16_t, FP16_SPEC>(fp16_ptr[i]);
+        to_fp6_unpacked_cpu_impl<uint16_t, FP16_SPEC>(fp16_ptr, fp6_ptr, n);
 
     } else if (dtype == torch::kBFloat16) {
         const uint16_t *bf16_ptr = reinterpret_cast<uint16_t *>(fp_tensor.data_ptr<at::BFloat16>());
-
-        #pragma omp parallel for
-        for (int i = 0; i < n; i++)
-            fp6_ptr[i] = to_fp6_bits<uint16_t, BF16_SPEC>(bf16_ptr[i]);
+        to_fp6_unpacked_cpu_impl<uint16_t, BF16_SPEC>(bf16_ptr, fp6_ptr, n);
 
     } else {
         throw std::invalid_argument("Only FP32, FP16, and BF16 inputs are accepted.");
@@ -271,6 +244,20 @@ at::Tensor to_fp6_unpacked_cuda(at::Tensor fp_tensor) {
     return fp6_tensor;
 }
 
+template <typename T, uint32_t FP_SPEC> void to_fp6_packed_cpu_impl(const T *bits_ptr, uint8_t *fp6_ptr, int n) {
+#pragma omp parallel for
+    for (int i = 0; i < n / 4; i++) {
+        uint8_t val0 = to_fp6_bits<T, FP_SPEC>(bits_ptr[i * 4]);
+        uint8_t val1 = to_fp6_bits<T, FP_SPEC>(bits_ptr[i * 4 + 1]);
+        uint8_t val2 = to_fp6_bits<T, FP_SPEC>(bits_ptr[i * 4 + 2]);
+        uint8_t val3 = to_fp6_bits<T, FP_SPEC>(bits_ptr[i * 4 + 3]);
+
+        fp6_ptr[i * 3]     = (val0 << 2) | (val1 >> 4);  // 0000 0011
+        fp6_ptr[i * 3 + 1] = (val1 << 4) | (val2 >> 2);  // 1111 2222
+        fp6_ptr[i * 3 + 2] = (val2 << 6) | (val3);       // 2233 3333
+    }
+}
+
 at::Tensor to_fp6_packed_cpu(at::Tensor fp_tensor) {
     TORCH_CHECK(fp_tensor.is_contiguous());
     TORCH_CHECK(fp_tensor.is_cpu());
@@ -289,24 +276,15 @@ at::Tensor to_fp6_packed_cpu(at::Tensor fp_tensor) {
 
     if (dtype == torch::kFloat32) {
         const uint32_t *fp32_ptr = reinterpret_cast<uint32_t *>(fp_tensor.data_ptr<float>());
-
-        #pragma omp parallel for
-        for (int i = 0; i < n; i += 4)
-            bits_4_to_fp6_4_packed<uint32_t, FP32_SPEC>(fp32_ptr + i, fp6_ptr + i / 4 * 3);
+        to_fp6_packed_cpu_impl<uint32_t, FP32_SPEC>(fp32_ptr, fp6_ptr, n);
 
     } else if (dtype == torch::kFloat16) {
         const uint16_t *fp16_ptr = reinterpret_cast<uint16_t *>(fp_tensor.data_ptr<at::Half>());
-
-        #pragma omp parallel for
-        for (int i = 0; i < n; i += 4)
-            bits_4_to_fp6_4_packed<uint16_t, FP16_SPEC>(fp16_ptr + i, fp6_ptr + i / 4 * 3);
+        to_fp6_packed_cpu_impl<uint16_t, FP16_SPEC>(fp16_ptr, fp6_ptr, n);
 
     } else if (dtype == torch::kBFloat16) {
         const uint16_t *bf16_ptr = reinterpret_cast<uint16_t *>(fp_tensor.data_ptr<at::BFloat16>());
-
-        #pragma omp parallel for
-        for (int i = 0; i < n; i += 4)
-            bits_4_to_fp6_4_packed<uint16_t, BF16_SPEC>(bf16_ptr + i, fp6_ptr + i / 4 * 3);
+        to_fp6_packed_cpu_impl<uint16_t, BF16_SPEC>(bf16_ptr, fp6_ptr, n);
 
     } else {
         throw std::invalid_argument("Only FP32, FP16, and BF16 inputs are accepted.");
@@ -443,6 +421,12 @@ at::Tensor fp6_unpacked_to_fp32(at::Tensor fp6_tensor) {
     }
 
     return fp32_tensor;
+}
+
+__global__ void fp6_packed_to_fp32_kernel(const uint8_t *fp6_ptr, float *fp32_ptr, int n) {
+    const int idx = (blockIdx.x * blockDim.x + threadIdx.x) * 3;
+    if (idx < n)
+        fp6_4_packed_to_fp32_4(fp6_ptr + idx, fp32_ptr + idx / 3 * 4);
 }
 
 at::Tensor fp6_packed_to_fp32(at::Tensor fp6_tensor) {
