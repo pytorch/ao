@@ -66,14 +66,7 @@ class TestOps(TestCase):
     def test_fp16_to_fp6(self):
         OC = 256
         IC = 256
-
-        # in this fp6, we use 3 bits for exponent and 2 bits for mantissa
-        # also, we don't have nan/inf
-        fp6_absmax = 28.0  # 2 ** (0b111 - 0b011) * (1 + 0.5 + 0.25), where E=111, M=11
-        fp6_absmin = 0.0625  # 2 ** (-0b010) * 0.25, where E=000, M=01 (subnormal number)
         fp16_weight = torch.randn((OC, IC), dtype=torch.float16)
-        fp16_weight.clip_(-fp6_absmax, fp6_absmax)
-        fp16_weight[fp16_weight.abs() < fp6_absmin] = 0
 
         # smoke test
         torchao.ops.fp16_to_fp6_original(fp16_weight)
