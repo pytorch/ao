@@ -10,6 +10,16 @@
 #include <cstring>
 
 
+class fp6_nan_inf : public std::invalid_argument {
+public:
+    fp6_nan_inf() : std::invalid_argument("Encounter +/-inf or NaN, which is not representable in FP6.") { }
+};
+
+class fp6_overflow : public std::invalid_argument {
+public:
+    fp6_overflow() : std::invalid_argument("FP6 overflow. FP6 cannot represent +/-inf. Make sure input < 30.0") { }
+};
+
 // need to do this trick so that static_assert(false) only evaluates at template instantiation.
 template <typename T> constexpr std::false_type always_false{};
 
@@ -36,10 +46,8 @@ __device__ __host__ static uint8_t to_fp6_value(T a) {
         static_assert(always_false<T>, "Only float, __half, __nv_bfloat16, c10::Half, and c10::BFloat16 are suppored");
 
 #ifndef __CUDA_ARCH__
-    if (std::isnan(a) | std::isinf(a))
-        throw std::invalid_argument("Encounter +/-inf or NaN, which is not representable in FP6.");
-    if (std::abs(a) >= 30.0f)
-        throw std::invalid_argument("FP6 overflow. FP6 cannot represent +/-inf.");
+    if (std::isnan(fp32_value) | std::isinf(fp32_value)) throw fp6_nan_inf();
+    if (std::abs(fp32_value) >= 30.0f) throw fp6_overflow();
 #endif
 
     fp32_value *= 0x1p-124;  // 2^(127-3)
@@ -91,11 +99,10 @@ __device__ __host__ static uint8_t to_fp6_bits(T bits) {
     // only checks for invalid values on CPU, since we can't throw exception in CUDA
 #ifndef __CUDA_ARCH__
     // all exponent bits are 1s
-    if (bits >= (ones_mask(N_EXP) << N_MAN))
-        throw std::invalid_argument("Encounter +/-inf or NaN, which is not representable in FP6.");
+    if (bits >= (ones_mask(N_EXP) << N_MAN)) throw fp6_nan_inf();
+
     // max FP6 (28) + half of least significand (2) = 30 (assume N_MAN >= 3)
-    if (bits >= (((EXP_BIAS_DIFF + 7u) << N_MAN) | (0x7u << (N_MAN - 3u))))
-        throw std::invalid_argument("FP6 overflow. FP6 cannot represent +/-inf.");
+    if (bits >= (((EXP_BIAS_DIFF + 7u) << N_MAN) | (0x7u << (N_MAN - 3u)))) throw fp6_overflow();
 #endif
 
     // FP6 normal number (E>=001)
@@ -156,9 +163,20 @@ __device__ __host__ static T from_fp6(uint8_t a) {
 namespace torchao {
 
 template <typename T, uint32_t FP_SPEC> void to_fp6_unpacked_cpu_impl(const T *bits_ptr, uint8_t *fp6_ptr, int n) {
+    // exception within OpenMP parallel region must be caught.
+    // set a flag when exception occurs, then re-raise it.
+    bool found_nan_inf = false;
+    bool found_overflow = false;
+
 #pragma omp parallel for
-    for (int i = 0; i < n; i++)
-        fp6_ptr[i] = to_fp6_bits<T, FP_SPEC>(bits_ptr[i]);
+    for (int i = 0; i < n; i++) {
+        try { fp6_ptr[i] = to_fp6_bits<T, FP_SPEC>(bits_ptr[i]); }
+        catch (fp6_nan_inf &e) { found_nan_inf = true; }
+        catch (fp6_overflow &e) { found_overflow = true; }
+    }
+
+    if (found_nan_inf) throw fp6_nan_inf();
+    if (found_overflow) throw fp6_overflow();
 }
 
 // this is useful for debugging
