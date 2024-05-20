@@ -7,8 +7,6 @@
 # This file is sourced into the environment before building a pip wheel. It
 # should typically only contain shell variable assignments. Be sure to export
 # any variables so that subprocesses will see them.
-
-# Enable pybindings so that users can execute ExecuTorch programs from python.
 if [[ ${CHANNEL:-nightly} == "nightly" ]]; then
   export TORCHAO_NIGHTLY=1
 fi
