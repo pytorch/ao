@@ -523,6 +523,7 @@ at::Tensor from_fp6_packed_cuda(at::Tensor fp6_tensor, c10::ScalarType dtype) {
     TORCH_CHECK(fp6_tensor.dtype() == torch::kUInt8);
     TORCH_CHECK(fp6_tensor.is_contiguous());
     TORCH_CHECK(fp6_tensor.is_cuda());
+    TORCH_CHECK(fp6_tensor.ndimension() == 2);
 
     int M = fp6_tensor.size(0);
     int N = fp6_tensor.size(1);
