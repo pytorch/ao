@@ -224,6 +224,20 @@ class TestFp6(TestCase):
                 assert torchao.ops.to_fp6_unpacked(x).item() == output
                 assert torchao.ops.to_fp6_unpacked(-x).item() == (output | 0b100000)
 
+    @parameterized.expand([(device, dtype) for device in ["cpu", "cuda"] for dtype in [torch.float32, torch.float16, torch.bfloat16]])
+    def test_to_fp6_packed_correctness(self, device, dtype):
+        x = torch.randn(128, 128, device=device, dtype=dtype)
+        results_unpacked = torchao.ops.to_fp6_unpacked(x)
+        results_packed = torchao.ops.to_fp6_packed(x)
+
+        val0, val1, val2, val3 = results_unpacked.unflatten(-1, (-1, 4)).unbind(-1)
+        bits0 = (val0 << 2) | (val1 >> 4)  # 0000 0011
+        bits1 = (val1 << 4) | (val2 >> 2)  # 1111 2222
+        bits2 = (val2 << 6) | (val3);      # 2233 3333
+
+        expected_packed = torch.stack([bits0, bits1, bits2], dim=-1).flatten(-2)
+        assert (results_packed == expected_packed).all()
+
     @parameterized.expand([30.0, -100.0, float("inf"), float("nan")])
     def test_to_fp6_exception(self, input):
         self._skip_cpu()
@@ -232,6 +246,45 @@ class TestFp6(TestCase):
             torchao.ops.to_fp6_unpacked(x)
         with self.assertRaises(Exception):
             torchao.ops.to_fp6_packed(x)
+
+    @parameterized.expand(
+        [
+            (0b000000, 0.0),
+            (0b001100, 1.0),
+            (0b011111, 28.0),
+            (0b000001, 0.0625),
+            (0b001110, 1.5),
+            (0b000011, 0.1875),
+        ]
+    )
+    def test_from_fp6_unpacked_correctness(self, input, output):
+        self._skip_cpu()
+        for device in ("cpu", "cuda"):
+            for dtype in (torch.float32, torch.float16, torch.bfloat16):
+                x = torch.tensor(input, device=device, dtype=torch.uint8)
+                result = torchao.ops.from_fp6_unpacked(x, dtype)
+                assert result.dtype == dtype
+                assert result.item() == output
+
+                x = torch.tensor(input | 0b100000, device=device, dtype=torch.uint8)
+                result = torchao.ops.from_fp6_unpacked(x, dtype)
+                assert result.dtype == dtype
+                assert result.item() == -output
+
+    @parameterized.expand([(device, dtype) for device in ["cpu", "cuda"] for dtype in [torch.float32, torch.float16, torch.bfloat16]])
+    def test_from_fp6_packed_correctness(self, device, dtype):
+        x = torch.randint(256, (128, 128 // 4 * 3), device=device, dtype=torch.uint8)
+        results = torchao.ops.from_fp6_packed(x, dtype=dtype)
+
+        bits0, bits1, bits2 = x.unflatten(-1, (-1, 3)).unbind(-1)
+        x_unpacked0 = bits0 >> 2
+        x_unpacked1 = ((bits0 & 0x3) << 4) | (bits1 >> 4)
+        x_unpacked2 = ((bits1 & 0xF) << 2) | (bits2 >> 6)
+        x_unpacked3 = bits2 & 0x3F
+
+        x_unpacked = torch.stack([x_unpacked0, x_unpacked1, x_unpacked2, x_unpacked3], dim=-1).flatten(-2)
+        expected = torchao.ops.from_fp6_unpacked(x_unpacked, dtype)
+        assert (results == expected).all()
 
 
 if __name__ == "__main__":
