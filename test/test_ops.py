@@ -141,36 +141,97 @@ class TestFp6(TestCase):
         if not torch.cuda.is_available():
             self.skipTest("CUDA not available. We don't compile for CPU-only build")
 
+    @parameterized.expand([(device, dtype) for device in ["cpu", "cuda"] for dtype in [torch.float32, torch.float16, torch.bfloat16]])
+    def test_to_fp6_unpacked(self, device, dtype):
+        self._skip_cpu()
+        inputs = torch.randn(128, 128, device=device, dtype=dtype)
+
+        # smoke test
+        torchao.ops.to_fp6_unpacked(inputs)
+
+        # comprehensive testing
+        test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
+        opcheck(torch.ops.torchao.to_fp6_unpacked, (inputs,), test_utils=test_utils)
+
+    @parameterized.expand([(device, dtype) for device in ["cpu", "cuda"] for dtype in [torch.float32, torch.float16, torch.bfloat16]])
+    def test_to_fp6_packed(self, device, dtype):
+        self._skip_cpu()
+        inputs = torch.randn(128, 128, device=device, dtype=dtype)
+
+        # smoke test
+        torchao.ops.to_fp6_packed(inputs)
+
+        # comprehensive testing
+        test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
+        opcheck(torch.ops.torchao.to_fp6_packed, (inputs,), test_utils=test_utils)
+
+    @parameterized.expand([(device, dtype) for device in ["cpu", "cuda"] for dtype in [torch.float32, torch.float16, torch.bfloat16]])
+    def test_from_fp6_unpacked(self, device, dtype):
+        self._skip_cpu()
+        inputs = torch.randint(256, size=(128, 128 // 4 * 3), device=device, dtype=torch.uint8)
+
+        # smoke test
+        torchao.ops.from_fp6_unpacked(inputs, dtype)
+
+        # comprehensive testing
+        test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
+        opcheck(torch.ops.torchao.from_fp6_unpacked, (inputs, dtype), test_utils=test_utils)
+
+    @parameterized.expand([(device, dtype) for device in ["cpu", "cuda"] for dtype in [torch.float32, torch.float16, torch.bfloat16]])
+    def test_from_fp6_packed(self, device, dtype):
+        self._skip_cpu()
+        inputs = torch.randint(256, size=(128, 128 // 4 * 3), device=device, dtype=torch.uint8)
+
+        # smoke test
+        torchao.ops.from_fp6_packed(inputs, dtype)
+
+        # comprehensive testing
+        test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
+        opcheck(torch.ops.torchao.from_fp6_packed, (inputs, dtype), test_utils=test_utils)
+
+    def test_to_fp6_unpacked_shape(self):
+        for shape in [(), (0,), (10,), (20, 20)]:
+            x = torch.randn(shape)
+            result = torchao.ops.to_fp6_unpacked(x)
+            assert result.shape == shape
+
+    def test_to_fp6_packed_shape(self):
+        for shape in [(4,), (20, 20)]:
+            x = torch.randn(shape)
+            result = torchao.ops.to_fp6_packed(x)
+            assert result.shape == shape[:-1] + (shape[-1] // 4 * 3,)
+
     @parameterized.expand(
         [
-            (0.0, 0b000000),     # simple values
-            (1.0, 0b001100),     # normal numbers
-            (1.25, 0b001101),
-            (28.0, 0b011111),    # max
-            (0.1875, 0b00011),   # subnormal number
+            (0.0,    0b000000),  # exact values
+            (1.0,    0b001100),  # normal numbers
+            (1.25,   0b001101),
+            (28.0,   0b011111),  # max
+            (0.1875, 0b000011),  # subnormal number
             (0.0625, 0b000001),  # min
-            (29.0, 0b011111),    # normal round down
-            (26.0, 0b011110),    # normal round to nearest even
+            (29.0,   0b011111),  # normal round down
+            (26.0,   0b011110),  # normal round to nearest even
             (0.1251, 0b000010),  # subnormal round down
             (0.0314, 0b000001),  # subnormal round up
-            (0.03, 0b000000),    # underflow
+            (0.03,   0b000000),  # underflow
         ]
     )
-    def test_to_fp6_correctness(self, input, output):
+    def test_to_fp6_unpacked_correctness(self, input, output):
         self._skip_cpu()
-        for dtype in (torch.float32, torch.float16, torch.bfloat16):
-            x = torch.tensor(input, dtype=dtype)
-            assert torchao.ops.to_fp6_unpacked(x).item() == output
-            assert torchao.ops.to_fp6_unpacked(-x).item() == (output | 0b100000)
-            assert torchao.ops.to_fp6_unpacked(x.cuda()).item() == output
-            assert torchao.ops.to_fp6_unpacked(-x.cuda()).item() == (output | 0b100000)
+        for device in ("cpu", "cuda"):
+            for dtype in (torch.float32, torch.float16, torch.bfloat16):
+                x = torch.tensor(input, device=device, dtype=dtype)
+                assert torchao.ops.to_fp6_unpacked(x).item() == output
+                assert torchao.ops.to_fp6_unpacked(-x).item() == (output | 0b100000)
 
-    @parameterized.expand([30.0, 100.0, float("inf"), float("nan")])
+    @parameterized.expand([30.0, -100.0, float("inf"), float("nan")])
     def test_to_fp6_exception(self, input):
         self._skip_cpu()
         x = torch.tensor(input)
         with self.assertRaises(Exception):
             torchao.ops.to_fp6_unpacked(x)
+        with self.assertRaises(Exception):
+            torchao.ops.to_fp6_packed(x)
 
 
 if __name__ == "__main__":
