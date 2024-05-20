@@ -1,12 +1,17 @@
-#include <torch/extension.h>
 #include <ATen/ATen.h>
+#include <torch/extension.h>
 #include <torch/library.h>
+
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
+
 #include <stdint.h>
 #include <stdexcept>
 #include <cstring>
-#include <assert.h>
+
+
+// need to do this trick so that static_assert(false) only evaluates at template instantiation.
+template <typename T> constexpr std::false_type always_false{};
 
 // This implementation doesn't have a lot of bit manipulation, so it's less error-prone.
 // On CPU, for FP32->FP6, bit manipulation (to_fp6_bits()) is 20% faster than this.
@@ -25,10 +30,10 @@ __device__ __host__ static uint8_t to_fp6_value(T a) {
         fp32_value = __half2float(a);
     else if constexpr (std::is_same_v<T, __nv_bfloat16>)
         fp32_value = __bfloat162float(a);
-    else if constexpr (std::is_same_v<T, at::Half> || std::is_same_v<T, at::BFloat16>)
+    else if constexpr (std::is_same_v<T, c10::Half> || std::is_same_v<T, c10::BFloat16>)
         fp32_value = static_cast<float>(a);
     else
-        assert(false);
+        static_assert(always_false<T>, "Only float, __half, __nv_bfloat16, c10::Half, and c10::BFloat16 are suppored");
 
 #ifndef __CUDA_ARCH__
     if (std::isnan(a) | std::isinf(a))
@@ -223,10 +228,13 @@ at::Tensor to_fp6_unpacked_cpu(at::Tensor fp_tensor) {
 }
 
 template <typename T>
-__global__ void bits_to_fp6_unpacked_kernel(const T *bits_ptr, uint8_t *fp6_ptr, int n) {
+__global__ void to_fp6_unpacked_kernel(const T *fp_ptr, uint8_t *fp6_ptr, int n) {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // NOTE: we are writing 32 uint8 (32 bytes) to global memory. vector load can be used
+    // to improve memory throughput. using uchar4, we can issue 128-byte global memory write.
     if (idx < n)
-        fp6_ptr[idx] = to_fp6_value(bits_ptr[idx]);
+        fp6_ptr[idx] = to_fp6_value(fp_ptr[idx]);
 }
 
 // this is useful for debugging
@@ -246,15 +254,15 @@ at::Tensor to_fp6_unpacked_cuda(at::Tensor fp_tensor) {
 
     if (dtype == torch::kFloat32) {
         const float *fp32_ptr = fp_tensor.data_ptr<float>();
-        bits_to_fp6_unpacked_kernel<<<grid_size, block_size>>>(fp32_ptr, fp6_ptr, n);
+        to_fp6_unpacked_kernel<<<grid_size, block_size>>>(fp32_ptr, fp6_ptr, n);
 
     } else if (dtype == torch::kFloat16) {
         const at::Half *fp16_ptr = fp_tensor.data_ptr<at::Half>();
-        bits_to_fp6_unpacked_kernel<<<grid_size, block_size>>>(fp16_ptr, fp6_ptr, n);
+        to_fp6_unpacked_kernel<<<grid_size, block_size>>>(fp16_ptr, fp6_ptr, n);
 
     } else if (dtype == torch::kBFloat16) {
         const at::BFloat16 *bf16_ptr = fp_tensor.data_ptr<at::BFloat16>();
-        bits_to_fp6_unpacked_kernel<<<grid_size, block_size>>>(bf16_ptr, fp6_ptr, n);
+        to_fp6_unpacked_kernel<<<grid_size, block_size>>>(bf16_ptr, fp6_ptr, n);
 
     } else {
         throw std::invalid_argument("Only FP32, FP16, and BF16 inputs are accepted.");
@@ -307,57 +315,64 @@ at::Tensor to_fp6_packed_cpu(at::Tensor fp_tensor) {
     return fp6_tensor;
 }
 
-template <typename T, uint32_t FP_SPEC, int BLOCK_SIZE>
-__global__ void bits_to_fp6_packed_kernel(const T *bits_ptr, uint8_t *fp6_ptr, int n) {
-    // naive version
-    // times 4 since each thread will handle 4 values
-    const int idx = (blockIdx.x * blockDim.x + threadIdx.x) * 4;
-    if (idx < n)
-        bits_4_to_fp6_4_packed<T, FP_SPEC>(bits_ptr + idx, fp6_ptr + idx / 4 * 3);
-    return;
+// define our own vector types since NVIDIA doesn't provide them.
+typedef struct __align__(8) { __half x, y, z, w; } fp16_vec4;
+typedef struct __align__(8) { __nv_bfloat16 x, y, z, w; } bf16_vec4;
 
-    // more optimized version. coalesced memory write (speedup is minimal)
-    // const int tid = threadIdx.x;
-    // const int input_offset = (blockIdx.x * blockDim.x) * 4;
-    // const int output_offset = (blockIdx.x * blockDim.x) * 3;
+template <typename T, int BLOCK_SIZE>
+__global__ void to_fp6_packed_kernel(const T *fp_ptr, uint8_t *fp6_ptr, int n) {
+    const int tid = threadIdx.x;
+    const int input_offset = (blockIdx.x * blockDim.x) * 4;
+    const int output_offset = (blockIdx.x * blockDim.x) * 3;
 
-    // bits_ptr += input_offset;
-    // fp6_ptr += output_offset;
+    fp_ptr += input_offset;
+    fp6_ptr += output_offset;
 
-    // __shared__ uint8_t shmem[BLOCK_SIZE * 3];
+    __shared__ uint8_t shmem[BLOCK_SIZE * 3];
 
-    // if (input_offset + tid * 4 < n) {
-    //     uint8_t val0, val1, val2, val3;
-    //     if (std::is_same_v<T, uint32_t>) {
-    //         uint4 values = reinterpret_cast<const uint4 *>(bits_ptr)[tid * 4];
-    //         val0 = to_fp6_bits<T, FP_SPEC>(values.x);
-    //         val1 = to_fp6_bits<T, FP_SPEC>(values.y);
-    //         val2 = to_fp6_bits<T, FP_SPEC>(values.z);
-    //         val3 = to_fp6_bits<T, FP_SPEC>(values.w);
-    //     } else if (std::is_same_v<T, uint16_t>) {
-    //         ushort4 values = reinterpret_cast<const ushort4 *>(bits_ptr)[tid * 4];
-    //         val0 = to_fp6_bits<T, FP_SPEC>(values.x);
-    //         val1 = to_fp6_bits<T, FP_SPEC>(values.y);
-    //         val2 = to_fp6_bits<T, FP_SPEC>(values.z);
-    //         val3 = to_fp6_bits<T, FP_SPEC>(values.w);
-    //     } else {
-    //         val0 = to_fp6_bits<T, FP_SPEC>(bits_ptr[tid * 4]);
-    //         val1 = to_fp6_bits<T, FP_SPEC>(bits_ptr[tid * 4 + 1]);
-    //         val2 = to_fp6_bits<T, FP_SPEC>(bits_ptr[tid * 4 + 2]);
-    //         val3 = to_fp6_bits<T, FP_SPEC>(bits_ptr[tid * 4 + 3]);
-    //     }
-    //     shmem[tid * 3]     = (val0 << 2) | (val1 >> 4);  // 0000 0011
-    //     shmem[tid * 3 + 1] = (val1 << 4) | (val2 >> 2);  // 1111 2222
-    //     shmem[tid * 3 + 2] = (val2 << 6) | (val3);       // 2233 3333
-    // }
-    // __syncthreads();
+    if (input_offset + tid * 4 < n) {
+        uint8_t val0, val1, val2, val3;
 
-    // // TODO: write in larger word size
-    // for (int i = 0; i < 3; i++) {
-    //     if (output_offset + BLOCK_SIZE * i + tid < n / 4 * 3) {
-    //         fp6_ptr[BLOCK_SIZE * i + tid] = shmem[BLOCK_SIZE * i + tid];
-    //     }
-    // }
+        // vector load for coalesced memory read
+        if constexpr (std::is_same_v<T, float>) {
+            float4 values = reinterpret_cast<const float4 *>(fp_ptr)[tid];
+            val0 = to_fp6_value(values.x);
+            val1 = to_fp6_value(values.y);
+            val2 = to_fp6_value(values.z);
+            val3 = to_fp6_value(values.w);
+        } else if constexpr (std::is_same_v<T, at::Half> || std::is_same_v<T, __half>) {
+            fp16_vec4 values = reinterpret_cast<const fp16_vec4 *>(fp_ptr)[tid];
+            val0 = to_fp6_value(values.x);
+            val1 = to_fp6_value(values.y);
+            val2 = to_fp6_value(values.z);
+            val3 = to_fp6_value(values.w);
+        } else if constexpr (std::is_same_v<T, at::BFloat16> || std::is_same_v<T, __nv_bfloat16>) {
+            bf16_vec4 values = reinterpret_cast<const bf16_vec4 *>(fp_ptr)[tid];
+            val0 = to_fp6_value(values.x);
+            val1 = to_fp6_value(values.y);
+            val2 = to_fp6_value(values.z);
+            val3 = to_fp6_value(values.w);
+        } else {
+            // fallback. no coalesced memory access. (assert false instead?)
+            val0 = to_fp6_value(fp_ptr[tid * 4]);
+            val1 = to_fp6_value(fp_ptr[tid * 4 + 1]);
+            val2 = to_fp6_value(fp_ptr[tid * 4 + 2]);
+            val3 = to_fp6_value(fp_ptr[tid * 4 + 3]);
+        }
+
+        shmem[tid * 3]     = (val0 << 2) | (val1 >> 4);  // 0000 0011
+        shmem[tid * 3 + 1] = (val1 << 4) | (val2 >> 2);  // 1111 2222
+        shmem[tid * 3 + 2] = (val2 << 6) | (val3);       // 2233 3333
+    }
+    __syncthreads();
+
+    // coalesced memory write
+    // TODO: write in larger word size
+    for (int i = 0; i < 3; i++) {
+        if (output_offset + BLOCK_SIZE * i + tid < n / 4 * 3) {
+            fp6_ptr[BLOCK_SIZE * i + tid] = shmem[BLOCK_SIZE * i + tid];
+        }
+    }
 }
 
 at::Tensor to_fp6_packed_cuda(at::Tensor fp_tensor) {
@@ -381,16 +396,16 @@ at::Tensor to_fp6_packed_cuda(at::Tensor fp_tensor) {
     int grid_size = (n + (block_size * 4) - 1) / (block_size * 4);
 
     if (dtype == torch::kFloat32) {
-        const uint32_t *fp32_ptr = reinterpret_cast<uint32_t *>(fp_tensor.data_ptr<float>());
-        bits_to_fp6_packed_kernel<uint32_t, FP32_SPEC, block_size><<<grid_size, block_size>>>(fp32_ptr, fp6_ptr, n);
+        const float *fp32_ptr = fp_tensor.data_ptr<float>();
+        to_fp6_packed_kernel<float, block_size><<<grid_size, block_size>>>(fp32_ptr, fp6_ptr, n);
 
     } else if (dtype == torch::kFloat16) {
-        const uint16_t *fp16_ptr = reinterpret_cast<uint16_t *>(fp_tensor.data_ptr<at::Half>());
-        bits_to_fp6_packed_kernel<uint16_t, FP16_SPEC, block_size><<<grid_size, block_size>>>(fp16_ptr, fp6_ptr, n);
+        const at::Half *fp16_ptr = fp_tensor.data_ptr<at::Half>();
+        to_fp6_packed_kernel<at::Half, block_size><<<grid_size, block_size>>>(fp16_ptr, fp6_ptr, n);
 
     } else if (dtype == torch::kBFloat16) {
-        const uint16_t *bf16_ptr = reinterpret_cast<uint16_t *>(fp_tensor.data_ptr<at::BFloat16>());
-        bits_to_fp6_packed_kernel<uint16_t, BF16_SPEC, block_size><<<grid_size, block_size>>>(bf16_ptr, fp6_ptr, n);
+        const at::BFloat16 *bf16_ptr = fp_tensor.data_ptr<at::BFloat16>();
+        to_fp6_packed_kernel<at::BFloat16, block_size><<<grid_size, block_size>>>(bf16_ptr, fp6_ptr, n);
 
     } else {
         throw std::invalid_argument("Only FP32, FP16, and BF16 inputs are accepted.");
