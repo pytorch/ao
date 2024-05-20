@@ -132,8 +132,10 @@ __device__ __host__ static uint8_t to_fp6_bits(T bits) {
     return result;
 }
 
-// assume the lower 6 bits contain the data
-__device__ __host__ static float fp6_to_fp32(const uint8_t a) {
+// assume the lower 6 bits contain the data.
+// NOTE: probably not efficient for FP6->FP16 and FP6->BF16 on CPU since FP32->FP16/BF16 is slow.
+template <typename T>
+__device__ __host__ static T from_fp6(uint8_t a) {
     // we shift the bits so that sign, exponent, and mantissa bits are in their correct positions in FP32.
     // this also handles subnormal numbers correctly.
     // FP6:                                  SE EEMM
@@ -147,18 +149,8 @@ __device__ __host__ static float fp6_to_fp32(const uint8_t a) {
     // we can correct this by direct FP32 multiplication, which also handles subnormal numbers.
     float result;
     std::memcpy(&result, &result_bits, sizeof(result));
-    return result * 0x1p124;  // 2^(127-3)
-}
-
-__device__ __host__ static void fp6_4_packed_to_fp32_4(const uint8_t *fp6_ptr, float *fp32_ptr) {
-    uint8_t bits0 = fp6_ptr[0];  // 0000 0011
-    uint8_t bits1 = fp6_ptr[1];  // 1111 2222
-    uint8_t bits2 = fp6_ptr[2];  // 2233 3333
-
-    fp32_ptr[0] = fp6_to_fp32(bits0 >> 2);
-    fp32_ptr[1] = fp6_to_fp32(((bits0 & 0x3u) << 4) | (bits1 >> 4));
-    fp32_ptr[2] = fp6_to_fp32(((bits1 & 0xFu) << 2) | (bits2 >> 6));
-    fp32_ptr[3] = fp6_to_fp32(bits2 & 0x3Fu);
+    result *= 0x1p124;  // 2^(127-3)
+    return static_cast<T>(result);
 }
 
 namespace torchao {
@@ -223,7 +215,7 @@ at::Tensor to_fp6_unpacked_cuda(at::Tensor fp_tensor) {
     auto dtype = fp_tensor.dtype();
 
     constexpr int block_size = 256;
-    int grid_size = (n + block_size - 1) / block_size;
+    const int grid_size = (n + block_size - 1) / block_size;
 
     if (dtype == torch::kFloat32) {
         const float *fp32_ptr = fp_tensor.data_ptr<float>();
@@ -371,7 +363,7 @@ at::Tensor to_fp6_packed_cuda(at::Tensor fp_tensor) {
 
     // times 4 since each thread will handle 4 values
     constexpr int block_size = 256;
-    int grid_size = (n + (block_size * 4) - 1) / (block_size * 4);
+    const int grid_size = (n + (block_size * 4) - 1) / (block_size * 4);
 
     if (dtype == torch::kFloat32) {
         const float *fp32_ptr = fp_tensor.data_ptr<float>();
@@ -392,85 +384,188 @@ at::Tensor to_fp6_packed_cuda(at::Tensor fp_tensor) {
     return fp6_tensor;
 }
 
-__global__ void fp6_unpacked_to_fp32_kernel(const uint8_t *fp6_ptr, float *fp32_ptr, int n) {
-    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < n)
-        fp32_ptr[idx] = fp6_to_fp32(fp6_ptr[idx]);
+template <typename T>
+void from_fp6_unpacked_cpu_impl(const uint8_t *fp6_ptr, T *fp_ptr, int n) {
+#pragma omp parallel for
+    for (int i = 0; i < n; i++)
+        fp_ptr[i] = from_fp6<T>(fp6_ptr[i]);
 }
 
-at::Tensor fp6_unpacked_to_fp32(at::Tensor fp6_tensor) {
+at::Tensor from_fp6_unpacked_cpu(at::Tensor fp6_tensor, c10::ScalarType dtype) {
     TORCH_CHECK(fp6_tensor.dtype() == torch::kUInt8);
     TORCH_CHECK(fp6_tensor.is_contiguous());
-    TORCH_CHECK(fp6_tensor.is_cpu() || fp6_tensor.is_cuda());
+    TORCH_CHECK(fp6_tensor.is_cpu());
 
-    at::TensorOptions options = at::TensorOptions().dtype(torch::kFloat32).device(fp6_tensor.device());
-    at::Tensor fp32_tensor = at::empty(fp6_tensor.sizes(), options);
+    at::TensorOptions options = at::TensorOptions().dtype(dtype).device(fp6_tensor.device());
+    at::Tensor fp_tensor = at::empty(fp6_tensor.sizes(), options);
 
     const uint8_t *fp6_ptr = fp6_tensor.data_ptr<uint8_t>();
-    float *fp32_ptr = fp32_tensor.data_ptr<float>();
     int n = fp6_tensor.numel();
 
-    if (fp6_tensor.is_cpu()) {
-        #pragma omp parallel for
-        for (int i = 0; i < n; i++)
-            fp32_ptr[i] = fp6_to_fp32(fp6_ptr[i]);
+    if (dtype == torch::kFloat32) {
+        from_fp6_unpacked_cpu_impl(fp6_ptr, fp_tensor.data_ptr<float>(), n);
+
+    } else if (dtype == torch::kFloat16) {
+        from_fp6_unpacked_cpu_impl(fp6_ptr, fp_tensor.data_ptr<at::Half>(), n);
+
+    } else if (dtype == torch::kBFloat16) {
+        from_fp6_unpacked_cpu_impl(fp6_ptr, fp_tensor.data_ptr<at::BFloat16>(), n);
+
     } else {
-        constexpr int block_size = 256;
-        int grid_size = (n + block_size * 4 - 1) / (block_size * 4);
-        fp6_unpacked_to_fp32_kernel<<<grid_size, block_size>>>(fp6_ptr, fp32_ptr, n);
+        throw std::invalid_argument("Only FP32, FP16, and BF16 outputs are accepted.");
     }
 
-    return fp32_tensor;
+    return fp_tensor;
 }
 
-__global__ void fp6_packed_to_fp32_kernel(const uint8_t *fp6_ptr, float *fp32_ptr, int n) {
-    const int idx = (blockIdx.x * blockDim.x + threadIdx.x) * 3;
+template <typename T>
+__global__ void from_fp6_unpacked_kernel(const uint8_t *fp6_ptr, T *fp_ptr, int n) {
+    // TODO: use vector load for reading from global memory
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n)
-        fp6_4_packed_to_fp32_4(fp6_ptr + idx, fp32_ptr + idx / 3 * 4);
+        fp_ptr[idx] = from_fp6<T>(fp6_ptr[idx]);
 }
 
-at::Tensor fp6_packed_to_fp32(at::Tensor fp6_tensor) {
+at::Tensor from_fp6_unpacked_cuda(at::Tensor fp6_tensor, c10::ScalarType dtype) {
     TORCH_CHECK(fp6_tensor.dtype() == torch::kUInt8);
     TORCH_CHECK(fp6_tensor.is_contiguous());
-    TORCH_CHECK(fp6_tensor.is_cpu() || fp6_tensor.is_cuda());
+    TORCH_CHECK(fp6_tensor.is_cuda());
+
+    at::TensorOptions options = at::TensorOptions().dtype(dtype).device(fp6_tensor.device());
+    at::Tensor fp_tensor = at::empty(fp6_tensor.sizes(), options);
+
+    const uint8_t *fp6_ptr = fp6_tensor.data_ptr<uint8_t>();
+    int n = fp6_tensor.numel();
+
+    constexpr int block_size = 256;
+    const int grid_size = (n + block_size - 1) / block_size;
+
+    if (dtype == torch::kFloat32) {
+        from_fp6_unpacked_kernel<<<grid_size, block_size>>>(fp6_ptr, fp_tensor.data_ptr<float>(), n);
+
+    } else if (dtype == torch::kFloat16) {
+        from_fp6_unpacked_kernel<<<grid_size, block_size>>>(fp6_ptr, fp_tensor.data_ptr<at::Half>(), n);
+
+    } else if (dtype == torch::kBFloat16) {
+        from_fp6_unpacked_kernel<<<grid_size, block_size>>>(fp6_ptr, fp_tensor.data_ptr<at::BFloat16>(), n);
+
+    } else {
+        throw std::invalid_argument("Only FP32, FP16, and BF16 outputs are accepted.");
+    }
+
+    return fp_tensor;
+}
+
+template <typename T>
+void from_fp6_packed_cpu_impl(const uint8_t *fp6_ptr, T *fp_ptr, int n) {
+#pragma omp parallel for
+    for (int i = 0; i < n / 3; i++) {
+        uint8_t bits0 = fp6_ptr[i * 3];      // 0000 0011
+        uint8_t bits1 = fp6_ptr[i * 3 + 1];  // 1111 2222
+        uint8_t bits2 = fp6_ptr[i * 3 + 2];  // 2233 3333
+
+        fp_ptr[i * 4]     = from_fp6<T>(bits0 >> 2);
+        fp_ptr[i * 4 + 1] = from_fp6<T>(((bits0 & 0x3u) << 4) | (bits1 >> 4));
+        fp_ptr[i * 4 + 2] = from_fp6<T>(((bits1 & 0xFu) << 2) | (bits2 >> 6));
+        fp_ptr[i * 4 + 3] = from_fp6<T>(bits2 & 0x3Fu);
+    }
+}
+
+at::Tensor from_fp6_packed_cpu(at::Tensor fp6_tensor, c10::ScalarType dtype) {
+    TORCH_CHECK(fp6_tensor.dtype() == torch::kUInt8);
+    TORCH_CHECK(fp6_tensor.is_contiguous());
+    TORCH_CHECK(fp6_tensor.is_cpu());
     TORCH_CHECK(fp6_tensor.ndimension() == 2);
 
     int M = fp6_tensor.size(0);
     int N = fp6_tensor.size(1);
     TORCH_CHECK(N % 3 == 0, "Last dimension must be a multiple of 3, receives ", N);
 
-    at::TensorOptions options = at::TensorOptions().dtype(torch::kFloat32).device(fp6_tensor.device());
-    at::Tensor fp32_tensor = at::empty({M, N / 3 * 4}, options);
+    at::TensorOptions options = at::TensorOptions().dtype(dtype).device(fp6_tensor.device());
+    at::Tensor fp_tensor = at::empty({M, N / 3 * 4}, options);
 
     const uint8_t *fp6_ptr = fp6_tensor.data_ptr<uint8_t>();
-    float *fp32_ptr = fp32_tensor.data_ptr<float>();
     int n = fp6_tensor.numel();
 
-    if (fp6_tensor.is_cpu()) {
-        #pragma omp parallel for
-        for (int i = 0; i < n; i += 3)
-            fp6_4_packed_to_fp32_4(fp6_ptr + i, fp32_ptr + i / 3 * 4);
+    if (dtype == torch::kFloat32) {
+        from_fp6_packed_cpu_impl(fp6_ptr, fp_tensor.data_ptr<float>(), n);
+
+    } else if (dtype == torch::kFloat16) {
+        from_fp6_packed_cpu_impl(fp6_ptr, fp_tensor.data_ptr<at::Half>(), n);
+
+    } else if (dtype == torch::kBFloat16) {
+        from_fp6_packed_cpu_impl(fp6_ptr, fp_tensor.data_ptr<at::BFloat16>(), n);
+
     } else {
-        constexpr int block_size = 256;
-        int grid_size = (n + block_size * 3 - 1) / (block_size * 3);
-        fp6_packed_to_fp32_kernel<<<grid_size, block_size>>>(fp6_ptr, fp32_ptr, n);
+        throw std::invalid_argument("Only FP32, FP16, and BF16 outputs are accepted.");
     }
 
-    return fp32_tensor;
+    return fp_tensor;
+}
+
+template <typename T>
+__global__ void from_fp6_packed_kernel(const uint8_t *fp6_ptr, T *fp_ptr, int n) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n / 3) {
+        // TODO: use vector load for reading from global memory
+        uint8_t bits0 = fp6_ptr[idx * 3];      // 0000 0011
+        uint8_t bits1 = fp6_ptr[idx * 3 + 1];  // 1111 2222
+        uint8_t bits2 = fp6_ptr[idx * 3 + 2];  // 2233 3333
+
+        fp_ptr[idx * 4]     = from_fp6<T>(bits0 >> 2);
+        fp_ptr[idx * 4 + 1] = from_fp6<T>(((bits0 & 0x3u) << 4) | (bits1 >> 4));
+        fp_ptr[idx * 4 + 2] = from_fp6<T>(((bits1 & 0xFu) << 2) | (bits2 >> 6));
+        fp_ptr[idx * 4 + 3] = from_fp6<T>(bits2 & 0x3Fu);
+    }
+}
+
+at::Tensor from_fp6_packed_cuda(at::Tensor fp6_tensor, c10::ScalarType dtype) {
+    TORCH_CHECK(fp6_tensor.dtype() == torch::kUInt8);
+    TORCH_CHECK(fp6_tensor.is_contiguous());
+    TORCH_CHECK(fp6_tensor.is_cuda());
+
+    int M = fp6_tensor.size(0);
+    int N = fp6_tensor.size(1);
+    TORCH_CHECK(N % 3 == 0, "Last dimension must be a multiple of 3, receives ", N);
+
+    at::TensorOptions options = at::TensorOptions().dtype(dtype).device(fp6_tensor.device());
+    at::Tensor fp_tensor = at::empty({M, N / 3 * 4}, options);
+
+    const uint8_t *fp6_ptr = fp6_tensor.data_ptr<uint8_t>();
+    int n = fp6_tensor.numel();
+
+    // times 3 because each thread read 3 bytes (which represent 4 FP6 values)
+    constexpr int block_size = 256;
+    const int grid_size = (n + block_size * 3 - 1) / (block_size * 3);
+
+    if (dtype == torch::kFloat32) {
+        from_fp6_packed_kernel<<<grid_size, block_size>>>(fp6_ptr, fp_tensor.data_ptr<float>(), n);
+
+    } else if (dtype == torch::kFloat16) {
+        from_fp6_packed_kernel<<<grid_size, block_size>>>(fp6_ptr, fp_tensor.data_ptr<at::Half>(), n);
+
+    } else if (dtype == torch::kBFloat16) {
+        from_fp6_packed_kernel<<<grid_size, block_size>>>(fp6_ptr, fp_tensor.data_ptr<at::BFloat16>(), n);
+
+    } else {
+        throw std::invalid_argument("Only FP32, FP16, and BF16 outputs are accepted.");
+    }
+
+    return fp_tensor;
 }
 
 TORCH_LIBRARY_IMPL(torchao, CPU, m) {
   m.impl("torchao::to_fp6_unpacked", &to_fp6_unpacked_cpu);
   m.impl("torchao::to_fp6_packed", &to_fp6_packed_cpu);
-  m.impl("torchao::fp6_unpacked_to_fp32", &fp6_unpacked_to_fp32);
-  m.impl("torchao::fp6_packed_to_fp32", &fp6_packed_to_fp32);
+  m.impl("torchao::from_fp6_unpacked", &from_fp6_unpacked_cpu);
+  m.impl("torchao::from_fp6_packed", &from_fp6_packed_cpu);
 }
 
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl("torchao::to_fp6_unpacked", &to_fp6_unpacked_cuda);
   m.impl("torchao::to_fp6_packed", &to_fp6_packed_cuda);
-  m.impl("torchao::fp6_unpacked_to_fp32", &fp6_unpacked_to_fp32);
-  m.impl("torchao::fp6_packed_to_fp32", &fp6_packed_to_fp32);
+  m.impl("torchao::from_fp6_unpacked", &from_fp6_unpacked_cuda);
+  m.impl("torchao::from_fp6_packed", &from_fp6_packed_cuda);
 }
 
 }

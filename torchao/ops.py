@@ -67,13 +67,13 @@ def _(fp_tensor):
     return torch.empty(*leading_dims, last_dim * 3 / 4, device=fp_tensor.device, dtype=torch.uint8)
 
 
-def fp6_unpacked_to_fp32(fp6_tensor: Tensor) -> Tensor:
-    return torch.ops.torchao.fp6_unpacked_to_fp32.default(fp6_tensor)
+def from_fp6_unpacked(fp6_tensor: Tensor, dtype: torch.dtype) -> Tensor:
+    return torch.ops.torchao.from_fp6_unpacked.default(fp6_tensor, dtype)
 
 
-def fp6_packed_to_fp32(fp6_tensor: Tensor) -> Tensor:
+def from_fp6_packed(fp6_tensor: Tensor, dtype: torch.dtype) -> Tensor:
     *leading_dims, last_dim = fp6_tensor.shape
-    return torch.ops.torchao.fp6_packed_to_fp32.default(fp6_tensor.view(-1, last_dim)).view(*leading_dims, -1)
+    return torch.ops.torchao.from_fp6_packed.default(fp6_tensor.view(-1, last_dim), dtype).view(*leading_dims, -1)
 
 
 def fp16_to_fp6_original(fp16_tensor: Tensor) -> Tensor:
