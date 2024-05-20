@@ -68,6 +68,10 @@ class TestOps(TestCase):
         IC = 256
         fp16_weight = torch.randn((OC, IC), dtype=torch.float16)
 
+        # the original FP16->FP6 kernel checks for overflow/underflow
+        fp16_weight.clip_(-28.0, 28.0)
+        fp16_weight[fp16_weight.abs() < 0.0625] = 0.0
+
         # smoke test
         torchao.ops.fp16_to_fp6_original(fp16_weight)
 
