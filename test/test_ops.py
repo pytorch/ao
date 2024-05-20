@@ -63,7 +63,7 @@ class TestOps(TestCase):
         opcheck(torch.ops.torchao.prepack_fp6_weight, (fp6_weight,), test_utils=test_utils)
 
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
-    def test_fp16_to_fp6(self):
+    def test_fp16_to_fp6_original(self):
         OC = 256
         IC = 256
         fp16_weight = torch.randn((OC, IC), dtype=torch.float16)
