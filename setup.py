@@ -20,7 +20,7 @@ def read_requirements(file_path):
 package_name = "torchao-nightly" if os.environ.get("TORCHAO_NIGHTLY") else "torchao"
 
 # Version is year.month.date if using nightlies
-version = current_date if package_name == "torchao-nightly" else "0.2.0"
+version = current_date if package_name == "torchao-nightly" else "0.2.1"
 
 import torch
 
