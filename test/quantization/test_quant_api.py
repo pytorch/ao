@@ -563,7 +563,7 @@ class TestQuantFlow(unittest.TestCase):
         input_eps = 1e-5
         input_quant_min = -127
         input_quant_max = 127
-        input_quant_func = lambda x: AffineQuantizedTensor.from_float(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype, eps=input_eps, quant_min=input_quant_min, quant_max=input_quant_max, scale_dtype=torch.float)
+        input_quant_func = lambda x: AffineQuantizedTensor.from_float(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype, eps=input_eps, quant_min=input_quant_min, quant_max=input_quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
 
         # use 1024 so that we don't need padding
         m = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to("cuda")
