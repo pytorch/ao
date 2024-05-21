@@ -3,6 +3,11 @@ from torch import Tensor
 from torch.utils._triton import has_triton
 
 
+# some useful constants
+FP6_MAX = 28.0
+FP6_SMALLEST_SUBNORMAL = 0.0625
+
+
 if has_triton():
     import triton
     from triton import language as tl
@@ -92,19 +97,20 @@ def to_fp6(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
     (4 x 6 bits = 3 x 8 bits).
 
     Args:
-      tensor: input tensor. The last dimension must be divisible by 4 (unless `no_bit_packing=False`)
-      no_bit_packing: whether to not perform bit packing. Setting this to `True` can be useful for
+      tensor: Input tensor. The last dimension must be divisible by 4 (unless ``no_bit_packing=False``)
+      no_bit_packing: Whether to not perform bit packing. Setting this to ``True`` can be useful for
         observing the bit patterns and debugging.
 
     Returns:
-      an FP6 tensor, stored as uint8 data. If `no_bit_packing=False`, the last dimension of output
-        tensor is 3/4 of that of input tensor.
+      :class:`torch.Tensor`: FP6 tensor, stored as uint8 data. If ``no_bit_packing=False``, the last
+      dimension of output tensor is 3/4 of that of input tensor.
 
     Note:
       This FP6 format does not represent +/-inf and NaN. Thus, make sure that input tensor does
-      not have +/-inf or NaN values, and no values with magnitude >= 28 (largest number in FP6).
+      not have +/-inf or NaN values, and no values with magnitude >= 30 (largest number in FP6 is 28.
+      All numbers >= 28 and < 30 will be rounded down to 28, while >= 30 will overflow).
 
-      Also see :func:`from_fp6`
+      See also :func:`from_fp6`
     """
     if not no_bit_packing:
         assert tensor.shape[-1] % 4 == 0, "Last dim must be divisible by 4"
@@ -132,9 +138,13 @@ def from_fp6(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
     """Convert an FP6 tensor (created by :func:`to_fp6`) to FP32.
 
     Args:
-      tensor: FP6 tensor, stored as uint8 data. If `no_bit_packing=False`, the last dimension must
-        be divisible by 3.
+      tensor: FP6 tensor, stored as uint8 data. If ``no_bit_packing=False``, the last dimension must be
+        divisible by 3.
       no_bit_packing: whether the input does not have bit packing.
+
+    Returns:
+      :class:`torch.Tensor`: FP32 tensor. If ``no_bit_packing=False``, the last dimension of output tensor
+      is 4/3 of that of input tensor.
     """
     assert tensor.dtype == torch.uint8
     if no_bit_packing:
