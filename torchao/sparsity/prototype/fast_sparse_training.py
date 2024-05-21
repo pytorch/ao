@@ -13,9 +13,9 @@ from typing import Any, Callable, Optional, Tuple, TypeVar, cast
 import torch
 from torch.sparse import SparseSemiStructuredTensor, SparseSemiStructuredTensorCUTLASS, SparseSemiStructuredTensorCUSPARSELT
 from collections.abc import Iterable
+from torch import nn
 
-
-def semi_sparse_pointwise_op(func, types, args=(), kwargs=None, allow_sparsify_args_list=()):
+def semi_sparse_pointwise_op(func, types, args=(), kwargs=None, sparsify_like_args_list=()):
     """
     adds pointwise op support for semi-structured tensors
     """
@@ -24,12 +24,12 @@ def semi_sparse_pointwise_op(func, types, args=(), kwargs=None, allow_sparsify_a
         if isinstance(tensor, SparseSemiStructuredTensor):
             self = tensor
     assert self is not None
-    args_updated = []
-    for i, tensor in enumerate(args):
+
+    def handle_arg(i, tensor):
         if isinstance(tensor, torch.Tensor):
             if not isinstance(tensor, SparseSemiStructuredTensor):
-                if i in allow_sparsify_args_list:
-                    tensor = sparsify24_like(tensor, self)
+                if i in sparsify_like_args_list:
+                    tensor = semi_sparse_sparsify(tensor, pattern=self)
                 else:
                     raise ValueError(
                         f"Operation {func.__module__}.{func.__name__} on {type(self)} requires all operands to "
@@ -46,13 +46,16 @@ def semi_sparse_pointwise_op(func, types, args=(), kwargs=None, allow_sparsify_a
                         f"Operation {func.__module__}.{func.__name__} on {type(self)} requires all operands to be "
                         f"{type(self)} with the same sparsity pattern"
                     )
-        args_updated.append(tensor)
+        return tensor
+
+    args_updated = [ handle_arg(i, tensor) for i, tensor in enumerate(args) ]
 
     return self.__class__(
         self.shape,
-        func(
-            *[(x.packed if isinstance(x, SparseSemiStructuredTensor) else x) for x in args_updated]
-        ),
+        func(*[
+                x.packed if isinstance(x, SparseSemiStructuredTensor) else x
+                for x in args_updated
+            ]),
         self.meta,
         func(
             *[
@@ -98,7 +101,7 @@ if torch.__version__ >= "2.1.0":
     torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUTLASS)
 
 
-class _Sparsify24Func(torch.autograd.Function):
+class _SparsifyFunc(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, x: torch.Tensor, algo: str, backend: str):  # type: ignore[override]
@@ -131,21 +134,21 @@ class _Sparsify24Func(torch.autograd.Function):
 
 GRADIENT_STE = "ste"
 GRADIENT_DENSE = "dense"
-GRADIENT_SP24 = "sparse"
+GRADIENT_SPARSE = "sparse"
 
-class _Sparsify24LikeFunc(torch.autograd.Function):
+class _SparsifyLikeFunc(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, x: torch.Tensor, pattern: SparseSemiStructuredTensor, gradient=GRADIENT_SP24):  # type: ignore[override]
+    def forward(ctx, x: torch.Tensor, pattern: SparseSemiStructuredTensor, gradient=GRADIENT_SPARSE):  # type: ignore[override]
         assert isinstance(pattern, SparseSemiStructuredTensor)
 
         if not isinstance(pattern, SparseSemiStructuredTensorCUTLASS):
             raise NotImplementedError(
-                "`sparsify24_like(x, pattern)` is only implemented for CUTLASS backend"
+                "`sparsify_like(x, pattern)` is only implemented for CUTLASS backend"
             )
         if not pattern.compressed_swizzled_bitmask.is_contiguous():
             raise NotImplementedError(
-                "`sparsify24_like(x, pattern)` is not implemented when `bitmask` is transposed"
+                "`sparsify_like(x, pattern)` is not implemented when `bitmask` is transposed"
             )
 
         packed, packed_t = torch._sparse_semi_structured_apply(x, pattern.compressed_swizzled_bitmask)
@@ -174,7 +177,7 @@ class _Sparsify24LikeFunc(torch.autograd.Function):
                 None,
                 None,
             )
-        assert ctx.gradient == GRADIENT_SP24
+        assert ctx.gradient == GRADIENT_SPARSE
 
         packed, _, packed_t, _ = torch._sparse_semi_structured_tile(
             grad_out, ctx.threads_masks, backend="cutlass"
@@ -201,44 +204,41 @@ class _Sparsify24LikeFunc(torch.autograd.Function):
 # This is a hack to work around this
 F = TypeVar("F", bound=Callable[..., Any])
 
-
 def allow_in_graph(func: F) -> F:
     return cast(F, torch._dynamo.allow_in_graph(func))
 
 @allow_in_graph
-def sparsify24(
+def semi_sparse_sparsify(
     x: torch.Tensor,
+    pattern: SparseSemiStructuredTensor = None,
     algo: str = "",
     backend: str = "cutlass",
 ) -> SparseSemiStructuredTensor:
-    return _Sparsify24Func.apply(x, algo, backend)
+    if pattern is None:
+        return _SparsifyFunc.apply(x, algo, backend)
+    else:
+        if not isinstance(pattern, SparseSemiStructuredTensor):
+            raise ValueError(
+                f"`pattern` must be a `SparseSemiStructuredTensor` but got a {type(pattern)}"
+            )
+        return _SparsifyLikeFunc.apply(x, pattern)
 
-
-@allow_in_graph
-def sparsify24_like(
-    x: torch.Tensor,
-    pattern: SparseSemiStructuredTensor,
-) -> SparseSemiStructuredTensor:
-    if not isinstance(pattern, SparseSemiStructuredTensor):
-        raise ValueError(
-            f"`pattern` must be a `SparseSemiStructuredTensor` but got a {type(pattern)}"
-        )
-    return _Sparsify24LikeFunc.apply(x, pattern)
-
-
-from torch import nn
 class SemiSparseLinear(torch.nn.Linear):
 
     def forward(self, x):
-        w_sparse = sparsify24(self.weight, backend="cusparselt")
-        return torch.nn.functional.linear(x, w_sparse, self.bias)
+        if self.weight_sparsity:
+            weight = semi_sparse_sparsify(self.weight, backend="cusparselt")
+        else:
+            x = semi_sparse_sparsify(x, backend="cusparselt")
+        return torch.nn.functional.linear(x, weight, self.bias)
+
 
     @classmethod
-    def from_dense(cls, linear):
+    def from_dense(cls, linear, weight_sparsity=True):
         mod = cls(linear.in_features, linear.out_features)
-        # mod.weight = nn.Parameter(sparsify24(mod.weight.cuda().to(torch.bfloat16), backend="cusparselt", alg_id_cusparselt=cslt_alg_id))
         mod.weight = linear.weight
         mod.bias = linear.bias
+        mod.weight_sparsity = weight_sparsity
         return mod
 
 
