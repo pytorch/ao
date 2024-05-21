@@ -12,6 +12,8 @@ torchao.dtypes
 
     to_nf4
     UInt4Tensor
+    to_fp6
+    from_fp6
 
 ..
   _NF4Tensor - add after fixing torchao/dtypes/nf4tensor.py:docstring
