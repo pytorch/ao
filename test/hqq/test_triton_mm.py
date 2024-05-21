@@ -5,12 +5,9 @@ triton = pytest.importorskip(
     "triton", minversion="3.0.0", reason="Triton > 3.0.0 required to run this test"
 )
 hqq = pytest.importorskip("hqq", reason="hqq required to run this test")
-HQQLinear = pytest.importorskip(
-    "hqq.core.quantize.HQQLinear", reason="HQQLinear required to run this test"
-)
-BaseQuantizeConfig = pytest.importorskip(
-    "hqq.core.quantize.BaseQuantizeConfig", reason="HQQLinear required to run this test"
-)
+hqq_quantize = pytest.importorskip("hqq.core.quantize", reason="hqq required to run this test")
+HQQLinear = hqq_quantize.HQQLinear
+BaseQuantizeConfig = hqq_quantize.BaseQuantizeConfig
 
 import itertools
 
