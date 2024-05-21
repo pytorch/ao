@@ -1,10 +1,5 @@
 import torch
 from torch import Tensor
-from torch.utils._triton import has_triton
-
-if has_triton():
-    import triton
-    from triton import language as tl
 
 
 def nms(boxes: Tensor, scores: Tensor, iou_threshold: float) -> Tensor:
@@ -118,82 +113,3 @@ def _(fp6_tensor, fp16_scale):
     torch._check(OC == fp16_scale.shape[0], lambda: "Dimensions mismatched")
 
     return fp16_scale.new_empty((OC, _IC * 16 // 3))
-
-
-if has_triton():
-    @triton.jit
-    def _to_fp6_triton(x: tl.tensor):
-        x = x.to(tl.float32)
-        x = x * 2.0 ** (-124)
-        bits = x.to(tl.int32, bitcast=True)
-
-        sign = ((bits >> 31) & 0x1) << 5
-        exp_and_man = (bits >> 21) & 0x1F
-        result = sign | exp_and_man
-
-        remainder = bits & 0x1F_FFFF
-        do_round_up = (remainder > 0x10_0000) | ((remainder == 0x10_0000) & (result & 1))
-        result = tl.where(do_round_up, result + 1, result)
-        return result.to(tl.uint8)
-
-    @triton.jit
-    def _to_fp6_triton_kernel(in_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):
-        offsets = tl.program_id(0) * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-        mask = offsets < n
-
-        # strided memory read. there will be uncoalesced memory access
-        val0 = _to_fp6_triton(tl.load(in_ptr + offsets * 4, mask))
-        val1 = _to_fp6_triton(tl.load(in_ptr + offsets * 4 + 1, mask))
-        val2 = _to_fp6_triton(tl.load(in_ptr + offsets * 4 + 2, mask))
-        val3 = _to_fp6_triton(tl.load(in_ptr + offsets * 4 + 3, mask))
-
-        bits0 = (val0 << 2) | (val1 >> 4)  # 0000 0011
-        bits1 = (val1 << 4) | (val2 >> 2)  # 1111 2222
-        bits2 = (val2 << 6) | (val3);      # 2233 3333
-
-        # strided memory write. there will be uncoalesced memory access
-        tl.store(out_ptr + offsets * 3, bits0, mask)
-        tl.store(out_ptr + offsets * 3 + 1, bits1, mask)
-        tl.store(out_ptr + offsets * 3 + 2, bits2, mask)
-
-else:
-    _to_fp6_triton_kernel = None
-
-
-def to_fp6_pt(tensor: torch.Tensor, unpacked: bool = False) -> Tensor:
-    if tensor.device.type == "cuda" and _to_fp6_triton_kernel is not None:
-        out_shape = tensor.shape[:-1] + (tensor.shape[-1] // 4 * 3,)
-        output = torch.empty(out_shape, device=tensor.device, dtype=torch.uint8)
-
-        n = tensor.numel() // 4
-        grid_size = lambda meta: (triton.cdiv(n, meta["BLOCK_SIZE"]),)
-        _to_fp6_triton_kernel[grid_size](tensor, output, n, BLOCK_SIZE=256)
-
-        return output
-
-    tensor = tensor.float()
-    tensor = tensor * 2.0 ** (-124)
-    bits = tensor.view(torch.int32)
-
-    sign = ((bits >> 31) & 0x1) << 5
-    exp_and_man = (bits >> 21) & 0x1F
-    result = sign | exp_and_man
-
-    remainder = bits & 0x1F_FFFF
-    do_round_up = torch.logical_or(
-        remainder > 0x10_0000,
-        torch.logical_and(remainder == 0x10_0000, result & 1)
-    )
-    result = torch.where(do_round_up, result + 1, result)
-    result = result.to(torch.uint8)
-
-    if unpacked:
-        return result
-
-    # pre-allocate output tensor is faster than using torch.stack()
-    outputs = torch.empty(tensor.shape[:-1] + (tensor.shape[-1] // 4, 3), device=tensor.device, dtype=torch.uint8)
-    val0, val1, val2, val3 = result.unflatten(-1, (-1, 4)).unbind(-1)
-    outputs[..., 0] = (val0 << 2) | (val1 >> 4)  # 0000 0011
-    outputs[..., 1] = (val1 << 4) | (val2 >> 2)  # 1111 2222
-    outputs[..., 2] = (val2 << 6) | (val3);      # 2233 3333
-    return outputs.flatten(-2)
