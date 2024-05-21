@@ -13,7 +13,6 @@
 //    limitations under the License.
 // 
 // This file is adapted from https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/fp6_llm/csrc/utils/weight_quant.h
-// and https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/fp6_llm/csrc/utils/weight_dequant.h
 
 #include <cuda_fp16.h>
 #include <iostream>
@@ -120,41 +119,6 @@ void weight_prepacking_fp16_to_fp6(uint16_t* weight_16bit,
     }
 }
 
-void DeQuantMatrix_FP6_To_FP16(half* A_16bit_h, unsigned char* A_6bit_h, size_t M, size_t K, half* scale) {
-    assert(M%64==0);                 // Currently, M must be a multiple of 64.
-    assert(K%64==0);                 // Currently, K must be a multiple of 64.
-    size_t TotalSizeInByte = M*K*6/8;
-    //
-    half* OutPTR = A_16bit_h;
-    for(size_t i=0; i<TotalSizeInByte/3; i++) {    // 4 FP6 = 3 Bytes for each Loop
-        unsigned char   B1  = A_6bit_h[i*3+0] & 0xfc;
-                        B1  = (B1&0x80) | ((B1>>2)&0x1f);
-        unsigned char   B2  = (A_6bit_h[i*3+0]<<6) | ((A_6bit_h[i*3+1]>>2)&0xfc);
-                        B2  = (B2&0x80) | ((B2>>2)&0x1f);
-        unsigned char   B3  = (A_6bit_h[i*3+1]<<4) | ((A_6bit_h[i*3+2]>>4)&0xfc);
-                        B3  = (B3&0x80) | ((B3>>2)&0x1f);
-        unsigned char   B4  = A_6bit_h[i*3+2]<<2;
-                        B4  = (B4&0x80) | ((B4>>2)&0x1f);
-        half            FP1, FP2, FP3, FP4;
-        unsigned char   *PTR1, *PTR2, *PTR3, *PTR4;
-        PTR1 = reinterpret_cast<unsigned char*>(&FP1);
-        PTR2 = reinterpret_cast<unsigned char*>(&FP2);
-        PTR3 = reinterpret_cast<unsigned char*>(&FP3);
-        PTR4 = reinterpret_cast<unsigned char*>(&FP4);
-        PTR1[0] = 0;    PTR1[1] = B1;   // small endian for X86 CPU
-        PTR2[0] = 0;    PTR2[1] = B2;
-        PTR3[0] = 0;    PTR3[1] = B3;
-        PTR4[0] = 0;    PTR4[1] = B4;
-        OutPTR[0] = __float2half_rn ( __half2float(FP1) * 4096.0f * __half2float(scale[(4*i)/K]) );
-        OutPTR[1] = __float2half_rn ( __half2float(FP2) * 4096.0f * __half2float(scale[(4*i)/K]) );
-        OutPTR[2] = __float2half_rn ( __half2float(FP3) * 4096.0f * __half2float(scale[(4*i)/K]) );
-        OutPTR[3] = __float2half_rn ( __half2float(FP4) * 4096.0f * __half2float(scale[(4*i)/K]) );
-        //
-        OutPTR +=4;
-    }
-}
-
-
 #include <torch/extension.h>
 #include <ATen/ATen.h>
 #include <torch/library.h>
@@ -183,37 +147,8 @@ at::Tensor fp16_to_fp6_original_cpu(at::Tensor fp16_tensor)
     return packed_fp6_tensor;
 }
 
-/*
- * Dequant a FP6 matrix to a equivalent FP16 matrix using CPUs.
- * A useful tool to construct input matrices for the FP16 GEMM baseline.
- * [Input]
- *  fp6_tensor:  int  tensor of shape [OC, IC // 16 * 3];   // 3 INT32 words contains 16 FP6  weights.
- *  fp16_scale:  half tensor of shape [OC];                 // for row-wise quantization.
- * [Output]
- *  fp16_tensor: half tensor of shape [OC, IC].     
- */
-at::Tensor weight_matrix_dequant_cpu(at::Tensor fp6_tensor, at::Tensor fp16_scale) 
-{
-    int OC = fp6_tensor.size(0);
-    TORCH_CHECK(fp6_tensor.size(1) % 3 == 0);
-    int IC = fp6_tensor.size(1) / 3 * 16;
-    TORCH_CHECK(fp16_scale.size(0) == OC);
-    //
-    auto fp6_tensor_ptr = reinterpret_cast<unsigned char*>(fp6_tensor.data_ptr<int>());
-    auto fp16_scale_ptr = reinterpret_cast<half*>(fp16_scale.data_ptr<at::Half>());
-    //
-    auto options = at::TensorOptions().dtype(at::kHalf).device(fp16_scale.device());
-    at::Tensor fp16_tensor = at::empty({OC, IC}, options);
-    auto fp16_tensor_ptr = reinterpret_cast<half*>(fp16_tensor.data_ptr<at::Half>());
-    //
-    DeQuantMatrix_FP6_To_FP16(fp16_tensor_ptr, fp6_tensor_ptr, OC, IC, fp16_scale_ptr);
-    //
-    return fp16_tensor;
-}
-
 TORCH_LIBRARY_IMPL(torchao, CPU, m) {
   m.impl("torchao::fp16_to_fp6_original", &fp16_to_fp6_original_cpu);
-  m.impl("torchao::fp6_weight_dequant", &weight_matrix_dequant_cpu);
 }
 
 }
