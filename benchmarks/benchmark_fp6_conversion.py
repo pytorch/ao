@@ -24,21 +24,24 @@ if __name__ == "__main__":
     fp16_weight_cuda = fp16_weight.cuda()
 
     functions = [
-        ("original (FP6 packed)", torchao.ops.fp16_to_fp6_original),
-        # ("custom C++/CUDA (FP6 unpacked)", torchao.ops.to_fp6_unpacked),
-        ("custom C++/CUDA (FP6 packed)", torchao.ops.to_fp6_packed),
-        # ("PyTorch + torch.compile (FP6 unpacked)", partial(torch.compile(torchao.ops.to_fp6_pt), unpacked=True)),
-        ("PyTorch + torch.compile (FP6 packed)", partial(torch.compile(torchao.ops.to_fp6_pt), unpacked=False)),
+        ("original", torchao.ops.fp16_to_fp6_original),
+        ("C++/CUDA extension", torchao.ops.to_fp6_packed),
+        ("PyTorch + torch.compile (default)", torch.compile(torchao.ops.to_fp6_pt)),
+        ("PyTorch + torch.compile (max-autotune)", torch.compile(torchao.ops.to_fp6_pt, mode="max-autotune")),
+
+        # ("C++/CUDA extension (no bit-packing)", torchao.ops.to_fp6_unpacked),
+        # ("PyTorch + torch.compile (no bit-packing)", partial(torch.compile(torchao.ops.to_fp6_pt), unpacked=True)),
     ]
 
     results = []
     for name, f in functions:
-        results.append([name, "CPU", "FP32->FP6", benchmark(f, fp32_weight)])
-        results.append([name, "CPU", "FP16->FP6", benchmark(f, fp16_weight)])
-        if name != "original (FP6 packed)":
-            results.append([name, "CUDA", "FP32->FP6", benchmark(f, fp32_weight_cuda)])
-            results.append([name, "CUDA", "FP16->FP6", benchmark(f, fp16_weight_cuda)])
+        results.append(["CPU", "FP32->FP6", name, benchmark(f, fp32_weight)])
+        results.append(["CPU", "FP16->FP6", name, benchmark(f, fp16_weight)])
 
-    df = pd.DataFrame(results, columns=["op", "device", "dtype", "time (m/s)"])
-    df["op"] = df["op"].str.removesuffix(" (FP6 packed)")
+        if name != "original":
+            results.append(["CUDA", "FP32->FP6", name, benchmark(f, fp32_weight_cuda)])
+            results.append(["CUDA", "FP16->FP6", name, benchmark(f, fp16_weight_cuda)])
+
+    df = pd.DataFrame(results, columns=["device", "dtype", "op", "time (m/s)"])
+    df = df.sort_values(["device", "dtype"])
     print(df.to_markdown(index=False))
