@@ -109,6 +109,16 @@ class TestFp6(TestCase):
         expected = from_fp6(x_unpacked, no_bit_packing=True)
         torch.testing.assert_close(actual, expected)
 
+    @parametrize("device", _DEVICES)
+    @parametrize("no_bit_packing", [False, True])
+    def test_from_fp6_compile(self, device, no_bit_packing):
+        x = torch.randint(256, size=(20, 15), device=device, dtype=torch.uint8)
+        from_fp6_compiled = torch.compile(from_fp6)
+
+        actual = from_fp6_compiled(x, no_bit_packing=no_bit_packing)
+        expected = from_fp6(x, no_bit_packing=no_bit_packing)
+        torch.testing.assert_close(actual, expected)
+
 
 instantiate_parametrized_tests(TestFp6)
 
