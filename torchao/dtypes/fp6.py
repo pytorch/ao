@@ -91,3 +91,28 @@ def to_fp6(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
 
     else:
         return _to_fp6_pt(tensor, no_bit_packing=no_bit_packing)
+
+
+def _pt_fp6_to_fp32(tensor: Tensor) -> Tensor:
+    bits = tensor.to(torch.int32)  # bit extension
+    sign = bits >> 5 << 31
+    exp_and_man = (bits & 0x1F) << 21
+    results = sign | exp_and_man
+
+    results = results.view(torch.float32)
+    return results * 2.0 ** (127 - 3)
+
+
+def from_fp6(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
+    assert tensor.dtype == torch.uint8
+    if no_bit_packing:
+        return _pt_fp6_to_fp32(tensor)
+
+    assert tensor.shape[-1] % 3 == 0, "Last dim must be divisible by 4"
+
+    bits0, bits1, bits2 = tensor.unflatten(-1, (-1, 3)).unbind(-1)
+    val0 = _pt_fp6_to_fp32(bits0 >> 2)
+    val1 = _pt_fp6_to_fp32(((bits0 & 0x3) << 4) | (bits1 >> 4))
+    val2 = _pt_fp6_to_fp32(((bits1 & 0xF) << 2) | (bits2 >> 6))
+    val3 = _pt_fp6_to_fp32(bits2 & 0x3F)
+    return torch.stack([val0, val1, val2, val3], dim=-1).flatten(-2)
