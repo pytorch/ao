@@ -1,15 +1,14 @@
-from functools import partial
-
 import torch
 import torchao
 import pandas as pd
 from torch.utils.benchmark import Timer
 
 
-def benchmark(f, weight):
+def benchmark(f, weight, num_threads = 1):
     measurement = Timer(
         stmt="f(weight)",
         globals={"f": f, "weight": weight},
+        num_threads=num_threads,
     ).blocked_autorange()
     return measurement.median * 1000
 
@@ -25,18 +24,16 @@ if __name__ == "__main__":
 
     functions = [
         ("original", torchao.ops.fp16_to_fp6_original),
-        ("C++/CUDA extension", torchao.ops.to_fp6_packed),
-        ("PyTorch + torch.compile (default)", torch.compile(torchao.ops.to_fp6_pt)),
-        ("PyTorch + torch.compile (max-autotune)", torch.compile(torchao.ops.to_fp6_pt, mode="max-autotune")),
-
-        # ("C++/CUDA extension (no bit-packing)", torchao.ops.to_fp6_unpacked),
-        # ("PyTorch + torch.compile (no bit-packing)", partial(torch.compile(torchao.ops.to_fp6_pt), unpacked=True)),
+        ("ours", torch.compile(torchao.dtypes.to_fp6)),
     ]
 
     results = []
     for name, f in functions:
         results.append(["CPU", "FP32->FP6", name, benchmark(f, fp32_weight)])
         results.append(["CPU", "FP16->FP6", name, benchmark(f, fp16_weight)])
+
+        results.append(["CPU", "FP32->FP6", f"{name} (num_threads=4)", benchmark(f, fp32_weight, num_threads=4)])
+        results.append(["CPU", "FP16->FP6", f"{name} (num_threads=4)", benchmark(f, fp16_weight, num_threads=4)])
 
         if name != "original":
             results.append(["CUDA", "FP32->FP6", name, benchmark(f, fp32_weight_cuda)])
