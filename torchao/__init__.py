@@ -11,7 +11,7 @@ _IS_FBCODE = (
 )
 
 if not _IS_FBCODE:
-    from . import _C
+#    from . import _C
     from . import ops
 
 __all__ = [
