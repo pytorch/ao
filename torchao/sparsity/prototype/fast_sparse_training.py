@@ -228,6 +228,7 @@ class SemiSparseLinear(torch.nn.Linear):
     def forward(self, x):
         if self.weight_sparsity:
             weight = semi_sparse_sparsify(self.weight, backend="cusparselt")
+            print(weight.to_dense())
         else:
             x = semi_sparse_sparsify(x, backend="cusparselt")
         return torch.nn.functional.linear(x, weight, self.bias)
