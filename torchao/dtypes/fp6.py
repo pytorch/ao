@@ -7,6 +7,7 @@ if has_triton():
     import triton
     from triton import language as tl
 
+    # see _to_fp6_pt() for explanation
     @triton.jit
     def _triton_fp32_to_fp6(x: tl.tensor):
         x = x.to(tl.float32)
@@ -33,6 +34,7 @@ if has_triton():
         val2 = _triton_fp32_to_fp6(tl.load(in_ptr + offsets * 4 + 2, mask))
         val3 = _triton_fp32_to_fp6(tl.load(in_ptr + offsets * 4 + 3, mask))
 
+        # bit packing
         bits0 = (val0 << 2) | (val1 >> 4)  # 0000 0011
         bits1 = (val1 << 4) | (val2 >> 2)  # 1111 2222
         bits2 = (val2 << 6) | (val3);      # 2233 3333
@@ -58,6 +60,8 @@ else:
 
 def _to_fp6_pt(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
     tensor = tensor.float()
+
+    # correct exponent bias. this also handles subnormal numbers correctly
     tensor = tensor * 2.0 ** (-127 + 3)
     bits = tensor.view(torch.int32)
 
@@ -65,7 +69,8 @@ def _to_fp6_pt(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
     exp_and_man = (bits >> 21) & 0x1F
     result = sign | exp_and_man
 
-    remainder = bits & 0x1F_FFFF
+    # round to nearest even
+    remainder = bits & 0x1F_FFFF  # truncated mantissa bits
     do_round_up = (remainder > 0x10_0000) | ((remainder == 0x10_0000) & ((result & 1) == 1))
     result = torch.where(do_round_up, result + 1, result)
     result = result.to(torch.uint8)
@@ -73,6 +78,7 @@ def _to_fp6_pt(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
     if no_bit_packing:
         return result
 
+    # bit packing
     val0, val1, val2, val3 = result.unflatten(-1, (-1, 4)).unbind(-1)
     bits0 = (val0 << 2) | (val1 >> 4)  # 0000 0011
     bits1 = (val1 << 4) | (val2 >> 2)  # 1111 2222
@@ -81,6 +87,25 @@ def _to_fp6_pt(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
 
 
 def to_fp6(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
+    """Convert input tensor to FP6. This particular FP6 format has 3 exponent bits and 2 mantissa
+    bits. By default, bit packing is performed: every 4 FP6 values are packed as 3 uint8 values
+    (4 x 6 bits = 3 x 8 bits).
+
+    Args:
+      tensor: input tensor. The last dimension must be divisible by 4 (unless `no_bit_packing=False`)
+      no_bit_packing: whether to not perform bit packing. Setting this to `True` can be useful for
+        observing the bit patterns and debugging.
+
+    Returns:
+      an FP6 tensor, stored as uint8 data. If `no_bit_packing=False`, the last dimension of output
+        tensor is 3/4 of that of input tensor.
+
+    Note:
+      This FP6 format does not represent +/-inf and NaN. Thus, make sure that input tensor does
+      not have +/-inf or NaN values, and no values with magnitude >= 28 (largest number in FP6).
+
+      Also see :func:`from_fp6`
+    """
     if not no_bit_packing:
         assert tensor.shape[-1] % 4 == 0, "Last dim must be divisible by 4"
 
@@ -100,15 +125,22 @@ def _pt_fp6_to_fp32(tensor: Tensor) -> Tensor:
     results = sign | exp_and_man
 
     results = results.view(torch.float32)
-    return results * 2.0 ** (127 - 3)
+    return results * 2.0 ** (127 - 3)  # exponent bias correction
 
 
 def from_fp6(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
+    """Convert an FP6 tensor (created by :func:`to_fp6`) to FP32.
+
+    Args:
+      tensor: FP6 tensor, stored as uint8 data. If `no_bit_packing=False`, the last dimension must
+        be divisible by 3.
+      no_bit_packing: whether the input does not have bit packing.
+    """
     assert tensor.dtype == torch.uint8
     if no_bit_packing:
         return _pt_fp6_to_fp32(tensor)
 
-    assert tensor.shape[-1] % 3 == 0, "Last dim must be divisible by 4"
+    assert tensor.shape[-1] % 3 == 0, "Last dim must be divisible by 3"
 
     bits0, bits1, bits2 = tensor.unflatten(-1, (-1, 3)).unbind(-1)
     val0 = _pt_fp6_to_fp32(bits0 >> 2)
