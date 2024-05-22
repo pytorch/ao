@@ -112,7 +112,8 @@ class TestOps(TestCase):
 
         results_fp6 = torchao.ops.fp16act_fp6weight_linear(act_cuda, weight_cuda, scale_cuda, splitK)
 
-        fp16_weight = torchao.ops.fp6_weight_dequant(fp6_weight, fp16_scale).cuda()
+        fp32_weight = torchao.dtypes.from_fp6(fp6_weight.view(torch.uint8)) * fp16_scale[:, None]
+        fp16_weight = fp32_weight.half().cuda()
         results_fp16 = act_cuda @ fp16_weight.T
 
         error = (results_fp6 - results_fp16).abs()

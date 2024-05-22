@@ -71,10 +71,10 @@ class TestFp6(TestCase):
     @parametrize("no_bit_packing", [False, True])
     def test_to_fp6_compile(self, device, dtype, no_bit_packing):
         x = torch.randn(20, 20, device=device, dtype=dtype)
-        to_fp6_compiled = torch.compile(to_fp6)  # will hit cache_size_limit if fullgraph=True
-
-        actual = to_fp6_compiled(x, no_bit_packing=no_bit_packing)
         expected = to_fp6(x, no_bit_packing=no_bit_packing)
+
+        to_fp6_compiled = torch.compile(to_fp6)
+        actual = to_fp6_compiled(x, no_bit_packing=no_bit_packing)
         torch.testing.assert_close(actual, expected)
 
     @parametrize("device", _DEVICES)
@@ -113,10 +113,10 @@ class TestFp6(TestCase):
     @parametrize("no_bit_packing", [False, True])
     def test_from_fp6_compile(self, device, no_bit_packing):
         x = torch.randint(256, size=(20, 15), device=device, dtype=torch.uint8)
-        from_fp6_compiled = torch.compile(from_fp6)
-
-        actual = from_fp6_compiled(x, no_bit_packing=no_bit_packing)
         expected = from_fp6(x, no_bit_packing=no_bit_packing)
+
+        from_fp6_compiled = torch.compile(from_fp6)
+        actual = from_fp6_compiled(x, no_bit_packing=no_bit_packing)
         torch.testing.assert_close(actual, expected)
 
 
