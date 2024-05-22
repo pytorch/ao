@@ -12,7 +12,7 @@ if has_triton():
     import triton
     from triton import language as tl
 
-    # see _to_fp6_pt() for explanation
+    # see _to_float6_e3m2_pt() for explanation
     @triton.jit
     def _triton_float32_to_float6_e3m2(x: tl.tensor):
         x = x.to(tl.float32)
@@ -110,7 +110,7 @@ def to_float6_e3m2(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
       not have +/-inf or NaN values, and no values with magnitude >= 30 (largest number in FP6 is 28.
       All numbers >= 28 and < 30 will be rounded down to 28, while >= 30 will overflow).
 
-      See also :func:`from_fp6`
+      See also :func:`from_float6_e3m2`
     """
     if not no_bit_packing:
         assert tensor.shape[-1] % 4 == 0, "Last dim must be divisible by 4"
@@ -135,7 +135,7 @@ def _pt_float6_e3m2_to_float32(tensor: Tensor) -> Tensor:
 
 
 def from_float6_e3m2(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
-    """Convert an FP6 tensor (created by :func:`to_fp6`) to FP32.
+    """Convert an FP6 tensor (created by :func:`to_float6_e3m2`) to FP32.
 
     Args:
       tensor: FP6 tensor, stored as uint8 data. If ``no_bit_packing=False``, the last dimension must be
