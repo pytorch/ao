@@ -4,8 +4,8 @@ from torch.utils._triton import has_triton
 
 
 # some useful constants
-FP6_MAX = 28.0
-FP6_SMALLEST_SUBNORMAL = 0.0625
+FLOAT6_E3M2_MAX = 28.0
+FLOAT6_E3M2_SMALLEST_SUBNORMAL = 0.0625
 
 
 if has_triton():
@@ -14,7 +14,7 @@ if has_triton():
 
     # see _to_fp6_pt() for explanation
     @triton.jit
-    def _triton_fp32_to_fp6(x: tl.tensor):
+    def _triton_float32_to_float6_e3m2(x: tl.tensor):
         x = x.to(tl.float32)
         x = x * 2.0 ** (-127 + 3)
         bits = x.to(tl.int32, bitcast=True)
@@ -29,15 +29,15 @@ if has_triton():
         return result.to(tl.uint8)
 
     @triton.jit
-    def _to_fp6_triton_kernel(in_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):
+    def _to_float6_e3m2_triton_kernel(in_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):
         offsets = tl.program_id(0) * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
         mask = offsets < n
 
         # strided memory read. there will be uncoalesced memory access
-        val0 = _triton_fp32_to_fp6(tl.load(in_ptr + offsets * 4, mask))
-        val1 = _triton_fp32_to_fp6(tl.load(in_ptr + offsets * 4 + 1, mask))
-        val2 = _triton_fp32_to_fp6(tl.load(in_ptr + offsets * 4 + 2, mask))
-        val3 = _triton_fp32_to_fp6(tl.load(in_ptr + offsets * 4 + 3, mask))
+        val0 = _triton_float32_to_float6_e3m2(tl.load(in_ptr + offsets * 4, mask))
+        val1 = _triton_float32_to_float6_e3m2(tl.load(in_ptr + offsets * 4 + 1, mask))
+        val2 = _triton_float32_to_float6_e3m2(tl.load(in_ptr + offsets * 4 + 2, mask))
+        val3 = _triton_float32_to_float6_e3m2(tl.load(in_ptr + offsets * 4 + 3, mask))
 
         # bit packing
         bits0 = (val0 << 2) | (val1 >> 4)  # 0000 0011
@@ -49,21 +49,21 @@ if has_triton():
         tl.store(out_ptr + offsets * 3 + 1, bits1, mask)
         tl.store(out_ptr + offsets * 3 + 2, bits2, mask)
 
-    def _to_fp6_triton(tensor: Tensor) -> Tensor:
+    def _to_float6_e3m2_triton(tensor: Tensor) -> Tensor:
         out_shape = tensor.shape[:-1] + (tensor.shape[-1] // 4 * 3,)
         output = torch.empty(out_shape, device=tensor.device, dtype=torch.uint8)
 
         n = tensor.numel()
         grid_size = lambda meta: (triton.cdiv(n, meta["BLOCK_SIZE"] * 4),)
-        _to_fp6_triton_kernel[grid_size](tensor, output, n, BLOCK_SIZE=256)
+        _to_float6_e3m2_triton_kernel[grid_size](tensor, output, n, BLOCK_SIZE=256)
 
         return output
 
 else:
-    _to_fp6_triton = None
+    _to_float6_e3m2_triton = None
 
 
-def _to_fp6_pt(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
+def _to_float6_e3m2_pt(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
     tensor = tensor.float()
 
     # correct exponent bias. this also handles subnormal numbers correctly
@@ -91,7 +91,7 @@ def _to_fp6_pt(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
     return torch.stack([bits0, bits1, bits2], dim=-1).flatten(-2)
 
 
-def to_fp6(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
+def to_float6_e3m2(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
     """Convert input tensor to FP6. This particular FP6 format has 3 exponent bits and 2 mantissa
     bits. By default, bit packing is performed: every 4 FP6 values are packed as 3 uint8 values
     (4 x 6 bits = 3 x 8 bits).
@@ -117,14 +117,14 @@ def to_fp6(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
 
     # torch.compile() cannot generate fused bit-packing triton kernel,
     # thus we write custom triton kernel for this specific case.
-    if tensor.is_cuda and not no_bit_packing and _to_fp6_triton is not None:
-        return _to_fp6_triton(tensor)
+    if tensor.is_cuda and not no_bit_packing and _to_float6_e3m2_triton is not None:
+        return _to_float6_e3m2_triton(tensor)
 
     else:
-        return _to_fp6_pt(tensor, no_bit_packing=no_bit_packing)
+        return _to_float6_e3m2_pt(tensor, no_bit_packing=no_bit_packing)
 
 
-def _pt_fp6_to_fp32(tensor: Tensor) -> Tensor:
+def _pt_float6_e3m2_to_float32(tensor: Tensor) -> Tensor:
     bits = tensor.to(torch.int32)  # bit extension
     sign = bits >> 5 << 31
     exp_and_man = (bits & 0x1F) << 21
@@ -134,7 +134,7 @@ def _pt_fp6_to_fp32(tensor: Tensor) -> Tensor:
     return results * 2.0 ** (127 - 3)  # exponent bias correction
 
 
-def from_fp6(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
+def from_float6_e3m2(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
     """Convert an FP6 tensor (created by :func:`to_fp6`) to FP32.
 
     Args:
@@ -148,13 +148,13 @@ def from_fp6(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
     """
     assert tensor.dtype == torch.uint8
     if no_bit_packing:
-        return _pt_fp6_to_fp32(tensor)
+        return _pt_float6_e3m2_to_float32(tensor)
 
     assert tensor.shape[-1] % 3 == 0, "Last dim must be divisible by 3"
 
     bits0, bits1, bits2 = tensor.unflatten(-1, (-1, 3)).unbind(-1)
-    val0 = _pt_fp6_to_fp32(bits0 >> 2)
-    val1 = _pt_fp6_to_fp32(((bits0 & 0x3) << 4) | (bits1 >> 4))
-    val2 = _pt_fp6_to_fp32(((bits1 & 0xF) << 2) | (bits2 >> 6))
-    val3 = _pt_fp6_to_fp32(bits2 & 0x3F)
+    val0 = _pt_float6_e3m2_to_float32(bits0 >> 2)
+    val1 = _pt_float6_e3m2_to_float32(((bits0 & 0x3) << 4) | (bits1 >> 4))
+    val2 = _pt_float6_e3m2_to_float32(((bits1 & 0xF) << 2) | (bits2 >> 6))
+    val3 = _pt_float6_e3m2_to_float32(bits2 & 0x3F)
     return torch.stack([val0, val1, val2, val3], dim=-1).flatten(-2)
