@@ -1,6 +1,5 @@
 import unittest
 import torch
-from torchao.prototype.fp8 import gemm_split_k
 from torch.testing._internal.common_utils import (
     TestCase,
     instantiate_parametrized_tests,
@@ -8,8 +7,13 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
+try:
+    from torchao.prototype.fp8 import gemm_split_k
+    triton_available = True
+except ImportError:
+    triton_available = False
 
-
+@unittest.skipIf(not triton_available, "Triton is required but not available")
 @unittest.skipIf(not torch.cuda.is_available(), "CUDA is required")
 class TestFP8Gemm(TestCase):
     # @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
