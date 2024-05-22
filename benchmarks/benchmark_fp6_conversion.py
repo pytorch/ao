@@ -24,7 +24,7 @@ if __name__ == "__main__":
 
     functions = [
         ("original", torchao.ops.fp16_to_fp6_original),
-        ("ours", torch.compile(torchao.dtypes.to_fp6)),
+        ("ours", torch.compile(torchao.dtypes.to_float6_e3m2)),
     ]
 
     results = []
