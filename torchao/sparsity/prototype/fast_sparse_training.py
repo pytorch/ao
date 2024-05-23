@@ -2,7 +2,6 @@
 #
 # This source code is licensed under the BSD license found in the
 # LICENSE file in the root directory of this source tree.
-
 import contextlib
 import ctypes
 import glob
@@ -95,11 +94,13 @@ CUTLASS_POINTWISE_OP_DISPATCH_TABLE = {
 }
 
 SparseSemiStructuredTensorCUTLASS._load_dispatch_table(CUTLASS_POINTWISE_OP_DISPATCH_TABLE)
-
 if torch.__version__ >= "2.1.0":
     torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUSPARSELT)
     torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUTLASS)
 
+GRADIENT_STE = "ste"
+GRADIENT_DENSE = "dense"
+GRADIENT_SPARSE = "sparse"
 
 class _SparsifyFunc(torch.autograd.Function):
 
@@ -131,10 +132,6 @@ class _SparsifyFunc(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_out: torch.Tensor):  # type: ignore[override]
         return grad_out, None, None
-
-GRADIENT_STE = "ste"
-GRADIENT_DENSE = "dense"
-GRADIENT_SPARSE = "sparse"
 
 class _SparsifyLikeFunc(torch.autograd.Function):
 
@@ -203,7 +200,6 @@ class _SparsifyLikeFunc(torch.autograd.Function):
 # (see https://fburl.com/workplace/uimiz0mf) but it breaks mypy.
 # This is a hack to work around this
 F = TypeVar("F", bound=Callable[..., Any])
-
 def allow_in_graph(func: F) -> F:
     return cast(F, torch._dynamo.allow_in_graph(func))
 
@@ -224,14 +220,17 @@ def semi_sparse_sparsify(
         return _SparsifyLikeFunc.apply(x, pattern)
 
 class SemiSparseLinear(torch.nn.Linear):
+    """
+    Replacement nn.Linear that supports runtime weight/activation sparsity
+    """
 
     def forward(self, x):
         if self.weight_sparsity:
-            weight = semi_sparse_sparsify(self.weight, backend="cusparselt")
-            return torch.nn.functional.linear(x, weight, self.bias)
+            sparse_weight = semi_sparse_sparsify(self.weight, backend="cusparselt")
+            return torch.nn.functional.linear(x, sparse_weight, self.bias)
         else:
-            x = semi_sparse_sparsify(x, backend="cusparselt")
-            return torch.nn.functional.linear(x, self.weight, self.bias)
+            sparse_x = semi_sparse_sparsify(x, backend="cusparselt")
+            return torch.nn.functional.linear(sparse_x, self.weight, self.bias)
 
     @classmethod
     def from_dense(cls, linear, weight_sparsity=True):
@@ -243,12 +242,12 @@ class SemiSparseLinear(torch.nn.Linear):
 
 
 def swap_linear_with_semi_sparse_linear_(model, config, current=""):
-        name_to_child = dict(model.named_children())
-        for name, child in name_to_child.items():
-            fqn = ".".join([current, name]) if current else name
-            if isinstance(child, torch.nn.Linear):
-                if fqn in config:
-                    setattr(model, name, SemiSparseLinear.from_dense(child, weight_sparsity=config[fqn]))
-                    del child
-            else:
-                swap_linear_with_semi_sparse_linear_(child, config, current=fqn)
+    name_to_child = dict(model.named_children())
+    for name, child in name_to_child.items():
+        fqn = f"{current}.{name}" if current else name
+        if isinstance(child, torch.nn.Linear):
+            if fqn in config:
+                setattr(model, name, SemiSparseLinear.from_dense(child))
+                del child
+        else:
+            swap_linear_with_semi_sparse_linear_(child, config, current=fqn)

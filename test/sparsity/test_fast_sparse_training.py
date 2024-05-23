@@ -12,18 +12,19 @@ from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
 from torch.testing._internal.common_utils import TestCase
 from torch.sparse import SparseSemiStructuredTensorCUTLASS, SparseSemiStructuredTensorCUSPARSELT
 
-# class TestModel(nn.Module):
-#     def __init__(self):
-#         super().__init__()
-#         self.linear1 = nn.Linear(128, 256)
-#         self.linear2 = nn.Linear(256, 128)
-
-#     def forward(self, x):
-#         x = self.linear1(x)
-#         x = self.linear2(x)
-#         return x
-
 class TestModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear1 = nn.Linear(128, 256, bias=False)
+        self.linear2 = nn.Linear(256, 128, bias=False)
+
+    def forward(self, x):
+        x = self.linear1(x)
+        x = torch.nn.functional.relu(x)
+        x = self.linear2(x)
+        return x
+
+class TestActiationModel(nn.Module):
     def __init__(self):
         super().__init__()
         self.linear1 = nn.Linear(128, 256, bias=False)
