@@ -14,56 +14,58 @@ from torch.sparse import SparseSemiStructuredTensor, SparseSemiStructuredTensorC
 from collections.abc import Iterable
 from torch import nn
 
+# pointwise op support
+
 def semi_sparse_pointwise_op(func, types, args=(), kwargs=None, sparsify_like_args_list=()):
     """
     adds pointwise op support for semi-structured tensors
     """
-    self = None
+    reference_sparse_tensor = None
     for tensor in args:
         if isinstance(tensor, SparseSemiStructuredTensor):
-            self = tensor
-    assert self is not None
+            reference_sparse_tensor = tensor
+    assert reference_sparse_tensor is not None
 
     def handle_arg(i, tensor):
         if isinstance(tensor, torch.Tensor):
             if not isinstance(tensor, SparseSemiStructuredTensor):
                 if i in sparsify_like_args_list:
-                    tensor = semi_sparse_sparsify(tensor, pattern=self)
+                    tensor = semi_sparse_sparsify(tensor, pattern=reference_sparse_tensor)
                 else:
                     raise ValueError(
-                        f"Operation {func.__module__}.{func.__name__} on {type(self)} requires all operands to "
-                        f"be {type(self)}, but operand {i} is a {type(tensor)}"
+                        f"Operation {func.__module__}.{func.__name__} on {type(reference_sparse_tensor)} requires all operands to "
+                        f"be {type(reference_sparse_tensor)}, but operand {i} is a {type(tensor)}"
                     )
             else:
                 if (
                     tensor.compressed_swizzled_bitmask is None
-                    or self.compressed_swizzled_bitmask is None
-                    or tensor.compressed_swizzled_bitmask.data_ptr() != self.compressed_swizzled_bitmask.data_ptr()
-                    or tensor.compressed_swizzled_bitmask.stride() != self.compressed_swizzled_bitmask.stride()
+                    or reference_sparse_tensor.compressed_swizzled_bitmask is None
+                    or tensor.compressed_swizzled_bitmask.data_ptr() != reference_sparse_tensor.compressed_swizzled_bitmask.data_ptr()
+                    or tensor.compressed_swizzled_bitmask.stride() != reference_sparse_tensor.compressed_swizzled_bitmask.stride()
                 ):
                     raise ValueError(
-                        f"Operation {func.__module__}.{func.__name__} on {type(self)} requires all operands to be "
-                        f"{type(self)} with the same sparsity pattern"
+                        f"Operation {func.__module__}.{func.__name__} on {type(reference_sparse_tensor)} requires all operands to be "
+                        f"{type(reference_sparse_tensor)} with the same sparsity pattern"
                     )
         return tensor
 
     args_updated = [ handle_arg(i, tensor) for i, tensor in enumerate(args) ]
 
-    return self.__class__(
-        self.shape,
+    return reference_sparse_tensor.__class__(
+        reference_sparse_tensor.shape,
         func(*[
                 x.packed if isinstance(x, SparseSemiStructuredTensor) else x
                 for x in args_updated
             ]),
-        self.meta,
+        reference_sparse_tensor.meta,
         func(
             *[
                 x.packed_t if isinstance(x, SparseSemiStructuredTensor)
                 else x for x in args_updated
             ]
         ),
-        self.meta_t,
-        self.compressed_swizzled_bitmask,
+        reference_sparse_tensor.meta_t,
+        reference_sparse_tensor.compressed_swizzled_bitmask,
     )
 
 
@@ -94,6 +96,9 @@ CUTLASS_POINTWISE_OP_DISPATCH_TABLE = {
 }
 
 SparseSemiStructuredTensorCUTLASS._load_dispatch_table(CUTLASS_POINTWISE_OP_DISPATCH_TABLE)
+
+# autograd support
+
 if torch.__version__ >= "2.1.0":
     torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUSPARSELT)
     torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUTLASS)
@@ -193,7 +198,6 @@ class _SparsifyLikeFunc(torch.autograd.Function):
             None,
             None,
         )
-
         return grad_out, None
 
 # We want to use `torch._dynamo.allow_in_graph` as a decorator
@@ -210,6 +214,11 @@ def semi_sparse_sparsify(
     algo: str = "",
     backend: str = "cutlass",
 ) -> SparseSemiStructuredTensor:
+    """
+    Sparsifies a dense tensor into a semi-structured tensor.
+    When pattern is provided, we will sparsify the tensor according using the same mask as the provided sparse tensor.
+    Otherwise, we sparsify using the algorithm/backend specified
+    """
     if pattern is None:
         return _SparsifyFunc.apply(x, algo, backend)
     else:
@@ -218,6 +227,8 @@ def semi_sparse_sparsify(
                 f"`pattern` must be a `SparseSemiStructuredTensor` but got a {type(pattern)}"
             )
         return _SparsifyLikeFunc.apply(x, pattern)
+
+# user API
 
 class SemiSparseLinear(torch.nn.Linear):
     """
