@@ -110,9 +110,10 @@ def to_float6_e3m2(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
       not have +/-inf or NaN values, and no values with magnitude >= 30 (largest number in FP6 is 28.
       All numbers >= 28 and < 30 will be rounded down to 28, while >= 30 will overflow).
 
-      This implementation requires FP32 denormal numbers to be handled correctly. In PyTorch, you can
-      use :func:`torch.set_flush_denormal(False)` to disable flushing denormal numbers to zero. Other
-      code or libraries might set it to ``True`` for performance gain.
+      This implementation requires FP32 denormal numbers to be handled correctly. On CPU, you can use
+      :func:`torch.set_flush_denormal` to disable flushing denormal numbers to zero. Other code or
+      libraries might set it to ``True`` for performance gain. On CUDA, this is not necessary since
+      CUDA always handle denormal numbers correctly.
 
       See also :func:`from_float6_e3m2`
     """
@@ -151,9 +152,10 @@ def from_float6_e3m2(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
       tensor is 4/3 of that of input tensor.
 
     Note:
-      This implementation requires FP32 denormal numbers to be handled correctly. In PyTorch, you can
-      use :func:`torch.set_flush_denormal(False)` to disable flushing denormal numbers to zero. Other
-      code or libraries might set it to ``True`` for performance gain.
+      This implementation requires FP32 denormal numbers to be handled correctly. On CPU, you can use
+      :func:`torch.set_flush_denormal` to disable flushing denormal numbers to zero. Other code or
+      libraries might set it to ``True`` for performance gain. On CUDA, this is not necessary since
+      CUDA always handle denormal numbers correctly.
     """
     assert tensor.dtype == torch.uint8
     if no_bit_packing:
