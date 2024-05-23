@@ -27,8 +27,9 @@ class TestFP8Gemm(TestCase):
         assert torch.allclose(c, c_expected, atol=0.07) # less than this and the accuracy check fails
 
     # https://pytorch.org/tutorials/recipes/torch_compile_user_defined_triton_kernel_tutorial.html
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "User defined triton functions are only supported in PyTorch 2.4 and above")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "User defined triton functions are only supported in PyTorch 2.4 and above")
     def test_user_defined_triton_function(self):
+        import torch._inductor.config
         torch._inductor.config.force_disable_caches = True
         m, n, k = 256, 256, 512
 
