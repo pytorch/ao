@@ -148,6 +148,7 @@ def get_model_size_in_bytes(model):
         s += b.nelement() * b.element_size()
     return s
 
+# TODO: quantization namespace is not the right place ot have this
 if version.parse(torch.__version__) >= version.parse("2.4.0.dev"):
     TORCH_VERSION_AFTER_2_4 = True
 else:
