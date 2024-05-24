@@ -393,10 +393,10 @@ def change_linears_to_autoquantizable(model, **kwargs):
     kwargs["qtensor_class_list"] = kwargs.get("qtensor_class_list", DEFAULT_CLASS_LIST)
     kwargs["mode"] = kwargs.get("mode", ["relu", None])
     from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
-    from torchao.quantization.quant_api import get_subclass_inserter
+    from torchao.quantization.quant_api import _get_subclass_inserter
     _replace_with_custom_fn_if_matches_filter(
         model,
-        get_subclass_inserter(AutoQuantizableLinearWeight, **kwargs),
+        _get_subclass_inserter(AutoQuantizableLinearWeight, **kwargs),
         filter_fn if filter_fn is not None else _is_linear,
     )
 
@@ -417,10 +417,10 @@ def change_autoquantizable_to_quantized(model, **kwargs):
     )
     error_on_unseen=kwargs.pop("error_on_unseen", True)
     from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
-    from torchao.quantization.quant_api import get_subclass_inserter
+    from torchao.quantization.quant_api import _get_subclass_inserter
     _replace_with_custom_fn_if_matches_filter(
         model,
-        get_subclass_inserter(
+        _get_subclass_inserter(
             AutoQuantizableLinearWeight, method="to_quantized", error_on_unseen=error_on_unseen, **kwargs
         ),
         filter_fn,

@@ -55,7 +55,7 @@ __all__ = [
     "Int4WeightOnlyQuantizer",
     "quantize",
     "autoquant",
-    "get_subclass_inserter",
+    "_get_subclass_inserter",
 ]
 
 if TORCH_VERSION_AFTER_2_3:
@@ -138,7 +138,7 @@ def apply_dynamic_quant(model, filter_fn=None):
 
 import torch.nn.utils.parametrize as parametrize
 
-def get_subclass_inserter(cls, enable_parametrization=False, **kwargs):
+def _get_subclass_inserter(cls, enable_parametrization=False, **kwargs):
     """
     Returns a function which inserts the given subclass into all linear modules
     in the model. The inserted module will have its weight set to the result of
@@ -178,7 +178,7 @@ def change_linear_weights_to_int8_dqtensors(model, filter_fn=None, **kwargs):
         )
 
     _replace_with_custom_fn_if_matches_filter(
-        model, get_subclass_inserter(Int8DynamicallyQuantizedLinearWeight, enable_parametrization=TORCH_VERSION_AFTER_2_4, **kwargs), filter_fn
+        model, _get_subclass_inserter(Int8DynamicallyQuantizedLinearWeight, enable_parametrization=TORCH_VERSION_AFTER_2_4, **kwargs), filter_fn
     )
 
 
@@ -191,7 +191,7 @@ def change_linear_weights_to_int8_woqtensors(model, filter_fn=None, **kwargs):
     """
     _replace_with_custom_fn_if_matches_filter(
         model,
-        get_subclass_inserter(Int8WeightOnlyQuantizedLinearWeight, enable_parametrization=TORCH_VERSION_AFTER_2_4, **kwargs),
+        _get_subclass_inserter(Int8WeightOnlyQuantizedLinearWeight, enable_parametrization=TORCH_VERSION_AFTER_2_4, **kwargs),
         _is_linear if filter_fn is None else filter_fn,
     )
 
@@ -207,7 +207,7 @@ def change_linear_weights_to_int4_woqtensors(model, **kwargs):
 
     _replace_with_custom_fn_if_matches_filter(
         model,
-        get_subclass_inserter(Int4WeightOnlyQuantizedLinearWeight, enable_parametrization=TORCH_VERSION_AFTER_2_4, **kwargs),
+        _get_subclass_inserter(Int4WeightOnlyQuantizedLinearWeight, enable_parametrization=TORCH_VERSION_AFTER_2_4, **kwargs),
         filter_fn,
     )
 

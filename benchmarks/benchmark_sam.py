@@ -5,7 +5,7 @@ from torch.utils.benchmark import Timer
 from torch.sparse import SparseSemiStructuredTensor, SparseSemiStructuredTensorCUTLASS, SparseSemiStructuredTensorCUSPARSELT
 from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
-    get_subclass_inserter,
+    _get_subclass_inserter,
     _is_linear,
     QuantizedLinearWeightBase,
     Int8DynamicallyQuantizedLinearWeight,
@@ -101,7 +101,7 @@ def run_once(block_only=False, dtype=torch.bfloat16, batchsize=32, compile=True,
                     if filter_fn(mod, name):
                         mod.weight = torch.nn.Parameter(subclass.from_dense(mod.weight))
             elif subclass and issubclass(subclass, QuantizedLinearWeightBase):
-                _replace_with_custom_fn_if_matches_filter(model, get_subclass_inserter(subclass), filter_fn)
+                _replace_with_custom_fn_if_matches_filter(model, _get_subclass_inserter(subclass), filter_fn)
 
         if compile:
             model = torch.compile(model, mode='max-autotune')
