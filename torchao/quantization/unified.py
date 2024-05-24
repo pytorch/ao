@@ -1,7 +1,6 @@
 import torch
 from typing import Any
 
-############################# Unified Quantization APIs ##############################
 # API 1, single quantize call to create a quantized model with quantized state_dict
 class Quantizer:
     def quantize(
@@ -24,6 +23,3 @@ class TwoStepQuantizer:
     ) -> torch.nn.Module:
 
         pass
-
-
-############################# Unified Quantization APIs ##############################

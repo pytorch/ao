@@ -16,8 +16,6 @@ try:
 except:
     from torch._inductor.runtime.runtime_utils import do_bench
 
-from .utils import TORCH_VERSION_AFTER_2_4
-
 aten = torch.ops.aten
 
 AUTOQUANT_CACHE = {}
