@@ -1,7 +1,8 @@
-# Code from https://github.com/pytorch-labs/applied-ai/blob/main/kernels/triton/inference/fp8/splitk_gemm_fp8.py
 import torch
 import triton
 import triton.language as tl
+import os
+os.environ['ENABLE_TMA'] = '1'
 
 @triton.jit
 def grouped_launch(pid,
@@ -20,25 +21,12 @@ def grouped_launch(pid,
 
     return pid_m, pid_n
 
-
-@triton.jit()
-def col_major(pid,
-              m, n,
-              block_m: tl.constexpr, block_n: tl.constexpr):
-
-    grid_m = tl.cdiv(m, block_m)
-
-    pid_m = pid % grid_m
-    pid_n = pid // grid_m
-
-    return pid_m, pid_n
-
-
 @triton.jit
 def gemm_split_k_kernel(a_ptr, b_ptr, c_ptr,
             stride_am, stride_ak,
             stride_bk, stride_bn,
             stride_cm, stride_cn,
+            scale_a, scale_b,
             m, n, k,
             block_m: tl.constexpr, block_n: tl.constexpr, block_k: tl.constexpr,
             split_k: tl.constexpr, group_m: tl.constexpr):
@@ -61,6 +49,7 @@ def gemm_split_k_kernel(a_ptr, b_ptr, c_ptr,
     a_ptrs = a_ptr + (offs_am[:, None] * stride_am + offs_k[None, :] * stride_ak)
     b_ptrs = b_ptr + (offs_k[:, None] * stride_bk + offs_bn[None, :] * stride_bn)
 
+
     acc = tl.zeros((block_m, block_n), dtype=tl.float32)
     for k_ in range(0, grid_k):
 
@@ -74,7 +63,8 @@ def gemm_split_k_kernel(a_ptr, b_ptr, c_ptr,
         a_ptrs += block_k * split_k * stride_ak
         b_ptrs += block_k * split_k * stride_bk
 
-    acc = acc.to(tl.float16)
+    acc = scale_a * scale_b * acc
+    acc.to(tl.float16)
 
     offs_m = pid_m*block_m + tl.arange(0, block_m)
     offs_n = pid_n*block_n + tl.arange(0, block_n)
@@ -84,19 +74,16 @@ def gemm_split_k_kernel(a_ptr, b_ptr, c_ptr,
 
     tl.atomic_add(c_ptrs, acc, mask=mask)
 
-def gemm_split_k(a, b):
-
+def gemm_split_k(a, b, scale_a:float=1.0, scale_b:float=1.0):
+    assert a.shape[1] == b.shape[0]
     m, k = a.shape
     _, n = b.shape
 
-    # Need to change these otherwise was getting
-    # triton.runtime.errors.OutOfResources: out of resource: shared memory, Required: 393216, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.
-    # TODO: Should we tune this differently for different hardware?
-    block_m = 32
-    block_n = 32
-    block_k = 256
-    num_stages = 2
-    num_warps = 4
+    block_m = 64
+    block_n = 64
+    block_k = 512
+    num_stages = 3
+    num_warps = 8
     split_k = 4
     group_m = 8
 
@@ -108,12 +95,20 @@ def gemm_split_k(a, b):
     grid = (total_programs_mn, total_programs_k)
 
     c = torch.zeros((m, n), device=a.device, dtype=torch.float16)
-    gemm_split_k_kernel[grid](a, b, c,
+    k = gemm_split_k_kernel[grid](a, b, c,
                               a.stride(0), a.stride(1),
                               b.stride(0), b.stride(1),
                               c.stride(0), c.stride(1),
+                              scale_a, scale_b,
                               m, n, k,
                               block_m, block_n, block_k,
                               split_k, group_m, num_stages=num_stages, num_warps=num_warps)
 
     return c
+
+
+def to_float8(x, dtype=torch.float8_e4m3fn):
+    finfo = torch.finfo(dtype)
+    scale = finfo.max / x.abs().max().clamp(min=1e-12)
+    x_scl_sat = (x * scale).clamp(min=finfo.min, max=finfo.max)
+    return x_scl_sat.to(dtype), scale.float().reciprocal()
