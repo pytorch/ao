@@ -252,7 +252,7 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, Int8DynamicallyQuantizedLi
         )
         q_c_matmul=torch.compile(quantized_matmul, mode="max-autotune-no-cudagraphs")
         with torch.no_grad():
-            res_matmul = do_autoquant_bench(q_c_matmul, x_vals_int8, x_scales, w_qtensor.int_data)
+            res_matmul = do_autoquant_bench(q_c_matmul, x_vals_int8, x_scales.reshape(-1,1), w_qtensor.int_data)
         print(f">>time: {res_matmul:0.3f}ms for {cls} matmul, to_beat: {best_time:0.3f}ms")
 
         # if the (much faster) matmul kernel is already beat, don't bother benchmarking full op
@@ -384,7 +384,7 @@ def change_autoquantizable_to_quantized(model, **kwargs):
     torch._dynamo.reset()
 
 @torch.no_grad()
-def autoquant(model, example_input=None, qtensor_class_list=DEFAULT_CLASS_LIST, filter_fn=None, mode=["relu",None], **aq_kwargs):
+def autoquant(model, example_input=None, qtensor_class_list=DEFAULT_CLASS_LIST, filter_fn=None, mode=["interpolate", .85], **aq_kwargs):
     """
     wraps model in AutoQuantWrapper, if example_input is provided, runs forward on it, otherwise returns the wrapped model.
     AutoQuantWrapper handles instances where model is torch.compiled by first performing autoquantization on the original
