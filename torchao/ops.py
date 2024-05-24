@@ -10,12 +10,6 @@ def register_custom_op(name):
             return torch.library.impl_abstract(f"{name}")(func)
     return decorator
 
-def nms(boxes: Tensor, scores: Tensor, iou_threshold: float) -> Tensor:
-    """
-    See https://pytorch.org/vision/main/generated/torchvision.ops.nms.html
-    """
-    return torch.ops.torchao.nms.default(boxes, scores, iou_threshold)
-
 
 
 def prepack_fp6_weight(fp6_weight: Tensor) -> Tensor:

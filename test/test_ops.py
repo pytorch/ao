@@ -30,21 +30,6 @@ class TestOps(TestCase):
         scores = torch.rand(N)
         return boxes, scores
 
-    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.3 or lower")
-    def test_nms(self):
-        iou = 0.2
-        boxes, scores = self._create_tensors_with_iou(1000, iou)
-        boxes = boxes.cuda()
-        scores = scores.cuda()
-
-        # smoke test
-        _ = torchao.ops.nms(boxes, scores, iou)
-
-        # comprehensive testing
-        test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
-        opcheck(torch.ops.torchao.nms, (boxes, scores, iou), test_utils=test_utils)
-
     def _create_fp6_inputs(self, BS: int, OC: int, IC: int):
         # Randomly initialize each bytes. The highest value for randint() is set the the max value of uint32_t.
         fp6_weight = torch.randint(4294967295, (OC, IC // 16 * 3)).to(torch.int)
