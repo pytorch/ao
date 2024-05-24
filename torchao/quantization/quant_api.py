@@ -35,7 +35,7 @@ from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
     Int4WeightOnlyQuantizer,
 )
-from .autoquant import autoquant
+from .autoquant import autoquant, AutoQuantizableLinearWeight
 
 
 __all__ = [
@@ -93,6 +93,7 @@ def _is_linear(mod, *args):
         isinstance(mod, torch.nn.Linear)
         and hasattr(mod, "weight")
         and not isinstance(mod.weight, QuantizedLinearWeightBase)
+        and not isinstance(mod.weight, AutoQuantizableLinearWeight)
     )
 
 
