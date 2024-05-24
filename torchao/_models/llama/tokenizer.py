@@ -1,3 +1,5 @@
+# copied from https://github.com/pytorch-labs/gpt-fast/blob/main/tokenizer.py
+
 import os
 import sentencepiece as spm
 import tiktoken

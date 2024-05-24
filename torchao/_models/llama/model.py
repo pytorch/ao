@@ -14,18 +14,11 @@ from torchao.utils import find_multiple
 
 def prepare_inputs_for_model(inps, max_new_tokens=1):
     # this is because input from lm-eval is 2d
-    if inps.dim() != 2:
-        raise ValueError(f"Expected input to be of dim 2, but got {inps.dim()}")
+    if inps.dim() > 2:
+        raise ValueError(f"Expected input to be of dim 1 or 2, but got {inps.dim()}")
 
-    inps = inps.squeeze(0)
-    # setup inputs in correct format
-    T = inps.size(0)
-    T_new = T + max_new_tokens
-    seq = torch.empty(T_new, dtype=inps.dtype, device=inps.device)
-    seq[:T] = inps
-    input_pos = torch.arange(0, T, device=inps.device)
-    x = seq.index_select(0, input_pos).view(1, -1)
-    return (x, input_pos)
+    input_pos = torch.arange(0, inps.numel(), device=inps.device)
+    return (inps.view(1, -1), input_pos)
 
 @dataclass
 class ModelArgs:
@@ -78,8 +71,8 @@ transformer_configs = {
     "Llama-3-8B": dict(block_size=8192, n_layer=32, n_head=32, n_local_heads=8, dim=4096, intermediate_size=14336, vocab_size=128256),
 }
 
-# this is a global variable to control whether we use index_put in the kv_cache update or not, since
-# the in place operations used otherwise do not work with gptq, but are slightly faster.
+# this is a model specific variable that controls whether index_put is used for the kv_cache update, 
+# it is needed for GPTQ but otherwise attenuates perf so the default is to not use it
 use_index_put_for_kv_cache = False
 
 class KVCache(nn.Module):
@@ -93,7 +86,6 @@ class KVCache(nn.Module):
         # input_pos: [S], k_val: [B, H, S, D]
         assert input_pos.shape[0] == k_val.shape[2]
 
-        global use_index_put_for_kv_cache
         if use_index_put_for_kv_cache:
             k_out = torch.ops.aten.index_put_(self.k_cache, [None, None, input_pos], k_val)
             v_out = torch.ops.aten.index_put_(self.v_cache, [None, None, input_pos], v_val)

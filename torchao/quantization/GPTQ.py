@@ -74,8 +74,7 @@ class GenericGPTQRunner(fx.Interpreter):
         percdamp=0.01,
         groupsize=128,
     ):
-        global use_index_put_for_kv_cache
-        use_index_put_for_kv_cache = True
+
         self.id_to_name = {
             id(value): name for name, value in dict(model.named_parameters()).items()
         }
