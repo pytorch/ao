@@ -13,8 +13,3 @@ Searching a new config can take a long time and we'll save the updated data in `
 By default we load precomputed configs for A100. If we're not on an A100, we search set the path to `data.pkl`.
 
 Updated configs are always stored in the current working directory as `data.pkl` to avoid accidentally overwriting the supplied configs.
-
-
-TODO:
-1. make autotuner an arugment to autoquant
-2. the autotuner dat path should be a cache path in autoquant api?
