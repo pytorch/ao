@@ -2,8 +2,12 @@ Welcome to the torchao Documentation
 =======================================
 
 **torchao** is an open-source library that provides the functionality
-to quantize and prune your models using native PyTorch. Our documentation is under development
+to quantize, prune and in general optimize your models using native PyTorch. Our documentation is under development
 with more content coming soon.
+
+## Quantization
+
+<TODO>
 
 ..
    .. grid:: 3
