@@ -2,6 +2,14 @@ import torch
 from typing import Any
 from abc import ABC, abstractmethod
 
+"""
+The vast majority of quantization algorithms follow one of two patterns
+1. Single quantize call to create a quantized model with quantized state_dict
+2. Flow that needs calibration or training
+
+This file defines the API for both patterns
+"""
+
 
 # API 1, single quantize call to create a quantized model with quantized state_dict
 class Quantizer(ABC):
