@@ -32,6 +32,7 @@ def get_compute_capability():
     return 0.0
 
 def skip_if_compute_capability_less_than(min_capability):
+    import unittest
     def decorator(test_func):
         def wrapper(*args, **kwargs):
             if get_compute_capability() < min_capability:
