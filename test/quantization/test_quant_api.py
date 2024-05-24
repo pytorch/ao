@@ -18,12 +18,24 @@ from torch.ao.quantization.quantizer.xnnpack_quantizer import (
     get_symmetric_quantization_config,
 )
 
+from torchao.quantization.subclass import (
+    to_aqt,
+    to_laqt,
+    AffineQuantizedTensor,
+    LinearActQuantizedTensor,
+)
+from torchao.quantization.quant_primitives import (
+    MappingType,
+    ZeroPointDomain,
+)
+
 from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
     apply_dynamic_quant,
     apply_weight_only_int8_quant,
     Quantizer,
     TwoStepQuantizer,
+    quantize,
 )
 from torchao.quantization.utils import (
     TORCH_VERSION_AFTER_2_3,
@@ -32,6 +44,7 @@ from torchao.quantization.utils import (
 from pathlib import Path
 from sentencepiece import SentencePieceProcessor
 from model import Transformer, prepare_inputs_for_model
+import copy
 
 
 def dynamic_quant(model, example_inputs):
@@ -92,8 +105,8 @@ class ToyLinearModel(torch.nn.Module):
         self.linear1 = torch.nn.Linear(m, n, bias=False).to(torch.float)
         self.linear2 = torch.nn.Linear(n, k, bias=False).to(torch.float)
 
-    def example_inputs(self):
-        return (torch.randn(1, self.linear1.in_features).to(torch.float),)
+    def example_inputs(self, batch_size=1):
+        return (torch.randn(batch_size, self.linear1.in_features).to(torch.float),)
 
     def forward(self, x):
         x = self.linear1(x)
@@ -395,13 +408,6 @@ class TestQuantFlow(unittest.TestCase):
     # TODO: move to a separate test file
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
     def test_quantized_tensor_subclass_8da4w(self):
-        from torchao.quantization.subclass import (
-            AffineQuantizedTensor,
-            LinearActQuantizedTensor,
-        )
-        from torchao.quantization.quant_primitives import MappingType
-        import copy
-
         # weight settings
         groupsize = 32
         mapping_type = MappingType.SYMMETRIC
@@ -423,20 +429,26 @@ class TestQuantFlow(unittest.TestCase):
         # input settings
         input_mapping_type = MappingType.ASYMMETRIC
         input_target_dtype = torch.int8
-        input_quant_func = lambda x: AffineQuantizedTensor.from_float(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype)
-
-        def dynamic_quant(linear):
-            # note: order is important
-            linear.weight = torch.nn.Parameter(AffineQuantizedTensor.from_float(linear.weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps), requires_grad=False)
-            linear.weight = torch.nn.Parameter(LinearActQuantizedTensor.from_float(linear.weight, input_quant_func), requires_grad=False)
+        input_quant_func = lambda x: to_aqt(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype)
 
         m = ToyLinearModel().eval()
         m_copy = copy.deepcopy(m)
         example_inputs = m.example_inputs()
-        dynamic_quant(m.linear1)
-        dynamic_quant(m.linear2)
+
+        def apply_weight_quant(weight):
+            return to_aqt(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps)
+
+        def apply_act_quant(weight):
+            return to_laqt(weight, input_quant_func)
+
+        # note: order is important
+        m = quantize(m, apply_weight_quant)
+        m = quantize(m, apply_act_quant)
+
         assert isinstance(m.linear1.weight, LinearActQuantizedTensor)
         assert isinstance(m.linear2.weight, LinearActQuantizedTensor)
+        assert isinstance(m.linear1.weight.original_weight_tensor, AffineQuantizedTensor)
+        assert isinstance(m.linear2.weight.original_weight_tensor, AffineQuantizedTensor)
 
         # reference
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
@@ -454,11 +466,6 @@ class TestQuantFlow(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantized_tensor_subclass_int4(self):
-        from torchao.quantization.subclass import AffineQuantizedTensor
-        from torchao.quantization.quant_primitives import MappingType
-        from torchao.quantization.quant_primitives import ZeroPointDomain
-        import copy
-
         # weight settings
         groupsize = 32
         mapping_type = MappingType.ASYMMETRIC
@@ -469,22 +476,17 @@ class TestQuantFlow(unittest.TestCase):
         eps = 1e-6
         preserve_zero = False
         zero_point_dtype = torch.bfloat16
+        zero_point_domain = ZeroPointDomain.FLOAT
 
         # use 1024 so that we don't need padding
         m = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to("cuda")
         m_copy = copy.deepcopy(m)
         example_inputs = tuple(map(lambda x: x.to(torch.bfloat16).to("cuda"), m.example_inputs()))
 
-        def to_quantized(weight):
-            return AffineQuantizedTensor.from_float(
-                weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps,
-                zero_point_dtype=zero_point_dtype,
-                preserve_zero=preserve_zero,
-                zero_point_domain=ZeroPointDomain.FLOAT,
-            )
+        def apply_weight_quant(weight):
+            return to_aqt(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain)
 
-        m.linear1.weight = torch.nn.Parameter(to_quantized(m.linear1.weight), requires_grad=False)
-        m.linear2.weight = torch.nn.Parameter(to_quantized(m.linear2.weight), requires_grad=False)
+        m = quantize(m, apply_weight_quant)
         assert isinstance(m.linear1.weight, AffineQuantizedTensor)
         assert isinstance(m.linear2.weight, AffineQuantizedTensor)
 
@@ -501,10 +503,6 @@ class TestQuantFlow(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantized_tensor_subclass_int8(self):
-        from torchao.quantization.subclass import AffineQuantizedTensor
-        from torchao.quantization.quant_primitives import MappingType
-        import copy
-
         # weight settings
         mapping_type = MappingType.SYMMETRIC
         target_dtype = torch.int8
@@ -515,12 +513,12 @@ class TestQuantFlow(unittest.TestCase):
         m_copy = copy.deepcopy(m)
         example_inputs = tuple(map(lambda x: x.to(torch.bfloat16), m.example_inputs()))
 
-        def to_quantized(weight):
+        def apply_weight_quant(weight):
             block_size = (1, weight.shape[1])
-            return AffineQuantizedTensor.from_float(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype)
+            return to_aqt(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype)
 
-        m.linear1.weight = torch.nn.Parameter(to_quantized(m.linear1.weight), requires_grad=False)
-        m.linear2.weight = torch.nn.Parameter(to_quantized(m.linear2.weight), requires_grad=False)
+        m = quantize(m, apply_weight_quant)
+
         assert isinstance(m.linear1.weight, AffineQuantizedTensor)
         assert isinstance(m.linear2.weight, AffineQuantizedTensor)
 
@@ -537,12 +535,6 @@ class TestQuantFlow(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantized_tensor_subclass_int8_dyn_quant(self):
-        from torchao.quantization.subclass import AffineQuantizedTensor
-        from torchao.quantization.subclass import LinearActQuantizedTensor
-        from torchao.quantization.quant_primitives import MappingType
-        from torchao.quantization.quant_primitives import ZeroPointDomain
-        import copy
-
         # weight settings
         mapping_type = MappingType.SYMMETRIC
         def get_weight_block_size(x):
@@ -563,20 +555,24 @@ class TestQuantFlow(unittest.TestCase):
         input_eps = 1e-5
         input_quant_min = -127
         input_quant_max = 127
-        input_quant_func = lambda x: AffineQuantizedTensor.from_float(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype, eps=input_eps, quant_min=input_quant_min, quant_max=input_quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
+        input_quant_func = lambda x: to_aqt(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype, eps=input_eps, quant_min=input_quant_min, quant_max=input_quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
 
         # use 1024 so that we don't need padding
         m = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to("cuda")
         m_copy = copy.deepcopy(m)
-        example_inputs = tuple(map(lambda x: x.to(torch.bfloat16).to("cuda"), m.example_inputs()))
+        # setting batch_size to 20 to be compatible with the kernel
+        example_inputs = tuple(map(lambda x: x.to(torch.bfloat16).to("cuda"), m.example_inputs(batch_size=20)))
 
-        def dynamic_quant(linear):
-            # note: order is important
-            linear.weight = torch.nn.Parameter(AffineQuantizedTensor.from_float(linear.weight, mapping_type, get_weight_block_size(linear.weight), target_dtype, eps=eps, zero_point_dtype=zero_point_dtype), requires_grad=False)
-            linear.weight = torch.nn.Parameter(LinearActQuantizedTensor.from_float(linear.weight, input_quant_func), requires_grad=False)
+        def apply_weight_quant(weight):
+            block_size = get_weight_block_size(weight)
+            return to_aqt(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype)
 
-        dynamic_quant(m.linear1)
-        dynamic_quant(m.linear2)
+        def apply_act_quant(weight):
+            return to_laqt(weight, input_quant_func)
+
+        m = quantize(m, apply_weight_quant)
+        m = quantize(m, apply_act_quant)
+
         assert isinstance(m.linear1.weight, LinearActQuantizedTensor)
         assert isinstance(m.linear2.weight, LinearActQuantizedTensor)
         assert isinstance(m.linear1.weight.original_weight_tensor, AffineQuantizedTensor)
@@ -590,6 +586,19 @@ class TestQuantFlow(unittest.TestCase):
         ref = m_copy(*example_inputs)
 
         self.assertTrue(torch.equal(res, ref))
+
+        # workaround for export path
+        from torchao.quantization.utils import unwrap_tensor_subclass
+        m_unwrapped = unwrap_tensor_subclass(m)
+
+        m = torch.export.export(m_unwrapped, example_inputs).module()
+        exported_model_res = m(*example_inputs)
+
+        self.assertTrue(torch.equal(exported_model_res, ref))
+
+        # make sure it compiles
+        torch._export.aot_compile(m_unwrapped, example_inputs)
+
 
 
 if __name__ == "__main__":
