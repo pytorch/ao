@@ -55,6 +55,7 @@ __all__ = [
     "Int4WeightOnlyQuantizer",
     "quantize",
     "autoquant",
+    "get_subclass_inserter",
 ]
 
 if TORCH_VERSION_AFTER_2_3:
@@ -137,7 +138,7 @@ def apply_dynamic_quant(model, filter_fn=None):
 
 import torch.nn.utils.parametrize as parametrize
 
-def _get_subclass_inserter(cls, enable_parametrization=False, **kwargs):
+def get_subclass_inserter(cls, enable_parametrization=False, **kwargs):
     """
     Returns a function which inserts the given subclass into all linear modules
     in the model. The inserted module will have its weight set to the result of
