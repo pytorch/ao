@@ -15,20 +15,7 @@ try:
 except ImportError:
     triton_available = False
 
-def get_compute_capability():
-    if torch.cuda.is_available():
-        capability = torch.cuda.get_device_capability()
-        return float(f"{capability[0]}.{capability[1]}")
-    return 0.0
-
-def skip_if_compute_capability_less_than(min_capability):
-    def decorator(test_func):
-        def wrapper(*args, **kwargs):
-            if get_compute_capability() < min_capability:
-                raise unittest.SkipTest(f"Compute capability is less than {min_capability}")
-            return test_func(*args, **kwargs)
-        return wrapper
-    return decorator
+from torchao.utils import skip_if_compute_capability_less_than
 
 @unittest.skipIf(not triton_available, "Triton is required but not available")
 @unittest.skipIf(not torch.cuda.is_available(), "CUDA is required")
