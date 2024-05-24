@@ -13,6 +13,10 @@ usage involves applying torch.compile to the model afterwards
 both because primitives were designed based on the fusions that
 come along with it and because that is how we access the intended quantized
 and mixed GEMM kernels
+
+TODO: There are 2 different approaches to quantizing a model. The first and more historically
+popular approach is to use module swaps which explicitly change the linear modules and the second
+approach is to instead use subclasses to change the interpretation of the linear module
 """
 
 import torch
@@ -72,8 +76,17 @@ def _replace_with_custom_fn_if_matches_filter(
     cur_fqn="",
 ) -> None:
     """
-    For each `child` in `model`, replaces it with `replacement_fn(child)`
-    if `filter_fn(child)` is `True`
+    Recursively replaces each child module in `model` with the result of `replacement_fn(child)`
+    if `filter_fn(child)` returns `True`.
+
+    Args:
+        model (torch.nn.Module): The model containing modules to be replaced.
+        replacement_fn (Callable[[torch.nn.Module], torch.nn.Module]): The function to replace matching modules.
+        filter_fn (Callable[[torch.nn.Module], bool]): The filter function to determine which modules to replace.
+        cur_fqn (str, optional): The current fully qualified name of the module being processed. Defaults to "".
+
+    Returns:
+        None
     """
     if filter_fn(model, cur_fqn[:-1]):
         model = replacement_fn(model)
@@ -125,6 +138,16 @@ def apply_dynamic_quant(model, filter_fn=None):
 import torch.nn.utils.parametrize as parametrize
 
 def _get_subclass_inserter(cls, enable_parametrization=False, **kwargs):
+    """
+    Returns a function which inserts the given subclass into all linear modules
+    in the model. The inserted module will have its weight set to the result of
+    `cls(mod.weight, **kwargs)`. If parametrization is enabled then this will be done using
+    torch.nn.utils.parametrize instead of directly setting the attribute on the module.
+
+    Args:
+        cls (torch.Tensor): The class to insert as a child module.
+        kwargs (Any): Any additional arguments for the constructor.
+    """
     constructor = kwargs.pop("constructor", "subclass_constructor")
     from_float = kwargs.pop("method", "from_float")
     def insert_subclass(lin):
