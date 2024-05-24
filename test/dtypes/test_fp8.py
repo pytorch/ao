@@ -8,16 +8,32 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
+
 try:
     from torchao.prototype.fp8 import gemm_split_k, to_float8
     triton_available = True
 except ImportError:
     triton_available = False
 
+def get_compute_capability():
+    if torch.cuda.is_available():
+        capability = torch.cuda.get_device_capability()
+        return float(f"{capability[0]}.{capability[1]}")
+    return 0.0
+
+def skip_if_compute_capability_less_than(min_capability):
+    def decorator(test_func):
+        def wrapper(*args, **kwargs):
+            if get_compute_capability() < min_capability:
+                raise unittest.SkipTest(f"Compute capability is less than {min_capability}")
+            return test_func(*args, **kwargs)
+        return wrapper
+    return decorator
+
 @unittest.skipIf(not triton_available, "Triton is required but not available")
 @unittest.skipIf(not torch.cuda.is_available(), "CUDA is required")
 class TestFP8Gemm(TestCase):
-    # @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
+    @skip_if_compute_capability_less_than(9.0)
     def test_gemm_split_k(self):
         dtype = torch.float16
         qdtype = torch.float8_e4m3fn
@@ -46,7 +62,8 @@ class TestFP8Gemm(TestCase):
         assert cos_sim_triton > 0.99, f"fp16 vs triton cos_sim is too low: {cos_sim_triton}"
 
     # https://pytorch.org/tutorials/recipes/torch_compile_user_defined_triton_kernel_tutorial.html
-    @unittest.skip("fp8 kernel compilation does not work on a10g")
+    @skip_if_compute_capability_less_than(9.0)
+    @unittest.skip("On H100: OutOfResources: out of resource: shared memory, Required: 393216, Hardware limit: 232448. Reducing block sizes or `num_stages` may help.")
     def test_user_defined_triton_function(self):
         m, n, k = 256, 256, 512
 
