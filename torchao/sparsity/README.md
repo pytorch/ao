@@ -44,7 +44,7 @@ The handoff point between these two pieces are sparse weights stored in a dense 
 
 This also allows users with existing sparse weights in a dense format to take advantage of our fast sparse kernels. We anticipate many users to come up with their own custom frontend masking solution or to use another third party solution, as this is an active area of research.
 
-![pruning_flow](https://private-user-images.githubusercontent.com/8041643/324607153-ba91eaca-14ce-4608-9db8-6cbb9ea1f9ec.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3MTQ1OTgzOTYsIm5iZiI6MTcxNDU5ODA5NiwicGF0aCI6Ii84MDQxNjQzLzMyNDYwNzE1My1iYTkxZWFjYS0xNGNlLTQ2MDgtOWRiOC02Y2JiOWVhMWY5ZWMucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI0MDUwMSUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNDA1MDFUMjExNDU2WiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9YWVjOWQ5ZjFjMWZmNjg4ZTgyZGFkYWU3ZDQ3MDBjMTZkNzczZWQxYzczN2ZiM2ZjZGY0NjUwMGUwY2UwZDA1YyZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QmYWN0b3JfaWQ9MCZrZXlfaWQ9MCZyZXBvX2lkPTAifQ.ni5F_wDhNkeupMJ84bFNxhaSO3xPH-9zecz_933Uu68)
+![pruning_flow](/docs/static/pruning_ecosystem_diagram.png)
 
 Below, we provide an example of accelerating a model with 2:4 sparsity + bf16 using our PyTorch APIs.
 
@@ -97,7 +97,7 @@ Note that this section focuses on **pruning**, instead of **sparse training**. T
 
 Roughly, the flow for achieving a more performant pruned model looks like this:
 
-![flow](https://private-user-images.githubusercontent.com/8041643/324607146-53542488-65ce-4d99-a3ae-21e724f89467.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3MTQ1OTgzOTYsIm5iZiI6MTcxNDU5ODA5NiwicGF0aCI6Ii84MDQxNjQzLzMyNDYwNzE0Ni01MzU0MjQ4OC02NWNlLTRkOTktYTNhZS0yMWU3MjRmODk0NjcucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI0MDUwMSUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNDA1MDFUMjExNDU2WiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9ZWJlYWMzZDFmNzc2NDM1MGI2ODNlMjUxZjQxYTAwYzhhNzBkNGU2ZGIwYTg4NzA5Yjk3N2JkNzI4MmUyNzg3NiZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QmYWN0b3JfaWQ9MCZrZXlfaWQ9MCZyZXBvX2lkPTAifQ.Hxk5XMuJXhNsORVNNgcKNRCk7W1nT4CndLTAC3Oz0qE)
+![flow](/docs/static/pruning_flow.png)
 
 The general idea behind pruning is that we can mask out some of the weights of a trained neural network and recover any accuracy loss. The resultant pruned model can be run on optimized kernels that take advantage of this sparsity for accelerated inference.
 
