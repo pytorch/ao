@@ -18,6 +18,7 @@ and mixed GEMM kernels
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Any, Callable
 
 from .dynamic_quant import DynamicallyPerAxisQuantizedLinear
 from .utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
@@ -34,7 +35,7 @@ from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
     Int4WeightOnlyQuantizer,
 )
-from .autoquant import autoquant
+from .autoquant import autoquant, AutoQuantizableLinearWeight
 
 
 __all__ = [
@@ -48,7 +49,8 @@ __all__ = [
     "TwoStepQuantizer",
     "Int4WeightOnlyGPTQQuantizer",
     "Int4WeightOnlyQuantizer",
-    "autoquant"
+    "quantize",
+    "autoquant",
 ]
 
 if TORCH_VERSION_AFTER_2_3:
@@ -91,6 +93,7 @@ def _is_linear(mod, *args):
         isinstance(mod, torch.nn.Linear)
         and hasattr(mod, "weight")
         and not isinstance(mod.weight, QuantizedLinearWeightBase)
+        and not isinstance(mod.weight, AutoQuantizableLinearWeight)
     )
 
 
@@ -214,3 +217,49 @@ def swap_conv2d_1x1_to_linear(model, filter_fn=None):
     _replace_with_custom_fn_if_matches_filter(
         model, replace_conv2d_1x1, filter_fn=filter_fn
     )
+
+
+def _get_linear_subclass_inserter(constructor):
+    def insert_subclass(lin):
+        lin.weight = torch.nn.Parameter(constructor(lin.weight), requires_grad=False)
+        return lin
+
+    return insert_subclass
+
+def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tensor], torch.Tensor], filter_fn=None) -> torch.nn.Module:
+    """Convert the weight of linear modules in the model with `apply_tensor_subclass`
+
+    Args:
+        model: input model
+        apply_tensor_subclass (Callable[[torch.Tensor], torch.Tensor]): function that convert a floating point Tensor to a (quantized) tensor subclass instance
+        filter_fn: used to filter out the modules that we don't want to apply tenosr subclass
+
+    Example::
+
+        # weight settings
+        groupsize = 32
+        mapping_type = MappingType.ASYMMETRIC
+        block_size = (1, groupsize)
+        target_dtype = torch.int32
+        quant_min = 0
+        quant_max = 15
+        eps = 1e-6
+        preserve_zero = False
+        zero_point_dtype = torch.bfloat16
+        zero_point_domain = ZeroPointDomain.FLOAT
+
+        apply_weight_quant = lambda x: to_aqt(x, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain)
+
+        # apply to modules under block0 submodule
+        def filter_fn(module, fqn):
+            return fqn == "block0"
+
+        m = MyModel(...)
+        m = quantize(m, apply_weight_quant, filter_fn)
+    """
+    _replace_with_custom_fn_if_matches_filter(
+        model,
+        _get_linear_subclass_inserter(apply_tensor_subclass),
+        _is_linear if filter_fn is None else filter_fn,
+    )
+    return model

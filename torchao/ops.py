@@ -1,7 +1,6 @@
 import torch
 from torch import Tensor
 
-
 def nms(boxes: Tensor, scores: Tensor, iou_threshold: float) -> Tensor:
     """
     See https://pytorch.org/vision/main/generated/torchvision.ops.nms.html
@@ -37,7 +36,8 @@ def prepack_fp6_weight(fp6_weight: Tensor) -> Tensor:
     return torch.ops.torchao.prepack_fp6_weight.default(fp6_weight)
 
 
-@torch.library.impl_abstract("torchao::prepack_fp6_weight")
+# Defines the meta kernel / fake kernel / abstract impl
+@register_custom_op("torchao::prepack_fp6_weight")
 def _(fp6_weight):
     torch._check(fp6_weight.dim() == 2, lambda: f"weight should be a 2d tensor, got {fp6_weight.dim()}D")
     return torch.empty_like(fp6_weight)
@@ -56,7 +56,7 @@ def fp16_to_fp6_original(fp16_tensor: Tensor) -> Tensor:
     return torch.ops.torchao.fp16_to_fp6_original.default(fp16_tensor)
 
 
-@torch.library.impl_abstract("torchao::fp16_to_fp6_original")
+@torch.library.impl_abstract("torchao::fp16_to_fp6")
 def _(fp16_tensor):
     torch._check(fp16_tensor.dim() == 2, lambda: f"weight should be a 2d tensor, got {fp16_tensor.dim()}D")
     torch._check(fp16_tensor.dtype is torch.float16, lambda: f"weight must be FP16, got {fp16_tensor.dtype}")
@@ -81,7 +81,7 @@ def fp16act_fp6weight_linear(_in_feats: Tensor, _weights: Tensor, _scales: Tenso
     return torch.ops.torchao.fp16act_fp6weight_linear.default(_in_feats, _weights, _scales, splitK)
 
 
-@torch.library.impl_abstract("torchao::fp16act_fp6weight_linear")
+@register_custom_op("torchao::fp16act_fp6weight_linear")
 def _(_in_feats, _weights, _scales, splitK = 1):
     torch._check(_in_feats.dim() == 2, lambda: f"input should be a 2d tensor, got {_in_feats.dim()}D")
     torch._check(_in_feats.dtype is torch.float16, lambda: f"weight must be FP16, got {_in_feats.dtype}")
@@ -96,3 +96,20 @@ def _(_in_feats, _weights, _scales, splitK = 1):
     torch._check(OC == _scales.shape[0], lambda: "Dimensions mismatched")
 
     return _in_feats.new_empty((BS, OC))
+
+
+def fp6_weight_dequant(fp6_tensor: Tensor, fp16_scale: Tensor) -> Tensor:
+    return torch.ops.torchao.fp6_weight_dequant.default(fp6_tensor, fp16_scale)
+
+
+@torch.library.impl_abstract("torchao::fp6_weight_dequant")
+def _(fp6_tensor, fp16_scale):
+    torch._check(fp6_tensor.dim() == 2, lambda: f"weight should be a 2d tensor, got {fp6_tensor.dim()}D")
+    torch._check(fp6_tensor.dtype is torch.int32, lambda: f"weight must be INT32, got {fp6_tensor.dtype}")
+    torch._check(fp16_scale.dim() == 1, lambda: f"scale should be a 2d tensor, got {fp16_scale.dim()}D")
+    torch._check(fp16_scale.dtype is torch.float16, lambda: f"scale must be FP16, got {fp16_scale.dtype}")
+
+    OC, _IC = fp6_tensor.shape
+    torch._check(OC == fp16_scale.shape[0], lambda: "Dimensions mismatched")
+
+    return fp16_scale.new_empty((OC, _IC * 16 // 3))

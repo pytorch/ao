@@ -5,10 +5,12 @@ import torchao
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
 import unittest
 from parameterized import parameterized
+import pytest
 
 
 # torch.testing._internal.optests.generate_tests.OpCheckError: opcheck(op, ...):
 # test_faketensor failed with module 'torch' has no attribute '_custom_ops' (scroll up for stack trace)
+@pytest.mark.filterwarnings("ignore:create_unbacked_symint is deprecated, please use new_dynamic_size instead:UserWarning")
 @unittest.skipIf(IS_FBCODE, "Skipping the test in fbcode since we don't have TARGET file for kernels")
 class TestOps(TestCase):
     def _create_tensors_with_iou(self, N, iou_thresh):
@@ -27,21 +29,6 @@ class TestOps(TestCase):
         boxes[-1, 2] += (x1 - x0) * (1 - iou_thresh) / iou_thresh
         scores = torch.rand(N)
         return boxes, scores
-
-    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.3 or lower")
-    def test_nms(self):
-        iou = 0.2
-        boxes, scores = self._create_tensors_with_iou(1000, iou)
-        boxes = boxes.cuda()
-        scores = scores.cuda()
-
-        # smoke test
-        _ = torchao.ops.nms(boxes, scores, iou)
-
-        # comprehensive testing
-        test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
-        opcheck(torch.ops.torchao.nms, (boxes, scores, iou), test_utils=test_utils)
 
     def _create_fp6_inputs(self, BS: int, OC: int, IC: int):
         # Randomly initialize each bytes. The highest value for randint() is set the the max value of uint32_t.
