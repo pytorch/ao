@@ -10,4 +10,6 @@ TORCH_LIBRARY_FRAGMENT(torchao, m) {
 
   m.def("to_fp6_unpacked_cpu(Tensor tensor) -> Tensor");
   m.def("to_fp6_packed_cpu(Tensor tensor) -> Tensor");
+  m.def("from_fp6_unpacked_cpu(Tensor tensor, ScalarType dtype) -> Tensor");
+  m.def("from_fp6_packed_cpu(Tensor tensor, ScalarType dtype) -> Tensor");
 }

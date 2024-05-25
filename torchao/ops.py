@@ -93,3 +93,11 @@ def to_fp6_unpacked_cpu(tensor: Tensor) -> Tensor:
 
 def to_fp6_packed_cpu(tensor: Tensor) -> Tensor:
     return torch.ops.torchao.to_fp6_packed_cpu.default(tensor)
+
+
+def from_fp6_unpacked_cpu(tensor: Tensor, dtype: torch.dtype) -> Tensor:
+    return torch.ops.torchao.from_fp6_unpacked_cpu.default(tensor, dtype)
+
+
+def from_fp6_packed_cpu(tensor: Tensor, dtype: torch.dtype) -> Tensor:
+    return torch.ops.torchao.from_fp6_packed_cpu.default(tensor, dtype)

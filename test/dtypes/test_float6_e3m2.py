@@ -33,7 +33,6 @@ class TestFp6(TestCase):
         ],
     )
     def test_to_float6_e3m2_no_bit_packing_correctness(self, device, dtype, input_output):
-        torch.set_flush_denormal(False)
         input, output = input_output
         input = torch.tensor(input, device=device, dtype=dtype)
         assert to_float6_e3m2(input, no_bit_packing=True).item() == output
@@ -71,7 +70,6 @@ class TestFp6(TestCase):
     @parametrize("dtype", _DTYPES)
     @parametrize("no_bit_packing", [False, True])
     def test_to_float6_e3m2_compile(self, device, dtype, no_bit_packing):
-        torch.set_flush_denormal(False)
         x = torch.randn(20, 20, device=device, dtype=dtype)
         expected = to_float6_e3m2(x, no_bit_packing=no_bit_packing)
 
@@ -92,7 +90,6 @@ class TestFp6(TestCase):
         ],
     )
     def test_from_float6_e3m2_no_bit_packing_correctness(self, device, input_output):
-        torch.set_flush_denormal(False)
         input, output = input_output
         input = torch.tensor(input, device=device, dtype=torch.uint8)
         assert from_float6_e3m2(input, no_bit_packing=True).item() == output
@@ -115,7 +112,6 @@ class TestFp6(TestCase):
     @parametrize("device", _DEVICES)
     @parametrize("no_bit_packing", [False, True])
     def test_from_float6_e3m2_compile(self, device, no_bit_packing):
-        torch.set_flush_denormal(False)
         x = torch.randint(256, size=(20, 15), device=device, dtype=torch.uint8)
         expected = from_float6_e3m2(x, no_bit_packing=no_bit_packing)
 

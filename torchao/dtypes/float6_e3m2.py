@@ -1,7 +1,7 @@
 import torch
 from torch import Tensor
 from torch.utils._triton import has_triton
-from torchao.ops import to_fp6_packed_cpu, to_fp6_unpacked_cpu
+from torchao.ops import to_fp6_packed_cpu, to_fp6_unpacked_cpu, from_fp6_packed_cpu, from_fp6_unpacked_cpu
 
 
 # some useful constants
@@ -144,13 +144,14 @@ def _pt_float6_e3m2_to_float32(tensor: Tensor) -> Tensor:
     return results * 2.0 ** (127 - 3)  # exponent bias correction
 
 
-def from_float6_e3m2(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
+def from_float6_e3m2(tensor: Tensor, no_bit_packing: bool = False, dtype: torch.dtype = torch.float32) -> Tensor:
     """Convert an FP6 tensor (created by :func:`to_float6_e3m2`) to FP32.
 
     Args:
       tensor: FP6 tensor, stored as uint8 data. If ``no_bit_packing=False``, the last dimension must
         be divisible by 3.
       no_bit_packing: whether the input does not have bit packing.
+      dtype: returned dtype.
 
     Returns:
       :class:`torch.Tensor`: FP32 tensor. If ``no_bit_packing=False``, the last dimension of output
@@ -164,13 +165,18 @@ def from_float6_e3m2(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
     """
     assert tensor.dtype == torch.uint8
     if no_bit_packing:
-        return _pt_float6_e3m2_to_float32(tensor)
+        if tensor.is_cpu:
+          return from_fp6_unpacked_cpu(tensor, dtype)
+
+        return _pt_float6_e3m2_to_float32(tensor).to(dtype)
 
     assert tensor.shape[-1] % 3 == 0, "Last dim must be divisible by 3"
+    if tensor.is_cpu:
+        return from_fp6_packed_cpu(tensor, dtype)
 
     bits0, bits1, bits2 = tensor.unflatten(-1, (-1, 3)).unbind(-1)
-    val0 = _pt_float6_e3m2_to_float32(bits0 >> 2)
-    val1 = _pt_float6_e3m2_to_float32(((bits0 & 0x3) << 4) | (bits1 >> 4))
-    val2 = _pt_float6_e3m2_to_float32(((bits1 & 0xF) << 2) | (bits2 >> 6))
-    val3 = _pt_float6_e3m2_to_float32(bits2 & 0x3F)
+    val0 = _pt_float6_e3m2_to_float32(bits0 >> 2).to(dtype)
+    val1 = _pt_float6_e3m2_to_float32(((bits0 & 0x3) << 4) | (bits1 >> 4)).to(dtype)
+    val2 = _pt_float6_e3m2_to_float32(((bits1 & 0xF) << 2) | (bits2 >> 6)).to(dtype)
+    val3 = _pt_float6_e3m2_to_float32(bits2 & 0x3F).to(dtype)
     return torch.stack([val0, val1, val2, val3], dim=-1).flatten(-2)
