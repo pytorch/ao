@@ -2,6 +2,7 @@ import torch
 from torch import Tensor
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
 
+
 def register_custom_op(name):
     def decorator(func):
         if TORCH_VERSION_AFTER_2_4:
@@ -9,7 +10,6 @@ def register_custom_op(name):
         else:
             return torch.library.impl_abstract(f"{name}")(func)
     return decorator
-
 
 
 def prepack_fp6_weight(fp6_weight: Tensor) -> Tensor:
@@ -32,14 +32,20 @@ def _(fp6_weight):
     return torch.empty_like(fp6_weight)
 
 
-def fp16_to_fp6(fp16_tensor: Tensor) -> Tensor:
+def fp16_to_fp6_original(fp16_tensor: Tensor) -> Tensor:
     """
-    Pack FP16 tensor (containing only FP6 values) into FP6 tensor.
+    Pack FP16 tensor to FP6 tensor. qtorch is required to use this function.
     """
-    return torch.ops.torchao.fp16_to_fp6.default(fp16_tensor)
+    try:
+        from qtorch.quant import float_quantize
+    except ImportError as e:
+        raise RuntimeError("Please install qtorch to use this function") from e
+
+    fp16_tensor = float_quantize(fp16_tensor.float(), 3, 2, rounding="nearest").half()
+    return torch.ops.torchao.fp16_to_fp6_original.default(fp16_tensor)
 
 
-@register_custom_op("torchao::fp16_to_fp6")
+@register_custom_op("torchao::fp16_to_fp6_original")
 def _(fp16_tensor):
     torch._check(fp16_tensor.dim() == 2, lambda: f"weight should be a 2d tensor, got {fp16_tensor.dim()}D")
     torch._check(fp16_tensor.dtype is torch.float16, lambda: f"weight must be FP16, got {fp16_tensor.dtype}")
@@ -81,18 +87,17 @@ def _(_in_feats, _weights, _scales, splitK = 1):
     return _in_feats.new_empty((BS, OC))
 
 
-def fp6_weight_dequant(fp6_tensor: Tensor, fp16_scale: Tensor) -> Tensor:
-    return torch.ops.torchao.fp6_weight_dequant.default(fp6_tensor, fp16_scale)
+def to_float6_e3m2_unpacked_cpu(tensor: Tensor) -> Tensor:
+    return torch.ops.torchao.to_float6_e3m2_unpacked_cpu.default(tensor)
 
 
-@register_custom_op("torchao::fp6_weight_dequant")
-def _(fp6_tensor, fp16_scale):
-    torch._check(fp6_tensor.dim() == 2, lambda: f"weight should be a 2d tensor, got {fp6_tensor.dim()}D")
-    torch._check(fp6_tensor.dtype is torch.int32, lambda: f"weight must be INT32, got {fp6_tensor.dtype}")
-    torch._check(fp16_scale.dim() == 1, lambda: f"scale should be a 2d tensor, got {fp16_scale.dim()}D")
-    torch._check(fp16_scale.dtype is torch.float16, lambda: f"scale must be FP16, got {fp16_scale.dtype}")
+def to_float6_e3m2_packed_cpu(tensor: Tensor) -> Tensor:
+    return torch.ops.torchao.to_float6_e3m2_packed_cpu.default(tensor)
 
-    OC, _IC = fp6_tensor.shape
-    torch._check(OC == fp16_scale.shape[0], lambda: "Dimensions mismatched")
 
-    return fp16_scale.new_empty((OC, _IC * 16 // 3))
+def from_float6_e3m2_unpacked_cpu(tensor: Tensor, dtype: torch.dtype) -> Tensor:
+    return torch.ops.torchao.from_float6_e3m2_unpacked_cpu.default(tensor, dtype)
+
+
+def from_float6_e3m2_packed_cpu(tensor: Tensor, dtype: torch.dtype) -> Tensor:
+    return torch.ops.torchao.from_float6_e3m2_packed_cpu.default(tensor, dtype)

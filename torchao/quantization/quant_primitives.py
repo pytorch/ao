@@ -375,7 +375,6 @@ def choose_qparams_affine(
 
 
 # copy-pasta of https://www.internalfb.com/intern/anp/view/?id=3350736
-
 def dynamically_quantize_per_tensor(
     x,
     quant_min,
@@ -401,8 +400,6 @@ def dynamically_quantize_per_tensor(
 # taken from
 # https://github.com/mit-han-lab/smoothquant/blob/2f87951dacfb9238d8d657f52ae83a82a3c9ba0c/smoothquant/fake_quant.py#L26
 # and slightly modified
-
-
 def quantize_activation_per_token_absmax(t):
     # if the shape of t is [B, N, K], the shape of scales will be [B, N, 1]
     mapping_type = MappingType.SYMMETRIC
@@ -426,10 +423,12 @@ def quantize_activation_per_token_absmax(t):
 
 
 def dynamically_quantize_per_channel(x, quant_min, quant_max, target_dtype):
-    # assumes symmetric quantization
-    # assumes axis == 0
-    # assumes dense memory format
-    # TODO(future): relax ^ as needed
+    """
+    assumes symmetric quantization
+    assumes axis == 0
+    assumes dense memory format
+    TODO(future): relax ^ as needed
+    """
 
     assert x.dim() == 2, "only support 2d Tensors"
 
@@ -512,21 +511,22 @@ def quant_int8_matmul(
     w_scales,
     out_dtype=torch.float32,
 ):
-    # Quantized matmul of int8 operands that accumulates to int32 and returns
-    # out_dtype. For now, this is written for approximate numerical
-    # correctness, and things like aligning accumulation behaviors and
-    # performance optimizations are left for a future PR.
-    # Assumes that weight quantization is symmetric, i.e. w_zp is 0.
-    # Assumes that weight quantization is per-channel.
+    """
+    Quantized matmul of int8 operands that accumulates to int32 and returns
+    out_dtype. For now, this is written for approximate numerical
+    correctness, and things like aligning accumulation behaviors and
+    performance optimizations are left for a future PR.
+    Assumes that weight quantization is symmetric, i.e. w_zp is 0.
+    Assumes that weight quantization is per-channel.
 
-    # see
-    # https://github.com/google/gemmlowp/blob/master/doc/quantization.md
-    # for an overview of quantized matmul compute
+    see
+    https://github.com/google/gemmlowp/blob/master/doc/quantization.md
+    for an overview of quantized matmul compute
 
-    # in scalar form, assuming out_dtype is fp32 and zw == 0:
-    #
-    #   Y_i_j_fp32 = sx * sw (dot(X_i, W_j) - zx * sum(W_j))
-    #
+    in scalar form, assuming out_dtype is fp32 and zw == 0:
+
+      Y_i_j_fp32 = sx * sw (dot(X_i, W_j) - zx * sum(W_j))
+    """
 
     assert x_vals_int8.dtype in (
         torch.uint8,
@@ -571,8 +571,10 @@ def quant_int8_dynamic_per_token_linear(
     bias,
     out_dtype,
 ):
-    # like F.linear, but with int8 dynamic quantization of activation,
-    # and a quantized weight
+    """
+    like F.linear, but with int8 dynamic quantization of activation,
+    and a quantized weight
+    """
     x_vals_int8, x_scales = quantize_activation_per_token_absmax(x)
     mm_out = quant_int8_per_token_matmul(
         x_vals_int8, x_scales, w_vals_int8_t, w_scales, out_dtype
@@ -589,20 +591,21 @@ def quant_int8_per_token_matmul(
     w_scales,
     output_dtype=torch.float32,
 ):
-    # Quantized matmul of int8 operands that accumulates to int32 and returns
-    # output_dtype. For now, this is written for approximate numerical
-    # Assumes that activation and weight quantization are symmetric,
-    # i.e. act_zp and w_zp is 0.
-    # Assumes that weight quantization is per-channel.
+    """
+    Quantized matmul of int8 operands that accumulates to int32 and returns
+    output_dtype. For now, this is written for approximate numerical
+    Assumes that activation and weight quantization are symmetric,
+    i.e. act_zp and w_zp is 0.
+    Assumes that weight quantization is per-channel.
 
-    # see
-    # https://github.com/google/gemmlowp/blob/master/doc/quantization.md
-    # for an overview of quantized matmul compute
+    see
+    https://github.com/google/gemmlowp/blob/master/doc/quantization.md
+    for an overview of quantized matmul compute
 
-    # in scalar form, assuming output_dtype is fp32 and zw == 0:
-    #
-    #   Y_i_j_fp32 = sx * sw dot(X_i, W_j)
-    #
+    in scalar form, assuming output_dtype is fp32 and zw == 0:
+
+      Y_i_j_fp32 = sx * sw dot(X_i, W_j)
+    """
 
     assert (
         x_vals_int8.dtype == torch.int8
