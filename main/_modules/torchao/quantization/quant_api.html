@@ -390,6 +390,10 @@
 <span class="sd">both because primitives were designed based on the fusions that</span>
 <span class="sd">come along with it and because that is how we access the intended quantized</span>
 <span class="sd">and mixed GEMM kernels</span>
+
+<span class="sd">TODO: There are 2 different approaches to quantizing a model. The first and more historically</span>
+<span class="sd">popular approach is to use module swaps which explicitly change the linear modules and the second</span>
+<span class="sd">approach is to instead use subclasses to change the interpretation of the linear module</span>
 <span class="sd">&quot;&quot;&quot;</span>
 
 <span class="kn">import</span> <span class="nn">torch</span>
@@ -428,6 +432,7 @@
     <span class="s2">&quot;Int4WeightOnlyQuantizer&quot;</span><span class="p">,</span>
     <span class="s2">&quot;quantize&quot;</span><span class="p">,</span>
     <span class="s2">&quot;autoquant&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;_get_subclass_inserter&quot;</span><span class="p">,</span>
 <span class="p">]</span>
 
 <span class="k">if</span> <span class="n">TORCH_VERSION_AFTER_2_3</span><span class="p">:</span>
@@ -449,8 +454,17 @@
     <span class="n">cur_fqn</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    For each `child` in `model`, replaces it with `replacement_fn(child)`</span>
-<span class="sd">    if `filter_fn(child)` is `True`</span>
+<span class="sd">    Recursively replaces each child module in `model` with the result of `replacement_fn(child)`</span>
+<span class="sd">    if `filter_fn(child)` returns `True`.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        model (torch.nn.Module): The model containing modules to be replaced.</span>
+<span class="sd">        replacement_fn (Callable[[torch.nn.Module], torch.nn.Module]): The function to replace matching modules.</span>
+<span class="sd">        filter_fn (Callable[[torch.nn.Module], bool]): The filter function to determine which modules to replace.</span>
+<span class="sd">        cur_fqn (str, optional): The current fully qualified name of the module being processed. Defaults to &quot;&quot;.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        None</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="n">filter_fn</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">cur_fqn</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]):</span>
         <span class="n">model</span> <span class="o">=</span> <span class="n">replacement_fn</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
@@ -502,6 +516,16 @@
 <span class="kn">import</span> <span class="nn">torch.nn.utils.parametrize</span> <span class="k">as</span> <span class="nn">parametrize</span>
 
 <span class="k">def</span> <span class="nf">_get_subclass_inserter</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">enable_parametrization</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Returns a function which inserts the given subclass into all linear modules</span>
+<span class="sd">    in the model. The inserted module will have its weight set to the result of</span>
+<span class="sd">    `cls(mod.weight, **kwargs)`. If parametrization is enabled then this will be done using</span>
+<span class="sd">    torch.nn.utils.parametrize instead of directly setting the attribute on the module.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        cls (torch.Tensor): The class to insert as a child module.</span>
+<span class="sd">        kwargs (Any): Any additional arguments for the constructor.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">constructor</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;constructor&quot;</span><span class="p">,</span> <span class="s2">&quot;subclass_constructor&quot;</span><span class="p">)</span>
     <span class="n">from_float</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;method&quot;</span><span class="p">,</span> <span class="s2">&quot;from_float&quot;</span><span class="p">)</span>
     <span class="k">def</span> <span class="nf">insert_subclass</span><span class="p">(</span><span class="n">lin</span><span class="p">):</span>
