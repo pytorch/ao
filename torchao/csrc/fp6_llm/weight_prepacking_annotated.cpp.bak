@@ -100,18 +100,13 @@ void BitInterleaving_2bit(unsigned char* PTR_4Bytes)
 {
     unsigned int *PTR_UINT = reinterpret_cast<unsigned int*>(PTR_4Bytes);
     unsigned int input  = *PTR_UINT;
-    // transpose and swap rows?
-    // 1, 2, 3, 4,
-    // 5, 6, 7, 8,
-    // 9,10,11,12,
-    //13,14,15,16
-
-    // 2, 6,10,14,
-    // 4, 8,12,16
-    // 1, 5, 9,13,
-    // 3, 7,11,15
 
     // 4 bytes -> 4x4 values, since each byte has 4 values
+    // LAYOUT
+    // [12,13,14,15]  high address
+    // [ 8, 9,10,11]
+    // [ 4, 5, 6, 7]
+    // [ 0, 1, 2, 3]  low address
 
     //int order_2bit[16] = {1,5,9,13,3,7,11,15,2,6,10,14,4,8,12,16};  // pre-defined order for bit-interleaving in FP6-LLM
     int order_2bit[16] = {2,6,10,14,4,8,12,16,1,5,9,13,3,7,11,15};  // pre-defined order for bit-interleaving in FP6-LLM
@@ -132,15 +127,6 @@ void BitInterleaving_4bit(unsigned char* PTR_4Bytes)
 {
     unsigned int *PTR_UINT = reinterpret_cast<unsigned int*>(PTR_4Bytes);
     unsigned int input  = *PTR_UINT;
-
-    // transpose and swap rows
-    // 1, 2, 3, 4
-    // 5, 6, 7, 8
-
-    // 2, 6,
-    // 4, 8
-    // 1, 5,
-    // 3, 7
 
     //int order_4bit[8] = {1,5,3,7,2,6,4,8};  // pre-defined order for bit-interleaving in FP6-LLM
     int order_4bit[8] = {2,6,4,8,1,5,3,7};  // pre-defined order for bit-interleaving in FP6-LLM
@@ -198,6 +184,9 @@ void weight_matrix_prepacking(int* packed_weights, int *FP6Weights, size_t M, si
     // 2-bit and 4-bit weights
 
     // -> (32, M/64, N/16, n_slice, subblock_col, subblock_row, 2)
+
+    // 2-bit weight: 4 values are packed into 1 uint8
+    // 4-bit weight: 2 values are packed into 1 uint8
 
     for (size_t i = 0; i < M / 64; i++)    // 
     {
