@@ -1,4 +1,5 @@
 import torch
+import torchao
 from torch.testing._internal.common_utils import (
     TestCase,
     instantiate_parametrized_tests,
@@ -6,6 +7,7 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 from torchao.dtypes.float6_e3m2 import to_float6_e3m2, from_float6_e3m2
+from torchao.dtypes.tc_float6_e3m2 import to_tc_float6_e3m2
 
 
 _DTYPES = [torch.float32, torch.float16, torch.bfloat16]
@@ -120,7 +122,26 @@ class TestFp6(TestCase):
         torch.testing.assert_close(actual, expected)
 
 
+class TestWeightPrepacking(TestCase):
+    @parametrize("device", _DEVICES)
+    def test_weight_prepacking_correctness(self, device):
+        x = torch.randn(256, 64, device=device)
+
+        expected = torchao.ops.prepack_fp6_weight(to_float6_e3m2(x.cpu()).view(torch.int32)).view(torch.uint8)
+        actual = to_tc_float6_e3m2(x)
+        torch.testing.assert_close(actual.view(-1).cpu(), expected.view(-1))
+
+    @parametrize("device", _DEVICES)
+    def test_weight_prepacking_compile(self, device):
+        x = torch.randn(256, 64, device=device)
+
+        expected = to_tc_float6_e3m2(x)
+        actual = torch.compile(to_tc_float6_e3m2)(x)
+        torch.testing.assert_close(actual, expected)
+
+
 instantiate_parametrized_tests(TestFp6)
+instantiate_parametrized_tests(TestWeightPrepacking)
 
 
 if __name__ == "__main__":
