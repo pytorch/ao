@@ -13,11 +13,16 @@ usage involves applying torch.compile to the model afterwards
 both because primitives were designed based on the fusions that
 come along with it and because that is how we access the intended quantized
 and mixed GEMM kernels
+
+TODO: There are 2 different approaches to quantizing a model. The first and more historically
+popular approach is to use module swaps which explicitly change the linear modules and the second
+approach is to instead use subclasses to change the interpretation of the linear module
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Any, Callable
 
 from .dynamic_quant import DynamicallyPerAxisQuantizedLinear
 from .utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
@@ -34,7 +39,7 @@ from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
     Int4WeightOnlyQuantizer,
 )
-from .autoquant import autoquant
+from .autoquant import autoquant, AutoQuantizableLinearWeight
 
 
 __all__ = [
@@ -48,7 +53,9 @@ __all__ = [
     "TwoStepQuantizer",
     "Int4WeightOnlyGPTQQuantizer",
     "Int4WeightOnlyQuantizer",
-    "autoquant"
+    "quantize",
+    "autoquant",
+    "_get_subclass_inserter",
 ]
 
 if TORCH_VERSION_AFTER_2_3:
@@ -70,8 +77,17 @@ def _replace_with_custom_fn_if_matches_filter(
     cur_fqn="",
 ) -> None:
     """
-    For each `child` in `model`, replaces it with `replacement_fn(child)`
-    if `filter_fn(child)` is `True`
+    Recursively replaces each child module in `model` with the result of `replacement_fn(child)`
+    if `filter_fn(child)` returns `True`.
+
+    Args:
+        model (torch.nn.Module): The model containing modules to be replaced.
+        replacement_fn (Callable[[torch.nn.Module], torch.nn.Module]): The function to replace matching modules.
+        filter_fn (Callable[[torch.nn.Module], bool]): The filter function to determine which modules to replace.
+        cur_fqn (str, optional): The current fully qualified name of the module being processed. Defaults to "".
+
+    Returns:
+        None
     """
     if filter_fn(model, cur_fqn[:-1]):
         model = replacement_fn(model)
@@ -91,6 +107,7 @@ def _is_linear(mod, *args):
         isinstance(mod, torch.nn.Linear)
         and hasattr(mod, "weight")
         and not isinstance(mod.weight, QuantizedLinearWeightBase)
+        and not isinstance(mod.weight, AutoQuantizableLinearWeight)
     )
 
 
@@ -122,6 +139,16 @@ def apply_dynamic_quant(model, filter_fn=None):
 import torch.nn.utils.parametrize as parametrize
 
 def _get_subclass_inserter(cls, enable_parametrization=False, **kwargs):
+    """
+    Returns a function which inserts the given subclass into all linear modules
+    in the model. The inserted module will have its weight set to the result of
+    `cls(mod.weight, **kwargs)`. If parametrization is enabled then this will be done using
+    torch.nn.utils.parametrize instead of directly setting the attribute on the module.
+
+    Args:
+        cls (torch.Tensor): The class to insert as a child module.
+        kwargs (Any): Any additional arguments for the constructor.
+    """
     constructor = kwargs.pop("constructor", "subclass_constructor")
     from_float = kwargs.pop("method", "from_float")
     def insert_subclass(lin):
@@ -214,3 +241,49 @@ def swap_conv2d_1x1_to_linear(model, filter_fn=None):
     _replace_with_custom_fn_if_matches_filter(
         model, replace_conv2d_1x1, filter_fn=filter_fn
     )
+
+
+def _get_linear_subclass_inserter(constructor):
+    def insert_subclass(lin):
+        lin.weight = torch.nn.Parameter(constructor(lin.weight), requires_grad=False)
+        return lin
+
+    return insert_subclass
+
+def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tensor], torch.Tensor], filter_fn=None) -> torch.nn.Module:
+    """Convert the weight of linear modules in the model with `apply_tensor_subclass`
+
+    Args:
+        model: input model
+        apply_tensor_subclass (Callable[[torch.Tensor], torch.Tensor]): function that convert a floating point Tensor to a (quantized) tensor subclass instance
+        filter_fn: used to filter out the modules that we don't want to apply tenosr subclass
+
+    Example::
+
+        # weight settings
+        groupsize = 32
+        mapping_type = MappingType.ASYMMETRIC
+        block_size = (1, groupsize)
+        target_dtype = torch.int32
+        quant_min = 0
+        quant_max = 15
+        eps = 1e-6
+        preserve_zero = False
+        zero_point_dtype = torch.bfloat16
+        zero_point_domain = ZeroPointDomain.FLOAT
+
+        apply_weight_quant = lambda x: to_aqt(x, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain)
+
+        # apply to modules under block0 submodule
+        def filter_fn(module, fqn):
+            return fqn == "block0"
+
+        m = MyModel(...)
+        m = quantize(m, apply_weight_quant, filter_fn)
+    """
+    _replace_with_custom_fn_if_matches_filter(
+        model,
+        _get_linear_subclass_inserter(apply_tensor_subclass),
+        _is_linear if filter_fn is None else filter_fn,
+    )
+    return model

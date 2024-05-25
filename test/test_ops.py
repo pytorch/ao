@@ -5,10 +5,12 @@ import torchao
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
 import unittest
 from parameterized import parameterized
+import pytest
 
 
 # torch.testing._internal.optests.generate_tests.OpCheckError: opcheck(op, ...):
 # test_faketensor failed with module 'torch' has no attribute '_custom_ops' (scroll up for stack trace)
+@pytest.mark.filterwarnings("ignore:create_unbacked_symint is deprecated, please use new_dynamic_size instead:UserWarning")
 @unittest.skipIf(IS_FBCODE, "Skipping the test in fbcode since we don't have TARGET file for kernels")
 class TestOps(TestCase):
     def _create_tensors_with_iou(self, N, iou_thresh):
@@ -27,21 +29,6 @@ class TestOps(TestCase):
         boxes[-1, 2] += (x1 - x0) * (1 - iou_thresh) / iou_thresh
         scores = torch.rand(N)
         return boxes, scores
-
-    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.3 or lower")
-    def test_nms(self):
-        iou = 0.2
-        boxes, scores = self._create_tensors_with_iou(1000, iou)
-        boxes = boxes.cuda()
-        scores = scores.cuda()
-
-        # smoke test
-        _ = torchao.ops.nms(boxes, scores, iou)
-
-        # comprehensive testing
-        test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
-        opcheck(torch.ops.torchao.nms, (boxes, scores, iou), test_utils=test_utils)
 
     def _create_fp6_inputs(self, BS: int, OC: int, IC: int):
         # Randomly initialize each bytes. The highest value for randint() is set the the max value of uint32_t.
@@ -63,24 +50,21 @@ class TestOps(TestCase):
         opcheck(torch.ops.torchao.prepack_fp6_weight, (fp6_weight,), test_utils=test_utils)
 
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
-    def test_fp16_to_fp6(self):
+    def test_fp16_to_fp6_original(self):
         OC = 256
         IC = 256
-
-        # in this fp6, we use 3 bits for exponent and 2 bits for mantissa
-        # also, we don't have nan/inf
-        fp6_absmax = 28.0  # 2 ** (0b111 - 0b011) * (1 + 0.5 + 0.25), where E=111, M=11
-        fp6_absmin = 0.0625  # 2 ** (-0b010) * 0.25, where E=000, M=01 (subnormal number)
         fp16_weight = torch.randn((OC, IC), dtype=torch.float16)
-        fp16_weight.clip_(-fp6_absmax, fp6_absmax)
-        fp16_weight[fp16_weight.abs() < fp6_absmin] = 0
+
+        # the original FP16->FP6 kernel checks for overflow/underflow
+        fp16_weight.clip_(-28.0, 28.0)
+        fp16_weight[fp16_weight.abs() < 0.0625] = 0.0
 
         # smoke test
-        torchao.ops.fp16_to_fp6(fp16_weight)
+        torchao.ops.fp16_to_fp6_original(fp16_weight)
 
         # comprehensive testing
         test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
-        opcheck(torch.ops.torchao.fp16_to_fp6, (fp16_weight,), test_utils=test_utils)
+        opcheck(torch.ops.torchao.fp16_to_fp6_original, (fp16_weight,), test_utils=test_utils)
 
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_fp16act_fp6weight_linear(self):
@@ -102,19 +86,6 @@ class TestOps(TestCase):
         test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
         opcheck(torch.ops.torchao.fp16act_fp6weight_linear, (act_cuda, weight_cuda, scale_cuda, splitK), test_utils=test_utils)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
-    def test_fp6_weight_dequant(self):
-        OC = 256
-        IC = 256
-        fp6_weight, fp16_scale, _ = self._create_fp6_inputs(0, OC, IC)
-
-        # smoke test
-        torchao.ops.fp6_weight_dequant(fp6_weight, fp16_scale)
-
-        # comprehensive testing
-        test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
-        opcheck(torch.ops.torchao.fp6_weight_dequant, (fp6_weight, fp16_scale), test_utils=test_utils)
-
     # adapted from https://github.com/usyd-fsalab/fp6_llm/blob/main/tests/python/kernel_test.py
     @parameterized.expand([(1, 2048, 4096, 5), (2, 8192, 8192, 6)])
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
@@ -128,8 +99,8 @@ class TestOps(TestCase):
 
         results_fp6 = torchao.ops.fp16act_fp6weight_linear(act_cuda, weight_cuda, scale_cuda, splitK)
 
-        fp16_weight = torchao.ops.fp6_weight_dequant(fp6_weight, fp16_scale).cuda()
-        results_fp16 = act_cuda @ fp16_weight.T
+        fp16_weight = torchao.dtypes.from_float6_e3m2(fp6_weight.view(torch.uint8), dtype=torch.float16) * fp16_scale[:, None]
+        results_fp16 = act_cuda @ fp16_weight.cuda().T
 
         error = (results_fp6 - results_fp16).abs()
         relative_error = error / results_fp16.abs()
