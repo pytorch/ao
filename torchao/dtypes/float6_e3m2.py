@@ -1,7 +1,7 @@
 import torch
 from torch import Tensor
 from torch.utils._triton import has_triton
-from torchao.ops import to_fp6_packed_cpu, to_fp6_unpacked_cpu, from_fp6_packed_cpu, from_fp6_unpacked_cpu
+from torchao.ops import to_float6_e3m2_packed_cpu, to_float6_e3m2_unpacked_cpu, from_float6_e3m2_packed_cpu, from_float6_e3m2_unpacked_cpu
 
 
 # some useful constants
@@ -120,10 +120,10 @@ def to_float6_e3m2(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
 
     if tensor.is_cpu:
       if no_bit_packing:
-        return to_fp6_unpacked_cpu(tensor)
+        return to_float6_e3m2_unpacked_cpu(tensor)
       
       *leading_dims, last_dim = tensor.shape
-      return to_fp6_packed_cpu(tensor.view(-1, last_dim)).view(*leading_dims, -1)
+      return to_float6_e3m2_packed_cpu(tensor.view(-1, last_dim)).view(*leading_dims, -1)
 
     # torch.compile() cannot generate fused bit-packing triton kernel,
     # thus we write custom triton kernel for this specific case.
@@ -134,6 +134,8 @@ def to_float6_e3m2(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
         return _to_float6_e3m2_pt(tensor, no_bit_packing=no_bit_packing)
 
 
+# NOTE: This implementation requires FP32 denormal numbers to be handled correctly.
+# On CPU, denormal numbers might be flushed to zero for performance gain (FTZ and DAZ flags).
 def _pt_float6_e3m2_to_float32(tensor: Tensor) -> Tensor:
     bits = tensor.to(torch.int32)  # bit extension
     sign = bits >> 5 << 31
@@ -156,23 +158,17 @@ def from_float6_e3m2(tensor: Tensor, no_bit_packing: bool = False, dtype: torch.
     Returns:
       :class:`torch.Tensor`: FP32 tensor. If ``no_bit_packing=False``, the last dimension of output
       tensor is 4/3 of that of input tensor.
-
-    Note:
-      This implementation requires FP32 denormal numbers to be handled correctly. On CPU, you can use
-      :func:`torch.set_flush_denormal` to disable flushing denormal numbers to zero. Other code or
-      libraries might set it to ``True`` for performance gain. On CUDA, this is not necessary since
-      CUDA always handle denormal numbers correctly.
     """
     assert tensor.dtype == torch.uint8
     if no_bit_packing:
         if tensor.is_cpu:
-          return from_fp6_unpacked_cpu(tensor, dtype)
+          return from_float6_e3m2_unpacked_cpu(tensor, dtype)
 
         return _pt_float6_e3m2_to_float32(tensor).to(dtype)
 
     assert tensor.shape[-1] % 3 == 0, "Last dim must be divisible by 3"
     if tensor.is_cpu:
-        return from_fp6_packed_cpu(tensor, dtype)
+        return from_float6_e3m2_packed_cpu(tensor, dtype)
 
     bits0, bits1, bits2 = tensor.unflatten(-1, (-1, 3)).unbind(-1)
     val0 = _pt_float6_e3m2_to_float32(bits0 >> 2).to(dtype)

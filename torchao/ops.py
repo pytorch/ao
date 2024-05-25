@@ -87,17 +87,17 @@ def _(_in_feats, _weights, _scales, splitK = 1):
     return _in_feats.new_empty((BS, OC))
 
 
-def to_fp6_unpacked_cpu(tensor: Tensor) -> Tensor:
-    return torch.ops.torchao.to_fp6_unpacked_cpu.default(tensor)
+def to_float6_e3m2_unpacked_cpu(tensor: Tensor) -> Tensor:
+    return torch.ops.torchao.to_float6_e3m2_unpacked_cpu.default(tensor)
 
 
-def to_fp6_packed_cpu(tensor: Tensor) -> Tensor:
-    return torch.ops.torchao.to_fp6_packed_cpu.default(tensor)
+def to_float6_e3m2_packed_cpu(tensor: Tensor) -> Tensor:
+    return torch.ops.torchao.to_float6_e3m2_packed_cpu.default(tensor)
 
 
-def from_fp6_unpacked_cpu(tensor: Tensor, dtype: torch.dtype) -> Tensor:
-    return torch.ops.torchao.from_fp6_unpacked_cpu.default(tensor, dtype)
+def from_float6_e3m2_unpacked_cpu(tensor: Tensor, dtype: torch.dtype) -> Tensor:
+    return torch.ops.torchao.from_float6_e3m2_unpacked_cpu.default(tensor, dtype)
 
 
-def from_fp6_packed_cpu(tensor: Tensor, dtype: torch.dtype) -> Tensor:
-    return torch.ops.torchao.from_fp6_packed_cpu.default(tensor, dtype)
+def from_float6_e3m2_packed_cpu(tensor: Tensor, dtype: torch.dtype) -> Tensor:
+    return torch.ops.torchao.from_float6_e3m2_packed_cpu.default(tensor, dtype)
