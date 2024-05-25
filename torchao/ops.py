@@ -45,7 +45,7 @@ def fp16_to_fp6_original(fp16_tensor: Tensor) -> Tensor:
     return torch.ops.torchao.fp16_to_fp6_original.default(fp16_tensor)
 
 
-@register_custom_op("torchao::fp16_to_fp6")
+@register_custom_op("torchao::fp16_to_fp6_original")
 def _(fp16_tensor):
     torch._check(fp16_tensor.dim() == 2, lambda: f"weight should be a 2d tensor, got {fp16_tensor.dim()}D")
     torch._check(fp16_tensor.dtype is torch.float16, lambda: f"weight must be FP16, got {fp16_tensor.dtype}")
@@ -85,3 +85,11 @@ def _(_in_feats, _weights, _scales, splitK = 1):
     torch._check(OC == _scales.shape[0], lambda: "Dimensions mismatched")
 
     return _in_feats.new_empty((BS, OC))
+
+
+def to_fp6_unpacked_cpu(tensor: Tensor) -> Tensor:
+    return torch.ops.torchao.to_fp6_unpacked_cpu.default(tensor)
+
+
+def to_fp6_packed_cpu(tensor: Tensor) -> Tensor:
+    return torch.ops.torchao.to_fp6_packed_cpu.default(tensor)

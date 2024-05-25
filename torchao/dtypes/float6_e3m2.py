@@ -1,6 +1,7 @@
 import torch
 from torch import Tensor
 from torch.utils._triton import has_triton
+from torchao.ops import to_fp6_packed_cpu, to_fp6_unpacked_cpu
 
 
 # some useful constants
@@ -63,6 +64,8 @@ else:
     _to_float6_e3m2_triton = None
 
 
+# NOTE: This implementation requires FP32 denormal numbers to be handled correctly.
+# On CPU, denormal numbers might be flushed to zero for performance gain (FTZ and DAZ flags).
 def _to_float6_e3m2_pt(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
     tensor = tensor.float()
 
@@ -110,15 +113,17 @@ def to_float6_e3m2(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
       not have +/-inf or NaN values, and no values with magnitude >= 30 (largest number in FP6 is 28.
       All numbers >= 28 and < 30 will be rounded down to 28, while >= 30 will overflow).
 
-      This implementation requires FP32 denormal numbers to be handled correctly. On CPU, you can use
-      :func:`torch.set_flush_denormal` to disable flushing denormal numbers to zero. Other code or
-      libraries might set it to ``True`` for performance gain. On CUDA, this is not necessary since
-      CUDA always handle denormal numbers correctly.
-
       See also :func:`from_float6_e3m2`
     """
     if not no_bit_packing:
         assert tensor.shape[-1] % 4 == 0, "Last dim must be divisible by 4"
+
+    if tensor.is_cpu:
+      if no_bit_packing:
+        return to_fp6_unpacked_cpu(tensor)
+      
+      *leading_dims, last_dim = tensor.shape
+      return to_fp6_packed_cpu(tensor.view(-1, last_dim)).view(*leading_dims, -1)
 
     # torch.compile() cannot generate fused bit-packing triton kernel,
     # thus we write custom triton kernel for this specific case.
