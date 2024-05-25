@@ -138,8 +138,6 @@ def unwrap_tensor_subclass(model, filter_fn=None):
 
 
 # https://discuss.pytorch.org/t/finding-model-size/130275
-
-
 def get_model_size_in_bytes(model):
     s = 0
     for p in model.parameters():

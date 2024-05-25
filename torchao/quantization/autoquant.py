@@ -16,8 +16,6 @@ try:
 except:
     from torch._inductor.runtime.runtime_utils import do_bench
 
-from .utils import TORCH_VERSION_AFTER_2_4
-
 aten = torch.ops.aten
 
 AUTOQUANT_CACHE = {}
@@ -28,10 +26,21 @@ def check_cache(cls, shapes_and_dtype):
 def update_cache(cls, shapes_and_dtype, res):
     AUTOQUANT_CACHE[(cls,)+shapes_and_dtype] = res
 
+# TODO: Document the methods
 class AutoQuantizableLinearWeight(torch.Tensor):
     """
-    when run, finds best type of quantization for this tensor and swaps itself with that
+    A subclass of torch.Tensor that, when run, finds the best type of quantization for itself and swaps
+    its data with the quantized version.
+
+    Args:
+        weight (torch.Tensor): The initial weight tensor.
+        qtensor_class_list (list): A list of tensor classes to be considered for quantization.
+        *args: Additional positional arguments.
+        mode (list, optional): A list containing mode settings for quantization. The first element is the mode type
+                               (e.g., "relu"), and the second element is the mode value (e.g., None). Defaults to ["relu", None].
+        **kwargs: Additional keyword arguments.
     """
+
     @staticmethod
     def __new__(cls, weight, qtensor_class_list, *args, mode=["relu", None], **kwargs):
         kwargs["device"] = weight.device
@@ -214,7 +223,18 @@ def _is_interpolate_mode(mode):
 
 class AQMixin():
     """
-    Mixin to turn normal quantized subclasses into autoquantizable ones
+    Tests and benchmarks the autoquantization process for the given activation matrix, weight, and bias.
+
+    Args:
+        act_mat (torch.Tensor): The activation matrix.
+        weight (torch.Tensor): The weight tensor.
+        bias (torch.Tensor or None): The bias tensor.
+        best_time (float): The best time to beat for the quantization process.
+        mode (list, optional): A list containing mode settings for quantization. The first element is the mode type
+                                (e.g., "relu"), and the second element is the mode value (e.g., None). Defaults to ["relu", None].
+
+    Returns:
+        float: The benchmarked time for the autoquantization process.
     """
     @classmethod
     def _autoquant_test(cls, act_mat, weight, bias, best_time, mode=["relu", None]):
@@ -237,6 +257,20 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, Int8DynamicallyQuantizedLi
     """
     @classmethod
     def _autoquant_test(cls, act_mat, weight, bias, best_time, mode=["relu", None]):
+        """
+        Tests and benchmarks the autoquantization process with special handling for interpolate mode.
+
+        Args:
+            act_mat (torch.Tensor): The activation matrix.
+            weight (torch.Tensor): The weight tensor.
+            bias (torch.Tensor or None): The bias tensor.
+            best_time (float): The best time to beat for the quantization process.
+            mode (list, optional): A list containing mode settings for quantization. The first element is the mode type
+                                   (e.g., "relu"), and the second element is the mode value (e.g., None). Defaults to ["relu", None].
+
+        Returns:
+            float: The benchmarked time for the autoquantization process.
+        """
         if not _is_interpolate_mode(mode):
             return super()._autoquant_test(act_mat, weight, bias, best_time, mode)
 
@@ -279,6 +313,17 @@ class AQWeightOnlyQuantizedLinearWeight2(Int8WeightOnlyQuantizedLinearWeight, AQ
     """
     @staticmethod
     def _quantized_op(act_mat, w_qtensor, bias):
+        """
+        Performs the quantized linear operations
+
+        Args:
+            act_mat (torch.Tensor): The activation matrix.
+            w_qtensor (torch.Tensor): The quantized weight tensor.
+            bias (torch.Tensor or None): The bias tensor.
+
+        Returns:
+            torch.Tensor: The result of the quantized operation.
+        """
         orig_dtype = act_mat.dtype
         orig_shape = act_mat.shape
         act_mat = act_mat.reshape(-1, act_mat.shape[-1], 1)
@@ -383,18 +428,33 @@ def change_autoquantizable_to_quantized(model, **kwargs):
     torch._dynamo.config.automatic_dynamic_shapes = hold
     torch._dynamo.reset()
 
+# TODO: example_input seems weird to include in the API
+# TODO: Document all the modes
+# TODO: Mode being a list is weird, should be a string or some object
 @torch.no_grad()
 def autoquant(model, example_input=None, qtensor_class_list=DEFAULT_CLASS_LIST, filter_fn=None, mode=["interpolate", .85], **aq_kwargs):
     """
-    wraps model in AutoQuantWrapper, if example_input is provided, runs forward on it, otherwise returns the wrapped model.
-    AutoQuantWrapper handles instances where model is torch.compiled by first performing autoquantization on the original
-    model and then letting the torch.compile run/tracing occur.
+    Wraps the given model in an AutoQuantWrapper. If `example_input` is provided, performs a forward pass on the input.
+    Otherwise, returns the wrapped model. The AutoQuantWrapper manages cases where the model is torch-compiled by first
+    performing autoquantization on the original model and then allowing the torch.compile run/tracing to occur.
 
-    Example usage::
+    Args:
+        model (torch.nn.Module): The model to be autoquantized.
+        example_input (Any, optional): An example input for the model. If provided, the function performs a forward pass
+                                       on this input. Defaults to None.
+        qtensor_class_list (list, optional): A list of tensor classes to be used for quantization. Defaults to DEFAULT_CLASS_LIST.
+        filter_fn (callable, optional): A filter function to apply to the model parameters. Defaults to None.
+        mode (list, optional): A list containing mode settings for quantization. The first element is the mode type (e.g., "interpolate"),
+                               and the second element is the mode value (e.g., 0.85). Defaults to ["interpolate", .85].
+        **aq_kwargs: Additional keyword arguments for the autoquantization process.
 
+    Returns:
+        torch.nn.Module: The autoquantized and wrapped model. If `example_input` is provided, the function performs a forward pass
+                         on the input and returns the result of the forward pass.
+
+    Example usage:
         torchao.autoquant(torch.compile(model))
         model(*example_input)
-
     """
     # the hook we will use to intercept the model forward and perform
     # autoquantization
