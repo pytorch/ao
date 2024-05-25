@@ -29,8 +29,22 @@ git clone https://github.com/pytorch/ao
 cd ao
 pip install -r requirements.txt
 pip install -r dev-requirements.txt
-pip install .
 ```
+
+There are two options;
+-If you plan to be developing the library run:
+```Shell
+python setup.py develop
+```
+
+If you want to install from source run
+```Shell
+python setup.py install
+```
+
+** Note:
+Since we are building pytorch c++/cuda extensions by default, running `pip install .` will
+not work.
 
 ### Quantization
 
