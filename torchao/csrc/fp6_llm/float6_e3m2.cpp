@@ -29,7 +29,7 @@ static constexpr uint32_t ones_mask(uint32_t len) { return (1u << len) - 1u; }
 
 // inspired by __internal_float2half() and float2half() from "cuda_fp16.hpp"
 template <typename T, uint32_t FP_SPEC>
-static uint8_t to_float6_e3m2_bits(T bits) {
+static uint8_t to_float6_e3m2_bits(T bits_) {
     constexpr uint32_t N_EXP = FP_SPEC >> 16u;
     constexpr uint32_t N_MAN = FP_SPEC & ones_mask(16u);
     constexpr uint32_t N_EXP_MAN = N_EXP + N_MAN;
@@ -40,9 +40,10 @@ static uint8_t to_float6_e3m2_bits(T bits) {
     static_assert(N_EXP >= 4, "Number of exponent bits must be >= 4.");
     static_assert(N_MAN >= 3, "Number of mantissa bits must be >= 3.");
 
-    T sign = bits >> N_EXP_MAN << 5u;
+    uint32_t bits = bits_;  // bit extension
+    uint32_t sign = bits >> N_EXP_MAN << 5u;
     bits &= ones_mask(N_EXP_MAN);  // clear sign bit
-    T result, remainder;
+    uint32_t result, remainder;
 
     // all exponent bits are 1s
     if (bits >= (ones_mask(N_EXP) << N_MAN)) throw float6_e3m2_nan_inf();
@@ -52,14 +53,14 @@ static uint8_t to_float6_e3m2_bits(T bits) {
 
     // FP6 normal number (E>=001)
     if (bits >= ((EXP_BIAS_DIFF + 1u) << N_MAN)) {
-        remainder = bits << (1u + N_EXP + 2u);
-        bits -= (EXP_BIAS_DIFF << N_MAN);  // update exponent
+        remainder = bits << (32u - (N_MAN - 2u));  // shift the truncated bits to most significant position
+        bits -= (EXP_BIAS_DIFF << N_MAN);          // update exponent
         result = sign | (bits >> (N_MAN - 2u));
     }
     // FP6 subnormal number (more than half of min FP6 subnormal = 0.0625 * 0.5)
     else if (bits > ((EXP_BIAS_DIFF - 2u) << N_MAN)) {
-        T exp = bits >> N_MAN;
-        T man = bits & ones_mask(N_MAN);
+        uint32_t exp = bits >> N_MAN;
+        uint32_t man = bits & ones_mask(N_MAN);
 
         // to make subnormal FP6 from normal FP16
         // step 1: add implicit 1 to mantissa
@@ -67,8 +68,8 @@ static uint8_t to_float6_e3m2_bits(T bits) {
 
         // step 2: shift mantissa right so that exponent value is equal to
         // exponent value of FP6 subnormal, which is -2 (equivalent to E=001)
-        T shift = EXP_BIAS_DIFF + 1u - exp;
-        remainder = man << (1u + N_EXP + 2u - shift);
+        uint32_t shift = EXP_BIAS_DIFF + 1u - exp;
+        remainder = man << (32u - (N_MAN - 2u + shift));  // shift the truncated bits to most significant position
         result = sign | (man >> (shift + (N_MAN - 2u)));  // implicit E=000
     }
     // FP6 underflow. E=000, M=00
@@ -78,8 +79,7 @@ static uint8_t to_float6_e3m2_bits(T bits) {
     }
 
     // round to nearest even
-    constexpr T HALF_REMAINDER = 1u << N_EXP_MAN;
-    if ((remainder > HALF_REMAINDER) || ((remainder == HALF_REMAINDER) && (result & 0x1u))) {
+    if ((remainder > 0x8000'0000u) || ((remainder == 0x8000'0000u) && (result & 0x1u))) {
         result += 1;
     }
     return result;
