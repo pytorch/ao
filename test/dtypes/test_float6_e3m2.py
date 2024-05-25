@@ -83,10 +83,10 @@ class TestFp6(TestCase):
         [
             (0b000000, 0.0),
             (0b001100, 1.0),
-            (0b011111, 28.0),
-            (0b000001, 0.0625),
+            (0b011111, 28.0),    # max
+            (0b000001, 0.0625),  # min
             (0b001110, 1.5),
-            (0b000011, 0.1875),
+            (0b000011, 0.1875),  # subnormal
         ],
     )
     def test_from_float6_e3m2_no_bit_packing_correctness(self, device, input_output):
