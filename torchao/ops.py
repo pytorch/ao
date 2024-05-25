@@ -2,6 +2,7 @@ import torch
 from torch import Tensor
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
 
+
 def register_custom_op(name):
     def decorator(func):
         if TORCH_VERSION_AFTER_2_4:
@@ -24,6 +25,7 @@ def prepack_fp6_weight(fp6_weight: Tensor) -> Tensor:
     return torch.ops.torchao.prepack_fp6_weight.default(fp6_weight)
 
 
+# Defines the meta kernel / fake kernel / abstract impl
 @register_custom_op("torchao::prepack_fp6_weight")
 def _(fp6_weight):
     torch._check(fp6_weight.dim() == 2, lambda: f"weight should be a 2d tensor, got {fp6_weight.dim()}D")
