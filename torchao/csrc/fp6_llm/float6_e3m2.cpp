@@ -40,10 +40,9 @@ static uint8_t to_float6_e3m2_bits(T bits) {
     static_assert(N_EXP >= 4, "Number of exponent bits must be >= 4.");
     static_assert(N_MAN >= 3, "Number of mantissa bits must be >= 3.");
 
-    T remainder = 0u;
     T sign = bits >> N_EXP_MAN << 5u;
     bits &= ones_mask(N_EXP_MAN);  // clear sign bit
-    T result;
+    T result, remainder;
 
     // all exponent bits are 1s
     if (bits >= (ones_mask(N_EXP) << N_MAN)) throw float6_e3m2_nan_inf();
@@ -74,6 +73,7 @@ static uint8_t to_float6_e3m2_bits(T bits) {
     }
     // FP6 underflow. E=000, M=00
     else {
+        remainder = 0u;
         result = sign;
     }
 
