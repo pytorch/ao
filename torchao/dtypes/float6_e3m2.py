@@ -196,7 +196,7 @@ def _unpack_4bit(x: Tensor) -> Tensor:
 
 # this is a literal adaptation of FP6-LLM ahead-of-time bit-level pre-packing
 # https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/fp6_llm/csrc/utils/weight_prepacking.h
-def to_tc_float6_e3m2_original(tensor: Tensor) -> Tensor:
+def _to_tc_float6_e3m2_original(tensor: Tensor) -> Tensor:
     assert tensor.ndim == 2
     M, N = tensor.shape
     assert (M % 64 == 0) and (N % 64 == 0)
@@ -239,8 +239,25 @@ def to_tc_float6_e3m2_original(tensor: Tensor) -> Tensor:
     return torch.cat([tensor_2bit, tensor_4bit], dim=0)
 
 
-# more optimized version of to_tc_float6_e3m2_original() by merging ops
+# more optimized version of _to_tc_float6_e3m2_original() by merging ops
+# https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/fp6_llm/csrc/utils/weight_prepacking.h
 def to_tc_float6_e3m2(tensor: Tensor) -> Tensor:
+    """Convert input tensor to TC-FP6 for use with FP6-LLM. This format has 3 exponent bits and 2 mantissa bits.
+    See https://arxiv.org/abs/2401.14112 for more information.
+
+    Args:
+      tensor: Input tensor with shape (M, N), where M and N are multiples of 64.
+
+    Returns:
+      :class:`torch.Tensor`: TC-FP6 tensor, stored as uint8 data with shape (M * N * 3 / 4,).
+
+    Note:
+      This TC-FP6 format does not represent +/-inf and NaN. Thus, make sure that input tensor does
+      not have +/-inf or NaN values, and no values with magnitude >= 30 (largest number in FP6 is 28.
+      All numbers >= 28 and < 30 will be rounded down to 28, while >= 30 will overflow).
+
+      See also :func:`from_tc_float6_e3m2`
+    """
     assert tensor.ndim == 2
     M, N = tensor.shape
     assert (M % 64 == 0) and (N % 64 == 0)
@@ -281,6 +298,17 @@ def to_tc_float6_e3m2(tensor: Tensor) -> Tensor:
 
 
 def from_tc_float6_e3m2(tensor: Tensor, M: int, N: int, dtype: torch.dtype = torch.float32) -> Tensor:
+    """Convert a TC-FP6 tensor (created by :func:`to_tc_float6_e3m2`) to FP32.
+
+    Args:
+      tensor: TC-FP6 tensor, stored as uint8 data.
+      M: first dimension of the weight.
+      N: second dimension of the weight.
+      dtype: returned dtype.
+
+    Returns:
+      :class:`torch.Tensor`: FP32 tensor.
+    """
     assert tensor.ndim == 1
     assert (M % 64 == 0) and (N % 64 == 0)
     size_2bit = M * N // 4
