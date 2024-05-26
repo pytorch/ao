@@ -1,3 +1,5 @@
+from typing import Optional
+
 import torch
 from torch import nn, Tensor
 from torchao.dtypes.float6_e3m2 import FLOAT6_E3M2_MAX, to_float6_e3m2, from_float6_e3m2
@@ -122,7 +124,7 @@ def from_tc_float6_e3m2(tensor: Tensor, M: int, N: int, dtype: torch.dtype = tor
 
 
 class Fp6LlmLinear(nn.Module):
-    def __init__(self, weight: Tensor, scales: Tensor, bias: Tensor | None = None):
+    def __init__(self, weight: Tensor, scales: Tensor, bias: Optional[Tensor] = None):
         super().__init__()
         self.register_buffer("weight", weight)
         self.register_buffer("scales", scales)
