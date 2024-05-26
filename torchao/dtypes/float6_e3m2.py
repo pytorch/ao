@@ -259,8 +259,7 @@ def to_tc_float6_e3m2(tensor: Tensor) -> Tensor:
     tensor_2bit = tensor_2bit.view(-1, 8, 32, 2)  # 8 chunks of 8x8, or 2 16x16 sub-block
 
     # v1
-    tensor_2bit = tensor_2bit.permute(0, 2, 1, 3)
-    tensor_2bit = tensor_2bit.reshape(-1, 16)  # 16 x 2-bit = 32-bit
+    tensor_2bit = tensor_2bit.permute(0, 2, 1, 3).reshape(-1, 16)  # 16 x 2-bit = 32-bit
     tensor_2bit = tensor_2bit[:, [2, 6, 10, 14, 0, 4, 8, 12, 3, 7, 11, 15, 1, 5, 9, 13]]
 
     # v2. this is slower
@@ -269,8 +268,7 @@ def to_tc_float6_e3m2(tensor: Tensor) -> Tensor:
     tensor_4bit = tensor_4bit.view(-1, 4, 32, 2)  # 4 chunks of 8x8, or 1 16x16 sub-block
 
     # v1
-    tensor_4bit = tensor_4bit.permute(0, 2, 1, 3)
-    tensor_4bit = tensor_4bit.reshape(-1, 8)  # 8 x 4-bit = 32-bit
+    tensor_4bit = tensor_4bit.permute(0, 2, 1, 3).reshape(-1, 8)  # 8 x 4-bit = 32-bit
     tensor_4bit = tensor_4bit[:, [2, 6, 0, 4, 3, 7, 1, 5]]
 
     # v2. this is slower
@@ -280,3 +278,30 @@ def to_tc_float6_e3m2(tensor: Tensor) -> Tensor:
     tensor_4bit = _pack_4bit(tensor_4bit).flatten()
 
     return torch.cat([tensor_2bit, tensor_4bit], dim=0)
+
+
+def from_tc_float6_e3m2(tensor: Tensor, M: int, N: int, dtype: torch.dtype = torch.float32) -> Tensor:
+    assert tensor.ndim == 1
+    assert (M % 64 == 0) and (N % 64 == 0)
+    size_2bit = M * N // 4
+    size_4bit = M * N // 2
+    assert tensor.numel() == size_2bit + size_4bit
+
+    tensor_2bit, tensor_4bit = tensor.split([size_2bit, size_4bit])
+    tensor_2bit = _unpack_2bit(tensor_2bit)
+    tensor_4bit = _unpack_4bit(tensor_4bit)
+
+    tensor_2bit = tensor_2bit.view(-1, 16)
+    tensor_2bit = tensor_2bit[:, [4, 12, 0, 8, 5, 13, 1, 9, 6, 14, 2, 10, 7, 15, 3, 11]]
+    tensor_2bit = tensor_2bit.view(-1, 32, 8, 2).permute(0, 2, 1, 3).flatten()
+
+    tensor_4bit = tensor_4bit.view(-1, 8)
+    tensor_4bit = tensor_4bit[:, [2, 6, 0, 4, 3, 7, 1, 5]]
+    tensor_4bit = tensor_4bit.view(-1, 32, 4, 2).permute(0, 2, 1, 3).flatten()
+
+    tensor_fp6 = (tensor_2bit << 4) | tensor_4bit
+    tensor_fp6 = tensor_fp6.view(M // 64, N // 16, 4, 2, 2, 8, 8)
+    tensor_fp6 = tensor_fp6.permute(0, 2, 4, 5, 1, 3, 6)
+    tensor_fp6 = tensor_fp6.reshape(M, N)
+
+    return from_float6_e3m2(tensor_fp6, no_bit_packing=True, dtype=dtype)

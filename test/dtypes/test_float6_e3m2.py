@@ -6,14 +6,14 @@ from torch.testing._internal.common_utils import (
     parametrize,
     run_tests,
 )
-from torchao.dtypes.float6_e3m2 import to_float6_e3m2, from_float6_e3m2, to_tc_float6_e3m2
+from torchao.dtypes.float6_e3m2 import to_float6_e3m2, from_float6_e3m2, to_tc_float6_e3m2, from_tc_float6_e3m2
 
 
 _DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 
 
-class TestFp6(TestCase):
+class TestFloat6E3M2(TestCase):
 
     @parametrize("device", _DEVICES)
     @parametrize("dtype", _DTYPES)
@@ -121,9 +121,9 @@ class TestFp6(TestCase):
         torch.testing.assert_close(actual, expected)
 
 
-class TestWeightPrepacking(TestCase):
+class TestTcFloat6E3M2(TestCase):
     @parametrize("device", _DEVICES)
-    def test_weight_prepacking_correctness(self, device):
+    def test_to_tc_float6_e3m2_correctness(self, device):
         x = torch.randn(256, 64, device=device)
 
         expected = torchao.ops.prepack_fp6_weight(to_float6_e3m2(x.cpu()).view(torch.int32)).view(torch.uint8)
@@ -131,16 +131,33 @@ class TestWeightPrepacking(TestCase):
         torch.testing.assert_close(actual.view(-1).cpu(), expected.view(-1))
 
     @parametrize("device", _DEVICES)
-    def test_weight_prepacking_compile(self, device):
+    def test_to_tc_float6_e3m2_compile(self, device):
         x = torch.randn(256, 64, device=device)
 
         expected = to_tc_float6_e3m2(x)
         actual = torch.compile(to_tc_float6_e3m2)(x)
         torch.testing.assert_close(actual, expected)
 
+    @parametrize("device", _DEVICES)
+    def test_from_tc_float6_e3m2_correctness(self, device):
+        x = torch.randn(256, 64, device=device)
+        x = from_float6_e3m2(to_float6_e3m2(x))  # quantize and dequantize so that the values are exactly representable in FP6
 
-instantiate_parametrized_tests(TestFp6)
-instantiate_parametrized_tests(TestWeightPrepacking)
+        actual = from_tc_float6_e3m2(to_tc_float6_e3m2(x), *x.shape)
+        torch.testing.assert_close(actual, x)
+
+    @parametrize("device", _DEVICES)
+    def test_from_tc_float6_e3m2_compile(self, device):
+        M, N = 256, 64
+        x = torch.randint(256, size=(M * N * 3 // 4,), dtype=torch.uint8, device=device)
+
+        expected = from_tc_float6_e3m2(x, M, N)
+        actual = torch.compile(from_tc_float6_e3m2)(x, M, N)
+        torch.testing.assert_close(actual, expected)
+
+
+instantiate_parametrized_tests(TestFloat6E3M2)
+instantiate_parametrized_tests(TestTcFloat6E3M2)
 
 
 if __name__ == "__main__":
