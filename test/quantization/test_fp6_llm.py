@@ -1,5 +1,6 @@
 import pytest
 import torch
+from torch import nn
 from torch.testing._internal.common_utils import (
     TestCase,
     instantiate_parametrized_tests,
@@ -7,7 +8,7 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 from torchao.dtypes.float6_e3m2 import to_float6_e3m2, from_float6_e3m2
-from torchao.quantization.fp6_llm import to_tc_float6_e3m2, from_tc_float6_e3m2, Fp6LlmLinear
+from torchao.quantization.fp6_llm import to_tc_float6_e3m2, from_tc_float6_e3m2, Fp6LlmLinear, convert_fp6_llm
 from torchao.ops import prepack_fp6_weight
 
 
@@ -54,8 +55,9 @@ class TestFp6LlmLinear(TestCase):
         N, OC, IC = 4, 256, 64
         device = "cuda"
 
-        fp16_linear = torch.nn.Linear(IC, OC, bias=bias, device=device)
-        fp6_linear = Fp6LlmLinear.from_float(fp16_linear)
+        linear = torch.nn.Linear(IC, OC, bias=bias, device=device)
+        fp6_linear = Fp6LlmLinear.from_float(linear)
+        assert (fp6_linear.bias is not None) == bias
 
         x = torch.randn(N, IC, device=device)
         fp6_linear(x)
@@ -73,6 +75,19 @@ class TestFp6LlmLinear(TestCase):
         expected = fp6_linear(x)
         actual = torch.compile(fp6_linear)(x)
         torch.testing.assert_close(actual, expected)
+
+    def test_convert_fp6_llm(self):
+        device = "cuda"
+        model = nn.Sequential(nn.Linear(64, 256, bias=False), nn.Linear(256, 256)).to(device)
+        convert_fp6_llm(model)
+
+        assert isinstance(model[0], Fp6LlmLinear)
+        assert model[0].bias is None
+        assert isinstance(model[1], Fp6LlmLinear)
+        assert model[1].bias is not None
+
+        x = torch.randn(4, 64, device=device)
+        model(x)
 
 
 instantiate_parametrized_tests(TestFp6LlmLinear)

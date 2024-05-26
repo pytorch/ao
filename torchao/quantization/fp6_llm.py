@@ -125,6 +125,9 @@ def from_tc_float6_e3m2(tensor: Tensor, M: int, N: int, dtype: torch.dtype = tor
 
 
 class Fp6LlmLinear(nn.Module):
+    """FP6-LLM Linear layer as described in https://arxiv.org/pdf/2401.14112.
+    """
+
     def __init__(self, weight: Tensor, scales: Tensor, bias: Optional[Tensor] = None):
         super().__init__()
         self.register_buffer("weight", weight)
