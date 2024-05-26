@@ -144,8 +144,8 @@ torch::Tensor fp6_linear_forward_cuda(torch::Tensor _in_feats,
     int num_in_feats      = _in_feats.size(0);
     int num_in_channels   = _in_feats.size(1);
     int num_out_channels  = _weights.size(0);
-    assert( num_in_channels%64 == 0 );
-    assert( (num_in_channels/16*3) == _weights.size(1) );    // Making sure the K dimension is matched.
+    TORCH_CHECK(num_in_channels%64 == 0, "Expected in_features to be a multiple of 64, but received ", num_in_channels);
+    TORCH_CHECK((num_in_channels/16*3) == _weights.size(1));    // Making sure the K dimension is matched.
     //
     int M = num_out_channels;
     int K = num_in_channels;

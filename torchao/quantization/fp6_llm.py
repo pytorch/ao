@@ -120,6 +120,8 @@ class Fp6LlmLinear(nn.Module):
         self.register_buffer("weight", weight)
         self.register_buffer("scales", scales)
         self.register_buffer("bias", bias)
+        self.out_features = weight.shape[0]
+        self.in_features = weight.shape[1] * 16 // 3
 
     def forward(self, x: Tensor):
         out = fp16act_fp6weight_linear(x.half(), self.weight, self.scales, splitK=1)
@@ -129,6 +131,8 @@ class Fp6LlmLinear(nn.Module):
 
     @classmethod
     def from_float(cls, linear: nn.Linear):
+        assert (linear.in_features % 64 == 0) and (linear.out_features % 256 == 0)
+
         fp32_weight = linear.weight.detach().float()
         scales = fp32_weight.abs().amax(1) / FLOAT6_E3M2_MAX
         scales[scales == 0.0] = 1.0  # avoid 0 scale
@@ -139,13 +143,17 @@ class Fp6LlmLinear(nn.Module):
         bias = linear.bias.detach().half() if linear.bias is not None else None
         return cls(tc_fp6_weight, scales.half(), bias)
 
+    def extra_repr(self) -> str:
+        return f'in_features={self.in_features}, out_features={self.out_features}, bias={self.bias is not None}'
+
 
 def convert_fp6_llm(model: nn.Module, skip_fqn_list: Optional[list[str]] = None, cur_fqn: str = "") -> None:
     for name, child in model.named_children():
         new_fqn = name if cur_fqn == "" else f"{cur_fqn}.{name}"
 
         if ((skip_fqn_list is None) or (new_fqn not in skip_fqn_list)) and (isinstance(child, nn.Linear)):
-            new_child = Fp6LlmLinear.from_float(child)
-            setattr(model, name, new_child)
+            if (child.in_features % 64 == 0) and (child.out_features % 256 == 0):
+                new_child = Fp6LlmLinear.from_float(child)  
+                setattr(model, name, new_child)
         else:
             convert_fp6_llm(child, skip_fqn_list, new_fqn)
