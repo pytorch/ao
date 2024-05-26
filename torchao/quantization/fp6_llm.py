@@ -142,18 +142,22 @@ class Fp6LlmLinear(nn.Module):
         self.register_buffer("bias", bias)
 
     def forward(self, x: Tensor):
-        out = fp16act_fp6weight_linear(x, self.weight, self.scales, splitK=1)
+        out = fp16act_fp6weight_linear(x.half(), self.weight, self.scales, splitK=1)
         if self.bias is not None:
-            out = out + self.bias.view(-1, 1)
+            out = out + self.bias
         return out
 
     @classmethod
     def from_float(cls, linear: nn.Linear):
         fp32_weight = linear.weight.detach().float()
-        scales = FLOAT6_E3M2_MAX / fp32_weight.amax(1)
-        tc_fp6_weight = to_tc_float6_e3m2(fp32_weight * scales.view(-1, 1))
-        bias = linear.bias.detach() if linear.bias is not None else None
-        return cls(tc_fp6_weight, scales, bias)
+        scales = fp32_weight.abs().amax(1) / FLOAT6_E3M2_MAX
+        scales[scales == 0.0] = 1.0  # avoid 0 scale
+
+        tc_fp6_weight = to_tc_float6_e3m2(fp32_weight / scales.view(-1, 1))
+        tc_fp6_weight = tc_fp6_weight.view(linear.out_features, -1).view(torch.int32)
+
+        bias = linear.bias.detach().half() if linear.bias is not None else None
+        return cls(tc_fp6_weight, scales.half(), bias)
 
 
 def convert_fp6_llm(model: nn.Module, skip_fqn_list: list[str] | None = None, cur_fqn: str = "") -> None:
