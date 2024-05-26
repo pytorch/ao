@@ -1,3 +1,4 @@
+import pytest
 import torch
 from torch.testing._internal.common_utils import (
     TestCase,
@@ -6,14 +7,14 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 from torchao.dtypes.float6_e3m2 import to_float6_e3m2, from_float6_e3m2
-from torchao.quantization.fp6_llm import to_tc_float6_e3m2, from_tc_float6_e3m2
+from torchao.quantization.fp6_llm import to_tc_float6_e3m2, from_tc_float6_e3m2, Fp6LlmLinear
 from torchao.ops import prepack_fp6_weight
 
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 
 
-class TestTcFloat6E3M2(TestCase):
+class TestFp6LlmLinear(TestCase):
     @parametrize("device", _DEVICES)
     def test_to_tc_float6_e3m2_correctness(self, device):
         x = torch.randn(256, 64, device=device)
@@ -47,8 +48,31 @@ class TestTcFloat6E3M2(TestCase):
         actual = torch.compile(from_tc_float6_e3m2)(x, M, N)
         torch.testing.assert_close(actual, expected)
 
+    @pytest.mark.skipif(not torch.cuda.is_available(), "CUDA not available")
+    @parametrize("bias", [False, True])
+    def test_fp6_llm_linear_forward(self, bias, device):
+        N, OC, IC = 4, 256, 64
+        linear = torch.nn.Linear(IC, OC, bias=bias, device=device)
+        fp6_linear = Fp6LlmLinear.from_float(linear)
 
-instantiate_parametrized_tests(TestTcFloat6E3M2)
+        x = torch.randn(N, IC)
+        fp6_linear(x)
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), "CUDA not available")
+    @parametrize("bias", [False, True])
+    def test_fp6_llm_linear_compile(self, bias, device):
+        N, OC, IC = 4, 256, 64
+        linear = torch.nn.Linear(IC, OC, bias=bias, device=device)
+        fp6_linear = Fp6LlmLinear.from_float(linear)
+        
+        x = torch.randn(N, IC)
+        expected = fp6_linear(x)
+        actual = torch.compile(fp6_linear)(x)
+
+        torch.testing.assert_close(actual, expected)
+
+
+instantiate_parametrized_tests(TestFp6LlmLinear)
 
 
 if __name__ == "__main__":
