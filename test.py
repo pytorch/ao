@@ -1,6 +1,5 @@
 import torch
 from functools import reduce
-import os
 
 @torch.compile
 def unpack(data, data_size) -> torch.Tensor:
@@ -38,13 +37,13 @@ def pack(data, container_size, data_size) -> torch.Tensor:
     assert scale > 1, f"container_size ({container_size}) not double the capacity ofdata_size ({data_size})"
     # pad the data to be divisible by scale
     if data.shape[-1] % scale != 0:
-        padding = torch.zeros((*data.shape[:-1], scale - data.shape[-1] % scale), dtype=data.dtype)
-        data = torch.cat([data, padding], dim=-1)
+        padding = torch.zeros((*data.shape[:-1], scale - data.shape[-1] % scale), dtype=data.dtype).cuda()
+        data = torch.cat([data, padding], dim=-1).cuda()
     
     shape = data.shape
     data = data.contiguous().view(-1)
     #shift the data to the different indexes within the larger dtype and then union them together
-    ret = reduce(lambda x,y: x|y,[data[i::scale] << container_size-data_size*(i+1) for i in range(scale)])
+    ret = reduce(lambda x,y: x|y,[data[i::scale] << container_size-data_size*(i+1) for i in range(scale)]).cuda()
     newshape = down_size(shape, scale)
     return ret.view(newshape)
 
@@ -58,26 +57,26 @@ def up_size(size, amt):
 
 
 torch._dynamo.config.specialize_int = True
-os.environ["TORCH_LOGS"] = "output_code"
-test_tensor = torch.randint(0, 15, (1, 1, 6), dtype=torch.uint8)
+
+test_tensor = torch.randint(0, 15, (1, 1, 6), dtype=torch.uint8).cuda()
 packed = pack(test_tensor, 8, 4)
 unpacked = unpack(packed, 4)
 unpadded = unpacked[..., :test_tensor.shape[-1]]
 assert(unpadded.allclose(test_tensor))
 
-test_tensor = torch.randint(0, 7, (5,1, 4), dtype=torch.int16)
+test_tensor = torch.randint(0, 7, (5,1, 4), dtype=torch.int16).cuda()
 packed = pack(test_tensor,16, 3)
 unpacked = unpack(packed, 3)
 unpadded = unpacked[..., :test_tensor.shape[-1]]
 assert(unpadded.allclose(test_tensor))
 
-test_tensor = torch.randint(0, 15, (3,1, 9), dtype=torch.int32)
+test_tensor = torch.randint(0, 15, (3,1, 9), dtype=torch.int32).cuda()
 packed = pack(test_tensor,32, 16)
 unpacked = unpack(packed,16)
 unpadded = unpacked[..., :test_tensor.shape[-1]]
 assert(unpadded.allclose(test_tensor))
 
-test_tensor = torch.randint(0, 3, (8, 8, 7), dtype=torch.uint8)
+test_tensor = torch.randint(0, 3, (8, 8, 7), dtype=torch.uint8).cuda()
 packed = pack(test_tensor, 8, 2)
 unpacked = unpack(packed,2)
 unpadded = unpacked[..., :test_tensor.shape[-1]]
