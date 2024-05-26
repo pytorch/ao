@@ -76,6 +76,7 @@ class TestFp6LlmLinear(TestCase):
         actual = torch.compile(fp6_linear)(x)
         torch.testing.assert_close(actual, expected)
 
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_convert_fp6_llm(self):
         device = "cuda"
         model = nn.Sequential(nn.Linear(64, 256, bias=False), nn.Linear(256, 256)).to(device)
