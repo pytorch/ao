@@ -115,7 +115,7 @@ class Fp6LlmLinear(nn.Module):
     """FP6-LLM Linear layer as described in https://arxiv.org/pdf/2401.14112.
     """
 
-    def __init__(self, weight: Tensor, scales: Tensor, bias: Optional[Tensor] = None):
+    def __init__(self, weight: Tensor, scales: Tensor, bias: Optional[Tensor] = None) -> None:
         super().__init__()
         self.register_buffer("weight", weight)
         self.register_buffer("scales", scales)
@@ -123,11 +123,11 @@ class Fp6LlmLinear(nn.Module):
         self.out_features = weight.shape[0]
         self.in_features = weight.shape[1] * 16 // 3
 
-    def forward(self, x: Tensor):
-        out = fp16act_fp6weight_linear(x.half(), self.weight, self.scales, splitK=1)
+    def forward(self, x: Tensor) -> Tensor:
+        out = fp16act_fp6weight_linear(x.view(-1, self.in_features).half(), self.weight, self.scales, splitK=1)
         if self.bias is not None:
             out = out + self.bias
-        return out
+        return out.view(*x.shape[:-1], self.out_features)
 
     @classmethod
     def from_float(cls, linear: nn.Linear):
