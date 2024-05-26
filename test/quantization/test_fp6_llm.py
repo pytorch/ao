@@ -60,7 +60,7 @@ class TestFp6LlmLinear(TestCase):
         fp6_linear = Fp6LlmLinear.from_float(linear)
         assert (fp6_linear.bias is not None) == bias
 
-        x = torch.randn(*leading_dims, IC, device=device)
+        x = torch.randn(*leading_dims, IC, device=device, dtype=torch.half)
         fp6_linear(x)
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -72,7 +72,7 @@ class TestFp6LlmLinear(TestCase):
         linear = torch.nn.Linear(IC, OC, bias=bias, device=device)
         fp6_linear = Fp6LlmLinear.from_float(linear)
 
-        x = torch.randn(N, IC, device=device)
+        x = torch.randn(N, IC, device=device, dtype=torch.half)
         expected = fp6_linear(x)
         actual = torch.compile(fp6_linear)(x)
         torch.testing.assert_close(actual, expected)

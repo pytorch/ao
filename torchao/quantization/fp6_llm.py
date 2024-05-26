@@ -124,6 +124,7 @@ class Fp6LlmLinear(nn.Module):
         self.in_features = weight.shape[1] * 16 // 3
 
     def forward(self, x: Tensor) -> Tensor:
+        # TODO: splitK map
         out = fp16act_fp6weight_linear(x.view(-1, self.in_features).half(), self.weight, self.scales, splitK=1)
         if self.bias is not None:
             out = out + self.bias
