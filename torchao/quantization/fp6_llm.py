@@ -83,25 +83,12 @@ def to_tc_float6_e3m2(tensor: Tensor) -> Tensor:
     tensor_2bit = (tensor_fp6 >> 4) & 0b11
     tensor_4bit = tensor_fp6 & 0b1111
 
-    tensor_2bit = tensor_2bit.view(-1, 8, 32, 2)  # 8 chunks of 8x8, or 2 16x16 sub-block
-
-    # v1
-    tensor_2bit = tensor_2bit.permute(0, 2, 1, 3).reshape(-1, 16)  # 16 x 2-bit = 32-bit
-    tensor_2bit = tensor_2bit[:, [2, 6, 10, 14, 0, 4, 8, 12, 3, 7, 11, 15, 1, 5, 9, 13]]
-
-    # v2. this is slower
-    # tensor_2bit = tensor_2bit[:, [1, 3, 5, 7, 0, 2, 4, 6]].permute(0, 2, 3, 1)
-  
-    tensor_4bit = tensor_4bit.view(-1, 4, 32, 2)  # 4 chunks of 8x8, or 1 16x16 sub-block
-
-    # v1
-    tensor_4bit = tensor_4bit.permute(0, 2, 1, 3).reshape(-1, 8)  # 8 x 4-bit = 32-bit
-    tensor_4bit = tensor_4bit[:, [2, 6, 0, 4, 3, 7, 1, 5]]
-
-    # v2. this is slower
-    # tensor_4bit = tensor_4bit[:, [1, 3, 0, 2]].permute(0, 2, 3, 1)
-  
+    tensor_2bit = tensor_2bit.view(-1, 8, 32, 2)  # 8 chunks of 8x8, or 2 16x16 sub-tile
+    tensor_2bit = tensor_2bit[:, [1, 3, 5, 7, 0, 2, 4, 6]].permute(0, 2, 3, 1)
     tensor_2bit = _pack_2bit(tensor_2bit).flatten()
+  
+    tensor_4bit = tensor_4bit.view(-1, 4, 32, 2)  # 4 chunks of 8x8, or 1 16x16 sub-tile
+    tensor_4bit = tensor_4bit[:, [1, 3, 0, 2]].permute(0, 2, 3, 1)
     tensor_4bit = _pack_4bit(tensor_4bit).flatten()
 
     return torch.cat([tensor_2bit, tensor_4bit], dim=0)
@@ -118,13 +105,13 @@ def from_tc_float6_e3m2(tensor: Tensor, M: int, N: int, dtype: torch.dtype = tor
     tensor_2bit = _unpack_2bit(tensor_2bit)
     tensor_4bit = _unpack_4bit(tensor_4bit)
 
-    tensor_2bit = tensor_2bit.view(-1, 16)
-    tensor_2bit = tensor_2bit[:, [4, 12, 0, 8, 5, 13, 1, 9, 6, 14, 2, 10, 7, 15, 3, 11]]
-    tensor_2bit = tensor_2bit.view(-1, 32, 8, 2).permute(0, 2, 1, 3).flatten()
+    tensor_2bit = tensor_2bit.view(-1, 8)
+    tensor_2bit = tensor_2bit[:, [4, 0, 5, 1, 6, 2, 7, 3]]
+    tensor_2bit = tensor_2bit.view(-1, 32, 2, 8).permute(0, 3, 1, 2).flatten()
 
-    tensor_4bit = tensor_4bit.view(-1, 8)
-    tensor_4bit = tensor_4bit[:, [2, 6, 0, 4, 3, 7, 1, 5]]
-    tensor_4bit = tensor_4bit.view(-1, 32, 4, 2).permute(0, 2, 1, 3).flatten()
+    tensor_4bit = tensor_4bit.view(-1, 4)
+    tensor_4bit = tensor_4bit[:, [2, 0, 3, 1]]
+    tensor_4bit = tensor_4bit.view(-1, 32, 2, 4).permute(0, 3, 1, 2).flatten()
 
     tensor_fp6 = (tensor_2bit << 4) | tensor_4bit
     tensor_fp6 = tensor_fp6.view(M // 64, N // 16, 4, 2, 2, 8, 8)

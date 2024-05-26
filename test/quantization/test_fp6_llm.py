@@ -72,7 +72,6 @@ class TestFp6LlmLinear(TestCase):
         x = torch.randn(N, IC, device=device)
         expected = fp6_linear(x)
         actual = torch.compile(fp6_linear)(x)
-
         torch.testing.assert_close(actual, expected)
 
 
