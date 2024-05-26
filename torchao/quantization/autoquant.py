@@ -434,14 +434,11 @@ def change_autoquantizable_to_quantized(model, **kwargs):
 @torch.no_grad()
 def autoquant(model, example_input=None, qtensor_class_list=DEFAULT_CLASS_LIST, filter_fn=None, mode=["interpolate", .85], **aq_kwargs):
     """
-    Wraps the given model in an AutoQuantWrapper. If `example_input` is provided, performs a forward pass on the input.
-    Otherwise, returns the wrapped model. The AutoQuantWrapper manages cases where the model is torch-compiled by first
+    Wraps the given model in an AutoQuantWrapper. The AutoQuantWrapper manages cases where the model is torch-compiled by first
     performing autoquantization on the original model and then allowing the torch.compile run/tracing to occur.
 
     Args:
         model (torch.nn.Module): The model to be autoquantized.
-        example_input (Any, optional): An example input for the model. If provided, the function performs a forward pass
-                                       on this input. Defaults to None.
         qtensor_class_list (list, optional): A list of tensor classes to be used for quantization. Defaults to DEFAULT_CLASS_LIST.
         filter_fn (callable, optional): A filter function to apply to the model parameters. Defaults to None.
         mode (list, optional): A list containing mode settings for quantization. The first element is the mode type (e.g., "interpolate"),
@@ -454,7 +451,6 @@ def autoquant(model, example_input=None, qtensor_class_list=DEFAULT_CLASS_LIST, 
 
     Example usage:
         torchao.autoquant(torch.compile(model))
-        model(*example_input)
     """
     # the hook we will use to intercept the model forward and perform
     # autoquantization
@@ -504,11 +500,5 @@ def autoquant(model, example_input=None, qtensor_class_list=DEFAULT_CLASS_LIST, 
         except:
             pass
     model.clean_up_autoquant_hooks_and_attrs = clean_up_autoquant_hooks_and_attrs
-
-    # if example input was provided, check it and run it
-    if isinstance(example_input, torch.Tensor):
-        example_input = [example_input]
-    if isinstance(example_input, (tuple, list)):
-        model(*example_input)
 
     return model

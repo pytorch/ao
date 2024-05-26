@@ -13,3 +13,8 @@ Searching a new config can take a long time and we'll save the updated data in `
 By default we load precomputed configs for A100. If we're not on an A100, we search set the path to `data.pkl`.
 
 Updated configs are always stored in the current working directory as `data.pkl` to avoid accidentally overwriting the supplied configs.
+
+## TODO
+
+* Not clear how the autotuner and autoquant related: autotuner is used in intmm_triton ./kernel/intmm_triton.py:from torchao.kernel.autotuner import get_best_config_fn which imports safe_mm in AQInt8DynamicallyQuantizedLinearWeight in autoquant.py
+* Should we reuse the triton autotuner? OR find a way of serializing the triton autotuning heuristics?

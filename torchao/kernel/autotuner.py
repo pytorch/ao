@@ -6,8 +6,7 @@ import pickle
 import torch
 import triton
 
-AUTOTUNER_DATA_PATH = os.getenv("TORCHAO_AUTOTUNER_DATA_PATH", None)
-
+from . import AUTOTUNER_DATA_PATH
 
 def do_bench_triton(
     fn,
@@ -110,29 +109,19 @@ def _save_best_configs(best_configs):
     )
     with open(saved_configs, "wb") as f:
         import pickle
-
         logging.info(f"Saving best configs to file {saved_configs}")
         pickle.dump(best_configs, f)
 
 
 def _load_best_configs():
     device_name = torch.cuda.get_device_name()
-    import importlib
+    with open(AUTOTUNER_DATA_PATH, "rb") as f:
+        logging.info(f"Loading best configs from file {saved_configs}")
+        if not device_name.startswith("NVIDIA A100") and "A100" in AUTOTUNER_DATA_PATH:
 
-    if AUTOTUNER_DATA_PATH is None:
-        saved_configs = importlib.resources.files("torchao")
-        saved_configs = saved_configs / "kernel" / "configs" / "data_a100.pkl"
-        if not device_name.startswith("NVIDIA A100"):
+            # TODO: Add something actionable to autotune this on different devices
             logging.info("Warning! Loaded configurations are optimized for A100!")
-    else:
-        saved_configs = pathlib.Path(AUTOTUNER_DATA_PATH)
-    logging.info(f"Trying to load configs for {device_name} from {saved_configs}")
-    if saved_configs.is_file():
-        import pickle
-
-        with open(saved_configs, "rb") as f:
-            logging.info(f"Loading best configs from file {saved_configs}")
-            return pickle.load(f)
+        return pickle.load(f)
 
 
 def get_arg_key(a):

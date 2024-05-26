@@ -3,6 +3,7 @@ import os
 import torch
 
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_2
+from . import AUTOTUNER_ENABLE
 
 try:
     # Only works for torch2.2 or newer.
@@ -14,7 +15,6 @@ except ImportError:
     # On cpu-only builds might not be available.
     intmm_triton = None
 
-AUTOTUNER_ENABLE = bool(int(os.getenv("TORCHAO_AUTOTUNER_ENABLE", 0)))
 
 # torch._int_mm doesn't exist before 2.2
 if TORCH_VERSION_AFTER_2_2:
