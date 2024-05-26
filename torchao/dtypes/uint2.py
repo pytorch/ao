@@ -166,8 +166,11 @@ class UInt2Tensor(torch.Tensor):
             return torch.ops.aten.eq.Tensor(*args, **kwargs)
         elif func is torch.ops.aten._to_copy.default:
             (self,) = args
-            if kwargs == {"dtype": torch.uint8}:
-                return unpack_uint2(self.elem).view(self.shape)  # no wrap
+            dtype = kwargs["dtype"]
+            if dtype == torch.uint8:
+                return unpack_uint2(self.elem).view(self.shape)
+            if dtype in (torch.uint16, torch.uint32, torch.uint64):
+                return self.to(torch.uint8).to(dtype)
             else:
                 raise NotImplementedError(f"_to_copy {kwargs}")
         elif func is torch.ops.aten.unbind.int:
@@ -284,14 +287,11 @@ class BitnetTensor(UInt2Tensor):
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
         if func is torch.ops.aten.mm.default:
             x, weight = args
-            y = torch.mm(x, weight.to(torch.uint8).to(x.dtype))
+            y = torch.mm(x, weight.to(torch.int8).to(x.dtype))
             return y
         elif func is torch.ops.aten.addmm.default:
             bias, x, weight = args
-            #x_view = x.view(-1, x.shape[-1])   # not clear why
-            x_view = x
-            y = torch.mm(x_view, weight.to(torch.uint8).to(x.dtype))
-            #y = y.reshape(*x.shape[:-1], -1)
+            y = torch.mm(x, weight.to(torch.int8).to(x.dtype))
             if bias is not None:
                 y += bias
             return y
@@ -306,6 +306,17 @@ class BitnetTensor(UInt2Tensor):
         elif func is torch.ops.aten.detach.default:
             (self,) = args
             return self
+        elif func is torch.ops.aten.to.dtype:
+            self, dtype = args
+            if dtype == torch.int8:
+                return unpack_uint2(self.elem).view(torch.int8) - 1
+        elif func is torch.ops.aten._to_copy.default:
+            (self,) = args
+            dtype = kwargs["dtype"]
+            if dtype == torch.int8:
+                return unpack_uint2(self.elem).view(self.shape).view(torch.int8) - 1
+            elif dtype in (torch.float, torch.float16, torch.bfloat16, torch.int16, torch.int32, torch.int64):
+                return self.to(torch.int8).to(dtype)
         return super().__torch_dispatch__(func, types, args, kwargs)
 
     @classmethod
