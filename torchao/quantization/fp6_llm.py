@@ -150,7 +150,7 @@ class Fp6LlmLinear(nn.Module):
         return cls(tc_fp6_weight, scales.half(), bias)
 
 
-def convert_fp6_llm(model: nn.Module, skip_fqn_list: list[str] | None = None, cur_fqn: str = "") -> None:
+def convert_fp6_llm(model: nn.Module, skip_fqn_list: Optional[list[str]] = None, cur_fqn: str = "") -> None:
     for name, child in model.named_children():
         new_fqn = name if cur_fqn == "" else f"{cur_fqn}.{name}"
 
