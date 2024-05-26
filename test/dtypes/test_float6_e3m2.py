@@ -6,8 +6,7 @@ from torch.testing._internal.common_utils import (
     parametrize,
     run_tests,
 )
-from torchao.dtypes.float6_e3m2 import to_float6_e3m2, from_float6_e3m2
-from torchao.dtypes.tc_float6_e3m2 import to_tc_float6_e3m2
+from torchao.dtypes.float6_e3m2 import to_float6_e3m2, from_float6_e3m2, to_tc_float6_e3m2
 
 
 _DTYPES = [torch.float32, torch.float16, torch.bfloat16]
