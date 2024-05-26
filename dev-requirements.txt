@@ -12,3 +12,6 @@ pandas
 
 # Custom CUDA Extensions
 ninja
+
+# for FP6-LLM (can be removed once we remove fp16_to_fp6_original())
+qtorch

@@ -61,7 +61,8 @@ from torchao.quantization.autoquant import (
     AQInt8DynamicallyQuantizedLinearWeight,
     AQWeightOnlyQuantizedLinearWeight,
     AQWeightOnlyQuantizedLinearWeight2,
-    AQWeightOnlyQuantizedLinearWeight3
+    AQWeightOnlyQuantizedLinearWeight3,
+    AutoQuantizableLinearWeight,
 
 )
 from torch.ao.quantization.quantize_fx import convert_to_reference_fx, prepare_fx
@@ -1126,7 +1127,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
                 sqnr = compute_error(y_ref, y_wo)
                 self.assertGreaterEqual(sqnr, 42.75)
                 if device == "cuda":
-                    self.assertTrue("mixed_mm" in code)
+                    self.assertTrue("mixed_mm" in code, f"got code: {code}")
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
@@ -1470,6 +1471,44 @@ class TestAutoQuant(unittest.TestCase):
         out2 = mod(**example_input)
         sqnr = SQNR(out, out2)
         self.assertTrue(sqnr >= 30)
+
+    @parameterized.expand(combine_parameters(COMMON_DEVICE_DTYPE,
+        [
+            (16, 128, 128),
+        ]))
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
+    def test_autoquant_double_access(self, device, dtype, m, k, n):
+        if device != "cuda" and dtype != torch.bfloat16:
+            self.skipTest(f"autoquant currently does not support {device}")
+        if device != "cuda" or not torch.cuda.is_available():
+            self.skipTest(f"autoquant currently does not support {device}")
+        if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
+            if dtype == torch.bfloat16:
+                self.skipTest(f"bfloat16 requires sm80+")
+
+        class DoubleAccess(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.lin1 = torch.nn.Linear(k, n)
+                self.lin2 = torch.nn.Linear(n, k)
+                self.lin3 = torch.nn.Linear(k, n)
+                self.lin3.weight = self.lin1.weight
+
+            def forward(self, x):
+                x = self.lin1(x)
+                x = self.lin2(x)
+                x = self.lin3(x)
+                return x
+
+        x_in = torch.randn(m, k, device=device, dtype=dtype)
+        model = DoubleAccess().to(device).to(dtype)
+        model(x_in)
+        torchao.autoquant(model)
+        assert not isinstance(model.lin1.weight.weight, AutoQuantizableLinearWeight)
+        model(x_in)
+
+
+
 
 class TestAOTI(unittest.TestCase):
     @parameterized.expand(
