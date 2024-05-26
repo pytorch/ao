@@ -247,6 +247,8 @@ def to_tc_float6_e3m2(tensor: Tensor) -> Tensor:
 
     tensor_fp6 = to_float6_e3m2(tensor, no_bit_packing=True)
 
+    # Section 5.2, Figure 5.
+    # 64x64 tile, divided into 64x16 slices, and further divided into 8x8 chunks (for FP16 tensor cores)
     tensor_fp6 = tensor_fp6.view(M // 64, 4, 2, 8, N // 16, 2, 8)
     tensor_fp6 = tensor_fp6.permute(0, 4, 1, 5, 2, 3, 6)
     tensor_fp6 = tensor_fp6.reshape(-1, 32, 2)
@@ -254,16 +256,27 @@ def to_tc_float6_e3m2(tensor: Tensor) -> Tensor:
     tensor_2bit = (tensor_fp6 >> 4) & 0b11
     tensor_4bit = tensor_fp6 & 0b1111
 
-    tensor_2bit = tensor_2bit.view(-1, 8, 32, 2)
-    tensor_2bit = tensor_2bit.permute(0, 2, 1, 3)
-    tensor_2bit = tensor_2bit.reshape(-1, 16)
-    tensor_2bit = tensor_2bit[:, [2, 6, 10, 14, 0, 4, 8, 12, 3, 7, 11, 15, 1, 5, 9, 13]]
-    tensor_2bit = _pack_2bit(tensor_2bit).view(-1)
+    tensor_2bit = tensor_2bit.view(-1, 8, 32, 2)  # 8 chunks of 8x8, or 2 16x16 sub-block
 
-    tensor_4bit = tensor_4bit.view(-1, 4, 32, 2)
+    # v1
+    tensor_2bit = tensor_2bit.permute(0, 2, 1, 3)
+    tensor_2bit = tensor_2bit.reshape(-1, 16)  # 16 x 2-bit = 32-bit
+    tensor_2bit = tensor_2bit[:, [2, 6, 10, 14, 0, 4, 8, 12, 3, 7, 11, 15, 1, 5, 9, 13]]
+
+    # v2. this is slower
+    # tensor_2bit = tensor_2bit[:, [1, 3, 5, 7, 0, 2, 4, 6]].permute(0, 2, 3, 1)
+  
+    tensor_4bit = tensor_4bit.view(-1, 4, 32, 2)  # 4 chunks of 8x8, or 1 16x16 sub-block
+
+    # v1
     tensor_4bit = tensor_4bit.permute(0, 2, 1, 3)
-    tensor_4bit = tensor_4bit.reshape(-1, 8)
+    tensor_4bit = tensor_4bit.reshape(-1, 8)  # 8 x 4-bit = 32-bit
     tensor_4bit = tensor_4bit[:, [2, 6, 0, 4, 3, 7, 1, 5]]
-    tensor_4bit = _pack_4bit(tensor_4bit).view(-1)
+
+    # v2. this is slower
+    # tensor_4bit = tensor_4bit[:, [1, 3, 0, 2]].permute(0, 2, 3, 1)
+  
+    tensor_2bit = _pack_2bit(tensor_2bit).flatten()
+    tensor_4bit = _pack_4bit(tensor_4bit).flatten()
 
     return torch.cat([tensor_2bit, tensor_4bit], dim=0)
