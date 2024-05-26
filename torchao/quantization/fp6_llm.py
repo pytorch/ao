@@ -127,7 +127,7 @@ class Fp6LlmLinear(nn.Module):
         out = fp16act_fp6weight_linear(x.view(-1, self.in_features).half(), self.weight, self.scales, splitK=1)
         if self.bias is not None:
             out = out + self.bias
-        return out.view(*x.shape[:-1], self.out_features)
+        return out.view(*x.shape[:-1], self.out_features).to(x.dtype)
 
     @classmethod
     def from_float(cls, linear: nn.Linear):
