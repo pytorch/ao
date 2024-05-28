@@ -32,6 +32,12 @@ from .subclass import (
     Int8DynamicallyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
     QuantizedLinearWeightBase,
+    to_laq,
+)
+
+from .quant_primitives import (
+    MappingType,
+    ZeroPointDomain,
 )
 from .weight_only import WeightOnlyInt8QuantLinear
 from .unified import Quantizer, TwoStepQuantizer
@@ -56,6 +62,10 @@ __all__ = [
     "quantize",
     "autoquant",
     "_get_subclass_inserter",
+    "get_apply_8da4w_quant",
+    "get_apply_int4wo_quant",
+    "get_apply_int8wo_quant",
+    "get_apply_int8dyn_quant",
 ]
 
 if TORCH_VERSION_AFTER_2_3:
@@ -287,3 +297,103 @@ def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tens
         _is_linear if filter_fn is None else filter_fn,
     )
     return model
+
+def get_apply_8da4w_quant(groupsize=32):
+
+    def apply_8da4w_quant(weight):
+        # avoid circular dep
+        from torchao.dtypes.aqt import to_aq
+
+        # weight settings
+        mapping_type = MappingType.SYMMETRIC
+        block_size = (1, groupsize)
+        target_dtype = torch.int8
+        eps = torch.finfo(torch.float32).eps
+        quant_min = -8
+        quant_max = 7
+
+        # TODO: make a general helper function?
+        # input settings
+        def get_per_token_block_size(x):
+            block_size = []
+            for i in range(len(x.shape)-1):
+                block_size.append(1)
+            block_size.append(x.shape[-1])
+            return block_size
+
+        # input settings
+        input_mapping_type = MappingType.ASYMMETRIC
+        input_target_dtype = torch.int8
+        input_quant_func = lambda x: to_aq(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype)
+
+        weight = to_aq(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps)
+        weight = to_laq(weight, input_quant_func)
+        return weight
+
+    return apply_8da4w_quant
+
+
+def get_apply_int4wo_quant(groupsize=32):
+    def apply_int4wo_quant(weight):
+        # avoid circular dep
+        from torchao.dtypes.aqt import to_aq
+
+        groupsize = 32
+        mapping_type = MappingType.ASYMMETRIC
+        block_size = (1, groupsize)
+        target_dtype = torch.int32
+        quant_min = 0
+        quant_max = 15
+        eps = 1e-6
+        preserve_zero = False
+        zero_point_dtype = torch.bfloat16
+        zero_point_domain = ZeroPointDomain.FLOAT
+        return to_aq(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain)
+
+    return apply_int4wo_quant
+
+
+def get_apply_int8wo_quant():
+    def apply_int8wo_quant(weight):
+        # avoid circular dep
+        from torchao.dtypes.aqt import to_aq
+
+        mapping_type = MappingType.SYMMETRIC
+        target_dtype = torch.int8
+        eps = torch.finfo(torch.float32).eps
+        zero_point_dtype = torch.int64
+        block_size = (1, weight.shape[1])
+        return to_aq(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype)
+    return apply_int8wo_quant
+
+def get_apply_int8dyn_quant():
+    def apply_int8dyn_quant(weight):
+        # avoid circular dep
+        from torchao.dtypes.aqt import to_aq
+        # weight settings
+        mapping_type = MappingType.SYMMETRIC
+        def get_weight_block_size(x):
+            return (1, x.shape[1])
+        target_dtype = torch.int8
+        eps = torch.finfo(torch.float32).eps
+        zero_point_dtype = torch.int64
+
+        # input settings
+        def get_per_token_block_size(x):
+            block_size = list(x.shape)
+            for i in range(len(block_size)-1):
+                block_size[i] = 1
+            return block_size
+
+        input_mapping_type = MappingType.SYMMETRIC
+        input_target_dtype = torch.int8
+        input_eps = 1e-5
+        input_quant_min = -127
+        input_quant_max = 127
+        input_quant_func = lambda x: to_aq(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype, eps=input_eps, quant_min=input_quant_min, quant_max=input_quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
+
+        block_size = get_weight_block_size(weight)
+        weight = to_aq(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype)
+        weight = to_laq(weight, input_quant_func)
+        return weight
+    return apply_int8dyn_quant
