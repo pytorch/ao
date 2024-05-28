@@ -409,6 +409,12 @@
     <span class="n">Int8DynamicallyQuantizedLinearWeight</span><span class="p">,</span>
     <span class="n">Int8WeightOnlyQuantizedLinearWeight</span><span class="p">,</span>
     <span class="n">QuantizedLinearWeightBase</span><span class="p">,</span>
+    <span class="n">to_laq</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="kn">from</span> <span class="nn">.quant_primitives</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">MappingType</span><span class="p">,</span>
+    <span class="n">ZeroPointDomain</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span> <span class="nn">.weight_only</span> <span class="kn">import</span> <span class="n">WeightOnlyInt8QuantLinear</span>
 <span class="kn">from</span> <span class="nn">.unified</span> <span class="kn">import</span> <span class="n">Quantizer</span><span class="p">,</span> <span class="n">TwoStepQuantizer</span>
@@ -433,6 +439,10 @@
     <span class="s2">&quot;quantize&quot;</span><span class="p">,</span>
     <span class="s2">&quot;autoquant&quot;</span><span class="p">,</span>
     <span class="s2">&quot;_get_subclass_inserter&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;get_apply_8da4w_quant&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;get_apply_int4wo_quant&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;get_apply_int8wo_quant&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;get_apply_int8dyn_quant&quot;</span><span class="p">,</span>
 <span class="p">]</span>
 
 <span class="k">if</span> <span class="n">TORCH_VERSION_AFTER_2_3</span><span class="p">:</span>
@@ -664,6 +674,106 @@
         <span class="n">_is_linear</span> <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">filter_fn</span><span class="p">,</span>
     <span class="p">)</span>
     <span class="k">return</span> <span class="n">model</span>
+
+<span class="k">def</span> <span class="nf">get_apply_8da4w_quant</span><span class="p">(</span><span class="n">groupsize</span><span class="o">=</span><span class="mi">32</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">apply_8da4w_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
+        <span class="c1"># avoid circular dep</span>
+        <span class="kn">from</span> <span class="nn">torchao.dtypes.aqt</span> <span class="kn">import</span> <span class="n">to_aq</span>
+
+        <span class="c1"># weight settings</span>
+        <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
+        <span class="n">block_size</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">groupsize</span><span class="p">)</span>
+        <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
+        <span class="n">eps</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span>
+        <span class="n">quant_min</span> <span class="o">=</span> <span class="o">-</span><span class="mi">8</span>
+        <span class="n">quant_max</span> <span class="o">=</span> <span class="mi">7</span>
+
+        <span class="c1"># TODO: make a general helper function?</span>
+        <span class="c1"># input settings</span>
+        <span class="k">def</span> <span class="nf">get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+            <span class="n">block_size</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span><span class="p">):</span>
+                <span class="n">block_size</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">block_size</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+            <span class="k">return</span> <span class="n">block_size</span>
+
+        <span class="c1"># input settings</span>
+        <span class="n">input_mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span>
+        <span class="n">input_target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
+        <span class="n">input_quant_func</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">to_aq</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">input_mapping_type</span><span class="p">,</span> <span class="n">get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">input_target_dtype</span><span class="p">)</span>
+
+        <span class="n">weight</span> <span class="o">=</span> <span class="n">to_aq</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">,</span> <span class="n">eps</span><span class="p">)</span>
+        <span class="n">weight</span> <span class="o">=</span> <span class="n">to_laq</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">input_quant_func</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">weight</span>
+
+    <span class="k">return</span> <span class="n">apply_8da4w_quant</span>
+
+
+<span class="k">def</span> <span class="nf">get_apply_int4wo_quant</span><span class="p">(</span><span class="n">groupsize</span><span class="o">=</span><span class="mi">32</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">apply_int4wo_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
+        <span class="c1"># avoid circular dep</span>
+        <span class="kn">from</span> <span class="nn">torchao.dtypes.aqt</span> <span class="kn">import</span> <span class="n">to_aq</span>
+
+        <span class="n">groupsize</span> <span class="o">=</span> <span class="mi">32</span>
+        <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span>
+        <span class="n">block_size</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">groupsize</span><span class="p">)</span>
+        <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span>
+        <span class="n">quant_min</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">quant_max</span> <span class="o">=</span> <span class="mi">15</span>
+        <span class="n">eps</span> <span class="o">=</span> <span class="mf">1e-6</span>
+        <span class="n">preserve_zero</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
+        <span class="n">zero_point_domain</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span>
+        <span class="k">return</span> <span class="n">to_aq</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">,</span> <span class="n">eps</span><span class="p">,</span> <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span> <span class="n">preserve_zero</span><span class="o">=</span><span class="n">preserve_zero</span><span class="p">,</span> <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">zero_point_domain</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">apply_int4wo_quant</span>
+
+
+<span class="k">def</span> <span class="nf">get_apply_int8wo_quant</span><span class="p">():</span>
+    <span class="k">def</span> <span class="nf">apply_int8wo_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
+        <span class="c1"># avoid circular dep</span>
+        <span class="kn">from</span> <span class="nn">torchao.dtypes.aqt</span> <span class="kn">import</span> <span class="n">to_aq</span>
+
+        <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
+        <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
+        <span class="n">eps</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span>
+        <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int64</span>
+        <span class="n">block_size</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+        <span class="k">return</span> <span class="n">to_aq</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span> <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">apply_int8wo_quant</span>
+
+<span class="k">def</span> <span class="nf">get_apply_int8dyn_quant</span><span class="p">():</span>
+    <span class="k">def</span> <span class="nf">apply_int8dyn_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
+        <span class="c1"># avoid circular dep</span>
+        <span class="kn">from</span> <span class="nn">torchao.dtypes.aqt</span> <span class="kn">import</span> <span class="n">to_aq</span>
+        <span class="c1"># weight settings</span>
+        <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
+        <span class="k">def</span> <span class="nf">get_weight_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+            <span class="k">return</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+        <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
+        <span class="n">eps</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span>
+        <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int64</span>
+
+        <span class="c1"># input settings</span>
+        <span class="k">def</span> <span class="nf">get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+            <span class="n">block_size</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">block_size</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span><span class="p">):</span>
+                <span class="n">block_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+            <span class="k">return</span> <span class="n">block_size</span>
+
+        <span class="n">input_mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
+        <span class="n">input_target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
+        <span class="n">input_eps</span> <span class="o">=</span> <span class="mf">1e-5</span>
+        <span class="n">input_quant_min</span> <span class="o">=</span> <span class="o">-</span><span class="mi">127</span>
+        <span class="n">input_quant_max</span> <span class="o">=</span> <span class="mi">127</span>
+        <span class="n">input_quant_func</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">to_aq</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">input_mapping_type</span><span class="p">,</span> <span class="n">get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">input_target_dtype</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="n">input_eps</span><span class="p">,</span> <span class="n">quant_min</span><span class="o">=</span><span class="n">input_quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="o">=</span><span class="n">input_quant_max</span><span class="p">,</span> <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span> <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">float16</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span>
+
+        <span class="n">block_size</span> <span class="o">=</span> <span class="n">get_weight_block_size</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
+        <span class="n">weight</span> <span class="o">=</span> <span class="n">to_aq</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span> <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">)</span>
+        <span class="n">weight</span> <span class="o">=</span> <span class="n">to_laq</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">input_quant_func</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">weight</span>
+    <span class="k">return</span> <span class="n">apply_int8dyn_quant</span>
 </pre></div>
 
              </article>
