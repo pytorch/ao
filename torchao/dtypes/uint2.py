@@ -12,36 +12,114 @@ def down_size(size):
 def up_size(size):
     return (*size[:-1], size[-1] * 4)
 
-#@torch.compile
-def unpack_uint8_to_trinary2(uint8_data: torch.Tensor) -> torch.Tensor:
-    # since we are using uint8 we will decode 4 entries per byte
-    shape = uint8_data.shape
-    first_elements = ((uint8_data >> 6) & 0b11).to(torch.int8) - 1
-    second_elements = ((uint8_data >> 4) & 0b11).to(torch.int8) - 1
-    third_elements = ((uint8_data >> 2) & 0b11).to(torch.int8) - 1
-    fourth_elements = (uint8_data & 0b11).to(torch.int8) - 1
-    return torch.stack([first_elements, second_elements, third_elements, fourth_elements], dim=-1).view(up_size(shape))
+if torch.cuda.is_available() and torch.utils._triton.has_triton():
+    import triton
+    import triton.language as tl
 
-#@torch.compile
-def unpack_uint2(uint8_data: torch.Tensor) -> torch.Tensor:
-    # since we are using uint8 we will decode 4 entries per byte
-    shape = uint8_data.shape
-    uint8_data = uint8_data.to(torch.uint8)
-    first_elements = ((uint8_data >> 6) & 0b11)
-    second_elements = ((uint8_data >> 4) & 0b11)
-    third_elements = ((uint8_data >> 2) & 0b11)
-    fourth_elements = (uint8_data & 0b11)
-    return torch.stack((first_elements, second_elements, third_elements, fourth_elements), dim=-1).view(up_size(shape))
+    @triton.jit
+    def triton_unpack_uint8_to_trinary2(uint8_data, output, n_elements, BLOCK_SIZE: tl.constexpr):
+        offsets = tl.arange(0, BLOCK_SIZE)
+        mask = offsets < n_elements
 
-#packing uint8
-#@torch.compile
-def pack_uint2(uint8_data: torch.Tensor) -> torch.Tensor:
-    # converting to uint8 for operations
-    shape = uint8_data.shape
-    assert shape[-1] % 4 == 0
-    uint8_data = uint8_data.contiguous().view(-1)
-    packed_data = (uint8_data[::4] << 6 | uint8_data[1::4] << 4 | uint8_data[2::4] << 2 | uint8_data[3::4]).view(down_size(shape))
-    return packed_data
+        uint8_value = tl.load(uint8_data + offsets, mask=mask)
+        
+        first_elements = ((uint8_value >> 6) & 0b11).to(tl.int8) - 1
+        second_elements = ((uint8_value >> 4) & 0b11).to(tl.int8) - 1
+        third_elements = ((uint8_value >> 2) & 0b11).to(tl.int8) - 1
+        fourth_elements = (uint8_value & 0b11).to(tl.int8) - 1
+
+        tl.store(output + offsets * 4 + 0, first_elements, mask=mask)
+        tl.store(output + offsets * 4 + 1, second_elements, mask=mask)
+        tl.store(output + offsets * 4 + 2, third_elements, mask=mask)
+        tl.store(output + offsets * 4 + 3, fourth_elements, mask=mask)
+
+    def unpack_uint8_to_trinary2(uint8_data: torch.Tensor) -> torch.Tensor:
+        shape = uint8_data.shape
+        output = torch.empty(up_size(shape), dtype=torch.int8, device=uint8_data.device)
+        n_elements = uint8_data.numel()
+        grid = lambda meta: (triton.cdiv(n_elements, meta['BLOCK_SIZE']),)
+        triton_unpack_uint8_to_trinary2[grid](uint8_data, output, n_elements, BLOCK_SIZE=1024)
+        return output
+
+    @triton.jit
+    def triton_unpack_uint2(uint8_data, output, n_elements, BLOCK_SIZE: tl.constexpr):
+        offsets = tl.arange(0, BLOCK_SIZE)
+        mask = offsets < n_elements
+
+        uint8_value = tl.load(uint8_data + offsets, mask=mask)
+
+        first_elements = (uint8_value >> 6) & 0b11
+        second_elements = (uint8_value >> 4) & 0b11
+        third_elements = (uint8_value >> 2) & 0b11
+        fourth_elements = uint8_value & 0b11
+
+        tl.store(output + offsets * 4 + 0, first_elements, mask=mask)
+        tl.store(output + offsets * 4 + 1, second_elements, mask=mask)
+        tl.store(output + offsets * 4 + 2, third_elements, mask=mask)
+        tl.store(output + offsets * 4 + 3, fourth_elements, mask=mask)
+
+    def unpack_uint2(uint8_data: torch.Tensor) -> torch.Tensor:
+        shape = uint8_data.shape
+        output = torch.empty(up_size(shape), dtype=torch.uint8, device=uint8_data.device)
+        n_elements = uint8_data.numel()
+        grid = lambda meta: (triton.cdiv(n_elements, meta['BLOCK_SIZE']),)
+        triton_unpack_uint2[grid](uint8_data, output, n_elements, BLOCK_SIZE=1024)
+        return output
+
+    @triton.jit
+    def triton_pack_uint2(uint8_data, output, n_elements, BLOCK_SIZE: tl.constexpr):
+        offsets = tl.arange(0, BLOCK_SIZE)
+        mask = offsets * 4 < n_elements
+
+        first_elements = tl.load(uint8_data + offsets * 4 + 0, mask=mask)
+        second_elements = tl.load(uint8_data + offsets * 4 + 1, mask=mask)
+        third_elements = tl.load(uint8_data + offsets * 4 + 2, mask=mask)
+        fourth_elements = tl.load(uint8_data + offsets * 4 + 3, mask=mask)
+
+        packed_data = (first_elements << 6) | (second_elements << 4) | (third_elements << 2) | fourth_elements
+
+        tl.store(output + offsets, packed_data, mask=mask)
+
+    def pack_uint2(uint8_data: torch.Tensor) -> torch.Tensor:
+        shape = uint8_data.shape
+        assert shape[-1] % 4 == 0
+        n_elements = uint8_data.numel()
+        packed_shape = down_size(shape)
+        output = torch.empty(packed_shape, dtype=torch.uint8, device=uint8_data.device)
+        grid = lambda meta: (triton.cdiv(n_elements, meta['BLOCK_SIZE'] * 4),)
+        triton_pack_uint2[grid](uint8_data, output, n_elements, BLOCK_SIZE=1024)
+        return output
+
+else:
+    #@torch.compile
+    def unpack_uint8_to_trinary2(uint8_data: torch.Tensor) -> torch.Tensor:
+        # since we are using uint8 we will decode 4 entries per byte
+        shape = uint8_data.shape
+        first_elements = ((uint8_data >> 6) & 0b11).to(torch.int8) - 1
+        second_elements = ((uint8_data >> 4) & 0b11).to(torch.int8) - 1
+        third_elements = ((uint8_data >> 2) & 0b11).to(torch.int8) - 1
+        fourth_elements = (uint8_data & 0b11).to(torch.int8) - 1
+        return torch.stack([first_elements, second_elements, third_elements, fourth_elements], dim=-1).view(up_size(shape))
+
+    #@torch.compile
+    def unpack_uint2(uint8_data: torch.Tensor) -> torch.Tensor:
+        # since we are using uint8 we will decode 4 entries per byte
+        shape = uint8_data.shape
+        uint8_data = uint8_data.to(torch.uint8)
+        first_elements = ((uint8_data >> 6) & 0b11)
+        second_elements = ((uint8_data >> 4) & 0b11)
+        third_elements = ((uint8_data >> 2) & 0b11)
+        fourth_elements = (uint8_data & 0b11)
+        return torch.stack((first_elements, second_elements, third_elements, fourth_elements), dim=-1).view(up_size(shape))
+
+    #packing uint8
+    #@torch.compile
+    def pack_uint2(uint8_data: torch.Tensor) -> torch.Tensor:
+        shape = uint8_data.shape
+        assert shape[-1] % 4 == 0
+        uint8_data = uint8_data.contiguous().view(-1)
+        packed_data = (uint8_data[::4] << 6 | uint8_data[1::4] << 4 | uint8_data[2::4] << 2 | uint8_data[3::4]).view(down_size(shape))
+        return packed_data
 
 
 def fill_defaults(args, n, defaults_tail):
@@ -300,9 +378,7 @@ class BitnetTensor(UInt2Tensor):
             (self,) = args
             unpacked = unpack_uint2(self.elem)
             transposed = torch.ops.aten.t.default(unpacked)
-            return BitnetTensor.from_unpacked(
-                transposed
-            )
+            return BitnetTensor.from_unpacked(transposed)
         elif func is torch.ops.aten.detach.default:
             (self,) = args
             return self
@@ -325,3 +401,4 @@ class BitnetTensor(UInt2Tensor):
             w, torch.uint2
         ).to(device=w.device)
         return w_int2
+
