@@ -396,7 +396,12 @@
 
 <span class="kn">from</span> <span class="nn">torch.utils._pytree</span> <span class="kn">import</span> <span class="n">tree_flatten</span><span class="p">,</span> <span class="n">tree_unflatten</span>
 
-<span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="n">TORCH_VERSION_AFTER_2_3</span><span class="p">,</span> <span class="n">find_multiple</span>
+<span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">_lm_eval_available</span><span class="p">,</span>
+    <span class="n">_MultiInput</span><span class="p">,</span>
+    <span class="n">TORCH_VERSION_AFTER_2_3</span><span class="p">,</span>
+    <span class="n">find_multiple</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Optional</span>
 <span class="kn">from</span> <span class="nn">.unified</span> <span class="kn">import</span> <span class="n">Quantizer</span>
 
@@ -409,265 +414,19 @@
 <span class="p">)</span>
 <span class="n">aten</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span>
 
-<span class="c1">## eval.py ##</span>
-
-<span class="k">try</span><span class="p">:</span>
-    <span class="kn">import</span> <span class="nn">lm_eval</span>  <span class="c1"># pyre-ignore[21]  # noqa: F401</span>
-
-    <span class="n">lm_eval_available</span> <span class="o">=</span> <span class="kc">True</span>
-<span class="k">except</span><span class="p">:</span>
-    <span class="n">lm_eval_available</span> <span class="o">=</span> <span class="kc">False</span>
-
-<span class="k">if</span> <span class="n">lm_eval_available</span><span class="p">:</span>
-    <span class="k">try</span><span class="p">:</span>  <span class="c1"># lm_eval version 0.4</span>
-        <span class="kn">from</span> <span class="nn">lm_eval.evaluator</span> <span class="kn">import</span> <span class="n">evaluate</span>  <span class="c1"># pyre-ignore[21]</span>
-        <span class="kn">from</span> <span class="nn">lm_eval.models.huggingface</span> <span class="kn">import</span> <span class="n">HFLM</span> <span class="k">as</span> <span class="n">eval_wrapper</span>  <span class="c1"># pyre-ignore[21]</span>
-        <span class="kn">from</span> <span class="nn">lm_eval.tasks</span> <span class="kn">import</span> <span class="n">get_task_dict</span>  <span class="c1"># pyre-ignore[21]</span>
-    <span class="k">except</span><span class="p">:</span>  <span class="c1"># lm_eval version 0.3</span>
-        <span class="kn">from</span> <span class="nn">lm_eval</span> <span class="kn">import</span> <span class="n">base</span><span class="p">,</span> <span class="n">evaluator</span><span class="p">,</span> <span class="n">tasks</span>
-
-        <span class="n">eval_wrapper</span> <span class="o">=</span> <span class="n">base</span><span class="o">.</span><span class="n">BaseLM</span>
-        <span class="n">get_task_dict</span> <span class="o">=</span> <span class="n">tasks</span><span class="o">.</span><span class="n">get_task_dict</span>
-        <span class="n">evaluate</span> <span class="o">=</span> <span class="n">evaluator</span><span class="o">.</span><span class="n">evaluate</span>
-<span class="k">else</span><span class="p">:</span>
+<span class="k">if</span> <span class="ow">not</span> <span class="n">_lm_eval_available</span><span class="p">:</span>
     <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;lm_eval is not installed, GPTQ may not be usable&quot;</span><span class="p">)</span>
 
 <span class="n">add_ons</span> <span class="o">=</span> <span class="p">[]</span>
-
-<span class="k">if</span> <span class="n">lm_eval_available</span><span class="p">:</span>
-    <span class="n">add_ons</span> <span class="o">+=</span> <span class="p">[</span><span class="s2">&quot;InputRecorder&quot;</span><span class="p">,</span> <span class="s2">&quot;TransformerEvalWrapper&quot;</span><span class="p">]</span>
 
 <span class="k">if</span> <span class="n">TORCH_VERSION_AFTER_2_3</span><span class="p">:</span>
     <span class="n">add_ons</span> <span class="o">+=</span> <span class="p">[</span><span class="s2">&quot;Int8DynActInt4WeightQuantizer&quot;</span><span class="p">,</span> <span class="s2">&quot;Int8DynActInt4WeightGPTQQuantizer&quot;</span><span class="p">]</span>
 
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="s2">&quot;MultiInput&quot;</span><span class="p">,</span>
     <span class="s2">&quot;Int4WeightOnlyGPTQQuantizer&quot;</span><span class="p">,</span>
     <span class="s2">&quot;Int4WeightOnlyQuantizer&quot;</span><span class="p">,</span>
 <span class="p">]</span> <span class="o">+</span> <span class="n">add_ons</span>
-
-<span class="k">if</span> <span class="n">lm_eval_available</span><span class="p">:</span>
-    <span class="k">class</span> <span class="nc">InputRecorder</span><span class="p">(</span><span class="n">eval_wrapper</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        This is a fake evaluation wrapper from the lm_eval library that just records the inputs</span>
-<span class="sd">        so that they can be used in calibration.</span>
-
-<span class="sd">        If pad_calibration_inputs is enabled, the input recorder will take</span>
-<span class="sd">        each input and pad/truncate it down to the calibration_seq_length.</span>
-<span class="sd">        (if using padding you should set the embeddings for the pad_token to 0</span>
-<span class="sd">        in the model)</span>
-
-<span class="sd">        Note: after padding/truncation, input_prep_function is called to bring</span>
-<span class="sd">        it to the proper form to be inserted into a given model.</span>
-
-<span class="sd">        If not, it will only truncate inputs to the desired length.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
-
-        <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
-            <span class="bp">self</span><span class="p">,</span>
-            <span class="n">tokenizer</span><span class="p">,</span>
-            <span class="n">calibration_seq_length</span><span class="p">,</span>
-            <span class="n">input_prep_func</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-            <span class="n">pad_calibration_inputs</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-            <span class="n">vocab_size</span><span class="o">=</span><span class="mi">32000</span><span class="p">,</span>
-            <span class="n">pad_token</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
-            <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cpu&quot;</span><span class="p">,</span>
-        <span class="p">):</span>
-            <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_tokenizer</span> <span class="o">=</span> <span class="n">tokenizer</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_device</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">vocab_size</span> <span class="o">=</span> <span class="n">vocab_size</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_max_seq_length</span> <span class="o">=</span> <span class="n">calibration_seq_length</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">calibration_seq_length</span> <span class="o">=</span> <span class="n">calibration_seq_length</span>
-
-            <span class="c1"># need to take inps and convert to corrent input</span>
-            <span class="c1"># for model</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">input_prep_func</span> <span class="o">=</span> <span class="p">(</span>
-                <span class="n">input_prep_func</span> <span class="k">if</span> <span class="n">input_prep_func</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-                <span class="k">else</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="p">(</span><span class="n">x</span><span class="p">,)</span>
-            <span class="p">)</span>
-
-            <span class="bp">self</span><span class="o">.</span><span class="n">pad_calibration_inputs</span> <span class="o">=</span> <span class="n">pad_calibration_inputs</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">pad_token</span> <span class="o">=</span> <span class="n">pad_token</span>
-
-            <span class="bp">self</span><span class="o">.</span><span class="n">inputs</span> <span class="o">=</span> <span class="kc">None</span>
-
-        <span class="nd">@property</span>
-        <span class="k">def</span> <span class="nf">eot_token_id</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-            <span class="k">try</span><span class="p">:</span>
-                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tokenizer</span><span class="o">.</span><span class="n">eos_id</span><span class="p">()</span>
-            <span class="k">except</span><span class="p">:</span>
-                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tokenizer</span><span class="o">.</span><span class="n">eos_id</span>
-
-        <span class="nd">@property</span>
-        <span class="k">def</span> <span class="nf">max_length</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_max_seq_length</span>
-
-        <span class="nd">@property</span>
-        <span class="k">def</span> <span class="nf">max_gen_toks</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-            <span class="k">return</span> <span class="mi">50</span>
-
-        <span class="nd">@property</span>
-        <span class="k">def</span> <span class="nf">batch_size</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-            <span class="k">return</span> <span class="mi">1</span>
-
-        <span class="nd">@property</span>
-        <span class="k">def</span> <span class="nf">device</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_device</span>
-
-        <span class="k">def</span> <span class="nf">tok_encode</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">string</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
-            <span class="c1"># TODO: verify this for multi-batch as well</span>
-            <span class="n">tokens</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tokenizer</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="n">string</span><span class="p">)</span>
-            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_tokenizer</span><span class="p">,</span> <span class="s2">&quot;bos_id&quot;</span><span class="p">):</span>
-                <span class="k">try</span><span class="p">:</span>
-                    <span class="n">tokens</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_tokenizer</span><span class="o">.</span><span class="n">bos_id</span><span class="p">()]</span> <span class="o">+</span> <span class="n">tokens</span>
-                <span class="k">except</span><span class="p">:</span>
-                    <span class="n">tokens</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_tokenizer</span><span class="o">.</span><span class="n">bos_id</span><span class="p">]</span> <span class="o">+</span> <span class="n">tokens</span>
-            <span class="k">return</span> <span class="n">tokens</span>
-
-        <span class="k">def</span> <span class="nf">tok_decode</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tokens</span><span class="p">):</span>
-            <span class="n">decoded</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tokenizer</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="n">tokens</span><span class="p">)</span>
-            <span class="k">return</span> <span class="n">decoded</span>
-
-        <span class="k">def</span> <span class="nf">add_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">args</span><span class="p">):</span>
-            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">inputs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">inputs</span> <span class="o">=</span> <span class="p">[</span><span class="n">MultiInput</span><span class="p">([</span><span class="n">arg</span><span class="p">])</span> <span class="k">for</span> <span class="n">arg</span> <span class="ow">in</span> <span class="n">args</span><span class="p">]</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">inputs</span> <span class="o">=</span> <span class="p">[</span>
-                    <span class="n">multi</span><span class="o">.</span><span class="n">add_input</span><span class="p">(</span><span class="n">arg</span><span class="p">)</span> <span class="k">for</span> <span class="p">(</span><span class="n">multi</span><span class="p">,</span> <span class="n">arg</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">inputs</span><span class="p">,</span> <span class="n">args</span><span class="p">)</span>
-                <span class="p">]</span>
-
-        <span class="k">def</span> <span class="nf">record_inputs</span><span class="p">(</span>
-            <span class="bp">self</span><span class="p">,</span>
-            <span class="n">calibration_tasks</span><span class="p">,</span>
-            <span class="n">calibration_limit</span><span class="p">,</span>
-        <span class="p">):</span>
-            <span class="k">try</span><span class="p">:</span>
-                <span class="n">lm_eval</span><span class="o">.</span><span class="n">tasks</span><span class="o">.</span><span class="n">initialize_tasks</span><span class="p">()</span>
-            <span class="k">except</span><span class="p">:</span>
-                <span class="k">pass</span>
-
-            <span class="n">task_dict</span> <span class="o">=</span> <span class="n">get_task_dict</span><span class="p">(</span><span class="n">calibration_tasks</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Obtaining GPTQ calibration inputs on: &quot;</span><span class="p">,</span> <span class="n">calibration_tasks</span><span class="p">)</span>
-
-            <span class="n">evaluate</span><span class="p">(</span>
-                <span class="bp">self</span><span class="p">,</span>
-                <span class="n">task_dict</span><span class="p">,</span>
-                <span class="n">limit</span><span class="o">=</span><span class="n">calibration_limit</span><span class="p">,</span>
-            <span class="p">)</span>
-            <span class="k">return</span> <span class="bp">self</span>
-
-        <span class="k">def</span> <span class="nf">get_inputs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">inputs</span>
-
-        <span class="k">def</span> <span class="nf">_model_call</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">inps</span><span class="p">):</span>
-            <span class="n">inps</span> <span class="o">=</span> <span class="n">inps</span><span class="o">.</span><span class="n">squeeze</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-            <span class="n">T</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">inps</span><span class="p">)</span>
-            <span class="k">if</span> <span class="p">(</span>
-                <span class="c1"># can&#39;t use inputs that are too short when padding disabled</span>
-                <span class="p">(</span><span class="n">T</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">calibration_seq_length</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">pad_calibration_inputs</span><span class="p">)</span>
-                <span class="ow">or</span>
-                <span class="c1"># can&#39;t use inputs that actually use token we use for padding</span>
-                <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">pad_calibration_inputs</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">pad_token</span> <span class="ow">in</span> <span class="n">inps</span><span class="p">)</span>
-            <span class="p">):</span>
-                <span class="c1"># give random output</span>
-                <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span>
-                    <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">vocab_size</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_device</span>
-                <span class="p">)</span>
-
-            <span class="c1"># pad or truncate to the right size</span>
-            <span class="k">if</span> <span class="n">T</span> <span class="o">&gt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">calibration_seq_length</span><span class="p">:</span>
-                <span class="n">inps</span> <span class="o">=</span> <span class="n">inps</span><span class="p">[:</span> <span class="bp">self</span><span class="o">.</span><span class="n">calibration_seq_length</span><span class="p">]</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="n">inps</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span><span class="n">inps</span><span class="p">,</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">pad_token</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">calibration_seq_length</span> <span class="o">-</span> <span class="n">T</span><span class="p">))</span>
-
-            <span class="n">inps</span> <span class="o">=</span> <span class="n">inps</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
-            <span class="n">model_in</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_prep_func</span><span class="p">(</span><span class="n">inps</span><span class="p">)</span>
-
-            <span class="bp">self</span><span class="o">.</span><span class="n">add_input</span><span class="p">(</span><span class="n">model_in</span><span class="p">)</span>
-
-            <span class="c1"># output `something` with correct shape to keep eval going</span>
-            <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span>
-                <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">T</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">vocab_size</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_device</span>
-            <span class="p">)</span>
-
-        <span class="k">def</span> <span class="nf">_model_generate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">max_length</span><span class="p">,</span> <span class="n">eos_token_id</span><span class="p">):</span>
-            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;unimplemented&quot;</span><span class="p">)</span>
-
-    <span class="k">class</span> <span class="nc">TransformerEvalWrapper</span><span class="p">(</span><span class="n">InputRecorder</span><span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        A wrapper class for GPTFast, providing integration with the lm-evaluation-harness library.</span>
-<span class="sd">        &quot;&quot;&quot;</span>
-        <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
-            <span class="bp">self</span><span class="p">,</span>
-            <span class="n">model</span><span class="p">,</span>
-            <span class="n">tokenizer</span><span class="p">,</span>
-            <span class="n">max_seq_length</span><span class="p">,</span>
-            <span class="n">input_prep_func</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-            <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span>
-        <span class="p">):</span>
-            <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_model</span> <span class="o">=</span> <span class="n">model</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_tokenizer</span> <span class="o">=</span> <span class="n">tokenizer</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_device</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="n">device</span><span class="p">)</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_max_seq_length</span> <span class="o">=</span> <span class="n">max_seq_length</span>
-
-            <span class="c1"># need to take inps and convert to corrent input</span>
-            <span class="c1"># for model</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">input_prep_func</span> <span class="o">=</span> <span class="p">(</span>
-                <span class="n">input_prep_func</span> <span class="k">if</span> <span class="n">input_prep_func</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-                <span class="k">else</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="p">(</span><span class="n">x</span><span class="p">,)</span>
-            <span class="p">)</span>
-
-        <span class="k">def</span> <span class="nf">_model_call</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">inps</span><span class="p">):</span>
-            <span class="c1"># TODO: make batches work</span>
-            <span class="nb">input</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_prep_func</span><span class="p">(</span><span class="n">inps</span><span class="p">)</span>
-
-            <span class="n">max_seq_length</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">inps</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_length</span><span class="p">)</span>
-            <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_device</span><span class="p">):</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="o">.</span><span class="n">setup_caches</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">batch_size</span><span class="p">,</span> <span class="n">max_seq_length</span><span class="p">)</span>
-            <span class="n">logits</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="p">(</span><span class="o">*</span><span class="nb">input</span><span class="p">)</span>
-            <span class="k">return</span> <span class="n">logits</span>
-
-        <span class="k">def</span> <span class="nf">_model_generate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">max_length</span><span class="p">,</span> <span class="n">eos_token_id</span><span class="p">):</span>
-            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s1">&#39;unimplemented&#39;</span><span class="p">)</span>
-
-        <span class="k">def</span> <span class="nf">run_eval</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tasks</span><span class="p">,</span> <span class="n">limit</span><span class="p">):</span>
-            <span class="k">try</span><span class="p">:</span>
-                <span class="n">lm_eval</span><span class="o">.</span><span class="n">tasks</span><span class="o">.</span><span class="n">initialize_tasks</span><span class="p">()</span>
-            <span class="k">except</span><span class="p">:</span>
-                <span class="k">pass</span>
-
-            <span class="n">task_dict</span> <span class="o">=</span> <span class="n">get_task_dict</span><span class="p">(</span><span class="n">tasks</span><span class="p">)</span>
-            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Evaluating Model On: &quot;</span><span class="p">,</span> <span class="n">task_dict</span><span class="p">)</span>
-            <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">():</span>
-                <span class="n">result</span> <span class="o">=</span> <span class="n">evaluate</span><span class="p">(</span>
-                    <span class="bp">self</span><span class="p">,</span>
-                    <span class="n">task_dict</span><span class="p">,</span>
-                    <span class="n">limit</span><span class="o">=</span><span class="n">limit</span><span class="p">,</span>
-                <span class="p">)</span>
-            <span class="k">for</span> <span class="n">task</span><span class="p">,</span> <span class="n">res</span> <span class="ow">in</span> <span class="n">result</span><span class="p">[</span><span class="s2">&quot;results&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-                <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">task</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">res</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-            <span class="k">return</span> <span class="n">result</span>
-
-<span class="k">class</span> <span class="nc">MultiInput</span><span class="p">:</span>
-
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">inputs</span><span class="p">):</span>
-
-        <span class="bp">self</span><span class="o">.</span><span class="n">values</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">inputs</span><span class="p">)</span>
-
-    <span class="k">def</span> <span class="nf">add_input</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">input</span><span class="p">):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">input</span><span class="p">)</span>
-        <span class="k">return</span> <span class="bp">self</span>
-
-    <span class="k">def</span> <span class="fm">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">slice</span><span class="p">):</span>
-        <span class="k">return</span> <span class="n">MultiInput</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="nb">slice</span><span class="p">])</span>
-
-    <span class="k">def</span> <span class="nf">cuda</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">values</span> <span class="o">=</span> <span class="p">[</span>
-            <span class="n">val</span><span class="o">.</span><span class="n">cuda</span><span class="p">()</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="k">else</span> <span class="n">val</span> <span class="k">for</span> <span class="n">val</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">values</span>
-        <span class="p">]</span>
 
 
 <span class="k">class</span> <span class="nc">GenericGPTQRunner</span><span class="p">(</span><span class="n">fx</span><span class="o">.</span><span class="n">Interpreter</span><span class="p">):</span>
@@ -685,7 +444,7 @@
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">model</span><span class="p">,</span>
-        <span class="n">inputs</span><span class="p">:</span> <span class="n">MultiInput</span><span class="p">,</span>
+        <span class="n">inputs</span><span class="p">:</span> <span class="n">_MultiInput</span><span class="p">,</span>
         <span class="n">blocksize</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
         <span class="n">percdamp</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
         <span class="n">groupsize</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
@@ -784,22 +543,22 @@
 
         <span class="c1"># flatten args and kwargs together</span>
         <span class="n">flat_args</span><span class="p">,</span> <span class="n">spec</span> <span class="o">=</span> <span class="n">tree_flatten</span><span class="p">((</span><span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">))</span>
-        <span class="c1"># move all single tensors to cuda, will move MultiInputs to cuda one at a time</span>
+        <span class="c1"># move all single tensors to cuda, will move _MultiInputs to cuda one at a time</span>
         <span class="n">flat_args</span> <span class="o">=</span> <span class="n">tensors_to_cuda</span><span class="p">(</span><span class="n">flat_args</span><span class="p">)</span>
 
-        <span class="n">has_multi_input</span> <span class="o">=</span> <span class="n">MultiInput</span> <span class="ow">in</span> <span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">flat_args</span><span class="p">]</span>
+        <span class="n">has_multi_input</span> <span class="o">=</span> <span class="n">_MultiInput</span> <span class="ow">in</span> <span class="p">[</span><span class="nb">type</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">flat_args</span><span class="p">]</span>
         <span class="k">if</span> <span class="n">has_multi_input</span><span class="p">:</span>
             <span class="c1"># Just some trickery to convert</span>
-            <span class="c1"># [MultiInput[a, a, a], MultiInput(b, b, b)] =&gt; [a, b], [a, b], [a, b]</span>
+            <span class="c1"># [_MultiInput[a, a, a], _MultiInput(b, b, b)] =&gt; [a, b], [a, b], [a, b]</span>
             <span class="n">multi_input_count</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span>
-                <span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">values</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">MultiInput</span><span class="p">)</span> <span class="k">else</span> <span class="mi">1</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">flat_args</span><span class="p">]</span>
+                <span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">values</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">_MultiInput</span><span class="p">)</span> <span class="k">else</span> <span class="mi">1</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">flat_args</span><span class="p">]</span>
             <span class="p">)</span>
             <span class="n">transposed_args</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span>
                 <span class="nb">zip</span><span class="p">(</span>
                     <span class="o">*</span><span class="p">[</span>
                         <span class="p">(</span>
                             <span class="n">x</span><span class="o">.</span><span class="n">values</span>
-                            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">MultiInput</span><span class="p">)</span>
+                            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">_MultiInput</span><span class="p">)</span>
                             <span class="k">else</span> <span class="p">[</span><span class="n">x</span><span class="p">]</span> <span class="o">*</span> <span class="n">multi_input_count</span>
                         <span class="p">)</span>
                         <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">flat_args</span>
@@ -928,7 +687,7 @@
                 <span class="p">)</span>
             <span class="k">return</span> <span class="n">new_out</span>
 
-        <span class="k">return</span> <span class="n">MultiInput</span><span class="p">(</span><span class="n">outputs</span><span class="p">)</span> <span class="k">if</span> <span class="n">has_multi_input</span> <span class="k">else</span> <span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">_MultiInput</span><span class="p">(</span><span class="n">outputs</span><span class="p">)</span> <span class="k">if</span> <span class="n">has_multi_input</span> <span class="k">else</span> <span class="n">outputs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
 
     <span class="k">def</span> <span class="nf">faster_quant</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">H</span><span class="p">,</span> <span class="n">W</span><span class="p">):</span>
         <span class="n">percdamp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">percdamp</span>
@@ -1128,7 +887,7 @@
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s2">&quot;_convert_for_runtime not implemented&quot;</span><span class="p">)</span>
 
     <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
-    <span class="k">def</span> <span class="nf">quantize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">inputs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">MultiInput</span><span class="p">],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">quantize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">inputs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">_MultiInput</span><span class="p">],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
         <span class="k">pass</span>
 
 <span class="k">def</span> <span class="nf">_check_linear_int4_k</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">groupsize</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="n">inner_k_tiles</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
@@ -1358,7 +1117,7 @@
             <span class="p">)</span>
             <span class="k">return</span> <span class="n">model</span>
 
-        <span class="k">def</span> <span class="nf">quantize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">inputs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">MultiInput</span><span class="p">],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
+        <span class="k">def</span> <span class="nf">quantize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">inputs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">_MultiInput</span><span class="p">],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
             <span class="n">state_dict</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_quantized_state_dict</span><span class="p">(</span>
                 <span class="n">model</span><span class="p">,</span>
                 <span class="n">inputs</span><span class="p">,</span>
@@ -1704,7 +1463,7 @@
             <span class="p">)</span>
             <span class="k">return</span> <span class="n">model</span>
 
-        <span class="k">def</span> <span class="nf">quantize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">inputs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">MultiInput</span><span class="p">],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
+        <span class="k">def</span> <span class="nf">quantize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="n">inputs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">_MultiInput</span><span class="p">],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">:</span>
             <span class="n">state_dict</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_quantized_state_dict</span><span class="p">(</span>
                 <span class="n">model</span><span class="p">,</span>
                 <span class="n">inputs</span><span class="p">,</span>
