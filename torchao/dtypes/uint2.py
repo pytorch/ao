@@ -34,8 +34,9 @@ if torch.cuda.is_available() and torch.utils._triton.has_triton():
         tl.store(output + offsets * 4 + 3, fourth_elements, mask=mask)
 
     def unpack_uint8_to_trinary2(uint8_data: torch.Tensor) -> torch.Tensor:
+        uint8_data = uint8_data.to('cuda')
         shape = uint8_data.shape
-        output = torch.empty(up_size(shape), dtype=torch.int8, device=uint8_data.device)
+        output = torch.empty(up_size(shape), dtype=torch.int8, device='cuda')
         n_elements = uint8_data.numel()
         grid = lambda meta: (triton.cdiv(n_elements, meta['BLOCK_SIZE']),)
         triton_unpack_uint8_to_trinary2[grid](uint8_data, output, n_elements, BLOCK_SIZE=1024)
@@ -59,8 +60,9 @@ if torch.cuda.is_available() and torch.utils._triton.has_triton():
         tl.store(output + offsets * 4 + 3, fourth_elements, mask=mask)
 
     def unpack_uint2(uint8_data: torch.Tensor) -> torch.Tensor:
+        uint8_data = uint8_data.to('cuda')
         shape = uint8_data.shape
-        output = torch.empty(up_size(shape), dtype=torch.uint8, device=uint8_data.device)
+        output = torch.empty(up_size(shape), dtype=torch.uint8, device='cuda')
         n_elements = uint8_data.numel()
         grid = lambda meta: (triton.cdiv(n_elements, meta['BLOCK_SIZE']),)
         triton_unpack_uint2[grid](uint8_data, output, n_elements, BLOCK_SIZE=1024)
@@ -81,11 +83,12 @@ if torch.cuda.is_available() and torch.utils._triton.has_triton():
         tl.store(output + offsets, packed_data, mask=mask)
 
     def pack_uint2(uint8_data: torch.Tensor) -> torch.Tensor:
+        uint8_data = uint8_data.to('cuda')
         shape = uint8_data.shape
         assert shape[-1] % 4 == 0
         n_elements = uint8_data.numel()
         packed_shape = down_size(shape)
-        output = torch.empty(packed_shape, dtype=torch.uint8, device=uint8_data.device)
+        output = torch.empty(packed_shape, dtype=torch.uint8, device='cuda')
         grid = lambda meta: (triton.cdiv(n_elements, meta['BLOCK_SIZE'] * 4),)
         triton_pack_uint2[grid](uint8_data, output, n_elements, BLOCK_SIZE=1024)
         return output
@@ -249,6 +252,8 @@ class UInt2Tensor(torch.Tensor):
                 return unpack_uint2(self.elem).view(self.shape)
             if dtype in (torch.uint16, torch.uint32, torch.uint64):
                 return self.to(torch.uint8).to(dtype)
+            if dtype == torch.uint2:
+                return self
             else:
                 raise NotImplementedError(f"_to_copy {kwargs}")
         elif func is torch.ops.aten.unbind.int:
@@ -365,18 +370,18 @@ class BitnetTensor(UInt2Tensor):
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
         if func is torch.ops.aten.mm.default:
             x, weight = args
-            y = torch.mm(x, weight.to(torch.int8).to(x.dtype))
+            y = torch.mm(x, weight.to(torch.int8).to(x.device).to(x.dtype))
             return y
         elif func is torch.ops.aten.addmm.default:
             bias, x, weight = args
-            y = torch.mm(x, weight.to(torch.int8).to(x.dtype))
+            y = torch.mm(x, weight.to(torch.int8).to(x.device).to(x.dtype))
             if bias is not None:
                 y += bias
             return y
         elif func is torch.ops.aten.t.default:
             # TODO: add proper support for transpose
             (self,) = args
-            unpacked = unpack_uint2(self.elem)
+            unpacked = unpack_uint2(self.elem).to(self.device)
             transposed = torch.ops.aten.t.default(unpacked)
             return BitnetTensor.from_unpacked(transposed)
         elif func is torch.ops.aten.detach.default:
@@ -393,6 +398,8 @@ class BitnetTensor(UInt2Tensor):
                 return unpack_uint2(self.elem).view(self.shape).view(torch.int8) - 1
             elif dtype in (torch.float, torch.float16, torch.bfloat16, torch.int16, torch.int32, torch.int64):
                 return self.to(torch.int8).to(dtype)
+            elif dtype == torch.uint2:
+                return self
         return super().__torch_dispatch__(func, types, args, kwargs)
 
     @classmethod

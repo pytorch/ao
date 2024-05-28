@@ -4,13 +4,10 @@ import torch
 import torch.nn as nn
 
 from torch.testing._internal.common_quantization import (
-    NodeSpec as ns,
     QuantizationTestCase,
 )
 
-
 from torchao.dtypes.uint2 import (
-    UInt2Tensor,
     BitnetTensor
 )
 from torchao.quantization.quant_api import (
@@ -31,16 +28,17 @@ def _apply_weight_only_uint2_quant(model):
 
 class TestUInt2(QuantizationTestCase):
     def test_gpu_quant(self):
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
         for x_shape in [[2, 4], [5, 5, 5, 4], [1, 4, 4]]:
-            x = torch.randn(*x_shape)
-            m = nn.Sequential(nn.Linear(4, 16))
+            x = torch.randn(*x_shape).to(device)
+            m = nn.Sequential(nn.Linear(4, 16)).to(device)
             y_ref = m(x)
             _apply_weight_only_uint2_quant(m)
             y_wo = m(x)
             # sqnr = compute_error(y_ref, y_wo)
-            #opt = torch.compile(m, fullgraph=True, mode="max-autotune")
+            # opt = torch.compile(m, fullgraph=True, mode="max-autotune")
             # make sure it runs
-            #opt(x)
+            # opt(x)
 
 
 if __name__ == "__main__":
