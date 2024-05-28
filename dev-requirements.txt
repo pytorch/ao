@@ -9,6 +9,8 @@ transformers
 bitsandbytes #needed for testing triton quant / dequant ops for 8-bit optimizers
 matplotlib
 pandas
+fire  # QOL for commandline scripts
+tabulate  # QOL for printing tables to stdout
 
 # Custom CUDA Extensions
 ninja

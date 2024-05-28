@@ -12,7 +12,7 @@ _DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 
 
-class TestFp6(TestCase):
+class TestFloat6E3M2(TestCase):
 
     @parametrize("device", _DEVICES)
     @parametrize("dtype", _DTYPES)
@@ -120,7 +120,7 @@ class TestFp6(TestCase):
         torch.testing.assert_close(actual, expected)
 
 
-instantiate_parametrized_tests(TestFp6)
+instantiate_parametrized_tests(TestFloat6E3M2)
 
 
 if __name__ == "__main__":
