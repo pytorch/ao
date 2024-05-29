@@ -60,7 +60,6 @@ def _unpack_by_rows(data, data_size) -> torch.Tensor:
     for i in range(scale):
         shift_amt = data.element_size() * 8 - data_size * (i + 1) # how much to shift to get the ith uint
         unpacked_data[i::scale] = ((data >> shift_amt) & (nbits))
-    # print(unpacked_data)
     return unpacked_data
 
 def _unpack_by_cols(data, data_size) -> torch.Tensor:
