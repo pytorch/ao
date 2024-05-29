@@ -18,6 +18,7 @@ def read_requirements(file_path):
 
 # Determine the package name based on the presence of an environment variable
 package_name = "torchao-nightly" if os.environ.get("TORCHAO_NIGHTLY") else "torchao"
+version_suffix = os.getenv("VERSION_SUFFIX", "")
 
 # Version is year.month.date if using nightlies
 version = current_date if package_name == "torchao-nightly" else "0.2.0"
@@ -42,7 +43,7 @@ def get_extensions():
     if CUDA_HOME is None and torch.cuda.is_available():
         print("CUDA toolkit is not available. Skipping compilation of CUDA extensions")
         print("If you'd like to compile CUDA extensions locally please install the cudatoolkit from https://anaconda.org/nvidia/cuda-toolkit")
-        
+
     use_cuda = torch.cuda.is_available() and CUDA_HOME is not None
     extension = CUDAExtension if use_cuda else CppExtension
 
@@ -85,7 +86,7 @@ def get_extensions():
 
 setup(
     name=package_name,
-    version=version,
+    version=version+version_suffix,
     packages=find_packages(),
     include_package_data=True,
     package_data={
