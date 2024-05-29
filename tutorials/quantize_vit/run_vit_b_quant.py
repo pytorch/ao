@@ -19,7 +19,7 @@ from torch._inductor import config as inductorconfig
 inductorconfig.force_fuse_int_mm_with_mul = True
 ## Quantization code - end
 
-model = torch.compile(model, mode='max-autotune')
+model = torch.compile(model, mode='max-autotune', fullgraph=True)
 
 # Must run with no_grad when optimizing for inference
 with torch.no_grad():

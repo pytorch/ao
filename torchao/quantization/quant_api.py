@@ -37,6 +37,7 @@ from .subclass import (
     Int8WeightOnlyQuantizedLinearWeight,
     QuantizedLinearWeightBase,
     to_laq,
+    LinearActQuantizedTensor,
 )
 
 from .quant_primitives import (
