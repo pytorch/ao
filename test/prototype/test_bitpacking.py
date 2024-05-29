@@ -22,9 +22,9 @@ def test_uint3_to_int16_col_wise_cpu():
     assert(unpadded.allclose(test_tensor))
     
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-def test_uint4_to_uint8_CPU():
+def test_uint4_to_uint8():
     test_tensor = torch.randint(0, 15, (4, 4), dtype=torch.uint8).cuda()
-    packed = pack(test_tensor, 8, 4, device='cpu')
+    packed = pack(test_tensor, 8, 4)
     unpacked = unpack(packed, 4)
     unpadded = unpacked[:test_tensor.shape[0], ...]
     assert(unpadded.allclose(test_tensor))
