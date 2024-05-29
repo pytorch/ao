@@ -1,8 +1,9 @@
 import torch
 from torchao.prototype.common.bitpacking import pack, unpack
 import pytest
-
+from torch.utils._triton import has_triton
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
+
 if not TORCH_VERSION_AFTER_2_4:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
