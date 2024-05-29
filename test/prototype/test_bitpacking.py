@@ -23,7 +23,7 @@ def test_uint3_to_int16_col_wise_cpu():
     
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_uint4_to_uint8_CPU():
-    test_tensor = torch.randint(0, 15, (4, 4), dtype=torch.uint8)
+    test_tensor = torch.randint(0, 15, (4, 4), dtype=torch.uint8).cuda()
     packed = pack(test_tensor, 8, 4, device='cpu')
     unpacked = unpack(packed, 4)
     unpadded = unpacked[:test_tensor.shape[0], ...]
@@ -43,7 +43,7 @@ def test_uint4_to_uint8_compile():
     
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_uint3_to_int16():
-    test_tensor = torch.randint(0, 7, (5, 8), dtype=torch.int16)
+    test_tensor = torch.randint(0, 7, (5, 8), dtype=torch.int16).cuda()
     packed = pack(test_tensor,16, 3)
     unpacked = unpack(packed, 3)
     unpadded = unpacked[:test_tensor.shape[0], ...]
@@ -63,7 +63,7 @@ def test_uint2_to_uint8_col_wise_compile():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_uint3_to_int16_col_wise():
-    test_tensor = torch.randint(0, 7, (8, 5), dtype=torch.int16)
+    test_tensor = torch.randint(0, 7, (8, 5), dtype=torch.int16).cuda()
     packed = pack(test_tensor,16, 3, False)
     unpacked = unpack(packed, 3, False)
     unpadded = unpacked[:test_tensor.shape[0], ...]
