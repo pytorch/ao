@@ -17,8 +17,8 @@ def test_uint4_to_uint8():
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 def test_uint4_to_uint8_compile():
     torch._dynamo.config.specialize_int = True
-    pack_compiled = torch.compile(pack)
-    unpack_compiled = torch.compile(unpack, full_graph=True)
+    pack_compiled = torch.compile(pack, fullgraph=True)
+    unpack_compiled = torch.compile(unpack, fullgraph=True)
     test_tensor = torch.randint(0, 15, (3, 4), dtype=torch.uint8).cuda()
     packed = pack_compiled(test_tensor, 8, 4)
     unpacked = unpack_compiled(packed, 4)
@@ -36,8 +36,8 @@ def test_uint3_to_int16():
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 def test_uint2_to_uint8_col_wise_compile():
     torch._dynamo.config.specialize_int = True
-    pack_compiled = torch.compile(pack)
-    unpack_compiled = torch.compile(unpack, full_graph=True)
+    pack_compiled = torch.compile(pack, fullgraph=True)
+    unpack_compiled = torch.compile(unpack, fullgraph=True)
     test_tensor = torch.randint(0, 3, (8, 8), dtype=torch.uint8).cuda()
     packed = pack_compiled(test_tensor, 8, 2, False)
     unpacked = unpack_compiled(packed,2, False)
