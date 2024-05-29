@@ -22,6 +22,13 @@ __all__ = [
     "TORCH_VERSION_AFTER_2_3",
 ]
 
+try:
+    import lm_eval  # pyre-ignore[21]  # noqa: F401
+
+    _lm_eval_available = True
+except:
+    _lm_eval_available = False
+
 
 def find_multiple(n: int, *args: Tuple[int]) -> int:
     k: int = reduce(lambda x, y: x * y // gcd(x, y), args + (1,))  # type: ignore[9]
@@ -145,6 +152,26 @@ def get_model_size_in_bytes(model):
     for b in model.buffers():
         s += b.nelement() * b.element_size()
     return s
+
+
+class _MultiInput:
+
+    def __init__(self, inputs):
+
+        self.values = list(inputs)
+
+    def add_input(self, input):
+        self.values.append(input)
+        return self
+
+    def __getitem__(self, slice):
+        return _MultiInput(self.values[slice])
+
+    def cuda(self):
+        self.values = [
+            val.cuda() if isinstance(val, torch.Tensor) else val for val in self.values
+        ]
+
 
 # TODO: quantization namespace is not the right place ot have this
 if version.parse(torch.__version__) >= version.parse("2.4.0.dev"):

@@ -1,4 +1,5 @@
 import torch
+import torch.utils.benchmark as benchmark
 
 
 def benchmark_model(model, num_runs, input_tensor):
@@ -40,3 +41,17 @@ def skip_if_compute_capability_less_than(min_capability):
             return test_func(*args, **kwargs)
         return wrapper
     return decorator
+
+
+def benchmark_torch_function_in_microseconds(f, *args, **kwargs):
+    # Manual warmup
+
+    f(*args, **kwargs)
+    f(*args, **kwargs)
+
+    t0 = benchmark.Timer(
+        stmt="f(*args, **kwargs)",
+        globals={"args": args, "kwargs": kwargs, "f": f},  # noqa: E501
+    )
+    measurement = t0.blocked_autorange()
+    return measurement.mean * 1e6
