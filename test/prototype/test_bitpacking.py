@@ -4,7 +4,7 @@ import pytest
 
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
 if not TORCH_VERSION_AFTER_2_4:
-    pytest.skip("Unsupported PyTorch version")
+    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 def test_uint4_to_uint8():
     test_tensor = torch.randint(0, 15, (4, 4), dtype=torch.uint8)
