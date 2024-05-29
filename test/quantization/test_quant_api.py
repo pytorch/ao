@@ -110,8 +110,8 @@ class ToyLinearModel(torch.nn.Module):
         self.linear1 = torch.nn.Linear(m, n, bias=False).to(torch.float)
         self.linear2 = torch.nn.Linear(n, k, bias=False).to(torch.float)
 
-    def example_inputs(self, batch_size=1):
-        return (torch.randn(batch_size, self.linear1.in_features).to(torch.float),)
+    def example_inputs(self, batch_size=1, dtype=torch.float, device="cpu"):
+        return (torch.randn(batch_size, self.linear1.in_features, dtype=dtype, device=device),)
 
     def forward(self, x):
         x = self.linear1(x)
@@ -450,7 +450,7 @@ class TestQuantFlow(unittest.TestCase):
         # use 1024 so that we don't need padding
         m = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to("cuda")
         m_copy = copy.deepcopy(m)
-        example_inputs = tuple(map(lambda x: x.to(torch.bfloat16).to("cuda"), m.example_inputs()))
+        example_inputs = m.example_inputs(dtype=torch.bfloat16, device="cuda")
 
         groupsize = 32
         m = quantize(m, get_apply_int4wo_quant(groupsize=groupsize))
@@ -496,7 +496,7 @@ class TestQuantFlow(unittest.TestCase):
         m = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to("cuda")
         m_copy = copy.deepcopy(m)
         # setting batch_size to 20 to be compatible with the kernel
-        example_inputs = tuple(map(lambda x: x.to(torch.bfloat16).to("cuda"), m.example_inputs(batch_size=20)))
+        example_inputs = m.example_inputs(batch_size=20, dtype=torch.bfloat16, device="cuda")
         m = quantize(m, get_apply_int8dyn_quant())
 
         assert isinstance(m.linear1.weight, LinearActQuantizedTensor)
