@@ -10,7 +10,7 @@
 
 import torch
 
-from .utils import _lm_eval_available, _MultiInput
+from quantization.utils import _lm_eval_available, _MultiInput
 
 if _lm_eval_available:
     try:  # lm_eval version 0.4

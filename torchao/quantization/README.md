@@ -69,7 +69,8 @@ Note: The quantization error incurred by applying int4 quantization to your mode
 ## A16W4 WeightOnly Quantization with GPTQ
 
 ```python
-from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer, InputRecorder, TransformerEvalWrapper
+from torchao._eval import InputRecorder, TransformerEvalWrapper
+from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
 precision = torch.bfloat16
 device = "cuda"
 checkpoint_file_name = "../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"
