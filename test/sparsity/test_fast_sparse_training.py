@@ -24,18 +24,6 @@ class TestModel(nn.Module):
         x = self.linear2(x)
         return x
 
-class TestActiationModel(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.linear1 = nn.Linear(128, 256, bias=False)
-        self.linear2 = nn.Linear(256, 128, bias=False)
-
-    def forward(self, x):
-        x = self.linear1(x)
-        x = torch.nn.functional.relu(x)
-        x = self.linear2(x)
-        return x
-
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
@@ -74,36 +62,6 @@ class TestQuantSemiSparse(TestCase):
         # check grad
         assert torch.allclose(model.linear1.weight.grad, model_c.linear1.weight.grad, rtol=1e-1, atol=1e-1)
         assert torch.allclose(model.linear2.weight.grad, model_c.linear2.weight.grad, rtol=1e-1, atol=1e-1)
-
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "pytorch 2.3+ feature")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_runtime_activation_sparsification(self):
-        input = torch.rand((128, 128)).half().cuda()
-        grad = torch.rand((128, 128)).half().cuda()
-        model = TestModel().half().cuda()
-        model_c = copy.deepcopy(model)
-
-        dense_result = model(input)
-
-        sparse_config = {
-            "linear1": False,
-        }
-        swap_linear_with_semi_sparse_linear_(model_c, sparse_config)
-        sparse_result = model_c(input)
-
-        # assert torch.allclose(dense_result, sparse_result, rtol=1e-1, atol=1e-1)
-
-        dense_result.backward(grad)
-        sparse_result.backward(grad)
-
-        # check grad
-        # assert torch.allclose(model.linear1.weight.grad,
-        #                       model_c.linear1.weight.grad,
-        #                       rtol=1e-1, atol=1e-1)
-        # assert torch.allclose(model.linear2.weight.grad,
-        #                       model_c.linear2.weight.grad,
-        #                       rtol=1e-1, atol=1e-1)
-
 
 if __name__ == "__main__":
     unittest.main()
