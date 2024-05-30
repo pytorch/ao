@@ -34,19 +34,19 @@ pip install -r dev-requirements.txt
 There are two options;
 -If you plan to be developing the library run:
 ```Shell
-pip install -e .
+python setup.py develop
 ```
 
 If you want to install from source run
 ```Shell
-pip install .
+python setup.py install 
 ```
 
 ** Note:
 If you are running into any issues while building `ao` cpp extensions you can instead build using
 
 ```shell
-USE_CPP=0 pip install .
+USE_CPP=0 python setup.py install
 ```
 
 ### Quantization
