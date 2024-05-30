@@ -7,10 +7,10 @@ import copy
 import torch.nn.functional as F
 
 from torchao.sparsity import apply_fake_sparsity, apply_sparse_semi_structured
-from torchao.sparsity.prototype.fast_sparse_training import swap_linear_with_semi_sparse_linear_
+from torchao.sparsity.prototype.training import swap_linear_with_semi_sparse_linear_
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
 from torch.testing._internal.common_utils import TestCase
-from torch.sparse import SparseSemiStructuredTensorCUTLASS, SparseSemiStructuredTensorCUSPARSELT
+from torch.sparse import SparseSemiStructuredTensorCUSPARSELT
 
 class TestModel(nn.Module):
     def __init__(self):

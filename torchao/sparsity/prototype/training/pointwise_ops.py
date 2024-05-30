@@ -1,6 +1,7 @@
 from torch.sparse import SparseSemiStructuredTensor, SparseSemiStructuredTensorCUTLASS, SparseSemiStructuredTensorCUSPARSELT
-
+import torch
 from torchao.sparsity.prototype.training.autograd import semi_sparse_sparsify
+from functools import partial
 
 def _semi_sparse_pointwise_op(func, types, args=(), kwargs=None, sparsify_like_args_list=()):
     """
