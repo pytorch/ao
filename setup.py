@@ -19,6 +19,8 @@ def read_requirements(file_path):
 # Determine the package name based on the presence of an environment variable
 package_name = "torchao-nightly" if os.environ.get("TORCHAO_NIGHTLY") else "torchao"
 version_suffix = os.getenv("VERSION_SUFFIX", "")
+use_cpp = os.getenv('USE_CPP')
+
 
 # Version is year.month.date if using nightlies
 version = current_date if package_name == "torchao-nightly" else "0.2.0"
@@ -92,7 +94,7 @@ setup(
     package_data={
         "torchao.kernel.configs": ["*.pkl"],
     },
-    ext_modules=get_extensions(),
+    ext_modules=get_extensions() if use_cpp != "0" else None,
     install_requires=read_requirements("requirements.txt"),
     extras_require={"dev": read_requirements("dev-requirements.txt")},
     description="Package for applying ao techniques to GPU models",

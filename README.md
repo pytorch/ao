@@ -34,17 +34,20 @@ pip install -r dev-requirements.txt
 There are two options;
 -If you plan to be developing the library run:
 ```Shell
-python setup.py develop
+pip install -e .
 ```
 
 If you want to install from source run
 ```Shell
-python setup.py install
+pip install .
 ```
 
 ** Note:
-Since we are building pytorch c++/cuda extensions by default, running `pip install .` will
-not work.
+If you are running into any issues while building `ao` cpp extensions you can instead build using
+
+```shell
+USE_CPP=0 pip install .
+```
 
 ### Quantization
 
