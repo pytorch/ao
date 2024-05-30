@@ -3,6 +3,10 @@ from torch import Tensor
 from torch.utils._triton import has_triton
 from torchao.ops import to_float6_e3m2_packed_cpu, to_float6_e3m2_unpacked_cpu, from_float6_e3m2_packed_cpu, from_float6_e3m2_unpacked_cpu
 
+try:
+    import torchao.ops
+except RuntimeError:
+    pytest.skip("torchao.ops not available")
 
 # some useful constants
 FLOAT6_E3M2_MAX = 28.0
@@ -121,7 +125,7 @@ def to_float6_e3m2(tensor: Tensor, no_bit_packing: bool = False) -> Tensor:
     if tensor.is_cpu:
       if no_bit_packing:
         return to_float6_e3m2_unpacked_cpu(tensor)
-      
+
       *leading_dims, last_dim = tensor.shape
       return to_float6_e3m2_packed_cpu(tensor.view(-1, last_dim)).view(*leading_dims, -1)
 
