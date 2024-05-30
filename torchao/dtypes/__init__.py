@@ -15,6 +15,6 @@ __all__ = [
 # CPP extensions
 try:
     from .float6_e3m2 import to_float6_e3m2, from_float6_e3m2
-    __all__.extend(["to_float6_e3m2", "from_float6_e3m2")
+    __all__.extend(["to_float6_e3m2", "from_float6_e3m2"])
 except RuntimeError:
     pass
