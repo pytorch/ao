@@ -63,21 +63,21 @@ CUTLASS_POINTWISE_OP_DISPATCH_TABLE = {
     torch.ops.aten.mul: partial(
         # `mul` BW in swiglu
         _semi_sparse_pointwise_op,
-        allow_sparsify_args_list=(0, 1),
+        sparsify_like_args_list=(0, 1),
     ),
     torch.ops.aten.add: _semi_sparse_pointwise_op,
     # Note: for these ops, we allow the gradient to come in as a `torch.Tensor`
     # and we will run the sparsification right before calling the BW aten func
     torch.ops.aten.gelu_backward: partial(
         _semi_sparse_pointwise_op,
-        allow_sparsify_args_list=(0,)
+        sparsify_like_args_list=(0,)
     ),
     torch.ops.aten.silu_backward: partial(
         _semi_sparse_pointwise_op,
-        allow_sparsify_args_list=(0, 1)
+        sparsify_like_args_list=(0, 1)
     ),
     torch.ops.aten.threshold_backward: partial(  # relu BW
         _semi_sparse_pointwise_op,
-        allow_sparsify_args_list=(0,),
+        sparsify_like_args_list=(0,),
     ),
 }

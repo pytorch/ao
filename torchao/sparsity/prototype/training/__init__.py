@@ -32,7 +32,7 @@ class SemiSparseLinear(torch.nn.Linear):
     """
 
     def forward(self, x):
-        if self.weight_sparsity:
+        if getattr(self, "weight_sparsity", True):
             sparse_weight = semi_sparse_sparsify(self.weight, backend="cusparselt")
             return torch.nn.functional.linear(x, sparse_weight, self.bias)
         else:

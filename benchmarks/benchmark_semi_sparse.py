@@ -2,111 +2,143 @@
 #
 # This source code is licensed under the BSD license found in the
 # LICENSE file in the root directory of this source tree.
+# Copyright (c) Facebook, Inc. and its affiliates. All rights reserved.
+#
+# This source code is licensed under the BSD license found in the
+# LICENSE file in the root directory of this source tree.
 
 
 from typing import Tuple
-from functools import partial
 
 import torch
 import torch.nn.functional as F
 from torch import nn
 from utils import DTYPE2STR, benchmark_main_helper2, product_dict
 
-from torchao.sparsity.prototype.fast_sparse_training import swap_linear_with_semi_sparse_linear_
-
-from transformers import AutoModelForQuestionAnswering, logging
-from benchmark_sam import get_sam_model, checkpoint_path
-
-logging.set_verbosity_error()
+from torchao.sparsity.prototype.training import SemiSparseLinear
+from torchao.sparsity.prototype.training.autograd import semi_sparse_sparsify
 
 min_run_time = 0.5
 device = torch.device("cuda")
 
-
-configs = [
-    "dense",
-    "all",
-    # (),
-    # # ("attention.self", ),
-    # # ("attention.output", ),
-    # # ("intermediate", ),
-    # # ("output", ),
-    # ("attention"),
-    # ("intermediate", "output"),
-    # ("attention.output", "intermediate", "output"),
-    # ("attention.self", "attention.output", "intermediate", "output"),
-]
-
 CASES = list(
     product_dict(
-        model_str=["vit-b/"],
-        config = configs,
-        batch_size=[1],
-        dtype=[torch.bfloat16],
+        B_in_hidden_out_ft=[
+            # DINO ViT-L: lg + sm crops (patch16)
+            (64 * 2 * (14 * 14 + 1) + 64 * 8 * (6 * 6 + 1), 1024, 1024 * 4, 1024),
+        ],
+        dtype=[torch.half],
+        bias=[False],
     )
 )
 
-class BertTest(nn.Module):
+class Mlp(nn.Module):
+    LINEAR_CLS = nn.Linear
 
-    def __init__(self, model_str, config, batch_size, dtype, bw) -> None:
+    def __init__(
+        self, B_in_hidden_out_ft: Tuple[int, int, int, int], dtype, bias: bool, bw: bool
+    ) -> None:
+        B, in_ft, hid_ft, out_ft = B_in_hidden_out_ft
         super().__init__()
-        self.label = model_str
-        self.model = AutoModelForQuestionAnswering.from_pretrained(model_str, torch_dtype=dtype).to(device)
-        self.bert_layer = self.model.bert.encoder.layer[0]
-        hidden_size = self.bert_layer.attention.self.query.weight.shape[0]
-        self.input = torch.randn([batch_size, 384, hidden_size]).to(dtype).to(device)
-        self.grad = torch.randn([batch_size, 384, hidden_size]).to(dtype).to(device)
-        swap_linear_with_semi_sparse_linear_(self.bert_layer, config)
-        config_str = " ".join(config)
-        self.sub_label = f"{DTYPE2STR[dtype]} ({self.label} | {batch_size} | {config_str}"
-        self.to(device).to(dtype)
+        self.label = "mlp"
+        self.sub_label = (
+            f"{DTYPE2STR[dtype]} ({B},{in_ft},{hid_ft},{out_ft}){' b' if bias else ''}"
+        )
+        self.fc1 = self.LINEAR_CLS(in_ft, hid_ft, bias=bias)
+        self.act = nn.GELU()
+        self.fc2 = self.LINEAR_CLS(hid_ft, out_ft, bias=bias)
+        self.grad = torch.randn([B, out_ft], device="cuda", dtype=dtype)
+        self.input = torch.randn(
+            [B, in_ft], device="cuda", dtype=dtype, requires_grad=True
+        )
+        self.out = self.input
+        self.to("cuda").to(dtype)
 
     def fw(self):
-        out = self.bert_layer(self.input)[0]
-        self.out = out
+        x = self.input
+        x = self.fc1(x)
+        x = self.act(x)
+        x = self.fc2(x)
+        self.out = x
 
     def bw(self):
         self.out.backward(self.grad, retain_graph=True)
 
 
-class SAMTest(nn.Module):
-
-    def __init__(self, model_str, config, batch_size, dtype, bw) -> None:
-        super().__init__()
-        self.label = "sam"
-        self.model, self.input = get_sam_model(batchsize=batch_size)
-        self.model = self.model.to(dtype)
-        self.input = self.input.to(device)
-        self.grad = torch.clone(self.input)
-        sparse_config = []
-        for name, mod in self.model.named_modules():
-            if isinstance(mod, torch.nn.Linear) and "mlp" in name:
-                if config != "dense":
-                    sparse_config.append(name)
-
-        if config != "dense":
-            swap_linear_with_semi_sparse_linear_(self.model, sparse_config)
-
-        self.sub_label = f"{DTYPE2STR[dtype]} ({self.label} | {batch_size} | {config}"
-
+class MlpDenseMask(Mlp):
     def fw(self):
-        out = self.model(self.input)
-        self.out = out
+        x = self.input
+        x = self.fc1(x)
 
-    def bw(self):
-        self.out.backward(self.grad, retain_graph=True)
+        mask = torch.ops.xformers.sparse24_largest_mask_2d(x)
+        x = mask * x
+
+        x = self.act(x)
+        x = self.fc2(x)
+        self.out = x
+
+
+class MlpAct24(Mlp):
+    def fw(self):
+        x = self.input
+        x = self.fc1(x)
+
+        x = semi_sparse_sparsify(x)
+
+        x = self.act(x)
+        x = self.fc2(x)
+        self.out = x
+
+
+
+class MlpW24(Mlp):
+    LINEAR_CLS = SemiSparseLinear
+
+
+class MicrobenchmarkBase:
+    def __init__(
+        self, B_in_hidden_out_ft: Tuple[int, int, int, int], dtype, bias: bool, bw: bool
+    ) -> None:
+        B, in_ft, hid_ft, out_ft = B_in_hidden_out_ft
+        super().__init__()
+        self.label = "mlp"
+        self.sub_label = (
+            f"{DTYPE2STR[dtype]} ({B},{in_ft},{hid_ft},{out_ft}){' b' if bias else ''}"
+        )
+        self.input = torch.randn(
+            [B, in_ft], device="cuda", dtype=dtype, requires_grad=True
+        )
+        self.input_colMajor = self.input.t().contiguous().t()
+        self.input_sp = semi_sparse_sparsify(self.input)
+
+    def bw(self) -> None:
+        return None
+
+
+class MicrobenchmarkSparsify24(MicrobenchmarkBase):
+    def fw(self) -> torch.Tensor:
+        semi_sparse_sparsify(self.input)
+        return self.input
+
+
+class MicrobenchmarkInputClone(MicrobenchmarkBase):
+    def fw(self) -> torch.Tensor:
+        self.input.clone()
+        return self.input
 
 
 functions = {
-    "runtime": SAMTest
+    "act24": MlpAct24,
+    "dense": Mlp,
+    "w24": MlpW24,
+    "s24_inp_sparsify24": MicrobenchmarkSparsify24,
+    "s24_inp_clone": MicrobenchmarkInputClone,
 }
-
 benchmark_main_helper2(
-    "sam_fw_bw",
+    "sp24_fwbw",
     fw=True,
-    # bw=True,
+    bw=True,
     cases=CASES,
     functions=functions,
-    cuda_graph=False,
     min_run_time=min_run_time,
 )
