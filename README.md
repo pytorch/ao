@@ -39,12 +39,15 @@ python setup.py develop
 
 If you want to install from source run
 ```Shell
-python setup.py install
+python setup.py install 
 ```
 
 ** Note:
-Since we are building pytorch c++/cuda extensions by default, running `pip install .` will
-not work.
+If you are running into any issues while building `ao` cpp extensions you can instead build using
+
+```shell
+USE_CPP=0 python setup.py install
+```
 
 ### Quantization
 

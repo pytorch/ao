@@ -5,6 +5,13 @@ from torch.testing._internal.common_utils import (
     parametrize,
     run_tests,
 )
+
+try:
+    import torchao.ops
+except RuntimeError:
+    pytest.skip("torchao.ops not available")
+
+
 from torchao.dtypes.float6_e3m2 import to_float6_e3m2, from_float6_e3m2
 
 

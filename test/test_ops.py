@@ -7,6 +7,11 @@ import unittest
 from parameterized import parameterized
 import pytest
 
+try:
+    import torchao.ops
+except RuntimeError:
+    pytest.skip("torchao.ops not available")
+
 
 # torch.testing._internal.optests.generate_tests.OpCheckError: opcheck(op, ...):
 # test_faketensor failed with module 'torch' has no attribute '_custom_ops' (scroll up for stack trace)
