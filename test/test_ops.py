@@ -6,7 +6,6 @@ from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
 import unittest
 from parameterized import parameterized
 import pytest
-import os
 
 try:
     import torchao.ops
