@@ -574,29 +574,30 @@ def _quantized_linear_op(input_tensor, weight_qtensor, bias):
             scale_and_zero = weight_qtensor.layout_tensor.scale_and_zero
             return torch.ops.aten._weight_int4pack_mm(input_tensor.contiguous(), packed_weight, groupsize, scale_and_zero)
         elif (
-            is_cpu and
             weight_is_int8 and
             len(weight_qtensor.shape) == 2 and
             len(weight_qtensor.block_size) == 2 and
             weight_qtensor.block_size[0] == 1 and
             weight_qtensor.block_size[1] == weight_qtensor.shape[1] and
+            weight_qtensor.zero_point_domain == ZeroPointDomain.INT and
             weight_qtensor.layout == "plain"
         ):
             # TODO: enable cpu and mps efficient path
             # per channel int8 weight only quantizated mm
-            w_vals_int8_t = weight_qtensor.layout_tensor.int_data.t().contiguous()
+            w_vals_int8_t = weight_qtensor.layout_tensor.int_data.t()
+            scale = weight_qtensor.layout_tensor.scale
             orig_dtype = input_tensor.dtype
             y = (
                 torch.mm(
                     input_tensor.reshape(-1, input_tensor.shape[-1]),
                     w_vals_int8_t.to(input_tensor.dtype),
                 )
-                * weight_qtensor.scale
+                * scale
             )
             y = y.reshape(*input_tensor.shape[:-1], y.shape[-1])
             if bias is not None:
                 y += bias
-                return y.to(orig_dtype)
+            return y.to(orig_dtype)
 
             # is_cpu and is_mps only, some issue with is_contiguous() currently
             # return torch.ops.aten._weight_int8pack_mm(input_tensor.contiguous(), w_vals_int8_t, weight_qtensor.layout_tensor.scale)

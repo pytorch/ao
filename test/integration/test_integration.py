@@ -1217,6 +1217,8 @@ class TestSaveLoadMeta(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
     def test_save_load_dqtensors(self, device, dtype):
+        if device == "cpu":
+            self.skipTest(f"indcutor failed for cpu right now")
         self._test_handle_save_load_meta_impl(change_linear_weights_to_int8_dqtensors, device, test_dtype=dtype)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)

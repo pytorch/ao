@@ -138,6 +138,40 @@ def _ref_change_linear_weights_to_int8_dqtensors(model, filter_fn=None, **kwargs
         model, _get_subclass_inserter(Int8DynamicallyQuantizedLinearWeight, enable_parametrization=False, **kwargs), filter_fn
     )
 
+def _ref_change_linear_weights_to_int8_woqtensors(model, filter_fn=None, **kwargs):
+    """
+    The deprecated implementation for int8 weight only quant API, used as a reference for
+    numerics and performance
+    """
+    from torchao.quantization.quant_api import _is_linear
+    from torchao.quantization.quant_api import _get_subclass_inserter
+    from torchao.quantization.subclass import Int8WeightOnlyQuantizedLinearWeight
+
+    filter_fn = kwargs.pop("filter_fn", _is_linear)
+
+    _replace_with_custom_fn_if_matches_filter(
+        model,
+        _get_subclass_inserter(Int8WeightOnlyQuantizedLinearWeight, enable_parametrization=True, **kwargs),
+        filter_fn,
+    )
+
+def _ref_change_linear_weights_to_int4_woqtensors(model, **kwargs):
+    """
+    The deprecated implementation for int4 weight only quant API, used as a reference for
+    numerics and performance
+    """
+    from torchao.quantization.quant_api import _is_linear
+    from torchao.quantization.quant_api import _get_subclass_inserter
+    from torchao.quantization.subclass import Int4WeightOnlyQuantizedLinearWeight
+
+    filter_fn = kwargs.pop("filter_fn", _is_linear)
+
+    _replace_with_custom_fn_if_matches_filter(
+        model,
+        _get_subclass_inserter(Int4WeightOnlyQuantizedLinearWeight, enable_parametrization=False, **kwargs),
+        filter_fn,
+    )
+
 class TestQuantFlow(unittest.TestCase):
     def test_dynamic_quant_gpu_singleline(self):
         m = ToyLinearModel().eval()
@@ -489,7 +523,7 @@ class TestQuantFlow(unittest.TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_quantized_tensor_subclass_int8(self):
+    def test_quantized_tensor_subclass_int8_wo(self):
         m = ToyLinearModel().eval().to(torch.bfloat16)
         m_copy = copy.deepcopy(m)
         example_inputs = tuple(map(lambda x: x.to(torch.bfloat16), m.example_inputs()))
@@ -501,12 +535,12 @@ class TestQuantFlow(unittest.TestCase):
 
         # reference
         from torchao.quantization.quant_api import change_linear_weights_to_int8_woqtensors
-        change_linear_weights_to_int8_woqtensors(m_copy)
+        _ref_change_linear_weights_to_int8_woqtensors(m_copy)
 
         res = m(*example_inputs)
         ref = m_copy(*example_inputs)
 
-        torch.testing.assert_close(res, ref, rtol=0.00001, atol=1e-2)
+        self.assertTrue(torch.equal(res, ref))
 
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
@@ -545,20 +579,20 @@ class TestQuantFlow(unittest.TestCase):
         # make sure it compiles
         torch._export.aot_compile(m_unwrapped, example_inputs)
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @unittest.skip("This perf test is supposed to be run locally for sanity check performance when there is a change of int8 dynamic quant implementation")
-    def test_quantized_tensor_subclass_int8_dyn_quant_perf(self):
+
+    def _test_quantized_tensor_subclass_perf(self, api, ref_api, kwargs=None):
+        if kwargs is None:
+            kwargs = {}
+
         m = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to("cuda")
         m_ref = copy.deepcopy(m)
         # setting batch_size to 20 to be compatible with the kernel
         example_inputs = m.example_inputs(batch_size=20, dtype=torch.bfloat16, device="cuda")
 
-        from torchao.quantization.quant_api import change_linear_weights_to_int8_dqtensors
-        change_linear_weights_to_int8_dqtensors(m)
+        api(m, **kwargs)
 
         # reference
-        _ref_change_linear_weights_to_int8_dqtensors(m_ref)
+        ref_api(m_ref, **kwargs)
 
         res = m(*example_inputs)
         ref = m_ref(*example_inputs)
@@ -583,7 +617,27 @@ class TestQuantFlow(unittest.TestCase):
         print(f"elapsed time: {elapsed_time}, ref elapsed time: {ref_elapsed_time}")
         self.assertTrue(elapsed_time < 1.05 * ref_elapsed_time)
 
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skip("This perf test is supposed to be run locally for sanity check performance when there is a change of int8 dynamic quant implementation")
+    def test_quantized_tensor_subclass_int8_dyn_quant_perf(self):
+        from torchao.quantization.quant_api import change_linear_weights_to_int8_dqtensors
+        self._test_quantized_tensor_subclass_perf(change_linear_weights_to_int8_dqtensors, _ref_change_linear_weights_to_int8_dqtensors)
 
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skip("This perf test is supposed to be run locally for sanity check performance when there is a change of int8 weight only quant implementation")
+    def test_quantized_tensor_subclass_int8_wo_quant_perf(self):
+        from torchao.quantization.quant_api import change_linear_weights_to_int8_woqtensors
+        self._test_quantized_tensor_subclass_perf(change_linear_weights_to_int8_woqtensors, _ref_change_linear_weights_to_int8_woqtensors)
+
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skip("This perf test is supposed to be run locally for sanity check performance when there is a change of int4 weight only quant implementation")
+    def test_quantized_tensor_subclass_int4_wo_quant_perf(self):
+        kwargs = {"groupsize": 32}
+        from torchao.quantization.quant_api import change_linear_weights_to_int4_woqtensors
+        self._test_quantized_tensor_subclass_perf(change_linear_weights_to_int4_woqtensors, _ref_change_linear_weights_to_int4_woqtensors, kwargs)
 
 if __name__ == "__main__":
     unittest.main()

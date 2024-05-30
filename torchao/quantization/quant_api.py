@@ -206,13 +206,18 @@ def change_linear_weights_to_int8_woqtensors(model, filter_fn=None, **kwargs):
     Converts all linear weight tensors to the
     `Int8WeightOnlyQuantizedLinearWeight` tensor subclass,
     effectively applying the same form of quantization
-    as apply_dynamic_quant while not modifying the linear modules.
+    as apply_weight_only_int8_quant while not modifying the linear modules.
     """
-    _replace_with_custom_fn_if_matches_filter(
-        model,
-        _get_subclass_inserter(Int8WeightOnlyQuantizedLinearWeight, enable_parametrization=TORCH_VERSION_AFTER_2_4, **kwargs),
-        _is_linear if filter_fn is None else filter_fn,
-    )
+
+    if TORCH_VERSION_AFTER_2_4:
+        quantize(model, get_apply_int8wo_quant(), filter_fn)
+        unwrap_tensor_subclass(model, filter_fn)
+    else:
+        _replace_with_custom_fn_if_matches_filter(
+            model,
+            _get_subclass_inserter(Int8WeightOnlyQuantizedLinearWeight, enable_parametrization=False, **kwargs),
+            _is_linear if filter_fn is None else filter_fn,
+        )
 
 
 def change_linear_weights_to_int4_woqtensors(model, **kwargs):
