@@ -8,8 +8,6 @@ __all__ = [
     "UInt4Tensor"
     "AffineQuantizedTensor",
     "to_aq",
-    "to_float6_e3m2",
-    "from_float6_e3m2",
 ]
 
 # CPP extensions
