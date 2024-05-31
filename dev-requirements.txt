@@ -1,6 +1,5 @@
 # Test utilities
 pytest==7.4.0
-expecttest
 unittest-xml-reporting
 parameterized
 packaging
@@ -9,7 +8,12 @@ transformers
 # For prototype features and benchmarks
 bitsandbytes #needed for testing triton quant / dequant ops for 8-bit optimizers
 matplotlib
-pandas 
+pandas
+fire  # QOL for commandline scripts
+tabulate  # QOL for printing tables to stdout
 
 # Custom CUDA Extensions
 ninja
+
+# for FP6-LLM (can be removed once we remove fp16_to_fp6_original())
+qtorch

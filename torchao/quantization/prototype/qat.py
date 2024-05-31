@@ -10,12 +10,12 @@ import torch
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib
 from torch.library import impl
 
-from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
+from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
 from torchao.quantization.quant_primitives import get_group_qparams_symmetric
 from torchao.quantization.unified import TwoStepQuantizer
 
 
-if TORCH_VERSION_AFTER_2_3:
+if TORCH_VERSION_AFTER_2_4:
     from torchao.quantization.GPTQ import (
         _replace_linear_8da4w,
         Int8DynActInt4WeightLinear,
@@ -54,6 +54,7 @@ if TORCH_VERSION_AFTER_2_3:
                 self.precision,
                 self.scales_precision,
                 Int8DynActInt4WeightQATLinear,
+                copy_weights=True,
             )
             return model
 
@@ -94,7 +95,7 @@ if TORCH_VERSION_AFTER_2_3:
                 quantized_linear.zeros = zp
             else:
                 _convert_qat_linear_8da4w(child)
-    
+
     class Int8DynActInt4WeightQATLinear(torch.nn.Linear):
         """
         This module implements a linear layer with int8 dynamic per token fake
@@ -111,6 +112,7 @@ if TORCH_VERSION_AFTER_2_3:
             in_features: int,
             out_features: int,
             bias: bool = False,
+            device: torch.device = None,
             groupsize: int = 256,
             precision: torch.dtype = torch.float32,
             scales_precision: torch.dtype = torch.float32,
@@ -119,7 +121,7 @@ if TORCH_VERSION_AFTER_2_3:
                 in_features,
                 out_features,
                 bias,
-                device=None,
+                device=device,
                 dtype=precision,
             )
             assert (
@@ -129,30 +131,47 @@ if TORCH_VERSION_AFTER_2_3:
             self.groupsize = groupsize
             self.precision = precision
             self.scales_precision = scales_precision
+            # TODO: make this configurable?
+            self.zero_points_precision = torch.int32
+            self._fake_quant_enabled = True
+
+        def enable_fake_quant(self, enabled: bool = True):
+            self._fake_quant_enabled = enabled
+
+        def disable_fake_quant(self):
+            self.enable_fake_quant(False)
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
             # activations: int8 dynamic asymmetric quant
-            (act_qmin, act_qmax) = self._get_qmin_qmax(8)
-            (act_scales, act_zp) = _choose_qparams_per_token_asymmetric(
-                x, torch.int8,  # dtype not used
-            )
-            x_fq = fake_quantize_per_token(
-                x, act_scales, act_zp, act_qmin, act_qmax,
-            )
+            if self._fake_quant_enabled:
+                (act_scales, act_zp) = _choose_qparams_per_token_asymmetric(
+                    x, self.scales_precision, self.zero_points_precision,
+                )
+                (act_qmin, act_qmax) = self._get_qmin_qmax(8)
+                x_fq = fake_quantize_per_token(
+                    x, act_scales, act_zp, act_qmin, act_qmax,
+                )
+            else:
+                x_fq = x
 
             # weights: int4 grouped per channel symmetric quant
-            (weight_qmin, weight_qmax) = self._get_qmin_qmax(4)
-            (weight_scales, weight_zp) = get_group_qparams_symmetric(
-                self.weight, 4, self.groupsize, self.scales_precision,
-            )
-            w_fq = fake_quantize_per_channel_group(
-                self.weight,
-                weight_scales,
-                weight_zp,
-                weight_qmin,
-                weight_qmax,
-                self.groupsize,
-            )
+            if self._fake_quant_enabled:
+                (weight_scales, weight_zp) = get_group_qparams_symmetric(
+                    self.weight, 4, self.groupsize, self.scales_precision,
+                )
+                # TODO: pass zp dtype to `get_group_qparams_symmetric` instead
+                weight_zp = weight_zp.to(self.zero_points_precision)
+                (weight_qmin, weight_qmax) = self._get_qmin_qmax(4)
+                w_fq = fake_quantize_per_channel_group(
+                    self.weight,
+                    weight_scales,
+                    weight_zp,
+                    weight_qmin,
+                    weight_qmax,
+                    self.groupsize,
+                )
+            else:
+                w_fq = self.weight
             return torch.nn.functional.linear(x_fq, w_fq)
 
         # TODO: move this to common util
@@ -160,6 +179,34 @@ if TORCH_VERSION_AFTER_2_3:
             qmin = -(2 ** (n_bit - 1))
             qmax = 2 ** (n_bit - 1) - 1
             return (qmin, qmax)
+
+    def enable_8da4w_fake_quant(mod: torch.nn.Module):
+        """
+        Enable fake quantization for `Int8DynActInt4WeightQATLinear`.
+        """
+        if isinstance(mod, Int8DynActInt4WeightQATLinear):
+            mod.enable_fake_quant()
+
+    def disable_8da4w_fake_quant(mod: torch.nn.Module):
+        """
+        Disable fake quantization for `Int8DynActInt4WeightQATLinear`.
+        """
+        if isinstance(mod, Int8DynActInt4WeightQATLinear):
+            mod.disable_fake_quant()
+
+else:  # not TORCH_VERSION_AFTER_2_4
+
+    class Int8DynActInt4WeightQATQuantizer:
+        def __init__(*args, **kwargs):
+            raise ValueError(
+                "Int8DynActInt4WeightQATQuantizer is only supported after PyTorch 2.4+"
+            )
+
+    class Int8DynActInt4WeightQATLinear:
+        def __init__(*args, **kwargs):
+            raise ValueError(
+                "Int8DynActInt4WeightQATLinear is only supported after PyTorch 2.4+"
+            )
 
 
 # ========================
@@ -176,14 +223,15 @@ class _GenericFakeQuantize(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, input, scales, zero_points, quant_min, quant_max):
-        # Note: this diverges from `torch.fake_quantize_per_channel_affine`,
-        # which rounds first before adding the zero points. However, this
-        # is what `quantize_per_channel_group` and `quantize_per_token`
-        # do and here we try to match that behavior as closely as possible.
-        q = input.div(scales).add(zero_points).round()
+        # Note: for bf16 inputs, casting them to fp32 has the unexpected
+        # side effect of reducing memory footprint significantly, presumably
+        # because bf16 * fp32 kernels are not as memory efficient
+        assert input.dtype == torch.float32
+        assert scales.dtype == torch.float32
+        assert zero_points.dtype == torch.int32
+        q = input.mul(1.0 / scales).round().add(zero_points)
         dq = q.clamp(quant_min, quant_max).sub(zero_points).mul(scales)
-        # TODO: do we need this mask?
-        mask = torch.logical_and((q >= quant_min), (dq <= quant_max))
+        mask = torch.logical_and((q >= quant_min), (q <= quant_max))
         ctx.save_for_backward(mask)
         return dq
 
@@ -210,14 +258,13 @@ def fake_quantize_per_channel_group(
     assert group_size > 1
     assert input.shape[-1] % group_size == 0
     assert input.dim() == 2
-    assert torch.isnan(input).sum() == 0
-    grouped_input = input.reshape(-1, group_size)
+    grouped_input = input.reshape(-1, group_size).to(torch.float32)
     scales = scales.reshape(-1, 1)
     zero_points = zero_points.reshape(-1, 1)
     fq = _GenericFakeQuantize.apply(
         grouped_input, scales, zero_points, quant_min, quant_max,
     )
-    return fq.reshape_as(input)
+    return fq.reshape_as(input).to(input.dtype)
 
 # TODO: move this to core
 quantized_decomposed_lib.define(
@@ -237,9 +284,11 @@ def fake_quantize_per_token(
     from torch.ao.quantization.fx._decomposed import _per_token_quant_qparam_dim_check
 
     _per_token_quant_qparam_dim_check(input, scales, zero_points)
-    return _GenericFakeQuantize.apply(
-        input, scales, zero_points, quant_min, quant_max,
+    fq_input = input.to(torch.float32)
+    fq = _GenericFakeQuantize.apply(
+        fq_input, scales, zero_points, quant_min, quant_max,
     )
+    return fq.reshape_as(input).to(input.dtype)
 
 # TODO: This is copied from torch/ao/quantization/fx/_decomposed.py.
 # The version in pytorch does not have backward support yet so we add
@@ -247,7 +296,8 @@ def fake_quantize_per_token(
 # is landed.
 def _choose_qparams_per_token_asymmetric(
     input: torch.Tensor,
-    dtype: torch.dtype,
+    scales_precision: torch.dtype = torch.float32,
+    zero_points_precision: torch.dtype = torch.float32,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Choose quantization parameters for per token quantization. This means for a N dimension Tensor
     (M1, M2, ...Mn, N), we calculate scales/zero_points for each N elements and quantize
@@ -256,7 +306,8 @@ def _choose_qparams_per_token_asymmetric(
 
     Args:
        input (torch.Tensor): original float32/float16 Tensor
-       dtype (torch.dtype): dtype (e.g. torch.uint8) for input Tensor
+       scales_precision (torch.dtype): precision of returned scales
+       zero_points_precision (torch.dtype): precision of returned zero points
 
     Returns:
         scales and zero_points, both float32 Tensors
@@ -285,4 +336,4 @@ def _choose_qparams_per_token_asymmetric(
     )
     zero_point = torch.clamp(zero_point, qmin, qmax).round()
 
-    return scale.to(torch.float32), zero_point.to(torch.float32)
+    return scale.to(scales_precision), zero_point.to(zero_points_precision)

@@ -272,7 +272,10 @@ def _to_copy(func, *args, **kwargs):
     if not args[0][0].is_contiguous():
         assert args[0][0].t().is_contiguous()
         return func(args[0][0].t()).t()
-    return args[0][0].get_original_weight().to(args[1]["dtype"]).to(args[1]["device"])
+    out = args[0][0].get_original_weight().to(args[1]["dtype"])
+    if "device" in args[1]:
+        out = out.to(args[1]["device"])
+    return out
 
 
 @implements([torch.ops.aten.to.dtype])
@@ -593,7 +596,7 @@ class NF4Tensor(torch.Tensor):
 
         return (
             quantized_scaler_blocks.flatten().to(torch.int8),
-            quantization_factor.view(n_scaler_blocks),
+            quantization_factor.view(n_scaler_blocks).contiguous(),
             scalers_1_mean,
         )
 
