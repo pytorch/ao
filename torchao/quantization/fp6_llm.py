@@ -290,16 +290,16 @@ class Fp6LlmLinear(nn.Module):
     # without load_state_dict_pre_hook() https://github.com/pytorch/pytorch/issues/75287
     # we have to override this internal method to be able to convert weights to FP6 on the fly.
     def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
-        if state_dict[f"{prefix}.weight"].shape == (self.out_features, self.in_features):
-            fp32_weight = state_dict[f"{prefix}.weight"].detach().float()
+        if state_dict[f"{prefix}weight"].shape == (self.out_features, self.in_features):
+            fp32_weight = state_dict[f"{prefix}weight"].detach().float()
             scales = fp32_weight.abs().amax(1) / FLOAT6_E3M2_MAX
             scales[scales == 0.0] = 1.0  # avoid 0 scale
 
             tc_fp6_weight = to_tc_float6_e3m2(fp32_weight / scales.view(-1, 1))
             tc_fp6_weight = tc_fp6_weight.view(self.out_features, -1).view(torch.int32)
 
-            state_dict[f"{prefix}.weight"] = tc_fp6_weight
-            state_dict[f"{prefix}.scales"] = scales
+            state_dict[f"{prefix}weight"] = tc_fp6_weight
+            state_dict[f"{prefix}scales"] = scales
 
         return super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
 
