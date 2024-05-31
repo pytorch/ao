@@ -596,7 +596,7 @@ class NF4Tensor(torch.Tensor):
 
         return (
             quantized_scaler_blocks.flatten().to(torch.int8),
-            quantization_factor.view(n_scaler_blocks),
+            quantization_factor.view(n_scaler_blocks).contiguous(),
             scalers_1_mean,
         )
 
