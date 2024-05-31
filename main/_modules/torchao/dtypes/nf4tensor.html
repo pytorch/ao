@@ -973,7 +973,7 @@
 
         <span class="k">return</span> <span class="p">(</span>
             <span class="n">quantized_scaler_blocks</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">int8</span><span class="p">),</span>
-            <span class="n">quantization_factor</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">n_scaler_blocks</span><span class="p">),</span>
+            <span class="n">quantization_factor</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">n_scaler_blocks</span><span class="p">)</span><span class="o">.</span><span class="n">contiguous</span><span class="p">(),</span>
             <span class="n">scalers_1_mean</span><span class="p">,</span>
         <span class="p">)</span>
 
