@@ -610,6 +610,7 @@ class LinearActQuantizedTensor(torch.Tensor):
         dtype = original_weight_tensor.dtype
         kwargs["dtype"] = dtype
         kwargs["requires_grad"] = False
+        kwargs["device"] = original_weight_tensor.device
         shape = original_weight_tensor.shape
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
@@ -664,6 +665,27 @@ class LinearActQuantizedTensor(torch.Tensor):
             self.input_quant_func,
         )
 
+    def _get_to_kwargs(self, *args, **kwargs):
+        device, dtype, _, memory_format = torch._C._nn._parse_to(*args, **kwargs)
+        device = self.device if device is None else device
+        dtype = self.dtype if dtype is None else dtype
+        memory_format = (
+            memory_format if memory_format is not None else torch.preserve_format
+        )
+        kwargs = {
+            "device": device,
+            "dtype": dtype,
+            "memory_format": memory_format,
+        }
+        return kwargs
+
+    def to(self, *args, **kwargs):
+        kwargs = self._get_to_kwargs(*args, **kwargs)
+        return self.__class__(
+            self.original_weight_tensor.to(**kwargs),
+            self.input_quant_func,
+        )
+
     def __torch_dispatch__(cls, func, types, args, kwargs):
         if (
             func in [aten.mm.default, aten.addmm.default]
@@ -674,25 +696,29 @@ class LinearActQuantizedTensor(torch.Tensor):
                     f"need mat1 shape: {args[1].shape} final"
                     f"dim to match mat2 shape: {args[2].shape} first dim "
                 )
-                input_tensor, weight_qtensor, bias = (
+                input_tensor, weight_tensor, bias = (
                     args[1],
                     args[2],
                     args[0],
                 )
-                aqt = self.input_quant_func(input_tensor)
-                return func(bias, aqt, weight_tensor)
+                input_quant_func = weight_tensor.input_quant_func
+                original_weight_tensor = weight_tensor.original_weight_tensor
+                aqt = input_quant_func(input_tensor)
+                return func(bias, aqt, original_weight_tensor)
             else:
+                # aten.mm.default
                 assert args[0].shape[-1] == args[1].shape[0], (
                     f"need mat1 shape: {args[0].shape} final dim"
                     f"to match mat2 shape: {args[1].shape} first dim"
                 )
-                input_tensor, weight_qtensor, bias = (
+                input_tensor, weight_tensor = (
                     args[0],
                     args[1],
-                    None if len(args) == 2 else args[2],
                 )
-                aqt = self.input_quant_func(input_tensor)
-                return func(aqt, weight_tensor, bias)
+                input_quant_func = weight_tensor.input_quant_func
+                original_weight_tensor = weight_tensor.original_weight_tensor
+                aqt = input_quant_func(input_tensor)
+                return func(aqt, original_weight_tensor)
 
         if func is aten.detach.default:
             return return_and_correct_aliasing(
@@ -702,6 +728,19 @@ class LinearActQuantizedTensor(torch.Tensor):
         if func is aten.clone.default:
             return return_and_correct_aliasing(
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+            )
+
+        if func is aten._to_copy.default:
+            return return_and_correct_aliasing(
+                func,
+                args,
+                kwargs,
+                args[0].to(*args[1:], **kwargs)._apply_fn_to_data(torch.clone),
+            )
+
+        if func is aten.t.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.t)
             )
 
         raise NotImplementedError(
