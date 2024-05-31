@@ -37,7 +37,6 @@ from .subclass import (
     Int8WeightOnlyQuantizedLinearWeight,
     QuantizedLinearWeightBase,
     to_laq,
-    LinearActQuantizedTensor,
 )
 
 from .quant_primitives import (
@@ -220,20 +219,30 @@ def change_linear_weights_to_int8_woqtensors(model, filter_fn=None, **kwargs):
         )
 
 
-def change_linear_weights_to_int4_woqtensors(model, **kwargs):
+def change_linear_weights_to_int4_woqtensors(model, groupsize=128, inner_k_tiles=8, filter_fn=None):
     """
     Converts all linear weight tensors to the
     `Int4WeightOnlyQuantizedLinearWeight` tensor subclass,
     effectively applying the same form of quantization
     as apply_dynamic_quant while not modifying the linear modules.
-    """
-    filter_fn = kwargs.pop("filter_fn", _is_linear)
 
-    _replace_with_custom_fn_if_matches_filter(
-        model,
-        _get_subclass_inserter(Int4WeightOnlyQuantizedLinearWeight, enable_parametrization=TORCH_VERSION_AFTER_2_4, **kwargs),
-        filter_fn,
-    )
+    Args:
+        `groupsize`: parameter for quantization, controls the granularity of quantization, smaller
+         size is more fine grained, choices are [256, 128, 64, 32]
+        `inner_k_tiles`: parameter for int4 mm kernel, choices are [8, 4, 2]
+    """
+    if filter_fn is None:
+        filter_fn = _is_linear
+
+    if TORCH_VERSION_AFTER_2_4:
+        quantize(model, get_apply_int4wo_quant(groupsize=groupsize, inner_k_tiles=inner_k_tiles), filter_fn)
+        unwrap_tensor_subclass(model, filter_fn)
+    else:
+        _replace_with_custom_fn_if_matches_filter(
+            model,
+            _get_subclass_inserter(Int4WeightOnlyQuantizedLinearWeight, enable_parametrization=False, groupsize=groupsize, inner_k_tiles=inner_k_tiles),
+            filter_fn,
+        )
 
 def swap_conv2d_1x1_to_linear(model, filter_fn=None):
     """
@@ -347,12 +356,11 @@ def get_apply_8da4w_quant(groupsize=32):
     return apply_8da4w_quant
 
 
-def get_apply_int4wo_quant(groupsize=32):
+def get_apply_int4wo_quant(groupsize=32, inner_k_tiles=8):
     def apply_int4wo_quant(weight):
         # avoid circular dep
         from torchao.dtypes.aqt import to_aq
 
-        groupsize = 32
         mapping_type = MappingType.ASYMMETRIC
         block_size = (1, groupsize)
         target_dtype = torch.int32
@@ -362,7 +370,7 @@ def get_apply_int4wo_quant(groupsize=32):
         preserve_zero = False
         zero_point_dtype = torch.bfloat16
         zero_point_domain = ZeroPointDomain.FLOAT
-        return to_aq(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, extended_layout="tensor_core_tiled")
+        return to_aq(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, extended_layout="tensor_core_tiled", inner_k_tiles=inner_k_tiles)
 
     return apply_int4wo_quant
 

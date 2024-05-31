@@ -8,9 +8,8 @@ from typing import Dict, Optional, Tuple
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
 from packaging import version
-from functools import reduce
-from math import gcd
 import torch.nn.utils.parametrize as parametrize
+from torchao.utils import find_multiple
 
 
 __all__ = [
@@ -29,17 +28,7 @@ try:
 except:
     _lm_eval_available = False
 
-
-def find_multiple(n: int, *args: Tuple[int]) -> int:
-    k: int = reduce(lambda x, y: x * y // gcd(x, y), args + (1,))  # type: ignore[9]
-    if n % k == 0:
-        return n
-    return n + k - (n % k)
-
-
 # basic SQNR
-
-
 def compute_error(x, y):
     Ps = torch.linalg.norm(x)
     Pn = torch.linalg.norm(x - y)
