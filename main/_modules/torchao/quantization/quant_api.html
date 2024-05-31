@@ -402,7 +402,11 @@
 <span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span>
 
 <span class="kn">from</span> <span class="nn">.dynamic_quant</span> <span class="kn">import</span> <span class="n">DynamicallyPerAxisQuantizedLinear</span>
-<span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="n">TORCH_VERSION_AFTER_2_3</span><span class="p">,</span> <span class="n">TORCH_VERSION_AFTER_2_4</span>
+<span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">TORCH_VERSION_AFTER_2_3</span><span class="p">,</span>
+    <span class="n">TORCH_VERSION_AFTER_2_4</span><span class="p">,</span>
+    <span class="n">unwrap_tensor_subclass</span><span class="p">,</span>
+<span class="p">)</span>
 
 <span class="kn">from</span> <span class="nn">.subclass</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">Int4WeightOnlyQuantizedLinearWeight</span><span class="p">,</span>
@@ -564,9 +568,13 @@
             <span class="o">*</span><span class="n">args</span>
         <span class="p">)</span>
 
-    <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
-        <span class="n">model</span><span class="p">,</span> <span class="n">_get_subclass_inserter</span><span class="p">(</span><span class="n">Int8DynamicallyQuantizedLinearWeight</span><span class="p">,</span> <span class="n">enable_parametrization</span><span class="o">=</span><span class="n">TORCH_VERSION_AFTER_2_4</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">),</span> <span class="n">filter_fn</span>
-    <span class="p">)</span></div>
+    <span class="k">if</span> <span class="n">TORCH_VERSION_AFTER_2_4</span><span class="p">:</span>
+        <span class="n">quantize</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">get_apply_int8dyn_quant</span><span class="p">(),</span> <span class="n">filter_fn</span><span class="p">)</span>
+        <span class="n">unwrap_tensor_subclass</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">filter_fn</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
+            <span class="n">model</span><span class="p">,</span> <span class="n">_get_subclass_inserter</span><span class="p">(</span><span class="n">Int8DynamicallyQuantizedLinearWeight</span><span class="p">,</span> <span class="n">enable_parametrization</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">),</span> <span class="n">filter_fn</span>
+        <span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="change_linear_weights_to_int8_woqtensors"><a class="viewcode-back" href="../../../generated/torchao.quantization.change_linear_weights_to_int8_woqtensors.html#torchao.quantization.change_linear_weights_to_int8_woqtensors">[docs]</a><span class="k">def</span> <span class="nf">change_linear_weights_to_int8_woqtensors</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">filter_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
@@ -659,7 +667,7 @@
 <span class="sd">        zero_point_dtype = torch.bfloat16</span>
 <span class="sd">        zero_point_domain = ZeroPointDomain.FLOAT</span>
 
-<span class="sd">        apply_weight_quant = lambda x: to_aqt(x, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain)</span>
+<span class="sd">        apply_weight_quant = lambda x: to_aq(x, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain)</span>
 
 <span class="sd">        # apply to modules under block0 submodule</span>
 <span class="sd">        def filter_fn(module, fqn):</span>
