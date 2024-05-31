@@ -133,11 +133,14 @@ class UnwrapTensorSubclass(torch.nn.Module):
 
 def unwrap_tensor_subclass(model, filter_fn=None):
     for name, child in model.named_children():
+        # make sure child.weight is a tensor subclass
         if (
             isinstance(child, torch.nn.Linear) and
             hasattr(child, "weight") and
             type(child.weight) is not torch.Tensor and
-            isinstance(child.weight, torch.Tensor)
+            type(child.weight) is not torch.nn.Parameter and
+            isinstance(child.weight, torch.Tensor) and
+            issubclass(type(child.weight), torch.Tensor)
         ):
             parametrize.register_parametrization(child, "weight", UnwrapTensorSubclass())
         unwrap_tensor_subclass(child)

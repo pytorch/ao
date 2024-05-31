@@ -25,7 +25,11 @@ import torch.nn.functional as F
 from typing import Any, Callable
 
 from .dynamic_quant import DynamicallyPerAxisQuantizedLinear
-from .utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
+from .utils import (
+    TORCH_VERSION_AFTER_2_3,
+    TORCH_VERSION_AFTER_2_4,
+    unwrap_tensor_subclass,
+)
 
 from .subclass import (
     Int4WeightOnlyQuantizedLinearWeight,
@@ -187,9 +191,13 @@ def change_linear_weights_to_int8_dqtensors(model, filter_fn=None, **kwargs):
             *args
         )
 
-    _replace_with_custom_fn_if_matches_filter(
-        model, _get_subclass_inserter(Int8DynamicallyQuantizedLinearWeight, enable_parametrization=TORCH_VERSION_AFTER_2_4, **kwargs), filter_fn
-    )
+    if TORCH_VERSION_AFTER_2_4:
+        quantize(model, get_apply_int8dyn_quant(), filter_fn)
+        unwrap_tensor_subclass(model, filter_fn)
+    else:
+        _replace_with_custom_fn_if_matches_filter(
+            model, _get_subclass_inserter(Int8DynamicallyQuantizedLinearWeight, enable_parametrization=False, **kwargs), filter_fn
+        )
 
 
 def change_linear_weights_to_int8_woqtensors(model, filter_fn=None, **kwargs):
@@ -282,7 +290,7 @@ def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tens
         zero_point_dtype = torch.bfloat16
         zero_point_domain = ZeroPointDomain.FLOAT
 
-        apply_weight_quant = lambda x: to_aqt(x, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain)
+        apply_weight_quant = lambda x: to_aq(x, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain)
 
         # apply to modules under block0 submodule
         def filter_fn(module, fqn):
