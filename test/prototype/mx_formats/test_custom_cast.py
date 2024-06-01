@@ -386,3 +386,5 @@ def test_fp6_values(dtype_name):
         else:
             raise AssertionError("unsupported")
         torch.testing.assert_close(f32, f32_ref, rtol=0, atol=0)
+
+# TODO: move test/dtypes/test_float6_e3m2.py here
