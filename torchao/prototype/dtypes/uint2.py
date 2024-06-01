@@ -2,7 +2,7 @@ import torch
 import torch._prims_common as utils
 import torch.utils._pytree as pytree
 from torch.library import impl, Library
-from .uint4 import qtensor_lib
+from ...dtypes.uint4 import qtensor_lib
 
 
 def down_size(size):
@@ -94,6 +94,7 @@ if torch.cuda.is_available() and torch.utils._triton.has_triton():
         return output
 
 else:
+    # TODO: torch compile issue https://github.com/pytorch/pytorch/issues/127374 is fixed
     #@torch.compile
     def unpack_uint8_to_trinary2(uint8_data: torch.Tensor) -> torch.Tensor:
         # since we are using uint8 we will decode 4 entries per byte
@@ -150,7 +151,7 @@ def fill_defaults(args, n, defaults_tail):
     return r
 
 
-#qtensor_lib = Library("qtensors", "DEF")
+# qtensor_lib = Library("qtensors", "DEF")
 qtensor_lib.define(
     "quantize_per_tensor_uint2(Tensor input, float scale, int zero_point) -> Tensor"
 )
