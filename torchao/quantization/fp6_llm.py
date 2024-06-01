@@ -3,7 +3,8 @@ from typing import Optional
 
 import torch
 from torch import nn, Tensor
-from torchao.dtypes.float6_e3m2 import FLOAT6_E3M2_MAX, to_float6_e3m2, from_float6_e3m2
+from torchao.prototype.mx_formats.custom_cast import f32_to_f6_e3m2_unpacked, f6_e3m2_unpacked_to_f32
+from torchao.prototype.mx_formats.constants import F6_E3M2_MAX
 from torchao.ops import fp16act_fp6weight_linear
 
 
@@ -30,7 +31,7 @@ def _to_tc_float6_e3m2_original(tensor: Tensor) -> Tensor:
     M, N = tensor.shape
     assert (M % 64 == 0) and (N % 64 == 0)
 
-    tensor_fp6 = to_float6_e3m2(tensor, no_bit_packing=True)
+    tensor_fp6 = f32_to_f6_e3m2_unpacked(tensor.float())
 
     # Pass 1 from original code
     tensor_fp6 = tensor_fp6.view(M // 64, 4, 2, 8, N // 16, 2, 8)
@@ -75,7 +76,7 @@ def to_tc_float6_e3m2(tensor: Tensor) -> Tensor:
     M, N = tensor.shape
     assert (M % 64 == 0) and (N % 64 == 0)
 
-    tensor_fp6 = to_float6_e3m2(tensor, no_bit_packing=True)
+    tensor_fp6 = f32_to_f6_e3m2_unpacked(tensor)
     tensor_fp6 = tensor_fp6.view(M // 64, 2, 2, 2, 8, N // 16, 2, 8)
     tensor_fp6 = tensor_fp6.flip(3)
 
@@ -88,6 +89,13 @@ def to_tc_float6_e3m2(tensor: Tensor) -> Tensor:
     tensor_4bit = _pack_4bit(tensor_4bit.flatten())
 
     return torch.cat([tensor_2bit, tensor_4bit], dim=0)
+
+
+def to_scaled_tc_float6_e3m2(tensor: Tensor) -> tuple[Tensor, Tensor]:
+    scale = F6_E3M2_MAX / tensor.abs().amax(1).clamp(min=1e-12)
+    tc_fp6_tensor = to_tc_float6_e3m2(tensor * scale.view(-1, 1))
+    tc_fp6_tensor = tc_fp6_tensor.view(tensor.shape[0], -1).view(torch.int32)
+    return tc_fp6_tensor, scale.reciprocal().half()
 
 
 def from_tc_float6_e3m2(tensor: Tensor, M: int, N: int, dtype: torch.dtype = torch.float32) -> Tensor:
@@ -109,7 +117,7 @@ def from_tc_float6_e3m2(tensor: Tensor, M: int, N: int, dtype: torch.dtype = tor
 
     tensor_fp6 = (tensor_2bit << 4) | tensor_4bit
     tensor_fp6 = tensor_fp6.flip(3).reshape(M, N)
-    return from_float6_e3m2(tensor_fp6, no_bit_packing=True, dtype=dtype)
+    return f6_e3m2_unpacked_to_f32(tensor_fp6).to(dtype)
 
 
 # https://github.com/microsoft/DeepSpeed/blob/3a3a6db3332e339cc9fd94efd4982f6d60635a3d/deepspeed/inference/v2/kernels/core_ops/cuda_linear/cuda_linear.py
@@ -271,35 +279,24 @@ class Fp6LlmLinear(nn.Module):
     @staticmethod
     def get_split_k(bsize: int, out_dim: int) -> int:
         # https://github.com/microsoft/DeepSpeed/blob/3a3a6db3332e339cc9fd94efd4982f6d60635a3d/deepspeed/inference/v2/kernels/core_ops/cuda_linear/cuda_linear.py
-        return _SPLIT_K_MAP[(bsize - 1) // 64].get(out_dim, 1)  if bsize <= 768 else 1
+        return _SPLIT_K_MAP[(bsize - 1) // 64].get(out_dim, 1) if bsize <= 768 else 1
 
     @classmethod
     def from_float(cls, linear: nn.Linear):
         assert (linear.in_features % 64 == 0) and (linear.out_features % 256 == 0)
 
-        fp32_weight = linear.weight.detach().float()
-        scales = fp32_weight.abs().amax(1) / FLOAT6_E3M2_MAX
-        scales[scales == 0.0] = 1.0  # avoid 0 scale
-
-        tc_fp6_weight = to_tc_float6_e3m2(fp32_weight / scales.view(-1, 1))
-        tc_fp6_weight = tc_fp6_weight.view(linear.out_features, -1).view(torch.int32)
-
+        fp6_weight, scale = to_scaled_tc_float6_e3m2(linear.weight.detach())
         bias = linear.bias.detach().half() if linear.bias is not None else None
-        return cls(tc_fp6_weight, scales.half(), bias)
+        return cls(fp6_weight, scale, bias)
 
     # without load_state_dict_pre_hook() https://github.com/pytorch/pytorch/issues/75287
     # we have to override this internal method to be able to convert weights to FP6 on the fly.
     def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
         if state_dict[f"{prefix}weight"].shape == (self.out_features, self.in_features):
-            fp32_weight = state_dict[f"{prefix}weight"].detach().float()
-            scales = fp32_weight.abs().amax(1) / FLOAT6_E3M2_MAX
-            scales[scales == 0.0] = 1.0  # avoid 0 scale
+            fp6_weight, scale = to_scaled_tc_float6_e3m2(state_dict[f"{prefix}weight"])
 
-            tc_fp6_weight = to_tc_float6_e3m2(fp32_weight / scales.view(-1, 1))
-            tc_fp6_weight = tc_fp6_weight.view(self.out_features, -1).view(torch.int32)
-
-            state_dict[f"{prefix}weight"] = tc_fp6_weight
-            state_dict[f"{prefix}scales"] = scales
+            state_dict[f"{prefix}weight"] = fp6_weight
+            state_dict[f"{prefix}scales"] = scale
 
         return super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
 
