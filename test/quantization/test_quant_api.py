@@ -118,6 +118,26 @@ class ToyLinearModel(torch.nn.Module):
         x = self.linear2(x)
         return x
 
+
+def _ref_change_linear_weights_to_int8_dqtensors(model, filter_fn=None, **kwargs):
+    """
+    The deprecated implementation for int8 dynamic quant API, used as a reference for
+    numerics and performance
+    """
+    from torchao.quantization.quant_api import _in_features_greater_than_16
+    from torchao.quantization.quant_api import _is_linear
+    from torchao.quantization.quant_api import _get_subclass_inserter
+    from torchao.quantization.subclass import Int8DynamicallyQuantizedLinearWeight
+
+    if filter_fn is None:
+        filter_fn = lambda *args: _is_linear(*args) and _in_features_greater_than_16(
+            *args
+        )
+
+    _replace_with_custom_fn_if_matches_filter(
+        model, _get_subclass_inserter(Int8DynamicallyQuantizedLinearWeight, enable_parametrization=False, **kwargs), filter_fn
+    )
+
 class TestQuantFlow(unittest.TestCase):
     def test_dynamic_quant_gpu_singleline(self):
         m = ToyLinearModel().eval()
@@ -492,8 +512,8 @@ class TestQuantFlow(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantized_tensor_subclass_int8_dyn_quant(self):
-        # use 1024 so that we don't need padding
-        m = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to("cuda")
+        # use multiples of 1024 so that we don't need padding
+        m = ToyLinearModel(1024, 1024, 2048).eval().to(torch.bfloat16).to("cuda")
         m_copy = copy.deepcopy(m)
         # setting batch_size to 20 to be compatible with the kernel
         example_inputs = m.example_inputs(batch_size=20, dtype=torch.bfloat16, device="cuda")
@@ -524,6 +544,44 @@ class TestQuantFlow(unittest.TestCase):
 
         # make sure it compiles
         torch._export.aot_compile(m_unwrapped, example_inputs)
+
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skip("This perf test is supposed to be run locally for sanity check performance when there is a change of int8 dynamic quant implementation")
+    def test_quantized_tensor_subclass_int8_dyn_quant_perf(self):
+        m = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to("cuda")
+        m_ref = copy.deepcopy(m)
+        # setting batch_size to 20 to be compatible with the kernel
+        example_inputs = m.example_inputs(batch_size=20, dtype=torch.bfloat16, device="cuda")
+
+        from torchao.quantization.quant_api import change_linear_weights_to_int8_dqtensors
+        change_linear_weights_to_int8_dqtensors(m)
+
+        # reference
+        _ref_change_linear_weights_to_int8_dqtensors(m_ref)
+
+        res = m(*example_inputs)
+        ref = m_ref(*example_inputs)
+
+        self.assertTrue(torch.equal(res, ref))
+
+        # perf comparison
+        from torchao.utils import benchmark_model
+        # warmup
+        WARMUP = 5
+        RUNS = 100
+        input_tensor = example_inputs[0]
+        m = torch.compile(m, mode='max-autotune', fullgraph=True)
+
+        benchmark_model(m, WARMUP, input_tensor)
+        elapsed_time = benchmark_model(m, RUNS, input_tensor)
+
+        m_ref = torch.compile(m_ref, mode='max-autotune', fullgraph=True)
+        benchmark_model(m_ref, WARMUP, input_tensor)
+        ref_elapsed_time = benchmark_model(m_ref, RUNS, input_tensor)
+
+        print(f"elapsed time: {elapsed_time}, ref elapsed time: {ref_elapsed_time}")
+        self.assertTrue(elapsed_time < 1.05 * ref_elapsed_time)
 
 
 
