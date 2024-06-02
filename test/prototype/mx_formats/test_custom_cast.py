@@ -387,4 +387,18 @@ def test_fp6_values(dtype_name):
             raise AssertionError("unsupported")
         torch.testing.assert_close(f32, f32_ref, rtol=0, atol=0)
 
-# TODO: move test/dtypes/test_float6_e3m2.py here
+
+@pytest.mark.parametrize("device", ["cpu"] + (["cuda" if torch.cuda.is_available() else []]))
+@pytest.mark.parametrize(
+    "f32_val,f6_e3m2_enc",
+    [
+        (29.0,   0b011111),  # normal round down
+        (26.0,   0b011110),  # normal round to nearest even
+        (0.1251, 0b000010),  # subnormal round down
+        (0.0314, 0b000001),  # subnormal round up
+        (0.03,   0b000000),  # underflow
+    ]
+)
+def test_fp6_e3m2_rounding(f32_val, f6_e3m2_enc, device):
+    f6_e3m2_unpacked = f32_to_f6_e3m2_unpacked(torch.tensor(f32_val, device=device))
+    assert f6_e3m2_unpacked.item() == f6_e3m2_enc
