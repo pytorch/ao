@@ -26,7 +26,7 @@ def _unpack_4bit(x: Tensor) -> Tensor:
 
 # this is a literal adaptation of FP6-LLM ahead-of-time bit-level pre-packing
 # https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/fp6_llm/csrc/utils/weight_prepacking.h
-def _to_tc_float6_e3m2_original(tensor: Tensor) -> Tensor:
+def _to_tc_float6_e3m2_ref(tensor: Tensor) -> Tensor:
     assert tensor.ndim == 2
     M, N = tensor.shape
     assert (M % 64 == 0) and (N % 64 == 0)
@@ -66,7 +66,7 @@ def _to_tc_float6_e3m2_original(tensor: Tensor) -> Tensor:
     tensor_4bit = tensor_4bit[:, [4, 5, 6, 7, 0, 1, 2, 3]]
     tensor_4bit = _pack_4bit(tensor_4bit).view(-1)
 
-    return torch.cat([tensor_2bit, tensor_4bit], dim=0)
+    return torch.cat([tensor_2bit, tensor_4bit], dim=0).view(M, -1).view(torch.int)
 
 
 # more optimized version of _to_tc_float6_e3m2_original() by merging ops
@@ -76,7 +76,7 @@ def to_tc_float6_e3m2(tensor: Tensor) -> Tensor:
     M, N = tensor.shape
     assert (M % 64 == 0) and (N % 64 == 0)
 
-    tensor_fp6 = f32_to_f6_e3m2_unpacked(tensor)
+    tensor_fp6 = f32_to_f6_e3m2_unpacked(tensor.float())
     tensor_fp6 = tensor_fp6.view(M // 64, 2, 2, 2, 8, N // 16, 2, 8)
     tensor_fp6 = tensor_fp6.flip(3)
 
@@ -88,7 +88,7 @@ def to_tc_float6_e3m2(tensor: Tensor) -> Tensor:
     tensor_4bit = tensor_4bit.permute(0, 5, 1, 2, 4, 7, 3, 6)
     tensor_4bit = _pack_4bit(tensor_4bit.flatten())
 
-    return torch.cat([tensor_2bit, tensor_4bit], dim=0)
+    return torch.cat([tensor_2bit, tensor_4bit], dim=0).view(M, -1).view(torch.int)
 
 
 def to_scaled_tc_float6_e3m2(tensor: Tensor) -> tuple[Tensor, Tensor]:
@@ -98,11 +98,14 @@ def to_scaled_tc_float6_e3m2(tensor: Tensor) -> tuple[Tensor, Tensor]:
     return tc_fp6_tensor, scale.reciprocal().half()
 
 
-def from_tc_float6_e3m2(tensor: Tensor, M: int, N: int, dtype: torch.dtype = torch.float32) -> Tensor:
-    assert tensor.ndim == 1
+def from_tc_float6_e3m2(tensor: Tensor, dtype: torch.dtype = torch.float32) -> Tensor:
+    assert tensor.ndim == 2 and tensor.dtype == torch.int32
+    M = tensor.shape[0]
+    N = tensor.shape[1] // 3 * 16
     assert (M % 64 == 0) and (N % 64 == 0)
     size_2bit = M * N // 4
     size_4bit = M * N // 2
+    tensor = tensor.view(-1).view(torch.uint8)
     assert tensor.numel() == size_2bit + size_4bit
 
     tensor_2bit, tensor_4bit = tensor.split([size_2bit, size_4bit])
@@ -293,7 +296,7 @@ class Fp6LlmLinear(nn.Module):
     # we have to override this internal method to be able to convert weights to FP6 on the fly.
     def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
         if state_dict[f"{prefix}weight"].shape == (self.out_features, self.in_features):
-            fp6_weight, scale = to_scaled_tc_float6_e3m2(state_dict[f"{prefix}weight"])
+            fp6_weight, scale = to_scaled_tc_float6_e3m2(state_dict.pop(f"{prefix}weight"))
 
             state_dict[f"{prefix}weight"] = fp6_weight
             state_dict[f"{prefix}scales"] = scale
