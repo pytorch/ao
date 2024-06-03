@@ -27,12 +27,15 @@ The results mentioned in the README of the repo compose sparsity with a suite of
 From our [benchmarking](https://github.com/pytorch/ao/blob/main/benchmarks/benchmark_sam.py), we see a 1.1x speedup when running with SEGMENT_ANYTHING_FAST_USE_FLASH_4 enabled.
 To reproduce these benchmarks you can run the following command:
 
+The inference acceleration of semi-structured sparsity depends on the matmul shapes, which is why we don't see additional speedups when applying to all linear layers (attn + mlp) of segment-anything.
+We find that accelerating the MLP linear layers provied the most speedups (`lin1`, `lin2`). To repoduce our benchmarks you can run the following command:
+
 ```
 python benchmarks/benchmark_sam.py
 ```
 
 | block_only | batchsize | dtype | compile | qkv | proj | lin1 | lin2 | time | memory | img/s |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| ---------- | --------- | ----- | ------- | --- | ---- | ---- | ---- | ---- | ------ | ----- |
 | False | 32 | torch.bfloat16 | True | None | None | None | None | 1361.733349 | 15.808660 | 23.499461 |
 | False | 32 | torch.bfloat16 | True | None | None | sparse (cusparselt) | sparse (cusparselt) | 1245.151100 | 15.462827 | 25.699692 |
 | False | 32 | torch.bfloat16 | True | None | None | sparse (cutlass) | sparse (cutlass) | 1251.047651 | 15.411250 | 25.578562 |
