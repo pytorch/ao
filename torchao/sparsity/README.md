@@ -36,8 +36,8 @@ python benchmarks/benchmark_sam.py
 
 The following benchmarks we run on an A100, with batch_size=32 and `bfloat16` dtype:
 
-| qkv | proj | lin1 | lin2 | time | memory | img/s |
-| ---- | ---- | ---- | ---- | ------ | ----- |
+| qkv  | proj | lin1 | lin2 | time | memory | img/s |
+| ---- | ---- | ---- | ---- | ---- | ------ | ----- |
 | None | None | None | None | 1361.733349 | 15.808660 | 23.499461 |
 | None | None | sparse (cusparselt) | sparse (cusparselt) | 1245.151100 | 15.462827 | 25.699692 |
 | None | None | sparse (cutlass) | sparse (cutlass) | 1251.047651 | 15.411250 | 25.578562 |
