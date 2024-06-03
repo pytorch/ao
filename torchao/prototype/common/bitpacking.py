@@ -1,15 +1,20 @@
 import torch
-from functools import reduce
+from typing import Optional, Union
 
+def mod_shape(shape, mod, dim):
+    """changes a select dimension of the input shape to mod"""
+    return (*shape[:dim], mod, *shape[dim+1:])
 
-
-def unpack(data, data_size, by_rows = True, device="cuda"):
+def unpack(data: torch.Tensor,
+           element_dtype: torch.dtype,
+           dimension: Optional[int] = 0,
+           device: Optional[str] ="cuda") -> torch.Tensor:
     """
     Unpacks small dtype elements from a larger dtype.
     
     Inputs:
-    data: torch.Tensor - a tensor of packed elements of a small dtype within a larger dtype.
-    data_size: int - the size of the small dtype in bits.
+    data: - a tensor of packed elements of a small dtype within a larger dtype.
+    data_size: - the size of the small dtype in bits.
     
     optional:
     by_rows: bool - specifies whether to unpack... 
@@ -21,23 +26,46 @@ def unpack(data, data_size, by_rows = True, device="cuda"):
     
     Returns: torch.Tensor - a tensor of the unpacked elements.
     """
-    if by_rows:
-        return _unpack_by_rows(data, data_size, device)
-    else:
-        return _unpack_by_cols(data, data_size)
-    
-def pack(data, container_size, data_size, by_rows = True, device="cuda"):
+    element_size = torch.iinfo(element_dtype).bits
+    container_size = torch.iinfo(data.dtype).bits
+    scale = container_size // element_size
+    unpacked = _unpack(data, data_size, scale, dim, device)
+    if element_dtype == "trinary":
+        unpacked = unpacked.to(torch.int8) - 1
+    return unpacked
+
+def _unpack(data, data_size, container_size, scale ,dim, device):
+    shape = data.shape
+    unpacked_data = torch.zeros(mod_shape(shape, shape[dim]*scale, dim), dtype=data.dtype).to(device)
+    nbits = (1 << data_size) - 1 # mask for the last dtype_size bits
+    unpacked_data = []
+    for i in range(scale):
+        # add the next nbits to the unpacked data
+        shift_amt = container_size - data_size * (i + 1)
+        unpacked_data.append(((data >> shift_amt) & (nbits)).to(data.dtype))
+        
+    # stack the unpacked data and reshape to the original shape
+    torch.stack(unpacked_data,dim=dim).view(mod_shape(shape,scale*shape[dim], dim)) 
+
+def pack(data: torch.Tensor,
+         element_dtype: Union[torch.dtype, str], # accepting strings for trinary until thats added to torch
+         dimension: Optional[int] = 0,
+         container_dtype: Optional[torch.dtype] = None,
+         device: Optional[str] = "cuda") -> torch.Tensor:
     """
-    Packs small dtype elements into a larger dtype.
-    Pads rows to be divisible by the scale.
+    Packs small dtype elements into a container of a larger dtype.
+    **Pads rows to be divisible by the scale**
+    TODO: support something like packing 8 uint 3s into 3 uint8s
     
     Inputs:
-    data: torch.Tensor - a tensor of unpacked elements of a small dtype.
-    container_size: int - the size of the large dtype in bits.
-    data_size: int - the size of the small dtype in bits.
+    data: - a tensor of unpacked elements of a small dtype. The dtype used for the data will be used for the container.
+    dimension: - the dimension to pack along
+    element_dtype: specify the dtype of the elements to pack
     
     optional:
-    by_rows: bool - specifies whether to pack values... 
+    container_dtype: specify the dtype of the container if the data is not already inside a tensor of that dtype
+        
+    by_rows: specifies whether to pack values... 
         by rows: tensor(n,m) -> tensor(n//scale, m) 
         or by columns: tensor(n,m) -> tensor(n,m//scale)
     
@@ -46,56 +74,38 @@ def pack(data, container_size, data_size, by_rows = True, device="cuda"):
     
     Returns: torch.Tensor - a tensor of packed elements.
     """
-    if by_rows:
-        return _pack_by_rows(data, container_size, data_size, device)
-    else:
-        return _pack_by_cols(data, container_size, data_size, device)   
-    
-def _unpack_by_rows(data, data_size, device) -> torch.Tensor:
-    shape = data.shape
-    scale = data.element_size() * 8 // data_size
-    
-    unpacked_data = torch.zeros((shape[0]*scale, *shape[1:]), dtype=data.dtype).to(device)
-    nbits = (1 << data_size) - 1 # mask for the last dtype_size bits
+    if container_dtype is not None:
+        data = data.to(container_dtype)
+        
+    if type(element_dtype) == str:
+        if element_dtype == "trinary":
+            data = data+1
+        else:
+            raise ValueError(f"element_dtype {element_dtype} not supported")
+        
+    element_size = torch.iinfo(element_dtype).bits
+    container_size = torch.iinfo(data.dtype).bits
+    scale = container_size // element_size
+    assert data.shape[dimension] >= scale, f"not enough values to pack along dimension {dimension} ({data.shape[dimension]}) < scale ({scale})"
+    return _pack_uints(data, container_size, element_dtype, scale, dimension, device)
+
+
+
+def _pack(data, container_size, data_size, scale, dim, device) -> torch.Tensor:
+    #pad dimension to be divisible by scale
+    if data.shape[dimension] % scale != 0:
+        padding = torch.zeros(mod_shape(data.shape, scale - data.shape[dim] % scale, dim), dtype=data.dtype).to(device)
+        data = torch.cat([data, padding], dim=dim).cuda()
+        
+    packed = torch.zeros(mod_shape(data.shape, data.shape[dim] // scale, dim), dtype=data.dtype).to(device)
     for i in range(scale):
-        shift_amt = data.element_size() * 8 - data_size * (i + 1) # how much to shift to get the ith uint
-        unpacked_data[i::scale] = ((data >> shift_amt) & (nbits))
-    return unpacked_data
+        torch.arange(start=i, stop=data.shape[k], step=scale)
+        packed |= torch.index_select(data, dim=k, index=indices) << container_size-data_size*(i+1)
+    return packed
 
-def _unpack_by_cols(data, data_size) -> torch.Tensor:
-    shape = data.shape
-    scale = data.element_size() * 8 // data_size
-    unpacked_data = []
-    nbits = (1 << data_size) - 1 # mask for the last dtype_size bits
-    for i in range(scale):
-        shift_amt = data.element_size() * 8 - data_size * (i + 1) # how much to shift to get the ith uint
-        unpacked_data.append(((data >> shift_amt) & (nbits)).to(data.dtype))
-    return torch.stack(unpacked_data,dim=-1).view(*shape[:-1],shape[-1]*scale) # stack the unpacked data and reshape to the original shape
 
-def _pack_by_rows(data, container_size, data_size, device) -> torch.Tensor:
-    
-    scale = container_size // data_size
-    assert scale > 1, f"container_size ({container_size}) is not larger than data_size ({data_size})"
-    assert data.shape[0] >= scale, f"not enough values to pack, data.shape[0] ({data.shape[0]}) < scale ({scale})"
-    # pad the data to be divisible by scale
-    if data.shape[0] % scale != 0:
-        padding = torch.zeros((scale - data.shape[0] % scale, *data.shape[1:],), dtype=data.dtype).to(device)
-        data = torch.cat([data, padding], dim=0).cuda()
-    
-    shape = data.shape
-    ret = reduce(lambda x,y: x|y,[data[i::scale, ...] << container_size-data_size*(i+1) for i in range(scale)])
-    return ret.view(shape[0] // scale, *shape[1:]).to(device)
-
-def _pack_by_cols(data, container_size, data_size, device) -> torch.Tensor:
-    scale = container_size // data_size
-    assert scale > 1, f"container_size ({container_size}) not double the capacity ofdata_size ({data_size})"
-    # pad the data to be divisible by scale
-    if data.shape[-1] % scale != 0:
-        padding = torch.zeros((*data.shape[:-1], scale - data.shape[-1] % scale), dtype=data.dtype).to(device)
-        data = torch.cat([data, padding], dim=-1).cuda()
-    
-    shape = data.shape
-    data = data.contiguous().view(-1)
-    #shift the data to the different indexes within the larger dtype and then union them together
-    ret = reduce(lambda x,y: x|y,[data[i::scale] << container_size-data_size*(i+1) for i in range(scale)])
-    return ret.view(*shape[:-1],shape[-1] // scale).to(device)
+test_tensor = torch.randint(0, 15, (4, 4), dtype=torch.uint8).cuda()
+packed = pack(test_tensor, torch.uint4)
+unpacked = unpack(packed, torch.uint4)
+unpadded = unpacked[:test_tensor.shape[0], ...]
+assert(unpadded.allclose(test_tensor))
