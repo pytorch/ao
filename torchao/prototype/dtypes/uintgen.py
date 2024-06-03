@@ -1,5 +1,8 @@
 import torch
 
+"""
+Contains generic functions to pack and unpack uint8 tensors into uint2, uint3, uint4, uint5, uint6, and uint7 tensors.
+"""
 
 def down_size_uint2(size):
     assert size[-1] % 4 == 0, f"{size} last dim not divisible by four"

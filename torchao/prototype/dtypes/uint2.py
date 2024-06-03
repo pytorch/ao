@@ -4,6 +4,9 @@ import torch.utils._pytree as pytree
 from torch.library import impl, Library
 from ...dtypes.uint4 import qtensor_lib
 
+"""
+Converts a tensor of uint8 to a tensor of uint2 mostly applicable for bitnet 1.58
+"""
 
 def down_size(size):
     assert size[-1] % 4 == 0, f"{size} last dim not divisible by four"
