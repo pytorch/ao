@@ -123,3 +123,17 @@ def _pack(data, container_size, element_size, scale, dim, device) -> torch.Tenso
         slices[dim] = slice(i, None, scale)
         packed |= data[slices] << container_size-element_size*(i+1)
     return packed
+
+
+# shape = [5, 1]
+# dtype= torch.uint2
+# test_tensor = torch.randint(0, 2, shape, dtype=torch.uint8).cuda()
+# print(test_tensor)
+# packed = pack(test_tensor, dtype, dimension = 0, container_dtype = torch.uint8)
+# print(packed)
+# unpacked = unpack(packed, dtype, dimension = 0)
+
+# slices = [slice(None)] * packed.ndim
+# slices[0] = slice(None, 4+1)
+# print(unpacked[slices])
+# assert(unpacked[slices].allclose(test_tensor))
