@@ -8,8 +8,7 @@ from torch import nn
 from torch.testing._internal.common_utils import TestCase
 from torch.sparse import SparseSemiStructuredTensorCUSPARSELT
 
-from torchao.sparsity import apply_fake_sparsity, apply_sparse_semi_structured
-from torchao.sparsity.prototype.training import swap_linear_with_semi_sparse_linear_
+from torchao.sparsity.prototype.training import swap_linear_with_semi_sparse_linear_, SemiSparseLinear
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
 
 class TestModel(nn.Module):
@@ -38,13 +37,13 @@ class TestRuntimeSemiStructuredSparsity(TestCase):
             if isinstance(mod, torch.nn.Linear):
                 sparse = SparseSemiStructuredTensorCUSPARSELT.prune_dense_static_sort(mod.weight.detach()).to_dense()
                 mod.weight = nn.Parameter(sparse)
-
-
+        
         dense_result = model(input)
 
+        # map from fqn to replacement linear module
         sparse_config = {
-            "linear1": True,
-            "linear2": True,
+            "linear1": SemiSparseLinear,
+            "linear2": SemiSparseLinear,
         }
 
         swap_linear_with_semi_sparse_linear_(model_c, sparse_config)

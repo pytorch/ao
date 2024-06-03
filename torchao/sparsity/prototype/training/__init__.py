@@ -16,26 +16,39 @@ __all__ = [
     "swap_linear_with_semi_sparse_linear",
 ]
 
+
+
 # user API
 class SemiSparseLinear(torch.nn.Linear):
     """
-    Replacement nn.Linear that supports runtime weight/activation sparsity
+    Replacement nn.Linear that supports runtime weight sparsity
     """
 
     def forward(self, x):
-        if getattr(self, "weight_sparsity", True):
-            sparse_weight = semi_sparse_sparsify(self.weight, backend="cusparselt")
-            return torch.nn.functional.linear(x, sparse_weight, self.bias)
-        else:
-            sparse_x = semi_sparse_sparsify(x, backend="cusparselt")
-            return torch.nn.functional.linear(sparse_x, self.weight, self.bias)
+        sparse_weight = semi_sparse_sparsify(self.weight, backend="cusparselt")
+        return torch.nn.functional.linear(x, sparse_weight, self.bias)
 
     @classmethod
-    def from_dense(cls, linear, weight_sparsity=True):
+    def from_dense(cls, linear):
         mod = cls(linear.in_features, linear.out_features)
         mod.weight = linear.weight
         mod.bias = linear.bias
-        mod.weight_sparsity = weight_sparsity
+        return mod
+
+class SemiSparseActivationLinear(torch.nn.Linear):
+    """
+    Replacement nn.Linear that supports runtime activation sparsity
+    """
+
+    def forward(self, x):
+        sparse_x = semi_sparse_sparsify(x, backend="cusparselt")
+        return torch.nn.functional.linear(sparse_x, self.weight, self.bias)
+
+    @classmethod
+    def from_dense(cls, linear):
+        mod = cls(linear.in_features, linear.out_features)
+        mod.weight = linear.weight
+        mod.bias = linear.bias
         return mod
 
 
@@ -48,7 +61,7 @@ def swap_linear_with_semi_sparse_linear_(model, config, current=""):
         fqn = f"{current}.{name}" if current else name
         if isinstance(child, torch.nn.Linear):
             if fqn in config:
-                setattr(model, name, SemiSparseLinear.from_dense(child))
+                setattr(model, name, config[fqn].from_dense(child))
                 del child
         else:
             swap_linear_with_semi_sparse_linear_(child, config, current=fqn)
