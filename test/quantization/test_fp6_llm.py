@@ -50,7 +50,7 @@ class TestFp6LlmLinear(TestCase):
     @parametrize("device", _DEVICES)
     def test_from_tc_float6_e3m2_compile(self, device):
         M, N = 256, 64
-        x = torch.randint(256, size=(M, N * 3 // 16), dtype=torch.int32, device=device)
+        x = torch.randint(256, size=(M, N * 3 // 4), dtype=torch.uint8, device=device)
 
         expected = from_tc_float6_e3m2(x)
         actual = torch.compile(from_tc_float6_e3m2)(x)

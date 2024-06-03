@@ -66,7 +66,7 @@ def _to_tc_float6_e3m2_ref(tensor: Tensor) -> Tensor:
     tensor_4bit = tensor_4bit[:, [4, 5, 6, 7, 0, 1, 2, 3]]
     tensor_4bit = _pack_4bit(tensor_4bit).view(-1)
 
-    return torch.cat([tensor_2bit, tensor_4bit], dim=0).view(M, -1).view(torch.int)
+    return torch.cat([tensor_2bit, tensor_4bit], dim=0).view(M, -1)
 
 
 # more optimized version of _to_tc_float6_e3m2_original() by merging ops
@@ -88,20 +88,19 @@ def to_tc_float6_e3m2(tensor: Tensor) -> Tensor:
     tensor_4bit = tensor_4bit.permute(0, 5, 1, 2, 4, 7, 3, 6)
     tensor_4bit = _pack_4bit(tensor_4bit.flatten())
 
-    return torch.cat([tensor_2bit, tensor_4bit], dim=0).view(M, -1).view(torch.int)
+    return torch.cat([tensor_2bit, tensor_4bit], dim=0).view(M, -1)
 
 
 def to_scaled_tc_float6_e3m2(tensor: Tensor) -> tuple[Tensor, Tensor]:
     scale = F6_E3M2_MAX / tensor.abs().amax(1).clamp(min=1e-12)
     tc_fp6_tensor = to_tc_float6_e3m2(tensor * scale.view(-1, 1))
-    tc_fp6_tensor = tc_fp6_tensor.view(tensor.shape[0], -1).view(torch.int32)
     return tc_fp6_tensor, scale.reciprocal().half()
 
 
 def from_tc_float6_e3m2(tensor: Tensor, dtype: torch.dtype = torch.float32) -> Tensor:
-    assert tensor.ndim == 2 and tensor.dtype == torch.int32
+    assert tensor.ndim == 2 and tensor.dtype == torch.uint8
     M = tensor.shape[0]
-    N = tensor.shape[1] // 3 * 16
+    N = tensor.shape[1] // 3 * 4
     assert (M % 64 == 0) and (N % 64 == 0)
     size_2bit = M * N // 4
     size_4bit = M * N // 2
@@ -266,11 +265,11 @@ class Fp6LlmLinear(nn.Module):
 
     def __init__(self, weight: Tensor, scales: Tensor, bias: Optional[Tensor] = None) -> None:
         super().__init__()
-        self.register_buffer("weight", weight)
+        self.register_buffer("weight", weight.view(torch.int32))
         self.register_buffer("scales", scales)
         self.register_buffer("bias", bias)
         self.out_features = weight.shape[0]
-        self.in_features = weight.shape[1] * 16 // 3
+        self.in_features = weight.shape[1] // 3 * 4
 
     def forward(self, x: Tensor) -> Tensor:
         splitK = self.get_split_k(math.prod(x.shape[:-1]), self.out_features)
