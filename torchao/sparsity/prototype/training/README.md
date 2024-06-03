@@ -1,8 +1,10 @@
-# Training acceleration for sparsity
+# Accelerated Sparse Training
 
 This folder contains a prototype implementation of fast sparse training, utilizing the runtime semi-structured (2:4) sparsification routines present in core.
 
 ### Quickstart
+**NOTE: This feature is only available on the pytorch / torchao nightlies currently. **
+
 ```python
 import torch
 from torchao.sparsity.prototype.training import (
