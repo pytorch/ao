@@ -70,6 +70,7 @@ def _to_tc_float6_e3m2_original(tensor: Tensor) -> Tensor:
 
 # more optimized version of _to_tc_float6_e3m2_original() by merging ops
 # https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/fp6_llm/csrc/utils/weight_prepacking.h
+@torch.compile
 def to_tc_float6_e3m2(tensor: Tensor) -> Tensor:
     assert tensor.ndim == 2
     M, N = tensor.shape
@@ -90,6 +91,7 @@ def to_tc_float6_e3m2(tensor: Tensor) -> Tensor:
     return torch.cat([tensor_2bit, tensor_4bit], dim=0)
 
 
+@torch.compile
 def from_tc_float6_e3m2(tensor: Tensor, M: int, N: int, dtype: torch.dtype = torch.float32) -> Tensor:
     assert tensor.ndim == 1
     assert (M % 64 == 0) and (N % 64 == 0)
