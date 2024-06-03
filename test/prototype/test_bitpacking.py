@@ -20,7 +20,7 @@ def test_to_uint8_CPU():
         for i in range(len(test_tensor.shape)):
             packed = pack(test_tensor, dtype, dimension = i, container_dtype = torch.uint8, device='cpu')
             unpacked = unpack(packed, dtype, dimension = i, device='cpu')
-            assert unpacked.to(dtype).allclose(test_tensor), f"Failed for {dtype} on dim {i}"
+            assert unpacked.allclose(test_tensor), f"Failed for {dtype} on dim {i}"
             
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_trinary_to_uint8():
@@ -29,7 +29,6 @@ def test_trinary_to_uint8():
         packed = pack(test_tensor, "trinary", dimension = i, container_dtype = torch.uint8)
         unpacked = unpack(packed, "trinary", dimension = i)
         assert(unpacked.to(torch.int32).allclose(test_tensor))
-    print('trinary passed')
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_to_uint8():
@@ -39,3 +38,8 @@ def test_to_uint8():
             packed = pack(test_tensor, dtype, dimension = i, container_dtype = torch.uint8)
             unpacked = unpack(packed, dtype, dimension = i)
             assert unpacked.allclose(test_tensor), f"Failed for {dtype} on dim {i}"
+            
+test_trinary_to_uint8_CPU()
+test_to_uint8_CPU()
+test_trinary_to_uint8()
+test_to_uint8()
