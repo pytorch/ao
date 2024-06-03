@@ -63,11 +63,11 @@ __device__ __forceinline__ void CopyFromGlobalToShared_Scales(half* SPTR_QuantSc
  * 16 Bytes per thread -> 512 Bytes per WARP = 4 line per WARP = 1 line per 8 Threads
  */
 template<int MaxNumOfLinesToCopy, int BLOCK_WARPS>
-__device__ __forceinline__ void CopyFromGlobalToShared(half __restrict__ (*SharedPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
-                                                       const half*       GlobalPTR,
-                                                       const int         GlobalStride,
-                                                       const int         NumOfLinesLeft,        // To support arbitrary N dimensions.
-                                                       bool              Pred = true) {
+__device__ __forceinline__ void CopyFromGlobalToShared(half        (* __restrict__ SharedPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
+                                                       const half* GlobalPTR,
+                                                       const int   GlobalStride,
+                                                       const int   NumOfLinesLeft,        // To support arbitrary N dimensions.
+                                                       bool        Pred = true) {
     // static parameters: 1 Group (8 Threads) can copy 1 line (64 FP16) each time
     const int NumOfThreads  = BLOCK_WARPS * WARP_SIZE;
     const int NumOfGroups   = NumOfThreads / 8; 

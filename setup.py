@@ -32,6 +32,7 @@ from torch.utils.cpp_extension import (
     CUDAExtension,
     BuildExtension,
     CUDA_HOME,
+    IS_WINDOWS
 )
 
 
@@ -49,21 +50,38 @@ def get_extensions():
     use_cuda = torch.cuda.is_available() and CUDA_HOME is not None
     extension = CUDAExtension if use_cuda else CppExtension
 
-    extra_link_args = ["-fopenmp"]
-    extra_compile_args = {
-        "cxx": [
-            "-O3" if not debug_mode else "-O0",
-            "-fdiagnostics-color=always",
-            "-fopenmp",
-        ],
-        "nvcc": [
-            "-O3" if not debug_mode else "-O0",
-        ]
-    }
+    if not IS_WINDOWS:
+        extra_link_args = ["-fopenmp"]
+        extra_compile_args = {
+            "cxx": [
+                "-O3" if not debug_mode else "-O0",
+                "-fdiagnostics-color=always",
+                "-fopenmp",
+            ],
+            "nvcc": [
+                "-O3" if not debug_mode else "-O0",
+            ]
+        }
+    else:
+        extra_link_args = []
+        extra_compile_args = {
+            "cxx": [
+                "/O2" if not debug_mode else "/Od",
+                "/openmp",
+                "/permissive-"
+            ],
+            "nvcc": [
+                "-O3" if not debug_mode else "-O0",
+                "-t=0"
+            ]
+       }
+        
     if debug_mode:
-        extra_compile_args["cxx"].append("-g")
+        extra_compile_args["cxx"].append("-g" if not IS_WINDOWS else "/ZI")
         extra_compile_args["nvcc"].append("-g")
-        extra_link_args.extend(["-O0", "-g"])
+        extra_link_args.extend(["-O0", "-g"] if not IS_WINDOWS else ["/DEBUG"])
+        
+
 
     this_dir = os.path.dirname(os.path.curdir)
     extensions_dir = os.path.join(this_dir, "torchao", "csrc")

@@ -40,7 +40,7 @@ __device__ __forceinline__ void initialize_mma_slice(uint32_t                  (
                                                      uint32_t                  (*b)[4],
                                                      uint32_t* __restrict__    A1_SPTR_read,
                                                      uint32_t* __restrict__    A2_SPTR_read,
-                                                     half      __restrict__    (*B_SPTR_read)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
+                                                     half                      (* __restrict__ B_SPTR_read)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
                                                      uint32_t*                 RPTR_Scales)
 {
     // Writing registers
@@ -59,7 +59,7 @@ __device__ __forceinline__ void core_mma_slice(float                     c[][REG
                                                uint32_t                  (*b)[4],
                                                uint32_t* __restrict__    A1_SPTR_read,
                                                uint32_t* __restrict__    A2_SPTR_read,
-                                               half      __restrict__    (*B_SPTR_read)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
+                                               half                      (* __restrict__ B_SPTR_read)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
                                                uint32_t*                 RPTR_Scales,
                                                int                       slice_id)      // writing slice[slice_id] to registers, k=0 -> slice_id=1 for prefetching
 {

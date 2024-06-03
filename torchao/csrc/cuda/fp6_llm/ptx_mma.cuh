@@ -38,9 +38,9 @@
 
 #ifdef PIPELINE_LEVEL_SMEM
 template <typename TilingConfig>
-__device__ __forceinline__ void B_FromSharedToReg(uint32_t  __restrict__    Reg[][4],
-                                                  half      __restrict__    (*read_SPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
-                                                  int                       slice_id) {
+__device__ __forceinline__ void B_FromSharedToReg(uint32_t Reg[][4],
+                                                  half     (*read_SPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
+                                                  int      slice_id) {
     #ifdef DEBUG_MODE
         static_assert( (TilingConfig::WARP_COL_MMA_TENSORS==1) || (TilingConfig::WARP_COL_MMA_TENSORS%2==0) );
     #endif
@@ -113,7 +113,7 @@ __device__ __forceinline__ void B_FromSharedToReg(uint32_t  __restrict__    Reg[
 #endif
 
 __device__ __forceinline__ void
-MMA_FP16_M16N8K16(uint32_t __restrict__ c[], uint32_t __restrict__ *a, uint32_t __restrict__ *b)
+MMA_FP16_M16N8K16(uint32_t * __restrict__ c, uint32_t * __restrict__ a, uint32_t * __restrict__ b)
 {
     asm volatile("mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32"
                  "{ %0, %1, %2, %3},"
