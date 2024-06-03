@@ -1,9 +1,8 @@
 import torch
 from torch.sparse import SparseSemiStructuredTensor, SparseSemiStructuredTensorCUTLASS, SparseSemiStructuredTensorCUSPARSELT
 
-if torch.__version__ >= "2.1.0":
-    torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUSPARSELT)
-    torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUTLASS)
+torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUSPARSELT)
+torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUTLASS)
 
 GRADIENT_STE = "ste"
 GRADIENT_DENSE = "dense"
