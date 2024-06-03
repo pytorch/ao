@@ -402,3 +402,6 @@ def test_fp6_values(dtype_name):
 def test_fp6_e3m2_rounding(f32_val, f6_e3m2_enc, device):
     f6_e3m2_unpacked = f32_to_f6_e3m2_unpacked(torch.tensor(f32_val, device=device))
     assert f6_e3m2_unpacked.item() == f6_e3m2_enc
+
+    f6_e3m2_unpacked = f32_to_f6_e3m2_unpacked(torch.tensor(-f32_val, device=device))
+    assert f6_e3m2_unpacked.item() == (f6_e3m2_enc | 0b100000)
