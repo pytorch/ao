@@ -103,14 +103,7 @@ class _SparsifyLikeFunc(torch.autograd.Function):
         )
         return grad_out, None
 
-# We want to use `torch._dynamo.allow_in_graph` as a decorator
-# (see https://fburl.com/workplace/uimiz0mf) but it breaks mypy.
-# This is a hack to work around this
-F = TypeVar("F", bound=Callable[..., Any])
-def allow_in_graph(func: F) -> F:
-    return cast(F, torch._dynamo.allow_in_graph(func))
-
-@allow_in_graph
+@torch._dynamo.allow_in_graph
 def semi_sparse_sparsify(
     x: torch.Tensor,
     algo: str = "",
@@ -121,7 +114,7 @@ def semi_sparse_sparsify(
     """
     return _SparsifyFunc.apply(x, algo, backend)
 
-@allow_in_graph
+@torch._dynamo.allow_in_graph
 def semi_sparse_sparsify_like(
     x: torch.Tensor,
     pattern: SparseSemiStructuredTensor,

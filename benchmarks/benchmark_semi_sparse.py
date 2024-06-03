@@ -11,7 +11,7 @@ from typing import Tuple
 import torch
 import torch.nn.functional as F
 from torch import nn
-from xformers_bencmark_utils import DTYPE2STR, benchmark_main_helper2, product_dict
+from xformers_benchmark_utils import DTYPE2STR, benchmark_main_helper2, product_dict
 
 from torchao.sparsity.prototype.training import SemiSparseLinear
 from torchao.sparsity.prototype.training.autograd import semi_sparse_sparsify
