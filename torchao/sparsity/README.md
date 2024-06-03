@@ -43,7 +43,7 @@ We were able to accelerate BERT 1.23x with a negligible accuracy drop on SQuAD.
 For more information about accelerting BERT with semi-sturcutred sparsity, please see our [tutorial](https://pytorch.org/tutorials/advanced/semi_structured_sparse.html?highlight=beta).
 
 | Metrics | fp16 | 2:4 sparse | delta / speedup |
-| --- | --- | --- | --- | --- |
+| --- | --- | --- | --- |
 | Exact Match (%) | 78.53 | 78.44 | -0.09 |
 | F1 (%) | 86.93 | 86.49 | -0.44 |
 | Time (bs=16) | 19.35 | 15.74 | 1.23x |
