@@ -8,7 +8,11 @@ from torch import nn
 from torch.testing._internal.common_utils import TestCase
 from torch.sparse import SparseSemiStructuredTensorCUSPARSELT
 
-from torchao.sparsity.prototype.training import swap_linear_with_semi_sparse_linear_, SemiSparseLinear
+from torchao.sparsity.prototype.training import (
+    swap_linear_with_semi_sparse_linear_,
+    swap_semi_sparse_linear_with_linear_,
+    SemiSparseLinear
+)
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
 
 class TestModel(nn.Module):
@@ -57,6 +61,12 @@ class TestRuntimeSemiStructuredSparsity(TestCase):
         # check grad
         assert torch.allclose(model.linear1.weight.grad, model_c.linear1.weight.grad, rtol=1e-1, atol=1e-1)
         assert torch.allclose(model.linear2.weight.grad, model_c.linear2.weight.grad, rtol=1e-1, atol=1e-1)
+
+        # check that swap back works
+        swap_semi_sparse_linear_with_linear_(model_c)
+        for name, mod in model_c.named_modules():
+            assert not isinstance(mod, SemiSparseLinear)
+
 
 if __name__ == "__main__":
     unittest.main()
