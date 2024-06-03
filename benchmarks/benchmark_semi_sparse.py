@@ -6,14 +6,12 @@
 #
 # This source code is licensed under the BSD license found in the
 # LICENSE file in the root directory of this source tree.
-
-
 from typing import Tuple
 
 import torch
 import torch.nn.functional as F
 from torch import nn
-from utils import DTYPE2STR, benchmark_main_helper2, product_dict
+from xformers_bencmark_utils import DTYPE2STR, benchmark_main_helper2, product_dict
 
 from torchao.sparsity.prototype.training import SemiSparseLinear
 from torchao.sparsity.prototype.training.autograd import semi_sparse_sparsify

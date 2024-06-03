@@ -1,14 +1,5 @@
-import contextlib
-import ctypes
-import glob
-import warnings
-from functools import partial
-from pathlib import Path
-from typing import Any, Callable, Optional, Tuple, TypeVar, cast
 import torch
 from torch.sparse import SparseSemiStructuredTensor, SparseSemiStructuredTensorCUTLASS, SparseSemiStructuredTensorCUSPARSELT
-from collections.abc import Iterable
-from torch import nn
 
 if torch.__version__ >= "2.1.0":
     torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUSPARSELT)
@@ -47,6 +38,7 @@ class _SparsifyFunc(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_out: torch.Tensor):  # type: ignore[override]
+        # We just return grad_out, since we just use STE - straight through estimation
         return grad_out, None, None
 
 class _SparsifyLikeFunc(torch.autograd.Function):
@@ -125,9 +117,7 @@ def semi_sparse_sparsify(
     backend: str = "cutlass",
 ) -> SparseSemiStructuredTensor:
     """
-    Sparsifies a dense tensor into a semi-structured tensor.
-    When pattern is provided, we will sparsify the tensor according using the same mask as the provided sparse tensor.
-    Otherwise, we sparsify using the algorithm/backend specified
+    Sparsifies a dense tensor into a semi-structured tensor, according to the algo and backend passed. 
     """
     return _SparsifyFunc.apply(x, algo, backend)
 
@@ -138,8 +128,6 @@ def semi_sparse_sparsify_like(
     gradient: str = GRADIENT_SPARSE,
 ) -> SparseSemiStructuredTensor:
     """
-    Sparsifies a dense tensor into a semi-structured tensor.
-    When pattern is provided, we will sparsify the tensor according using the same mask as the provided sparse tensor.
-    Otherwise, we sparsify using the algorithm/backend specified
+    Sparsifies a dense tensor into a semi-structured tensor, using the mask of the provided pattern. 
     """
-    return _SparsifyLikeFunc.apply(x, pattern)
+    return _SparsifyLikeFunc.apply(x, pattern, gradient)

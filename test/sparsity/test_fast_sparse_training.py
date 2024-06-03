@@ -1,16 +1,16 @@
 import logging
 import unittest
+import copy
 
 import torch
-from torch import nn
-import copy
 import torch.nn.functional as F
+from torch import nn
+from torch.testing._internal.common_utils import TestCase
+from torch.sparse import SparseSemiStructuredTensorCUSPARSELT
 
 from torchao.sparsity import apply_fake_sparsity, apply_sparse_semi_structured
 from torchao.sparsity.prototype.training import swap_linear_with_semi_sparse_linear_
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
-from torch.testing._internal.common_utils import TestCase
-from torch.sparse import SparseSemiStructuredTensorCUSPARSELT
 
 class TestModel(nn.Module):
     def __init__(self):
@@ -24,11 +24,7 @@ class TestModel(nn.Module):
         x = self.linear2(x)
         return x
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
-torch.set_printoptions(precision=3, edgeitems=4, linewidth=1000000000)
-class TestQuantSemiSparse(TestCase):
+class TestRuntimeSemiStructuredSparsity(TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "pytorch 2.3+ feature")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")

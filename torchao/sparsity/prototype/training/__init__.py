@@ -2,22 +2,13 @@
 #
 # This source code is licensed under the BSD license found in the
 # LICENSE file in the root directory of this source tree.
-import contextlib
-import ctypes
-import glob
-import warnings
-from functools import partial
-from pathlib import Path
-from typing import Any, Callable, Optional, Tuple, TypeVar, cast
 import torch
-from torch.sparse import SparseSemiStructuredTensor, SparseSemiStructuredTensorCUTLASS, SparseSemiStructuredTensorCUSPARSELT
-from collections.abc import Iterable
-from torch import nn
+from torch.sparse import SparseSemiStructuredTensorCUTLASS
 
-from torchao.sparsity.prototype.training.pointwise_ops import CUTLASS_POINTWISE_OP_DISPATCH_TABLE
 from torchao.sparsity.prototype.training.autograd import semi_sparse_sparsify
+from torchao.sparsity.prototype.training.pointwise_ops import CUTLASS_POINTWISE_OP_DISPATCH_TABLE
 
-# load pointwise op support
+# load pointwise op support, which exists only for CUTLASS
 SparseSemiStructuredTensorCUTLASS._load_dispatch_table(CUTLASS_POINTWISE_OP_DISPATCH_TABLE)
 
 __all__ = [

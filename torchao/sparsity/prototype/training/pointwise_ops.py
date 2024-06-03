@@ -1,11 +1,15 @@
-from torch.sparse import SparseSemiStructuredTensor, SparseSemiStructuredTensorCUTLASS, SparseSemiStructuredTensorCUSPARSELT
-import torch
-from torchao.sparsity.prototype.training.autograd import semi_sparse_sparsify, semi_sparse_sparsify_like
 from functools import partial
+import torch
+from torch.sparse import SparseSemiStructuredTensor 
+from torchao.sparsity.prototype.training.autograd import semi_sparse_sparsify_like
 
 def _semi_sparse_pointwise_op(func, types, args=(), kwargs=None, sparsify_like_args_list=()):
     """
-    adds pointwise op support for semi-structured tensors
+    adds pointwise op support for semi-structured tensors. 
+
+    Assumes that at least one of the arguments in arg is a SparseSemiStructuredTensor.
+    The last instance of a SparseSemiStructuredTensor is used as the reference mask to sparsify the others tensors passed in args. 
+    sparsify_like_args_list is used to specify which arguments to sparsify like the reference tensor.
     """
     reference_sparse_tensor = None
     for tensor in args:
@@ -55,7 +59,7 @@ def _semi_sparse_pointwise_op(func, types, args=(), kwargs=None, sparsify_like_a
         reference_sparse_tensor.compressed_swizzled_bitmask,
     )
 
-# pointwise op support
+# Add pointwise ops to the dispatch table
 CUTLASS_POINTWISE_OP_DISPATCH_TABLE = {
     torch.ops.aten.relu: _semi_sparse_pointwise_op,
     torch.ops.aten.gelu: _semi_sparse_pointwise_op,
