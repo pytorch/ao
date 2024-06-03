@@ -25,10 +25,24 @@ from torchao.quantization.utils import (
 _SEED = 1234
 torch.manual_seed(_SEED)
 
+# Helper function to run a function twice
+# and verify that the result is the same.
+# Adds some verification to avoid side effects.
+# NOTE:
+# - Does not verify the args and kwargs are unchanged.
+# - Assumes the output is a single Tensor
+def check_idempotent(self, fn, *args, **kwargs):
+    output0 = fn(*args, **kwargs)
+    assert torch.is_tensor(output0)
+    output1 = fn(*args, **kwargs)
+    self.assertTrue(torch.equal(output0, output1), f"Expected given function {fn} to be idempotent.")
+    return output1
+
+
 class TestQuantPrimitives(unittest.TestCase):
     SEED = 123
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "skipping when torch verion is 2.3 or lower")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "skipping when torch version is 2.3 or lower")
     def test_get_group_qparams_symmetric(self):
         """
         Test that `get_group_qparams_symmetric` produces the exact same scales as
@@ -77,7 +91,7 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(scale, scale_ref))
         self.assertTrue(torch.equal(zero_point, zp_ref))
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "skipping when torch verion is 2.3 or lower")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "skipping when torch version is 2.3 or lower")
     def test_choose_qparams_token_asym(self):
         input = torch.randn(10, 10)
         mapping_type = MappingType.ASYMMETRIC
@@ -127,7 +141,7 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(scale, scale_ref))
         self.assertTrue(torch.equal(zero_point, zp_ref))
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.4 or lower")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
     def test_quantize_activation_per_token_abs_max(self):
         from torchao.quantization.quant_primitives import quantize_activation_per_token_absmax
         input = torch.randn(10, 10)
@@ -148,7 +162,7 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(quantized, quantized_ref))
         self.assertTrue(torch.equal(scale, scale_ref))
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.4 or lower")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
     def test_quantize_activation_per_token_abs_max_zero_input(self):
         from torchao.quantization.quant_primitives import quantize_activation_per_token_absmax
         input = torch.zeros(10, 10)
@@ -156,7 +170,7 @@ class TestQuantPrimitives(unittest.TestCase):
         quantized_ref, scale_ref = quantize_activation_per_token_absmax(input)
 
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.4 or lower")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
     def test_quantize_activation_per_token_abs_max_dtype(self):
         from torchao.quantization.quant_primitives import quantize_activation_per_token_absmax
         input = torch.zeros(10, 10, dtype=torch.bfloat16)
@@ -172,7 +186,7 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(scale_ref.dtype, torch.float32)
 
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.4 or lower")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
     def test_quantize_dequantize_group_sym(self):
         input = torch.randn(10, 10)
         mapping_type = MappingType.SYMMETRIC
@@ -181,7 +195,7 @@ class TestQuantPrimitives(unittest.TestCase):
         scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, eps=torch.finfo(torch.float32).eps)
 
         quantized = quantize_affine(input, block_size, scale, zero_point, dtype)
-        dequantized = dequantize_affine(quantized, block_size, scale, zero_point, dtype, output_dtype=torch.float32)
+        dequantized = check_idempotent(self, dequantize_affine, quantized, block_size, scale, zero_point, dtype, output_dtype=torch.float32)
 
         group_size = 2
         quant_min = -128
@@ -196,7 +210,7 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(quantized, quantized_ref))
         self.assertTrue(torch.equal(dequantized, dequantized_ref))
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.4 or lower")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
     def test_quantize_dequantize_channel_asym(self):
         input = torch.randn(10, 10)
         mapping_type = MappingType.ASYMMETRIC
@@ -205,7 +219,7 @@ class TestQuantPrimitives(unittest.TestCase):
         scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, eps=torch.finfo(torch.float32).eps)
         output_dtype = torch.float32
         quantized = quantize_affine(input, block_size, scale, zero_point, dtype)
-        dequantized = dequantize_affine(quantized, block_size, scale, zero_point, dtype, output_dtype=output_dtype)
+        dequantized = check_idempotent(self, dequantize_affine, quantized, block_size, scale, zero_point, dtype, output_dtype=output_dtype)
 
         axis = 1
         quant_min = -128
@@ -219,7 +233,7 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(quantized, quantized_ref))
         self.assertTrue(torch.equal(dequantized, dequantized_ref))
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.4 or lower")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
     def test_quantize_dequantize_tensor_asym(self):
         input = torch.randn(10, 10)
         mapping_type = MappingType.ASYMMETRIC
@@ -228,7 +242,7 @@ class TestQuantPrimitives(unittest.TestCase):
         output_dtype = torch.float32
         scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, eps=torch.finfo(torch.float32).eps)
         quantized = quantize_affine(input, block_size, scale, zero_point, dtype)
-        dequantized = dequantize_affine(quantized, block_size, scale, zero_point, dtype, output_dtype=output_dtype)
+        dequantized = check_idempotent(self, dequantize_affine, quantized, block_size, scale, zero_point, dtype, output_dtype=output_dtype)
 
         axis = 1
         quant_min = -128
@@ -242,7 +256,7 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(quantized, quantized_ref))
         self.assertTrue(torch.equal(dequantized, dequantized_ref))
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.4 or lower")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
     def test_quantize_dequantize_channel_asym_4d(self):
         input = torch.randn(3, 3, 10, 10)
         mapping_type = MappingType.ASYMMETRIC
@@ -250,7 +264,7 @@ class TestQuantPrimitives(unittest.TestCase):
         block_size = (3, 3, 1, 10)
         scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, eps=torch.finfo(torch.float32).eps)
         quantized = quantize_affine(input, block_size, scale, zero_point, dtype)
-        dequantized = dequantize_affine(quantized, block_size, scale, zero_point, dtype, output_dtype=torch.float32)
+        dequantized = check_idempotent(self, dequantize_affine, quantized, block_size, scale, zero_point, dtype, output_dtype=torch.float32)
 
         axis = 2
         quant_min = -128
@@ -264,7 +278,7 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(quantized, quantized_ref))
         self.assertTrue(torch.equal(dequantized, dequantized_ref))
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "skipping when torch verion is 2.3 or lower")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "skipping when torch version is 2.3 or lower")
     def test_quantize_dequantize_channel_asym_4d_multi_dim_reduction(self):
         input = torch.randn(3, 3, 10, 10)
         mapping_type = MappingType.ASYMMETRIC
@@ -272,7 +286,7 @@ class TestQuantPrimitives(unittest.TestCase):
         block_size = (3, 3, 2, 2)
         scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, eps=torch.finfo(torch.float32).eps)
         quantized = quantize_affine(input, block_size, scale, zero_point, dtype)
-        dequantized = dequantize_affine(quantized, block_size, scale, zero_point, dtype, output_dtype=torch.float32)
+        dequantized = check_idempotent(self, dequantize_affine, quantized, block_size, scale, zero_point, dtype, output_dtype=torch.float32)
         # we don't have corresponding ops in existing primitives, so just make sure it runs and it's close to float
         torch.testing.assert_close(dequantized, input, rtol=2, atol=0.02)
 
