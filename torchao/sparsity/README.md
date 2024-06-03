@@ -22,24 +22,26 @@ More concretely, we hope to provide tutorials and APIs for both sparse kernels (
 
 #### segment-anything
 We applied 2:4 sparsity to accelerate segment-anything, as part of [segment-anything-fast](https://github.com/pytorch-labs/segment-anything-fast).
-The results mentioned in the REAADME of the repo compose sparsity with a suite of other inference acceleration techniques.
+The results mentioned in the README of the repo compose sparsity with a suite of other inference acceleration techniques.
 
-From our benchmarking, we see a 1.1x speedup when running with SEGMENT_ANYTHING_FAST_USE_FLASH_4 enabled.
+From our [benchmarking](https://github.com/pytorch/ao/blob/main/benchmarks/benchmark_sam.py), we see a 1.1x speedup when running with SEGMENT_ANYTHING_FAST_USE_FLASH_4 enabled.
+To reproduce these benchmarks you can run the following command:
 
 ```
 python benchmarks/benchmark_sam.py
-
-   block_only  batchsize           dtype  compile                  qkv                 proj                 lin1                 lin2         time     memory      img/s
-0       False         32  torch.bfloat16     True                 None                 None                 None                 None  1361.733349  15.808660  23.499461
-1       False         32  torch.bfloat16     True                 None                 None  sparse (cusparselt)  sparse (cusparselt)  1245.151100  15.462827  25.699692
-2       False         32  torch.bfloat16     True                 None                 None     sparse (cutlass)     sparse (cutlass)  1251.047651  15.411250  25.578562
-3       False         32  torch.bfloat16     True  sparse (cusparselt)  sparse (cusparselt)  sparse (cusparselt)  sparse (cusparselt)  1265.426255  12.705007  25.287922
-4       False         32  torch.bfloat16     True     sparse (cutlass)     sparse (cutlass)     sparse (cutlass)     sparse (cutlass)  1274.955840  12.704523  25.098909
 ```
+
+| block_only | batchsize | dtype | compile | qkv | proj | lin1 | lin2 | time | memory | img/s |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| False | 32 | torch.bfloat16 | True | None | None | None | None | 1361.733349 | 15.808660 | 23.499461 |
+| False | 32 | torch.bfloat16 | True | None | None | sparse (cusparselt) | sparse (cusparselt) | 1245.151100 | 15.462827 | 25.699692 |
+| False | 32 | torch.bfloat16 | True | None | None | sparse (cutlass) | sparse (cutlass) | 1251.047651 | 15.411250 | 25.578562 |
+| False | 32 | torch.bfloat16 | True | sparse (cusparselt) | sparse (cusparselt) | sparse (cusparselt) | sparse (cusparselt) | 1265.426255 | 12.705007 | 25.287922 |
+| False | 32 | torch.bfloat16 | True | sparse (cutlass) | sparse (cutlass) | sparse (cutlass) | sparse (cutlass) | 1274.955840 | 12.704523 | 25.098909 |
 
 #### BERT
 
-We were able to accelerate BERT 1.23x with a negligible accuracy drop on SQuAD.
+We were able to accelerate BERT 1.23x on an A100 with a negligible accuracy drop on SQuAD.
 For more information about accelerting BERT with semi-sturcutred sparsity, please see our [tutorial](https://pytorch.org/tutorials/advanced/semi_structured_sparse.html?highlight=beta).
 
 | Metrics | fp16 | 2:4 sparse | delta / speedup |

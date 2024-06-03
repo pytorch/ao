@@ -2,6 +2,8 @@ import argparse
 from itertools import product
 
 import pandas as pd
+# to install segment-anything-fast you can run:
+# pip install git+https://github.com/pytorch-labs/segment-anything-fast.git
 from segment_anything_fast import sam_model_registry
 import torch
 from torch.utils.benchmark import Timer
