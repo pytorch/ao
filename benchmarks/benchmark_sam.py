@@ -1,6 +1,8 @@
+from itertools import product
+
 import pandas as pd
+from segment_anything_fast import sam_model_registry
 import torch
-from segment_anything import sam_model_registry
 from torch.utils.benchmark import Timer
 from torch.sparse import SparseSemiStructuredTensor, SparseSemiStructuredTensorCUTLASS, SparseSemiStructuredTensorCUSPARSELT
 from torchao.quantization.quant_api import (
@@ -16,7 +18,6 @@ from torchao.sparsity import (
     apply_fake_sparsity,
 )
 from torchao.sparsity.prototype.dynamic_quant_sparse import Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight, Int8DynamicallyQuantizedSemiStructuredSparseLinearWeight
-from itertools import product
 from tqdm import tqdm
 
 sam_checkpoint_base_path = "/home/jessecai/local/MODELS"
@@ -112,18 +113,20 @@ def run_once(block_only=False, dtype=torch.bfloat16, batchsize=32, compile=True,
 
 if __name__ == "__main__":
     print("BENCHMARKING")
-    ALL_RUNS = [run_once(qkv="quant+sparse (cutlass)", proj="quant", lin1="quant+sparse (cutlass)", lin2="quant+sparse (cutlass)")]
-                # for option in tqdm(SUBCLASSES)]
-    # ALL_RUNS = [
-    #     run_once(),
-    #     run_once(qkv="quant",                     proj="quant",                     lin1="quant",                        lin2="quant"),
-    #     run_once(qkv="quant+sparse (cusparselt)", proj="quant+sparse (cusparselt)", lin1="quant+sparse (cusparselt)",    lin2="quant+sparse (cutlass)"),
-    #     run_once(qkv="quant+sparse (cusparselt)", proj="quant",                     lin1="quant+sparse (cutlass)",       lin2="quant+sparse (cutlass)"),
-    #     run_once(qkv="quant",                     proj="quant",                     lin1="quant+sparse (cusparselt)",    lin2="quant+sparse (cusparselt)"),
-    #     run_once(qkv="sparse (cusparselt)",       proj="sparse (cusparselt)",       lin1="sparse (cusparselt)",          lin2="sparse (cusparselt)"),
-    #     run_once(qkv="sparse (cutlass)",          proj="sparse (cutlass)",          lin1="sparse (cutlass)",             lin2="sparse (cutlass)"),
-    #     run_once(qkv="quant+sparse (cutlass)",    proj="quant+sparse (cutlass)",    lin1="quant+sparse (cutlass)",       lin2="quant+sparse (cutlass)"),
-    # ]
+    # ALL_RUNS = [run_once(qkv="quant+sparse (cutlass)", proj="quant", lin1="quant+sparse (cutlass)", lin2="quant+sparse (cutlass)")]
+
+    ALL_RUNS = [
+        run_once(),
+        run_once(lin1="sparse (cusparselt)", lin2="sparse (cusparselt)"),
+        run_once(lin1="sparse (cutlass)", lin2="sparse (cutlass)"),
+        run_once(qkv="sparse (cusparselt)",       proj="sparse (cusparselt)",       lin1="sparse (cusparselt)",          lin2="sparse (cusparselt)"),
+        run_once(qkv="sparse (cutlass)",          proj="sparse (cutlass)",          lin1="sparse (cutlass)",             lin2="sparse (cutlass)"),
+        # run_once(qkv="quant",                     proj="quant",                     lin1="quant",                        lin2="quant"),
+        # run_once(qkv="quant+sparse (cusparselt)", proj="quant+sparse (cusparselt)", lin1="quant+sparse (cusparselt)",    lin2="quant+sparse (cutlass)"),
+        # run_once(qkv="quant+sparse (cusparselt)", proj="quant",                     lin1="quant+sparse (cutlass)",       lin2="quant+sparse (cutlass)"),
+        # run_once(qkv="quant",                     proj="quant",                     lin1="quant+sparse (cusparselt)",    lin2="quant+sparse (cusparselt)"),
+        # run_once(qkv="quant+sparse (cutlass)",    proj="quant+sparse (cutlass)",    lin1="quant+sparse (cutlass)",       lin2="quant+sparse (cutlass)"),
+    ]
     df = pd.DataFrame(ALL_RUNS)
     df.to_csv("sam_benchmark_results.csv")
     print(df)
