@@ -38,11 +38,11 @@ The following benchmarks we run on an A100, with batch_size=32 and `bfloat16` dt
 
 | qkv  | proj | lin1 | lin2 | time | memory | img/s |
 | ---- | ---- | ---- | ---- | ---- | ------ | ----- |
-| None | None | None | None | 1361.733349 | 15.808660 | 23.499461 |
-| None | None | sparse (cusparselt) | sparse (cusparselt) | 1245.151100 | 15.462827 | 25.699692 |
-| None | None | sparse (cutlass) | sparse (cutlass) | 1251.047651 | 15.411250 | 25.578562 |
-| sparse (cusparselt) | sparse (cusparselt) | sparse (cusparselt) | sparse (cusparselt) | 1265.426255 | 12.705007 | 25.287922 |
-| sparse (cutlass) | sparse (cutlass) | sparse (cutlass) | sparse (cutlass) | 1274.955840 | 12.704523 | 25.098909 |
+| None | None | None | None | 1361.73 | 15.81 | 23.50 |
+| None | None | sparse (cusparselt) | sparse (cusparselt) | 1245.15 | 15.46 | 25.70 |
+| None | None | sparse (cutlass) | sparse (cutlass) | 1251.047651 | 15.41 | 25.59 |
+| sparse (cusparselt) | sparse (cusparselt) | sparse (cusparselt) | sparse (cusparselt) | 1265.43 | 12.71 | 25.29|
+| sparse (cutlass) | sparse (cutlass) | sparse (cutlass) | sparse (cutlass) | 1274.96 | 12.70 | 25.10 |
 
 #### BERT
 
