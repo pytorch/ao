@@ -23,8 +23,19 @@ sparse_config = {
 # swap linear with semi_sparse linear, after this you can train your model as usual.
 swap_linear_with_semi_sparse_linear_(model, sparse_config)
 
-# if you need to swap back from semi_sparse linear to normal linear, we give a utility function
+# now you can run your normal training loop
+
+# if you need to swap back from semi_sparse linear to normal linear, we provide a utility function
 swap_semi_sparse_linear_with_linear(model)
+```
+
+### Benchmarking
+
+If you want to see the expected speedups of applying runtime semi-structured sparsity, you can do so by modifying the existing benchmark code in to add your matmul shapes in:
+`benchmarks/benchamrk_semi_sparse.py`
+
+```
+python benchmarks/benchmark_semi_sparse.py
 ```
 
 For more information about our API and how it works, please see our blog post.
