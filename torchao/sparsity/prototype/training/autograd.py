@@ -1,8 +1,12 @@
 import torch
-from torch.sparse import SparseSemiStructuredTensor, SparseSemiStructuredTensorCUTLASS, SparseSemiStructuredTensorCUSPARSELT
+from torch.sparse import SparseSemiStructuredTensor
 
-torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUSPARSELT)
-torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUTLASS)
+from torchao.quantization.utils import TORCH_VERSION_AFTER_2_2
+
+if TORCH_VERSION_AFTER_2_2:
+    from torch.sparse import SparseSemiStructuredTensorCUTLASS, SparseSemiStructuredTensorCUSPARSELT
+    torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUSPARSELT)
+    torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUTLASS)
 
 GRADIENT_STE = "ste"
 GRADIENT_DENSE = "dense"

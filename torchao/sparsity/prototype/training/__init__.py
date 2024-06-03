@@ -3,13 +3,16 @@
 # This source code is licensed under the BSD license found in the
 # LICENSE file in the root directory of this source tree.
 import torch
-from torch.sparse import SparseSemiStructuredTensorCUTLASS
 
 from torchao.sparsity.prototype.training.autograd import semi_sparse_sparsify
 from torchao.sparsity.prototype.training.pointwise_ops import CUTLASS_POINTWISE_OP_DISPATCH_TABLE
 
+from torchao.quantization.utils import TORCH_VERSION_AFTER_2_2
+
 # load pointwise op support, which exists only for CUTLASS
-SparseSemiStructuredTensorCUTLASS._load_dispatch_table(CUTLASS_POINTWISE_OP_DISPATCH_TABLE)
+if TORCH_VERSION_AFTER_2_2:
+    from torch.sparse import SparseSemiStructuredTensorCUTLASS
+    SparseSemiStructuredTensorCUTLASS._load_dispatch_table(CUTLASS_POINTWISE_OP_DISPATCH_TABLE)
 
 __all__ = [
     "SemiSparseLinear",
