@@ -24,7 +24,7 @@ More concretely, we hope to provide tutorials and APIs for both sparse kernels (
 We applied 2:4 sparsity to accelerate segment-anything, as part of [segment-anything-fast](https://github.com/pytorch-labs/segment-anything-fast).
 The results mentioned in the README of the repo compose sparsity with a suite of other inference acceleration techniques.
 
-From our [benchmarking](https://github.com/pytorch/ao/blob/main/benchmarks/benchmark_sam.py), we see a 1.1x speedup when running with SEGMENT_ANYTHING_FAST_USE_FLASH_4 enabled.
+From our [benchmarking](https://github.com/pytorch/ao/blob/main/benchmarks/benchmark_sam.py), we see a 1.1x speedup when running with `SEGMENT_ANYTHING_FAST_USE_FLASH_4` enabled.
 To reproduce these benchmarks you can run the following command:
 
 The inference acceleration of semi-structured sparsity depends on the matmul shapes, which is why we don't see additional speedups when applying to all linear layers (attn + mlp) of segment-anything.
