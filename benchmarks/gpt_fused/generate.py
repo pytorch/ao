@@ -100,8 +100,8 @@ def generate(
     with torch.device(device):
         model.setup_caches(max_batch_size=1, max_seq_length=max_seq_length)
 
-    from torchao.quantization import apply_weight_only_int8_quant
-    apply_weight_only_int8_quant(model)
+    # from torchao.quantization import apply_weight_only_int8_quant
+    # apply_weight_only_int8_quant(model)
 
     # create an empty tensor of the expected final shape and fill in the current tokens
     empty = torch.empty(T_new, dtype=dtype, device=device)
@@ -190,6 +190,10 @@ def main(
     print("Loading model ...")
     t0 = time.time()
     model = _load_model(checkpoint_path, device, precision)
+
+    from torchao.dtypes import to_aqt
+    for i in range(len(model.layers)):
+        model.layers[i].feed_forward.w13.weight = torch.nn.Parameter(to_aqt(model.layers[i].feed_forward.w13.weight))
 
     torch.cuda.synchronize(device)
     print(f"Time to load model: {time.time() - t0:.02f} seconds")

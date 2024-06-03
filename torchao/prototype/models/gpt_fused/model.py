@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 from torch.nn import functional as F
+from torchao.dtypes import to_aqt
 
 
 def find_multiple(n: int, k: int) -> int:
@@ -195,6 +196,9 @@ class Attention(nn.Module):
 
         k = k.repeat_interleave(self.n_head // self.n_local_heads, dim=1)
         v = v.repeat_interleave(self.n_head // self.n_local_heads, dim=1)
+        q = to_aqt(q)
+        k = to_aqt(k)
+        v = to_aqt(v)
         y = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0)
 
         y = y.transpose(1, 2).contiguous().view(bsz, seqlen, self.dim)
@@ -210,6 +214,7 @@ class FeedForward(nn.Module):
         self.w2 = nn.Linear(config.intermediate_size, config.dim, bias=False)
         self.dim = config.intermediate_size
         self._register_load_state_dict_pre_hook(self.load_hook)
+        self.w13.weight = to_aqt(self.w13.weight)
 
     def load_hook(self, state_dict, prefix, *args):
         if prefix + "w1.weight" in state_dict:
@@ -218,7 +223,8 @@ class FeedForward(nn.Module):
             state_dict[prefix + "w13.weight"] = torch.cat([w1, w3])
 
     def forward(self, x: Tensor) -> Tensor:
-        x1, x3 = self.w13(x).split([self.dim, self.dim], dim=-1)
+        x_qt = to_aqt(x)
+        x1, x3 = self.w13(x_qt).to(x.dtype).split([self.dim, self.dim], dim=-1)
         return self.w2(F.silu(x1) * x3)
 
 
