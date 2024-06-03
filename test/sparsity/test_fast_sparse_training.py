@@ -12,7 +12,7 @@ from torchao.sparsity.prototype.training import (
     swap_semi_sparse_linear_with_linear_,
     SemiSparseLinear
 )
-from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
+from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
 
 class TestModel(nn.Module):
     def __init__(self):
@@ -28,7 +28,7 @@ class TestModel(nn.Module):
 
 class TestRuntimeSemiStructuredSparsity(TestCase):
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "pytorch 2.3+ feature")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "pytorch 2.4+ feature")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_runtime_weight_sparsification(self):
         # need this import inside to not break 2.2 tests
