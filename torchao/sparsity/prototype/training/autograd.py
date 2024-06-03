@@ -121,7 +121,6 @@ def allow_in_graph(func: F) -> F:
 @allow_in_graph
 def semi_sparse_sparsify(
     x: torch.Tensor,
-    pattern: SparseSemiStructuredTensor = None,
     algo: str = "",
     backend: str = "cutlass",
 ) -> SparseSemiStructuredTensor:
@@ -130,11 +129,17 @@ def semi_sparse_sparsify(
     When pattern is provided, we will sparsify the tensor according using the same mask as the provided sparse tensor.
     Otherwise, we sparsify using the algorithm/backend specified
     """
-    if pattern is None:
-        return _SparsifyFunc.apply(x, algo, backend)
-    else:
-        if not isinstance(pattern, SparseSemiStructuredTensor):
-            raise ValueError(
-                f"`pattern` must be a `SparseSemiStructuredTensor` but got a {type(pattern)}"
-            )
-        return _SparsifyLikeFunc.apply(x, pattern)
+    return _SparsifyFunc.apply(x, algo, backend)
+
+@allow_in_graph
+def semi_sparse_sparsify_like(
+    x: torch.Tensor,
+    pattern: SparseSemiStructuredTensor,
+    gradient: str = GRADIENT_SPARSE,
+) -> SparseSemiStructuredTensor:
+    """
+    Sparsifies a dense tensor into a semi-structured tensor.
+    When pattern is provided, we will sparsify the tensor according using the same mask as the provided sparse tensor.
+    Otherwise, we sparsify using the algorithm/backend specified
+    """
+    return _SparsifyLikeFunc.apply(x, pattern)

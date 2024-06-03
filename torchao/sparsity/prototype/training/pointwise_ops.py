@@ -1,6 +1,6 @@
 from torch.sparse import SparseSemiStructuredTensor, SparseSemiStructuredTensorCUTLASS, SparseSemiStructuredTensorCUSPARSELT
 import torch
-from torchao.sparsity.prototype.training.autograd import semi_sparse_sparsify
+from torchao.sparsity.prototype.training.autograd import semi_sparse_sparsify, semi_sparse_sparsify_like
 from functools import partial
 
 def _semi_sparse_pointwise_op(func, types, args=(), kwargs=None, sparsify_like_args_list=()):
@@ -17,7 +17,7 @@ def _semi_sparse_pointwise_op(func, types, args=(), kwargs=None, sparsify_like_a
         if isinstance(tensor, torch.Tensor):
             if not isinstance(tensor, SparseSemiStructuredTensor):
                 if i in sparsify_like_args_list:
-                    tensor = semi_sparse_sparsify(tensor, pattern=reference_sparse_tensor)
+                    tensor = semi_sparse_sparsify_like(tensor, reference_sparse_tensor)
                 else:
                     raise ValueError(
                         f"Operation {func.__module__}.{func.__name__} on {type(reference_sparse_tensor)} requires all operands to "
