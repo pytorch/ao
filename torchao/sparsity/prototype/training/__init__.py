@@ -7,10 +7,10 @@ import torch
 from torchao.sparsity.prototype.training.autograd import semi_sparse_sparsify
 from torchao.sparsity.prototype.training.pointwise_ops import CUTLASS_POINTWISE_OP_DISPATCH_TABLE
 
-from torchao.quantization.utils import TORCH_VERSION_AFTER_2_2
+from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
 
 # load pointwise op support, which exists only for CUTLASS
-if TORCH_VERSION_AFTER_2_2:
+if TORCH_VERSION_AFTER_2_3:
     from torch.sparse import SparseSemiStructuredTensorCUTLASS
     SparseSemiStructuredTensorCUTLASS._load_dispatch_table(CUTLASS_POINTWISE_OP_DISPATCH_TABLE)
 

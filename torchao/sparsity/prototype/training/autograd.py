@@ -1,9 +1,9 @@
 import torch
 from torch.sparse import SparseSemiStructuredTensor
 
-from torchao.quantization.utils import TORCH_VERSION_AFTER_2_2
+from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
 
-if TORCH_VERSION_AFTER_2_2:
+if TORCH_VERSION_AFTER_2_3:
     from torch.sparse import SparseSemiStructuredTensorCUTLASS, SparseSemiStructuredTensorCUSPARSELT
     torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUSPARSELT)
     torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUTLASS)
