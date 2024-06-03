@@ -34,12 +34,15 @@ __all__ = [
 
 def get_scale(X_absmax, W_absmax, alpha=0.5):
     """
-    Calculate the scale based on abs(max(X)), abs(max(W)) and alpha
-    If X is of dimension `b*n*k` and W is dimension `k*m`, the returned
-    scale is of dimension `k`.
-    Note: X_absmax is calculated outside of this function because we
-    need to keep a running version of it during calibration. W_absmax
-    is calculated outside of this function for consistency with X_absmax.
+    Calculate the scale based on abs(max(X)), abs(max(W)), and alpha.
+
+    Args:
+        X_absmax (torch.Tensor): Absolute maximum values of the input tensor X.
+        W_absmax (torch.Tensor): Absolute maximum values of the weight tensor W.
+        alpha (float, optional): Scaling factor. Defaults to 0.5.
+
+    Returns:
+        torch.Tensor: The calculated scale of dimension `k` if X is of dimension `b*n*k` and W is of dimension `k*m`.
     """
     X_pow = torch.pow(X_absmax, alpha)
     W_pow = torch.pow(W_absmax, 1.0 - alpha)
@@ -210,6 +213,18 @@ source_cls_to_target_cls = {
 def swap_linear_with_smooth_fq_linear(
     model, skip_fqn_list=None, cur_fqn="", alpha=0.5
 ) -> None:
+    """
+    Replaces linear layers in the model with their SmoothFakeDynamicallyQuantizedLinear equivalents.
+
+    Args:
+        model (torch.nn.Module): The model containing linear layers to be replaced.
+        skip_fqn_list (list of str, optional): List of fully qualified names to skip during replacement. Defaults to None.
+        cur_fqn (str, optional): The current fully qualified name of the module being processed. Defaults to "".
+        alpha (float, optional): The scaling factor for SmoothQuant. Defaults to 0.5.
+
+    Returns:
+        None
+    """
 
     name_to_child = dict(model.named_children())
     for name, child in name_to_child.items():
@@ -228,6 +243,17 @@ def swap_linear_with_smooth_fq_linear(
 
 
 def smooth_fq_linear_to_inference(model, debug_skip_calibration=False) -> None:
+    """
+    Prepares the model for inference by calculating the smoothquant scale for each SmoothFakeDynamicallyQuantizedLinear layer.
+
+    Args:
+        model (torch.nn.Module): The model containing SmoothFakeDynamicallyQuantizedLinear layers.
+        debug_skip_calibration (bool, optional): If True, sets the running maximum of activations to a debug value for performance benchmarking.
+                                                 Defaults to False.
+
+    Returns:
+        None
+    """
     for _, mod in model.named_modules():
         if isinstance(mod, tuple(source_cls_to_target_cls.values())):
             if debug_skip_calibration:
@@ -237,8 +263,6 @@ def smooth_fq_linear_to_inference(model, debug_skip_calibration=False) -> None:
 
 # useful for quickly toggling smoothquant debug settings on all smoothquant
 # modules in a model
-
-
 def set_smooth_fq_attribute(model, attribute_name, new_attribute_val):
     for _, mod in model.named_modules():
         if isinstance(mod, tuple(source_cls_to_target_cls.values())):
