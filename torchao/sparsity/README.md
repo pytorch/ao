@@ -34,13 +34,15 @@ We find that accelerating the MLP linear layers provied the most speedups (`lin1
 python benchmarks/benchmark_sam.py
 ```
 
-| block_only | batchsize | dtype | compile | qkv | proj | lin1 | lin2 | time | memory | img/s |
-| ---------- | --------- | ----- | ------- | --- | ---- | ---- | ---- | ---- | ------ | ----- |
-| False | 32 | torch.bfloat16 | True | None | None | None | None | 1361.733349 | 15.808660 | 23.499461 |
-| False | 32 | torch.bfloat16 | True | None | None | sparse (cusparselt) | sparse (cusparselt) | 1245.151100 | 15.462827 | 25.699692 |
-| False | 32 | torch.bfloat16 | True | None | None | sparse (cutlass) | sparse (cutlass) | 1251.047651 | 15.411250 | 25.578562 |
-| False | 32 | torch.bfloat16 | True | sparse (cusparselt) | sparse (cusparselt) | sparse (cusparselt) | sparse (cusparselt) | 1265.426255 | 12.705007 | 25.287922 |
-| False | 32 | torch.bfloat16 | True | sparse (cutlass) | sparse (cutlass) | sparse (cutlass) | sparse (cutlass) | 1274.955840 | 12.704523 | 25.098909 |
+The following benchmarks we run on an A100, with batch_size=32 and `bfloat16` dtype:
+
+| qkv | proj | lin1 | lin2 | time | memory | img/s |
+| ---- | ---- | ---- | ---- | ------ | ----- |
+| None | None | None | None | 1361.733349 | 15.808660 | 23.499461 |
+| None | None | sparse (cusparselt) | sparse (cusparselt) | 1245.151100 | 15.462827 | 25.699692 |
+| None | None | sparse (cutlass) | sparse (cutlass) | 1251.047651 | 15.411250 | 25.578562 |
+| sparse (cusparselt) | sparse (cusparselt) | sparse (cusparselt) | sparse (cusparselt) | 1265.426255 | 12.705007 | 25.287922 |
+| sparse (cutlass) | sparse (cutlass) | sparse (cutlass) | sparse (cutlass) | 1274.955840 | 12.704523 | 25.098909 |
 
 #### BERT
 
