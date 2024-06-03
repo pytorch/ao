@@ -6,7 +6,6 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.testing._internal.common_utils import TestCase
-from torch.sparse import SparseSemiStructuredTensorCUSPARSELT
 
 from torchao.sparsity.prototype.training import (
     swap_linear_with_semi_sparse_linear_,
@@ -14,6 +13,8 @@ from torchao.sparsity.prototype.training import (
     SemiSparseLinear
 )
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
+if TORCH_VERSION_AFTER_2_3:
+    from torch.sparse import SparseSemiStructuredTensorCUSPARSELT
 
 class TestModel(nn.Module):
     def __init__(self):
