@@ -38,4 +38,14 @@ If you want to see the expected speedups of applying runtime semi-structured spa
 python benchmarks/benchmark_semi_sparse.py
 ```
 
+For VIT-L MLP shapes we see the following results:
+```
+[------------------------------------------------ mlpfwbw -------------------------------------------------]
+                                  |   act24   |   dense   |   w24    |  s24_inp_sparsify24  |  s24_inp_clone
+1 threads: -------------------------------------------------------------------------------------------------
+      f16 (44160,1024,4096,1024)  |  11881.0  |  11534.3  |  9204.7  |        255.1         |      125.8
+
+Times are in microseconds (us).
+```
+
 For more information about our API and how it works, please see our blog post.
