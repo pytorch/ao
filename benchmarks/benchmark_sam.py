@@ -1,3 +1,4 @@
+import argparse
 from itertools import product
 
 import pandas as pd
@@ -113,14 +114,16 @@ def run_once(block_only=False, dtype=torch.bfloat16, batchsize=32, compile=True,
 
 if __name__ == "__main__":
     print("BENCHMARKING")
+    parser = argparse.ArgumentParser(description='Process some integers.')
+    parser.add_argument('--eager', action='store_true', help='enable/disable torch.compile')
+    args = parser.parse_args()
     # ALL_RUNS = [run_once(qkv="quant+sparse (cutlass)", proj="quant", lin1="quant+sparse (cutlass)", lin2="quant+sparse (cutlass)")]
-
     ALL_RUNS = [
-        run_once(),
-        run_once(lin1="sparse (cusparselt)", lin2="sparse (cusparselt)"),
-        run_once(lin1="sparse (cutlass)", lin2="sparse (cutlass)"),
-        run_once(qkv="sparse (cusparselt)",       proj="sparse (cusparselt)",       lin1="sparse (cusparselt)",          lin2="sparse (cusparselt)"),
-        run_once(qkv="sparse (cutlass)",          proj="sparse (cutlass)",          lin1="sparse (cutlass)",             lin2="sparse (cutlass)"),
+        run_once(compile=not args.eager),
+        run_once(compile=not args.eager, lin1="sparse (cusparselt)", lin2="sparse (cusparselt)"),
+        run_once(compile=not args.eager, lin1="sparse (cutlass)", lin2="sparse (cutlass)"),
+        run_once(compile=not args.eager, qkv="sparse (cusparselt)",       proj="sparse (cusparselt)",       lin1="sparse (cusparselt)",          lin2="sparse (cusparselt)"),
+        run_once(compile=not args.eager, qkv="sparse (cutlass)",          proj="sparse (cutlass)",          lin1="sparse (cutlass)",             lin2="sparse (cutlass)"),
         # run_once(qkv="quant",                     proj="quant",                     lin1="quant",                        lin2="quant"),
         # run_once(qkv="quant+sparse (cusparselt)", proj="quant+sparse (cusparselt)", lin1="quant+sparse (cusparselt)",    lin2="quant+sparse (cutlass)"),
         # run_once(qkv="quant+sparse (cusparselt)", proj="quant",                     lin1="quant+sparse (cutlass)",       lin2="quant+sparse (cutlass)"),

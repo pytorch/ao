@@ -18,6 +18,37 @@ More concretely, we hope to provide tutorials and APIs for both sparse kernels (
 2. Recover accuracy loss of pruned model with custom pruning algorthim.
 3. Accelerate masked/pruned models on sparsity-supported hardware to realize performance improvements.
 
+## Success Stories
+
+#### segment-anything
+We applied 2:4 sparsity to accelerate segment-anything, as part of [segment-anything-fast](https://github.com/pytorch-labs/segment-anything-fast).
+The results mentioned in the REAADME of the repo compose sparsity with a suite of other inference acceleration techniques.
+
+From our benchmarking, we see a 1.1x speedup when running with SEGMENT_ANYTHING_FAST_USE_FLASH_4 enabled.
+
+```
+python benchmarks/benchmark_sam.py
+
+   block_only  batchsize           dtype  compile                  qkv                 proj                 lin1                 lin2         time     memory      img/s
+0       False         32  torch.bfloat16     True                 None                 None                 None                 None  1361.733349  15.808660  23.499461
+1       False         32  torch.bfloat16     True                 None                 None  sparse (cusparselt)  sparse (cusparselt)  1245.151100  15.462827  25.699692
+2       False         32  torch.bfloat16     True                 None                 None     sparse (cutlass)     sparse (cutlass)  1251.047651  15.411250  25.578562
+3       False         32  torch.bfloat16     True  sparse (cusparselt)  sparse (cusparselt)  sparse (cusparselt)  sparse (cusparselt)  1265.426255  12.705007  25.287922
+4       False         32  torch.bfloat16     True     sparse (cutlass)     sparse (cutlass)     sparse (cutlass)     sparse (cutlass)  1274.955840  12.704523  25.098909
+```
+
+#### BERT
+
+We were able to accelerate BERT 1.23x with a negligible accuracy drop on SQuAD.
+For more information about accelerting BERT with semi-sturcutred sparsity, please see our [tutorial](https://pytorch.org/tutorials/advanced/semi_structured_sparse.html?highlight=beta).
+
+| Metrics | fp16 | 2:4 sparse | delta / speedup |
+| --- | --- | --- | --- | --- |
+| Exact Match (%) | 78.53 | 78.44 | -0.09 |
+| F1 (%) | 86.93 | 86.49 | -0.44 |
+| Time (bs=16) | 19.35 | 15.74 | 1.23x |
+
+
 # Design
 
 Sparsity, like quantization, is an accuracy/performance trade-off, where we care not only about the speedup but also on the accuracy degradation of our architecture optimization technique.
