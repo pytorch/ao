@@ -51,7 +51,7 @@ if __name__ == '__main__':
     parser.add_argument('--task_list', nargs='+', type=str, default=["wikitext"], help='List of lm-eluther tasks to evaluate usage: --tasks task1 task2')
     parser.add_argument('--limit', type=int, default=None, help='Number of eval samples to evaluate')
     parser.add_argument('--precision', type=lambda x: getattr(torch, x.split(".")[-1]), default=torch.bfloat16, help='dtype precision to use')
-    parser.add_argument('--device', type=str, default="cuda", help='Dvice to use for evaluation')
+    parser.add_argument('--device', type=str, default="cuda", help='Device to use for evaluation')
     parser.add_argument('--quantization', default = "None", choices=["int8dq", "int8wo", "int4wo","autoquant", "None"], help='Which quantization technique to apply')
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
 
