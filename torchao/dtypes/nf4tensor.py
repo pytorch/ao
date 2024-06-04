@@ -698,12 +698,12 @@ class NF4Tensor(torch.Tensor):
         branch_points = (nf4[1:] + nf4[:-1]) / 2
         closest_nf4 = torch.full(
             value.shape, 
-            nf4.numel() - 1,
+            0,
             dtype=torch.uint8,
             device=nf4.device
         )
         for i in range(len(branch_points)):
-            closest_nf4 = torch.where(value < branch_points[i], closest_nf4, i+1)
+            closest_nf4 = torch.where(value <= branch_points[i], closest_nf4, i+1)
         return closest_nf4
 
     @staticmethod
