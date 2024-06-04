@@ -8,7 +8,7 @@ def _quantized_decomposed_quantize_per_channel_group_wrapper(*args, **kwargs):
     torch.ops.quantized_decomposed.quantize_per_channel_group is only available
     in PyTorch 2.3+ and recently changed signatures.
     """
-    from torchao.utils import TORCH_VERSION_AFTER_2_3
+    from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
     if TORCH_VERSION_AFTER_2_3:
         return torch.ops.quantized_decomposed.quantize_per_channel_group(*args, **kwargs)
     raise ImportError("Need torch.ops.quantized_decomposed.quantize_per_channel_group, which is only available with PyTorch 2.3 or later.")
@@ -21,7 +21,7 @@ def _quantized_decomposed_choose_qparams_per_token_asymmetric_wrapper(*args, **k
     torch.ops.quantized_decomposed.choose_qparams_per_token_asymmetric is only available
     in PyTorch 2.3+ and recently changed signatures.
     """
-    from torchao.utils import TORCH_VERSION_AFTER_2_3
+    from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
     if TORCH_VERSION_AFTER_2_3:
         return torch.ops.quantized_decomposed.choose_qparams_per_token_asymmetric(*args, **kwargs)
     raise ImportError("Need torch.ops.quantized_decomposed.choose_qparams_per_token_asymmetric, which is only available with PyTorch 2.3 or later.")
@@ -34,7 +34,7 @@ def _quantized_decomposed_dequantize_per_channel_group_wrapper(*args, **kwargs):
     torch.ops.quantized_decomposed.dequantize_per_channel_group is only available
     in PyTorch 2.3+ and recently changed signatures.
     """
-    from torchao.utils import TORCH_VERSION_AFTER_2_3
+    from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
     if TORCH_VERSION_AFTER_2_3:
         return torch.ops.quantized_decomposed.dequantize_per_channel_group(*args, **kwargs)
     raise ImportError("Need torch.ops.quantized_decomposed.dequantize_per_channel_group, which is only available with PyTorch 2.3 or later.")
