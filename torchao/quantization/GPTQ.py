@@ -1038,11 +1038,13 @@ class Int8DynActInt4WeightGPTQQuantizer(GPTQQuantizer):
         quant_min = -(2 ** (n_bit - 1))
         quant_max = 2 ** (n_bit - 1) - 1
 
-        self.quantize_func = lambda w, qparams: torch.ops.quantized_decomposed.quantize_per_channel_group(
+        from torchao._executorch_ops import _quantized_decomposed_quantize_per_channel_group_wrapper
+        self.quantize_func = lambda w, qparams: _quantized_decomposed_quantize_per_channel_group_wrapper(
             w, qparams[0], qparams[1], quant_min, quant_max, torch.int8, groupsize
         )
 
-        self.dequantize_func = lambda q, qparams: torch.ops.quantized_decomposed.dequantize_per_channel_group(
+        from torchao._executorch_ops import _quantized_decomposed_dequantize_per_channel_group_wrapper
+        self.dequantize_func = lambda q, qparams: _quantized_decomposed_dequantize_per_channel_group_wrapper(
             q,
             qparams[0],
             qparams[1],

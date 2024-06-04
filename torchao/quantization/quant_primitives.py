@@ -805,7 +805,8 @@ def group_quantize_tensor_symmetric(
     min_int = -(2 ** (n_bit - 1))
     # TODO: currently we don't know how to express torch.int4, we'll
     # add torch.int4 to core later
-    w_int8 = torchao.ops._quantized_decomposed_quantize_per_channel_group_wrapper(
+    from torchao._executorch_ops import _quantized_decomposed_quantize_per_channel_group_wrapper
+    w_int8 = _quantized_decomposed_quantize_per_channel_group_wrapper(
         w, scales, zeros, min_int, max_int, torch.int8, group_size
     )
 
@@ -850,20 +851,23 @@ def group_quantize_tensor_symmetric(
     def per_token_dynamic_quant(input: torch.Tensor) -> torch.Tensor:
         orig_dtype = input.dtype
         # TODO: we may need to make the choose_qparams op configurable
+        from torchao._executorch_ops import _quantized_decomposed_choose_qparams_per_token_asymmetric_wrapper
         (
             scales,
             zero_points,
-        ) = torchao.ops._quantized_decomposed_choose_qparams_per_token_asymmetric_wrapper(
+        ) = _quantized_decomposed_choose_qparams_per_token_asymmetric_wrapper(
             input, torch.int8
         )
 
         # TODO: get these from torch.int8
         quant_min = -128
         quant_max = 127
-        input = torch.ops.quantized_decomposed.quantize_per_token(
+        from torchao._executorch_ops import _quantized_decomposed_quantize_per_token
+        input = _quantized_decomposed_quantize_per_token(
             input, scales, zero_points, quant_min, quant_max, torch.int8
         )
-        input = torch.ops.quantized_decomposed.dequantize_per_token(
+        from torchao._executorch_ops import _quantized_decomposed_dequantize_per_token
+        input = _quantized_decomposed_dequantize_per_token(
             input, scales, zero_points, quant_min, quant_max, torch.int8, orig_dtype
         )
         return input.to(orig_dtype)
