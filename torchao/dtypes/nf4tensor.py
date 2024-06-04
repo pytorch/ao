@@ -476,6 +476,7 @@ class NF4Tensor(torch.Tensor):
         inpt_tensor: torch.Tensor,
         block_size: int,
         scaler_block_size: int,
+        device: Optional[torch.device],
     ):
         assert inpt_tensor.dim() <= 2, f"expect input tensor dim <= 2 but got dim = {inpt_tensor.dim()}"
         assert (
@@ -484,7 +485,7 @@ class NF4Tensor(torch.Tensor):
         assert inpt_tensor.is_contiguous, "Input tensor must be contiguous!"
         # I think I want do this
         # assert not inpt_tensor.requires_grad, "Input tensor must not require grad"
-        device = inpt_tensor.device
+        device = inpt_tensor.device if device is None else device
         # Cache the tensor on the class def
         nf4 = torch.tensor(
             [
@@ -883,8 +884,19 @@ def linear_nf4(input: torch.Tensor, weight: NF4Tensor) -> torch.Tensor:
     return LinearNF4.apply(input, weight)
 
 
-def to_nf4(tensor, block_size: int = 64, scaler_block_size: int = 256):
-    return NF4Tensor.from_tensor(tensor, block_size, scaler_block_size)
+def to_nf4(tensor, block_size: int = 64, scaler_block_size: int = 256, device=None):
+    """Returns an NF4Tensor, which is a Tensor of using NF4 as a dtype.
+    Behaves similar to torch.Tensor.to, but with support for special arguments
+    needed to specify the NF4 dtype.
+
+    Args:
+        tensor: Input tensor
+        block_size: Size of the quantization block (default: 64)
+        scaler_block_size: Block size for the scalar quantization (default: 256)
+        device (default device of tensor)
+    """
+
+    return NF4Tensor.from_tensor(tensor, block_size, scaler_block_size, device)
 
 
 NF4_TORCH_FUNCTIONS = {}
