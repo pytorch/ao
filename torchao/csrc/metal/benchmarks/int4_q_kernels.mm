@@ -244,7 +244,8 @@ template <unsigned groupSize> struct Int4MMBase {
     auto captureManager = [MTLCaptureManager sharedCaptureManager];
     auto captureDescriptor = [MTLCaptureDescriptor new];
     captureDescriptor.captureObject = queue;
-    if (not [captureManager supportsDestination:MTLCaptureDestinationGPUTraceDocument]) {
+    if (not [captureManager
+            supportsDestination:MTLCaptureDestinationGPUTraceDocument]) {
       std::cout << "Capturing to a GPU trace file isn't supported.\n";
     }
     captureDescriptor.destination = MTLCaptureDestinationGPUTraceDocument;
@@ -263,11 +264,11 @@ template <unsigned groupSize> struct Int4MMBase {
     if (!validate<T>()) {
       fail("Failed to validate" + lib_name);
     }
-    auto gflops = ((long)M * (long)N * (long)K * 1e-9) / measure_time(200, do_compute);
+    auto gflops =
+        ((long)M * (long)N * (long)K * 1e-9) / measure_time(200, do_compute);
     std::cout << "Perf of " << lib_name << " type " << type_string<T>()
-              << " group size " << groupSize
-              << " dim " << M << "x" << N << "x" << K << " is " << gflops
-              << " GFLOPs" << std::endl;
+              << " group size " << groupSize << " dim " << M << "x" << N << "x"
+              << K << " is " << gflops << " GFLOPs" << std::endl;
     return gflops;
   }
 
@@ -285,11 +286,11 @@ private:
   }
 
 public:
-  unsigned M, N, K;     // Input-output matirx dims
-  id<MTLBuffer> buf_A;  // MxK elements
-  id<MTLBuffer> buf_B;  // NxK elements
-  id<MTLBuffer> buf_C;  // MxN elements
-  id<MTLBuffer> buf_scales; // (K/groupSize)xNx2 elements
+  unsigned M, N, K;             // Input-output matirx dims
+  id<MTLBuffer> buf_A;          // MxK elements
+  id<MTLBuffer> buf_B;          // NxK elements
+  id<MTLBuffer> buf_C;          // MxN elements
+  id<MTLBuffer> buf_scales;     // (K/groupSize)xNx2 elements
   id<MTLBuffer> buf_zero_point; // (K/groupSize)xNx2 elements
   id<MTLLibrary> lib;
   std::string lib_name;
