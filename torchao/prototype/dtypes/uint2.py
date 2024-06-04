@@ -297,7 +297,6 @@ class UInt2Tensor(torch.Tensor):
                     torch.ops.aten.slice.Tensor(self.elem, dim, start, end, step)
                 )
         elif func is torch.ops.aten.t.default:
-            # assert False, "transpose is not properly implemented currently"
             (self,) = args
             unpacked = unpack_uint2(self.elem)
             transposed = torch.ops.aten.t.default(unpacked)
@@ -329,13 +328,45 @@ class UInt2Tensor(torch.Tensor):
                     self.elem, size, stride, storage_offset
                 )
             )
-
-        raise NotImplementedError(f"{func}")
+        ## /clamp_/round <- values
+        elif func is torch.ops.aten.min:     
+            self, dim, keepdim = fill_defaults(args, 0, False)
+            unpacked = unpack_uint2(self.elem).view(self.shape)
+            min_result = torch.ops.aten.min(unpacked, dim, keepdim)
+            return min_result
+        elif func is torch.ops.aten.max:     
+            self, dim, keepdim = fill_defaults(args, 0, False)
+            unpacked = unpack_uint2(self.elem).view(self.shape)
+            max_result = torch.ops.aten.max(unpacked, dim, keepdim)
+            return max_result
+        elif func is torch.ops.aten.amin:     
+            self, dim, keepdim = fill_defaults(args, 0, False)
+            unpacked = unpack_uint2(self.elem).view(self.shape)
+            min_result = torch.ops.aten.amin(unpacked, dim, keepdim)
+            return min_result
+        elif func is torch.ops.aten.amax:     
+            self, dim, keepdim = fill_defaults(args, 0, False)
+            unpacked = unpack_uint2(self.elem).view(self.shape)
+            max_result = torch.ops.aten.amax(unpacked, dim, keepdim)
+            return max_result
+        elif func is torch.ops.aten.clamp:
+            self, min_v, max_v = fill_defaults(args, None, None)
+            unpacked = unpack_uint2(self.elem).view(self.shape)
+            clamped_result = torch.ops.aten.clamp(unpacked, min_v, max_v)
+            return clamped_result
+        elif func is torch.ops.aten.abs:
+            self = args
+            unpacked = unpack_uint2(self.elem).view(self.shape)
+            abs_result = torch.ops.aten.abs(unpacked)
+            return abs_result
+        else:
+            raise NotImplementedError(f"{func}")
 
     __torch_function__ = torch._C._disabled_torch_function_impl
 
 
 def _quantize_int2(x: torch.Tensor, target_dtype: torch.dtype) -> torch.Tensor:
+    # should this just be addition or .sign? Is the .sign a trick here or could this be removed?
     quant = x.sign() + 1
 
     if target_dtype == torch.uint2:
