@@ -249,6 +249,7 @@ def dequantize_affine(
     Output:
       dequantized Tensor, with requested dtype or fp32
     """
+
     # TODO: validations
     # TODO: validate scale/zero_point dimensions are compatible with block_size
     assert input.dtype == input_dtype
@@ -266,7 +267,9 @@ def dequantize_affine(
         zero_point = zero_point.view(shape_after_reduction)
 
     if zero_point_domain == ZeroPointDomain.INT:
-        dequant = input.to(torch.int32)
+        # Force a copy to avoid input modification due
+        # to upcoming in-place operations.
+        dequant = input.to(torch.int32, copy=True)
         if zero_point is not None:
             dequant -= zero_point.to(torch.int32)
         dequant = dequant.to(output_dtype)
@@ -274,6 +277,7 @@ def dequantize_affine(
     else:
         assert zero_point_domain == ZeroPointDomain.FLOAT, f"Unexpected zero point domain: {zero_point_domain}"
         mid_point = (quant_max + quant_min + 1) / 2
+        # This should allocate new memory and avoid input modification
         dequant = input - mid_point
         dequant = dequant.to(output_dtype)
         dequant *= scale
