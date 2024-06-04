@@ -19,7 +19,9 @@ __all__ = [
     "_apply_logging_hook",
     "get_model_size_in_bytes",
     "unwrap_tensor_subclass",
+    "TORCH_VERSION_AFTER_2_2",
     "TORCH_VERSION_AFTER_2_3",
+    "TORCH_VERSION_AFTER_2_4",
 ]
 
 try:

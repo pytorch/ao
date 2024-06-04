@@ -10,16 +10,14 @@ import torch
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib
 from torch.library import impl
 
-from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
 from torchao.quantization.quant_primitives import get_group_qparams_symmetric
 from torchao.quantization.unified import TwoStepQuantizer
 
-
-if TORCH_VERSION_AFTER_2_4:
 from torchao.quantization.GPTQ import (
     _replace_linear_8da4w,
     Int8DynActInt4WeightLinear,
 )
+
 
 class Int8DynActInt4WeightQATQuantizer(TwoStepQuantizer):
     """

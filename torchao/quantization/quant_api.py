@@ -26,7 +26,6 @@ from typing import Any, Callable
 
 from .dynamic_quant import DynamicallyPerAxisQuantizedLinear
 from .utils import (
-    TORCH_VERSION_AFTER_2_3,
     TORCH_VERSION_AFTER_2_4,
     unwrap_tensor_subclass,
 )
@@ -72,16 +71,15 @@ __all__ = [
     "get_apply_int8dyn_quant",
 ]
 
-if TORCH_VERSION_AFTER_2_3:
-    from .GPTQ import (
-        Int8DynActInt4WeightQuantizer,
-        Int8DynActInt4WeightGPTQQuantizer,
+from .GPTQ import (
+    Int8DynActInt4WeightQuantizer,
+    Int8DynActInt4WeightGPTQQuantizer,
 
-    )
-    __all__ += [
-        "Int8DynActInt4WeightQuantizer",
-        "Int8DynActInt4WeightGPTQQuantizer",
-    ]
+)
+__all__ += [
+    "Int8DynActInt4WeightQuantizer",
+    "Int8DynActInt4WeightGPTQQuantizer",
+]
 
 
 def _replace_with_custom_fn_if_matches_filter(
