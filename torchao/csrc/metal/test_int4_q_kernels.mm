@@ -11,7 +11,7 @@
 #include <string>
 
 /*
-   This code is largely copy paste from Nikit Shulga's llm_experiments repo
+   This code is largely copy paste from Nikita Shulga's llm_experiments repo
 */
 
 void fail(const std::string &str) {
@@ -192,7 +192,7 @@ template <unsigned groupSize> struct Int4MMBase {
     return true;
   }
 
-  template <typename T> float run_and_validate() {
+  template <typename T> bool run_and_validate() {
     init<T>();
     id<MTLFunction> func = [lib
         newFunctionWithName:[NSString
@@ -283,7 +283,9 @@ int main() {
     Int4MV<groupSize> int4mv_tester(device, "int4_quantized_kernels", M, N, K);
 
     // Benchmarks
-    int4mv_tester.run_and_validate<BFloat16>();
+    if (!int4mv_tester.run_and_validate<BFloat16>()) {
+      fail("Failed to validate");
+    };
   }
   return 0;
 }
