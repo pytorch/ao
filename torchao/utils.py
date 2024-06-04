@@ -1,5 +1,8 @@
 import torch
 import torch.utils.benchmark as benchmark
+from typing import Tuple
+from functools import reduce
+from math import gcd
 
 
 def benchmark_model(model, num_runs, input_tensor):
@@ -55,3 +58,10 @@ def benchmark_torch_function_in_microseconds(f, *args, **kwargs):
     )
     measurement = t0.blocked_autorange()
     return measurement.mean * 1e6
+
+
+def find_multiple(n: int, *args: Tuple[int]) -> int:
+    k: int = reduce(lambda x, y: x * y // gcd(x, y), args + (1,))  # type: ignore[9]
+    if n % k == 0:
+        return n
+    return n + k - (n % k)
