@@ -1,11 +1,5 @@
 import torch
 
-# Executorch does not support generic IR, so if we want users to run on executorch after
-# torch.export we need to emit exact IR. These wrappers allow us to build a layer of 
-# compatibility across versions and keep a fixed API. It also allows us to emit a
-# decomposition for older versions of PyTorch without export or executorch support
-# to make it easier for users.
-
 def _quantized_decomposed_quantize_per_channel_group_wrapper(*args, **kwargs):
     """
     Wrapper around torch.ops.quantized_decomposed.quantize_per_channel_group to mitigate
