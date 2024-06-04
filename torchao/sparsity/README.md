@@ -18,6 +18,44 @@ More concretely, we hope to provide tutorials and APIs for both sparse kernels (
 2. Recover accuracy loss of pruned model with custom pruning algorthim.
 3. Accelerate masked/pruned models on sparsity-supported hardware to realize performance improvements.
 
+## Success Stories
+
+#### segment-anything
+We applied 2:4 sparsity to accelerate segment-anything, as part of [segment-anything-fast](https://github.com/pytorch-labs/segment-anything-fast).
+The results mentioned in the README of the repo compose sparsity with a suite of other inference acceleration techniques.
+
+From our [benchmarking](https://github.com/pytorch/ao/blob/main/benchmarks/benchmark_sam.py), we see a 1.1x speedup when running with `SEGMENT_ANYTHING_FAST_USE_FLASH_4` enabled.
+To reproduce these benchmarks you can run the following command:
+
+The inference acceleration of semi-structured sparsity depends on the matmul shapes, which is why we don't see additional speedups when applying to all linear layers (attn + mlp) of segment-anything.
+We find that accelerating the MLP linear layers provied the most speedups (`lin1`, `lin2`). To repoduce our benchmarks you can run the following command:
+
+```
+python benchmarks/benchmark_sam.py
+```
+
+The following benchmarks we run on an A100, with batch_size=32 and `bfloat16` dtype:
+
+| qkv  | proj | lin1 | lin2 | time | memory | img/s |
+| ---- | ---- | ---- | ---- | ---- | ------ | ----- |
+| None | None | None | None | 1361.73 | 15.81 | 23.50 |
+| None | None | sparse (cusparselt) | sparse (cusparselt) | 1245.15 | 15.46 | 25.70 |
+| None | None | sparse (cutlass) | sparse (cutlass) | 1251.047651 | 15.41 | 25.59 |
+| sparse (cusparselt) | sparse (cusparselt) | sparse (cusparselt) | sparse (cusparselt) | 1265.43 | 12.71 | 25.29|
+| sparse (cutlass) | sparse (cutlass) | sparse (cutlass) | sparse (cutlass) | 1274.96 | 12.70 | 25.10 |
+
+#### BERT
+
+We were able to accelerate BERT 1.23x on an A100 with a negligible accuracy drop on SQuAD.
+For more information about accelerting BERT with semi-sturcutred sparsity, please see our [tutorial](https://pytorch.org/tutorials/advanced/semi_structured_sparse.html?highlight=beta).
+
+| Metrics | fp16 | 2:4 sparse | delta / speedup |
+| --- | --- | --- | --- |
+| Exact Match (%) | 78.53 | 78.44 | -0.09 |
+| F1 (%) | 86.93 | 86.49 | -0.44 |
+| Time (bs=16) | 19.35 | 15.74 | 1.23x |
+
+
 # Design
 
 Sparsity, like quantization, is an accuracy/performance trade-off, where we care not only about the speedup but also on the accuracy degradation of our architecture optimization technique.

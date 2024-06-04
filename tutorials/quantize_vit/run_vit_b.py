@@ -1,10 +1,11 @@
 import torch
-import torchvision.models.vision_transformer as models
 
 from torchao.utils import benchmark_model, profiler_runner
+from torchvision import models
+
 torch.set_float32_matmul_precision("high")
 # Load Vision Transformer model
-model = models.vit_b_16(pretrained=True)
+model = models.vit_b_16(weights=models.ViT_B_16_Weights.IMAGENET1K_V1)
 
 # Set the model to evaluation mode
 model.eval().cuda().to(torch.bfloat16)
