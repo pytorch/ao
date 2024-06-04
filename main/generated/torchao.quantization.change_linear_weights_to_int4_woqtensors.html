@@ -387,11 +387,20 @@
 <h1>change_linear_weights_to_int4_woqtensors<a class="headerlink" href="#change-linear-weights-to-int4-woqtensors" title="Permalink to this heading">¶</a></h1>
 <dl class="py function">
 <dt class="sig sig-object py" id="torchao.quantization.change_linear_weights_to_int4_woqtensors">
-<span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">change_linear_weights_to_int4_woqtensors</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">model</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/quant_api.html#change_linear_weights_to_int4_woqtensors"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.change_linear_weights_to_int4_woqtensors" title="Permalink to this definition">¶</a></dt>
+<span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">change_linear_weights_to_int4_woqtensors</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">model</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">groupsize</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">128</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inner_k_tiles</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">8</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">filter_fn</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/quant_api.html#change_linear_weights_to_int4_woqtensors"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.change_linear_weights_to_int4_woqtensors" title="Permalink to this definition">¶</a></dt>
 <dd><p>Converts all linear weight tensors to the
 <cite>Int4WeightOnlyQuantizedLinearWeight</cite> tensor subclass,
 effectively applying the same form of quantization
 as apply_dynamic_quant while not modifying the linear modules.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>groupsize</strong> – parameter for quantization, controls the granularity of quantization, smaller
+size is more fine grained, choices are [256, 128, 64, 32]</p></li>
+<li><p><strong>inner_k_tiles</strong> – parameter for int4 mm kernel, choices are [8, 4, 2]</p></li>
+</ul>
+</dd>
+</dl>
 </dd></dl>
 
 </section>
