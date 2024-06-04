@@ -813,61 +813,61 @@ def group_quantize_tensor_symmetric(
     return w_int8, scales, zeros
 
 
-    def down_size(size):
-        assert size[-1] % 2 == 0, f"{size} last dim not divisible by two"
-        return (*size[:-1], size[-1] // 2)
+def down_size(size):
+    assert size[-1] % 2 == 0, f"{size} last dim not divisible by two"
+    return (*size[:-1], size[-1] // 2)
 
 
-    def up_size(size):
-        return (*size[:-1], size[-1] * 2)
+def up_size(size):
+    return (*size[:-1], size[-1] * 2)
 
 
-    quantized_decomposed_lib.define("pack_int4_from_int8(Tensor int8_data) -> Tensor")
+quantized_decomposed_lib.define("pack_int4_from_int8(Tensor int8_data) -> Tensor")
 
 
-    @impl(quantized_decomposed_lib, "pack_int4_from_int8", "CompositeExplicitAutograd")
-    def pack_int4_from_int8(int8_data: torch.Tensor) -> torch.Tensor:
-        # converting to uint8 for operations
-        shape = int8_data.shape
-        assert shape[-1] % 2 == 0
-        int8_data = int8_data.contiguous().view(-1)
-        return (int8_data[::2] << 4 | int8_data[1::2]).view(down_size(shape))
+@impl(quantized_decomposed_lib, "pack_int4_from_int8", "CompositeExplicitAutograd")
+def pack_int4_from_int8(int8_data: torch.Tensor) -> torch.Tensor:
+    # converting to uint8 for operations
+    shape = int8_data.shape
+    assert shape[-1] % 2 == 0
+    int8_data = int8_data.contiguous().view(-1)
+    return (int8_data[::2] << 4 | int8_data[1::2]).view(down_size(shape))
 
 
-    quantized_decomposed_lib.define("unpack_int4_to_int8(Tensor int8_data) -> Tensor")
+quantized_decomposed_lib.define("unpack_int4_to_int8(Tensor int8_data) -> Tensor")
 
 
-    @impl(quantized_decomposed_lib, "unpack_int4_to_int8", "CompositeExplicitAutograd")
-    def unpack_int4_to_int8(int8_data: torch.Tensor) -> torch.Tensor:
-        """ Get the original weight from the normalized float weight format"""
-        # since we are using int8 we will decode 2 entries per byte
-        # Shift elements down 4 and select out the bottom 4 bits
-        shape = int8_data.shape
-        first_elements = (int8_data >> 4).to(torch.int8)
-        second_elements = (int8_data & 0b1111).to(torch.int8)
-        return torch.stack([first_elements, second_elements], dim=-1).view(up_size(shape))
+@impl(quantized_decomposed_lib, "unpack_int4_to_int8", "CompositeExplicitAutograd")
+def unpack_int4_to_int8(int8_data: torch.Tensor) -> torch.Tensor:
+    """ Get the original weight from the normalized float weight format"""
+    # since we are using int8 we will decode 2 entries per byte
+    # Shift elements down 4 and select out the bottom 4 bits
+    shape = int8_data.shape
+    first_elements = (int8_data >> 4).to(torch.int8)
+    second_elements = (int8_data & 0b1111).to(torch.int8)
+    return torch.stack([first_elements, second_elements], dim=-1).view(up_size(shape))
 
 
-    def per_token_dynamic_quant(input: torch.Tensor) -> torch.Tensor:
-        orig_dtype = input.dtype
-        # TODO: we may need to make the choose_qparams op configurable
-        from torchao._executorch_ops import _quantized_decomposed_choose_qparams_per_token_asymmetric_wrapper
-        (
-            scales,
-            zero_points,
-        ) = _quantized_decomposed_choose_qparams_per_token_asymmetric_wrapper(
-            input, torch.int8
-        )
+def per_token_dynamic_quant(input: torch.Tensor) -> torch.Tensor:
+    orig_dtype = input.dtype
+    # TODO: we may need to make the choose_qparams op configurable
+    from torchao._executorch_ops import _quantized_decomposed_choose_qparams_per_token_asymmetric_wrapper
+    (
+        scales,
+        zero_points,
+    ) = _quantized_decomposed_choose_qparams_per_token_asymmetric_wrapper(
+        input, torch.int8
+    )
 
-        # TODO: get these from torch.int8
-        quant_min = -128
-        quant_max = 127
-        from torchao._executorch_ops import _quantized_decomposed_quantize_per_token
-        input = _quantized_decomposed_quantize_per_token(
-            input, scales, zero_points, quant_min, quant_max, torch.int8
-        )
-        from torchao._executorch_ops import _quantized_decomposed_dequantize_per_token
-        input = _quantized_decomposed_dequantize_per_token(
-            input, scales, zero_points, quant_min, quant_max, torch.int8, orig_dtype
-        )
-        return input.to(orig_dtype)
+    # TODO: get these from torch.int8
+    quant_min = -128
+    quant_max = 127
+    from torchao._executorch_ops import _quantized_decomposed_quantize_per_token
+    input = _quantized_decomposed_quantize_per_token(
+        input, scales, zero_points, quant_min, quant_max, torch.int8
+    )
+    from torchao._executorch_ops import _quantized_decomposed_dequantize_per_token
+    input = _quantized_decomposed_dequantize_per_token(
+        input, scales, zero_points, quant_min, quant_max, torch.int8, orig_dtype
+    )
+    return input.to(orig_dtype)
