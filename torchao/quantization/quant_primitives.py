@@ -862,12 +862,12 @@ def per_token_dynamic_quant(input: torch.Tensor) -> torch.Tensor:
     # TODO: get these from torch.int8
     quant_min = -128
     quant_max = 127
-    from torchao._executorch_ops import _quantized_decomposed_quantize_per_token
-    input = _quantized_decomposed_quantize_per_token(
+    from torchao._executorch_ops import _quantized_decomposed_quantize_per_token_wrapper
+    input = _quantized_decomposed_quantize_per_token_wrapper(
         input, scales, zero_points, quant_min, quant_max, torch.int8
     )
-    from torchao._executorch_ops import _quantized_decomposed_dequantize_per_token
-    input = _quantized_decomposed_dequantize_per_token(
+    from torchao._executorch_ops import _quantized_decomposed_dequantize_per_token_wrapper
+    input = _quantized_decomposed_dequantize_per_token_wrapper(
         input, scales, zero_points, quant_min, quant_max, torch.int8, orig_dtype
     )
     return input.to(orig_dtype)

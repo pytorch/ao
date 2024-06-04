@@ -778,8 +778,8 @@ def linear_forward_8da4w(
     n_bit = 4
     quant_min = -(2 ** (n_bit - 1))
     quant_max = 2 ** (n_bit - 1) - 1
-    from torchao._executorch_ops import _quantized_decomposed_dequantize_per_channel_group
-    w_dq = _quantized_decomposed_dequantize_per_channel_group(
+    from torchao._executorch_ops import _quantized_decomposed_dequantize_per_channel_group_wrapper
+    w_dq = _quantized_decomposed_dequantize_per_channel_group_wrapper(
         weight_int8,
         scales,
         zeros,
