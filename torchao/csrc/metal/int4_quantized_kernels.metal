@@ -15,9 +15,10 @@ template <> struct Vec4Type<bfloat> { using type = bfloat4; };
 template <typename T, unsigned groupSize>
 kernel void int4pack_mv(constant T *A [[buffer(0)]],
                         constant uchar *B [[buffer(1)]],
-                        constant T *scalesAndZeros [[buffer(2)]],
-                        device T *outputData [[buffer(3)]],
-                        constant uint3 &sizes [[buffer(4)]], // M, K, N
+    constant T                 * scales_ptr     [[buffer(2)]],
+    constant T                 * zeros_ptr      [[buffer(3)]],
+    device   T                 * outputData     [[buffer(4)]],
+    constant uint3             & sizes          [[buffer(5)]], // M, K, N
                         uint thread_index [[thread_position_in_grid]],
                         uint tid_in_simdgroup [[thread_index_in_simdgroup]]) {
   constexpr uint threads_per_channel = 32;
@@ -39,33 +40,16 @@ kernel void int4pack_mv(constant T *A [[buffer(0)]],
   float4 act_div_scales = {1.f, 1 / 16.f, 1 / 256.f, 1 / 4096.f};
 
   uint k_block_index = k / groupSize;
-  uint scales_n_offset = (k_block_index * N + n) * 2;
-  uint zeros_n_offset = scales_n_offset + 1;
-  uint scales_jump =
-      N * 2 *
-      (k_jump /
-       groupSize); /* the last term accounts for identifying the group this
-                      thread will have to process in each iteration. This mean
-                      each iteration it must jump to a different group. Thus
-                      k_jump must be > grupSize */
+  uint sz_n_offset = (k_block_index * N + n);
+  uint sz_jump = N * (k_jump / groupSize); /* accounts for identifying the group this thread will have to process in each iteration. This mean each iteration it must jump to a different group. Thus k_jump must be > grupSize */
   for (; k < K; k += k_jump) {
-    const T scale0 = scalesAndZeros[scales_n_offset];
+      vecT scales = (reinterpret_cast<constant vecT*>(scales_ptr + sz_n_offset))[0];
     // Adding zero point results in 10% perf penalty.
-    const T zero0 = scalesAndZeros[zeros_n_offset] - scale0 * T(8);
+      vecT zeros = (reinterpret_cast<constant vecT*>(zeros_ptr + sz_n_offset))[0];
+      zeros = zeros - scales * T(8);
+      float4 zeros_float = float4(zeros);
 
-    const T scale1 = scalesAndZeros[scales_n_offset + 2];
-    const T zero1 = scalesAndZeros[zeros_n_offset + 2] - scale1 * T(8);
-
-    const T scale2 = scalesAndZeros[scales_n_offset + 4];
-    const T zero2 = scalesAndZeros[zeros_n_offset + 4] - scale2 * T(8);
-
-    const T scale3 = scalesAndZeros[scales_n_offset + 6];
-    const T zero3 = scalesAndZeros[zeros_n_offset + 6] - scale3 * T(8);
-
-    scales_n_offset += scales_jump;
-    zeros_n_offset += scales_jump;
-
-    const float4 zeros = float4(zero0, zero1, zero2, zero3);
+      sz_n_offset += sz_jump;
 
     float4 a_val = float4(A_ptr[k / 4]);   // * k_scales;
     float4 a_vec = a_val * act_div_scales; // * k_scales;
@@ -80,17 +64,17 @@ kernel void int4pack_mv(constant T *A [[buffer(0)]],
         B_ptr + (k + 2 * K) / k_pack_factor))[0];
     ushort b_val3 = (reinterpret_cast<constant ushort *>(
         B_ptr + (k + 3 * K) / k_pack_factor))[0];
-    b_mat[0] = scale0 * float4(float(b_val0 & 0x000f), float(b_val0 & 0x00f0),
+    b_mat[0] = scales[0] * float4(float(b_val0 & 0x000f), float(b_val0 & 0x00f0),
                                float(b_val0 & 0x0f00), float(b_val0 & 0xf000));
-    b_mat[1] = scale1 * float4(float(b_val1 & 0x000f), float(b_val1 & 0x00f0),
+    b_mat[1] = scales[1] * float4(float(b_val1 & 0x000f), float(b_val1 & 0x00f0),
                                float(b_val1 & 0x0f00), float(b_val1 & 0xf000));
-    b_mat[2] = scale2 * float4(float(b_val2 & 0x000f), float(b_val2 & 0x00f0),
+    b_mat[2] = scales[2] * float4(float(b_val2 & 0x000f), float(b_val2 & 0x00f0),
                                float(b_val2 & 0x0f00), float(b_val2 & 0xf000));
-    b_mat[3] = scale3 * float4(float(b_val3 & 0x000f), float(b_val3 & 0x00f0),
+    b_mat[3] = scales[3] * float4(float(b_val3 & 0x000f), float(b_val3 & 0x00f0),
                                float(b_val3 & 0x0f00), float(b_val3 & 0xf000));
 
     rc += a_vec * b_mat;
-    rc += a_val_sum * zeros;
+    rc += a_val_sum * zeros_float;
   }
   rc += simd_shuffle_down(rc, 1);
   rc += simd_shuffle_down(rc, 2);
@@ -106,9 +90,10 @@ kernel void int4pack_mv(constant T *A [[buffer(0)]],
   template [[host_name("int4pack_mv_" #GSIZE "_" #DTYPE)]] kernel void         \
   int4pack_mv<DTYPE, GSIZE>(                                                   \
       constant DTYPE * A [[buffer(0)]], constant uchar * B [[buffer(1)]],      \
-      constant DTYPE * scalesAndZeros [[buffer(2)]],                           \
-      device DTYPE * outputData [[buffer(3)]],                                 \
-      constant uint3 & sizes [[buffer(4)]],                                    \
+    constant DTYPE             * scales_ptr     [[buffer(2)]],           \
+    constant DTYPE             * zeros_ptr      [[buffer(3)]],           \
+    device   DTYPE             * outputData     [[buffer(4)]],           \
+    constant uint3             & sizes          [[buffer(5)]],           \
       uint thread_index [[thread_position_in_grid]],                           \
       uint tid_in_simdgroup [[thread_index_in_simdgroup]])
 

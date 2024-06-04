@@ -166,7 +166,8 @@ class Linear {
     input = allocSharedBuffer(device, M * K * elem_size);
     weight = allocSharedBuffer(device, N * K / 2);
     output = allocSharedBuffer(device, M * N * elem_size);
-    scales_and_zero_points = allocSharedBuffer(device, N * K / group_size * 2 * elem_size);
+    scales = allocSharedBuffer(device, N * K / group_size * elem_size);
+    zero_points = allocSharedBuffer(device, N * K / group_size * elem_size);
   }
 
   Linear(const Linear& other) = delete;
@@ -194,11 +195,12 @@ class Linear {
       [encoder setComputePipelineState:cpl];
       [encoder setBuffer:input offset:0 atIndex:0];
       [encoder setBuffer:weight offset:0 atIndex:1];
-      [encoder setBuffer:scales_and_zero_points offset:0 atIndex:2];
-      [encoder setBuffer:output offset:0 atIndex:3];
+      [encoder setBuffer:scales offset:0 atIndex:2];
+      [encoder setBuffer:zero_points offset:0 atIndex:3];
+      [encoder setBuffer:output offset:0 atIndex:4];
       [encoder setBytes:sizes.data()
                  length:sizeof(uint32_t) * sizes.size()
-                atIndex:4];
+                atIndex:5];
       [encoder dispatchThreads:MTLSizeMake(N/4 * 32, 1, 1)
           threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];
     }
@@ -213,7 +215,8 @@ class Linear {
   id<MTLBuffer> input; // MxK elements
   id<MTLBuffer> output; // NxK elements
   id<MTLBuffer> weight; // MxN elements
-  id<MTLBuffer> scales_and_zero_points; // (K/groupSize)xNx2 elements
+  id<MTLBuffer> scales; // (K/groupSize)xN elements
+  id<MTLBuffer> zero_points; // (K/groupSize)xN elements
   MetalShaderLibrary lib;
 };
 
