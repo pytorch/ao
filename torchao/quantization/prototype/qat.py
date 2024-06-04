@@ -85,7 +85,8 @@ def _convert_qat_linear_8da4w(module: torch.nn.Module):
             n_bit = 4
             (qmin, qmax) = child._get_qmin_qmax(n_bit)
             (s, zp) = get_group_qparams_symmetric(child.weight, n_bit, child.groupsize)
-            q_weight = torchao._ops._quantized_decomposed_quantize_per_channel_group(
+            from torchao._executorch_ops import _quantized_decomposed_quantize_per_channel_group_wrapper
+            q_weight = _quantized_decomposed_quantize_per_channel_group_wrapper(
                 child.weight, s, zp, qmin, qmax, torch.int8, child.groupsize,
             )
             quantized_linear.weight = q_weight
