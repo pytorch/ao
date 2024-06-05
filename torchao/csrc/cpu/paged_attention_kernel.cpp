@@ -1,4 +1,5 @@
 #include <ATen/ATen.h>
+#include <ATen/AccumulateType.h>
 #include <ATen/Dispatch.h>
 #include <ATen/Parallel.h>
 #include <ATen/core/Tensor.h>
@@ -7,7 +8,6 @@
 #include <ATen/native/CPUBlas.h>
 #include <ATen/native/cpu/utils.h>
 #include <c10/util/irange.h>
-#include <ATen/AccumulateType.h>
 
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
@@ -16,10 +16,10 @@
 #endif
 
 #include <ATen/Tensor.h>
-#include <torch/all.h>
-#include <torch/csrc/autograd/function.h>
 #include <limits>
 #include <omp.h>
+#include <torch/all.h>
+#include <torch/csrc/autograd/function.h>
 
 #define PARTITION_SIZE 256
 
@@ -28,24 +28,19 @@ namespace torchao {
 namespace {
 
 template <typename scalar_t, typename accum_t>
-void reduce_head(
-    const scalar_t* q_ptr_start,
-    const scalar_t* k_cache_start,
-    accum_t* attn_w_pos,
-    int64_t head_size) {
-  attn_w_pos[0] = 0;  
+void reduce_head(const scalar_t *q_ptr_start, const scalar_t *k_cache_start,
+                 accum_t *attn_w_pos, int64_t head_size) {
+  attn_w_pos[0] = 0;
   for (long i = 0; i < head_size; i++) {
     attn_w_pos[0] += q_ptr_start[i] * k_cache_start[i];
   }
 }
 
-//BF16
+// BF16
 template <>
-void reduce_head<at::BFloat16, float>(
-    const at::BFloat16* q_ptr_start,
-    const at::BFloat16* k_cache_start,
-    float* attn_w_pos,
-    int64_t head_size) {
+void reduce_head<at::BFloat16, float>(const at::BFloat16 *q_ptr_start,
+                                      const at::BFloat16 *k_cache_start,
+                                      float *attn_w_pos, int64_t head_size) {
   attn_w_pos[0] = 0;
   using lpVec = at::vec::Vectorized<at::BFloat16>;
   using fVec = at::vec::Vectorized<float>;
@@ -55,25 +50,19 @@ void reduce_head<at::BFloat16, float>(
     auto tmpq = lpVec::loadu(q_ptr_start + i);
     auto tmpk = lpVec::loadu(k_cache_start + i);
     fVec tmpq1, tmpq2, tmpk1, tmpk2;
-    //convert to float 
+    // convert to float
     std::tie(tmpq1, tmpq2) = at::vec::convert_to_float(tmpq);
     std::tie(tmpk1, tmpk2) = at::vec::convert_to_float(tmpk);
     vec_tmp_sum = vec_tmp_sum + tmpq1 * tmpk1 + tmpq2 * tmpk2;
   }
   attn_w_pos[0] = at::vec::vec_reduce_all<>(
-      [](fVec& x, fVec& y) {
-        return x + y;
-      },
-  vec_tmp_sum);
+      [](fVec &x, fVec &y) { return x + y; }, vec_tmp_sum);
 }
 
 template <typename scalar_t, typename accum_t>
 inline void mul_attenion_weights_and_value_of_head(
-    const accum_t& attn_w,
-    const scalar_t* v_cache_start,
-    accum_t* attn_out_start,
-    int64_t head_size,
-    bool accumulated) {
+    const accum_t &attn_w, const scalar_t *v_cache_start,
+    accum_t *attn_out_start, int64_t head_size, bool accumulated) {
   for (auto hsi = 0; hsi < head_size; hsi++) {
     if (accumulated) {
       attn_out_start[hsi] += attn_w * (float)v_cache_start[hsi];
@@ -85,11 +74,8 @@ inline void mul_attenion_weights_and_value_of_head(
 
 template <>
 inline void mul_attenion_weights_and_value_of_head<at::BFloat16, float>(
-    const float& attn_w,
-    const at::BFloat16* v_cache_start,
-    float* attn_out_start,
-    int64_t head_size,
-    bool accumulated) {
+    const float &attn_w, const at::BFloat16 *v_cache_start,
+    float *attn_out_start, int64_t head_size, bool accumulated) {
   using lpVec = at::vec::Vectorized<at::BFloat16>;
   using fVec = at::vec::Vectorized<float>;
   auto lpVec_size = lpVec::size();
@@ -97,10 +83,10 @@ inline void mul_attenion_weights_and_value_of_head<at::BFloat16, float>(
   auto vec_attn_w = fVec(attn_w);
   auto vec_tmp_sum = fVec(0.0f);
   long i = 0;
-  for (; i < lpVec_size *(head_size/lpVec_size) ; i += lpVec_size) {
+  for (; i < lpVec_size * (head_size / lpVec_size); i += lpVec_size) {
     auto tmpv = lpVec::loadu(v_cache_start + i);
     fVec tmpv1, tmpv2;
-    //convert to float 
+    // convert to float
     std::tie(tmpv1, tmpv2) = at::vec::convert_to_float(tmpv);
     auto tmp1 = tmpv1 * vec_attn_w;
     auto tmp2 = tmpv2 * vec_attn_w;
@@ -125,12 +111,8 @@ inline void mul_attenion_weights_and_value_of_head<at::BFloat16, float>(
 
 // out = val * a + b
 template <typename T1, typename T2>
-inline void _scale_attn_mask_fusion_kernel(
-    T1* a,
-    float* b,
-    const int& size,
-    T2* out,
-    float val) {
+inline void _scale_attn_mask_fusion_kernel(T1 *a, float *b, const int &size,
+                                           T2 *out, float val) {
   const auto vec_size = at::vec::Vectorized<float>::size();
   const auto vec_scale = at::vec::Vectorized<float>(val);
   int64_t i = 0;
@@ -150,11 +132,8 @@ inline void _scale_attn_mask_fusion_kernel(
 // 1) out = exp(a - val)
 // 2) val = sum(out)
 template <typename T1, typename T2>
-inline void _exp_reduce_sum_fusion_kernel(
-    T1* a,
-    const int& size,
-    T2* out,
-    T1& val) {
+inline void _exp_reduce_sum_fusion_kernel(T1 *a, const int &size, T2 *out,
+                                          T1 &val) {
   auto vec_size = at::vec::Vectorized<T1>::size();
   auto vec_max = at::vec::Vectorized<T1>(val);
   T1 tmp_sum = 0;
@@ -168,7 +147,7 @@ inline void _exp_reduce_sum_fusion_kernel(
     tmp2.store(out + i);
   }
   tmp_sum = at::vec::vec_reduce_all<T1>(
-      [](at::vec::Vectorized<T1>& x, at::vec::Vectorized<T1>& y) {
+      [](at::vec::Vectorized<T1> &x, at::vec::Vectorized<T1> &y) {
         return x + y;
       },
       vec_tmp_sum);
@@ -185,12 +164,9 @@ inline void _exp_reduce_sum_fusion_kernel(
 // 1) out = a * scale
 // 2) max = max(out)
 template <typename scalar_t>
-inline void _mul_reduce_max_fusion_kernel(
-    scalar_t* a,
-    const scalar_t& scale,
-    const int& size,
-    scalar_t* out,
-    scalar_t& max) {
+inline void _mul_reduce_max_fusion_kernel(scalar_t *a, const scalar_t &scale,
+                                          const int &size, scalar_t *out,
+                                          scalar_t &max) {
   auto vec_size = at::vec::Vectorized<scalar_t>::size();
   auto vec_scale = at::vec::Vectorized<scalar_t>(scale);
   scalar_t tmp_max = -std::numeric_limits<scalar_t>::infinity();
@@ -203,7 +179,7 @@ inline void _mul_reduce_max_fusion_kernel(
     tmp1.store(out + i);
   }
   tmp_max = at::vec::vec_reduce_all<scalar_t>(
-      [](at::vec::Vectorized<scalar_t>& x, at::vec::Vectorized<scalar_t>& y) {
+      [](at::vec::Vectorized<scalar_t> &x, at::vec::Vectorized<scalar_t> &y) {
         return at::vec::maximum(x, y);
       },
       vec_tmp_max);
@@ -216,12 +192,8 @@ inline void _mul_reduce_max_fusion_kernel(
   max = tmp_max;
 }
 
-void reshape_attn_mask_to_4d(
-    at::Tensor& attn_mask,
-    int64_t batchSize,
-    int64_t num_head,
-    int64_t qSize,
-    int64_t kvSize) {
+void reshape_attn_mask_to_4d(at::Tensor &attn_mask, int64_t batchSize,
+                             int64_t num_head, int64_t qSize, int64_t kvSize) {
   // Support mask shapes:
   // 2d: ({Q_seq_len, 1}  x {KV_seq_len, 1})
   // 4d: ({Batch, 1} x {Num_heads, 1} x {Q_seq_len, 1}  x {KV_seq_len, 1})
@@ -237,11 +209,8 @@ void reshape_attn_mask_to_4d(
     }
   }
   attn_mask = attn_mask
-                  .view(
-                      {attn_mask_size_0,
-                       attn_mask_size_1,
-                       attn_mask.size(-2),
-                       attn_mask.size(-1)})
+                  .view({attn_mask_size_0, attn_mask_size_1, attn_mask.size(-2),
+                         attn_mask.size(-1)})
                   .expand({attn_mask_size_0, attn_mask_size_1, qSize, kvSize});
 }
 
@@ -274,18 +243,13 @@ void reshape_attn_mask_to_4d(
  * @param attn_mask  Optional tensor of attention_mask
  */
 template <typename scalar_t>
-void paged_attention_kernel(
-    at::Tensor& out,
-    at::Tensor& query,
-    at::Tensor& key_cache,
-    at::Tensor& value_cache,
-    at::Tensor& head_mapping,
-    const double scale,
-    at::Tensor& block_tables,
-    at::Tensor& context_lens,
-    int64_t block_size,
-    c10::optional<at::Tensor> attn_mask) {
-  
+void paged_attention_kernel(at::Tensor &out, at::Tensor &query,
+                            at::Tensor &key_cache, at::Tensor &value_cache,
+                            at::Tensor &head_mapping, const double scale,
+                            at::Tensor &block_tables, at::Tensor &context_lens,
+                            int64_t block_size,
+                            c10::optional<at::Tensor> attn_mask) {
+
   using accum_t = at::opmath_type<scalar_t>;
   using Vec = at::vec::Vectorized<accum_t>;
   const auto dtype = query.scalar_type();
@@ -301,12 +265,8 @@ void paged_attention_kernel(
   bool has_attn_mask = attn_mask.has_value() && attn_mask.value().numel();
   if (has_attn_mask) {
     attn_mask.value() = attn_mask.value().to(at::kFloat);
-    reshape_attn_mask_to_4d(
-        attn_mask.value(),
-        num_seqs,
-        num_heads,
-        q_len,
-        attn_mask.value().size(-1));
+    reshape_attn_mask_to_4d(attn_mask.value(), num_seqs, num_heads, q_len,
+                            attn_mask.value().size(-1));
   }
 
   auto out_ptr = out.data_ptr<scalar_t>();
@@ -332,27 +292,24 @@ void paged_attention_kernel(
       attn_mask.has_value() ? attn_mask.value().data_ptr<float>() : nullptr;
 
   int64_t mStrideB = (has_attn_mask && attn_mask.value().size(0) > 1)
-      ? attn_mask.value().stride(0)
-      : 0;
+                         ? attn_mask.value().stride(0)
+                         : 0;
   int64_t mStrideH = (has_attn_mask && attn_mask.value().size(1) > 1)
-      ? attn_mask.value().stride(1)
-      : 0;
+                         ? attn_mask.value().stride(1)
+                         : 0;
   int64_t mStrideM = has_attn_mask ? attn_mask.value().stride(2) : 0;
 
   auto max_num_partitions =
       (max_context_len + PARTITION_SIZE - 1) / PARTITION_SIZE;
 
-  auto max_logits = at::empty(
-      {num_seqs, num_heads, max_num_partitions + 1},
-      query.options().dtype(accumulate_dtype));
+  auto max_logits = at::empty({num_seqs, num_heads, max_num_partitions + 1},
+                              query.options().dtype(accumulate_dtype));
 
-  auto exp_sum = at::empty(
-      {num_seqs, num_heads, max_num_partitions + 1},
-      query.options().dtype(accumulate_dtype));
+  auto exp_sum = at::empty({num_seqs, num_heads, max_num_partitions + 1},
+                           query.options().dtype(accumulate_dtype));
 
-  auto tmp_out = at::empty(
-      {num_seqs, num_heads, max_num_partitions, head_size},
-      query.options().dtype(accumulate_dtype));
+  auto tmp_out = at::empty({num_seqs, num_heads, max_num_partitions, head_size},
+                           query.options().dtype(accumulate_dtype));
 
   auto tmp_out_ptr = tmp_out.data_ptr<accum_t>();
   auto max_logits_ptr = max_logits.data_ptr<accum_t>();
@@ -364,113 +321,101 @@ void paged_attention_kernel(
   auto exp_sum_strideH = exp_sum.stride(1);
   auto tmp_out_strideN = tmp_out.stride(0);
   auto tmp_out_strideH = tmp_out.stride(1);
-  auto tmp_out_strideS = tmp_out.stride(2);  
-  #pragma omp parallel for collapse(3) schedule(static, 1)
-    for (auto partition_id = 0; partition_id < max_num_partitions;
-         partition_id++) {
-      for (auto head_id = 0; head_id < num_heads; head_id++) {
-        for (auto seq_id = 0; seq_id < num_seqs; seq_id++) {
-          auto context_len = context_lens_ptr[seq_id];
-          auto partition_start = partition_id * PARTITION_SIZE;
-          if (partition_start >= context_len)
-            continue;
-          auto partition_end =
-              std::min(partition_start + PARTITION_SIZE, context_len);
-          auto token_num = partition_end - partition_start;
-          auto block_num = (token_num + block_size - 1) / block_size;
-          auto logical_block_start = partition_start / block_size;
-          auto logical_block_end = logical_block_start + block_num;
-          auto need_update = block_num > 1;
-          auto kv_head_id = head_id / kv_head_group_size;
-          auto q_ptr_start =
-              query_ptr + seq_id * q_strideN + head_id * q_strideH;
-          auto max_logits_offset = seq_id * max_logits_strideN +
-              head_id * max_logits_strideH + partition_id;
-          auto exp_sum_offset = seq_id * exp_sum_strideN +
-              head_id * exp_sum_strideH + partition_id;
-          auto tmp_out_start = tmp_out_ptr + seq_id * tmp_out_strideN +
-              head_id * tmp_out_strideH + partition_id * tmp_out_strideS;
-          accum_t logits[PARTITION_SIZE] __attribute__((aligned(64))) = {0};
-          auto logits_position = 0;
-          // 1)calculate the matmul(query, key) for this partition
-          for (auto logical_block_id = logical_block_start;
-               logical_block_id < logical_block_end;
-               logical_block_id++) {
-            auto physical_block_id = block_tables_ptr
-                [seq_id * max_num_blocks_per_seq + logical_block_id];
-            auto tokens_in_block = std::min(
-                block_size, context_len - logical_block_id * block_size);
-            auto token_start = logical_block_id * block_size;
-            auto token_end = token_start + tokens_in_block;
-            for (auto token_id = token_start; token_id < token_end;
-                 token_id++) {
-              auto block_offset = token_id - token_start;
-              auto k_cache_start = key_cache_ptr +
-                  physical_block_id * kv_block_strideN +
-                  block_offset * kv_block_strideP +
-                  kv_head_id * kv_block_strideH;
-              reduce_head<scalar_t,accum_t>(
-                  q_ptr_start,
-                  k_cache_start,
-                  &(logits[logits_position]),
-                  head_size);
-              logits_position++;
-            }
+  auto tmp_out_strideS = tmp_out.stride(2);
+#pragma omp parallel for collapse(3) schedule(static, 1)
+  for (auto partition_id = 0; partition_id < max_num_partitions;
+       partition_id++) {
+    for (auto head_id = 0; head_id < num_heads; head_id++) {
+      for (auto seq_id = 0; seq_id < num_seqs; seq_id++) {
+        auto context_len = context_lens_ptr[seq_id];
+        auto partition_start = partition_id * PARTITION_SIZE;
+        if (partition_start >= context_len)
+          continue;
+        auto partition_end =
+            std::min(partition_start + PARTITION_SIZE, context_len);
+        auto token_num = partition_end - partition_start;
+        auto block_num = (token_num + block_size - 1) / block_size;
+        auto logical_block_start = partition_start / block_size;
+        auto logical_block_end = logical_block_start + block_num;
+        auto need_update = block_num > 1;
+        auto kv_head_id = head_id / kv_head_group_size;
+        auto q_ptr_start = query_ptr + seq_id * q_strideN + head_id * q_strideH;
+        auto max_logits_offset = seq_id * max_logits_strideN +
+                                 head_id * max_logits_strideH + partition_id;
+        auto exp_sum_offset =
+            seq_id * exp_sum_strideN + head_id * exp_sum_strideH + partition_id;
+        auto tmp_out_start = tmp_out_ptr + seq_id * tmp_out_strideN +
+                             head_id * tmp_out_strideH +
+                             partition_id * tmp_out_strideS;
+        accum_t logits[PARTITION_SIZE] __attribute__((aligned(64))) = {0};
+        auto logits_position = 0;
+        // 1)calculate the matmul(query, key) for this partition
+        for (auto logical_block_id = logical_block_start;
+             logical_block_id < logical_block_end; logical_block_id++) {
+          auto physical_block_id =
+              block_tables_ptr[seq_id * max_num_blocks_per_seq +
+                               logical_block_id];
+          auto tokens_in_block =
+              std::min(block_size, context_len - logical_block_id * block_size);
+          auto token_start = logical_block_id * block_size;
+          auto token_end = token_start + tokens_in_block;
+          for (auto token_id = token_start; token_id < token_end; token_id++) {
+            auto block_offset = token_id - token_start;
+            auto k_cache_start =
+                key_cache_ptr + physical_block_id * kv_block_strideN +
+                block_offset * kv_block_strideP + kv_head_id * kv_block_strideH;
+            reduce_head<scalar_t, accum_t>(q_ptr_start, k_cache_start,
+                                           &(logits[logits_position]),
+                                           head_size);
+            logits_position++;
           }
-          // 2) calculate the max and exp_sum for this partition
-          auto partition_max = -std::numeric_limits<accum_t>::infinity();
-          if (has_attn_mask) {
-            _scale_attn_mask_fusion_kernel<accum_t, accum_t>(
-                logits,
-                attn_mask_ptr + seq_id * mStrideB + head_id * mStrideH +
-                    partition_start,
-                token_num,
-                logits,
-                scale);
-            partition_max = at::vec::reduce_all<accum_t>(
-                [](Vec& x, Vec& y) { return at::vec::maximum(x, y); },
-                logits,
-                token_num);
-          } else {
-            _mul_reduce_max_fusion_kernel<accum_t>(
-                logits, scale, token_num, logits, partition_max);
-          }
-          max_logits_ptr[max_logits_offset] = partition_max;
-          _exp_reduce_sum_fusion_kernel<accum_t, accum_t>(
-              logits, token_num, logits, partition_max);
-          exp_sum_ptr[exp_sum_offset] = partition_max;
+        }
+        // 2) calculate the max and exp_sum for this partition
+        auto partition_max = -std::numeric_limits<accum_t>::infinity();
+        if (has_attn_mask) {
+          _scale_attn_mask_fusion_kernel<accum_t, accum_t>(
+              logits,
+              attn_mask_ptr + seq_id * mStrideB + head_id * mStrideH +
+                  partition_start,
+              token_num, logits, scale);
+          partition_max = at::vec::reduce_all<accum_t>(
+              [](Vec &x, Vec &y) { return at::vec::maximum(x, y); }, logits,
+              token_num);
+        } else {
+          _mul_reduce_max_fusion_kernel<accum_t>(logits, scale, token_num,
+                                                 logits, partition_max);
+        }
+        max_logits_ptr[max_logits_offset] = partition_max;
+        _exp_reduce_sum_fusion_kernel<accum_t, accum_t>(logits, token_num,
+                                                        logits, partition_max);
+        exp_sum_ptr[exp_sum_offset] = partition_max;
 
-          // 3) calculate the matmul(exp(logits-partition_max), value) for this
-          // partition, need to divide the global exp_sum in the final result.
-          logits_position = 0;
-          for (auto logical_block_id = logical_block_start;
-               logical_block_id < logical_block_end;
-               logical_block_id++) {
-            auto physical_block_id = block_tables_ptr
-                [seq_id * max_num_blocks_per_seq + logical_block_id];
-            auto tokens_in_block = std::min(
-                block_size, context_len - logical_block_id * block_size);
-            auto token_start = logical_block_id * block_size;
-            auto token_end = token_start + tokens_in_block;
-            for (auto token_id = token_start; token_id < token_end;
-                 token_id++) {
-              auto block_offset = token_id - token_start;
-              auto v_cache_start = value_cache_ptr +
-                  physical_block_id * kv_block_strideN +
-                  block_offset * kv_block_strideP +
-                  kv_head_id * kv_block_strideH;
-              auto accumulated = logits_position > 0;
-              mul_attenion_weights_and_value_of_head<scalar_t, accum_t>(
-                  logits[logits_position],
-                  v_cache_start,
-                  tmp_out_start,
-                  head_size,
-                  accumulated);
-              logits_position++;
-            }
+        // 3) calculate the matmul(exp(logits-partition_max), value) for this
+        // partition, need to divide the global exp_sum in the final result.
+        logits_position = 0;
+        for (auto logical_block_id = logical_block_start;
+             logical_block_id < logical_block_end; logical_block_id++) {
+          auto physical_block_id =
+              block_tables_ptr[seq_id * max_num_blocks_per_seq +
+                               logical_block_id];
+          auto tokens_in_block =
+              std::min(block_size, context_len - logical_block_id * block_size);
+          auto token_start = logical_block_id * block_size;
+          auto token_end = token_start + tokens_in_block;
+          for (auto token_id = token_start; token_id < token_end; token_id++) {
+            auto block_offset = token_id - token_start;
+            auto v_cache_start =
+                value_cache_ptr + physical_block_id * kv_block_strideN +
+                block_offset * kv_block_strideP + kv_head_id * kv_block_strideH;
+            auto accumulated = logits_position > 0;
+            mul_attenion_weights_and_value_of_head<scalar_t, accum_t>(
+                logits[logits_position], v_cache_start, tmp_out_start,
+                head_size, accumulated);
+            logits_position++;
           }
         }
       }
+    }
   }
 
 // calculate the final output
@@ -486,26 +431,24 @@ void paged_attention_kernel(
            partition_id++) {
         if (partition_id >= partition_num)
           break;
-        auto max_logit = max_logits_ptr
-            [seq_id * max_logits_strideN + head_id * max_logits_strideH +
-             partition_id];
+        auto max_logit =
+            max_logits_ptr[seq_id * max_logits_strideN +
+                           head_id * max_logits_strideH + partition_id];
         global_max = std::max(global_max, max_logit);
       }
       // update the partition 0 result with the global max
       auto partition0_out_start =
           tmp_out_ptr + seq_id * tmp_out_strideN + head_id * tmp_out_strideH;
-      auto max_logit0 = max_logits_ptr
-          [seq_id * max_logits_strideN + head_id * max_logits_strideH];
+      auto max_logit0 = max_logits_ptr[seq_id * max_logits_strideN +
+                                       head_id * max_logits_strideH];
       float exp_val = expf(max_logit0 - global_max);
       global_exp_sum +=
           exp_sum_ptr[seq_id * exp_sum_strideN + head_id * exp_sum_strideH] *
           exp_val;
       at::vec::Vectorized<accum_t> exp_val_vec0(exp_val);
-      at::vec::map<accum_t>(
-          [&](auto a) { return a * exp_val_vec0; },
-          partition0_out_start,
-          partition0_out_start,
-          head_size);
+      at::vec::map<accum_t>([&](auto a) { return a * exp_val_vec0; },
+                            partition0_out_start, partition0_out_start,
+                            head_size);
 
       // accumulate the partition 1 to partition n result into partition 0
       if (partition_num > 1) {
@@ -514,21 +457,19 @@ void paged_attention_kernel(
           if (partition_id * PARTITION_SIZE >= context_len)
             break;
           auto tmp_out_start = tmp_out_ptr + seq_id * tmp_out_strideN +
-              head_id * tmp_out_strideH + partition_id * tmp_out_strideS;
-          auto max_logit = max_logits_ptr
-              [seq_id * max_logits_strideN + head_id * max_logits_strideH +
-               partition_id];
-          auto exp_sum = exp_sum_ptr
-              [seq_id * exp_sum_strideN + head_id * exp_sum_strideH +
-               partition_id];
+                               head_id * tmp_out_strideH +
+                               partition_id * tmp_out_strideS;
+          auto max_logit =
+              max_logits_ptr[seq_id * max_logits_strideN +
+                             head_id * max_logits_strideH + partition_id];
+          auto exp_sum = exp_sum_ptr[seq_id * exp_sum_strideN +
+                                     head_id * exp_sum_strideH + partition_id];
           exp_val = expf(max_logit - global_max);
           global_exp_sum += exp_sum * exp_val;
           at::vec::Vectorized<accum_t> exp_val_vec(exp_val);
           at::vec::map2<accum_t>(
               [&](auto a, auto b) { return a + exp_val_vec * b; },
-              partition0_out_start,
-              partition0_out_start,
-              tmp_out_start,
+              partition0_out_start, partition0_out_start, tmp_out_start,
               head_size);
         }
       }
@@ -539,44 +480,36 @@ void paged_attention_kernel(
       float inverse_global_sum = 1.0 / (global_exp_sum + 1e-8);
       at::vec::Vectorized<accum_t> inverse_global_sum_vec(inverse_global_sum);
       // rescale the partition 0 result with global exp_sum
-      at::vec::map<accum_t>(
-          [&](auto a) { return a * inverse_global_sum_vec; },
-          partition0_out_start,
-          partition0_out_start,
-          head_size);
+      at::vec::map<accum_t>([&](auto a) { return a * inverse_global_sum_vec; },
+                            partition0_out_start, partition0_out_start,
+                            head_size);
       // copy the partition 0 result into attn_outs
-      at::vec::map<scalar_t>(
-          [&](auto a) { return a; },
-          attn_out_start,
-          partition0_out_start,
-          head_size);
+      at::vec::map<scalar_t>([&](auto a) { return a; }, attn_out_start,
+                             partition0_out_start, head_size);
     }
   }
 } // paged_attention_kernel
 
 void paged_attention_kernel_impl(
-    at::Tensor& out, // [num_seqs, 1,  num_heads, head_size]
-    at::Tensor& query, // [num_seqs, 1, num_heads, head_size]
-    at::Tensor& key_cache, // [num_blocks,  block_size, num_heads, head_size]
-    at::Tensor& value_cache, // [num_blocks,  block_size, num_heads, head_size]
-    at::Tensor& head_mapping, // [num_heads]
+    at::Tensor &out,          // [num_seqs, 1,  num_heads, head_size]
+    at::Tensor &query,        // [num_seqs, 1, num_heads, head_size]
+    at::Tensor &key_cache,    // [num_blocks,  block_size, num_heads, head_size]
+    at::Tensor &value_cache,  // [num_blocks,  block_size, num_heads, head_size]
+    at::Tensor &head_mapping, // [num_heads]
     const double scale,
-    at::Tensor& block_tables, // [num_seqs, max_num_blocks_per_seq]
-    at::Tensor& context_lens, // [num_seqs]
-    int64_t block_size,
-    c10::optional<at::Tensor> attn_mask) {
-  TORCH_CHECK(
-      query.size(2) == 1,
-      "Paged attention: only seqlen 1 is supported for query");
-  TORCH_CHECK(
-      query.scalar_type() == key_cache.scalar_type() &&
-          query.scalar_type() == value_cache.scalar_type(),
-      "Paged attention: Q/K/V should have the same data type");
-  TORCH_CHECK(
-      !attn_mask.has_value() ||
-          query.scalar_type() == attn_mask.value().scalar_type() ||
-          attn_mask.value().scalar_type() != at::ScalarType::Bool,
-      "Paged attention: Mask should have the same data type as Q/K/V and should not be Bool");
+    at::Tensor &block_tables, // [num_seqs, max_num_blocks_per_seq]
+    at::Tensor &context_lens, // [num_seqs]
+    int64_t block_size, c10::optional<at::Tensor> attn_mask) {
+  TORCH_CHECK(query.size(2) == 1,
+              "Paged attention: only seqlen 1 is supported for query");
+  TORCH_CHECK(query.scalar_type() == key_cache.scalar_type() &&
+                  query.scalar_type() == value_cache.scalar_type(),
+              "Paged attention: Q/K/V should have the same data type");
+  TORCH_CHECK(!attn_mask.has_value() ||
+                  query.scalar_type() == attn_mask.value().scalar_type() ||
+                  attn_mask.value().scalar_type() != at::ScalarType::Bool,
+              "Paged attention: Mask should have the same data type as Q/K/V "
+              "and should not be Bool");
   TORCH_CHECK(
       query.dim() == 4 && key_cache.dim() == 4 && value_cache.dim() == 4,
       "Paged attention: Accept only 4 dims inputs shape of {B, H, T, K}");
@@ -587,25 +520,12 @@ void paged_attention_kernel_impl(
       "Paged attention: Q/KV cache/Mask should be continuous on the last dim");
 
   AT_DISPATCH_FLOATING_TYPES_AND2(
-      at::kBFloat16,
-      at::kHalf,
-      query.scalar_type(),
-      "paged_attention",
-      [&] {
-        paged_attention_kernel<scalar_t>(
-            out,
-            query,
-            key_cache,
-            value_cache,
-            head_mapping,
-            scale,
-            block_tables,
-            context_lens,
-            block_size,
-            attn_mask);
+      at::kBFloat16, at::kHalf, query.scalar_type(), "paged_attention", [&] {
+        paged_attention_kernel<scalar_t>(out, query, key_cache, value_cache,
+                                         head_mapping, scale, block_tables,
+                                         context_lens, block_size, attn_mask);
       });
 }
-
 
 } // namespace
 TORCH_LIBRARY_IMPL(torchao, CPU, m) {
