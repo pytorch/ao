@@ -885,7 +885,7 @@ def linear_nf4(input: torch.Tensor, weight: NF4Tensor) -> torch.Tensor:
 
 
 def to_nf4(tensor, block_size: int = 64, scaler_block_size: int = 256, device=None):
-    """Returns an NF4Tensor, which is a Tensor of using NF4 as a dtype.
+    """Returns an NF4Tensor, which is a Tensor using NF4 as a dtype.
     Behaves similar to torch.Tensor.to, but with support for special arguments
     needed to specify the NF4 dtype.
 
