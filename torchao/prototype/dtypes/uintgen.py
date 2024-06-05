@@ -1,7 +1,7 @@
 import torch
 
 """
-Contains generic functions to pack and unpack uint8 tensors into uint2, uint3, uint4, uint5, uint6, and uint7 tensors.
+Contains generic functions to pack and unpack uintx (2-7) tensors into uint8 tensors.
 """
 
 def down_size_uint2(size):

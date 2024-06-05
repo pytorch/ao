@@ -1,8 +1,7 @@
-from unittest import main
+import pytest
 import torch
 import torch.nn as nn
-from torch.testing._internal.common_quantization import QuantizationTestCase
-from torchao.prototype.dtypes.uint2 import BitnetTensor
+from torchao.prototype.dtypes import BitnetTensor
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 
 def _apply_weight_only_uint2_quant(model):
@@ -16,15 +15,19 @@ def _apply_weight_only_uint2_quant(model):
         lambda mod, fqn: isinstance(mod, torch.nn.Linear),
     )
 
-class TestUInt2(QuantizationTestCase):
-    def test_gpu_quant(self):
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        for x_shape in [[2, 4], [5, 5, 5, 4], [1, 4, 4]]:
-            x = torch.randn(*x_shape).to(device)
-            m = nn.Sequential(nn.Linear(4, 16)).to(device)
-            y_ref = m(x)
-            _apply_weight_only_uint2_quant(m)
-            y_wo = m(x)
+@pytest.mark.parametrize("input_shape", [[2,4],
+                             [5,5,5,4],
+                             [1,4,4]])
+def test_uint2_quant(input_shape):
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    x = torch.randn(*input_shape).to(device)
+    m = nn.Sequential(nn.Linear(4, 16)).to(device)
+    y_ref = m(x)
+    _apply_weight_only_uint2_quant(m)
+    y_wo = m(x)
+    y_compiled = torch.compile(m, fullgraph=True)(x)
+    # TODO: torch.allclose() WIP
 
-if __name__ == "__main__":
-    main()
+
+if __name__ == '__main__':
+    test_uint2_quant([2,4])
