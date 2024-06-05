@@ -52,9 +52,9 @@ def scaled_dot_product_attention(
     query = input
     key_cache = key_tensor.cache
     value_cache = value_tensor.cache
-    num_kv_head = key_cache.size(2)
-    num_queries_per_kv = query.size(2) // num_kv_head
-    block_size = key_cache.size(1)
+    num_kv_head = key_cache.size(1)
+    num_queries_per_kv = query.size(1) // num_kv_head
+    block_size = key_cache.size(2)
     block_tables = key_tensor.block_tables
     head_mapping = torch.repeat_interleave(
         torch.arange(num_kv_head, dtype=torch.int32, device="cpu"), num_queries_per_kv
@@ -102,8 +102,8 @@ class PagedAttentionCache(object):
 
         cache_shape = (
             self.num_blocks,
-            self.block_size,
             self.num_key_value_heads,
+            self.block_size,
             self.head_dim,
         )
 
@@ -126,7 +126,9 @@ class PagedAttentionCache(object):
         self.block_ref_count = [
             0
         ] * self.num_blocks  # init the reference count for each physical block
-        self.block_tables = dict()  # mapping logical block to physical blocks for each sequence
+        self.block_tables = (
+            dict()
+        )  # mapping logical block to physical blocks for each sequence
 
         # The follow two states are shared accross layer but only for the current decode step. Need to update for every decode step.
         self.batch2seq = None  # mapping batch index to {seq_id0, seq_id1, ...} to enable prompt sharing.
@@ -163,7 +165,7 @@ class PagedAttentionCache(object):
         past_context_len = self.seen_tokens
         if self.batch2seq is None:
             self.set_batch2seq_for_prompt_sharing(batch_size, 1)
-        for i in range(batch_size):            
+        for i in range(batch_size):
             seq_idx = self.batch2seq[i][0]
             # Scenario 1: New seqence: allocate blocks for this sequence
             if seq_idx not in self.block_tables:
@@ -207,7 +209,7 @@ class PagedAttentionCache(object):
                         self.block_ref_count[new_block] += 1
                         self.block_ref_count[last_block] -= 1
                         self._copy_on_write(last_block, new_block)
-            
+
             slots = []
             # the slots for this sequence
             for j in range(key_len):
@@ -301,17 +303,24 @@ class PagedAttentionCache(object):
         Returns:
             None
         """
-        if key_states.shape[-2] != self.num_key_value_heads:
-            key_states = key_states.transpose(1, 2)
-            value_states = value_states.transpose(1, 2)
-        key_cache = self.key_caches[layer_idx].view(
-            -1, self.num_key_value_heads, self.head_dim
-        )
-        value_cache = self.value_caches[layer_idx].view(
-            -1, self.num_key_value_heads, self.head_dim
-        )
-        key_cache[slot_mapping] = key_states
-        value_cache[slot_mapping] = value_states
+        slot_mapping = slot_mapping.to(torch.int)
+        block_indicies = torch.div(slot_mapping, self.block_size, rounding_mode="floor")
+        block_indicies = block_indicies.cpu().tolist()
+        block_offsets = slot_mapping % self.block_size
+        block_offsets = block_offsets.cpu().tolist()
+        batch_size = key_states.size(0)
+        seq_len = key_states.size(2)
+        for i in range(batch_size):
+            for seq_idx in range(seq_len):
+                block_idx = block_indicies[i][seq_idx]
+                block_offset = block_offsets[i][seq_idx]
+                for head_idx in range(self.num_key_value_heads):
+                    self.key_caches[layer_idx][block_idx, head_idx, block_offset, :] = (
+                        key_states[i, head_idx, seq_idx, :]
+                    )
+                    self.value_caches[layer_idx][
+                        block_idx, head_idx, block_offset, :
+                    ] = value_states[i, head_idx, seq_idx, :]
 
     def get_seq_length(self, layer_idx: int = 0) -> int:
         return self.seen_tokens
@@ -349,8 +358,8 @@ class PagedAttentionCache(object):
         #     self.slots_mapping is not None,
         #     "PagedAttentionCache: Please first call allocate() of this object to get target positions in paged cache before the model.forward().",
         # )
-        #cache key_states & value_states
-        self._reshape_and_cache(self.slots_mapping, key_states, value_states, layer_idx)        
+        # cache key_states & value_states
+        self._reshape_and_cache(self.slots_mapping, key_states, value_states, layer_idx)
 
         if layer_idx == self.num_layers - 1:
             self.seen_tokens += cur_len
