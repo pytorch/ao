@@ -690,20 +690,16 @@ class NF4Tensor(torch.Tensor):
         scaled_second = scaled_second.unsqueeze(-1).transpose(0, 1)
         return torch.stack([scaled_first, scaled_second], dim=-1).reshape(self.shape)
 
+    @torch.compile(disable = (sys.platform == "linux"))
     @staticmethod
     def quantize_tensor_nearest(
         value: torch.Tensor, nf4: torch.Tensor
     ) -> torch.Tensor:
         """Quantize a float16 tensor to nf4 format to nearest and not rounded up"""
-        branch_points = (nf4[1:] + nf4[:-1]) / 2
-        closest_nf4 = torch.full(
-            value.shape, 
-            0,
-            dtype=torch.uint8,
-            device=nf4.device
-        )
-        for i in range(len(branch_points)):
-            closest_nf4 = torch.where(value <= branch_points[i], closest_nf4, i+1)
+        value = value.unsqueeze(-1)  # (numel, 1)
+        # Compare the value tensor with the nf4 tensor element-wise
+        diff = (value - nf4).abs()
+        closest_nf4 = diff.min(dim=-1).indices.to(dtype=torch.uint8)
         return closest_nf4
 
     @staticmethod
