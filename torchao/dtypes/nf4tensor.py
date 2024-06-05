@@ -272,7 +272,10 @@ def _to_copy(func, *args, **kwargs):
     if not args[0][0].is_contiguous():
         assert args[0][0].t().is_contiguous()
         return func(args[0][0].t()).t()
-    return args[0][0].get_original_weight().to(args[1]["dtype"]).to(args[1]["device"])
+    out = args[0][0].get_original_weight().to(args[1]["dtype"])
+    if "device" in args[1]:
+        out = out.to(args[1]["device"])
+    return out
 
 
 @implements([torch.ops.aten.to.dtype])
@@ -593,7 +596,7 @@ class NF4Tensor(torch.Tensor):
 
         return (
             quantized_scaler_blocks.flatten().to(torch.int8),
-            quantization_factor.view(n_scaler_blocks),
+            quantization_factor.view(n_scaler_blocks).contiguous(),
             scalers_1_mean,
         )
 
@@ -860,13 +863,13 @@ class LinearNF4(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.Tensor, weight: NF4Tensor):
         """Save the quantized nf4 weight for backward pass"""
-        ctx.nf4_weight = weight
+        ctx.save_for_backward(weight)
         return F.linear(input, weight.to(input.dtype))
 
     @staticmethod
     def backward(ctx, grad_output):
         """The nf4 weight will never require grad so we can just return the grad_output @ weight.to(grad_output.dtype)"""
-        weight: NF4Tensor = ctx.nf4_weight
+        weight: NF4Tensor = ctx.saved_tensors[0]
         return grad_output @ weight.to(grad_output.dtype), None
 
 

@@ -18,6 +18,44 @@ More concretely, we hope to provide tutorials and APIs for both sparse kernels (
 2. Recover accuracy loss of pruned model with custom pruning algorthim.
 3. Accelerate masked/pruned models on sparsity-supported hardware to realize performance improvements.
 
+## Success Stories
+
+#### segment-anything
+We applied 2:4 sparsity to accelerate segment-anything, as part of [segment-anything-fast](https://github.com/pytorch-labs/segment-anything-fast).
+The results mentioned in the README of the repo compose sparsity with a suite of other inference acceleration techniques.
+
+From our [benchmarking](https://github.com/pytorch/ao/blob/main/benchmarks/benchmark_sam.py), we see a 1.1x speedup when running with `SEGMENT_ANYTHING_FAST_USE_FLASH_4` enabled.
+To reproduce these benchmarks you can run the following command:
+
+The inference acceleration of semi-structured sparsity depends on the matmul shapes, which is why we don't see additional speedups when applying to all linear layers (attn + mlp) of segment-anything.
+We find that accelerating the MLP linear layers provied the most speedups (`lin1`, `lin2`). To repoduce our benchmarks you can run the following command:
+
+```
+python benchmarks/benchmark_sam.py
+```
+
+The following benchmarks we run on an A100, with batch_size=32 and `bfloat16` dtype:
+
+| qkv  | proj | lin1 | lin2 | time | memory | img/s |
+| ---- | ---- | ---- | ---- | ---- | ------ | ----- |
+| None | None | None | None | 1361.73 | 15.81 | 23.50 |
+| None | None | sparse (cusparselt) | sparse (cusparselt) | 1245.15 | 15.46 | 25.70 |
+| None | None | sparse (cutlass) | sparse (cutlass) | 1251.047651 | 15.41 | 25.59 |
+| sparse (cusparselt) | sparse (cusparselt) | sparse (cusparselt) | sparse (cusparselt) | 1265.43 | 12.71 | 25.29|
+| sparse (cutlass) | sparse (cutlass) | sparse (cutlass) | sparse (cutlass) | 1274.96 | 12.70 | 25.10 |
+
+#### BERT
+
+We were able to accelerate BERT 1.23x on an A100 with a negligible accuracy drop on SQuAD.
+For more information about accelerting BERT with semi-sturcutred sparsity, please see our [tutorial](https://pytorch.org/tutorials/advanced/semi_structured_sparse.html?highlight=beta).
+
+| Metrics | fp16 | 2:4 sparse | delta / speedup |
+| --- | --- | --- | --- |
+| Exact Match (%) | 78.53 | 78.44 | -0.09 |
+| F1 (%) | 86.93 | 86.49 | -0.44 |
+| Time (bs=16) | 19.35 | 15.74 | 1.23x |
+
+
 # Design
 
 Sparsity, like quantization, is an accuracy/performance trade-off, where we care not only about the speedup but also on the accuracy degradation of our architecture optimization technique.
@@ -44,7 +82,7 @@ The handoff point between these two pieces are sparse weights stored in a dense 
 
 This also allows users with existing sparse weights in a dense format to take advantage of our fast sparse kernels. We anticipate many users to come up with their own custom frontend masking solution or to use another third party solution, as this is an active area of research.
 
-![pruning_flow](https://private-user-images.githubusercontent.com/8041643/324607153-ba91eaca-14ce-4608-9db8-6cbb9ea1f9ec.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3MTQ1OTgzOTYsIm5iZiI6MTcxNDU5ODA5NiwicGF0aCI6Ii84MDQxNjQzLzMyNDYwNzE1My1iYTkxZWFjYS0xNGNlLTQ2MDgtOWRiOC02Y2JiOWVhMWY5ZWMucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI0MDUwMSUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNDA1MDFUMjExNDU2WiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9YWVjOWQ5ZjFjMWZmNjg4ZTgyZGFkYWU3ZDQ3MDBjMTZkNzczZWQxYzczN2ZiM2ZjZGY0NjUwMGUwY2UwZDA1YyZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QmYWN0b3JfaWQ9MCZrZXlfaWQ9MCZyZXBvX2lkPTAifQ.ni5F_wDhNkeupMJ84bFNxhaSO3xPH-9zecz_933Uu68)
+![pruning_flow](/docs/static/pruning_ecosystem_diagram.png)
 
 Below, we provide an example of accelerating a model with 2:4 sparsity + bf16 using our PyTorch APIs.
 
@@ -97,7 +135,7 @@ Note that this section focuses on **pruning**, instead of **sparse training**. T
 
 Roughly, the flow for achieving a more performant pruned model looks like this:
 
-![flow](https://private-user-images.githubusercontent.com/8041643/324607146-53542488-65ce-4d99-a3ae-21e724f89467.png?jwt=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJnaXRodWIuY29tIiwiYXVkIjoicmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbSIsImtleSI6ImtleTUiLCJleHAiOjE3MTQ1OTgzOTYsIm5iZiI6MTcxNDU5ODA5NiwicGF0aCI6Ii84MDQxNjQzLzMyNDYwNzE0Ni01MzU0MjQ4OC02NWNlLTRkOTktYTNhZS0yMWU3MjRmODk0NjcucG5nP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9QUtJQVZDT0RZTFNBNTNQUUs0WkElMkYyMDI0MDUwMSUyRnVzLWVhc3QtMSUyRnMzJTJGYXdzNF9yZXF1ZXN0JlgtQW16LURhdGU9MjAyNDA1MDFUMjExNDU2WiZYLUFtei1FeHBpcmVzPTMwMCZYLUFtei1TaWduYXR1cmU9ZWJlYWMzZDFmNzc2NDM1MGI2ODNlMjUxZjQxYTAwYzhhNzBkNGU2ZGIwYTg4NzA5Yjk3N2JkNzI4MmUyNzg3NiZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QmYWN0b3JfaWQ9MCZrZXlfaWQ9MCZyZXBvX2lkPTAifQ.Hxk5XMuJXhNsORVNNgcKNRCk7W1nT4CndLTAC3Oz0qE)
+![flow](/docs/static/pruning_flow.png)
 
 The general idea behind pruning is that we can mask out some of the weights of a trained neural network and recover any accuracy loss. The resultant pruned model can be run on optimized kernels that take advantage of this sparsity for accelerated inference.
 

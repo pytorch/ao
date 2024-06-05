@@ -29,7 +29,24 @@ git clone https://github.com/pytorch/ao
 cd ao
 pip install -r requirements.txt
 pip install -r dev-requirements.txt
-pip install .
+```
+
+There are two options;
+-If you plan to be developing the library run:
+```Shell
+python setup.py develop
+```
+
+If you want to install from source run
+```Shell
+python setup.py install 
+```
+
+** Note:
+If you are running into any issues while building `ao` cpp extensions you can instead build using
+
+```shell
+USE_CPP=0 python setup.py install
 ```
 
 ### Quantization
@@ -99,6 +116,7 @@ To learn more try out our APIs, you can check out API examples in
 3. Support for lower precision [dtypes](./torchao/dtypes) such as
     - [nf4](https://github.com/pytorch/ao/blob/main/torchao/dtypes/nf4tensor.py) which was used to [implement QLoRA](https://github.com/pytorch/torchtune/blob/main/docs/source/tutorials/qlora_finetune.rst) without writing custom Triton or CUDA code
     - [uint4](https://github.com/pytorch/ao/blob/main/torchao/dtypes/uint4.py)
+    - [MX](https://github.com/pytorch/ao/blob/main/torchao/prototype/mx_formats) implementing training and inference support with tensors using the [OCP MX spec](https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf) data types, which can be described as groupwise scaled float8/float6/float4/int8, with the scales being constrained to powers of two. This work is prototype as the hardware support is not available yet.
 4. [Bleeding Edge Kernels](./torchao/prototype/) for experimental kernels without backwards compatibility guarantees
     - [GaLore](https://github.com/pytorch/ao/tree/main/torchao/prototype/galore) for memory efficient finetuning
     - [fused HQQ Gemm Kernel](https://github.com/pytorch/ao/tree/main/torchao/prototype/hqq) for compute bound workloads

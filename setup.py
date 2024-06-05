@@ -18,6 +18,9 @@ def read_requirements(file_path):
 
 # Determine the package name based on the presence of an environment variable
 package_name = "torchao-nightly" if os.environ.get("TORCHAO_NIGHTLY") else "torchao"
+version_suffix = os.getenv("VERSION_SUFFIX", "")
+use_cpp = os.getenv('USE_CPP')
+
 
 # Version is year.month.date if using nightlies
 version = current_date if package_name == "torchao-nightly" else "0.2.0"
@@ -42,15 +45,16 @@ def get_extensions():
     if CUDA_HOME is None and torch.cuda.is_available():
         print("CUDA toolkit is not available. Skipping compilation of CUDA extensions")
         print("If you'd like to compile CUDA extensions locally please install the cudatoolkit from https://anaconda.org/nvidia/cuda-toolkit")
-        
+
     use_cuda = torch.cuda.is_available() and CUDA_HOME is not None
     extension = CUDAExtension if use_cuda else CppExtension
 
-    extra_link_args = []
+    extra_link_args = ["-fopenmp"]
     extra_compile_args = {
         "cxx": [
             "-O3" if not debug_mode else "-O0",
             "-fdiagnostics-color=always",
+            "-fopenmp",
         ],
         "nvcc": [
             "-O3" if not debug_mode else "-O0",
@@ -84,13 +88,13 @@ def get_extensions():
 
 setup(
     name=package_name,
-    version=version,
+    version=version+version_suffix,
     packages=find_packages(),
     include_package_data=True,
     package_data={
         "torchao.kernel.configs": ["*.pkl"],
     },
-    ext_modules=get_extensions(),
+    ext_modules=get_extensions() if use_cpp != "0" else None,
     install_requires=read_requirements("requirements.txt"),
     extras_require={"dev": read_requirements("dev-requirements.txt")},
     description="Package for applying ao techniques to GPU models",
