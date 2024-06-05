@@ -14,6 +14,12 @@
    This code is largely copy paste from Nikita Shulga's llm_experiments repo
 */
 
+/*
+TODOs:
+- Maybe move to use google benchmarks?
+- Add benchmarking for different matrix sizes
+*/
+
 #define GENERATE_GPU_TRACE
 
 void fail(const std::string &str) {
