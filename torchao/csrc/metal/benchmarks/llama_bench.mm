@@ -15,13 +15,14 @@
    This benchmark binary:
    - replicates the structure of llama like models
    - implements a subset of ops. right now only 4-bit quantized linear.
-   - provides achievable performance in ideal scenario, e.g. single command buffer submission,
-     no framework overhead etc.
+   - provides achievable performance in ideal scenario, e.g. single command
+buffer submission, no framework overhead etc.
 
 TODO, in the order of priority:
   - Add support for SDPA
   - Add support for RMSNorm
-  - Rest _maybe_ since we dont really spend so much time there but that may change.
+  - Rest _maybe_ since we dont really spend so much time there but that may
+change.
 */
 
 struct ModelArgs {
