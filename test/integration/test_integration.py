@@ -214,9 +214,9 @@ class SmoothquantUnitTest(unittest.TestCase):
         #     rtol=0.00001), \
         #     'y_smooth_fq_only not close to y_dynamic_q'
 
-        self.assertTrue(sqnr_smooth_fq.item() >= 40.0)
-        self.assertTrue(sqnr_dynamic_q.item() >= 40.0)
-        self.assertTrue(sqnr_fq.item() >= 40.0)
+        self.assertTrue(sqnr_smooth_fq.item() >= 40.0, f"got: {sqnr_smooth_fq.item()}")
+        self.assertTrue(sqnr_dynamic_q.item() >= 40.0, f"got: {sqnr_dynamic_q.item()}")
+        self.assertTrue(sqnr_fq.item() >= 40.0, f"got: {sqnr_fq.item()}")
 
         # Restore backend
         torch.backends.quantized.engine = orig_backend
