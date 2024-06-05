@@ -52,11 +52,10 @@ id<MTLLibrary> compileLibraryFromFile(id<MTLDevice> device,
   std::ifstream ifs(fname);
   std::stringstream ss;
   ss << ifs.rdbuf();
-  ifs.close();
   return compileLibraryFromSource(device, ss.str());
 }
 
-id<MTLBuffer> allocSharedBuffer(id<MTLDevice> device, unsigned length) {
+id<MTLBuffer> allocSharedBuffer(id<MTLDevice> device, int32_t length) {
   id<MTLBuffer> rc = [device newBufferWithLength:length
                                          options:MTLResourceStorageModeShared];
   if (rc == nil) {
@@ -91,25 +90,25 @@ struct BFloat16 {
 };
 using Float16 = _Float16;
 
-template <unsigned groupSize> struct Int4MMBase {
-  Int4MMBase(id<MTLDevice> device, const std::string &lib_name_, unsigned M_,
-             unsigned N_, unsigned K_)
+template <int groupSize> struct Int4MMBase {
+  Int4MMBase(id<MTLDevice> device, const std::string &lib_name_, int32_t M_,
+             int32_t N_, int32_t K_)
       : Int4MMBase(device, M_, N_, K_) {
     lib_name = lib_name_;
     lib = compileLibraryFromFile(device, lib_name + ".metal");
   }
-  Int4MMBase(id<MTLDevice> device, unsigned M_, unsigned N_, unsigned K_)
+  Int4MMBase(id<MTLDevice> device, int32_t M_, int32_t N_, int32_t K_)
       : M(M_), N(N_), K(K_), lib(nil) {
     allocBuffers(device);
   }
 
   virtual void dispatchThreads(id<MTLComputeCommandEncoder> encoder,
-                               unsigned maxThreadsPerGroup) const {}
+                               int32_t maxThreadsPerGroup) const {}
 
   void encodeMM(id<MTLCommandBuffer> cmdBuffer,
                 id<MTLComputePipelineState> cpl) const {
     id<MTLComputeCommandEncoder> encoder = [cmdBuffer computeCommandEncoder];
-    std::vector<unsigned> sizes = {M, K, N, 0};
+    std::vector<int32_t> sizes = {M, K, N, 0};
     const auto maxThreadsPerGroup =
         static_cast<decltype(M)>([cpl maxTotalThreadsPerThreadgroup]);
     [encoder setComputePipelineState:cpl];
@@ -119,7 +118,7 @@ template <unsigned groupSize> struct Int4MMBase {
     [encoder setBuffer:buf_zero_point offset:0 atIndex:3];
     [encoder setBuffer:buf_C offset:0 atIndex:4];
     [encoder setBytes:sizes.data()
-               length:sizeof(uint32_t) * sizes.size()
+               length:sizeof(int32_t) * sizes.size()
               atIndex:5];
     dispatchThreads(encoder, maxThreadsPerGroup);
     [encoder endEncoding];
@@ -136,19 +135,19 @@ template <unsigned groupSize> struct Int4MMBase {
     std::uniform_int_distribution<> int_distrib(-8, 7);
     std::uniform_real_distribution<> real_distrib(-1.0, 1.0);
 
-    for (unsigned idx = 0; idx < M * K; ++idx) {
+    for (int32_t idx = 0; idx < M * K; ++idx) {
       a_ptr[idx] = real_distrib(generator);
     }
-    for (unsigned idx = 0; idx < N * K / 2; ++idx) {
+    for (int32_t idx = 0; idx < N * K / 2; ++idx) {
       int32_t b0 = int_distrib(generator);
       int32_t b1 = int_distrib(generator);
       b_ptr[idx] = ((b1 + 8) << 4) | (b0 + 8);
     }
-    for (unsigned idx = 0; idx < N * K / groupSize; ++idx) {
+    for (int32_t idx = 0; idx < N * K / groupSize; ++idx) {
       s_ptr[idx] = (idx + 1.0) / N;
       z_ptr[idx] = 0;
     }
-    for (unsigned idx = 0; idx < M * N; ++idx) {
+    for (int32_t idx = 0; idx < M * N; ++idx) {
       c_ptr[idx] = -1.0;
     }
   }
@@ -161,18 +160,18 @@ template <unsigned groupSize> struct Int4MMBase {
     T *s_ptr = reinterpret_cast<T *>([buf_scales contents]);
     T *z_ptr = reinterpret_cast<T *>([buf_zero_point contents]);
 
-    for (unsigned m = 0; m < M; m++) {
-      for (unsigned n = 0; n < N; n++) {
+    for (int32_t m = 0; m < M; m++) {
+      for (int32_t n = 0; n < N; n++) {
         float expected = float(c_ptr[m * N + n]);
-        const uint32_t k_block = (K + groupSize - 1) / groupSize;
+        const int32_t k_block = (K + groupSize - 1) / groupSize;
         const T *A_ptr = a_ptr + m * K;
 
         float rc = 0.0;
-        uint k = 0;
-        for (uint32_t kb = 0; kb < k_block; kb++) {
+        int32_t k = 0;
+        for (int32_t kb = 0; kb < k_block; kb++) {
           const T scale = s_ptr[(kb * N + n)];
           const T zero = z_ptr[(kb * N + n)] - scale * T(8);
-          for (uint idx = 0; idx < groupSize && k < K; idx++, k++) {
+          for (int32_t idx = 0; idx < groupSize && k < K; idx++, k++) {
             const auto a_val = float(A_ptr[k]);
             uint8_t b_val = b_ptr[(n * K + k) / 2];
             b_val = (k & 1) == 0 ? b_val & 0x0f : (b_val >> 4);
@@ -238,7 +237,7 @@ private:
   template <> std::string type_string<BFloat16>() const { return "bfloat"; }
   template <> std::string type_string<float>() const { return "float"; }
   template <> std::string type_string<Float16>() const { return "half"; }
-  void allocBuffers(id<MTLDevice> device, const unsigned elem_size = 4) {
+  void allocBuffers(id<MTLDevice> device, const int32_t elem_size = 4) {
     buf_A = allocSharedBuffer(device, M * K * elem_size);
     buf_B = allocSharedBuffer(device, N * K / 2);
     buf_C = allocSharedBuffer(device, M * N * elem_size);
@@ -247,28 +246,28 @@ private:
   }
 
 public:
-  unsigned M, N, K;     // Input-output matirx dims
-  id<MTLBuffer> buf_A;  // MxK elements
-  id<MTLBuffer> buf_B;  // NxK elements
-  id<MTLBuffer> buf_C;  // MxN elements
-  id<MTLBuffer> buf_scales; // (K/groupSize)xNx2 elements
+  int32_t M, N, K;              // Input-output matirx dims
+  id<MTLBuffer> buf_A;          // MxK elements
+  id<MTLBuffer> buf_B;          // NxK elements
+  id<MTLBuffer> buf_C;          // MxN elements
+  id<MTLBuffer> buf_scales;     // (K/groupSize)xNx2 elements
   id<MTLBuffer> buf_zero_point; // (K/groupSize)xNx2 elements
   id<MTLLibrary> lib;
   std::string lib_name;
 };
 
-template <unsigned groupSize> struct Int4MV : public Int4MMBase<groupSize> {
+template <int32_t groupSize> struct Int4MV : public Int4MMBase<groupSize> {
   using Int4MMBase<groupSize>::M;
   using Int4MMBase<groupSize>::N;
-  Int4MV(id<MTLDevice> device, const std::string &lib_name_, unsigned M_,
-         unsigned N_, unsigned K_)
+  Int4MV(id<MTLDevice> device, const std::string &lib_name_, int32_t M_,
+         int32_t N_, int32_t K_)
       : Int4MMBase<groupSize>(device, lib_name_, M_, N_, K_) {
     if (M != 1) {
       fail("Value of M must be 1");
     }
   }
   void dispatchThreads(id<MTLComputeCommandEncoder> encoder,
-                       unsigned maxThreadsPerGroup) const override {
+                       int32_t maxThreadsPerGroup) const override {
     constexpr auto blockSize = 8;
     if (maxThreadsPerGroup < blockSize * blockSize) {
       throw std::runtime_error("Can't dispatch!");
@@ -279,9 +278,9 @@ template <unsigned groupSize> struct Int4MV : public Int4MMBase<groupSize> {
 };
 
 int main() {
-  unsigned M, N, K;
+  int32_t M, N, K;
   std::tie(M, N, K) = std::make_tuple(1, 4096, 4096);
-  constexpr unsigned groupSize = 32;
+  constexpr int32_t groupSize = 32;
   @autoreleasepool {
     id<MTLDevice> device = getMetalDevice();
     std::cout << "Using device " << device.name.UTF8String << std::endl;
