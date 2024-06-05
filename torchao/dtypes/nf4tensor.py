@@ -690,7 +690,7 @@ class NF4Tensor(torch.Tensor):
         scaled_second = scaled_second.unsqueeze(-1).transpose(0, 1)
         return torch.stack([scaled_first, scaled_second], dim=-1).reshape(self.shape)
 
-    @torch.compile(disable = (sys.platform == "linux"))
+    @torch.compile(disable = (sys.platform == "win32"))
     @staticmethod
     def quantize_tensor_nearest(
         value: torch.Tensor, nf4: torch.Tensor
