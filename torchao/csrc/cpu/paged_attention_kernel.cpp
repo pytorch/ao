@@ -215,39 +215,24 @@ void reshape_attn_mask_to_4d(at::Tensor &attn_mask, int64_t batchSize,
 }
 
 /**
- * Performs scale-dot-product for the next token based on cached key-value
- * attention.
- *
- * This function computes the attention weights and applies the attention
- * mechanism to obtain the final output. It takes in tensors representing the
- * query, key cache, value cache, head mapping, scale, block tables, context
- * lengths, block size The
- * output tensor is updated with the computed attention values.
- *
- * @param out           Output tensor [num_seqs, 1, num_heads, head_size].
- * @param query         Query tensor [num_seqs, 1, num_heads, head_size].
+ * Performs scale-dot-product for the next token based on paged cached key-value
+ * @param out           Output tensor [batch_size, num_heads, 1, head_size].
+ * @param query         Query tensor [batch_size, num_heads, 1, head_size].
  * @param key_cache     The pre-allocated buffer to store the key cache. The
- * shape should be [num_blocks, block_size, num_heads, head_size].
+ * shape should be [num_blocks, num_heads, block_size, head_size].
  * @param value_cache   The pre-allocated buffer to store the value cache. The
- * shape should be [num_blocks, block_size, num_heads, head_size].
- * @param head_mapping  Head mapping tensor [num_heads]. The mapping from the
- * query head to the kv head to support GQA/MQA. The shape should be the number
- * of query heads.
+ * shape should be [num_blocks, num_heads, block_size, head_size].
  * @param scale         Scaling factor for attention weights. In general, it is:
  * float(1.0 / (head_size ** 0.5)).
- * @param block_tables  Block tables tensor [num_seqs, max_num_blocks_per_seq].
- * @param context_lens  Context lengths tensor [num_seqs].
- * @param block_size    The block size which means the number of token in every
- * block.
- * @param max_context_len Maximum context length.
+ * @param block_tables  Block tables tensor [batch_size, max_num_blocks_per_seq].
+ * @param context_lens  Context lengths tensor [batch_size].
  * @param attn_mask  Optional tensor of attention_mask
  */
 template <typename scalar_t>
 void paged_attention_kernel(at::Tensor &out, at::Tensor &query,
                             at::Tensor &key_cache, at::Tensor &value_cache,
-                            at::Tensor &head_mapping, const double scale,
-                            at::Tensor &block_tables, at::Tensor &context_lens,
-                            int64_t block_size,
+                            const double scale, at::Tensor &block_tables, 
+                            at::Tensor &context_lens,
                             c10::optional<at::Tensor> attn_mask) {
 
   using accum_t = at::opmath_type<scalar_t>;
@@ -255,17 +240,18 @@ void paged_attention_kernel(at::Tensor &out, at::Tensor &query,
   const auto dtype = query.scalar_type();
   const auto accumulate_dtype = at::toOpMathType(dtype);
   auto max_context_len = context_lens.max().item<int64_t>();
-  auto num_seqs = query.size(0);
+  auto batch_size = query.size(0);
   auto q_len = query.size(2);
   auto num_heads = query.size(1);
   auto head_size = query.size(3);
+  auto block_size = key_cache.size(2);
   auto num_kv_heads = key_cache.size(1);
   auto max_num_blocks_per_seq = block_tables.size(1);
   auto kv_head_group_size = num_heads / num_kv_heads;
   bool has_attn_mask = attn_mask.has_value() && attn_mask.value().numel();
   if (has_attn_mask) {
     attn_mask.value() = attn_mask.value().to(at::kFloat);
-    reshape_attn_mask_to_4d(attn_mask.value(), num_seqs, num_heads, q_len,
+    reshape_attn_mask_to_4d(attn_mask.value(), batch_size, num_heads, q_len,
                             attn_mask.value().size(-1));
   }
 
@@ -298,17 +284,17 @@ void paged_attention_kernel(at::Tensor &out, at::Tensor &query,
                          ? attn_mask.value().stride(1)
                          : 0;
   int64_t mStrideM = has_attn_mask ? attn_mask.value().stride(2) : 0;
-
+  
   auto max_num_partitions =
       (max_context_len + PARTITION_SIZE - 1) / PARTITION_SIZE;
 
-  auto max_logits = at::empty({num_seqs, num_heads, max_num_partitions + 1},
+  auto max_logits = at::empty({batch_size, num_heads, max_num_partitions + 1},
                               query.options().dtype(accumulate_dtype));
 
-  auto exp_sum = at::empty({num_seqs, num_heads, max_num_partitions + 1},
+  auto exp_sum = at::empty({batch_size, num_heads, max_num_partitions + 1},
                            query.options().dtype(accumulate_dtype));
 
-  auto tmp_out = at::empty({num_seqs, num_heads, max_num_partitions, head_size},
+  auto tmp_out = at::empty({batch_size, num_heads, max_num_partitions, head_size},
                            query.options().dtype(accumulate_dtype));
 
   auto tmp_out_ptr = tmp_out.data_ptr<accum_t>();
@@ -326,7 +312,7 @@ void paged_attention_kernel(at::Tensor &out, at::Tensor &query,
   for (auto partition_id = 0; partition_id < max_num_partitions;
        partition_id++) {
     for (auto head_id = 0; head_id < num_heads; head_id++) {
-      for (auto seq_id = 0; seq_id < num_seqs; seq_id++) {
+      for (auto seq_id = 0; seq_id < batch_size; seq_id++) {
         auto context_len = context_lens_ptr[seq_id];
         auto partition_start = partition_id * PARTITION_SIZE;
         if (partition_start >= context_len)
@@ -347,7 +333,7 @@ void paged_attention_kernel(at::Tensor &out, at::Tensor &query,
         auto tmp_out_start = tmp_out_ptr + seq_id * tmp_out_strideN +
                              head_id * tmp_out_strideH +
                              partition_id * tmp_out_strideS;
-        accum_t logits[PARTITION_SIZE] __attribute__((aligned(64))) = {0};
+        accum_t alignas(64) logits[PARTITION_SIZE] = {0};
         auto logits_position = 0;
         // 1)calculate the matmul(query, key) for this partition
         for (auto logical_block_id = logical_block_start;
@@ -420,7 +406,7 @@ void paged_attention_kernel(at::Tensor &out, at::Tensor &query,
 
 // calculate the final output
 #pragma omp parallel for collapse(2)
-  for (auto seq_id = 0; seq_id < num_seqs; seq_id++) {
+  for (auto seq_id = 0; seq_id < batch_size; seq_id++) {
     for (auto head_id = 0; head_id < num_heads; head_id++) {
       auto global_max = -std::numeric_limits<accum_t>::infinity();
       auto global_exp_sum = 0.0;
@@ -491,15 +477,16 @@ void paged_attention_kernel(at::Tensor &out, at::Tensor &query,
 } // paged_attention_kernel
 
 void paged_attention_kernel_impl(
-    at::Tensor &out,          // [num_seqs, 1,  num_heads, head_size]
-    at::Tensor &query,        // [num_seqs, 1, num_heads, head_size]
-    at::Tensor &key_cache,    // [num_blocks,  block_size, num_heads, head_size]
-    at::Tensor &value_cache,  // [num_blocks,  block_size, num_heads, head_size]
-    at::Tensor &head_mapping, // [num_heads]
+    at::Tensor &out,          // [batch_size, num_heads, 1, head_size]
+    at::Tensor &query,        // [batch_size, num_heads, 1, head_size]
+    at::Tensor &key_cache,    // [num_blocks, num_heads, block_size, head_size]
+    at::Tensor &value_cache,  // [num_blocks, num_heads, block_size, head_size]
     const double scale,
-    at::Tensor &block_tables, // [num_seqs, max_num_blocks_per_seq]
-    at::Tensor &context_lens, // [num_seqs]
-    int64_t block_size, c10::optional<at::Tensor> attn_mask) {
+    at::Tensor &block_tables, // [batch_size, max_num_blocks_per_seq]
+    at::Tensor &context_lens, // [batch_size]
+    c10::optional<at::Tensor> attn_mask) {
+  TORCH_CHECK(PARTITION_SIZE % key_cache.size(2) == 0,
+              "Paged attention: The PARTION_SIZE:%d should be divisible by block_size: %d", PARTITION_SIZE, key_cache.size(2));
   TORCH_CHECK(query.size(2) == 1,
               "Paged attention: only seqlen 1 is supported for query");
   TORCH_CHECK(query.scalar_type() == key_cache.scalar_type() &&
@@ -522,8 +509,8 @@ void paged_attention_kernel_impl(
   AT_DISPATCH_FLOATING_TYPES_AND2(
       at::kBFloat16, at::kHalf, query.scalar_type(), "paged_attention", [&] {
         paged_attention_kernel<scalar_t>(out, query, key_cache, value_cache,
-                                         head_mapping, scale, block_tables,
-                                         context_lens, block_size, attn_mask);
+                                         scale, block_tables,
+                                         context_lens, attn_mask);
       });
 }
 

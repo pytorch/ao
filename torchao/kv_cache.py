@@ -52,13 +52,7 @@ def scaled_dot_product_attention(
     query = input
     key_cache = key_tensor.cache
     value_cache = value_tensor.cache
-    num_kv_head = key_cache.size(1)
-    num_queries_per_kv = query.size(1) // num_kv_head
-    block_size = key_cache.size(2)
     block_tables = key_tensor.block_tables
-    head_mapping = torch.repeat_interleave(
-        torch.arange(num_kv_head, dtype=torch.int32, device="cpu"), num_queries_per_kv
-    )
     context_lens = key_tensor.context_lens
     output = torch.empty_like(query)
     torch.ops.torchao.paged_attention(
@@ -66,11 +60,9 @@ def scaled_dot_product_attention(
         query,
         key_cache,
         value_cache,
-        head_mapping,
         scale,
         block_tables,
         context_lens,
-        block_size,
         attn_mask,
     )
     return output

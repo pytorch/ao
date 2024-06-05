@@ -71,7 +71,7 @@ class MHAModule(torch.nn.Module):
         )
         return output
 
-
+@unittest.skipIf(torch.cuda.is_available(), "CUDA is not enabled yet")
 class PagedAttentionCachePagedTensorTest(unittest.TestCase):
     def _test_paged_attention_cache(
         self,
@@ -200,7 +200,6 @@ class PagedAttentionCachePagedTensorTest(unittest.TestCase):
                 batch_size,
                 beam_size,
             )
-
 
 if __name__ == "__main__":
     test = unittest.main()
