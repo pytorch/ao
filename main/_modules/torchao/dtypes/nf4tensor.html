@@ -1240,13 +1240,13 @@
     <span class="nd">@staticmethod</span>
     <span class="k">def</span> <span class="nf">forward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">weight</span><span class="p">:</span> <span class="n">NF4Tensor</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Save the quantized nf4 weight for backward pass&quot;&quot;&quot;</span>
-        <span class="n">ctx</span><span class="o">.</span><span class="n">nf4_weight</span> <span class="o">=</span> <span class="n">weight</span>
+        <span class="n">ctx</span><span class="o">.</span><span class="n">save_for_backward</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">F</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">weight</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="nb">input</span><span class="o">.</span><span class="n">dtype</span><span class="p">))</span>
 
     <span class="nd">@staticmethod</span>
     <span class="k">def</span> <span class="nf">backward</span><span class="p">(</span><span class="n">ctx</span><span class="p">,</span> <span class="n">grad_output</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;The nf4 weight will never require grad so we can just return the grad_output @ weight.to(grad_output.dtype)&quot;&quot;&quot;</span>
-        <span class="n">weight</span><span class="p">:</span> <span class="n">NF4Tensor</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">nf4_weight</span>
+        <span class="n">weight</span><span class="p">:</span> <span class="n">NF4Tensor</span> <span class="o">=</span> <span class="n">ctx</span><span class="o">.</span><span class="n">saved_tensors</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
         <span class="k">return</span> <span class="n">grad_output</span> <span class="o">@</span> <span class="n">weight</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">grad_output</span><span class="o">.</span><span class="n">dtype</span><span class="p">),</span> <span class="kc">None</span>
 
 
