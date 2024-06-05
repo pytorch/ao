@@ -403,7 +403,6 @@
 
 <span class="kn">from</span> <span class="nn">.dynamic_quant</span> <span class="kn">import</span> <span class="n">DynamicallyPerAxisQuantizedLinear</span>
 <span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="p">(</span>
-    <span class="n">TORCH_VERSION_AFTER_2_3</span><span class="p">,</span>
     <span class="n">TORCH_VERSION_AFTER_2_4</span><span class="p">,</span>
     <span class="n">unwrap_tensor_subclass</span><span class="p">,</span>
 <span class="p">)</span>
@@ -449,16 +448,15 @@
     <span class="s2">&quot;get_apply_int8dyn_quant&quot;</span><span class="p">,</span>
 <span class="p">]</span>
 
-<span class="k">if</span> <span class="n">TORCH_VERSION_AFTER_2_3</span><span class="p">:</span>
-    <span class="kn">from</span> <span class="nn">.GPTQ</span> <span class="kn">import</span> <span class="p">(</span>
-        <span class="n">Int8DynActInt4WeightQuantizer</span><span class="p">,</span>
-        <span class="n">Int8DynActInt4WeightGPTQQuantizer</span><span class="p">,</span>
+<span class="kn">from</span> <span class="nn">.GPTQ</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">Int8DynActInt4WeightQuantizer</span><span class="p">,</span>
+    <span class="n">Int8DynActInt4WeightGPTQQuantizer</span><span class="p">,</span>
 
-    <span class="p">)</span>
-    <span class="n">__all__</span> <span class="o">+=</span> <span class="p">[</span>
-        <span class="s2">&quot;Int8DynActInt4WeightQuantizer&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;Int8DynActInt4WeightGPTQQuantizer&quot;</span><span class="p">,</span>
-    <span class="p">]</span>
+<span class="p">)</span>
+<span class="n">__all__</span> <span class="o">+=</span> <span class="p">[</span>
+    <span class="s2">&quot;Int8DynActInt4WeightQuantizer&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;Int8DynActInt4WeightGPTQQuantizer&quot;</span><span class="p">,</span>
+<span class="p">]</span>
 
 
 <span class="k">def</span> <span class="nf">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
