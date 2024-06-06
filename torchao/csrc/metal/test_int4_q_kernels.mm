@@ -198,7 +198,7 @@ template <int groupSize> struct Int4MMBase {
     init<T>();
     id<MTLFunction> func = [lib
         newFunctionWithName:[NSString
-                                stringWithFormat:@"int4pack_mv_%u_%s",
+                                stringWithFormat:@"int4pack_vm_%u_%s",
                                                  groupSize,
                                                  type_string<T>().c_str()]];
     if (func == nil) {
@@ -284,10 +284,10 @@ int main() {
   @autoreleasepool {
     id<MTLDevice> device = getMetalDevice();
     std::cout << "Using device " << device.name.UTF8String << std::endl;
-    Int4MV<groupSize> int4mv_tester(device, "int4_quantized_kernels", M, N, K);
+    Int4MV<groupSize> int4vm_tester(device, "int4_quantized_kernels", M, N, K);
 
     // Benchmarks
-    if (!int4mv_tester.run_and_validate<BFloat16>()) {
+    if (!int4vm_tester.run_and_validate<BFloat16>()) {
       fail("Failed to validate");
     };
   }
