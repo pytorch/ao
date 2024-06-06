@@ -13,7 +13,7 @@ template <> struct Vec4Type<bfloat> { using type = bfloat4; };
 #endif
 
 /*
-   This code takes heavy inspiration from MLX qmv kernel here:
+   This code takes heavy inspiration from MLX qvm kernel here:
    https://github.com/ml-explore/mlx/blob/main/mlx/backend/metal/kernels/quantized.metal#L381
    Specifically:
      - Multiplying activation by inverse scaling factor to reduce compute
@@ -84,7 +84,7 @@ TODOs:
    Right now code handles only M = 1 case. Fix that.
 */
 template <typename T, unsigned groupSize>
-kernel void int4pack_mv(constant T *A [[buffer(0)]],
+kernel void int4pack_vm(constant T *A [[buffer(0)]],
                         constant uchar *B [[buffer(1)]],
                         constant T *scalesAndZeros [[buffer(2)]],
                         device T *outputData [[buffer(3)]],
@@ -185,8 +185,8 @@ kernel void int4pack_mv(constant T *A [[buffer(0)]],
 }
 
 #define INSTANTIATE_INT4MV(DTYPE, GSIZE)                                       \
-  template [[host_name("int4pack_mv_" #GSIZE "_" #DTYPE)]] kernel void         \
-  int4pack_mv<DTYPE, GSIZE>(                                                   \
+  template [[host_name("int4pack_vm_" #GSIZE "_" #DTYPE)]] kernel void         \
+  int4pack_vm<DTYPE, GSIZE>(                                                   \
       constant DTYPE * A [[buffer(0)]], constant uchar * B [[buffer(1)]],      \
       constant DTYPE * scalesAndZeros [[buffer(2)]],                           \
       device DTYPE * outputData [[buffer(3)]],                                 \
