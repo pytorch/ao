@@ -427,7 +427,7 @@ class TestFSDPOps(TestCase):
         nf4_tensor = to_nf4(torch.randn(512 * 512), device="cuda")
         self.assertEqual(nf4_tensor.device.type, "cuda")
 
-        nf4_tensor = to_nf4(torch.randn(512 * 512), "cuda")
+        nf4_tensor = to_nf4(torch.randn(512 * 512), device="cuda")
         self.assertEqual(nf4_tensor.device.type, "cuda")
         nf4_tensor = nf4_tensor.to(torch.bfloat16)
         self.assertEqual(nf4_tensor.device.type, "cuda")
