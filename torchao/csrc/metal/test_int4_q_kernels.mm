@@ -114,11 +114,12 @@ template <int groupSize> struct Int4MMBase {
     [encoder setComputePipelineState:cpl];
     [encoder setBuffer:buf_A offset:0 atIndex:0];
     [encoder setBuffer:buf_B offset:0 atIndex:1];
-    [encoder setBuffer:buf_SZ offset:0 atIndex:2];
-    [encoder setBuffer:buf_C offset:0 atIndex:3];
+    [encoder setBuffer:buf_scales offset:0 atIndex:2];
+    [encoder setBuffer:buf_zero_point offset:0 atIndex:3];
+    [encoder setBuffer:buf_C offset:0 atIndex:4];
     [encoder setBytes:sizes.data()
                length:sizeof(int32_t) * sizes.size()
-              atIndex:4];
+              atIndex:5];
     dispatchThreads(encoder, maxThreadsPerGroup);
     [encoder endEncoding];
   }
@@ -127,7 +128,8 @@ template <int groupSize> struct Int4MMBase {
     T *a_ptr = reinterpret_cast<T *>([buf_A contents]);
     uint8_t *b_ptr = reinterpret_cast<uint8_t *>([buf_B contents]);
     T *c_ptr = reinterpret_cast<T *>([buf_C contents]);
-    T *s_ptr = reinterpret_cast<T *>([buf_SZ contents]);
+    T *s_ptr = reinterpret_cast<T *>([buf_scales contents]);
+    T *z_ptr = reinterpret_cast<T *>([buf_zero_point contents]);
     std::random_device rd;
     std::mt19937 generator(rd());
     std::uniform_int_distribution<> int_distrib(-8, 7);
@@ -142,8 +144,8 @@ template <int groupSize> struct Int4MMBase {
       b_ptr[idx] = ((b1 + 8) << 4) | (b0 + 8);
     }
     for (int32_t idx = 0; idx < N * K / groupSize; ++idx) {
-      s_ptr[2 * idx] = (idx + 1.0) / N;
-      s_ptr[2 * idx + 1] = 0;
+      s_ptr[idx] = (idx + 1.0) / N;
+      z_ptr[idx] = 0;
     }
     for (int32_t idx = 0; idx < M * N; ++idx) {
       c_ptr[idx] = -1.0;
@@ -155,7 +157,8 @@ template <int groupSize> struct Int4MMBase {
     T *a_ptr = reinterpret_cast<T *>([buf_A contents]);
     uint8_t *b_ptr = reinterpret_cast<uint8_t *>([buf_B contents]);
     T *c_ptr = reinterpret_cast<T *>([buf_C contents]);
-    T *sz_ptr = reinterpret_cast<T *>([buf_SZ contents]);
+    T *s_ptr = reinterpret_cast<T *>([buf_scales contents]);
+    T *z_ptr = reinterpret_cast<T *>([buf_zero_point contents]);
 
     for (int32_t m = 0; m < M; m++) {
       for (int32_t n = 0; n < N; n++) {
@@ -166,8 +169,8 @@ template <int groupSize> struct Int4MMBase {
         float rc = 0.0;
         int32_t k = 0;
         for (int32_t kb = 0; kb < k_block; kb++) {
-          const T scale = sz_ptr[(kb * N + n) * 2 + 0];
-          const T zero = sz_ptr[(kb * N + n) * 2 + 1] - scale * T(8);
+          const T scale = s_ptr[(kb * N + n)];
+          const T zero = z_ptr[(kb * N + n)] - scale * T(8);
           for (int32_t idx = 0; idx < groupSize && k < K; idx++, k++) {
             const auto a_val = float(A_ptr[k]);
             uint8_t b_val = b_ptr[(n * K + k) / 2];
@@ -238,15 +241,17 @@ private:
     buf_A = allocSharedBuffer(device, M * K * elem_size);
     buf_B = allocSharedBuffer(device, N * K / 2);
     buf_C = allocSharedBuffer(device, M * N * elem_size);
-    buf_SZ = allocSharedBuffer(device, N * K / groupSize * 2 * elem_size);
+    buf_scales = allocSharedBuffer(device, N * K / groupSize * elem_size);
+    buf_zero_point = allocSharedBuffer(device, N * K / groupSize * elem_size);
   }
 
 public:
-  int32_t M, N, K;      // Input-output matirx dims
-  id<MTLBuffer> buf_A;  // MxK elements
-  id<MTLBuffer> buf_B;  // NxK elements
-  id<MTLBuffer> buf_C;  // MxN elements
-  id<MTLBuffer> buf_SZ; // (K/groupSize)xNx2 elements
+  int32_t M, N, K;              // Input-output matirx dims
+  id<MTLBuffer> buf_A;          // MxK elements
+  id<MTLBuffer> buf_B;          // NxK elements
+  id<MTLBuffer> buf_C;          // MxN elements
+  id<MTLBuffer> buf_scales;     // (K/groupSize)xNx2 elements
+  id<MTLBuffer> buf_zero_point; // (K/groupSize)xNx2 elements
   id<MTLLibrary> lib;
   std::string lib_name;
 };
