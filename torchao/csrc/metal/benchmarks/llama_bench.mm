@@ -215,7 +215,7 @@ public:
       [encoder setBytes:sizes.data()
                  length:sizeof(uint32_t) * sizes.size()
                 atIndex:5];
-      [encoder dispatchThreads:MTLSizeMake(N/4 * 32, 1, 1)
+      [encoder dispatchThreads:MTLSizeMake(N / 4 * 32, 1, 1)
           threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];
     }
   }
@@ -225,11 +225,11 @@ private:
   int32_t benchmarking_batch_size_{1};
   int32_t input_channels_;
   int32_t output_channels_;
-  //int32_t group_size;
-  id<MTLBuffer> input; // MxK elements
-  id<MTLBuffer> output; // NxK elements
-  id<MTLBuffer> weight; // MxN elements
-  id<MTLBuffer> scales; // (K/groupSize)xN elements
+  // int32_t group_size;
+  id<MTLBuffer> input;       // MxK elements
+  id<MTLBuffer> output;      // NxK elements
+  id<MTLBuffer> weight;      // MxN elements
+  id<MTLBuffer> scales;      // (K/groupSize)xN elements
   id<MTLBuffer> zero_points; // (K/groupSize)xN elements
   MetalShaderLibrary lib;
 };
