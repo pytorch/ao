@@ -526,18 +526,22 @@ class NF4Tensor(torch.Tensor):
             inpt_tensor.stride(),
             inpt_tensor.storage_offset(),
             inpt_tensor.dtype,
-            inpt_tensor.device,
+            device,
             inpt_tensor.requires_grad,
         )
+        # NOTE: Why do device transfers here?
+        # Deferring device changes all the way until here.
+        # A user might want to construct the Tensors on CPU
+        # and then transfer only the small NF4 Tensors to GPU.
         return cls(
             tensor_meta,
             block_size,
             n_blocks,
             scaler_block_size,
-            quantized_scalers,
-            quantization_factor,
-            scaler_mean,
-            quantized_data,
+            quantized_scalers.to(device),
+            quantization_factor.to(device),
+            scaler_mean.to(device),
+            quantized_data.to(device),
             nf4=nf4,
         )
 
