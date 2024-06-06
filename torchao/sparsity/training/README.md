@@ -1,6 +1,9 @@
 # Accelerated Sparse Training
 
-This folder contains an implementation of accelerated sparse training, utilizing the runtime semi-structured (2:4) sparsification [kernels]() present in core.
+This folder contains an implementation of accelerated sparse training.
+<!--For more information about our API and how it works, please see our blog post. (Will add link when its public)-->
+
+Special thanks to @danthe3rd for writing the runtime semi-structured (2:4) sparsification [kernels](https://github.com/pytorch/pytorch/pull/122350) in core.
 
 ### Quickstart
 
@@ -55,5 +58,3 @@ For VIT-L MLP shapes on a NVIDIA A100 we see the following results:
 
 Times are in microseconds (us).
 ```
-
-For more information about our API and how it works, please see our blog post.
