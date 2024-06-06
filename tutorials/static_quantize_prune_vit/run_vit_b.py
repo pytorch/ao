@@ -15,8 +15,13 @@ transforms = weights.transforms()
 model.eval().cuda().to(torch.bfloat16)
 
 # Input tensor (batch_size, channels, height, width)
-batch_size = 1024
+batch_size = 8192
 input_tensor = torch.randn(batch_size, 3, 224, 224, dtype=torch.bfloat16, device='cuda')
+
+## compilation configs
+# Enable this for more readable traces
+torch._inductor.config.triton.unique_kernel_names = True
+## compilation configs end
 
 model = torch.compile(model, mode='max-autotune')
 

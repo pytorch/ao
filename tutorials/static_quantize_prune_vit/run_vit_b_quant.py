@@ -28,6 +28,8 @@ torchao.apply_dynamic_quant(model)
 torch._dynamo.config.automatic_dynamic_shapes = False
 torch._inductor.config.force_fuse_int_mm_with_mul = True
 torch._inductor.config.use_mixed_mm = True
+# Enable this for more readable traces
+torch._inductor.config.triton.unique_kernel_names = True
 ## compilation configs end
 
 model = torch.compile(model, mode='max-autotune')
