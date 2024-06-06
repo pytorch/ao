@@ -195,7 +195,7 @@ public:
   void run_bench(id<MTLComputeCommandEncoder> encoder) {
     // Update this with picking appropriate kernel based on input params.
     std::string func =
-        "int4pack_mv_32_bfloat"; //" + std::to_string(group_size) + "_bfloat";
+        "int4pack_vm_32_bfloat"; //" + std::to_string(group_size) + "_bfloat";
     auto cpl = lib.getPipelineStateForFunc(func);
 
     @autoreleasepool {
