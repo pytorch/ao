@@ -4,8 +4,8 @@
 # LICENSE file in the root directory of this source tree.
 import torch
 
-from torchao.sparsity.prototype.training.autograd import semi_sparse_sparsify
-from torchao.sparsity.prototype.training.pointwise_ops import CUTLASS_POINTWISE_OP_DISPATCH_TABLE
+from torchao.sparsity.training.autograd import semi_structured_sparsify
+from torchao.sparsity.training.pointwise_ops import CUTLASS_POINTWISE_OP_DISPATCH_TABLE
 
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
 
@@ -17,8 +17,8 @@ if TORCH_VERSION_AFTER_2_3:
 __all__ = [
     "SemiSparseLinear",
     "SemiSparseActivationLinear",
-    "swap_linear_with_semi_sparse_linear_",
-    "swap_semi_sparse_linear_with_linear_",
+    "swap_linear_with_semi_sparse_linear",
+    "swap_semi_sparse_linear_with_linear",
 ]
 
 class SemiSparseLinear(torch.nn.Linear):
@@ -27,7 +27,7 @@ class SemiSparseLinear(torch.nn.Linear):
     """
 
     def forward(self, x):
-        sparse_weight = semi_sparse_sparsify(self.weight, backend="cusparselt")
+        sparse_weight = semi_structured_sparsify(self.weight, backend="cusparselt")
         return torch.nn.functional.linear(x, sparse_weight, self.bias)
 
     @classmethod
@@ -51,7 +51,7 @@ class SemiSparseActivationLinear(torch.nn.Linear):
     """
 
     def forward(self, x):
-        sparse_x = semi_sparse_sparsify(x, backend="cusparselt")
+        sparse_x = semi_structured_sparsify(x, backend="cusparselt")
         return torch.nn.functional.linear(sparse_x, self.weight, self.bias)
 
     @classmethod
@@ -68,7 +68,7 @@ class SemiSparseActivationLinear(torch.nn.Linear):
         mod.bias = semi_sparse_linear.bias
         return mod
 
-def swap_linear_with_semi_sparse_linear_(model, config, current=""):
+def swap_linear_with_semi_sparse_linear(model, config, current=""):
     """
     Public API for replacing nn.Linear with SemiSparseLinear
     """
@@ -80,9 +80,9 @@ def swap_linear_with_semi_sparse_linear_(model, config, current=""):
                 setattr(model, name, config[fqn].from_dense(child))
                 del child
         else:
-            swap_linear_with_semi_sparse_linear_(child, config, current=fqn)
+            swap_linear_with_semi_sparse_linear(child, config, current=fqn)
 
-def swap_semi_sparse_linear_with_linear_(model, current=""):
+def swap_semi_sparse_linear_with_linear(model, current=""):
     """
     Public API for replacing instances of SemiSparseLinear/SemiSparseActivaitonLinear with nn.Linear
     """
@@ -93,4 +93,4 @@ def swap_semi_sparse_linear_with_linear_(model, current=""):
             setattr(model, name, child.to_dense(child))
             del child
         else:
-            swap_semi_sparse_linear_with_linear_(child, current=fqn)
+            swap_semi_sparse_linear_with_linear(child, current=fqn)

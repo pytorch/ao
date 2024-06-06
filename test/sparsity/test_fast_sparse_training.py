@@ -7,9 +7,9 @@ import torch.nn.functional as F
 from torch import nn
 from torch.testing._internal.common_utils import TestCase
 
-from torchao.sparsity.prototype.training import (
-    swap_linear_with_semi_sparse_linear_,
-    swap_semi_sparse_linear_with_linear_,
+from torchao.sparsity.training import (
+    swap_linear_with_semi_sparse_linear,
+    swap_semi_sparse_linear_with_linear,
     SemiSparseLinear
 )
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
@@ -51,7 +51,7 @@ class TestRuntimeSemiStructuredSparsity(TestCase):
             "linear2": SemiSparseLinear,
         }
 
-        swap_linear_with_semi_sparse_linear_(model_c, sparse_config)
+        swap_linear_with_semi_sparse_linear(model_c, sparse_config)
         sparse_result = model_c(input)
 
         assert torch.allclose(dense_result, sparse_result, rtol=1e-1, atol=1e-1)
@@ -64,7 +64,7 @@ class TestRuntimeSemiStructuredSparsity(TestCase):
         assert torch.allclose(model.linear2.weight.grad, model_c.linear2.weight.grad, rtol=1e-1, atol=1e-1)
 
         # check that swap back works
-        swap_semi_sparse_linear_with_linear_(model_c)
+        swap_semi_sparse_linear_with_linear(model_c)
         for name, mod in model_c.named_modules():
             assert not isinstance(mod, SemiSparseLinear)
 

@@ -1,7 +1,7 @@
 from functools import partial
 import torch
 from torch.sparse import SparseSemiStructuredTensor 
-from torchao.sparsity.prototype.training.autograd import semi_sparse_sparsify_like
+from torchao.sparsity.training.autograd import semi_structured_sparsify_like
 
 def _semi_sparse_pointwise_op(func, types, args=(), kwargs=None, sparsify_like_args_list=()):
     """
@@ -19,14 +19,20 @@ def _semi_sparse_pointwise_op(func, types, args=(), kwargs=None, sparsify_like_a
 
     def handle_arg(i, tensor):
         if isinstance(tensor, torch.Tensor):
+            # For pointwise ops, dense tensors will be sparsified to match the sparsity pattern of the reference tensor
+            # if they are specified in `sparsify_like_args_list`.
             if not isinstance(tensor, SparseSemiStructuredTensor):
                 if i in sparsify_like_args_list:
-                    tensor = semi_sparse_sparsify_like(tensor, reference_sparse_tensor)
+                    tensor = semi_structured_sparsify_like(tensor, reference_sparse_tensor)
                 else:
                     raise ValueError(
                         f"Operation {func.__module__}.{func.__name__} on {type(reference_sparse_tensor)} requires all operands to "
                         f"be {type(reference_sparse_tensor)}, but operand {i} is a {type(tensor)}"
                     )
+            
+            # If the tensor is a SparseSemiStructuredTensor, we make sure that the sparsity pattern is the same as the reference tensor. 
+            # Pointwise ops on tensors containing two different sparsity patterns is not defined, as in the case of addition, where
+            # adding two semi-structured sparse tensors yields a result that is not semi-structured sparse. 
             else:
                 if (
                     tensor.compressed_swizzled_bitmask is None

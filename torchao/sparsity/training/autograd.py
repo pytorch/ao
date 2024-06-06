@@ -1,3 +1,4 @@
+from enum import Enum
 import torch
 from torch.sparse import SparseSemiStructuredTensor
 
@@ -8,14 +9,13 @@ if TORCH_VERSION_AFTER_2_3:
     torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUSPARSELT)
     torch._dynamo.allow_in_graph(SparseSemiStructuredTensorCUTLASS)
 
-GRADIENT_STE = "ste"
-GRADIENT_DENSE = "dense"
-GRADIENT_SPARSE = "sparse"
+
+GRADIENT_TYPE = Enum("GRADIENT_TYPE", ["DENSE", "SPARSE", "STE"])
 
 class _SparsifyFunc(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, x: torch.Tensor, algo: str, backend: str):  # type: ignore[override]
+    def forward(ctx, x: torch.Tensor, algo: str, backend: GRADIENT_TYPE):  # type: ignore[override]
         use_cutlass = (backend == "cutlass")
         if not isinstance(x, SparseSemiStructuredTensor):
             (packed, meta, packed_t, meta_t, bitmask) = torch._sparse_semi_structured_tile(
@@ -47,7 +47,7 @@ class _SparsifyFunc(torch.autograd.Function):
 class _SparsifyLikeFunc(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, x: torch.Tensor, pattern: SparseSemiStructuredTensor, gradient=GRADIENT_SPARSE):  # type: ignore[override]
+    def forward(ctx, x: torch.Tensor, pattern: SparseSemiStructuredTensor, gradient=GRADIENT_TYPE.SPARSE):  # type: ignore[override]
         assert isinstance(pattern, SparseSemiStructuredTensor)
 
         if not isinstance(pattern, SparseSemiStructuredTensorCUTLASS):
@@ -60,6 +60,13 @@ class _SparsifyLikeFunc(torch.autograd.Function):
             )
 
         packed, packed_t = torch._sparse_semi_structured_apply(x, pattern.compressed_swizzled_bitmask)
+
+        # save for backwards
+        ctx.meta = pattern.meta
+        ctx.meta_t = pattern.meta_t
+        ctx.bitmask = pattern.compressed_swizzled_bitmask
+        ctx.gradient = gradient
+
         return pattern.__class__(
             x.shape,
             packed,
@@ -72,23 +79,23 @@ class _SparsifyLikeFunc(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_out: torch.Tensor):  # type: ignore[override]
-        if ctx.gradient == GRADIENT_STE or isinstance(grad_out, SparseSemiStructuredTensor):
+        if ctx.gradient == GRADIENT_TYPE.STE or isinstance(grad_out, SparseSemiStructuredTensor):
             return grad_out, None, None, None
         assert not isinstance(grad_out, SparseSemiStructuredTensor)
         assert grad_out.dtype == ctx.dtype
 
-        if ctx.gradient == GRADIENT_DENSE:
+        if ctx.gradient == GRADIENT_TYPE.DENSE:
             assert ctx.threads_masks.is_contiguous()
             return (
-                torch._sparse_semi_structured_apply_dense(grad_out, ctx.threads_masks),
+                torch._sparse_semi_structured_apply_dense(grad_out, ctx.bitmask),
                 None,
                 None,
                 None,
             )
-        assert ctx.gradient == GRADIENT_SPARSE
+        assert ctx.gradient == GRADIENT_TYPE.SPARSE
 
         packed, _, packed_t, _ = torch._sparse_semi_structured_tile(
-            grad_out, ctx.threads_masks, backend="cutlass"
+            grad_out, ctx.bitmask, backend="cutlass"
         )
         return (
             SparseSemiStructuredTensorCUTLASS(
@@ -97,7 +104,7 @@ class _SparsifyLikeFunc(torch.autograd.Function):
                 ctx.meta,
                 packed_t,
                 ctx.meta_t,
-                ctx.threads_masks,
+                ctx.bitmask,
                 requires_grad=grad_out.requires_grad,
             ),
             None,
@@ -107,7 +114,7 @@ class _SparsifyLikeFunc(torch.autograd.Function):
         return grad_out, None
 
 @torch._dynamo.allow_in_graph
-def semi_sparse_sparsify(
+def semi_structured_sparsify(
     x: torch.Tensor,
     algo: str = "",
     backend: str = "cutlass",
@@ -118,10 +125,10 @@ def semi_sparse_sparsify(
     return _SparsifyFunc.apply(x, algo, backend)
 
 @torch._dynamo.allow_in_graph
-def semi_sparse_sparsify_like(
+def semi_structured_sparsify_like(
     x: torch.Tensor,
     pattern: SparseSemiStructuredTensor,
-    gradient: str = GRADIENT_SPARSE,
+    gradient: GRADIENT_TYPE = GRADIENT_TYPE.SPARSE,
 ) -> SparseSemiStructuredTensor:
     """
     Sparsifies a dense tensor into a semi-structured tensor, using the mask of the provided pattern. 

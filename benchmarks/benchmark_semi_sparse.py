@@ -13,8 +13,8 @@ import torch.nn.functional as F
 from torch import nn
 from xformers_benchmark_utils import DTYPE2STR, benchmark_main_helper2, product_dict
 
-from torchao.sparsity.prototype.training import SemiSparseLinear
-from torchao.sparsity.prototype.training.autograd import semi_sparse_sparsify
+from torchao.sparsity.training import SemiSparseLinear
+from torchao.sparsity.training.autograd import semi_structured_sparsify
 
 min_run_time = 0.5
 device = torch.device("cuda")
@@ -51,13 +51,15 @@ class Mlp(nn.Module):
         )
         self.out = self.input
         self.to("cuda").to(dtype)
-
-    def fw(self):
-        x = self.input
+    
+    def forward(self, x):
         x = self.fc1(x)
         x = self.act(x)
         x = self.fc2(x)
-        self.out = x
+        return x
+
+    def fw(self):
+        self.out = self.forward(self.input)
 
     def bw(self):
         self.out.backward(self.grad, retain_graph=True)
@@ -67,7 +69,7 @@ class MlpAct24(Mlp):
     def fw(self):
         x = self.input
         x = self.fc1(x)
-        x = semi_sparse_sparsify(x)
+        x = semi_structured_sparsify(x)
         x = self.act(x)
         x = self.fc2(x)
         self.out = x
@@ -92,7 +94,7 @@ class MicrobenchmarkBase:
             [B, in_ft], device="cuda", dtype=dtype, requires_grad=True
         )
         self.input_colMajor = self.input.t().contiguous().t()
-        self.input_sp = semi_sparse_sparsify(self.input)
+        self.input_sp = semi_structured_sparsify(self.input)
 
     def bw(self) -> None:
         return None
@@ -100,7 +102,7 @@ class MicrobenchmarkBase:
 
 class MicrobenchmarkSparsify24(MicrobenchmarkBase):
     def fw(self) -> torch.Tensor:
-        semi_sparse_sparsify(self.input)
+        semi_structured_sparsify(self.input)
         return self.input
 
 
