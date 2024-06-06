@@ -292,11 +292,11 @@ private:
   }
 
 public:
-  unsigned M, N, K;     // Input-output matirx dims
-  id<MTLBuffer> buf_A;  // MxK elements
-  id<MTLBuffer> buf_B;  // NxK elements
-  id<MTLBuffer> buf_C;  // MxN elements
-  id<MTLBuffer> buf_scales; // (K/groupSize)xNx2 elements
+  unsigned M, N, K;             // Input-output matirx dims
+  id<MTLBuffer> buf_A;          // MxK elements
+  id<MTLBuffer> buf_B;          // NxK elements
+  id<MTLBuffer> buf_C;          // MxN elements
+  id<MTLBuffer> buf_scales;     // (K/groupSize)xNx2 elements
   id<MTLBuffer> buf_zero_point; // (K/groupSize)xNx2 elements
   id<MTLLibrary> lib;
   std::string lib_name;
