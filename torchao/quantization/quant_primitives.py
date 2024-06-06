@@ -5,12 +5,8 @@
 # LICENSE file in the root directory of this source tree.
 
 from enum import Enum
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 import torch
-from torch._dynamo import is_compiling as dynamo_is_compiling
-from torch._higher_order_ops.out_dtype import out_dtype
-from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib
-from torch.library import impl
 
 from torchao.kernel.intmm import int_scaled_matmul
 from torchao.kernel.intmm import safe_int_mm
@@ -19,39 +15,42 @@ from torchao.utils import TORCH_VERSION_AFTER_2_3
 
 __all__ = [
     "safe_int_mm",
-    "dynamically_quantize_per_tensor",
-    "quantize_activation_per_token_absmax",
-    "dynamically_quantize_per_channel",
-    "dequantize_per_tensor",
-    "dequantize_per_channel",
-    "quant_int8_dynamic_linear",
-    "quant_int8_matmul",
-    "quant_int8_dynamic_per_token_linear",
-    "quant_int8_per_token_matmul",
-    "get_groupwise_affine_qparams",
-    "pack_tinygemm_scales_and_zeros",
-    "unpack_tinygemm_scales_and_zeros",
-    "groupwise_affine_quantize_tensor_from_qparams",
-    "groupwise_affine_dequantize_tensor_from_qparams",
-    "groupwise_affine_quantize_tensor",
-    "groupwise_affine_dequantize_tensor",
+    "int_scaled_matmul",
     "choose_qparams_affine",
     "quantize_affine",
     "dequantize_affine",
-    "per_token_dynamic_quant",
-    "get_group_qparams_symmetric",
-    # TODO: need to clean up above functions
 ]
 
+class MappingType(Enum):
+    """How floating point number is mapped to integer number
 
-def guard_dtype_size(tensor_arg, arg_name, dtype=None, size=None):
-    if dtype is not None and tensor_arg.dtype != dtype:
-        raise ValueError("Expected Tensor argument {arg_name} to have dtype {dtype}, but got {tensor_arg.dtype} instead.")
-    if size is not None and tensor_arg.size() != size:
-        raise ValueError("Expected Tensor argument {arg_name} to have size {size}, but got {tensor_arg.size()} instead.")
+    symmetric mapping means floating point range is symetrically mapped to integer range
+    let's say we have floating point range (-3.5, 10.2) and integer range (-8, 7) (int4)
+    we'll use (-10.2, 10.2) as the range for floating point and map that to (-8, 7)
+    e.g. scale = (10.2 - (-10.2)) / (7 - (-8))
 
+    asymmetric mapping means we just directly map the floating point range to integer range,
+    for the above example, we will map (-3.5, 10.2) to (-8, 7) and calculate quantization parameter
+    based on this mapping
+    e.g. scale = (10.2 - (-3.5)) / (7 - (-8))
+    """
+    SYMMETRIC = 0
+    ASYMMETRIC = 1
 
-_DTYPE_TO_QVALUE_BOUNDS = {
+class ZeroPointDomain(Enum):
+    """Enum that indicate whether zero_point is in integer domain or floating point domain
+
+    integer domain: quantized_val = (float_val / scale) (integer) + zero_point (integer)
+    float domain: quantized_val = (float_val - (zero_point (float) - scale * mid_point)) / scale
+    """
+    INT = 0
+    FLOAT = 1
+
+"""
+Map from dtype to the bound value of integers
+TODO: maybe can replace this with call to torch.iinfo
+"""
+_DTYPE_TO_QVALUE_BOUNDS: Dict[torch.dtype, Tuple[int, int]] = {
     torch.uint8: (0, 255),
     torch.int8: (-128, 127),
     torch.int16: (-(2**15), 2**15 - 1),
@@ -69,13 +68,6 @@ if TORCH_VERSION_AFTER_2_3:
         torch.uint7: (0, 2**7-1),
     })
 
-class MappingType(Enum):
-    SYMMETRIC = 0
-    ASYMMETRIC = 1
-
-class ZeroPointDomain(Enum):
-    INT = 0
-    FLOAT = 1
 
 # TODO: decide on if we want to allow custom quant_min/quant_max here
 def _get_and_check_qmin_qmax(dtype, quant_min, quant_max):
@@ -373,495 +365,3 @@ def choose_qparams_affine(
     scale = torch.clamp(scale, min=eps)
 
     return scale.to(dtype=scale_dtype), zero_point.to(dtype=zero_point_dtype)
-
-
-# copy-pasta of https://www.internalfb.com/intern/anp/view/?id=3350736
-def dynamically_quantize_per_tensor(
-    x,
-    quant_min,
-    quant_max,
-    target_dtype,
-    qscheme=torch.per_tensor_affine,  # for now, reuse existing qscheme enum
-):
-    eps = torch.finfo(torch.float32).eps
-    block_size = x.shape
-    zero_point_dtype = torch.int32
-
-    qscheme_to_mapping_type = {
-        torch.per_tensor_affine: MappingType.ASYMMETRIC,
-        torch.per_tensor_symmetric: MappingType.SYMMETRIC,
-    }
-    assert qscheme in qscheme_to_mapping_type, f"unsupported qscheme {qscheme}"
-    mapping_type = qscheme_to_mapping_type[qscheme]
-    scale, zero_point = choose_qparams_affine(x, mapping_type, block_size, target_dtype=target_dtype, quant_min=quant_min, quant_max=quant_max, eps=eps, zero_point_dtype=zero_point_dtype)
-    quant = quantize_affine(x, block_size, scale, zero_point, target_dtype, quant_min, quant_max)
-    return quant, scale, zero_point
-
-
-# taken from
-# https://github.com/mit-han-lab/smoothquant/blob/2f87951dacfb9238d8d657f52ae83a82a3c9ba0c/smoothquant/fake_quant.py#L26
-# and slightly modified
-def quantize_activation_per_token_absmax(t):
-    # if the shape of t is [B, N, K], the shape of scales will be [B, N, 1]
-    mapping_type = MappingType.SYMMETRIC
-    block_size = list(t.shape)
-    for i in range(len(block_size) - 1):
-        block_size[i] = 1
-    dtype = torch.int8
-    eps = 1e-5
-    # Note: the original smoothquant does not clamp to qmin/qmax here,
-    # but some of the tests with bfloat16 ended up with a flipped sign
-    # if we don't clamp.  TODO(future) look into this further.
-    quant_min = -127
-    quant_max = 127
-    scale_dtype = torch.float32 if t.dtype == torch.float16 else None
-
-    scale, zero_point = choose_qparams_affine(t, mapping_type, block_size, dtype, quant_min, quant_max, eps, scale_dtype=scale_dtype)
-
-    quantized = quantize_affine(t, block_size, scale, zero_point, dtype, quant_min, quant_max)
-
-    return quantized, scale
-
-
-def dynamically_quantize_per_channel(x, quant_min, quant_max, target_dtype):
-    """
-    assumes symmetric quantization
-    assumes axis == 0
-    assumes dense memory format
-    TODO(future): relax ^ as needed
-    """
-
-    assert x.dim() == 2, "only support 2d Tensors"
-
-    eps = torch.finfo(torch.float32).eps
-    block_size = (1, x.shape[1])
-    zero_point_dtype = torch.int64
-
-    mapping_type = MappingType.SYMMETRIC
-    scale, zero_point = choose_qparams_affine(x, mapping_type, block_size, target_dtype=target_dtype, quant_min=quant_min, quant_max=quant_max, eps=eps, zero_point_dtype=zero_point_dtype)
-    quant = quantize_affine(x, block_size, scale, zero_point, target_dtype, quant_min, quant_max)
-    return quant, scale, zero_point
-
-
-# reference: https://fburl.com/code/vfsygwd0
-
-
-def dequantize_per_tensor(int_repr, scale, zero_point, out_dtype=torch.float32):
-    block_size = int_repr.shape
-    input_dtype = int_repr.dtype
-    assert scale.numel() == 1, f"scale size: {scale.numel()}"
-    dequantized = dequantize_affine(int_repr, block_size, scale, zero_point, input_dtype, output_dtype=out_dtype)
-    return dequantized
-
-
-# reference: https://fburl.com/code/org0fmi3
-
-
-def dequantize_per_channel(int_repr, scales, zero_points, out_dtype=torch.float32):
-    assert int_repr.dim() == 2, "only support 2d Tensors"
-    # channel axis == 0
-    # block_size before transpose should be (1, int_repr.shape[1]) for axis == 0 per channel quant
-
-    # TODO: transpose is for perf reasons for torch.compile, we should separate this to lowering step
-    int_repr = int_repr.t()
-    # transpose for block_size as well
-    block_size = (int_repr.shape[0], 1)
-    input_dtype = int_repr.dtype
-    dequantized = dequantize_affine(int_repr, block_size, scales, zero_points, input_dtype, output_dtype=out_dtype)
-    dequantized = dequantized.t()
-    return dequantized
-
-
-def quant_int8_dynamic_linear(
-    x,
-    x_quant_min,
-    x_quant_max,
-    x_q_dtype,
-    w_vals_int8_t,
-    w_scales,
-    w_vals_int8_t_sums_int64,
-    bias,
-    out_dtype=torch.float32,
-):
-    # like F.linear, but with int8 dynamic quantization of activation,
-    # and a quantized weight
-    x_vals_int8, x_scale, x_zp = dynamically_quantize_per_tensor(
-        x, x_quant_min, x_quant_max, x_q_dtype
-    )
-    # w_vals_int8_t_sums_int64 = w_vals_int8_t.sum(dim=0)
-    mm_out = quant_int8_matmul(
-        x_vals_int8,
-        x_scale,
-        x_zp,
-        w_vals_int8_t,
-        w_vals_int8_t_sums_int64,
-        w_scales,
-        out_dtype,
-    )
-    if bias is not None:
-        mm_out += bias
-    return mm_out
-
-
-def quant_int8_matmul(
-    x_vals_int8,
-    x_scale,
-    x_zp,
-    w_vals_int8_t,
-    w_vals_int8_t_sums_int64,
-    w_scales,
-    out_dtype=torch.float32,
-):
-    """
-    Quantized matmul of int8 operands that accumulates to int32 and returns
-    out_dtype. For now, this is written for approximate numerical
-    correctness, and things like aligning accumulation behaviors and
-    performance optimizations are left for a future PR.
-    Assumes that weight quantization is symmetric, i.e. w_zp is 0.
-    Assumes that weight quantization is per-channel.
-
-    see
-    https://github.com/google/gemmlowp/blob/master/doc/quantization.md
-    for an overview of quantized matmul compute
-
-    in scalar form, assuming out_dtype is fp32 and zw == 0:
-
-      Y_i_j_fp32 = sx * sw (dot(X_i, W_j) - zx * sum(W_j))
-    """
-
-    assert x_vals_int8.dtype in (
-        torch.uint8,
-        torch.int8,
-    ), f"x dtype {x_vals_int8.dtype} not yet supported"
-    assert (
-        w_vals_int8_t.dtype == torch.int8
-    ), f"w dtype {w_vals_int8_t.dtype} not yet supported"
-    assert w_scales.dtype == out_dtype, f"{w_scales.dtype} does not match {out_dtype}"
-
-    #
-    # 1. do the matrix form of dot(X_i, W_j)
-    #
-
-    # TODO(before land): add test case for input with bsz
-    tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
-    y_dot_int32 = safe_int_mm(tmp, w_vals_int8_t)
-    y_dot_int32 = y_dot_int32.reshape(*x_vals_int8.shape[:-1], -1)
-
-    # TODO(future): consider using integer arithmetic throughout, although
-    # TBD if that is actually faster on GPUs
-    # need to use 32 bits here to prevent overflow for large shapes,
-    # 16 bits is not enough
-    y_dot_float32 = y_dot_int32.to(torch.float32)
-
-    #
-    # 2. connect it all together
-    #
-
-    # mm_unscaled has to stay in float32 for the next two lines to prevent overflow
-    mm_unscaled_float32 = y_dot_float32 - (x_zp * w_vals_int8_t_sums_int64)
-    y = x_scale * w_scales * mm_unscaled_float32
-    # can downcast only at the very end
-    y = y.to(out_dtype)
-    return y
-
-
-def quant_int8_dynamic_per_token_linear(
-    x,
-    w_vals_int8_t,
-    w_scales,
-    bias,
-    out_dtype,
-):
-    """
-    like F.linear, but with int8 dynamic quantization of activation,
-    and a quantized weight
-    """
-    x_vals_int8, x_scales = quantize_activation_per_token_absmax(x)
-    mm_out = quant_int8_per_token_matmul(
-        x_vals_int8, x_scales, w_vals_int8_t, w_scales, out_dtype
-    )
-    if bias is not None:
-        mm_out = mm_out + bias
-    return mm_out
-
-
-def quant_int8_per_token_matmul(
-    x_vals_int8,
-    x_scales,
-    w_vals_int8_t,
-    w_scales,
-    output_dtype=torch.float32,
-):
-    """
-    Quantized matmul of int8 operands that accumulates to int32 and returns
-    output_dtype. For now, this is written for approximate numerical
-    Assumes that activation and weight quantization are symmetric,
-    i.e. act_zp and w_zp is 0.
-    Assumes that weight quantization is per-channel.
-
-    see
-    https://github.com/google/gemmlowp/blob/master/doc/quantization.md
-    for an overview of quantized matmul compute
-
-    in scalar form, assuming output_dtype is fp32 and zw == 0:
-
-      Y_i_j_fp32 = sx * sw dot(X_i, W_j)
-    """
-
-    assert (
-        x_vals_int8.dtype == torch.int8
-    ), f"x dtype {x_vals_int8.dtype} not yet supported"
-    assert (
-        w_vals_int8_t.dtype == torch.int8
-    ), f"w dtype {w_vals_int8_t.dtype} not yet supported"
-
-    assert x_scales.dtype in [
-        torch.float,
-        torch.bfloat16,
-    ], f"x_scales needs to be a torch.float32 or torch.bfloat16 but got {x_scales.dtype}"
-
-    #
-    # 1. do the matrix form of dot(X_i, W_j)
-    #
-    #
-    # 2. rescale the output
-    #
-    # in cases with large matrices, y_dot_int32 can grow sufficiently
-    # large that y_dot_int32 * a float16 scale is greater than the maximum
-    # value of a float 16, (which results in a value of inf even if multiplying
-    # by the other scale would bring it within the expected range)
-
-    tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
-    y_dot_scaled = int_scaled_matmul(tmp, w_vals_int8_t, x_scales.reshape(-1, 1))
-
-    y = (y_dot_scaled * w_scales).reshape(
-        *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]
-    )
-
-    # can downcast only at the very end
-    y = y.to(output_dtype)
-    return y
-
-
-def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16):
-    if groupsize > w.shape[-1]:
-        groupsize = w.shape[-1]
-    assert groupsize > 1
-    assert w.shape[-1] % groupsize == 0
-    assert w.dim() == 2
-    assert n_bit <= 8, f"only n_bit smaller than 8 is supported, got: {n_bit}"
-
-    mapping_type = MappingType.ASYMMETRIC
-    target_dtype = torch.int32
-    block_size = (1, groupsize)
-    quant_min = 0
-    quant_max = 2**n_bit - 1
-    eps = 1e-6
-    scale_dtype = dtype
-    zero_point_dtype = dtype
-
-    scale, zero_point = choose_qparams_affine(
-        w,
-        mapping_type,
-        block_size,
-        target_dtype,
-        quant_min,
-        quant_max,
-        eps,
-        scale_dtype=scale_dtype,
-        zero_point_dtype=zero_point_dtype,
-        preserve_zero=False,
-        zero_point_domain=ZeroPointDomain.FLOAT
-    )
-
-    return scale.to(dtype=dtype).reshape(w.shape[0], -1), zero_point.to(
-        dtype=dtype
-    ).reshape(w.shape[0], -1)
-
-
-def pack_tinygemm_scales_and_zeros(scales, zeros):
-    guard_dtype_size(scales, "scales", dtype=torch.bfloat16, size=zeros.size())
-    guard_dtype_size(zeros, "zeros", dtype=torch.bfloat16)
-    return (
-        torch.cat(
-            [
-                scales.reshape(scales.size(0), scales.size(1), 1),
-                zeros.reshape(zeros.size(0), zeros.size(1), 1),
-            ],
-            2,
-        )
-        .transpose(0, 1)
-        .contiguous()
-    )
-
-
-def unpack_tinygemm_scales_and_zeros(scales_and_zeros):
-    assert len(scales_and_zeros.shape) == 3 and scales_and_zeros.shape[2] == 2
-    return torch.split(scales_and_zeros.transpose(0, 1), 1, 2)
-
-
-def groupwise_affine_quantize_tensor_from_qparams(
-    w,
-    scales,
-    zeros,
-    n_bit=4,
-    groupsize=128,
-):
-    assert groupsize > 1
-    # needed for GPTQ single column quantize
-    if groupsize > w.shape[-1] and scales.shape[-1] == 1:
-        groupsize = w.shape[-1]
-
-    assert w.shape[-1] % groupsize == 0
-    assert w.dim() == 2
-
-    block_size = (1, groupsize)
-    output_dtype = torch.int32
-    quant_min = 0
-    quant_max = 2 ** n_bit - 1
-
-    return quantize_affine(w, block_size, scales, zeros, output_dtype, quant_min, quant_max, zero_point_domain = ZeroPointDomain.FLOAT)
-
-def groupwise_affine_dequantize_tensor_from_qparams(
-    w_int4x8,
-    scales,
-    zeros,
-    n_bit=4,
-    groupsize=128,
-):
-    assert groupsize > 1
-    # needed for GPTQ single column dequantize
-    if groupsize > w_int4x8.shape[-1] and scales.shape[-1] == 1:
-        groupsize = w_int4x8.shape[-1]
-    assert w_int4x8.shape[-1] % groupsize == 0
-    assert w_int4x8.dim() == 2
-
-    block_size = (1, groupsize)
-    input_dtype = torch.int32
-    quant_min = 0
-    quant_max = 2**n_bit - 1
-    return dequantize_affine(w_int4x8, block_size, scales, zeros, input_dtype, quant_min, quant_max, zero_point_domain=ZeroPointDomain.FLOAT, output_dtype=scales.dtype)
-
-
-def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128, dtype=torch.bfloat16):
-    scales, zeros = get_groupwise_affine_qparams(w, n_bit, groupsize, dtype)
-    w_int4x8 = groupwise_affine_quantize_tensor_from_qparams(
-        w, scales, zeros, n_bit, groupsize
-    )
-    scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros)
-    return w_int4x8, scales_and_zeros
-
-
-def groupwise_affine_dequantize_tensor(
-    w_int4x8,
-    scales_and_zeros,
-    n_bit=4,
-    groupsize=128,
-):
-    scales, zeros = unpack_tinygemm_scales_and_zeros(scales_and_zeros)
-    return groupwise_affine_dequantize_tensor_from_qparams(
-        w_int4x8, scales, zeros, n_bit, groupsize
-    )
-
-
-# TODO: separate scale and zero point precision
-def get_group_qparams_symmetric(w, n_bit=4, groupsize=128, precision=torch.float32):
-    # needed for GPTQ with padding
-    if groupsize > w.shape[-1]:
-        groupsize = w.shape[-1]
-    assert groupsize > 1
-    assert w.shape[-1] % groupsize == 0
-    assert w.dim() == 2
-    assert n_bit <= 8, f"unsupported n_bit: {n_bit}"
-
-    mapping_type = MappingType.SYMMETRIC
-    block_size = (1, groupsize)
-    eps = torch.finfo(torch.float32).eps
-    ranges = {}
-    ranges[1] = (-1, 0)
-    # generating ranges for bit 2 to 8
-    for i in range(2, 9):
-        ranges[i] = (-(2 ** (i - 1)), 2 ** (i - 1) - 1)
-    quant_min, quant_max = ranges[n_bit]
-    scale, zero_point = choose_qparams_affine(w, mapping_type, block_size, target_dtype=torch.int8, quant_min=quant_min, quant_max=quant_max, eps=eps, scale_dtype=precision, zero_point_dtype=precision)
-    return scale.reshape(w.shape[0], -1), zero_point.reshape(w.shape[0], -1)
-
-
-def group_quantize_tensor_symmetric(
-    w,
-    n_bit=4,
-    group_size=128,
-    precision=torch.float32,
-):
-    scales, zeros = get_group_qparams_symmetric(w, n_bit, group_size, precision)
-    n_bit = 4
-    max_int = 2 ** (n_bit - 1) - 1
-    min_int = -(2 ** (n_bit - 1))
-    # TODO: currently we don't know how to express torch.int4, we'll
-    # add torch.int4 to core later
-    from torchao._executorch_ops import _quantized_decomposed_quantize_per_channel_group_wrapper
-    w_int8 = _quantized_decomposed_quantize_per_channel_group_wrapper(
-        w, scales, zeros, min_int, max_int, torch.int8, group_size
-    )
-
-    return w_int8, scales, zeros
-
-
-def down_size(size):
-    assert size[-1] % 2 == 0, f"{size} last dim not divisible by two"
-    return (*size[:-1], size[-1] // 2)
-
-
-def up_size(size):
-    return (*size[:-1], size[-1] * 2)
-
-
-quantized_decomposed_lib.define("pack_int4_from_int8(Tensor int8_data) -> Tensor")
-
-
-@impl(quantized_decomposed_lib, "pack_int4_from_int8", "CompositeExplicitAutograd")
-def pack_int4_from_int8(int8_data: torch.Tensor) -> torch.Tensor:
-    # converting to uint8 for operations
-    shape = int8_data.shape
-    assert shape[-1] % 2 == 0
-    int8_data = int8_data.contiguous().view(-1)
-    return (int8_data[::2] << 4 | int8_data[1::2]).view(down_size(shape))
-
-
-quantized_decomposed_lib.define("unpack_int4_to_int8(Tensor int8_data) -> Tensor")
-
-
-@impl(quantized_decomposed_lib, "unpack_int4_to_int8", "CompositeExplicitAutograd")
-def unpack_int4_to_int8(int8_data: torch.Tensor) -> torch.Tensor:
-    """ Get the original weight from the normalized float weight format"""
-    # since we are using int8 we will decode 2 entries per byte
-    # Shift elements down 4 and select out the bottom 4 bits
-    shape = int8_data.shape
-    first_elements = (int8_data >> 4).to(torch.int8)
-    second_elements = (int8_data & 0b1111).to(torch.int8)
-    return torch.stack([first_elements, second_elements], dim=-1).view(up_size(shape))
-
-
-def per_token_dynamic_quant(input: torch.Tensor) -> torch.Tensor:
-    orig_dtype = input.dtype
-    # TODO: we may need to make the choose_qparams op configurable
-    from torchao._executorch_ops import _quantized_decomposed_choose_qparams_per_token_asymmetric_wrapper
-    (
-        scales,
-        zero_points,
-    ) = _quantized_decomposed_choose_qparams_per_token_asymmetric_wrapper(
-        input, torch.int8
-    )
-
-    # TODO: get these from torch.int8
-    quant_min = -128
-    quant_max = 127
-    from torchao._executorch_ops import _quantized_decomposed_quantize_per_token_wrapper
-    input = _quantized_decomposed_quantize_per_token_wrapper(
-        input, scales, zero_points, quant_min, quant_max, torch.int8
-    )
-    from torchao._executorch_ops import _quantized_decomposed_dequantize_per_token_wrapper
-    input = _quantized_decomposed_dequantize_per_token_wrapper(
-        input, scales, zero_points, quant_min, quant_max, torch.int8, orig_dtype
-    )
-    return input.to(orig_dtype)

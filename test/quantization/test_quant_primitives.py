@@ -9,14 +9,19 @@
 import unittest
 import torch
 from torchao.quantization.quant_primitives import (
-    get_group_qparams_symmetric,
-    get_groupwise_affine_qparams,
-    groupwise_affine_quantize_tensor_from_qparams,
-    groupwise_affine_dequantize_tensor_from_qparams,
     quantize_affine,
     dequantize_affine,
     choose_qparams_affine,
     MappingType,
+    ZeroPointDomain,
+)
+# TODO: remove test for utils?
+from torchao.quantization.utils import (
+    get_group_qparams_symmetric,
+    get_groupwise_affine_qparams,
+    groupwise_affine_quantize_tensor_from_qparams,
+    groupwise_affine_dequantize_tensor_from_qparams,
+    quantize_activation_per_token_absmax,
 )
 
 from torchao.utils import (
@@ -225,7 +230,6 @@ class TestQuantPrimitives(unittest.TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
     def test_quantize_activation_per_token_abs_max(self):
-        from torchao.quantization.quant_primitives import quantize_activation_per_token_absmax
         input = torch.randn(10, 10)
         quantized_ref, scale_ref = quantize_activation_per_token_absmax(input)
 
@@ -246,7 +250,6 @@ class TestQuantPrimitives(unittest.TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
     def test_quantize_activation_per_token_abs_max_zero_input(self):
-        from torchao.quantization.quant_primitives import quantize_activation_per_token_absmax
         input = torch.zeros(10, 10)
         # make sure it still works
         quantized_ref, scale_ref = quantize_activation_per_token_absmax(input)
@@ -254,7 +257,6 @@ class TestQuantPrimitives(unittest.TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
     def test_quantize_activation_per_token_abs_max_dtype(self):
-        from torchao.quantization.quant_primitives import quantize_activation_per_token_absmax
         input = torch.zeros(10, 10, dtype=torch.bfloat16)
         quantized_ref, scale_ref = quantize_activation_per_token_absmax(input)
         self.assertTrue(scale_ref.dtype, torch.bfloat16)
@@ -439,8 +441,6 @@ class TestQuantPrimitives(unittest.TestCase):
 
 
     def test_get_groupwise_affine_qparams(self):
-        from torchao.quantization.quant_primitives import ZeroPointDomain
-
         input = torch.randn(10, 256)
         n_bit = 4
         scale_ref, zero_point_ref = _get_groupwise_affine_qparams(input, n_bit=n_bit, groupsize=128, dtype=torch.bfloat16)
