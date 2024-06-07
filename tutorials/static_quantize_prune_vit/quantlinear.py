@@ -6,6 +6,7 @@ from typing import Tuple, Optional
 import torch
 from torch._dynamo import is_compiling as dynamo_is_compiling
 from torchao.quantization.quant_primitives import quant_int8_per_token_matmul
+from torchao.kernel.intmm import int_scaled_2_bias_matmul
 
 def quantize_activation_per_token(t, scales):
     t = torch.round(t / scales).clamp(-127, 127).to(torch.int8)
@@ -31,15 +32,24 @@ def quant_int8_dynamic_per_token_linear(
     w_vals_int8_t,
     w_scales,
     bias,
-    out_dtype=torch.float32,
+    out_dtype,
 ):
-    # like F.linear, but with int8 dynamic quantization of activation,
-    # and a quantized weight
-    mm_out = quant_int8_per_token_matmul(
-        x_vals_int8, x_scales, w_vals_int8_t, w_scales, out_dtype)
-    if bias is not None:
-        mm_out += bias
-    return mm_out# .realize()
+    # # like F.linear, but with int8 dynamic quantization of activation,
+    # # and a quantized weight
+    # mm_out = quant_int8_per_token_matmul(
+    #     x_vals_int8, x_scales, w_vals_int8_t, w_scales, out_dtype)
+    # if bias is not None:
+    #     mm_out += bias
+    # return mm_out# .realize()
+
+    tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
+    res = int_scaled_2_bias_matmul(tmp,
+                                   w_vals_int8_t,
+                                   x_scales.reshape(-1, 1),
+                                   w_scales.reshape(1, -1),
+                                   out_dtype,
+                                   bias)
+    return res.reshape(*x_vals_int8.shape[:-1], -1)
 
 class StaticallyPerAxisQuantizedLinear(torch.nn.Linear):
     """
