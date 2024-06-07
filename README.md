@@ -18,8 +18,9 @@ pip install torchao
 ```
 
 Nightly Release
-```Shell
-pip install torchao-nightly
+```Shell 
+pip install --pre torchao-nightly --index-url https://download.pytorch.org/whl/nightly/ # CUDA builds
+pip install --pre torchao-nightly --index-url https://download.pytorch.org/whl/nightly/cpu # CPU only builds
 ```
 
 From source
