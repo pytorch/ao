@@ -88,21 +88,6 @@ BaseQuantizeConfig = hqq_quantize.BaseQuantizeConfig
 import itertools
 from torchao.prototype.hqq import pack_2xint4, triton_mixed_mm
 
-# Test configs
-SHAPES = [
-    [16, 128, 128],
-    [16, 4096, 4096],
-]
-
-DTYPES = [torch.bfloat16, torch.float16]
-GROUP_SIZES = [64, 128]
-AXES = [1]  # Only axis = 1 supported
-TRANSPOSED = [False, True]
-TRITON_KERNEL_TYPE = ["compute_bound"]  # ["max_autotune", "compute_bound"]
-
-TEST_CONFIGS = list(
-    itertools.product(SHAPES, GROUP_SIZES, AXES, DTYPES, TRANSPOSED, TRITON_KERNEL_TYPE)
-)
 
 BASE_QUANT_CONFIG = {
     "optimize": True,
@@ -236,7 +221,7 @@ if __name__ == "__main__":
             torch.uint8,
         )
         # shape, group_size, axis, dtype, transposed, kernel_type, quant_dtype=torch.uint8
-        print("pack time (ms): ", benchmark(test_mixed_mm, 10, 
+        print("pack time (ms): ", benchmark(test_mixed_mm, 100, 
                                                 shape, 
                                                 group_size,
                                                 1,
@@ -245,7 +230,7 @@ if __name__ == "__main__":
                                                 "compute_bound",
                                                 torch.uint8))
         
-        print("pack_2xint4 time (ms): ", benchmark(test_mixed_mm, 10, 
+        print("pack_2xint4 time (ms): ", benchmark(test_mixed_mm, 100, 
                                                 shape, 
                                                 group_size,
                                                 1,
