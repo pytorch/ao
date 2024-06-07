@@ -11,6 +11,8 @@ import torch
 from torchao.quantization.quant_primitives import (
     get_group_qparams_symmetric,
     get_groupwise_affine_qparams,
+    groupwise_affine_quantize_tensor_from_qparams,
+    groupwise_affine_dequantize_tensor_from_qparams,
     quantize_affine,
     dequantize_affine,
     choose_qparams_affine,
@@ -37,6 +39,86 @@ def check_idempotent(self, fn, *args, **kwargs):
     output1 = fn(*args, **kwargs)
     self.assertTrue(torch.equal(output0, output1), f"Expected given function {fn} to be idempotent.")
     return output1
+
+# Legacy tinygemm ops
+def _get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16):
+    if groupsize > w.shape[-1]:
+        groupsize = w.shape[-1]
+    assert groupsize > 1
+    assert w.shape[-1] % groupsize == 0
+    assert w.dim() == 2
+
+    to_quant = w.reshape(-1, groupsize)
+    # assert torch.isnan(to_quant).sum() == 0
+
+    max_val = to_quant.amax(dim=1, keepdim=True)
+    min_val = to_quant.amin(dim=1, keepdim=True)
+    max_int = 2**n_bit - 1
+    scales = (max_val - min_val).clamp(min=1e-6) / max_int
+    zeros = min_val + scales * (2 ** (n_bit - 1))
+    return scales.to(dtype=dtype).reshape(w.shape[0], -1), zeros.to(
+        dtype=dtype
+    ).reshape(w.shape[0], -1)
+
+def _groupwise_affine_quantize_tensor_from_qparams(
+    w,
+    scales,
+    zeros,
+    n_bit=4,
+    groupsize=128,
+):
+    assert groupsize > 1
+    # needed for GPTQ single column quantize
+    if groupsize > w.shape[-1] and scales.shape[-1] == 1:
+        groupsize = w.shape[-1]
+
+    assert w.shape[-1] % groupsize == 0
+    assert w.dim() == 2
+
+    to_quant = w.reshape(-1, groupsize)
+    # assert torch.isnan(to_quant).sum() == 0
+
+    scales = scales.reshape(-1, 1)
+    zeros = zeros.reshape(-1, 1)
+    min_val = zeros - scales * (2 ** (n_bit - 1))
+    max_int = 2**n_bit - 1
+    min_int = 0
+    w_int4x8 = (
+        to_quant.sub(min_val)
+        .div(scales)
+        .round()
+        .clamp_(min_int, max_int)
+        .to(torch.int32)
+        .reshape_as(w)
+    )
+
+    return w_int4x8
+
+def _groupwise_affine_dequantize_tensor_from_qparams(
+    w_int4x8,
+    scales,
+    zeros,
+    n_bit=4,
+    groupsize=128,
+):
+    assert groupsize > 1
+    # needed for GPTQ single column dequantize
+    if groupsize > w_int4x8.shape[-1] and scales.shape[-1] == 1:
+        groupsize = w_int4x8.shape[-1]
+    assert w_int4x8.shape[-1] % groupsize == 0
+    assert w_int4x8.dim() == 2
+
+    w_int4x8_grouped = w_int4x8.reshape(-1, groupsize)
+    scales = scales.reshape(-1, 1)
+    zeros = zeros.reshape(-1, 1)
+
+    w_dq = (
+        w_int4x8_grouped.sub(2 ** (n_bit - 1))
+        .mul(scales)
+        .add(zeros)
+        .reshape_as(w_int4x8)
+    )
+    return w_dq
 
 
 class TestQuantPrimitives(unittest.TestCase):
@@ -356,12 +438,12 @@ class TestQuantPrimitives(unittest.TestCase):
             )
 
 
-    def test_tinygemm_get_groupwise_affine_qparams(self):
+    def test_get_groupwise_affine_qparams(self):
         from torchao.quantization.quant_primitives import ZeroPointDomain
 
         input = torch.randn(10, 256)
         n_bit = 4
-        scale_ref, zero_point_ref = get_groupwise_affine_qparams(input, n_bit=n_bit, groupsize=128, dtype=torch.bfloat16)
+        scale_ref, zero_point_ref = _get_groupwise_affine_qparams(input, n_bit=n_bit, groupsize=128, dtype=torch.bfloat16)
 
         mapping_type = MappingType.ASYMMETRIC
         dtype = torch.int8
@@ -389,6 +471,29 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(scale, scale_ref))
         self.assertTrue(torch.equal(zero_point, zero_point_ref))
 
+    def test_groupwise_affine_quantize_tensor_from_qparams(self):
+        input = torch.randn(10, 256)
+        scales = torch.randn(10, 2)
+        zeros = torch.randn(10, 2)
+        n_bit = 4
+        groupsize = 128
+
+        w_int4x8 = groupwise_affine_quantize_tensor_from_qparams(input, scales, zeros, n_bit, groupsize)
+        w_int4x8_ref = _groupwise_affine_quantize_tensor_from_qparams(input, scales, zeros, n_bit, groupsize)
+
+        self.assertTrue(torch.equal(w_int4x8, w_int4x8_ref))
+
+    def test_groupwise_affine_dequantize_tensor_from_qparams(self):
+        input = torch.randint(0, 15, (10, 256), dtype=torch.int32)
+        scales = torch.randn(10, 2).bfloat16()
+        zeros = torch.randn(10, 2).bfloat16()
+        n_bit = 4
+        groupsize = 128
+
+        w_bf16 = groupwise_affine_dequantize_tensor_from_qparams(input, scales, zeros, n_bit, groupsize)
+        w_bf16_ref = _groupwise_affine_dequantize_tensor_from_qparams(input, scales, zeros, n_bit, groupsize)
+
+        self.assertTrue(torch.equal(w_bf16, w_bf16_ref))
 
 if __name__ == "__main__":
     unittest.main()

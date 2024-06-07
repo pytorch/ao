@@ -249,7 +249,7 @@ def dequantize_affine(
 
     # TODO: validations
     # TODO: validate scale/zero_point dimensions are compatible with block_size
-    assert input.dtype == input_dtype
+    assert input.dtype == input_dtype, f"Expected: {input_dtype}, got: {input.dtype}"
     assert output_dtype in [torch.float32, torch.float16, torch.bfloat16], f"Unsupported output dtype: {output_dtype}"
     quant_min, quant_max = _get_and_check_qmin_qmax(input_dtype, quant_min, quant_max)
 
@@ -644,22 +644,37 @@ def quant_int8_per_token_matmul(
 
 
 def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16):
-    """This is tinygemm specific, we'll keep this for now"""
     if groupsize > w.shape[-1]:
         groupsize = w.shape[-1]
     assert groupsize > 1
     assert w.shape[-1] % groupsize == 0
     assert w.dim() == 2
+    assert n_bit <= 8, f"only n_bit smaller than 8 is supported, got: {n_bit}"
 
-    to_quant = w.reshape(-1, groupsize)
-    # assert torch.isnan(to_quant).sum() == 0
+    mapping_type = MappingType.ASYMMETRIC
+    target_dtype = torch.int32
+    block_size = (1, groupsize)
+    quant_min = 0
+    quant_max = 2**n_bit - 1
+    eps = 1e-6
+    scale_dtype = dtype
+    zero_point_dtype = dtype
 
-    max_val = to_quant.amax(dim=1, keepdim=True)
-    min_val = to_quant.amin(dim=1, keepdim=True)
-    max_int = 2**n_bit - 1
-    scales = (max_val - min_val).clamp(min=1e-6) / max_int
-    zeros = min_val + scales * (2 ** (n_bit - 1))
-    return scales.to(dtype=dtype).reshape(w.shape[0], -1), zeros.to(
+    scale, zero_point = choose_qparams_affine(
+        w,
+        mapping_type,
+        block_size,
+        target_dtype,
+        quant_min,
+        quant_max,
+        eps,
+        scale_dtype=scale_dtype,
+        zero_point_dtype=zero_point_dtype,
+        preserve_zero=False,
+        zero_point_domain=ZeroPointDomain.FLOAT
+    )
+
+    return scale.to(dtype=dtype).reshape(w.shape[0], -1), zero_point.to(
         dtype=dtype
     ).reshape(w.shape[0], -1)
 
@@ -692,7 +707,6 @@ def groupwise_affine_quantize_tensor_from_qparams(
     n_bit=4,
     groupsize=128,
 ):
-    """This is tinygemm specific, we'll keep this for now"""
     assert groupsize > 1
     # needed for GPTQ single column quantize
     if groupsize > w.shape[-1] and scales.shape[-1] == 1:
@@ -701,25 +715,12 @@ def groupwise_affine_quantize_tensor_from_qparams(
     assert w.shape[-1] % groupsize == 0
     assert w.dim() == 2
 
-    to_quant = w.reshape(-1, groupsize)
-    # assert torch.isnan(to_quant).sum() == 0
+    block_size = (1, groupsize)
+    output_dtype = torch.int32
+    quant_min = 0
+    quant_max = 2 ** n_bit - 1
 
-    scales = scales.reshape(-1, 1)
-    zeros = zeros.reshape(-1, 1)
-    min_val = zeros - scales * (2 ** (n_bit - 1))
-    max_int = 2**n_bit - 1
-    min_int = 0
-    w_int4x8 = (
-        to_quant.sub(min_val)
-        .div(scales)
-        .round()
-        .clamp_(min_int, max_int)
-        .to(torch.int32)
-        .reshape_as(w)
-    )
-
-    return w_int4x8
-
+    return quantize_affine(w, block_size, scales, zeros, output_dtype, quant_min, quant_max, zero_point_domain = ZeroPointDomain.FLOAT)
 
 def groupwise_affine_dequantize_tensor_from_qparams(
     w_int4x8,
@@ -728,7 +729,6 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     n_bit=4,
     groupsize=128,
 ):
-    """This is tinygemm specific, we'll keep this for now"""
     assert groupsize > 1
     # needed for GPTQ single column dequantize
     if groupsize > w_int4x8.shape[-1] and scales.shape[-1] == 1:
@@ -736,17 +736,11 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     assert w_int4x8.shape[-1] % groupsize == 0
     assert w_int4x8.dim() == 2
 
-    w_int4x8_grouped = w_int4x8.reshape(-1, groupsize)
-    scales = scales.reshape(-1, 1)
-    zeros = zeros.reshape(-1, 1)
-
-    w_dq = (
-        w_int4x8_grouped.sub(2 ** (n_bit - 1))
-        .mul(scales)
-        .add(zeros)
-        .reshape_as(w_int4x8)
-    )
-    return w_dq
+    block_size = (1, groupsize)
+    input_dtype = torch.int32
+    quant_min = 0
+    quant_max = 2**n_bit - 1
+    return dequantize_affine(w_int4x8, block_size, scales, zeros, input_dtype, quant_min, quant_max, zero_point_domain=ZeroPointDomain.FLOAT, output_dtype=scales.dtype)
 
 
 def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128, dtype=torch.bfloat16):

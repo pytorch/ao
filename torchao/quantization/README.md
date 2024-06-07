@@ -36,6 +36,21 @@ model = torchao.autoquant(torch.compile(model, mode='max-autotune'))
 model(input)
 ```
 
+Sometimes it is desirable to reuse a quantization plan that `autoquant` came up with. `torchao.quantization.AUTOQUANT_CACHE` is a dictionary holding autoquant's benchmark results. We can save it and restore it later, which will cause `autoquant` to choose the same quantization methods.
+
+```python
+import pickle
+import torchao.quantization
+
+# After the first forward pass (when quantization was done)
+with open("quantization-cache.pkl", "wb") as f:
+    pickle.dump(torchao.quantization.AUTOQUANT_CACHE)
+
+# On load
+with open("quantization-cache.pkl", "rb") as f:
+    torchao.quantization.AUTOQUANT_CACHE.update(pickle.load(f))
+```
+
 
 ## A8W8 Dynamic Quantization
 
