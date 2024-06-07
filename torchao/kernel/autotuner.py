@@ -223,7 +223,7 @@ def get_best_config_fn(fn, args, configs):
     # used to filter bad configs sooner.
     for config in configs[1:]:
         time = do_bench(fn, args, config, best_time)
-        logging.info(
+        print(
             " ".join([f"{i:4d}/{len(configs):4d}", f"{time:6.3f}", str(config)])
         )
         if time < best_time:

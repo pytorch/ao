@@ -305,6 +305,7 @@ def int_scaled_matmul_kernel(a, b, scales1, c, config):
 lib = torch.library.Library("torchao", "FRAGMENT")
 lib.define("int_matmul(Tensor a, Tensor b) -> Tensor")
 lib.define("int_scaled_matmul(Tensor a, Tensor b, Tensor scales1) -> Tensor")
+lib.define("int_scaled_2_bias_matmul(Tensor a, Tensor b, Tensor scales1, Tensor scales2, ScalarType output_dtype, Tensor bias) -> Tensor")
 
 
 @torch.library.impl(lib, "int_matmul", "Meta")
@@ -360,5 +361,171 @@ def int_scaled_matmul_cuda(a, b, scales1):
 
 @torch.library.impl(lib, "int_scaled_matmul", "CPU")
 def int_scaled_matmul_cpu(a, b, scales1):
+    c = torch._int_mm(a, b)
+    return c.to(scales1.dtype) * scales1
+
+# int_scaled_2_bias_matmul
+
+@triton.jit
+def scaled_2_bias_matmul_kernel_with_block_pointers(
+    # Pointers to matrices
+    a_ptr,
+    b_ptr,
+    c_ptr,
+    s1_ptr,
+    s2_ptr,
+    bias_ptr,
+    # Matrix dimensions
+    M,
+    N,
+    K,
+    # The stride variables represent how much to increase the ptr by when moving by 1
+    # element in a particular dimension. E.g. `stride_am` is how much to increase `a_ptr`
+    # by to get the element one row down (A has M rows).
+    stride_am,
+    stride_ak,
+    stride_bk,
+    stride_bn,
+    stride_cm,
+    stride_cn,
+    stride_s1m,
+    stride_s1n,
+    stride_s2m,
+    stride_s2n,
+    stride_biasm,
+    stride_biasn,
+    # Meta-parameters
+    BLOCK_M: tl.constexpr,
+    BLOCK_N: tl.constexpr,
+    BLOCK_K: tl.constexpr,
+    GROUP_M: tl.constexpr,
+    EVEN_K: tl.constexpr,
+    ACC_TYPE: tl.constexpr = tl.int32,
+):
+    # based on triton.ops.matmul
+    pid = tl.program_id(0)
+    grid_m = (M + BLOCK_M - 1) // BLOCK_M
+    grid_n = (N + BLOCK_N - 1) // BLOCK_N
+
+    # re-order program ID for better L2 performance
+    width = GROUP_M * grid_n
+    group_id = pid // width
+    group_size = min(grid_m - group_id * GROUP_M, GROUP_M)
+    pid_m = group_id * GROUP_M + (pid % group_size)
+    pid_n = (pid % width) // (group_size)
+
+    rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+    ram = tl.max_contiguous(tl.multiple_of(rm % M, BLOCK_M), BLOCK_M)
+    rbn = tl.max_contiguous(tl.multiple_of(rn % N, BLOCK_N), BLOCK_N)
+    rk = tl.arange(0, BLOCK_K)
+    A = a_ptr + (ram[:, None] * stride_am + rk[None, :] * stride_ak)
+    B = b_ptr + (rk[:, None] * stride_bk + rbn[None, :] * stride_bn)
+
+    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=ACC_TYPE)
+    for k in range(K, 0, -BLOCK_K):
+        if EVEN_K:
+            a = tl.load(A)
+            b = tl.load(B)
+        else:
+            a = tl.load(A, mask=rk[None, :] < k, other=0.0)
+            b = tl.load(B, mask=rk[:, None] < k, other=0.0)
+        acc += tl.dot(a, b)  # , allow_tf32=ALLOW_TF32)
+        A += BLOCK_K * stride_ak
+        B += BLOCK_K * stride_bk
+
+    # rematerialize rm and rn to save registers
+    rm = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
+    rn = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)
+    idx_m = rm[:, None]
+    idx_n = rn[None, :]
+    mask = (idx_m < M) & (idx_n < N)
+
+    # inductor generates a suffix
+    xindex = idx_n + (N * idx_m)
+    tmp0 = tl.load(
+        s1_ptr + (tl.broadcast_to(idx_m, mask.shape)),
+        mask,
+        eviction_policy="evict_last",
+    )
+    tmp1 = tl.load(
+        s2_ptr + (tl.broadcast_to(idx_n, mask.shape)),
+        mask,
+        eviction_policy="evict_last",
+    )
+    tmp2 = tl.load(
+        bias_ptr + (tl.broadcast_to(idx_n, mask.shape)),
+        mask,
+        eviction_policy="evict_last",
+    )
+    tl.store(c_ptr + (tl.broadcast_to(xindex, mask.shape)), (acc * tmp0 * tmp1) + tmp2, mask)
+
+def int_scaled_2_bias_matmul_kernel(a, b, scales1, scales2, output_dtype, bias, c, config):
+    M, K = a.shape
+    K, N = b.shape
+    # print("a.sizes(): ", a.size(), "a.strides(): ", a.stride(), "a.dtype: ", a.dtype)
+    # print("b.sizes(): ", b.size(), "b.strides(): ", b.stride(), "b.dtype: ", b.dtype)
+    # print("c.sizes(): ", c.size(), "c.strides(): ", c.stride(), "c.dtype: ", c.dtype)
+    # print("scales1.sizes(): ", scales1.size(), "scales1.strides(): ", scales1.stride(), "scales1.dtype", scales1.dtype)
+    grid = lambda META: (
+        triton.cdiv(M, META["BLOCK_M"]) * triton.cdiv(N, META["BLOCK_N"]),
+    )
+    scaled_2_bias_matmul_kernel_with_block_pointers[grid](
+        a,
+        b,
+        c,
+        scales1,
+        scales2,
+        bias,
+        M,
+        N,
+        K,  #
+        a.stride(0),
+        a.stride(1),  #
+        b.stride(0),
+        b.stride(1),  #
+        c.stride(0),
+        c.stride(1),
+        scales1.stride(0),
+        scales1.stride(1),
+        scales2.stride(0),
+        scales2.stride(1),
+        bias.stride(0),
+        bias.stride(1),
+        num_warps=config.num_warps,
+        num_stages=config.num_stages,
+        num_ctas=config.num_ctas,
+        EVEN_K=(K % 2 == 0),
+        **config.kwargs,
+    )
+    return c
+
+
+@torch.library.impl(lib, "int_scaled_2_bias_matmul", "Meta")
+def int_scaled_2_bias_matmul_meta(a, b, scales1, scales2, output_dtype, bias):
+    M, K = a.shape
+    K, N = b.shape
+    return torch.empty((M, N), device=a.device, dtype=output_dtype)
+
+
+@torch.library.impl(lib, "int_scaled_2_bias_matmul", "CUDA")
+def int_scaled_2_bias_matmul_cuda(a, b, scales1, scales2, output_dtype, bias):
+    # Check constraints.
+    assert a.shape[1] == b.shape[0], "Incompatible dimensions"
+    # assert a.is_contiguous(), "Matrix A must be contiguous"
+    # assert b.is_contiguous(), "Matrix B must be contiguous"
+    # Allocates output.
+    M, K = a.shape
+    K, N = b.shape
+    c = torch.empty((M, N), device=a.device, dtype=output_dtype)
+    # 1D launch kernel where each block gets its own program.
+    best_config = get_best_config_fn(
+        int_scaled_2_bias_matmul_kernel, [a, b, scales1, scales2, output_dtype, bias, c], int8_mm_kernel_configs
+    )
+    return int_scaled_2_bias_matmul_kernel(a, b, scales1, scales2, output_dtype, bias, c, best_config)
+
+
+@torch.library.impl(lib, "int_scaled_2_bias_matmul", "CPU")
+def int_scaled_2_bias_matmul_cpu(a, b, scales1, scales2, output_dtype, bias):
     c = torch._int_mm(a, b)
     return c.to(scales1.dtype) * scales1

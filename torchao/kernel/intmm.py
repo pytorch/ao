@@ -131,3 +131,48 @@ def int_scaled_matmul(a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor) -
 
     c = safe_int_mm(a, b)
     return c * scales1
+
+def int_scaled_2_bias_matmul(a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor, scales2: torch.Tensor, output_dtype, bias: torch.Tensor) -> torch.Tensor:
+    """
+    Performs doubly scaled integer matrix multiplication with bias addition.
+
+    Args:
+        a (torch.Tensor): The first matrix to multiply.
+        b (torch.Tensor): The second matrix to multiply.
+        scales1 (torch.Tensor): The scaling factors for the rows of the result.
+        scales2 (torch.Tensor): The scaling factors for the columns of the result.
+        output_dtype (ScalarType): The dtype of the result of the matmul
+        bias (torch.Tensor): The bias added after the matmul
+
+    Returns:
+        torch.Tensor: The result of the doubly scaled matrix multiplication with bias addition.
+
+    Raises:
+        AssertionError: If the dimensions of the input tensors do not match the expected shapes.
+    """
+    M, K = a.shape
+    K, N = b.shape
+
+    assert M == scales1.size(0)
+    assert 1 == scales1.size(1)
+    assert scales1.is_contiguous()
+    scales1 = scales1.expand((M, N))
+    assert scales1.dim() == 2
+
+    assert 1 == scales2.size(0)
+    assert N == scales2.size(1)
+    assert scales2.is_contiguous()
+    scales2 = scales2.expand((M, N))
+    assert scales2.dim() == 2
+
+    assert N == bias.size(0)
+    assert bias.is_contiguous()
+    assert bias.dim() == 1
+    bias = bias.expand((M, N))
+    assert bias.dim() == 2
+
+    if intmm_triton is not None and AUTOTUNER_ENABLE:
+        return torch.ops.torchao.int_scaled_2_bias_matmul(a, b, scales1, scales2, output_dtype, bias)
+
+    c = safe_int_mm(a, b)
+    return (c * scales1 * scales2).to(output_dtype) + bias
