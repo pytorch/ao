@@ -6,6 +6,7 @@ from torchvision import models
 from evaluate import evaluate
 from utils import gpu_mem_use
 from attn import apply_attn
+from quantlinear import apply_static_quant, freeze_static_quant
 
 torch.set_float32_matmul_precision("high")
 # Load Vision Transformer model
@@ -24,12 +25,15 @@ apply_attn(model)
 
 ## Quantization code - start
 # int8 act, int8 weight dynamic quantization, see README for other APIs
-torchao.apply_dynamic_quant(model)
+apply_static_quant(model)
+# Calibrate and then freeze
+evaluate(model, transforms, "/scratch/cpuhrsch/data/imagenet_blurred/train", batch_size, limit=11)
+freeze_static_quant(model)
 ## Quantization code - end
 
 ## compilation configs
 torch._dynamo.config.automatic_dynamic_shapes = False
-torch._inductor.config.force_fuse_int_mm_with_mul = True
+# torch._inductor.config.force_fuse_int_mm_with_mul = True
 torch._inductor.config.use_mixed_mm = True
 # Enable this for more readable traces
 torch._inductor.config.triton.unique_kernel_names = True

@@ -47,7 +47,7 @@ def load_data(valdir, preprocessing):
     test_sampler = torch.utils.data.SequentialSampler(dataset_test)
     return dataset_test, test_sampler
 
-def evaluate(model, preprocessing, val_dir, batch_size, print_freq=100, log_suffix="", verbose=True):
+def evaluate(model, preprocessing, val_dir, batch_size, print_freq=100, log_suffix="", verbose=True, limit=None):
     device = "cuda"
     dataset_test, test_sampler = load_data(val_dir, preprocessing)
     data_loader = torch.utils.data.DataLoader(
@@ -77,4 +77,6 @@ def evaluate(model, preprocessing, val_dir, batch_size, print_freq=100, log_suff
             num_processed_samples += batch_size
             if verbose:
                 print(f"\racc1: {acc1_total / count:5.2f} acc5: {acc5_total / count:5.2f} i: {i+1}/{len(data_loader)}", end='')
+            if limit is not None and i > limit:
+                break
     return acc1_total / count, acc5_total / count
