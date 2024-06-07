@@ -47,11 +47,11 @@ def load_data(valdir, preprocessing):
     test_sampler = torch.utils.data.SequentialSampler(dataset_test)
     return dataset_test, test_sampler
 
-def evaluate(model, preprocessing, val_dir, batch_size, print_freq=100, log_suffix="", verbose=True, limit=None):
+def evaluate(model, preprocessing, val_dir, batch_size, print_freq=100, log_suffix="", verbose=True, limit=None, num_workers=16):
     device = "cuda"
     dataset_test, test_sampler = load_data(val_dir, preprocessing)
     data_loader = torch.utils.data.DataLoader(
-        dataset_test, batch_size=batch_size, sampler=test_sampler, num_workers=16, pin_memory=True,
+        dataset_test, batch_size=batch_size, sampler=test_sampler, num_workers=num_workers, pin_memory=True,
         drop_last=True, # Change in batch size triggers recompilation, so we drop it.
     )
     model.eval()

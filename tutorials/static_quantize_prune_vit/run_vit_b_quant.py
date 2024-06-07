@@ -27,7 +27,7 @@ apply_attn(model)
 # int8 act, int8 weight dynamic quantization, see README for other APIs
 apply_static_quant(model)
 # Calibrate and then freeze
-evaluate(model, transforms, "/scratch/cpuhrsch/data/imagenet_blurred/train", batch_size, limit=11)
+evaluate(model, transforms, "/scratch/cpuhrsch/data/imagenet_blurred/train", batch_size, limit=1, num_workers=0)
 freeze_static_quant(model)
 ## Quantization code - end
 
