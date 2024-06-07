@@ -4,58 +4,36 @@ from typing import Optional, Union
 def mod_shape(shape, mod, dim):
     """changes a select dimension of the input shape to mod"""
     return (*shape[:dim], mod, *shape[dim+1:])
-
-
-def dtype_to_bits(dtype):
-    '''returns the number of bits in a dtype'''
-    if dtype in {torch.uint2, 'trinary'}:
-        return 2
-    elif dtype == torch.uint3:
-        return 3
-    elif dtype == torch.uint4:
-        return 4
-    elif dtype == torch.uint5:
-        return 5
-    elif dtype == torch.uint6:
-        return 6
-    elif dtype == torch.uint7:
-        return 7
-    elif dtype in {torch.uint8, torch.int8}:
-        return 8
-    elif dtype in {torch.uint16, torch.int16, torch.float16}:
-        return 16
-    elif dtype in {torch.uint32, torch.int32, torch.float32}:
-        return 32
-    elif dtype == {torch.uint64, torch.int64, torch.float64}:
-        return 64
-    else:
-        raise ValueError(f"dtype {dtype} not supported (yet)")
     
 def unpack(data: torch.Tensor,
-           element_dtype: Union[torch.dtype, str], # accepting strings for trinary until thats added to torch
-           dimension: Optional[int] = 0,
+           element_bit_width: int,
+           element_type: Optional[str] = None, 
+           dim: Optional[int] = 0,
+           output_dtype: Optional[torch.dtype] = None,
            device: Optional[str] ="cuda") -> torch.Tensor:
     """
     Unpacks small dtype elements from a larger dtype.
     
     Inputs:
     data: - a tensor of packed elements
-    element_dtype: - the dtype of the elements to unpack
+    element_bit_width: the size in bits of the elements to unpack
     
     optional:
-    dimension: - the dimension to unpack along
-    
-    
+    element_type: the dtype of the elements to unpack (uint,trinary,float, etc)
+    dimension: the dimension to unpack along
+    output_dtype: specify the dtype of the output tensor if it is not the same as the input tensor
+
     Returns: torch.Tensor - a tensor of the unpacked elements.
     """
-    container_size = dtype_to_bits(data.dtype)
-    element_size = dtype_to_bits(element_dtype)
-    scale = container_size // element_size
+    container_size = torch.iinfo(data.dtype).bits
+    scale = container_size // element_bit_width
     
-    unpacked = _unpack(data, element_size, container_size, scale, dimension, device)
-    
-    if element_dtype == "trinary":
+    unpacked = _unpack(data, element_bit_width, container_size, scale, dim, device)
+    if element_type == "trinary":
         unpacked = unpacked.to(torch.int8) - 1
+    elif output_dtype is not None:
+        unpacked = unpacked.to(output_dtype)
+        
     return unpacked
 
 def _unpack(data, element_size, container_size, scale ,dim, device):
@@ -73,9 +51,12 @@ def _unpack(data, element_size, container_size, scale ,dim, device):
     
 
 def pack(data: torch.Tensor,
-         element_dtype: Union[torch.dtype, str], # accepting strings for trinary until thats added to torch
-         dimension: Optional[int] = 0,
+         element_bit_width: int,
+         element_type: Optional[str] = None,
+         dim: Optional[int] = 0,
          container_dtype: Optional[torch.dtype] = None,
+         pad: Optional[bool] = False,
+         order: Optional[bool] = True,
          device: Optional[str] = "cuda") -> torch.Tensor:
     """
     Packs small dtype elements into a container of a larger dtype.
@@ -84,56 +65,67 @@ def pack(data: torch.Tensor,
     
     Inputs:
     data: a tensor of unpacked elements of a small dtype. The dtype used for the data will be used for the container.
-    dimension: the dimension to pack along
+    dim: the dimension to pack along
     element_dtype: the dtype of the elements to pack
-    
-    optional:
     container_dtype: specify the dtype of the container if the data is not already inside a tensor of that dtype
-    
-    
-    defaults to rows because quantization is typically done by rows
-    but choose the version which matches how you quantize as this improves memory accesses/performance
+    pad: if set to true, pads the dimension to be divisible by the scale
+    order: if set to true, packs elements such that the lower index elements occupy the most significant bits
     
     Returns: torch.Tensor - a tensor of packed elements.
     """
-    if element_dtype == "trinary":
+    
+    if element_type == "trinary":
         data =  data + 1
         
     if container_dtype is not None:
         data = data.to(container_dtype)
     
-    container_size = dtype_to_bits(data.dtype)
-    element_size = dtype_to_bits(element_dtype)
-    scale = container_size // element_size
-        
-    assert data.shape[dimension] >= scale, f"not enough values to pack along dimension {dimension} ({data.shape[dimension]}) < scale ({scale})"
-    return _pack(data, container_size, element_size, scale, dimension, device)
-
-
-
-def _pack(data, container_size, element_size, scale, dim, device) -> torch.Tensor:
-    #pad dimension to be divisible by scale
-    if data.shape[dim] % scale != 0:
+    container_size = torch.iinfo(data.dtype).bits
+    scale = container_size // element_bit_width
+    
+    if pad and data.shape[dim] % scale != 0:
         padding = torch.zeros(mod_shape(data.shape, scale - data.shape[dim] % scale, dim), dtype=data.dtype).to(device)
         data = torch.cat([data, padding], dim=dim).to(device)
         
+    
+    torch._assert(data.shape[dim] >= scale, f"not enough values to pack along dimension {dim}")
+    torch._assert(data.shape[dim] % scale == 0, "size of pack dimension not divisble by scale")
+    return _pack(data, container_size, element_bit_width, scale, dim, order, device)
+
+
+
+def _pack(data, container_size, element_bit_width, scale, dim, order, device) -> torch.Tensor:
     packed = torch.zeros(mod_shape(data.shape, data.shape[dim] // scale, dim), dtype=data.dtype).to(device)
+    slices = [slice(None)] * packed.ndim
     for i in range(scale):
-        slices = [slice(None)] * packed.ndim
         slices[dim] = slice(i, None, scale)
-        packed |= data[slices] << container_size-element_size*(i+1)
+        if order:
+            packed |= data[slices] << container_size-element_bit_width*(i+1)
+        else:
+            packed |= data[slices] << element_bit_width*i
     return packed
 
-
-# shape = [5, 1]
-# dtype= torch.uint2
-# test_tensor = torch.randint(0, 2, shape, dtype=torch.uint8).cuda()
-# print(test_tensor)
-# packed = pack(test_tensor, dtype, dimension = 0, container_dtype = torch.uint8)
-# print(packed)
-# unpacked = unpack(packed, dtype, dimension = 0)
-
-# slices = [slice(None)] * packed.ndim
-# slices[0] = slice(None, 4+1)
-# print(unpacked[slices])
-# assert(unpacked[slices].allclose(test_tensor))
+if __name__ == '__main__':
+    pack_compile = torch.compile(pack, fullgraph=True)
+    unpack_compile = torch.compile(unpack, fullgraph=True)
+    torch._dynamo.config.specialize_int = True    
+    element_bit_width = 2
+    element_type = "trinary"
+    dim = 0
+    shape =[4, 4, 4] 
+    shape[dim] = 5   
+    
+    if element_type == "trinary":
+        test_tensor = torch.randint(-1, 1, shape, dtype=torch.int8).cuda()
+    else:
+        test_tensor = torch.randint(0, 2**element_bit_width, shape, dtype=torch.uint8).cuda()
+        
+    packed = pack_compile(test_tensor, element_bit_width, element_type=element_type, dim = dim, container_dtype = torch.uint8, pad= True)
+    print(packed.shape)
+    assert(packed.shape[dim] == 2) # +1 for this scenario
+    unpacked = unpack_compile(packed, element_bit_width, element_type=element_type, dim = dim)
+    slices = [slice(None)] * packed.ndim
+    slices[dim] = slice(None, 5)
+    print(test_tensor, "\n", packed,"\n",unpacked[slices])
+    assert(unpacked[slices].allclose(test_tensor))
+    
