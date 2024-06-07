@@ -25,7 +25,7 @@ import torch.nn.functional as F
 from typing import Any, Callable
 
 from .dynamic_quant import DynamicallyPerAxisQuantizedLinear
-from .utils import (
+from torchao.utils import (
     TORCH_VERSION_AFTER_2_4,
     unwrap_tensor_subclass,
 )

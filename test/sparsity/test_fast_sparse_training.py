@@ -12,7 +12,7 @@ from torchao.sparsity.training import (
     swap_semi_sparse_linear_with_linear,
     SemiSparseLinear
 )
-from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AFTER_2_4
 
 class TestModel(nn.Module):
     def __init__(self):
@@ -42,7 +42,7 @@ class TestRuntimeSemiStructuredSparsity(TestCase):
             if isinstance(mod, torch.nn.Linear):
                 sparse = SparseSemiStructuredTensorCUSPARSELT.prune_dense_static_sort(mod.weight.detach()).to_dense()
                 mod.weight = nn.Parameter(sparse)
-        
+
         dense_result = model(input)
 
         # map from fqn to replacement linear module

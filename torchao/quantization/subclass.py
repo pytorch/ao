@@ -18,7 +18,7 @@ from .quant_primitives import (
     groupwise_affine_quantize_tensor_from_qparams,
     MappingType,
 )
-from .utils import find_multiple
+from torchao.utils import find_multiple
 from typing import Tuple, Optional, Callable, Dict, Any
 
 
