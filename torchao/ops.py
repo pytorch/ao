@@ -1,6 +1,6 @@
 import torch
 from torch import Tensor
-from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AFTER_2_4
 
 
 def register_custom_op(name):

@@ -19,7 +19,7 @@ from torchao.quantization.quant_primitives import (
     MappingType,
 )
 
-from torchao.quantization.utils import (
+from torchao.utils import (
     TORCH_VERSION_AFTER_2_3,
     TORCH_VERSION_AFTER_2_4,
 )

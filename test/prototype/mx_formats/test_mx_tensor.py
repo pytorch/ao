@@ -23,7 +23,8 @@ from torchao.prototype.mx_formats.mx_tensor import (
     to_dtype,
 )
 
-from torchao.quantization.utils import compute_error, TORCH_VERSION_AFTER_2_4
+from torchao.quantization.utils import compute_error
+from torchao.utils import TORCH_VERSION_AFTER_2_4
 
 # trying to outsmart flake8
 __has_cuda = torch.cuda.is_available()

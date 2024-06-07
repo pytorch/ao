@@ -44,7 +44,7 @@ from torchao.prototype.mx_formats.fp_format_spec import (
 )
 
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
-from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AFTER_2_4
 
 if not TORCH_VERSION_AFTER_2_4:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)

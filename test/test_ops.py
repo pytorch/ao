@@ -2,7 +2,7 @@ import torch
 from torch.testing._internal.common_utils import TestCase, IS_FBCODE
 from torch.testing._internal.optests import opcheck
 import torchao
-from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AFTER_2_4
 import unittest
 from parameterized import parameterized
 import pytest

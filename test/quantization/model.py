@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 from torch.nn import functional as F
-from torchao.quantization.utils import find_multiple
+from torchao.utils import find_multiple
 
 def prepare_inputs_for_model(inps, max_new_tokens=1):
     # this is because input from lm-eval is 2d

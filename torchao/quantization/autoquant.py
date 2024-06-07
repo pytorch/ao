@@ -9,7 +9,7 @@ from .quant_primitives import (
     quantize_activation_per_token_absmax,
     safe_int_mm,
 )
-from .utils import TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AFTER_2_4
 import torch.nn.functional as F
 try:
     from torch._inductor.utils import do_bench
