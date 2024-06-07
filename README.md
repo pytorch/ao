@@ -19,7 +19,7 @@ pip install torchao
 
 Nightly Release
 ```Shell
-pip install torchao-nightly
+pip install --pre torchao-nightly --index-url https://download.pytorch.org/whl/nightly/
 ```
 
 From source
