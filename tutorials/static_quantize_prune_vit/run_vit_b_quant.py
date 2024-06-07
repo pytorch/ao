@@ -5,6 +5,7 @@ from torchao.utils import benchmark_model, profiler_runner
 from torchvision import models
 from evaluate import evaluate
 from utils import gpu_mem_use
+from attn import apply_attn
 
 torch.set_float32_matmul_precision("high")
 # Load Vision Transformer model
@@ -18,6 +19,8 @@ model.eval().cuda().to(torch.bfloat16)
 # Input tensor (batch_size, channels, height, width)
 batch_size = 1024
 input_tensor = torch.randn(batch_size, 3, 224, 224, dtype=torch.bfloat16, device='cuda')
+
+apply_attn(model)
 
 ## Quantization code - start
 # int8 act, int8 weight dynamic quantization, see README for other APIs
