@@ -1,7 +1,7 @@
 import torch
 import torchao
 
-from torchao.utils import benchmark_model, profiler_runner
+from torchao.utils import benchmark_model, profiler_runner, time_fn_annotate
 from torchvision import models
 from evaluate import evaluate
 from utils import gpu_mem_use
@@ -57,4 +57,4 @@ with torch.no_grad():
     print(f"\racc1: {acc1:5.2f} acc5: {acc5:5.2f}" + " " * 50) # Flush line since running in verbose
 
     # Create a trace
-    profiler_runner("quant.json.gz", benchmark_model, model, 5, input_tensor)
+    profiler_runner("quant.json.gz", time_fn_annotate, model, 5, "timed region", input_tensor)

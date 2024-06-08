@@ -34,14 +34,8 @@ def quant_int8_dynamic_per_token_linear(
     bias,
     out_dtype,
 ):
-    # # like F.linear, but with int8 dynamic quantization of activation,
-    # # and a quantized weight
-    # mm_out = quant_int8_per_token_matmul(
-    #     x_vals_int8, x_scales, w_vals_int8_t, w_scales, out_dtype)
-    # if bias is not None:
-    #     mm_out += bias
-    # return mm_out# .realize()
-
+    assert x_scales.dtype == out_dtype
+    assert w_scales.dtype == out_dtype
     tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
     res = int_scaled_2_bias_matmul(tmp,
                                    w_vals_int8_t,
@@ -92,17 +86,19 @@ class StaticallyPerAxisQuantizedLinear(torch.nn.Linear):
             n_bits = 8
             # if the shape of t is [B, N, K], the shape of scales will be [B, N, 1]
             # want float scales to avoid overflows
-            self.x_absmax = self.x_absmax_tmp.float()
+            self.x_absmax = self.x_absmax_tmp.bfloat16()
             q_max = 2 ** (n_bits - 1) - 1
-            self.x_absmax.clamp_(min=1e-5).div_(q_max)
+            eps = torch.finfo(X.dtype).eps
+            self.x_absmax.clamp_(min=eps).div_(q_max)
         else:
             self.x_absmax_tmp = torch.maximum(self.x_absmax_tmp, X.abs().amax(dim=-1, keepdim=True))
             n_bits = 8
             # if the shape of t is [B, N, K], the shape of scales will be [B, N, 1]
             # want float scales to avoid overflows
-            self.x_absmax = self.x_absmax_tmp.float()
+            self.x_absmax = self.x_absmax_tmp.bfloat16()
             q_max = 2 ** (n_bits - 1) - 1
-            self.x_absmax.clamp_(min=1e-5).div_(q_max)
+            eps = torch.finfo(X.dtype).eps
+            self.x_absmax.clamp_(min=eps).div_(q_max)
 
     @classmethod
     def freeze(cls, mod: torch.nn.Linear) -> 'StaticallyPerAxisQuantizedLinear':
