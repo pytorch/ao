@@ -2,7 +2,7 @@ import itertools
 import os
 import torch
 
-from torchao.quantization.utils import TORCH_VERSION_AFTER_2_2
+from torchao.utils import TORCH_VERSION_AFTER_2_2
 
 try:
     # Only works for torch2.2 or newer.

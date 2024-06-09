@@ -2,7 +2,7 @@ import torch
 from torchao.prototype.common.bitpacking import pack, unpack
 import pytest
 from torch.utils._triton import has_triton
-from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AFTER_2_4
 
 if not TORCH_VERSION_AFTER_2_4:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
@@ -20,7 +20,7 @@ def test_uint3_to_int16_col_wise_cpu():
     unpacked = unpack(packed, 3, False, device='cpu')
     unpadded = unpacked[:test_tensor.shape[0], ...]
     assert(unpadded.allclose(test_tensor))
-    
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_uint4_to_uint8():
     test_tensor = torch.randint(0, 15, (4, 4), dtype=torch.uint8).cuda()
@@ -28,7 +28,7 @@ def test_uint4_to_uint8():
     unpacked = unpack(packed, 4)
     unpadded = unpacked[:test_tensor.shape[0], ...]
     assert(unpadded.allclose(test_tensor))
-     
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 def test_uint4_to_uint8_compile():
@@ -40,7 +40,7 @@ def test_uint4_to_uint8_compile():
     unpacked = unpack_compiled(packed, 4)
     unpadded = unpacked[:test_tensor.shape[0], ...]
     assert(unpadded.allclose(test_tensor))
-    
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_uint3_to_int16():
     test_tensor = torch.randint(0, 7, (5, 8), dtype=torch.int16).cuda()

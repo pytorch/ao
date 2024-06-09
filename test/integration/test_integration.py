@@ -70,7 +70,7 @@ import os
 from parameterized import parameterized
 import itertools
 import logging
-from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
 
 logger = logging.getLogger("INFO")
 

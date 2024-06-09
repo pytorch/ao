@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from torch.utils._triton import has_triton
 
-from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AFTER_2_4
 
 # TODO(future): if needed, make the below work on previous PyTorch versions,
 # just need to hunt down the previous location of `libdevice`. An assert

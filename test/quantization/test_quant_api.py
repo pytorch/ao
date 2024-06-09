@@ -44,7 +44,7 @@ from torchao.quantization.quant_api import (
     get_apply_int8wo_quant,
     get_apply_int8dyn_quant,
 )
-from torchao.quantization.utils import (
+from torchao.utils import (
     TORCH_VERSION_AFTER_2_3,
     TORCH_VERSION_AFTER_2_4,
 )
@@ -556,7 +556,7 @@ class TestQuantFlow(unittest.TestCase):
         self.assertTrue(torch.equal(res, ref))
 
         # workaround for export path
-        from torchao.quantization.utils import unwrap_tensor_subclass
+        from torchao.utils import unwrap_tensor_subclass
         m_unwrapped = unwrap_tensor_subclass(m)
 
         m = torch.export.export(m_unwrapped, example_inputs).module()

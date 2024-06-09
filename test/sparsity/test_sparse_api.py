@@ -11,7 +11,7 @@ from torchao.quantization.quant_api import (
     _get_subclass_inserter,
     _is_linear,
 )
-from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
+from torchao.utils import TORCH_VERSION_AFTER_2_3
 from torch.testing._internal.common_utils import TestCase
 
 

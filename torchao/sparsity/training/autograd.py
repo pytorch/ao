@@ -2,7 +2,7 @@ from enum import Enum
 import torch
 from torch.sparse import SparseSemiStructuredTensor
 
-from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3
+from torchao.utils import TORCH_VERSION_AFTER_2_3
 
 if TORCH_VERSION_AFTER_2_3:
     from torch.sparse import SparseSemiStructuredTensorCUTLASS, SparseSemiStructuredTensorCUSPARSELT
@@ -120,7 +120,7 @@ def semi_structured_sparsify(
     backend: str = "cutlass",
 ) -> SparseSemiStructuredTensor:
     """
-    Sparsifies a dense tensor into a semi-structured tensor, according to the algo and backend passed. 
+    Sparsifies a dense tensor into a semi-structured tensor, according to the algo and backend passed.
     """
     return _SparsifyFunc.apply(x, algo, backend)
 
@@ -131,6 +131,6 @@ def semi_structured_sparsify_like(
     gradient: GRADIENT_TYPE = GRADIENT_TYPE.SPARSE,
 ) -> SparseSemiStructuredTensor:
     """
-    Sparsifies a dense tensor into a semi-structured tensor, using the mask of the provided pattern. 
+    Sparsifies a dense tensor into a semi-structured tensor, using the mask of the provided pattern.
     """
     return _SparsifyLikeFunc.apply(x, pattern, gradient)
