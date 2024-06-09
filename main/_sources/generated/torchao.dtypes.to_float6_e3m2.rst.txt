@@ -1,9 +1,0 @@
-﻿.. role:: hidden
-    :class: hidden-section
-.. currentmodule:: torchao.dtypes
-
-
-to_float6_e3m2
-==============
-
-.. autofunction:: to_float6_e3m2
