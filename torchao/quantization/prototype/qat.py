@@ -10,7 +10,7 @@ import torch
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib
 from torch.library import impl
 
-from torchao.quantization.quant_primitives import get_group_qparams_symmetric
+from torchao.quantization.utils import get_group_qparams_symmetric
 from torchao.quantization.unified import TwoStepQuantizer
 
 from torchao.quantization.GPTQ import (

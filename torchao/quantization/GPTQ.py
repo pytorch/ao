@@ -30,7 +30,7 @@ from torchao.utils import TORCH_VERSION_AFTER_2_3
 from typing import Any, Dict, Optional
 from .unified import Quantizer
 
-from .quant_primitives import (
+from .utils import (
     get_groupwise_affine_qparams,
     groupwise_affine_quantize_tensor_from_qparams,
     groupwise_affine_dequantize_tensor_from_qparams,
@@ -755,7 +755,7 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
             return model
 
 
-from .quant_primitives import (
+from .utils import (
     get_group_qparams_symmetric,
     group_quantize_tensor_symmetric,
     per_token_dynamic_quant,
