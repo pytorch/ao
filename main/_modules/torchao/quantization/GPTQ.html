@@ -407,7 +407,7 @@
 <span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Optional</span>
 <span class="kn">from</span> <span class="nn">.unified</span> <span class="kn">import</span> <span class="n">Quantizer</span>
 
-<span class="kn">from</span> <span class="nn">.quant_primitives</span> <span class="kn">import</span> <span class="p">(</span>
+<span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">get_groupwise_affine_qparams</span><span class="p">,</span>
     <span class="n">groupwise_affine_quantize_tensor_from_qparams</span><span class="p">,</span>
     <span class="n">groupwise_affine_dequantize_tensor_from_qparams</span><span class="p">,</span>
@@ -1132,7 +1132,7 @@
             <span class="k">return</span> <span class="n">model</span></div>
 
 
-<span class="kn">from</span> <span class="nn">.quant_primitives</span> <span class="kn">import</span> <span class="p">(</span>
+<span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">get_group_qparams_symmetric</span><span class="p">,</span>
     <span class="n">group_quantize_tensor_symmetric</span><span class="p">,</span>
     <span class="n">per_token_dynamic_quant</span><span class="p">,</span>
