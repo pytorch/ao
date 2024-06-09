@@ -388,7 +388,13 @@ def test_fp6_values(dtype_name):
         torch.testing.assert_close(f32, f32_ref, rtol=0, atol=0)
 
 
-@pytest.mark.parametrize("device", ["cpu"] + (["cuda" if torch.cuda.is_available() else []]))
+@pytest.mark.parametrize(
+    "device",
+    [
+        "cpu",
+        pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")),
+    ]
+)
 @pytest.mark.parametrize(
     "f32_val,f6_e3m2_enc",
     [
