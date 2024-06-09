@@ -8,8 +8,8 @@ from attn import apply_attn
 
 torch.set_float32_matmul_precision("high")
 # Load Vision Transformer model
-weights = models.ViT_B_16_Weights.IMAGENET1K_V1
-model = models.vit_b_16(weights=weights)
+weights = models.ViT_H_14_Weights.IMAGENET1K_SWAG_LINEAR_V1
+model = models.vit_h_14(weights=weights)
 transforms = weights.transforms()
 
 # Set the model to evaluation mode

@@ -10,8 +10,8 @@ from quantlinear import apply_static_quant, freeze_static_quant
 
 torch.set_float32_matmul_precision("high")
 # Load Vision Transformer model
-weights = models.ViT_B_16_Weights.IMAGENET1K_V1
-model = models.vit_b_16(weights=weights)
+weights = models.ViT_H_14_Weights.IMAGENET1K_SWAG_LINEAR_V1
+model = models.vit_h_14(weights=weights)
 transforms = weights.transforms()
 
 # Set the model to evaluation mode
