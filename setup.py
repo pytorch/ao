@@ -49,11 +49,12 @@ def get_extensions():
     use_cuda = torch.cuda.is_available() and CUDA_HOME is not None
     extension = CUDAExtension if use_cuda else CppExtension
 
-    extra_link_args = []
+    extra_link_args = ["-fopenmp"]
     extra_compile_args = {
         "cxx": [
             "-O3" if not debug_mode else "-O0",
             "-fdiagnostics-color=always",
+            "-fopenmp",
         ],
         "nvcc": [
             "-O3" if not debug_mode else "-O0",
