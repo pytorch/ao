@@ -12,8 +12,6 @@ torchao.dtypes
 
     to_nf4
     UInt4Tensor
-    to_float6_e3m2
-    from_float6_e3m2
 
 ..
   _NF4Tensor - add after fixing torchao/dtypes/nf4tensor.py:docstring

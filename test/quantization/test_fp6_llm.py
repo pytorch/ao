@@ -7,9 +7,14 @@ from torch.testing._internal.common_utils import (
     parametrize,
     run_tests,
 )
-from torchao.dtypes.float6_e3m2 import to_float6_e3m2, from_float6_e3m2
-from torchao.quantization.fp6_llm import to_tc_float6_e3m2, from_tc_float6_e3m2, Fp6LlmLinear, convert_fp6_llm
-from torchao.ops import prepack_fp6_weight
+from torchao.quantization.fp6_llm import (
+    to_tc_float6_e3m2,
+    from_tc_float6_e3m2,
+    _to_tc_float6_e3m2_ref,
+    Fp6LlmLinear,
+    convert_fp6_llm,
+)
+from torchao.prototype.mx_formats.custom_cast import f6_e3m2_unpacked_to_f32, f32_to_f6_e3m2_unpacked
 
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
@@ -20,9 +25,9 @@ class TestFp6LlmLinear(TestCase):
     def test_to_tc_float6_e3m2_correctness(self, device):
         x = torch.randn(256, 64, device=device)
 
-        expected = prepack_fp6_weight(to_float6_e3m2(x.cpu()).view(torch.int32)).view(torch.uint8)
+        expected = _to_tc_float6_e3m2_ref(x)
         actual = to_tc_float6_e3m2(x)
-        torch.testing.assert_close(actual.view(-1).cpu(), expected.view(-1))
+        torch.testing.assert_close(actual, expected)
 
     @parametrize("device", _DEVICES)
     def test_to_tc_float6_e3m2_compile(self, device):
@@ -35,18 +40,20 @@ class TestFp6LlmLinear(TestCase):
     @parametrize("device", _DEVICES)
     def test_from_tc_float6_e3m2_correctness(self, device):
         x = torch.randn(256, 64, device=device)
-        x = from_float6_e3m2(to_float6_e3m2(x))  # quantize and dequantize so that the values are exactly representable in FP6
 
-        actual = from_tc_float6_e3m2(to_tc_float6_e3m2(x), *x.shape)
+        # quantize and dequantize so that the values are exactly representable in FP6
+        x = f6_e3m2_unpacked_to_f32(f32_to_f6_e3m2_unpacked(x))
+
+        actual = from_tc_float6_e3m2(to_tc_float6_e3m2(x))
         torch.testing.assert_close(actual, x)
 
     @parametrize("device", _DEVICES)
     def test_from_tc_float6_e3m2_compile(self, device):
         M, N = 256, 64
-        x = torch.randint(256, size=(M * N * 3 // 4,), dtype=torch.uint8, device=device)
+        x = torch.randint(256, size=(M, N * 3 // 4), dtype=torch.uint8, device=device)
 
-        expected = from_tc_float6_e3m2(x, M, N)
-        actual = torch.compile(from_tc_float6_e3m2)(x, M, N)
+        expected = from_tc_float6_e3m2(x)
+        actual = torch.compile(from_tc_float6_e3m2)(x)
         torch.testing.assert_close(actual, expected)
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
