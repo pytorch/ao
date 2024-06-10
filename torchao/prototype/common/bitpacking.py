@@ -9,6 +9,7 @@ def unpack(data: torch.Tensor,
            element_bit_width: int,
            element_type: Optional[str] = None, 
            dim: Optional[int] = 0,
+           order: Optional[bool] = True,
            output_dtype: Optional[torch.dtype] = None,
            device: Optional[str] ="cuda") -> torch.Tensor:
     """
@@ -17,18 +18,16 @@ def unpack(data: torch.Tensor,
     Inputs:
     data: - a tensor of packed elements
     element_bit_width: the size in bits of the elements to unpack
-    
-    optional:
     element_type: the dtype of the elements to unpack (uint,trinary,float, etc)
-    dimension: the dimension to unpack along
+    dim: the dimension to unpack along
     output_dtype: specify the dtype of the output tensor if it is not the same as the input tensor
-
+    order: make sure it matches the value set in the pack function
     Returns: torch.Tensor - a tensor of the unpacked elements.
     """
     container_size = torch.iinfo(data.dtype).bits
     scale = container_size // element_bit_width
     
-    unpacked = _unpack(data, element_bit_width, container_size, scale, dim, device)
+    unpacked = _unpack(data, element_bit_width, container_size, scale, order, dim, device)
     if element_type == "trinary":
         unpacked = unpacked.to(torch.int8) - 1
     elif output_dtype is not None:
@@ -36,12 +35,15 @@ def unpack(data: torch.Tensor,
         
     return unpacked
 
-def _unpack(data, element_size, container_size, scale ,dim, device):
+def _unpack(data, element_size, container_size, scale, order, dim, device):
     shape = data.shape
     unpacked_data = torch.zeros(mod_shape(shape, shape[dim]*scale, dim), dtype=data.dtype).to(device)
     nbits = (1 << element_size) - 1 # mask for the last dtype_size bits
     for i in range(scale):
-        shift_amt = container_size - element_size * (i + 1)
+        if order:
+            shift_amt = container_size - element_size * (i + 1)
+        else:
+            shift_amt = element_size * i
         slices = [slice(None)] * unpacked_data.ndim
         slices[dim] = slice(i, None, scale)
         unpacked_data[slices] = ((data >> shift_amt) & (nbits)).to(data.dtype)
