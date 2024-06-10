@@ -6,10 +6,11 @@ from .subclass import ( # noqa
 )
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from .quant_primitives import (
-    quantize_activation_per_token_absmax,
     safe_int_mm,
 )
 from torchao.utils import TORCH_VERSION_AFTER_2_4
+from torchao.quantization.utils import quantize_activation_per_token_absmax
+
 import torch.nn.functional as F
 try:
     from torch._inductor.utils import do_bench

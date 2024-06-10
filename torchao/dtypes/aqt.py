@@ -8,10 +8,12 @@ from torchao.quantization.quant_primitives import (
     dequantize_affine,
     ZeroPointDomain,
     MappingType,
+    int_scaled_matmul,
+)
+from torchao.quantization.utils import (
     pack_tinygemm_scales_and_zeros,
 )
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from torchao.kernel.intmm import int_scaled_matmul
 from torchao.utils import find_multiple
 
 aten = torch.ops.aten
