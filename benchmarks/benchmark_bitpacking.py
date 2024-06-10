@@ -6,14 +6,15 @@ from math import log
 import torch
 
 
-def benchmark(function, num_runs, *args, **kwargs):
+def benchmark(setup, function, num_runs):
+    args = setup()
     torch.cuda.synchronize()
     start_event = torch.cuda.Event(enable_timing=True)
     end_event = torch.cuda.Event(enable_timing=True)
     start_event.record()
 
     for _ in range(num_runs):
-        function(*args, **kwargs)
+        function(*args)
 
     end_event.record()
     torch.cuda.synchronize()

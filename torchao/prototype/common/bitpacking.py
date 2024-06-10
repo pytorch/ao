@@ -22,6 +22,7 @@ def unpack(data: torch.Tensor,
     dim: the dimension to unpack along
     output_dtype: specify the dtype of the output tensor if it is not the same as the input tensor
     order: make sure it matches the value set in the pack function
+    
     Returns: torch.Tensor - a tensor of the unpacked elements.
     """
     container_size = torch.iinfo(data.dtype).bits
@@ -62,8 +63,16 @@ def pack(data: torch.Tensor,
          device: Optional[str] = "cuda") -> torch.Tensor:
     """
     Packs small dtype elements into a container of a larger dtype.
-    **Pads rows to be divisible by the scale**
-    TODO: support something like packing 8 uint 3s into 3 uint8s
+    For example, packing 4-bit elements into 8-bit containers. 
+    along dimension 0:     along dimension 1:
+    (0, 9,  B,  4)   -->   ( 9, B4)                   
+    (3, 8,  F,  C)   -->   (38, FC)                 
+     |  |   |   |                       
+     v  v   v   v                       
+    (3, 98, BF, 4C)
+    
+    if order was set to false:
+    (30, 89, FB, C4)
     
     Inputs:
     data: a tensor of unpacked elements of a small dtype. The dtype used for the data will be used for the container.
@@ -106,28 +115,4 @@ def _pack(data, container_size, element_bit_width, scale, dim, order, device) ->
         else:
             packed |= data[slices] << element_bit_width*i
     return packed
-
-if __name__ == '__main__':
-    pack_compile = torch.compile(pack, fullgraph=True)
-    unpack_compile = torch.compile(unpack, fullgraph=True)
-    torch._dynamo.config.specialize_int = True    
-    element_bit_width = 2
-    element_type = "trinary"
-    dim = 0
-    shape =[4, 4, 4] 
-    shape[dim] = 5   
-    
-    if element_type == "trinary":
-        test_tensor = torch.randint(-1, 1, shape, dtype=torch.int8).cuda()
-    else:
-        test_tensor = torch.randint(0, 2**element_bit_width, shape, dtype=torch.uint8).cuda()
-        
-    packed = pack_compile(test_tensor, element_bit_width, element_type=element_type, dim = dim, container_dtype = torch.uint8, pad= True)
-    print(packed.shape)
-    assert(packed.shape[dim] == 2) # +1 for this scenario
-    unpacked = unpack_compile(packed, element_bit_width, element_type=element_type, dim = dim)
-    slices = [slice(None)] * packed.ndim
-    slices[dim] = slice(None, 5)
-    print(test_tensor, "\n", packed,"\n",unpacked[slices])
-    assert(unpacked[slices].allclose(test_tensor))
     
