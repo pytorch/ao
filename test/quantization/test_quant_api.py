@@ -29,6 +29,8 @@ from torchao.quantization.quant_primitives import (
 from torchao.quantization.subclass import (
     to_laq,
     LinearActQuantizedTensor,
+    Int8WeightOnlyQuantizedLinearWeight,
+    Int4WeightOnlyQuantizedLinearWeight,
 )
 from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
@@ -42,7 +44,7 @@ from torchao.quantization.quant_api import (
     get_apply_int8wo_quant,
     get_apply_int8dyn_quant,
 )
-from torchao.quantization.utils import (
+from torchao.utils import (
     TORCH_VERSION_AFTER_2_3,
     TORCH_VERSION_AFTER_2_4,
 )
@@ -137,6 +139,28 @@ def _ref_change_linear_weights_to_int8_dqtensors(model, filter_fn=None, **kwargs
     _replace_with_custom_fn_if_matches_filter(
         model, _get_subclass_inserter(Int8DynamicallyQuantizedLinearWeight, enable_parametrization=False, **kwargs), filter_fn
     )
+
+def _get_ref_change_linear_weights_to_woqtensors(deprecated_tenosr_subclass):
+    def _ref_change_linear_weights_to_woqtensors(model, filter_fn=None, **kwargs):
+        """
+        The deprecated implementation for weight only quant API, used as a reference for
+        numerics and performance
+        """
+        from torchao.quantization.quant_api import _is_linear
+        from torchao.quantization.quant_api import _get_subclass_inserter
+
+        filter_fn = kwargs.pop("filter_fn", _is_linear)
+
+        _replace_with_custom_fn_if_matches_filter(
+            model,
+            _get_subclass_inserter(deprecated_tenosr_subclass, enable_parametrization=True, **kwargs),
+            filter_fn,
+        )
+
+    return _ref_change_linear_weights_to_woqtensors
+
+_ref_change_linear_weights_to_int8_woqtensors = _get_ref_change_linear_weights_to_woqtensors(Int8WeightOnlyQuantizedLinearWeight)
+_ref_change_linear_weights_to_int4_woqtensors = _get_ref_change_linear_weights_to_woqtensors(Int4WeightOnlyQuantizedLinearWeight)
 
 class TestQuantFlow(unittest.TestCase):
     def test_dynamic_quant_gpu_singleline(self):
@@ -478,8 +502,7 @@ class TestQuantFlow(unittest.TestCase):
         assert isinstance(m.linear2.weight, AffineQuantizedTensor)
 
         # reference
-        from torchao.quantization.quant_api import change_linear_weights_to_int4_woqtensors
-        change_linear_weights_to_int4_woqtensors(m_copy, groupsize=groupsize)
+        _ref_change_linear_weights_to_int4_woqtensors(m_copy, groupsize=groupsize)
 
         res = m(*example_inputs)
         ref = m_copy(*example_inputs)
@@ -489,7 +512,7 @@ class TestQuantFlow(unittest.TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_quantized_tensor_subclass_int8(self):
+    def test_quantized_tensor_subclass_int8_wo(self):
         m = ToyLinearModel().eval().to(torch.bfloat16)
         m_copy = copy.deepcopy(m)
         example_inputs = tuple(map(lambda x: x.to(torch.bfloat16), m.example_inputs()))
@@ -500,13 +523,13 @@ class TestQuantFlow(unittest.TestCase):
         assert isinstance(m.linear2.weight, AffineQuantizedTensor)
 
         # reference
-        from torchao.quantization.quant_api import change_linear_weights_to_int8_woqtensors
-        change_linear_weights_to_int8_woqtensors(m_copy)
+        _ref_change_linear_weights_to_int8_woqtensors(m_copy)
+
 
         res = m(*example_inputs)
         ref = m_copy(*example_inputs)
 
-        torch.testing.assert_close(res, ref, rtol=0.00001, atol=1e-2)
+        self.assertTrue(torch.equal(res, ref))
 
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
@@ -525,8 +548,7 @@ class TestQuantFlow(unittest.TestCase):
         assert isinstance(m.linear2.weight.original_weight_tensor, AffineQuantizedTensor)
 
         # reference
-        from torchao.quantization.quant_api import change_linear_weights_to_int8_dqtensors
-        change_linear_weights_to_int8_dqtensors(m_copy)
+        _ref_change_linear_weights_to_int8_dqtensors(m_copy)
 
         res = m(*example_inputs)
         ref = m_copy(*example_inputs)
@@ -534,7 +556,7 @@ class TestQuantFlow(unittest.TestCase):
         self.assertTrue(torch.equal(res, ref))
 
         # workaround for export path
-        from torchao.quantization.utils import unwrap_tensor_subclass
+        from torchao.utils import unwrap_tensor_subclass
         m_unwrapped = unwrap_tensor_subclass(m)
 
         m = torch.export.export(m_unwrapped, example_inputs).module()
@@ -544,46 +566,6 @@ class TestQuantFlow(unittest.TestCase):
 
         # make sure it compiles
         torch._export.aot_compile(m_unwrapped, example_inputs)
-
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @unittest.skip("This perf test is supposed to be run locally for sanity check performance when there is a change of int8 dynamic quant implementation")
-    def test_quantized_tensor_subclass_int8_dyn_quant_perf(self):
-        m = ToyLinearModel(1024, 1024, 1024).eval().to(torch.bfloat16).to("cuda")
-        m_ref = copy.deepcopy(m)
-        # setting batch_size to 20 to be compatible with the kernel
-        example_inputs = m.example_inputs(batch_size=20, dtype=torch.bfloat16, device="cuda")
-
-        from torchao.quantization.quant_api import change_linear_weights_to_int8_dqtensors
-        change_linear_weights_to_int8_dqtensors(m)
-
-        # reference
-        _ref_change_linear_weights_to_int8_dqtensors(m_ref)
-
-        res = m(*example_inputs)
-        ref = m_ref(*example_inputs)
-
-        self.assertTrue(torch.equal(res, ref))
-
-        # perf comparison
-        from torchao.utils import benchmark_model
-        # warmup
-        WARMUP = 5
-        RUNS = 100
-        input_tensor = example_inputs[0]
-        m = torch.compile(m, mode='max-autotune', fullgraph=True)
-
-        benchmark_model(m, WARMUP, input_tensor)
-        elapsed_time = benchmark_model(m, RUNS, input_tensor)
-
-        m_ref = torch.compile(m_ref, mode='max-autotune', fullgraph=True)
-        benchmark_model(m_ref, WARMUP, input_tensor)
-        ref_elapsed_time = benchmark_model(m_ref, RUNS, input_tensor)
-
-        print(f"elapsed time: {elapsed_time}, ref elapsed time: {ref_elapsed_time}")
-        self.assertTrue(elapsed_time < 1.05 * ref_elapsed_time)
-
-
 
 if __name__ == "__main__":
     unittest.main()

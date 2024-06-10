@@ -1,9 +1,10 @@
 import math
-from typing import Optional
+from typing import List, Optional, Tuple
 
 import torch
 from torch import nn, Tensor
-from torchao.dtypes.float6_e3m2 import FLOAT6_E3M2_MAX, to_float6_e3m2, from_float6_e3m2
+from torchao.prototype.mx_formats.custom_cast import f32_to_f6_e3m2_unpacked, f6_e3m2_unpacked_to_f32
+from torchao.prototype.mx_formats.constants import F6_E3M2_MAX
 from torchao.ops import fp16act_fp6weight_linear
 
 
@@ -25,12 +26,12 @@ def _unpack_4bit(x: Tensor) -> Tensor:
 
 # this is a literal adaptation of FP6-LLM ahead-of-time bit-level pre-packing
 # https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/fp6_llm/csrc/utils/weight_prepacking.h
-def _to_tc_float6_e3m2_original(tensor: Tensor) -> Tensor:
+def _to_tc_float6_e3m2_ref(tensor: Tensor) -> Tensor:
     assert tensor.ndim == 2
     M, N = tensor.shape
     assert (M % 64 == 0) and (N % 64 == 0)
 
-    tensor_fp6 = to_float6_e3m2(tensor, no_bit_packing=True)
+    tensor_fp6 = f32_to_f6_e3m2_unpacked(tensor.float())
 
     # Pass 1 from original code
     tensor_fp6 = tensor_fp6.view(M // 64, 4, 2, 8, N // 16, 2, 8)
@@ -65,7 +66,7 @@ def _to_tc_float6_e3m2_original(tensor: Tensor) -> Tensor:
     tensor_4bit = tensor_4bit[:, [4, 5, 6, 7, 0, 1, 2, 3]]
     tensor_4bit = _pack_4bit(tensor_4bit).view(-1)
 
-    return torch.cat([tensor_2bit, tensor_4bit], dim=0)
+    return torch.cat([tensor_2bit, tensor_4bit], dim=0).view(M, -1)
 
 
 # more optimized version of _to_tc_float6_e3m2_original() by merging ops
@@ -75,7 +76,7 @@ def to_tc_float6_e3m2(tensor: Tensor) -> Tensor:
     M, N = tensor.shape
     assert (M % 64 == 0) and (N % 64 == 0)
 
-    tensor_fp6 = to_float6_e3m2(tensor, no_bit_packing=True)
+    tensor_fp6 = f32_to_f6_e3m2_unpacked(tensor.float())
     tensor_fp6 = tensor_fp6.view(M // 64, 2, 2, 2, 8, N // 16, 2, 8)
     tensor_fp6 = tensor_fp6.flip(3)
 
@@ -87,14 +88,23 @@ def to_tc_float6_e3m2(tensor: Tensor) -> Tensor:
     tensor_4bit = tensor_4bit.permute(0, 5, 1, 2, 4, 7, 3, 6)
     tensor_4bit = _pack_4bit(tensor_4bit.flatten())
 
-    return torch.cat([tensor_2bit, tensor_4bit], dim=0)
+    return torch.cat([tensor_2bit, tensor_4bit], dim=0).view(M, -1)
 
 
-def from_tc_float6_e3m2(tensor: Tensor, M: int, N: int, dtype: torch.dtype = torch.float32) -> Tensor:
-    assert tensor.ndim == 1
+def to_scaled_tc_float6_e3m2(tensor: Tensor) -> Tuple[Tensor, Tensor]:
+    scale = F6_E3M2_MAX / tensor.abs().amax(1).clamp(min=1e-12)
+    tc_fp6_tensor = to_tc_float6_e3m2(tensor * scale.view(-1, 1))
+    return tc_fp6_tensor, scale.reciprocal().half()
+
+
+def from_tc_float6_e3m2(tensor: Tensor, dtype: torch.dtype = torch.float32) -> Tensor:
+    assert tensor.ndim == 2 and tensor.dtype == torch.uint8
+    M = tensor.shape[0]
+    N = tensor.shape[1] // 3 * 4
     assert (M % 64 == 0) and (N % 64 == 0)
     size_2bit = M * N // 4
     size_4bit = M * N // 2
+    tensor = tensor.view(-1).view(torch.uint8)
     assert tensor.numel() == size_2bit + size_4bit
 
     tensor_2bit, tensor_4bit = tensor.split([size_2bit, size_4bit])
@@ -109,7 +119,7 @@ def from_tc_float6_e3m2(tensor: Tensor, M: int, N: int, dtype: torch.dtype = tor
 
     tensor_fp6 = (tensor_2bit << 4) | tensor_4bit
     tensor_fp6 = tensor_fp6.flip(3).reshape(M, N)
-    return from_float6_e3m2(tensor_fp6, no_bit_packing=True, dtype=dtype)
+    return f6_e3m2_unpacked_to_f32(tensor_fp6).to(dtype)
 
 
 # https://github.com/microsoft/DeepSpeed/blob/3a3a6db3332e339cc9fd94efd4982f6d60635a3d/deepspeed/inference/v2/kernels/core_ops/cuda_linear/cuda_linear.py
@@ -255,11 +265,11 @@ class Fp6LlmLinear(nn.Module):
 
     def __init__(self, weight: Tensor, scales: Tensor, bias: Optional[Tensor] = None) -> None:
         super().__init__()
-        self.register_buffer("weight", weight)
+        self.register_buffer("weight", weight.view(torch.int32))
         self.register_buffer("scales", scales)
         self.register_buffer("bias", bias)
         self.out_features = weight.shape[0]
-        self.in_features = weight.shape[1] * 16 // 3
+        self.in_features = weight.shape[1] // 3 * 4
 
     def forward(self, x: Tensor) -> Tensor:
         splitK = self.get_split_k(math.prod(x.shape[:-1]), self.out_features)
@@ -271,27 +281,21 @@ class Fp6LlmLinear(nn.Module):
     @staticmethod
     def get_split_k(bsize: int, out_dim: int) -> int:
         # https://github.com/microsoft/DeepSpeed/blob/3a3a6db3332e339cc9fd94efd4982f6d60635a3d/deepspeed/inference/v2/kernels/core_ops/cuda_linear/cuda_linear.py
-        return _SPLIT_K_MAP[(bsize - 1) // 64].get(out_dim, 1)  if bsize <= 768 else 1
+        return _SPLIT_K_MAP[(bsize - 1) // 64].get(out_dim, 1) if bsize <= 768 else 1
 
     @classmethod
     def from_float(cls, linear: nn.Linear):
         assert (linear.in_features % 64 == 0) and (linear.out_features % 256 == 0)
 
-        fp32_weight = linear.weight.detach().float()
-        scales = fp32_weight.abs().amax(1) / FLOAT6_E3M2_MAX
-        scales[scales == 0.0] = 1.0  # avoid 0 scale
-
-        tc_fp6_weight = to_tc_float6_e3m2(fp32_weight / scales.view(-1, 1))
-        tc_fp6_weight = tc_fp6_weight.view(linear.out_features, -1).view(torch.int32)
-
+        fp6_weight, scale = to_scaled_tc_float6_e3m2(linear.weight.detach())
         bias = linear.bias.detach().half() if linear.bias is not None else None
-        return cls(tc_fp6_weight, scales.half(), bias)
+        return cls(fp6_weight, scale, bias)
 
     def extra_repr(self) -> str:
         return f'in_features={self.in_features}, out_features={self.out_features}, bias={self.bias is not None}'
 
 
-def convert_fp6_llm(model: nn.Module, skip_fqn_list: Optional[list[str]] = None, cur_fqn: str = "") -> None:
+def convert_fp6_llm(model: nn.Module, skip_fqn_list: Optional[List[str]] = None, cur_fqn: str = "") -> None:
     for name, child in model.named_children():
         new_fqn = name if cur_fqn == "" else f"{cur_fqn}.{name}"
 

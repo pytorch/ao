@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from typing import Tuple, Optional
 
-from torchao.quantization.quant_primitives import (
+from torchao.quantization.utils import (
     dynamically_quantize_per_channel,
     quant_int8_dynamic_per_token_linear,
     quantize_activation_per_token_absmax,

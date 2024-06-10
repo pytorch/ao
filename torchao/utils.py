@@ -1,5 +1,24 @@
 import torch
 import torch.utils.benchmark as benchmark
+from typing import Tuple
+from functools import reduce
+from math import gcd
+from packaging import version
+import torch.nn.utils.parametrize as parametrize
+
+__all__ = [
+    "benchmark_model",
+    "profiler_runner",
+    "get_compute_capability",
+    "skip_if_compute_capability_less_than",
+    "benchmark_torch_function_in_microseconds",
+    "find_multiple",
+    "get_model_size_in_bytes",
+    "unwrap_tensor_subclass",
+    "TORCH_VERSION_AFTER_2_2",
+    "TORCH_VERSION_AFTER_2_3",
+    "TORCH_VERSION_AFTER_2_4",
+]
 
 
 def benchmark_model(model, num_runs, input_tensor):
@@ -55,3 +74,83 @@ def benchmark_torch_function_in_microseconds(f, *args, **kwargs):
     )
     measurement = t0.blocked_autorange()
     return measurement.mean * 1e6
+
+
+def find_multiple(n: int, *args: Tuple[int]) -> int:
+    k: int = reduce(lambda x, y: x * y // gcd(x, y), args + (1,))  # type: ignore[9]
+    if n % k == 0:
+        return n
+    return n + k - (n % k)
+
+# https://discuss.pytorch.org/t/finding-model-size/130275
+def get_model_size_in_bytes(model):
+    s = 0
+    for p in model.parameters():
+        s += p.nelement() * p.element_size()
+    for b in model.buffers():
+        s += b.nelement() * b.element_size()
+    return s
+
+class UnwrapTensorSubclass(torch.nn.Module):
+    def forward(self, *tensors):
+        todo = list(tensors)
+        for tp, meta, inner_tensors in reversed(self.rebuild_stack):
+            nb_tensor = len(inner_tensors)
+            inner_tensors = {a: b for a, b in zip(inner_tensors, todo[-nb_tensor:])}
+            todo = todo[nb_tensor:]
+            rebuilt = tp.__tensor_unflatten__(inner_tensors, meta, None, None)
+            todo.append(rebuilt)
+
+        assert len(todo) == 1
+        return todo[0]
+
+    def right_inverse(self, tensor):
+        assert type(tensor) is not torch.Tensor
+        rebuild_stack = []
+        plain_tensors = []
+        todo = [tensor]
+        while todo:
+            obj = todo.pop()
+            inner_tensors, metadata = obj.__tensor_flatten__()
+            rebuild_stack.append((type(obj), metadata, inner_tensors))
+            for attr_name in inner_tensors:
+                val = getattr(obj, attr_name)
+                if type(val) is torch.Tensor:
+                    plain_tensors.append(val)
+                else:
+                    assert isinstance(val, torch.Tensor)
+                    todo.append(val)
+
+        self.rebuild_stack = rebuild_stack
+
+        return plain_tensors
+
+def unwrap_tensor_subclass(model, filter_fn=None):
+    for name, child in model.named_children():
+        # make sure child.weight is a tensor subclass
+        if (
+            isinstance(child, torch.nn.Linear) and
+            hasattr(child, "weight") and
+            type(child.weight) is not torch.Tensor and
+            type(child.weight) is not torch.nn.Parameter and
+            isinstance(child.weight, torch.Tensor) and
+            issubclass(type(child.weight), torch.Tensor)
+        ):
+            parametrize.register_parametrization(child, "weight", UnwrapTensorSubclass())
+        unwrap_tensor_subclass(child)
+    return model
+
+if version.parse(torch.__version__) >= version.parse("2.4.0.dev"):
+    TORCH_VERSION_AFTER_2_4 = True
+else:
+    TORCH_VERSION_AFTER_2_4 = False
+
+if version.parse(torch.__version__) >= version.parse("2.3.0.dev"):
+    TORCH_VERSION_AFTER_2_3 = True
+else:
+    TORCH_VERSION_AFTER_2_3 = False
+
+if version.parse(torch.__version__) >= version.parse("2.2.0.dev"):
+    TORCH_VERSION_AFTER_2_2 = True
+else:
+    TORCH_VERSION_AFTER_2_2 = False

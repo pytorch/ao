@@ -2,7 +2,7 @@ import torch
 from torchao.prototype.common.bitpacking import pack, unpack
 import pytest
 from torch.utils._triton import has_triton
-from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AFTER_2_4
 
 if not TORCH_VERSION_AFTER_2_4:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
@@ -10,6 +10,7 @@ if not TORCH_VERSION_AFTER_2_4:
 dtypes = ((2, 'trinary', 1), (2, None, 1), (3, None, 2), (4, None, 2), (5, None, 4), (6, None, 4), (7, None, 4))
 dimensions = (2, 1, 0)
 orders = (True, False)
+
 
 @pytest.fixture(autouse=True)
 def run_before_and_after_tests():
@@ -113,6 +114,7 @@ def test_padding(dtype, dim, order):
     assert unpacked[slices].allclose(test_tensor)
     
     
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.parametrize("dtype", dtypes)
@@ -141,5 +143,3 @@ def test_compile(dtype, dim, order):
                               dim = dim,
                               order = order)
     assert(unpacked.allclose(test_tensor))
-    
-

@@ -19,7 +19,11 @@ pip install torchao
 
 Nightly Release
 ```Shell
-pip install torchao-nightly
+pip install --pre torchao-nightly --index-url https://download.pytorch.org/whl/nightly/cpu # CPU only builds
+pip install --pre torchao-nightly --index-url https://download.pytorch.org/whl/nightly/cu118 # CUDA 11.8
+pip install --pre torchao-nightly --index-url https://download.pytorch.org/whl/nightly/cu121 # CUDA 12.1
+pip install --pre torchao-nightly --index-url https://download.pytorch.org/whl/nightly/cu124 # CUDA 12.4
+
 ```
 
 From source

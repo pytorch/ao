@@ -10,15 +10,19 @@ import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from .quant_primitives import (
+    MappingType,
+)
+
+from .utils import (
+    find_multiple,
     dequantize_per_channel,
     dynamically_quantize_per_channel,
     groupwise_affine_quantize_tensor,
     quant_int8_dynamic_per_token_linear,
     unpack_tinygemm_scales_and_zeros,
     groupwise_affine_quantize_tensor_from_qparams,
-    MappingType,
 )
-from .utils import find_multiple
+from torchao.utils import find_multiple
 from typing import Tuple, Optional, Callable, Dict, Any
 
 
