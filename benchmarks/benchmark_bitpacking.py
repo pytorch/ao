@@ -1,9 +1,10 @@
 # from torchao.quantization.quant_primitives import dynamically_quantize_per_channel
 from torchao.prototype.common.bitpacking import pack, unpack
+from torchao.dtypes.uint4 import unpack_uint4, pack_uint4
 from math import log
 # from torchao.utils import benchmark_utils
 import torch
-pack = torch.compile(pack, fullgraph=True)
+
 
 def benchmark(function, num_runs, *args, **kwargs):
     torch.cuda.synchronize()
@@ -18,8 +19,24 @@ def benchmark(function, num_runs, *args, **kwargs):
     torch.cuda.synchronize()
     return start_event.elapsed_time(end_event) / num_runs
 
+def test_existing():
+    def new_():
+        fake_tensor = torch.randint(0, 2**8, (1, 1024,1024), dtype=torch.uint8).cuda()
+        packed = pack(fake_tensor, 4, dim=1)
+        unpacked = unpack(packed, 4, dim=1)
+    def old_():
+        fake_tensor = torch.randint(0, 2**8, (1, 1024,1024), dtype=torch.uint8).cuda()
+        packed = pack_uint4(fake_tensor)
+        unpacked = unpack_uint4(packed)
+    new_ = torch.compile(new_, fullgraph=True)
+    old_ = torch.compile(old_, fullgraph=True)
+    new_()
+    old_()
+    print(f"new: {benchmark(new_, 1000)} ms ")
+    print(f"old: {benchmark(old_, 1000)} ms")
 
-
+    
+    
 def load4x(scale=1024):
     fake_tensor = torch.randint(0, 2**8, (1, 4*scale,scale), dtype=torch.uint8).cuda()
     
@@ -123,7 +140,7 @@ def check(expected, actual, msg="", max_diff=1e-3, verbose=False):
     return passed
 
 
-def test_mixed_mm(
+def mixed_mm(
     shape, group_size, axis, dtype, transposed, kernel_type, quant_dtype=torch.uint8, pack_fn = True
 ):
     qcfg = {
@@ -194,9 +211,8 @@ def test_mixed_mm(
     #     verbose=True,
     # )
 
-    
-if __name__ == "__main__":
-    # _test_mixed_mm(transposed=False)
+
+def test_vs_hqqpack():
     shapes = [
     [16, 128, 128],
     [16, 4096, 4096],
@@ -204,7 +220,7 @@ if __name__ == "__main__":
     group_sizes = [64, 128]
     shape = [16, 128, 128]
     group_size = 64
-    
+    pack = torch.compile(pack, fullgraph=True)
     for i in range(2):
         shape = shapes[i]
         group_size = group_sizes[i]
@@ -239,22 +255,8 @@ if __name__ == "__main__":
                                                 "compute_bound", #max autotune doesnt work?
                                                 torch.uint8,
                                                 pack_fn=False))
-        # print("pack_2xint4 time (ms): ", benchmark(test_mixed_mm, 10, 
-        #                                         shape, 
-        #                                         group_size,
-        #                                         1,
-        #                                         torch.float16,
-        #                                         True,
-        #                                         "compute_bound", #max autotune doesnt work?
-        #                                         torch.uint8,
-        #                                         pack_fn=False))
-        # print("pack time (ms): ", benchmark(test_mixed_mm, 10, 
-        #                                         shape, 
-        #                                         group_size,
-        #                                         1,
-        #                                         torch.float16,
-        #                                         True,
-        #                                         "compute_bound",
-        #                                         torch.uint8))
         print("")
+        
+if __name__ == "__main__":
+    test_existing()
 

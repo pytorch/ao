@@ -10,6 +10,18 @@ if not TORCH_VERSION_AFTER_2_4:
 dtypes = ((2, 'trinary', 1), (2, None, 1), (3, None, 2), (4, None, 2), (5, None, 4), (6, None, 4), (7, None, 4))
 dimensions = (2, 1, 0)
 
+@pytest.fixture(autouse=True)
+def run_before_and_after_tests():
+    # source: https://stackoverflow.com/questions/22627659/run-code-before-and-after-each-test-in-py-test  # noqa: E501
+
+    # setup (currently do nothing)
+
+    # tests will run here
+    yield
+
+    # teardown
+    # avoid dynamo cache limit issues
+    torch._dynamo.reset()
 
 @pytest.mark.parametrize("dtype", dtypes)
 @pytest.mark.parametrize("dim", dimensions)
