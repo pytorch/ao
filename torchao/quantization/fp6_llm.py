@@ -1,5 +1,5 @@
 import math
-from typing import Optional
+from typing import List, Optional
 
 import torch
 from torch import nn, Tensor
@@ -291,7 +291,7 @@ class Fp6LlmLinear(nn.Module):
         return f'in_features={self.in_features}, out_features={self.out_features}, bias={self.bias is not None}'
 
 
-def convert_fp6_llm(model: nn.Module, skip_fqn_list: Optional[list[str]] = None, cur_fqn: str = "") -> None:
+def convert_fp6_llm(model: nn.Module, skip_fqn_list: Optional[List[str]] = None, cur_fqn: str = "") -> None:
     for name, child in model.named_children():
         new_fqn = name if cur_fqn == "" else f"{cur_fqn}.{name}"
 
