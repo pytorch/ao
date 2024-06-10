@@ -4,7 +4,6 @@ from typing import Tuple
 from functools import reduce
 from math import gcd
 
-
 def benchmark_model(model, num_runs, input_tensor):
     torch.cuda.synchronize()
     start_event = torch.cuda.Event(enable_timing=True)
@@ -19,6 +18,56 @@ def benchmark_model(model, num_runs, input_tensor):
     end_event.record()
     torch.cuda.synchronize()
     return start_event.elapsed_time(end_event) / num_runs
+
+
+def time_fn(fn, num_runs, *args, **kwargs):
+    """
+    Run given function fn with arguments args and kwargs num_runs times.
+
+    NOTE: This does not do automatic warmup or anything, it just loops.
+    """
+    torch.cuda.synchronize()
+    start_event = torch.cuda.Event(enable_timing=True)
+    end_event = torch.cuda.Event(enable_timing=True)
+    start_event.record()
+
+    # benchmark
+    for _ in range(num_runs):
+        fn(*args, **kwargs)
+
+    end_event.record()
+    torch.cuda.synchronize()
+    return start_event.elapsed_time(end_event) / num_runs
+
+def time_fn_annotate(fn, num_runs, annotation, *args, **kwargs):
+    """
+    Run given function fn with arguments args and kwargs num_runs times.
+
+    Annotates timed function as given by annotation and synchronizes the GPU on each run!
+
+    This yields traces that are easier to correlate with the function in question.
+
+    Returns average time of function *within* the synchronized region.
+
+    NOTE: This does not do automatic warmup or anything, it just loops.
+    NOTE: This is slower than time_fn, because it synchronizes.
+    """
+    torch.cuda.synchronize()
+
+    # benchmark
+    t = 0.0
+    for _ in range(num_runs):
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+        torch.cuda.synchronize()
+        with torch.autograd.profiler.record_function(annotation):
+            start_event.record()
+            fn(*args, **kwargs)
+            end_event.record()
+        torch.cuda.synchronize()
+        t += start_event.elapsed_time(end_event)
+
+    return t / num_runs
 
 def profiler_runner(path, fn, *args, **kwargs):
     with torch.profiler.profile(
