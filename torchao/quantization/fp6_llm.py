@@ -1,5 +1,5 @@
 import math
-from typing import Optional
+from typing import Optional, Tuple
 
 import torch
 from torch import nn, Tensor
@@ -91,7 +91,7 @@ def to_tc_float6_e3m2(tensor: Tensor) -> Tensor:
     return torch.cat([tensor_2bit, tensor_4bit], dim=0).view(M, -1)
 
 
-def to_scaled_tc_float6_e3m2(tensor: Tensor) -> tuple[Tensor, Tensor]:
+def to_scaled_tc_float6_e3m2(tensor: Tensor) -> Tuple[Tensor, Tensor]:
     scale = F6_E3M2_MAX / tensor.abs().amax(1).clamp(min=1e-12)
     tc_fp6_tensor = to_tc_float6_e3m2(tensor * scale.view(-1, 1))
     return tc_fp6_tensor, scale.reciprocal().half()
