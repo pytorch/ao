@@ -7,64 +7,139 @@ from torchao.utils import TORCH_VERSION_AFTER_2_4
 if not TORCH_VERSION_AFTER_2_4:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
-def test_uint4_to_uint8_CPU():
-    test_tensor = torch.randint(0, 15, (4, 4), dtype=torch.uint8)
-    packed = pack(test_tensor, 8, 4, device='cpu')
-    unpacked = unpack(packed, 4, device='cpu')
-    unpadded = unpacked[:test_tensor.shape[0], ...]
-    assert(unpadded.allclose(test_tensor))
+dtypes = ((2, 'trinary', 1), (2, None, 1), (3, None, 2), (4, None, 2), (5, None, 4), (6, None, 4), (7, None, 4))
+dimensions = (2, 1, 0)
+orders = (True, False)
 
-def test_uint3_to_int16_col_wise_cpu():
-    test_tensor = torch.randint(0, 7, (8, 5), dtype=torch.int16)
-    packed = pack(test_tensor,16, 3, False, device='cpu')
-    unpacked = unpack(packed, 3, False, device='cpu')
-    unpadded = unpacked[:test_tensor.shape[0], ...]
-    assert(unpadded.allclose(test_tensor))
 
+@pytest.fixture(autouse=True)
+def run_before_and_after_tests():
+    # source: https://stackoverflow.com/questions/22627659/run-code-before-and-after-each-test-in-py-test  # noqa: E501
+
+    # setup (currently do nothing)
+
+    # tests will run here
+    yield
+
+    # teardown
+    # avoid dynamo cache limit issues
+    torch._dynamo.reset()
+
+@pytest.mark.parametrize("dtype", dtypes)
+@pytest.mark.parametrize("dim", dimensions)
+@pytest.mark.parametrize("order", orders)
+def test_CPU(dtype, dim, order):
+    element_bit_width, element_type,expected_pack_size = dtype
+    shape = [4, 4, 4]
+    if element_type == "trinary":
+        test_tensor = torch.randint(-1, 1, shape, dtype=torch.int8, device='cpu')
+    else:
+        test_tensor = torch.randint(0, 2**element_bit_width, shape, dtype=torch.uint8, device='cpu')
+        
+    packed = pack(test_tensor, 
+                  element_bit_width,
+                  element_type=element_type,
+                  dim = dim,
+                  order = order,
+                  container_dtype = torch.uint8,
+                  device='cpu')
+    assert(packed.shape[dim] == expected_pack_size)
+    unpacked = unpack(packed,
+                      element_bit_width,
+                      element_type=element_type,
+                      dim = dim,
+                      order = order,
+                      device='cpu')
+    assert(unpacked.allclose(test_tensor))
+
+            
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-def test_uint4_to_uint8():
-    test_tensor = torch.randint(0, 15, (4, 4), dtype=torch.uint8).cuda()
-    packed = pack(test_tensor, 8, 4)
-    unpacked = unpack(packed, 4)
-    unpadded = unpacked[:test_tensor.shape[0], ...]
-    assert(unpadded.allclose(test_tensor))
+@pytest.mark.parametrize("dtype", dtypes)
+@pytest.mark.parametrize("dim", dimensions)
+@pytest.mark.parametrize("order", orders)
+def test_GPU(dtype, dim, order):
+    element_bit_width, element_type,expected_pack_size = dtype
+    shape = [4, 4, 4]
+    if element_type == "trinary":
+        test_tensor = torch.randint(-1, 1, shape, dtype=torch.int8).cuda()
+    else:
+        test_tensor = torch.randint(0, 2**element_bit_width, shape, dtype=torch.uint8).cuda()
+        
+    packed = pack(test_tensor, 
+                  element_bit_width,
+                  element_type=element_type,
+                  dim = dim,
+                  order = order,
+                  container_dtype = torch.uint8)
+    assert(packed.shape[dim] == expected_pack_size)
+    unpacked = unpack(packed,
+                      element_bit_width,
+                      element_type=element_type,
+                      order = order,
+                      dim = dim)
+    assert(unpacked.allclose(test_tensor))
+
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-def test_uint4_to_uint8_compile():
-    torch._dynamo.config.specialize_int = True
-    pack_compiled = torch.compile(pack, fullgraph=True)
-    unpack_compiled = torch.compile(unpack, fullgraph=True)
-    test_tensor = torch.randint(0, 15, (3, 4), dtype=torch.uint8).cuda()
-    packed = pack_compiled(test_tensor, 8, 4)
-    unpacked = unpack_compiled(packed, 4)
-    unpadded = unpacked[:test_tensor.shape[0], ...]
-    assert(unpadded.allclose(test_tensor))
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-def test_uint3_to_int16():
-    test_tensor = torch.randint(0, 7, (5, 8), dtype=torch.int16).cuda()
-    packed = pack(test_tensor,16, 3)
-    unpacked = unpack(packed, 3)
-    unpadded = unpacked[:test_tensor.shape[0], ...]
-    assert(unpadded.allclose(test_tensor))
+@pytest.mark.parametrize("dtype", dtypes)
+@pytest.mark.parametrize("dim", dimensions)
+@pytest.mark.parametrize("order", orders)
+def test_padding(dtype, dim, order):
+    element_bit_width, element_type,expected_pack_size = dtype
+    torch._dynamo.config.specialize_int = True    
+    shape =[4, 4, 4] 
+    shape[dim] = 5   
+    
+    if element_type == "trinary":
+        test_tensor = torch.randint(-1, 1, shape, dtype=torch.int8).cuda()
+    else:
+        test_tensor = torch.randint(0, 2**element_bit_width, shape, dtype=torch.uint8).cuda()
+        
+    packed = pack(test_tensor, 
+                  element_bit_width, 
+                  element_type=element_type, 
+                  dim = dim, 
+                  container_dtype = torch.uint8,
+                  order = order,
+                  pad= True)
+    assert packed.shape[dim] == expected_pack_size+1, f"packed.shape[dim] {packed.shape[dim]}" # +1 for this scenario
+    unpacked = unpack(packed,
+                      element_bit_width,
+                      element_type=element_type,
+                      dim = dim,
+                      order = order)
+    slices = [slice(None)] * packed.ndim
+    slices[dim] = slice(None, 5)
+    assert unpacked[slices].allclose(test_tensor)
+    
+    
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-def test_uint2_to_uint8_col_wise_compile():
+@pytest.mark.parametrize("dtype", dtypes)
+@pytest.mark.parametrize("dim", dimensions)
+@pytest.mark.parametrize("order", orders)
+def test_compile(dtype, dim, order):
+    pack_compile = torch.compile(pack, fullgraph=True, dynamic=True)
+    unpack_compile = torch.compile(unpack, fullgraph=True, dynamic=True)
+    element_bit_width, element_type,expected_pack_size = dtype
     torch._dynamo.config.specialize_int = True
-    pack_compiled = torch.compile(pack, fullgraph=True)
-    unpack_compiled = torch.compile(unpack, fullgraph=True)
-    test_tensor = torch.randint(0, 3, (8, 8), dtype=torch.uint8).cuda()
-    packed = pack_compiled(test_tensor, 8, 2, False)
-    unpacked = unpack_compiled(packed,2, False)
-    unpadded = unpacked[:test_tensor.shape[0], ...]
-    assert(unpadded.allclose(test_tensor))
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-def test_uint3_to_int16_col_wise():
-    test_tensor = torch.randint(0, 7, (8, 5), dtype=torch.int16).cuda()
-    packed = pack(test_tensor,16, 3, False)
-    unpacked = unpack(packed, 3, False)
-    unpadded = unpacked[:test_tensor.shape[0], ...]
-    assert(unpadded.allclose(test_tensor))
+    shape = [4, 4, 4]
+    if element_type == "trinary":
+        test_tensor = torch.randint(-1, 1, shape, dtype=torch.int8).cuda()
+    else:
+        test_tensor = torch.randint(0, 2**element_bit_width, shape, dtype=torch.int8).cuda()
+        
+    packed = pack_compile(test_tensor, element_bit_width,
+                          element_type=element_type,
+                          dim = dim,
+                          container_dtype = torch.int8,
+                          order = order)
+    assert(packed.shape[dim] == expected_pack_size)
+    unpacked = unpack_compile(packed,
+                              element_bit_width,
+                              element_type=element_type,
+                              dim = dim,
+                              order = order)
+    assert(unpacked.allclose(test_tensor))
