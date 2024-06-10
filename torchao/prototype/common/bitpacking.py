@@ -63,16 +63,6 @@ def pack(data: torch.Tensor,
          device: Optional[str] = "cuda") -> torch.Tensor:
     """
     Packs small dtype elements into a container of a larger dtype.
-    For example, packing 4-bit elements into 8-bit containers. 
-    along dimension 0:     along dimension 1:
-    (0, 9,  B,  4)   -->   ( 9, B4)                   
-    (3, 8,  F,  C)   -->   (38, FC)                 
-     |  |   |   |                       
-     v  v   v   v                       
-    (3, 98, BF, 4C)
-    
-    if order was set to false:
-    (30, 89, FB, C4)
     
     Inputs:
     data: a tensor of unpacked elements of a small dtype. The dtype used for the data will be used for the container.
@@ -83,6 +73,18 @@ def pack(data: torch.Tensor,
     order: if set to true, packs elements such that the lower index elements occupy the most significant bits
     
     Returns: torch.Tensor - a tensor of packed elements.
+    
+    
+    For example, packing 4-bit elements into 8-bit containers. 
+    along dimension 0:     along dimension 1:
+    (0, 9,  B,  4)   -->   ( 9, B4)                   
+    (3, 8,  F,  C)   -->   (38, FC)                 
+     |  |   |   |                       
+     v  v   v   v                       
+    (3, 98, BF, 4C)
+    
+    if order was set to false:
+    (30, 89, FB, C4)
     """
     
     if element_type == "trinary":
