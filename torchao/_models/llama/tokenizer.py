@@ -2,8 +2,11 @@
 
 import os
 import sentencepiece as spm
-import tiktoken
-from tiktoken.load import load_tiktoken_bpe
+try:
+    import tiktoken
+    from tiktoken.load import load_tiktoken_bpe
+except:
+    pass
 from pathlib import Path
 from typing import Dict
 
