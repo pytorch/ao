@@ -22,7 +22,7 @@ def run_evaluation(repo_id, task_list, limit, device, precision, quantization, c
     model = AutoModelForCausalLM.from_pretrained(repo_id).to(device="cuda", dtype=precision)
     
     if compile:
-        torch.compile(model, mode="max-autotune", fullgraph=True)
+        model = torch.compile(model, mode="max-autotune", fullgraph=True)
 
     if quantization == "int8dq":
         change_linear_weights_to_int8_dqtensors(model)
