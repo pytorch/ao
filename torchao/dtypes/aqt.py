@@ -200,7 +200,7 @@ class PlainAQTLayout(AQTLayout):
         if func is aten.t.default:
             tensor = args[0]
             new = tensor.__class__(
-                tensor.int_data.view(tenssor.shape[::-1]), tenssor.scale, tenssor.zero_point
+                tensor.int_data.view(tensor.shape[::-1]), tensor.scale, tensor.zero_point
             )
             return return_and_correct_aliasing(func, args, kwargs, new)
 
@@ -394,8 +394,6 @@ class AffineQuantizedTensor(torch.Tensor):
         kwargs["layout"] = (
             kwargs.get("layout") if kwargs.get("layout", False) else layout_tensor.layout
         )
-        if dtype is None:
-            dtype = scale.dtype
         kwargs["dtype"] = dtype
         if strides is not None:
             kwargs["strides"] = strides
@@ -800,4 +798,4 @@ def t(func, *args, **kwargs):
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
 
-to_aq = AffineQuantizedTensor.from_float
+to_affine_quantized = AffineQuantizedTensor.from_float

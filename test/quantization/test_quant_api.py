@@ -20,7 +20,6 @@ from torch.ao.quantization.quantizer.xnnpack_quantizer import (
 
 import torchao
 from torchao.dtypes import (
-    to_aq,
     AffineQuantizedTensor,
 )
 from torchao.quantization.quant_primitives import (
@@ -28,22 +27,19 @@ from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
 )
 from torchao.quantization.subclass import (
-    to_laq,
     LinearActQuantizedTensor,
     Int8WeightOnlyQuantizedLinearWeight,
     Int4WeightOnlyQuantizedLinearWeight,
 )
 from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
-    apply_dynamic_quant,
-    apply_weight_only_int8_quant,
     Quantizer,
     TwoStepQuantizer,
     quantize,
-    get_apply_8da4w_quant,
-    get_apply_int4wo_quant,
-    get_apply_int8wo_quant,
-    get_apply_int8dyn_quant,
+    int8da_int4w,
+    int4wo,
+    int8wo,
+    int8da_int8w,
 )
 from torchao.utils import (
     TORCH_VERSION_AFTER_2_3,
@@ -52,7 +48,9 @@ from torchao.utils import (
 from pathlib import Path
 from torchao._models.llama.tokenizer import get_tokenizer
 from torchao._models.llama.model import Transformer, prepare_inputs_for_model
+from torchao.utils import unwrap_tensor_subclass
 import copy
+import tempfile
 
 
 def dynamic_quant(model, example_inputs):
@@ -61,20 +59,6 @@ def dynamic_quant(model, example_inputs):
     m = prepare_pt2e(m, quantizer)
     m = convert_pt2e(m)
     return m
-
-def _apply_dynamic_quant(model):
-    """
-    Applies dynamic symmetric per-token activation and per-channel weight
-    quantization to all linear layers in the given model using
-    module swaps.
-    """
-    _replace_with_custom_fn_if_matches_filter(
-        model,
-        lambda linear_mod: dynamic_quant(linear_mod, (torch.randn(1, linear_mod.in_features),)),
-        lambda mod, fqn: isinstance(mod, torch.nn.Linear),
-    )
-    return model
-
 
 def capture_and_prepare(model, example_inputs):
     m = torch.export.export(model, example_inputs)
@@ -104,7 +88,7 @@ class XNNPackDynamicQuantizer(TwoStepQuantizer):
 
 class TorchCompileDynamicQuantizer(Quantizer):
     def quantize(self, model: torch.nn.Module) -> torch.nn.Module:
-        apply_dynamic_quant(model)
+        quantize(model, int8da_int8w())
         return model
 
 class ToyLinearModel(torch.nn.Module):
@@ -167,7 +151,7 @@ class TestQuantFlow(unittest.TestCase):
     def test_dynamic_quant_gpu_singleline(self):
         m = ToyLinearModel().eval()
         example_inputs = m.example_inputs()
-        m = _apply_dynamic_quant(m)
+        m = quantize(m, int8da_int8w())
         quantized = m(*example_inputs)
         # AssertionError: Expecting input to have dtype torch.float32, but got dtype: torch.float64
         # While executing %choose_qparams_tensor_1 : [num_users=2] = call_function[target=torch.ops.quantized_decomposed.choose_qparams.tensor](args = (%arg0_3, -128, 127, 0.000244140625, torch.int8), kwargs = {})
@@ -203,18 +187,28 @@ class TestQuantFlow(unittest.TestCase):
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "only works for torch 2.4+")
     def test_int8_wo_quant_save_load(self):
+        from torchao.quantization.quant_api import (
+            change_linear_weights_to_int8_woqtensors,
+        )
         m = ToyLinearModel().eval().cpu()
-        apply_weight_only_int8_quant(m)
+        def api(model):
+            model = quantize(model, int8wo())
+            unwrap_tensor_subclass(model)
+
+        api(m)
+
         example_inputs = m.example_inputs()
         ref = m(*example_inputs)
-        _TMP_FN = "_test.pt"
-        torch.save(m.state_dict(), _TMP_FN)
+        with tempfile.NamedTemporaryFile() as f:
+            torch.save(m.state_dict(), f)
+            f.seek(0)
+            state_dict = torch.load(f)
 
-        state_dict = torch.load(_TMP_FN)
-        os.remove(_TMP_FN)
-        m2 = ToyLinearModel().eval()
-        apply_weight_only_int8_quant(m2)
+        m2 = ToyLinearModel().eval().cpu()
+        api(m2)
+
         m2.load_state_dict(state_dict)
         m2 = m2.to(device="cuda")
         example_inputs = map(lambda x: x.cuda(), example_inputs)
@@ -508,7 +502,7 @@ class TestQuantFlow(unittest.TestCase):
         m = ToyLinearModel().eval()
         m_copy = copy.deepcopy(m)
         example_inputs = m.example_inputs()
-        m = quantize(m, get_apply_8da4w_quant(groupsize=groupsize))
+        m = quantize(m, int8da_int4w(groupsize=groupsize))
 
         assert isinstance(m.linear1.weight, LinearActQuantizedTensor)
         assert isinstance(m.linear2.weight, LinearActQuantizedTensor)
@@ -537,7 +531,7 @@ class TestQuantFlow(unittest.TestCase):
         example_inputs = m.example_inputs(dtype=torch.bfloat16, device="cuda")
 
         groupsize = 32
-        m = quantize(m, get_apply_int4wo_quant(groupsize=groupsize))
+        m = quantize(m, int4wo(groupsize=groupsize))
         assert isinstance(m.linear1.weight, AffineQuantizedTensor)
         assert isinstance(m.linear2.weight, AffineQuantizedTensor)
 
@@ -557,7 +551,7 @@ class TestQuantFlow(unittest.TestCase):
         m_copy = copy.deepcopy(m)
         example_inputs = tuple(map(lambda x: x.to(torch.bfloat16), m.example_inputs()))
 
-        m = quantize(m, get_apply_int8wo_quant())
+        m = quantize(m, int8wo())
 
         assert isinstance(m.linear1.weight, AffineQuantizedTensor)
         assert isinstance(m.linear2.weight, AffineQuantizedTensor)
@@ -580,7 +574,7 @@ class TestQuantFlow(unittest.TestCase):
         m_copy = copy.deepcopy(m)
         # setting batch_size to 20 to be compatible with the kernel
         example_inputs = m.example_inputs(batch_size=20, dtype=torch.bfloat16, device="cuda")
-        m = quantize(m, get_apply_int8dyn_quant())
+        m = quantize(m, int8da_int8w())
 
         assert isinstance(m.linear1.weight, LinearActQuantizedTensor)
         assert isinstance(m.linear2.weight, LinearActQuantizedTensor)

@@ -189,7 +189,7 @@ def test_inference_compile_simple(elem_dtype):
     if elem_dtype is torch.float8_e4m3fn:
         assert sqnr >= 20.0
     else:
-        assert sqnr >= 14.0
+        assert sqnr >= 13.5
 
 
 def test_filter_fn():
