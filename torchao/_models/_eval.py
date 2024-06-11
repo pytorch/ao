@@ -9,10 +9,12 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
+import torch.nn.functional as F
 
-from quantization.utils import _lm_eval_available, _MultiInput
+from torchao.quantization.utils import _lm_eval_available, _MultiInput
 
 if _lm_eval_available:
+    import lm_eval
     try:  # lm_eval version 0.4
         from lm_eval.evaluator import evaluate  # pyre-ignore[21]
         from lm_eval.models.huggingface import HFLM as eval_wrapper  # pyre-ignore[21]
@@ -200,7 +202,7 @@ if _lm_eval_available:
             # TODO: make batches work
             input = self.input_prep_func(inps)
 
-            max_seq_length = min(inps.size(1), self.max_length)
+            max_seq_length = min(max(inps.size()), self.max_length)
             with torch.device(self._device):
                 self._model.setup_caches(self.batch_size, max_seq_length)
             logits = self._model(*input)

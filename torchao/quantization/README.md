@@ -2,14 +2,20 @@
 Typically quantization algorithms will have different schemes for how the activation and weights are quantized so A16W8 for instance means the activations are quantized to 16 bits wheras the weights are quantized to 8 bits. Trying out different quantization schemes in `torchao` is generally a 1 line change. Note: exact APIs are not stable, we may change them in the future.
 
 ## Benchmarks
-Benchmarks are run on a machine with a single A100 GPU in `torchtune`.
+Benchmarks are run on a machine with a single A100 GPU using the script in _models/llama, evaluation was done
+Using the lm_eval. The models used were meta-llama/Llama-2-7b-chat-hf and meta-llama/Meta-Llama-3-8B
 
-| Model       | Technique          | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) |
-| ----------- | ------------------ | ------------------- | ------------- | ----------------------- |
-| Llama-2-7B  | Base (bfloat16)    | 8.789390849382297   |  20.16        | 316.26                  |
-|             | 8-bit              | 8.788388896424118   |  27.81        | 251.81                  |
-|             | 4-bit (G=256)      | 9.618806853408442   |  64.23        | 375.77                  |
-|             | 4-bit GPTQ (G=256) | 9.1791455391884     |  64.81        | 379.19                  |
+| Model       | Technique          | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Model Size (GB) |
+| ----------- | ------------------ | ------------------- | ------------- | ----------------------- | --------------- |
+| Llama-2-7B  | Base (bfloat16)    | 12.212              |  105.02       | 1387.78                 | 13.21           |
+|             | int8dq             | 12.262              |  9.40         | 62.26                   | 6.62            |
+|             | int8wo             | 12.204              |  147.03       | 973.54                  | 6.62            |
+|             | int4wo-64          | 12.843              |  199.81       | 746.45                  | 3.74            |
+|             | int4wo-64-GPTQ     | 12.489              |  199.81       | 746.45                  | 3.74            |
+| Llama-3-8B  | Base (bfloat16)    | N/A                 |  94.91        | 1424.58                 | 15.01           |
+|             | int8dq             | N/A                 |  8.41         | 63.23                   | 7.52            |
+|             | int8wo             | N/A                 |  136.75       | 1028.38                 | 7.52            |
+|             | int4wo-64          | N/A                 |  179.41       | 757.45                  | 4.22            |
 
 ## Autoquantization
 
@@ -84,7 +90,7 @@ Note: The quantization error incurred by applying int4 quantization to your mode
 ## A16W4 WeightOnly Quantization with GPTQ
 
 ```python
-from torchao._eval import InputRecorder, TransformerEvalWrapper
+from torchao._models._eval import InputRecorder, TransformerEvalWrapper
 from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
 precision = torch.bfloat16
 device = "cuda"
