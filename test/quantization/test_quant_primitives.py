@@ -27,6 +27,7 @@ from torchao.quantization.utils import (
 from torchao.utils import (
     TORCH_VERSION_AFTER_2_3,
     TORCH_VERSION_AFTER_2_4,
+    is_fbcode,
 )
 
 _SEED = 1234
@@ -179,6 +180,7 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(zero_point, zp_ref))
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "skipping when torch version is 2.3 or lower")
+    @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_choose_qparams_token_asym(self):
         input = torch.randn(10, 10)
         mapping_type = MappingType.ASYMMETRIC
@@ -193,6 +195,7 @@ class TestQuantPrimitives(unittest.TestCase):
         torch.testing.assert_close(scale, scale_ref, atol=10e-3, rtol=10e-3)
         self.assertTrue(torch.equal(zero_point, zp_ref))
 
+    @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_choose_qparams_tensor_asym(self):
         input = torch.randn(10, 10)
         mapping_type = MappingType.ASYMMETRIC
@@ -211,6 +214,7 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(scale, scale_ref))
         self.assertTrue(torch.equal(zero_point, zp_ref))
 
+    @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_choose_qparams_tensor_sym(self):
         input = torch.randn(10, 10)
         mapping_type = MappingType.SYMMETRIC
@@ -271,6 +275,7 @@ class TestQuantPrimitives(unittest.TestCase):
 
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
+    @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_quantize_dequantize_group_sym(self):
         input = torch.randn(10, 10)
         mapping_type = MappingType.SYMMETRIC
@@ -295,6 +300,7 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(dequantized, dequantized_ref))
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
+    @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_quantize_dequantize_channel_asym(self):
         input = torch.randn(10, 10)
         mapping_type = MappingType.ASYMMETRIC
@@ -318,6 +324,7 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(dequantized, dequantized_ref))
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
+    @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_quantize_dequantize_tensor_asym(self):
         input = torch.randn(10, 10)
         mapping_type = MappingType.ASYMMETRIC
@@ -341,6 +348,7 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(dequantized, dequantized_ref))
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
+    @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_quantize_dequantize_channel_asym_4d(self):
         input = torch.randn(3, 3, 10, 10)
         mapping_type = MappingType.ASYMMETRIC

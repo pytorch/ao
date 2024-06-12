@@ -73,7 +73,7 @@ import os
 from parameterized import parameterized
 import itertools
 import logging
-from torchao.utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4, is_fbcode
 
 logger = logging.getLogger("INFO")
 
@@ -760,6 +760,7 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_int8_weight_only_quant_subclass_api(self, device, dtype):
         self._test_lin_weight_subclass_api_impl(
             change_linear_weights_to_int8_woqtensors, device, 40, test_dtype=dtype
@@ -935,6 +936,7 @@ class TestSaveLoadMeta(unittest.TestCase):
         self.assertTrue(torch.equal(ref_q, test))
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(is_fbcode(), "'PlainAQTLayout' object has no attribute 'int_data'")
     @torch.no_grad()
     def test_save_load_dqtensors(self, device, dtype):
         if device == "cpu":
@@ -943,6 +945,7 @@ class TestSaveLoadMeta(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
+    @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_save_load_int8woqtensors(self, device, dtype):
         self._test_handle_save_load_meta_impl(change_linear_weights_to_int8_woqtensors, device, test_dtype=dtype)
 
@@ -1025,6 +1028,7 @@ class SmoothquantIntegrationTest(unittest.TestCase):
         self.assertTrue(isinstance(model[0], SmoothFakeDynamicallyQuantizedLinear))
 
     @torch.inference_mode()
+    @unittest.skipIf(is_fbcode(), "can't load tokenizer")
     def test_on_dummy_distilbert(self):
         # https://huggingface.co/distilbert-base-uncased#how-to-use
         from transformers import (  # type: ignore[import-untyped]
