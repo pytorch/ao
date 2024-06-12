@@ -1,0 +1,58 @@
+name: Merge PR
+
+# This is a very primitive version of the trymerge.yml in pytorch/pytorch.  Note
+# that it only merges ghstack prs
+
+on:
+  repository_dispatch:
+    types: [try-merge]
+
+jobs:
+  do_merge:
+    name: try_merge_pr_${{ github.event.client_payload.pr_num }}
+    runs-on: ubuntu-latest
+    environment: pytorchbot-env
+    env:
+      GH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Checkout repo
+        id: checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PYTORCH_MERGEBOT_TOKEN }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.8'
+          check-latest: false
+          cache: pip
+          architecture: x64
+
+      - name: Setup committer id
+        run: |
+          git config --global user.email "pytorchmergebot@users.noreply.github.com"
+          git config --global user.name "PyTorch MergeBot"
+
+      - name: Merge PR
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.PYTORCH_MERGEBOT_TOKEN }}
+          PR_NUM: ${{ github.event.client_payload.pr_num }}
+          COMMENT_ID: ${{ github.event.client_payload.comment_id }}
+        run: |
+          cat <<EOF > ~/.ghstackrc
+          [ghstack]
+          github_url = github.com
+          github_oauth = $PYTORCH_MERGEBOT_TOKEN
+          github_username = pytorchmergebot
+          remote_name = origin
+          EOF
+          pip install ghstack
+          ghstack land "https://github.com/pytorch/ao/pull/${{ github.event.client_payload.pr_num }}"
+
+# We want newer merge commands to supercede old ones
+concurrency:
+  group: try-merge-${{ github.event.client_payload.pr_num }}
+  cancel-in-progress: true
