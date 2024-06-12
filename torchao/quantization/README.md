@@ -141,7 +141,7 @@ for n, m in model.named_modules():
     if isinstance(m, torch.nn.Linear):
         # optional filtering for module name, shape etc.
         m.weight = nn.Parameter(int8wo_quant(m.weight))
-        
+
         # note: quantization for activation need to be applied after the weight quantization
         # quantization activation (needed by dynamic quantization)
         input_quant_func = int8wo_quant  # specify how input activation is quantized
