@@ -23,7 +23,7 @@ use_cpp = os.getenv('USE_CPP')
 
 
 # Version is year.month.date if using nightlies
-version = current_date if package_name == "torchao-nightly" else "0.2.0"
+version = current_date if package_name == "torchao-nightly" else "0.3.0"
 
 import torch
 
