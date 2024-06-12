@@ -21,11 +21,11 @@ def benchmark(function, args, num_runs):
 
 def test_vs_existing():
     def new_(scale):
-        fake_tensor = torch.randint(2**8-1, (1, scale,scale), dtype=torch.uint8).cuda()
+        fake_tensor = torch.randint(2**8, (1, scale,scale), dtype=torch.uint8).cuda()
         packed = pack(fake_tensor, 4, dim=1)
         unpacked = unpack(packed, 4, dim=1)
     def old_(scale):
-        fake_tensor = torch.randint(2**8-1, (1, scale,scale), dtype=torch.uint8).cuda()
+        fake_tensor = torch.randint(2**8, (1, scale,scale), dtype=torch.uint8).cuda()
         packed = pack_uint4(fake_tensor)
         unpacked = unpack_uint4(packed)
         
@@ -55,9 +55,9 @@ def compare_to_fp16():
         def __init__(self, scale):
             super().__init__()
             assert scale % 4 == 0
-            self.l1 = torch.randint(2**8-1,(scale, scale), dtype=torch.uint8).cuda()
+            self.l1 = torch.randint(2**8,(scale, scale), dtype=torch.uint8).cuda()
             self.s1 = torch.tensor((scale),dtype=torch.float16).cuda()
-            self.l2 = torch.randint(2**8-1,(scale//2, scale//4), dtype=torch.uint8).cuda()
+            self.l2 = torch.randint(2**8,(scale//2, scale//4), dtype=torch.uint8).cuda()
             self.s2 = torch.tensor((scale//4),dtype=torch.float16).cuda()
 
         
@@ -79,7 +79,7 @@ def compare_to_fp16():
         b = torch.compile(b, fullgraph=True)
         
         test_input = torch.randn(scale*2, dtype=torch.float16).cuda()
-        forward_args = [test_input]
+        forward_args = [test_input] 
         b.forward(test_input)
         print("scale: ", scale)
         print("fp16 time: ", benchmark(a.forward, forward_args, 100))
