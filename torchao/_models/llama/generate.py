@@ -285,6 +285,7 @@ def main(
             )
         if i == -1:
             print(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
+            torch.cuda.reset_peak_memory_stats()
             continue
         if hasattr(prof, "export_chrome_trace"):
             prof.export_chrome_trace(f"{profile}.json")
