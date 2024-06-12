@@ -28,10 +28,10 @@ def unpack(data: torch.Tensor,
     """
     container_size = torch.iinfo(data.dtype).bits
     scale = container_size // element_bit_width
-    if device is None:
-        device = data.device
+    device = data.device
         
     unpacked = _unpack(data, element_bit_width, container_size, scale, order, dim, device)
+    
     if element_type == "trinary":
         unpacked = unpacked.to(torch.int8) - 1
     elif output_dtype is not None:
@@ -95,8 +95,7 @@ def pack(data: torch.Tensor,
     if container_dtype is not None:
         data = data.to(container_dtype)
     
-    if device is None:
-        device = data.device
+    device = data.device
     
     container_size = torch.iinfo(data.dtype).bits
     scale = container_size // element_bit_width
