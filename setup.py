@@ -15,6 +15,9 @@ def read_requirements(file_path):
     with open(file_path, "r") as file:
         return file.read().splitlines()
 
+def read_version(file_path="version.txt"):
+    with open(file_path, "r") as file:
+        return file.readline().strip()
 
 # Determine the package name based on the presence of an environment variable
 package_name = "torchao-nightly" if os.environ.get("TORCHAO_NIGHTLY") else "torchao"
@@ -23,7 +26,7 @@ use_cpp = os.getenv('USE_CPP')
 
 
 # Version is year.month.date if using nightlies
-version = current_date if package_name == "torchao-nightly" else "0.2.0"
+version = current_date if package_name == "torchao-nightly" else read_version()
 
 import torch
 
@@ -49,12 +52,11 @@ def get_extensions():
     use_cuda = torch.cuda.is_available() and CUDA_HOME is not None
     extension = CUDAExtension if use_cuda else CppExtension
 
-    extra_link_args = ["-fopenmp"]
+    extra_link_args = []
     extra_compile_args = {
         "cxx": [
             "-O3" if not debug_mode else "-O0",
             "-fdiagnostics-color=always",
-            "-fopenmp",
         ],
         "nvcc": [
             "-O3" if not debug_mode else "-O0",

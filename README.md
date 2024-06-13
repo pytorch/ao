@@ -19,7 +19,11 @@ pip install torchao
 
 Nightly Release
 ```Shell
-pip install torchao-nightly
+pip install --pre torchao-nightly --index-url https://download.pytorch.org/whl/nightly/cpu # CPU only builds
+pip install --pre torchao-nightly --index-url https://download.pytorch.org/whl/nightly/cu118 # CUDA 11.8
+pip install --pre torchao-nightly --index-url https://download.pytorch.org/whl/nightly/cu121 # CUDA 12.1
+pip install --pre torchao-nightly --index-url https://download.pytorch.org/whl/nightly/cu124 # CUDA 12.4
+
 ```
 
 From source
@@ -120,6 +124,7 @@ To learn more try out our APIs, you can check out API examples in
 4. [Bleeding Edge Kernels](./torchao/prototype/) for experimental kernels without backwards compatibility guarantees
     - [GaLore](https://github.com/pytorch/ao/tree/main/torchao/prototype/galore) for memory efficient finetuning
     - [fused HQQ Gemm Kernel](https://github.com/pytorch/ao/tree/main/torchao/prototype/hqq) for compute bound workloads
+    - [FP6-LLM](torchao/prototype/fp6_llm) mixed matmul FP16 x FP6 kernel for io bound workloads
 
 ## Our Goals
 

@@ -17,7 +17,7 @@ import torch.nn.functional as F
 
 import torchao.quantization.quant_api as quant_api
 
-from .quant_primitives import (
+from .utils import (
     dynamically_quantize_per_channel,
     quant_int8_dynamic_per_token_linear,
 )
