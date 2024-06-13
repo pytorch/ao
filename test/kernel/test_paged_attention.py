@@ -166,7 +166,7 @@ class PagedAttentionCachePagedTensorTest(unittest.TestCase):
         num_query_heads = [40]
         num_key_value_heads = [40, 10, 1]
         head_dim = [64, 128]
-        device = ["cpu"]
+        device = ['cpu']
         dtypes = [torch.float, torch.float16, torch.bfloat16]
         batch_size = [1, 8]  
         beam_size = [1, 4]  
