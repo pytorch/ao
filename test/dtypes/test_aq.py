@@ -2,7 +2,7 @@ from torch.testing._internal.common_utils import (
     TestCase,
     run_tests,
 )
-from torchao.quantization.quant_api import get_apply_int4wo_quant
+from torchao.quantization.quant_api import int4wo
 import torch
 import unittest
 
@@ -12,7 +12,7 @@ class TestAQ(TestCase):
     def test_tensor_core_layout_transpose(self):
         t = torch.rand(128, 256, dtype=torch.bfloat16, device="cuda")
         shape = t.shape
-        apply_int4wo_quant = get_apply_int4wo_quant(groupsize=32)
+        apply_int4wo_quant = int4wo(groupsize=32)
         aqt = apply_int4wo_quant(t)
         aqt_shape = aqt.shape
         self.assertEqual(aqt_shape, shape)

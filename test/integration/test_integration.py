@@ -20,12 +20,17 @@ from torchao.quantization.dynamic_quant import (
     DynamicallyPerAxisQuantizedLinear,
 )
 from torchao.quantization.quant_api import (
-    apply_dynamic_quant,
-    apply_weight_only_int8_quant,
+    int4wo,
+    int8wo,
+    int8da_int8w,
+    quantize,
+    _replace_with_custom_fn_if_matches_filter,
+)
+# APIs to be deprecated (used for torch 2.2.2 and 2.3)
+from torchao.quantization.quant_api import (
     change_linear_weights_to_int8_dqtensors,
     change_linear_weights_to_int8_woqtensors,
     change_linear_weights_to_int4_woqtensors,
-    _replace_with_custom_fn_if_matches_filter,
 )
 from torchao.quantization.quant_primitives import (
     safe_int_mm,
@@ -73,25 +78,51 @@ import os
 from parameterized import parameterized
 import itertools
 import logging
-from torchao.utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
+from torchao.utils import (
+    TORCH_VERSION_AFTER_2_3,
+    TORCH_VERSION_AFTER_2_4,
+    unwrap_tensor_subclass,
+)
 
 logger = logging.getLogger("INFO")
 
 torch.manual_seed(0)
 config.cache_size_limit = 100
 
-# TODO: use this to reduce the number of tests
-TENSOR_SUBCLASS_APIS = [
-    change_linear_weights_to_int8_dqtensors,
-    change_linear_weights_to_int8_woqtensors,
-    change_linear_weights_to_int4_woqtensors,
-]
-
 COMMON_DEVICES = ["cpu", "cuda"]
 
 COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 
 COMMON_DEVICE_DTYPE = list(itertools.product(COMMON_DEVICES, COMMON_DTYPES)).copy()
+
+def _int8wo_api(mod):
+    if TORCH_VERSION_AFTER_2_4:
+        quantize(mod, int8wo())
+        unwrap_tensor_subclass(mod)
+    else:
+        change_linear_weights_to_int8_woqtensors(mod)
+
+def _int8da_int8w_api(mod):
+    if TORCH_VERSION_AFTER_2_4:
+        quantize(mod, int8da_int8w())
+        unwrap_tensor_subclass(mod)
+    else:
+        change_linear_weights_to_int8_dqtensors(mod)
+
+def _int4wo_api(mod):
+    if TORCH_VERSION_AFTER_2_4:
+        quantize(mod, int4wo())
+        unwrap_tensor_subclass(mod)
+    else:
+        change_linear_weights_to_int4_woqtensors(mod)
+
+# TODO: use this to reduce the number of tests
+TENSOR_SUBCLASS_APIS = [
+    _int8wo_api,
+    _int8da_int8w_api,
+    _int4wo_api,
+]
+
 
 def combine_parameters(a, b):
     new_tuples = []
@@ -756,13 +787,13 @@ class TestSubclass(unittest.TestCase):
     @unittest.skipIf(TORCH_VERSION_AFTER_2_4, "skip because there is some bug in inductor codegen")
     def test_int8_dynamic_quant_subclass_api(self, device, dtype):
         self._test_lin_weight_subclass_api_impl(
-            change_linear_weights_to_int8_dqtensors, device, 35, test_dtype=dtype
+            _int8da_int8w_api, device, 35, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_int8_weight_only_quant_subclass_api(self, device, dtype):
         self._test_lin_weight_subclass_api_impl(
-            change_linear_weights_to_int8_woqtensors, device, 40, test_dtype=dtype
+            _int8wo_api, device, 40, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
@@ -772,7 +803,7 @@ class TestSubclass(unittest.TestCase):
             self.skipTest(f"Fails for {dtype}")
         for test_shape in ([(16, 1024, 16)] + ([(1, 1024, 256)] if device=='cuda' else [])):
             self._test_lin_weight_subclass_api_impl(
-                change_linear_weights_to_int4_woqtensors,
+                _int4wo_api,
                 device,
                 15,
                 test_shape=test_shape,
@@ -788,8 +819,16 @@ class TestSubclass(unittest.TestCase):
             for groupsize in [64, 32]:
                 for inner_k_tiles in [4, 2]:
                     kwargs = {"groupsize": groupsize, "inner_k_tiles": inner_k_tiles}
+
+                    def api(mod):
+                        if TORCH_VERSION_AFTER_2_4:
+                            quantize(mod, int4wo(**kwargs))
+                            unwrap_tensor_subclass(mod)
+                        else:
+                            change_linear_weights_to_int4_woqtensors(mod, **kwargs)
+
                     self._test_lin_weight_subclass_api_impl(
-                        lambda mod: change_linear_weights_to_int4_woqtensors(mod, **kwargs),
+                        api,
                         device,
                         15,
                         test_shape=test_shape,
@@ -804,7 +843,7 @@ class TestDynamicQuant(unittest.TestCase):
         m = nn.Sequential(nn.Linear(K, N))
 
         y_ref = m(x)
-        apply_dynamic_quant(m)
+        quantize(m, int8da_int8w())
         y_test = m(x)
 
         sqnr = compute_error(y_ref, y_test)
@@ -818,7 +857,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
             x = torch.randn(*x_shape)
             m = nn.Sequential(nn.Linear(4, 5))
             y_ref = m(x)
-            apply_weight_only_int8_quant(m)
+            _int8wo_api(m)
             y_wo = m(x)
             sqnr = compute_error(y_ref, y_wo)
             self.assertGreater(sqnr, 44.0)
@@ -841,7 +880,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
                 x = torch.randn(*x_shape).to(device).to(dtype)
                 m = nn.Sequential(nn.Linear(4, 5)).to(device).to(dtype)
                 y_ref = m(x)
-                apply_weight_only_int8_quant(m)
+                _int8wo_api(m)
                 m(x)
                 m_c = torch.compile(m, mode="max-autotune")
                 y_wo, (code,) = run_and_get_code(m_c, x)
@@ -868,7 +907,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
                 x = torch.randn(*x_shape).to(device).to(dtype)
                 m = nn.Sequential(nn.Linear(4, 5)).to(device).to(dtype)
                 y_ref = m(x)
-                apply_weight_only_int8_quant(m)
+                _int8wo_api(m)
                 m_c = torch.compile(m, mode="max-autotune")
                 y_wo, (code,) = run_and_get_code(m_c, x)
                 sqnr = compute_error(y_ref, y_wo)
@@ -909,6 +948,7 @@ class TestSaveLoadMeta(unittest.TestCase):
 
         # save quantized state_dict
         api(model)
+
         torch.save(model.state_dict(), "test.pth")
         # get quantized reference
         model_qc = torch.compile(model, mode="max-autotune")
@@ -924,6 +964,7 @@ class TestSaveLoadMeta(unittest.TestCase):
         # load quantized state_dict
         state_dict = torch.load("test.pth", mmap=True)
         os.remove("test.pth")
+
         model.load_state_dict(state_dict, assign=True)
         model = model.to(device=test_device, dtype=test_dtype).eval()
 
@@ -939,12 +980,12 @@ class TestSaveLoadMeta(unittest.TestCase):
     def test_save_load_dqtensors(self, device, dtype):
         if device == "cpu":
             self.skipTest(f"indcutor failed for cpu right now")
-        self._test_handle_save_load_meta_impl(change_linear_weights_to_int8_dqtensors, device, test_dtype=dtype)
+        self._test_handle_save_load_meta_impl(_int8da_int8w_api, device, test_dtype=dtype)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
     def test_save_load_int8woqtensors(self, device, dtype):
-        self._test_handle_save_load_meta_impl(change_linear_weights_to_int8_woqtensors, device, test_dtype=dtype)
+        self._test_handle_save_load_meta_impl(_int8wo_api, device, test_dtype=dtype)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "int4 requires torch nightly.")
@@ -952,7 +993,7 @@ class TestSaveLoadMeta(unittest.TestCase):
     def test_save_load_int4woqtensors(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
-        self._test_handle_save_load_meta_impl(change_linear_weights_to_int4_woqtensors, device, 20, test_dtype=dtype)
+        self._test_handle_save_load_meta_impl(_int4wo_api, device, 20, test_dtype=dtype)
 
 
 class TorchCompileUnitTest(unittest.TestCase):
@@ -1271,8 +1312,7 @@ class TestAOTI(unittest.TestCase):
         model = test_model().to(dtype=test_dtype, device=test_device).eval()
         ref_f = model(x)
 
-        kwargs = {"dtype": test_dtype}
-        api(model, **kwargs)
+        api(model)
 
         # running model
         model(x)
@@ -1317,8 +1357,7 @@ class TestExport(unittest.TestCase):
         model = test_model().to(dtype=test_dtype, device=test_device).eval()
         ref_f = model(x)
 
-        kwargs = {"dtype": test_dtype}
-        api(model, **kwargs)
+        api(model)
 
         # running model
         ref = model(x)

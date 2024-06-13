@@ -15,8 +15,12 @@ model.eval().cuda().to(torch.bfloat16)
 input_tensor = torch.randn(1, 3, 224, 224, dtype=torch.bfloat16, device='cuda')
 
 ## Quantization code - start
-# int8 act, int8 weight dynamic quantization, see README for other APIs
-torchao.apply_dynamic_quant(model)
+# int8 dynamic quantization act, int8 weight, see ao/torchao/quantization/README.md
+# for APIs for earlier torch version and other quantization techniques
+
+# for torch 2.4+
+from torchao.quantization.quant_api import quantize
+quantize(model, "int8_dynamic")
 ## Quantization code - end
 
 ## compilation configs
@@ -24,6 +28,10 @@ torch._dynamo.config.automatic_dynamic_shapes = False
 torch._inductor.config.force_fuse_int_mm_with_mul = True
 torch._inductor.config.use_mixed_mm = True
 ## compilation configs end
+
+# temporary workaround for the API to work with torch.compile
+from torchao.utils import unwrap_tensor_subclass
+unwrap_tensor_subclass(model)
 
 model = torch.compile(model, mode='max-autotune')
 

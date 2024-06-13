@@ -126,6 +126,11 @@ class UnwrapTensorSubclass(torch.nn.Module):
         return plain_tensors
 
 def unwrap_tensor_subclass(model, filter_fn=None):
+    """Unwraps (nested) tensor subclass in the model to plain tensors
+    This is a workaround to make a model with tensor subclass to work with `torch.export.export`
+    and `torch.aot_compile`, we hope this can be integrated into compile stack soon
+    tracking issue: https://github.com/pytorch/ao/issues/345
+    """
     for name, child in model.named_children():
         # make sure child.weight is a tensor subclass
         if (
