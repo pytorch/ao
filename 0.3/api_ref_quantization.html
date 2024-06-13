@@ -40,7 +40,7 @@
   <link rel="stylesheet" href="_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="apply_weight_only_int8_quant" href="generated/torchao.quantization.apply_weight_only_int8_quant.html" />
+    <link rel="next" title="SmoothFakeDynQuantMixin" href="generated/torchao.quantization.SmoothFakeDynQuantMixin.html" />
     <link rel="prev" title="torchao API Reference" href="api_ref_intro.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
@@ -384,37 +384,22 @@
 <span id="api-quantization"></span><h1>torchao.quantization<a class="headerlink" href="#torchao-quantization" title="Permalink to this heading">¶</a></h1>
 <table class="autosummary longtable docutils align-default">
 <tbody>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.apply_weight_only_int8_quant.html#torchao.quantization.apply_weight_only_int8_quant" title="torchao.quantization.apply_weight_only_int8_quant"><code class="xref py py-obj docutils literal notranslate"><span class="pre">apply_weight_only_int8_quant</span></code></a></p></td>
-<td><p>Applies weight-only symmetric per-channel int8 quantization to all linear layers in the given model using module swaps.</p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.apply_dynamic_quant.html#torchao.quantization.apply_dynamic_quant" title="torchao.quantization.apply_dynamic_quant"><code class="xref py py-obj docutils literal notranslate"><span class="pre">apply_dynamic_quant</span></code></a></p></td>
-<td><p>Applies dynamic symmetric per-token activation and per-channel weight quantization to all linear layers by converting all linear weight tensors to the <cite>Int8DynamicallyQuantizedLinearWeight</cite> Tensor subclass.</p></td>
-</tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.change_linear_weights_to_int8_dqtensors.html#torchao.quantization.change_linear_weights_to_int8_dqtensors" title="torchao.quantization.change_linear_weights_to_int8_dqtensors"><code class="xref py py-obj docutils literal notranslate"><span class="pre">change_linear_weights_to_int8_dqtensors</span></code></a></p></td>
-<td><p>Converts all linear weight tensors to the <cite>Int8DynamicallyQuantizedLinearWeight</cite> Tensor subclass, effectively applying the same form of quantization as apply_dynamic_quant while not modifying the linear modules.</p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.change_linear_weights_to_int8_woqtensors.html#torchao.quantization.change_linear_weights_to_int8_woqtensors" title="torchao.quantization.change_linear_weights_to_int8_woqtensors"><code class="xref py py-obj docutils literal notranslate"><span class="pre">change_linear_weights_to_int8_woqtensors</span></code></a></p></td>
-<td><p>Converts all linear weight tensors to the <cite>Int8WeightOnlyQuantizedLinearWeight</cite> tensor subclass, effectively applying the same form of quantization as apply_weight_only_int8_quant while not modifying the linear modules.</p></td>
-</tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.change_linear_weights_to_int4_woqtensors.html#torchao.quantization.change_linear_weights_to_int4_woqtensors" title="torchao.quantization.change_linear_weights_to_int4_woqtensors"><code class="xref py py-obj docutils literal notranslate"><span class="pre">change_linear_weights_to_int4_woqtensors</span></code></a></p></td>
-<td><p>Converts all linear weight tensors to the <cite>Int4WeightOnlyQuantizedLinearWeight</cite> tensor subclass, effectively applying the same form of quantization as apply_dynamic_quant while not modifying the linear modules.</p></td>
-</tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.SmoothFakeDynQuantMixin.html#torchao.quantization.SmoothFakeDynQuantMixin" title="torchao.quantization.SmoothFakeDynQuantMixin"><code class="xref py py-obj docutils literal notranslate"><span class="pre">SmoothFakeDynQuantMixin</span></code></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.SmoothFakeDynQuantMixin.html#torchao.quantization.SmoothFakeDynQuantMixin" title="torchao.quantization.SmoothFakeDynQuantMixin"><code class="xref py py-obj docutils literal notranslate"><span class="pre">SmoothFakeDynQuantMixin</span></code></a></p></td>
 <td><p></p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.html#torchao.quantization.SmoothFakeDynamicallyQuantizedLinear" title="torchao.quantization.SmoothFakeDynamicallyQuantizedLinear"><code class="xref py py-obj docutils literal notranslate"><span class="pre">SmoothFakeDynamicallyQuantizedLinear</span></code></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.SmoothFakeDynamicallyQuantizedLinear.html#torchao.quantization.SmoothFakeDynamicallyQuantizedLinear" title="torchao.quantization.SmoothFakeDynamicallyQuantizedLinear"><code class="xref py py-obj docutils literal notranslate"><span class="pre">SmoothFakeDynamicallyQuantizedLinear</span></code></a></p></td>
 <td><p>This is a replacement for <cite>torch.nn.Linear</cite> which implements dynamic per-token activation quantization and dynamic per-channel weight quantization based on Smoothquant scaling.</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.swap_linear_with_smooth_fq_linear.html#torchao.quantization.swap_linear_with_smooth_fq_linear" title="torchao.quantization.swap_linear_with_smooth_fq_linear"><code class="xref py py-obj docutils literal notranslate"><span class="pre">swap_linear_with_smooth_fq_linear</span></code></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.swap_linear_with_smooth_fq_linear.html#torchao.quantization.swap_linear_with_smooth_fq_linear" title="torchao.quantization.swap_linear_with_smooth_fq_linear"><code class="xref py py-obj docutils literal notranslate"><span class="pre">swap_linear_with_smooth_fq_linear</span></code></a></p></td>
 <td><p>Replaces linear layers in the model with their SmoothFakeDynamicallyQuantizedLinear equivalents.</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.smooth_fq_linear_to_inference.html#torchao.quantization.smooth_fq_linear_to_inference" title="torchao.quantization.smooth_fq_linear_to_inference"><code class="xref py py-obj docutils literal notranslate"><span class="pre">smooth_fq_linear_to_inference</span></code></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.smooth_fq_linear_to_inference.html#torchao.quantization.smooth_fq_linear_to_inference" title="torchao.quantization.smooth_fq_linear_to_inference"><code class="xref py py-obj docutils literal notranslate"><span class="pre">smooth_fq_linear_to_inference</span></code></a></p></td>
 <td><p>Prepares the model for inference by calculating the smoothquant scale for each SmoothFakeDynamicallyQuantizedLinear layer.</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.Int4WeightOnlyGPTQQuantizer.html#torchao.quantization.Int4WeightOnlyGPTQQuantizer" title="torchao.quantization.Int4WeightOnlyGPTQQuantizer"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Int4WeightOnlyGPTQQuantizer</span></code></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.Int4WeightOnlyGPTQQuantizer.html#torchao.quantization.Int4WeightOnlyGPTQQuantizer" title="torchao.quantization.Int4WeightOnlyGPTQQuantizer"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Int4WeightOnlyGPTQQuantizer</span></code></a></p></td>
 <td><p></p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.Int4WeightOnlyQuantizer.html#torchao.quantization.Int4WeightOnlyQuantizer" title="torchao.quantization.Int4WeightOnlyQuantizer"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Int4WeightOnlyQuantizer</span></code></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.Int4WeightOnlyQuantizer.html#torchao.quantization.Int4WeightOnlyQuantizer" title="torchao.quantization.Int4WeightOnlyQuantizer"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Int4WeightOnlyQuantizer</span></code></a></p></td>
 <td><p></p></td>
 </tr>
 </tbody>
@@ -429,7 +414,7 @@
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="generated/torchao.quantization.apply_weight_only_int8_quant.html" class="btn btn-neutral float-right" title="apply_weight_only_int8_quant" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="generated/torchao.quantization.SmoothFakeDynQuantMixin.html" class="btn btn-neutral float-right" title="SmoothFakeDynQuantMixin" accesskey="n" rel="next">Next <img src="_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
         <a href="api_ref_intro.html" class="btn btn-neutral" title="torchao API Reference" accesskey="p" rel="prev"><img src="_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>

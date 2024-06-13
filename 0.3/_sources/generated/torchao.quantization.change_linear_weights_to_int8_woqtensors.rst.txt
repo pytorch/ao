@@ -1,9 +1,0 @@
-﻿.. role:: hidden
-    :class: hidden-section
-.. currentmodule:: torchao.quantization
-
-
-change_linear_weights_to_int8_woqtensors
-========================================
-
-.. autofunction:: change_linear_weights_to_int8_woqtensors
