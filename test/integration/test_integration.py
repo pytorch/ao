@@ -1198,7 +1198,7 @@ class TestAutoQuant(unittest.TestCase):
             torch.nn.ReLU(),
         ).to(device).to(dtype)
         example_input = torch.randn(m1, k, device=device, dtype=dtype)
-        example_input2 = torch.randn(m1, k, device=device, dtype=dtype)
+        example_input2 = torch.randn(m2, k, device=device, dtype=dtype)
         out = model(example_input)
 
         mod = torchao.autoquant(torch.compile(model))
@@ -1208,6 +1208,43 @@ class TestAutoQuant(unittest.TestCase):
         out2 = mod(example_input)
         sqnr = SQNR(out, out2)
         self.assertTrue(sqnr >= 30)
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
+    def test_autoquant_manual(self, device, dtype):
+        if device != "cuda" and dtype != torch.bfloat16:
+            self.skipTest(f"autoquant currently does not support {device}")
+        if device != "cuda" or not torch.cuda.is_available():
+            self.skipTest(f"autoquant currently does not support {device}")
+        if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
+            if dtype == torch.bfloat16:
+                self.skipTest(f"bfloat16 requires sm80+")
+        m1, m2, k, n = 16, 32, 128, 128
+        model = torch.nn.Sequential(
+            torch.nn.ReLU(),
+            torch.nn.Linear(k,n),
+            torch.nn.ReLU(),
+        ).to(device).to(dtype)
+        example_input = torch.randn(m1, k, device=device, dtype=dtype)
+        example_input2 = torch.randn(m2, k, device=device, dtype=dtype)
+        out = model(example_input)
+
+        mod = torchao.autoquant(torch.compile(model), manual_do_autoquant=True)
+        mod(example_input)
+        mod(example_input2)
+        mod.do_autoquant()
+        out2 = mod(example_input)
+        sqnr = SQNR(out, out2)
+        self.assertTrue(sqnr >= 30)
+
+        mod2 = torchao.autoquant(model, manual_do_autoquant=True)
+        mod2(example_input)
+        mod2(example_input2)
+        mod2.do_autoquant()
+        out3 = mod(example_input)
+        sqnr2 = SQNR(out, out3)
+        self.assertTrue(sqnr2 >= 30)
+    
 
     @parameterized.expand(combine_parameters(COMMON_DEVICE_DTYPE,
         [

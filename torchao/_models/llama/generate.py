@@ -3,7 +3,6 @@
 
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
-import itertools
 import sys
 import time
 from pathlib import Path
@@ -110,7 +109,11 @@ def generate(
     seq[:T] = prompt.view(-1)
     
     # setup model cache
-    max_seq_length = min(T_new, model.config.block_size) if not interactive else 350
+    try: 
+        max_seq_length = min(T_new, model.config.block_size) if not interactive else 350
+    except:
+        max_seq_length = T_new
+   
     with torch.device(device):
         model.setup_caches(max_batch_size=1, max_seq_length=max_seq_length)
 
@@ -206,20 +209,26 @@ def main(
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
             quantize(model, int4wo(groupsize=groupsize))
         if "autoquant" == quantization:
-            model = autoquant(model)
+            model = autoquant(model, manual_do_autoquant=True)
+
             generate(
                 model,
                 encode_tokens(tokenizer, prompt, bos=True, device=device),
-                2,
-                interactive=False
+                min(max_new_tokens, model.config.block_size),
+                interactive=False,
+                temperature=temperature,
+                top_k=top_k,
             )
+
+            # do autoquantization
+            model.do_autoquant()
         else:
             unwrap_tensor_subclass(model)
-
 
     model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
 
     if compile:
+        print("Compiling Model")
         global decode_one_token, prefill
         decode_one_token = torch.compile(decode_one_token, mode="reduce-overhead", fullgraph=True)
 
@@ -233,6 +242,8 @@ def main(
     start = -1 if compile else 0
 
     for i in range(start, num_samples):
+        if i==0:
+            torch.cuda.reset_peak_memory_stats()
         device_sync(device=device) # MKG
         if i >= 0 and interactive:
             prompt = input("What is your prompt? ")
@@ -276,7 +287,6 @@ def main(
             )
         if i == -1:
             print(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
-            torch.cuda.reset_peak_memory_stats()
             continue
         if hasattr(prof, "export_chrome_trace"):
             prof.export_chrome_trace(f"{profile}.json")
