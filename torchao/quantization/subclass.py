@@ -31,7 +31,7 @@ __all__ = [
     "Int8WeightOnlyQuantizedLinearWeight",
     "Int4WeightOnlyQuantizedLinearWeight",
     "LinearActQuantizedTensor",
-    "to_laq",
+    "to_linear_act_quantized",
 ]
 
 
@@ -751,4 +751,4 @@ class LinearActQuantizedTensor(torch.Tensor):
             f"LinearActQuantizedTensor dispatch: attempting to run {func}, this is not supported"
         )
 
-to_laq = LinearActQuantizedTensor.from_float
+to_linear_act_quantized = LinearActQuantizedTensor.from_float
