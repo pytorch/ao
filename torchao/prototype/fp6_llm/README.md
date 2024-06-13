@@ -14,6 +14,23 @@ convert_fp6_llm(model)  # convert model in-place, replacing nn.Linear modules wi
 model.compile(mode="max-autotune", fullgraph=True)
 ```
 
+It's also possible to pre-process the weight and call the kernel directly.
+
+```python
+import torch
+from torchao.prototype.fp6_llm import to_scaled_tc_float6_e3m2
+from torchao.ops import fp6_llm_linear
+
+fp32_weight = torch.randn(1024, 512).cuda()
+
+# pre-process the weight. this will quantize the weight to FP6 and pack it in a special
+# layout for tensor cores. refer to paper for more details.
+fp6_weight, scales = to_scaled_tc_float6_e3m2(fp32_weight)
+
+fp16_act = torch.randn(1, 512).cuda().half()
+outputs = fp6_llm_linear(fp16_act, fp6_weight, scales)  # shape (1, 1024)
+```
+
 ## TODO
 
 - [ ] Compile CUDA kernel for Windows
