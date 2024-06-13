@@ -2,20 +2,22 @@
 Typically quantization algorithms will have different schemes for how the activation and weights are quantized so A16W8 for instance means the activations are quantized to 16 bits wheras the weights are quantized to 8 bits. Trying out different quantization schemes in `torchao` is generally a 1 line change. Note: exact APIs are not stable, we may change them in the future.
 
 ## Benchmarks
-Benchmarks are run on a machine with a single A100 GPU using the script in _models/llama, evaluation was done
-Using the lm_eval. The models used were meta-llama/Llama-2-7b-chat-hf and meta-llama/Meta-Llama-3-8B
+Benchmarks are run on a machine with a single A100 GPU using the script in _models/llama which generates text in a latency optimized way (batchsize=1), evaluation was done
+Using the lm_eval. The models used were meta-llama/Llama-2-7b-chat-hf and meta-llama/Meta-Llama-3-8B.
 
-| Model       | Technique          | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Model Size (GB) |
-| ----------- | ------------------ | ------------------- | ------------- | ----------------------- | --------------- |
-| Llama-2-7B  | Base (bfloat16)    | 12.212              |  105.02       | 1387.78                 | 13.21           |
-|             | int8dq             | 12.262              |  9.40         | 62.26                   | 6.62            |
-|             | int8wo             | 12.204              |  147.03       | 973.54                  | 6.62            |
-|             | int4wo-64          | 12.843              |  199.81       | 746.45                  | 3.74            |
-|             | int4wo-64-GPTQ     | 12.489              |  199.81       | 746.45                  | 3.74            |
-| Llama-3-8B  | Base (bfloat16)    | N/A                 |  94.91        | 1424.58                 | 15.01           |
-|             | int8dq             | N/A                 |  8.41         | 63.23                   | 7.52            |
-|             | int8wo             | N/A                 |  136.75       | 1028.38                 | 7.52            |
-|             | int4wo-64          | N/A                 |  179.41       | 757.45                  | 4.22            |
+| Model       | Technique          | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
+| ----------- | ------------------ | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
+| Llama-2-7B  | Base (bfloat16)    | 12.212              |  105.02       | 1387.78                 | 13.21            | 13.90           |
+|             | int8dq             | 12.262              |  9.40         | 62.26                   | 6.62             | 8.61            |
+|             | int8wo             | 12.204              |  147.03       | 973.54                  | 6.62             | 8.95            |
+|             | int4wo-64          | 12.843              |  199.81       | 746.45                  | 3.74             | 4.75            |
+|             | int4wo-64-GPTQ     | 12.489              |  199.81       | 746.45                  | 3.74             | 4.75            |
+| Llama-3-8B  | Base (bfloat16)    | N/A                 |  94.91        | 1424.58                 | 15.01            | 16.43           |
+|             | int8dq             | N/A                 |  8.41         | 63.23                   | 7.52             | 9.24            |
+|             | int8wo             | N/A                 |  136.75       | 1028.38                 | 7.52             | 10.42           |
+|             | int4wo-64          | N/A                 |  179.41       | 757.45                  | 4.22             | 6.88            |
+
+note: Int8 dynamic quantization works best on compute bound models like [SAM](https://github.com/pytorch-labs/segment-anything-fast) whereas Llama with batchsize=1 tends to be memory bound, thus the rather low performance.
 
 ## Autoquantization
 
