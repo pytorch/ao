@@ -5,7 +5,7 @@ import torch
 from torch import nn, Tensor
 from torchao.prototype.mx_formats.custom_cast import f32_to_f6_e3m2_unpacked, f6_e3m2_unpacked_to_f32
 from torchao.prototype.mx_formats.constants import F6_E3M2_MAX
-from torchao.ops import fp16act_fp6weight_linear
+from torchao.ops import fp6_llm_linear
 
 
 def _pack_2bit(x: Tensor) -> Tensor:
@@ -273,7 +273,7 @@ class Fp6LlmLinear(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         splitK = self.get_split_k(math.prod(x.shape[:-1]), self.out_features)
-        out = fp16act_fp6weight_linear(x.view(-1, self.in_features).half(), self.weight, self.scales, splitK=splitK)
+        out = fp6_llm_linear(x.view(-1, self.in_features).half(), self.weight, self.scales, splitK=splitK)
         if self.bias is not None:
             out = out + self.bias
         return out.view(*x.shape[:-1], self.out_features).to(x.dtype)

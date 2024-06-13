@@ -7,7 +7,7 @@ from torch.testing._internal.common_utils import (
     parametrize,
     run_tests,
 )
-from torchao.quantization.fp6_llm import (
+from torchao.prototype.fp6_llm.fp6_llm import (
     to_tc_float6_e3m2,
     from_tc_float6_e3m2,
     _to_tc_float6_e3m2_ref,

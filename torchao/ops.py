@@ -12,7 +12,7 @@ def register_custom_op(name):
     return decorator
 
 
-def fp16act_fp6weight_linear(_in_feats: Tensor, _weights: Tensor, _scales: Tensor, splitK: int = 1) -> Tensor:
+def fp6_llm_linear(_in_feats: Tensor, _weights: Tensor, _scales: Tensor, splitK: int = 1) -> Tensor:
     """
     FP6-LLM linear layer A @ W.T. See https://arxiv.org/abs/2401.14112 for more details.
 
@@ -25,10 +25,10 @@ def fp16act_fp6weight_linear(_in_feats: Tensor, _weights: Tensor, _scales: Tenso
     Returns
         output of linear layer
     """
-    return torch.ops.torchao.fp16act_fp6weight_linear.default(_in_feats, _weights, _scales, splitK)
+    return torch.ops.torchao.fp6_llm_linear.default(_in_feats, _weights, _scales, splitK)
 
 
-@register_custom_op("torchao::fp16act_fp6weight_linear")
+@register_custom_op("torchao::fp6_llm_linear")
 def _(_in_feats, _weights, _scales, splitK = 1):
     torch._check(_in_feats.dim() == 2, lambda: f"input should be a 2d tensor, got {_in_feats.dim()}D")
     torch._check(_in_feats.dtype is torch.float16, lambda: f"weight must be FP16, got {_in_feats.dtype}")

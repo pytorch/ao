@@ -2,7 +2,7 @@ import torch
 from torch.testing._internal.common_utils import TestCase, IS_FBCODE
 from torch.testing._internal.optests import opcheck
 import torchao
-from torchao.quantization.fp6_llm import from_tc_float6_e3m2
+from torchao.prototype.fp6_llm.fp6_llm import from_tc_float6_e3m2
 import unittest
 from parameterized import parameterized
 import pytest
@@ -26,7 +26,7 @@ class TestOps(TestCase):
         return fp6_weight.to(device), fp16_scale.to(device), fp16_activation.to(device)
 
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
-    def test_fp16act_fp6weight_linear(self):
+    def test_fp6_llm_linear(self):
         BS = 2
         OC = 256
         IC = 256
@@ -34,19 +34,19 @@ class TestOps(TestCase):
         fp6_weight, fp16_scale, fp16_activation = self._create_fp6_inputs(BS, OC, IC, "cuda")
 
         # smoke test
-        torchao.ops.fp16act_fp6weight_linear(fp16_activation, fp6_weight, fp16_scale, splitK)
+        torchao.ops.fp6_llm_linear(fp16_activation, fp6_weight, fp16_scale, splitK)
 
         # comprehensive testing
         test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
-        opcheck(torch.ops.torchao.fp16act_fp6weight_linear, (fp16_activation, fp6_weight, fp16_scale, splitK), test_utils=test_utils)
+        opcheck(torch.ops.torchao.fp6_llm_linear, (fp16_activation, fp6_weight, fp16_scale, splitK), test_utils=test_utils)
 
     # adapted from https://github.com/usyd-fsalab/fp6_llm/blob/main/tests/python/kernel_test.py
     @parameterized.expand([(1, 2048, 4096, 5), (2, 8192, 8192, 6)])
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
-    def test_fp6_matmul_correctness(self, BS, OC, IC, splitK):
+    def test_fp6_llm_linear_correctness(self, BS, OC, IC, splitK):
         fp6_weight, fp16_scale, fp16_activation = self._create_fp6_inputs(BS, OC, IC, "cuda")
 
-        results_fp6 = torchao.ops.fp16act_fp6weight_linear(fp16_activation, fp6_weight, fp16_scale, splitK)
+        results_fp6 = torchao.ops.fp6_llm_linear(fp16_activation, fp6_weight, fp16_scale, splitK)
 
         fp16_weight = from_tc_float6_e3m2(fp6_weight.view(torch.uint8), dtype=torch.float16) * fp16_scale[:, None]
         results_fp16 = fp16_activation @ fp16_weight.T
