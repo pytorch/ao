@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from torchao.quantization.fp6_llm import Fp6LlmLinear, from_tc_float6_e3m2
+from torchao.prototype.fp6_llm.fp6_llm import Fp6LlmLinear, from_tc_float6_e3m2
 from torch.utils.benchmark import Timer
 import pandas as pd
 from tqdm import tqdm
