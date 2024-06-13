@@ -2,14 +2,14 @@ import torch
 import logging
 
 # We use this "hack" to set torchao.__version__ correctly
+# the version of ao is dependent on environment variables for multiple architectures
 # For local development this will default to whatever is version.txt
 # For release builds this will be set the version+architecture_postfix
-import pkg_resources
+from importlib.metadata import version, PackageNotFoundError
 try:
-    __version__ = pkg_resources.get_distribution('torchao').version
-except pkg_resources.DistributionNotFound:
-    __version__ = 'unknown'
-
+    __version__ = version("torchao")
+except PackageNotFoundError:
+    __version__ = 'unknown'  # In case this logic breaks don't break the build
 
 _IS_FBCODE = (
     hasattr(torch._utils_internal, "IS_FBSOURCE") and
