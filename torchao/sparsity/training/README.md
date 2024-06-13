@@ -43,7 +43,7 @@ swap_semi_sparse_linear_with_linear(model)
 ### Benchmarking
 
 If you want to see the expected speedups of applying runtime semi-structured sparsity for training, you can do so by modifying the existing benchmark code in to add your matmul shapes in:
-`benchmarks/benchamrk_semi_sparse.py`
+[benchmarks/benchamrk_semi_sparse.py](https://github.com/pytorch/ao/blob/main/benchmarks/benchmark_semi_sparse.py#L25)
 
 ```
 python benchmarks/benchmark_semi_sparse.py
