@@ -67,12 +67,8 @@ def _f32_to_fpx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
     # rewrite saturate/denorm/norm branches without explicit data dependent
     # control flow, to be more compiler friendly
     saturate_mask = x >= max_normal
-    denormal_mask = torch.logical_and(
-        torch.logical_not(saturate_mask), x < min_normal
-    )  # noqa: E501
-    normal_mask = torch.logical_not(
-        torch.logical_or(saturate_mask, denormal_mask)
-    )  # noqa: E501
+    denormal_mask = torch.logical_and(torch.logical_not(saturate_mask), x < min_normal)
+    normal_mask = torch.logical_not(torch.logical_or(saturate_mask, denormal_mask))
 
     #
     # branch 1: saturate to max val - handled later in the code which combines
