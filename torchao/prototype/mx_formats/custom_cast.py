@@ -12,6 +12,7 @@ import torch
 from torch.utils._triton import has_triton
 
 from torchao.utils import TORCH_VERSION_AFTER_2_4
+from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked
 
 # TODO(future): if needed, make the below work on previous PyTorch versions,
 # just need to hunt down the previous location of `libdevice`. An assert
@@ -27,17 +28,8 @@ from torchao.prototype.mx_formats.constants import (
     E8M0_EXPONENT_NAN_VAL,
     F32_EXP_BIAS,
     F4_E2M1_EXP_BIAS,
-    F4_E2M1_MAX,
-    F4_E2M1_MAX_INT,
-    F4_E2M1_MIN_NORMAL,
     F6_E2M3_EXP_BIAS,
-    F6_E2M3_MAX,
-    F6_E2M3_MAX_INT,
-    F6_E2M3_MIN_NORMAL,
     F6_E3M2_EXP_BIAS,
-    F6_E3M2_MAX,
-    F6_E3M2_MAX_INT,
-    F6_E3M2_MIN_NORMAL,
 )
 
 
@@ -133,125 +125,13 @@ ZERO_BITS_F32 = 0x0
 ZERO_POINT_FIVE_BITS_F32 = 0x3F000000
 
 
-def _f32_to_f4_or_f6_unpacked(
-    x,
-    max_normal,
-    min_normal,
-    denorm_mask_float,
-    denorm_mask_int,
-    ebits,
-    mbits,
-    exp_bias,
-    magic_adder,
-    max_int,
-    sign_mask,
-):
-    """
-    Input: torch.Tensor of dtype torch.float
-    Output: torch.Tensor of dtype torch.uint8,
-      fp4: bits 0-3 empty and bits 4-7 in fp4_e2m1 encoding
-      fp6: bits 0-1 empty and bits 2-7 in the fp6_e2m3 or fp6_e3m2 encoding
-
-    Note: there is no special values (NaN, inf) support in this code as the
-    OCP spec does not define special values for fp6 and fp4 dtypes.
-
-    Code below is an adaptation of https://fburl.com/code/ciwofcg4 for f4/f6
-
-    Background 1: last answer in https://stackoverflow.com/questions/8981913/how-to-perform-round-to-even-with-floating-point-numbers  # noqa: E501
-    Background 2: Computer Organization and Design, RISC-V edition, Chapter 3.5
-    """
-    assert x.dtype == torch.float
-
-    # save the sign
-    # Note that we have torch.uint32, but some ops like cpu bit shifts
-    # do not work on it. So, we stay in int32.
-    x = x.view(torch.int32)
-    sign = x & 0x80000000
-
-    # set everything to positive, will add sign back at the end
-    x = x ^ sign
-
-    # TODO: can the branch floating point comparisons below be done without
-    # converting to float? probably but need to verify
-    x = x.view(torch.float)
-
-    # rewrite saturate/denorm/norm branches without explicit data dependent
-    # control flow, to be more compiler friendly
-    saturate_mask = x >= max_normal
-    denormal_mask = torch.logical_and(
-        torch.logical_not(saturate_mask), x < min_normal
-    )  # noqa: E501
-    normal_mask = torch.logical_not(
-        torch.logical_or(saturate_mask, denormal_mask)
-    )  # noqa: E501
-
-    #
-    # branch 1: saturate to max val - handled later in the code which combines
-    #   the branches
-    #
-
-    #
-    # branch 2: to conversion to denormal as well as rounding up to normal
-    #
-    denormal_x = x + denorm_mask_float
-    denormal_x = denormal_x.view(torch.int32)
-    denormal_x -= denorm_mask_int
-    denormal_x = denormal_x.to(torch.uint8)
-
-    #
-    # branch 3: stay in normal range, adjust the exponent and round
-    #
-    normal_x = x.view(torch.int32)
-    # resulting mantissa is odd
-    mant_odd = (normal_x >> (MBITS_F32 - mbits)) & 1
-    # update exponent, rounding bias part 1
-    val_to_add = ((exp_bias - F32_EXP_BIAS) << MBITS_F32) + magic_adder
-    normal_x += val_to_add
-    # rounding bias part 2
-    normal_x += mant_odd
-    # take the bits!
-    normal_x = normal_x >> (MBITS_F32 - mbits)
-    normal_x = normal_x.to(torch.uint8)
-
-    #
-    # combine the branches
-    #
-    x = torch.full_like(x, max_int, dtype=torch.uint8)
-    x = torch.where(denormal_mask, denormal_x, x)
-    x = torch.where(normal_mask, normal_x, x)
-
-    # add sign back
-    sign_lp = sign >> (MBITS_F32 + EBITS_F32 - mbits - ebits)
-    sign_lp = sign_lp.to(torch.uint8)
-    # Right shift of a negative signed integer can fill the least significant
-    # bits with either 1s or 0s, depending on the implementation. Since PyTorch
-    # doesn't have an uint32 dtype, we mask out these bits to get just the
-    # f4 sign bit
-    sign_lp = sign_lp & sign_mask
-    x = x | sign_lp
-
-    return x.to(torch.uint8)
-
-
 def f32_to_f4_unpacked(x):
     """
     Input: torch.Tensor of dtype torch.float
     Output: torch.Tensor of dtype torch.uint8, with bits 0-3 empty and
       bits 4-7 in fp4_e2m1
     """
-    return _f32_to_f4_or_f6_unpacked(
-        x,
-        F4_E2M1_MAX,
-        F4_E2M1_MIN_NORMAL,
-        DENORM_F32TOF4_MASK_FLOAT,
-        DENORM_F32TOF4_MASK_INT,
-        EBITS_F4_E2M1,
-        MBITS_F4_E2M1,
-        F4_E2M1_EXP_BIAS,
-        MAGIC_ADDER_F4_E2M1,
-        F4_E2M1_MAX_INT,
-        SIGN_MASK_F4,
-    )
+    return _f32_to_fpx_unpacked(x, EBITS_F4_E2M1, MBITS_F4_E2M1)
 
 
 def f32_to_f6_e2m3_unpacked(x):
@@ -260,19 +140,7 @@ def f32_to_f6_e2m3_unpacked(x):
     Output: torch.Tensor of dtype torch.uint8, with bits 0-1 empty and
       bits 2-7 in fp6_e2m3
     """
-    return _f32_to_f4_or_f6_unpacked(
-        x,
-        F6_E2M3_MAX,
-        F6_E2M3_MIN_NORMAL,
-        DENORM_F32TOF6_E2M3_MASK_FLOAT,
-        DENORM_F32TOF6_E2M3_MASK_INT,
-        EBITS_F6_E2M3,
-        MBITS_F6_E2M3,
-        F6_E2M3_EXP_BIAS,
-        MAGIC_ADDER_F6_E2M3,
-        F6_E2M3_MAX_INT,
-        SIGN_MASK_F6_E2M3,
-    )
+    return _f32_to_fpx_unpacked(x, EBITS_F6_E2M3, MBITS_F6_E2M3)
 
 
 def f32_to_f6_e3m2_unpacked(x):
@@ -281,19 +149,7 @@ def f32_to_f6_e3m2_unpacked(x):
     Output: torch.Tensor of dtype torch.uint8, with bits 0-1 empty and
       bits 2-7 in fp6_e3m2
     """
-    return _f32_to_f4_or_f6_unpacked(
-        x,
-        F6_E3M2_MAX,
-        F6_E3M2_MIN_NORMAL,
-        DENORM_F32TOF6_E3M2_MASK_FLOAT,
-        DENORM_F32TOF6_E3M2_MASK_INT,
-        EBITS_F6_E3M2,
-        MBITS_F6_E3M2,
-        F6_E3M2_EXP_BIAS,
-        MAGIC_ADDER_F6_E3M2,
-        F6_E3M2_MAX_INT,
-        SIGN_MASK_F6_E3M2,
-    )
+    return _f32_to_fpx_unpacked(x, EBITS_F6_E3M2, MBITS_F6_E3M2)
 
 
 def _f4_or_f6_unpacked_to_f32(x: torch.Tensor, lp_dtype_name: str):
