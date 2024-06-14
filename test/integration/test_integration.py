@@ -1409,20 +1409,20 @@ class TestUtils(unittest.TestCase):
     @parameterized.expand(
         list(itertools.product(TENSOR_SUBCLASS_APIS, COMMON_DEVICES, COMMON_DTYPES)),
     )
-    def test_get_model_size_aqt(self, api, device, dtype):
-        if dtype != torch.bfloat16:
-            self.skipTest(f"{api} in {dtype} is not supported yet")
+    def test_get_model_size_aqt(self, api, test_device, test_dtype):
+        if test_dtype != torch.bfloat16:
+            self.skipTest(f"{api} in {test_dtype} is not supported yet")
+        if test_device != "cuda" or not torch.cuda.is_available():
+            self.skipTest(f"{api} currently does not support {test_device}")
         k, n = 1024, 1024
         model = torch.nn.Sequential(
             torch.nn.ReLU(),
             torch.nn.Linear(k,n),
             torch.nn.ReLU(),
-        ).to(device).to(dtype)
+        ).to(test_device).to(test_dtype)
         size = torchao.utils.get_model_size_in_bytes(model)
         api(model)
         size2 = torchao.utils.get_model_size_in_bytes(model)
-        if size2 >= size:
-            breakpoint()
         self.assertTrue(size2 < size)
         
 
