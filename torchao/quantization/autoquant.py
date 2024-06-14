@@ -513,3 +513,42 @@ def autoquant(model, example_input=None, qtensor_class_list=DEFAULT_CLASS_LIST, 
         model(*example_input)
 
     return model
+
+class AutoQuantConfig:
+    """Configuration that can be used to fully define how a model is quantized"""
+    def __init__(self, start=None):
+        self.config = {}
+        if start is not None:
+            if isinstance(start, torch.nn.Module):
+                self.from_autoquantized_model(start)
+            elif isinstance(start, str):
+                self.load(start)
+
+    def from_autoquantized_model(self, model):
+        for name, child in model.named_modules():
+            print(name, child)
+            if isinstance(child, torch.nn.Linear):
+                self.add_layer_to_config(child, name)
+
+    def save(self, file_path):
+        with open(file_path, 'wb') as f:
+            import pickle
+            pickle.dump(self.config, f)
+
+    def load(self, file_path):
+        with open(file_path, 'rb') as f:
+            import pickle
+            self.config = pickle.load(f)
+
+    def add_layer_to_config(self, layer, fqn):
+        if isinstance(layer.weight, QuantizedLinearWeightBase):
+            self.config[fqn] = layer.weight.__class__
+
+    def apply_to_model(self, model):
+        from torchao.quantization.quant_api import _get_subclass_inserter
+        for name, child in model.named_modules():
+            if name in self.config:
+                subclass_inserter = _get_subclass_inserter(self.config[name])
+                child = subclass_inserter(child)
+        return model
+                

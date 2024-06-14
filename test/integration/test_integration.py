@@ -71,6 +71,7 @@ from torchao.quantization.autoquant import (
     AQWeightOnlyQuantizedLinearWeight2,
     AQWeightOnlyQuantizedLinearWeight3,
     AutoQuantizableLinearWeight,
+    AutoQuantConfig
 
 )
 from torch.ao.quantization.quantize_fx import convert_to_reference_fx, prepare_fx
@@ -1196,6 +1197,36 @@ class TestAutoQuant(unittest.TestCase):
         out2 = mod(example_input)
         sqnr = SQNR(out, out2)
         self.assertTrue(sqnr >= 30)
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
+    def test_autoquant_config(self, device, dtype):
+        if device != "cuda" and dtype != torch.bfloat16:
+            self.skipTest(f"autoquant currently does not support {device}")
+        if device != "cuda" or not torch.cuda.is_available():
+            self.skipTest(f"autoquant currently does not support {device}")
+        if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
+            if dtype == torch.bfloat16:
+                self.skipTest(f"bfloat16 requires sm80+")
+        m, k, n = 16, 128, 128
+        model = torch.nn.Sequential(
+            torch.nn.ReLU(),
+            torch.nn.Linear(k,n),
+            torch.nn.ReLU(),
+        ).to(device).to(dtype)
+        example_input = torch.randn(m, k, device=device, dtype=dtype)
+
+        mod = torchao.autoquant(copy.deepcopy(model))
+        mod(example_input)
+        out = mod(example_input)
+        autoq_config = AutoQuantConfig(mod)
+        autoq_config.save('test.pkl')
+
+        autoq_config2 = AutoQuantConfig('test.pkl')
+        autoq_config2.apply_to_model(model)
+        out2 = model(example_input)
+        self.assertEqual(type(model[1].weight), type(mod[1].weight))
+        self.assertEqual(SQNR(out, out2), torch.inf)
 
     @parameterized.expand(combine_parameters(COMMON_DEVICE_DTYPE,
         [
