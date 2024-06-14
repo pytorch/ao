@@ -540,8 +540,6 @@ def autoquant(
             delattr(real_model, "old_forward")
         if hasattr(real_model, "do_autoquant"):
             delattr(real_model, "do_autoquant")
-        if hasattr(real_model, "forward_log_only"):
-            delattr(real_model, "forward_log_only")
         if not manual:
             handle.remove()
 

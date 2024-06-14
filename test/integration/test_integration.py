@@ -1201,9 +1201,10 @@ class TestAutoQuant(unittest.TestCase):
         example_input2 = torch.randn(m2, k, device=device, dtype=dtype)
         out = model(example_input)
 
-        mod = torchao.autoquant(torch.compile(model))
-        mod.forward_log_only(example_input)
+        mod = torchao.autoquant(torch.compile(model), manual=True)
+        mod(example_input)
         mod(example_input2)
+        mod.do_autoquant()
 
         out2 = mod(example_input)
         sqnr = SQNR(out, out2)
@@ -1283,7 +1284,6 @@ class TestAutoQuant(unittest.TestCase):
         out = model(**example_input)
 
         mod = torchao.autoquant(torch.compile(model))
-        mod.forward_log_only(**example_input)
         mod(**example_input)
 
         out2 = mod(**example_input)
