@@ -25,10 +25,14 @@ if not _IS_FBCODE:
 
 from torchao.quantization import (
     autoquant,
+    quantize,
+    register_apply_tensor_subclass,
 )
 from . import dtypes
 
 __all__ = [
     "dtypes",
     "autoquant",
+    "quantize",
+    "register_apply_tensor_subclass",
 ]

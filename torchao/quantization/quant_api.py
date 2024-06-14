@@ -41,6 +41,7 @@ from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
     Int4WeightOnlyQuantizer,
 )
+import logging
 from .autoquant import autoquant, AutoQuantizableLinearWeight
 
 
@@ -50,13 +51,14 @@ __all__ = [
     "TwoStepQuantizer",
     "Int4WeightOnlyGPTQQuantizer",
     "Int4WeightOnlyQuantizer",
-    "quantize",
     "autoquant",
     "_get_subclass_inserter",
+    "quantize",
     "int8da_int4w",
     "int8da_int8w",
     "int4wo",
     "int8wo",
+    "register_apply_tensor_subclass",
 ]
 
 from .GPTQ import (
@@ -292,7 +294,8 @@ def quantize(model: torch.nn.Module, apply_tensor_subclass: Union[str, Callable[
         m = quantize(m, apply_weight_quant, filter_fn)
     """
     if isinstance(apply_tensor_subclass, str):
-        assert apply_tensor_subclass in _APPLY_TS_TABLE, f"{apply_tensor_subclass} not supported: {_APPLY_TS_TABLE.keys()}"
+        if apply_tensor_subclass not in _APPLY_TS_TABLE:
+            raise ValueError(f"{apply_tensor_subclass} not supported: {_APPLY_TS_TABLE.keys()}")
         apply_tensor_subclass = _APPLY_TS_TABLE[apply_tensor_subclass]
 
     assert not isinstance(apply_tensor_subclass, str)
@@ -438,3 +441,19 @@ _APPLY_TS_TABLE: Dict[str, Callable] = {
     "int8_weight_only": int8wo(),
     "int8_dynamic": int8da_int8w(),
 }
+
+def register_apply_tensor_subclass(name: str, apply_tensor_subclass: Callable):
+    """Register a string shortcut for `apply_tensor_subclass` that takes a weight Tensor
+    as input and ouptuts a tensor with tensor subclass applied
+
+    Example:
+        def apply_my_dtype(weight):
+            return weight * 2
+
+        register_apply_tensor_subclass("my_dtype", apply_my_dtype)
+        # calls `apply_my_dtype` on weights
+        quantize(m, "my_dtype")
+    """
+    if name in _APPLY_TS_TABLE:
+        logging.warning(f"shortcut string {name} already exist, overwriting")
+    _APPLY_TS_TABLE[name] = apply_tensor_subclass
