@@ -7,7 +7,7 @@ import torch
 import unittest
 
 
-class TestAQ(TestCase):
+class TestAffineQuantized(TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_tensor_core_layout_transpose(self):
         t = torch.rand(128, 256, dtype=torch.bfloat16, device="cuda")
