@@ -13,6 +13,7 @@ import torch
 import torchao
 import torch._dynamo.config
 import torch._inductor.config
+from torchao.utils import get_model_size_in_bytes
 
 def device_sync(device):
     if "cuda" in device:
@@ -143,21 +144,6 @@ def _load_model(checkpoint_path, device, precision):
 
     return model.eval()
 
-def _get_model_size(model):
-    model_size = 0
-    for name, child in model.named_children():
-        if not isinstance(child, torch.nn.Embedding):
-            for p in itertools.chain(child.parameters(), child.buffers()):
-                # handling for tensor subclasses
-                if isinstance(p, torchao.dtypes.aqt.AffineQuantizedTensor):
-                    layout_tensor = p.layout_tensor
-                    for attr_name in layout_tensor._tensor_flatten__()[0]:
-                        sub_tensor = getattr(layout_tensor, attr_name)
-                        model_size += sub_tensor.numel() * sub_tensor.element_size()
-                else:
-                    model_size += p.numel() * p.element_size()
-    return model_size
-
 B_INST, E_INST = "[INST]", "[/INST]"
 
 def main(
@@ -226,7 +212,7 @@ def main(
                 interactive=False
             )
 
-    model_size = _get_model_size(model) / 1e9
+    model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
 
     if compile:
         global decode_one_token, prefill
