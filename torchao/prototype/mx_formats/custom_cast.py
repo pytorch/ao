@@ -12,7 +12,7 @@ import torch
 from torch.utils._triton import has_triton
 
 from torchao.utils import TORCH_VERSION_AFTER_2_4
-from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked
+from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32
 
 # TODO(future): if needed, make the below work on previous PyTorch versions,
 # just need to hunt down the previous location of `libdevice`. An assert
@@ -21,9 +21,6 @@ if TORCH_VERSION_AFTER_2_4:
     from torch._inductor.runtime.triton_helpers import libdevice
 
 from torchao.prototype.mx_formats.constants import (
-    DTYPE_FP4,
-    DTYPE_FP6_E2M3,
-    DTYPE_FP6_E3M2,
     E8M0_EXPONENT_BIAS,
     E8M0_EXPONENT_NAN_VAL,
     F32_EXP_BIAS,
@@ -152,128 +149,13 @@ def f32_to_f6_e3m2_unpacked(x):
     return _f32_to_fpx_unpacked(x, EBITS_F6_E3M2, MBITS_F6_E3M2)
 
 
-def _f4_or_f6_unpacked_to_f32(x: torch.Tensor, lp_dtype_name: str):
-    """
-    Input: torch.Tensor of dtype uint8, with bits 0-3 empty and bits 4-7
-      containing an fp4_e2m1 encoding
-    Output: torch.Tensor of dtype fp32 with the dequantized value
-
-    TODO(future): check if LUT for everything is faster than bit shifting,
-      especially for fp4.
-    """
-    assert x.dtype == torch.uint8
-
-    if lp_dtype_name == DTYPE_FP4:
-        sign_mask = SIGN_MASK_F4
-        ebits = EBITS_F4_E2M1
-        mbits = MBITS_F4_E2M1
-        exp_bias = F4_E2M1_EXP_BIAS
-        mantissa_mask = MANTISSA_MASK_F4
-    elif lp_dtype_name == DTYPE_FP6_E2M3:
-        sign_mask = SIGN_MASK_F6_E2M3
-        ebits = EBITS_F6_E2M3
-        mbits = MBITS_F6_E2M3
-        exp_bias = F6_E2M3_EXP_BIAS
-        mantissa_mask = MANTISSA_MASK_F6_E2M3
-    elif lp_dtype_name == DTYPE_FP6_E3M2:
-        sign_mask = SIGN_MASK_F6_E3M2
-        ebits = EBITS_F6_E3M2
-        mbits = MBITS_F6_E3M2
-        exp_bias = F6_E3M2_EXP_BIAS
-        mantissa_mask = MANTISSA_MASK_F6_E3M2
-    else:
-        raise AssertionError(f"unsupported lp_dtype_name {lp_dtype_name}")
-
-    # save the sign
-    sign_lp = x & sign_mask
-
-    # set everything to positive, will add sign back at the end
-    x_pos = x ^ sign_lp
-
-    #
-    # 1. Calculate zero mask
-    #
-    zero_mask = x_pos == 0
-
-    #
-    # 2. Calculate the denormal path mask
-    #
-    denormal_mask = torch.logical_and((x_pos > 0), ((x_pos >> mbits) == 0))
-
-    #
-    # 3. Calculate the normal path
-    #
-
-    # calculate the new exponent and shift it to bits 2:9 of the result
-    exp_biased_lp = x_pos >> mbits
-    exp_biased_f32 = exp_biased_lp - exp_bias + F32_EXP_BIAS
-    exp_biased_f32 = exp_biased_f32.to(torch.int32) << MBITS_F32
-
-    # shift the mantissa to bits 10:32 of the result
-    mantissa_lp_int32 = (x_pos & mantissa_mask).to(torch.int32)
-    mantissa_f32 = mantissa_lp_int32 << (MBITS_F32 - mbits)
-    result = exp_biased_f32 | mantissa_f32
-
-    #
-    # 4. Add the zero and denormal casts to the already casted normal path
-    #
-    result[zero_mask] = ZERO_BITS_F32
-    # Note: for now the denormal path cast is written for readability and
-    # numerical correctness. There is likely a way to optimize the performance,
-    # I just haven't had time to look into it.
-    if lp_dtype_name == DTYPE_FP4:
-        result[denormal_mask] = ZERO_POINT_FIVE_BITS_F32
-
-    elif lp_dtype_name == DTYPE_FP6_E2M3:
-        # Only 7 possible values, just do a LUT
-        # Note: calculate the booleans first because we are modifying
-        # this variable inplace.
-        is_val1 = mantissa_lp_int32 == 1
-        is_val2 = mantissa_lp_int32 == 2
-        is_val3 = mantissa_lp_int32 == 3
-        is_val4 = mantissa_lp_int32 == 4
-        is_val5 = mantissa_lp_int32 == 5
-        is_val6 = mantissa_lp_int32 == 6
-        is_val7 = mantissa_lp_int32 == 7
-        mantissa_lp_int32[is_val1] = 0x3E000000  # 0.125
-        mantissa_lp_int32[is_val2] = 0x3E800000  # 0.25
-        mantissa_lp_int32[is_val3] = 0x3EC00000  # 0.375
-        mantissa_lp_int32[is_val4] = 0x3F000000  # 0.5
-        mantissa_lp_int32[is_val5] = 0x3F200000  # 0.625
-        mantissa_lp_int32[is_val6] = 0x3F400000  # 0.75
-        mantissa_lp_int32[is_val7] = 0x3F600000  # 0.875
-        result = torch.where(denormal_mask, mantissa_lp_int32, result)
-
-    elif lp_dtype_name == DTYPE_FP6_E3M2:
-        # Only 3 possible values, just do a LUT
-        # Note: calculate the booleans first because we are modifying
-        # this variable inplace.
-        is_val1 = mantissa_lp_int32 == 1
-        is_val2 = mantissa_lp_int32 == 2
-        is_val3 = mantissa_lp_int32 == 3
-        mantissa_lp_int32[is_val1] = 0x3D800000  # 0.0625
-        mantissa_lp_int32[is_val2] = 0x3E000000  # 0.125
-        mantissa_lp_int32[is_val3] = 0x3E400000  # 0.1875
-        result = torch.where(denormal_mask, mantissa_lp_int32, result)
-    else:
-        raise AssertionError(f"unsupported lp_dtype_name {lp_dtype_name}")
-
-    # add sign back
-    sign_f32 = sign_lp.to(torch.int32) << (
-        MBITS_F32 - mbits + EBITS_F32 - ebits
-    )  # noqa: E501
-    result = result | sign_f32
-
-    return result.view(torch.float)
-
-
 def f4_unpacked_to_f32(x: torch.Tensor):
     """
     Input: torch.Tensor of dtype uint8, with bits 0-3 empty and bits 4-7
       containing an fp4_e2m1 encoding
     Output: torch.Tensor of dtype fp32 with the dequantized value
     """
-    return _f4_or_f6_unpacked_to_f32(x, DTYPE_FP4)
+    return _fpx_unpacked_to_f32(x, EBITS_F4_E2M1, MBITS_F4_E2M1)
 
 
 def f6_e2m3_unpacked_to_f32(x: torch.Tensor):
@@ -282,7 +164,7 @@ def f6_e2m3_unpacked_to_f32(x: torch.Tensor):
       containing an fp6_e3m2 encoding
     Output: torch.Tensor of dtype fp32 with the dequantized value
     """
-    return _f4_or_f6_unpacked_to_f32(x, DTYPE_FP6_E2M3)
+    return _fpx_unpacked_to_f32(x, EBITS_F6_E2M3, MBITS_F6_E2M3)
 
 
 def f6_e3m2_unpacked_to_f32(x: torch.Tensor):
@@ -291,7 +173,7 @@ def f6_e3m2_unpacked_to_f32(x: torch.Tensor):
       containing an fp6_e3m2 encoding
     Output: torch.Tensor of dtype fp32 with the dequantized value
     """
-    return _f4_or_f6_unpacked_to_f32(x, DTYPE_FP6_E3M2)
+    return _fpx_unpacked_to_f32(x, EBITS_F6_E3M2, MBITS_F6_E3M2)
 
 
 if has_triton():

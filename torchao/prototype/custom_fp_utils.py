@@ -16,10 +16,12 @@ def _n_ones(n: int) -> int:
 
 EBITS_F32, MBITS_F32 = 8, 23
 F32_EXP_BIAS = _n_ones(EBITS_F32 - 1)
+F32_MANTISSA_MASK = _n_ones(MBITS_F32)
 
 
-def _f32_to_fpx_unpacked(x: Tensor, ebits: int, mbits: int):
+def _f32_to_fpx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
     assert x.dtype == torch.float
+    assert 1 + ebits + mbits <= 8
 
     # calculate constants
     exp_bias = _n_ones(ebits - 1)
@@ -118,3 +120,73 @@ def _f32_to_fpx_unpacked(x: Tensor, ebits: int, mbits: int):
     x = x | sign_lp
 
     return x.to(torch.uint8)
+
+
+def _fpx_unpacked_to_f32(x: Tensor, ebits: int, mbits: int) -> Tensor:
+    """
+    TODO(future): check if LUT for everything is faster than bit shifting,
+      especially for fp4.
+    """
+    assert x.dtype == torch.uint8
+    assert 1 + ebits + mbits <= 8
+
+    sign_mask = 1 << (ebits + mbits)
+    exp_bias = _n_ones(ebits - 1)
+    mantissa_mask = _n_ones(mbits)
+
+    # save the sign
+    sign_lp = x & sign_mask
+
+    # set everything to positive, will add sign back at the end
+    x_pos = x ^ sign_lp
+
+    #
+    # 1. Calculate zero mask
+    #
+    zero_mask = x_pos == 0
+
+    #
+    # 2. Calculate the denormal path mask
+    #
+    denormal_mask = torch.logical_and((x_pos > 0), ((x_pos >> mbits) == 0))
+
+    #
+    # 3. Calculate the normal path
+    #
+
+    # calculate the new exponent and shift it to bits 2:9 of the result
+    exp_biased_lp = x_pos >> mbits
+    exp_biased_f32 = exp_biased_lp - exp_bias + F32_EXP_BIAS
+    exp_biased_f32 = exp_biased_f32.to(torch.int32) << MBITS_F32
+
+    # shift the mantissa to bits 10:32 of the result
+    mantissa_lp_int32 = (x_pos & mantissa_mask).to(torch.int32)
+    mantissa_f32 = mantissa_lp_int32 << (MBITS_F32 - mbits)
+    result = exp_biased_f32 | mantissa_f32
+
+    #
+    # 4. Add the zero and denormal casts to the already casted normal path
+    #
+    result[zero_mask] = 0
+    # Note: for now the denormal path cast is written for readability and
+    # numerical correctness. There is likely a way to optimize the performance,
+    # I just haven't had time to look into it.
+
+    denormal_exp_biased = 1 - exp_bias + F32_EXP_BIAS
+
+    # for denormal numbers, we shift left until mantissa bits overflow
+    # when doing so, we also need to subtract exponent by the same amount.
+    for i in range(mbits):
+        mask = torch.logical_and(denormal_mask, mantissa_lp_int32 >= (1 << i))
+
+        left_shift = mbits - i
+        this_mantissa_f32 = (mantissa_f32 << left_shift) & F32_MANTISSA_MASK
+        this_exp_biased_f32 = (denormal_exp_biased - left_shift) << MBITS_F32
+
+        result = torch.where(mask, this_exp_biased_f32 | this_mantissa_f32, result)
+
+    # add sign back
+    sign_f32 = sign_lp.to(torch.int32) << (MBITS_F32 - mbits + EBITS_F32 - ebits)
+    result = result | sign_f32
+
+    return result.view(torch.float)
