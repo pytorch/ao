@@ -31,11 +31,11 @@ from torchao.quantization.subclass import (
     Int8WeightOnlyQuantizedLinearWeight,
     Int4WeightOnlyQuantizedLinearWeight,
 )
+from torchao import quantize
 from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
     Quantizer,
     TwoStepQuantizer,
-    quantize,
     int8da_int4w,
     int4wo,
     int8wo,
@@ -51,6 +51,7 @@ from torchao._models.llama.model import Transformer, prepare_inputs_for_model
 from torchao.utils import unwrap_tensor_subclass
 import copy
 import tempfile
+from torch.testing._internal.common_utils import TestCase
 
 
 def dynamic_quant(model, example_inputs):
@@ -147,7 +148,7 @@ def _get_ref_change_linear_weights_to_woqtensors(deprecated_tenosr_subclass):
 _ref_change_linear_weights_to_int8_woqtensors = _get_ref_change_linear_weights_to_woqtensors(Int8WeightOnlyQuantizedLinearWeight)
 _ref_change_linear_weights_to_int4_woqtensors = _get_ref_change_linear_weights_to_woqtensors(Int4WeightOnlyQuantizedLinearWeight)
 
-class TestQuantFlow(unittest.TestCase):
+class TestQuantFlow(TestCase):
     def test_dynamic_quant_gpu_singleline(self):
         m = ToyLinearModel().eval()
         example_inputs = m.example_inputs()
@@ -600,6 +601,21 @@ class TestQuantFlow(unittest.TestCase):
 
         # make sure it compiles
         torch._export.aot_compile(m_unwrapped, example_inputs)
+
+    def test_register_apply_tensor_subclass(self):
+        from torchao import register_apply_tensor_subclass
+        def apply_my_dtype(weight):
+            return weight * 2
+
+        m = ToyLinearModel().eval()
+        example_inputs = m.example_inputs()
+        with self.assertRaisesRegex(ValueError, "not supported"):
+            quantize(m, "my_dtype")
+
+        register_apply_tensor_subclass("my_dtype", apply_my_dtype)
+        # make sure it runs
+        quantize(m, "my_dtype")
+        m(*example_inputs)
 
 if __name__ == "__main__":
     unittest.main()
