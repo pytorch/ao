@@ -1229,7 +1229,7 @@ class TestAutoQuant(unittest.TestCase):
         example_input2 = torch.randn(m2, k, device=device, dtype=dtype)
         out = model(example_input)
 
-        mod = torchao.autoquant(torch.compile(model), manual_do_autoquant=True)
+        mod = torchao.autoquant(torch.compile(model), manual=True)
         mod(example_input)
         mod(example_input2)
         mod.do_autoquant()
@@ -1237,7 +1237,7 @@ class TestAutoQuant(unittest.TestCase):
         sqnr = SQNR(out, out2)
         self.assertTrue(sqnr >= 30)
 
-        mod2 = torchao.autoquant(model, manual_do_autoquant=True)
+        mod2 = torchao.autoquant(model, manual=True)
         mod2(example_input)
         mod2(example_input2)
         mod2.do_autoquant()
@@ -1447,9 +1447,7 @@ class TestUtils(unittest.TestCase):
         )
         qtensor_class_list = (
             AQWeightOnlyQuantizedLinearWeight2,
-
         )
-
         mod = torchao.autoquant(torch.compile(model), qtensor_class_list = qtensor_class_list)
         mod(example_input)
         size2 = torchao.utils.get_model_size_in_bytes(mod)

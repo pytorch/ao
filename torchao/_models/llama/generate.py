@@ -205,7 +205,7 @@ def main(
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
             quantize(model, int4wo(groupsize=groupsize))
         if "autoquant" == quantization:
-            model = autoquant(model, manual_do_autoquant=True)
+            model = autoquant(model, manual=True)
 
             generate(
                 model,
