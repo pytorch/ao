@@ -438,37 +438,39 @@ def autoquant(
     example_input=None, 
     qtensor_class_list=DEFAULT_CLASS_LIST, 
     filter_fn=None, mode=["interpolate", .85], 
-    manual_do_autoquant=False, 
+    manual=False, 
     **aq_kwargs
 ):
     """
-    Begins autoquantization. Autoquantization happens in three steps:
+    Autoquantization is a process which identifies the fastest way to quantize each layer of a model over some set of potential
+    qtensor subclasses.
+    
+    Autoquantization happens in three steps:
 
-    1) the model is searched for Linear layers whose weights are exchanged for AutoQuantizableLinearWeight
-    2) the user runs the model on one or more inputs, the details of the activation shape/dtype seen by 
-        the AutoQuantizableLinearWeight are logged
-    3) for each AutoQuantizableLinearWeight, benchmarks are run for each member of the qtensor_class_list and
+    1-Prepare Model: the model is searched for Linear layers whose weights are exchanged for AutoQuantizableLinearWeight.
+    2-Shape Calibration: the user runs the model on one or more inputs, the details of the activation shape/dtype seen by 
+        the AutoQuantizableLinearWeight are recorded so we know what shapes/dtypes to use in order to optimize the quantized op in step 3
+    3-Finalize Autoquantization: for each AutoQuantizableLinearWeight, benchmarks are run for each shape/dtype on each member of the qtensor_class_list.
         the fastest option is picked, resulting in a highly performant model
 
     This autoquant function performs step 1. Steps 2 and 3 can be completed by simply running the model.  
-    If `example_input` is provided, this function also runs the model. This autoquant api can handle models which have already
-    had torch.compile applied to them, in which case, once the model is run and quantized, the torch.compile process normally
-    proceeds as well.
+    If `example_input` is provided, this function also runs the model (which completes steps 2 and 3). 
+    This autoquant api can handle models which have already had torch.compile applied to them, in which case, once the model is run and quantized, 
+    the torch.compile process normally proceeds as well.
 
-    To log multiple inputs, the user can either call model.forward_log_only rather than forward, to avoid automatic autoquantization
-    and/or torch.compile, or, they can set manual_do_autoquant to True and call model.do_autoquant once the desired set of
-    inputs have been logged.
+    To optimize over a combination of input shapes/dtypes, the user can set manual=True, run the model with all desired shapes/dtypes, then
+    call model.do_autoquant to finalize the quantization once the desired set of inputs have been logged.
 
     Args:
         model (torch.nn.Module): The model to be autoquantized.
         example_input (Any, optional): An example input for the model. If provided, the function performs a forward pass
-                                       on this input. Defaults to None.
+                                       on this input (which fully autoquantizes the model unless manual=True). Defaults to None.
         qtensor_class_list (list, optional): A list of tensor classes to be used for quantization. Defaults to DEFAULT_CLASS_LIST.
         filter_fn (callable, optional): A filter function to apply to the model parameters. Defaults to None.
         mode (list, optional): A list containing mode settings for quantization. The first element is the mode type (e.g., "interpolate"),
                                and the second element is the mode value (e.g., 0.85). Defaults to ["interpolate", .85].
-        manual_do_autoquant (bool, optional): Whether to stop logging and do the autoquant after a single run (False) or to wait for 
-                                the user to call model.do_autoquant (True) so multiple inputs can be logged.
+        manual (bool, optional): Whether to stop shape calibration and do autoquant after a single run (default, False) or to wait for 
+                                the user to call model.do_autoquant (True) so inputs with several shapes/dtypes can be logged.
         **aq_kwargs: Additional keyword arguments for the autoquantization process.
 
     Returns:
@@ -478,6 +480,12 @@ def autoquant(
     Example usage:
         torchao.autoquant(torch.compile(model))
         model(*example_input)
+
+        # multiple input shapes
+        torch.autoquant(model, manual=True)
+        model(*example_input1)
+        model(*example_input2)
+        model.do_autoquant()
     """
 
     # perform initial swap from linear weights
@@ -497,8 +505,7 @@ def autoquant(
     else:
         real_model = model
 
-   
-    if manual_do_autoquant:
+    if manual:
         # we don't want model.forward to trigger
         # torch.compilation
         if is_compiled:
@@ -521,9 +528,6 @@ def autoquant(
         # model run.
         handle = model.register_forward_pre_hook(autoquant_prehook, with_kwargs=True)
 
-    # provide a method to bypass the prehook/torch.compilation
-    real_model.forward_log_only = real_model.forward
-        
     # note the torch.compile wrapper (eval_frame) moves the assignment of any assigned
     # attributes to the inner model that didn't exist before, so we have to call delattr on the inner model
     def do_autoquant():
@@ -538,7 +542,7 @@ def autoquant(
             delattr(real_model, "do_autoquant")
         if hasattr(real_model, "forward_log_only"):
             delattr(real_model, "forward_log_only")
-        if not manual_do_autoquant:
+        if not manual:
             handle.remove()
 
     real_model.do_autoquant = do_autoquant

@@ -109,11 +109,7 @@ def generate(
     seq[:T] = prompt.view(-1)
     
     # setup model cache
-    try: 
-        max_seq_length = min(T_new, model.config.block_size) if not interactive else 350
-    except:
-        max_seq_length = T_new
-   
+    max_seq_length = min(T_new, model.config.block_size) if not interactive else 350
     with torch.device(device):
         model.setup_caches(max_batch_size=1, max_seq_length=max_seq_length)
 
@@ -214,7 +210,7 @@ def main(
             generate(
                 model,
                 encode_tokens(tokenizer, prompt, bos=True, device=device),
-                min(max_new_tokens, model.config.block_size),
+                max_new_tokens,
                 interactive=False,
                 temperature=temperature,
                 top_k=top_k,
