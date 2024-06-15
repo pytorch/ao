@@ -1,4 +1,4 @@
-export CHECKPOINT_PATH=../../../../gpt-fast/checkpoints # path to checkpoints folder
+export CHECKPOINT_PATH=../../../checkpoints # path to checkpoints folder
 
 export MODEL_REPO=meta-llama/Meta-Llama-3-8B
 python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --precision torch.float32 --write_result benchmark_results.txt

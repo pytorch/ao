@@ -242,7 +242,7 @@ class TestQuantFlow(TestCase):
         # should be similar to TorchCompileDynamicQuantizer
         precision = torch.bfloat16
         device = "cpu"
-        checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        checkpoint_path = Path("../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
         model = Transformer.from_name(checkpoint_path.parent.name)
         checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
         model.load_state_dict(checkpoint, assign=True)
@@ -305,7 +305,7 @@ class TestQuantFlow(TestCase):
 
         precision = torch.bfloat16
         device = "cpu"
-        checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        checkpoint_path = Path("../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
         model = Transformer.from_name(checkpoint_path.parent.name)
         checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
         model.load_state_dict(checkpoint, assign=True)
@@ -341,7 +341,7 @@ class TestQuantFlow(TestCase):
         torchao._models.llama.model.use_index_put_for_kv_cache = True
         precision = torch.bfloat16
         device = "cuda"
-        checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        checkpoint_path = Path("../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
         model = Transformer.from_name(checkpoint_path.parent.name)
         checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
         model.load_state_dict(checkpoint, assign=True)
@@ -402,7 +402,7 @@ class TestQuantFlow(TestCase):
         from torchao._models._eval import TransformerEvalWrapper
         precision = torch.bfloat16
         device = "cuda"
-        checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        checkpoint_path = Path("../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
         model = Transformer.from_name(checkpoint_path.parent.name)
         checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
         model.load_state_dict(checkpoint, assign=True)
@@ -438,7 +438,7 @@ class TestQuantFlow(TestCase):
         from torchao._models._eval import TransformerEvalWrapper
         precision = torch.bfloat16
         device = "cuda"
-        checkpoint_path = Path("../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        checkpoint_path = Path("../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
         model = Transformer.from_name(checkpoint_path.parent.name)
         checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
         model.load_state_dict(checkpoint, assign=True)
