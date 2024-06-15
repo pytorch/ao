@@ -141,7 +141,7 @@ def run(profile_folder: Optional[str] = None):
 
             torch._dynamo.reset()
 
-    print(tabulate.tabulate(results, headers=headers, floatfmt=".2f", tablefmt="github"))
+    print(tabulate.tabulate(results, headers=headers, floatfmt=".2f"))
 
 
 if __name__ == "__main__":
