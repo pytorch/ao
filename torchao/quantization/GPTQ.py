@@ -1018,9 +1018,9 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
 class Int8DynActInt4WeightGPTQQuantizer(GPTQQuantizer):
     def __init__(
         self,
-        blocksize,
-        percdamp,
-        groupsize,
+        blocksize=128,
+        percdamp=.01,
+        groupsize=64,
         inner_k_tiles=8,
         padding_allowed=True,
         precision=torch.float32,
