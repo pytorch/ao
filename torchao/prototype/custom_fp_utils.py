@@ -49,7 +49,8 @@ def _f32_to_fpx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
 
     # reinterpret int32 as float32 in Python
     # see https://stackoverflow.com/a/34446112/1058521
-    denorm_mask_float = struct.unpack("!f", struct.pack("!I", denorm_mask_int))[0]
+    # denorm_mask_float = struct.unpack("!f", struct.pack("!I", denorm_mask_int))[0]
+    denorm_mask_float = torch.tensor(denorm_mask_int, dtype=torch.int32).view(torch.float32)
 
     # save the sign
     # Note that we have torch.uint32, but some ops like cpu bit shifts
