@@ -171,16 +171,29 @@ def _fpx_unpacked_to_f32(x: Tensor, ebits: int, mbits: int) -> Tensor:
 
     denormal_exp_biased = 1 - exp_bias + F32_EXP_BIAS
 
-    # for denormal numbers, we shift left until mantissa bits overflow
-    # when doing so, we also need to subtract exponent by the same amount.
+    # 1st iteration: 1
+    # 2nd iteration: 10, 11
+    # 3rd iteration: 100, 101, 110, 111
+    # and so on
     for i in range(mbits):
-        mask = torch.logical_and(denormal_mask, mantissa_lp_int32 >= (1 << i))
+        for j in range(1 << i, 1 << (i+1)):
+            left_shift = mbits - i
+            mantissa = (j - (1 << i)) << (left_shift + MBITS_F32 - mbits)
+            exp = (denormal_exp_biased - left_shift) << MBITS_F32
+            mantissa_lp_int32[mantissa_lp_int32 == j] = exp | mantissa
 
-        left_shift = mbits - i
-        this_mantissa_f32 = (mantissa_f32 << left_shift) & F32_MANTISSA_MASK
-        this_exp_biased_f32 = (denormal_exp_biased - left_shift) << MBITS_F32
+    result = torch.where(denormal_mask, mantissa_lp_int32, result)
 
-        result = torch.where(mask, this_exp_biased_f32 | this_mantissa_f32, result)
+    # # for denormal numbers, we shift left until mantissa bits overflow
+    # # when doing so, we also need to subtract exponent by the same amount.
+    # for i in range(mbits):
+    #     mask = torch.logical_and(denormal_mask, mantissa_lp_int32 >= (1 << i))
+
+    #     left_shift = mbits - i
+    #     this_mantissa_f32 = (mantissa_f32 << left_shift) & F32_MANTISSA_MASK
+    #     this_exp_biased_f32 = (denormal_exp_biased - left_shift) << MBITS_F32
+
+    #     result = torch.where(mask, this_exp_biased_f32 | this_mantissa_f32, result)
 
     # add sign back
     sign_f32 = sign_lp.to(torch.int32) << (MBITS_F32 - mbits + EBITS_F32 - ebits)
