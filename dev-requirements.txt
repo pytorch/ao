@@ -6,7 +6,6 @@ packaging
 transformers
 hypothesis # Avoid test derandomization warning
 sentencepiece # for gpt-fast tokenizer
-expecttest # used for IS_FB flag in __init__.py
 
 # For prototype features and benchmarks
 bitsandbytes #needed for testing triton quant / dequant ops for 8-bit optimizers
