@@ -11,6 +11,10 @@ from setuptools import find_packages, setup
 
 current_date = datetime.now().strftime("%Y.%m.%d")
 
+def read_requirements(file_path):
+    with open(file_path, "r") as file:
+        return file.read().splitlines()
+
 def read_version(file_path="version.txt"):
     with open(file_path, "r") as file:
         return file.readline().strip()
