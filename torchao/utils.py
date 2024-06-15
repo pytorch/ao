@@ -2,6 +2,7 @@ import torch
 import torch.utils.benchmark as benchmark
 from typing import Tuple
 from functools import reduce
+from importlib.metadata import version
 from math import gcd
 import torch.nn.utils.parametrize as parametrize
 import itertools
@@ -162,7 +163,6 @@ def unwrap_tensor_subclass(model, filter_fn=None):
         unwrap_tensor_subclass(child)
     return model
 
-from importlib.metadata import version
 
 def torch_version_at_least(min_version):
     return version("torch") >= min_version
