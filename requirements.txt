@@ -1,3 +1,5 @@
+torch
+numpy
 sentencepiece
 packaging
 expecttest # So we can use IS_FBCODE flag
