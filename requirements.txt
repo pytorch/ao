@@ -1,2 +1,5 @@
 torch
-numpy # used in prototype kernels and expected by torch/utils/benchmark/utils/fuzzer.py
+
+# used when importing torch/utils/benchmark/utils/fuzzer.py
+# optional dependency for prototype/ kernels
+numpy
