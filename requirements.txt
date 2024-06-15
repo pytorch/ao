@@ -1,5 +1,0 @@
-torch
-
-# used when importing torch/utils/benchmark/utils/fuzzer.py
-# optional dependency for prototype/ kernels
-numpy
