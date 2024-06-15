@@ -18,7 +18,10 @@ from torchao.quantization.prototype.qat import (
     fake_quantize_per_channel_group,
     fake_quantize_per_token,
 )
-from torchao.quantization.utils import get_group_qparams_symmetric
+from torchao.quantization.utils import (
+    get_group_qparams_symmetric,
+    groupwise_affine_quantize_tensor,
+)
 from torchao.utils import TORCH_VERSION_AFTER_2_4
 
 
@@ -111,23 +114,53 @@ class TestQAT(unittest.TestCase):
 
     def _set_ptq_weight(
         self,
-        ptq_linear: "Int8DynActInt4WeightLinear",
-        fp32_weight: torch.Tensor,
-        group_size: int,
+        ptq_linear: torch.nn.Module,
+        qat_linear: torch.nn.Module,
     ):
         """
         Set the weight to the quantized version of the given fp32 weights,
         for making linear outputs comparable with QAT.
         """
+        from torchao.quantization.GPTQ import (
+            _maybe_pad_linear_weight_for_int4wo,
+            Int8DynActInt4WeightLinear,
+            WeightOnlyInt4Linear,
+        )
+        from torchao.quantization.prototype.qat import (
+            Int8DynActInt4WeightQATLinear,
+            Int4WeightOnlyQATLinear,
+        )
         n_bit = 4
         (qmin, qmax) = self._get_qmin_qmax(n_bit)
-        (s, zp) = get_group_qparams_symmetric(fp32_weight, n_bit, group_size)
-        q_weight = torch.ops.quantized_decomposed.quantize_per_channel_group(
-            fp32_weight, s, zp, qmin, qmax, torch.int8, group_size,
-        )
-        ptq_linear.weight = q_weight
-        ptq_linear.scales = s
-        ptq_linear.zeros = zp
+        if isinstance(ptq_linear, Int8DynActInt4WeightLinear):
+            assert isinstance(qat_linear, Int8DynActInt4WeightQATLinear)
+            fp32_weight = qat_linear.weight
+            group_size = qat_linear.groupsize
+            (s, zp) = get_group_qparams_symmetric(fp32_weight, n_bit, group_size)
+            q_weight = torch.ops.quantized_decomposed.quantize_per_channel_group(
+                fp32_weight, s, zp, qmin, qmax, torch.int8, group_size,
+            )
+            ptq_linear.weight = q_weight
+            ptq_linear.scales = s
+            ptq_linear.zeros = zp
+        elif isinstance(ptq_linear, WeightOnlyInt4Linear):
+            assert isinstance(qat_linear, Int4WeightOnlyQATLinear)
+            weight = _maybe_pad_linear_weight_for_int4wo(
+                qat_linear.weight,
+                qat_linear.in_features,
+                qat_linear.groupsize,
+                qat_linear.inner_k_tiles,
+            )
+            (q_weight, scales_and_zeros) = groupwise_affine_quantize_tensor(
+                weight, n_bit=4, groupsize=qat_linear.groupsize,
+            )
+            q_weight = torch.ops.aten._convert_weight_to_int4pack(
+                q_weight, qat_linear.inner_k_tiles,
+            )
+            ptq_linear.weight = q_weight
+            ptq_linear.scales_and_zeros = scales_and_zeros
+        else:
+            raise ValueError("Unknown ptq_linear type: %s" % type(ptq_linear))
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
     def test_qat_8da4w_linear(self):
@@ -144,7 +177,7 @@ class TestQAT(unittest.TestCase):
         )
 
         # Force the weights to be the same
-        self._set_ptq_weight(ptq_linear, qat_linear.weight, group_size)
+        self._set_ptq_weight(ptq_linear, qat_linear)
 
         # Compare linear values
         torch.manual_seed(self.SEED)
@@ -321,6 +354,38 @@ class TestQAT(unittest.TestCase):
 
         torch.testing.assert_close(py_out, ao_out, atol=0, rtol=0)
         torch.testing.assert_close(py_input.grad, ao_input.grad, atol=0, rtol=0)
+
+
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
+    def test_qat_4w_linear(self):
+        from torchao.quantization.prototype.qat import Int4WeightOnlyQATLinear
+        from torchao.quantization.GPTQ import WeightOnlyInt4Linear
+
+        group_size = 128
+        torch.manual_seed(self.SEED)
+        qat_linear = Int4WeightOnlyQATLinear(
+            256, 688, bias=False, groupsize=group_size,
+        )
+        ptq_linear = WeightOnlyInt4Linear(
+            256, 688, bias=False, groupsize=group_size,
+        )
+
+        # Force the weights to be the same
+        self._set_ptq_weight(ptq_linear, qat_linear)
+
+        # Compare linear values
+        torch.manual_seed(self.SEED)
+        x = torch.randn(100, 256, dtype=torch.bfloat16)
+        x2 = copy.deepcopy(x)
+        qat_out = qat_linear(x)
+        ptq_out = ptq_linear(x2)
+
+        # Note: these two do not match exactly since torch._weight_int4pack_mm
+        # and torch.mm do not match exactly. Here we use the same error bar
+        # as PyTorch core to determine closeness:
+        # https://github.com/pytorch/pytorch/blob/6079c5091091d872b8dafbaa4e31a5b6194647ad/test/test_linalg.py#L6079
+        mean_err = ((qat_out - ptq_out).abs() / qat_out).mean()
+        self.assertTrue(mean_err < 0.05)
 
 
 if __name__ == "__main__":

@@ -4,20 +4,34 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Any, Tuple
+from typing import Any, Optional, Tuple
 
 import torch
+import torch.nn.functional as F
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib
 from torch.library import impl
 
-from torchao.quantization.utils import get_group_qparams_symmetric
+from torchao.quantization.utils import (
+    get_group_qparams_symmetric,
+    groupwise_affine_dequantize_tensor,
+)
 from torchao.quantization.unified import TwoStepQuantizer
 
 from torchao.quantization.GPTQ import (
+    _check_linear_int4_k,
+    _maybe_pad_linear_weight_for_int4wo,
+    _replace_linear_int4,
     _replace_linear_8da4w,
+    get_groupwise_affine_qparams,
+    groupwise_affine_quantize_tensor_from_qparams,
+    groupwise_affine_dequantize_tensor_from_qparams,
     Int8DynActInt4WeightLinear,
+    WeightOnlyInt4Linear,
 )
 
+# =================
+# |   8da4w QAT   |
+# =================
 
 class Int8DynActInt4WeightQATQuantizer(TwoStepQuantizer):
     """
@@ -171,7 +185,7 @@ class Int8DynActInt4WeightQATLinear(torch.nn.Linear):
             )
         else:
             w_fq = self.weight
-        return torch.nn.functional.linear(x_fq, w_fq)
+        return F.linear(x_fq, w_fq)
 
     # TODO: move this to common util
     def _get_qmin_qmax(self, n_bit: int):
@@ -193,9 +207,157 @@ def disable_8da4w_fake_quant(mod: torch.nn.Module):
     if isinstance(mod, Int8DynActInt4WeightQATLinear):
         mod.disable_fake_quant()
 
+
+# ==================
+# |   int4wo QAT   |
+# ==================
+
+class Int4WeightOnlyQATQuantizer(TwoStepQuantizer):
+    """
+    Quantizer for performing QAT on a model, where linear layers have
+    int4 fake quantized grouped per channel weights.
+    """
+
+    def __init__(
+        self,
+        groupsize: int = 256,
+        padding_allowed: bool = True,
+        inner_k_tiles: Optional[int] = 8,
+        device: torch.device = torch.device("cuda"),
+        precision: torch.dtype = torch.bfloat16,
+        scales_precision: torch.dtype = torch.bfloat16,
+    ) -> None:
+        super().__init__()
+        assert inner_k_tiles in [2, 4, 8]
+        assert groupsize in [32, 64, 128, 256]
+        self.inner_k_tiles = inner_k_tiles
+        self.groupsize = groupsize
+        self.padding_allowed = padding_allowed
+        self.device = device
+
+    def prepare(
+        self,
+        model: torch.nn.Module,
+        *args: Any,
+        **kwargs: Any
+    ) -> torch.nn.Module:
+        _replace_linear_int4(
+            model,
+            self.groupsize,
+            self.inner_k_tiles,
+            self.padding_allowed,
+            precision=self.precision,
+            scales_precision=self.scales_precision,
+            linear_class=Int4WeightOnlyQATLinear,
+            copy_weights=True,
+        )
+        return model
+
+    def convert(
+        self,
+        model: torch.nn.Module,
+        *args: Any,
+        **kwargs: Any
+    ) -> torch.nn.Module:
+        # TODO: implement this
+        #_convert_qat_linear_int4(model)
+        #return model
+        pass
+
+class Int4WeightOnlyQATLinear(torch.nn.Linear):
+    """
+    This module implements a linear layer with int4 fake quantized grouped
+    per channel weights, with forward numerics matching `WeightOnlyInt4Linear`,
+    which uses the efficient int4 tinygemm kernel.
+
+    args:
+        groupsize: the number of elements in each quantized group for weights
+        precision: precision of weights
+        scales_precision: precision of per group scales and zero points
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        bias: bool = False,
+        device: torch.device = None,
+        groupsize: int = 256,
+        inner_k_tiles: int = 8,
+        precision: torch.dtype = torch.bfloat16,
+        scales_precision: torch.dtype = torch.bfloat16,
+    ) -> None:
+        super().__init__(
+            in_features,
+            out_features,
+            bias,
+            device=device,
+            dtype=precision,
+        )
+        assert not bias, "require bias=False"
+        assert scales_precision == torch.bfloat16, "only bf16 is supported for scales"
+        self.padding = not _check_linear_int4_k(in_features, groupsize, inner_k_tiles)
+        if self.padding:
+            from model import find_multiple
+            self.origin_in_features = in_features
+            in_features = find_multiple(in_features, 1024)
+        self.groupsize = groupsize
+        self.inner_k_tiles = inner_k_tiles
+        self.precision = precision
+        self.scales_precision = scales_precision
+        self._fake_quant_enabled = True
+
+    def enable_fake_quant(self, enabled: bool = True):
+        self._fake_quant_enabled = enabled
+
+    def disable_fake_quant(self):
+        self.enable_fake_quant(False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.padding:
+            x = F.pad(x, pad=(0, self.in_features - self.origin_in_features))
+        n_bit = 4
+        qmin = 0
+        qmax = 2 ** n_bit - 1
+        weight = _maybe_pad_linear_weight_for_int4wo(
+            self.weight, self.in_features, self.groupsize, self.inner_k_tiles,
+        )
+        scales, zero_points = get_groupwise_affine_qparams(
+            weight, n_bit, self.groupsize, self.scales_precision,
+        )
+        w_fq = _Int4WeightOnlyFakeQuantize.apply(
+            weight, scales, zero_points, qmin, qmax, self.groupsize,
+        )
+        return F.linear(x, w_fq)
+
+
 # ========================
 # |   QUANT PRIMITIVES   |
 # ========================
+
+class _Int4WeightOnlyFakeQuantize(torch.autograd.Function):
+    """
+    Implementation of int4 grouped per channel weight-only fake quantize
+    intended to match the numerics of the efficient int4 tinygemm kernel.
+    """
+
+    @staticmethod
+    def forward(ctx, input, scales, zero_points, quant_min, quant_max, groupsize):
+        n_bit = 4
+        w_q = groupwise_affine_quantize_tensor_from_qparams(
+            input, scales, zero_points, n_bit, groupsize, cast_dtypes=False,
+        )
+        w_dq = groupwise_affine_dequantize_tensor_from_qparams(
+            w_q, scales, zero_points, n_bit, groupsize, cast_dtypes=False,
+        )
+        mask = torch.logical_and((w_q >= quant_min), (w_q <= quant_max))
+        ctx.save_for_backward(mask)
+        return w_dq
+
+    @staticmethod
+    def backward(ctx, gy):
+        (mask,) = ctx.saved_tensors
+        return gy * mask, None, None, None, None, None
 
 class _GenericFakeQuantize(torch.autograd.Function):
     """
