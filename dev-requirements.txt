@@ -14,6 +14,7 @@ matplotlib
 pandas
 fire  # QOL for commandline scripts
 tabulate  # QOL for printing tables to stdout
+numpy # mx benchmarks leverage benchmark timer which uses numpy
 
 # Custom CUDA Extensions
 ninja
