@@ -4,8 +4,6 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-import struct
-
 import numpy as np
 
 import torch
@@ -25,8 +23,6 @@ from torchao.prototype.mx_formats.constants import (
     E8M0_EXPONENT_NAN_VAL,
     F32_EXP_BIAS,
     F4_E2M1_EXP_BIAS,
-    F6_E2M3_EXP_BIAS,
-    F6_E3M2_EXP_BIAS,
 )
 
 
@@ -45,78 +41,8 @@ EBITS_F4_E2M1, MBITS_F4_E2M1 = 2, 1
 EBITS_F6_E2M3, MBITS_F6_E2M3 = 2, 3
 EBITS_F6_E3M2, MBITS_F6_E3M2 = 3, 2
 
-DENORM_F32TOF4_EXP = (
-    # exp bias conversion between formats
-    (F32_EXP_BIAS - F4_E2M1_EXP_BIAS)
-    # mantissa length difference between formats
-    + (MBITS_F32 - MBITS_F4_E2M1)
-    # add one to encoded exponent for denormalized numbers
-    + 1
-)
-DENORM_F32TOF4_MASK_INT = DENORM_F32TOF4_EXP << MBITS_F32
-# reinterpret int32 as float32 in Python
-# see https://stackoverflow.com/a/34446112/1058521
-DENORM_F32TOF4_MASK_FLOAT = struct.unpack(
-    "!f", struct.pack("!I", DENORM_F32TOF4_MASK_INT)
-)[0]
-
-DENORM_F32TOF6_E2M3_EXP = (
-    # exp bias conversion between formats
-    (F32_EXP_BIAS - F6_E2M3_EXP_BIAS)
-    # mantissa length difference between formats
-    + (MBITS_F32 - MBITS_F6_E2M3)
-    # add one to encoded exponent for denormalized numbers
-    + 1
-)
-DENORM_F32TOF6_E2M3_MASK_INT = DENORM_F32TOF6_E2M3_EXP << MBITS_F32
-# reinterpret int32 as float32 in Python
-# see https://stackoverflow.com/a/34446112/1058521
-DENORM_F32TOF6_E2M3_MASK_FLOAT = struct.unpack(
-    "!f", struct.pack("!I", DENORM_F32TOF6_E2M3_MASK_INT)
-)[0]
-
-DENORM_F32TOF6_E3M2_EXP = (
-    # exp bias conversion between formats
-    (F32_EXP_BIAS - F6_E3M2_EXP_BIAS)
-    # mantissa length difference between formats
-    + (MBITS_F32 - MBITS_F6_E3M2)
-    # add one to encoded exponent for denormalized numbers
-    + 1
-)
-DENORM_F32TOF6_E3M2_MASK_INT = DENORM_F32TOF6_E3M2_EXP << MBITS_F32
-# reinterpret int32 as float32 in Python
-# see https://stackoverflow.com/a/34446112/1058521
-DENORM_F32TOF6_E3M2_MASK_FLOAT = struct.unpack(
-    "!f", struct.pack("!I", DENORM_F32TOF6_E3M2_MASK_INT)
-)[0]
-
-#
-# magic value to add during the normal path
-# TODO document this better
-#
-
-# c++ code e5m2:
-# f_bits += ((uint32_t)(15 - 127) << 23) + 0xFFFFF;
-# 0xFFFFF is 1111 1111 1111 1111 1111, 20 ones, 20 = 23 - 3 = 23 - 2 - 1
-
-# c++ code e4m3:
-# f_bits += ((uint32_t)(7 - 127) << 23) + 0x7FFFF;
-# 0x7FFFF is 0111 1111 1111 1111 1111, 19 ones, 19 = 23 - 4 = 23 - 3 - 1
-
-MAGIC_ADDER_F4_E2M1 = 0x1FFFFF  # 21 ones
-MAGIC_ADDER_F6_E2M3 = 0x7FFFF  # 19 ones
-MAGIC_ADDER_F6_E3M2 = 0xFFFFF  # 20 ones
-
-# c++ code named vars
-# f_bits += ((uint32_t)(f8_exp_bias - f32_exp_bias) << f32_mbits) + MAGIC_ADDER;  # noqa: E501
-
 SIGN_MASK_F4 = 0x8  # 1000
-SIGN_MASK_F6_E2M3 = 0x20  # 100000
-SIGN_MASK_F6_E3M2 = 0x20  # 100000
-
 MANTISSA_MASK_F4 = 0x1  # 0001
-MANTISSA_MASK_F6_E2M3 = 0x7  # 000111
-MANTISSA_MASK_F6_E3M2 = 0x3  # 000011
 
 ZERO_BITS_F32 = 0x0
 ZERO_POINT_FIVE_BITS_F32 = 0x3F000000

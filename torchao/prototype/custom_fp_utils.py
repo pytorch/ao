@@ -4,7 +4,13 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-import struct
+# This script was initially developed for sub-byte MX dtypes (FP4 E2M1, FP6 E3M2, and FP6 E2M3).
+# It has been refactored to support any sub-byte FP dtypes. However, some behaviors of MX dtypes remain:
+#   1. No encodings are reserved for special values (+/-inf, NaN).
+#   2. When downcasting from FP32 to FPx,
+#      - Rounding mode is round to nearest, ties to even.
+#      - Values outside the representable range of FPx after rounding are clamped to the maximum FPx
+#      magnitude (sign is preserved).
 
 import torch
 from torch import Tensor
@@ -16,7 +22,6 @@ def _n_ones(n: int) -> int:
 
 EBITS_F32, MBITS_F32 = 8, 23
 F32_EXP_BIAS = _n_ones(EBITS_F32 - 1)
-F32_MANTISSA_MASK = _n_ones(MBITS_F32)
 
 
 def _f32_to_fpx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
@@ -47,9 +52,7 @@ def _f32_to_fpx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
     )
     denorm_mask_int = denorm_exp << MBITS_F32
 
-    # reinterpret int32 as float32 in Python
-    # see https://stackoverflow.com/a/34446112/1058521
-    # denorm_mask_float = struct.unpack("!f", struct.pack("!I", denorm_mask_int))[0]
+    # reinterpret int32 as float32
     denorm_mask_float = torch.tensor(denorm_mask_int, dtype=torch.int32).view(torch.float32)
 
     # save the sign
@@ -165,35 +168,32 @@ def _fpx_unpacked_to_f32(x: Tensor, ebits: int, mbits: int) -> Tensor:
     # 4. Add the zero and denormal casts to the already casted normal path
     #
     result[zero_mask] = 0
-    # Note: for now the denormal path cast is written for readability and
-    # numerical correctness. There is likely a way to optimize the performance,
-    # I just haven't had time to look into it.
 
     denormal_exp_biased = 1 - exp_bias + F32_EXP_BIAS
 
-    # 1st iteration: 1
-    # 2nd iteration: 10, 11
-    # 3rd iteration: 100, 101, 110, 111
-    # and so on
-    for i in range(mbits):
-        for j in range(1 << i, 1 << (i+1)):
-            left_shift = mbits - i
-            mantissa = (j - (1 << i)) << (left_shift + MBITS_F32 - mbits)
-            exp = (denormal_exp_biased - left_shift) << MBITS_F32
-            mantissa_lp_int32[mantissa_lp_int32 == j] = exp | mantissa
+    # fast path.
+    # without this, performance for FP4_E2M1 is slower by 2x
+    if mbits == 1:
+        result[denormal_mask] = (denormal_exp_biased - mbits) << MBITS_F32
 
-    result = torch.where(denormal_mask, mantissa_lp_int32, result)
+    else:
+        # iterate over all possible values of mantissa
+        # i=0, j=1
+        # i=1, j=10,11
+        # i=2, j=100,101,110,111
+        # and so on
+        for i in range(mbits):
+            for mantissa_cmp in range(1 << i, 1 << (i+1)):
+                # left shift mantissa until it overflows (create an implicit 1)
+                # subtract exponent by the same amount
+                left_shift = mbits - i
+                mantissa_f32 = (mantissa_cmp - (1 << i)) << (left_shift + MBITS_F32 - mbits)
+                exp_biased_f32 = (denormal_exp_biased - left_shift) << MBITS_F32
 
-    # # for denormal numbers, we shift left until mantissa bits overflow
-    # # when doing so, we also need to subtract exponent by the same amount.
-    # for i in range(mbits):
-    #     mask = torch.logical_and(denormal_mask, mantissa_lp_int32 >= (1 << i))
+                # we can update this in-place since the values won't overlap
+                mantissa_lp_int32[mantissa_lp_int32 == mantissa_cmp] = exp_biased_f32 | mantissa_f32
 
-    #     left_shift = mbits - i
-    #     this_mantissa_f32 = (mantissa_f32 << left_shift) & F32_MANTISSA_MASK
-    #     this_exp_biased_f32 = (denormal_exp_biased - left_shift) << MBITS_F32
-
-    #     result = torch.where(mask, this_exp_biased_f32 | this_mantissa_f32, result)
+        result = torch.where(denormal_mask, mantissa_lp_int32, result)
 
     # add sign back
     sign_f32 = sign_lp.to(torch.int32) << (MBITS_F32 - mbits + EBITS_F32 - ebits)
