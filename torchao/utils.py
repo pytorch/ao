@@ -19,6 +19,7 @@ __all__ = [
     "TORCH_VERSION_AFTER_2_2",
     "TORCH_VERSION_AFTER_2_3",
     "TORCH_VERSION_AFTER_2_4",
+    "TORCH_VERSION_AFTER_2_5",
 ]
 
 
@@ -167,6 +168,7 @@ def unwrap_tensor_subclass(model, filter_fn=None):
 def torch_version_at_least(min_version):
     return version("torch") >= min_version
 
+TORCH_VERSION_AFTER_2_5 = torch_version_at_least("2.5.0.dev")
 TORCH_VERSION_AFTER_2_4 = torch_version_at_least("2.4.0.dev")
 TORCH_VERSION_AFTER_2_3 = torch_version_at_least("2.3.0.dev")
 TORCH_VERSION_AFTER_2_2 = torch_version_at_least("2.2.0.dev")
