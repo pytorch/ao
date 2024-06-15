@@ -1,3 +1,2 @@
 torch
-packaging # for version guards in torchao/utils.py
 numpy # used in prototype kernels and expected by torch/utils/benchmark/utils/fuzzer.py

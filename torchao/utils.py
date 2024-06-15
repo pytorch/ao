@@ -3,7 +3,6 @@ import torch.utils.benchmark as benchmark
 from typing import Tuple
 from functools import reduce
 from math import gcd
-from packaging import version
 import torch.nn.utils.parametrize as parametrize
 import itertools
 
@@ -163,20 +162,14 @@ def unwrap_tensor_subclass(model, filter_fn=None):
         unwrap_tensor_subclass(child)
     return model
 
-if version.parse(torch.__version__) >= version.parse("2.4.0.dev"):
-    TORCH_VERSION_AFTER_2_4 = True
-else:
-    TORCH_VERSION_AFTER_2_4 = False
+from importlib.metadata import version
 
-if version.parse(torch.__version__) >= version.parse("2.3.0.dev"):
-    TORCH_VERSION_AFTER_2_3 = True
-else:
-    TORCH_VERSION_AFTER_2_3 = False
+def torch_version_at_least(min_version):
+    return version("torch") >= min_version
 
-if version.parse(torch.__version__) >= version.parse("2.2.0.dev"):
-    TORCH_VERSION_AFTER_2_2 = True
-else:
-    TORCH_VERSION_AFTER_2_2 = False
+TORCH_VERSION_AFTER_2_4 = torch_version_at_least("2.4.0.dev")
+TORCH_VERSION_AFTER_2_3 = torch_version_at_least("2.3.0.dev")
+TORCH_VERSION_AFTER_2_2 = torch_version_at_least("2.2.0.dev")
 
 def is_fbcode():
     return not hasattr(torch.version, "git_version")
