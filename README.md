@@ -31,19 +31,13 @@ From source
 ```Shell
 git clone https://github.com/pytorch/ao
 cd ao
-pip install -r requirements.txt
-pip install -r dev-requirements.txt
-```
-
-There are two options;
--If you plan to be developing the library run:
-```Shell
-python setup.py develop
-```
-
-If you want to install from source run
-```Shell
 python setup.py install 
+```
+
+If you plan to be developing the library run:
+```Shell
+pip install -r dev-requirements.txt
+python setup.py develop
 ```
 
 ** Note:
