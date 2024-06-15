@@ -1,6 +1,3 @@
 torch
-numpy
-sentencepiece
-packaging
+packaging # for version guards
 expecttest # So we can use IS_FBCODE flag
-hypothesis # Avoid test derandomization warning

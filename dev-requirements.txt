@@ -4,6 +4,9 @@ unittest-xml-reporting
 parameterized
 packaging
 transformers
+hypothesis # Avoid test derandomization warning
+sentencepiece # for gpt-fast tokenizer
+numpy # used in prototype kernels
 
 # For prototype features and benchmarks
 bitsandbytes #needed for testing triton quant / dequant ops for 8-bit optimizers
