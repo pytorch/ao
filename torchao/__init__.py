@@ -1,6 +1,11 @@
 import torch
 import logging
 
+# torch/nested/_internal/nested_tensor.py:417: UserWarning: Failed to initialize NumPy: No module named 'numpy'
+import warnings
+warnings.filterwarnings("ignore", message="Failed to initialize NumPy: No module named 'numpy'")
+
+
 # We use this "hack" to set torchao.__version__ correctly
 # the version of ao is dependent on environment variables for multiple architectures
 # For local development this will default to whatever is version.txt

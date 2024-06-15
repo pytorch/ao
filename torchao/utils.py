@@ -1,5 +1,4 @@
 import torch
-import torch.utils.benchmark as benchmark
 from typing import Tuple
 from functools import reduce
 from importlib.metadata import version
@@ -65,8 +64,9 @@ def skip_if_compute_capability_less_than(min_capability):
 
 
 def benchmark_torch_function_in_microseconds(f, *args, **kwargs):
+    import torch.utils.benchmark as benchmark # this avoids importing numpy when torchao module is loaded
+    
     # Manual warmup
-
     f(*args, **kwargs)
     f(*args, **kwargs)
 
