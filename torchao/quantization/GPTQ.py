@@ -556,7 +556,7 @@ class WeightOnlyInt4Linear(torch.nn.Module):
         super().__init__()
         self.padding = not _check_linear_int4_k(in_features, groupsize, inner_k_tiles)
         if self.padding:
-            from model import find_multiple
+            from .utils import find_multiple
             self.origin_in_features = in_features
             in_features = find_multiple(in_features, 1024)
 
@@ -612,6 +612,7 @@ def _replace_linear_int4(
                     bias=False,
                     device=child.weight.device,
                     groupsize=groupsize,
+                    inner_k_tiles=inner_k_tiles,
                     precision=precision,
                     scales_precision=scales_precision,
                 )
@@ -682,9 +683,16 @@ class Int4WeightOnlyQuantizer(Quantizer):
                 ), f"require in_features:{in_features} % self.groupsize:{self.groupsize} == 0"
 
                 weight = mod.weight.data
-                weight = _maybe_pad_linear_weight_for_int4wo(
-                    weight, in_features, self.groupsize, self.inner_k_tiles, fqn,
-                )
+                if not _check_linear_int4_k(
+                    in_features, self.groupsize, self.inner_k_tiles
+                ):
+                    if self.padding_allowed:
+                        print(f"warning: {fqn} is padded to satisfy in_features % 1024 == 0")
+                        weight = _pad_linear_weight_for_int4wo(weight, in_features)
+                    else:
+                        print(f"warning: {fqn} is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, " +
+                                "and that groupsize and inner_k_tiles*16 evenly divide into it")
+                        continue
                 (
                     w_int4x8,
                     scales_and_zeros
@@ -717,27 +725,13 @@ class Int4WeightOnlyQuantizer(Quantizer):
         return model
 
 
-def _maybe_pad_linear_weight_for_int4wo(
+def _pad_linear_weight_for_int4wo(
     weight: torch.Tensor,
     in_features: int,
-    groupsize: int,
-    inner_k_tiles: Optional[int],
-    fqn: str = "",
 ):
-    if not _check_linear_int4_k(
-        in_features, groupsize, inner_k_tiles
-    ):
-        if padding_allowed:
-            from .utils import find_multiple
-            if len(fqn) > 0:
-                print(f"warning: {fqn} is padded to satisfy in_features % 1024 == 0")
-            padded_in_features = find_multiple(in_features, 1024)
-            return F.pad(weight, pad=(0, padded_in_features - in_features))
-        else:
-            if len(fqn) > 0:
-                print(f"warning: {fqn} is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, " +
-                        "and that groupsize and inner_k_tiles*16 evenly divide into it")
-    return weight
+    from .utils import find_multiple
+    padded_in_features = find_multiple(in_features, 1024)
+    return F.pad(weight, pad=(0, padded_in_features - in_features))
 
 
 class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
