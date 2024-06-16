@@ -3,6 +3,10 @@ import torch
 import torch.nn as nn
 from torchao.prototype.dtypes import BitnetTensor
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
+from torchao.utils import TORCH_VERSION_AFTER_2_3
+
+if not TORCH_VERSION_AFTER_2_3:
+    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 def _apply_weight_only_uint2_quant(model):
     def fn(mod):
