@@ -8,7 +8,7 @@
 namespace torchao {
 using Tensor = at::Tensor;
 
-Tensor& int4mv_out_impl(const Tensor& A, const Tensor& B, int32_t groupSize, const Tensor& scalesAndZeros, Tensor& C) {
+Tensor& int4mv_out_impl(const Tensor& A, const Tensor& B, int64_t groupSize, const Tensor& scalesAndZeros, Tensor& C) {
   auto M = A.size(0);
   auto N = B.size(0);
   auto K = A.size(1);
@@ -37,7 +37,9 @@ Tensor& int4mv_out_impl(const Tensor& A, const Tensor& B, int32_t groupSize, con
   return C;
 }
 
-Tensor int4mv_impl(const Tensor& A, const Tensor& B, int32_t groupSize, const Tensor& scalesAndZeros) {
+Tensor int4mv_impl(const Tensor& A, const Tensor& B, int64_t groupSize, const Tensor& scalesAndZeros) {
+  auto M = A.size(0);
+  auto N = B.size(0);
   auto C = at::empty({M, N}, A.options());
   return int4mv_out_impl(A, B, groupSize, scalesAndZeros, C);
 }
@@ -45,7 +47,7 @@ Tensor int4mv_impl(const Tensor& A, const Tensor& B, int32_t groupSize, const Te
 
 TORCH_LIBRARY_IMPL(torchao, MPS, m) {
   m.impl("torchao::int4mv", &int4mv_impl);
-  m.impl("torchao::int4mv.out" &int4mv_out_impl)
+  m.impl("torchao::int4mv.out", &int4mv_out_impl);
 }
 
 } // namespace torchao
