@@ -1,5 +1,6 @@
 
-from .uint2 import BitnetTensor, UInt2Tensor
+from .uint2 import UInt2Tensor
+from .bitnet import BitnetTensor
 
 __all__ = [
     "BitnetTensor",
