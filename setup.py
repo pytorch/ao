@@ -50,6 +50,7 @@ def get_extensions():
         print("If you'd like to compile CUDA extensions locally please install the cudatoolkit from https://anaconda.org/nvidia/cuda-toolkit")
 
     use_cuda = torch.cuda.is_available() and CUDA_HOME is not None
+    use_mps = torch.backends.mps.is_available()
     extension = CUDAExtension if use_cuda else CppExtension
 
     extra_link_args = []
@@ -77,6 +78,10 @@ def get_extensions():
     if use_cuda:
         sources += cuda_sources
 
+    if use_mps:
+        extensions_mps_dir = os.path.join(extensions_dir, "metal")
+        mps_sources = list(glob.glob(os.path.join(extensions_mps_dir, "**/*.mm"), recursive=True))
+        sources += mps_sources
     ext_modules = [
         extension(
             "torchao._C",
