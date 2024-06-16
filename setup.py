@@ -94,7 +94,6 @@ if os.getenv("PYTORCH_VERSION"):
     pytorch_dep += "==" + os.getenv("PYTORCH_VERSION")
 
 requirements = [
-    # "numpy",
     pytorch_dep,
 ]
 
