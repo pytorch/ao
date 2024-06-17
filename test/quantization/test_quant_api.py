@@ -617,5 +617,25 @@ class TestQuantFlow(TestCase):
         quantize(m, "my_dtype")
         m(*example_inputs)
 
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_quantized_tensor_subclass_save_load(self):
+        m = ToyLinearModel().eval().to(torch.bfloat16)
+        m_copy = copy.deepcopy(m)
+        example_inputs = m.example_inputs(dtype=torch.bfloat16)
+
+        m = quantize(m, "int8_weight_only")
+        ref = m(*example_inputs)
+        with tempfile.NamedTemporaryFile() as f:
+            torch.save(m.state_dict(), f)
+            f.seek(0)
+            state_dict = torch.load(f)
+
+        m_copy.load_state_dict(state_dict, assign=True)
+
+        res = m_copy(*example_inputs)
+        self.assertEqual(res, ref)
+
+
 if __name__ == "__main__":
     unittest.main()

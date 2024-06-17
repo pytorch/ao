@@ -171,7 +171,7 @@ from torchao.quantization import quant_api
 
 # for torch 2.4+
 from torchao.quantization.quant_api import quantize
-quantize(model, "int8_dynamic_quant")
+quantize(model, "int8_dynamic")
 
 # for torch 2.2.2 and 2.3
 from torchao.quantization.quant_api import change_linear_weights_to_int8_dqtensors

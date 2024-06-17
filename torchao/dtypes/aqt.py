@@ -229,7 +229,7 @@ class AffineQuantizedTensor(torch.Tensor):
         )
 
     @property
-    def layout(self) -> str:
+    def extended_layout(self) -> str:
         return self.layout_tensor.extended_layout
 
     @classmethod
@@ -555,8 +555,8 @@ def _quantized_linear_op(input_tensor, weight_qtensor, bias):
                 is_cuda and
                 input_is_int8 and
                 input_tensor.dtype == weight_qtensor.dtype and
-                input_tensor.layout == "plain" and
-                weight_qtensor.layout == "plain"
+                input_tensor.extended_layout == "plain" and
+                weight_qtensor.extended_layout == "plain"
             ):
                 #
                 # 1. do the matrix form of dot(X_i, W_j)
@@ -598,7 +598,7 @@ def _quantized_linear_op(input_tensor, weight_qtensor, bias):
             weight_qtensor.dtype == torch.bfloat16 and
             len(weight_qtensor.shape) == 2 and
             weight_qtensor.zero_point_domain == ZeroPointDomain.FLOAT and
-            weight_qtensor.layout == "tensor_core_tiled"
+            weight_qtensor.extended_layout == "tensor_core_tiled"
         ):
             assert weight_qtensor.block_size[0] == 1, f"Requires groupwise quantization, got block_size: {block_size}"
             assert input_tensor.shape[-1] == weight_qtensor.shape[1], (
@@ -641,7 +641,7 @@ def _quantized_linear_op(input_tensor, weight_qtensor, bias):
             weight_qtensor.block_size[0] == 1 and
             weight_qtensor.block_size[1] == weight_qtensor.shape[1] and
             weight_qtensor.zero_point_domain == ZeroPointDomain.INT and
-            weight_qtensor.layout == "plain"
+            weight_qtensor.extended_layout == "plain"
         ):
             # TODO: enable cpu and mps efficient path
             # per channel int8 weight only quantizated mm
