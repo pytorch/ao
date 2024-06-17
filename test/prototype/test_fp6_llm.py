@@ -34,7 +34,7 @@ class TestFp6LlmLinear(TestCase):
         x = torch.randn(256, 64, device=device)
 
         expected = to_tc_float6_e3m2(x)
-        actual = torch.compile(to_tc_float6_e3m2)(x)
+        actual = torch.compile(to_tc_float6_e3m2, fullgraph=True)(x)
         torch.testing.assert_close(actual, expected)
 
     @parametrize("device", _DEVICES)
@@ -53,7 +53,7 @@ class TestFp6LlmLinear(TestCase):
         x = torch.randint(256, size=(M, N * 3 // 4), dtype=torch.uint8, device=device)
 
         expected = from_tc_float6_e3m2(x)
-        actual = torch.compile(from_tc_float6_e3m2)(x)
+        actual = torch.compile(from_tc_float6_e3m2, fullgraph=True)(x)
         torch.testing.assert_close(actual, expected)
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -81,7 +81,7 @@ class TestFp6LlmLinear(TestCase):
 
         x = torch.randn(N, IC, device=device, dtype=torch.half)
         expected = fp6_linear(x)
-        actual = torch.compile(fp6_linear)(x)
+        actual = torch.compile(fp6_linear, fullgraph=True)(x)
         torch.testing.assert_close(actual, expected)
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")

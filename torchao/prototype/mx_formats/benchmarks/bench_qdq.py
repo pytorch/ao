@@ -61,8 +61,8 @@ def run(profile_folder: Optional[str] = None):
             data_lp = MXTensor.to_mx(data_hp, elem_dtype, block_size=32)
 
             if not use_fp4_custom_triton_dequant_kernel:
-                quant = torch.compile(MXTensor.to_mx)
-                dequant = torch.compile(data_lp.to_dtype)
+                quant = torch.compile(MXTensor.to_mx, fullgraph=True)
+                dequant = torch.compile(data_lp.to_dtype, fullgraph=True)
             else:
                 # As of 2024-04, torch.compile didn't work with the
                 # handwritten triton kernel,
