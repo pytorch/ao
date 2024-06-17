@@ -211,7 +211,8 @@ def equal(func, args, kwargs):
 @implements([torch.ops.aten.detach.default])
 def detach(func, args, kwargs):
     (tensor,) = args
-    return tensor.elem.detach()
+    detached_elem = tensor.elem.detach()
+    return UInt2Tensor(detached_elem)
 
 @implements([torch.ops.aten.to.dtype])
 def to_dtype(func, args, kwargs):

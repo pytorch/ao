@@ -24,8 +24,8 @@ class BitnetTensor(UInt2Tensor):
         super(BitnetTensor, self).__init__(input_tensor, **kwargs)
 
     @staticmethod
-    def __tensor_unflatten__(flattened, meta):
-        assert meta is None
+    def __tensor_unflatten__(flattened, *meta):
+        # TODO - meta is not None, is it ok?
         elem = flattened["elem"]
         return BitnetTensor(elem)
 
@@ -51,7 +51,8 @@ class BitnetTensor(UInt2Tensor):
     
     @classmethod
     def from_float(cls, w: torch.Tensor):
-        w_int2 = _quantize_int2(w).to(device=w.device)
+        w_intq = _quantize_int2(w)
+        w_int2 = w_intq.to(device=w.device)
         return w_int2
     
     def clone(self):
@@ -62,7 +63,6 @@ class BitnetTensor(UInt2Tensor):
         return self
     
     def to(self, *args, **kwargs):
-        (tensor,) = args
         if len(args) == 1 and isinstance(args[0], torch.dtype):
             dtype = args[0]
             if dtype == torch.int8:
@@ -71,23 +71,31 @@ class BitnetTensor(UInt2Tensor):
                 return unpack_uint2(self.elem).to(torch.int8).to(dtype)
             elif dtype == torch.uint8:
                 return unpack_uint2(self.elem).view(torch.uint8)
-            elif isinstance(tensor, BitnetTensor):
+            elif isinstance(self, BitnetTensor):
                 return self
+        if 'device' in kwargs:
+            device = kwargs['device']
+            return BitnetTensor(self.elem.to(device=device))
+        
         return super().to(*args, **kwargs)
 
 @implements([torch.ops.aten.mm.default])
 def mm(func, args, kwargs):
     x, weight = args
-    x = unpack_uint2(x.elem).to(torch.float32)
-    weight = unpack_uint2(weight.elem).to(torch.float32)
+    if isinstance(x, BitnetTensor):
+        x = unpack_uint2(x.elem).to(torch.float32)
+    if isinstance(weight, BitnetTensor):
+        weight = unpack_uint2(weight.elem).to(torch.float32)
     y = torch.mm(x, weight)
     return y
 
 @implements([torch.ops.aten.addmm.default])
 def addmm(func, args, kwargs):
     bias, x, weight = args
-    x = unpack_uint2(x.elem).to(torch.float32)
-    weight = unpack_uint2(weight.elem).to(torch.float32)
+    if isinstance(x, BitnetTensor):
+        x = unpack_uint2(x.elem).to(torch.float32)
+    if isinstance(weight, BitnetTensor):
+        weight = unpack_uint2(weight.elem).to(torch.float32)
     if bias is not None:
         bias = bias.to(torch.float32)
     y = torch.addmm(bias, x, weight)
