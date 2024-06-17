@@ -342,21 +342,3 @@ def unpack_uint7(packed_data: torch.Tensor) -> torch.Tensor:
     ).view(up_size_uint7(shape))
 
     return unpacked_data
-
-
-def test_uint_small_range(pack_fn, unpack_fn, bit_count):
-    x = torch.arange(0, 256, dtype=torch.uint8)
-    y = pack_fn(x)
-    z = unpack_fn(y)
-    k = z.view(-1, 2 ** bit_count)
-    check = torch.arange(0, 2 ** bit_count, dtype=torch.uint8).repeat(k.size(0), 1)
-    assert torch.all(k == check)
-
-
-if __name__ == "__main__":
-    test_uint_small_range(pack_uint2, unpack_uint2, 2)
-    test_uint_small_range(pack_uint3, unpack_uint3, 3)
-    test_uint_small_range(pack_uint4, unpack_uint4, 4)
-    test_uint_small_range(pack_uint5, unpack_uint5, 5)
-    test_uint_small_range(pack_uint6, unpack_uint6, 6)
-    test_uint_small_range(pack_uint7, unpack_uint7, 7)

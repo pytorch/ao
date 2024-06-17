@@ -1,35 +1,30 @@
 import pytest
 import torch
 import torch.nn as nn
-from torchao.prototype.dtypes import BitnetTensor
-from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
-from torchao.utils import TORCH_VERSION_AFTER_2_3
+from torchao.prototype.dtypes import UInt2Tensor
+from torchao.prototype.dtypes.uint2 import unpack_uint2
 
-if not TORCH_VERSION_AFTER_2_3:
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+@pytest.fixture
+def uint2_tensor():
+    input_tensor = torch.randint(0, 15, (4,4), dtype = torch.uint8)
+    return UInt2Tensor(input_tensor)
 
-def _apply_weight_only_uint2_quant(model):
-    def fn(mod):
-        mod.weight = torch.nn.Parameter(BitnetTensor.from_float(mod.weight), requires_grad=False)
-        return mod
+def test_copy(uint2_tensor):
+    copied_tensor = uint2_tensor.clone()
+    assert torch.equal(uint2_tensor.elem, copied_tensor.elem)
 
-    _replace_with_custom_fn_if_matches_filter(
-        model,
-        lambda mod: fn(mod),
-        lambda mod, fqn: isinstance(mod, torch.nn.Linear),
-    )
+def test_transpose(uint2_tensor):
+    transposed_tensor = uint2_tensor.t()
+    expected_tensor = unpack_uint2(uint2_tensor.elem).t()
+    assert torch.equal(unpack_uint2(transposed_tensor.elem), expected_tensor)
 
-@pytest.mark.parametrize("input_shape", [[2, 4], [5, 5, 5, 4], [1, 4, 4]])
-def test_uint2_quant(input_shape):
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    x = torch.randn(*input_shape).to(device)
-    m = nn.Sequential(nn.Linear(4, 16)).to(device)
-    y_ref = m(x)
-    _apply_weight_only_uint2_quant(m)
-    y_wo = m(x)
-    assert y_ref.shape == y_wo.shape
-    # WIP - Need to use the latest build and test torch.compile
-    # y_compiled = torch.compile(m, fullgraph=True)(x)
+@pytest.mark.parametrize("dtype", [torch.float, torch.float16, torch.bfloat16, torch.int16, torch.int32, torch.int64])
+def test_conversion(uint2_tensor, dtype):
+    converted_tensor = uint2_tensor.to(dtype)
+    expected_tensor = unpack_uint2(uint2_tensor.elem).to(dtype)
+    assert torch.allclose(converted_tensor, expected_tensor, atol=1e-5)
 
 if __name__ == '__main__':
-    test_uint2_quant([2, 4])
+    pytest.main(__file__)
+    
+

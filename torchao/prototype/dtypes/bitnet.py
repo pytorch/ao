@@ -13,14 +13,7 @@ def implements(aten_ops):
 def _quantize_int2(x: torch.Tensor, target_dtype: torch.dtype) -> torch.Tensor:
     # Quantize the input tensor to int2
     quant = x.sign() + 1
-
-    if target_dtype == torch.uint2:
-        quant = BitnetTensor.from_unpacked(
-            quant.to(torch.uint8),
-        )
-    else:
-        quant = quant.to(target_dtype)
-
+    quant = BitnetTensor.from_unpacked(quant.to(torch.uint8))
     return quant
 
 class BitnetTensor(UInt2Tensor):
@@ -60,19 +53,43 @@ class BitnetTensor(UInt2Tensor):
     def from_float(cls, w: torch.Tensor):
         w_int2 = _quantize_int2(w, torch.uint2).to(device=w.device)
         return w_int2
+    
+    def clone(self):
+        return BitnetTensor(self.elem.clone())
+    
+    def copy_(self, src):
+        self.elem.copy_(src.elem)
+        return self
+    
+    def to(self, *args, **kwargs):
+        if len(args) == 1 and isinstance(args[0], torch.dtype):
+            dtype = args[0]
+            if dtype == torch.int8:
+                return unpack_uint2(self.elem).view(self.shape).view(torch.int8)
+            elif dtype in (torch.float, torch.float16, torch.bfloat16, torch.int16, torch.int32, torch.int64):
+                return unpack_uint2(self.elem).to(torch.int8).to(dtype)
+            elif dtype == torch.uint8:
+                return unpack_uint2(self.elem).view(torch.uint8)
+            elif dtype == torch.uint2:
+                return self
+        return super().to(*args, **kwargs)
 
 @implements([torch.ops.aten.mm.default])
 def mm(func, args, kwargs):
     x, weight = args
-    y = torch.mm(x, weight.to(torch.int8).to(x.device).to(x.dtype))
+    x = unpack_uint2(x.elem).to(torch.float32)
+    weight = unpack_uint2(weight.elem).to(torch.float32)
+    y = torch.mm(x, weight)
     return y
 
 @implements([torch.ops.aten.addmm.default])
 def addmm(func, args, kwargs):
     bias, x, weight = args
-    y = torch.addmm(bias, x, weight.to(torch.int8).to(x.device).to(x.dtype))
+    x = unpack_uint2(x.elem).to(torch.float32)
+    weight = unpack_uint2(weight.elem).to(torch.float32)
     if bias is not None:
-        y += bias
+        bias = bias.to(torch.float32)
+    y = torch.addmm(bias, x, weight)
     return y
 
 @implements([torch.ops.aten.t.default])
@@ -112,10 +129,8 @@ def _to_copy(func, args, kwargs):
         return BitnetTensor(tensor)
     raise NotImplementedError(f"to {dtype} not supported")
 
-if __name__ == "__main__":
-    # Test case using BitnetTensor
-    a = torch.randint(0, 15, (2, 8), dtype=torch.uint8)
-    a_bitnet = BitnetTensor(a)
-    a_bitnet = a_bitnet.to(torch.uint2)
-    print(f"a_bitnet: {a_bitnet}")
+@implements([torch.ops.aten.clone.default])
+def clone(func, args, kwargs):
+    (tensor,) = args
+    return tensor.clone()
 

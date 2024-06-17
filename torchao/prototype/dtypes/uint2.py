@@ -217,29 +217,17 @@ def detach(func, args, kwargs):
 def to_dtype(func, args, kwargs):
     (tensor, dtype) = args
     if dtype == torch.uint8:
-        return tensor.elem.view(tensor.shape).view(torch.uint8)
+        return unpack_uint2(tensor.elem).view(torch.uint8)
+    elif dtype in (torch.float, torch.float16, torch.bfloat16, torch.int16, torch.int32, torch.int64):
+        return unpack_uint2(tensor.elem).to(torch.uint8).to(dtype)
+    elif dtype == torch.uint2:
+        return tensor.elem
+
     raise NotImplementedError(f"to {dtype} not supported")
 
-
-if __name__ == "__main__":
-    import torch.nn as nn
-    uint8_data = torch.randint(0, 4, (2, 8), dtype=torch.uint8)
-    print(f"uint8_data: {uint8_data}")
-    uint2_data = UInt2Tensor(uint8_data)
-    print(f"uint2_data: {uint2_data}")
-
-    x = UInt2Tensor(torch.tensor([
-            [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
-            [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
-            [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
-        ], dtype=torch.uint8))
-    print(f"x: {x}")
-
-    input_shapes = [[2, 4], [5, 5, 5, 4], [1, 4, 4]]
-    for input_shape in input_shapes:
-        x = torch.randn(*input_shape)
-        m = nn.Sequential(nn.Linear(4, 16))
-        y_ref = m(x)
-        y_wo = m(x)
-        y_compiled = torch.compile(m, fullgraph=True)(x)
-    
+@implements([torch.ops.aten.t.default])
+def t(func, args, kwargs):
+    (tensor,) = args
+    unpacked = unpack_uint2(tensor.elem).to(tensor.device)
+    transposed = unpacked.t()
+    return UInt2Tensor(pack_uint2(transposed))
