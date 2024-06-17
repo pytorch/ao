@@ -30,4 +30,4 @@ popd
 MANYWHEEL_NAME=$(ls dist/)
 # Try to install the new wheel
 pip install "dist/${MANYWHEEL_NAME}"
-python -c "import torchao" && echo "Import successful" || echo "Import failed"
+python -c "import torchao"
