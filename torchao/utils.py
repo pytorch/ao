@@ -1,9 +1,8 @@
 import torch
-import torch.utils.benchmark as benchmark
 from typing import Tuple
 from functools import reduce
+from importlib.metadata import version
 from math import gcd
-from packaging import version
 import torch.nn.utils.parametrize as parametrize
 import itertools
 
@@ -19,6 +18,7 @@ __all__ = [
     "TORCH_VERSION_AFTER_2_2",
     "TORCH_VERSION_AFTER_2_3",
     "TORCH_VERSION_AFTER_2_4",
+    "TORCH_VERSION_AFTER_2_5",
 ]
 
 
@@ -64,8 +64,9 @@ def skip_if_compute_capability_less_than(min_capability):
 
 
 def benchmark_torch_function_in_microseconds(f, *args, **kwargs):
+    import torch.utils.benchmark as benchmark # this avoids importing numpy when torchao module is loaded
+    
     # Manual warmup
-
     f(*args, **kwargs)
     f(*args, **kwargs)
 
@@ -163,20 +164,14 @@ def unwrap_tensor_subclass(model, filter_fn=None):
         unwrap_tensor_subclass(child)
     return model
 
-if version.parse(torch.__version__) >= version.parse("2.4.0.dev"):
-    TORCH_VERSION_AFTER_2_4 = True
-else:
-    TORCH_VERSION_AFTER_2_4 = False
 
-if version.parse(torch.__version__) >= version.parse("2.3.0.dev"):
-    TORCH_VERSION_AFTER_2_3 = True
-else:
-    TORCH_VERSION_AFTER_2_3 = False
+def torch_version_at_least(min_version):
+    return version("torch") >= min_version
 
-if version.parse(torch.__version__) >= version.parse("2.2.0.dev"):
-    TORCH_VERSION_AFTER_2_2 = True
-else:
-    TORCH_VERSION_AFTER_2_2 = False
+TORCH_VERSION_AFTER_2_5 = torch_version_at_least("2.5.0.dev")
+TORCH_VERSION_AFTER_2_4 = torch_version_at_least("2.4.0.dev")
+TORCH_VERSION_AFTER_2_3 = torch_version_at_least("2.3.0.dev")
+TORCH_VERSION_AFTER_2_2 = torch_version_at_least("2.2.0.dev")
 
 def is_fbcode():
     return not hasattr(torch.version, "git_version")
