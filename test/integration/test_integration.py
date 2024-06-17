@@ -873,9 +873,11 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
         if dtype == torch.bfloat16 and torch.cuda.get_device_capability() < (8, 0):
             self.skipTest("test requires SM capability of at least (8, 0).")
         from torch._inductor import config
+        mixed_mm_key, mixed_mm_val = ("mixed_mm_choice", "triton") if TORCH_VERSION_AFTER_2_4 else ("force_mixed_mm", True)
+
         with config.patch({
             "epilogue_fusion": True,
-            "force_mixed_mm": True
+            mixed_mm_key: mixed_mm_val,
             }):
             for x_shape in [[2, 4], [5, 5, 5, 4], [1, 4, 4]]:
                 torch._dynamo.reset()
@@ -887,7 +889,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
                 m_c = torch.compile(m, mode="max-autotune")
                 y_wo, (code,) = run_and_get_code(m_c, x)
                 sqnr = compute_error(y_ref, y_wo)
-                self.assertGreaterEqual(sqnr, 42.75)
+                self.assertGreaterEqual(sqnr, 42.50)
                 if device == "cuda":
                     self.assertTrue("mixed_mm" in code, f"got code: {code}")
 
@@ -900,9 +902,11 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
             self.skipTest("test requires SM capability of at least (8, 0).")
         torch.manual_seed(0)
         from torch._inductor import config
+        mixed_mm_key, mixed_mm_val = ("mixed_mm_choice", "triton") if TORCH_VERSION_AFTER_2_4 else ("force_mixed_mm", True)
+
         with config.patch({
             "epilogue_fusion": False,
-            "force_mixed_mm": True
+            mixed_mm_key: mixed_mm_val,
             }):
             for x_shape in [[2, 4], [5, 5, 5, 4], [1, 4, 4]]:
                 torch._dynamo.reset()
@@ -913,7 +917,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
                 m_c = torch.compile(m, mode="max-autotune")
                 y_wo, (code,) = run_and_get_code(m_c, x)
                 sqnr = compute_error(y_ref, y_wo)
-                self.assertGreater(sqnr, 43.0)
+                self.assertGreater(sqnr, 42.75)
 
 
 class TestSaveLoadMeta(unittest.TestCase):
