@@ -22,10 +22,6 @@ import torchao
 from torchao.dtypes import (
     AffineQuantizedTensor,
 )
-from torchao.quantization.quant_primitives import (
-    MappingType,
-    ZeroPointDomain,
-)
 from torchao.quantization.subclass import (
     LinearActQuantizedTensor,
     Int8WeightOnlyQuantizedLinearWeight,

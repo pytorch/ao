@@ -37,7 +37,6 @@ from torchao.quantization.quant_primitives import (
     choose_qparams_affine,
     quantize_affine,
     dequantize_affine,
-    MappingType,
 )
 from torchao.quantization.utils import (
     dequantize_per_channel,

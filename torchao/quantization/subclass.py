@@ -9,10 +9,6 @@ import warnings
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from .quant_primitives import (
-    MappingType,
-)
-
 from .utils import (
     find_multiple,
     dequantize_per_channel,

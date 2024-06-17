@@ -6,8 +6,6 @@ from torchao.quantization.quant_primitives import (
     choose_qparams_affine,
     quantize_affine,
     dequantize_affine,
-    ZeroPointDomain,
-    MappingType,
     int_scaled_matmul,
 )
 from torchao.quantization.utils import (
@@ -98,12 +96,12 @@ class AffineQuantizedTensor(torch.Tensor):
       shape (torch.Size): the shape for the Tensor
       quant_min (Optional[int]): minimum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`
       quant_max (Optional[int]): maximum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`
-      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be eitehr integer or float
+      zero_point_domain (str): the domain that zero_point is in, should be eitehr "int" or "float"
         if zero_point is in integer domain, zero point is added to the quantized integer value during
         quantization
         if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
         value during quantization
-        default is ZeroPointDomain.INT
+        default is "int"
       input_quant_func (Optional[Callable]): function for quantizing the input float Tensor to a quantized tensor subclass object, that takes float Tensor as input and outputs an AffineQuantizedTensor object
       dtype: dtype for external representation of the tensor, e.g. torch.float32
     """
@@ -116,7 +114,7 @@ class AffineQuantizedTensor(torch.Tensor):
         shape: torch.Size,
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
-        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+        zero_point_domain: str = "int",
         dtype=None,
         strides=None,
     ):
@@ -138,7 +136,7 @@ class AffineQuantizedTensor(torch.Tensor):
         shape: torch.Size,
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
-        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+        zero_point_domain: str = "int",
         dtype=None,
         strides=None,
     ):
@@ -184,7 +182,7 @@ class AffineQuantizedTensor(torch.Tensor):
     def from_float(
         cls,
         input_float: torch.Tensor,
-        mapping_type: MappingType,
+        mapping_type: str,
         block_size: Tuple[int, ...],
         target_dtype: torch.dtype,
         quant_min: Optional[int] = None,
@@ -193,7 +191,7 @@ class AffineQuantizedTensor(torch.Tensor):
         scale_dtype: Optional[torch.dtype] = None,
         zero_point_dtype: Optional[torch.dtype] = None,
         preserve_zero: bool = True,
-        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+        zero_point_domain: str = "int",
         extended_layout: str = "plain",
         # TODO: this is only for "tensor_core_tiled", need to figure out
         # the proper API for this arg
@@ -520,7 +518,7 @@ class TensorCoreTiledAQTLayout(AQTLayout):
         target_dtype = torch.int32
         quant_min = 0
         quant_max = 15
-        zero_point_domain = ZeroPointDomain.FLOAT
+        zero_point_domain = "int"
         assert len(block_size) == 2 and block_size[0] == 1
         groupsize = block_size[-1]
         dequantized = torch.ops.aten._weight_int4pack_mm(torch.eye(eye_shape, device=device, dtype=original_dtype), self.packed_weight, groupsize, self.scale_and_zero)
@@ -597,7 +595,7 @@ def _quantized_linear_op(input_tensor, weight_qtensor, bias):
             weight_is_uint4 and
             weight_qtensor.dtype == torch.bfloat16 and
             len(weight_qtensor.shape) == 2 and
-            weight_qtensor.zero_point_domain == ZeroPointDomain.FLOAT and
+            weight_qtensor.zero_point_domain == "float" and
             weight_qtensor.extended_layout == "tensor_core_tiled"
         ):
             assert weight_qtensor.block_size[0] == 1, f"Requires groupwise quantization, got block_size: {block_size}"
@@ -640,7 +638,7 @@ def _quantized_linear_op(input_tensor, weight_qtensor, bias):
             len(weight_qtensor.block_size) == 2 and
             weight_qtensor.block_size[0] == 1 and
             weight_qtensor.block_size[1] == weight_qtensor.shape[1] and
-            weight_qtensor.zero_point_domain == ZeroPointDomain.INT and
+            weight_qtensor.zero_point_domain == "int" and
             weight_qtensor.extended_layout == "plain"
         ):
             # TODO: enable cpu and mps efficient path

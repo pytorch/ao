@@ -31,10 +31,6 @@ from .subclass import (
     to_linear_act_quantized,
 )
 
-from .quant_primitives import (
-    MappingType,
-    ZeroPointDomain,
-)
 from .weight_only import WeightOnlyInt8QuantLinear
 from .unified import Quantizer, TwoStepQuantizer
 from .GPTQ import (
@@ -270,7 +266,7 @@ def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tens
 
         # weight settings
         groupsize = 32
-        mapping_type = MappingType.ASYMMETRIC
+        mapping_type = "asymmetric"
         block_size = (1, groupsize)
         target_dtype = torch.int32
         quant_min = 0
@@ -278,7 +274,7 @@ def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tens
         eps = 1e-6
         preserve_zero = False
         zero_point_dtype = torch.bfloat16
-        zero_point_domain = ZeroPointDomain.FLOAT
+        zero_point_domain = "float"
 
         apply_weight_quant = lambda x: to_affine_quantized(
           x, mapping_type, block_size, target_dtype, quant_min, quant_max, eps,
@@ -319,7 +315,7 @@ def int8_dynamic_activation_int4_weight(group_size=32):
         from torchao.dtypes import to_affine_quantized
 
         # weight settings
-        mapping_type = MappingType.SYMMETRIC
+        mapping_type = "symmetric"
         block_size = (1, group_size)
         target_dtype = torch.int8
         eps = torch.finfo(torch.float32).eps
@@ -336,7 +332,7 @@ def int8_dynamic_activation_int4_weight(group_size=32):
             return block_size
 
         # input settings
-        input_mapping_type = MappingType.ASYMMETRIC
+        input_mapping_type = "asymmetric"
         input_target_dtype = torch.int8
         input_quant_func = lambda x: to_affine_quantized(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype)
 
@@ -360,8 +356,7 @@ def int4_weight_only(group_size=128, inner_k_tiles=8):
     def apply_int4_weight_only_quant(weight):
         # avoid circular dep
         from torchao.dtypes import to_affine_quantized
-
-        mapping_type = MappingType.ASYMMETRIC
+        mapping_type = "asymmetric"
         block_size = (1, group_size)
         target_dtype = torch.int32
         quant_min = 0
@@ -369,7 +364,7 @@ def int4_weight_only(group_size=128, inner_k_tiles=8):
         eps = 1e-6
         preserve_zero = False
         zero_point_dtype = torch.bfloat16
-        zero_point_domain = ZeroPointDomain.FLOAT
+        zero_point_domain = "float"
         return to_affine_quantized(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, extended_layout="tensor_core_tiled", inner_k_tiles=inner_k_tiles)
 
     return apply_int4_weight_only_quant
@@ -383,7 +378,7 @@ def int8_weight_only():
         # avoid circular dep
         from torchao.dtypes import to_affine_quantized
 
-        mapping_type = MappingType.SYMMETRIC
+        mapping_type = "symmetric"
         target_dtype = torch.int8
         eps = torch.finfo(torch.float32).eps
         zero_point_dtype = torch.int64
@@ -406,7 +401,7 @@ def int8_dynamic_activation_int8_weight():
         # avoid circular dep
         from torchao.dtypes import to_affine_quantized
         # weight settings
-        mapping_type = MappingType.SYMMETRIC
+        mapping_type = "symmetric"
         def get_weight_block_size(x):
             return (1, x.shape[1])
         target_dtype = torch.int8
@@ -420,7 +415,7 @@ def int8_dynamic_activation_int8_weight():
                 block_size[i] = 1
             return block_size
 
-        input_mapping_type = MappingType.SYMMETRIC
+        input_mapping_type = "symmetric"
         input_target_dtype = torch.int8
         input_eps = 1e-5
         input_quant_min = -127

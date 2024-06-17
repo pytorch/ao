@@ -12,8 +12,6 @@ from torchao.quantization.quant_primitives import (
     quantize_affine,
     dequantize_affine,
     choose_qparams_affine,
-    MappingType,
-    ZeroPointDomain,
 )
 # TODO: remove test for utils?
 from torchao.quantization.utils import (
@@ -167,7 +165,7 @@ class TestQuantPrimitives(unittest.TestCase):
         we don't include it here. We may just replace it with per block quant
         """
         input = torch.randn(10, 10)
-        mapping_type = MappingType.SYMMETRIC
+        mapping_type = "symmetric"
         dtype = torch.int8
         block_size = (1, 2)
         eps = torch.finfo(torch.float32).eps
@@ -183,7 +181,7 @@ class TestQuantPrimitives(unittest.TestCase):
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_choose_qparams_token_asym(self):
         input = torch.randn(10, 10)
-        mapping_type = MappingType.ASYMMETRIC
+        mapping_type = "asymmetric"
         dtype = torch.int8
         block_size = (1, 10)
         scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, eps=torch.finfo(torch.float32).eps)
@@ -198,7 +196,7 @@ class TestQuantPrimitives(unittest.TestCase):
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_choose_qparams_tensor_asym(self):
         input = torch.randn(10, 10)
-        mapping_type = MappingType.ASYMMETRIC
+        mapping_type = "asymmetric"
         dtype = torch.int8
         block_size = (10, 10)
         eps = torch.finfo(torch.float32).eps
@@ -217,7 +215,7 @@ class TestQuantPrimitives(unittest.TestCase):
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_choose_qparams_tensor_sym(self):
         input = torch.randn(10, 10)
-        mapping_type = MappingType.SYMMETRIC
+        mapping_type = "symmetric"
         dtype = torch.int8
         block_size = (10, 10)
         eps = torch.finfo(torch.float32).eps
@@ -237,7 +235,7 @@ class TestQuantPrimitives(unittest.TestCase):
         input = torch.randn(10, 10)
         quantized_ref, scale_ref = quantize_activation_per_token_absmax(input)
 
-        mapping_type = MappingType.SYMMETRIC
+        mapping_type = "symmetric"
         block_size = list(input.shape)
         for i in range(len(block_size) - 1):
             block_size[i] = 1
@@ -278,7 +276,7 @@ class TestQuantPrimitives(unittest.TestCase):
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_quantize_dequantize_group_sym(self):
         input = torch.randn(10, 10)
-        mapping_type = MappingType.SYMMETRIC
+        mapping_type = "symmetric"
         dtype = torch.int8
         block_size = (1, 2)
         scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, eps=torch.finfo(torch.float32).eps)
@@ -303,7 +301,7 @@ class TestQuantPrimitives(unittest.TestCase):
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_quantize_dequantize_channel_asym(self):
         input = torch.randn(10, 10)
-        mapping_type = MappingType.ASYMMETRIC
+        mapping_type = "asymmetric"
         dtype = torch.int8
         block_size = (10, 1)
         scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, eps=torch.finfo(torch.float32).eps)
@@ -327,7 +325,7 @@ class TestQuantPrimitives(unittest.TestCase):
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_quantize_dequantize_tensor_asym(self):
         input = torch.randn(10, 10)
-        mapping_type = MappingType.ASYMMETRIC
+        mapping_type = "asymmetric"
         dtype = torch.int8
         block_size = (10, 10)
         output_dtype = torch.float32
@@ -351,7 +349,7 @@ class TestQuantPrimitives(unittest.TestCase):
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_quantize_dequantize_channel_asym_4d(self):
         input = torch.randn(3, 3, 10, 10)
-        mapping_type = MappingType.ASYMMETRIC
+        mapping_type = "asymmetric"
         dtype = torch.int8
         block_size = (3, 3, 1, 10)
         scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, eps=torch.finfo(torch.float32).eps)
@@ -373,7 +371,7 @@ class TestQuantPrimitives(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "skipping when torch version is 2.3 or lower")
     def test_quantize_dequantize_channel_asym_4d_multi_dim_reduction(self):
         input = torch.randn(3, 3, 10, 10)
-        mapping_type = MappingType.ASYMMETRIC
+        mapping_type = "asymmetric"
         dtype = torch.int8
         block_size = (3, 3, 2, 2)
         scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, eps=torch.finfo(torch.float32).eps)
@@ -384,7 +382,7 @@ class TestQuantPrimitives(unittest.TestCase):
 
     def test_choose_qparams_tensor_asym_eps(self):
         input = torch.zeros(10, 10)
-        mapping_type = MappingType.ASYMMETRIC
+        mapping_type = "asymmetric"
         dtype = torch.int8
         block_size = (10, 10)
         scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype)
@@ -406,7 +404,7 @@ class TestQuantPrimitives(unittest.TestCase):
         """Make sure some errors are raised when user requested an unsupported type of quantization
         """
         input = torch.randn(10, 10)
-        mapping_type = MappingType.ASYMMETRIC
+        mapping_type = "asymmetric"
         dtype = torch.int8
         block_size = (10, 10)
         scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype)
@@ -425,7 +423,7 @@ class TestQuantPrimitives(unittest.TestCase):
         """Making sure preserve_zero == False is not supported for symmetric quant"""
         input = torch.randn(10, 256)
         n_bit = 4
-        mapping_type = MappingType.SYMMETRIC
+        mapping_type = "symmetric"
         dtype = torch.int8
         block_size = (1, 128)
         quant_min = 0
@@ -453,7 +451,7 @@ class TestQuantPrimitives(unittest.TestCase):
         n_bit = 4
         scale_ref, zero_point_ref = _get_groupwise_affine_qparams(input, n_bit=n_bit, groupsize=128, dtype=torch.bfloat16)
 
-        mapping_type = MappingType.ASYMMETRIC
+        mapping_type = "asymmetric"
         dtype = torch.int8
         block_size = (1, 128)
         quant_min = 0
@@ -473,7 +471,7 @@ class TestQuantPrimitives(unittest.TestCase):
                 scale_dtype=scale_dtype,
                 zero_point_dtype=zero_point_dtype,
                 preserve_zero=False,
-                zero_point_domain=ZeroPointDomain.FLOAT,
+                zero_point_domain="float",
             )
 
         self.assertTrue(torch.equal(scale, scale_ref))

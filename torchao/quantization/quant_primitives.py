@@ -4,13 +4,16 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from enum import Enum
+from enum import Enum, auto
 from typing import List, Optional, Tuple, Dict
 import torch
 
 from torchao.kernel.intmm import int_scaled_matmul
 from torchao.kernel.intmm import safe_int_mm
-from torchao.utils import TORCH_VERSION_AFTER_2_3
+from torchao.utils import (
+    TORCH_VERSION_AFTER_2_3,
+    TORCH_VERSION_AFTER_2_5,
+)
 
 
 __all__ = [
@@ -20,31 +23,6 @@ __all__ = [
     "quantize_affine",
     "dequantize_affine",
 ]
-
-class MappingType(Enum):
-    """How floating point number is mapped to integer number
-
-    symmetric mapping means floating point range is symetrically mapped to integer range
-    let's say we have floating point range (-3.5, 10.2) and integer range (-8, 7) (int4)
-    we'll use (-10.2, 10.2) as the range for floating point and map that to (-8, 7)
-    e.g. scale = (10.2 - (-10.2)) / (7 - (-8))
-
-    asymmetric mapping means we just directly map the floating point range to integer range,
-    for the above example, we will map (-3.5, 10.2) to (-8, 7) and calculate quantization parameter
-    based on this mapping
-    e.g. scale = (10.2 - (-3.5)) / (7 - (-8))
-    """
-    SYMMETRIC = 0
-    ASYMMETRIC = 1
-
-class ZeroPointDomain(Enum):
-    """Enum that indicate whether zero_point is in integer domain or floating point domain
-
-    integer domain: quantized_val = (float_val / scale) (integer) + zero_point (integer)
-    float domain: quantized_val = (float_val - (zero_point (float) - scale * mid_point)) / scale
-    """
-    INT = 0
-    FLOAT = 1
 
 """
 Map from dtype to the bound value of integers
@@ -130,17 +108,32 @@ def _get_reduction_params(block_size, input_size):
             cur_dim += 1
     return shape_for_reduction, reduction_dims
 
+def register_custom_op(name: str):
+    from torch._inductor.decomposition import register_decomposition
 
+    def decorator(fn):
+        if TORCH_VERSION_AFTER_2_5:
+            opdef = torch.library.custom_op(name, mutates_args=())(fn)
+            opdef.register_fake(fn)
+            register_decomposition([opdef._opoverload])(fn)
+            return opdef
+        else:
+            return fn
+
+    return decorator
+
+
+@register_custom_op("quant::quantize_affine")
 def quantize_affine(
     input: torch.Tensor,
-    block_size: Tuple[int, ...],
+    block_size: List[int],
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     output_dtype: torch.dtype,
     quant_min: Optional[int] = None,
     quant_max: Optional[int] = None,
-    zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
-):
+    zero_point_domain: str = "int",
+) -> torch.Tensor:
     """
     Args:
       input (torch.Tensor): original float32, float16 or bfloat16 Tensor
@@ -151,12 +144,12 @@ def quantize_affine(
       output_dtype (torch.dtype): requested dtype (e.g. torch.uint8) for output Tensor
       quant_min (Optional[int]): minimum quantized value for output Tensor, if not specified, it will be derived from dtype
       quant_max (Optional[int]): maximum quantized value for output Tensor, if not specified, it will be derived from dtype
-      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be eitehr integer or float
+      zero_point_domain (str): the domain that zero_point is in, should be eitehr "int" for "float"
         if zero_point is in integer domain, zero point is added to the quantized integer value during
         quantization
         if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
         value during quantization
-        default is ZeroPointDomain.INT
+        default is "int"
 
     Note:
       How can block_size represent different granularities?
@@ -170,6 +163,11 @@ def quantize_affine(
      per_group (groupsize=2)  |    (3, 3, 10, 2)
      per_group (groupsize=2) for axis = 3 | (3, 3, 2, 10)
 
+    Note:
+      zero_point_domain also affects how the floating point value is quantized:
+
+      integer domain: quantized_val = (float_val / scale) (integer) + zero_point (integer)
+      float domain: quantized_val = (float_val - (zero_point (float) - scale * mid_point)) / scale
 
     Output:
       quantized tensor with requested dtype
@@ -188,12 +186,12 @@ def quantize_affine(
     if zero_point is not None:
         zero_point = zero_point.view(shape_after_reduction)
 
-    if zero_point_domain == ZeroPointDomain.INT:
+    if zero_point_domain == "int":
         quant = torch.clamp(
             torch.round(input * (1.0 / scale)) + zero_point, quant_min, quant_max
         ).to(output_dtype)
     else:
-        assert zero_point_domain == ZeroPointDomain.FLOAT
+        assert zero_point_domain == "float"
         mid_point = (quant_max + quant_min + 1) / 2
         min_val = zero_point - scale * mid_point
         quant = (
@@ -205,15 +203,16 @@ def quantize_affine(
 
     return quant
 
+@register_custom_op("quant::dequantize_affine")
 def dequantize_affine(
     input: torch.Tensor,
-    block_size: Tuple[int, ...],
+    block_size: List[int],
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     input_dtype: torch.dtype,
     quant_min: Optional[int] = None,
     quant_max: Optional[int] = None,
-    zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+    zero_point_domain: str = "int",
     *,
     output_dtype: torch.dtype = torch.float32,
 ):
@@ -228,12 +227,12 @@ def dequantize_affine(
       quant_min (Optional[int]): minimum quantized value for input Tensor
       quant_max (Optional[int]): maximum quantized value for input Tensor
       output_dtype (torch.dtype): dtype for output Tensor, default is fp32
-      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be eitehr integer or float
+      zero_point_domain (str): the domain that zero_point is in, should be eitehr "int" or "float"
         if zero_point is in integer domain, zero point is added to the quantized integer value during
         quantization
         if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
         value during quantization
-        default is ZeroPointDomain.INT
+        default is "int"
 
     Output:
       dequantized Tensor, with requested dtype or fp32
@@ -255,7 +254,7 @@ def dequantize_affine(
     if zero_point is not None:
         zero_point = zero_point.view(shape_after_reduction)
 
-    if zero_point_domain == ZeroPointDomain.INT:
+    if zero_point_domain == "int":
         # Force a copy to avoid input modification due
         # to upcoming in-place operations.
         dequant = input.to(torch.int32, copy=True)
@@ -264,7 +263,7 @@ def dequantize_affine(
         dequant = dequant.to(output_dtype)
         dequant *= scale
     else:
-        assert zero_point_domain == ZeroPointDomain.FLOAT, f"Unexpected zero point domain: {zero_point_domain}"
+        assert zero_point_domain == "float", f"Unexpected zero point domain: {zero_point_domain}"
         mid_point = (quant_max + quant_min + 1) / 2
         # This should allocate new memory and avoid input modification
         dequant = input - mid_point
@@ -275,10 +274,11 @@ def dequantize_affine(
 
     return dequant.view(original_shape).to(output_dtype)
 
+@register_custom_op("quant::choose_qparams_affine")
 def choose_qparams_affine(
    input: torch.Tensor,
-   mapping_type: MappingType,
-   block_size: Tuple[int, ...],
+   mapping_type: str,
+   block_size: List[int],
    target_dtype: torch.dtype,
    quant_min: Optional[int] = None,
    quant_max: Optional[int] = None,
@@ -286,13 +286,13 @@ def choose_qparams_affine(
    scale_dtype: Optional[torch.dtype] = None,
    zero_point_dtype: Optional[torch.dtype] = None,
    preserve_zero: bool = True,
-   zero_point_domain = ZeroPointDomain.INT,
+   zero_point_domain: str = "int",
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Args:
         input (torch.Tensor): fp32, bf16, fp16 input Tensor
-        mapping_type (MappingType): determines how the qparams are calculated, symmetric or asymmetric
-        block_size: (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
+        mapping_type (str): determines how the qparams are calculated, "symmetric" or "asymmetric"
+        block_size: (List[int]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
           e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
         target_dtype (torch.dtype): dtype for target quantized Tensor
         quant_min (Optional[int]): minimum quantized value for target quantized Tensor
@@ -310,18 +310,32 @@ def choose_qparams_affine(
 
           If we don't need zero to be exactly representable, we won't do rounding and clamping for zero_point
 
-        zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be eitehr integer or float
+        zero_point_domain (str): the domain that zero_point is in, should be eitehr "int" or "float"
             if zero_point is in integer domain, zero point is added to the quantized integer value during
             quantization
             if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
             value during quantization
-            default is ZeroPointDomain.INT
+            default is "int"
+
+
+    Note:
+      How floating point number is mapped to integer number?
+
+      symmetric mapping means floating point range is symetrically mapped to integer range
+      let's say we have floating point range (-3.5, 10.2) and integer range (-8, 7) (int4)
+      we'll use (-10.2, 10.2) as the range for floating point and map that to (-8, 7)
+      e.g. scale = (10.2 - (-10.2)) / (7 - (-8))
+
+      asymmetric mapping means we just directly map the floating point range to integer range,
+      for the above example, we will map (-3.5, 10.2) to (-8, 7) and calculate quantization parameter
+      based on this mapping
+      e.g. scale = (10.2 - (-3.5)) / (7 - (-8))
 
     Output:
         Tuple of scales and zero_points Tensor with requested dtype
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
-    assert mapping_type in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC], f"Unsupported mapping type: {mapping_type}"
+    assert mapping_type in ["symmetric", "asymmetric"], f"Unsupported mapping type: {mapping_type}"
 
     if scale_dtype is None:
         scale_dtype = input.dtype
@@ -342,21 +356,22 @@ def choose_qparams_affine(
         min_val_neg = min_val
         max_val_pos = max_val
 
-    if mapping_type == MappingType.SYMMETRIC:
+    if mapping_type == "symmetric":
         max_val_pos = torch.max(-min_val_neg, max_val_pos)
         scale = max_val_pos / (float(quant_max - quant_min) / 2)
         if not preserve_zero:
             raise ValueError("preserve_zero == False is not supported for symmetric quantization")
-        if zero_point_domain != ZeroPointDomain.INT:
+        if zero_point_domain != "int":
             raise ValueError("zero_point_domain != ZeroPointDomain.INT is not supported for symmetric quantization")
         zero_point = torch.full_like(scale, int((quant_max + quant_min + 1) / 2))
     else:
+        assert mapping_type == "asymmetric"
         scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
         if preserve_zero:
             zero_point = quant_min - torch.round(min_val_neg / scale)
             zero_point = torch.clamp(zero_point, quant_min, quant_max)
         else:
-            assert zero_point_domain == ZeroPointDomain.FLOAT, "if not preserve_zero, zero_point must be in FLOAT domain"
+            assert zero_point_domain == "float", "if not preserve_zero, zero_point must be in FLOAT domain"
             mid_point = (quant_max + quant_min + 1) / 2
             zero_point = min_val_neg + scale * mid_point
 

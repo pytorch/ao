@@ -10,8 +10,6 @@ from torch.utils._python_dispatch import TorchDispatchMode
 import torch.nn.utils.parametrize as parametrize
 from torchao.utils import find_multiple
 from .quant_primitives import (
-    MappingType,
-    ZeroPointDomain,
     choose_qparams_affine,
     quantize_affine,
     dequantize_affine,
@@ -132,7 +130,7 @@ def guard_dtype_size(tensor_arg, arg_name, dtype=None, size=None):
 # and slightly modified
 def quantize_activation_per_token_absmax(t):
     # if the shape of t is [B, N, K], the shape of scales will be [B, N, 1]
-    mapping_type = MappingType.SYMMETRIC
+    mapping_type = "symmetric"
     block_size = list(t.shape)
     for i in range(len(block_size) - 1):
         block_size[i] = 1
@@ -241,7 +239,7 @@ def dynamically_quantize_per_channel(x, quant_min, quant_max, target_dtype):
     block_size = (1, x.shape[1])
     zero_point_dtype = torch.int64
 
-    mapping_type = MappingType.SYMMETRIC
+    mapping_type = "symmetric"
     scale, zero_point = choose_qparams_affine(x, mapping_type, block_size, target_dtype=target_dtype, quant_min=quant_min, quant_max=quant_max, eps=eps, zero_point_dtype=zero_point_dtype)
     quant = quantize_affine(x, block_size, scale, zero_point, target_dtype, quant_min, quant_max)
     return quant, scale, zero_point
@@ -278,7 +276,7 @@ def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16
     assert w.dim() == 2
     assert n_bit <= 8, f"only n_bit smaller than 8 is supported, got: {n_bit}"
 
-    mapping_type = MappingType.ASYMMETRIC
+    mapping_type = "asymmetric"
     target_dtype = torch.int32
     block_size = (1, groupsize)
     quant_min = 0
@@ -298,7 +296,7 @@ def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16
         scale_dtype=scale_dtype,
         zero_point_dtype=zero_point_dtype,
         preserve_zero=False,
-        zero_point_domain=ZeroPointDomain.FLOAT
+        zero_point_domain="float",
     )
 
     return scale.to(dtype=dtype).reshape(w.shape[0], -1), zero_point.to(
@@ -347,7 +345,7 @@ def groupwise_affine_quantize_tensor_from_qparams(
     quant_min = 0
     quant_max = 2 ** n_bit - 1
 
-    return quantize_affine(w, block_size, scales, zeros, output_dtype, quant_min, quant_max, zero_point_domain = ZeroPointDomain.FLOAT)
+    return quantize_affine(w, block_size, scales, zeros, output_dtype, quant_min, quant_max, zero_point_domain="float")
 
 def groupwise_affine_dequantize_tensor_from_qparams(
     w_int4x8,
@@ -367,7 +365,7 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     input_dtype = torch.int32
     quant_min = 0
     quant_max = 2**n_bit - 1
-    return dequantize_affine(w_int4x8, block_size, scales, zeros, input_dtype, quant_min, quant_max, zero_point_domain=ZeroPointDomain.FLOAT, output_dtype=scales.dtype)
+    return dequantize_affine(w_int4x8, block_size, scales, zeros, input_dtype, quant_min, quant_max, zero_point_domain="float", output_dtype=scales.dtype)
 
 
 def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128, dtype=torch.bfloat16):
@@ -401,7 +399,7 @@ def get_group_qparams_symmetric(w, n_bit=4, groupsize=128, precision=torch.float
     assert w.dim() == 2
     assert n_bit <= 8, f"unsupported n_bit: {n_bit}"
 
-    mapping_type = MappingType.SYMMETRIC
+    mapping_type = "symmetric"
     block_size = (1, groupsize)
     eps = torch.finfo(torch.float32).eps
     ranges = {}
