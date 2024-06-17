@@ -59,7 +59,7 @@ class UInt2Tensor(torch.Tensor):
             input_tensor.size(),
             input_tensor.stride(),
             input_tensor.storage_offset(),
-            torch.uint2,
+            cls,
             input_tensor.device,
             input_tensor.requires_grad
         )
@@ -68,7 +68,7 @@ class UInt2Tensor(torch.Tensor):
             up_size(tensor_meta.original_shape),
             tensor_meta.original_strides,
             tensor_meta.storage_offset,
-            dtype=tensor_meta.dtype,
+            dtype=torch.uint8, #Not sure if this is correct
             device=tensor_meta.device,
             requires_grad=tensor_meta.requires_grad
         )
@@ -167,7 +167,7 @@ def to_copy(func, args, kwargs):
         return unpack_uint2(tensor.elem).view(tensor.shape).view(torch.uint8)
     elif dtype in (torch.float, torch.float16, torch.bfloat16, torch.int16, torch.int32, torch.int64):
         return tensor.to(torch.uint8).to(dtype)
-    elif dtype == torch.uint2:
+    elif isinstance(tensor, UInt2Tensor):
         return tensor
     raise NotImplementedError(f"to_copy {dtype} not supported")
 
@@ -220,7 +220,7 @@ def to_dtype(func, args, kwargs):
         return unpack_uint2(tensor.elem).view(torch.uint8)
     elif dtype in (torch.float, torch.float16, torch.bfloat16, torch.int16, torch.int32, torch.int64):
         return unpack_uint2(tensor.elem).to(torch.uint8).to(dtype)
-    elif dtype == torch.uint2:
+    elif isinstance(tensor, UInt2Tensor):
         return tensor.elem
 
     raise NotImplementedError(f"to {dtype} not supported")

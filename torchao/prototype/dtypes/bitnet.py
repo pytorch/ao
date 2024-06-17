@@ -10,7 +10,7 @@ def implements(aten_ops):
         return fn
     return decorator
 
-def _quantize_int2(x: torch.Tensor, target_dtype: torch.dtype) -> torch.Tensor:
+def _quantize_int2(x: torch.Tensor) -> torch.Tensor:
     # Quantize the input tensor to int2
     quant = x.sign() + 1
     quant = BitnetTensor.from_unpacked(quant.to(torch.uint8))
@@ -51,7 +51,7 @@ class BitnetTensor(UInt2Tensor):
     
     @classmethod
     def from_float(cls, w: torch.Tensor):
-        w_int2 = _quantize_int2(w, torch.uint2).to(device=w.device)
+        w_int2 = _quantize_int2(w).to(device=w.device)
         return w_int2
     
     def clone(self):
@@ -62,6 +62,7 @@ class BitnetTensor(UInt2Tensor):
         return self
     
     def to(self, *args, **kwargs):
+        (tensor,) = args
         if len(args) == 1 and isinstance(args[0], torch.dtype):
             dtype = args[0]
             if dtype == torch.int8:
@@ -70,7 +71,7 @@ class BitnetTensor(UInt2Tensor):
                 return unpack_uint2(self.elem).to(torch.int8).to(dtype)
             elif dtype == torch.uint8:
                 return unpack_uint2(self.elem).view(torch.uint8)
-            elif dtype == torch.uint2:
+            elif isinstance(tensor, BitnetTensor):
                 return self
         return super().to(*args, **kwargs)
 
@@ -113,7 +114,7 @@ def to_dtype(func, args, kwargs):
         return unpack_uint2(tensor.elem).to(torch.int8).to(dtype)
     elif dtype == torch.uint8:
         return unpack_uint2(tensor.elem).view(torch.uint8)
-    elif dtype == torch.uint2:
+    elif isinstance(tensor, BitnetTensor):
         return tensor.elem
     raise NotImplementedError(f"to {dtype} not supported")
 
@@ -125,7 +126,7 @@ def _to_copy(func, args, kwargs):
         return BitnetTensor(unpack_uint2(tensor).view(tensor.shape).view(torch.int8) - 1)
     elif dtype in (torch.float, torch.float16, torch.bfloat16, torch.int16, torch.int32, torch.int64):
         return BitnetTensor(tensor.to(torch.int8).to(dtype))
-    elif dtype == torch.uint2:
+    elif isinstance(tensor, BitnetTensor):
         return BitnetTensor(tensor)
     raise NotImplementedError(f"to {dtype} not supported")
 
