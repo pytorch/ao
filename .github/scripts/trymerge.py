@@ -1058,15 +1058,15 @@ def main() -> None:
 
         traceback.print_exc()
 
-    # if pr.is_closed():
-    #     gh_post_pr_comment(
-    #         org,
-    #         project,
-    #         args.pr_num,
-    #         f"Can't merge closed PR #{args.pr_num}",
-    #         dry_run=args.dry_run,
-    #     )
-    #     return
+    if pr.is_closed():
+        gh_post_pr_comment(
+            org,
+            project,
+            args.pr_num,
+            f"Can't merge closed PR #{args.pr_num}",
+            dry_run=args.dry_run,
+        )
+        return
 
     try:
         merge(
