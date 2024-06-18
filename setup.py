@@ -62,6 +62,7 @@ def get_extensions():
             ],
             "nvcc": [
                 "-O3" if not debug_mode else "-O0",
+                "-t=0",
             ]
         }
 
@@ -79,7 +80,7 @@ def get_extensions():
             ],
             "nvcc": [
                 "-O3" if not debug_mode else "-O0",
-                "-t=0"
+                "-t=0",
             ]
         }
 
