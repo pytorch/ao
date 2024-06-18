@@ -35,10 +35,10 @@ The models used were `meta-llama/Llama-2-7b-chat-hf` and `meta-llama/Meta-Llama-
 |             | int8wo             | 12.204              |  147.03       | 973.54                  | 6.62             | 8.95            |
 |             | int4wo-64          | 12.843              |  199.81       | 746.45                  | 3.74             | 4.75            |
 |             | int4wo-64-GPTQ     | 12.489              |  199.81       | 746.45                  | 3.74             | 4.75            |
-| Llama-3-8B  | Base (bfloat16)    | N/A                 |  94.91        | 1424.58                 | 15.01            | 16.43           |
-|             | int8dq             | N/A                 |  8.41         | 63.23                   | 7.52             | 9.24            |
-|             | int8wo             | N/A                 |  136.75       | 1028.38                 | 7.52             | 10.42           |
-|             | int4wo-64          | N/A                 |  179.41       | 757.45                  | 4.22             | 6.88            |
+| Llama-3-8B  | Base (bfloat16)    |                  |  94.91        | 1424.58                 | 15.01            | 16.43           |
+|             | int8dq             |                  |  8.41         | 63.23                   | 7.52             | 9.24            |
+|             | int8wo             |                  |  136.75       | 1028.38                 | 7.52             | 10.42           |
+|             | int4wo-64          |                  |  179.41       | 757.45                  | 4.22             | 6.88            |
 
 note: Int8 dynamic quantization works best on compute bound models like [SAM](https://github.com/pytorch-labs/segment-anything-fast) whereas Llama with batchsize=1 tends to be memory bound, thus the rather low performance.
 
