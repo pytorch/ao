@@ -6,8 +6,8 @@
 ## Introduction
 
 torchao is a library which makes it easy to integrate and create high performance kernels with custom data types and layouts with up to
-* **30% speedups** for training
-* **2x speedups** with **65%** less VRAM for inference
+* **30% speedups** for [training](#training)
+* **2x speedups** with **65%** less VRAM for [inference](#inference)
 
 All with no intrusive code changes and minimal accuracy degradation.
 
