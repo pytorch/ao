@@ -78,6 +78,8 @@ Times are in microseconds (us).
 
 [nf4](https://github.com/pytorch/ao/blob/main/torchao/dtypes/nf4tensor.py) which was used to [implement QLoRA](https://github.com/pytorch/torchtune/blob/main/docs/source/tutorials/qlora_finetune.rst) one of the most popular finetuning algorithms without writing custom Triton or CUDA code. Accessible talk [here](https://x.com/HamelHusain/status/1800315287574847701)
 
+[tinygemm](https://github.com/pytorch/ao/blob/cb3bd8c674f2123af232a0231b5e38ddafa756a8/torchao/dtypes/aqt.py#L526) we make heavy use of `torch.ops.aten._weight_int4pack_mm` to bitpack into a layout optimized for tensor cores
+
 ## Composability
 
 A key design principle for us is composability as in any new dtype or layout we provide needs to work with `torch.compile()` and it needs to work with `FSDP`. It shouldn't matter if the kernels are written are pure PyTorch, CUDA, C++ or Triton - things should just work! And here has been our current strategy
@@ -108,6 +110,7 @@ pip install --pre torchao-nightly --index-url https://download.pytorch.org/whl/n
     * [Fused int4/fp16 Quant Matmul](torchao/prototype/hqq) which is particularly useful for compute bound kernels showing 4x speedups over tinygemm for larger batch sizes such as 512
 * [gau-nernst](https://github.com/gau-nernst) fp6 kernels that are 4x faster than fp16 [torchao/prototype/fp6_llm](torchao/prototype/fp6_llm)
 * [vayuda](https://github.com/vayuda) with generic bitpacking kernels that were codegenerated using pure PyTorch [prototype/common](torchao/prototype/common)
+* [andreaskopf](https://github.com/andreaskoepf) and [melvinebenezer](https://github.com/melvinebenezer) with [bitnet tensors](torchao/prototype/dtypes)
 
 ## How to contribute
 
