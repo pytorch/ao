@@ -241,7 +241,7 @@ class TestNF4Linear(TestCase):
         a_nf4 = torchao.dtypes.to_nf4(a, 16, 2)
         inp = torch.randn(2, 32, 32, dtype=a.dtype, device=a.device)
         out3 = torch.compile(torch.nn.functional.linear, mode='max-autotune')(inp, a_nf4)
-    
+
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     @parametrize("shape", [(16, 16), (32, 16)])
@@ -430,7 +430,7 @@ class TestFSDPOps(TestCase):
         for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
             inner_tensor = getattr(nf4_tensor, attr)
             self.assertEqual(inner_tensor.device.type, "cpu")
-    
+
 
 instantiate_parametrized_tests(TestNF4Linear)
 instantiate_parametrized_tests(TestFSDPOps)

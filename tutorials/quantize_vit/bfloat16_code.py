@@ -11,7 +11,7 @@ from torch._inductor.utils import maybe_profile
 from torch._inductor.codegen.memory_planning import _align as align
 
 from torch import device, empty_strided
-from torch._inductor.codecache import AsyncCompile
+from torch._inductor.async_compile import AsyncCompile
 from torch._inductor.select_algorithm import extern_kernels
 from torch._inductor.codegen.multi_kernel import MultiKernelCall
 
@@ -181,7 +181,7 @@ from torch._inductor.triton_heuristics import AutotuneHint
 from torch._inductor.utils import instance_descriptor
 
 @triton_heuristics.pointwise(
-    size_hints=[262144], 
+    size_hints=[262144],
     filename=__file__,
     triton_meta={'signature': {0: '*bf16', 1: '*bf16', 2: '*bf16', 3: '*bf16', 4: '*fp32', 5: '*fp32', 6: '*bf16', 7: '*bf16', 8: '*bf16', 9: 'i32'}, 'device': 0, 'device_type': 'cuda', 'constants': {}, 'configs': [AttrsDescriptor(divisible_by_16=(0, 1, 2, 3, 4, 5, 6, 7, 8, 9), equal_to_1=())]},
     inductor_meta={'autotune_hints': set(), 'kernel_name': 'triton_poi_fused_add_cat_native_layer_norm_2', 'mutated_arg_names': [], 'no_x_dim': False, 'backend_hash': 'a33067c4979f4f58aaa689554e57cd7781667c4ec621f76e3aabedec9456e44b'},
@@ -251,7 +251,7 @@ from torch._inductor.triton_heuristics import AutotuneHint
 from torch._inductor.utils import instance_descriptor
 
 @triton_heuristics.pointwise(
-    size_hints=[262144], 
+    size_hints=[262144],
     filename=__file__,
     triton_meta={'signature': {0: '*bf16', 1: '*bf16', 2: '*bf16', 3: 'i32'}, 'device': 0, 'device_type': 'cuda', 'constants': {}, 'configs': [AttrsDescriptor(divisible_by_16=(0, 1, 2, 3), equal_to_1=())]},
     inductor_meta={'autotune_hints': set(), 'kernel_name': 'triton_poi_fused__scaled_dot_product_flash_attention_3', 'mutated_arg_names': [], 'no_x_dim': False, 'backend_hash': 'a33067c4979f4f58aaa689554e57cd7781667c4ec621f76e3aabedec9456e44b'},
@@ -288,7 +288,7 @@ from torch._inductor.triton_heuristics import AutotuneHint
 from torch._inductor.utils import instance_descriptor
 
 @triton_heuristics.pointwise(
-    size_hints=[262144], 
+    size_hints=[262144],
     filename=__file__,
     triton_meta={'signature': {0: '*bf16', 1: '*bf16', 2: '*bf16', 3: 'i32'}, 'device': 0, 'device_type': 'cuda', 'constants': {}, 'configs': [AttrsDescriptor(divisible_by_16=(0, 1, 2, 3), equal_to_1=())]},
     inductor_meta={'autotune_hints': set(), 'kernel_name': 'triton_poi_fused__scaled_dot_product_flash_attention_4', 'mutated_arg_names': [], 'no_x_dim': False, 'backend_hash': 'a33067c4979f4f58aaa689554e57cd7781667c4ec621f76e3aabedec9456e44b'},
@@ -325,7 +325,7 @@ from torch._inductor.triton_heuristics import AutotuneHint
 from torch._inductor.utils import instance_descriptor
 
 @triton_heuristics.pointwise(
-    size_hints=[262144], 
+    size_hints=[262144],
     filename=__file__,
     triton_meta={'signature': {0: '*bf16', 1: '*bf16', 2: '*bf16', 3: 'i32'}, 'device': 0, 'device_type': 'cuda', 'constants': {}, 'configs': [AttrsDescriptor(divisible_by_16=(0, 1, 2, 3), equal_to_1=())]},
     inductor_meta={'autotune_hints': set(), 'kernel_name': 'triton_poi_fused__scaled_dot_product_flash_attention_5', 'mutated_arg_names': [], 'no_x_dim': False, 'backend_hash': 'a33067c4979f4f58aaa689554e57cd7781667c4ec621f76e3aabedec9456e44b'},
@@ -457,7 +457,7 @@ from torch._inductor.triton_heuristics import AutotuneHint
 from torch._inductor.utils import instance_descriptor
 
 @triton_heuristics.pointwise(
-    size_hints=[1048576], 
+    size_hints=[1048576],
     filename=__file__,
     triton_meta={'signature': {0: '*bf16', 1: '*bf16', 2: 'i32'}, 'device': 0, 'device_type': 'cuda', 'constants': {}, 'configs': [AttrsDescriptor(divisible_by_16=(0, 1, 2), equal_to_1=())]},
     inductor_meta={'autotune_hints': set(), 'kernel_name': 'triton_poi_fused_gelu_7', 'mutated_arg_names': ['in_out_ptr0'], 'no_x_dim': False, 'backend_hash': 'a33067c4979f4f58aaa689554e57cd7781667c4ec621f76e3aabedec9456e44b'},
