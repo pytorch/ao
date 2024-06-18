@@ -40,21 +40,36 @@ swap_linear_with_semi_sparse_linear(model, sparse_config)
 swap_semi_sparse_linear_with_linear(model)
 ```
 
-### Benchmarking
+### Benchmarking (Performance)
 
-If you want to see the expected speedups of applying runtime semi-structured sparsity for training, you can do so by modifying the existing benchmark code in to add your matmul shapes in:
-[benchmarks/benchamrk_semi_sparse.py](https://github.com/pytorch/ao/blob/main/benchmarks/benchmark_semi_sparse.py#L25)
+For ViT-L we see the following e2e speedups on a single NVIDIA A100 across a single training (forwards + backwards) pass with torch.compile enabled and FP16 dtype:
 
+
+To reproduce these benchmarks, please run:
 ```
-python benchmarks/benchmark_semi_sparse.py
+pip install segment-anything-fast pandas
+python benchmarks/benchmark_semi_structured_training.py
 ```
 
-For VIT-L MLP shapes on a NVIDIA A100 we see the following results:
+If you have existing matmul shapes for your nn.Linear layers and are curious about the potential speedups, you can run add your shapes [here]() and run microbenchmarks with:
 ```
-[------------------------------------------------ mlpfwbw -------------------------------------------------]
-                                  |   act24   |   dense   |   w24    |  s24_inp_sparsify24  |  s24_inp_clone
-1 threads: -------------------------------------------------------------------------------------------------
-      f16 (44160,1024,4096,1024)  |  11881.0  |  11534.3  |  9204.7  |        255.1         |      125.8
+python benchmarks/benchmark_semi_structured_training.py --linear
+```
 
-Times are in microseconds (us).
-```
+### Benchmarking (Accuracy)
+
+When combined with [DINOv2](https://github.com/facebookresearch/dinov2), we found that we were able to train an ImageNet classifier with minimal accuracy loss.
+
+A fully sparse 2:4 trained model exhibited a -0.5 pp accuracy drop; we were able to further reduce the accuracy loss to -0.1 pp by first training with 2:4 sparsity enabled and then switching over to normal dense training.
+
+| Training Configuration                 | Accuracy (%)    |
+|----------------------------------------|-----------------|
+| 0% Sparse: 125k dense steps (baseline)            | 82.8 |
+| 40% Sparse: 40k sparse -> 85k dense steps         | 82.9 |
+| 60% Sparse: 75k sparse -> 50k dense steps         | 82.8 |
+| 70% Sparse: 87.5k sparse -> 37.5k dense steps     | 82.7 |
+| 80% Sparse: 100k sparse -> 25k dense steps        | 82.7 |
+| 90% Sparse: 112.5k sparse -> 12.5k dense steps    | 82.0 |
+| 100% Sparse: 125k sparse steps (2:4-sparse model) | 82.3 |
+
+All our experiments were run on 4x AMD EPYC 7742 64-core CPUs and 4x NVIDIA A100-80GB GPUs.
