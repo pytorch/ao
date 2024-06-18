@@ -44,7 +44,7 @@ swap_semi_sparse_linear_with_linear(model)
 
 For ViT-L we see a **6% e2e speedup** on a single NVIDIA A100 across a single training (forwards + backwards) pass with torch.compile enabled and FP16 dtype:
 
-| sparsity_config            | model_type | batch_size | time        | memory    |
+| sparsity_config            | model_type | batch_size | time (ms)   | memory (Gb) |
 |----------------------------|------------|------------|-------------|-----------|
 | ViT dense (baseline)       | vit_l      | 8          | 717.598748  | 58.467037 |
 | ViT MLP weight 2:4 sparse  | vit_l      | 8          | 675.275311  | 59.447039 |
@@ -62,7 +62,7 @@ python benchmarks/benchmark_semi_structured_training.py --linear
 ```
 For ViT-L MLP shapes we see a **1.24x** speedup over the first linear layer and a **1.27x** speedup over the second.
 
-| sparsity_config                        | mkn                    | time      | memory   |
+| sparsity_config                        | mkn                    | time (ms) | memory (Gb) |
 |----------------------------------------|------------------------|-----------|----------|
 | dense_linear                           | (13008, 1024, 4096)    | 1.660793  | 0.318686 |
 | semi_sparse_linear                     | (13008, 1024, 4096)    | 1.341983  | 0.328648 |
