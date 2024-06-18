@@ -480,6 +480,9 @@ class TensorCoreTiledAQTLayout(AQTLayout):
         self.scale_and_zero = fn(self.scale_and_zero)
         return self
 
+    def __repr__(self):
+        return f"TensorCoreTiledAQTLayout(packed_weight={self.packed_weight}, scale_and_zero={self.scale_and_zero})"
+
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
         kwargs = {} if kwargs is None else kwargs
@@ -495,6 +498,8 @@ class TensorCoreTiledAQTLayout(AQTLayout):
             """
             args[0].transposed = not args[0].transposed
             return return_and_correct_aliasing(func, args, kwargs, args[0])
+        
+        breakpoint()
 
         raise NotImplementedError(
             f"TensorCoreTiledAQTLayout dispatch: attempting to run {func}, this is not supported"
