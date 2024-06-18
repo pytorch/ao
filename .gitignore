@@ -368,3 +368,6 @@ venv/
 # Log files
 *.log
 sweep/
+
+# Model checkpoints
+checkpoints/
