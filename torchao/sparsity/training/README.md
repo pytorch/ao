@@ -40,9 +40,14 @@ swap_linear_with_semi_sparse_linear(model, sparse_config)
 swap_semi_sparse_linear_with_linear(model)
 ```
 
-### Benchmarking (Performance)
+### Benchmarking
 
-For ViT-L we see the following e2e speedups on a single NVIDIA A100 across a single training (forwards + backwards) pass with torch.compile enabled and FP16 dtype:
+For ViT-L we see a **6% e2e speedup** on a single NVIDIA A100 across a single training (forwards + backwards) pass with torch.compile enabled and FP16 dtype:
+
+| sparsity_config            | model_type | batch_size | time        | memory    |
+|----------------------------|------------|------------|-------------|-----------|
+| ViT dense (baseline)       | vit_l      | 8          | 717.598748  | 58.467037 |
+| ViT MLP weight 2:4 sparse  | vit_l      | 8          | 675.275311  | 59.447039 |
 
 
 To reproduce these benchmarks, please run:
@@ -51,12 +56,20 @@ pip install segment-anything-fast pandas
 python benchmarks/benchmark_semi_structured_training.py
 ```
 
-If you have existing matmul shapes for your nn.Linear layers and are curious about the potential speedups, you can run add your shapes [here]() and run microbenchmarks with:
+If you have existing matmul shapes for your nn.Linear layers and are curious about the potential speedups, you can run add your shapes [here](https://github.com/pytorch/ao/blob/cff8cfe98d488181788917b6c0d523fda5d6a663/benchmarks/benchmark_semi_sparse_training.py#L185) and run microbenchmarks with:
 ```
 python benchmarks/benchmark_semi_structured_training.py --linear
 ```
+For ViT-L MLP shapes we see a **1.24x** speedup over the first linear layer and a **1.27x** speedup over the second.
 
-### Benchmarking (Accuracy)
+| sparsity_config                        | mkn                    | time      | memory   |
+|----------------------------------------|------------------------|-----------|----------|
+| dense_linear                           | (13008, 1024, 4096)    | 1.660793  | 0.318686 |
+| semi_sparse_linear                     | (13008, 1024, 4096)    | 1.341983  | 0.328648 |
+| semi_sparse_prune+compress_time_only   | (13008, 1024, 4096)    | 0.085218  | 0.208406 |
+| dense_linear                           | (13008, 4096, 1024)    | 1.642992  | 0.319297 |
+| semi_sparse_linear                     | (13008, 4096, 1024)    | 1.294284  | 0.328635 |
+| semi_sparse_prune+compress_time_only   | (13008, 4096, 1024)    | 0.300904  | 0.305532 |
 
 When combined with [DINOv2](https://github.com/facebookresearch/dinov2), we found that we were able to train an ImageNet classifier with minimal accuracy loss.
 

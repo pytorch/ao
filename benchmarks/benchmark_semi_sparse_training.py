@@ -196,8 +196,7 @@ if __name__ == "__main__":
             cases,
             fw=True,
             bw=True,
-            cuda_graph=False,
-            compile=True,
+            cuda_graph=True,
             blocked_autorange=True)
 
     elif args.mode == "vit":
