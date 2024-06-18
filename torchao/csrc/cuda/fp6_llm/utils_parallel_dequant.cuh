@@ -12,7 +12,8 @@
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
 // 
-// This file is copied from https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/fp6_llm/csrc/include/utils_parallel_dequant.cuh
+// This file is modified from https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/fp6_llm/csrc/include/utils_parallel_dequant.cuh
+// To support MSVC, all instances of u_int32_t are changed to uint32_t.
 
 #ifndef UTILS_PARALLELDEQUANT_CUH
 #define UTILS_PARALLELDEQUANT_CUH
@@ -73,10 +74,13 @@ __device__ __forceinline__ uint32_t MultScale(uint32_t PackedFP16Pair, half Scal
     return output;
 }
 
-__device__ __forceinline__ void Dequant_32FP6_4Way(uint32_t                Reg[][4], 
-                                                   uint32_t * __restrict__ read_RPTR_Frag1, 
-                                                   uint32_t * __restrict__ read_RPTR_Frag2,
-                                                   uint32_t *              Scales) {
+// MODIFICATION NOTE: to support MSVC
+// - u_int32_t __restrict__ Reg[][4] is changed to below.
+// - u_int32_t __restrict__ *read_RPTR_Frag1 is changed to below. similarly for read_RPTR_Frag2
+__device__ __forceinline__ void Dequant_32FP6_4Way(uint32_t (* __restrict__ Reg)[4], 
+                                                   uint32_t  * __restrict__ read_RPTR_Frag1, 
+                                                   uint32_t  * __restrict__ read_RPTR_Frag2,
+                                                   uint32_t  *              Scales) {
     uint32_t *OutputRegs   = reinterpret_cast<uint32_t*> (Reg);
     uint32_t *Frag1_PTR    = read_RPTR_Frag1;
     uint32_t *Frag2_PTR    = read_RPTR_Frag2;

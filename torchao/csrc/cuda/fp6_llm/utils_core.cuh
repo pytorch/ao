@@ -12,7 +12,7 @@
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
 // 
-// This file is copied from https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/fp6_llm/csrc/include/utils_core.cuh
+// This file is modified from https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/fp6_llm/csrc/include/utils_core.cuh
 
 #ifndef UTILS_CORE_CUH
 #define UTILS_CORE_CUH
@@ -35,12 +35,13 @@ __device__ __forceinline__ void CopyFromSharedToRegister_AFrag(uint32_t Reg[], u
     }
 }
 
+// MODIFICATION NOTE: to support MSVC, half __restrict__ (*B_SPTR_read)[WARP_K+PADDING_SHARED_MEM_FOR_B_8] is changed to below.
 template <typename TilingConfig>
 __device__ __forceinline__ void initialize_mma_slice(uint32_t                  (*a)[4],
                                                      uint32_t                  (*b)[4],
                                                      uint32_t* __restrict__    A1_SPTR_read,
                                                      uint32_t* __restrict__    A2_SPTR_read,
-                                                     half                      (* __restrict__ B_SPTR_read)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
+                                                     half   (* __restrict__    B_SPTR_read)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
                                                      uint32_t*                 RPTR_Scales)
 {
     // Writing registers
@@ -53,13 +54,14 @@ __device__ __forceinline__ void initialize_mma_slice(uint32_t                  (
     B_FromSharedToReg<TilingConfig>(b, B_SPTR_read, 0); // Loading B from shared to registers
 }
 
+// MODIFICATION NOTE: to support MSVC, half __restrict__ (*B_SPTR_read)[WARP_K+PADDING_SHARED_MEM_FOR_B_8] is changed to below.
 template <typename TilingConfig>
 __device__ __forceinline__ void core_mma_slice(float                     c[][REG_PER_THREAD_C_TENSOR_16_16],
                                                uint32_t                  (*a)[4],
                                                uint32_t                  (*b)[4],
                                                uint32_t* __restrict__    A1_SPTR_read,
                                                uint32_t* __restrict__    A2_SPTR_read,
-                                               half                      (* __restrict__ B_SPTR_read)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
+                                               half   (* __restrict__    B_SPTR_read)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
                                                uint32_t*                 RPTR_Scales,
                                                int                       slice_id)      // writing slice[slice_id] to registers, k=0 -> slice_id=1 for prefetching
 {
