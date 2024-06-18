@@ -2,7 +2,7 @@ from torch.testing._internal.common_utils import (
     TestCase,
     run_tests,
 )
-from torchao.quantization.quant_api import int4wo
+from torchao.quantization.quant_api import int4_weight_only
 import torch
 import unittest
 
@@ -12,8 +12,8 @@ class TestAffineQuantized(TestCase):
     def test_tensor_core_layout_transpose(self):
         t = torch.rand(128, 256, dtype=torch.bfloat16, device="cuda")
         shape = t.shape
-        apply_int4wo_quant = int4wo(groupsize=32)
-        aqt = apply_int4wo_quant(t)
+        apply_int4_weight_only_quant = int4_weight_only(group_size=32)
+        aqt = apply_int4_weight_only_quant(t)
         aqt_shape = aqt.shape
         self.assertEqual(aqt_shape, shape)
 
