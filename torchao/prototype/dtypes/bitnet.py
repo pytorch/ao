@@ -61,7 +61,18 @@ class BitnetTensor(UInt2Tensor):
     def copy_(self, src):
         self.elem.copy_(src.elem)
         return self
+
+    def tolist(self):
+        data = unpack_uint2(self.elem).tolist()
+        return data
     
+    def __repr__(self):
+        try:
+            data = unpack_uint2(self.elem).tolist()
+        except AssertionError:
+            data = f"Tensor of shape {self.shape} and dtype {self.elem.dtype}"
+        return f"BitnetTensor({data}, dtype={self.elem.dtype})"
+
     def to(self, *args, **kwargs):
         if len(args) == 1 and isinstance(args[0], torch.dtype):
             dtype = args[0]
@@ -142,4 +153,9 @@ def _to_copy(func, args, kwargs):
 def clone(func, args, kwargs):
     (tensor,) = args
     return tensor.clone()
+
+@implements([torch.ops.aten.allclose.default])
+def allclose(func, args, kwargs):
+    (a, b) = args
+    return torch.allclose(a.elem, b.elem, **kwargs)
 
