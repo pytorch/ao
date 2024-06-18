@@ -109,8 +109,8 @@ pip install --pre torchao-nightly --index-url https://download.pytorch.org/whl/n
     * [DoRA](torchao/prototype/dora) a newer replacement for QLoRA with more promising convergence characteristics
     * [Fused int4/fp16 Quant Matmul](torchao/prototype/hqq) which is particularly useful for compute bound kernels showing 4x speedups over tinygemm for larger batch sizes such as 512
 * [gau-nernst](https://github.com/gau-nernst) fp6 kernels that are 4x faster than fp16 [torchao/prototype/fp6_llm](torchao/prototype/fp6_llm)
-* [vayuda](https://github.com/vayuda) with generic bitpacking kernels that were codegenerated using pure PyTorch [prototype/common](torchao/prototype/common)
-* [andreaskopf](https://github.com/andreaskoepf) and [melvinebenezer](https://github.com/melvinebenezer) with [bitnet tensors](torchao/prototype/dtypes)
+* [vayuda](https://github.com/vayuda) with generic bitpacking kernels that were code generated using pure PyTorch [prototype/common](torchao/prototype/common)
+* [andreaskopf](https://github.com/andreaskoepf) and [melvinebenezer](https://github.com/melvinebenezer) with [1 bit LLMs](torchao/prototype/dtypes) Bitnet 1.58 bitpacked into uin2 and fully code-generated with torch.compile
 
 ## How to contribute
 
