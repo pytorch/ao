@@ -13,28 +13,6 @@ All with no intrusive code changes and minimal accuracy degradation.
 
 ## Benchmarks
 
-### Training
-
-We've added support for semi-structured 2:4 sparsity with over 30% speedups on ViT-L
-
-The code change is a 1 liner with the full example available [here](torchao/sparsity/training/)
-
-
-```python
-swap_linear_with_semi_sparse_linear(model, {"seq.0": SemiSparseLinear})
-```
-
-For VIT-L MLP shapes on a NVIDIA A100 we see the following results:
-```
-[------------------------------------------------ mlpfwbw -------------------------------------------------]
-                                  |   act24   |   dense   |   w24    |  s24_inp_sparsify24  |  s24_inp_clone
-1 threads: -------------------------------------------------------------------------------------------------
-      f16 (44160,1024,4096,1024)  |  11881.0  |  11534.3  |  9204.7  |        255.1         |      125.8
-
-Times are in microseconds (us).
-```
-
-
 ### Inference
 
 #### Without intrusive code changes
@@ -74,6 +52,25 @@ In some cases we rewrote popular GenAI models to be significantly faster in nati
 * 8x speedups for Image segmentation models with [sam-fast](https://pytorch.org/blog/accelerating-generative-ai)
 * 10x speedups for Language models with [gpt-fast](https://pytorch.org/blog/accelerating-generative-ai-2)
 * 3x speedup for Diffusion models with [sd-fast](https://pytorch.org/blog/accelerating-generative-ai-3)
+
+### Training
+
+We've added support for semi-structured 2:4 sparsity with over 30% speedups on ViT-L
+
+The code change is a 1 liner with the full example available [here](torchao/sparsity/training/)
+
+
+```python
+swap_linear_with_semi_sparse_linear(model, {"seq.0": SemiSparseLinear})
+```
+
+For VIT-L MLP shapes on a NVIDIA A100 we see the following results:
+
+|                     |   act24   |   dense   |   w24    | s24_inp_sparsify24 | s24_inp_clone |
+|---------------------|-----------|-----------|----------|--------------------|---------------|
+| f16 (44160,1024,4096,1024) |  11881.0  |  11534.3  |  9204.7  |        255.1        |      125.8    |
+
+Times are in microseconds (us).
 
 ## Newer dtypes
 
