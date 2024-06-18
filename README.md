@@ -17,14 +17,14 @@ All with no intrusive code changes and minimal accuracy degradation.
 
 #### Without intrusive code changes
 
-Quantizing your own models is as simple as the below and this should work on any model with `nn.Linear`. You can find a more comprehensive usage example [here](torchao/quantization/)
+Quantizing your models is a 1 liner that should work on any model with `nn.Linear` including your favorite HuggingFace model. You can find a more comprehensive usage example [here](torchao/quantization/)
 
 ```python
 from torchao.quantization.quant_api import quantize
 m = quantize(m, "int4wo")
 ```
 
-Benchmarks are run on a machine with a single A100 GPU using the script in `_models/llama` which generates text in a latency optimized way (batchsize=1)
+Benchmarks are run on a machine with a single A100 GPU using the script in `_models/llama` which generates text in a latency-optimized way (batchsize=1)
 
 The models used were `meta-llama/Llama-2-7b-chat-hf` and `meta-llama/Meta-Llama-3-8B`.
 
@@ -42,7 +42,7 @@ The models used were `meta-llama/Llama-2-7b-chat-hf` and `meta-llama/Meta-Llama-
 
 note: Int8 dynamic quantization works best on compute bound models like [SAM](https://github.com/pytorch-labs/segment-anything-fast) whereas Llama with batchsize=1 tends to be memory bound, thus the rather low performance.
 
-And a quick crash course on inference quantization to help parse the above table. Int4 quantization is actually an ambiguous term because there's the dtype in which a layer is represented and then the dtype in which the computation is done. For example if you're using Weight-Only (wo) int4 quantization that means that the layer will be upcasted to a larger dtype like fp16 so an int4 matrix multiplication is defined as `F.linear(input, weight.to(input.dtype))` wheras if it's possible to perform the computation using the smaller dtype directly pending support by a hardware vendor then that means you can perform `F.linear(input, weight)` directly and this is what we refer to as Dynamic-Quantization (dq). Naive quantization algorithms are also notoriously sensitive to outliers so we also typically set a group size that applies a scale factor per group of 64 elements in the case of `int4wo64`.
+And a quick crash course on inference quantization to help parse the above table. Int4 quantization is an ambiguous term because there's the dtype in which a layer is represented and then the dtype in which the computation is done. For example, if you're using Weight-Only (wo) int4 quantization that means that the layer will be upcasted to a larger dtype like fp16 so an int4 matrix multiplication is defined as `F.linear(input, weight.to(input.dtype))` whereas if it's possible to perform the computation using the smaller dtype directly pending support by a hardware vendor then that means you can perform `F.linear(input, weight)` directly and this is what we refer to as Dynamic-Quantization (dq). Naive quantization algorithms are also notoriously sensitive to outliers so we also typically set a group size that applies a scale factor per group of 64 elements in the case of `int4wo64`.
 
 
 #### With intrusive code changes
@@ -82,15 +82,15 @@ Times are in microseconds (us).
 
 ## Composability
 
-A key design principle for us is composability as in any new dtype or layout we provide needs to work with `torch.compile()` and it needs to work with `FSDP`. It shouldn't matter if the kernels are written are pure PyTorch, CUDA, C++ or Triton - things should just work! And here has been our current strategy
-1. Write the dtype, layout or bit packing logic in pure PyTorch and codegenerate efficient kernels with torch.compile. You can inspect those kernels with `TORCH_LOGS="output_code" python your_code.py` and check if a single kernel is being generated and if any unecessary buffers are being created
-2. However once you get a kernel, how do you know how good it is? The best way is to benchmark the codegenerated code with the best kernel on the market. But packaging custom CPP/CUDA kernels that work on multiple devices is tedious but we've abstracted all the tedium from you with our [custom ops support](./torchao/csrc/) so if you love writing kernels but hate packaging, we'd love to accept contributions for your custom ops. One key benefit is a kernel written as a custom op will just work with no graph breaks with `torch.compile()`. Compilers are great at optimizations like fusions and overhead reduction but it's challenging for compilers to rewrite the math of an algorithm such that's it's faster but also numerically stable so we are betting on both compilers and custom ops
+A key design principle for us is composability as in any new dtype or layout we provide needs to work with `torch.compile()` and needs to work with `FSDP`. It shouldn't matter if the kernels are written are pure PyTorch, CUDA, C++, or Triton - things should just work! And here is our current strategy
+1. Write the dtype, layout or bit packing logic in pure PyTorch and code-generate efficient kernels with torch.compile. You can inspect those kernels with `TORCH_LOGS="output_code" python your_code.py` and check if a single kernel is being generated and if any unnecessary buffers are being created
+2. However once you get a kernel, how do you know how good it is? The best way is to benchmark the code-generated code with the best kernel on the market. But packaging custom CPP/CUDA kernels that work on multiple devices is tedious but we've abstracted all the tedium from you with our [custom ops support](./torchao/csrc/) so if you love writing kernels but hate packaging, we'd love to accept contributions for your custom ops. One key benefit is a kernel written as a custom op will just work with no graph breaks with `torch.compile()`. Compilers are great at optimizations like fusions and overhead reduction but it's challenging for compilers to rewrite the math of an algorithm such that it's faster but also numerically stable so we are betting on both compilers and custom ops
 3. Finally while historically most quantization has been done for inference there is now a thriving area of research combining lower dtypes and sharding. One popular example is [NF4](torchao/dtypes/nf4tensor.py) which is used to create the QLoRA algorithm and you can define the semantics for how custom tensors should be sharded over multiple devices. We gave an accessible talk on [how to do this](https://x.com/HamelHusain/status/1800315287574847701).
 
 ## Get Started
 
 ### Installation
-`torchao` makes liberal use of several new features in pytorch, it's recommended to use it with the current nightly or latest stable version of PyTorch.
+`torchao` makes liberal use of several new features in Pytorch, it's recommended to use it with the current nightly or latest stable version of PyTorch.
 
 Stable Release
 ```Shell
@@ -109,14 +109,14 @@ pip install --pre torchao-nightly --index-url https://download.pytorch.org/whl/n
     * [DoRA](torchao/prototype/dora) a newer replacement for QLoRA with more promising convergence characteristics
     * [Fused int4/fp16 Quant Matmul](torchao/prototype/hqq) which is particularly useful for compute bound kernels showing 4x speedups over tinygemm for larger batch sizes such as 512
 * [gau-nernst](https://github.com/gau-nernst) fp6 kernels that are 4x faster than fp16 [torchao/prototype/fp6_llm](torchao/prototype/fp6_llm)
-* [vayuda](https://github.com/vayuda) with generic bitpacking kernels that were codegenerated using pure PyTorch [prototype/common](torchao/prototype/common)
-* [andreaskopf](https://github.com/andreaskoepf) and [melvinebenezer](https://github.com/melvinebenezer) with [bitnet tensors](torchao/prototype/dtypes)
+* [vayuda](https://github.com/vayuda) with generic bitpacking kernels that were code generated using pure PyTorch [prototype/common](torchao/prototype/common)
+* [andreaskopf](https://github.com/andreaskoepf) and [melvinebenezer](https://github.com/melvinebenezer) with [1 bit LLMs](torchao/prototype/dtypes) Bitnet 1.58 bitpacked into uin2 and fully code-generated with torch.compile
 
 ## How to contribute
 
 This repository is currently under heavy development
-* If you have suggestions on the API or use-cases you'd like to be covered, please open an [issue](https://github.com/pytorch/ao/issues)
-* If you'd like to co-develop the library with us please join us on #torchao on [discord.gg/cudamode](https://discord.gg/cudamode) - there's a lot of dtypes out there and we could use a lot more hands to make them go brrr
+* If you have suggestions on the API or use cases you'd like to be covered, please open an [issue](https://github.com/pytorch/ao/issues)
+* If you'd like to co-develop the library with us please join us on #torchao on [discord.gg/cudamode](https://discord.gg/cudamode) - there are a lot of dtypes out there and we could use a lot more hands to make them go brrr
 
 Installation instructions
 
