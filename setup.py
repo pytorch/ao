@@ -64,6 +64,12 @@ def get_extensions():
                 "-O3" if not debug_mode else "-O0",
             ]
         }
+
+        if debug_mode:
+            extra_compile_args["cxx"].append("-g")
+            extra_compile_args["nvcc"].append("-g")
+            extra_link_args.extend(["-O0", "-g"])
+
     else:
         extra_link_args = []
         extra_compile_args = {
@@ -77,10 +83,10 @@ def get_extensions():
             ]
        }
 
-    if debug_mode:
-        extra_compile_args["cxx"].append("-g" if not IS_WINDOWS else "/ZI")
-        extra_compile_args["nvcc"].append("-g")
-        extra_link_args.extend(["-O0", "-g"] if not IS_WINDOWS else ["/DEBUG"])
+        if debug_mode:
+            extra_compile_args["cxx"].append("/ZI")
+            extra_compile_args["nvcc"].append("-g")
+            extra_link_args.append("/DEBUG")
 
     this_dir = os.path.dirname(os.path.curdir)
     extensions_dir = os.path.join(this_dir, "torchao", "csrc")
