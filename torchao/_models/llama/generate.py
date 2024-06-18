@@ -189,20 +189,22 @@ def main(
 
     if quantization:
         from torchao.quantization.quant_api import (
-            change_linear_weights_to_int4_woqtensors,
-            change_linear_weights_to_int8_woqtensors,
-            change_linear_weights_to_int8_dqtensors,
+            quantize,
+            int8wo,
+            int8da_int8w,
+            int4wo,
             autoquant,
+            unwrap_tensor_subclass
     )
 
         if "int8wo" in quantization:
-            change_linear_weights_to_int8_woqtensors(model)
+            quantize(model, int8wo())
         if "int8dq" in quantization:
-            change_linear_weights_to_int8_dqtensors(model)
+            quantize(model, int8da_int8w())
         if "int4wo" in quantization:
             groupsize=int(quantization.split("-")[-1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
-            change_linear_weights_to_int4_woqtensors(model, groupsize=groupsize)
+            quantize(model, int4wo(groupsize=groupsize))
         if "autoquant" == quantization:
             model = autoquant(model)
             generate(
@@ -211,6 +213,9 @@ def main(
                 2,
                 interactive=False
             )
+        else:
+            unwrap_tensor_subclass(model)
+
 
     model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
 
