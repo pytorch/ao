@@ -12,7 +12,7 @@
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
 // 
-// This file is copied from https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/fp6_llm/csrc/include/ptx_mma.cuh
+// This file is modified from https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/fp6_llm/csrc/include/ptx_mma.cuh
 
 /***************************************************************************
  * Copyright 2023 The FLash-LLM Authors. All rights reserved.
@@ -36,11 +36,14 @@
 #include <assert.h>
 #include "configs.h"
 
+// MODIFICATION NOTE: to support MSVC
+// - uint32_t __restrict__ Reg[][4] is changed to uint32_t (* __restrict__ Reg)[4]
+// - half __restrict__ (*read_SPTR) is changed to half (* __restrict__ read_SPTR)
 #ifdef PIPELINE_LEVEL_SMEM
 template <typename TilingConfig>
-__device__ __forceinline__ void B_FromSharedToReg(uint32_t  __restrict__    Reg[][4],
-                                                  half      __restrict__    (*read_SPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
-                                                  int                       slice_id) {
+__device__ __forceinline__ void B_FromSharedToReg(uint32_t (* __restrict__ Reg)[4],
+                                                  half     (* __restrict__ read_SPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
+                                                  int                      slice_id) {
     #ifdef DEBUG_MODE
         static_assert( (TilingConfig::WARP_COL_MMA_TENSORS==1) || (TilingConfig::WARP_COL_MMA_TENSORS%2==0) );
     #endif
@@ -112,8 +115,10 @@ __device__ __forceinline__ void B_FromSharedToReg(uint32_t  __restrict__    Reg[
 }
 #endif
 
+// MODIFICATION NOTE: to support MSVC, the function signature is changed from
+// MMA_FP16_M16N8K16(uint32_t __restrict__ c[], uint32_t __restrict__ *a, uint32_t __restrict__ *b).
 __device__ __forceinline__ void
-MMA_FP16_M16N8K16(uint32_t __restrict__ c[], uint32_t __restrict__ *a, uint32_t __restrict__ *b)
+MMA_FP16_M16N8K16(uint32_t * __restrict__ c, uint32_t * __restrict__ a, uint32_t * __restrict__ b)
 {
     asm volatile("mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32"
                  "{ %0, %1, %2, %3},"

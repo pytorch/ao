@@ -12,7 +12,7 @@
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
 // 
-// This file is copied from https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/fp6_llm/csrc/include/utils_gmem.cuh
+// This file is modified from https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/fp6_llm/csrc/include/utils_gmem.cuh
 
 #ifndef UTILS_GMEM_CUH
 #define UTILS_GMEM_CUH
@@ -57,17 +57,18 @@ __device__ __forceinline__ void CopyFromGlobalToShared_Scales(half* SPTR_QuantSc
     for(int i=0; i<2; i++)  SPTR_QuantScales[Offset_Shared+i] = GPTR_A_Scales[Offset_Global+i*8];
 }
 
+// MODIFICATION NOTE: to support MSVC, half __restrict__ (*SharedPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8] is changed to below.
 /* 
  * (1) Copying X  rows * 64 columns of FP16 values, originally in row    major
  * (2) Copying 64 rows * X  columns of FP16 values, originally in column major
  * 16 Bytes per thread -> 512 Bytes per WARP = 4 line per WARP = 1 line per 8 Threads
  */
 template<int MaxNumOfLinesToCopy, int BLOCK_WARPS>
-__device__ __forceinline__ void CopyFromGlobalToShared(half __restrict__ (*SharedPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
-                                                       const half*       GlobalPTR,
-                                                       const int         GlobalStride,
-                                                       const int         NumOfLinesLeft,        // To support arbitrary N dimensions.
-                                                       bool              Pred = true) {
+__device__ __forceinline__ void CopyFromGlobalToShared(half (* __restrict__ SharedPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
+                                                       const half*          GlobalPTR,
+                                                       const int            GlobalStride,
+                                                       const int            NumOfLinesLeft,        // To support arbitrary N dimensions.
+                                                       bool                 Pred = true) {
     // static parameters: 1 Group (8 Threads) can copy 1 line (64 FP16) each time
     const int NumOfThreads  = BLOCK_WARPS * WARP_SIZE;
     const int NumOfGroups   = NumOfThreads / 8; 
