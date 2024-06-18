@@ -13,7 +13,7 @@ from generate import (
 
 )
 from torchao.quantization.quant_api import (
-    quantize, int4wo, int8wo, int8da_int8w
+    quantize, int4wo, int8wo, int8da_int8w, unwrap_tensor_subclass
 
 )
 from torchao._models._eval import TransformerEvalWrapper, InputRecorder
@@ -70,7 +70,7 @@ def run_evaluation(
         if "int4wo" in quantization and "gptq" in quantization:
             groupsize=int(quantization.split("-")[-2])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
-
+            assert precision==torch.bfloat16, f"{quantization} requires precision or bfloat16 but got {precision}"
             inputs = InputRecorder(
                 tokenizer,
                 calibration_seq_length,
@@ -83,9 +83,11 @@ def run_evaluation(
                 calibration_limit,
             ).get_inputs()
 
-            quantizer = Int4WeightOnlyGPTQQuantizer(groupsize=groupsize, precision=precision)
+            quantizer = Int4WeightOnlyGPTQQuantizer(groupsize=groupsize)
             model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
             model = quantizer.quantize(model, inputs).to(device)
+        else:
+            unwrap_tensor_subclass(model)
 
     if compile:
         model = torch.compile(model, mode="max-autotune", fullgraph=True)

@@ -8,17 +8,12 @@
 import json
 import re
 import shutil
-import sys
 from pathlib import Path
 from typing import Optional
 
 import torch
 
-# support running without installing as a package
-wd = Path(__file__).parent.parent.resolve()
-sys.path.append(str(wd))
-
-from model import ModelArgs
+from torchao._models.llama.model import ModelArgs
 
 
 @torch.inference_mode()
