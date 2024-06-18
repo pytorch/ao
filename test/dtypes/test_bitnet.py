@@ -60,7 +60,6 @@ def _apply_weight_only_uint2_quant(model):
 
 @pytest.mark.parametrize("input_shape", [[2, 4], [5, 5, 5, 4], [1, 4, 4]])
 def test_uint2_quant(input_shape):
-    torch.set_float32_matmul_precision("high")
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     x = torch.randn(*input_shape).to(device)
     m = nn.Sequential(nn.Linear(4, 16)).to(device)

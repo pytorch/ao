@@ -8,7 +8,6 @@ from torchao.utils import TORCH_VERSION_AFTER_2_4
 if not TORCH_VERSION_AFTER_2_4:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
-
 @pytest.fixture
 def uint2_tensor():
     input_tensor = torch.randint(0, 15, (4,4), dtype = torch.uint8)
@@ -32,4 +31,3 @@ def test_conversion(uint2_tensor, dtype):
 if __name__ == '__main__':
     pytest.main(__file__)
     
-
