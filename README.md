@@ -17,7 +17,7 @@ All with no intrusive code changes and minimal accuracy degradation.
 
 #### Without intrusive code changes
 
-Quantizing your models is a 1 liner that should work on any model with `nn.Linear` including your favorite HuggingFace model. You can find a more comprehensive usage example [here](torchao/quantization/)
+Quantizing your models is a 1 liner that should work on any model with `nn.Linear` including your favorite HuggingFace model. You can find a more comprehensive usage instructions [here](torchao/quantization/) and a hugginface inference example [here](scripts/hf_eval.py)
 
 ```python
 from torchao.quantization.quant_api import quantize
