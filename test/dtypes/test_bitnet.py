@@ -4,6 +4,10 @@ import torch.nn as nn
 from torchao.prototype.dtypes import BitnetTensor
 from torchao.prototype.dtypes.uint2 import unpack_uint2
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
+from torchao.utils import TORCH_VERSION_AFTER_2_4
+
+if not TORCH_VERSION_AFTER_2_4:
+    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 @pytest.fixture
 def bitnet_tensor():

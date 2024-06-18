@@ -232,3 +232,8 @@ def t(func, args, kwargs):
     unpacked = unpack_uint2(tensor.elem).to(tensor.device)
     transposed = unpacked.t()
     return UInt2Tensor(pack_uint2(transposed))
+
+@implements([torch.ops.aten.allclose.default])
+def allclose(func, args, kwargs):
+    tensor, other = args
+    return torch.allclose(tensor.elem, other.elem)
