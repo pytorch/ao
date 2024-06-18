@@ -9,6 +9,19 @@ from torchao.utils import TORCH_VERSION_AFTER_2_4
 if not TORCH_VERSION_AFTER_2_4:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
+@pytest.fixture(autouse=True)
+def run_before_and_after_tests():
+    # source: https://stackoverflow.com/questions/22627659/run-code-before-and-after-each-test-in-py-test  # noqa: E501
+
+    # setup (currently do nothing)
+
+    # tests will run here
+    yield
+
+    # teardown
+    # avoid dynamo cache limit issues
+    torch._dynamo.reset()
+
 @pytest.fixture
 def bitnet_tensor():
     input_tensor = torch.randint(0, 15, (4,4), dtype=torch.uint8)
