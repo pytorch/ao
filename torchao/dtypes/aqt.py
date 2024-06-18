@@ -481,7 +481,8 @@ class TensorCoreTiledAQTLayout(AQTLayout):
         return self
 
     def __repr__(self):
-        return f"TensorCoreTiledAQTLayout(packed_weight={self.packed_weight}, scale_and_zero={self.scale_and_zero})"
+        int_data, scale, zero_point = self.get_plain()
+        return f"TensorCoreTiledAQTLayout(int_data={int_data}, scale={scale}, zero_point={zero_point})"
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
