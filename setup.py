@@ -81,7 +81,7 @@ def get_extensions():
                 "-O3" if not debug_mode else "-O0",
                 "-t=0"
             ]
-       }
+        }
 
         if debug_mode:
             extra_compile_args["cxx"].append("/ZI")
