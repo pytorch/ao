@@ -120,7 +120,7 @@ cudaError_t fpx_linear_kernel(cudaStream_t    stream,
 
 namespace torchao {
 /*
-Computes FP6-FP16 GEMM (PyTorch interface).
+Computes FPx-FP16 GEMM (PyTorch interface).
 
 [Mathmatical Formula]
 Standard definition of linear layer:    Out = In * trans(W), where In, Out, and W are stored in row-major.
@@ -128,17 +128,19 @@ After Equivalent transformation    :    trans(Out) = W * trans(In). Note that we
 
 [Inputs]
   _in_feats:  tensor of shape [B, IC];                  // half 
-  _weights:   int tensor of shape [OC, IC // 16 * 3];   // 3 INT32 words contains 16 FP6 weights.
+  _weights:   int tensor of shape [OC, IC // 32 * x];   // x INT32 words contains 32 FPx weights.
   _scales:    tensor of shape [OC];                     // half
   splitK:     spliting the MatMul problem along K dimension for higher GPU utilization, default 1.
 [Outputs]
   _out_feats: tensor of shape [B, OC];                  // half
 */
-template<int EXPONENT, int MANTISSA>
-torch::Tensor fpx_linear_forward_cuda(torch::Tensor _in_feats,
-                                      torch::Tensor _weights,
-                                      torch::Tensor _scales,
-                                      int64_t       splitK=1)
+torch::Tensor fp_eXmY_linear_forward_cuda(
+    int64_t         EXPONENT,
+    int64_t         MANTISSA,
+    torch::Tensor   _in_feats,
+    torch::Tensor   _weights,
+    torch::Tensor   _scales,
+    int64_t         splitK=1)
 {
     int num_in_feats      = _in_feats.size(0);
     int num_in_channels   = _in_feats.size(1);
@@ -161,14 +163,54 @@ torch::Tensor fpx_linear_forward_cuda(torch::Tensor _in_feats,
     options = torch::TensorOptions().dtype(torch::kFloat32).device(_in_feats.device());
     at::Tensor _workspace = torch::empty({splitK, num_in_feats, num_out_channels}, options);
     auto Reduction_Workspace = reinterpret_cast<float*>(_workspace.data_ptr<float>());  // Reduction_Workspace_Size = Split_K * M_Global * N_Global * sizeof(fp32)
-      
-    fpx_linear_kernel<EXPONENT, MANTISSA>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
+
+    if (EXPONENT == 3 && MANTISSA == 2)
+        fpx_linear_kernel<3, 2>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
+
+    // experimental
+    else if (EXPONENT == 2 && MANTISSA == 3)
+        fpx_linear_kernel<2, 3>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
+
+    else if (EXPONENT == 2 && MANTISSA == 2)
+        fpx_linear_kernel<2, 2>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
+
+    // experimental
+    else if (EXPONENT == 3 && MANTISSA == 1)
+        fpx_linear_kernel<3, 1>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
+
+    else
+        TORCH_CHECK(false, "Only FP6 E3M2 and FP5 E2M2 are supported");
 
     return _out_feats;
 }
 
+/*
+Computes FP6-FP16 GEMM (PyTorch interface).
+
+[Mathmatical Formula]
+Standard definition of linear layer:    Out = In * trans(W), where In, Out, and W are stored in row-major.
+After Equivalent transformation    :    trans(Out) = W * trans(In). Note that we do not perform "transpose" during runtime, we instead interpret the In/Out as column-major matrices when calling our CUDA kernel.
+
+[Inputs]
+  _in_feats:  tensor of shape [B, IC];                  // half 
+  _weights:   int tensor of shape [OC, IC // 16 * 3];   // 3 INT32 words contains 16 FP6 weights.
+  _scales:    tensor of shape [OC];                     // half
+  splitK:     spliting the MatMul problem along K dimension for higher GPU utilization, default 1.
+[Outputs]
+  _out_feats: tensor of shape [B, OC];                  // half
+*/
+torch::Tensor fp6_linear_forward_cuda(
+    torch::Tensor _in_feats,
+    torch::Tensor _weights,
+    torch::Tensor _scales,
+    int64_t       splitK=1)
+{
+    return fp_eXmY_linear_forward_cuda(3, 2, _in_feats, _weights, _scales, splitK);
+}
+
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
-  m.impl("torchao::fp6_llm_linear", &fpx_linear_forward_cuda<3, 2>);
+  m.impl("torchao::fp6_llm_linear", &fp6_linear_forward_cuda);
+  m.impl("torchao::quant_llm_linear", &fp_eXmY_linear_forward_cuda);
 }
 
 } // namespace torchao
