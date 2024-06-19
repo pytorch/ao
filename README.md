@@ -2,6 +2,7 @@
 
 [![](https://dcbadge.vercel.app/api/server/cudamode?style=flat)](https://discord.gg/cudamode)
 
+[Introduction](#introduction) | [Inference](#inference) | [Training](#training) | [Dtypes](#newer-dtypes) | [Composability](#composability) | [Installation](#installation) |  [Community Contributions](#community-contributions) | [How to contribute](#how-to-contribute)
 
 ## Introduction
 
@@ -76,7 +77,6 @@ A key design principle for us is composability as in any new dtype or layout we 
 2. However once you get a kernel, how do you know how good it is? The best way is to benchmark the code-generated code with the best kernel on the market. But packaging custom CPP/CUDA kernels that work on multiple devices is tedious but we've abstracted all the tedium from you with our [custom ops support](./torchao/csrc/) so if you love writing kernels but hate packaging, we'd love to accept contributions for your custom ops. One key benefit is a kernel written as a custom op will just work with no graph breaks with `torch.compile()`. Compilers are great at optimizations like fusions and overhead reduction but it's challenging for compilers to rewrite the math of an algorithm such that it's faster but also numerically stable so we are betting on both compilers and custom ops
 3. Finally while historically most quantization has been done for inference, there is now a thriving area of research combining distributed algorithms and quantization. One popular example is [NF4](torchao/dtypes/nf4tensor.py) which was used to implement the QLoRA algorithm. The NF4 tensor also contains semantics for how it should be sharded over multiple devices so it composes with FSDP. We gave an accessible talk on [how to do this](https://x.com/HamelHusain/status/1800315287574847701).
 
-## Get Started
 
 ### Installation
 `torchao` makes liberal use of several new features in Pytorch, it's recommended to use it with the current nightly or latest stable version of PyTorch.
@@ -91,7 +91,7 @@ Nightly Release
 pip install --pre torchao-nightly --index-url https://download.pytorch.org/whl/nightly/cu121 # full options are cpu/cu118/cu121/cu124
 ```
 
-From source 
+From source
 ```Shell
 git clone https://github.com/pytorch/ao
 cd ao
