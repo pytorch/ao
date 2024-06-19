@@ -31,11 +31,25 @@ fp16_act = torch.randn(1, 512).cuda().half()
 outputs = fp6_llm_linear(fp16_act, fp6_weight, scales)  # shape (1, 1024)
 ```
 
-**NOTE**: since this kernel's computation dtype is FP16, it is recommended to convert the model to FP16 (instead of BF16) before applying quantization.
+**NOTE**: since this kernel's computation dtype is FP16, it is recommended to convert the model to FP16 (instead of BF16) before applying quantization and use FP16 for activations.
 
 ## Benchmark results
 
-TODO
+Benchmarks are run on a machine with a single 4070Ti SUPER GPU using the scripts in [_models/llama](../../_models/llama). tokens/s is measured using [generate.py](../../_models/llama/generate.py) which generates text in a latency optimized way (batchsize=1). wikitext perplexity is measured using [eval.py](../../_models/llama/eval.py) which uses [lm_eval](https://github.com/EleutherAI/lm-evaluation-harness). The model used is [meta-llama/Llama-2-7b-chat-hf](https://huggingface.co/meta-llama/Llama-2-7b-chat-hf).
+
+FPx quantization is run with `--precision float16`. The rest uses the default precision of `bfloat16`.
+
+Quantization        | wikitext perplexity | tokens/s
+--------------------|---------------------|----------
+INT8                | 12.21               |  87.45
+INT4-256 (tinygemm) | 76266957.87 (bug)   | 157.10
+FP6 E3M2            | 12.34               | 106.76
+FP6 E2M3            | 12.23               | 106.77
+FP5 E3M1            | 12.55               | 122.69
+FP5 E2M2            | 12.47               | 122.66
+FP4 E3M0            | 14.58               | 145.55
+FP4 E2M1            | 15.01               | 146.05
+FP3 E2M0            | 74625.18            | 164.49
 
 ## Credits
 

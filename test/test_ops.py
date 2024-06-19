@@ -1,11 +1,17 @@
 import torch
-from torch.testing._internal.common_utils import TestCase, IS_FBCODE
+from torch.testing._internal.common_utils import (
+    TestCase,
+    instantiate_parametrized_tests,
+    parametrize,
+    run_tests,
+)
 from torch.testing._internal.optests import opcheck
-import torchao
+from torchao.utils import is_fbcode
 from torchao.prototype.fp6_llm.fp6_llm import from_tc_float6_e3m2
-import unittest
-from parameterized import parameterized
 import pytest
+
+if is_fbcode():
+    pytest.skip("Skipping the test in fbcode since we don't have TARGET file for kernels")
 
 try:
     import torchao.ops
@@ -13,48 +19,51 @@ except RuntimeError:
     pytest.skip("torchao.ops not available")
 
 
-# torch.testing._internal.optests.generate_tests.OpCheckError: opcheck(op, ...):
-# test_faketensor failed with module 'torch' has no attribute '_custom_ops' (scroll up for stack trace)
-@pytest.mark.filterwarnings("ignore:create_unbacked_symint is deprecated, please use new_dynamic_size instead:UserWarning")
-@unittest.skipIf(IS_FBCODE, "Skipping the test in fbcode since we don't have TARGET file for kernels")
 class TestOps(TestCase):
-    def _create_fp6_inputs(self, BS: int, OC: int, IC: int, device):
-        # Randomly initialize each bytes. The highest value for randint() is set the the max value of uint32_t.
-        fp6_weight = torch.randint(4294967295, (OC, IC // 16 * 3)).to(torch.int)
-        fp16_scale = torch.rand(OC).half() + 0.5
-        fp16_activation = torch.rand(BS, IC).half() + 0.5
-        return fp6_weight.to(device), fp16_scale.to(device), fp16_activation.to(device)
+    def _create_fpx_inputs(self, ebits: int, mbits: int, BS: int, OC: int, IC: int, device):
+        # Randomly initialize each byte
+        nbits = 1 + ebits + mbits
+        fpx_weight = torch.randint(256, (OC, IC // 8 * nbits), dtype=torch.uint8).view(torch.int32)
+        scale = torch.rand(OC).half() + 0.5
+        fp16_act = torch.rand(BS, IC).half() + 0.5
+        return fpx_weight.to(device), scale.to(device), fp16_act.to(device)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
-    def test_fp6_llm_linear(self):
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @parametrize("ebits,mbits", [(3, 2), (2, 2)])
+    def test_quant_llm_linear(self, ebits, mbits):
         BS = 2
         OC = 256
         IC = 256
         splitK = 1
-        fp6_weight, fp16_scale, fp16_activation = self._create_fp6_inputs(BS, OC, IC, "cuda")
+        fpx_weight, scale, fp16_act = self._create_fpx_inputs(ebits, mbits, BS, OC, IC, "cuda")
 
         # smoke test
-        torchao.ops.fp6_llm_linear(fp16_activation, fp6_weight, fp16_scale, splitK)
+        torchao.ops.quant_llm_linear(ebits, mbits, fp16_act, fpx_weight, scale, splitK)
 
         # comprehensive testing
         test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
-        opcheck(torch.ops.torchao.fp6_llm_linear, (fp16_activation, fp6_weight, fp16_scale, splitK), test_utils=test_utils)
+        opcheck(torch.ops.torchao.quant_llm_linear, (ebits, mbits, fp16_act, fpx_weight, scale, splitK), test_utils=test_utils)
 
-    # adapted from https://github.com/usyd-fsalab/fp6_llm/blob/main/tests/python/kernel_test.py
-    @parameterized.expand([(1, 2048, 4096, 5), (2, 8192, 8192, 6)])
-    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
-    def test_fp6_llm_linear_correctness(self, BS, OC, IC, splitK):
-        fp6_weight, fp16_scale, fp16_activation = self._create_fp6_inputs(BS, OC, IC, "cuda")
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @parametrize("BS,OC,IC,splitK", [(1, 2048, 4096, 5), (2, 8192, 8192, 6)])
+    @parametrize("ebits,mbits", [(3, 2), (2, 2)])
+    def test_fp6_llm_linear_correctness(self, ebits, mbits, BS, OC, IC, splitK):
+        # adapted from https://github.com/usyd-fsalab/fp6_llm/blob/main/tests/python/kernel_test.py
+        fpx_weight, scale, fp16_act = self._create_fpx_inputs(ebits, mbits, BS, OC, IC, "cuda")
 
-        results_fp6 = torchao.ops.fp6_llm_linear(fp16_activation, fp6_weight, fp16_scale, splitK)
+        results_fpx = torchao.ops.quant_llm_linear(ebits, mbits, fp16_act, fpx_weight, scale, splitK)
 
-        fp16_weight = from_tc_float6_e3m2(fp6_weight.view(torch.uint8), dtype=torch.float16) * fp16_scale[:, None]
-        results_fp16 = fp16_activation @ fp16_weight.T
+        # TODO: add from_scaled_tc_fpx()
+        fp16_weight = from_tc_float6_e3m2(fpx_weight.view(torch.uint8), dtype=torch.float16) * scale[:, None]
+        results_fp16 = fp16_act @ fp16_weight.T
 
-        error = (results_fp6 - results_fp16).abs()
+        error = (results_fpx - results_fp16).abs()
         relative_error = error / results_fp16.abs()
         assert relative_error.mean() < 1e-2
 
 
+instantiate_parametrized_tests(TestOps)
+
+
 if __name__ == "__main__":
-    unittest.main()
+    run_tests()
