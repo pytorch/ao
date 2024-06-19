@@ -7,7 +7,7 @@ from torch.testing._internal.common_utils import (
 )
 from torch.testing._internal.optests import opcheck
 from torchao.utils import is_fbcode
-from torchao.prototype.fp6_llm.fp6_llm import from_tc_float6_e3m2
+from torchao.prototype.fp6_llm.fp6_llm import _from_tc_fpx
 import pytest
 
 if is_fbcode():
@@ -53,8 +53,8 @@ class TestOps(TestCase):
 
         results_fpx = torchao.ops.quant_llm_linear(ebits, mbits, fp16_act, fpx_weight, scale, splitK)
 
-        # TODO: add from_scaled_tc_fpx()
-        fp16_weight = from_tc_float6_e3m2(fpx_weight.view(torch.uint8), dtype=torch.float16) * scale[:, None]
+        fp32_weight = _from_tc_fpx(fpx_weight.view(torch.uint8), ebits, mbits) * scale[:, None].float()
+        fp16_weight = fp32_weight.half()
         results_fp16 = fp16_act @ fp16_weight.T
 
         error = (results_fpx - results_fp16).abs()

@@ -18,7 +18,7 @@ def _unpack(x: Tensor, n_bits: int) -> Tensor:
 
 
 # https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/fp6_llm/csrc/utils/weight_prepacking.h#L87-L116
-def _bit_interleave(x: Tensor, n_bits: int) -> Tensor:
+def _bit_interleave(x: Tensor, n_bits: int, undo: bool = False) -> Tensor:
     # the original code unpacks/packs the values from/to uint32 while we unpack/pack the values from/to uint8
     # thus, we need to reverse byte order within a uint32 word.
     x = x.reshape(-1, 4).flip(1)
@@ -30,10 +30,13 @@ def _bit_interleave(x: Tensor, n_bits: int) -> Tensor:
         1: [1, 5, 9, 13, 17, 21, 25, 29, 3, 7, 11, 15, 19, 23, 27, 31,
             0, 4, 8, 12, 16, 20, 24, 28, 2, 6, 10, 14, 18, 22, 26, 30],
         2: [1, 5, 9, 13, 3, 7, 11, 15, 0, 4, 8, 12, 2, 6, 10, 14],
-        4: [1, 5, 3, 7, 0, 4, 2, 6]
+        4: [1, 5, 3, 7, 0, 4, 2, 6],
     }[n_bits]
-    x = x[:, bit_order]
 
+    if undo:
+        bit_order = [bit_order.index(i) for i in range(len(bit_order))]
+
+    x = x[:, bit_order]
     x = _pack(x, n_bits)
 
     # reverse byte order within a uint32 word again.
@@ -57,18 +60,18 @@ def _to_tc_fpx(tensor: Tensor, ebits: int, mbits: int) -> Tensor:
     tensor_fpx = tensor_fpx.permute(1, 0, 2)
     tensor_fpx = tensor_fpx.flatten()
 
-    n_bits = 1 + ebits + mbits
+    total_bits = 1 + ebits + mbits
     n_used = 0
     fragments = []
 
     for y in [1, 2, 4]:
-        if n_bits & y:
+        if total_bits & y:
             mask = (1 << y) - 1
-            tensor_ybit = (tensor_fpx >> (n_bits - n_used - y)) & mask
+            tensor_ybit = (tensor_fpx >> (total_bits - n_used - y)) & mask
             tensor_ybit = _pack(tensor_ybit, y)
 
             tensor_ybit = tensor_ybit.view(32, -1, 4).permute(1, 0, 2).flip(2)  # Pass 2 from original code
-            tensor_ybit = _bit_interleave(tensor_ybit, y)                       # Pass 3 from original code
+            tensor_ybit = _bit_interleave(tensor_ybit.flatten(), y)             # Pass 3 from original code
             fragments.append(tensor_ybit)
             n_used += y
 
@@ -110,6 +113,44 @@ def to_scaled_tc_float6_e3m2(tensor: Tensor) -> Tuple[Tensor, Tensor]:
     scale = F6_E3M2_MAX / tensor.abs().amax(1).clamp(min=1e-12)
     tc_fp6_tensor = to_tc_float6_e3m2(tensor * scale.view(-1, 1))
     return tc_fp6_tensor, scale.reciprocal().half()
+
+
+def _from_tc_fpx(tensor: Tensor, ebits: int, mbits: int) -> Tensor:
+    total_bits = 1 + ebits + mbits
+    M = tensor.shape[0]
+    size = tensor.numel()
+    tensor = tensor.flatten()
+    offset = 0
+    n_used = 0
+
+    tensor_fpx = None
+
+    for y in [1, 2, 4]:
+        if total_bits & y:
+            size_ybit = size // total_bits * y
+            tensor_ybit = tensor[offset : offset + size_ybit]
+            offset += size_ybit
+
+            tensor_ybit = _bit_interleave(tensor_ybit, y, undo=True)            # undo Pass 3
+            tensor_ybit = tensor_ybit.view(-1, 32, 4).flip(2).permute(1, 0, 2)  # undo Pass 2
+
+            tensor_ybit = _unpack(tensor_ybit.flatten(), y)
+            tensor_ybit = tensor_ybit << (total_bits - n_used - y)
+            n_used += y
+
+            if tensor_fpx is None:
+                tensor_fpx = tensor_ybit
+            else:
+                tensor_fpx |= tensor_ybit
+
+    # undo Pass 1
+    tensor_fpx = tensor_fpx.view(32, -1, 2).permute(1, 0, 2)
+    tensor_fpx = tensor_fpx.reshape(M // 64, -1, 4, 2, 2, 8, 8)
+    tensor_fpx = tensor_fpx.permute(0, 2, 4, 5, 1, 3, 6)
+    tensor_fpx = tensor_fpx.reshape(M, -1)
+
+    tensor_fp32 = _fpx_unpacked_to_f32(tensor_fpx, ebits, mbits)
+    return tensor_fp32
 
 
 def from_tc_float6_e3m2(tensor: Tensor, dtype: torch.dtype = torch.float32) -> Tensor:
