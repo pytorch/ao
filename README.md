@@ -5,9 +5,7 @@
 
 ## Introduction
 
-torchao is a library to create and integrate high-performance custom data types, layouts and kernels into their PyTorch workflows with up to
-* **30% speedups** for [training](#training)
-* **2x speedups** with **65%** less VRAM for [inference](#inference)
+torchao is a library to create and integrate high-performance custom data types, layouts and kernels into their PyTorch workflows with up to **2x speedups** with **65%** less VRAM for [inference](#inference) and support for [training](#training)
 
 All with no intrusive code changes and minimal accuracy degradation.
 
@@ -66,13 +64,6 @@ The code change is a 1 liner with the full example available [here](torchao/spar
 swap_linear_with_semi_sparse_linear(model, {"seq.0": SemiSparseLinear})
 ```
 
-For VIT-L MLP shapes on a NVIDIA A100 we see the following results:
-
-|                     |   act24   |   dense   |   w24    | s24_inp_sparsify24 | s24_inp_clone |
-|---------------------|-----------|-----------|----------|--------------------|---------------|
-| f16 (44160,1024,4096,1024) |  11881.0  |  11534.3  |  9204.7  |        255.1        |      125.8    |
-
-Times are in microseconds (us).
 
 ## Newer dtypes
 
