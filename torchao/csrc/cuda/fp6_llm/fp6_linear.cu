@@ -167,20 +167,19 @@ torch::Tensor fp_eXmY_linear_forward_cuda(
 
     if (EXPONENT == 3 && MANTISSA == 2)
         fpx_linear_kernel<3, 2>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
-
-    // experimental
-    else if (EXPONENT == 2 && MANTISSA == 3)
-        fpx_linear_kernel<2, 3>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
-
     else if (EXPONENT == 2 && MANTISSA == 2)
         fpx_linear_kernel<2, 2>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
 
     // experimental
+    else if (EXPONENT == 2 && MANTISSA == 3)
+        fpx_linear_kernel<2, 3>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
     else if (EXPONENT == 3 && MANTISSA == 1)
         fpx_linear_kernel<3, 1>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
+    else if (EXPONENT == 2 && MANTISSA == 1)
+        fpx_linear_kernel<2, 1>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
 
     else
-        TORCH_CHECK(false, "Only FP6 E3M2 and FP5 E2M2 are supported");
+        TORCH_CHECK(false, "FP", NBITS, " E", EXPONENT, "M", MANTISSA, " is not supported.");
 
     return _out_feats;
 }
