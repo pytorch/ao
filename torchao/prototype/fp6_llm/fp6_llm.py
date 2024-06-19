@@ -339,7 +339,7 @@ class QuantLlmLinear(nn.Module):
         self.register_buffer("scales", scales)
         self.register_buffer("bias", bias)
         self.out_features = weight.shape[0]
-        self.in_features = weight.shape[1] // 3 * 4
+        self.in_features = weight.shape[1] // (1 + ebits + mbits) * 8
         self.ebits = ebits
         self.mbits = mbits
 
