@@ -33,10 +33,9 @@ outputs = fp6_llm_linear(fp16_act, fp6_weight, scales)  # shape (1, 1024)
 
 **NOTE**: since this kernel's computation dtype is FP16, it is recommended to convert the model to FP16 (instead of BF16) before applying quantization.
 
-## TODO
+## Benchmark results
 
-- [ ] Compile CUDA kernel for Windows
-- [ ] Merge FP5 from upstream
+TODO
 
 ## Credits
 
