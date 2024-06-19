@@ -165,6 +165,7 @@ torch::Tensor fp_eXmY_linear_forward_cuda(
     at::Tensor _workspace = torch::empty({splitK, num_in_feats, num_out_channels}, options);
     auto Reduction_Workspace = reinterpret_cast<float*>(_workspace.data_ptr<float>());  // Reduction_Workspace_Size = Split_K * M_Global * N_Global * sizeof(fp32)
 
+    // officially supported in Quant-LLM
     if (EXPONENT == 3 && MANTISSA == 2)
         fpx_linear_kernel<3, 2>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
     else if (EXPONENT == 2 && MANTISSA == 2)
@@ -177,6 +178,10 @@ torch::Tensor fp_eXmY_linear_forward_cuda(
         fpx_linear_kernel<3, 1>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
     else if (EXPONENT == 2 && MANTISSA == 1)
         fpx_linear_kernel<2, 1>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
+    else if (EXPONENT == 3 && MANTISSA == 0)
+        fpx_linear_kernel<3, 0>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
+    else if (EXPONENT == 2 && MANTISSA == 0)
+        fpx_linear_kernel<2, 0>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
 
     else
         TORCH_CHECK(false, "FP", NBITS, " E", EXPONENT, "M", MANTISSA, " is not supported.");
