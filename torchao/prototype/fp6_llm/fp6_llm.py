@@ -1,72 +1,78 @@
+from functools import reduce
 import math
 from typing import List, Optional, Tuple
 
 import torch
 from torch import nn, Tensor
-from torchao.prototype.mx_formats.custom_cast import f32_to_f6_e3m2_unpacked, f6_e3m2_unpacked_to_f32
+from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32
 from torchao.prototype.mx_formats.constants import F6_E3M2_MAX
 from torchao.ops import fp6_llm_linear
 
 
-def _pack_2bit(x: Tensor) -> Tensor:
-    return (x[..., ::4] << 6) | (x[..., 1::4] << 4) | (x[..., 2::4] << 2) | x[..., 3::4]
+def _pack(x: Tensor, n_bits: int) -> Tensor:
+    return reduce(torch.bitwise_or, [x[..., i::(8 // n_bits)] << (8 - (i + 1) * n_bits) for i in range(8 // n_bits)])
 
 
-def _unpack_2bit(x: Tensor) -> Tensor:
-    return torch.stack([x >> 6, (x >> 4) & 0b11, (x >> 2) & 0b11, x & 0b11], dim=-1).flatten(-2)
+def _unpack(x: Tensor, n_bits: int) -> Tensor:
+    return torch.stack([(x >> (8 - (i + 1) * n_bits)) & ((1 << n_bits) - 1) for i in range(8 // n_bits)], dim=-1).flatten(-2)
 
 
-def _pack_4bit(x: Tensor) -> Tensor:
-    return (x[..., ::2] << 4) | x[..., 1::2]
+# https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/fp6_llm/csrc/utils/weight_prepacking.h#L87-L116
+def _bit_interleave(x: Tensor, n_bits: int) -> Tensor:
+    # the original code unpacks/packs the values from/to uint32 while we unpack/pack the values from/to uint8
+    # thus, we need to reverse byte order within a uint32 word.
+    x = x.reshape(-1, 4).flip(1)
 
+    x = _unpack(x, n_bits)
+    x = x.view(-1, 4 * (8 // n_bits))
 
-def _unpack_4bit(x: Tensor) -> Tensor:
-    return torch.stack([x >> 4, x & 0b1111], dim=-1).flatten(-2)
+    bit_order = {
+        1: [1, 5, 9, 13, 17, 21, 25, 29, 3, 7, 11, 15, 19, 23, 27, 31,
+            0, 4, 8, 12, 16, 20, 24, 28, 2, 6, 10, 14, 18, 22, 26, 30],
+        2: [1, 5, 9, 13, 3, 7, 11, 15, 0, 4, 8, 12, 2, 6, 10, 14],
+        4: [1, 5, 3, 7, 0, 4, 2, 6]
+    }[n_bits]
+    x = x[:, bit_order]
+
+    x = _pack(x, n_bits)
+
+    # reverse byte order within a uint32 word again.
+    x = x.reshape(-1, 4).flip(1)
+    return x.flatten()
 
 
 # this is a literal adaptation of FP6-LLM ahead-of-time bit-level pre-packing
-# https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/fp6_llm/csrc/utils/weight_prepacking.h
-def _to_tc_float6_e3m2_ref(tensor: Tensor) -> Tensor:
+# https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/fp6_llm/csrc/utils/weight_prepacking.h
+def _to_tc_fpx(tensor: Tensor, n_ebits: int, n_mbits: int) -> Tensor:
     assert tensor.ndim == 2
     M, N = tensor.shape
     assert (M % 64 == 0) and (N % 64 == 0)
 
-    tensor_fp6 = f32_to_f6_e3m2_unpacked(tensor.float())
+    tensor_fpx = _f32_to_fpx_unpacked(tensor.float(), n_ebits, n_mbits)
 
     # Pass 1 from original code
-    tensor_fp6 = tensor_fp6.view(M // 64, 4, 2, 8, N // 16, 2, 8)
-    tensor_fp6 = tensor_fp6.permute(0, 4, 1, 5, 2, 3, 6)
-    tensor_fp6 = tensor_fp6.reshape(-1, 32, 2)
-    tensor_fp6 = tensor_fp6.permute(1, 0, 2)
-    tensor_fp6 = tensor_fp6.flatten()
+    tensor_fpx = tensor_fpx.view(M // 64, 4, 2, 8, N // 16, 2, 8)
+    tensor_fpx = tensor_fpx.permute(0, 4, 1, 5, 2, 3, 6)
+    tensor_fpx = tensor_fpx.reshape(-1, 32, 2)
+    tensor_fpx = tensor_fpx.permute(1, 0, 2)
+    tensor_fpx = tensor_fpx.flatten()
 
-    tensor_2bit = _pack_2bit((tensor_fp6 >> 4) & 0b11)
-    tensor_4bit = _pack_4bit(tensor_fp6 & 0b1111)
+    n_bits = 1 + n_ebits + n_mbits
+    n_used = 0
+    fragments = []
 
-    # Pass 2 from original code
-    tensor_2bit = tensor_2bit.view(32, -1, 4).permute(1, 0, 2).flip(2)
-    tensor_4bit = tensor_4bit.view(32, -1, 4).permute(1, 0, 2).flip(2)
+    for y in [1, 2, 4]:
+        if n_bits & y:
+            mask = (1 << y) - 1
+            tensor_ybit = (tensor_fpx >> (n_bits - n_used - y)) & mask
+            tensor_ybit = _pack(tensor_ybit, y)
 
-    # Pass 3 from original code
-    # BitInterleaving_2bit
-    # the 1st and 3rd permutations are needed because the author unpacks/packs the values from/to uint32
-    # while we still unpack/pack the values from/to uint8
-    tensor_2bit = _unpack_2bit(tensor_2bit).view(-1, 16)
-    tensor_2bit = tensor_2bit[:, [12, 13, 14, 15, 8, 9, 10, 11, 4, 5, 6, 7, 0, 1, 2, 3]]
-    tensor_2bit = tensor_2bit[:, [1, 5, 9, 13, 3, 7, 11, 15, 0, 4, 8, 12, 2, 6, 10, 14]]
-    tensor_2bit = tensor_2bit[:, [12, 13, 14, 15, 8, 9, 10, 11, 4, 5, 6, 7, 0, 1, 2, 3]]
-    tensor_2bit = _pack_2bit(tensor_2bit).view(-1)
+            tensor_ybit = tensor_ybit.view(32, -1, 4).permute(1, 0, 2).flip(2)  # Pass 2 from original code
+            tensor_ybit = _bit_interleave(tensor_ybit, y)                       # Pass 3 from original code
+            fragments.append(tensor_ybit)
+            n_used += y
 
-    # BitInterleaving_4bit
-    # the 1st and 3rd permutations are needed because the author unpacks/packs the values from/to uint32
-    # while we still unpack/pack the values from/to uint8
-    tensor_4bit = _unpack_4bit(tensor_4bit).view(-1, 8)
-    tensor_4bit = tensor_4bit[:, [4, 5, 6, 7, 0, 1, 2, 3]]
-    tensor_4bit = tensor_4bit[:, [1, 5, 3, 7, 0, 4, 2, 6]]
-    tensor_4bit = tensor_4bit[:, [4, 5, 6, 7, 0, 1, 2, 3]]
-    tensor_4bit = _pack_4bit(tensor_4bit).view(-1)
-
-    return torch.cat([tensor_2bit, tensor_4bit], dim=0).view(M, -1)
+    return torch.cat(fragments, dim=0).view(M, -1)
 
 
 # more optimized version of _to_tc_float6_e3m2_original() by merging ops
@@ -76,17 +82,17 @@ def to_tc_float6_e3m2(tensor: Tensor) -> Tensor:
     M, N = tensor.shape
     assert (M % 64 == 0) and (N % 64 == 0)
 
-    tensor_fp6 = f32_to_f6_e3m2_unpacked(tensor.float())
+    tensor_fp6 = _f32_to_fpx_unpacked(tensor.float(), 3, 2)
     tensor_fp6 = tensor_fp6.view(M // 64, 2, 2, 2, 8, N // 16, 2, 8)
     tensor_fp6 = tensor_fp6.flip(3)
 
     tensor_2bit = (tensor_fp6 >> 4) & 0b11
     tensor_2bit = tensor_2bit.permute(0, 5, 1, 4, 7, 3, 2, 6)
-    tensor_2bit = _pack_2bit(tensor_2bit.flatten())
+    tensor_2bit = _pack(tensor_2bit.flatten(), 2)
 
     tensor_4bit = tensor_fp6 & 0b1111
     tensor_4bit = tensor_4bit.permute(0, 5, 1, 2, 4, 7, 3, 6)
-    tensor_4bit = _pack_4bit(tensor_4bit.flatten())
+    tensor_4bit = _pack(tensor_4bit.flatten(), 4)
 
     return torch.cat([tensor_2bit, tensor_4bit], dim=0).view(M, -1)
 
@@ -109,17 +115,17 @@ def from_tc_float6_e3m2(tensor: Tensor, dtype: torch.dtype = torch.float32) -> T
 
     tensor_2bit, tensor_4bit = tensor.split([size_2bit, size_4bit])
 
-    tensor_2bit = _unpack_2bit(tensor_2bit)
+    tensor_2bit = _unpack(tensor_2bit, 2)
     tensor_2bit = tensor_2bit.view(M // 64, N // 16, 2, 8, 8, 2, 2, 2)
     tensor_2bit = tensor_2bit.permute(0, 2, 6, 5, 3, 1, 7, 4)
 
-    tensor_4bit = _unpack_4bit(tensor_4bit)
+    tensor_4bit = _unpack(tensor_4bit, 4)
     tensor_4bit = tensor_4bit.view(M // 64, N // 16, 2, 2, 8, 8, 2, 2)
     tensor_4bit = tensor_4bit.permute(0, 2, 3, 6, 4, 1, 7, 5)
 
     tensor_fp6 = (tensor_2bit << 4) | tensor_4bit
     tensor_fp6 = tensor_fp6.flip(3).reshape(M, N)
-    return f6_e3m2_unpacked_to_f32(tensor_fp6).to(dtype)
+    return _fpx_unpacked_to_f32(tensor_fp6, 3, 2).to(dtype)
 
 
 # https://github.com/microsoft/DeepSpeed/blob/3a3a6db3332e339cc9fd94efd4982f6d60635a3d/deepspeed/inference/v2/kernels/core_ops/cuda_linear/cuda_linear.py

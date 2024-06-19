@@ -10,7 +10,7 @@ from torch.testing._internal.common_utils import (
 from torchao.prototype.fp6_llm.fp6_llm import (
     to_tc_float6_e3m2,
     from_tc_float6_e3m2,
-    _to_tc_float6_e3m2_ref,
+    _to_tc_fpx,
     Fp6LlmLinear,
     convert_fp6_llm,
 )
@@ -25,7 +25,7 @@ class TestFp6LlmLinear(TestCase):
     def test_to_tc_float6_e3m2_correctness(self, device):
         x = torch.randn(256, 64, device=device)
 
-        expected = _to_tc_float6_e3m2_ref(x)
+        expected = _to_tc_fpx(x, 3, 2)
         actual = to_tc_float6_e3m2(x)
         torch.testing.assert_close(actual, expected)
 
