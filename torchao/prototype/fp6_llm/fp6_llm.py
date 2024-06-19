@@ -4,9 +4,9 @@ from typing import List, Optional, Tuple
 
 import torch
 from torch import nn, Tensor
-from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32
+from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32, _n_ones
 from torchao.prototype.mx_formats.constants import F6_E3M2_MAX
-from torchao.ops import fp6_llm_linear
+from torchao.ops import fp6_llm_linear, quant_llm_linear
 
 
 def _pack(x: Tensor, n_bits: int) -> Tensor:
@@ -73,6 +73,15 @@ def _to_tc_fpx(tensor: Tensor, ebits: int, mbits: int) -> Tensor:
             n_used += y
 
     return torch.cat(fragments, dim=0).view(M, -1)
+
+
+def _to_scaled_tc_fpx(tensor: Tensor, ebits: int, mbits: int) -> Tuple[Tensor, Tensor]:
+    exp_bias = _n_ones(ebits - 1)
+    max_normal = 2 ** (_n_ones(ebits) - exp_bias) * (_n_ones(mbits + 1) / (2 ** mbits))
+
+    scale = tensor.abs().amax(1).clamp(min=1e-12) / max_normal
+    tc_fpx_tensor = to_tc_float6_e3m2(tensor / scale.view(-1, 1))
+    return tc_fpx_tensor, scale.half()
 
 
 # more optimized version of _to_tc_float6_e3m2_original() by merging ops
@@ -336,7 +345,7 @@ class QuantLlmLinear(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         splitK = self.get_split_k(math.prod(x.shape[:-1]), self.out_features)
-        out = torch.ops.torchao.quant_llm_linear.default(
+        out = quant_llm_linear(
             self.ebits,
             self.mbits,
             x.view(-1, self.in_features).half(),
@@ -357,9 +366,9 @@ class QuantLlmLinear(nn.Module):
     def from_float(cls, linear: nn.Linear, ebits: int, mbits: int):
         assert (linear.in_features % 64 == 0) and (linear.out_features % 256 == 0)
 
-        fp6_weight, scale = _to_tc_fpx(linear.weight.detach(), ebits, mbits)
+        fpx_weight, scale = _to_scaled_tc_fpx(linear.weight.detach(), ebits, mbits)
         bias = linear.bias.detach().half() if linear.bias is not None else None
-        return cls(ebits, mbits, fp6_weight, scale, bias)
+        return cls(ebits, mbits, fpx_weight, scale, bias)
 
     def extra_repr(self) -> str:
         return (

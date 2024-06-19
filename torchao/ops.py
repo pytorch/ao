@@ -43,3 +43,28 @@ def _(_in_feats, _weights, _scales, splitK = 1):
     torch._check(OC == _scales.shape[0], lambda: "Dimensions mismatched")
 
     return _in_feats.new_empty((BS, OC))
+
+
+def quant_llm_linear(
+    EXPONENT: int,
+    MANTISSA: int,
+    _in_feats: Tensor,
+    _weights: Tensor,
+    _scales: Tensor,
+    splitK: int = 1,
+) -> Tensor:
+    """
+    Quant-LLM linear layer A @ W.T. See https://arxiv.org/abs/2401.14112 for more details.
+
+    Arguments
+        EXPONENT: number of exponent bits
+        MANTISSA: number of mantissa bits
+        _in_feats: input activations in FP16
+        _weights: packed FP6 weights. See :func:prepack_fp6_weight and :func:fp16_to_fp6
+        _scales: scale
+        splitK: split K
+
+    Returns
+        output of linear layer
+    """
+    return torch.ops.torchao.quant_llm_linear.default(EXPONENT, MANTISSA, _in_feats, _weights, _scales, splitK)
