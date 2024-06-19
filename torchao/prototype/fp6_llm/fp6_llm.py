@@ -80,7 +80,7 @@ def _to_scaled_tc_fpx(tensor: Tensor, ebits: int, mbits: int) -> Tuple[Tensor, T
     max_normal = 2 ** (_n_ones(ebits) - exp_bias) * (_n_ones(mbits + 1) / (2 ** mbits))
 
     scale = tensor.abs().amax(1).clamp(min=1e-12) / max_normal
-    tc_fpx_tensor = to_tc_float6_e3m2(tensor / scale.view(-1, 1))
+    tc_fpx_tensor = _to_tc_fpx(tensor / scale.view(-1, 1), ebits, mbits)
     return tc_fpx_tensor, scale.half()
 
 
