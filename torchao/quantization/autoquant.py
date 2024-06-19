@@ -482,7 +482,7 @@ def autoquant(
         model(*example_input)
 
         # multiple input shapes
-        torch.autoquant(model, manual=True)
+        torchao.autoquant(model, manual=True)
         model(*example_input1)
         model(*example_input2)
         model.do_autoquant()
