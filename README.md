@@ -55,7 +55,7 @@ In some cases we rewrote popular GenAI models to be significantly faster in nati
 
 ### Training
 
-We've added support for semi-structured 2:4 sparsity with over 30% speedups on ViT-L
+We've added support for semi-structured 2:4 sparsity with 6% end to end speedups on ViT-L
 
 The code change is a 1 liner with the full example available [here](torchao/sparsity/training/)
 
