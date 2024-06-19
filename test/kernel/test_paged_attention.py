@@ -6,7 +6,7 @@ from itertools import product
 import torchao
 from torchao.kv_cache import PagedAttentionCache, PagedTensor
 
-class NiaveCache:
+class NaiveCache:
     def __init__(self):
         self.past_key = None
         self.past_value = None
