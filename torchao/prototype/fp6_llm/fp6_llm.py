@@ -43,12 +43,12 @@ def _bit_interleave(x: Tensor, n_bits: int) -> Tensor:
 
 # this is a literal adaptation of FP6-LLM ahead-of-time bit-level pre-packing
 # https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/fp6_llm/csrc/utils/weight_prepacking.h
-def _to_tc_fpx(tensor: Tensor, n_ebits: int, n_mbits: int) -> Tensor:
+def _to_tc_fpx(tensor: Tensor, ebits: int, mbits: int) -> Tensor:
     assert tensor.ndim == 2
     M, N = tensor.shape
     assert (M % 64 == 0) and (N % 64 == 0)
 
-    tensor_fpx = _f32_to_fpx_unpacked(tensor.float(), n_ebits, n_mbits)
+    tensor_fpx = _f32_to_fpx_unpacked(tensor.float(), ebits, mbits)
 
     # Pass 1 from original code
     tensor_fpx = tensor_fpx.view(M // 64, 4, 2, 8, N // 16, 2, 8)
@@ -57,7 +57,7 @@ def _to_tc_fpx(tensor: Tensor, n_ebits: int, n_mbits: int) -> Tensor:
     tensor_fpx = tensor_fpx.permute(1, 0, 2)
     tensor_fpx = tensor_fpx.flatten()
 
-    n_bits = 1 + n_ebits + n_mbits
+    n_bits = 1 + ebits + mbits
     n_used = 0
     fragments = []
 
@@ -307,7 +307,83 @@ def convert_fp6_llm(model: nn.Module, skip_fqn_list: Optional[List[str]] = None,
 
         if ((skip_fqn_list is None) or (new_fqn not in skip_fqn_list)) and (isinstance(child, nn.Linear)):
             if (child.in_features % 64 == 0) and (child.out_features % 256 == 0):
-                new_child = Fp6LlmLinear.from_float(child)  
+                new_child = Fp6LlmLinear.from_float(child)
                 setattr(model, name, new_child)
         else:
             convert_fp6_llm(child, skip_fqn_list, new_fqn)
+
+
+class QuantLlmLinear(nn.Module):
+    """Quant-LLM Linear layer as described in https://arxiv.org/pdf/2401.14112.
+    """
+
+    def __init__(
+        self,
+        ebits: int,
+        mbits: int,
+        weight: Tensor,
+        scales: Tensor,
+        bias: Optional[Tensor] = None,
+    ) -> None:
+        super().__init__()
+        self.register_buffer("weight", weight.view(torch.int32))
+        self.register_buffer("scales", scales)
+        self.register_buffer("bias", bias)
+        self.out_features = weight.shape[0]
+        self.in_features = weight.shape[1] // 3 * 4
+        self.ebits = ebits
+        self.mbits = mbits
+
+    def forward(self, x: Tensor) -> Tensor:
+        splitK = self.get_split_k(math.prod(x.shape[:-1]), self.out_features)
+        out = torch.ops.torchao.quant_llm_linear.default(
+            self.ebits,
+            self.mbits,
+            x.view(-1, self.in_features).half(),
+            self.weight,
+            self.scales,
+            splitK=splitK,
+        )
+        if self.bias is not None:
+            out = out + self.bias
+        return out.view(*x.shape[:-1], self.out_features).to(x.dtype)
+
+    @staticmethod
+    def get_split_k(bsize: int, out_dim: int) -> int:
+        # https://github.com/microsoft/DeepSpeed/blob/3a3a6db3332e339cc9fd94efd4982f6d60635a3d/deepspeed/inference/v2/kernels/core_ops/cuda_linear/cuda_linear.py
+        return _SPLIT_K_MAP[(bsize - 1) // 64].get(out_dim, 1) if bsize <= 768 else 1
+
+    @classmethod
+    def from_float(cls, linear: nn.Linear, ebits: int, mbits: int):
+        assert (linear.in_features % 64 == 0) and (linear.out_features % 256 == 0)
+
+        fp6_weight, scale = _to_tc_fpx(linear.weight.detach(), ebits, mbits)
+        bias = linear.bias.detach().half() if linear.bias is not None else None
+        return cls(ebits, mbits, fp6_weight, scale, bias)
+
+    def extra_repr(self) -> str:
+        return (
+            f'in_features={self.in_features}'
+            f', out_features={self.out_features}'
+            f', bias={self.bias is not None}'
+            f', ebits={self.ebits}'
+            f', mbits={self.mbits}'
+        )
+
+
+def convert_quant_llm(
+    model: nn.Module,
+    ebits: int,
+    mbits: int,
+    skip_fqn_list: Optional[List[str]] = None,
+    cur_fqn: str = "",
+) -> None:
+    for name, child in model.named_children():
+        new_fqn = name if cur_fqn == "" else f"{cur_fqn}.{name}"
+
+        if ((skip_fqn_list is None) or (new_fqn not in skip_fqn_list)) and (isinstance(child, nn.Linear)):
+            if (child.in_features % 64 == 0) and (child.out_features % 256 == 0):
+                new_child = QuantLlmLinear.from_float(child, ebits, mbits)
+                setattr(model, name, new_child)
+        else:
+            convert_quant_llm(child, ebits, mbits, skip_fqn_list, new_fqn)
