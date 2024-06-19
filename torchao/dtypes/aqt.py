@@ -480,6 +480,10 @@ class TensorCoreTiledAQTLayout(AQTLayout):
         self.scale_and_zero = fn(self.scale_and_zero)
         return self
 
+    def __repr__(self):
+        int_data, scale, zero_point = self.get_plain()
+        return f"TensorCoreTiledAQTLayout(int_data={int_data}, scale={scale}, zero_point={zero_point})"
+
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
         kwargs = {} if kwargs is None else kwargs
