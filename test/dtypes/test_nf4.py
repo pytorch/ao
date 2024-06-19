@@ -1,16 +1,10 @@
 import copy
-import io
 import logging
-import math
 import unittest
-from collections import OrderedDict
-from typing import Tuple, Union
-
+from packaging import version
+import math
 import pytest
 import torch
-import torch.nn.functional as F
-import torchao
-from packaging import version
 from torch import nn
 from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
     apply_activation_checkpointing,
@@ -20,17 +14,22 @@ from torch.distributed.fsdp.wrap import ModuleWrapPolicy
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torch.testing._internal.common_utils import (
+    TestCase,
     instantiate_parametrized_tests,
     parametrize,
     run_tests,
-    TestCase,
 )
 from torchao.dtypes.nf4tensor import (
-    _INNER_TENSOR_NAMES_FOR_SHARDING,
     linear_nf4,
     NF4Tensor,
     to_nf4,
+    _INNER_TENSOR_NAMES_FOR_SHARDING,
 )
+import torch.nn.functional as F
+import io
+from collections import OrderedDict
+import torchao
+from typing import Tuple, Union
 
 
 bnb_available = False
@@ -49,16 +48,17 @@ logging.basicConfig(
 
 def _build_input_weight(embed_dim: int, device: torch.device, dtype: torch.dtype):
     torch.manual_seed(0)
-    input_weight = torch.empty(embed_dim, embed_dim, device=device, dtype=dtype)
+    input_weight = torch.empty(
+        embed_dim, embed_dim, device=device, dtype=dtype
+    )
     input_weight.normal_(0, 1)
     return input_weight
 
-
 def _build_bnb_linear(input_weight, device):
     assert bnb_available, "Needs bitsandbytes support"
-    param = bnb.nn.Params4bit(input_weight, requires_grad=False, quant_type="nf4").cuda(
-        device
-    )
+    param = bnb.nn.Params4bit(
+        input_weight, requires_grad=False, quant_type="nf4"
+    ).cuda(device)
     bnb_linear = bnb.nn.LinearNF4(
         input_weight.size(0), input_weight.size(1), bias=False
     )
@@ -66,14 +66,11 @@ def _build_bnb_linear(input_weight, device):
     bnb_linear.to(device)
     return bnb_linear
 
-
 class TestNF4Linear(TestCase):
     class TestMod(nn.Module):
         def __init__(self, tensor, block_size, scaler_block_size):
             super().__init__()
-            self.param = torch.nn.Parameter(
-                to_nf4(tensor, block_size, scaler_block_size)
-            )
+            self.param = torch.nn.Parameter(to_nf4(tensor, block_size, scaler_block_size))
 
     def save_state_dict_to_buffer(self, state_dict: OrderedDict):
         buffer = io.BytesIO()
@@ -91,7 +88,7 @@ class TestNF4Linear(TestCase):
         assert not param.requires_grad
 
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
-    def test_output_dtype_match(self, dtype: torch.dtype):
+    def test_output_dtype_match(self, dtype:torch.dtype):
         # Test to ensure W4 A16 produces A16
         inp = torch.randn(2, 512, dtype=dtype, requires_grad=True)
         nf4_tensor = to_nf4(torch.randn(512, 512, dtype=dtype))
@@ -99,7 +96,7 @@ class TestNF4Linear(TestCase):
         assert out.dtype == dtype
 
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
-    def test_backward_dtype_match(self, dtype: torch.dtype):
+    def test_backward_dtype_match(self, dtype:torch.dtype):
         # Test to ensure backward pass gives activation a bf16 gradient and no gradient
         # to the linear's weight, as it is frozen.
         nf4_tensor = to_nf4(torch.randn(512, 512, dtype=dtype))
@@ -160,7 +157,7 @@ class TestNF4Linear(TestCase):
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_load_from_state_dicts(self, dtype: torch.dtype):
         """Tests loading to and from different module state dicts"""
-        inpt_tensor = torch.rand(64, device="cuda", dtype=dtype)
+        inpt_tensor = torch.rand(64, device='cuda', dtype=dtype)
         base_mod = self.TestMod(inpt_tensor, 32, 2)
 
         dummy_dict = {"param": inpt_tensor}
@@ -173,7 +170,7 @@ class TestNF4Linear(TestCase):
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_load_from_nf4_same_meta(self, dtype: torch.dtype):
         """Tests loading to and from different module state dicts"""
-        inpt_tensor = torch.rand(64, device="cuda", dtype=dtype)
+        inpt_tensor = torch.rand(64, device='cuda', dtype=dtype)
         base_mod = self.TestMod(inpt_tensor, 32, 2)
         state_dict = base_mod.state_dict()
         saved_state_dict = self.save_state_dict_to_buffer(state_dict)
@@ -187,7 +184,7 @@ class TestNF4Linear(TestCase):
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_load_from_nf4_diff_meta(self, dtype: torch.dtype):
         """Tests loading to and from different module state dicts"""
-        inpt_tensor = torch.rand(128, device="cuda", dtype=dtype)
+        inpt_tensor = torch.rand(128, device='cuda', dtype=dtype)
         base_mod = self.TestMod(inpt_tensor, 32, 2)
         state_dict = base_mod.state_dict()
         saved_state_dict = self.save_state_dict_to_buffer(state_dict)
@@ -199,30 +196,28 @@ class TestNF4Linear(TestCase):
 
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_to_copy(self, dtype: torch.dtype):
-        inpt_tensor = torch.rand(128, device="cpu")
+        inpt_tensor = torch.rand(128, device='cpu')
         inpt_tensor_nf4 = to_nf4(inpt_tensor, 32, 2)
         nf4_to_dtype = inpt_tensor_nf4.to(dtype)
         torch.testing.assert_allclose(inpt_tensor, nf4_to_dtype, atol=0.13, rtol=0.13)
 
         if torch.cuda.is_available():
-            inpt_tensor = torch.rand(128, device="cuda")
+            inpt_tensor = torch.rand(128, device='cuda')
             inpt_tensor_nf4 = to_nf4(inpt_tensor, 32, 2)
             nf4_to_dtype = inpt_tensor_nf4.to(dtype)
-            torch.testing.assert_allclose(
-                inpt_tensor, nf4_to_dtype, atol=0.13, rtol=0.13
-            )
+            torch.testing.assert_allclose(inpt_tensor, nf4_to_dtype, atol=0.13, rtol=0.13)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need cuda for test")
     def test_to_copy_device(self):
-        inpt_tensor = torch.rand(128, device="cpu")
+        inpt_tensor = torch.rand(128, device='cpu')
         t = to_nf4(inpt_tensor, 32, 2)
-        assert t.device == torch.device("cpu")
+        assert t.device == torch.device('cpu')
         z = t.cuda()
-        assert z.device.type == "cuda"  # Because the device could be cuda:0
+        assert z.device.type == "cuda" # Because the device could be cuda:0
         x = z.cpu()
-        assert x.device == torch.device("cpu")
+        assert x.device == torch.device('cpu')
 
-        inpt_tensor = torch.rand(128, device="cuda")
+        inpt_tensor = torch.rand(128, device='cuda')
         t = to_nf4(inpt_tensor, 32, 2)
         assert t.device.type == "cuda"
 
@@ -237,7 +232,7 @@ class TestNF4Linear(TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_smoketest_linear(self, dtype: torch.dtype):
-        a = torch.randn(32, 32, dtype=dtype, device="cuda")
+        a = torch.randn(32, 32, dtype=dtype, device='cuda')
         a_nf4 = torchao.dtypes.to_nf4(a, 16, 2)
         inp = torch.randn(2, 32, 32, dtype=a.dtype, device=a.device)
         out1 = torch.nn.functional.linear(inp, a)
@@ -246,33 +241,28 @@ class TestNF4Linear(TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     def test_smoketest_linear_compile(self, dtype: torch.dtype):
-        if (
-            torch.cuda.is_available()
-            and torch.cuda.get_device_capability() < (8, 0)
-            and dtype == torch.bfloat16
-        ):
+        if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0) and dtype == torch.bfloat16:
             self.skipTest("test requires SM capability of at least (8, 0).")
         if version.parse(torch.__version__) < version.parse("2.3.0"):
             self.skipTest("test requires 2.3.0 and above for tracing NF4Tensor")
-        a = torch.randn(32, 32, dtype=dtype, device="cuda")
+        a = torch.randn(32, 32, dtype=dtype, device='cuda')
         a_nf4 = torchao.dtypes.to_nf4(a, 16, 2)
         inp = torch.randn(2, 32, 32, dtype=a.dtype, device=a.device)
-        out3 = torch.compile(torch.nn.functional.linear, mode="max-autotune")(
-            inp, a_nf4
-        )
+        out3 = torch.compile(torch.nn.functional.linear, mode='max-autotune')(inp, a_nf4)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
     @parametrize("shape", [(16, 16), (32, 16)])
     @parametrize("chunk_size", [8, 16, 32])
     def test_chunk_size_equivalence(self, dtype: torch.dtype, shape, chunk_size):
-        a = torch.randn(shape, device="cuda", dtype=dtype)
+        a = torch.randn(shape, device='cuda', dtype=dtype)
         with unittest.mock.patch("torchao.dtypes.nf4tensor.CHUNK_SIZE", chunk_size):
             nf4_patched = to_nf4(a, 16, 2)
         # This will be essentially no chunking since the numel is alot smaller than default chunk_size
         nf4_base = to_nf4(a, 16, 2)
 
         torch.testing.assert_close(nf4_patched.quantized_data, nf4_base.quantized_data)
+
 
 
 class TestFSDPOps(TestCase):
@@ -292,9 +282,7 @@ class TestFSDPOps(TestCase):
     @parametrize("input_size", [511 * 512, (511 * 512,), (511, 512)])
     def test_torch_chunk_invalid_divide(self, input_size: Union[Tuple[int], int]):
         num_chunks = 2
-        with self.assertRaisesRegex(
-            AssertionError, "Number of scalers must be divisible by scaler block size"
-        ):
+        with self.assertRaisesRegex(AssertionError, "Number of scalers must be divisible by scaler block size"):
             nf4_tensor = to_nf4(torch.randn(input_size))
             torch.chunk(nf4_tensor, num_chunks)
 
@@ -312,7 +300,7 @@ class TestFSDPOps(TestCase):
         for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
             inner_tensor = getattr(nf4_tensor_zeros, attr)
             self.assertEqual(torch.count_nonzero(inner_tensor), 0)
-        expected_size = input_size if not isinstance(input_size, int) else (input_size,)
+        expected_size = input_size if not isinstance(input_size, int) else (input_size, )
         self.assertEqual(nf4_tensor_zeros.size(), torch.Size(expected_size))
 
     @parametrize("input_size", [512 * 512, (512 * 512,), (512, 512)])
@@ -320,22 +308,18 @@ class TestFSDPOps(TestCase):
         if isinstance(input_size, int):
             new_size = input_size + 1
         elif len(input_size) == 1:
-            new_size = (input_size[0] + 1,)
+            new_size = (input_size[0] + 1, )
         else:
             new_size = (input_size[0] + 1, input_size[1])
         nf4_tensor = to_nf4(torch.randn(input_size))
-        with self.assertRaisesRegex(
-            NotImplementedError, "aten.new_zeros\\(NF4Tensor\\) with new size"
-        ):
+        with self.assertRaisesRegex(NotImplementedError, "aten.new_zeros\\(NF4Tensor\\) with new size"):
             nf4_tensor_zeros = nf4_tensor.new_zeros(new_size)
 
     @parametrize("input_size", [512 * 512, (512 * 512,), (512, 512)])
     def test_tensor_slice_valid(self, input_size: Union[Tuple[int], int]):
         nf4_tensor = to_nf4(torch.randn(input_size))
         orig_attrs, _ = nf4_tensor.__tensor_flatten__()
-        orig_sizes = dict(
-            [(attr, getattr(nf4_tensor, attr).size()) for attr in orig_attrs]
-        )
+        orig_sizes = dict([(attr, getattr(nf4_tensor, attr).size()) for attr in orig_attrs])
         end_idx = input_size if isinstance(input_size, int) else input_size[0]
         sliced_tensor = nf4_tensor[:end_idx]
         self.assertEqual(nf4_tensor.size(), sliced_tensor.size())
@@ -343,39 +327,25 @@ class TestFSDPOps(TestCase):
         for attr in attrs:
             orig_storage = getattr(nf4_tensor, attr).untyped_storage().data_ptr()
             sliced_tensor_inner = getattr(sliced_tensor, attr)
-            self.assertEqual(
-                sliced_tensor_inner.untyped_storage().data_ptr(), orig_storage
-            )
+            self.assertEqual(sliced_tensor_inner.untyped_storage().data_ptr(), orig_storage)
             self.assertEqual(sliced_tensor_inner.size(), orig_sizes[attr])
 
     def test_tensor_slice_1d_invalid(self):
         nf4_tensor = to_nf4(torch.randn(512 * 512))
-        with self.assertRaisesRegex(
-            NotImplementedError, "aten.slice\\(NF4Tensor\\) with customized step"
-        ):
+        with self.assertRaisesRegex(NotImplementedError, "aten.slice\\(NF4Tensor\\) with customized step"):
             nf4_tensor[..., ::2]
-        with self.assertRaisesRegex(
-            NotImplementedError, "aten.slice\\(NF4Tensor\\) with start"
-        ):
+        with self.assertRaisesRegex(NotImplementedError, "aten.slice\\(NF4Tensor\\) with start"):
             nf4_tensor[1:]
-        with self.assertRaisesRegex(
-            NotImplementedError, "aten.slice\\(NF4Tensor\\) with end"
-        ):
+        with self.assertRaisesRegex(NotImplementedError, "aten.slice\\(NF4Tensor\\) with end"):
             nf4_tensor[:2]
 
     def test_tensor_slice_2d_invalid(self):
         nf4_tensor = to_nf4(torch.randn((512, 512)))
-        with self.assertRaisesRegex(
-            NotImplementedError, "aten.slice\\(NF4Tensor\\) with dim"
-        ):
+        with self.assertRaisesRegex(NotImplementedError, "aten.slice\\(NF4Tensor\\) with dim"):
             nf4_tensor[:, :511]
-        with self.assertRaisesRegex(
-            NotImplementedError, "aten.slice\\(NF4Tensor\\) with start"
-        ):
+        with self.assertRaisesRegex(NotImplementedError, "aten.slice\\(NF4Tensor\\) with start"):
             nf4_tensor[1:]
-        with self.assertRaisesRegex(
-            NotImplementedError, "aten.slice\\(NF4Tensor\\) with end"
-        ):
+        with self.assertRaisesRegex(NotImplementedError, "aten.slice\\(NF4Tensor\\) with end"):
             nf4_tensor[:2]
 
     @parametrize("input_size", [(512 * 512,), (512, 512)])
@@ -392,68 +362,43 @@ class TestFSDPOps(TestCase):
     def test_tensor_view_invalid(self, input_size: Union[Tuple[int], int]):
         nf4_tensor = to_nf4(torch.randn(input_size))
         if len(input_size) == 1:
-            with self.assertRaisesRegex(
-                NotImplementedError, "aten.view\\(NF4Tensor\\) with size"
-            ):
+            with self.assertRaisesRegex(NotImplementedError, "aten.view\\(NF4Tensor\\) with size"):
                 nf4_tensor.view(input_size)
         if len(input_size) == 2:
-            with self.assertRaisesRegex(
-                NotImplementedError, "aten.view\\(NF4Tensor\\) with len\\(size\\)"
-            ):
+            with self.assertRaisesRegex(NotImplementedError, "aten.view\\(NF4Tensor\\) with len\\(size\\)"):
                 nf4_tensor.view(input_size)
 
     @parametrize("input_size", [512 * 512, (512 * 512,), (512, 512)])
     def test_tensor_as_strided_valid(self, input_size: Union[Tuple[int], int]):
         nf4_tensor = to_nf4(torch.randn(input_size))
-        nf4_tensor_strided = torch.as_strided(
-            nf4_tensor,
-            nf4_tensor.size(),
-            nf4_tensor.stride(),
-            nf4_tensor.storage_offset(),
-        )
+        nf4_tensor_strided = torch.as_strided(nf4_tensor, nf4_tensor.size(), nf4_tensor.stride(), nf4_tensor.storage_offset())
         self.assertEqual(nf4_tensor_strided.size(), nf4_tensor.size())
         self.assertEqual(nf4_tensor_strided.stride(), nf4_tensor.stride())
-        self.assertEqual(
-            nf4_tensor_strided.storage_offset(), nf4_tensor.storage_offset()
-        )
+        self.assertEqual(nf4_tensor_strided.storage_offset(), nf4_tensor.storage_offset())
         for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
             inner_tensor_orig = getattr(nf4_tensor, attr)
             inner_tensor_strided = getattr(nf4_tensor_strided, attr)
             self.assertEqual(inner_tensor_strided.size(), inner_tensor_orig.size())
             self.assertEqual(inner_tensor_strided.stride(), inner_tensor_orig.stride())
-            self.assertEqual(
-                inner_tensor_strided.storage_offset(),
-                inner_tensor_orig.storage_offset(),
-            )
+            self.assertEqual(inner_tensor_strided.storage_offset(), inner_tensor_orig.storage_offset())
+
 
     @parametrize("input_size", [(512 * 512,), (512, 512)])
     def test_tensor_as_strided_invalid(self, input_size: Union[Tuple[int], int]):
         nf4_tensor = to_nf4(torch.randn(input_size))
         if len(input_size) == 1:
-            size = (input_size[0] - 1,)
+            size = (input_size[0] - 1, )
         else:
             size = (input_size[0] - 1, input_size[1])
-        with self.assertRaisesRegex(
-            NotImplementedError, "aten.as_strided\\(NF4Tensor\\) different numel"
-        ):
-            torch.as_strided(
-                nf4_tensor, size, nf4_tensor.stride(), nf4_tensor.storage_offset()
-            )
-        with self.assertRaisesRegex(
-            NotImplementedError,
-            "aten.as_strided\\(NF4Tensor\\) only support original storage offset",
-        ):
+        with self.assertRaisesRegex(NotImplementedError, "aten.as_strided\\(NF4Tensor\\) different numel"):
+            torch.as_strided(nf4_tensor, size, nf4_tensor.stride(), nf4_tensor.storage_offset())
+        with self.assertRaisesRegex(NotImplementedError, "aten.as_strided\\(NF4Tensor\\) only support original storage offset"):
             torch.as_strided(nf4_tensor, nf4_tensor.size(), nf4_tensor.stride(), 1)
 
         if len(input_size) == 2:
-            with self.assertRaisesRegex(
-                NotImplementedError,
-                "aten.as_strided\\(NF4Tensor\\) only support continuous stride",
-            ):
+            with self.assertRaisesRegex(NotImplementedError, "aten.as_strided\\(NF4Tensor\\) only support continuous stride"):
                 stride = (nf4_tensor.stride()[1], nf4_tensor.stride()[0])
-                torch.as_strided(
-                    nf4_tensor, nf4_tensor.size(), stride, nf4_tensor.storage_offset()
-                )
+                torch.as_strided(nf4_tensor, nf4_tensor.size(), stride, nf4_tensor.storage_offset())
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_pin_memory(self):
@@ -463,8 +408,9 @@ class TestFSDPOps(TestCase):
         nf4_tensor = nf4_tensor.pin_memory()
         self.assertTrue(nf4_tensor.is_pinned())
 
-        nf4_tensor = to_nf4(torch.randn(512 * 512, device="cuda"))
+        nf4_tensor = to_nf4(torch.randn(512 * 512, device='cuda'))
         self.assertFalse(nf4_tensor.is_pinned())
+
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_to_cuda(self):
@@ -486,7 +432,7 @@ class TestFSDPOps(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_to_cpu(self):
-        nf4_tensor = to_nf4(torch.randn(512 * 512, device="cuda"))
+        nf4_tensor = to_nf4(torch.randn(512 * 512, device='cuda'))
         nf4_tensor = nf4_tensor.cpu()
         self.assertEqual(nf4_tensor.device.type, "cpu")
         for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
