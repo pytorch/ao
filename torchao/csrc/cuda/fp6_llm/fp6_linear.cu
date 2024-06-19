@@ -184,32 +184,7 @@ torch::Tensor fp_eXmY_linear_forward_cuda(
     return _out_feats;
 }
 
-/*
-Computes FP6-FP16 GEMM (PyTorch interface).
-
-[Mathmatical Formula]
-Standard definition of linear layer:    Out = In * trans(W), where In, Out, and W are stored in row-major.
-After Equivalent transformation    :    trans(Out) = W * trans(In). Note that we do not perform "transpose" during runtime, we instead interpret the In/Out as column-major matrices when calling our CUDA kernel.
-
-[Inputs]
-  _in_feats:  tensor of shape [B, IC];                  // half 
-  _weights:   int tensor of shape [OC, IC // 16 * 3];   // 3 INT32 words contains 16 FP6 weights.
-  _scales:    tensor of shape [OC];                     // half
-  splitK:     spliting the MatMul problem along K dimension for higher GPU utilization, default 1.
-[Outputs]
-  _out_feats: tensor of shape [B, OC];                  // half
-*/
-torch::Tensor fp6_linear_forward_cuda(
-    torch::Tensor _in_feats,
-    torch::Tensor _weights,
-    torch::Tensor _scales,
-    int64_t       splitK=1)
-{
-    return fp_eXmY_linear_forward_cuda(3, 2, _in_feats, _weights, _scales, splitK);
-}
-
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
-  m.impl("torchao::fp6_llm_linear", &fp6_linear_forward_cuda);
   m.impl("torchao::quant_llm_linear", &fp_eXmY_linear_forward_cuda);
 }
 
