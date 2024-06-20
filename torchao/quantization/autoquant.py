@@ -459,7 +459,7 @@ def autoquant(
     the torch.compile process normally proceeds as well.
 
     To optimize over a combination of input shapes/dtypes, the user can set manual=True, run the model with all desired shapes/dtypes, then
-    call model.do_autoquant to finalize the quantization once the desired set of inputs have been logged.
+    call model.finalize_autoquant to finalize the quantization once the desired set of inputs have been logged.
 
     Args:
         model (torch.nn.Module): The model to be autoquantized.
@@ -470,7 +470,7 @@ def autoquant(
         mode (list, optional): A list containing mode settings for quantization. The first element is the mode type (e.g., "interpolate"),
                                and the second element is the mode value (e.g., 0.85). Defaults to ["interpolate", .85].
         manual (bool, optional): Whether to stop shape calibration and do autoquant after a single run (default, False) or to wait for 
-                                the user to call model.do_autoquant (True) so inputs with several shapes/dtypes can be logged.
+                                the user to call model.finalize_autoquant (True) so inputs with several shapes/dtypes can be logged.
         **aq_kwargs: Additional keyword arguments for the autoquantization process.
 
     Returns:
@@ -485,7 +485,7 @@ def autoquant(
         torchao.autoquant(model, manual=True)
         model(*example_input1)
         model(*example_input2)
-        model.do_autoquant()
+        model.finalize_autoquant()
     """
 
     # perform initial swap from linear weights
@@ -519,7 +519,7 @@ def autoquant(
         # autoquantization
         def autoquant_prehook(module, args, kwargs):
             real_model.forward(*args, **kwargs)
-            module.do_autoquant()
+            module.finalize_autoquant()
             return args, kwargs
 
         # the autoquant_prehook intercepts the forward call, performs logging then
@@ -530,7 +530,7 @@ def autoquant(
 
     # note the torch.compile wrapper (eval_frame) moves the assignment of any assigned
     # attributes to the inner model that didn't exist before, so we have to call delattr on the inner model
-    def do_autoquant():
+    def finalize_autoquant():
         change_autoquantizable_to_quantized(
             real_model,
             **aq_kwargs,
@@ -538,12 +538,12 @@ def autoquant(
         if hasattr(real_model, "old_forward"):
             model.forward = real_model.old_forward
             delattr(real_model, "old_forward")
-        if hasattr(real_model, "do_autoquant"):
-            delattr(real_model, "do_autoquant")
+        if hasattr(real_model, "finalize_autoquant"):
+            delattr(real_model, "finalize_autoquant")
         if not manual:
             handle.remove()
 
-    real_model.do_autoquant = do_autoquant
+    real_model.finalize_autoquant = finalize_autoquant
 
     # if example input was provided, check it and run it
     if isinstance(example_input, torch.Tensor):

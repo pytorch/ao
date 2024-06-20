@@ -217,7 +217,7 @@ def main(
             )
 
             # do autoquantization
-            model.do_autoquant()
+            model.finalize_autoquant()
         else:
             unwrap_tensor_subclass(model)
 
