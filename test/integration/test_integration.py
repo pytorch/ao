@@ -20,9 +20,9 @@ from torchao.quantization.dynamic_quant import (
     DynamicallyPerAxisQuantizedLinear,
 )
 from torchao.quantization.quant_api import (
-    int4wo,
-    int8wo,
-    int8da_int8w,
+    int4_weight_only,
+    int8_weight_only,
+    int8_dynamic_activation_int8_weight,
     quantize,
     _replace_with_custom_fn_if_matches_filter,
 )
@@ -98,21 +98,21 @@ COMMON_DEVICE_DTYPE = list(itertools.product(COMMON_DEVICES, COMMON_DTYPES)).cop
 
 def _int8wo_api(mod):
     if TORCH_VERSION_AFTER_2_4:
-        quantize(mod, int8wo())
+        quantize(mod, int8_weight_only())
         unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int8_woqtensors(mod)
 
 def _int8da_int8w_api(mod):
     if TORCH_VERSION_AFTER_2_4:
-        quantize(mod, int8da_int8w())
+        quantize(mod, int8_dynamic_activation_int8_weight())
         unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int8_dqtensors(mod)
 
 def _int4wo_api(mod):
     if TORCH_VERSION_AFTER_2_4:
-        quantize(mod, int4wo())
+        quantize(mod, int4_weight_only())
         unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int4_woqtensors(mod)
@@ -832,7 +832,10 @@ class TestSubclass(unittest.TestCase):
 
                     def api(mod):
                         if TORCH_VERSION_AFTER_2_4:
-                            quantize(mod, int4wo(**kwargs))
+                            kwargs_copy = kwargs.copy()
+                            kwargs_copy["group_size"] = groupsize
+                            del kwargs_copy["groupsize"]
+                            quantize(mod, int4_weight_only(**kwargs_copy))
                             unwrap_tensor_subclass(mod)
                         else:
                             change_linear_weights_to_int4_woqtensors(mod, **kwargs)
@@ -853,7 +856,7 @@ class TestDynamicQuant(unittest.TestCase):
         m = nn.Sequential(nn.Linear(K, N))
 
         y_ref = m(x)
-        quantize(m, int8da_int8w())
+        quantize(m, int8_dynamic_activation_int8_weight())
         y_test = m(x)
 
         sqnr = compute_error(y_ref, y_test)
@@ -1463,7 +1466,7 @@ class TestUtils(unittest.TestCase):
         api(model)
         size2 = torchao.utils.get_model_size_in_bytes(model)
         self.assertTrue(size2 < size)
-        
+
 
 
 
