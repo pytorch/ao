@@ -37,7 +37,7 @@ class HQQLinearTorchWeightOnlyInt4(torch.nn.Module):
         self.del_orig = del_orig
 
         weight_quant_params = self.quant_config["weight_quant_params"]
-        self.groupsize = weight_quant_params["group_size"]
+        self.groupsize = weight_quant_params["groupsize"]
         self.nbits = weight_quant_params["nbits"]
         self.inner_k_tiles = inner_k_tiles
         self.padding = padding
@@ -120,10 +120,10 @@ class HQQLinearTorchWeightOnlyInt4(torch.nn.Module):
 
     # TODO: move these to utils
     @torch.no_grad()
-    def reshape_meta_axis1(self, meta_tensor, new_group_size, shape):
+    def reshape_meta_axis1(self, meta_tensor, new_groupsize, shape):
         meta_tensor = meta_tensor.repeat([1, shape[1]]).reshape(shape)
         meta_tensor = torch.mean(
-            meta_tensor.reshape([-1, new_group_size]), axis=1, keepdim=True
+            meta_tensor.reshape([-1, new_groupsize]), axis=1, keepdim=True
         )
         return meta_tensor
 

@@ -13,7 +13,7 @@ from generate import (
 
 )
 from torchao.quantization.quant_api import (
-    quantize, int4wo, int8wo, int8da_int8w, unwrap_tensor_subclass
+    quantize, int4_weight_only, int8_weight_only, int8_dynamic_activation_int8_weight, unwrap_tensor_subclass
 
 )
 from torchao._models._eval import TransformerEvalWrapper, InputRecorder
@@ -60,13 +60,13 @@ def run_evaluation(
 
     if quantization:
         if "int8wo" in quantization:
-            quantize(model, int8wo())
+            quantize(model, int8_weight_only())
         if "int8dq" in quantization:
-            quantize(model, int8da_int8w())
+            quantize(model, int8_dynamic_activation_int8_weight())
         if "int4wo" in quantization and not "gptq" in quantization:
             groupsize=int(quantization.split("-")[-1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
-            quantize(model, int4wo(groupsize=groupsize))
+            quantize(model, int4_weight_only(groupsize=groupsize))
         if "int4wo" in quantization and "gptq" in quantization:
             groupsize=int(quantization.split("-")[-2])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"

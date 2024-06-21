@@ -38,7 +38,7 @@ def triton_mixed_mm(
     b,
     scales,
     zeros,
-    group_size,
+    groupsize,
     transposed=False,
     acc_dtype=None,
     input_precision="ieee",
@@ -54,9 +54,9 @@ def triton_mixed_mm(
     Args:
         a (torch.Tensor): M x K if not transposed, M x N if transposed
         b (torch.Tensor): (K // 2) x N, packed such that 2 int4's are packed into 1 uint8 (see pack_2xint4)
-        scales (torch.Tensor): (num_groups x N), where num_groups = (N * K / group_size)
+        scales (torch.Tensor): (num_groups x N), where num_groups = (N * K / groupsize)
         zeros (torch.Tensor): same shape as scales
-        group_size (torch.Tensor): size of group in groupwise quantization -- MUST be along axis 1 of an N x K matrix
+        groupsize (torch.Tensor): size of group in groupwise quantization -- MUST be along axis 1 of an N x K matrix
         transposed (bool, optional): Whether to run a transposed matmul where shapes are (M x N) x (K x N) => (M x K)
         acc_dtype (_type_, optional): dtype of accumulator. Defaults to None, which corresponds to tl.float32.
         input_precision (str, optional): Only relevant when dtype of a is torch.float32. Defaults to "ieee".
@@ -88,7 +88,7 @@ def triton_mixed_mm(
     M, K = a.shape
     N = b.shape[1] if not transposed else b.shape[0] * 2
     # assert scales.shape[1] == N if not transposed else scales.shape[0] == N
-    # assert scales.shape[0] == K // group_size if not transposed else scales.shape[1] == K // group_size
+    # assert scales.shape[0] == K // groupsize if not transposed else scales.shape[1] == K // groupsize
     assert scales.dtype == a.dtype
     assert scales.shape == zeros.shape
     assert zeros.dtype == a.dtype
@@ -132,7 +132,7 @@ def triton_mixed_mm(
             scales.stride(1),
             TRANSPOSED=transposed,
             IS_BFLOAT16=a.dtype == torch.bfloat16,
-            QGROUP_SIZE=group_size,
+            QGROUP_SIZE=groupsize,
             acc_dtype=acc_dtype,
             input_precision=input_precision,
             fp8_fast_accum=fp8_fast_accum,
@@ -164,7 +164,7 @@ def triton_mixed_mm(
             EVEN_K=True,
             TRANSPOSED=transposed,
             IS_BFLOAT16=a.dtype == torch.bfloat16,
-            QGROUP_SIZE=group_size,
+            QGROUP_SIZE=groupsize,
             acc_dtype=acc_dtype,
             input_precision=input_precision,
             fp8_fast_accum=fp8_fast_accum,

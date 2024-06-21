@@ -63,26 +63,26 @@ class TestQAT(unittest.TestCase):
     def test_fake_quantize_per_channel_group(self):
         n_bit = 4
         (qmin, qmax) = self._get_qmin_qmax(n_bit)
-        group_size = 128
+        groupsize = 128
 
         torch.manual_seed(self.SEED)
         x = torch.randn(100, 256).requires_grad_()
-        (s, zp) = get_group_qparams_symmetric(x, n_bit, group_size)
+        (s, zp) = get_group_qparams_symmetric(x, n_bit, groupsize)
         zp = zp.to(torch.int32)
         x2 = copy.deepcopy(x)
 
         # fake quant op
         out = fake_quantize_per_channel_group(
-            x, s, zp, qmin, qmax, group_size,
+            x, s, zp, qmin, qmax, groupsize,
         )
         out.sum().backward()
 
         # compare against PTQ ops
         out_ptq = torch.ops.quantized_decomposed.quantize_per_channel_group(
-            x2, s, zp, qmin, qmax, torch.int8, group_size,
+            x2, s, zp, qmin, qmax, torch.int8, groupsize,
         )
         out_ptq = torch.ops.quantized_decomposed.dequantize_per_channel_group(
-            out_ptq, s, zp, qmin, qmax, torch.int8, group_size, torch.float32,
+            out_ptq, s, zp, qmin, qmax, torch.int8, groupsize, torch.float32,
         )
         torch.testing.assert_close(out, out_ptq, atol=0, rtol=0)
 
@@ -113,7 +113,7 @@ class TestQAT(unittest.TestCase):
         self,
         ptq_linear: "Int8DynActInt4WeightLinear",
         fp32_weight: torch.Tensor,
-        group_size: int,
+        groupsize: int,
     ):
         """
         Set the weight to the quantized version of the given fp32 weights,
@@ -121,9 +121,9 @@ class TestQAT(unittest.TestCase):
         """
         n_bit = 4
         (qmin, qmax) = self._get_qmin_qmax(n_bit)
-        (s, zp) = get_group_qparams_symmetric(fp32_weight, n_bit, group_size)
+        (s, zp) = get_group_qparams_symmetric(fp32_weight, n_bit, groupsize)
         q_weight = torch.ops.quantized_decomposed.quantize_per_channel_group(
-            fp32_weight, s, zp, qmin, qmax, torch.int8, group_size,
+            fp32_weight, s, zp, qmin, qmax, torch.int8, groupsize,
         )
         ptq_linear.weight = q_weight
         ptq_linear.scales = s
@@ -134,17 +134,17 @@ class TestQAT(unittest.TestCase):
         from torchao.quantization.prototype.qat import Int8DynActInt4WeightQATLinear
         from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
 
-        group_size = 128
+        groupsize = 128
         torch.manual_seed(self.SEED)
         qat_linear = Int8DynActInt4WeightQATLinear(
-            256, 688, bias=False, groupsize=group_size,
+            256, 688, bias=False, groupsize=groupsize,
         )
         ptq_linear = Int8DynActInt4WeightLinear(
-            256, 688, bias=False, groupsize=group_size,
+            256, 688, bias=False, groupsize=groupsize,
         )
 
         # Force the weights to be the same
-        self._set_ptq_weight(ptq_linear, qat_linear.weight, group_size)
+        self._set_ptq_weight(ptq_linear, qat_linear.weight, groupsize)
 
         # Compare linear values
         torch.manual_seed(self.SEED)
@@ -159,12 +159,12 @@ class TestQAT(unittest.TestCase):
         from torchao.quantization.prototype.qat import Int8DynActInt4WeightQATQuantizer
         from torchao.quantization.GPTQ import Int8DynActInt4WeightQuantizer
 
-        group_size = 16
+        groupsize = 16
         torch.manual_seed(self.SEED)
         m = M()
         m2 = copy.deepcopy(m)
-        qat_quantizer = Int8DynActInt4WeightQATQuantizer(groupsize=group_size)
-        ptq_quantizer = Int8DynActInt4WeightQuantizer(groupsize=group_size)
+        qat_quantizer = Int8DynActInt4WeightQATQuantizer(groupsize=groupsize)
+        ptq_quantizer = Int8DynActInt4WeightQuantizer(groupsize=groupsize)
         qat_model = qat_quantizer.prepare(m)
         ptq_model = ptq_quantizer.quantize(m2)
 
@@ -195,8 +195,8 @@ class TestQAT(unittest.TestCase):
         with torch.device("meta"):
             m = M()
         self.assertTrue(all(v.is_meta for v in m.state_dict().values()))
-        group_size = 16
-        qat_quantizer = Int8DynActInt4WeightQATQuantizer(groupsize=group_size)
+        groupsize = 16
+        qat_quantizer = Int8DynActInt4WeightQATQuantizer(groupsize=groupsize)
         qat_model = qat_quantizer.prepare(m)
         self.assertTrue(all(v.is_meta for v in qat_model.state_dict().values()))
 
@@ -211,12 +211,12 @@ class TestQAT(unittest.TestCase):
             enable_8da4w_fake_quant,
         )
 
-        group_size = 16
+        groupsize = 16
         torch.manual_seed(self.SEED)
         m = M()
         m2 = copy.deepcopy(m)
         m3 = copy.deepcopy(m)
-        quantizer = Int8DynActInt4WeightQATQuantizer(groupsize=group_size)
+        quantizer = Int8DynActInt4WeightQATQuantizer(groupsize=groupsize)
         qat_model = quantizer.prepare(m)
         qat_model.apply(disable_8da4w_fake_quant)
         self.assertFalse(qat_model.linear1._fake_quant_enabled)
@@ -241,7 +241,7 @@ class TestQAT(unittest.TestCase):
         self.assertTrue(qat_model.sub.linear._fake_quant_enabled)
 
         # Fake quant should be applied as normal
-        quantizer2 = Int8DynActInt4WeightQATQuantizer(groupsize=group_size)
+        quantizer2 = Int8DynActInt4WeightQATQuantizer(groupsize=groupsize)
         qat_model2 = quantizer2.prepare(m3)
         qat_model2.linear1.weight = qat_model.linear1.weight
         qat_model2.linear2.weight = qat_model.linear2.weight
@@ -263,11 +263,11 @@ class TestQAT(unittest.TestCase):
             disable_8da4w_fake_quant,
         )
 
-        group_size = 16
+        groupsize = 16
         torch.manual_seed(self.SEED)
         m = M()
         nn_model = copy.deepcopy(m)
-        quantizer = Int8DynActInt4WeightQATQuantizer(groupsize=group_size)
+        quantizer = Int8DynActInt4WeightQATQuantizer(groupsize=groupsize)
         qat_model = quantizer.prepare(m)
         qat_model.apply(disable_8da4w_fake_quant)
         nn_model.linear1.weight = qat_model.linear1.weight

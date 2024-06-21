@@ -62,7 +62,7 @@ def run(args):
     elif args.layer_type == "hqq":
         quant_config = BaseQuantizeConfig(
             nbits=4,
-            group_size=64,
+            groupsize=64,
             quant_zero=False,
             quant_scale=False,
             offload_meta=True,

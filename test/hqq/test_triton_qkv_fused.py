@@ -75,13 +75,13 @@ def fuse_qkv(W_qs, scales, zeros):
     """
     Args:
         W_qs (list[torch.Tensor]): len 3 list of tensors with shapes Nq x K, Nk x K, Nv x K where Nk == Nv
-        scales (list[torch.Tensor]): each is N x (K // group_size), with same N requirements per W_qs
+        scales (list[torch.Tensor]): each is N x (K // groupsize), with same N requirements per W_qs
         zeros (list[torch.Tensor]): same as scales
 
     Returns:
         qkv (torch.Tensor): (N_qkv x K) where N_qkv = Nq + Nk + Nv
-        scales (torch.Tensor): (N_qkv x (K // group_size))
-        zeros (torch.Tensor): (N_qkv x (K // group_size))
+        scales (torch.Tensor): (N_qkv x (K // groupsize))
+        zeros (torch.Tensor): (N_qkv x (K // groupsize))
     """
     qkv = torch.cat(W_qs, dim=0)  # Fuse along N
     fused_scales = torch.cat([s for s in scales], dim=0)
@@ -89,28 +89,28 @@ def fuse_qkv(W_qs, scales, zeros):
     return qkv, fused_scales, fused_zeros
 
 
-def ref_proj(x, packed_w, scale, zero, group_size, kernel_type, transposed=False):
+def ref_proj(x, packed_w, scale, zero, groupsize, kernel_type, transposed=False):
     return triton_mixed_mm(
         x,
         packed_w,
         scale.T,
         zero.T,
         transposed=transposed,
-        group_size=group_size,
+        groupsize=group_size,
         fp8_fast_accum=False,
         kernel_type=kernel_type,
     )
 
 
 @pytest.mark.parametrize(
-    "q_shape, kv_shape, group_size, axis, dtype, transposed, kernel_type",
+    "q_shape, kv_shape, groupsize, axis, dtype, transposed, kernel_type",
     TEST_CONFIGS,
     ids=_arg_to_id,
 )
 def test_mixed_mm(
     q_shape,
     kv_shape,
-    group_size,
+    groupsize,
     axis,
     dtype,
     transposed,
@@ -136,7 +136,7 @@ def test_mixed_mm(
 
     qcfg = {
         **BASE_QUANT_CONFIG,
-        **dict(group_size=group_size, axis=axis),
+        **dict(groupsize=group_size, axis=axis),
     }
 
     quant_config = BaseQuantizeConfig(
@@ -172,7 +172,7 @@ def test_mixed_mm(
         xs = [torch.randn(seqlen, n, dtype=dtype, device=device) for n in Ns]
         x_fused = torch.cat(xs, dim=1)
         q_ref, k_ref, v_ref = [
-            ref_proj(x, p, s, z, group_size, kernel_type, transposed=True)
+            ref_proj(x, p, s, z, groupsize, kernel_type, transposed=True)
             for x, p, s, z in zip(xs, packed_ws, scales, zeros)
         ]
         tt_fused = triton_mixed_mm(
@@ -181,7 +181,7 @@ def test_mixed_mm(
             scales_fused.T,
             zeros_fused.T,
             transposed=True,
-            group_size=group_size,
+            groupsize=group_size,
             fp8_fast_accum=False,
             kernel_type=kernel_type,
         )
@@ -191,7 +191,7 @@ def test_mixed_mm(
         x = torch.randn(seqlen, K, dtype=dtype, device=device)
 
         q_ref, k_ref, v_ref = [
-            ref_proj(x, p, s, z, group_size, kernel_type)
+            ref_proj(x, p, s, z, groupsize, kernel_type)
             for p, s, z in zip(packed_ws, scales, zeros)
         ]
 
@@ -201,7 +201,7 @@ def test_mixed_mm(
             scales_fused.T,
             zeros_fused.T,
             transposed=False,
-            group_size=group_size,
+            groupsize=group_size,
             fp8_fast_accum=False,
             kernel_type=kernel_type,
         )

@@ -91,7 +91,7 @@ def test_dora_layer(
     elif model_type == "HQQDoRALinear":
         quant_config = BaseQuantizeConfig(
             nbits=4,
-            group_size=64,
+            groupsize=64,
             quant_zero=False,
             quant_scale=False,
             offload_meta=True,

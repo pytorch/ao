@@ -833,7 +833,7 @@ class TestSubclass(unittest.TestCase):
                     def api(mod):
                         if TORCH_VERSION_AFTER_2_4:
                             kwargs_copy = kwargs.copy()
-                            kwargs_copy["group_size"] = groupsize
+                            kwargs_copy["groupsize"] = groupsize
                             del kwargs_copy["groupsize"]
                             quantize(mod, int4_weight_only(**kwargs_copy))
                             unwrap_tensor_subclass(mod)

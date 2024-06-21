@@ -156,9 +156,9 @@ def swizzle_tile(
         # re-order program ID for better L2 performance
         width = GROUP_M * grid_n
         group_id = pid // width
-        group_size = tl.minimum(grid_m - group_id * GROUP_M, GROUP_M)
-        pid_m = group_id * GROUP_M + (pid % group_size)
-        pid_n = (pid % width) // (group_size)
+        groupsize = tl.minimum(grid_m - group_id * GROUP_M, GROUP_M)
+        pid_m = group_id * GROUP_M + (pid % groupsize)
+        pid_n = (pid % width) // (groupsize)
     else:
         tl.static_assert(False, "swizzle type not supported")
 

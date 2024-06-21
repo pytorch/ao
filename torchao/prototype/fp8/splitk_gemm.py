@@ -14,10 +14,10 @@ def grouped_launch(pid,
 
     width = group_m * grid_n
     group_id = pid // width
-    group_size = tl.minimum(grid_m - group_id * group_m, group_m)
+    groupsize = tl.minimum(grid_m - group_id * group_m, group_m)
 
-    pid_m = group_id * group_m + (pid % group_size)
-    pid_n = (pid % width) // group_size
+    pid_m = group_id * group_m + (pid % groupsize)
+    pid_n = (pid % width) // groupsize
 
     return pid_m, pid_n
 

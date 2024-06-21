@@ -227,7 +227,7 @@ class _GenericFakeQuantize(torch.autograd.Function):
 # TODO: move this to core
 quantized_decomposed_lib.define(
     "fake_quantize_per_channel_group(Tensor input, Tensor scales, Tensor zero_points, "
-    "int quant_min, int quant_max, int group_size) -> Tensor"
+    "int quant_min, int quant_max, int groupsize) -> Tensor"
 )
 
 @impl(quantized_decomposed_lib, "fake_quantize_per_channel_group", "CompositeImplicitAutograd")
@@ -237,12 +237,12 @@ def fake_quantize_per_channel_group(
     zero_points: torch.Tensor,
     quant_min: int,
     quant_max: int,
-    group_size: int,
+    groupsize: int,
 ) -> torch.Tensor:
-    assert group_size > 1
-    assert input.shape[-1] % group_size == 0
+    assert groupsize > 1
+    assert input.shape[-1] % groupsize == 0
     assert input.dim() == 2
-    grouped_input = input.reshape(-1, group_size).to(torch.float32)
+    grouped_input = input.reshape(-1, groupsize).to(torch.float32)
     scales = scales.reshape(-1, 1)
     zero_points = zero_points.reshape(-1, 1)
     fq = _GenericFakeQuantize.apply(

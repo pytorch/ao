@@ -305,13 +305,13 @@ def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tens
     )
     return model
 
-def int8_dynamic_activation_int4_weight(group_size=32):
+def int8_dynamic_activation_int4_weight(groupsize=32):
     """Applies int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear
     This is used to produce a model for executorch backend, but currently executorch did not
     support lowering for the quantized model from this flow yet
 
     Args:
-        `group_size`: parameter for quantization, controls the granularity of quantization, smaller
+        `groupsize`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained
     """
     def apply_int8_dynamic_activation_int4_weight_quant(weight):
@@ -320,7 +320,7 @@ def int8_dynamic_activation_int4_weight(group_size=32):
 
         # weight settings
         mapping_type = MappingType.SYMMETRIC
-        block_size = (1, group_size)
+        block_size = (1, groupsize)
         target_dtype = torch.int8
         eps = torch.finfo(torch.float32).eps
         quant_min = -8
@@ -347,13 +347,13 @@ def int8_dynamic_activation_int4_weight(group_size=32):
     return apply_int8_dynamic_activation_int4_weight_quant
 
 
-def int4_weight_only(group_size=128, inner_k_tiles=8):
+def int4_weight_only(groupsize=128, inner_k_tiles=8):
     """
     Applies uint4 weight-only asymmetric per-group quantization to linear layers, using
     "tensor_core_tiled" layout for speedup with tinygemm kernel
 
     Args:
-        `group_size`: parameter for quantization, controls the granularity of quantization, smaller
+        `groupsize`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained, choices are [256, 128, 64, 32]
         `inner_k_tiles`: parameter for int4 mm kernel, choices are [8, 4, 2]
     """
@@ -362,7 +362,7 @@ def int4_weight_only(group_size=128, inner_k_tiles=8):
         from torchao.dtypes import to_affine_quantized
 
         mapping_type = MappingType.ASYMMETRIC
-        block_size = (1, group_size)
+        block_size = (1, groupsize)
         target_dtype = torch.int32
         quant_min = 0
         quant_max = 15

@@ -499,11 +499,11 @@ class TestQuantFlow(TestCase):
     # TODO: move to a separate test file
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
     def test_quantized_tensor_subclass_8da4w(self):
-        group_size = 32
+        groupsize = 32
         m = ToyLinearModel().eval()
         m_copy = copy.deepcopy(m)
         example_inputs = m.example_inputs()
-        m = quantize(m, int8_dynamic_activation_int4_weight(group_size=group_size))
+        m = quantize(m, int8_dynamic_activation_int4_weight(groupsize=groupsize))
 
         assert isinstance(m.linear1.weight, LinearActQuantizedTensor)
         assert isinstance(m.linear2.weight, LinearActQuantizedTensor)
@@ -514,7 +514,7 @@ class TestQuantFlow(TestCase):
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
         from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
 
-        quantizer = Int8DynActInt4WeightQuantizer(groupsize=group_size)
+        quantizer = Int8DynActInt4WeightQuantizer(groupsize=groupsize)
         m_copy = quantizer.quantize(m_copy)
         assert isinstance(m_copy.linear1, Int8DynActInt4WeightLinear)
         assert isinstance(m_copy.linear2, Int8DynActInt4WeightLinear)
@@ -531,13 +531,13 @@ class TestQuantFlow(TestCase):
         m_copy = copy.deepcopy(m)
         example_inputs = m.example_inputs(dtype=torch.bfloat16, device="cuda")
 
-        group_size = 32
-        m = quantize(m, int4_weight_only(group_size=group_size))
+        groupsize = 32
+        m = quantize(m, int4_weight_only(groupsize=groupsize))
         assert isinstance(m.linear1.weight, AffineQuantizedTensor)
         assert isinstance(m.linear2.weight, AffineQuantizedTensor)
 
         # reference
-        _ref_change_linear_weights_to_int4_woqtensors(m_copy, groupsize=group_size)
+        _ref_change_linear_weights_to_int4_woqtensors(m_copy, groupsize=groupsize)
 
         res = m(*example_inputs)
         ref = m_copy(*example_inputs)

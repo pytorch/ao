@@ -111,7 +111,7 @@ def setup_dora_base_layers(layer_type, in_features, out_features, dtype):
         # HQQ
         quant_config = BaseQuantizeConfig(
             nbits=4,
-            group_size=64,
+            groupsize=64,
             quant_zero=False,
             quant_scale=False,
             offload_meta=True,

@@ -417,10 +417,10 @@ def get_group_qparams_symmetric(w, n_bit=4, groupsize=128, precision=torch.float
 def group_quantize_tensor_symmetric(
     w,
     n_bit=4,
-    group_size=128,
+    groupsize=128,
     precision=torch.float32,
 ):
-    scales, zeros = get_group_qparams_symmetric(w, n_bit, group_size, precision)
+    scales, zeros = get_group_qparams_symmetric(w, n_bit, groupsize, precision)
     n_bit = 4
     max_int = 2 ** (n_bit - 1) - 1
     min_int = -(2 ** (n_bit - 1))
@@ -428,7 +428,7 @@ def group_quantize_tensor_symmetric(
     # add torch.int4 to core later
     from torchao._executorch_ops import _quantized_decomposed_quantize_per_channel_group_wrapper
     w_int8 = _quantized_decomposed_quantize_per_channel_group_wrapper(
-        w, scales, zeros, min_int, max_int, torch.int8, group_size
+        w, scales, zeros, min_int, max_int, torch.int8, groupsize
     )
 
     return w_int8, scales, zeros

@@ -42,7 +42,7 @@ def test_galore_quantize_blockwise(dim1, dim2, dtype, signed, blocksize):
     bnb_norm = (g.reshape(-1, blocksize) / qstate.absmax[:, None]).reshape(g.shape)
 
     tt_q, tt_norm, tt_absmax = triton_quantize_blockwise(
-        g, qmap, group_size=blocksize, return_normalized=True
+        g, qmap, groupsize=blocksize, return_normalized=True
     )
     tt_check = torch.allclose(ref_bnb, tt_q)
 
@@ -87,5 +87,5 @@ def test_galore_dequant_blockwise(dim1, dim2, dtype, signed, blocksize):
     q, qstate = F.quantize_blockwise(g, code=qmap, blocksize=blocksize)
 
     dq_ref = F.dequantize_blockwise(q, qstate)
-    dq = triton_dequant_blockwise(q, qmap, qstate.absmax, group_size=blocksize)
+    dq = triton_dequant_blockwise(q, qmap, qstate.absmax, groupsize=blocksize)
     assert torch.allclose(dq, dq_ref)

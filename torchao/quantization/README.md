@@ -104,8 +104,8 @@ example_inputs = m.example_inputs(dtype=dtype, device="cuda")
 
 m_bf16 = torch.compile(m_bf16, mode='max-autotune')
 # apply int4 weight only quant (compatible with tinygemm int4 weight only quant mm kernel in torchao)
-group_size = 32
-m = quantize(m, int4_weight_only(group_size=group_size))
+groupsize = 32
+m = quantize(m, int4_weight_only(groupsize=groupsize))
 
 torch._inductor.config.force_fuse_int_mm_with_mul = True
 torch._inductor.config.use_mixed_mm = True

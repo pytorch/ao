@@ -36,7 +36,7 @@ def _dequant_kernel(
 
 
 def triton_dequant_blockwise(
-    q: torch.Tensor, qmap: torch.Tensor, absmax: torch.Tensor, group_size: int
+    q: torch.Tensor, qmap: torch.Tensor, absmax: torch.Tensor, groupsize: int
 ):
     M, N = q.shape
     dq = torch.empty_like(q).to(absmax.dtype)
@@ -52,8 +52,8 @@ def triton_dequant_blockwise(
         q.stride(0),
         q.stride(1),
         BLOCK_M=1,
-        BLOCK_N=group_size,
-        GROUP_SIZE=group_size,
+        BLOCK_N=groupsize,
+        GROUP_SIZE=groupsize,
     )
     return dq
 
@@ -99,30 +99,30 @@ def _quantize_blockwise_kernel(
     q = tl.sum(q, axis=1)
 
     tl.store(q_ptr + offsets, q, mask=mask)
-    # Each block processes one group_size number of elements, hence 1 absmax
+    # Each block processes one groupsize number of elements, hence 1 absmax
     tl.store(absmax_ptr + pid, absmax, mask=absmax_mask)
 
     if RETURN_NORM:
         tl.store(norm_ptr + offsets, normalized, mask=mask)
 
 
-# NOTE: Each block processes one group_size number of elements, hence BLOCK_SIZE = group_size
-# where group_size corresponds to the groupwise quantization blocksize
+# NOTE: Each block processes one groupsize number of elements, hence BLOCK_SIZE = groupsize
+# where groupsize corresponds to the groupwise quantization blocksize
 def triton_quantize_blockwise(
-    t: torch.Tensor, code, group_size=2048, return_normalized=False
+    t: torch.Tensor, code, groupsize=2048, return_normalized=False
 ):
     """
     Params:
         t: torch.Tensor, tensor to quantize
         code: torch.Tensor, quantization codebook for bitsandbytes, output of `bitsandbytes.functional.create_dynamic_map`
         # absmax: torch.Tensor, absolute max values for each block, if None, will be calculated from the input tensor
-        group_size: int, groupwise quantization blocksize, default 2048, the hardcoded blocksize for bitsandbytes 8-bit optimizers
+        groupsize: int, groupwise quantization blocksize, default 2048, the hardcoded blocksize for bitsandbytes 8-bit optimizers
         return_normalized: bool, if True, will return the normalized tensor, primarily for debugging
     """
     numel = t.numel()
     q = torch.empty(numel, dtype=torch.uint8, device=t.device)
     normalized = torch.empty_like(t) if return_normalized else None
-    num_groups = numel // group_size
+    num_groups = numel // groupsize
     abs_max = torch.empty(num_groups, dtype=t.dtype, device="cuda")
     # Cutoffs for quantization
     # code corresponds to actual (normalized) quant codes
@@ -141,7 +141,7 @@ def triton_quantize_blockwise(
     assert cutoffs.numel() % 2 == 0
 
     grid = lambda META: (triton.cdiv(t.numel(), META["BLOCK_SIZE"]),)
-    # assert t.numel() % group_size == 0
+    # assert t.numel() % groupsize == 0
     _quantize_blockwise_kernel[grid](
         t.view(-1),
         cutoffs,
@@ -150,7 +150,7 @@ def triton_quantize_blockwise(
         normalized.view(-1) if return_normalized else None,
         numel,
         NUM_BUCKETS=len(cutoffs),
-        BLOCK_SIZE=group_size,
+        BLOCK_SIZE=groupsize,
         RETURN_NORM=return_normalized,
     )
     return (

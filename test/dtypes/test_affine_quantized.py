@@ -12,7 +12,7 @@ class TestAffineQuantized(TestCase):
     def test_tensor_core_layout_transpose(self):
         t = torch.rand(128, 256, dtype=torch.bfloat16, device="cuda")
         shape = t.shape
-        apply_int4_weight_only_quant = int4_weight_only(group_size=32)
+        apply_int4_weight_only_quant = int4_weight_only(groupsize=32)
         aqt = apply_int4_weight_only_quant(t)
         aqt_shape = aqt.shape
         self.assertEqual(aqt_shape, shape)

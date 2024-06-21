@@ -9,7 +9,7 @@ The kernel fuses two ops:
 
 Tested and benchmarked for `HQQ` but could theoretically be used for any asymmetric quantization scheme.
 
-> **NOTE**: Benchmark below is only indicative of performance on consumer-grade `Ampere` GPUs (`A6000` specifically). When tested on `H100`, the performance is on par / marginally worse than native / compiled `torch`.  
+> **NOTE**: Benchmark below is only indicative of performance on consumer-grade `Ampere` GPUs (`A6000` specifically). When tested on `H100`, the performance is on par / marginally worse than native / compiled `torch`.
 > The intended use is thus for fine-tuning / training models on non-datacenter GPUs (`80 <= compute capability < 90`). If interested in optimizing the kernel for other architectures, please drop a note in the CUDA-MODE Discord channel.
 
 ### Usage
@@ -29,9 +29,9 @@ The pseudocode below explains the expected shapes and dtypes. Also see `test/hqq
 #The reason we use N x K is to match that shape of the weight for a torch.nn.Linear layer, where N -> out-features, K -> in-features
 weights = torch.randn(N, K, dtype=torch.float16, device="cuda")
 
-#Perform groupwise asymmetric quantization along axis=1 (in-features). E.g., `scales = Wq.reshape(-1, group_size).max(axis=1)`.
+#Perform groupwise asymmetric quantization along axis=1 (in-features). E.g., `scales = Wq.reshape(-1, groupsize).max(axis=1)`.
 #Wq are `s4 / u4` stored as dtype = torch.int8 / torch.uint8, shape N x K
-# scales and zeros are shape (N * K // group_size)
+# scales and zeros are shape (N * K // groupsize)
 Wq, scales, zeros = quantize(weights) #Choose your favorite quantization library
 
 #Pack i4 stored as i8 to packed 2xi4 i8.
@@ -54,7 +54,7 @@ tt_out = triton_mixed_mm(
           scales.T,
           zeros.T,
           transposed=False,
-          group_size=group_size,
+          groupsize=groupsize,
           fp8_fast_accum=False,
       )
 ```
@@ -72,7 +72,7 @@ tt_out = triton_mixed_mm(
 
 Initial benchmarking (on `A6000`) demonstrates promising results, scaling well for compute-bound workloads:
 
-|     | M    | N    | K    | group_size | dtype          | hqq_ref | triton | tinygemm |
+|     | M    | N    | K    | groupsize | dtype          | hqq_ref | triton | tinygemm |
 | --- | ---- | ---- | ---- | ---------- | -------------- | ------- | ------ | -------- |
 | 0   | 16   | 4096 | 4096 | 128        | torch.bfloat16 | 0.2675  | 0.0633 | 0.0382   |
 | 1   | 32   | 4096 | 4096 | 128        | torch.bfloat16 | 0.2669  | 0.0704 | 0.0649   |

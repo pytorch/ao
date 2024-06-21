@@ -286,14 +286,14 @@ class TestQuantPrimitives(unittest.TestCase):
         quantized = quantize_affine(input, block_size, scale, zero_point, dtype)
         dequantized = check_idempotent(self, dequantize_affine, quantized, block_size, scale, zero_point, dtype, output_dtype=torch.float32)
 
-        group_size = 2
+        groupsize = 2
         quant_min = -128
         quant_max = 127
         quantized_ref = torch.ops.quantized_decomposed.quantize_per_channel_group(
-            input, scale, zero_point, quant_min, quant_max, torch.int8, group_size
+            input, scale, zero_point, quant_min, quant_max, torch.int8, groupsize
         )
         dequantized_ref = torch.ops.quantized_decomposed.dequantize_per_channel_group(
-            quantized_ref, scale, zero_point, quant_min, quant_max, torch.int8, group_size, output_dtype=torch.float32
+            quantized_ref, scale, zero_point, quant_min, quant_max, torch.int8, groupsize, output_dtype=torch.float32
         )
 
         self.assertTrue(torch.equal(quantized, quantized_ref))

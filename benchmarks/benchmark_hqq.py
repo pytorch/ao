@@ -31,7 +31,7 @@ def bench_custom_kernel(
     W_q,
     scales,
     zeros,
-    group_size,
+    groupsize,
     transposed=False,
     kernel_type="max_autotune",
     fp8_fast_accum=False,
@@ -45,7 +45,7 @@ def bench_custom_kernel(
             scales.T,
             zeros.T,
             transposed=transposed,
-            group_size=group_size,
+            groupsize=groupsize,
             fp8_fast_accum=fp8_fast_accum,
             kernel_type=kernel_type,
         )
@@ -65,11 +65,11 @@ def bench_hqq(x, hqq_linear: HQQLinear | HQQLinearTorchWeightOnlyInt4, transpose
 
 
 def run_benchmark(
-    shape, group_size, dtype, axis=1, transposed=False, quant_dtype=torch.uint8
+    shape, groupsize, dtype, axis=1, transposed=False, quant_dtype=torch.uint8
 ):
     qcfg = {
         **BASE_QUANT_CONFIG,
-        **dict(group_size=group_size, axis=axis),
+        **dict(groupsize=groupsize, axis=axis),
     }
     M, N, K = shape
 
@@ -103,7 +103,7 @@ def run_benchmark(
     scales = scales.reshape(N, -1)
     zeros = zeros.reshape(N, -1)
     tt_time = bench_custom_kernel(
-        x, W_q, scales, zeros, group_size, transposed=transposed
+        x, W_q, scales, zeros, groupsize, transposed=transposed
     )
 
     should_run_tinygemm = dtype == torch.bfloat16 and not transposed
@@ -114,7 +114,7 @@ def run_benchmark(
         )
         int4_time = bench_hqq(x, hqq_int4mm, transposed=transposed, tinygemm=True)
 
-    print(f"{shape=}, {group_size=}, {dtype=}, {transposed=}:")
+    print(f"{shape=}, {groupsize=}, {dtype=}, {transposed=}:")
 
     print(
         f"Ref: {ref_time:.4f}ms",
@@ -146,7 +146,7 @@ HEADERS = [
     "M",
     "N",
     "K",
-    "group_size",
+    "groupsize",
     "dtype",
     "transposed",
     "ref",
@@ -159,13 +159,13 @@ if __name__ == "__main__":
     print(torch.cuda.get_device_properties(0))
 
     for shape in SHAPES:
-        for group_size in GROUP_SIZES:
+        for groupsize in GROUP_SIZES:
             for dtype in DTYPES:
                 for transposed in TRANSPOSED:
                     timings = run_benchmark(
-                        shape, group_size, dtype, transposed=transposed
+                        shape, groupsize, dtype, transposed=transposed
                     )
-                    data.append((*shape, group_size, dtype, transposed, *timings))
+                    data.append((*shape, groupsize, dtype, transposed, *timings))
 
     output = StringIO()
     df = pd.DataFrame(data, columns=HEADERS)

@@ -189,21 +189,21 @@ def main(
     if quantization:
         from torchao.quantization.quant_api import (
             quantize,
-            int8wo,
-            int8da_int8w,
-            int4wo,
+            int8_weight_only,
+            int8_dynamic_activation_int8_weight,
+            int4_weight_only,
             autoquant,
             unwrap_tensor_subclass
     )
 
         if "int8wo" in quantization:
-            quantize(model, int8wo())
+            quantize(model, int8_weight_only())
         if "int8dq" in quantization:
-            quantize(model, int8da_int8w())
+            quantize(model, int8_dynamic_activation_int8_weight())
         if "int4wo" in quantization:
             groupsize=int(quantization.split("-")[-1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
-            quantize(model, int4wo(groupsize=groupsize))
+            quantize(model, int4_weight_only(groupsize=groupsize))
         if "autoquant" == quantization:
             model = autoquant(model, manual=True)
 
@@ -339,7 +339,7 @@ if __name__ == '__main__':
     parser.add_argument('--max_new_tokens', type=int, default=200, help='Maximum number of new tokens.')
     parser.add_argument('--top_k', type=int, default=200, help='Top-k for sampling.')
     parser.add_argument('--temperature', type=float, default=0.8, help='Temperature for sampling.')
-    parser.add_argument('--checkpoint_path', type=Path, default=Path("checkpoints/meta-Transformer/Transformer-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
+    parser.add_argument('--checkpoint_path', type=Path, default=Path("../../../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
     parser.add_argument("--quantization", type=str, help='Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, autoquant')
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
     parser.add_argument('--compile_prefill', action='store_true', help='Whether to compile the prefill (improves prefill perf, but higher compile times)')

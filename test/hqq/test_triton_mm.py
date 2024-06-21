@@ -72,16 +72,16 @@ def _arg_to_id(arg):
 
 
 @pytest.mark.parametrize(
-    "shape, group_size, axis, dtype, transposed, kernel_type",
+    "shape, groupsize, axis, dtype, transposed, kernel_type",
     TEST_CONFIGS,
     ids=_arg_to_id,
 )
 def test_mixed_mm(
-    shape, group_size, axis, dtype, transposed, kernel_type, quant_dtype=torch.uint8
+    shape, groupsize, axis, dtype, transposed, kernel_type, quant_dtype=torch.uint8
 ):
     qcfg = {
         **BASE_QUANT_CONFIG,
-        **dict(group_size=group_size, axis=axis),
+        **dict(groupsize=groupsize, axis=axis),
     }
     M, N, K = shape
 
@@ -117,7 +117,7 @@ def test_mixed_mm(
             scales.T,
             zeros.T,
             transposed=True,
-            group_size=group_size,
+            groupsize=groupsize,
             fp8_fast_accum=False,
             kernel_type=kernel_type,
         )
@@ -132,7 +132,7 @@ def test_mixed_mm(
             scales.T,
             zeros.T,
             transposed=False,
-            group_size=group_size,
+            groupsize=groupsize,
             fp8_fast_accum=False,
             kernel_type=kernel_type,
         )
@@ -147,7 +147,7 @@ def test_mixed_mm(
 # Only for debugging kernel without dependency on HQQ and with no autotuning
 def _test_mixed_mm(
     shape,
-    group_size,
+    groupsize,
     BLOCK_M,
     BLOCK_N,
     BLOCK_K,
@@ -159,7 +159,7 @@ def _test_mixed_mm(
 ):
     qcfg = {
         **BASE_QUANT_CONFIG,
-        **dict(group_size=group_size, axis=axis),
+        **dict(groupsize=groupsize, axis=axis),
     }
     M, N, K = shape
 
@@ -169,9 +169,9 @@ def _test_mixed_mm(
     quant_config.update({"weight_quant_params": qcfg})
     W_q = torch.randint(0, int(2**4), size=(N, K), dtype=quant_dtype, device="cuda")
 
-    scales = torch.arange((N * K) // group_size, dtype=dtype, device="cuda")[:, None]
+    scales = torch.arange((N * K) // groupsize, dtype=dtype, device="cuda")[:, None]
     zeros = torch.zeros_like(scales)
-    W_dq = ((W_q.reshape(-1, group_size) - zeros) * scales).reshape(N, K)
+    W_dq = ((W_q.reshape(-1, groupsize) - zeros) * scales).reshape(N, K)
     scales = scales.reshape(N, -1)
     zeros = zeros.reshape(N, -1)
 
@@ -187,7 +187,7 @@ def _test_mixed_mm(
             scales.T,
             zeros.T,
             transposed=True,
-            group_size=group_size,
+            groupsize=groupsize,
             fp8_fast_accum=False,
             kernel_type=kernel_type,
             BLOCK_M=BLOCK_M,
@@ -205,14 +205,14 @@ def _test_mixed_mm(
             scales.T,
             zeros.T,
             transposed=False,
-            group_size=group_size,
+            groupsize=groupsize,
             fp8_fast_accum=False,
             kernel_type=kernel_type,
             BLOCK_M=BLOCK_M,
             BLOCK_N=BLOCK_N,
             BLOCK_K=BLOCK_K,
         )
-    msg = f"shape={shape}, group_size={group_size}, axis={axis}, dtype={dtype}, transposed={transposed}, kernel_type={kernel_type}, quant_dtype={quant_dtype}"
+    msg = f"shape={shape}, groupsize={groupsize}, axis={axis}, dtype={dtype}, transposed={transposed}, kernel_type={kernel_type}, quant_dtype={quant_dtype}"
 
     check(
         hqq_out,
@@ -229,10 +229,10 @@ if __name__ == "__main__":
     BLOCK_M, BLOCK_N, BLOCK_K = shape
     BLOCK_K = K // 2
     BLOCK_N = N // 2
-    group_size = BLOCK_K
+    groupsize = BLOCK_K
     _test_mixed_mm(
         shape,
-        group_size=group_size,
+        groupsize=groupsize,
         BLOCK_M=BLOCK_M,
         BLOCK_N=BLOCK_N,
         BLOCK_K=BLOCK_K,
@@ -240,7 +240,7 @@ if __name__ == "__main__":
     )
     _test_mixed_mm(
         shape,
-        group_size=group_size,
+        groupsize=groupsize,
         BLOCK_M=BLOCK_M,
         BLOCK_N=BLOCK_N,
         BLOCK_K=BLOCK_K,
