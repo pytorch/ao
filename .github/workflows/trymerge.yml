@@ -36,10 +36,15 @@ jobs:
       - name: Merge PR
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.PYTORCH_MERGEBOT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.MERGEBOT_TOKEN }}
           PR_NUM: ${{ github.event.client_payload.pr_num }}
+          FORCE: ${{ github.event.client_payload.force}}
           COMMENT_ID: ${{ github.event.client_payload.comment_id }}
           GIT_REMOTE_URL: https://github.com/pytorch/ao
+          REBASE: ${{ github.event.client_payload.rebase }}
+          IGNORE_CURRENT: ${{ github.event.client_payload.ignore_current }}
+          ROCKSET_API_KEY: ${{ secrets.ROCKSET_API_KEY }}
+          DRCI_BOT_KEY: ${{ secrets.DRCI_BOT_KEY }}
         run: |
           set -x
           if [ -n "${FORCE}" ]; then
