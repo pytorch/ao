@@ -194,7 +194,7 @@ def main(
             int4_weight_only,
             autoquant,
             unwrap_tensor_subclass
-    )
+    ) #### set config
 
         if "int8wo" in quantization:
             quantize(model, int8_weight_only())
