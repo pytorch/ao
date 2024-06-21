@@ -672,9 +672,9 @@ class Int4WeightOnlyQuantizer(Quantizer):
 class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
         def __init__(
             self,
-            blocksize,
-            percdamp,
-            groupsize,
+            blocksize=128,
+            percdamp=0.01,
+            groupsize=64,
             inner_k_tiles=8,
             padding_allowed=True,
             device: torch.device = torch.device("cuda"),
