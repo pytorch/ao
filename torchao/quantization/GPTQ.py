@@ -39,11 +39,6 @@ from .utils import (
 )
 aten = torch.ops.aten
 
-# need this to fix the model so it works for GPTQ
-import torchao
-from torchao._models.llama.model import use_index_put_for_kv_cache
-torchao._models.llama.model.use_index_put_for_kv_cache = True
-
 if not _lm_eval_available:
     logging.info("lm_eval is not installed, GPTQ may not be usable")
 
@@ -86,7 +81,9 @@ class GenericGPTQRunner(fx.Interpreter):
 
         # trace model for one input
         one_input = [multi.values[0].cpu() for multi in inputs]  # pyre-ignore[16]
-        model.cpu()(*one_input)
+        # needed for GPTQ on the torchao llama model
+        import torchao
+        torchao._models.llama.model.use_index_put_for_kv_cache = True
         exported_model = torch._dynamo.export(
             model.cpu(), aten_graph=True, pre_dispatch=True, tracing_mode="fake"
         )(*one_input)

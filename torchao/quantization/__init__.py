@@ -17,8 +17,6 @@ __all__ = [
     "swap_conv2d_1x1_to_linear"
     "safe_int_mm",
     "autoquant",
-    "change_linears_to_autoquantizable",
-    "change_autoquantizable_to_quantized",
     "get_scale",
     "SmoothFakeDynQuantMixin",
     "SmoothFakeDynamicallyQuantizedLinear",
