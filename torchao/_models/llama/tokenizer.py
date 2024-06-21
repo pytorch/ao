@@ -30,6 +30,8 @@ class SentencePieceWrapper(TokenizerInterface):
     def __init__(self, model_path):
         super().__init__(model_path)
         self.processor = spm.SentencePieceProcessor(str(model_path))
+        self.bos_token_id = self.bos_id()
+        self.eos_token_id = self.eos_id()
 
     def encode(self, text):
         return self.processor.EncodeAsIds(text)
@@ -86,6 +88,8 @@ class TiktokenWrapper(TokenizerInterface):
         # BOS / EOS token IDs
         self._bos_id: int = self.special_tokens["<|begin_of_text|>"]
         self._eos_id: int = self.special_tokens["<|end_of_text|>"]
+        self.bos_token_id = self.bos_id()
+        self.eos_token_id = self.eos_id()
 
     def encode(self, text):
         return self.model.encode(text)
