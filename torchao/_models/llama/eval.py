@@ -66,7 +66,7 @@ def run_evaluation(
         if "int4wo" in quantization and not "gptq" in quantization:
             groupsize=int(quantization.split("-")[-1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
-            quantize(model, int4wo(groupsize=groupsize))
+            quantize(model.to(device), int4wo(groupsize=groupsize))
         if "int4wo" in quantization and "gptq" in quantization:
             groupsize=int(quantization.split("-")[-2])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
