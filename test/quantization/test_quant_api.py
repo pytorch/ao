@@ -238,7 +238,6 @@ class TestQuantFlow(TestCase):
     def test_8da4w_gptq_quantizer(self):
         from torchao.quantization.GPTQ import Int8DynActInt4WeightGPTQQuantizer
         from torchao._models._eval import InputRecorder, TransformerEvalWrapper
-        torchao._models.llama.model.use_index_put_for_kv_cache = True
         # should be similar to TorchCompileDynamicQuantizer
         precision = torch.bfloat16
         device = "cpu"
@@ -338,7 +337,6 @@ class TestQuantFlow(TestCase):
     def test_gptq_quantizer_int4_weight_only(self):
         from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
         from torchao._models._eval import InputRecorder, TransformerEvalWrapper
-        torchao._models.llama.model.use_index_put_for_kv_cache = True
         precision = torch.bfloat16
         device = "cuda"
         checkpoint_path = Path("../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
