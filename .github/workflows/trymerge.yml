@@ -26,6 +26,8 @@ jobs:
           check-latest: false
           cache: pip
           architecture: x64
+      # TODO (huydhn): get rid of Rockset
+      - run: pip install pyyaml==6.0 rockset==1.0.3
 
       - name: Setup committer id
         run: |
