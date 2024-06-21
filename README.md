@@ -19,8 +19,8 @@ All with no intrusive code changes and minimal accuracy degradation.
 Quantizing your models is a 1 liner that should work on any model with an `nn.Linear` including your favorite HuggingFace model. You can find a more comprehensive usage instructions [here](torchao/quantization/) and a HuggingFace inference example [here](scripts/hf_eval.py)
 
 ```python
-from torchao.quantization.quant_api import quantize
-m = quantize(m, "int4wo")
+from torchao.quantization.quant_api import quantize, int4_weight_only
+m = quantize(m, int4_weight_only())
 ```
 
 Benchmarks are run on a machine with a single A100 GPU using the script in `_models/llama` which generates text in a latency-optimized way (batchsize=1)
