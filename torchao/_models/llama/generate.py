@@ -35,8 +35,8 @@ default_device = 'cuda' if torch.cuda.is_available() else 'cpu'
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 
-from model import Transformer, prepare_inputs_for_model
-from tokenizer import get_tokenizer
+from torchao._models.llama.model import Transformer, prepare_inputs_for_model
+from torchao._models.llama.tokenizer import get_tokenizer
 
 def multinomial_sample_one_no_sync(probs_sort): # Does multinomial sampling without a cuda synchronization
     q = torch.empty_like(probs_sort).exponential_(1)
@@ -189,21 +189,21 @@ def main(
     if quantization:
         from torchao.quantization.quant_api import (
             quantize,
-            int8wo,
-            int8da_int8w,
-            int4wo,
+            int8_weight_only,
+            int8_dynamic_activation_int8_weight,
+            int4_weight_only,
             autoquant,
             unwrap_tensor_subclass
     )
 
         if "int8wo" in quantization:
-            quantize(model, int8wo())
+            quantize(model, int8_weight_only())
         if "int8dq" in quantization:
-            quantize(model, int8da_int8w())
+            quantize(model, int8_dynamic_activation_int8_weight())
         if "int4wo" in quantization:
             groupsize=int(quantization.split("-")[-1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
-            quantize(model, int4wo(groupsize=groupsize))
+            quantize(model, int4_weight_only(groupsize=groupsize))
         if "autoquant" == quantization:
             model = autoquant(model, manual=True)
 
