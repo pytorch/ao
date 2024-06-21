@@ -36,7 +36,7 @@ jobs:
       - name: Merge PR
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.MERGEBOT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PYTORCH_MERGEBOT_TOKEN }}
           PR_NUM: ${{ github.event.client_payload.pr_num }}
           FORCE: ${{ github.event.client_payload.force}}
           COMMENT_ID: ${{ github.event.client_payload.comment_id }}
