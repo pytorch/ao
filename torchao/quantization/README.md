@@ -80,7 +80,7 @@ from torch._inductor.runtime.runtime_utils import do_bench_gpu
 import copy
 from torchao.quantization.quant_api import (
     quantize,
-    int4wo,
+    int4_weight_only,
 )
 
 class ToyLinearModel(torch.nn.Module):
@@ -104,8 +104,8 @@ example_inputs = m.example_inputs(dtype=dtype, device="cuda")
 
 m_bf16 = torch.compile(m_bf16, mode='max-autotune')
 # apply int4 weight only quant (compatible with tinygemm int4 weight only quant mm kernel in torchao)
-groupsize = 32
-m = quantize(m, int4wo(groupsize=groupsize))
+group_size = 32
+m = quantize(m, int4_weight_only(group_size=group_size))
 
 torch._inductor.config.force_fuse_int_mm_with_mul = True
 torch._inductor.config.use_mixed_mm = True
@@ -152,7 +152,7 @@ for n, m in model.named_modules():
 The model/tensor subclass should also be compatible with AOTI and torch.export, currently we can support
 `torch.export.export` and `torch.aot_compile` with the following workaround:
 ```
-from torchao.quantization.utils import unwrap_tensor_subclass
+from torchao.utils import unwrap_tensor_subclass
 m_unwrapped = unwrap_tensor_subclass(m)
 
 
@@ -169,11 +169,10 @@ torch._export.aot_compile(m_unwrapped, example_inputs)
 ```python
 # Fuse the int8*int8 -> int32 matmul and subsequent mul op avoiding materialization of the int32 intermediary tensor
 torch._inductor.config.force_fuse_int_mm_with_mul = True
-from torchao.quantization import quant_api
 
 # for torch 2.4+
-from torchao.quantization.quant_api import quantize
-quantize(model, "int8_dynamic")
+from torchao.quantization import quantize, int8_dynamic_activation_int8_weight
+quantize(model, int8_dynamic_activation_int8_weight())
 
 # for torch 2.2.2 and 2.3
 from torchao.quantization.quant_api import change_linear_weights_to_int8_dqtensors
@@ -184,9 +183,8 @@ change_linear_weights_to_int8_dqtensors(model)
 
 ```python
 # for torch 2.4+
-from torchao.quantization.quant_api import quantize
-from torchao.quantization.quant_api import int8wo
-quantize(model, "int8_weight_only")
+from torchao.quantization import quantize, int8_weight_only
+quantize(model, int8_weight_only())
 
 # for torch 2.2.2 and 2.3
 from torchao.quantization.quant_api import change_linear_weights_to_int8_woqtensors
@@ -200,8 +198,8 @@ This technique works best when the torch._inductor.config.use_mixed_mm option is
 
 ```python
 # for torch 2.4+
-from torchao.quantization.quant_api import quantize
-quantize(model, "int4_weight_only")
+from torchao.quantization import quantize, int4_weight_only
+quantize(model, int4_weight_only())
 
 # for torch 2.2.2 and 2.3
 from torchao.quantization.quant_api import change_linear_weights_to_int4_woqtensors
