@@ -73,8 +73,8 @@ INNERKTILES = [2, 4, 8]
 
 TEST_CONFIGS = list(itertools.product(SHAPES, INNERKTILES))
 
-@unittest.skipIf(IS_FBCODE, "Skipping the test in fbcode since we don't have TARGET file for kernels")
-@pytest.mark.skipif(not torch.cuda.is_available(), "CUDA not available")
+@pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("shape, innerKTiles", TEST_CONFIGS, ids=str)
 def test_int4_unpack_correctness(shape, innerKTiles):
     N, K = shape
@@ -87,7 +87,7 @@ def test_int4_unpack_correctness(shape, innerKTiles):
 
 
 # TODO: Fix "test_aot_dispatch_dynamic" test failure
-@unittest.skipIf(IS_FBCODE, "Skipping the test in fbcode since we don't have TARGET file for kernels")
+@pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("shape, innerKTiles", TEST_CONFIGS , ids=str)
 def test_int4_unpack_op(shape, innerKTiles):
