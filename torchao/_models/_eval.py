@@ -52,8 +52,13 @@ if _lm_eval_available:
             pad_token=0,
             device="cpu",
         ):
-            super().__init__()
-            self._tokenizer = tokenizer
+            try:
+                super().__init__()
+            except TypeError:
+                # lm_eval 0.4.2 removed the default init
+                super().__init__("gpt2", device="cpu")
+
+            self.tokenizer = tokenizer
             self._device = torch.device(device)
             self.vocab_size = vocab_size
             self._max_seq_length = calibration_seq_length
@@ -74,9 +79,9 @@ if _lm_eval_available:
         @property
         def eot_token_id(self):
             try:
-                return self._tokenizer.eos_id()
+                return self.tokenizer.eos_id()
             except:
-                return self._tokenizer.eos_id
+                return self.tokenizer.eos_id
 
         @property
         def max_length(self):
@@ -96,16 +101,16 @@ if _lm_eval_available:
 
         def tok_encode(self, string: str, **kwargs):
             # TODO: verify this for multi-batch as well
-            tokens = self._tokenizer.encode(string)
-            if hasattr(self._tokenizer, "bos_id"):
+            tokens = self.tokenizer.encode(string)
+            if hasattr(self.tokenizer, "bos_id"):
                 try:
-                    tokens = [self._tokenizer.bos_id()] + tokens
+                    tokens = [self.tokenizer.bos_id()] + tokens
                 except:
-                    tokens = [self._tokenizer.bos_id] + tokens
+                    tokens = [self.tokenizer.bos_id] + tokens
             return tokens
 
         def tok_decode(self, tokens):
-            decoded = self._tokenizer.decode(tokens)
+            decoded = self.tokenizer.decode(tokens)
             return decoded
 
         def add_input(self, args):
@@ -185,9 +190,9 @@ if _lm_eval_available:
             input_prep_func=None,
             device="cuda"
         ):
-            super().__init__(None, None)
+            super().__init__(tokenizer, None)
             self._model = model
-            self._tokenizer = tokenizer
+            # self.tokenizer = tokenizer
             self._device = torch.device(device)
             self._max_seq_length = max_seq_length
 

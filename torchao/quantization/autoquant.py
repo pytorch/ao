@@ -17,6 +17,12 @@ try:
 except:
     from torch._inductor.runtime.runtime_utils import do_bench
 
+__all__ = [
+    "AutoQuantizableLinearWeight",
+    "autoquant",
+]
+
+
 aten = torch.ops.aten
 
 AUTOQUANT_CACHE = {}
@@ -382,11 +388,11 @@ DEFAULT_CLASS_LIST = [
     AQInt8DynamicallyQuantizedLinearWeight,
 ]
 
-def change_linears_to_autoquantizable(model, **kwargs):
+def _change_linears_to_autoquantizable(model, **kwargs):
     """
     Converts all linear weight tensors to the
     AutoQuantizableLinearWeight tensor subclass. Expectation is that this is followed
-    by running the model and then calling change_autoquantizable_to_quantized
+    by running the model and then calling _change_autoquantizable_to_quantized
     """
     from torchao.quantization.quant_api import _is_linear
     filter_fn = kwargs.pop("filter_fn", _is_linear)
@@ -401,7 +407,7 @@ def change_linears_to_autoquantizable(model, **kwargs):
         filter_fn if filter_fn is not None else _is_linear,
     )
 
-def change_autoquantizable_to_quantized(model, **kwargs):
+def _change_autoquantizable_to_quantized(model, **kwargs):
     """
     Converts AutoQuantizableLinearWeight tensor subclasses
     to various quantized/non-quantized tensor subclasses depending
@@ -490,7 +496,7 @@ def autoquant(
 
     # perform initial swap from linear weights
     # to AutoQuantizableLinearWeight
-    change_linears_to_autoquantizable(
+    _change_linears_to_autoquantizable(
         model,
         filter_fn=filter_fn,
         qtensor_class_list=qtensor_class_list,
@@ -531,7 +537,7 @@ def autoquant(
     # note the torch.compile wrapper (eval_frame) moves the assignment of any assigned
     # attributes to the inner model that didn't exist before, so we have to call delattr on the inner model
     def finalize_autoquant():
-        change_autoquantizable_to_quantized(
+        _change_autoquantizable_to_quantized(
             real_model,
             **aq_kwargs,
         )

@@ -21,7 +21,7 @@ from torchao._models._eval import TransformerEvalWrapper, InputRecorder
 from tokenizer import get_tokenizer
 import time
 from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
-from model import prepare_inputs_for_model
+from torchao._models.llama.model import prepare_inputs_for_model
 
 torch._inductor.config.fx_graph_cache = True
 torch._inductor.config.force_fuse_int_mm_with_mul = True
@@ -66,11 +66,12 @@ def run_evaluation(
         if "int4wo" in quantization and not "gptq" in quantization:
             groupsize=int(quantization.split("-")[-1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
-            quantize(model, int4wo(groupsize=groupsize))
+            quantize(model.to(device), int4wo(groupsize=groupsize))
         if "int4wo" in quantization and "gptq" in quantization:
             groupsize=int(quantization.split("-")[-2])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
             assert precision==torch.bfloat16, f"{quantization} requires precision or bfloat16 but got {precision}"
+            assert "cuda" in device, "int4 gptq quantization only works on cuda"
             inputs = InputRecorder(
                 tokenizer,
                 calibration_seq_length,
@@ -83,7 +84,7 @@ def run_evaluation(
                 calibration_limit,
             ).get_inputs()
 
-            quantizer = Int4WeightOnlyGPTQQuantizer(groupsize=groupsize)
+            quantizer = Int4WeightOnlyGPTQQuantizer(groupsize=groupsize, device=device)
             model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
             model = quantizer.quantize(model, inputs).to(device)
         else:
