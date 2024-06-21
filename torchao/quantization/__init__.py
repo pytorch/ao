@@ -32,5 +32,8 @@ __all__ = [
     "dequantize_affine",
     "choose_qprams_affine",
     "quantize",
-    "register_apply_tensor_subclass",
+    "int8_dynamic_act_int4_weight",
+    "int8_dynamic_act_int8_weight",
+    "int4_weight_only",
+    "int8_weight_only",
 ]
