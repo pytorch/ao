@@ -60,13 +60,10 @@ def unpack_int4_packed(packed_w: Tensor, innerKTiles: int) -> Tensor:
         torch.tensor of shape is N x K, dtype is torch.int32
 
     """
-    # return torch.ops.torchao.unpack_int4_packed.default(
-    #     packed_w=packed_w, innerKTiles=innerKTiles
-    # )
-    return torch.ops.ao_unpack.unpack_int4_packed.default(
+    return torch.ops.torchao.unpack_int4_packed.default(
         packed_w=packed_w, innerKTiles=innerKTiles
     )
-
+    
 
 @register_custom_op(f"torchao::unpack_int4_packed")
 def _(packed_w: Tensor, innerKTiles: int) -> Tensor:
