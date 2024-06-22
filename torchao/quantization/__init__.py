@@ -30,8 +30,8 @@ __all__ = [
     "dequantize_affine",
     "choose_qprams_affine",
     "quantize",
-    "int8_dynamic_act_int4_weight",
-    "int8_dynamic_act_int8_weight",
+    "int8_dynamic_activation_int4_weight",
+    "int8_dynamic_activation_int8_weight",
     "int4_weight_only",
     "int8_weight_only",
 ]
