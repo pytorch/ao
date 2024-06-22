@@ -1,4 +1,5 @@
 import torch
+import torchao
 from .subclass import ( # noqa
     Int8DynamicallyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
@@ -443,8 +444,10 @@ def autoquant(
     model, 
     example_input=None, 
     qtensor_class_list=DEFAULT_CLASS_LIST, 
-    filter_fn=None, mode=["interpolate", .85], 
+    filter_fn=None, 
+    mode=["interpolate", .85], 
     manual=False, 
+    set_inductor_config=True,
     **aq_kwargs
 ):
     """
@@ -477,6 +480,7 @@ def autoquant(
                                and the second element is the mode value (e.g., 0.85). Defaults to ["interpolate", .85].
         manual (bool, optional): Whether to stop shape calibration and do autoquant after a single run (default, False) or to wait for 
                                 the user to call model.finalize_autoquant (True) so inputs with several shapes/dtypes can be logged.
+        set_inductor_config (bool, optional): Whether to automatically use recommended inductor config settings (defaults to True)
         **aq_kwargs: Additional keyword arguments for the autoquantization process.
 
     Returns:
@@ -493,6 +497,9 @@ def autoquant(
         model(*example_input2)
         model.finalize_autoquant()
     """
+    if set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
+
 
     # perform initial swap from linear weights
     # to AutoQuantizableLinearWeight

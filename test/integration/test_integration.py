@@ -98,21 +98,21 @@ COMMON_DEVICE_DTYPE = list(itertools.product(COMMON_DEVICES, COMMON_DTYPES)).cop
 
 def _int8wo_api(mod):
     if TORCH_VERSION_AFTER_2_4:
-        quantize(mod, int8_weight_only())
+        quantize(mod, int8_weight_only(), set_inductor_config=False)
         unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int8_woqtensors(mod)
 
 def _int8da_int8w_api(mod):
     if TORCH_VERSION_AFTER_2_4:
-        quantize(mod, int8_dynamic_activation_int8_weight())
+        quantize(mod, int8_dynamic_activation_int8_weight(), set_inductor_config=False)
         unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int8_dqtensors(mod)
 
 def _int4wo_api(mod):
     if TORCH_VERSION_AFTER_2_4:
-        quantize(mod, int4_weight_only())
+        quantize(mod, int4_weight_only(), set_inductor_config=False)
         unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int4_woqtensors(mod)

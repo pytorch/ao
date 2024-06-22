@@ -22,9 +22,7 @@ from tokenizer import get_tokenizer
 import time
 from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
 from torchao._models.llama.model import prepare_inputs_for_model
-
-torch._inductor.config.fx_graph_cache = True
-torch._inductor.config.force_fuse_int_mm_with_mul = True
+torchao.quantization.utils.recommended_inductor_config_setter()
 
 def run_evaluation(
     checkpoint_path: Path,
