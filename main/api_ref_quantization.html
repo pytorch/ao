@@ -403,6 +403,21 @@
 <tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.Int4WeightOnlyQuantizer.html#torchao.quantization.Int4WeightOnlyQuantizer" title="torchao.quantization.Int4WeightOnlyQuantizer"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Int4WeightOnlyQuantizer</span></code></a></p></td>
 <td><p></p></td>
 </tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.quantize.html#torchao.quantization.quantize" title="torchao.quantization.quantize"><code class="xref py py-obj docutils literal notranslate"><span class="pre">quantize</span></code></a></p></td>
+<td><p>Convert the weight of linear modules in the model with <cite>apply_tensor_subclass</cite></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.int8_dynamic_activation_int4_weight.html#torchao.quantization.int8_dynamic_activation_int4_weight" title="torchao.quantization.int8_dynamic_activation_int4_weight"><code class="xref py py-obj docutils literal notranslate"><span class="pre">int8_dynamic_activation_int4_weight</span></code></a></p></td>
+<td><p>Applies int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear This is used to produce a model for executorch backend, but currently executorch did not support lowering for the quantized model from this flow yet</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.int8_dynamic_activation_int8_weight.html#torchao.quantization.int8_dynamic_activation_int8_weight" title="torchao.quantization.int8_dynamic_activation_int8_weight"><code class="xref py py-obj docutils literal notranslate"><span class="pre">int8_dynamic_activation_int8_weight</span></code></a></p></td>
+<td><p>Applies int8 dynamic symmetric per-token activation and int8 per-channel weight quantization to linear layers</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/torchao.quantization.int4_weight_only.html#torchao.quantization.int4_weight_only" title="torchao.quantization.int4_weight_only"><code class="xref py py-obj docutils literal notranslate"><span class="pre">int4_weight_only</span></code></a></p></td>
+<td><p>Applies uint4 weight-only asymmetric per-group quantization to linear layers, using &quot;tensor_core_tiled&quot; layout for speedup with tinygemm kernel</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/torchao.quantization.int8_weight_only.html#torchao.quantization.int8_weight_only" title="torchao.quantization.int8_weight_only"><code class="xref py py-obj docutils literal notranslate"><span class="pre">int8_weight_only</span></code></a></p></td>
+<td><p>Applies int8 weight-only symmetric per-channel quantization to linear layers.</p></td>
+</tr>
 </tbody>
 </table>
 </section>

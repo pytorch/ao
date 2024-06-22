@@ -11,7 +11,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>UInt4Tensor &mdash; torchao main documentation</title>
+  <title>int8_dynamic_activation_int4_weight &mdash; torchao main documentation</title>
   
 
   
@@ -41,8 +41,8 @@
   <link rel="stylesheet" href="../_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="torchao.kernel" href="../api_ref_kernel.html" />
-    <link rel="prev" title="to_nf4" href="torchao.dtypes.to_nf4.html" />
+    <link rel="next" title="int8_dynamic_activation_int8_weight" href="torchao.quantization.int8_dynamic_activation_int8_weight.html" />
+    <link rel="prev" title="quantize" href="torchao.quantization.quantize.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -301,8 +301,8 @@
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../api_ref_sparsity.html">torchao.sparsity</a></li>
 <li class="toctree-l1 current"><a class="reference internal" href="../api_ref_intro.html"><code class="docutils literal notranslate"><span class="pre">torchao</span></code> API Reference</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="../api_ref_dtypes.html">torchao.dtypes</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_ref_dtypes.html">torchao.dtypes</a></li>
 </ul>
 
             
@@ -345,15 +345,15 @@
         
           <li><a href="../api_ref_intro.html"><code class="docutils literal notranslate"><span class="pre">torchao</span></code> API Reference</a> &gt;</li>
         
-          <li><a href="../api_ref_dtypes.html">torchao.dtypes</a> &gt;</li>
+          <li><a href="../api_ref_quantization.html">torchao.quantization</a> &gt;</li>
         
-      <li>UInt4Tensor</li>
+      <li>int8_dynamic_activation_int4_weight</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/generated/torchao.dtypes.UInt4Tensor.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/generated/torchao.quantization.int8_dynamic_activation_int4_weight.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -383,29 +383,20 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="uint4tensor">
-<h1>UInt4Tensor<a class="headerlink" href="#uint4tensor" title="Permalink to this heading">¶</a></h1>
-<dl class="py class">
-<dt class="sig sig-object py" id="torchao.dtypes.UInt4Tensor">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">torchao.dtypes.</span></span><span class="sig-name descname"><span class="pre">UInt4Tensor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">elem</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/dtypes/uint4.html#UInt4Tensor"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.dtypes.UInt4Tensor" title="Permalink to this definition">¶</a></dt>
-<dd><dl class="py method">
-<dt class="sig sig-object py" id="torchao.dtypes.UInt4Tensor.tolist">
-<span class="sig-name descname"><span class="pre">tolist</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">list</span> <span class="pre">or</span> <span class="pre">number</span></span></span><a class="reference internal" href="../_modules/torchao/dtypes/uint4.html#UInt4Tensor.tolist"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.dtypes.UInt4Tensor.tolist" title="Permalink to this definition">¶</a></dt>
-<dd><p>Returns the tensor as a (nested) list. For scalars, a standard
-Python number is returned, just like with <code class="xref py py-meth docutils literal notranslate"><span class="pre">item()</span></code>.
-Tensors are automatically moved to the CPU first if necessary.</p>
-<p>This operation is not differentiable.</p>
-<p>Examples:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">a</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">a</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
-<span class="go">[[0.012766935862600803, 0.5415473580360413],</span>
-<span class="go"> [-0.08909505605697632, 0.7729271650314331]]</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">a</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
-<span class="go">0.012766935862600803</span>
-</pre></div>
-</div>
-</dd></dl>
-
+  <section id="int8-dynamic-activation-int4-weight">
+<h1>int8_dynamic_activation_int4_weight<a class="headerlink" href="#int8-dynamic-activation-int4-weight" title="Permalink to this heading">¶</a></h1>
+<dl class="py function">
+<dt class="sig sig-object py" id="torchao.quantization.int8_dynamic_activation_int4_weight">
+<span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">int8_dynamic_activation_int4_weight</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">group_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">32</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/quant_api.html#int8_dynamic_activation_int4_weight"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.int8_dynamic_activation_int4_weight" title="Permalink to this definition">¶</a></dt>
+<dd><p>Applies int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear
+This is used to produce a model for executorch backend, but currently executorch did not
+support lowering for the quantized model from this flow yet</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>group_size</strong> – parameter for quantization, controls the granularity of quantization, smaller
+size is more fine grained</p>
+</dd>
+</dl>
 </dd></dl>
 
 </section>
@@ -418,10 +409,10 @@ Tensors are automatically moved to the CPU first if necessary.</p>
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="../api_ref_kernel.html" class="btn btn-neutral float-right" title="torchao.kernel" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="torchao.quantization.int8_dynamic_activation_int8_weight.html" class="btn btn-neutral float-right" title="int8_dynamic_activation_int8_weight" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="torchao.dtypes.to_nf4.html" class="btn btn-neutral" title="to_nf4" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="torchao.quantization.quantize.html" class="btn btn-neutral" title="quantize" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -453,7 +444,7 @@ Tensors are automatically moved to the CPU first if necessary.</p>
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">UInt4Tensor</a></li>
+<li><a class="reference internal" href="#">int8_dynamic_activation_int4_weight</a></li>
 </ul>
 
             </div>

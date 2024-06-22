@@ -11,7 +11,7 @@
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>to_nf4 &mdash; torchao main documentation</title>
+  <title>int4_weight_only &mdash; torchao main documentation</title>
   
 
   
@@ -41,8 +41,8 @@
   <link rel="stylesheet" href="../_static/css/custom.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="to_affine_quantized" href="torchao.dtypes.to_affine_quantized.html" />
-    <link rel="prev" title="torchao.dtypes" href="../api_ref_dtypes.html" />
+    <link rel="next" title="int8_weight_only" href="torchao.quantization.int8_weight_only.html" />
+    <link rel="prev" title="int8_dynamic_activation_int8_weight" href="torchao.quantization.int8_dynamic_activation_int8_weight.html" />
   <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
@@ -301,8 +301,8 @@
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../api_ref_sparsity.html">torchao.sparsity</a></li>
 <li class="toctree-l1 current"><a class="reference internal" href="../api_ref_intro.html"><code class="docutils literal notranslate"><span class="pre">torchao</span></code> API Reference</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="../api_ref_dtypes.html">torchao.dtypes</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../api_ref_quantization.html">torchao.quantization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_ref_dtypes.html">torchao.dtypes</a></li>
 </ul>
 
             
@@ -345,15 +345,15 @@
         
           <li><a href="../api_ref_intro.html"><code class="docutils literal notranslate"><span class="pre">torchao</span></code> API Reference</a> &gt;</li>
         
-          <li><a href="../api_ref_dtypes.html">torchao.dtypes</a> &gt;</li>
+          <li><a href="../api_ref_quantization.html">torchao.quantization</a> &gt;</li>
         
-      <li>to_nf4</li>
+      <li>int4_weight_only</li>
     
     
       <li class="pytorch-breadcrumbs-aside">
         
             
-            <a href="../_sources/generated/torchao.dtypes.to_nf4.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
+            <a href="../_sources/generated/torchao.quantization.int4_weight_only.rst.txt" rel="nofollow"><img src="../_static/images/view-page-source-icon.svg"></a>
           
         
       </li>
@@ -383,12 +383,23 @@
             <div role="main" class="main-content" itemscope="itemscope" itemtype="http://schema.org/Article">
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
-  <section id="to-nf4">
-<h1>to_nf4<a class="headerlink" href="#to-nf4" title="Permalink to this heading">¶</a></h1>
+  <section id="int4-weight-only">
+<h1>int4_weight_only<a class="headerlink" href="#int4-weight-only" title="Permalink to this heading">¶</a></h1>
 <dl class="py function">
-<dt class="sig sig-object py" id="torchao.dtypes.to_nf4">
-<span class="sig-prename descclassname"><span class="pre">torchao.dtypes.</span></span><span class="sig-name descname"><span class="pre">to_nf4</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tensor</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">block_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">64</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scaler_block_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.12)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">256</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/dtypes/nf4tensor.html#to_nf4"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.dtypes.to_nf4" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dt class="sig sig-object py" id="torchao.quantization.int4_weight_only">
+<span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">int4_weight_only</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">group_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">128</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inner_k_tiles</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">8</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/quant_api.html#int4_weight_only"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.int4_weight_only" title="Permalink to this definition">¶</a></dt>
+<dd><p>Applies uint4 weight-only asymmetric per-group quantization to linear layers, using
+“tensor_core_tiled” layout for speedup with tinygemm kernel</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>group_size</strong> – parameter for quantization, controls the granularity of quantization, smaller
+size is more fine grained, choices are [256, 128, 64, 32]</p></li>
+<li><p><strong>inner_k_tiles</strong> – parameter for int4 mm kernel, choices are [8, 4, 2]</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
 
 </section>
 
@@ -400,10 +411,10 @@
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="torchao.dtypes.to_affine_quantized.html" class="btn btn-neutral float-right" title="to_affine_quantized" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
+        <a href="torchao.quantization.int8_weight_only.html" class="btn btn-neutral float-right" title="int8_weight_only" accesskey="n" rel="next">Next <img src="../_static/images/chevron-right-orange.svg" class="next-page"></a>
       
       
-        <a href="../api_ref_dtypes.html" class="btn btn-neutral" title="torchao.dtypes" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
+        <a href="torchao.quantization.int8_dynamic_activation_int8_weight.html" class="btn btn-neutral" title="int8_dynamic_activation_int8_weight" accesskey="p" rel="prev"><img src="../_static/images/chevron-right-orange.svg" class="previous-page"> Previous</a>
       
     </div>
   
@@ -435,7 +446,7 @@
           <div class="pytorch-right-menu" id="pytorch-right-menu">
             <div class="pytorch-side-scroll" id="pytorch-side-scroll-right">
               <ul>
-<li><a class="reference internal" href="#">to_nf4</a></li>
+<li><a class="reference internal" href="#">int4_weight_only</a></li>
 </ul>
 
             </div>

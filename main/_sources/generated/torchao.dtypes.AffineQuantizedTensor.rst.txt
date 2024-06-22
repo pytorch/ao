@@ -3,8 +3,8 @@
 .. currentmodule:: torchao.dtypes
 
 
-UInt4Tensor
-===========
+AffineQuantizedTensor
+=====================
 
-.. autoclass:: UInt4Tensor
+.. autoclass:: AffineQuantizedTensor
     :members:
