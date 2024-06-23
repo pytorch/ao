@@ -154,7 +154,19 @@ def test_dequantize_int4_correctness(shape, innerKTiles, group_size):
     dq_ref = dequant_ref(q, scales, zeros, group_size)
     dq = torchao.ops.dequantize_int4(packed_w, scales_and_zeros, group_size, innerKTiles)
     assert torch.allclose(dq, dq_ref, atol=1e-4, rtol=1e-4)
-
+    
+    # TODO: Figure out why this fails
+    # This is how torchao.dtypes.affine_quantized_tensor recovers the original tensor
+    # https://github.com/pytorch/ao/blob/9dc2c118f59ad4135a8c39166c4ceebda73c62a9/torchao/dtypes/affine_quantized_tensor.py#L505 
+    # a_eye = torch.eye(k, device=device, dtype=torch.bfloat16)
+    # dq_check = torch.ops.aten._weight_int4pack_mm(
+    #     a_eye,
+    #     packed_w,
+    #     group_size,
+    #     scales_and_zeros,
+    # ).t()
+    # assert torch.allclose(dq, dq_check, atol=1e-4, rtol=1e-4)
+    
 @pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("shape, innerKTiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
