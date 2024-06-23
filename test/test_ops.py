@@ -82,7 +82,7 @@ def test_int4_unpack_correctness(shape, innerKTiles):
 
     t = torch.randint(0, 16, dtype=torch.int, size=shape, device="cuda")
     packed_w = torch.ops.aten._convert_weight_to_int4pack(t, innerKTiles)
-    unpacked = torchao.ops.unpack_int4_packed(packed_w, innerKTiles)
+    unpacked = torchao.ops.unpack_int4_to_int(packed_w, innerKTiles)
     assert torch.allclose(t, unpacked)
 
 
@@ -101,7 +101,7 @@ def test_int4_unpack_op(shape, innerKTiles):
     packed_w = torch.ops.aten._convert_weight_to_int4pack(t, innerKTiles)
 
     opcheck(
-        torch.ops.torchao.unpack_int4_packed,
+        torch.ops.torchao.unpack_int4_to_int,
         (packed_w, innerKTiles),
         test_utils=test_utils,
     )

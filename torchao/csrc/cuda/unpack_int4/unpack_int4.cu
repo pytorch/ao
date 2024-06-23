@@ -13,12 +13,15 @@ constexpr __host__ __device__ auto divUp(U a, V b) -> decltype(a + b) {
 }
 constexpr int32_t kWarpSize = 32;
 
-template <int InnerKTiles>
-__global__ void unpack_m16n8k16_Bint4_layout(
-    // size [ceil(n / 8)][ceil(k / (InnerKTiles * 16))][32][InnerKTiles / 2]
+// in size [ceil(n / 8)][ceil(k / (InnerKTiles * 16))][32][InnerKTiles / 2]
+// 
+// out size [n][k]
+template <typename Out_t, int InnerKTiles, int groupSize, bool kDequant = true>
+__global__ void _dequantize_int4_kernel(
     const at::PackedTensorAccessor32<int32_t, 4, at::RestrictPtrTraits> in,
-    // size [n][k]
-    at::PackedTensorAccessor32<int32_t, 2, at::RestrictPtrTraits> out) {
+    at::PackedTensorAccessor32<Out_t, 2, at::RestrictPtrTraits> out,
+    at::optional<const at::PackedTensorAccessor32<c10::BFloat16, 3, at::RestrictPtrTraits>> scales_and_zeros = c10::nullopt) 
+{
 
   constexpr int32_t kNTileSize = 8;
   constexpr int32_t kKTileSize = 16;
@@ -31,54 +34,85 @@ __global__ void unpack_m16n8k16_Bint4_layout(
   auto n0 = nTile * kNTileSize + (t / 4);
   
   // 8 k-tile values, 4 per m16n8k16 mma.sync operand B
-  int32_t ks[8];
-  
-  // int32_t v[8];
-  int32_t v[8];
+  // int32_t ks[8];
+  //Only need 4 offsets since TC layout for single tile is 2x2 (2 pairs of 2 contiguous values)
+  int32_t ks[4];
 
   // Store address base offset  
   auto pOut = &out[n0][0];
-
+  
 // Unpack 2 k-tiles at a time since min pack size is InnerKTiles = 2    
 #pragma unroll
   for (int innerKTile = 0; innerKTile < InnerKTiles; innerKTile += 2) {
-
+    //Tensor-core layout for m16n8k16 is such that each tile has 2 pairs of 2 contiguous values
+    //Hence, we only need 4 offsets
     // Offsets of innerTile0
     auto kBase0 = (kOuterTile * InnerKTiles + innerKTile) * kKTileSize;
     ks[0] = kBase0 + (t % 4) * 2;
-    ks[1] = ks[0] + 1;
-    ks[2] = ks[0] + 8;
-    ks[3] = ks[0] + 8 + 1;
+    ks[1] = ks[0] + 8;
 
     // Offsets of innerTile1
     auto kBase1 = kBase0 + kKTileSize;
-    ks[4] = kBase1 + (t % 4) * 2;
-    ks[5] = ks[4] + 1;
-    ks[6] = ks[4] + 8;
-    ks[7] = ks[4] + 8 + 1;
+    ks[2] = kBase1 + (t % 4) * 2;
+    ks[3] = ks[2] + 8;
 
     // inner k-tiles unpack two at a time
     int32_t pack = in[nTile][kOuterTile][t][innerKTile / 2];
-    v[0] = pack & 0x0000000f;
-    v[2] = (pack >> 4) & 0x0000000f;
-    v[4] = (pack >> 8) & 0x0000000f;
-    v[6] = (pack >> 12) & 0x0000000f;
-    v[1] = (pack >> 16) & 0x0000000f;
-    v[3] = (pack >> 20) & 0x0000000f;
-    v[5] = (pack >> 24) & 0x0000000f;
-    v[7] = (pack >> 28) & 0x0000000f;
+   
+    if constexpr(kDequant) {
+      // static_assert(scales_and_zeros.has_value(), "scales_and_zeros must be set when dequantizing");
+      static_assert(std::is_same<Out_t, c10::BFloat16>::value, "Out must be BFloat16 when dequantizing");
+      __nv_bfloat16 v[8];
 
-    // Write out
-#pragma unroll
-    for (int i = 0; i < 8; ++i) {
-      pOut[ks[i]] = v[i];      
-    }    
+      v[0] = __int2bfloat16_rn(pack & 0x0000000f);
+      v[2] = __int2bfloat16_rn((pack >> 4) & 0x0000000f);
+      v[4] = __int2bfloat16_rn((pack >> 8) & 0x0000000f);
+      v[6] = __int2bfloat16_rn((pack >> 12) & 0x0000000f);
+      v[1] = __int2bfloat16_rn((pack >> 16) & 0x0000000f);
+      v[3] = __int2bfloat16_rn((pack >> 20) & 0x0000000f);
+      v[5] = __int2bfloat16_rn((pack >> 24) & 0x0000000f);
+      v[7] = __int2bfloat16_rn((pack >> 28) & 0x0000000f);
+    
+      // All b values within a 16x16 tile should fall within the same q group
+      // Hence we load 1 scale and zero per loop
+      int qgroup = ks[0] /  groupSize;
+      const __nv_bfloat16 *pSZ = reinterpret_cast<const __nv_bfloat16*>(&scales_and_zeros.value()[qgroup][n0][0]);
+
+      //Reinterpret as pairs of v as pairs of bfloat16
+      __nv_bfloat162 *v_bf16x2 = reinterpret_cast<__nv_bfloat162*>(v);
+      __nv_bfloat162 scale2 = __bfloat162bfloat162(pSZ[0]);
+      __nv_bfloat162 zero2 = __bfloat162bfloat162(pSZ[1]);
+
+  #pragma unroll
+      for (int i = 0; i < 4; i++) {
+        reinterpret_cast<__nv_bfloat162*>(&pOut[ks[i]])[0] = __hmul2(scale2, __hsub2(v_bf16x2[i], zero2));;
+      }  
+    }
+    else {
+      static_assert(std::is_same<Out_t, int32_t>::value, "Out must be int32_t when unpacking to int");
+      int32_t v[8];
+
+      v[0] = pack & 0x0000000f;
+      v[2] = (pack >> 4) & 0x0000000f;
+      v[4] = (pack >> 8) & 0x0000000f;
+      v[6] = (pack >> 12) & 0x0000000f;
+      v[1] = (pack >> 16) & 0x0000000f;
+      v[3] = (pack >> 20) & 0x0000000f;
+      v[5] = (pack >> 24) & 0x0000000f;
+      v[7] = (pack >> 28) & 0x0000000f;
+      int2* v_i32x2 = reinterpret_cast<int2 *>(v);
+
+    #pragma unroll
+      for (int i = 0; i < 4; ++i) {
+        reinterpret_cast<int2 *>(&pOut[ks[i]])[0] = v_i32x2[i];      
+      }    
+    }
   }
 }
 
 // output is [n][k] (int32 dtype)
 // input is [n / 8][k / (InnerKTiles * 16)][32][innerKTiles / 2]
-at::Tensor unpack_int4_packed(
+at::Tensor _unpack_int4_to_int(
     const at::Tensor& packed_w,
     int64_t innerKTiles) 
 {
@@ -111,16 +145,16 @@ at::Tensor unpack_int4_packed(
   dim3 grid(kSuperTiles, nTiles);
   
   if (innerKTiles == 2) {
-    unpack_m16n8k16_Bint4_layout<2><<<grid, kWarpSize, 0, stream>>>(
+    _dequantize_int4_kernel<int32_t, 2, 0, false><<<grid, kWarpSize, 0, stream>>>(
         packed_w.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>(),
         out.packed_accessor32<int32_t, 2, at::RestrictPtrTraits>());
   }
    else if (innerKTiles == 4) {
-    unpack_m16n8k16_Bint4_layout<4><<<grid, kWarpSize, 0, stream>>>(
+    _dequantize_int4_kernel<int32_t, 4, 0, false><<<grid, kWarpSize, 0, stream>>>(
         packed_w.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>(),
         out.packed_accessor32<int32_t, 2, at::RestrictPtrTraits>());
   } else if (innerKTiles == 8) {
-    unpack_m16n8k16_Bint4_layout<8><<<grid, kWarpSize, 0, stream>>>(
+    _dequantize_int4_kernel<int32_t, 8, 0, false><<<grid, kWarpSize, 0, stream>>>(
         packed_w.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>(),
         out.packed_accessor32<int32_t, 2, at::RestrictPtrTraits>());
   }
@@ -129,5 +163,5 @@ at::Tensor unpack_int4_packed(
 }
 
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
-  m.impl("torchao::unpack_int4_packed", &unpack_int4_packed);
+  m.impl("torchao::unpack_int4_to_int", &_unpack_int4_to_int);
 }

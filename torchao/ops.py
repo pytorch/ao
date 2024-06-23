@@ -46,7 +46,7 @@ def _(_in_feats, _weights, _scales, splitK = 1):
 
 
 
-def unpack_int4_packed(packed_w: Tensor, innerKTiles: int) -> Tensor:
+def unpack_int4_to_int(packed_w: Tensor, innerKTiles: int) -> Tensor:
     """
     Unpacks weights that were packed with `torch.ops.aten._convert_weight_to_int4pack` to original tensor of shape `N x K`.
 
@@ -60,12 +60,12 @@ def unpack_int4_packed(packed_w: Tensor, innerKTiles: int) -> Tensor:
         torch.tensor of shape is N x K, dtype is torch.int32
 
     """
-    return torch.ops.torchao.unpack_int4_packed.default(
+    return torch.ops.torchao.unpack_int4_to_int.default(
         packed_w=packed_w, innerKTiles=innerKTiles
     )
     
 
-@register_custom_op(f"torchao::unpack_int4_packed")
+@register_custom_op(f"torchao::unpack_int4_to_int")
 def _(packed_w: Tensor, innerKTiles: int) -> Tensor:
     torch._check(
         packed_w.dim() == 4,

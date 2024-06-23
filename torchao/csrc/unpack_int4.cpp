@@ -4,5 +4,5 @@
 
 TORCH_LIBRARY_FRAGMENT(torchao, m) {
   m.impl_abstract_pystub("torchao.ops");
-  m.def("unpack_int4_packed(Tensor packed_w, int innerKTiles) -> Tensor");
+  m.def("unpack_int4_to_int(Tensor packed_w, int innerKTiles) -> Tensor");
 }
