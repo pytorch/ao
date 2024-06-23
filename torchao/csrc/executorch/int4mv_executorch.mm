@@ -1,45 +1,13 @@
 #include "metal/int4mv_kernel.h"
-#include "metal/mps/MPSStream.h"
 #include <executorch/extension/kernel_util/make_boxed_from_unboxed_functor.h>
 #include <executorch/runtime/kernel/kernel_includes.h>
+#include <executorch/backends/apple/mps/runtime/operations/OperationUtils.h>
+#include <executorch/backends/apple/mps/runtime/MPSStream.h>
+#include <executorch/backends/apple/mps/runtime/MPSDevice.h>
+
 
 namespace torch {
 namespace executor {
-using namespace torchao::mps;
-
-namespace mps {
-  static inline void checkSupportsBFloat16() {
-    ET_CHECK_MSG(isMacOS13OrNewer(MacOSVersion::MACOS_VER_14_0_PLUS),
-                    "MPS bfloat16 type is supported on MacOS 14.0 or newer.");
-  }
-  std::string scalarToMetalTypeString(const exec_aten::ScalarType& scalar_type) {
-    switch (scalar_type) {
-      case ScalarType::Float:
-        return "float";
-      case ScalarType::Half:
-        return "half";
-      case ScalarType::BFloat16:
-        checkSupportsBFloat16();
-        return "bfloat";
-      case ScalarType::Int:
-        return "int";
-      case ScalarType::Long:
-        return "long";
-      case ScalarType::Short:
-        return "short";
-      case ScalarType::Char:
-        return "char";
-      case ScalarType::Byte:
-        return "uchar";
-      case ScalarType::Bool:
-        return "bool";
-      default:
-        ET_CHECK_MSG(false, "Undefined type %hhd", scalar_type);
-        return "Undefined";
-    }
-  }
-} // namespace mps
-
 namespace native {
 
 using RuntimeContext = torch::executor::RuntimeContext;
@@ -48,7 +16,7 @@ Tensor& _int4mv_out(
   RuntimeContext& ctx,
   const Tensor& A, 
   const Tensor& B,
-  int32_t groupSize,
+  int64_t groupSize,
   const Tensor& scalesAndZeros, 
   Tensor& C) {
   auto M = A.size(0);
@@ -62,18 +30,40 @@ Tensor& _int4mv_out(
   ET_CHECK_MSG(A.dim() == 2, "%s : expect A to be 2D tensor.", __func__);
 
   ET_CHECK_MSG(B.scalar_type() == ScalarType::Char, "%s : expect B to be int8 tensor.", __func__);
-  ET_CHECK_MSG(B.size(1) == K, "%s : expect B.size(1) == %zd", __func__, K);
+  ET_CHECK_MSG(B.size(1) == int(K / 2), "%s : expect B.size(1) == %zd", __func__, int(K / 2));
 
   std::array<uint32_t, 4> sizes = {static_cast<uint32_t>(M), static_cast<uint32_t>(K), static_cast<uint32_t>(N), 0};
-  std::array<uint64_t, 4> nbytes = {A.nbytes(), B.nbytes(), scalesAndZeros.nbytes(), C.nbytes()};
-  std::string A_scalar_type = mps::scalarToMetalTypeString(A.scalar_type());
-  torchao::int4mv(A.const_data_ptr<uint8_t>(), B.const_data_ptr<uint8_t>(), groupSize, scalesAndZeros.const_data_ptr<uint8_t>(), C.mutable_data_ptr<uint8_t>(), sizes, nbytes, A_scalar_type);
+  std::string A_scalar_type = mps::delegate::scalarToMetalTypeString(A.scalar_type());
+  mps::delegate::MPSStream* mpsStream = mps::delegate::getCurrentMPSStream();
+  dispatch_sync(mpsStream->queue(), ^() {
+    @autoreleasepool {
+      id<MTLDevice> device = mpsStream->device(); // should be mpsStream->device()
+      id<MTLComputeCommandEncoder> computeEncoder = mpsStream->commandEncoder();
+      id<MTLLibrary> customKernelLibrary = [device newLibraryWithSource:[NSString stringWithUTF8String:torchao::QUANTIZED_KERNEL]
+                                                                  options:nil
+                                                                    error:nil];
+      id<MTLFunction> customQuantizedLinearFunction = [customKernelLibrary
+        newFunctionWithName:[NSString stringWithFormat:@"int4pack_vm_%" PRId64 "_%s",
+                                                       groupSize,
+                                                       A_scalar_type.c_str()]];
+      id<MTLComputePipelineState> quantizedPSO = [device newComputePipelineStateWithFunction:customQuantizedLinearFunction error:nil];
+      [computeEncoder setComputePipelineState:quantizedPSO];
+      [computeEncoder setBuffer:mps::delegate::getMTLBufferStorage(A) offset:0 atIndex:0];
+      [computeEncoder setBuffer:mps::delegate::getMTLBufferStorage(B) offset:0 atIndex:1];
+      [computeEncoder setBuffer:mps::delegate::getMTLBufferStorage(scalesAndZeros) offset:0 atIndex:2];
+      [computeEncoder setBuffer:mps::delegate::getMTLBufferStorage(C) offset:0 atIndex:3];
+      [computeEncoder setBytes:sizes.data() length:sizeof(uint32_t) * sizes.size() atIndex:4];
+      [computeEncoder dispatchThreads:MTLSizeMake(N / 4 * 32, 1, M)
+        threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];
+    }
+    ET_CHECK(mpsStream->synchronize(mps::delegate::SyncType::COMMIT_AND_WAIT) == Error::Ok);
+  });
   return C;
 }
 
 EXECUTORCH_LIBRARY(
-    llama_cpp,
-    "_weight_int8pack_mm.out",
+    torchao,
+    "int4mv.out",
     _int4mv_out);
 } // namespace native
 } // namespace executor
