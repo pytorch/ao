@@ -8,6 +8,8 @@ import unittest
 from parameterized import parameterized
 import pytest
 
+import torchao.quantization
+
 try:
     import torchao.ops
 except RuntimeError:
@@ -70,12 +72,13 @@ SHAPES = [
     (14336, 4096),
 ]
 INNERKTILES = [2, 4, 8]
-
-TEST_CONFIGS = list(itertools.product(SHAPES, INNERKTILES))
+QGROUP_SIZES = [32, 64, 128, 256]
+TEST_CONFIGS_UNPACK = list(itertools.product(SHAPES, INNERKTILES))
+TEST_CONFIGS_DEQUANT = list(itertools.product(SHAPES, INNERKTILES, QGROUP_SIZES))
 
 @pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("shape, innerKTiles", TEST_CONFIGS, ids=str)
+@pytest.mark.parametrize("shape, innerKTiles", TEST_CONFIGS_UNPACK, ids=str)
 def test_int4_unpack_correctness(shape, innerKTiles):
     N, K = shape
     assert K % (innerKTiles * kTileSizeK) == 0 and N % kTileSizeN == 0
@@ -85,11 +88,10 @@ def test_int4_unpack_correctness(shape, innerKTiles):
     unpacked = torchao.ops.unpack_int4_to_int(packed_w, innerKTiles)
     assert torch.allclose(t, unpacked)
 
-
 # TODO: Fix "test_aot_dispatch_dynamic" test failure
 @pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("shape, innerKTiles", TEST_CONFIGS , ids=str)
+@pytest.mark.parametrize("shape, innerKTiles", TEST_CONFIGS_UNPACK , ids=str)
 def test_int4_unpack_op(shape, innerKTiles):
     test_utils = [
         "test_schema",
@@ -106,6 +108,79 @@ def test_int4_unpack_op(shape, innerKTiles):
         test_utils=test_utils,
     )
 
+def dequant_ref(q, scales, zeros, group_size, dtype=torch.bfloat16):
+    n, k = q.shape
+    assert q.dtype == torch.int
+
+    n_groups = k // group_size
+    assert scales.shape[0] == n and scales.shape[1] == n_groups
+    assert scales.shape == zeros.shape
+
+    q_bf16 = q.to(dtype=dtype)
+    q_bf16 = q_bf16.reshape(-1, group_size)
+    dq = (q_bf16 - zeros.reshape(-1, 1)) * scales.reshape(-1, 1)
+    return dq.reshape(n, k)
+
+@pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize("shape, innerKTiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
+def test_dequantize_int4_correctness(shape, innerKTiles, group_size):
+    n, k = shape
+    
+    # tinygemm params
+    nTileSize = 8
+    kTileSize = 16
+    nTiles = n // nTileSize
+    kTiles = k // (innerKTiles * kTileSize)
+    numThreads = 32
+
+    device = "cuda"
+    q = torch.randint(0, 16, shape, dtype=torch.int, device=device)
+    packed_w = torch._convert_weight_to_int4pack(q, innerKTiles)
+    # tinygemm params
+    assert packed_w.shape == torch.Size([nTiles, kTiles, numThreads, innerKTiles // 2])
+
+    # scales and zeros init
+    q_groups = k // group_size
+    scales = torch.randn(n, q_groups, dtype=torch.bfloat16, device=device)
+    zeros = torch.randn_like(scales)
+    
+    scales_and_zeros = torchao.quantization.utils.pack_tinygemm_scales_and_zeros(scales, zeros)
+    assert scales_and_zeros.shape == torch.Size([q_groups, n, 2])
+    scales_unpacked, zeros_unpacked = torchao.quantization.utils.unpack_tinygemm_scales_and_zeros(scales_and_zeros)
+    assert torch.allclose(scales_unpacked.reshape(scales.shape), scales)
+    assert torch.allclose(zeros_unpacked.reshape(zeros.shape), zeros)
+
+    dq_ref = dequant_ref(q, scales, zeros, group_size)
+    dq = torchao.ops.dequantize_int4(packed_w, scales_and_zeros, group_size, innerKTiles)
+    assert torch.allclose(dq, dq_ref, atol=1e-4, rtol=1e-4)
+
+@pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize("shape, innerKTiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
+def test_dequantize_int4_op(shape, innerKTiles, group_size):
+    n, k = shape
+    
+    device = "cuda"
+    q = torch.randint(0, 16, shape, dtype=torch.int, device=device)
+    packed_w = torch._convert_weight_to_int4pack(q, innerKTiles)
+    print(packed_w.shape)
+    q_groups = k // group_size
+    scales = torch.randn(n, q_groups, dtype=torch.bfloat16, device=device)
+    zeros = torch.randn_like(scales)
+    scales_and_zeros = torchao.quantization.utils.pack_tinygemm_scales_and_zeros(scales, zeros)
+    
+    test_utils = [
+    "test_schema",
+    "test_autograd_registration",
+    "test_faketensor",
+    #  "test_aot_dispatch_dynamic",
+    ]
+    opcheck(
+        torch.ops.torchao.dequantize_int4,
+        (packed_w, scales_and_zeros, group_size, innerKTiles),
+        test_utils=test_utils,
+    )
 
 if __name__ == "__main__":
     unittest.main()

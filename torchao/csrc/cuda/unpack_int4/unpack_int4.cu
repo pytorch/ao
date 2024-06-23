@@ -112,6 +112,105 @@ __global__ void _dequantize_int4_kernel(
 
 // output is [n][k] (int32 dtype)
 // input is [n / 8][k / (InnerKTiles * 16)][32][innerKTiles / 2]
+// scales_and_zeros is [numQGroups][n][2]
+// qGroupSize is 32, 64, 128 or 256
+at::Tensor _dequantize_int4(
+    const at::Tensor& packed_w,
+    const at::Tensor& scales_and_zeros,
+    int64_t group_size,
+    int64_t innerKTiles) 
+{
+
+  constexpr int32_t kNTileSize = 8;
+  constexpr int32_t kKTileSize = 16;
+
+  c10::cuda::CUDAGuard g(packed_w.device());
+
+  // packed_w preconditions
+  TORCH_CHECK(packed_w.dim() == 4);
+  TORCH_CHECK(packed_w.dtype() == at::kInt);
+  TORCH_CHECK(packed_w.is_contiguous());
+  TORCH_CHECK(packed_w.size(2) == 32);
+  TORCH_CHECK(packed_w.size(3) == innerKTiles / 2);
+  TORCH_CHECK(innerKTiles == 2 || innerKTiles == 4 || innerKTiles == 8);
+
+  auto numQGroups = scales_and_zeros.size(0);
+  int N = packed_w.size(0) * kNTileSize;
+  int K = packed_w.size(1) * innerKTiles * kKTileSize;
+
+  // scales_and_zeros preconditions
+  TORCH_CHECK(
+      group_size == 32 || group_size == 64 || group_size == 128 ||
+      group_size == 256);
+  TORCH_CHECK(numQGroups == K / group_size);
+  TORCH_CHECK(scales_and_zeros.dim() == 3);
+  TORCH_CHECK(scales_and_zeros.size(1) == N);
+  TORCH_CHECK(scales_and_zeros.size(2) == 2);
+
+  auto nTiles = divUp(N, kNTileSize);
+  auto kSuperTiles = divUp(K, innerKTiles * kKTileSize);
+  auto out = at::empty(
+      {N, K},
+      at::TensorOptions().dtype(at::kBFloat16).device(packed_w.device()));
+
+  auto stream = at::cuda::getCurrentCUDAStream();
+  dim3 grid(kSuperTiles, nTiles);
+  
+#define RUN_DEQUANT(QGROUPSIZE) \
+  do { \
+    switch(innerKTiles) { \
+      case 2: \
+        _dequantize_int4_kernel<c10::BFloat16, 2, QGROUPSIZE, true><<<grid, kWarpSize, 0, stream>>>( \
+        packed_w.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>(), \
+        out.packed_accessor32<c10::BFloat16, 2, at::RestrictPtrTraits>(), \
+        scales_and_zeros.packed_accessor32<c10::BFloat16, 3, at::RestrictPtrTraits>()); \
+        break; \
+      case 4: \
+        _dequantize_int4_kernel<c10::BFloat16, 4, QGROUPSIZE, true><<<grid, kWarpSize, 0, stream>>>( \
+        packed_w.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>(), \
+        out.packed_accessor32<c10::BFloat16, 2, at::RestrictPtrTraits>(), \
+        scales_and_zeros.packed_accessor32<c10::BFloat16, 3, at::RestrictPtrTraits>()); \
+        break; \
+      case 8: \
+        _dequantize_int4_kernel<c10::BFloat16, 8, QGROUPSIZE, true><<<grid, kWarpSize, 0, stream>>>( \
+        packed_w.packed_accessor32<int32_t, 4, at::RestrictPtrTraits>(), \
+        out.packed_accessor32<c10::BFloat16, 2, at::RestrictPtrTraits>(), \
+        scales_and_zeros.packed_accessor32<c10::BFloat16, 3, at::RestrictPtrTraits>()); \
+        break; \
+      default: \
+        break; \
+    } \
+  } while(false)
+
+#define DISPATCH_Q_GROUP() \
+  do { \
+    switch (group_size) { \
+      case 32: \
+        RUN_DEQUANT(32); \
+        break; \
+      case 64: \
+        RUN_DEQUANT(64); \
+        break; \
+      case 128: \
+        RUN_DEQUANT(128); \
+        break; \
+      case 256: \
+        RUN_DEQUANT(256); \
+        break; \
+      default: \
+        break; \
+    } \
+  } while(false)
+
+  DISPATCH_Q_GROUP();
+  #undef DISPATCH_Q_GROUP
+  #undef RUN_DEQUANT
+
+  return out;
+}
+
+// output is [n][k] (int32 dtype)
+// input is [n / 8][k / (InnerKTiles * 16)][32][innerKTiles / 2]
 at::Tensor _unpack_int4_to_int(
     const at::Tensor& packed_w,
     int64_t innerKTiles) 
@@ -164,4 +263,6 @@ at::Tensor _unpack_int4_to_int(
 
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl("torchao::unpack_int4_to_int", &_unpack_int4_to_int);
+  m.impl("torchao::dequantize_int4", &_dequantize_int4);
+
 }
