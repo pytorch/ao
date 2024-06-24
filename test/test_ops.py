@@ -1,11 +1,9 @@
 import torch
 from torch.testing._internal.common_utils import TestCase, IS_FBCODE
 from torch.testing._internal.optests import opcheck
-from typing import List, Optional, Tuple
 import torchao
 from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
 import unittest
-import random
 from parameterized import parameterized
 import pytest
 
@@ -13,6 +11,7 @@ try:
     import torchao.ops
 except RuntimeError:
     pytest.skip("torchao.ops not available")
+    
 
 # torch.testing._internal.optests.generate_tests.OpCheckError: opcheck(op, ...):
 # test_faketensor failed with module 'torch' has no attribute '_custom_ops' (scroll up for stack trace)
@@ -111,7 +110,7 @@ class TestOps(TestCase):
         error = (results_fp6 - results_fp16).abs()
         relative_error = error / results_fp16.abs()
         assert relative_error.mean() < 1e-2
-    
+
 
 if __name__ == "__main__":
     unittest.main()
