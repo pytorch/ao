@@ -29,15 +29,23 @@ def _bit_interleave(x: Tensor, n_bits: int, undo: bool = False) -> Tensor:
     x = _unpack(x, n_bits)
     x = x.view(-1, 4 * (8 // n_bits))
 
-    bit_order = {
-        1: [1, 5, 9, 13, 17, 21, 25, 29, 3, 7, 11, 15, 19, 23, 27, 31,
-            0, 4, 8, 12, 16, 20, 24, 28, 2, 6, 10, 14, 18, 22, 26, 30],
-        2: [1, 5, 9, 13, 3, 7, 11, 15, 0, 4, 8, 12, 2, 6, 10, 14],
-        4: [1, 5, 3, 7, 0, 4, 2, 6],
-    }[n_bits]
+    if not undo:
+        bit_order = {
+            1: [1, 5, 9, 13, 17, 21, 25, 29, 3, 7, 11, 15, 19, 23, 27, 31,
+                0, 4, 8, 12, 16, 20, 24, 28, 2, 6, 10, 14, 18, 22, 26, 30],
+            2: [1, 5, 9, 13, 3, 7, 11, 15, 0, 4, 8, 12, 2, 6, 10, 14],
+            4: [1, 5, 3, 7, 0, 4, 2, 6],
+        }[n_bits]
 
-    if undo:
-        bit_order = [bit_order.index(i) for i in range(len(bit_order))]
+    else:
+        # this is inverse of the above, obtained by running
+        # [v.index(i) for i in range(len(v))]
+        bit_order = {
+            1: [16, 0, 24, 8, 17, 1, 25, 9, 18, 2, 26, 10, 19, 3, 27, 11,
+                20, 4, 28, 12, 21, 5, 29, 13, 22, 6, 30, 14, 23, 7, 31, 15],
+            2: [8, 0, 12, 4, 9, 1, 13, 5, 10, 2, 14, 6, 11, 3, 15, 7],
+            4: [4, 0, 6, 2, 5, 1, 7, 3],
+        }[n_bits]
 
     x = x[:, bit_order]
     x = _pack(x, n_bits)
@@ -363,7 +371,7 @@ class QuantLlmLinearWeight(Tensor):
         return ["fpx_data", "scale"], [self.ebits, self.mbits]
 
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride):
+    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
         return cls(tensor_data_dict["fpx_data"], tensor_data_dict["scale"], *tensor_attributes)
 
     @classmethod
