@@ -26,7 +26,6 @@ __all__ = [
 def benchmark_model(model, num_runs, input_tensor):
     print(_assert_and_get_unique_device(model).type)
     if _assert_and_get_unique_device(model).type == "cuda":
-        print("Running on GPU")
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
@@ -40,10 +39,9 @@ def benchmark_model(model, num_runs, input_tensor):
         end_event.record()
         torch.cuda.synchronize()
         return start_event.elapsed_time(end_event) / num_runs
-    
+
     elif _assert_and_get_unique_device(model).type == "mps":
-        print("Running on MPS")
-        torch.mps.event.synchronize()
+        torch.mps.synchronize()
         start_event = torch.mps.event.Event(enable_timing=True)
         end_event = torch.mps.event.Event(enable_timing=True)
         start_event.record()
@@ -54,11 +52,10 @@ def benchmark_model(model, num_runs, input_tensor):
                 model(input_tensor)
 
         end_event.record()
-        torch.mps.event.synchronize()
+        torch.mps.synchronize()
         return start_event.elapsed_time(end_event) / num_runs
-    
+
     elif _assert_and_get_unique_device(model).type == "cpu":
-        print("Running on CPU")
         torch.cpu.synchronize()
         start_time = time.time()
         # Benchmark
