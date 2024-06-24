@@ -12,22 +12,6 @@ def register_custom_op(name):
     return decorator
 
 
-def fp6_llm_linear(_in_feats: Tensor, _weights: Tensor, _scales: Tensor, splitK: int = 1) -> Tensor:
-    """
-    FP6-LLM linear layer A @ W.T. See https://arxiv.org/abs/2401.14112 for more details.
-
-    Arguments
-        _in_feats: input activations in FP16
-        _weights: packed FP6 weights
-        _scales: scale
-        splitK: split K
-
-    Returns
-        output of linear layer
-    """
-    return quant_llm_linear(3, 2, _in_feats, _weights, _scales, splitK)
-
-
 def quant_llm_linear(
     EXPONENT: int,
     MANTISSA: int,
