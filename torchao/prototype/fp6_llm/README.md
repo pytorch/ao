@@ -1,15 +1,19 @@
-# FP6-LLM
+# Quant-LLM
 
-This is a FP16 x FP6 mixed matmul kernel optimized for io bound workloads per [FP6-LLM](https://arxiv.org/abs/2401.14112). The actual CUDA kernel is located under [csrc/cuda/fp6_llm/](../../csrc/cuda/fp6_llm/). This module provides helper functions to quantize FP32 weights to FP6 and facility to convert existing models to FP6.
+This is a FP16 x FPx mixed matmul kernel optimized for io bound workloads per [FP6-LLM](https://arxiv.org/abs/2401.14112). The actual CUDA kernel is located under [csrc/cuda/fp6_llm/](../../csrc/cuda/fp6_llm/). This module provides helper functions to quantize FP32/FP16/BF16 weights to FPx and integration with torchao API.
 
 ## Usage
 
 ```python
 from torchao.quantization.quant_api import quantize
-from torchao.prototype.fp6_llm import fp6_llm_weight_only
+from torchao.prototype.fp6_llm import fp6_llm_weight_only, quant_llm_fpx_weight_only
 
 model = ...
-quantize(model, fp6_llm_weight_only())  # convert nn.Lineaer.weight to FP6 in-place
+model.half()  # not necessary, but recommeneded to maintain accuracy
+quantize(model, fp6_llm_weight_only())  # convert nn.Lineaer.weight to FP6 E3M2 in-place
+
+# for generic FPx EyMz where x = 1 + y + z
+# quantize(model, quant_llm_fpx_weight_only(2, 2))  # use FP5 E2M2 instead
 
 # fully compatible with torch.compile()
 model.compile(mode="max-autotune", fullgraph=True)
@@ -18,22 +22,24 @@ model.compile(mode="max-autotune", fullgraph=True)
 It's also possible to pre-process the weight and call the kernel directly.
 
 ```python
-# TODO: update
 import torch
-from torchao.prototype.fp6_llm import to_scaled_tc_float6_e3m2
-from torchao.ops import fp6_llm_linear
+from torchao.prototype.fp6_llm.fp6_llm import _to_scaled_tc_fpx
+from torchao.ops import quant_llm_linear
 
 fp32_weight = torch.randn(1024, 512).cuda()
+ebits, mbits = 3, 2
 
 # pre-process the weight. this will quantize the weight to FP6 and pack it in a special
 # layout for tensor cores. refer to paper for more details.
-fp6_weight, scales = to_scaled_tc_float6_e3m2(fp32_weight)
+fp6_weight, scales = _to_scaled_tc_fpx(fp32_weight, ebits, mbits)
 
 fp16_act = torch.randn(1, 512).cuda().half()
-outputs = fp6_llm_linear(fp16_act, fp6_weight, scales)  # shape (1, 1024)
+outputs = quant_llm_linear(ebits, mbits, fp16_act, fp6_weight, scales)  # shape (1, 1024)
 ```
 
-**NOTE**: since this kernel's computation dtype is FP16, it is recommended to convert the model to FP16 (instead of BF16) before applying quantization and use FP16 for activations.
+**NOTE**:
+- Since this kernel's computation dtype is FP16, it is recommended to convert the model to FP16 (instead of BF16) before applying quantization and use FP16 for activations.
+- Only FP6 E3M2 and FP5 E2M2 are tested and enabled in the official repo. We additionally enable support for FP6 E2M3 and FP5 E3M1.
 
 ## Benchmark results
 
@@ -44,7 +50,7 @@ FPx quantization is run with `--precision float16`. The rest uses the default pr
 Quantization        | wikitext perplexity | tokens/s
 --------------------|---------------------|----------
 INT8                | 12.21               |  87.45
-INT4-256 (tinygemm) | 76266957.87 (bug)   | 157.10
+INT4-256 (tinygemm) | --                  | 157.10
 FP6 E3M2            | 12.34               | 106.76
 FP6 E2M3            | 12.23               | 106.77
 FP5 E3M1            | 12.55               | 122.69
