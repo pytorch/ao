@@ -47,7 +47,7 @@ class TestOps(TestCase):
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     @parametrize("BS,OC,IC,splitK", [(1, 2048, 4096, 5), (2, 8192, 8192, 6)])
     @parametrize("ebits,mbits", [(3, 2), (2, 2)])
-    def test_fp6_llm_linear_correctness(self, ebits, mbits, BS, OC, IC, splitK):
+    def test_quant_llm_linear_correctness(self, ebits, mbits, BS, OC, IC, splitK):
         # adapted from https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/tests/python/kernel_test_fpx.py
         fpx_weight, scale, fp16_act = self._create_fpx_inputs(ebits, mbits, BS, OC, IC, "cuda")
 
