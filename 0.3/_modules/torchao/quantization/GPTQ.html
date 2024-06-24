@@ -457,6 +457,9 @@
 
         <span class="c1"># trace model for one input</span>
         <span class="n">one_input</span> <span class="o">=</span> <span class="p">[</span><span class="n">multi</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">cpu</span><span class="p">()</span> <span class="k">for</span> <span class="n">multi</span> <span class="ow">in</span> <span class="n">inputs</span><span class="p">]</span>  <span class="c1"># pyre-ignore[16]</span>
+        <span class="c1"># needed for GPTQ on the torchao llama model</span>
+        <span class="kn">import</span> <span class="nn">torchao</span>
+        <span class="n">torchao</span><span class="o">.</span><span class="n">_models</span><span class="o">.</span><span class="n">llama</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">use_index_put_for_kv_cache</span> <span class="o">=</span> <span class="kc">True</span>
         <span class="n">exported_model</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">export</span><span class="p">(</span>
             <span class="n">model</span><span class="o">.</span><span class="n">cpu</span><span class="p">(),</span> <span class="n">aten_graph</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">pre_dispatch</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">tracing_mode</span><span class="o">=</span><span class="s2">&quot;fake&quot;</span>
         <span class="p">)(</span><span class="o">*</span><span class="n">one_input</span><span class="p">)</span>
@@ -471,7 +474,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">groupsize</span> <span class="o">=</span> <span class="n">groupsize</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">inputs</span> <span class="o">=</span> <span class="n">inputs</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">gptq_done</span> <span class="o">=</span> <span class="kc">False</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">debug</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">debug</span> <span class="o">=</span> <span class="kc">True</span>
 
     <span class="k">def</span> <span class="nf">configure_quantization_mode</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -1048,9 +1051,9 @@
 <div class="viewcode-block" id="Int4WeightOnlyGPTQQuantizer"><a class="viewcode-back" href="../../../generated/torchao.quantization.Int4WeightOnlyGPTQQuantizer.html#torchao.quantization.Int4WeightOnlyGPTQQuantizer">[docs]</a><span class="k">class</span> <span class="nc">Int4WeightOnlyGPTQQuantizer</span><span class="p">(</span><span class="n">GPTQQuantizer</span><span class="p">):</span>
         <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
             <span class="bp">self</span><span class="p">,</span>
-            <span class="n">blocksize</span><span class="p">,</span>
-            <span class="n">percdamp</span><span class="p">,</span>
-            <span class="n">groupsize</span><span class="p">,</span>
+            <span class="n">blocksize</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
+            <span class="n">percdamp</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+            <span class="n">groupsize</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>
             <span class="n">inner_k_tiles</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
             <span class="n">padding_allowed</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
             <span class="n">device</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span><span class="p">),</span>
@@ -1394,9 +1397,9 @@
 <span class="k">class</span> <span class="nc">Int8DynActInt4WeightGPTQQuantizer</span><span class="p">(</span><span class="n">GPTQQuantizer</span><span class="p">):</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
-        <span class="n">blocksize</span><span class="p">,</span>
-        <span class="n">percdamp</span><span class="p">,</span>
-        <span class="n">groupsize</span><span class="p">,</span>
+        <span class="n">blocksize</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
+        <span class="n">percdamp</span><span class="o">=</span><span class="mf">.01</span><span class="p">,</span>
+        <span class="n">groupsize</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>
         <span class="n">inner_k_tiles</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
         <span class="n">padding_allowed</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
         <span class="n">precision</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
