@@ -7,15 +7,17 @@ Using the lm_eval. The models used were meta-llama/Llama-2-7b-chat-hf and meta-l
 
 | Model       | Technique          | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
 | ----------- | ------------------ | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
-| Llama-2-7B  | Base (bfloat16)    | 12.212              |  105.02       | 1387.78                 | 13.21            | 13.90           |
-|             | int8dq             | 12.262              |  9.40         | 62.26                   | 6.62             | 8.61            |
-|             | int8wo             | 12.204              |  147.03       | 973.54                  | 6.62             | 8.95            |
-|             | int4wo-64          | 12.843              |  199.81       | 746.45                  | 3.74             | 4.75            |
-|             | int4wo-64-GPTQ     | 12.489              |  199.81       | 746.45                  | 3.74             | 4.75            |
-| Llama-3-8B  | Base (bfloat16)    | N/A                 |  94.91        | 1424.58                 | 15.01            | 16.43           |
-|             | int8dq             | N/A                 |  8.41         | 63.23                   | 7.52             | 9.24            |
-|             | int8wo             | N/A                 |  136.75       | 1028.38                 | 7.52             | 10.42           |
-|             | int4wo-64          | N/A                 |  179.41       | 757.45                  | 4.22             | 6.88            |
+| Llama-2-7B  | Base (bfloat16)    | 12.212              |  105.14       | 1389.35                 | 13.88            | 13.21           |
+|             | int8dq             | 12.262              |    9.20       |   60.93                 |  8.33            |  6.62           |
+|             | int8wo             | 12.204              |  150.18       |  994.40                 |  8.95            |  6.62           |
+|             | int4wo-64          | 12.843              |  199.86       |  746.66                 |  4.50            |  3.74           |
+|             | int4wo-64-GPTQ     | 12.489              |  199.86       |  746.66                 |  4.50            |  3.74           |
+|             | autoquant          | 12.204              |  159.22       | 1069.87                 |  8.91            |  6.72           |
+| Llama-3-8B  | Base (bfloat16)    | N/A                 |   94.97       | 1425.55                 | 16.43            | 15.01           |
+|             | int8dq             | N/A                 |    8.44       |   63.45                 |  8.98            |  7.52           |
+|             | int8wo             | N/A                 |  139.76       | 1051.02                 | 10.42            |  7.52           |
+|             | int4wo-64          | N/A                 |  179.44       |  757.60                 |  6.62            |  4.22           |
+|             | autoquant          | N/A                 |  137.71       | 1037.74                 | 11.08            |  7.54           |
 
 note: Int8 dynamic quantization works best on compute bound models like [SAM](https://github.com/pytorch-labs/segment-anything-fast) whereas Llama with batchsize=1 tends to be memory bound, thus the rather low performance.
 
@@ -78,7 +80,7 @@ from torch._inductor.runtime.runtime_utils import do_bench_gpu
 import copy
 from torchao.quantization.quant_api import (
     quantize,
-    int4wo,
+    int4_weight_only,
 )
 
 class ToyLinearModel(torch.nn.Module):
@@ -102,8 +104,8 @@ example_inputs = m.example_inputs(dtype=dtype, device="cuda")
 
 m_bf16 = torch.compile(m_bf16, mode='max-autotune')
 # apply int4 weight only quant (compatible with tinygemm int4 weight only quant mm kernel in torchao)
-groupsize = 32
-m = quantize(m, int4wo(groupsize=groupsize))
+group_size = 32
+m = quantize(m, int4_weight_only(group_size=group_size))
 
 torch._inductor.config.force_fuse_int_mm_with_mul = True
 torch._inductor.config.use_mixed_mm = True
@@ -141,7 +143,7 @@ for n, m in model.named_modules():
     if isinstance(m, torch.nn.Linear):
         # optional filtering for module name, shape etc.
         m.weight = nn.Parameter(int8wo_quant(m.weight))
-        
+
         # note: quantization for activation need to be applied after the weight quantization
         # quantization activation (needed by dynamic quantization)
         input_quant_func = int8wo_quant  # specify how input activation is quantized
@@ -150,7 +152,7 @@ for n, m in model.named_modules():
 The model/tensor subclass should also be compatible with AOTI and torch.export, currently we can support
 `torch.export.export` and `torch.aot_compile` with the following workaround:
 ```
-from torchao.quantization.utils import unwrap_tensor_subclass
+from torchao.utils import unwrap_tensor_subclass
 m_unwrapped = unwrap_tensor_subclass(m)
 
 
@@ -167,11 +169,10 @@ torch._export.aot_compile(m_unwrapped, example_inputs)
 ```python
 # Fuse the int8*int8 -> int32 matmul and subsequent mul op avoiding materialization of the int32 intermediary tensor
 torch._inductor.config.force_fuse_int_mm_with_mul = True
-from torchao.quantization import quant_api
 
 # for torch 2.4+
-from torchao.quantization.quant_api import quantize
-quantize(model, "int8_dynamic")
+from torchao.quantization import quantize, int8_dynamic_activation_int8_weight
+quantize(model, int8_dynamic_activation_int8_weight())
 
 # for torch 2.2.2 and 2.3
 from torchao.quantization.quant_api import change_linear_weights_to_int8_dqtensors
@@ -182,9 +183,8 @@ change_linear_weights_to_int8_dqtensors(model)
 
 ```python
 # for torch 2.4+
-from torchao.quantization.quant_api import quantize
-from torchao.quantization.quant_api import int8wo
-quantize(model, "int8_weight_only")
+from torchao.quantization import quantize, int8_weight_only
+quantize(model, int8_weight_only())
 
 # for torch 2.2.2 and 2.3
 from torchao.quantization.quant_api import change_linear_weights_to_int8_woqtensors
@@ -198,8 +198,8 @@ This technique works best when the torch._inductor.config.use_mixed_mm option is
 
 ```python
 # for torch 2.4+
-from torchao.quantization.quant_api import quantize
-quantize(model, "int4_weight_only")
+from torchao.quantization import quantize, int4_weight_only
+quantize(model, int4_weight_only())
 
 # for torch 2.2.2 and 2.3
 from torchao.quantization.quant_api import change_linear_weights_to_int4_woqtensors

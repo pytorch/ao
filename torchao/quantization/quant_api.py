@@ -18,7 +18,7 @@ and mixed GEMM kernels
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Any, Callable, Union, Dict
+from typing import Any, Callable, Union, Dict, Optional
 
 from torchao.utils import (
     TORCH_VERSION_AFTER_2_4,
@@ -54,11 +54,10 @@ __all__ = [
     "autoquant",
     "_get_subclass_inserter",
     "quantize",
-    "int8da_int4w",
-    "int8da_int8w",
-    "int4wo",
-    "int8wo",
-    "register_apply_tensor_subclass",
+    "int8_dynamic_activation_int4_weight",
+    "int8_dynamic_activation_int8_weight",
+    "int4_weight_only",
+    "int8_weight_only",
 ]
 
 from .GPTQ import (
@@ -259,39 +258,53 @@ def _get_linear_subclass_inserter(constructor):
 
     return insert_subclass
 
-def quantize(model: torch.nn.Module, apply_tensor_subclass: Union[str, Callable[[torch.Tensor], torch.Tensor]], filter_fn=None) -> torch.nn.Module:
+def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tensor], torch.Tensor], filter_fn: Optional[Callable[[torch.nn.Module, str], bool]]=None) -> torch.nn.Module:
     """Convert the weight of linear modules in the model with `apply_tensor_subclass`
 
     Args:
-        model: input model
-        apply_tensor_subclass (Callable[[torch.Tensor], torch.Tensor]): function that convert a floating point Tensor to a (quantized) tensor subclass instance
-            or a string
-        filter_fn: used to filter out the modules that we don't want to apply tenosr subclass
+        model (torch.nn.Module): input model
+        apply_tensor_subclass (Callable[[torch.Tensor], torch.Tensor]): function that convert a floating point Tensor to a (quantized) tensor subclass instance (e.g. affine quantized tensor instance)
+        filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): function that takes a nn.Module instance and fully qualified name of the module, returns True if we want to run `apply_tensor_subclass` on
+        the weight of the module
 
     Example::
 
-        # weight settings
-        groupsize = 32
-        mapping_type = MappingType.ASYMMETRIC
-        block_size = (1, groupsize)
-        target_dtype = torch.int32
-        quant_min = 0
-        quant_max = 15
-        eps = 1e-6
-        preserve_zero = False
-        zero_point_dtype = torch.bfloat16
-        zero_point_domain = ZeroPointDomain.FLOAT
+        import torch
+        import torch.nn as nn
+        from torchao import quantize
 
+        # 1. quantize with some predefined `apply_tensor_subclass` method that corresponds to
+        # optimized execution paths or kernels (e.g. int4 tinygemm kernel)
+        # also customizable with arguments
+        # currently options are
+        # int8_dynamic_activation_int4_weight (for executorch)
+        # int8_dynamic_activation_int8_weight (optimized with int8 mm op and torch.compile)
+        # int4_weight_only (optimized with int4 tinygemm kernel and torch.compile)
+        # int8_weight_only (optimized with int8 mm op and torch.compile
+        from torchao.quantization.quant_api import int4_weight_only
+
+        m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))
+        m = quantize(m, int4_weight_only(group_size=32))
+
+        # 2. write your own new apply_tensor_subclass
+        # You can also add your own apply_tensor_subclass by manually calling tensor subclass constructor
+        # on weight
+
+        from torchao.dtypes import to_affine_quantized
+
+        # weight only uint4 asymmetric groupwise quantization
+        groupsize = 32
         apply_weight_quant = lambda x: to_affine_quantized(
-          x, mapping_type, block_size, target_dtype, quant_min, quant_max, eps,
-          zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain)
+          x, "asymmetric", (1, groupsize), torch.int32, 0, 15, 1e-6,
+          zero_point_dtype=torch.bfloat16, preserve_zero=False, zero_point_domain="float")
 
         # apply to modules under block0 submodule
-        def filter_fn(module, fqn):
-            return fqn == "block0"
+        def filter_fn(module: nn.Module, fqn: str) -> bool:
+            return isinstance(module, nn.Linear)
 
-        m = MyModel(...)
+        m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))
         m = quantize(m, apply_weight_quant, filter_fn)
+
     """
     if isinstance(apply_tensor_subclass, str):
         if apply_tensor_subclass not in _APPLY_TS_TABLE:
@@ -307,22 +320,22 @@ def quantize(model: torch.nn.Module, apply_tensor_subclass: Union[str, Callable[
     )
     return model
 
-def int8da_int4w(groupsize=32):
+def int8_dynamic_activation_int4_weight(group_size=32):
     """Applies int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear
     This is used to produce a model for executorch backend, but currently executorch did not
     support lowering for the quantized model from this flow yet
 
     Args:
-        `groupsize`: parameter for quantization, controls the granularity of quantization, smaller
+        `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained
     """
-    def apply_8da4w_quant(weight):
+    def apply_int8_dynamic_activation_int4_weight_quant(weight):
         # avoid circular dep
         from torchao.dtypes import to_affine_quantized
 
         # weight settings
         mapping_type = MappingType.SYMMETRIC
-        block_size = (1, groupsize)
+        block_size = (1, group_size)
         target_dtype = torch.int8
         eps = torch.finfo(torch.float32).eps
         quant_min = -8
@@ -346,25 +359,25 @@ def int8da_int4w(groupsize=32):
         weight = to_linear_act_quantized(weight, input_quant_func)
         return weight
 
-    return apply_8da4w_quant
+    return apply_int8_dynamic_activation_int4_weight_quant
 
 
-def int4wo(groupsize=128, inner_k_tiles=8):
+def int4_weight_only(group_size=128, inner_k_tiles=8):
     """
     Applies uint4 weight-only asymmetric per-group quantization to linear layers, using
     "tensor_core_tiled" layout for speedup with tinygemm kernel
 
     Args:
-        `groupsize`: parameter for quantization, controls the granularity of quantization, smaller
+        `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained, choices are [256, 128, 64, 32]
         `inner_k_tiles`: parameter for int4 mm kernel, choices are [8, 4, 2]
     """
-    def apply_int4wo_quant(weight):
+    def apply_int4_weight_only_quant(weight):
         # avoid circular dep
         from torchao.dtypes import to_affine_quantized
 
         mapping_type = MappingType.ASYMMETRIC
-        block_size = (1, groupsize)
+        block_size = (1, group_size)
         target_dtype = torch.int32
         quant_min = 0
         quant_max = 15
@@ -374,10 +387,10 @@ def int4wo(groupsize=128, inner_k_tiles=8):
         zero_point_domain = ZeroPointDomain.FLOAT
         return to_affine_quantized(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, extended_layout="tensor_core_tiled", inner_k_tiles=inner_k_tiles)
 
-    return apply_int4wo_quant
+    return apply_int4_weight_only_quant
 
 
-def int8wo():
+def int8_weight_only():
     """
     Applies int8 weight-only symmetric per-channel quantization to linear layers.
     """
@@ -391,14 +404,15 @@ def int8wo():
         zero_point_dtype = torch.int64
         block_size = (1, weight.shape[1])
         return to_affine_quantized(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype)
+
     return apply_int8wo_quant
 
-def int8da_int8w():
+def int8_dynamic_activation_int8_weight():
     """
     Applies int8 dynamic symmetric per-token activation and int8 per-channel weight
     quantization to linear layers
     """
-    def apply_int8dyn_quant(weight):
+    def apply_int8_dynamic_activation_int8_weight_quant(weight):
         in_features = weight.shape[1]
         # int8 dynamic quantization only has benefit when in_feature > 16
         if in_features <= 16:
@@ -432,28 +446,5 @@ def int8da_int8w():
         weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype)
         weight = to_linear_act_quantized(weight, input_quant_func)
         return weight
-    return apply_int8dyn_quant
 
-# shortcut string to apply_tensor_subclass with a specific setting
-# to simplify common use cases
-_APPLY_TS_TABLE: Dict[str, Callable] = {
-    "int4_weight_only": int4wo(),
-    "int8_weight_only": int8wo(),
-    "int8_dynamic": int8da_int8w(),
-}
-
-def register_apply_tensor_subclass(name: str, apply_tensor_subclass: Callable):
-    """Register a string shortcut for `apply_tensor_subclass` that takes a weight Tensor
-    as input and ouptuts a tensor with tensor subclass applied
-
-    Example:
-        def apply_my_dtype(weight):
-            return weight * 2
-
-        register_apply_tensor_subclass("my_dtype", apply_my_dtype)
-        # calls `apply_my_dtype` on weights
-        quantize(m, "my_dtype")
-    """
-    if name in _APPLY_TS_TABLE:
-        logging.warning(f"shortcut string {name} already exist, overwriting")
-    _APPLY_TS_TABLE[name] = apply_tensor_subclass
+    return apply_int8_dynamic_activation_int8_weight_quant
