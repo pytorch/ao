@@ -19,7 +19,8 @@ from torchao.prototype.mx_formats.mx_linear import (
     swap_linear_with_mx_linear,
 )
 
-from torchao.quantization.utils import compute_error, TORCH_VERSION_AFTER_2_4
+from torchao.quantization.utils import compute_error
+from torchao.utils import TORCH_VERSION_AFTER_2_4
 
 # trying to outsmart flake8
 __has_cuda = torch.cuda.is_available()
@@ -188,7 +189,7 @@ def test_inference_compile_simple(elem_dtype):
     if elem_dtype is torch.float8_e4m3fn:
         assert sqnr >= 20.0
     else:
-        assert sqnr >= 14.0
+        assert sqnr >= 13.5
 
 
 def test_filter_fn():

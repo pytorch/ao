@@ -6,14 +6,14 @@
 # LICENSE file in the root directory of this source tree.
 
 import subprocess
-import torchao.ops
+import torchao
 
 
 def main():
     """
     Run torchao binary smoke tests like importing and performing simple ops
     """
-    print(dir(torchao.ops))
+    print(dir(torchao))
 
 
 if __name__ == "__main__":

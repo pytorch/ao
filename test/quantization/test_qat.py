@@ -18,8 +18,8 @@ from torchao.quantization.prototype.qat import (
     fake_quantize_per_channel_group,
     fake_quantize_per_token,
 )
-from torchao.quantization.quant_primitives import get_group_qparams_symmetric
-from torchao.quantization.utils import TORCH_VERSION_AFTER_2_4
+from torchao.quantization.utils import get_group_qparams_symmetric
+from torchao.utils import TORCH_VERSION_AFTER_2_4
 
 
 # TODO: put this in a common test utils file

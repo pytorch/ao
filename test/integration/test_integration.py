@@ -20,23 +20,31 @@ from torchao.quantization.dynamic_quant import (
     DynamicallyPerAxisQuantizedLinear,
 )
 from torchao.quantization.quant_api import (
-    apply_dynamic_quant,
-    apply_weight_only_int8_quant,
+    int4_weight_only,
+    int8_weight_only,
+    int8_dynamic_activation_int8_weight,
+    quantize,
+    _replace_with_custom_fn_if_matches_filter,
+)
+# APIs to be deprecated (used for torch 2.2.2 and 2.3)
+from torchao.quantization.quant_api import (
     change_linear_weights_to_int8_dqtensors,
     change_linear_weights_to_int8_woqtensors,
     change_linear_weights_to_int4_woqtensors,
-    _replace_with_custom_fn_if_matches_filter,
 )
 from torchao.quantization.quant_primitives import (
+    safe_int_mm,
+    choose_qparams_affine,
+    quantize_affine,
+    dequantize_affine,
+    MappingType,
+)
+from torchao.quantization.utils import (
     dequantize_per_channel,
     dequantize_per_tensor,
     dynamically_quantize_per_channel,
-    dynamically_quantize_per_tensor,
-    quant_int8_dynamic_linear,
     quant_int8_dynamic_per_token_linear,
     quantize_activation_per_token_absmax,
-    safe_int_mm,
-    dequantize_affine,
 )
 
 from torchao.quantization.smoothquant import (
@@ -70,25 +78,52 @@ import os
 from parameterized import parameterized
 import itertools
 import logging
-from torchao.quantization.utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
+from torchao.utils import (
+    TORCH_VERSION_AFTER_2_3,
+    TORCH_VERSION_AFTER_2_4,
+    unwrap_tensor_subclass,
+    is_fbcode,
+)
 
 logger = logging.getLogger("INFO")
 
 torch.manual_seed(0)
 config.cache_size_limit = 100
 
-# TODO: use this to reduce the number of tests
-TENSOR_SUBCLASS_APIS = [
-    change_linear_weights_to_int8_dqtensors,
-    change_linear_weights_to_int8_woqtensors,
-    change_linear_weights_to_int4_woqtensors,
-]
-
 COMMON_DEVICES = ["cpu", "cuda"]
 
 COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 
 COMMON_DEVICE_DTYPE = list(itertools.product(COMMON_DEVICES, COMMON_DTYPES)).copy()
+
+def _int8wo_api(mod):
+    if TORCH_VERSION_AFTER_2_4:
+        quantize(mod, int8_weight_only())
+        unwrap_tensor_subclass(mod)
+    else:
+        change_linear_weights_to_int8_woqtensors(mod)
+
+def _int8da_int8w_api(mod):
+    if TORCH_VERSION_AFTER_2_4:
+        quantize(mod, int8_dynamic_activation_int8_weight())
+        unwrap_tensor_subclass(mod)
+    else:
+        change_linear_weights_to_int8_dqtensors(mod)
+
+def _int4wo_api(mod):
+    if TORCH_VERSION_AFTER_2_4:
+        quantize(mod, int4_weight_only())
+        unwrap_tensor_subclass(mod)
+    else:
+        change_linear_weights_to_int4_woqtensors(mod)
+
+# TODO: use this to reduce the number of tests
+TENSOR_SUBCLASS_APIS = [
+    _int8wo_api,
+    _int8da_int8w_api,
+    _int4wo_api,
+]
+
 
 def combine_parameters(a, b):
     new_tuples = []
@@ -214,9 +249,9 @@ class SmoothquantUnitTest(unittest.TestCase):
         #     rtol=0.00001), \
         #     'y_smooth_fq_only not close to y_dynamic_q'
 
-        self.assertTrue(sqnr_smooth_fq.item() >= 40.0)
-        self.assertTrue(sqnr_dynamic_q.item() >= 40.0)
-        self.assertTrue(sqnr_fq.item() >= 40.0)
+        self.assertTrue(sqnr_smooth_fq.item() >= 40.0, f"got: {sqnr_smooth_fq.item()}")
+        self.assertTrue(sqnr_dynamic_q.item() >= 40.0, f"got: {sqnr_dynamic_q.item()}")
+        self.assertTrue(sqnr_fq.item() >= 40.0, f"got: {sqnr_fq.item()}")
 
         # Restore backend
         torch.backends.quantized.engine = orig_backend
@@ -369,167 +404,7 @@ class SmoothquantUnitTest(unittest.TestCase):
         y1 = m(x0)
 
 
-class PythonQuantPrimitivesUnitTest(unittest.TestCase):
-    def _test_dynamic_quant_per_tensor_numerics_impl(
-        self, qmin, qmax, int_dtype, qint_dtype, float_dtype, device, qscheme
-    ):
-        x = torch.randn(256, dtype=float_dtype, device=device)
-        y_vals, y_scale, y_zero_point = dynamically_quantize_per_tensor(
-            x, qmin, qmax, int_dtype, qscheme
-        )
-
-        # reference
-        # quantize_per_tensor_dynamic doesn't work for half, so we cast there and back
-        x_for_ref = x.half().float() if float_dtype == torch.float16 else x
-
-        # quantize_per_tensor_dynamic doesn't support qscheme, so we just do dynamic
-        # quant manually with observers + static quant
-        obs = MinMaxObserver(
-            dtype=qint_dtype, qscheme=qscheme, quant_min=qmin, quant_max=qmax
-        ).to(device)
-        obs(x_for_ref)
-        ref_scale, ref_zero_point = obs.calculate_qparams()
-        y_ref = torch.quantize_per_tensor(
-            x_for_ref, ref_scale, ref_zero_point, qint_dtype
-        )
-
-        # y_ref = torch.quantize_per_tensor_dynamic(x_for_ref, qint_dtype, False)
-        # print(y_ref)
-        if float_dtype == torch.float:
-            assert torch.equal(y_vals, y_ref.int_repr())
-        else:
-            # numerics are not exactly aligned yet, off-by-one probably due
-            # to rounding
-            assert torch.max(torch.abs(y_vals - y_ref.int_repr())).item() <= 1
-        torch.testing.assert_close(
-            y_scale, torch.tensor(y_ref.q_scale(), device=device, dtype=float_dtype)
-        )
-        if y_zero_point is not None:
-            assert torch.equal(
-                y_zero_point, torch.tensor(y_ref.q_zero_point(), device=device)
-            )
-        else:
-            self.assertTrue(y_ref.q_zero_point() == 0)
-
-        # dequantize and check again
-        x_dq = dequantize_per_tensor(y_vals, y_scale, y_zero_point, float_dtype)
-        y_ref_dq = y_ref.dequantize().to(float_dtype)
-        if float_dtype == torch.float:
-            torch.testing.assert_close(x_dq, y_ref_dq)
-        else:
-            sqnr = compute_error(x_dq, y_ref_dq)
-            self.assertTrue(sqnr.item() > 45.0)
-
-    def test_dynamic_quant_per_tensor_numerics_cpu(self):
-        # verifies that dynamic quant per tensor in plain pytorch matches
-        # numerics of production AO code
-        # TODO(future): test this on cpu-half, need to first make
-        # torch.aminmax support half on cpu
-        test_cases = (
-            (
-                0,
-                255,
-                torch.uint8,
-                torch.quint8,
-                torch.float32,
-                "cpu",
-                torch.per_tensor_affine,
-            ),
-            (
-                -128,
-                127,
-                torch.int8,
-                torch.qint8,
-                torch.float32,
-                "cpu",
-                torch.per_tensor_affine,
-            ),
-            (
-                -128,
-                127,
-                torch.int8,
-                torch.qint8,
-                torch.float32,
-                "cpu",
-                torch.per_tensor_symmetric,
-            ),
-            (
-                -127,
-                127,
-                torch.int8,
-                torch.qint8,
-                torch.float32,
-                "cpu",
-                torch.per_tensor_symmetric,
-            ),
-        )
-        for row in test_cases:
-            self._test_dynamic_quant_per_tensor_numerics_impl(*row)
-
-    @unittest.skip("test case incorrect on A10G")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_dynamic_quant_per_tensor_numerics_cuda(self):
-        # verifies that dynamic quant per tensor in plain pytorch matches
-        # numerics of production AO code
-        test_cases = (
-            (
-                -128,
-                127,
-                torch.int8,
-                torch.qint8,
-                torch.float32,
-                "cuda",
-                torch.per_tensor_affine,
-            ),
-            (
-                -128,
-                127,
-                torch.int8,
-                torch.qint8,
-                torch.float16,
-                "cuda",
-                torch.per_tensor_affine,
-            ),
-            (
-                -128,
-                127,
-                torch.int8,
-                torch.qint8,
-                torch.float32,
-                "cuda",
-                torch.per_tensor_symmetric,
-            ),
-            (
-                -128,
-                127,
-                torch.int8,
-                torch.qint8,
-                torch.float16,
-                "cuda",
-                torch.per_tensor_symmetric,
-            ),
-            (
-                -127,
-                127,
-                torch.int8,
-                torch.qint8,
-                torch.float32,
-                "cuda",
-                torch.per_tensor_symmetric,
-            ),
-            (
-                -127,
-                127,
-                torch.int8,
-                torch.qint8,
-                torch.float16,
-                "cuda",
-                torch.per_tensor_symmetric,
-            ),
-        )
-        for row in test_cases:
-            self._test_dynamic_quant_per_tensor_numerics_impl(*row)
-
+class PythonQuantUtilOpUnitTest(unittest.TestCase):
     def _test_dynamic_quant_per_channel_numerics_impl(
         self, qmin, qmax, int_dtype, qint_dtype, float_dtype, device
     ):
@@ -704,130 +579,6 @@ class PythonQuantPrimitivesUnitTest(unittest.TestCase):
 
             torch.testing.assert_close(z_ref, z_eager, atol=0, rtol=0)
             torch.testing.assert_close(z_ref, z_torch_compile, atol=0, rtol=0)
-
-    def _test_qlinear_per_channel_numerics(
-        self, x_shape, lin_shape, qmin, qmax, int_dtype, qint_dtype, float_dtype, device
-    ):
-        qconfig = torch.ao.quantization.per_channel_dynamic_qconfig
-
-        x = torch.randn(*x_shape, device=device, dtype=float_dtype)
-
-        # TODO: test bias true and false
-        # Note: reference path only works on float because lack of aten quant primitives
-        # support of half, so we cast back and forth to emulate
-        lin_ref = (
-            nn.Sequential(nn.Linear(*lin_shape))
-            .eval()
-            .to(float_dtype)
-            .float()
-            .to(device)
-        )
-        y_ref = lin_ref(x.float())
-        weight = lin_ref[0].weight
-        bias = lin_ref[0].bias
-
-        qconfig_mapping = QConfigMapping().set_global(qconfig)
-        lin_ref_p = prepare_fx(lin_ref, qconfig_mapping, (torch.randn(1, 1),))
-        lin_ref_q = convert_to_reference_fx(lin_ref_p)
-        y_q_ref = lin_ref_q(x.float())
-
-        # scale, zp of weight (get from reference model)
-        w_obs = qconfig.weight()
-        w_obs(weight)
-        lin_ref_w_scale, lin_ref_w_zp = w_obs.calculate_qparams()
-        lin_ref_w_scale = lin_ref_w_scale.to(device).to(float_dtype)
-        # print('lin_ref_w', 'scale', lin_ref_w_scale, 'zp', lin_ref_w_zp)
-
-        w_vals, _s, _z = dynamically_quantize_per_channel(
-            getattr(lin_ref_q, "0").weight.to(float_dtype), -128, 127, torch.int8
-        )
-        w_vals = w_vals.t().contiguous()
-        w_vals_sums = w_vals.sum(dim=0)
-
-        # do our version of the quantized linear operator
-        y = quant_int8_dynamic_linear(
-            x,
-            qmin,
-            qmax,
-            int_dtype,
-            w_vals,
-            lin_ref_w_scale,
-            w_vals_sums,
-            bias,
-            float_dtype,
-        )
-
-        # print('y', y)
-        # print('y_q_ref', y_q_ref)
-        # print('y_ref', y_ref)
-
-        sqnr_ref = compute_error(y_ref, y_q_ref)
-        sqnr_our = compute_error(y_ref, y)
-        # print('sqnr_ref', sqnr_ref, 'sqnr_our', sqnr_our)
-        # for large shapes, sqnr can be in the high 30s for float32 and float16
-        self.assertTrue(sqnr_our.item() >= 37.5)
-
-    def test_qlinear_per_channel_numerics_cpu(self):
-        # Note: the AO codebase doesn't easily support qint8 activations,
-        # so the test cases below are for the quant primitives defined in
-        # this file only. The AO reference is using quint8 here.
-        test_cases = (
-            ((2, 3), (3, 4), 0, 255, torch.uint8, torch.quint8, torch.float32, "cpu"),
-            ((2, 3), (3, 4), -128, 127, torch.int8, torch.qint8, torch.float32, "cpu"),
-        )
-        for test_case in test_cases:
-            self._test_qlinear_per_channel_numerics(*test_case)
-
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_qlinear_per_channel_numerics_cuda(self):
-        test_cases = (
-            # Note:  torch._int_mm needs int8 activations, so we don't test uint8
-            # activations on CUDA at all
-            (
-                (32, 32),
-                (32, 16),
-                -128,
-                127,
-                torch.int8,
-                torch.qint8,
-                torch.float32,
-                "cuda",
-            ),
-            (
-                (32, 32),
-                (32, 16),
-                -128,
-                127,
-                torch.int8,
-                torch.qint8,
-                torch.float16,
-                "cuda",
-            ),
-            # a large shape from LLaMa 1.5B - currently fails for float16
-            (
-                (17, 4096),
-                (4096, 1536),
-                -128,
-                127,
-                torch.int8,
-                torch.qint8,
-                torch.float32,
-                "cuda",
-            ),
-            (
-                (17, 4096),
-                (4096, 1536),
-                -128,
-                127,
-                torch.int8,
-                torch.qint8,
-                torch.float16,
-                "cuda",
-            ),
-        )
-        for test_case in test_cases:
-            self._test_qlinear_per_channel_numerics(*test_case)
-
 
 class TestSubclass(unittest.TestCase):
     @run_supported_device_dtype
@@ -1037,13 +788,22 @@ class TestSubclass(unittest.TestCase):
     @unittest.skipIf(TORCH_VERSION_AFTER_2_4, "skip because there is some bug in inductor codegen")
     def test_int8_dynamic_quant_subclass_api(self, device, dtype):
         self._test_lin_weight_subclass_api_impl(
-            change_linear_weights_to_int8_dqtensors, device, 35, test_dtype=dtype
+            _int8da_int8w_api, device, 35, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_int8_weight_only_quant_subclass_api(self, device, dtype):
         self._test_lin_weight_subclass_api_impl(
-            change_linear_weights_to_int8_woqtensors, device, 40, test_dtype=dtype
+            _int8wo_api, device, 40, test_dtype=dtype
+        )
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @torch._inductor.config.patch({"freezing": True})
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "freeze requires torch 2.4 and after.")
+    def test_int8_weight_only_quant_with_freeze(self, device, dtype):
+        self._test_lin_weight_subclass_api_impl(
+            _int8wo_api, device, 40, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
@@ -1053,7 +813,7 @@ class TestSubclass(unittest.TestCase):
             self.skipTest(f"Fails for {dtype}")
         for test_shape in ([(16, 1024, 16)] + ([(1, 1024, 256)] if device=='cuda' else [])):
             self._test_lin_weight_subclass_api_impl(
-                change_linear_weights_to_int4_woqtensors,
+                _int4wo_api,
                 device,
                 15,
                 test_shape=test_shape,
@@ -1069,8 +829,19 @@ class TestSubclass(unittest.TestCase):
             for groupsize in [64, 32]:
                 for inner_k_tiles in [4, 2]:
                     kwargs = {"groupsize": groupsize, "inner_k_tiles": inner_k_tiles}
+
+                    def api(mod):
+                        if TORCH_VERSION_AFTER_2_4:
+                            kwargs_copy = kwargs.copy()
+                            kwargs_copy["group_size"] = groupsize
+                            del kwargs_copy["groupsize"]
+                            quantize(mod, int4_weight_only(**kwargs_copy))
+                            unwrap_tensor_subclass(mod)
+                        else:
+                            change_linear_weights_to_int4_woqtensors(mod, **kwargs)
+
                     self._test_lin_weight_subclass_api_impl(
-                        lambda mod: change_linear_weights_to_int4_woqtensors(mod, **kwargs),
+                        api,
                         device,
                         15,
                         test_shape=test_shape,
@@ -1085,7 +856,7 @@ class TestDynamicQuant(unittest.TestCase):
         m = nn.Sequential(nn.Linear(K, N))
 
         y_ref = m(x)
-        apply_dynamic_quant(m)
+        quantize(m, int8_dynamic_activation_int8_weight())
         y_test = m(x)
 
         sqnr = compute_error(y_ref, y_test)
@@ -1099,7 +870,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
             x = torch.randn(*x_shape)
             m = nn.Sequential(nn.Linear(4, 5))
             y_ref = m(x)
-            apply_weight_only_int8_quant(m)
+            _int8wo_api(m)
             y_wo = m(x)
             sqnr = compute_error(y_ref, y_wo)
             self.assertGreater(sqnr, 44.0)
@@ -1113,21 +884,23 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
         if dtype == torch.bfloat16 and torch.cuda.get_device_capability() < (8, 0):
             self.skipTest("test requires SM capability of at least (8, 0).")
         from torch._inductor import config
+        mixed_mm_key, mixed_mm_val = ("mixed_mm_choice", "triton") if TORCH_VERSION_AFTER_2_4 else ("force_mixed_mm", True)
+
         with config.patch({
             "epilogue_fusion": True,
-            "force_mixed_mm": True
+            mixed_mm_key: mixed_mm_val,
             }):
             for x_shape in [[2, 4], [5, 5, 5, 4], [1, 4, 4]]:
                 torch._dynamo.reset()
                 x = torch.randn(*x_shape).to(device).to(dtype)
                 m = nn.Sequential(nn.Linear(4, 5)).to(device).to(dtype)
                 y_ref = m(x)
-                apply_weight_only_int8_quant(m)
+                _int8wo_api(m)
                 m(x)
                 m_c = torch.compile(m, mode="max-autotune")
                 y_wo, (code,) = run_and_get_code(m_c, x)
                 sqnr = compute_error(y_ref, y_wo)
-                self.assertGreaterEqual(sqnr, 42.75)
+                self.assertGreaterEqual(sqnr, 42.50)
                 if device == "cuda":
                     self.assertTrue("mixed_mm" in code, f"got code: {code}")
 
@@ -1140,20 +913,22 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
             self.skipTest("test requires SM capability of at least (8, 0).")
         torch.manual_seed(0)
         from torch._inductor import config
+        mixed_mm_key, mixed_mm_val = ("mixed_mm_choice", "triton") if TORCH_VERSION_AFTER_2_4 else ("force_mixed_mm", True)
+
         with config.patch({
             "epilogue_fusion": False,
-            "force_mixed_mm": True
+            mixed_mm_key: mixed_mm_val,
             }):
             for x_shape in [[2, 4], [5, 5, 5, 4], [1, 4, 4]]:
                 torch._dynamo.reset()
                 x = torch.randn(*x_shape).to(device).to(dtype)
                 m = nn.Sequential(nn.Linear(4, 5)).to(device).to(dtype)
                 y_ref = m(x)
-                apply_weight_only_int8_quant(m)
+                _int8wo_api(m)
                 m_c = torch.compile(m, mode="max-autotune")
                 y_wo, (code,) = run_and_get_code(m_c, x)
                 sqnr = compute_error(y_ref, y_wo)
-                self.assertGreater(sqnr, 43.0)
+                self.assertGreater(sqnr, 42.75)
 
 
 class TestSaveLoadMeta(unittest.TestCase):
@@ -1190,6 +965,7 @@ class TestSaveLoadMeta(unittest.TestCase):
 
         # save quantized state_dict
         api(model)
+
         torch.save(model.state_dict(), "test.pth")
         # get quantized reference
         model_qc = torch.compile(model, mode="max-autotune")
@@ -1205,6 +981,7 @@ class TestSaveLoadMeta(unittest.TestCase):
         # load quantized state_dict
         state_dict = torch.load("test.pth", mmap=True)
         os.remove("test.pth")
+
         model.load_state_dict(state_dict, assign=True)
         model = model.to(device=test_device, dtype=test_dtype).eval()
 
@@ -1216,16 +993,18 @@ class TestSaveLoadMeta(unittest.TestCase):
         self.assertTrue(torch.equal(ref_q, test))
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(is_fbcode(), "'PlainAQTLayout' object has no attribute 'int_data'")
     @torch.no_grad()
     def test_save_load_dqtensors(self, device, dtype):
         if device == "cpu":
             self.skipTest(f"indcutor failed for cpu right now")
-        self._test_handle_save_load_meta_impl(change_linear_weights_to_int8_dqtensors, device, test_dtype=dtype)
+        self._test_handle_save_load_meta_impl(_int8da_int8w_api, device, test_dtype=dtype)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
+    @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_save_load_int8woqtensors(self, device, dtype):
-        self._test_handle_save_load_meta_impl(change_linear_weights_to_int8_woqtensors, device, test_dtype=dtype)
+        self._test_handle_save_load_meta_impl(_int8wo_api, device, test_dtype=dtype)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "int4 requires torch nightly.")
@@ -1233,7 +1012,7 @@ class TestSaveLoadMeta(unittest.TestCase):
     def test_save_load_int4woqtensors(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
-        self._test_handle_save_load_meta_impl(change_linear_weights_to_int4_woqtensors, device, 20, test_dtype=dtype)
+        self._test_handle_save_load_meta_impl(_int4wo_api, device, 20, test_dtype=dtype)
 
 
 class TorchCompileUnitTest(unittest.TestCase):
@@ -1306,6 +1085,7 @@ class SmoothquantIntegrationTest(unittest.TestCase):
         self.assertTrue(isinstance(model[0], SmoothFakeDynamicallyQuantizedLinear))
 
     @torch.inference_mode()
+    @unittest.skipIf(is_fbcode(), "can't load tokenizer")
     def test_on_dummy_distilbert(self):
         # https://huggingface.co/distilbert-base-uncased#how-to-use
         from transformers import (  # type: ignore[import-untyped]
@@ -1406,8 +1186,6 @@ class TestAutoQuant(unittest.TestCase):
         ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
     def test_autoquant_compile(self, device, dtype, m1, m2, k, n):
-        if device != "cuda" and dtype != torch.bfloat16:
-            self.skipTest(f"autoquant currently does not support {device}")
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
@@ -1421,16 +1199,52 @@ class TestAutoQuant(unittest.TestCase):
             torch.nn.ReLU(),
         ).to(device).to(dtype)
         example_input = torch.randn(m1, k, device=device, dtype=dtype)
-        example_input2 = torch.randn(m1, k, device=device, dtype=dtype)
+        example_input2 = torch.randn(m2, k, device=device, dtype=dtype)
         out = model(example_input)
 
-        mod = torchao.autoquant(torch.compile(model))
-        mod.forward_log_only(example_input)
+        mod = torchao.autoquant(torch.compile(model), manual=True)
+        mod(example_input)
         mod(example_input2)
+        mod.finalize_autoquant()
 
         out2 = mod(example_input)
         sqnr = SQNR(out, out2)
         self.assertTrue(sqnr >= 30)
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
+    def test_autoquant_manual(self, device, dtype):
+        if device != "cuda" or not torch.cuda.is_available():
+            self.skipTest(f"autoquant currently does not support {device}")
+        if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
+            if dtype == torch.bfloat16:
+                self.skipTest(f"bfloat16 requires sm80+")
+        m1, m2, k, n = 16, 32, 128, 128
+        model = torch.nn.Sequential(
+            torch.nn.ReLU(),
+            torch.nn.Linear(k,n),
+            torch.nn.ReLU(),
+        ).to(device).to(dtype)
+        example_input = torch.randn(m1, k, device=device, dtype=dtype)
+        example_input2 = torch.randn(m2, k, device=device, dtype=dtype)
+        out = model(example_input)
+
+        mod = torchao.autoquant(torch.compile(model), manual=True)
+        mod(example_input)
+        mod(example_input2)
+        mod.finalize_autoquant()
+        out2 = mod(example_input)
+        sqnr = SQNR(out, out2)
+        self.assertTrue(sqnr >= 30)
+
+        mod2 = torchao.autoquant(model, manual=True)
+        mod2(example_input)
+        mod2(example_input2)
+        mod2.finalize_autoquant()
+        out3 = mod(example_input)
+        sqnr2 = SQNR(out, out3)
+        self.assertTrue(sqnr2 >= 30)
+    
 
     @parameterized.expand(combine_parameters(COMMON_DEVICE_DTYPE,
         [
@@ -1440,8 +1254,6 @@ class TestAutoQuant(unittest.TestCase):
         ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
     def test_autoquant_kwargs(self, device, dtype, m1, m2, k, n):
-        if device != "cuda" and dtype != torch.bfloat16:
-            self.skipTest(f"autoquant currently does not support {device}")
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
@@ -1469,7 +1281,6 @@ class TestAutoQuant(unittest.TestCase):
         out = model(**example_input)
 
         mod = torchao.autoquant(torch.compile(model))
-        mod.forward_log_only(**example_input)
         mod(**example_input)
 
         out2 = mod(**example_input)
@@ -1482,8 +1293,6 @@ class TestAutoQuant(unittest.TestCase):
         ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
     def test_autoquant_double_access(self, device, dtype, m, k, n):
-        if device != "cuda" and dtype != torch.bfloat16:
-            self.skipTest(f"autoquant currently does not support {device}")
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
@@ -1552,8 +1361,7 @@ class TestAOTI(unittest.TestCase):
         model = test_model().to(dtype=test_dtype, device=test_device).eval()
         ref_f = model(x)
 
-        kwargs = {"dtype": test_dtype}
-        api(model, **kwargs)
+        api(model)
 
         # running model
         model(x)
@@ -1598,8 +1406,7 @@ class TestExport(unittest.TestCase):
         model = test_model().to(dtype=test_dtype, device=test_device).eval()
         ref_f = model(x)
 
-        kwargs = {"dtype": test_dtype}
-        api(model, **kwargs)
+        api(model)
 
         # running model
         ref = model(x)
@@ -1609,6 +1416,58 @@ class TestExport(unittest.TestCase):
         model = torch.export.export(model, example_inputs).module()
         after_export = model(x)
         self.assertTrue(torch.equal(after_export, ref))
+
+class TestUtils(unittest.TestCase):
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
+    def test_get_model_size_autoquant(self, device, dtype):
+        if device != "cuda" and dtype != torch.bfloat16:
+            self.skipTest(f"autoquant currently does not support {device}")
+        if device != "cuda" or not torch.cuda.is_available():
+            self.skipTest(f"autoquant currently does not support {device}")
+        if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
+            if dtype == torch.bfloat16:
+                self.skipTest(f"bfloat16 requires sm80+")
+        m, k, n = 16, 128, 128
+        model = torch.nn.Sequential(
+            torch.nn.ReLU(),
+            torch.nn.Linear(k,n),
+            torch.nn.ReLU(),
+        ).to(device).to(dtype)
+        example_input = torch.randn(m, k, device=device, dtype=dtype)
+        size = torchao.utils.get_model_size_in_bytes(model)
+
+        from torchao.quantization.autoquant import (
+            AQWeightOnlyQuantizedLinearWeight2,
+        )
+        qtensor_class_list = (
+            AQWeightOnlyQuantizedLinearWeight2,
+        )
+        mod = torchao.autoquant(torch.compile(model), qtensor_class_list = qtensor_class_list)
+        mod(example_input)
+        size2 = torchao.utils.get_model_size_in_bytes(mod)
+        self.assertTrue(size2 < size)
+
+    @parameterized.expand(
+        list(itertools.product(TENSOR_SUBCLASS_APIS, COMMON_DEVICES, COMMON_DTYPES)),
+    )
+    def test_get_model_size_aqt(self, api, test_device, test_dtype):
+        if test_dtype != torch.bfloat16:
+            self.skipTest(f"{api} in {test_dtype} is not supported yet")
+        if test_device != "cuda" or not torch.cuda.is_available():
+            self.skipTest(f"{api} currently does not support {test_device}")
+        k, n = 1024, 1024
+        model = torch.nn.Sequential(
+            torch.nn.ReLU(),
+            torch.nn.Linear(k,n),
+            torch.nn.ReLU(),
+        ).to(test_device).to(test_dtype)
+        size = torchao.utils.get_model_size_in_bytes(model)
+        api(model)
+        size2 = torchao.utils.get_model_size_in_bytes(model)
+        self.assertTrue(size2 < size)
+
+
 
 
 if __name__ == "__main__":

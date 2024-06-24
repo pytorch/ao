@@ -9,10 +9,12 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
+import torch.nn.functional as F
 
-from quantization.utils import _lm_eval_available, _MultiInput
+from torchao.quantization.utils import _lm_eval_available, _MultiInput
 
 if _lm_eval_available:
+    import lm_eval
     try:  # lm_eval version 0.4
         from lm_eval.evaluator import evaluate  # pyre-ignore[21]
         from lm_eval.models.huggingface import HFLM as eval_wrapper  # pyre-ignore[21]
@@ -50,8 +52,13 @@ if _lm_eval_available:
             pad_token=0,
             device="cpu",
         ):
-            super().__init__()
-            self._tokenizer = tokenizer
+            try:
+                super().__init__()
+            except TypeError:
+                # lm_eval 0.4.2 removed the default init
+                super().__init__("gpt2", device="cpu")
+
+            self.tokenizer = tokenizer
             self._device = torch.device(device)
             self.vocab_size = vocab_size
             self._max_seq_length = calibration_seq_length
@@ -72,9 +79,9 @@ if _lm_eval_available:
         @property
         def eot_token_id(self):
             try:
-                return self._tokenizer.eos_id()
+                return self.tokenizer.eos_id()
             except:
-                return self._tokenizer.eos_id
+                return self.tokenizer.eos_id
 
         @property
         def max_length(self):
@@ -94,16 +101,16 @@ if _lm_eval_available:
 
         def tok_encode(self, string: str, **kwargs):
             # TODO: verify this for multi-batch as well
-            tokens = self._tokenizer.encode(string)
-            if hasattr(self._tokenizer, "bos_id"):
+            tokens = self.tokenizer.encode(string)
+            if hasattr(self.tokenizer, "bos_id"):
                 try:
-                    tokens = [self._tokenizer.bos_id()] + tokens
+                    tokens = [self.tokenizer.bos_id()] + tokens
                 except:
-                    tokens = [self._tokenizer.bos_id] + tokens
+                    tokens = [self.tokenizer.bos_id] + tokens
             return tokens
 
         def tok_decode(self, tokens):
-            decoded = self._tokenizer.decode(tokens)
+            decoded = self.tokenizer.decode(tokens)
             return decoded
 
         def add_input(self, args):
@@ -183,9 +190,9 @@ if _lm_eval_available:
             input_prep_func=None,
             device="cuda"
         ):
-            super().__init__(None, None)
+            super().__init__(tokenizer, None)
             self._model = model
-            self._tokenizer = tokenizer
+            # self.tokenizer = tokenizer
             self._device = torch.device(device)
             self._max_seq_length = max_seq_length
 
@@ -200,7 +207,7 @@ if _lm_eval_available:
             # TODO: make batches work
             input = self.input_prep_func(inps)
 
-            max_seq_length = min(inps.size(1), self.max_length)
+            max_seq_length = min(max(inps.size()), self.max_length)
             with torch.device(self._device):
                 self._model.setup_caches(self.batch_size, max_seq_length)
             logits = self._model(*input)

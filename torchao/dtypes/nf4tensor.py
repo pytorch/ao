@@ -135,6 +135,9 @@ def expect_args_len_at_k(k: int, op: CompareOp, value: Any, msg: str):
 def noop_detach(func, *args, **kwargs):
     return args[0][0]
 
+@implements([torch.ops.aten.clone.default])
+def clone(func, *args, **kwargs):
+    return to_nf4(args[0][0].get_original_weight())
 
 @implements(
     [

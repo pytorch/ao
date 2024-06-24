@@ -1,18 +1,18 @@
 import torch
 from torch import nn
-from torchao.quantization.fp6_llm import Fp6LlmLinear, from_tc_float6_e3m2
+from torchao.prototype.fp6_llm.fp6_llm import Fp6LlmLinear, from_tc_float6_e3m2
 from torch.utils.benchmark import Timer
 import pandas as pd
 from tqdm import tqdm
 
 
 def benchmark(m: int, k: int, n: int):
-    fp6_weight = torch.randint(256, size=(n, k // 4 * 3), dtype=torch.uint8, device="cuda")
+    fp6_weight = torch.randint(256, size=(n, k * 3 // 4), dtype=torch.uint8, device="cuda")
     scales = torch.rand(n, dtype=torch.half, device="cuda") + 0.5
-    fp6_linear = Fp6LlmLinear(fp6_weight.view(torch.int32), scales)
+    fp6_linear = Fp6LlmLinear(fp6_weight, scales)
 
     fp16_linear = nn.Linear(k, n, bias=True, dtype=torch.half, device="cuda")
-    fp16_linear.weight.data = from_tc_float6_e3m2(fp6_weight.view(-1), n, k, dtype=torch.half) * scales[:, None]
+    fp16_linear.weight.data = from_tc_float6_e3m2(fp6_weight, dtype=torch.half) * scales[:, None]
 
     fp16_act = torch.randn(m, k, dtype=torch.half, device="cuda")
     fp6_output = fp6_linear(fp16_act)

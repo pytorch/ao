@@ -178,7 +178,7 @@ torch::Tensor fp6_linear_forward_cuda(torch::Tensor _in_feats,
 }
 
 TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
-  m.impl("torchao::fp16act_fp6weight_linear", &fp6_linear_forward_cuda);
+  m.impl("torchao::fp6_llm_linear", &fp6_linear_forward_cuda);
 }
 
 } // namespace torchao

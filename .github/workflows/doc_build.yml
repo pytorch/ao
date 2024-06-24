@@ -42,8 +42,7 @@ jobs:
           python -m pip install torch
           python -m pip install -e .
           pip install -r dev-requirements.txt
-          cd docs
-          python -m pip install -r requirements.txt
+          python -m pip install -r docs/requirements.txt
       - name: Build docs
         env:
           TORCHAO_VERSION_DOCS: ${{ github.ref }}

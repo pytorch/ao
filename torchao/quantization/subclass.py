@@ -10,15 +10,19 @@ import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from .quant_primitives import (
+    MappingType,
+)
+
+from .utils import (
+    find_multiple,
     dequantize_per_channel,
     dynamically_quantize_per_channel,
     groupwise_affine_quantize_tensor,
     quant_int8_dynamic_per_token_linear,
     unpack_tinygemm_scales_and_zeros,
     groupwise_affine_quantize_tensor_from_qparams,
-    MappingType,
 )
-from .utils import find_multiple
+from torchao.utils import find_multiple
 from typing import Tuple, Optional, Callable, Dict, Any
 
 
@@ -27,7 +31,7 @@ __all__ = [
     "Int8WeightOnlyQuantizedLinearWeight",
     "Int4WeightOnlyQuantizedLinearWeight",
     "LinearActQuantizedTensor",
-    "to_laq",
+    "to_linear_act_quantized",
 ]
 
 
@@ -747,4 +751,4 @@ class LinearActQuantizedTensor(torch.Tensor):
             f"LinearActQuantizedTensor dispatch: attempting to run {func}, this is not supported"
         )
 
-to_laq = LinearActQuantizedTensor.from_float
+to_linear_act_quantized = LinearActQuantizedTensor.from_float
