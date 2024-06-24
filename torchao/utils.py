@@ -24,7 +24,6 @@ __all__ = [
 
 
 def benchmark_model(model, num_runs, input_tensor):
-    print(_assert_and_get_unique_device(model).type)
     if _assert_and_get_unique_device(model).type == "cuda":
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
@@ -58,11 +57,12 @@ def benchmark_model(model, num_runs, input_tensor):
     elif _assert_and_get_unique_device(model).type == "cpu":
         torch.cpu.synchronize()
         start_time = time.time()
-        # Benchmark
+
+        # benchmark
         for _ in range(num_runs):
             with torch.autograd.profiler.record_function("timed region"):
                 model(input_tensor)
-        # End timing
+        
         end_time = time.time()
         torch.cpu.synchronize()
         average_time_per_run = (end_time - start_time) / num_runs
