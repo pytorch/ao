@@ -8,14 +8,14 @@ from torch.testing._internal.common_utils import (
     parametrize,
     run_tests,
 )
+from torchao.prototype.fp6_llm import QuantLlmLinearWeight, quant_llm_fpx_weight_only
 from torchao.prototype.fp6_llm.fp6_llm import (
-    QuantLlmLinearWeight,
-    quant_llm_fpx_weight_only,
-    to_tc_float6_e3m2,
-    from_tc_float6_e3m2,
-    _to_tc_fpx,
+    _pack_tc_fpx,
+    _pack_tc_fp6,
+    to_scaled_tc_fpx,
+    from_scaled_tc_fpx,
 )
-from torchao.prototype.mx_formats.custom_cast import f6_e3m2_unpacked_to_f32, f32_to_f6_e3m2_unpacked
+from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32
 from torchao.quantization.quant_api import quantize
 
 
@@ -23,40 +23,46 @@ _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 _FPx_DTYPES = [(3, 2), (2, 2)]
 
 
-class TestQuantLlmLinear(TestCase):
+class TestQuantLlmLinearWeight(TestCase):
     @parametrize("device", _DEVICES)
-    def test_to_tc_float6_e3m2_correctness(self, device):
-        x = torch.randn(256, 64, device=device)
+    def test_pack_tc_fp6_correctness(self, device):
+        x = torch.randint(256, size=(256, 64), dtype=torch.uint8, device=device)
 
-        expected = _to_tc_fpx(x, 3, 2)
-        actual = to_tc_float6_e3m2(x)
+        expected = _pack_tc_fpx(x, 6)
+        actual = _pack_tc_fp6(x)
         torch.testing.assert_close(actual, expected)
 
+    @parametrize("ebits,mbits", _FPx_DTYPES)
     @parametrize("device", _DEVICES)
-    def test_to_tc_float6_e3m2_compile(self, device):
+    def test_to_scaled_tc_fpx_compile(self, ebits, mbits, device):
         x = torch.randn(256, 64, device=device)
 
-        expected = to_tc_float6_e3m2(x)
-        actual = torch.compile(to_tc_float6_e3m2, fullgraph=True)(x)
+        expected = to_scaled_tc_fpx(x, ebits, mbits)
+        actual = torch.compile(to_scaled_tc_fpx, fullgraph=True)(x, ebits, mbits)
         torch.testing.assert_close(actual, expected)
 
+    @parametrize("ebits,mbits", _FPx_DTYPES)
     @parametrize("device", _DEVICES)
-    def test_from_tc_float6_e3m2_correctness(self, device):
-        x = torch.randn(256, 64, device=device)
+    def test_from_tc_fpx_correctness(self, ebits, mbits, device):
+        x = torch.randn(256, 64, device=device) * 100
 
-        # quantize and dequantize so that the values are exactly representable in FP6
-        x = f6_e3m2_unpacked_to_f32(f32_to_f6_e3m2_unpacked(x))
+        # quantize and dequantize so that the values are exactly representable in FPx
+        x = _fpx_unpacked_to_f32(_f32_to_fpx_unpacked(x, ebits, mbits), ebits, mbits)
 
-        actual = from_tc_float6_e3m2(to_tc_float6_e3m2(x))
+        tc_fpx, scale = to_scaled_tc_fpx(x, ebits, mbits)
+        actual = from_scaled_tc_fpx(tc_fpx, ebits, mbits, scale=scale)
         torch.testing.assert_close(actual, x)
 
+    @parametrize("ebits,mbits", _FPx_DTYPES)
     @parametrize("device", _DEVICES)
-    def test_from_tc_float6_e3m2_compile(self, device):
+    def test_from_scaled_tc_fpx_compile(self, ebits, mbits, device):
         M, N = 256, 64
-        x = torch.randint(256, size=(M, N * 3 // 4), dtype=torch.uint8, device=device)
+        nbits = 1 + ebits + mbits
+        x = torch.randint(256, size=(M, N // 8 * nbits), dtype=torch.uint8, device=device)
+        scale = torch.randn(M, device=device)
 
-        expected = from_tc_float6_e3m2(x)
-        actual = torch.compile(from_tc_float6_e3m2, fullgraph=True)(x)
+        expected = from_scaled_tc_fpx(x, ebits, mbits, scale)
+        actual = torch.compile(from_scaled_tc_fpx, fullgraph=True)(x, ebits, mbits, scale)
         torch.testing.assert_close(actual, expected)
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
@@ -93,7 +99,7 @@ class TestQuantLlmLinear(TestCase):
         torch.testing.assert_close(actual, expected)
 
 
-instantiate_parametrized_tests(TestQuantLlmLinear)
+instantiate_parametrized_tests(TestQuantLlmLinearWeight)
 
 
 if __name__ == "__main__":

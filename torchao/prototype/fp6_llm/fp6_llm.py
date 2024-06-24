@@ -5,9 +5,11 @@ import torch
 from torch import Tensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32, _n_ones
-from torchao.prototype.mx_formats.constants import F6_E3M2_MAX
 from torchao.ops import quant_llm_linear
 from torchao.dtypes.utils import _implements, _ATEN_OP_OR_TORCH_FN_TABLE
+
+
+_ONES_TABLE = [_n_ones(i) for i in range(8)]
 
 
 def _pack(x: Tensor, n_bits: int) -> Tensor:
@@ -47,88 +49,93 @@ def _bit_interleave(x: Tensor, n_bits: int, undo: bool = False) -> Tensor:
 
 # this is a literal adaptation of FP6-LLM ahead-of-time bit-level pre-packing
 # https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/fp6_llm/csrc/utils/weight_prepacking.h
-def _to_tc_fpx(tensor: Tensor, ebits: int, mbits: int) -> Tensor:
-    assert tensor.ndim == 2
+def _pack_tc_fpx(tensor: Tensor, nbits: int) -> Tensor:
+    assert tensor.ndim == 2, tensor.dtype == torch.uint8
     M, N = tensor.shape
     assert (M % 64 == 0) and (N % 64 == 0)
 
-    tensor_fpx = _f32_to_fpx_unpacked(tensor.float(), ebits, mbits)
-
     # Pass 1 from original code
-    tensor_fpx = tensor_fpx.view(M // 64, 4, 2, 8, N // 16, 2, 8)
-    tensor_fpx = tensor_fpx.permute(0, 4, 1, 5, 2, 3, 6)
-    tensor_fpx = tensor_fpx.reshape(-1, 32, 2)
-    tensor_fpx = tensor_fpx.permute(1, 0, 2)
-    tensor_fpx = tensor_fpx.flatten()
+    tensor = tensor.view(M // 64, 4, 2, 8, N // 16, 2, 8)
+    tensor = tensor.permute(0, 4, 1, 5, 2, 3, 6)
+    tensor = tensor.reshape(-1, 32, 2)
+    tensor = tensor.permute(1, 0, 2)
+    tensor = tensor.flatten()
 
-    total_bits = 1 + ebits + mbits
-    n_used = 0
+    used_bits = 0
     fragments = []
 
     for y in [1, 2, 4]:
-        if total_bits & y:
+        if nbits & y:
             mask = (1 << y) - 1
-            tensor_ybit = (tensor_fpx >> (total_bits - n_used - y)) & mask
+            tensor_ybit = (tensor >> (nbits - used_bits - y)) & mask
             tensor_ybit = _pack(tensor_ybit, y)
 
             tensor_ybit = tensor_ybit.view(32, -1, 4).permute(1, 0, 2).flip(2)  # Pass 2 from original code
             tensor_ybit = _bit_interleave(tensor_ybit.flatten(), y)             # Pass 3 from original code
             fragments.append(tensor_ybit)
-            n_used += y
+            used_bits += y
 
     return torch.cat(fragments, dim=0).view(M, -1)
 
 
-def _to_scaled_tc_fpx(tensor: Tensor, ebits: int, mbits: int) -> Tuple[Tensor, Tensor]:
-    exp_bias = _n_ones(ebits - 1)
-    max_normal = 2 ** (_n_ones(ebits) - exp_bias) * (_n_ones(mbits + 1) / (2 ** mbits))
-
-    scale = tensor.abs().amax(1).clamp(min=1e-12) / max_normal
-    tc_fpx_tensor = _to_tc_fpx(tensor / scale.view(-1, 1), ebits, mbits)
-    return tc_fpx_tensor, scale.half()
-
-
-# more optimized version of _to_tc_float6_e3m2_original() by merging ops
-# https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/fp6_llm/csrc/utils/weight_prepacking.h
-def to_tc_float6_e3m2(tensor: Tensor) -> Tensor:
-    assert tensor.ndim == 2
+# more optimized version of _pack_tc_fpx() for FP6 by merging ops
+def _pack_tc_fp6(tensor: Tensor) -> Tensor:
+    assert tensor.ndim == 2, tensor.dtype == torch.uint8
     M, N = tensor.shape
     assert (M % 64 == 0) and (N % 64 == 0)
 
-    tensor_fp6 = _f32_to_fpx_unpacked(tensor.float(), 3, 2)
-    tensor_fp6 = tensor_fp6.view(M // 64, 2, 2, 2, 8, N // 16, 2, 8)
-    tensor_fp6 = tensor_fp6.flip(3)
+    tensor = tensor.view(M // 64, 2, 2, 2, 8, N // 16, 2, 8)
+    tensor = tensor.flip(3)
 
-    tensor_2bit = (tensor_fp6 >> 4) & 0b11
+    tensor_2bit = (tensor >> 4) & 0b11
     tensor_2bit = tensor_2bit.permute(0, 5, 1, 4, 7, 3, 2, 6)
     tensor_2bit = _pack(tensor_2bit.flatten(), 2)
 
-    tensor_4bit = tensor_fp6 & 0b1111
+    tensor_4bit = tensor & 0b1111
     tensor_4bit = tensor_4bit.permute(0, 5, 1, 2, 4, 7, 3, 6)
     tensor_4bit = _pack(tensor_4bit.flatten(), 4)
 
     return torch.cat([tensor_2bit, tensor_4bit], dim=0).view(M, -1)
 
 
-def to_scaled_tc_float6_e3m2(tensor: Tensor) -> Tuple[Tensor, Tensor]:
-    scale = F6_E3M2_MAX / tensor.abs().amax(1).clamp(min=1e-12)
-    tc_fp6_tensor = to_tc_float6_e3m2(tensor * scale.view(-1, 1))
-    return tc_fp6_tensor, scale.reciprocal().half()
+# currently only optimize for TC-FP6 packing
+def pack_tc_fpx(tensor: Tensor, nbits: int) -> Tensor:
+    if nbits == 6:
+        return _pack_tc_fp6(tensor)
+    return _pack_tc_fpx(tensor, nbits)
 
 
-def _from_tc_fpx(tensor: Tensor, ebits: int, mbits: int) -> Tensor:
-    total_bits = 1 + ebits + mbits
+def to_scaled_tc_fpx(tensor: Tensor, ebits: int, mbits: int) -> Tuple[Tensor, Tensor]:
+    # _n_ones() is not compatible with torch.compile() due to << operator
+    # https://github.com/pytorch/pytorch/issues/119152
+    # exp_bias = _n_ones(ebits - 1)
+    # max_normal = 2 ** (_n_ones(ebits) - exp_bias) * (_n_ones(mbits + 1) / (2 ** mbits))
+
+    # workaround: global lookup table
+    exp_bias = _ONES_TABLE[ebits - 1]
+    max_normal = 2 ** (_ONES_TABLE[ebits] - exp_bias) * (_ONES_TABLE[mbits + 1] / (2 ** mbits))
+
+    tensor = tensor.float()
+    scale = tensor.abs().amax(1).clamp(min=1e-12) / max_normal
+    tensor_fpx = _f32_to_fpx_unpacked(tensor / scale.view(-1, 1), ebits, mbits)
+    tensor_tc_fpx = pack_tc_fpx(tensor_fpx, 1 + ebits + mbits)
+    return tensor_tc_fpx, scale.half()
+
+
+# inverse of _pack_tc_fpx()
+def _unpack_tc_fpx(tensor: Tensor, nbits: int) -> Tensor:
+    assert tensor.ndim == 2 and tensor.dtype == torch.uint8
     M = tensor.shape[0]
     size = tensor.numel()
     tensor = tensor.flatten()
     offset = 0
-    n_used = 0
+    used_bits = 0
 
     tensor_fpx = None
 
     for y in [1, 2, 4]:
-        if total_bits & y:
-            size_ybit = size // total_bits * y
+        if nbits & y:
+            size_ybit = size // nbits * y
             tensor_ybit = tensor[offset : offset + size_ybit]
             offset += size_ybit
 
@@ -136,8 +143,8 @@ def _from_tc_fpx(tensor: Tensor, ebits: int, mbits: int) -> Tensor:
             tensor_ybit = tensor_ybit.view(-1, 32, 4).flip(2).permute(1, 0, 2)  # undo Pass 2
 
             tensor_ybit = _unpack(tensor_ybit.flatten(), y)
-            tensor_ybit = tensor_ybit << (total_bits - n_used - y)
-            n_used += y
+            tensor_ybit = tensor_ybit << (nbits - used_bits - y)
+            used_bits += y
 
             if tensor_fpx is None:
                 tensor_fpx = tensor_ybit
@@ -149,12 +156,12 @@ def _from_tc_fpx(tensor: Tensor, ebits: int, mbits: int) -> Tensor:
     tensor_fpx = tensor_fpx.reshape(M // 64, -1, 4, 2, 2, 8, 8)
     tensor_fpx = tensor_fpx.permute(0, 2, 4, 5, 1, 3, 6)
     tensor_fpx = tensor_fpx.reshape(M, -1)
-
-    tensor_fp32 = _fpx_unpacked_to_f32(tensor_fpx, ebits, mbits)
-    return tensor_fp32
+    return tensor_fpx
 
 
-def from_tc_float6_e3m2(tensor: Tensor, dtype: torch.dtype = torch.float32) -> Tensor:
+# more optimized version of _unpack_tc_fpx() for FP6 by merging ops
+# inverse of _unpack_tc_fp6()
+def _unpack_tc_fp6(tensor: Tensor) -> Tensor:
     assert tensor.ndim == 2 and tensor.dtype == torch.uint8
     M = tensor.shape[0]
     N = tensor.shape[1] // 3 * 4
@@ -176,7 +183,21 @@ def from_tc_float6_e3m2(tensor: Tensor, dtype: torch.dtype = torch.float32) -> T
 
     tensor_fp6 = (tensor_2bit << 4) | tensor_4bit
     tensor_fp6 = tensor_fp6.flip(3).reshape(M, N)
-    return _fpx_unpacked_to_f32(tensor_fp6, 3, 2).to(dtype)
+    return tensor_fp6
+
+
+def unpack_tc_fpx(tensor: Tensor, nbits: int) -> Tensor:
+    if nbits == 6:
+        return _unpack_tc_fp6(tensor)
+    return _unpack_tc_fpx(tensor, nbits)
+
+
+def from_scaled_tc_fpx(tensor: Tensor, ebits: int, mbits: int, scale=None) -> Tensor:
+    fpx_unpacked = unpack_tc_fpx(tensor, 1 + ebits + mbits)
+    tensor = _fpx_unpacked_to_f32(fpx_unpacked, ebits, mbits)
+    if scale is not None:
+        tensor = tensor * scale.float().view(-1, 1)
+    return tensor
 
 
 # https://github.com/microsoft/DeepSpeed/blob/3a3a6db3332e339cc9fd94efd4982f6d60635a3d/deepspeed/inference/v2/kernels/core_ops/cuda_linear/cuda_linear.py
@@ -347,12 +368,12 @@ class QuantLlmLinearWeight(Tensor):
 
     @classmethod
     def from_float(cls, input_float: Tensor, ebits: int, mbits: int):
-        fpx_data, scale = _to_scaled_tc_fpx(input_float, ebits, mbits)
+        fpx_data, scale = to_scaled_tc_fpx(input_float, ebits, mbits)
         return cls(fpx_data, scale, ebits, mbits)
 
     def dequantize(self, output_dtype=None):
         output_dtype = output_dtype or torch.get_default_dtype()
-        return _from_tc_fpx(self.fpx_data, self.ebits, self.mbits) * self.scale.view(-1, 1)
+        return from_scaled_tc_fpx(self.fpx_data, self.ebits, self.mbits, self.scale).to(output_dtype)
 
     def __repr__(self):
         dtype = f"fp{1 + self.ebits + self.mbits}_e{self.ebits}m{self.mbits}"
