@@ -1,6 +1,7 @@
+import copy
+
 import pytest
 import torch
-from torch import nn
 from torch.testing._internal.common_utils import (
     TestCase,
     instantiate_parametrized_tests,
@@ -8,16 +9,18 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 from torchao.prototype.fp6_llm.fp6_llm import (
+    QuantLlmLinearWeight,
+    quant_llm_fpx_weight_only,
     to_tc_float6_e3m2,
     from_tc_float6_e3m2,
     _to_tc_fpx,
-    QuantLlmLinear,
-    convert_quant_llm,
 )
 from torchao.prototype.mx_formats.custom_cast import f6_e3m2_unpacked_to_f32, f32_to_f6_e3m2_unpacked
+from torchao.quantization.quant_api import quantize
 
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+_FPx_DTYPES = [(3, 2), (2, 2)]
 
 
 class TestQuantLlmLinear(TestCase):
@@ -57,50 +60,37 @@ class TestQuantLlmLinear(TestCase):
         torch.testing.assert_close(actual, expected)
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @parametrize("ebits,mbits", _FPx_DTYPES)
     @parametrize("leading_dims", [(4,), (2, 4)])
     @parametrize("bias", [False, True])
-    def test_quant_llm_linear_forward(self, bias, leading_dims):
+    def test_quant_llm_linear_weight(self, ebits, mbits, bias, leading_dims):
         OC, IC = 256, 64
         device = "cuda"
-        ebits, mbits = 3, 2
 
-        linear = torch.nn.Linear(IC, OC, bias=bias, device=device)
-        fp6_linear = QuantLlmLinear.from_float(linear, mbits, ebits)
-        assert (fp6_linear.bias is not None) == bias
+        fp16_weight = torch.randn(OC, IC, device=device, dtype=torch.half)
+        fp16_bias = torch.randn(OC, device=device, dtype=torch.half) if bias else None
+
+        fpx_weight = QuantLlmLinearWeight.from_float(fp16_weight, ebits, mbits)
 
         x = torch.randn(*leading_dims, IC, device=device, dtype=torch.half)
-        fp6_linear(x)
+        out = torch.nn.functional.linear(x, fpx_weight, fp16_bias)
+        assert out.shape == leading_dims + (OC,)
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @parametrize("ebits,mbits", _FPx_DTYPES)
     @parametrize("bias", [False, True])
-    def test_quant_llm_linear_compile(self, bias):
+    def test_quant_llm_quantize(self, ebits, mbits, bias):
         N, OC, IC = 4, 256, 64
         device = "cuda"
-        ebits, mbits = 3, 2
 
         linear = torch.nn.Linear(IC, OC, bias=bias, device=device)
-        fp6_linear = QuantLlmLinear.from_float(linear, ebits, mbits)
+        fpx_linear = copy.deepcopy(linear)
+        quantize(fpx_linear, quant_llm_fpx_weight_only(ebits, mbits))
 
         x = torch.randn(N, IC, device=device, dtype=torch.half)
-        expected = fp6_linear(x)
-        actual = torch.compile(fp6_linear, fullgraph=True)(x)
+        expected = fpx_linear(x)
+        actual = torch.compile(fpx_linear, fullgraph=True)(x)
         torch.testing.assert_close(actual, expected)
-
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-    def test_convert_quant_llm(self):
-        device = "cuda"
-        ebits, mbits = 3, 2
-
-        model = nn.Sequential(nn.Linear(64, 256, bias=False), nn.Linear(256, 256)).to(device)
-        convert_quant_llm(model, ebits, mbits)
-
-        assert isinstance(model[0], QuantLlmLinear)
-        assert model[0].bias is None
-        assert isinstance(model[1], QuantLlmLinear)
-        assert model[1].bias is not None
-
-        x = torch.randn(4, 64, device=device)
-        model(x)
 
 
 instantiate_parametrized_tests(TestQuantLlmLinear)

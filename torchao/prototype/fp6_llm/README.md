@@ -5,10 +5,11 @@ This is a FP16 x FP6 mixed matmul kernel optimized for io bound workloads per [F
 ## Usage
 
 ```python
-from torchao.prototype.fp6_llm import convert_fp6_llm
+from torchao.quantization.quant_api import quantize
+from torchao.prototype.fp6_llm import fp6_llm_weight_only
 
 model = ...
-convert_fp6_llm(model)  # convert model in-place, replacing nn.Linear modules with Fp6LlmLinear
+quantize(model, fp6_llm_weight_only())  # convert nn.Lineaer.weight to FP6 in-place
 
 # fully compatible with torch.compile()
 model.compile(mode="max-autotune", fullgraph=True)
@@ -17,6 +18,7 @@ model.compile(mode="max-autotune", fullgraph=True)
 It's also possible to pre-process the weight and call the kernel directly.
 
 ```python
+# TODO: update
 import torch
 from torchao.prototype.fp6_llm import to_scaled_tc_float6_e3m2
 from torchao.ops import fp6_llm_linear

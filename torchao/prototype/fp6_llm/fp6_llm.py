@@ -1,9 +1,8 @@
 from functools import reduce
-import math
-from typing import List, Optional, Tuple
+from typing import Tuple
 
 import torch
-from torch import nn, Tensor
+from torch import Tensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32, _n_ones
 from torchao.prototype.mx_formats.constants import F6_E3M2_MAX
@@ -321,7 +320,7 @@ class QuantLlmLinearWeight(Tensor):
     _implements = classmethod(_implements)
 
     @staticmethod
-    def new(cls, fpx_data: Tensor, scale: Tensor, ebits: int, mbits: int):
+    def __new__(cls, fpx_data: Tensor, scale: Tensor, ebits: int, mbits: int):
         assert fpx_data.ndim == 2
         assert fpx_data.dtype == torch.uint8
         shape = (fpx_data.shape[0], fpx_data.shape[1] // (1 + ebits + mbits) * 8)
@@ -333,7 +332,7 @@ class QuantLlmLinearWeight(Tensor):
             requires_grad=False,
         )
 
-    def init(self, fpx_data: Tensor, scale: Tensor, ebits: int, mbits: int):
+    def __init__(self, fpx_data: Tensor, scale: Tensor, ebits: int, mbits: int):
         self.fpx_data = fpx_data
         self.scale = scale
         self.ebits = ebits
@@ -355,7 +354,7 @@ class QuantLlmLinearWeight(Tensor):
         output_dtype = output_dtype or torch.get_default_dtype()
         return _from_tc_fpx(self.fpx_data, self.ebits, self.mbits) * self.scale.view(-1, 1)
 
-    def repr(self):
+    def __repr__(self):
         dtype = f"fp{1 + self.ebits + self.mbits}_e{self.ebits}m{self.mbits}"
         return (
             f"{self.__class__.name}(dtype={dtype}, shape={self.shape}, "
@@ -420,81 +419,14 @@ def _(func, *args, **kwargs):
     return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.detach))
 
 
-class QuantLlmLinear(nn.Module):
-    """Quant-LLM Linear layer as described in https://arxiv.org/pdf/2401.14112.
-    """
-
-    def __init__(
-        self,
-        ebits: int,
-        mbits: int,
-        weight: Tensor,
-        scales: Tensor,
-        bias: Optional[Tensor] = None,
-    ) -> None:
-        super().__init__()
-        self.register_buffer("weight", weight)
-        self.register_buffer("scales", scales)
-        self.register_buffer("bias", bias)
-        self.out_features = weight.shape[0]
-        self.in_features = weight.shape[1] // (1 + ebits + mbits) * 8
-        self.ebits = ebits
-        self.mbits = mbits
-
-    def forward(self, x: Tensor) -> Tensor:
-        splitK = self.get_split_k(math.prod(x.shape[:-1]), self.out_features)
-        out = quant_llm_linear(
-            self.ebits,
-            self.mbits,
-            x.view(-1, self.in_features).half(),
-            self.weight,
-            self.scales,
-            splitK=splitK,
-        )
-        if self.bias is not None:
-            out = out + self.bias
-        return out.view(*x.shape[:-1], self.out_features).to(x.dtype)
-
-    @staticmethod
-    def get_split_k(bsize: int, out_dim: int) -> int:
-        # https://github.com/microsoft/DeepSpeed/blob/3a3a6db3332e339cc9fd94efd4982f6d60635a3d/deepspeed/inference/v2/kernels/core_ops/cuda_linear/cuda_linear.py
-        return _SPLIT_K_MAP[(bsize - 1) // 64].get(out_dim, 1) if bsize <= 768 else 1
-
-    @classmethod
-    def from_float(cls, linear: nn.Linear, ebits: int, mbits: int):
-        assert (linear.in_features % 64 == 0) and (linear.out_features % 256 == 0)
-
-        fpx_weight, scale = _to_scaled_tc_fpx(linear.weight.detach(), ebits, mbits)
-        bias = linear.bias.detach().half() if linear.bias is not None else None
-        return cls(ebits, mbits, fpx_weight, scale, bias)
-
-    def extra_repr(self) -> str:
-        return (
-            f'in_features={self.in_features}'
-            f', out_features={self.out_features}'
-            f', bias={self.bias is not None}'
-            f', ebits={self.ebits}'
-            f', mbits={self.mbits}'
-        )
+def quant_llm_fpx_weight_only(ebits: int, mbits: int):
+    def apply_quant_llm(weight: Tensor) -> Tensor:
+        out_dim, in_dim = weight.shape
+        if (in_dim % 64 != 0) or (out_dim % 256 != 0):
+            return weight
+        return QuantLlmLinearWeight.from_float(weight, ebits, mbits)
+    return apply_quant_llm
 
 
-def convert_quant_llm(
-    model: nn.Module,
-    ebits: int,
-    mbits: int,
-    skip_fqn_list: Optional[List[str]] = None,
-    cur_fqn: str = "",
-) -> None:
-    for name, child in model.named_children():
-        new_fqn = name if cur_fqn == "" else f"{cur_fqn}.{name}"
-
-        if ((skip_fqn_list is None) or (new_fqn not in skip_fqn_list)) and (isinstance(child, nn.Linear)):
-            if (child.in_features % 64 == 0) and (child.out_features % 256 == 0):
-                new_child = QuantLlmLinear.from_float(child, ebits, mbits)
-                setattr(model, name, new_child)
-        else:
-            convert_quant_llm(child, ebits, mbits, skip_fqn_list, new_fqn)
-
-
-def convert_fp6_llm(model: nn.Module, skip_fqn_list: Optional[List[str]] = None, cur_fqn: str = "") -> None:
-    return convert_quant_llm(model, 3, 2, skip_fqn_list=skip_fqn_list, cur_fqn=cur_fqn)
+def fp6_llm_weight_only():
+    return quant_llm_fpx_weight_only(3, 2)
