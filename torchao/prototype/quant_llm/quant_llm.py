@@ -346,7 +346,7 @@ _SPLIT_K_MAP = [
 
 
 class QuantLlmLinearWeight(Tensor):
-    _implements = classmethod(_implements)
+    implements = classmethod(_implements)
 
     @staticmethod
     def __new__(cls, fpx_data: Tensor, scale: Tensor, ebits: int, mbits: int):
@@ -416,7 +416,7 @@ class QuantLlmLinearWeight(Tensor):
         raise NotImplementedError(f"{cls.name} dispatch: attempting to run {func}, this is not supported")
 
 
-@QuantLlmLinearWeight._implements(torch.nn.functional.linear)
+@QuantLlmLinearWeight.implements(torch.nn.functional.linear)
 def _(*args, **kwargs):
     act = args[0]
     weight = args[1]
@@ -445,7 +445,7 @@ def _(*args, **kwargs):
     return out.view(*act.shape[:-1], out_dim).to(act.dtype)
 
 
-@QuantLlmLinearWeight._implements(torch.ops.aten.detach.default)
+@QuantLlmLinearWeight.implements(torch.ops.aten.detach.default)
 def _(func, *args, **kwargs):
     return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.detach))
 
