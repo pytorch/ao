@@ -410,7 +410,9 @@ class QuantLlmLinearWeight(Tensor):
 
 @QuantLlmLinearWeight._implements(torch.nn.functional.linear)
 def _(*args, **kwargs):
-    act, weight, bias = args
+    act = args[0]
+    weight = args[1]
+    bias = args[2] if len(args) >= 3 else None
     assert isinstance(weight, QuantLlmLinearWeight)
 
     out_dim, in_dim = weight.shape

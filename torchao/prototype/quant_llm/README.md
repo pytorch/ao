@@ -6,7 +6,7 @@ This is a FP16 x FPx mixed matmul kernel optimized for io bound workloads per [F
 
 ```python
 from torchao.quantization.quant_api import quantize
-from torchao.prototype.fp6_llm import fp6_llm_weight_only, quant_llm_fpx_weight_only
+from torchao.prototype.quant_llm import fp6_llm_weight_only, quant_llm_fpx_weight_only
 
 model = ...
 model.half()  # not necessary, but recommeneded to maintain accuracy
@@ -23,7 +23,7 @@ It's also possible to pre-process the weight and call the kernel directly.
 
 ```python
 import torch
-from torchao.prototype.fp6_llm.fp6_llm import _to_scaled_tc_fpx
+from torchao.prototype.quant_llm import to_scaled_tc_fpx
 from torchao.ops import quant_llm_linear
 
 fp32_weight = torch.randn(1024, 512).cuda()
@@ -31,7 +31,7 @@ ebits, mbits = 3, 2
 
 # pre-process the weight. this will quantize the weight to FP6 and pack it in a special
 # layout for tensor cores. refer to paper for more details.
-fp6_weight, scales = _to_scaled_tc_fpx(fp32_weight, ebits, mbits)
+fp6_weight, scales = to_scaled_tc_fpx(fp32_weight, ebits, mbits)
 
 fp16_act = torch.randn(1, 512).cuda().half()
 outputs = quant_llm_linear(ebits, mbits, fp16_act, fp6_weight, scales)  # shape (1, 1024)
