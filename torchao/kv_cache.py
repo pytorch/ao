@@ -10,9 +10,9 @@ HANDLED_FUNCTIONS = {}
 class PagedTensor(object):
     def __init__(
         self,
-        cache: torch.Tensor,
-        block_tables: torch.Tensor,
-        context_lens: torch.Tensor,
+        cache: torch.Tensor, #The cache tensor from the PagedAttentionCache object, which is shared accross iterations.
+        block_tables: torch.Tensor,#The block tables for each sequence in the batch which is used to mapping logical block to physical blocks.
+        context_lens: torch.Tensor,#The context lens for each sequence in the batch.
     ):
         self.block_tables = block_tables
         self.cache = cache

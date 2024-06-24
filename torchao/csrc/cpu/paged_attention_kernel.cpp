@@ -21,7 +21,7 @@
 #include <torch/all.h>
 #include <torch/csrc/autograd/function.h>
 
-#define PARTITION_SIZE 256
+#define SEQ_PARTITION_SIZE 256
 
 namespace torchao {
 
@@ -234,7 +234,9 @@ void paged_attention_kernel(at::Tensor &out, at::Tensor &query,
                             const double scale, at::Tensor &block_tables, 
                             at::Tensor &context_lens,
                             c10::optional<at::Tensor> attn_mask) {
-
+  
+  TORCH_CHECK(query.size(2) == 1,
+              "Paged attention: only seqlen 1 is supported for query");
   using accum_t = at::opmath_type<scalar_t>;
   using Vec = at::vec::Vectorized<accum_t>;
   const auto dtype = query.scalar_type();
@@ -285,16 +287,16 @@ void paged_attention_kernel(at::Tensor &out, at::Tensor &query,
                          : 0;
   int64_t mStrideM = has_attn_mask ? attn_mask.value().stride(2) : 0;
   
-  auto max_num_partitions =
-      (max_context_len + PARTITION_SIZE - 1) / PARTITION_SIZE;
+  auto max_num_seq_partitions =
+      (max_context_len + SEQ_PARTITION_SIZE - 1) / SEQ_PARTITION_SIZE;
 
-  auto max_logits = at::empty({batch_size, num_heads, max_num_partitions + 1},
+  auto max_logits = at::empty({batch_size, num_heads, max_num_seq_partitions + 1},
                               query.options().dtype(accumulate_dtype));
 
-  auto exp_sum = at::empty({batch_size, num_heads, max_num_partitions + 1},
+  auto exp_sum = at::empty({batch_size, num_heads, max_num_seq_partitions + 1},
                            query.options().dtype(accumulate_dtype));
 
-  auto tmp_out = at::empty({batch_size, num_heads, max_num_partitions, head_size},
+  auto tmp_out = at::empty({batch_size, num_heads, max_num_seq_partitions, head_size},
                            query.options().dtype(accumulate_dtype));
 
   auto tmp_out_ptr = tmp_out.data_ptr<accum_t>();
@@ -309,16 +311,16 @@ void paged_attention_kernel(at::Tensor &out, at::Tensor &query,
   auto tmp_out_strideH = tmp_out.stride(1);
   auto tmp_out_strideS = tmp_out.stride(2);
 #pragma omp parallel for collapse(3) schedule(static, 1)
-  for (auto partition_id = 0; partition_id < max_num_partitions;
+  for (auto partition_id = 0; partition_id < max_num_seq_partitions;
        partition_id++) {
     for (auto head_id = 0; head_id < num_heads; head_id++) {
       for (auto seq_id = 0; seq_id < batch_size; seq_id++) {
         auto context_len = context_lens_ptr[seq_id];
-        auto partition_start = partition_id * PARTITION_SIZE;
+        auto partition_start = partition_id * SEQ_PARTITION_SIZE;
         if (partition_start >= context_len)
           continue;
         auto partition_end =
-            std::min(partition_start + PARTITION_SIZE, context_len);
+            std::min(partition_start + SEQ_PARTITION_SIZE, context_len);
         auto token_num = partition_end - partition_start;
         auto block_num = (token_num + block_size - 1) / block_size;
         auto logical_block_start = partition_start / block_size;
@@ -333,7 +335,7 @@ void paged_attention_kernel(at::Tensor &out, at::Tensor &query,
         auto tmp_out_start = tmp_out_ptr + seq_id * tmp_out_strideN +
                              head_id * tmp_out_strideH +
                              partition_id * tmp_out_strideS;
-        accum_t alignas(64) logits[PARTITION_SIZE] = {0};
+        accum_t alignas(64) logits[SEQ_PARTITION_SIZE] = {0};
         auto logits_position = 0;
         // 1)calculate the matmul(query, key) for this partition
         for (auto logical_block_id = logical_block_start;
@@ -411,9 +413,9 @@ void paged_attention_kernel(at::Tensor &out, at::Tensor &query,
       auto global_max = -std::numeric_limits<accum_t>::infinity();
       auto global_exp_sum = 0.0;
       auto context_len = context_lens_ptr[seq_id];
-      auto partition_num = (context_len + PARTITION_SIZE - 1) / PARTITION_SIZE;
+      auto partition_num = (context_len + SEQ_PARTITION_SIZE - 1) / SEQ_PARTITION_SIZE;
       // calculate the global max and exp_sum for this head
-      for (auto partition_id = 0; partition_id < max_num_partitions;
+      for (auto partition_id = 0; partition_id < max_num_seq_partitions;
            partition_id++) {
         if (partition_id >= partition_num)
           break;
@@ -440,7 +442,7 @@ void paged_attention_kernel(at::Tensor &out, at::Tensor &query,
       if (partition_num > 1) {
         for (auto partition_id = 1; partition_id < partition_num;
              partition_id++) {
-          if (partition_id * PARTITION_SIZE >= context_len)
+          if (partition_id * SEQ_PARTITION_SIZE >= context_len)
             break;
           auto tmp_out_start = tmp_out_ptr + seq_id * tmp_out_strideN +
                                head_id * tmp_out_strideH +
@@ -485,8 +487,8 @@ void paged_attention_kernel_impl(
     at::Tensor &block_tables, // [batch_size, max_num_blocks_per_seq]
     at::Tensor &context_lens, // [batch_size]
     c10::optional<at::Tensor> attn_mask) {
-  TORCH_CHECK(PARTITION_SIZE % key_cache.size(2) == 0,
-              "Paged attention: The PARTION_SIZE:%d should be divisible by block_size: %d", PARTITION_SIZE, key_cache.size(2));
+  TORCH_CHECK(SEQ_PARTITION_SIZE % key_cache.size(2) == 0,
+              "Paged attention: The PARTION_SIZE:%d should be divisible by block_size: %d", SEQ_PARTITION_SIZE, key_cache.size(2));
   TORCH_CHECK(query.size(2) == 1,
               "Paged attention: only seqlen 1 is supported for query");
   TORCH_CHECK(query.scalar_type() == key_cache.scalar_type() &&
