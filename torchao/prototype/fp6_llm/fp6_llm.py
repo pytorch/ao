@@ -4,9 +4,11 @@ from typing import List, Optional, Tuple
 
 import torch
 from torch import nn, Tensor
+from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32, _n_ones
 from torchao.prototype.mx_formats.constants import F6_E3M2_MAX
 from torchao.ops import quant_llm_linear
+from torchao.dtypes.utils import _implements, _ATEN_OP_OR_TORCH_FN_TABLE
 
 
 def _pack(x: Tensor, n_bits: int) -> Tensor:
@@ -160,7 +162,7 @@ def from_tc_float6_e3m2(tensor: Tensor, dtype: torch.dtype = torch.float32) -> T
     assert (M % 64 == 0) and (N % 64 == 0)
     size_2bit = M * N // 4
     size_4bit = M * N // 2
-    tensor = tensor.view(-1).view(torch.uint8)
+    tensor = tensor.view(-1)
     assert tensor.numel() == size_2bit + size_4bit
 
     tensor_2bit, tensor_4bit = tensor.split([size_2bit, size_4bit])
@@ -315,6 +317,109 @@ _SPLIT_K_MAP = [
 ]
 
 
+class QuantLlmLinearWeight(Tensor):
+    _implements = classmethod(_implements)
+
+    @staticmethod
+    def new(cls, fpx_data: Tensor, scale: Tensor, ebits: int, mbits: int):
+        assert fpx_data.ndim == 2
+        assert fpx_data.dtype == torch.uint8
+        shape = (fpx_data.shape[0], fpx_data.shape[1] // (1 + ebits + mbits) * 8)
+
+        return Tensor._make_wrapper_subclass(
+            cls,
+            shape,
+            device=fpx_data.device,
+            requires_grad=False,
+        )
+
+    def init(self, fpx_data: Tensor, scale: Tensor, ebits: int, mbits: int):
+        self.fpx_data = fpx_data
+        self.scale = scale
+        self.ebits = ebits
+        self.mbits = mbits
+
+    def __tensor_flatten__(self):
+        return ["fpx_data", "scale"], [self.ebits, self.mbits]
+
+    @classmethod
+    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride):
+        return cls(tensor_data_dict["fpx_data"], tensor_data_dict["scale"], *tensor_attributes)
+
+    @classmethod
+    def from_float(cls, input_float: Tensor, ebits: int, mbits: int):
+        fpx_data, scale = _to_scaled_tc_fpx(input_float, ebits, mbits)
+        return cls(fpx_data, scale, ebits, mbits)
+
+    def dequantize(self, output_dtype=None):
+        output_dtype = output_dtype or torch.get_default_dtype()
+        return _from_tc_fpx(self.fpx_data, self.ebits, self.mbits) * self.scale.view(-1, 1)
+
+    def repr(self):
+        dtype = f"fp{1 + self.ebits + self.mbits}_e{self.ebits}m{self.mbits}"
+        return (
+            f"{self.__class__.name}(dtype={dtype}, shape={self.shape}, "
+            f"device={self.device}, requires_grad={self.requires_grad})"
+        )
+
+    def _apply_fn_to_data(self, fn):
+        return self.__class__(
+            fn(self.fpx_data),
+            fn(self.scale),
+            self.ebits,
+            self.mbits,
+        )
+
+    @classmethod
+    def __torch_function__(cls, func, types, args=(), kwargs=None):
+        kwargs = {} if kwargs is None else kwargs
+
+        if func in _ATEN_OP_OR_TORCH_FN_TABLE[cls]:
+            return _ATEN_OP_OR_TORCH_FN_TABLE[cls][func](*args, **kwargs)
+
+        with torch._C.DisableTorchFunctionSubclass():
+            return func(*args, **kwargs)
+
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs):
+        if func in _ATEN_OP_OR_TORCH_FN_TABLE[cls]:
+            return _ATEN_OP_OR_TORCH_FN_TABLE[cls][func](func, *args, **kwargs)
+
+        raise NotImplementedError(f"{cls.name} dispatch: attempting to run {func}, this is not supported")
+
+
+@QuantLlmLinearWeight._implements(torch.nn.functional.linear)
+def _(*args, **kwargs):
+    act, weight, bias = args
+    assert isinstance(weight, QuantLlmLinearWeight)
+
+    out_dim, in_dim = weight.shape
+    act_reshaped = act.view(-1, in_dim).half()
+
+    # https://github.com/microsoft/DeepSpeed/blob/3a3a6db3332e339cc9fd94efd4982f6d60635a3d/deepspeed/inference/v2/kernels/core_ops/cuda_linear/cuda_linear.py
+    bsize = act_reshaped.shape[0]
+    splitK = _SPLIT_K_MAP[(bsize - 1) // 64].get(out_dim, 1) if bsize <= 768 else 1
+
+    out = quant_llm_linear(
+        weight.ebits,
+        weight.mbits,
+        act_reshaped,
+        weight.fpx_data,
+        weight.scale,
+        splitK=splitK,
+    )
+
+    if bias is not None:
+        out += bias
+
+    return out.view(*act.shape[:-1], out_dim).to(act.dtype)
+
+
+@QuantLlmLinearWeight._implements(torch.ops.aten.detach.default)
+def _(func, *args, **kwargs):
+    return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.detach))
+
+
 class QuantLlmLinear(nn.Module):
     """Quant-LLM Linear layer as described in https://arxiv.org/pdf/2401.14112.
     """
@@ -328,7 +433,7 @@ class QuantLlmLinear(nn.Module):
         bias: Optional[Tensor] = None,
     ) -> None:
         super().__init__()
-        self.register_buffer("weight", weight.view(torch.int32))
+        self.register_buffer("weight", weight)
         self.register_buffer("scales", scales)
         self.register_buffer("bias", bias)
         self.out_features = weight.shape[0]

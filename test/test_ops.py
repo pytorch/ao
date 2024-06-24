@@ -23,7 +23,7 @@ class TestOps(TestCase):
     def _create_fpx_inputs(self, ebits: int, mbits: int, BS: int, OC: int, IC: int, device):
         # Randomly initialize each byte
         nbits = 1 + ebits + mbits
-        fpx_weight = torch.randint(256, (OC, IC // 8 * nbits), dtype=torch.uint8).view(torch.int32)
+        fpx_weight = torch.randint(256, (OC, IC // 8 * nbits), dtype=torch.uint8)
         scale = torch.rand(OC).half() + 0.5
         fp16_act = torch.rand(BS, IC).half() + 0.5
         return fpx_weight.to(device), scale.to(device), fp16_act.to(device)

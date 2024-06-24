@@ -119,6 +119,7 @@ cudaError_t fpx_linear_kernel(cudaStream_t    stream,
 #include <torch/library.h>
 
 namespace torchao {
+// MODIFICATION NOTE: dtype of _weights is changed to uint8
 /*
 Computes FPx-FP16 GEMM (PyTorch interface).
 
@@ -128,7 +129,7 @@ After Equivalent transformation    :    trans(Out) = W * trans(In). Note that we
 
 [Inputs]
   _in_feats:  tensor of shape [B, IC];                  // half 
-  _weights:   int tensor of shape [OC, IC // 32 * x];   // x INT32 words contains 32 FPx weights.
+  _weights:   int tensor of shape [OC, IC // 8 * x];    // x UINT8 words contains 8 FPx weights.
   _scales:    tensor of shape [OC];                     // half
   splitK:     spliting the MatMul problem along K dimension for higher GPU utilization, default 1.
 [Outputs]
@@ -142,18 +143,18 @@ torch::Tensor fp_eXmY_linear_forward_cuda(
     torch::Tensor   _scales,
     int64_t         splitK=1)
 {
-    const int64_t NBITS = 1 + EXPONENT + MANTISSA;
+    const int64_t NBITS   = 1 + EXPONENT + MANTISSA;
     int num_in_feats      = _in_feats.size(0);
     int num_in_channels   = _in_feats.size(1);
     int num_out_channels  = _weights.size(0);
     TORCH_CHECK(num_in_channels % 64 == 0, "Expected in_features to be a multiple of 64, but received ", num_in_channels);
-    TORCH_CHECK((num_in_channels / 32 * NBITS) == _weights.size(1));    // Making sure the K dimension is matched.
+    TORCH_CHECK((num_in_channels / 8 * NBITS) == _weights.size(1));    // Making sure the K dimension is matched.
     //
     int M = num_out_channels;
     int K = num_in_channels;
     int N = num_in_feats;
     // Input Tensors
-    auto weight = reinterpret_cast<const uint4*>(_weights.data_ptr<int>());  // weights is [OC, IC] but in FP6.
+    auto weight = reinterpret_cast<const uint4*>(_weights.data_ptr<uint8_t>());  // weights is [OC, IC] but in FP6.
     auto in_feats = reinterpret_cast<const half*>(_in_feats.data_ptr<at::Half>());
     auto scales   = reinterpret_cast<const half*>(_scales.data_ptr<at::Half>());
     // Output Tensors
@@ -176,12 +177,12 @@ torch::Tensor fp_eXmY_linear_forward_cuda(
         fpx_linear_kernel<2, 3>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
     else if (EXPONENT == 3 && MANTISSA == 1)
         fpx_linear_kernel<3, 1>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
-    else if (EXPONENT == 2 && MANTISSA == 1)
-        fpx_linear_kernel<2, 1>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
-    else if (EXPONENT == 3 && MANTISSA == 0)
-        fpx_linear_kernel<3, 0>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
-    else if (EXPONENT == 2 && MANTISSA == 0)
-        fpx_linear_kernel<2, 0>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
+    // else if (EXPONENT == 2 && MANTISSA == 1)
+    //     fpx_linear_kernel<2, 1>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
+    // else if (EXPONENT == 3 && MANTISSA == 0)
+    //     fpx_linear_kernel<3, 0>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
+    // else if (EXPONENT == 2 && MANTISSA == 0)
+    //     fpx_linear_kernel<2, 0>(0, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
 
     else
         TORCH_CHECK(false, "FP", NBITS, " E", EXPONENT, "M", MANTISSA, " is not supported.");
