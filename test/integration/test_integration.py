@@ -1195,6 +1195,7 @@ class TestAutoQuant(unittest.TestCase):
         ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
     def test_autoquant_compile(self, device, dtype, m1, m2, k, n):
+        assert torch._inductor.config.coordinate_descent_tuning == False, "coordinate descent tuning was enabled A"
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
@@ -1202,17 +1203,19 @@ class TestAutoQuant(unittest.TestCase):
                 self.skipTest(f"bfloat16 requires sm80+")
             if m1 == 1 or m2 == 1:
                 self.skipTest(f"Shape {(m1, m2, k, n)} requires sm80+")
+        assert torch._inductor.config.coordinate_descent_tuning == False, "coordinate descent tuning was enabled B"
         model = torch.nn.Sequential(
             torch.nn.ReLU(),
             torch.nn.Linear(k,n),
             torch.nn.ReLU(),
         ).to(device).to(dtype)
+        assert torch._inductor.config.coordinate_descent_tuning == False, "coordinate descent tuning was enabled C"
         example_input = torch.randn(m1, k, device=device, dtype=dtype)
         example_input2 = torch.randn(m2, k, device=device, dtype=dtype)
         out = model(example_input)
 
         mod = torchao.autoquant(torch.compile(model), manual=True, set_inductor_config=False)
-        assert torch._inductor.config.coordinate_descent_tuning == False
+        assert torch._inductor.config.coordinate_descent_tuning == False, "coordinate descent tuning was enabled D"
         mod(example_input)
         mod(example_input2)
         mod.finalize_autoquant()
