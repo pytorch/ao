@@ -1212,7 +1212,7 @@ class TestAutoQuant(unittest.TestCase):
         example_input2 = torch.randn(m2, k, device=device, dtype=dtype)
         out = model(example_input)
 
-        mod = torchao.autoquant(torch.compile(model), manual=True)
+        mod = torchao.autoquant(torch.compile(model), manual=True, set_inductor_config=False)
         mod(example_input)
         mod(example_input2)
         mod.finalize_autoquant()
