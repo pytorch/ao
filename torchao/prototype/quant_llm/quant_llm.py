@@ -386,7 +386,7 @@ class QuantLlmLinearWeight(Tensor):
     def __repr__(self):
         dtype = f"fp{1 + self.ebits + self.mbits}_e{self.ebits}m{self.mbits}"
         return (
-            f"{self.__class__.name}(dtype={dtype}, shape={self.shape}, "
+            f"{self.__class__.__name__}(dtype={dtype}, shape={self.shape}, "
             f"device={self.device}, requires_grad={self.requires_grad})"
         )
 
