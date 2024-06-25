@@ -30,10 +30,6 @@ of the activations that the different linear layers see, it then benchmarks thes
 import torch
 import torchao
 
-# inductor settings which improve torch.compile performance for quantized modules
-torch._inductor.config.force_fuse_int_mm_with_mul = True
-torch._inductor.config.use_mixed_mm = True
-
 # Plug in your model and example input
 model = torch.nn.Sequential(torch.nn.Linear(32, 64)).cuda().to(torch.bfloat16)
 input = torch.randn(32,32, dtype=torch.bfloat16, device='cuda')
@@ -107,9 +103,6 @@ m_bf16 = torch.compile(m_bf16, mode='max-autotune')
 group_size = 32
 m = quantize(m, int4_weight_only(group_size=group_size))
 
-torch._inductor.config.force_fuse_int_mm_with_mul = True
-torch._inductor.config.use_mixed_mm = True
-
 # temporary workaround for tensor subclass + torch.compile
 from torchao.quantization.utils import unwrap_tensor_subclass
 m = unwrap_tensor_subclass(m)
@@ -162,6 +155,9 @@ m = torch.export.export(m_unwrapped, example_inputs).module()
 # aot_compile
 torch._export.aot_compile(m_unwrapped, example_inputs)
 ```
+
+### Automatic Inductor Configuration
+The `quantize` and `autoquant` apis now automatically use our recommended inductor configuration setings. You can mimic the same configuration settings for your own experiments by using the `torchao.quantization.utils.recommended_inductor_config_setter` to replicate our recommended configuration settings. Alternatively if you wish to disable these recommended settings, you can use the key word argument `set_inductor_config` and set it to false in the `quantize` or `autoquant` apis to prevent assignment of those configuration settings. You can also overwrite these configuration settings after they are assigned if you so desire, as long as they are overwritten before passing any inputs to the torch.compiled model. This means that previous flows which referenced a variety of inductor configurations that needed to be set are now outdated, though continuing to manually set those same inductor configurations is unlikely to cause any issues.
 
 ### Other Available Quantization Techniques
 #### A8W8 Dynamic Quantization

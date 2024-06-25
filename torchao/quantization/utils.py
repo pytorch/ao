@@ -36,6 +36,7 @@ __all__ = [
     "groupwise_affine_dequantize_tensor",
     "per_token_dynamic_quant",
     "get_group_qparams_symmetric",
+    "recommended_inductor_config_setter"
 ]
 
 try:
@@ -456,3 +457,20 @@ def per_token_dynamic_quant(input: torch.Tensor) -> torch.Tensor:
         input, scales, zero_points, quant_min, quant_max, torch.int8, orig_dtype
     )
     return input.to(orig_dtype)
+
+def recommended_inductor_config_setter():
+    """
+    Set inductor config to use the following optimizations which have been showed to improve performance for quantized models:
+        coordinate_descent_tuning = True
+        coordinate_descent_check_all_directions = True
+        force_fuse_int_mm_with_mul = True
+        fx_graph_cache = True  
+        triton.unique_kernel_names = True
+        torch.set_float32_matmul_precision("high")
+    """
+    torch._inductor.config.coordinate_descent_tuning = True
+    torch._inductor.config.coordinate_descent_check_all_directions = True
+    torch._inductor.config.force_fuse_int_mm_with_mul = True  
+    torch._inductor.config.fx_graph_cache = True  
+    torch._inductor.config.triton.unique_kernel_names = True
+    torch.set_float32_matmul_precision("high")

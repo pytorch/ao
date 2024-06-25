@@ -23,9 +23,6 @@ import time
 from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
 from torchao._models.llama.model import prepare_inputs_for_model
 
-torch._inductor.config.fx_graph_cache = True
-torch._inductor.config.force_fuse_int_mm_with_mul = True
-
 def run_evaluation(
     checkpoint_path: Path,
     tasks: List[str],
@@ -41,6 +38,9 @@ def run_evaluation(
     pad_calibration_inputs: Optional[bool] = False,
 ):
     """Runs the evaluation of a model using LM Eval."""
+
+    torchao.quantization.utils.recommended_inductor_config_setter()
+
     assert checkpoint_path.is_file(), checkpoint_path
     tokenizer_path = checkpoint_path.parent / "tokenizer.model"
     assert tokenizer_path.is_file(), str(tokenizer_path)

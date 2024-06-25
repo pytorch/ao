@@ -98,21 +98,21 @@ COMMON_DEVICE_DTYPE = list(itertools.product(COMMON_DEVICES, COMMON_DTYPES)).cop
 
 def _int8wo_api(mod):
     if TORCH_VERSION_AFTER_2_4:
-        quantize(mod, int8_weight_only())
+        quantize(mod, int8_weight_only(), set_inductor_config=False)
         unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int8_woqtensors(mod)
 
 def _int8da_int8w_api(mod):
     if TORCH_VERSION_AFTER_2_4:
-        quantize(mod, int8_dynamic_activation_int8_weight())
+        quantize(mod, int8_dynamic_activation_int8_weight(), set_inductor_config=False)
         unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int8_dqtensors(mod)
 
 def _int4wo_api(mod):
     if TORCH_VERSION_AFTER_2_4:
-        quantize(mod, int4_weight_only())
+        quantize(mod, int4_weight_only(), set_inductor_config=False)
         unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int4_woqtensors(mod)
@@ -124,6 +124,13 @@ TENSOR_SUBCLASS_APIS = [
     _int4wo_api,
 ]
 
+def undo_recommended_configs():
+    torch._inductor.config.coordinate_descent_tuning = False
+    torch._inductor.config.coordinate_descent_check_all_directions = False
+    torch._inductor.config.force_fuse_int_mm_with_mul = False  
+    torch._inductor.config.fx_graph_cache = False  
+    torch._inductor.config.triton.unique_kernel_names = False
+    torch.set_float32_matmul_precision("highest")
 
 def combine_parameters(a, b):
     new_tuples = []
@@ -689,6 +696,7 @@ class TestSubclass(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_int8_weight_only_quant_subclass(self, device, dtype):
+        undo_recommended_configs()
         self._test_lin_weight_subclass_impl(
             Int8WeightOnlyQuantizedLinearWeight.from_float, device, 40, test_dtype=dtype
         )
@@ -794,6 +802,7 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_int8_weight_only_quant_subclass_api(self, device, dtype):
+        undo_recommended_configs()
         self._test_lin_weight_subclass_api_impl(
             _int8wo_api, device, 40, test_dtype=dtype
         )
@@ -879,6 +888,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
     @torch.no_grad()
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_weight_only_quant_force_mixed_mm(self, device, dtype):
+        undo_recommended_configs()
         if device != "cuda":
             self.skipTest(f"weight_only_quant_force_mixed_mm can't be constructed on {device}")
         if dtype == torch.bfloat16 and torch.cuda.get_device_capability() < (8, 0):
@@ -907,6 +917,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_weight_only_quant_use_mixed_mm(self, device, dtype):
+        undo_recommended_configs()
         if device != "cuda":
             self.skipTest(f"weight_only_quant_force_mixed_mm can't be constructed on {device}")
         if dtype == torch.bfloat16 and torch.cuda.get_device_capability() < (8, 0):
@@ -1004,6 +1015,7 @@ class TestSaveLoadMeta(unittest.TestCase):
     @torch.no_grad()
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_save_load_int8woqtensors(self, device, dtype):
+        undo_recommended_configs()
         self._test_handle_save_load_meta_impl(_int8wo_api, device, test_dtype=dtype)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
@@ -1153,6 +1165,7 @@ class TestAutoQuant(unittest.TestCase):
         ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
     def test_autoquant_one_input(self, device, dtype, m, k, n):
+        undo_recommended_configs()
         print("(m, k, n): ", (m, k, n))
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
@@ -1173,7 +1186,7 @@ class TestAutoQuant(unittest.TestCase):
             torch.nn.ReLU(),
         ).to(device).to(dtype)
         out = model(example_input)
-        torchao.autoquant(model)
+        torchao.autoquant(model, set_inductor_config=False)
         out2 = model(example_input)
         sqnr = SQNR(out, out2)
         self.assertTrue(sqnr >= 30)
@@ -1186,6 +1199,7 @@ class TestAutoQuant(unittest.TestCase):
         ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
     def test_autoquant_compile(self, device, dtype, m1, m2, k, n):
+        undo_recommended_configs()
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
@@ -1202,7 +1216,7 @@ class TestAutoQuant(unittest.TestCase):
         example_input2 = torch.randn(m2, k, device=device, dtype=dtype)
         out = model(example_input)
 
-        mod = torchao.autoquant(torch.compile(model), manual=True)
+        mod = torchao.autoquant(torch.compile(model), manual=True, set_inductor_config=False)
         mod(example_input)
         mod(example_input2)
         mod.finalize_autoquant()
@@ -1214,6 +1228,7 @@ class TestAutoQuant(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
     def test_autoquant_manual(self, device, dtype):
+        undo_recommended_configs()
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
@@ -1229,7 +1244,7 @@ class TestAutoQuant(unittest.TestCase):
         example_input2 = torch.randn(m2, k, device=device, dtype=dtype)
         out = model(example_input)
 
-        mod = torchao.autoquant(torch.compile(model), manual=True)
+        mod = torchao.autoquant(torch.compile(model), manual=True, set_inductor_config=False)
         mod(example_input)
         mod(example_input2)
         mod.finalize_autoquant()
@@ -1237,7 +1252,7 @@ class TestAutoQuant(unittest.TestCase):
         sqnr = SQNR(out, out2)
         self.assertTrue(sqnr >= 30)
 
-        mod2 = torchao.autoquant(model, manual=True)
+        mod2 = torchao.autoquant(model, manual=True, set_inductor_config=False)
         mod2(example_input)
         mod2(example_input2)
         mod2.finalize_autoquant()
@@ -1254,6 +1269,7 @@ class TestAutoQuant(unittest.TestCase):
         ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
     def test_autoquant_kwargs(self, device, dtype, m1, m2, k, n):
+        undo_recommended_configs()
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
@@ -1280,7 +1296,7 @@ class TestAutoQuant(unittest.TestCase):
         }
         out = model(**example_input)
 
-        mod = torchao.autoquant(torch.compile(model))
+        mod = torchao.autoquant(torch.compile(model), set_inductor_config=False)
         mod(**example_input)
 
         out2 = mod(**example_input)
@@ -1293,6 +1309,7 @@ class TestAutoQuant(unittest.TestCase):
         ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
     def test_autoquant_double_access(self, device, dtype, m, k, n):
+        undo_recommended_configs()
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
@@ -1316,7 +1333,7 @@ class TestAutoQuant(unittest.TestCase):
         x_in = torch.randn(m, k, device=device, dtype=dtype)
         model = DoubleAccess().to(device).to(dtype)
         model(x_in)
-        torchao.autoquant(model)
+        torchao.autoquant(model, set_inductor_config=False)
         assert not isinstance(model.lin1.weight.weight, AutoQuantizableLinearWeight)
         model(x_in)
 
@@ -1443,7 +1460,7 @@ class TestUtils(unittest.TestCase):
         qtensor_class_list = (
             AQWeightOnlyQuantizedLinearWeight2,
         )
-        mod = torchao.autoquant(torch.compile(model), qtensor_class_list = qtensor_class_list)
+        mod = torchao.autoquant(torch.compile(model), qtensor_class_list = qtensor_class_list, set_inductor_config=False)
         mod(example_input)
         size2 = torchao.utils.get_model_size_in_bytes(mod)
         self.assertTrue(size2 < size)
