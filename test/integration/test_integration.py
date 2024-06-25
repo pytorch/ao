@@ -124,6 +124,13 @@ TENSOR_SUBCLASS_APIS = [
     _int4wo_api,
 ]
 
+def undo_recommended_configs():
+    torch._inductor.config.coordinate_descent_tuning = False
+    torch._inductor.config.coordinate_descent_check_all_directions = False
+    torch._inductor.config.force_fuse_int_mm_with_mul = False  
+    torch._inductor.config.fx_graph_cache = False  
+    torch._inductor.config.triton.unique_kernel_names = False
+    torch.set_float32_matmul_precision("highest")
 
 def combine_parameters(a, b):
     new_tuples = []
@@ -689,8 +696,7 @@ class TestSubclass(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_int8_weight_only_quant_subclass(self, device, dtype):
-        if dtype == torch.float32:
-            self.skipTest("Currently not working for float32")
+        undo_recommended_configs()
         self._test_lin_weight_subclass_impl(
             Int8WeightOnlyQuantizedLinearWeight.from_float, device, 40, test_dtype=dtype
         )
@@ -796,8 +802,7 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_int8_weight_only_quant_subclass_api(self, device, dtype):
-        if dtype == torch.float32:
-            self.skipTest("Currently not working for float32")
+        undo_recommended_configs()
         self._test_lin_weight_subclass_api_impl(
             _int8wo_api, device, 40, test_dtype=dtype
         )
@@ -883,10 +888,9 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
     @torch.no_grad()
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_weight_only_quant_force_mixed_mm(self, device, dtype):
+        undo_recommended_configs()
         if device != "cuda":
             self.skipTest(f"weight_only_quant_force_mixed_mm can't be constructed on {device}")
-        if dtype == torch.float32:
-            self.skipTest("currently not working for float32")
         if dtype == torch.bfloat16 and torch.cuda.get_device_capability() < (8, 0):
             self.skipTest("test requires SM capability of at least (8, 0).")
         from torch._inductor import config
@@ -913,12 +917,11 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_weight_only_quant_use_mixed_mm(self, device, dtype):
+        undo_recommended_configs()
         if device != "cuda":
             self.skipTest(f"weight_only_quant_force_mixed_mm can't be constructed on {device}")
         if dtype == torch.bfloat16 and torch.cuda.get_device_capability() < (8, 0):
             self.skipTest("test requires SM capability of at least (8, 0).")
-        if dtype == torch.float32:
-            self.skipTest("currently not working for float32")
         torch.manual_seed(0)
         from torch._inductor import config
         mixed_mm_key, mixed_mm_val = ("mixed_mm_choice", "triton") if TORCH_VERSION_AFTER_2_4 else ("force_mixed_mm", True)
@@ -1012,8 +1015,7 @@ class TestSaveLoadMeta(unittest.TestCase):
     @torch.no_grad()
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_save_load_int8woqtensors(self, device, dtype):
-        if dtype == torch.float32:
-            self.skipTest("currently not working for float32")
+        undo_recommended_configs()
         self._test_handle_save_load_meta_impl(_int8wo_api, device, test_dtype=dtype)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
@@ -1190,12 +1192,13 @@ class TestAutoQuant(unittest.TestCase):
 
     @parameterized.expand(combine_parameters(COMMON_DEVICE_DTYPE,
         [
+            (1,   1, 128, 128),
             (1,  32, 128, 128),
-            (8, 16, 128, 128),
+            (32, 32, 128, 128),
         ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
     def test_autoquant_compile(self, device, dtype, m1, m2, k, n):
-        assert torch._inductor.config.coordinate_descent_tuning == False, "coordinate descent tuning was enabled A"
+        undo_recommended_configs()
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
@@ -1203,19 +1206,16 @@ class TestAutoQuant(unittest.TestCase):
                 self.skipTest(f"bfloat16 requires sm80+")
             if m1 == 1 or m2 == 1:
                 self.skipTest(f"Shape {(m1, m2, k, n)} requires sm80+")
-        assert torch._inductor.config.coordinate_descent_tuning == False, "coordinate descent tuning was enabled B"
         model = torch.nn.Sequential(
             torch.nn.ReLU(),
             torch.nn.Linear(k,n),
             torch.nn.ReLU(),
         ).to(device).to(dtype)
-        assert torch._inductor.config.coordinate_descent_tuning == False, "coordinate descent tuning was enabled C"
         example_input = torch.randn(m1, k, device=device, dtype=dtype)
         example_input2 = torch.randn(m2, k, device=device, dtype=dtype)
         out = model(example_input)
 
         mod = torchao.autoquant(torch.compile(model), manual=True, set_inductor_config=False)
-        assert torch._inductor.config.coordinate_descent_tuning == False, "coordinate descent tuning was enabled D"
         mod(example_input)
         mod(example_input2)
         mod.finalize_autoquant()
