@@ -412,16 +412,21 @@ def _change_linears_to_autoquantizable(model, **kwargs):
         filter_fn if filter_fn is not None else _is_linear,
     )
 
-def _change_autoquantizable_to_quantized(model, **kwargs):
+def _change_autoquantizable_to_quantized(model, supress_autoquant_errors=True, **kwargs):
     """
     Converts AutoQuantizableLinearWeight tensor subclasses
     to various quantized/non-quantized tensor subclasses depending
     on benchmark results. Expectation is that these modules are
     torch.compiled afterwards.
     """
-    hold =  torch._dynamo.config.automatic_dynamic_shapes
+    hold_automatic_dynamic_shapes =  torch._dynamo.config.automatic_dynamic_shapes
     torch._dynamo.config.automatic_dynamic_shapes = False
 
+    if supress_autoquant_errors:
+        hold_supress_errors = torch._dynamo.config.suppress_errors
+        torch._dynamo.config.suppress_errors = True
+        import logging
+        torch._logging.set_logs(inductor=logging.CRITICAL, dynamo=logging.CRITICAL)
     filter_fn = kwargs.pop(
         "filter_fn",
         lambda mod, *args:
@@ -437,7 +442,13 @@ def _change_autoquantizable_to_quantized(model, **kwargs):
         ),
         filter_fn,
     )
-    torch._dynamo.config.automatic_dynamic_shapes = hold
+    # undo dynamic shape change
+    torch._dynamo.config.automatic_dynamic_shapes = hold_automatic_dynamic_shapes
+
+    # undo error supression
+    if supress_autoquant_errors:
+        torch._dynamo.config.suppress_errors = hold_supress_errors
+        torch._logging.set_logs()
     torch._dynamo.reset()
 
 # TODO: example_input seems weird to include in the API
@@ -452,6 +463,7 @@ def autoquant(
     mode=["interpolate", .85], 
     manual=False, 
     set_inductor_config=True,
+    supress_autoquant_errors=True,
     **aq_kwargs
 ):
     """
@@ -485,6 +497,7 @@ def autoquant(
         manual (bool, optional): Whether to stop shape calibration and do autoquant after a single run (default, False) or to wait for 
                                 the user to call model.finalize_autoquant (True) so inputs with several shapes/dtypes can be logged.
         set_inductor_config (bool, optional): Whether to automatically use recommended inductor config settings (defaults to True)
+        supress_autoquant_errors (bool, optional): Whether to suppress errors during autoquantization. (defaults to True)
         **aq_kwargs: Additional keyword arguments for the autoquantization process.
 
     Returns:
@@ -550,6 +563,7 @@ def autoquant(
     def finalize_autoquant():
         _change_autoquantizable_to_quantized(
             real_model,
+            supress_autoquant_errors,
             **aq_kwargs,
         )
         if hasattr(real_model, "old_forward"):
