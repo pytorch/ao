@@ -28,6 +28,7 @@ jobs:
       with-cpu: enable
       with-cuda: enable
       with-rocm: disable
+      test-infra-ref: "release/2.3"
 
   build:
     needs: generate-matrix
