@@ -1244,7 +1244,7 @@ class TestAutoQuant(unittest.TestCase):
         out3 = mod(example_input)
         sqnr2 = SQNR(out, out3)
         self.assertTrue(sqnr2 >= 30)
-    
+
 
     @parameterized.expand(combine_parameters(COMMON_DEVICE_DTYPE,
         [
@@ -1376,7 +1376,7 @@ class TestExport(unittest.TestCase):
         list(itertools.product(TENSOR_SUBCLASS_APIS, COMMON_DEVICES, COMMON_DTYPES)),
     )
     @run_supported_device_dtype
-    def test_aoti(self, api, test_device, test_dtype):
+    def test_export(self, api, test_device, test_dtype):
         if not TORCH_VERSION_AFTER_2_4:
             self.skipTest("aoti compatibility requires 2.4+.")
 
@@ -1413,9 +1413,20 @@ class TestExport(unittest.TestCase):
 
         # make sure it compiles
         example_inputs = (x,)
-        model = torch.export.export(model, example_inputs).module()
+        from torch._export import capture_pre_autograd_graph
+        # TODO: export changes numerics right now, this is because of functionalization according to Zhengxu
+        # we can re-enable this after non-functional IR is enabled in export
+        # model = torch.export.export(model, example_inputs).module()
+        model = capture_pre_autograd_graph(model, example_inputs)
         after_export = model(x)
         self.assertTrue(torch.equal(after_export, ref))
+        if api is _int8da_int8w_api:
+            targets = [n.target for n in model.graph.nodes]
+            self.assertTrue(torch.ops.quant.choose_qparams_affine.default in targets)
+            self.assertTrue(torch.ops.quant.quantize_affine.default in targets)
+
+
+
 
 class TestUtils(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
