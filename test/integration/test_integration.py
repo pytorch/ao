@@ -1165,6 +1165,7 @@ class TestAutoQuant(unittest.TestCase):
         ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
     def test_autoquant_one_input(self, device, dtype, m, k, n):
+        undo_recommended_configs()
         print("(m, k, n): ", (m, k, n))
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
@@ -1185,7 +1186,7 @@ class TestAutoQuant(unittest.TestCase):
             torch.nn.ReLU(),
         ).to(device).to(dtype)
         out = model(example_input)
-        torchao.autoquant(model)
+        torchao.autoquant(model, set_inductor_config=False)
         out2 = model(example_input)
         sqnr = SQNR(out, out2)
         self.assertTrue(sqnr >= 30)
@@ -1227,6 +1228,7 @@ class TestAutoQuant(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
     def test_autoquant_manual(self, device, dtype):
+        undo_recommended_configs()
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
@@ -1242,7 +1244,7 @@ class TestAutoQuant(unittest.TestCase):
         example_input2 = torch.randn(m2, k, device=device, dtype=dtype)
         out = model(example_input)
 
-        mod = torchao.autoquant(torch.compile(model), manual=True)
+        mod = torchao.autoquant(torch.compile(model), manual=True, set_inductor_config=False)
         mod(example_input)
         mod(example_input2)
         mod.finalize_autoquant()
@@ -1267,6 +1269,7 @@ class TestAutoQuant(unittest.TestCase):
         ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
     def test_autoquant_kwargs(self, device, dtype, m1, m2, k, n):
+        undo_recommended_configs()
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
@@ -1293,7 +1296,7 @@ class TestAutoQuant(unittest.TestCase):
         }
         out = model(**example_input)
 
-        mod = torchao.autoquant(torch.compile(model))
+        mod = torchao.autoquant(torch.compile(model), set_inductor_config=False)
         mod(**example_input)
 
         out2 = mod(**example_input)
@@ -1306,6 +1309,7 @@ class TestAutoQuant(unittest.TestCase):
         ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
     def test_autoquant_double_access(self, device, dtype, m, k, n):
+        undo_recommended_configs()
         if device != "cuda" or not torch.cuda.is_available():
             self.skipTest(f"autoquant currently does not support {device}")
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
@@ -1329,7 +1333,7 @@ class TestAutoQuant(unittest.TestCase):
         x_in = torch.randn(m, k, device=device, dtype=dtype)
         model = DoubleAccess().to(device).to(dtype)
         model(x_in)
-        torchao.autoquant(model)
+        torchao.autoquant(model, set_inductor_config=False)
         assert not isinstance(model.lin1.weight.weight, AutoQuantizableLinearWeight)
         model(x_in)
 

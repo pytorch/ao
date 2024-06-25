@@ -91,7 +91,10 @@ class AutoQuantizableLinearWeight(torch.Tensor):
             with torch.no_grad():
                 act_mat = torch.randn(act_shape, dtype=act_dtype, device=self.device)
                 bias = None if bias_shape is None else torch.randn(bias_shape, dtype=act_dtype, device=self.device)
-                res = q_cls._autoquant_test(act_mat, self.weight, bias, best_time, self.mode)
+                try:
+                    res = q_cls._autoquant_test(act_mat, self.weight, bias, best_time, self.mode)
+                except Exception as e:
+                    print(f"warning: failed to autoquant {q_cls.__name__} for shape: {shapes_and_dtype} due to {e}")
                 update_cache(q_cls, shapes_and_dtype, res)
 
     @torch.no_grad()
