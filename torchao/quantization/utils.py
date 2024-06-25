@@ -468,9 +468,9 @@ def recommended_inductor_config_setter():
         triton.unique_kernel_names = True
         torch.set_float32_matmul_precision("high")
     """
-    # torch._inductor.config.coordinate_descent_tuning = True
-    # torch._inductor.config.coordinate_descent_check_all_directions = True
-    # torch._inductor.config.force_fuse_int_mm_with_mul = True  
-    # torch._inductor.config.fx_graph_cache = True  
-    # torch._inductor.config.triton.unique_kernel_names = True
-    # torch.set_float32_matmul_precision("high")
+    torch._inductor.config.coordinate_descent_tuning = True
+    torch._inductor.config.coordinate_descent_check_all_directions = True
+    torch._inductor.config.force_fuse_int_mm_with_mul = True  
+    torch._inductor.config.fx_graph_cache = True  
+    torch._inductor.config.triton.unique_kernel_names = True
+    torch.set_float32_matmul_precision("high")

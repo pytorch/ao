@@ -13,7 +13,6 @@ import torchao
 import torch._dynamo.config
 import torch._inductor.config
 from torchao.utils import get_model_size_in_bytes
-torchao.quantization.utils.recommended_inductor_config_setter()
 
 def device_sync(device):
     if "cuda" in device:
@@ -157,6 +156,9 @@ def main(
 ) -> None:
     """Generates text samples based on a pre-trained Transformer model and tokenizer.
     """
+
+    torchao.quantization.utils.recommended_inductor_config_setter()
+    
     assert checkpoint_path.is_file(), checkpoint_path
     tokenizer_path = checkpoint_path.parent / "tokenizer.model"
     assert tokenizer_path.is_file(), str(tokenizer_path)

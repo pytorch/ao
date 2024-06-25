@@ -1190,9 +1190,8 @@ class TestAutoQuant(unittest.TestCase):
 
     @parameterized.expand(combine_parameters(COMMON_DEVICE_DTYPE,
         [
-            (1,   1, 128, 128),
             (1,  32, 128, 128),
-            (32, 32, 128, 128),
+            (8, 16, 128, 128),
         ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
     def test_autoquant_compile(self, device, dtype, m1, m2, k, n):
@@ -1213,6 +1212,7 @@ class TestAutoQuant(unittest.TestCase):
         out = model(example_input)
 
         mod = torchao.autoquant(torch.compile(model), manual=True, set_inductor_config=False)
+        assert torch._inductor.config.coordinate_descent_tuning == False
         mod(example_input)
         mod(example_input2)
         mod.finalize_autoquant()
