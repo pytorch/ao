@@ -310,13 +310,6 @@ def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tens
     """
     if set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
-    if isinstance(apply_tensor_subclass, str):
-        if apply_tensor_subclass not in _APPLY_TS_TABLE:
-            raise ValueError(f"{apply_tensor_subclass} not supported: {_APPLY_TS_TABLE.keys()}")
-        apply_tensor_subclass = _APPLY_TS_TABLE[apply_tensor_subclass]
-
-    assert not isinstance(apply_tensor_subclass, str)
-
     _replace_with_custom_fn_if_matches_filter(
         model,
         _get_linear_subclass_inserter(apply_tensor_subclass),
