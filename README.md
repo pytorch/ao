@@ -89,7 +89,7 @@ Stable release from Pypi which will default to PyTorch 2.3.1 and CUDA 12.1
 pip install torchao
 ```
 
-Stable Release from the PyTorch index (remove test once they're up on Pypi)
+Stable Release from the PyTorch index
 ```Shell
 pip install torchao --extra-index-url https://download.pytorch.org/whl/test/cu121 # full options are cpu/cu118/cu121/cu124
 ```
