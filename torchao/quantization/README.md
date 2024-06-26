@@ -72,7 +72,6 @@ as an example:
 import torch
 from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
 from torchao.dtypes import to_affine_quantized
-from torch._inductor.runtime.runtime_utils import do_bench_gpu
 import copy
 from torchao.quantization.quant_api import (
     quantize,
@@ -101,10 +100,11 @@ example_inputs = m.example_inputs(dtype=dtype, device="cuda")
 m_bf16 = torch.compile(m_bf16, mode='max-autotune')
 # apply int4 weight only quant (compatible with tinygemm int4 weight only quant mm kernel in torchao)
 group_size = 32
+# only works for torch 2.4+
 m = quantize(m, int4_weight_only(group_size=group_size))
 
 # temporary workaround for tensor subclass + torch.compile
-from torchao.quantization.utils import unwrap_tensor_subclass
+from torchao.utils import unwrap_tensor_subclass
 m = unwrap_tensor_subclass(m)
 # compile the model to improve performance
 m = torch.compile(m, mode='max-autotune')
