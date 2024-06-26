@@ -124,9 +124,9 @@ class _MultiInput:
 
 def guard_dtype_size(tensor_arg, arg_name, dtype=None, size=None):
     if dtype is not None and tensor_arg.dtype != dtype:
-        raise ValueError("Expected Tensor argument {arg_name} to have dtype {dtype}, but got {tensor_arg.dtype} instead.")
+        raise ValueError(f"Expected Tensor argument {arg_name} to have dtype {dtype}, but got {tensor_arg.dtype} instead.")
     if size is not None and tensor_arg.size() != size:
-        raise ValueError("Expected Tensor argument {arg_name} to have size {size}, but got {tensor_arg.size()} instead.")
+        raise ValueError(f"Expected Tensor argument {arg_name} to have size {size}, but got {tensor_arg.size()} instead.")
 
 # taken from
 # https://github.com/mit-han-lab/smoothquant/blob/2f87951dacfb9238d8d657f52ae83a82a3c9ba0c/smoothquant/fake_quant.py#L26
@@ -464,13 +464,13 @@ def recommended_inductor_config_setter():
         coordinate_descent_tuning = True
         coordinate_descent_check_all_directions = True
         force_fuse_int_mm_with_mul = True
-        fx_graph_cache = True  
+        fx_graph_cache = True
         triton.unique_kernel_names = True
         torch.set_float32_matmul_precision("high")
     """
     torch._inductor.config.coordinate_descent_tuning = True
     torch._inductor.config.coordinate_descent_check_all_directions = True
-    torch._inductor.config.force_fuse_int_mm_with_mul = True  
-    torch._inductor.config.fx_graph_cache = True  
+    torch._inductor.config.force_fuse_int_mm_with_mul = True
+    torch._inductor.config.fx_graph_cache = True
     torch._inductor.config.triton.unique_kernel_names = True
     torch.set_float32_matmul_precision("high")
