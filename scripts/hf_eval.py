@@ -1,10 +1,27 @@
 import torch
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
+try:
+    from lm_eval.models.huggingface import HFLM
+    from lm_eval.evaluator import evaluate
+    from lm_eval.tasks import get_task_dict
+except ImportError as e:
+    print("""
+Error: The 'lm_eval' module was not found.
+To install, follow these steps:
 
-from lm_eval.models.huggingface import HFLM
-from lm_eval.evaluator import evaluate
-from lm_eval.tasks import get_task_dict
+1. Clone the repository:
+   git clone https://github.com/EleutherAI/lm-evaluation-harness
+
+2. Change to the cloned directory:
+   cd lm-evaluation-harness
+
+3. Install the package in editable mode:
+   pip install -e .
+
+After installation, re-run this script to use the LM Evaluation Harness.
+""")
+    raise  # Re-raise the ImportError
 
 from torchao.quantization.quant_api import (
     change_linear_weights_to_int4_woqtensors,
