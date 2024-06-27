@@ -9,4 +9,12 @@ set -eux
 
 echo "This script is run before building torchao binaries"
 
+python -m pip install --upgrade pip
+if [ -z "$PYTORCH_VERSION" ]; then
+    PYTORCH_DEP="torch"
+else
+    PYTORCH_DEP="torch==$PYTORCH_VERSION"
+fi
+pip install $PYTORCH_DEP
+
 pip install setuptools wheel twine auditwheel
