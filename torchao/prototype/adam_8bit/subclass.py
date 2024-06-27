@@ -1,6 +1,5 @@
 import torch
 from torch import Tensor
-from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.dtypes.utils import _implements, _ATEN_OP_OR_TORCH_FN_TABLE
 from torchao.quantization.quant_primitives import (
     choose_qparams_affine,
@@ -20,24 +19,22 @@ class DynamicInt8(Tensor):
     tensor_attrs = ["int_data", "scale", "zero_point"]
 
     @staticmethod
-    def __new__(cls, int_data: Tensor, scale: Tensor, zero_point: Tensor):
+    def __new__(cls, int_data: Tensor, scale: Tensor, zero_point: Tensor, shape):
         return Tensor._make_wrapper_subclass(
             cls,
-            int_data.shape,
+            shape,
             device=int_data.device,
             requires_grad=False,
         )
 
-    def __init__(self, int_data: Tensor, scale: Tensor, zero_point: Tensor):
+    def __init__(self, int_data: Tensor, scale: Tensor, zero_point: Tensor, shape):
         self.int_data = int_data
         self.scale = scale
         self.zero_point = zero_point
 
     @property
     def group_size(self):
-        if self.scale.ndim == self.ndim:
-            return self.shape[1] // self.scale.shape[1]
-        return self.shape[1]
+        return self.numel() // self.scale.shape[0]
 
     def __tensor_flatten__(self):
         return self.tensor_attrs, []
@@ -51,42 +48,45 @@ class DynamicInt8(Tensor):
 
     @classmethod
     def from_float(cls, input_float: Tensor, group_size: int):
+        shape = input_float.shape
+        input_float = input_float.flatten()
+
         scale, zero_point = choose_qparams_affine(
             input_float,
             MappingType.ASYMMETRIC,
-            (1, group_size),
+            (group_size,),
             torch.uint8,
             preserve_zero=False,
             zero_point_domain=ZeroPointDomain.FLOAT,
         )
         int_data = quantize_affine(
             input_float,
-            (1, group_size),
+            (group_size,),
             scale,
             zero_point,
             torch.uint8,
             zero_point_domain=ZeroPointDomain.FLOAT,
         )
-        return cls(int_data, scale, zero_point)
+        return cls(int_data, scale, zero_point, shape)
 
     def dequantize(self, output_dtype=None):
         return dequantize_affine(
             self.int_data,
-            (1, self.group_size),
+            (self.group_size,),
             self.scale,
             self.zero_point,
             torch.uint8,
             zero_point_domain=ZeroPointDomain.FLOAT,
-        )
+        ).view(self.shape)
 
     def __repr__(self):
         return (
-            f"{self.__class__.__name__}(shape={self.shape}, "
+            f"{self.__class__.__name__}(group_size={self.group_size}, shape={tuple(self.shape)}, "
             f"device={self.device}, requires_grad={self.requires_grad})"
         )
 
     def _apply_fn_to_data(self, fn):
-        return self.__class__(*[fn(getattr(self, name)) for name in self.tensor_attrs])
+        return self.__class__(*[fn(getattr(self, name)) for name in self.tensor_attrs], self.shape)
 
     @classmethod
     def __torch_function__(cls, func, types, args=(), kwargs=None):

@@ -63,11 +63,9 @@ class AdamInt8(Adam):
                         )
 
                     # added code for INT8 optim state
-                    # only apply for 2D params e.g. Linear.weight
-                    # TODO: apply for >2D params also e.g. Conv2d.weight
-                    # TODO: just flatten the weight internally?
+                    # skip 1D params e.g. bias, norm scale
                     for k in ["exp_avg", "exp_avg_sq", "max_exp_avg_sq"]:
-                        if k in state and state[k].ndim == 2 and state[k].shape[1] % self.group_size == 0:
+                        if k in state and state[k].ndim > 2 and state[k].numel() % self.group_size == 0:
                             state[k] = DynamicInt8.from_float(state[k], self.group_size)
 
                 exp_avgs.append(state["exp_avg"])
