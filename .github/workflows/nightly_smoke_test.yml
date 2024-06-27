@@ -39,7 +39,7 @@ jobs:
         else
           PYTORCH_DEP="torch==$PYTORCH_VERSION"
         fi
-        echo "Installing PyTorch dependency: $PYTORCH_DEP"
+        pip install $PYTORCH_DEP
         pip install -r dev-requirements.txt
         python setup.py install
         pytest test --verbose -s
