@@ -113,8 +113,7 @@ def _dequant_list(*args):
 # in-place ops
 @DynamicInt8.implements([aten.add_.Tensor, aten.mul_.Tensor, aten.addcmul_.default, aten.addcdiv_.default, aten.lerp_.Scalar])
 def _(func, *args, **kwargs):
-    args_dequant = _dequant_list(*args)
-    out = func(*args_dequant, **kwargs)
+    out = func(*_dequant_list(*args), **kwargs)
 
     # args[0] is the original quantized tensor to be updated in-place
     if isinstance(args[0], DynamicInt8):
@@ -132,5 +131,4 @@ def _(func, *args, **kwargs):
 # out-of-place ops will always return float tensor
 @DynamicInt8.implements([aten.sqrt.default, aten.div.Tensor])
 def _(func, *args, **kwargs):
-    args_dequant = _dequant_list(*args)
-    return func(*args_dequant, **kwargs)
+    return func(*_dequant_list(*args), **kwargs)
