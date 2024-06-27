@@ -189,7 +189,6 @@ def build_data(coco_img_ids,
                point_sampling_cache_dir,
                predictor,
                use_half,
-               use_nested_tensor,
                pad_input_image_batch):
     cache = diskcache.Cache(point_sampling_cache_dir)
     # make sure you clear the cache if you change the point sampling algorithm
@@ -258,12 +257,7 @@ def build_data(coco_img_ids,
         else:
             batch[0] = to_nested_tensor(batch[0], use_half=use_half)
 
-        if use_nested_tensor:
-            batch[1] = to_nested_tensor(batch[1], batch[2], use_half)
-            batch[2] = None
-            batch[3] = None
-        else:
-            batch[1] = cat_and_cast(batch[1], use_half)
+        batch[1] = cat_and_cast(batch[1], use_half)
 
         batch[4] = cat_and_cast(batch[4], False)
 

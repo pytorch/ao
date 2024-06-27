@@ -117,7 +117,6 @@ def build_results(batched_data_iter,
                   batch_size,
                   use_compile,
                   use_compile_decoder,
-                  use_nested_tensor,
                   pad_input_image_batch,
                   use_fullgraph=False):
 
@@ -229,7 +228,6 @@ def run(
     compress=None,
     epilogue_fusion_first=False,
     num_workers=0,
-    use_nested_tensor=False,
     use_rel_pos=True,
     pad_input_image_batch=True,
     profile_path=None,
@@ -265,7 +263,6 @@ def run(
     # largest to smallest: vit_h, vit_l, vit_b
     model_type_to_checkpoint = {
         'vit_h': f'{sam_checkpoint_base_path}/sam_vit_h_4b8939.pth',
-        # 'vit_h': f'{sam_checkpoint_base_path}/vit_h_2x4_wanda.pth',
         'vit_l': f'{sam_checkpoint_base_path}/sam_vit_l_0b3195.pth',
         'vit_b': f'{sam_checkpoint_base_path}/sam_vit_b_01ec64.pth',
     }
@@ -369,7 +366,6 @@ def run(
                              point_sampling_cache_dir,
                              predictor,
                              use_half,
-                             use_nested_tensor,
                              pad_input_image_batch)
 
     limit = len(coco_img_ids) if limit is None else limit
@@ -399,7 +395,6 @@ def run(
                                                               batch_size,
                                                               use_compile,
                                                               use_compile_decoder,
-                                                              use_nested_tensor,
                                                               pad_input_image_batch)
 
     if compress == "static_quant":
@@ -430,9 +425,9 @@ def run(
 
     if print_header:
         print(",".join(["device", "sam_model_type", "batch_size", "memory(MiB)", "memory(%)", "img_s(avg)", "batch_ms(avg)/batch_size", "mIoU", "use_compile",
-              "use_half", "compress", "epilogue_fusion_first", "use_compile_decoder", "use_nested_tensor", "use_rel_pos", "pad_input_image_batch", "num_workers", "num_batches", "num_images", "profile_path", "memory_path"]))
+              "use_half", "compress", "epilogue_fusion_first", "use_compile_decoder", "use_rel_pos", "pad_input_image_batch", "num_workers", "num_batches", "num_images", "profile_path", "memory_path"]))
     print(",".join(map(str, [device, sam_model_type, batch_size, max_memory_allocated_bytes, max_memory_allocated_percentage, img_s, batch_ms_batch_size, mIoU, use_compile,
-          use_half, compress, epilogue_fusion_first, use_compile_decoder, use_nested_tensor, use_rel_pos, pad_input_image_batch, num_workers, num_batches, num_images, profile_path, memory_path])))
+          use_half, compress, epilogue_fusion_first, use_compile_decoder, use_rel_pos, pad_input_image_batch, num_workers, num_batches, num_images, profile_path, memory_path])))
 
 
 if __name__ == '__main__':
