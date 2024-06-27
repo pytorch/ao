@@ -11,6 +11,9 @@ from torchao.quantization.quant_primitives import (
 )
 
 
+aten = torch.ops.aten
+
+
 # re-use AffineQuantizedTensor?
 class DynamicInt8(Tensor):
     implements = classmethod(_implements)
@@ -32,7 +35,9 @@ class DynamicInt8(Tensor):
 
     @property
     def group_size(self):
-        return self.shape[1] // self.scale.shape[1]
+        if self.scale.ndim == self.ndim:
+            return self.shape[1] // self.scale.shape[1]
+        return self.shape[1]
 
     def __tensor_flatten__(self):
         return self.tensor_attrs, []
@@ -99,3 +104,29 @@ class DynamicInt8(Tensor):
             return _ATEN_OP_OR_TORCH_FN_TABLE[cls][func](func, *args, **kwargs)
 
         raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run {func}, this is not supported")
+
+
+# in-place ops
+@DynamicInt8.implements([aten.add_.Tensor, aten.mul_.Tensor, aten.addcmul_.default, aten.addcdiv_.default, aten.lerp_.Scalar])
+def _(func, *args, **kwargs):
+    args_dequant = [x.dequantize() if isinstance(x, DynamicInt8) else x for x in args]
+    out = func(*args_dequant, **kwargs)
+
+    # args[0] is the original quantized tensor to be updated in-place
+    if isinstance(args[0], DynamicInt8):
+        out = DynamicInt8.from_float(out, args[0].group_size)
+        args[0].int_data.copy_(out.int_data)
+        args[0].scale.copy_(out.scale)
+        args[0].zero_point.copy_(out.zero_point)
+
+        # return the original quantized tensor with updated values
+        out = args[0]
+
+    return out
+
+
+# out-of-place ops will always return float tensor
+@DynamicInt8.implements([aten.sqrt.default, aten.div.Tensor])
+def _(func, *args, **kwargs):
+    args_dequant = [x.dequantize() if isinstance(x, DynamicInt8) else x for x in args]
+    return func(*args_dequant, **kwargs)
