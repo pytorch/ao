@@ -4,6 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import os
+os.system("pip install torch")
 import glob
 from datetime import datetime
 
@@ -111,13 +112,13 @@ def get_extensions():
     return ext_modules
 
 # Mimic code from torchvision https://github.com/pytorch/vision/blob/143d078b28f00471156a4e562dd3836370acc9ee/setup.py#L58
-pytorch_dep = "torch"
-if os.getenv("PYTORCH_VERSION"):
-    pytorch_dep += "==" + os.getenv("PYTORCH_VERSION")
+# pytorch_dep = "torch"
+# if os.getenv("PYTORCH_VERSION"):
+#     pytorch_dep += "==" + os.getenv("PYTORCH_VERSION")
 
-requirements = [
-    pytorch_dep,
-]
+# dev_requirements = read_requirements("dev-requirements.txt")
+# dev_requirements.append(pytorch_dep)
+
 
 setup(
     name=package_name,
@@ -128,7 +129,6 @@ setup(
         "torchao.kernel.configs": ["*.pkl"],
     },
     ext_modules=get_extensions() if use_cpp != "0" else None,
-    install_requires=requirements,
     extras_require={"dev": read_requirements("dev-requirements.txt")},
     description="Package for applying ao techniques to GPU models",
     long_description=open("README.md").read(),
