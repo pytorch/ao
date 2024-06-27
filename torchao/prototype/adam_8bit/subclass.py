@@ -30,6 +30,10 @@ class DynamicInt8(Tensor):
         self.scale = scale
         self.zero_point = zero_point
 
+    @property
+    def group_size(self):
+        return self.shape[1] // self.scale.shape[1]
+
     def __tensor_flatten__(self):
         return self.tensor_attrs, []
 
@@ -42,10 +46,33 @@ class DynamicInt8(Tensor):
 
     @classmethod
     def from_float(cls, input_float: Tensor, group_size: int):
-        pass
+        scale, zero_point = choose_qparams_affine(
+            input_float,
+            MappingType.ASYMMETRIC,
+            (1, group_size),
+            torch.uint8,
+            preserve_zero=False,
+            zero_point_domain=ZeroPointDomain.FLOAT,
+        )
+        int_data = quantize_affine(
+            input_float,
+            (1, group_size),
+            scale,
+            zero_point,
+            torch.uint8,
+            zero_point_domain=ZeroPointDomain.FLOAT,
+        )
+        return cls(int_data, scale, zero_point)
 
     def dequantize(self, output_dtype=None):
-        pass
+        return dequantize_affine(
+            self.int_data,
+            (1, self.group_size),
+            self.scale,
+            self.zero_point,
+            torch.uint8,
+            zero_point_domain=ZeroPointDomain.FLOAT,
+        )
 
     def __repr__(self):
         return (
@@ -71,4 +98,4 @@ class DynamicInt8(Tensor):
         if func in _ATEN_OP_OR_TORCH_FN_TABLE[cls]:
             return _ATEN_OP_OR_TORCH_FN_TABLE[cls][func](func, *args, **kwargs)
 
-        raise NotImplementedError(f"{cls.name} dispatch: attempting to run {func}, this is not supported")
+        raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run {func}, this is not supported")
