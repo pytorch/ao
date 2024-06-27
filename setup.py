@@ -4,7 +4,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import os
-os.system("pip install torch")
 import glob
 from datetime import datetime
 
