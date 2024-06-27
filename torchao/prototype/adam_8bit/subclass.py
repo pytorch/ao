@@ -106,10 +106,14 @@ class DynamicInt8(Tensor):
         raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run {func}, this is not supported")
 
 
+def _dequant_list(*args):
+    return [x.dequantize() if isinstance(x, DynamicInt8) else x for x in args]
+
+
 # in-place ops
 @DynamicInt8.implements([aten.add_.Tensor, aten.mul_.Tensor, aten.addcmul_.default, aten.addcdiv_.default, aten.lerp_.Scalar])
 def _(func, *args, **kwargs):
-    args_dequant = [x.dequantize() if isinstance(x, DynamicInt8) else x for x in args]
+    args_dequant = _dequant_list(*args)
     out = func(*args_dequant, **kwargs)
 
     # args[0] is the original quantized tensor to be updated in-place
@@ -128,5 +132,5 @@ def _(func, *args, **kwargs):
 # out-of-place ops will always return float tensor
 @DynamicInt8.implements([aten.sqrt.default, aten.div.Tensor])
 def _(func, *args, **kwargs):
-    args_dequant = [x.dequantize() if isinstance(x, DynamicInt8) else x for x in args]
+    args_dequant = _dequant_list(*args)
     return func(*args_dequant, **kwargs)
