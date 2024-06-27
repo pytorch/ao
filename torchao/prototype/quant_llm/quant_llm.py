@@ -413,7 +413,7 @@ class QuantLlmLinearWeight(Tensor):
         if func in _ATEN_OP_OR_TORCH_FN_TABLE[cls]:
             return _ATEN_OP_OR_TORCH_FN_TABLE[cls][func](func, *args, **kwargs)
 
-        raise NotImplementedError(f"{cls.name} dispatch: attempting to run {func}, this is not supported")
+        raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run {func}, this is not supported")
 
 
 @QuantLlmLinearWeight.implements(torch.nn.functional.linear)
