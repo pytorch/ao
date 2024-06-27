@@ -10,7 +10,6 @@ set -eux
 echo "This script is run before building torchao binaries"
 
 python -m pip install --upgrade pip
-PYTORCH_VERSION=${{ env.PYTORCH_VERSION }}
 if [ -z "$PYTORCH_VERSION" ]; then
     PYTORCH_DEP="torch"
 else
