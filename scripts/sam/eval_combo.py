@@ -118,6 +118,7 @@ def build_results(batched_data_iter,
                   use_compile,
                   use_compile_decoder,
                   pad_input_image_batch,
+                  compress,
                   use_fullgraph=False):
 
     # TODO: Re-enable this for datapoints
@@ -226,25 +227,21 @@ def run(
     use_compile="False",
     use_compile_decoder=False,
     compress=None,
-    epilogue_fusion_first=False,
     num_workers=0,
     use_rel_pos=True,
     pad_input_image_batch=True,
     profile_path=None,
     profile_top=False,
     memory_path=None,
-    use_compiler_settings=False,
     device="cuda"
 ):
     from torch._inductor import config as inductorconfig
     inductorconfig.triton.unique_kernel_names = True
-    inductorconfig.epilogue_fusion_first = epilogue_fusion_first
-
-    if use_compiler_settings:
-        # inductorconfig.fx_graph_cache = True # seems to slow performance
-        inductorconfig.epilogue_fusion = False
-        inductorconfig.coordinate_descent_tuning = True
-        inductorconfig.coordinate_descent_check_all_directions = True
+    inductorconfig.epilogue_fusion = True
+    inductorconfig.coordinate_descent_tuning = True
+    inductorconfig.coordinate_descent_check_all_directions = True
+    inductorconfig.force_fuse_int_mm_with_mul = True
+    inductorconfig.use_mixed_mm = True
 
     if use_half is not None:
         if use_half == "float16":
@@ -279,70 +276,42 @@ def run(
         block.attn.use_rel_pos = use_rel_pos
 
     if compress == "dynamic_quant":
-        inductorconfig.force_fuse_int_mm_with_mul = True
-        inductorconfig.use_mixed_mm = True
-
         from torchao.quantization import quantize, int8_dynamic_activation_int8_weight
         from torchao.utils import unwrap_tensor_subclass
         predictor.model.image_encoder = quantize(predictor.model.image_encoder, int8_dynamic_activation_int8_weight())
         predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
-    elif compress == "static_quant":
-        from segment_anything_fast.static_quant import apply_static_quant
-        apply_static_quant(predictor.model.image_encoder)
-        from pathlib import Path
-        weights_path = Path(f"static_quant_scalars/{sam_model_type}_{batch_size}_static_quant_weights.ptk")
-        if weights_path.exists() and weights_path.is_file():
-            print("Loading static quantization weights")
-            weights = torch.load(f"static_quant_scalars/{sam_model_type}_{batch_size}_static_quant_weights.ptk")
-            from static_quant import set_x_absmax
-            set_x_absmax(predictor.model.image_encoder, weights)
     elif compress == "sparse":
+        def mlp_only(mod, name):
+            return isinstance(mod, torch.nn.Linear) and 'mlp' in name
         from torchao.sparsity import apply_sparse_semi_structured
-        apply_sparse_semi_structured(predictor.model.image_encoder)
+        apply_sparse_semi_structured(predictor.model.image_encoder, filter_fn=mlp_only)
     elif compress == "int8_dynamic_quant_sparse":
-        model = predictor.model.image_encoder
-        from torch.ao.pruning import WeightNormSparsifier
-        sparse_config = []
-        for name, mod in model.named_modules():
-            if isinstance(mod, torch.nn.Linear) and 'mlp' in name:
-                sparse_config.append({"tensor_fqn": f"{name}.weight"})
-
-        sparsifier = WeightNormSparsifier(sparsity_level=1.0,
-                                        sparse_block_shape=(1,4),
-                                        zeros_per_block=2)
-        sparsifier.prepare(model, sparse_config)
-        sparsifier.step()
-
-        sparsifier.squash_mask()
-
-        from torch.sparse import SparseSemiStructuredTensorCUSPARSELT
-        from torchao.sparsity.prototype.dynamic_quant_sparse import Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight, Int8DynamicallyQuantizedSemiStructuredSparseLinearWeight
-        from torchao.quantization.quant_api import (
-            _replace_with_custom_fn_if_matches_filter,
-            _get_subclass_inserter,
-            _is_linear,
-            QuantizedLinearWeightBase,
-            Int8DynamicallyQuantizedLinearWeight,
-        )
+        from torchao.sparsity.prototype.dynamic_quant_sparse import Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight
+        from torchao.sparsity import apply_fake_sparsity, apply_sparse_semi_structured
+        from torchao.quantization import quantize, int8_dynamic_activation_int8_weight
+        from torchao.utils import unwrap_tensor_subclass
 
         def attn_only(mod, name):
             return isinstance(mod, torch.nn.Linear) and 'attn' in name
-
-        def lin1_only(mod, name):
+        def mlp_lin1_only(mod, name):
             return isinstance(mod, torch.nn.Linear) and 'lin1' in name
+        def mlp_lin2_only(mod, name):
+            return isinstance(mod, torch.nn.Linear) and 'lin2' in name
+        def mlp_only(mod, name):
+            return isinstance(mod, torch.nn.Linear) and 'mlp' in name
 
-        inductorconfig.force_fuse_int_mm_with_mul = True
-        _replace_with_custom_fn_if_matches_filter(model, _get_subclass_inserter(Int8DynamicallyQuantizedLinearWeight), attn_only)
-        _replace_with_custom_fn_if_matches_filter(model, _get_subclass_inserter(Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight), lin1_only)
+        apply_fake_sparsity(predictor.model.image_encoder,
+                            filter_fn=mlp_only)
 
-        for name, mod in model.named_modules():
-            if isinstance(mod, torch.nn.Linear) and 'lin2' in name:
-                mod.weight = torch.nn.Parameter(SparseSemiStructuredTensorCUSPARSELT.from_dense(mod.weight))
+        predictor.model.image_encoder = quantize(predictor.model.image_encoder,
+                                                 int8_dynamic_activation_int8_weight(),
+                                                 attn_only)
+        predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
 
-       
-
-    elif compress == "static_quant_sparse":
-        raise NotImplementedError(f"Unsupported compress {compress}")
+        predictor.model.image_encoder = quantize(predictor.model.image_encoder,
+                                                 Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight.from_float,
+                                                 mlp_lin1_only)
+        apply_sparse_semi_structured(predictor.model.image_encoder, filter_fn=mlp_lin2_only)
     else:
         assert compress is None, f"Unsupported compress mode {compress}"
 
@@ -395,13 +364,8 @@ def run(
                                                               batch_size,
                                                               use_compile,
                                                               use_compile_decoder,
-                                                              pad_input_image_batch)
-
-    if compress == "static_quant":
-        from static_quant import get_x_absmax
-        weights = get_x_absmax(predictor.model.image_encoder)
-        print("Saving static quantization weights")
-        torch.save(weights, f"static_quant_scalars/{sam_model_type}_{batch_size}_static_quant_weights.ptk")
+                                                              pad_input_image_batch, 
+                                                              compress)
 
     results = [[r[0], r[1], r[2], r[3].item()] for r in results]
 
@@ -425,9 +389,9 @@ def run(
 
     if print_header:
         print(",".join(["device", "sam_model_type", "batch_size", "memory(MiB)", "memory(%)", "img_s(avg)", "batch_ms(avg)/batch_size", "mIoU", "use_compile",
-              "use_half", "compress", "epilogue_fusion_first", "use_compile_decoder", "use_rel_pos", "pad_input_image_batch", "num_workers", "num_batches", "num_images", "profile_path", "memory_path"]))
+              "use_half", "compress", "use_compile_decoder", "use_rel_pos", "pad_input_image_batch", "num_workers", "num_batches", "num_images", "profile_path", "memory_path"]))
     print(",".join(map(str, [device, sam_model_type, batch_size, max_memory_allocated_bytes, max_memory_allocated_percentage, img_s, batch_ms_batch_size, mIoU, use_compile,
-          use_half, compress, epilogue_fusion_first, use_compile_decoder, use_rel_pos, pad_input_image_batch, num_workers, num_batches, num_images, profile_path, memory_path])))
+          use_half, compress, use_compile_decoder, use_rel_pos, pad_input_image_batch, num_workers, num_batches, num_images, profile_path, memory_path])))
 
 
 if __name__ == '__main__':
