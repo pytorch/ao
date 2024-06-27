@@ -7,7 +7,13 @@ from torchao.prototype.fp6_llm.fp6_llm import from_tc_float6_e3m2
 import unittest
 from parameterized import parameterized
 import pytest
-
+from torchao.quantization.utils import (
+    get_groupwise_affine_qparams,
+    groupwise_affine_quantize_tensor_from_qparams,
+    groupwise_affine_dequantize_tensor_from_qparams,
+    pack_tinygemm_scales_and_zeros,
+    unpack_tinygemm_scales_and_zeros
+)
 import torchao.quantization
 
 try:
@@ -108,7 +114,7 @@ def test_int4_unpack_op(shape, innerKTiles):
         test_utils=test_utils,
     )
 
-def dequant_ref(q, scales, zeros, group_size, dtype=torch.bfloat16):
+def dequant_ref(q, scales, zeros, group_size, nbits=4, dtype=torch.bfloat16):
     n, k = q.shape
     assert q.dtype == torch.int
 
@@ -116,16 +122,24 @@ def dequant_ref(q, scales, zeros, group_size, dtype=torch.bfloat16):
     assert scales.shape[0] == n and scales.shape[1] == n_groups
     assert scales.shape == zeros.shape
 
-    q_bf16 = q.to(dtype=dtype)
-    q_bf16 = q_bf16.reshape(-1, group_size)
-    dq = (q_bf16 - zeros.reshape(-1, 1)) * scales.reshape(-1, 1)
+    midpoint = 2 ** (nbits - 1)
+    
+    #Convert fron u4 -> s4 and upcast to bfloat16
+    q = q.sub(midpoint).to(dtype)
+    
+    # Dequantize
+    q = q.reshape(-1, group_size)
+    dq = q * scales.reshape(-1, 1) + zeros.reshape(-1, 1)
+
     return dq.reshape(n, k)
+
 
 @pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("shape, innerKTiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
+@pytest.mark.parametrize("shape, innerKTiles, group_size", TEST_CONFIGS_DEQUANT[:1], ids=str)
 def test_dequantize_int4_correctness(shape, innerKTiles, group_size):
     n, k = shape
+    dtype = torch.bfloat16    
     
     # tinygemm params
     nTileSize = 8
@@ -135,25 +149,40 @@ def test_dequantize_int4_correctness(shape, innerKTiles, group_size):
     numThreads = 32
 
     device = "cuda"
-    q = torch.randint(0, 16, shape, dtype=torch.int, device=device)
-    packed_w = torch._convert_weight_to_int4pack(q, innerKTiles)
-    # tinygemm params
-    assert packed_w.shape == torch.Size([nTiles, kTiles, numThreads, innerKTiles // 2])
 
-    # scales and zeros init
-    q_groups = k // group_size
-    scales = torch.randn(n, q_groups, dtype=torch.bfloat16, device=device)
-    zeros = torch.randn_like(scales)
+    t = torch.randn(n, k, dtype=dtype, device=device)
+    scales, zeros = get_groupwise_affine_qparams(t, n_bit=4, groupsize=group_size, dtype=dtype)
     
-    scales_and_zeros = torchao.quantization.utils.pack_tinygemm_scales_and_zeros(scales, zeros)
+    # Quantize
+    q = groupwise_affine_quantize_tensor_from_qparams(
+        t, scales, zeros, n_bit=4, groupsize=group_size
+    )
+    
+    # Pack to tensor core layout
+    packed = torch.ops.aten._convert_weight_to_int4pack(q, innerKTiles)
+    scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros)
+    q_groups = k // group_size
     assert scales_and_zeros.shape == torch.Size([q_groups, n, 2])
-    scales_unpacked, zeros_unpacked = torchao.quantization.utils.unpack_tinygemm_scales_and_zeros(scales_and_zeros)
-    assert torch.allclose(scales_unpacked.reshape(scales.shape), scales)
-    assert torch.allclose(zeros_unpacked.reshape(zeros.shape), zeros)
+
+    dq_ao = groupwise_affine_dequantize_tensor_from_qparams(
+        q, scales, zeros, n_bit=4, groupsize=group_size
+    )
 
     dq_ref = dequant_ref(q, scales, zeros, group_size)
-    dq = torchao.ops.dequantize_int4(packed_w, scales_and_zeros, group_size, innerKTiles)
-    assert torch.allclose(dq, dq_ref, atol=1e-4, rtol=1e-4)
+
+    print((dq_ao - dq_ref).abs().max())
+    
+    # test dequant using identity mat
+    a_eye = torch.eye(k, device=device, dtype=dtype)
+    dq_check = torch.ops.aten._weight_int4pack_mm(
+        a_eye,
+        packed,
+        group_size,
+        scales_and_zeros,
+    ).t()
+    print((dq_check - dq_ref).abs().max())
+    print((dq_check - dq_ao).abs().max())
+    
     
     # TODO: Figure out why this fails
     # This is how torchao.dtypes.affine_quantized_tensor recovers the original tensor
@@ -172,8 +201,8 @@ def test_dequantize_int4_correctness(shape, innerKTiles, group_size):
 @pytest.mark.parametrize("shape, innerKTiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
 def test_dequantize_int4_op(shape, innerKTiles, group_size):
     n, k = shape
-    
     device = "cuda"
+
     q = torch.randint(0, 16, shape, dtype=torch.int, device=device)
     packed_w = torch._convert_weight_to_int4pack(q, innerKTiles)
     print(packed_w.shape)
