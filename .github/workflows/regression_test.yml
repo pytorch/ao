@@ -65,14 +65,7 @@ jobs:
         yum install -y  devtoolset-10-binutils
         export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
         python -m pip install --upgrade pip
-        PYTORCH_VERSION=${{ env.PYTORCH_VERSION }}
-        if [ -z "$PYTORCH_VERSION" ]; then
-          PYTORCH_DEP="torch"
-        else
-          PYTORCH_DEP="torch==$PYTORCH_VERSION"
-        fi
-        echo "Installing PyTorch dependency: $PYTORCH_DEP"
-        pip install $PYTORCH_DEP
+        pip install ${{ matrix.torch-spec }}
         pip install -r dev-requirements.txt
         pip install .
         pytest test --verbose -s
