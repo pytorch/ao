@@ -43,5 +43,7 @@ jobs:
       os: "linux"
       channel: ${{ inputs.channel }}
       repository: "pytorch/ao"
+      with_cuda: "enable"
+      with-rocm: "disable"
       smoke_test: "source ./.github/scripts/validate_binaries.sh"
       install_torch: true
