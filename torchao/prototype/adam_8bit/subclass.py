@@ -58,6 +58,7 @@ class DynamicInt8(Tensor):
             torch.uint8,
             preserve_zero=False,
             zero_point_domain=ZeroPointDomain.FLOAT,
+            eps=0.0,  # necessary
         )
         int_data = quantize_affine(
             input_float,
@@ -111,7 +112,7 @@ def _dequant_list(*args):
 
 
 # in-place ops
-@DynamicInt8.implements([aten.add_.Tensor, aten.mul_.Tensor, aten.addcmul_.default, aten.addcdiv_.default, aten.lerp_.Scalar])
+@DynamicInt8.implements([aten.add_.Tensor, aten.mul_.Tensor, aten.addcmul_.default, aten.addcdiv_.default, aten.lerp_.Scalar, aten.copy_.default])
 def _(func, *args, **kwargs):
     out = func(*_dequant_list(*args), **kwargs)
 
@@ -129,6 +130,6 @@ def _(func, *args, **kwargs):
 
 
 # out-of-place ops will always return float tensor
-@DynamicInt8.implements([aten.sqrt.default, aten.div.Tensor])
+@DynamicInt8.implements([aten.lerp.Scalar, aten.sqrt.default, aten.div.Tensor])
 def _(func, *args, **kwargs):
     return func(*_dequant_list(*args), **kwargs)

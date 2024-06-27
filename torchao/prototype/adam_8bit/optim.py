@@ -1,92 +1,104 @@
+import math
+
 import torch
-from torch.optim import Adam
-from torch.optim.optimizer import _get_scalar_dtype
+from torch.optim import Optimizer
 
 from .subclass import DynamicInt8
+# from ._optim import AdamInt8
 
 
-class AdamInt8(Adam):
-    def __init__(self, *args, group_size: int = 256, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
+class AdamInt8(Optimizer):
+    def __init__(
+        self,
+        params,
+        lr=1e-3,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+        weight_decay=1e-2,
+        amsgrad=False,
+        group_size=2048,
+    ):
+        if not 0.0 <= lr:
+            raise ValueError("Invalid learning rate: {}".format(lr))
+        if not 0.0 <= eps:
+            raise ValueError("Invalid epsilon value: {}".format(eps))
+        if not 0.0 <= betas[0] < 1.0:
+            raise ValueError("Invalid beta parameter at index 0: {}".format(betas[0]))
+        if not 0.0 <= betas[1] < 1.0:
+            raise ValueError("Invalid beta parameter at index 1: {}".format(betas[1]))
+        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, amsgrad=amsgrad)
+        super().__init__(params, defaults)
         self.group_size = group_size
 
-    # override _init_group() to use INT8 for optim state
-    def _init_group(
-        self,
-        group,
-        params_with_grad,
-        grads,
-        exp_avgs,
-        exp_avg_sqs,
-        max_exp_avg_sqs,
-        state_steps,
-    ):
-        has_complex = False
-        for p in group["params"]:
-            if p.grad is not None:
-                has_complex |= torch.is_complex(p)
-                params_with_grad.append(p)
-                if p.grad.is_sparse:
-                    raise RuntimeError(
-                        "Adam does not support sparse gradients, please consider SparseAdam instead"
-                    )
-                grads.append(p.grad)
+    def __setstate__(self, state):
+        super().__setstate__(state)
+        for group in self.param_groups:
+            group.setdefault('amsgrad', False)
+
+    def _new_zero_buffer(self, p: torch.Tensor):
+        out = torch.zeros_like(p)
+        if p.squeeze().ndim >= 2 and p.numel() % self.group_size == 0:
+            out = DynamicInt8.from_float(out, self.group_size)
+        return out
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        for group in self.param_groups:
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+
+                grad = p.grad
+                if grad.is_sparse:
+                    raise RuntimeError('Adam does not support sparse gradients, please consider SparseAdam instead')
+                
+                if group["weight_decay"] != 0:
+                    grad = grad.add(p, alpha=group["weight_decay"])
+
+                amsgrad = group['amsgrad']
 
                 state = self.state[p]
-                # Lazy state initialization
+
+                # State initialization
                 if len(state) == 0:
-                    # note(crcrpar): [special device hosting for step]
-                    # Deliberately host `step` on CPU if both capturable and fused are off.
-                    # This is because kernel launches are costly on CUDA and XLA.
-                    state["step"] = (
-                        torch.zeros(
-                            (),
-                            dtype=_get_scalar_dtype(is_fused=group["fused"]),
-                            device=p.device,
-                        )
-                        if group["capturable"] or group["fused"]
-                        else torch.tensor(0.0, dtype=_get_scalar_dtype())
-                    )
-                    # Exponential moving average of gradient values
-                    state["exp_avg"] = torch.zeros_like(
-                        p, memory_format=torch.preserve_format
-                    )
-                    # Exponential moving average of squared gradient values
-                    state["exp_avg_sq"] = torch.zeros_like(
-                        p, memory_format=torch.preserve_format
-                    )
+                    state['step'] = 0
+                    state['exp_avg'] = self._new_zero_buffer(p)
+                    state['exp_avg_sq'] = self._new_zero_buffer(p)
+                    if amsgrad:
+                        state['max_exp_avg_sq'] = self._new_zero_buffer(p)
 
-                    if group["amsgrad"]:
-                        # Maintains max of all exp. moving avg. of sq. grad. values
-                        state["max_exp_avg_sq"] = torch.zeros_like(
-                            p, memory_format=torch.preserve_format
-                        )
+                exp_avg, exp_avg_sq = state['exp_avg'], state['exp_avg_sq']
+                if amsgrad:
+                    max_exp_avg_sq = state['max_exp_avg_sq']
+                beta1, beta2 = group['betas']
 
-                    # added code for INT8 optim state
-                    # skip 1D params e.g. bias, norm scale
-                    for k in ["exp_avg", "exp_avg_sq", "max_exp_avg_sq"]:
-                        if k in state and state[k].ndim > 2 and state[k].numel() % self.group_size == 0:
-                            state[k] = DynamicInt8.from_float(state[k], self.group_size)
+                state['step'] += 1
+                bias_correction1 = 1 - beta1 ** state['step']
+                bias_correction2 = 1 - beta2 ** state['step']
 
-                exp_avgs.append(state["exp_avg"])
-                exp_avg_sqs.append(state["exp_avg_sq"])
+                # exp_avg.lerp_(grad, 1 - beta1)
+                # exp_avg_sq.mul_(beta2).addcmul_(grad, grad.conj(), value=1 - beta2)
+                new_exp_avg = exp_avg.lerp(grad, 1 - beta1)
+                new_exp_avg_sq = exp_avg_sq.lerp(grad.square(), 1 - beta2)
 
-                if group["amsgrad"]:
-                    max_exp_avg_sqs.append(state["max_exp_avg_sq"])
-                if group["differentiable"] and state["step"].requires_grad:
-                    raise RuntimeError(
-                        "`requires_grad` is not supported for `step` in differentiable mode"
-                    )
+                if amsgrad:
+                    torch.max(max_exp_avg_sq, exp_avg_sq, out=max_exp_avg_sq)
+                    denom = (max_exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(group['eps'])
+                else:
+                    # denom = (exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(group['eps'])
+                    denom = (new_exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(group['eps'])
 
-                # Foreach without capturable does not support a tensor lr
-                if (
-                    group["foreach"]
-                    and torch.is_tensor(group["lr"])
-                    and not group["capturable"]
-                ):
-                    raise RuntimeError(
-                        "lr as a Tensor is not supported for capturable=False and foreach=True"
-                    )
+                step_size = group['lr'] / bias_correction1
 
-                state_steps.append(state["step"])
-        return has_complex
+                # p.addcdiv_(exp_avg, denom, value=-step_size)
+                p.addcdiv_(new_exp_avg, denom, value=-step_size)
+
+                exp_avg.copy_(new_exp_avg)
+                exp_avg_sq.copy_(new_exp_avg_sq)
+
+        return loss
