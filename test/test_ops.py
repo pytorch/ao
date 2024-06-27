@@ -169,21 +169,22 @@ def test_dequantize_int4_correctness(shape, innerKTiles, group_size):
     )
 
     dq_ref = dequant_ref(q, scales, zeros, group_size)
-
-    print((dq_ao - dq_ref).abs().max())
+    print()
+    print(f"dq_ao - dq_ref: {(dq_ao - dq_ref).abs().max()}")
     
     # test dequant using identity mat
     a_eye = torch.eye(k, device=device, dtype=dtype)
-    dq_check = torch.ops.aten._weight_int4pack_mm(
+    dq_id = torch.ops.aten._weight_int4pack_mm(
         a_eye,
         packed,
         group_size,
         scales_and_zeros,
     ).t()
-    print((dq_check - dq_ref).abs().max())
-    print((dq_check - dq_ao).abs().max())
+    print(f"dq_id - dq_ao: {(dq_id - dq_ao).abs().max()}")
     
-    
+    dq_test = torchao.ops.dequantize_int4(packed, scales_and_zeros, group_size, innerKTiles)
+    print(f"dq_test - dq_ao: {(dq_test - dq_ao).abs().max()}")
+    print(f"dq_test - dq_id: {(dq_test - dq_id).abs().max()}")
     # TODO: Figure out why this fails
     # This is how torchao.dtypes.affine_quantized_tensor recovers the original tensor
     # https://github.com/pytorch/ao/blob/9dc2c118f59ad4135a8c39166c4ceebda73c62a9/torchao/dtypes/affine_quantized_tensor.py#L505 

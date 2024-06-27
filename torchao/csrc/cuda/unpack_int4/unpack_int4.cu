@@ -12,7 +12,54 @@ constexpr __host__ __device__ auto divUp(U a, V b) -> decltype(a + b) {
   return blocks;
 }
 constexpr int32_t kWarpSize = 32;
+struct __align__(16) bf16x2x4 {
+  __nv_bfloat162 vals[4];
+};
 
+inline __device__ bf16x2x4 convert_i4x8_to_bf16x2x4(uint32_t source) {
+  bf16x2x4 result;
+  constexpr int kElements = 8;
+
+  uint32_t* h = reinterpret_cast<uint32_t*>(&result);
+  uint32_t const source_i4s = source;
+
+  // First, we extract the i4s and construct an intermediate fp16 number.
+  static constexpr uint32_t immLut = (0xf0 & 0xcc) | 0xaa;
+  static constexpr uint32_t MASK = 0x000f000f;
+  static constexpr uint32_t I4s_TO_BF16s_MAGIC_NUM = 0x43004300;
+
+  // We don't have enough mantissa to remove as much shift overhead as FP16, so
+  // we must loop. No shift needed for first item.
+  uint32_t i4s = source_i4s;
+  asm volatile("lop3.b32 %0, %1, %2, %3, %4;\n"
+               : "=r"(h[0])
+               : "r"(i4s), "n"(MASK), "n"(I4s_TO_BF16s_MAGIC_NUM), "n"(immLut));
+#pragma unroll
+  for (int ii = 1; ii < kElements / 2; ++ii) {
+    i4s >>= 4; // or is it 8?
+    // (i4s & 0x000f000f) | 0x43004300
+    asm volatile(
+        "lop3.b32 %0, %1, %2, %3, %4;\n"
+        : "=r"(h[ii])
+        : "r"(i4s), "n"(MASK), "n"(I4s_TO_BF16s_MAGIC_NUM), "n"(immLut));
+  }
+
+  // This is the BF16 {-136, -136} represented as an integer.
+  static constexpr uint32_t BF16_BIAS = 0xC308C308;
+  static constexpr uint32_t BF16_ONE = 0x3F803F80;
+
+// Finally, we construct the output numbers.
+#pragma unroll
+  for (int ii = 0; ii < kElements / 2; ++ii) {
+    // Since this section is for Ampere+, we use bf16 fma to do the bias
+    // subtraction
+    asm("fma.rn.bf16x2 %0, %1, %2, %3;\n"
+        : "=r"(h[ii])
+        : "r"(h[ii]), "r"(BF16_ONE), "r"(BF16_BIAS));
+  }
+
+  return result;
+}
 // in size [ceil(n / 8)][ceil(k / (InnerKTiles * 16))][32][InnerKTiles / 2]
 // 
 // out size [n][k]
@@ -62,30 +109,31 @@ __global__ void _dequantize_int4_kernel(
     if constexpr(kDequant) {
       // static_assert(scales_and_zeros.has_value(), "scales_and_zeros must be set when dequantizing");
       static_assert(std::is_same<Out_t, c10::BFloat16>::value, "Out must be BFloat16 when dequantizing");
-      __nv_bfloat16 v[8];
+      // __nv_bfloat16 v[8];
 
-      v[0] = __int2bfloat16_rn(pack & 0x0000000f);
-      v[2] = __int2bfloat16_rn((pack >> 4) & 0x0000000f);
-      v[4] = __int2bfloat16_rn((pack >> 8) & 0x0000000f);
-      v[6] = __int2bfloat16_rn((pack >> 12) & 0x0000000f);
-      v[1] = __int2bfloat16_rn((pack >> 16) & 0x0000000f);
-      v[3] = __int2bfloat16_rn((pack >> 20) & 0x0000000f);
-      v[5] = __int2bfloat16_rn((pack >> 24) & 0x0000000f);
-      v[7] = __int2bfloat16_rn((pack >> 28) & 0x0000000f);
-    
+      // // Extract u4, convert to s4 by subtracting by 2 ** nbits / 2, then convert to bfloat16
+      // v[0] = __int2bfloat16_rn(pack & 0x0000000f - 8);
+      // v[2] = __int2bfloat16_rn((pack >> 4) & 0x0000000f - 8);
+      // v[4] = __int2bfloat16_rn((pack >> 8) & 0x0000000f - 8);
+      // v[6] = __int2bfloat16_rn((pack >> 12) & 0x0000000f - 8);
+      // v[1] = __int2bfloat16_rn((pack >> 16) & 0x0000000f - 8);
+      // v[3] = __int2bfloat16_rn((pack >> 20) & 0x0000000f - 8);
+      // v[5] = __int2bfloat16_rn((pack >> 24) & 0x0000000f - 8);
+      // v[7] = __int2bfloat16_rn((pack >> 28) & 0x0000000f - 8);
+      bf16x2x4 v_bf16x2 = convert_i4x8_to_bf16x2x4(pack);
       // All b values within a 16x16 tile should fall within the same q group
       // Hence we load 1 scale and zero per loop
       int qgroup = ks[0] /  groupSize;
       const __nv_bfloat16 *pSZ = reinterpret_cast<const __nv_bfloat16*>(&scales_and_zeros.value()[qgroup][n0][0]);
 
       //Reinterpret as pairs of v as pairs of bfloat16
-      __nv_bfloat162 *v_bf16x2 = reinterpret_cast<__nv_bfloat162*>(v);
+      // __nv_bfloat162 *v_bf16x2 = reinterpret_cast<__nv_bfloat162*>(v);
       __nv_bfloat162 scale2 = __bfloat162bfloat162(pSZ[0]);
       __nv_bfloat162 zero2 = __bfloat162bfloat162(pSZ[1]);
 
   #pragma unroll
       for (int i = 0; i < 4; i++) {
-        reinterpret_cast<__nv_bfloat162*>(&pOut[ks[i]])[0] = __hmul2(scale2, __hsub2(v_bf16x2[i], zero2));;
+        reinterpret_cast<__nv_bfloat162*>(&pOut[ks[i]])[0] = __hfma2(v_bf16x2.vals[i], scale2, zero2);
       }  
     }
     else {
