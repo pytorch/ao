@@ -21,7 +21,7 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     int_scaled_matmul,
 )
-
+import pdb
 aten = torch.ops.aten
 
 class IntxLayout(torch.Tensor):
@@ -130,28 +130,26 @@ class IntxTensor(torch.Tensor):
         self.zero_point_domain = zero_point_domain
 
     def __repr__(self):
-        print("Tensor repr")
+        #print("Tensor repr")
         return (
             f"{self.__class__.__name__}(data={self.dequantize()}, shape={self.shape}, "
             f"device={self.device}, dtype={self.dtype}, requires_grad={self.requires_grad})"
         )
 
-    def dequantize(self, output_dtype=None):
-        print("Tensor dequantize")
-        if output_dtype is None:
-            output_dtype = self.dtype
+    def dequantize(self, output_dtype=torch.float16):
+        #print("Tensor dequantize")
         int_data, scale, zero_point = self.layout_tensor.get_plain()
         return dequantize_affine(int_data, self.block_size, scale, zero_point, int_data.dtype, self.quant_min, self.quant_max, self.zero_point_domain, output_dtype=output_dtype)
 
     def __tensor_flatten__(self):
-        print("Tensor flatten")
+        #print("Tensor flatten")
         return ["layout_tensor"], [self.block_size, self.nbits, self.shape,  self.quant_min, self.quant_max, self.zero_point_domain, self.dtype]
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
-        print("Tensor unflatten")
+        #print("Tensor unflatten")
         layout_tensor = tensor_data_dict["layout_tensor"]
         block_size, nbits, shape, quant_min, quant_max, zero_point_domain, dtype = tensor_attributes
         return cls(
@@ -233,7 +231,7 @@ class IntxTensor(torch.Tensor):
         return kwargs
 
     def to(self, *args, **kwargs):
-        print("Tensor to")
+        #print("Tensor to")
         kwargs = self._get_to_kwargs(*args, **kwargs)
         return self.__class__(
             self.layout_tensor.to(kwargs["device"]),
@@ -247,7 +245,7 @@ class IntxTensor(torch.Tensor):
         )
 
     def _apply_fn_to_data(self, fn):
-        print("Tensor apply fn", fn)
+        #print("Tensor apply fn", fn)
         return self.__class__(
             fn(self.layout_tensor),
             self.block_size,
@@ -301,7 +299,7 @@ class PackedTensorLayout(IntxLayout):
         nbits: int,
         pack_dim: int,
     ):
-        print("PackedTensorLayout __new__")
+        # #print("PackedTensorLayout __new__")
         shape = int_data.shape
         kwargs = {}
         kwargs["device"] = scale.device
@@ -320,22 +318,28 @@ class PackedTensorLayout(IntxLayout):
         nbits: int,
         pack_dim: int,
     ):
-        print("PackedTensorLayout __init__")
+        #print("PackedTensorLayout __init__")
         self.int_data = int_data
         self.scale = scale
         self.zero_point = zero_point
         self.nbits = nbits
         self.pack_dim = pack_dim
 
+    def __repr__(self):
+        #print("PackedTensorLayout __repr__")
+        return (
+            f"{self.__class__.__name__}Int{self.nbits}({self.int_data.shape}) range[{self.int_data.min()}, {self.int_data.max()}])"
+        )
+        
     def __tensor_flatten__(self):
-        print("PackedTensorLayout __tensor_flatten__")
+        #print("PackedTensorLayout __tensor_flatten__")
         return ["int_data", "scale", "zero_point"], [self.nbits, self.pack_dim]
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
-        print("PackedTensorLayout __tensor_unflatten__")
+        #print("PackedTensorLayout __tensor_unflatten__")
         int_data = tensor_data_dict["int_data"]
         scale = tensor_data_dict["scale"]
         zero_point = tensor_data_dict["zero_point"]
@@ -343,7 +347,7 @@ class PackedTensorLayout(IntxLayout):
         return cls(int_data, scale, zero_point, nbits, pack_dim)
 
     def to(self, *args, **kwargs):
-        print("PackedTensorLayout to")
+        #print("PackedTensorLayout to")
         kwargs = self._get_to_kwargs(*args, **kwargs)
         return self.__class__(
             self.int_data.to(kwargs["device"]),
@@ -352,7 +356,7 @@ class PackedTensorLayout(IntxLayout):
         )
 
     def _apply_fn_to_data(self, fn):
-        print("_apply_fn_to_data: ", fn)
+        #print("_apply_fn_to_data: ", fn)
 
         return self.__class__(
             fn(self.int_data),
@@ -365,13 +369,18 @@ class PackedTensorLayout(IntxLayout):
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
         kwargs = {} if kwargs is None else kwargs
+        try:
+            # pdb.set_trace()
+            return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(func))
+        except:
+            pass
         if func is aten.detach.default:
-            print("__torch_dispatch__aten.detach.default")
+            #print("__torch_dispatch__aten.detach.default")
             return return_and_correct_aliasing(
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
             )
         if func is aten.t.default:
-            print("__torch_dispatch__aten.t.default")
+            #print("__torch_dispatch__aten.t.default")
             tensor = args[0]
             new_pack_dim = len(tensor.shape) - tensor.pack_dim -1
             new_shape = tensor.shape[::-1]
@@ -392,9 +401,9 @@ class PackedTensorLayout(IntxLayout):
     __torch_function__ = torch._C._disabled_torch_function_impl
 
     def get_plain(self):
-        print("get_plain")
+        #print("get_plain")
         unpacked = unpack(self.int_data, self.nbits, dim=self.pack_dim)
-        print('unpacked intdata')
+        #print('unpacked intdata')
         return unpacked, self.scale, self.zero_point
 
     @classmethod
@@ -406,7 +415,7 @@ class PackedTensorLayout(IntxLayout):
         nbits: int,
         pack_dim: int = -1,
     ):
-        print("from_plain")
+        #print("from_plain")
         packed_weight = pack(int_data, nbits, dim=pack_dim)
         return cls(packed_weight, scale, zero_point, nbits, pack_dim)
     
@@ -414,7 +423,7 @@ class PackedTensorLayout(IntxLayout):
 
 @implements(torch.nn.functional.linear)
 def functional_linear(*args, **kwargs):
-    print("torch.nn.functional.linear")
+    # #print("torch.nn.functional.linear")
     input_tensor, weight_tensor, bias = (
         args[0],
         args[1],
@@ -423,13 +432,13 @@ def functional_linear(*args, **kwargs):
     if isinstance(input_tensor, IntxTensor):
         input_tensor = input_tensor.dequantize()
     if isinstance(weight_tensor, IntxTensor):
-        weight_tensor = weight_tensor.dequantize()
-    print(f'returning linear({input_tensor}\n\n,{weight_tensor}\n\n,{bias})')
+        weight_tensor = weight_tensor.dequantize(output_dtype=input_tensor.dtype)
+    # #print(f'returning linear({input_tensor}\n\n,{weight_tensor}\n\n,{bias})')
     return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
 @implements([aten.mm.default, aten.addmm.default])
 def aten_mm(func, *args, **kwargs):
-    print("aten.mm.default")
+    #print("aten.mm.default")
     if not args[0].is_floating_point():
         raise NotImplementedError(f"{func} is not implemented for non floating point input")
 
@@ -445,7 +454,7 @@ def aten_mm(func, *args, **kwargs):
         if isinstance(input_tensor, IntxTensor):
             input_tensor = input_tensor.dequantize()
         if isinstance(weight_tensor, IntxTensor):
-            weight_tensor = weight_tensor.dequantize()
+            weight_tensor = weight_tensor.dequantize(output_dtype=input_tensor.dtype)
         return func(bias, input_tensor, weight_tensor)
     else:
         input_tensor, weight_tensor, bias = (
@@ -456,12 +465,12 @@ def aten_mm(func, *args, **kwargs):
         if isinstance(input_tensor, IntxTensor):
             input_tensor = input_tensor.dequantize()
         if isinstance(weight_tensor, IntxTensor):
-            weight_tensor = weight_tensor.dequantize()
+            weight_tensor = weight_tensor.dequantize(output_dtype=input_tensor.dtype)
         return func(input_tensor, weight_tensor)
 
 @implements([aten.detach.default])
 def detach(func, *args, **kwargs):
-    print("aten.detach.default", args[0].shape)
+    #print("aten.detach.default")
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
     )
@@ -469,7 +478,7 @@ def detach(func, *args, **kwargs):
 
 @implements([aten.clone.default])
 def clone(func, *args, **kwargs):
-    print("aten.clone.default")
+    #print("aten.clone.default")
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
     )
@@ -477,7 +486,7 @@ def clone(func, *args, **kwargs):
 
 @implements([aten._to_copy.default])
 def _to_copy(func, *args, **kwargs):
-    print("aten._to_copy.default")
+    #print("aten._to_copy.default")
     return return_and_correct_aliasing(
         func,
         args,
@@ -487,7 +496,7 @@ def _to_copy(func, *args, **kwargs):
 
 @implements([aten.t.default])
 def t(func, *args, **kwargs):
-    print("aten.t.default")
+    #print("aten.t.default")
     block_size = args[0].block_size
     assert len(block_size) == 2
     transposed_block_size = (block_size[1], block_size[0])

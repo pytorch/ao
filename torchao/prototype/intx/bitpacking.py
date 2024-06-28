@@ -2,9 +2,8 @@ import torch
 import numpy as np
 from typing import Optional, Union
 from functools import reduce
-# first value is a mask for the bits
-# second value is the number of elements to pack 
-# third value is the ratio shards of that size in the packed tensor
+
+# for selecting the shards from 8 bits
 maskbits = {
     1: (0x01,),
     2: (0x03,),
@@ -15,6 +14,7 @@ maskbits = {
     7: (0x0f, 0x30, 0x40),
 }
 
+# size of each shard
 numbits = {
     1: (1,),
     2: (2,),
@@ -25,6 +25,7 @@ numbits = {
     7: (4, 2, 1),
 }
 
+# shift amount for each shard
 shifts = {
     1: (0,),
     2: (0,),
@@ -56,18 +57,18 @@ def unpack(data: torch.Tensor,
     Returns: torch.Tensor - a tensor of the unpacked elements.
     """
     container_size = torch.iinfo(data.dtype).bits
+    
     shards = []
     s=0
     e=0
     m = data.shape[dim] // elem_size
-    
     for i in numbits[elem_size]:
         e  = s + i
         slices = [slice(None)] * data.ndim
         slices[dim] = slice(s*m, e*m, 1)
         shards.append(slices)
         s = e 
-
+    # unpack each 4,2,1 bit shard and unshift them back to the correct position
     shards = [_unpack(data[shards[i]], numbits[elem_size][i], container_size // numbits[elem_size][i], dim) << shifts[elem_size][i] for i in range(len(shards))]
     return reduce(torch.bitwise_or, shards)
 
