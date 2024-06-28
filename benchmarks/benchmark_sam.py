@@ -15,7 +15,6 @@ from torchao.quantization.quant_api import (
     QuantizedLinearWeightBase,
     Int8DynamicallyQuantizedLinearWeight,
 )
-from torchao.quantization import change_linear_weights_to_int8_dqtensors
 from torchao.sparsity import (
     apply_sparse_semi_structured,
     apply_fake_sparsity,
@@ -32,6 +31,7 @@ torch._inductor.config.epilogue_fusion = True
 torch._inductor.config.coordinate_descent_tuning = True
 torch._inductor.config.coordinate_descent_check_all_directions = True
 torch._inductor.config.force_fuse_int_mm_with_mul = True
+torch._inductor.config.use_mixed_mm = True
 
 @torch.no_grad()
 def benchmark(f, *args, **kwargs):
@@ -119,19 +119,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Process some integers.')
     parser.add_argument('--eager', action='store_true', help='enable/disable torch.compile')
     args = parser.parse_args()
-    # ALL_RUNS = [run_once(qkv="quant+sparse (cutlass)", proj="quant", lin1="quant+sparse (cutlass)", lin2="quant+sparse (cutlass)")]
-    ALL_RUNS = [
-        run_once(compile=not args.eager),
-        run_once(compile=not args.eager, lin1="sparse (cusparselt)", lin2="sparse (cusparselt)"),
-        run_once(compile=not args.eager, lin1="sparse (cutlass)", lin2="sparse (cutlass)"),
-        run_once(compile=not args.eager, qkv="sparse (cusparselt)",       proj="sparse (cusparselt)",       lin1="sparse (cusparselt)",          lin2="sparse (cusparselt)"),
-        run_once(compile=not args.eager, qkv="sparse (cutlass)",          proj="sparse (cutlass)",          lin1="sparse (cutlass)",             lin2="sparse (cutlass)"),
-        # run_once(qkv="quant",                     proj="quant",                     lin1="quant",                        lin2="quant"),
-        # run_once(qkv="quant+sparse (cusparselt)", proj="quant+sparse (cusparselt)", lin1="quant+sparse (cusparselt)",    lin2="quant+sparse (cutlass)"),
-        # run_once(qkv="quant+sparse (cusparselt)", proj="quant",                     lin1="quant+sparse (cutlass)",       lin2="quant+sparse (cutlass)"),
-        # run_once(qkv="quant",                     proj="quant",                     lin1="quant+sparse (cusparselt)",    lin2="quant+sparse (cusparselt)"),
-        # run_once(qkv="quant+sparse (cutlass)",    proj="quant+sparse (cutlass)",    lin1="quant+sparse (cutlass)",       lin2="quant+sparse (cutlass)"),
-    ]
+    ALL_RUNS = [run_once(qkv="quant", proj="quant", lin1="quant+sparse (cusparselt)", lin2="sparse (cusparselt)")]
+    # ALL_RUNS = [
+    #     run_once(compile=not args.eager),
+    #     run_once(compile=not args.eager, lin1="sparse (cusparselt)", lin2="sparse (cusparselt)"),
+    #     run_once(compile=not args.eager, lin1="sparse (cutlass)", lin2="sparse (cutlass)"),
+    #     run_once(compile=not args.eager, qkv="sparse (cusparselt)",       proj="sparse (cusparselt)",       lin1="sparse (cusparselt)",          lin2="sparse (cusparselt)"),
+    #     run_once(compile=not args.eager, qkv="sparse (cutlass)",          proj="sparse (cutlass)",          lin1="sparse (cutlass)",             lin2="sparse (cutlass)"),
+    #     # run_once(qkv="quant",                     proj="quant",                     lin1="quant",                        lin2="quant"),
+    #     # run_once(qkv="quant+sparse (cusparselt)", proj="quant+sparse (cusparselt)", lin1="quant+sparse (cusparselt)",    lin2="quant+sparse (cutlass)"),
+    #     # run_once(qkv="quant+sparse (cusparselt)", proj="quant",                     lin1="quant+sparse (cutlass)",       lin2="quant+sparse (cutlass)"),
+    #     # run_once(qkv="quant",                     proj="quant",                     lin1="quant+sparse (cusparselt)",    lin2="quant+sparse (cusparselt)"),
+    #     # run_once(qkv="quant+sparse (cutlass)",    proj="quant+sparse (cutlass)",    lin1="quant+sparse (cutlass)",       lin2="quant+sparse (cutlass)"),
+    # ]
     df = pd.DataFrame(ALL_RUNS)
     df.to_csv("sam_benchmark_results.csv")
     print(df)

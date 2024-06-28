@@ -1,0 +1,2 @@
+,block_only,batchsize,dtype,compile,qkv,proj,lin1,lin2,time,memory,img/s
+0,False,32,torch.bfloat16,True,quant,quant,quant+sparse (cusparselt),sparse (cusparselt),1170.7672644406557,15.079721472,27.332503198480083
