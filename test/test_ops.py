@@ -136,7 +136,7 @@ def dequant_ref(q, scales, zeros, group_size, nbits=4, dtype=torch.bfloat16):
 
 @pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("shape, innerKTiles, group_size", TEST_CONFIGS_DEQUANT[:1], ids=str)
+@pytest.mark.parametrize("shape, innerKTiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
 def test_dequantize_int4_correctness(shape, innerKTiles, group_size):
     n, k = shape
     dtype = torch.bfloat16    
@@ -167,12 +167,8 @@ def test_dequantize_int4_correctness(shape, innerKTiles, group_size):
     dq_ao = groupwise_affine_dequantize_tensor_from_qparams(
         q, scales, zeros, n_bit=4, groupsize=group_size
     )
-
-    dq_ref = dequant_ref(q, scales, zeros, group_size)
-    print()
-    print(f"dq_ao - dq_ref: {(dq_ao - dq_ref).abs().max()}")
     
-    # test dequant using identity mat
+    # Dequantize by passing in an identity matrix as the activation
     a_eye = torch.eye(k, device=device, dtype=dtype)
     dq_id = torch.ops.aten._weight_int4pack_mm(
         a_eye,
@@ -180,22 +176,25 @@ def test_dequantize_int4_correctness(shape, innerKTiles, group_size):
         group_size,
         scales_and_zeros,
     ).t()
-    print(f"dq_id - dq_ao: {(dq_id - dq_ao).abs().max()}")
     
-    dq_test = torchao.ops.dequantize_int4(packed, scales_and_zeros, group_size, innerKTiles)
-    print(f"dq_test - dq_ao: {(dq_test - dq_ao).abs().max()}")
-    print(f"dq_test - dq_id: {(dq_test - dq_id).abs().max()}")
-    # TODO: Figure out why this fails
-    # This is how torchao.dtypes.affine_quantized_tensor recovers the original tensor
-    # https://github.com/pytorch/ao/blob/9dc2c118f59ad4135a8c39166c4ceebda73c62a9/torchao/dtypes/affine_quantized_tensor.py#L505 
-    # a_eye = torch.eye(k, device=device, dtype=torch.bfloat16)
-    # dq_check = torch.ops.aten._weight_int4pack_mm(
-    #     a_eye,
-    #     packed_w,
-    #     group_size,
-    #     scales_and_zeros,
-    # ).t()
-    # assert torch.allclose(dq, dq_check, atol=1e-4, rtol=1e-4)
+    # Actual operation to test
+    dq_op = torchao.ops.dequantize_int4(packed, scales_and_zeros, group_size, innerKTiles)
+        
+    
+    # Compare results
+    diff_ao_id = (dq_id - dq_ao).abs().max()
+    diff_op_id = (dq_op - dq_id).abs().max()
+    diff_op_ao = (dq_op - dq_ao).abs().max()
+    
+    # There are slight numerical differences when dequantizing with an identity matrix
+    # Since the `dequantize_int4` kernel relies on same underlying numerical conversions, this gives same
+    # numerical differences when compared to the `groupwise_affine_dequantize`
+    
+    # Test that the `dequant` kernel gives same results as identity matrix-based dequant 
+    assert diff_op_id == 0
+    
+    # Test that the `dequant` kernel gives same numerical diffs as the `groupwise_affine_dequantize` when compared against the identity matrix
+    assert diff_op_ao == diff_ao_id
     
 @pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
