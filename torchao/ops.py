@@ -46,7 +46,7 @@ def _(_in_feats, _weights, _scales, splitK = 1):
 
 
 
-def unpack_int4_to_int(packed_w: Tensor, innerKTiles: int) -> Tensor:
+def unpack_tensor_core_tiled_layout(packed_w: Tensor, innerKTiles: int) -> Tensor:
     """
     Unpacks weights that were packed with `torch.ops.aten._convert_weight_to_int4pack` to original tensor of shape `N x K`.
 
@@ -60,12 +60,12 @@ def unpack_int4_to_int(packed_w: Tensor, innerKTiles: int) -> Tensor:
         torch.tensor of shape is N x K, dtype is torch.int32
 
     """
-    return torch.ops.torchao.unpack_int4_to_int.default(
+    return torch.ops.torchao.unpack_tensor_core_tiled_layout.default(
         packed_w=packed_w, innerKTiles=innerKTiles
     )
     
 
-@register_custom_op(f"torchao::unpack_int4_to_int")
+@register_custom_op(f"torchao::unpack_tensor_core_tiled_layout")
 def _(packed_w: Tensor, innerKTiles: int) -> Tensor:
     torch._check(
         packed_w.dim() == 4,
@@ -89,7 +89,7 @@ def _(packed_w: Tensor, innerKTiles: int) -> Tensor:
 
     return torch.empty((N, K), dtype=torch.int32, device=packed_w.device)
 
-def dequantize_int4(packed_w: Tensor, scales_and_zeros: Tensor, group_size: int, innerKTiles: int) -> Tensor:
+def dequantize_tensor_core_tiled_layout(packed_w: Tensor, scales_and_zeros: Tensor, group_size: int, innerKTiles: int) -> Tensor:
     """
     Dequantizes by:
     - Unpacking weights that were packed with `torch.ops.aten._convert_weight_to_int4pack` to original tensor of shape `N x K`
@@ -111,12 +111,12 @@ def dequantize_int4(packed_w: Tensor, scales_and_zeros: Tensor, group_size: int,
         torch.tensor of shape is N x K, dtype is torch.bfloat16
 
     """
-    return torch.ops.torchao.dequantize_int4.default(
+    return torch.ops.torchao.dequantize_tensor_core_tiled_layout.default(
         packed_w, scales_and_zeros, group_size, innerKTiles
     )
     
 
-@register_custom_op(f"torchao::dequantize_int4")
+@register_custom_op(f"torchao::dequantize_tensor_core_tiled_layout")
 def _(packed_w: Tensor, scales_and_zeros: Tensor, group_size: int, innerKTiles: int) -> Tensor:
     # packed_w preconditions
     torch._check(

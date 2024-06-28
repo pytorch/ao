@@ -82,23 +82,23 @@ QGROUP_SIZES = [32, 64, 128, 256]
 TEST_CONFIGS_UNPACK = list(itertools.product(SHAPES, INNERKTILES))
 TEST_CONFIGS_DEQUANT = list(itertools.product(SHAPES, INNERKTILES, QGROUP_SIZES))
 
-@pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
 @pytest.mark.parametrize("shape, innerKTiles", TEST_CONFIGS_UNPACK, ids=str)
-def test_int4_unpack_correctness(shape, innerKTiles):
+def test_unpack_tensor_core_tiled_layout_correctness(shape, innerKTiles):
     N, K = shape
     assert K % (innerKTiles * kTileSizeK) == 0 and N % kTileSizeN == 0
 
     t = torch.randint(0, 16, dtype=torch.int, size=shape, device="cuda")
     packed_w = torch.ops.aten._convert_weight_to_int4pack(t, innerKTiles)
-    unpacked = torchao.ops.unpack_int4_to_int(packed_w, innerKTiles)
+    unpacked = torchao.ops.unpack_tensor_core_tiled_layout(packed_w, innerKTiles)
     assert torch.allclose(t, unpacked)
 
 # TODO: Fix "test_aot_dispatch_dynamic" test failure
-@pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
 @pytest.mark.parametrize("shape, innerKTiles", TEST_CONFIGS_UNPACK , ids=str)
-def test_int4_unpack_op(shape, innerKTiles):
+def test_unpack_tensor_core_tiled_layout_op(shape, innerKTiles):
     test_utils = [
         "test_schema",
         "test_autograd_registration",
@@ -109,7 +109,7 @@ def test_int4_unpack_op(shape, innerKTiles):
     packed_w = torch.ops.aten._convert_weight_to_int4pack(t, innerKTiles)
 
     opcheck(
-        torch.ops.torchao.unpack_int4_to_int,
+        torch.ops.torchao.unpack_tensor_core_tiled_layout,
         (packed_w, innerKTiles),
         test_utils=test_utils,
     )
@@ -134,10 +134,10 @@ def dequant_ref(q, scales, zeros, group_size, nbits=4, dtype=torch.bfloat16):
     return dq.reshape(n, k)
 
 
-@pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
 @pytest.mark.parametrize("shape, innerKTiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
-def test_dequantize_int4_correctness(shape, innerKTiles, group_size):
+def test_dequantize_tensor_core_tiled_layout_correctness(shape, innerKTiles, group_size):
     n, k = shape
     dtype = torch.bfloat16    
     
@@ -178,9 +178,8 @@ def test_dequantize_int4_correctness(shape, innerKTiles, group_size):
     ).t()
     
     # Actual operation to test
-    dq_op = torchao.ops.dequantize_int4(packed, scales_and_zeros, group_size, innerKTiles)
+    dq_op = torchao.ops.dequantize_tensor_core_tiled_layout(packed, scales_and_zeros, group_size, innerKTiles)
         
-    
     # Compare results
     diff_ao_id = (dq_id - dq_ao).abs().max()
     diff_op_id = (dq_op - dq_id).abs().max()
@@ -196,10 +195,10 @@ def test_dequantize_int4_correctness(shape, innerKTiles, group_size):
     # Test that the `dequant` kernel gives same numerical diffs as the `groupwise_affine_dequantize` when compared against the identity matrix
     assert diff_op_ao == diff_ao_id
     
-@pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
 @pytest.mark.parametrize("shape, innerKTiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
-def test_dequantize_int4_op(shape, innerKTiles, group_size):
+def test_dequantize_tensor_core_tiled_layout_op(shape, innerKTiles, group_size):
     n, k = shape
     device = "cuda"
 
@@ -218,7 +217,7 @@ def test_dequantize_int4_op(shape, innerKTiles, group_size):
     #  "test_aot_dispatch_dynamic",
     ]
     opcheck(
-        torch.ops.torchao.dequantize_int4,
+        torch.ops.torchao.dequantize_tensor_core_tiled_layout,
         (packed_w, scales_and_zeros, group_size, innerKTiles),
         test_utils=test_utils,
     )
