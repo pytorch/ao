@@ -218,6 +218,7 @@ class AffineQuantizedTensor(torch.Tensor):
             layout_tensor = layout_cls_ctr(int_data, scale, zero_point, inner_k_tiles)
         else:
             layout_tensor = layout_cls_ctr(int_data, scale, zero_point)
+        print(layout_tensor)
         return cls(
             layout_tensor,
             block_size,
