@@ -218,7 +218,6 @@ class AffineQuantizedTensor(torch.Tensor):
             layout_tensor = layout_cls_ctr(int_data, scale, zero_point, inner_k_tiles)
         else:
             layout_tensor = layout_cls_ctr(int_data, scale, zero_point)
-        print(layout_tensor)
         return cls(
             layout_tensor,
             block_size,
@@ -510,8 +509,10 @@ class TensorCoreTiledAQTLayout(AQTLayout):
     def get_plain(self):
         from torchao.quantization.quant_primitives import (
             ZeroPointDomain,
-            unpack_tinygemm_scales_and_zeros,
             quantize_affine,
+        )
+        from torchao.quantization.utils import (
+            unpack_tinygemm_scales_and_zeros,
         )
         cur_shape = self.shape
         assert len(cur_shape) == 4
