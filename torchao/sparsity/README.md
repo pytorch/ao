@@ -23,13 +23,17 @@ More concretely, we hope to provide tutorials and APIs for both sparse kernels (
 #### segment-anything-fast
 We applied 2:4 sparsity to accelerate segment-anything, as part of [segment-anything-fast](https://github.com/pytorch-labs/segment-anything-fast).
 
-We found the inference acceleration of semi-structured sparsity depends on the matmul shapes, which is why we don't see additional speedups when applying sparsity to all linear layers (attn + mlp) of segment-anything.
-We find that accelerating the MLP linear layers provied the most speedups (`lin1`, `lin2`).
-
-We also are able to compose int8 dynamic quantization with 2:4 sparsity for futher speedups. We found that applying int8 dynamic quantization to the attention layers, int8 dynamic quantization + 2:4 sparsity to mlp layer 1 and 2:4 sparsity to mlp layer 2 yielded the best configuration.
-
 We were able to provide a **1.16x (22.7 -> 26.5 img/s) speedup over our dense baseline, while maintaining 97.5% (0.581 -> 0.567) of the evaluation accuracy (mIOU)**.
-To reproduce our benchmarks please follow these [instructions](/scripts/sam/README.md).
+
+Overall, we found that accelerating the MLP linear layers provied the most speedups (`lin1`, `lin2`), while mitigating accuracy loss.
+
+Applying sparsity to the attention linear layers led to a slower model, likely due to two reasons:
+- We cannot fuse into our semi-structured sparse matmul with torch.compile.
+- The speedups we observe for sparse matmul depend on the matmul shapes, and the attention matmuls are smaller than the MLP ones.
+
+We were also are able to compose int8 dynamic quantization with 2:4 sparsity for futher speedups.
+
+We found that applying int8 dynamic quantization to the attention layers, int8 dynamic quantization + 2:4 sparsity to mlp layer 1 and 2:4 sparsity to mlp layer 2 yielded the best configuration.
 
 The following benchmarks we ran for sam ViT-h on an NVIDIA-A100-80GB, with batch_size=32 and `bfloat16` dtype, with `torch.compile="max_autotune"`:
 
@@ -41,6 +45,7 @@ The following benchmarks we ran for sam ViT-h on an NVIDIA-A100-80GB, with batch
 |            | 2:4 sparsity (attn + mlp)                                                                            | 24.30 | 13429        | 0.5306 | **1.07x**        | **91.31%**        |
 |            | int8 dynamic quant (attn)<br>int8 dynamic quant + 2:4 sparsity (mlp lin1)<br>2:4 sparsity (mlp lin2) | 26.46 | 14865        | 0.5668 | **1.16x**        | **97.54%**        |
 
+To reproduce our benchmarks please follow these [instructions](/scripts/sam/README.md).
 
 #### BERT
 
