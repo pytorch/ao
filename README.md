@@ -83,7 +83,7 @@ A key design principle for us is composability as in any new dtype or layout we 
 ### Installation
 `torchao` makes liberal use of several new features in Pytorch, it's recommended to use it with the current nightly or latest stable version of PyTorch.
 
-Stable release from Pypi which will default to PyTorch 2.3.1 and CUDA 12.1
+Stable release from Pypi which will default to CUDA 12.1
 
 ```Shell
 pip install torchao
@@ -91,7 +91,7 @@ pip install torchao
 
 Stable Release from the PyTorch index
 ```Shell
-pip install torchao --extra-index-url https://download.pytorch.org/whl/test/cu121 # full options are cpu/cu118/cu121/cu124
+pip install torchao --extra-index-url https://download.pytorch.org/whl/cu121 # full options are cpu/cu118/cu121/cu124
 ```
 
 Nightly Release
