@@ -1,3 +1,4 @@
+import os
 import tqdm
 import torch
 import fire
@@ -139,7 +140,7 @@ def build_results(batched_data_iter,
                     if str(use_compile) != "False":
                         predictor.model.image_encoder = torch.compile(predictor.model.image_encoder, mode=use_compile, fullgraph=use_fullgraph)
                     # Run first batch a few times for warmup and exclude it from the final timings
-                    for _ in range(3):
+                    for _ in range(5):
                         _ = batch_runner(predictor, batch, batch_size, pad_input_image_batch)
             result_batch, num_datapoints, kernel_time = batch_runner(predictor, batch, batch_size, pad_input_image_batch)
             if result_batch is not None:
@@ -242,6 +243,8 @@ def run(
     inductorconfig.coordinate_descent_check_all_directions = True
     inductorconfig.force_fuse_int_mm_with_mul = True
     inductorconfig.use_mixed_mm = True
+    from torch.sparse import SparseSemiStructuredTensor
+    SparseSemiStructuredTensor._FORCE_CUTLASS = False
 
     if use_half is not None:
         if use_half == "float16":
@@ -275,16 +278,19 @@ def run(
     for block in predictor.model.image_encoder.blocks:
         block.attn.use_rel_pos = use_rel_pos
 
-    if compress == "dynamic_quant":
+    if compress == "int8_dynamic_quant":
         from torchao.quantization import quantize, int8_dynamic_activation_int8_weight
         from torchao.utils import unwrap_tensor_subclass
         predictor.model.image_encoder = quantize(predictor.model.image_encoder, int8_dynamic_activation_int8_weight())
         predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
-    elif compress == "sparse":
+    elif compress == "sparse_mlp_only":
         def mlp_only(mod, name):
             return isinstance(mod, torch.nn.Linear) and 'mlp' in name
         from torchao.sparsity import apply_sparse_semi_structured
         apply_sparse_semi_structured(predictor.model.image_encoder, filter_fn=mlp_only)
+    elif compress == "sparse":
+        from torchao.sparsity import apply_sparse_semi_structured
+        apply_sparse_semi_structured(predictor.model.image_encoder)
     elif compress == "int8_dynamic_quant_sparse":
         from torchao.sparsity.prototype.dynamic_quant_sparse import Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight
         from torchao.sparsity import apply_fake_sparsity, apply_sparse_semi_structured
@@ -387,12 +393,14 @@ def run(
         max_memory_allocated_percentage = int(100 * (max_memory_allocated_bytes / (total_memory >> 10)))
         max_memory_allocated_bytes = max_memory_allocated_bytes >> 10
 
-    if print_header:
-        print(",".join(["device", "sam_model_type", "batch_size", "memory(MiB)", "memory(%)", "img_s(avg)", "batch_ms(avg)/batch_size", "mIoU", "use_compile",
-              "use_half", "compress", "use_compile_decoder", "use_rel_pos", "pad_input_image_batch", "num_workers", "num_batches", "num_images", "profile_path", "memory_path"]))
-    print(",".join(map(str, [device, sam_model_type, batch_size, max_memory_allocated_bytes, max_memory_allocated_percentage, img_s, batch_ms_batch_size, mIoU, use_compile,
-          use_half, compress, use_compile_decoder, use_rel_pos, pad_input_image_batch, num_workers, num_batches, num_images, profile_path, memory_path])))
-
-
+    with open("results.csv", "a") as f:
+        if print_header:
+            header = ",".join(["device", "sam_model_type", "batch_size", "memory(MiB)", "memory(%)", "img_s(avg)", "batch_ms(avg)/batch_size", "mIoU", "use_compile",
+                "use_half", "compress", "use_compile_decoder", "use_rel_pos", "pad_input_image_batch", "num_workers", "num_batches", "num_images", "profile_path", "memory_path"])
+            f.write(header+"\n")
+        vals = ",".join(map(str, [device, sam_model_type, batch_size, max_memory_allocated_bytes, max_memory_allocated_percentage, img_s, batch_ms_batch_size, mIoU, use_compile,
+            use_half, compress, use_compile_decoder, use_rel_pos, pad_input_image_batch, num_workers, num_batches, num_images, profile_path, memory_path]))
+        f.write(vals+"\n")
+        
 if __name__ == '__main__':
     fire.Fire(run)

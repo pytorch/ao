@@ -27,7 +27,7 @@ def apply_fake_sparsity(model, **kwargs):
 def apply_sparse_semi_structured(model, **kwargs):
     filter_fn = kwargs.pop("filter_fn", _is_linear)
 
-    apply_fake_sparsity(model)
+    apply_fake_sparsity(model, filter_fn=filter_fn)
     for name, mod in model.named_modules():
         if filter_fn(mod, name):
             mod.weight = torch.nn.Parameter(to_sparse_semi_structured(mod.weight))
