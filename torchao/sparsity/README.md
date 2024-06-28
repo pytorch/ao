@@ -37,13 +37,13 @@ We found that applying int8 dynamic quantization to the attention layers, int8 d
 
 The following benchmarks we ran for sam ViT-h on an NVIDIA-A100-80GB, with batch_size=32 and `bfloat16` dtype, with `torch.compile="max_autotune"`:
 
-| Model Type | Technique                                                                                            | img/s | memory (MiB) | mIoU   | relative speedup | relative accuracy |
-|------------|------------------------------------------------------------------------------------------------------|-------|--------------|--------|------------------|-------------------|
-| ViT-h      | baseline (bfloat16, max-autotune)                                                                    | 22.75 | 15172        | 0.5811 |                  |                   |
-|            | int8 dynamic quant (attn + mlp)                                                                      | 24.91 | 15154        | 0.5822 | **1.09x**        | **100.19%**       |
-|            | 2:4 sparsity (mlp only)                                                                              | 24.81 | 15632        | 0.5672 | **1.10x**        | **97.61%**        |
-|            | 2:4 sparsity (attn + mlp)                                                                            | 24.30 | 13429        | 0.5306 | **1.07x**        | **91.31%**        |
-|            | int8 dynamic quant (attn)<br>int8 dynamic quant + 2:4 sparsity (mlp lin1)<br>2:4 sparsity (mlp lin2) | 26.46 | 14865        | 0.5668 | **1.16x**        | **97.54%**        |
+| Model Type | Technique                                                                                            | img/s | memory (MiB) | mIoU (coco2017 val) | relative speedup | relative accuracy |
+|------------|------------------------------------------------------------------------------------------------------|-------|--------------|---------------------|------------------|-------------------|
+| ViT-h      | baseline (bfloat16, max-autotune)                                                                    | 22.75 | 15172        | 0.5811              |                  |                   |
+|            | int8 dynamic quant (attn + mlp)                                                                      | 24.91 | 15154        | 0.5822              | **1.09x**        | **100.19%**       |
+|            | 2:4 sparsity (mlp only)                                                                              | 24.81 | 15632        | 0.5672              | **1.10x**        | **97.61%**        |
+|            | 2:4 sparsity (attn + mlp)                                                                            | 24.30 | 13429        | 0.5306              | **1.07x**        | **91.31%**        |
+|            | int8 dynamic quant (attn)<br>int8 dynamic quant + 2:4 sparsity (mlp lin1)<br>2:4 sparsity (mlp lin2) | 26.46 | 14865        | 0.5668              | **1.16x**        | **97.54%**        |
 
 To reproduce our benchmarks please follow these [instructions](/scripts/sam/README.md).
 
