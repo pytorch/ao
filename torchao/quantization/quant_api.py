@@ -373,7 +373,7 @@ def intx_weight_only(nbits, group_size=8):
         quant_max = 2**(nbits-1) - 1
         eps = 1e-6
         preserve_zero = True
-        zero_point_dtype = torch.bfloat16
+        zero_point_dtype = torch.float16
         zero_point_domain = ZeroPointDomain.FLOAT
         
         return to_intx_quantized(

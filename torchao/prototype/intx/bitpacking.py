@@ -73,6 +73,10 @@ def unpack(data: torch.Tensor,
     return reduce(torch.bitwise_or, shards)
 
 def _unpack(data, element_size, scale, dim):
+    '''
+    Extract n bit elements by masking the last n bits then shifting to repeat the process for each element
+    basically the inverse of pack
+    '''
     shape = data.shape
     unpacked_data = torch.zeros(mod_shape(shape, shape[dim]*scale, dim), dtype=data.dtype).to(data.device)
     nbits = (1 << element_size) - 1 # mask for the last dtype_size bits
@@ -111,6 +115,14 @@ def pack(data: torch.Tensor,
 
 
 def _pack(data, elem_size, scale, dim) -> torch.Tensor:
+    '''
+    Compact elements by shifting them up to the different 'slots' within the container and then bitwise or them together
+    
+    a a b b c c d d   <- slots for 2 bit elements. so for every group of 4 elements, 
+    - - - - - - - -      2 are shifted left 2 bits , 2 are shifted 4, and 2 are shifted 6
+    0 1 2 3 4 5 6 7
+    8bit container
+    '''
     packed = torch.zeros(mod_shape(data.shape, data.shape[dim] // scale, dim), dtype=data.dtype).to(data.device)
     slices = [slice(None)] * packed.ndim
     for i in range(scale):

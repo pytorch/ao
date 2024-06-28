@@ -1,6 +1,8 @@
 from math import log
 from copy import deepcopy
+
 import torch
+from torch.profiler import profile, record_function, ProfilerActivity
 
 from torchao.prototype.intx.bitpacking import pack, unpack
 from torchao.dtypes.uint4 import unpack_uint4, pack_uint4
@@ -43,15 +45,42 @@ def test_bitpack_iso():
         print(f"scale: {scale}\tnew speedup: {f2/f1 : .03f}x")
 
 
+def profile_intx(nbits=None):
+    model = torch.nn.Linear(512, 512, dtype=torch.float16).cuda()
+    test_input = torch.randn(1,512, dtype=torch.float16).cuda()
+    if nbits:
+        model = quantize(model, intx_weight_only(nbits))
+    model = torch.compile(model, fullgraph=True)
+    for i in range(10):
+        model(test_input)
+    
+    
+    with profile(activities=[
+        ProfilerActivity.CPU,
+        ProfilerActivity.CUDA],
+        record_shapes=True,
+        profile_memory=True,
+        with_stack=True
+        ) as prof:
+        with record_function("model_inference"):
+            for _ in range(100):
+                model(test_input)
+        
+    # Print a summary
+    with open("profile.txt", "a") as f:
+        print(f'{nbits} model:',file=f)
+        print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=100), file=f)
+
+    # Export the trace
+    prof.export_chrome_trace("trace.json")
+    
+            
 def intx_vs_fp16():
     class Linear16(torch.nn.Module):
         def __init__(self, scale):
             super().__init__()
             self.net = torch.nn.Sequential(
                 torch.nn.Linear(scale * 2, scale, bias=False).cuda(),
-                torch.nn.Linear(scale, scale, bias=False).cuda(),
-                torch.nn.Linear(scale, scale, bias=False).cuda(),
-                torch.nn.Linear(scale, scale, bias=False).cuda(),
                 torch.nn.Linear(scale, scale, bias=False).cuda(),
                 torch.nn.Linear(scale, scale//2, bias=False).cuda(),
             )
@@ -116,9 +145,9 @@ def intx_vs_fp16():
         torch._dynamo.reset()
         
         # results.append((scale, fp16_time, int3_time, int6_time))
-        results.append((scale, fp16_time, int1_time, int2_time, int3_time, int4_time, int5_time, int6_time, int7_time, int8_time))
+        results.append((scale, fp16_time, int1_time, int2_time, int3_time, int4_time, int5_time, int6_time, int7_time))
         
-    for scale, fp16_time, int1_time, int2_time, int3_time, int4_time, int5_time, int6_time, int7_time, int8_time in results:
+    for scale, fp16_time, int1_time, int2_time, int3_time, int4_time, int5_time, int6_time, int7_time in results:
         print(f"scale: {scale} fp16 time: {fp16_time : 05f}" 
               f"\nint1: {fp16_time/int1_time : .05f}x"
               f"\nint2: {fp16_time/int2_time : .05f}x"
@@ -127,13 +156,13 @@ def intx_vs_fp16():
               f"\nint5: {fp16_time/int5_time : .05f}x"
               f"\nint6: {fp16_time/int6_time : .05f}x"
               f"\nint7: {fp16_time/int7_time : .05f}x"
-              f"\nint8: {fp16_time/int8_time : .05f}x"
             )
     
         
         
-if __name__ == "__main__"
-    torch._dynamo.config.specialize_int = True
+if __name__ == "__main__":
+    # profile_intx(4)
+    # profile_intx(6)
+    # profile_intx()
     intx_vs_fp16()
-    # test_vs_existing()
     
