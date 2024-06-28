@@ -103,7 +103,7 @@ def test_unpack_tensor_core_tiled_layout_op(shape, innerKTiles):
         "test_schema",
         "test_autograd_registration",
         "test_faketensor",
-      #  "test_aot_dispatch_dynamic",
+        "test_aot_dispatch_dynamic",
     ]
     t = torch.randint(0, 16, dtype=torch.int, size=shape, device="cuda")
     packed_w = torch.ops.aten._convert_weight_to_int4pack(t, innerKTiles)
@@ -204,7 +204,6 @@ def test_dequantize_tensor_core_tiled_layout_op(shape, innerKTiles, group_size):
 
     q = torch.randint(0, 16, shape, dtype=torch.int, device=device)
     packed_w = torch._convert_weight_to_int4pack(q, innerKTiles)
-    print(packed_w.shape)
     q_groups = k // group_size
     scales = torch.randn(n, q_groups, dtype=torch.bfloat16, device=device)
     zeros = torch.randn_like(scales)
@@ -214,7 +213,7 @@ def test_dequantize_tensor_core_tiled_layout_op(shape, innerKTiles, group_size):
     "test_schema",
     "test_autograd_registration",
     "test_faketensor",
-    #  "test_aot_dispatch_dynamic",
+    "test_aot_dispatch_dynamic",
     ]
     opcheck(
         torch.ops.torchao.dequantize_tensor_core_tiled_layout,
