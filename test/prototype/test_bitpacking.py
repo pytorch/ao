@@ -8,7 +8,7 @@ if not TORCH_VERSION_AFTER_2_4:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 dtypes = ((2, 'trinary', 1), (2, None, 1), (3, None, 2), (4, None, 2), (5, None, 4), (6, None, 4), (7, None, 4))
-dimensions = (2, 1, 0)
+dimensions = (2, 1, 0, -1)
 orders = (True, False)
 
 
@@ -41,15 +41,13 @@ def test_CPU(dtype, dim, order):
                   element_type=element_type,
                   dim = dim,
                   order = order,
-                  container_dtype = torch.uint8,
-                  device='cpu')
+                  container_dtype = torch.uint8)
     assert(packed.shape[dim] == expected_pack_size)
     unpacked = unpack(packed,
                       element_bit_width,
                       element_type=element_type,
                       dim = dim,
-                      order = order,
-                      device='cpu')
+                      order = order)
     assert(unpacked.allclose(test_tensor))
 
             

@@ -81,6 +81,9 @@ class GenericGPTQRunner(fx.Interpreter):
 
         # trace model for one input
         one_input = [multi.values[0].cpu() for multi in inputs]  # pyre-ignore[16]
+        # needed for GPTQ on the torchao llama model
+        import torchao
+        torchao._models.llama.model.use_index_put_for_kv_cache = True
         exported_model = torch._dynamo.export(
             model.cpu(), aten_graph=True, pre_dispatch=True, tracing_mode="fake"
         )(*one_input)
@@ -95,7 +98,7 @@ class GenericGPTQRunner(fx.Interpreter):
         self.groupsize = groupsize
         self.inputs = inputs
         self.gptq_done = False
-        self.debug = False
+        self.debug = True
 
     def configure_quantization_mode(
         self,
@@ -672,9 +675,9 @@ class Int4WeightOnlyQuantizer(Quantizer):
 class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
         def __init__(
             self,
-            blocksize,
-            percdamp,
-            groupsize,
+            blocksize=128,
+            percdamp=0.01,
+            groupsize=64,
             inner_k_tiles=8,
             padding_allowed=True,
             device: torch.device = torch.device("cuda"),
@@ -1018,9 +1021,9 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
 class Int8DynActInt4WeightGPTQQuantizer(GPTQQuantizer):
     def __init__(
         self,
-        blocksize,
-        percdamp,
-        groupsize,
+        blocksize=128,
+        percdamp=.01,
+        groupsize=64,
         inner_k_tiles=8,
         padding_allowed=True,
         precision=torch.float32,

@@ -12,7 +12,7 @@
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
 // 
-// This file is copied from https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/fp6_llm/csrc/include/utils_core.cuh
+// This file is modified from https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/fp6_llm/csrc/include/utils_core.cuh
 
 #ifndef UTILS_CORE_CUH
 #define UTILS_CORE_CUH
@@ -24,7 +24,6 @@
 #include "utils_parallel_dequant.cuh"
 
 
-#ifdef PIPELINE_LEVEL_SMEM
 template<int NUM_INT_PER_THREAD>
 __device__ __forceinline__ void CopyFromSharedToRegister_AFrag(uint32_t Reg[], uint32_t* SPTR, int slice_id) {
     SPTR += slice_id * (NUM_INT_PER_THREAD*WARP_SIZE);
@@ -35,34 +34,51 @@ __device__ __forceinline__ void CopyFromSharedToRegister_AFrag(uint32_t Reg[], u
     }
 }
 
-template <typename TilingConfig>
+// MODIFICATION NOTE: to support MSVC, half __restrict__ (*B_SPTR_read)[WARP_K+PADDING_SHARED_MEM_FOR_B_8] is changed to below.
+template <typename TilingConfig, int EXPONENT, int MANTISSA>
 __device__ __forceinline__ void initialize_mma_slice(uint32_t                  (*a)[4],
                                                      uint32_t                  (*b)[4],
-                                                     uint32_t* __restrict__    A1_SPTR_read,
-                                                     uint32_t* __restrict__    A2_SPTR_read,
-                                                     half      __restrict__    (*B_SPTR_read)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
+                                                     uint32_t* __restrict__    A_1BIT_SPTR_read,
+                                                     uint32_t* __restrict__    A_2BIT_SPTR_read,
+                                                     uint32_t* __restrict__    A_4BIT_SPTR_read,
+                                                     half   (* __restrict__    B_SPTR_read)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
                                                      uint32_t*                 RPTR_Scales)
 {
+    // 1+2+4 weight split
+    constexpr int BIT_WIDTH = 1 + EXPONENT + MANTISSA;
+    constexpr int USE_SEG_1BIT = BIT_WIDTH & 1;
+    constexpr int USE_SEG_2BIT = BIT_WIDTH & 2;
+    constexpr int USE_SEG_4BIT = BIT_WIDTH & 4;
     // Writing registers
     // Registers to store FP6 fragments for a slice (64*16) of A matrix => 32 FP6 per thread => 6 register per thread;
-    uint32_t a_1[2];                      // NO double buffer
-    uint32_t a_2[4];                      // NO double buffer
-    CopyFromSharedToRegister_AFrag<2>   (a_1, A1_SPTR_read, 0);
-    CopyFromSharedToRegister_AFrag<4>   (a_2, A2_SPTR_read, 0);
-    Dequant_32FP6_4Way(a, a_1, a_2, RPTR_Scales);   // SIMT Dequant: dequantizing FP6 to FP16 at register level, dequantizing a slice each time 
+    uint32_t a_1bit[1];                      // NO double buffer
+    uint32_t a_2bit[2];                      // NO double buffer
+    uint32_t a_4bit[4];                      // NO double buffer
+    if(USE_SEG_1BIT) CopyFromSharedToRegister_AFrag<1>   (a_1bit, A_1BIT_SPTR_read, 0);
+    if(USE_SEG_2BIT) CopyFromSharedToRegister_AFrag<2>   (a_2bit, A_2BIT_SPTR_read, 0);
+    if(USE_SEG_4BIT) CopyFromSharedToRegister_AFrag<4>   (a_4bit, A_4BIT_SPTR_read, 0);
+    Dequant_32FP6_4Way<EXPONENT, MANTISSA>(a, a_1bit, a_2bit, a_4bit, RPTR_Scales);   // SIMT Dequant: dequantizing FPx to FP16 at register level, dequantizing a slice each time 
     B_FromSharedToReg<TilingConfig>(b, B_SPTR_read, 0); // Loading B from shared to registers
 }
 
-template <typename TilingConfig>
+// MODIFICATION NOTE: to support MSVC, half __restrict__ (*B_SPTR_read)[WARP_K+PADDING_SHARED_MEM_FOR_B_8] is changed to below.
+template <typename TilingConfig, int EXPONENT, int MANTISSA>
 __device__ __forceinline__ void core_mma_slice(float                     c[][REG_PER_THREAD_C_TENSOR_16_16],
                                                uint32_t                  (*a)[4],
                                                uint32_t                  (*b)[4],
-                                               uint32_t* __restrict__    A1_SPTR_read,
-                                               uint32_t* __restrict__    A2_SPTR_read,
-                                               half      __restrict__    (*B_SPTR_read)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
+                                               uint32_t* __restrict__    A_1bit_SPTR_read,
+                                               uint32_t* __restrict__    A_2bit_SPTR_read,
+                                               uint32_t* __restrict__    A_4bit_SPTR_read,
+                                               half   (* __restrict__    B_SPTR_read)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
                                                uint32_t*                 RPTR_Scales,
                                                int                       slice_id)      // writing slice[slice_id] to registers, k=0 -> slice_id=1 for prefetching
 {
+    // 1+2+4 weight split
+    constexpr int BIT_WIDTH = 1 + EXPONENT + MANTISSA;
+    constexpr int USE_SEG_1BIT = BIT_WIDTH & 1;
+    constexpr int USE_SEG_2BIT = BIT_WIDTH & 2;
+    constexpr int USE_SEG_4BIT = BIT_WIDTH & 4;
+
     #ifdef DEBUG_MODE
         assert((TilingConfig::WARP_COL_MMA_TENSORS==1) || (TilingConfig::WARP_COL_MMA_TENSORS%2==0));   // if WARP_COL_MMA_TENSORS == 1, B tile in registers is padded to a 16*16 MMA block
     #endif
@@ -92,99 +108,17 @@ __device__ __forceinline__ void core_mma_slice(float                     c[][REG
             }
         }
     }
-
     // Writing registers
     // Registers to store FP6 fragments for a slice (64*16) of A matrix => 32 FP6 per thread => 6 register per thread;
-    uint32_t a_1[2];                      // NO double buffer
-    uint32_t a_2[4];                      // NO double buffer
-    CopyFromSharedToRegister_AFrag<2>   (a_1, A1_SPTR_read, slice_id);
-    CopyFromSharedToRegister_AFrag<4>   (a_2, A2_SPTR_read, slice_id);
-    Dequant_32FP6_4Way(a_write, a_1, a_2, RPTR_Scales);   // SIMT Dequant: dequantizing FP6 to FP16 at register level, dequantizing a slice each time 
+    uint32_t a_1bit[1];                      // NO double buffer
+    uint32_t a_2bit[2];                      // NO double buffer
+    uint32_t a_4bit[4];                      // NO double buffer
+    if(USE_SEG_1BIT) CopyFromSharedToRegister_AFrag<1>   (a_1bit, A_1bit_SPTR_read, slice_id);
+    if(USE_SEG_2BIT) CopyFromSharedToRegister_AFrag<2>   (a_2bit, A_2bit_SPTR_read, slice_id);
+    if(USE_SEG_4BIT) CopyFromSharedToRegister_AFrag<4>   (a_4bit, A_4bit_SPTR_read, slice_id);
+    Dequant_32FP6_4Way<EXPONENT, MANTISSA>(a_write, a_1bit, a_2bit, a_4bit, RPTR_Scales);   // SIMT Dequant: dequantizing FP6 to FP16 at register level, dequantizing a slice each time 
     B_FromSharedToReg<TilingConfig>     (b_write, B_SPTR_read, slice_id); // Loading B from shared to registers
 }
-
-#else
-// Old version with naive pipeline design
-template<int NUM_INT_PER_THREAD>
-__device__ __forceinline__ void CopyFromSharedToRegister_AFrag(uint32_t Reg[], uint32_t* SPTR) {
-    int     lane_id = threadIdx.x % WARP_SIZE;
-    #pragma unroll
-    for(int i=0; i<NUM_INT_PER_THREAD; i++) {
-        Reg[i] = SPTR[lane_id+i*WARP_SIZE];
-    }
-}
-template <typename TilingConfig>
-__device__ __forceinline__ void PipelinedCoreLoop(float                     c[][REG_PER_THREAD_C_TENSOR_16_16],
-                                                  half      __restrict__    (*read_SPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
-                                                  uint32_t* __restrict__    read_SPTR_Frag1,
-                                                  uint32_t* __restrict__    read_SPTR_Frag2,
-                                                  uint32_t*                 RPTR_Scales)
-{
-    #ifdef DEBUG_MODE
-        assert((TilingConfig::WARP_COL_MMA_TENSORS==1) || (TilingConfig::WARP_COL_MMA_TENSORS%2==0));   // if WARP_COL_MMA_TENSORS == 1, B tile in registers is padded to a 16*16 MMA block
-    #endif
-    const int NumRegSets_a = WARP_ROW_MMA_TENSORS;                                                                  // 1 set = 4 registers, containing a 16*16 MMA block
-    const int NumRegSets_b = (TilingConfig::WARP_COL_MMA_TENSORS==1) ? 1 : TilingConfig::WARP_COL_MMA_TENSORS/2;    // 1 set = 4 registers, containing a 16*16 MMA block
-
-    // Reigsters to store FP32 results
-    uint32_t (*c_uint_ptr)[REG_PER_THREAD_C_TENSOR_16_16] = reinterpret_cast<uint32_t(*)[REG_PER_THREAD_C_TENSOR_16_16]>(c);
-    // Registers to store FP6 fragments for a slice (64*16) of A matrix => 32 FP6 per thread => 6 register per thread;
-    uint32_t a_1[2*2];                      // double buffer is used
-    uint32_t a_2[4*2];                      // double buffer is used
-    // Registers to store decompressed FP6
-    uint32_t a  [NumRegSets_a * 1][4];      // No double buffer
-    // Register to store FP16 B matrix (a slice)
-    uint32_t b  [NumRegSets_b * 2][4];      // double buffer is used
-
-    // Overlapped Smem and TC pipeline: pre-loading from shared to registers
-    CopyFromSharedToRegister_AFrag<2>   (a_1, read_SPTR_Frag1);
-    CopyFromSharedToRegister_AFrag<4>   (a_2, read_SPTR_Frag2);
-    B_FromSharedToReg<TilingConfig>     (b, read_SPTR, 0);
-
-    #pragma unroll
-    for (int k = 0; k < WARP_K_MMA_TENSORS; k++) {
-        uint32_t (*b_read)[4]   = b;
-        uint32_t (*b_write)[4]  = b;
-        uint32_t *a_1_read      = a_1;
-        uint32_t *a_1_write     = a_1;
-        uint32_t *a_2_read      = a_2;
-        uint32_t *a_2_write     = a_2;
-        if(k%2==0) {
-            b_write     += NumRegSets_b;
-            a_1_write   += 2;
-            a_2_write   += 4;
-        } 
-        else {
-            b_read      += NumRegSets_b;
-            a_1_read    += 2;
-            a_2_read    += 4;
-        }
-        // data loading
-        if (k + 1 < WARP_K_MMA_TENSORS) {
-            // updating SPTR for fragment1 and fragment2
-            read_SPTR_Frag1 += 2*WARP_SIZE;
-            read_SPTR_Frag2 += 4*WARP_SIZE;
-            CopyFromSharedToRegister_AFrag<2>(a_1_write, read_SPTR_Frag1);
-            CopyFromSharedToRegister_AFrag<4>(a_2_write, read_SPTR_Frag2);
-            B_FromSharedToReg<TilingConfig>(b_write, read_SPTR, (k+1)*MMA_16);
-        }
-        // SIMT Dequant + Tensor Core computations
-        Dequant_32FP6_4Way(a, a_1_read, a_2_read, RPTR_Scales);   // Dequantizing FP6 to FP16 at register level, dequantizing a slice each time
-        #pragma unroll
-        for (int i = 0; i < WARP_ROW_MMA_TENSORS; i++) {
-            if(TilingConfig::WARP_COL_MMA_TENSORS==1)
-                MMA_FP16_M16N8K16( c_uint_ptr[i], a[i], b_read[0] );
-            else {            
-                #pragma unroll
-                for (int j = 0; j < TilingConfig::WARP_COL_MMA_TENSORS/2; j++) {
-                    MMA_FP16_M16N8K16( c_uint_ptr[i + j * WARP_ROW_MMA_TENSORS],     a[i], b_read[j]     );
-                    MMA_FP16_M16N8K16( c_uint_ptr[i + j * WARP_ROW_MMA_TENSORS] + 4, a[i], b_read[j] + 2 ); // c+4; b+2
-                }
-            }
-        }
-    }
-}
-#endif // #ifdef PIPELINE_LEVEL_SMEM
 
 template <typename TilingConfig>
 __device__ __forceinline__ void StoreToSharedMemoryFromRegister(float (*smem_CFrag)[TilingConfig::TILE_M + PADDING_SHARED_MEM_FOR_C_4],

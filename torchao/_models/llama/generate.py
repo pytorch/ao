@@ -3,7 +3,6 @@
 
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
-import itertools
 import sys
 import time
 from pathlib import Path
@@ -13,6 +12,7 @@ import torch
 import torchao
 import torch._dynamo.config
 import torch._inductor.config
+from torchao.utils import get_model_size_in_bytes
 
 def device_sync(device):
     if "cuda" in device:
@@ -22,21 +22,14 @@ def device_sync(device):
     else:
         print(f"device={device} is not yet suppported")
 
-
-torch._inductor.config.coordinate_descent_tuning = True
-torch._inductor.config.triton.unique_kernel_names = True
-torch._inductor.config.fx_graph_cache = True # Experimental feature to reduce compilation times, will be on by default in future
-torch._inductor.config.force_fuse_int_mm_with_mul = True
-# torch._inductor.config.use_mixed_mm = True
-
 default_device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # support running without installing as a package
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 
-from model import Transformer, prepare_inputs_for_model
-from tokenizer import get_tokenizer
+from torchao._models.llama.model import Transformer, prepare_inputs_for_model
+from torchao._models.llama.tokenizer import get_tokenizer
 
 def multinomial_sample_one_no_sync(probs_sort): # Does multinomial sampling without a cuda synchronization
     q = torch.empty_like(probs_sort).exponential_(1)
@@ -143,21 +136,6 @@ def _load_model(checkpoint_path, device, precision):
 
     return model.eval()
 
-def _get_model_size(model):
-    model_size = 0
-    for name, child in model.named_children():
-        if not isinstance(child, torch.nn.Embedding):
-            for p in itertools.chain(child.parameters(), child.buffers()):
-                # handling for tensor subclasses
-                if isinstance(p, torchao.dtypes.aqt.AffineQuantizedTensor):
-                    layout_tensor = p.layout_tensor
-                    for attr_name in layout_tensor._tensor_flatten__()[0]:
-                        sub_tensor = getattr(layout_tensor, attr_name)
-                        model_size += sub_tensor.numel() * sub_tensor.element_size()
-                else:
-                    model_size += p.numel() * p.element_size()
-    return model_size
-
 B_INST, E_INST = "[INST]", "[/INST]"
 
 def main(
@@ -178,6 +156,9 @@ def main(
 ) -> None:
     """Generates text samples based on a pre-trained Transformer model and tokenizer.
     """
+
+    torchao.quantization.utils.recommended_inductor_config_setter()
+    
     assert checkpoint_path.is_file(), checkpoint_path
     tokenizer_path = checkpoint_path.parent / "tokenizer.model"
     assert tokenizer_path.is_file(), str(tokenizer_path)
@@ -203,32 +184,43 @@ def main(
 
     if quantization:
         from torchao.quantization.quant_api import (
-            change_linear_weights_to_int4_woqtensors,
-            change_linear_weights_to_int8_woqtensors,
-            change_linear_weights_to_int8_dqtensors,
+            quantize,
+            int8_weight_only,
+            int8_dynamic_activation_int8_weight,
+            int4_weight_only,
             autoquant,
+            unwrap_tensor_subclass
     )
 
         if "int8wo" in quantization:
-            change_linear_weights_to_int8_woqtensors(model)
+            quantize(model, int8_weight_only())
         if "int8dq" in quantization:
-            change_linear_weights_to_int8_dqtensors(model)
+            quantize(model, int8_dynamic_activation_int8_weight())
         if "int4wo" in quantization:
             groupsize=int(quantization.split("-")[-1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
-            change_linear_weights_to_int4_woqtensors(model, groupsize=groupsize)
+            quantize(model, int4_weight_only(group_size=groupsize))
         if "autoquant" == quantization:
-            model = autoquant(model)
+            model = autoquant(model, manual=True)
+
             generate(
                 model,
                 encode_tokens(tokenizer, prompt, bos=True, device=device),
-                2,
-                interactive=False
+                max_new_tokens,
+                interactive=False,
+                temperature=temperature,
+                top_k=top_k,
             )
 
-    model_size = _get_model_size(model) / 1e9
+            # do autoquantization
+            model.finalize_autoquant()
+        else:
+            unwrap_tensor_subclass(model)
+
+    model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
 
     if compile:
+        print("Compiling Model")
         global decode_one_token, prefill
         decode_one_token = torch.compile(decode_one_token, mode="reduce-overhead", fullgraph=True)
 
@@ -242,6 +234,8 @@ def main(
     start = -1 if compile else 0
 
     for i in range(start, num_samples):
+        if i==0:
+            torch.cuda.reset_peak_memory_stats()
         device_sync(device=device) # MKG
         if i >= 0 and interactive:
             prompt = input("What is your prompt? ")
@@ -341,8 +335,8 @@ if __name__ == '__main__':
     parser.add_argument('--max_new_tokens', type=int, default=200, help='Maximum number of new tokens.')
     parser.add_argument('--top_k', type=int, default=200, help='Top-k for sampling.')
     parser.add_argument('--temperature', type=float, default=0.8, help='Temperature for sampling.')
-    parser.add_argument('--checkpoint_path', type=Path, default=Path("checkpoints/meta-Transformer/Transformer-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
-    parser.add_argument("--quantization", type=str, help='Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, autoquant')
+    parser.add_argument('--checkpoint_path', type=Path, default=Path("../../../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
+    parser.add_argument('-q', '--quantization', type=str, help='Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, autoquant')
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
     parser.add_argument('--compile_prefill', action='store_true', help='Whether to compile the prefill (improves prefill perf, but higher compile times)')
     parser.add_argument('--profile', type=Path, default=None, help='Profile path.')

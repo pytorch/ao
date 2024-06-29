@@ -35,6 +35,7 @@ from torch.utils.cpp_extension import (
     CUDAExtension,
     BuildExtension,
     CUDA_HOME,
+    IS_WINDOWS
 )
 
 
@@ -52,20 +53,41 @@ def get_extensions():
     use_cuda = torch.cuda.is_available() and CUDA_HOME is not None
     extension = CUDAExtension if use_cuda else CppExtension
 
-    extra_link_args = []
-    extra_compile_args = {
-        "cxx": [
-            "-O3" if not debug_mode else "-O0",
-            "-fdiagnostics-color=always",
-        ],
-        "nvcc": [
-            "-O3" if not debug_mode else "-O0",
-        ]
-    }
-    if debug_mode:
-        extra_compile_args["cxx"].append("-g")
-        extra_compile_args["nvcc"].append("-g")
-        extra_link_args.extend(["-O0", "-g"])
+    if not IS_WINDOWS:
+        extra_link_args = []
+        extra_compile_args = {
+            "cxx": [
+                "-O3" if not debug_mode else "-O0",
+                "-fdiagnostics-color=always",
+            ],
+            "nvcc": [
+                "-O3" if not debug_mode else "-O0",
+                "-t=0",
+            ]
+        }
+
+        if debug_mode:
+            extra_compile_args["cxx"].append("-g")
+            extra_compile_args["nvcc"].append("-g")
+            extra_link_args.extend(["-O0", "-g"])
+
+    else:
+        extra_link_args = []
+        extra_compile_args = {
+            "cxx": [
+                "/O2" if not debug_mode else "/Od",
+                "/permissive-"
+            ],
+            "nvcc": [
+                "-O3" if not debug_mode else "-O0",
+                "-t=0",
+            ]
+        }
+
+        if debug_mode:
+            extra_compile_args["cxx"].append("/ZI")
+            extra_compile_args["nvcc"].append("-g")
+            extra_link_args.append("/DEBUG")
 
     this_dir = os.path.dirname(os.path.curdir)
     extensions_dir = os.path.join(this_dir, "torchao", "csrc")
@@ -97,7 +119,6 @@ setup(
         "torchao.kernel.configs": ["*.pkl"],
     },
     ext_modules=get_extensions() if use_cpp != "0" else None,
-    install_requires=read_requirements("requirements.txt"),
     extras_require={"dev": read_requirements("dev-requirements.txt")},
     description="Package for applying ao techniques to GPU models",
     long_description=open("README.md").read(),

@@ -1,4 +1,5 @@
 import torch
+import torchao
 from .subclass import ( # noqa
     Int8DynamicallyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
@@ -16,6 +17,12 @@ try:
     from torch._inductor.utils import do_bench
 except:
     from torch._inductor.runtime.runtime_utils import do_bench
+
+__all__ = [
+    "AutoQuantizableLinearWeight",
+    "autoquant",
+]
+
 
 aten = torch.ops.aten
 
@@ -84,7 +91,11 @@ class AutoQuantizableLinearWeight(torch.Tensor):
             with torch.no_grad():
                 act_mat = torch.randn(act_shape, dtype=act_dtype, device=self.device)
                 bias = None if bias_shape is None else torch.randn(bias_shape, dtype=act_dtype, device=self.device)
-                res = q_cls._autoquant_test(act_mat, self.weight, bias, best_time, self.mode)
+                try:
+                    res = q_cls._autoquant_test(act_mat, self.weight, bias, best_time, self.mode)
+                except Exception as e:
+                    print(f"warning: failed to autoquant {q_cls.__name__} for shape: {shapes_and_dtype} due to {e}")
+                    res = torch.inf
                 update_cache(q_cls, shapes_and_dtype, res)
 
     @torch.no_grad()
@@ -97,11 +108,10 @@ class AutoQuantizableLinearWeight(torch.Tensor):
             return self
 
 
-        # only want to do shape+final print a single time if multiple layers
-        # see/have same shapes so we gate on check_cache being empty for
-        # at least one of the class/shape combinations.
-        do_final_print = False
-        print_once = True
+        # only want to print shape (at start) and final result (at end)
+        # once per shape+quantization subclass combination.
+        ran_new_benchmarks = False
+        print_shape_once = True
 
         def count_shapes(self, do_print=True):
             differe_shape_count=0
@@ -120,30 +130,31 @@ class AutoQuantizableLinearWeight(torch.Tensor):
         for q_cls in self.qtensor_class_list:
             # for each logged shape+dtype, benchmark
             cur_time=0
+            total_seen=0
             shape_count = count_shapes(self, do_print=False)
             for shapes_and_dtype, times_seen in self.logged_data.items():
                 if check_cache(q_cls, shapes_and_dtype) is None:
-                    # only do final print if we have to autotune at least one cls/shape pair
-                    do_final_print=True
-
                     # only print shapes once
-                    if print_once == True:
-                        print_once = False
+                    if print_shape_once == True:
+                        print_shape_once = False
                         count_shapes(self, do_print=True)
 
                     time_for_best_shape = check_cache(best_cls, shapes_and_dtype)
                     time_for_best_shape = torch.inf if time_for_best_shape is None else time_for_best_shape
                     self.tune_autoquant(q_cls, shapes_and_dtype, time_for_best_shape)
+                    ran_new_benchmarks=True
                     torch._dynamo.reset()
                 cur_time += check_cache(q_cls, shapes_and_dtype) * times_seen
-            if shape_count is not None and shape_count > 1:
-                print(f">time (all shapes): {cur_time:0.3f}ms for {q_cls}, prev_best: {best_time:0.3f}ms")
+                total_seen += times_seen
+            cur_time = cur_time / total_seen
+            # print aggregated time if there were multiple shapes to aggregate and some new benchmarking was done
+            if shape_count is not None and shape_count > 1 and ran_new_benchmarks:
+                print(f">time (all shapes): {cur_time:0.4f}ms for {q_cls}, prev_best: {best_time:0.4f}ms")
             if best_time >= cur_time:
                 best_time = cur_time
                 best_cls = q_cls
-        # only print if this is the first time seeing some cls+shape combo,
-        # otherwise we will print the same thing for every layer.
-        if do_final_print:
+        # if no new benchmarking was done, don't print the final result, it will be the same as for another layer
+        if ran_new_benchmarks:
             print(f"best_cls={best_cls}\n")
         # TODO handle random cls args/kwargs? or should they be curried?
         self = best_cls.from_float(self.weight)
@@ -375,18 +386,18 @@ class AQFloatLinearWeight(torch.Tensor, AQMixin):
 
 DEFAULT_CLASS_LIST = [
     AQFloatLinearWeight,
-    AQInt8DynamicallyQuantizedLinearWeight,
     AQWeightOnlyQuantizedLinearWeight,
     AQWeightOnlyQuantizedLinearWeight2,
     # AQWeightOnlyQuantizedLinearWeight3,
     # TODO this gets picked in places where it makes perf worse, why?
+    AQInt8DynamicallyQuantizedLinearWeight,
 ]
 
-def change_linears_to_autoquantizable(model, **kwargs):
+def _change_linears_to_autoquantizable(model, **kwargs):
     """
     Converts all linear weight tensors to the
     AutoQuantizableLinearWeight tensor subclass. Expectation is that this is followed
-    by running the model and then calling change_autoquantizable_to_quantized
+    by running the model and then calling _change_autoquantizable_to_quantized
     """
     from torchao.quantization.quant_api import _is_linear
     filter_fn = kwargs.pop("filter_fn", _is_linear)
@@ -401,16 +412,21 @@ def change_linears_to_autoquantizable(model, **kwargs):
         filter_fn if filter_fn is not None else _is_linear,
     )
 
-def change_autoquantizable_to_quantized(model, **kwargs):
+def _change_autoquantizable_to_quantized(model, supress_autoquant_errors=True, **kwargs):
     """
     Converts AutoQuantizableLinearWeight tensor subclasses
     to various quantized/non-quantized tensor subclasses depending
     on benchmark results. Expectation is that these modules are
     torch.compiled afterwards.
     """
-    hold =  torch._dynamo.config.automatic_dynamic_shapes
+    hold_automatic_dynamic_shapes =  torch._dynamo.config.automatic_dynamic_shapes
     torch._dynamo.config.automatic_dynamic_shapes = False
 
+    if supress_autoquant_errors:
+        hold_supress_errors = torch._dynamo.config.suppress_errors
+        torch._dynamo.config.suppress_errors = True
+        import logging
+        torch._logging.set_logs(inductor=logging.CRITICAL, dynamo=logging.CRITICAL)
     filter_fn = kwargs.pop(
         "filter_fn",
         lambda mod, *args:
@@ -426,27 +442,62 @@ def change_autoquantizable_to_quantized(model, **kwargs):
         ),
         filter_fn,
     )
-    torch._dynamo.config.automatic_dynamic_shapes = hold
+    # undo dynamic shape change
+    torch._dynamo.config.automatic_dynamic_shapes = hold_automatic_dynamic_shapes
+
+    # undo error supression
+    if supress_autoquant_errors:
+        torch._dynamo.config.suppress_errors = hold_supress_errors
+        torch._logging.set_logs()
     torch._dynamo.reset()
 
 # TODO: example_input seems weird to include in the API
 # TODO: Document all the modes
 # TODO: Mode being a list is weird, should be a string or some object
 @torch.no_grad()
-def autoquant(model, example_input=None, qtensor_class_list=DEFAULT_CLASS_LIST, filter_fn=None, mode=["interpolate", .85], **aq_kwargs):
+def autoquant(
+    model, 
+    example_input=None, 
+    qtensor_class_list=DEFAULT_CLASS_LIST, 
+    filter_fn=None, 
+    mode=["interpolate", .85], 
+    manual=False, 
+    set_inductor_config=True,
+    supress_autoquant_errors=True,
+    **aq_kwargs
+):
     """
-    Wraps the given model in an AutoQuantWrapper. If `example_input` is provided, performs a forward pass on the input.
-    Otherwise, returns the wrapped model. The AutoQuantWrapper manages cases where the model is torch-compiled by first
-    performing autoquantization on the original model and then allowing the torch.compile run/tracing to occur.
+    Autoquantization is a process which identifies the fastest way to quantize each layer of a model over some set of potential
+    qtensor subclasses.
+    
+    Autoquantization happens in three steps:
+
+    1-Prepare Model: the model is searched for Linear layers whose weights are exchanged for AutoQuantizableLinearWeight.
+    2-Shape Calibration: the user runs the model on one or more inputs, the details of the activation shape/dtype seen by 
+        the AutoQuantizableLinearWeight are recorded so we know what shapes/dtypes to use in order to optimize the quantized op in step 3
+    3-Finalize Autoquantization: for each AutoQuantizableLinearWeight, benchmarks are run for each shape/dtype on each member of the qtensor_class_list.
+        the fastest option is picked, resulting in a highly performant model
+
+    This autoquant function performs step 1. Steps 2 and 3 can be completed by simply running the model.  
+    If `example_input` is provided, this function also runs the model (which completes steps 2 and 3). 
+    This autoquant api can handle models which have already had torch.compile applied to them, in which case, once the model is run and quantized, 
+    the torch.compile process normally proceeds as well.
+
+    To optimize over a combination of input shapes/dtypes, the user can set manual=True, run the model with all desired shapes/dtypes, then
+    call model.finalize_autoquant to finalize the quantization once the desired set of inputs have been logged.
 
     Args:
         model (torch.nn.Module): The model to be autoquantized.
         example_input (Any, optional): An example input for the model. If provided, the function performs a forward pass
-                                       on this input. Defaults to None.
+                                       on this input (which fully autoquantizes the model unless manual=True). Defaults to None.
         qtensor_class_list (list, optional): A list of tensor classes to be used for quantization. Defaults to DEFAULT_CLASS_LIST.
         filter_fn (callable, optional): A filter function to apply to the model parameters. Defaults to None.
         mode (list, optional): A list containing mode settings for quantization. The first element is the mode type (e.g., "interpolate"),
                                and the second element is the mode value (e.g., 0.85). Defaults to ["interpolate", .85].
+        manual (bool, optional): Whether to stop shape calibration and do autoquant after a single run (default, False) or to wait for 
+                                the user to call model.finalize_autoquant (True) so inputs with several shapes/dtypes can be logged.
+        set_inductor_config (bool, optional): Whether to automatically use recommended inductor config settings (defaults to True)
+        supress_autoquant_errors (bool, optional): Whether to suppress errors during autoquantization. (defaults to True)
         **aq_kwargs: Additional keyword arguments for the autoquantization process.
 
     Returns:
@@ -456,21 +507,20 @@ def autoquant(model, example_input=None, qtensor_class_list=DEFAULT_CLASS_LIST, 
     Example usage:
         torchao.autoquant(torch.compile(model))
         model(*example_input)
+
+        # multiple input shapes
+        torchao.autoquant(model, manual=True)
+        model(*example_input1)
+        model(*example_input2)
+        model.finalize_autoquant()
     """
-    # the hook we will use to intercept the model forward and perform
-    # autoquantization
-    def autoquant_prehook(module, args, kwargs):
-        module.forward_log_only(*args, **kwargs)
-        change_autoquantizable_to_quantized(
-            module,
-            **aq_kwargs,
-        )
-        module.clean_up_autoquant_hooks_and_attrs()
-        return args, kwargs
+    if set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
+
 
     # perform initial swap from linear weights
     # to AutoQuantizableLinearWeight
-    change_linears_to_autoquantizable(
+    _change_linears_to_autoquantizable(
         model,
         filter_fn=filter_fn,
         qtensor_class_list=qtensor_class_list,
@@ -479,32 +529,52 @@ def autoquant(model, example_input=None, qtensor_class_list=DEFAULT_CLASS_LIST, 
     )
 
     # access actual model of torch.compile wrapper if needed
-    if isinstance(model, torch._dynamo.eval_frame.OptimizedModule):
+    is_compiled = isinstance(model, torch._dynamo.eval_frame.OptimizedModule)
+    if is_compiled:
         real_model = model._orig_mod
     else:
         real_model = model
 
-    # we need a consistent way to run the model which bypasses both
-    # A) the torch.compile tracing (so we need to run the inner model directly)
-    # B) the autoquant_prehook we're about to register (so we call forward directly)
-    model.forward_log_only = lambda *args, **kwargs: real_model.forward(*args, **kwargs)
+    if manual:
+        # we don't want model.forward to trigger
+        # torch.compilation
+        if is_compiled:
+            real_model.old_forward = model.forward
+            model.forward = real_model.forward
 
-    # the autoquant_prehook intercepts the forward call and performs autoquantization
-    # and then deletes the hook. if model is a torch.compile wrapper, it then
-    # does the tracing/compile since the prehook is naturally followed by the normal.
-    # model run.
-    handle = model.register_forward_pre_hook(autoquant_prehook, with_kwargs=True)
+    # we want to automatically do autoquant after a single model run
+    # and have it occur before torch.compilation if applicable
+    else:
+        # the hook we will use to intercept the model forward and perform
+        # autoquantization
+        def autoquant_prehook(module, args, kwargs):
+            real_model.forward(*args, **kwargs)
+            module.finalize_autoquant()
+            return args, kwargs
 
-    # note the torch.compile wrapper eval_frame moved the assignment of any assigned
-    # attributes to the inner model, so we have to call delattr on the inner model
-    def clean_up_autoquant_hooks_and_attrs():
-        try:
+        # the autoquant_prehook intercepts the forward call, performs logging then
+        # does autoquantization. if model is a torch.compile wrapper, it then
+        # does the tracing/compile since the prehook is naturally followed by the normal.
+        # model run.
+        handle = model.register_forward_pre_hook(autoquant_prehook, with_kwargs=True)
+
+    # note the torch.compile wrapper (eval_frame) moves the assignment of any assigned
+    # attributes to the inner model that didn't exist before, so we have to call delattr on the inner model
+    def finalize_autoquant():
+        _change_autoquantizable_to_quantized(
+            real_model,
+            supress_autoquant_errors,
+            **aq_kwargs,
+        )
+        if hasattr(real_model, "old_forward"):
+            model.forward = real_model.old_forward
+            delattr(real_model, "old_forward")
+        if hasattr(real_model, "finalize_autoquant"):
+            delattr(real_model, "finalize_autoquant")
+        if not manual:
             handle.remove()
-            delattr(real_model, "clean_up_autoquant_hooks_and_attrs")
-            delattr(real_model, "forward_log_only")
-        except:
-            pass
-    model.clean_up_autoquant_hooks_and_attrs = clean_up_autoquant_hooks_and_attrs
+
+    real_model.finalize_autoquant = finalize_autoquant
 
     # if example input was provided, check it and run it
     if isinstance(example_input, torch.Tensor):

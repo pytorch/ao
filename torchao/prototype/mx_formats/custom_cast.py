@@ -4,40 +4,25 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-import struct
-
 import numpy as np
 
 import torch
 from torch.utils._triton import has_triton
 
 from torchao.utils import TORCH_VERSION_AFTER_2_4
+from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32
 
 # TODO(future): if needed, make the below work on previous PyTorch versions,
 # just need to hunt down the previous location of `libdevice`. An assert
 # at the callsite prevents usage of this on unsupported versions.
-if TORCH_VERSION_AFTER_2_4:
+if TORCH_VERSION_AFTER_2_4 and has_triton():
     from torch._inductor.runtime.triton_helpers import libdevice
 
 from torchao.prototype.mx_formats.constants import (
-    DTYPE_FP4,
-    DTYPE_FP6_E2M3,
-    DTYPE_FP6_E3M2,
     E8M0_EXPONENT_BIAS,
     E8M0_EXPONENT_NAN_VAL,
     F32_EXP_BIAS,
     F4_E2M1_EXP_BIAS,
-    F4_E2M1_MAX,
-    F4_E2M1_MAX_INT,
-    F4_E2M1_MIN_NORMAL,
-    F6_E2M3_EXP_BIAS,
-    F6_E2M3_MAX,
-    F6_E2M3_MAX_INT,
-    F6_E2M3_MIN_NORMAL,
-    F6_E3M2_EXP_BIAS,
-    F6_E3M2_MAX,
-    F6_E3M2_MAX_INT,
-    F6_E3M2_MIN_NORMAL,
 )
 
 
@@ -56,181 +41,11 @@ EBITS_F4_E2M1, MBITS_F4_E2M1 = 2, 1
 EBITS_F6_E2M3, MBITS_F6_E2M3 = 2, 3
 EBITS_F6_E3M2, MBITS_F6_E3M2 = 3, 2
 
-DENORM_F32TOF4_EXP = (
-    # exp bias conversion between formats
-    (F32_EXP_BIAS - F4_E2M1_EXP_BIAS)
-    # mantissa length difference between formats
-    + (MBITS_F32 - MBITS_F4_E2M1)
-    # add one to encoded exponent for denormalized numbers
-    + 1
-)
-DENORM_F32TOF4_MASK_INT = DENORM_F32TOF4_EXP << MBITS_F32
-# reinterpret int32 as float32 in Python
-# see https://stackoverflow.com/a/34446112/1058521
-DENORM_F32TOF4_MASK_FLOAT = struct.unpack(
-    "!f", struct.pack("!I", DENORM_F32TOF4_MASK_INT)
-)[0]
-
-DENORM_F32TOF6_E2M3_EXP = (
-    # exp bias conversion between formats
-    (F32_EXP_BIAS - F6_E2M3_EXP_BIAS)
-    # mantissa length difference between formats
-    + (MBITS_F32 - MBITS_F6_E2M3)
-    # add one to encoded exponent for denormalized numbers
-    + 1
-)
-DENORM_F32TOF6_E2M3_MASK_INT = DENORM_F32TOF6_E2M3_EXP << MBITS_F32
-# reinterpret int32 as float32 in Python
-# see https://stackoverflow.com/a/34446112/1058521
-DENORM_F32TOF6_E2M3_MASK_FLOAT = struct.unpack(
-    "!f", struct.pack("!I", DENORM_F32TOF6_E2M3_MASK_INT)
-)[0]
-
-DENORM_F32TOF6_E3M2_EXP = (
-    # exp bias conversion between formats
-    (F32_EXP_BIAS - F6_E3M2_EXP_BIAS)
-    # mantissa length difference between formats
-    + (MBITS_F32 - MBITS_F6_E3M2)
-    # add one to encoded exponent for denormalized numbers
-    + 1
-)
-DENORM_F32TOF6_E3M2_MASK_INT = DENORM_F32TOF6_E3M2_EXP << MBITS_F32
-# reinterpret int32 as float32 in Python
-# see https://stackoverflow.com/a/34446112/1058521
-DENORM_F32TOF6_E3M2_MASK_FLOAT = struct.unpack(
-    "!f", struct.pack("!I", DENORM_F32TOF6_E3M2_MASK_INT)
-)[0]
-
-#
-# magic value to add during the normal path
-# TODO document this better
-#
-
-# c++ code e5m2:
-# f_bits += ((uint32_t)(15 - 127) << 23) + 0xFFFFF;
-# 0xFFFFF is 1111 1111 1111 1111 1111, 20 ones, 20 = 23 - 3 = 23 - 2 - 1
-
-# c++ code e4m3:
-# f_bits += ((uint32_t)(7 - 127) << 23) + 0x7FFFF;
-# 0x7FFFF is 0111 1111 1111 1111 1111, 19 ones, 19 = 23 - 4 = 23 - 3 - 1
-
-MAGIC_ADDER_F4_E2M1 = 0x1FFFFF  # 21 ones
-MAGIC_ADDER_F6_E2M3 = 0x7FFFF  # 19 ones
-MAGIC_ADDER_F6_E3M2 = 0xFFFFF  # 20 ones
-
-# c++ code named vars
-# f_bits += ((uint32_t)(f8_exp_bias - f32_exp_bias) << f32_mbits) + MAGIC_ADDER;  # noqa: E501
-
 SIGN_MASK_F4 = 0x8  # 1000
-SIGN_MASK_F6_E2M3 = 0x20  # 100000
-SIGN_MASK_F6_E3M2 = 0x20  # 100000
-
 MANTISSA_MASK_F4 = 0x1  # 0001
-MANTISSA_MASK_F6_E2M3 = 0x7  # 000111
-MANTISSA_MASK_F6_E3M2 = 0x3  # 000011
 
 ZERO_BITS_F32 = 0x0
 ZERO_POINT_FIVE_BITS_F32 = 0x3F000000
-
-
-def _f32_to_f4_or_f6_unpacked(
-    x,
-    max_normal,
-    min_normal,
-    denorm_mask_float,
-    denorm_mask_int,
-    ebits,
-    mbits,
-    exp_bias,
-    magic_adder,
-    max_int,
-    sign_mask,
-):
-    """
-    Input: torch.Tensor of dtype torch.float
-    Output: torch.Tensor of dtype torch.uint8,
-      fp4: bits 0-3 empty and bits 4-7 in fp4_e2m1 encoding
-      fp6: bits 0-1 empty and bits 2-7 in the fp6_e2m3 or fp6_e3m2 encoding
-
-    Note: there is no special values (NaN, inf) support in this code as the
-    OCP spec does not define special values for fp6 and fp4 dtypes.
-
-    Code below is an adaptation of https://fburl.com/code/ciwofcg4 for f4/f6
-
-    Background 1: last answer in https://stackoverflow.com/questions/8981913/how-to-perform-round-to-even-with-floating-point-numbers  # noqa: E501
-    Background 2: Computer Organization and Design, RISC-V edition, Chapter 3.5
-    """
-    assert x.dtype == torch.float
-
-    # save the sign
-    # Note that we have torch.uint32, but some ops like cpu bit shifts
-    # do not work on it. So, we stay in int32.
-    x = x.view(torch.int32)
-    sign = x & 0x80000000
-
-    # set everything to positive, will add sign back at the end
-    x = x ^ sign
-
-    # TODO: can the branch floating point comparisons below be done without
-    # converting to float? probably but need to verify
-    x = x.view(torch.float)
-
-    # rewrite saturate/denorm/norm branches without explicit data dependent
-    # control flow, to be more compiler friendly
-    saturate_mask = x >= max_normal
-    denormal_mask = torch.logical_and(
-        torch.logical_not(saturate_mask), x < min_normal
-    )  # noqa: E501
-    normal_mask = torch.logical_not(
-        torch.logical_or(saturate_mask, denormal_mask)
-    )  # noqa: E501
-
-    #
-    # branch 1: saturate to max val - handled later in the code which combines
-    #   the branches
-    #
-
-    #
-    # branch 2: to conversion to denormal as well as rounding up to normal
-    #
-    denormal_x = x + denorm_mask_float
-    denormal_x = denormal_x.view(torch.int32)
-    denormal_x -= denorm_mask_int
-    denormal_x = denormal_x.to(torch.uint8)
-
-    #
-    # branch 3: stay in normal range, adjust the exponent and round
-    #
-    normal_x = x.view(torch.int32)
-    # resulting mantissa is odd
-    mant_odd = (normal_x >> (MBITS_F32 - mbits)) & 1
-    # update exponent, rounding bias part 1
-    val_to_add = ((exp_bias - F32_EXP_BIAS) << MBITS_F32) + magic_adder
-    normal_x += val_to_add
-    # rounding bias part 2
-    normal_x += mant_odd
-    # take the bits!
-    normal_x = normal_x >> (MBITS_F32 - mbits)
-    normal_x = normal_x.to(torch.uint8)
-
-    #
-    # combine the branches
-    #
-    x = torch.full_like(x, max_int, dtype=torch.uint8)
-    x = torch.where(denormal_mask, denormal_x, x)
-    x = torch.where(normal_mask, normal_x, x)
-
-    # add sign back
-    sign_lp = sign >> (MBITS_F32 + EBITS_F32 - mbits - ebits)
-    sign_lp = sign_lp.to(torch.uint8)
-    # Right shift of a negative signed integer can fill the least significant
-    # bits with either 1s or 0s, depending on the implementation. Since PyTorch
-    # doesn't have an uint32 dtype, we mask out these bits to get just the
-    # f4 sign bit
-    sign_lp = sign_lp & sign_mask
-    x = x | sign_lp
-
-    return x.to(torch.uint8)
 
 
 def f32_to_f4_unpacked(x):
@@ -239,19 +54,7 @@ def f32_to_f4_unpacked(x):
     Output: torch.Tensor of dtype torch.uint8, with bits 0-3 empty and
       bits 4-7 in fp4_e2m1
     """
-    return _f32_to_f4_or_f6_unpacked(
-        x,
-        F4_E2M1_MAX,
-        F4_E2M1_MIN_NORMAL,
-        DENORM_F32TOF4_MASK_FLOAT,
-        DENORM_F32TOF4_MASK_INT,
-        EBITS_F4_E2M1,
-        MBITS_F4_E2M1,
-        F4_E2M1_EXP_BIAS,
-        MAGIC_ADDER_F4_E2M1,
-        F4_E2M1_MAX_INT,
-        SIGN_MASK_F4,
-    )
+    return _f32_to_fpx_unpacked(x, EBITS_F4_E2M1, MBITS_F4_E2M1)
 
 
 def f32_to_f6_e2m3_unpacked(x):
@@ -260,19 +63,7 @@ def f32_to_f6_e2m3_unpacked(x):
     Output: torch.Tensor of dtype torch.uint8, with bits 0-1 empty and
       bits 2-7 in fp6_e2m3
     """
-    return _f32_to_f4_or_f6_unpacked(
-        x,
-        F6_E2M3_MAX,
-        F6_E2M3_MIN_NORMAL,
-        DENORM_F32TOF6_E2M3_MASK_FLOAT,
-        DENORM_F32TOF6_E2M3_MASK_INT,
-        EBITS_F6_E2M3,
-        MBITS_F6_E2M3,
-        F6_E2M3_EXP_BIAS,
-        MAGIC_ADDER_F6_E2M3,
-        F6_E2M3_MAX_INT,
-        SIGN_MASK_F6_E2M3,
-    )
+    return _f32_to_fpx_unpacked(x, EBITS_F6_E2M3, MBITS_F6_E2M3)
 
 
 def f32_to_f6_e3m2_unpacked(x):
@@ -281,134 +72,7 @@ def f32_to_f6_e3m2_unpacked(x):
     Output: torch.Tensor of dtype torch.uint8, with bits 0-1 empty and
       bits 2-7 in fp6_e3m2
     """
-    return _f32_to_f4_or_f6_unpacked(
-        x,
-        F6_E3M2_MAX,
-        F6_E3M2_MIN_NORMAL,
-        DENORM_F32TOF6_E3M2_MASK_FLOAT,
-        DENORM_F32TOF6_E3M2_MASK_INT,
-        EBITS_F6_E3M2,
-        MBITS_F6_E3M2,
-        F6_E3M2_EXP_BIAS,
-        MAGIC_ADDER_F6_E3M2,
-        F6_E3M2_MAX_INT,
-        SIGN_MASK_F6_E3M2,
-    )
-
-
-def _f4_or_f6_unpacked_to_f32(x: torch.Tensor, lp_dtype_name: str):
-    """
-    Input: torch.Tensor of dtype uint8, with bits 0-3 empty and bits 4-7
-      containing an fp4_e2m1 encoding
-    Output: torch.Tensor of dtype fp32 with the dequantized value
-
-    TODO(future): check if LUT for everything is faster than bit shifting,
-      especially for fp4.
-    """
-    assert x.dtype == torch.uint8
-
-    if lp_dtype_name == DTYPE_FP4:
-        sign_mask = SIGN_MASK_F4
-        ebits = EBITS_F4_E2M1
-        mbits = MBITS_F4_E2M1
-        exp_bias = F4_E2M1_EXP_BIAS
-        mantissa_mask = MANTISSA_MASK_F4
-    elif lp_dtype_name == DTYPE_FP6_E2M3:
-        sign_mask = SIGN_MASK_F6_E2M3
-        ebits = EBITS_F6_E2M3
-        mbits = MBITS_F6_E2M3
-        exp_bias = F6_E2M3_EXP_BIAS
-        mantissa_mask = MANTISSA_MASK_F6_E2M3
-    elif lp_dtype_name == DTYPE_FP6_E3M2:
-        sign_mask = SIGN_MASK_F6_E3M2
-        ebits = EBITS_F6_E3M2
-        mbits = MBITS_F6_E3M2
-        exp_bias = F6_E3M2_EXP_BIAS
-        mantissa_mask = MANTISSA_MASK_F6_E3M2
-    else:
-        raise AssertionError(f"unsupported lp_dtype_name {lp_dtype_name}")
-
-    # save the sign
-    sign_lp = x & sign_mask
-
-    # set everything to positive, will add sign back at the end
-    x_pos = x ^ sign_lp
-
-    #
-    # 1. Calculate zero mask
-    #
-    zero_mask = x_pos == 0
-
-    #
-    # 2. Calculate the denormal path mask
-    #
-    denormal_mask = torch.logical_and((x_pos > 0), ((x_pos >> mbits) == 0))
-
-    #
-    # 3. Calculate the normal path
-    #
-
-    # calculate the new exponent and shift it to bits 2:9 of the result
-    exp_biased_lp = x_pos >> mbits
-    exp_biased_f32 = exp_biased_lp - exp_bias + F32_EXP_BIAS
-    exp_biased_f32 = exp_biased_f32.to(torch.int32) << MBITS_F32
-
-    # shift the mantissa to bits 10:32 of the result
-    mantissa_lp_int32 = (x_pos & mantissa_mask).to(torch.int32)
-    mantissa_f32 = mantissa_lp_int32 << (MBITS_F32 - mbits)
-    result = exp_biased_f32 | mantissa_f32
-
-    #
-    # 4. Add the zero and denormal casts to the already casted normal path
-    #
-    result[zero_mask] = ZERO_BITS_F32
-    # Note: for now the denormal path cast is written for readability and
-    # numerical correctness. There is likely a way to optimize the performance,
-    # I just haven't had time to look into it.
-    if lp_dtype_name == DTYPE_FP4:
-        result[denormal_mask] = ZERO_POINT_FIVE_BITS_F32
-
-    elif lp_dtype_name == DTYPE_FP6_E2M3:
-        # Only 7 possible values, just do a LUT
-        # Note: calculate the booleans first because we are modifying
-        # this variable inplace.
-        is_val1 = mantissa_lp_int32 == 1
-        is_val2 = mantissa_lp_int32 == 2
-        is_val3 = mantissa_lp_int32 == 3
-        is_val4 = mantissa_lp_int32 == 4
-        is_val5 = mantissa_lp_int32 == 5
-        is_val6 = mantissa_lp_int32 == 6
-        is_val7 = mantissa_lp_int32 == 7
-        mantissa_lp_int32[is_val1] = 0x3E000000  # 0.125
-        mantissa_lp_int32[is_val2] = 0x3E800000  # 0.25
-        mantissa_lp_int32[is_val3] = 0x3EC00000  # 0.375
-        mantissa_lp_int32[is_val4] = 0x3F000000  # 0.5
-        mantissa_lp_int32[is_val5] = 0x3F200000  # 0.625
-        mantissa_lp_int32[is_val6] = 0x3F400000  # 0.75
-        mantissa_lp_int32[is_val7] = 0x3F600000  # 0.875
-        result = torch.where(denormal_mask, mantissa_lp_int32, result)
-
-    elif lp_dtype_name == DTYPE_FP6_E3M2:
-        # Only 3 possible values, just do a LUT
-        # Note: calculate the booleans first because we are modifying
-        # this variable inplace.
-        is_val1 = mantissa_lp_int32 == 1
-        is_val2 = mantissa_lp_int32 == 2
-        is_val3 = mantissa_lp_int32 == 3
-        mantissa_lp_int32[is_val1] = 0x3D800000  # 0.0625
-        mantissa_lp_int32[is_val2] = 0x3E000000  # 0.125
-        mantissa_lp_int32[is_val3] = 0x3E400000  # 0.1875
-        result = torch.where(denormal_mask, mantissa_lp_int32, result)
-    else:
-        raise AssertionError(f"unsupported lp_dtype_name {lp_dtype_name}")
-
-    # add sign back
-    sign_f32 = sign_lp.to(torch.int32) << (
-        MBITS_F32 - mbits + EBITS_F32 - ebits
-    )  # noqa: E501
-    result = result | sign_f32
-
-    return result.view(torch.float)
+    return _f32_to_fpx_unpacked(x, EBITS_F6_E3M2, MBITS_F6_E3M2)
 
 
 def f4_unpacked_to_f32(x: torch.Tensor):
@@ -417,7 +81,7 @@ def f4_unpacked_to_f32(x: torch.Tensor):
       containing an fp4_e2m1 encoding
     Output: torch.Tensor of dtype fp32 with the dequantized value
     """
-    return _f4_or_f6_unpacked_to_f32(x, DTYPE_FP4)
+    return _fpx_unpacked_to_f32(x, EBITS_F4_E2M1, MBITS_F4_E2M1)
 
 
 def f6_e2m3_unpacked_to_f32(x: torch.Tensor):
@@ -426,7 +90,7 @@ def f6_e2m3_unpacked_to_f32(x: torch.Tensor):
       containing an fp6_e3m2 encoding
     Output: torch.Tensor of dtype fp32 with the dequantized value
     """
-    return _f4_or_f6_unpacked_to_f32(x, DTYPE_FP6_E2M3)
+    return _fpx_unpacked_to_f32(x, EBITS_F6_E2M3, MBITS_F6_E2M3)
 
 
 def f6_e3m2_unpacked_to_f32(x: torch.Tensor):
@@ -435,7 +99,7 @@ def f6_e3m2_unpacked_to_f32(x: torch.Tensor):
       containing an fp6_e3m2 encoding
     Output: torch.Tensor of dtype fp32 with the dequantized value
     """
-    return _f4_or_f6_unpacked_to_f32(x, DTYPE_FP6_E3M2)
+    return _fpx_unpacked_to_f32(x, EBITS_F6_E3M2, MBITS_F6_E3M2)
 
 
 if has_triton():
@@ -443,7 +107,19 @@ if has_triton():
     import triton.language as tl
 
     @triton.jit
-    def _fp4_packed_to_bf16(x_packed):
+    def _fp4_packed_to_bf16(
+        x_packed,
+        sign_mask_f4,
+        mantissa_mask_f4,
+        mbits_f4_e2m1,
+        ebits_f4_e2m1,
+        f4_e2m1_exp_bias,
+        mbits_f32,
+        ebits_f32,
+        f32_exp_bias,
+        zero_bits_f32,
+        zero_point_five_bits_f32,
+    ):
         """
         Input: a tensor of packed fp4 values
         Output: a tensor of bfloat16 values
@@ -459,7 +135,7 @@ if has_triton():
         # output = x_unpacked.to(tl.float32)
 
         # save the sign
-        sign_f4 = x & SIGN_MASK_F4
+        sign_f4 = x & sign_mask_f4
 
         # set everything to positive, will add sign back at the end
         x_pos = x ^ sign_f4
@@ -474,25 +150,25 @@ if has_triton():
         denormal_mask = x_pos == 1
 
         # calculate the new exponent and shift it to bits 2:9 of the result
-        exp_biased_f4 = x_pos >> MBITS_F4_E2M1
-        exp_biased_f32 = exp_biased_f4 - F4_E2M1_EXP_BIAS + F32_EXP_BIAS
-        exp_biased_f32 = exp_biased_f32.to(tl.int32) << MBITS_F32
+        exp_biased_f4 = x_pos >> mbits_f4_e2m1
+        exp_biased_f32 = exp_biased_f4 - f4_e2m1_exp_bias + f32_exp_bias
+        exp_biased_f32 = exp_biased_f32.to(tl.int32) << mbits_f32
 
         # shift the mantissa to bits 10:32 of the result
-        mantissa_f4 = x_pos & MANTISSA_MASK_F4
-        mantissa_f32 = mantissa_f4.to(tl.int32) << (MBITS_F32 - MBITS_F4_E2M1)
+        mantissa_f4 = x_pos & mantissa_mask_f4
+        mantissa_f32 = mantissa_f4.to(tl.int32) << (mbits_f32 - mbits_f4_e2m1)
         output = mantissa_f32
 
         # combine the pieces
         result = exp_biased_f32 | mantissa_f32
         # result[zero_mask] = ZERO_BITS_F32
-        result = tl.where(zero_mask, ZERO_BITS_F32, result)
+        result = tl.where(zero_mask, zero_bits_f32, result)
         # result[denormal_mask] = ZERO_POINT_FIVE_BITS_F32
-        result = tl.where(denormal_mask, ZERO_POINT_FIVE_BITS_F32, result)
+        result = tl.where(denormal_mask, zero_point_five_bits_f32, result)
 
         # add sign back
         sign_f32 = sign_f4.to(tl.int32) << (
-            MBITS_F32 - MBITS_F4_E2M1 + EBITS_F32 - EBITS_F4_E2M1
+            mbits_f32 - mbits_f4_e2m1 + ebits_f32 - ebits_f4_e2m1
         )
         result = result | sign_f32
 
@@ -510,6 +186,16 @@ if has_triton():
         x_ptr,
         output_ptr,
         n_elements_in,
+        sign_mask_f4: tl.constexpr,
+        mantissa_mask_f4: tl.constexpr,
+        mbits_f4_e2m1: tl.constexpr,
+        ebits_f4_e2m1: tl.constexpr,
+        f4_e2m1_exp_bias: tl.constexpr,
+        mbits_f32: tl.constexpr,
+        ebits_f32: tl.constexpr,
+        f32_exp_bias: tl.constexpr,
+        zero_bits_f32: tl.constexpr,
+        zero_point_five_bits_f32: tl.constexpr,
         BLOCK_SIZE_IN: tl.constexpr,
     ):
         pid = tl.program_id(axis=0)
@@ -523,7 +209,19 @@ if has_triton():
 
         # packed uint8
         x_packed = tl.load(x_ptr + offsets_in, mask=mask_in)
-        output = _fp4_packed_to_bf16(x_packed)
+        output = _fp4_packed_to_bf16(
+            x_packed,
+            sign_mask_f4,
+            mantissa_mask_f4,
+            mbits_f4_e2m1,
+            ebits_f4_e2m1,
+            f4_e2m1_exp_bias,
+            mbits_f32,
+            ebits_f32,
+            f32_exp_bias,
+            zero_bits_f32,
+            zero_point_five_bits_f32,
+        )
 
         # set up output offsets
         block_start_out = pid * BLOCK_SIZE_OUT
@@ -549,6 +247,18 @@ if has_triton():
         output_ptr,
         n_elements_in,
         mx_block_size: tl.constexpr,
+        sign_mask_f4: tl.constexpr,
+        mantissa_mask_f4: tl.constexpr,
+        mbits_f4_e2m1: tl.constexpr,
+        ebits_f4_e2m1: tl.constexpr,
+        f4_e2m1_exp_bias: tl.constexpr,
+        mbits_f32: tl.constexpr,
+        ebits_f32: tl.constexpr,
+        f32_exp_bias: tl.constexpr,
+        zero_bits_f32: tl.constexpr,
+        zero_point_five_bits_f32: tl.constexpr,
+        e8m0_exponent_bias: tl.constexpr,
+        e8m0_exponent_nan_val: tl.constexpr,
         BLOCK_SIZE_IN: tl.constexpr,
     ):
         pid = tl.program_id(axis=0)
@@ -563,7 +273,19 @@ if has_triton():
         mask_in = offsets_in < n_elements_in
         # packed uint8
         x_packed = tl.load(x_ptr + offsets_in, mask=mask_in)
-        output = _fp4_packed_to_bf16(x_packed)
+        output = _fp4_packed_to_bf16(
+            x_packed,
+            sign_mask_f4,
+            mantissa_mask_f4,
+            mbits_f4_e2m1,
+            ebits_f4_e2m1,
+            f4_e2m1_exp_bias,
+            mbits_f32,
+            ebits_f32,
+            f32_exp_bias,
+            zero_bits_f32,
+            zero_point_five_bits_f32,
+        )
 
         # load scale
         block_start_s = pid * BLOCK_SIZE_S
@@ -572,9 +294,9 @@ if has_triton():
         s = tl.load(s_ptr + offsets_s, mask=mask_s)
 
         # create the scale in bf16
-        s_offset = s.to(tl.int16) - E8M0_EXPONENT_BIAS
+        s_offset = s.to(tl.int16) - e8m0_exponent_bias
         s_fp = libdevice.pow(2.0, s_offset).to(tl.bfloat16)
-        s_fp = tl.where(s != E8M0_EXPONENT_NAN_VAL, s_fp, float("nan"))
+        s_fp = tl.where(s != e8m0_exponent_nan_val, s_fp, float("nan"))
 
         # multiply output by scale
         # TODO(later): see if manipulating the exponent instead of fp
@@ -599,6 +321,16 @@ else:
         x_ptr,
         output_ptr,
         n_elements_in,
+        sign_mask_f4,
+        mantissa_mask_f4,
+        mbits_f4_e2m1,
+        ebits_f4_e2m1,
+        f4_e2m1_exp_bias,
+        mbits_f32,
+        ebits_f32,
+        f32_exp_bias,
+        zero_bits_f32,
+        zero_point_five_bits_f32,
         BLOCK_SIZE_IN,
     ):
         raise AssertionError("unsupported without triton")
@@ -609,6 +341,18 @@ else:
         output_ptr,
         n_elements_in,
         mx_block_size,
+        sign_mask_f4,
+        mantissa_mask_f4,
+        mbits_f4_e2m1,
+        ebits_f4_e2m1,
+        f4_e2m1_exp_bias,
+        mbits_f32,
+        ebits_f32,
+        f32_exp_bias,
+        zero_bits_f32,
+        zero_point_five_bits_f32,
+        e8m0_exponent_bias,
+        e8m0_exponent_nan_val,
         BLOCK_SIZE_IN,
     ):
         raise AssertionError("unsupported without triton")
@@ -630,7 +374,22 @@ def triton_f4_to_bf16(x: torch.Tensor):
     grid = lambda meta: (  # noqa: E731
         triton.cdiv(n_elements_in, meta["BLOCK_SIZE_IN"]),
     )  # noqa: E731,E501
-    triton_f4_to_bf16_kernel[grid](x, output, n_elements_in, BLOCK_SIZE_IN=512)
+    triton_f4_to_bf16_kernel[grid](
+        x,
+        output,
+        n_elements_in,
+        sign_mask_f4=SIGN_MASK_F4,
+        mantissa_mask_f4=MANTISSA_MASK_F4,
+        mbits_f4_e2m1=MBITS_F4_E2M1,
+        ebits_f4_e2m1=EBITS_F4_E2M1,
+        f4_e2m1_exp_bias=F4_E2M1_EXP_BIAS,
+        mbits_f32=MBITS_F32,
+        ebits_f32=EBITS_F32,
+        f32_exp_bias=F32_EXP_BIAS,
+        zero_bits_f32=ZERO_BITS_F32,
+        zero_point_five_bits_f32=ZERO_POINT_FIVE_BITS_F32,
+        BLOCK_SIZE_IN=512,
+    )
     return output
 
 
@@ -654,7 +413,23 @@ def triton_f4_to_scaled_bf16(
         triton.cdiv(n_elements_in, meta["BLOCK_SIZE_IN"]),
     )
     triton_f4_to_scaled_bf16_kernel[grid](
-        x, s_e8m0, output, n_elements_in, mx_block_size
+        x,
+        s_e8m0,
+        output,
+        n_elements_in,
+        mx_block_size,
+        sign_mask_f4=SIGN_MASK_F4,
+        mantissa_mask_f4=MANTISSA_MASK_F4,
+        mbits_f4_e2m1=MBITS_F4_E2M1,
+        ebits_f4_e2m1=EBITS_F4_E2M1,
+        f4_e2m1_exp_bias=F4_E2M1_EXP_BIAS,
+        mbits_f32=MBITS_F32,
+        ebits_f32=EBITS_F32,
+        f32_exp_bias=F32_EXP_BIAS,
+        zero_bits_f32=ZERO_BITS_F32,
+        zero_point_five_bits_f32=ZERO_POINT_FIVE_BITS_F32,
+        e8m0_exponent_bias=E8M0_EXPONENT_BIAS,
+        e8m0_exponent_nan_val=E8M0_EXPONENT_NAN_VAL,
     )
     return output
 

@@ -5,7 +5,7 @@ from torchao.quantization.subclass import (
     Int8WeightOnlyQuantizedLinearWeight,
     Int4WeightOnlyQuantizedLinearWeight,
 )
-from torchao.quantization.utils import (
+from torchao.utils import (
     TORCH_VERSION_AFTER_2_4,
 )
 from torchao.quantization.quant_api import (

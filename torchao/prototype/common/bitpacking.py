@@ -3,15 +3,16 @@ from typing import Optional, Union
 
 def mod_shape(shape, mod, dim):
     """changes a select dimension of the input shape to mod"""
-    return (*shape[:dim], mod, *shape[dim+1:])
+    a = list(shape)
+    a[dim] = mod
+    return tuple(a)
     
 def unpack(data: torch.Tensor,
            element_bit_width: int,
            element_type: Optional[str] = None, 
            dim: Optional[int] = 0,
            order: Optional[bool] = True,
-           output_dtype: Optional[torch.dtype] = None,
-           device: Optional[str] ="cuda") -> torch.Tensor:
+           output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
     """
     Unpacks small dtype elements from a larger dtype.
     
@@ -27,8 +28,10 @@ def unpack(data: torch.Tensor,
     """
     container_size = torch.iinfo(data.dtype).bits
     scale = container_size // element_bit_width
-    
+    device = data.device
+        
     unpacked = _unpack(data, element_bit_width, container_size, scale, order, dim, device)
+    
     if element_type == "trinary":
         unpacked = unpacked.to(torch.int8) - 1
     elif output_dtype is not None:
@@ -59,8 +62,7 @@ def pack(data: torch.Tensor,
          dim: Optional[int] = 0,
          container_dtype: Optional[torch.dtype] = None,
          pad: Optional[bool] = False,
-         order: Optional[bool] = True,
-         device: Optional[str] = "cuda") -> torch.Tensor:
+         order: Optional[bool] = True) -> torch.Tensor:
     """
     Packs small dtype elements into a container of a larger dtype.
     
@@ -92,6 +94,8 @@ def pack(data: torch.Tensor,
         
     if container_dtype is not None:
         data = data.to(container_dtype)
+    
+    device = data.device
     
     container_size = torch.iinfo(data.dtype).bits
     scale = container_size // element_bit_width

@@ -31,7 +31,7 @@ jobs:
             torch-spec: 'torch==2.3.0'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.1"
-          - name: CUDA Nightly 
+          - name: CUDA Nightly
             runs-on: linux.g5.12xlarge.nvidia.gpu
             torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu121'
             gpu-arch-type: "cuda"
@@ -54,6 +54,7 @@ jobs:
 
     uses: pytorch/test-infra/.github/workflows/linux_job.yml@main
     with:
+      timeout: 60
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
@@ -65,7 +66,6 @@ jobs:
         export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
-        pip install -r requirements.txt
         pip install -r dev-requirements.txt
         pip install .
         pytest test --verbose -s
