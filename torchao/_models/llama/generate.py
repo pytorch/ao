@@ -188,6 +188,7 @@ def main(
             int8_weight_only,
             int8_dynamic_activation_int8_weight,
             int4_weight_only,
+            intx_weight_only,
             autoquant,
             unwrap_tensor_subclass
     )
@@ -200,6 +201,11 @@ def main(
             groupsize=int(quantization.split("-")[-1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
             quantize(model, int4_weight_only(group_size=groupsize))
+        if "intx" in quantization:
+            nbits = int(quantization.split("-")[-1])
+            assert nbits in [1,2,3,4,5,6,7], "invalid bit size"
+            quantize(model, intx_weight_only(nbits))
+            
         if "autoquant" == quantization:
             model = autoquant(model, manual=True)
 

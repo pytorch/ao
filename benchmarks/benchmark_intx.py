@@ -75,14 +75,14 @@ def profile_intx(nbits=None):
     prof.export_chrome_trace("trace.json")
     
             
-def intx_vs_fp16():
+def intx_vs_fp16(scales=[256, 512, 1024], repeats=30):
     class Linear16(torch.nn.Module):
         def __init__(self, scale):
             super().__init__()
             self.net = torch.nn.Sequential(
-                torch.nn.Linear(scale * 2, scale, bias=False).cuda(),
-                torch.nn.Linear(scale, scale, bias=False).cuda(),
-                torch.nn.Linear(scale, scale//2, bias=False).cuda(),
+                torch.nn.Linear(scale * 2, scale, bias=False, dtype=torch.float16).cuda(),
+                torch.nn.Linear(scale, scale, bias=False, dtype=torch.float16).cuda(),
+                torch.nn.Linear(scale, scale//2, bias=False, dtype=torch.float16).cuda(),
             )
 
         def forward(self, x):
@@ -91,9 +91,9 @@ def intx_vs_fp16():
     
 
     results  = []
-    for scale in [256, 512, 1024, 2048, 4096]:
+    for scale in scales:
         print("scale: ", scale)
-        test_input = torch.randn(scale*2).cuda()
+        test_input = torch.randn(scale*2, dtype=torch.float16).cuda()
         forward_args = [test_input]
         
         fp16 = Linear16(scale)
@@ -101,47 +101,42 @@ def intx_vs_fp16():
         int1 = deepcopy(fp16)
         int1 = quantize(int1, intx_weight_only(1))
         int1 = torch.compile(int1, fullgraph=True)
-        int1_time = benchmark(int1.forward, forward_args, 100)
-        torch._dynamo.reset()
-        
+        int1_time = benchmark(int1.forward, forward_args, repeats)
+        print('int1 done')
         int2 = deepcopy(fp16)
         int2 = quantize(int2, intx_weight_only(2))
         int2 = torch.compile(int2, fullgraph=True)
-        int2_time = benchmark(int2.forward, forward_args, 100)
-        torch._dynamo.reset()
-        
+        int2_time = benchmark(int2.forward, forward_args, repeats)
+        print('int2 done')
         int3 = deepcopy(fp16)
         int3 = quantize(int3, intx_weight_only(3))
         int3 = torch.compile(int3, fullgraph=True)
-        int3_time = benchmark(int3.forward, forward_args, 100)
-        torch._dynamo.reset()
-        
+        int3_time = benchmark(int3.forward, forward_args, repeats)
+        print('int3 done')
         int4 = deepcopy(fp16)
         int4 = quantize(int4, intx_weight_only(4))
         int4 = torch.compile(int4, fullgraph=True)
-        int4_time = benchmark(int4.forward, forward_args, 100)
-        torch._dynamo.reset()
-        
+        int4_time = benchmark(int4.forward, forward_args, repeats)
+        print('int4 done')
         int5 = deepcopy(fp16)
         int5 = quantize(int5, intx_weight_only(5))
         int5 = torch.compile(int5, fullgraph=True)
-        int5_time = benchmark(int5.forward, forward_args, 100)
-        torch._dynamo.reset()
-        
+        int5_time = benchmark(int5.forward, forward_args, repeats)
+        print('int5 done')
         int6 = deepcopy(fp16)
         int6 = quantize(int6, intx_weight_only(6))
         int6 = torch.compile(int6, fullgraph=True)
-        int6_time = benchmark(int6.forward, forward_args, 100)
-        torch._dynamo.reset()
-        
+        int6_time = benchmark(int6.forward, forward_args, repeats)
+        print('int6 done')
         int7 = deepcopy(fp16)
         int7 = quantize(int7, intx_weight_only(7)) 
         int7 = torch.compile(int7, fullgraph=True)
-        int7_time = benchmark(int7.forward, forward_args, 100)
-        torch._dynamo.reset()
+        int7_time = benchmark(int7.forward, forward_args, repeats)
+        print('int7 done')
         
         fp16 = torch.compile(fp16, fullgraph=True)
-        fp16_time = benchmark(fp16.forward, forward_args, 100)
+        fp16_time = benchmark(fp16.forward, forward_args, repeats)
+        print('fp16 done')
         torch._dynamo.reset()
         
         # results.append((scale, fp16_time, int3_time, int6_time))
@@ -162,7 +157,7 @@ def intx_vs_fp16():
         
 if __name__ == "__main__":
     # profile_intx(4)
-    # profile_intx(6)
-    # profile_intx()
-    intx_vs_fp16()
+    profile_intx(6)
+    profile_intx()
+    # intx_vs_fp16([64,128],5)
     

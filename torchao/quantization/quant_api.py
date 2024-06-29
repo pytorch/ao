@@ -369,17 +369,14 @@ def intx_weight_only(nbits, group_size=8):
     
         mapping_type = MappingType.ASYMMETRIC
         block_size = (1, group_size)
-        quant_min = -2**(nbits-1)
-        quant_max = 2**(nbits-1) - 1
-        eps = 1e-6
-        preserve_zero = True
-        zero_point_dtype = torch.float16
-        zero_point_domain = ZeroPointDomain.FLOAT
+        quant_min = 0
+        quant_max = 2**nbits - 1
+        eps = torch.finfo(torch.float32).eps
+        zero_point_dtype = torch.int64
         
         return to_intx_quantized(
             weight, mapping_type, block_size, nbits, quant_min = quant_min,
             quant_max = quant_max, eps = eps, zero_point_dtype=zero_point_dtype,
-            preserve_zero=preserve_zero, zero_point_domain=zero_point_domain
         )
     
     return apply_intx_weight_only_quant
