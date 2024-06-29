@@ -5,8 +5,6 @@ from functools import reduce
 from math import gcd
 from packaging import version
 import torch.nn.utils.parametrize as parametrize
-from torch.ao.quantization.utils import _assert_and_get_unique_device
-import time
 
 __all__ = [
     "benchmark_model",
@@ -24,49 +22,20 @@ __all__ = [
 
 
 def benchmark_model(model, num_runs, input_tensor):
-    if _assert_and_get_unique_device(model).type == "cuda":
-        torch.cuda.synchronize()
-        start_event = torch.cuda.Event(enable_timing=True)
-        end_event = torch.cuda.Event(enable_timing=True)
-        start_event.record()
+    start_event = torch.Event(enable_timing=True)
+    end_event = torch.Event(enable_timing=True)
+    start_event.record()
+    start_event.synchronize()
 
-        # benchmark
-        for _ in range(num_runs):
-            with torch.autograd.profiler.record_function("timed region"):
-                model(input_tensor)
+    # benchmark
+    for _ in range(num_runs):
+        with torch.autograd.profiler.record_function("timed region"):
+            model(input_tensor)
 
-        end_event.record()
-        torch.cuda.synchronize()
-        return start_event.elapsed_time(end_event) / num_runs
+    end_event.synchronize()
+    end_event.record()
+    return start_event.elapsed_time(end_event) / num_runs
 
-    elif _assert_and_get_unique_device(model).type == "mps":
-        torch.mps.synchronize()
-        start_event = torch.mps.event.Event(enable_timing=True)
-        end_event = torch.mps.event.Event(enable_timing=True)
-        start_event.record()
-
-        # benchmark
-        for _ in range(num_runs):
-            with torch.autograd.profiler.record_function("timed region"):
-                model(input_tensor)
-
-        end_event.record()
-        torch.mps.synchronize()
-        return start_event.elapsed_time(end_event) / num_runs
-
-    elif _assert_and_get_unique_device(model).type == "cpu":
-        torch.cpu.synchronize()
-        start_time = time.time()
-
-        # benchmark
-        for _ in range(num_runs):
-            with torch.autograd.profiler.record_function("timed region"):
-                model(input_tensor)
-        
-        end_time = time.time()
-        torch.cpu.synchronize()
-        average_time_per_run = (end_time - start_time) / num_runs
-        return average_time_per_run
 
 def profiler_runner(path, fn, *args, **kwargs):
     with torch.profiler.profile(
