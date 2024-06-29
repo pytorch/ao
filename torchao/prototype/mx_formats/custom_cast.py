@@ -38,23 +38,34 @@ def get_bits(x: torch.Tensor) -> str:
 
 EBITS_F32, MBITS_F32 = 8, 23
 EBITS_F4_E2M1, MBITS_F4_E2M1 = 2, 1
+EBITS_F4_E3M0, MBITS_F4_E3M0 = 3, 0
 EBITS_F6_E2M3, MBITS_F6_E2M3 = 2, 3
 EBITS_F6_E3M2, MBITS_F6_E3M2 = 3, 2
 
 SIGN_MASK_F4 = 0x8  # 1000
-MANTISSA_MASK_F4 = 0x1  # 0001
+MANTISSA_MASK_F4_E2M1 = 0x1  # 0001
+MANTISSA_MASK_F4_E3M0 = 0x0  # 0000
 
 ZERO_BITS_F32 = 0x0
 ZERO_POINT_FIVE_BITS_F32 = 0x3F000000
 
 
-def f32_to_f4_unpacked(x):
+def f32_to_f4_e2m1_unpacked(x):
     """
     Input: torch.Tensor of dtype torch.float
     Output: torch.Tensor of dtype torch.uint8, with bits 0-3 empty and
       bits 4-7 in fp4_e2m1
     """
     return _f32_to_fpx_unpacked(x, EBITS_F4_E2M1, MBITS_F4_E2M1)
+
+
+def f32_to_f4_e3m0_unpacked(x):
+    """
+    Input: torch.Tensor of dtype torch.float
+    Output: torch.Tensor of dtype torch.uint8, with bits 0-3 empty and
+      bits 4-7 in fp4_e3m0
+    """
+    return _f32_to_fpx_unpacked(x, EBITS_F4_E3M0, MBITS_F4_E3M0)
 
 
 def f32_to_f6_e2m3_unpacked(x):
@@ -75,13 +86,22 @@ def f32_to_f6_e3m2_unpacked(x):
     return _f32_to_fpx_unpacked(x, EBITS_F6_E3M2, MBITS_F6_E3M2)
 
 
-def f4_unpacked_to_f32(x: torch.Tensor):
+def f4_e2m1_unpacked_to_f32(x: torch.Tensor):
     """
     Input: torch.Tensor of dtype uint8, with bits 0-3 empty and bits 4-7
       containing an fp4_e2m1 encoding
     Output: torch.Tensor of dtype fp32 with the dequantized value
     """
     return _fpx_unpacked_to_f32(x, EBITS_F4_E2M1, MBITS_F4_E2M1)
+
+
+def f4_e3m0_unpacked_to_f32(x: torch.Tensor):
+    """
+    Input: torch.Tensor of dtype uint8, with bits 0-3 empty and bits 4-7
+      containing an fp4_e3m0 encoding
+    Output: torch.Tensor of dtype fp32 with the dequantized value
+    """
+    return _fpx_unpacked_to_f32(x, EBITS_F4_E3M0, MBITS_F4_E3M0)
 
 
 def f6_e2m3_unpacked_to_f32(x: torch.Tensor):
@@ -102,6 +122,7 @@ def f6_e3m2_unpacked_to_f32(x: torch.Tensor):
     return _fpx_unpacked_to_f32(x, EBITS_F6_E3M2, MBITS_F6_E3M2)
 
 
+# Note that only E2M1 supports triton currently
 if has_triton():
     import triton
     import triton.language as tl
@@ -143,7 +164,7 @@ if has_triton():
         exp_biased_f32 = exp_biased_f32.to(tl.int32) << MBITS_F32
 
         # shift the mantissa to bits 10:32 of the result
-        mantissa_f4 = x_pos & MANTISSA_MASK_F4
+        mantissa_f4 = x_pos & MANTISSA_MASK_F4_E2M1
         mantissa_f32 = mantissa_f4.to(tl.int32) << (MBITS_F32 - MBITS_F4_E2M1)
         output = mantissa_f32
 
