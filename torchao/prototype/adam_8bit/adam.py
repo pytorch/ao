@@ -5,7 +5,6 @@ from torch import Tensor
 from torch.optim import Optimizer
 
 from .subclass import DTQ8bit
-# from ._optim import AdamInt8
 
 
 class AdamDTQ8bit(Optimizer):
@@ -38,8 +37,9 @@ class AdamDTQ8bit(Optimizer):
 
     # follow bitsandbytes
     # only apply quantization for tensor with more than 4096 values
+    # state is flattened so that torch.compile won't recompile for tensor with different ndim
     def _new_zero_buffer(self, p: Tensor, signed: bool = True):
-        out = torch.zeros_like(p)
+        out = torch.zeros_like(p.view(-1))
         if p.numel() >= 4096 and p.numel() % self.block_size == 0:
             out = DTQ8bit.from_float(out, signed=signed, block_size=self.block_size)
         return out
@@ -58,12 +58,10 @@ class AdamDTQ8bit(Optimizer):
 
                 grad = p.grad
                 if grad.is_sparse:
-                    raise RuntimeError('Adam does not support sparse gradients, please consider SparseAdam instead')
-                
+                    raise RuntimeError('Sparse gradient is not supported')
+
                 if group["weight_decay"] != 0:
                     grad = grad.add(p, alpha=group["weight_decay"])
-
-                amsgrad = group['amsgrad']
 
                 state = self.state[p]
 
@@ -72,61 +70,37 @@ class AdamDTQ8bit(Optimizer):
                     state['step'] = torch.tensor(0)
                     state['exp_avg'] = self._new_zero_buffer(p, signed=True)
                     state['exp_avg_sq'] = self._new_zero_buffer(p, signed=False)
-                    if amsgrad:
+                    if group['amsgrad']:
                         state['max_exp_avg_sq'] = self._new_zero_buffer(p, signed=False)
 
-                single_adam_step(
-                    p,
-                    grad,
-                    state['step'],
-                    state['exp_avg'],
-                    state['exp_avg_sq'],
-                    state.get('max_exp_avg_sq', None),
-                    group['lr'],
-                    group['betas'][0],
-                    group['betas'][1],
-                    group['eps'],
-                    group['amsgrad'],
-                )
+                # flatten p and grad so that torch.compile won't recompile for tensor with different ndim
+                single_adam(p.view(-1), grad.view(-1), state, group)
 
         return loss
 
 
-def single_adam_step(
-    p: Tensor,
-    grad: Tensor,
-    # optim state
-    step: Tensor,
-    exp_avg: Tensor,
-    exp_avg_sq: Tensor,
-    max_exp_avg_sq: Tensor | None,
-    # optim hparams
-    lr: float,
-    beta1: float,
-    beta2: float,
-    eps: float,
-    amsgrad: bool,
-):
-    step += 1
-    bias_correction1 = 1 - beta1 ** step
-    bias_correction2 = 1 - beta2 ** step
+@torch.compile
+def single_adam(p: Tensor, grad: Tensor, state: dict[str, Tensor], group: dict):
+    beta1, beta2 = group['betas']
+    eps = group['eps']
 
-    # exp_avg.lerp_(grad, 1 - beta1)
-    # exp_avg_sq.mul_(beta2).addcmul_(grad, grad.conj(), value=1 - beta2)
-    new_exp_avg = exp_avg.lerp(grad, 1 - beta1)
-    new_exp_avg_sq = exp_avg_sq.lerp(grad.square(), 1 - beta2)
+    state['step'] += 1
+    bias_correction1 = 1 - beta1 ** state['step']
+    bias_correction2 = 1 - beta2 ** state['step']
 
-    if amsgrad:
-        torch.max(max_exp_avg_sq, exp_avg_sq, out=max_exp_avg_sq)
-        denom = (max_exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(eps)
+    # keep high precision copy for param update
+    new_exp_avg = state['exp_avg'].lerp(grad, 1 - beta1)
+    new_exp_avg_sq = state['exp_avg_sq'].lerp(grad.square(), 1 - beta2)
+
+    state['exp_avg'].copy_(new_exp_avg)
+    state['exp_avg_sq'].copy_(new_exp_avg_sq)
+
+    if group['amsgrad']:
+        new_max_exp_avg_sq = torch.maximum(state['max_exp_avg_sq'], new_exp_avg_sq)
+        state['max_exp_avg_sq'].copy_(new_max_exp_avg_sq)
+        denom = (new_max_exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(eps)
     else:
-        # denom = (exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(group['eps'])
         denom = (new_exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(eps)
 
-    step_size = lr / bias_correction1
-
-    # p.addcdiv_(exp_avg, denom, value=-step_size)
+    step_size = group['lr'] / bias_correction1
     p.addcdiv_(new_exp_avg, denom, value=-step_size)
-
-    exp_avg.copy_(new_exp_avg)
-    exp_avg_sq.copy_(new_exp_avg_sq)

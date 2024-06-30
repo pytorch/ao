@@ -1,8 +1,5 @@
-from functools import cache
-
 import torch
 from torch import Tensor
-from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.dtypes.utils import _implements, _ATEN_OP_OR_TORCH_FN_TABLE
 
 
