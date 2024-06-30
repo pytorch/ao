@@ -2,10 +2,10 @@
 
 import argparse
 import math
-from functools import partial
 from pathlib import Path
-import datasets
 
+import bitsandbytes as bnb
+import datasets
 import timm
 import torch
 import torch.nn.functional as F
@@ -13,7 +13,6 @@ import wandb
 from torch.utils.data import DataLoader
 from torchvision.transforms import v2
 from tqdm import tqdm
-import bitsandbytes as bnb
 
 from torchao.prototype.adam_8bit import AdamDTQ8bit
 
@@ -49,9 +48,6 @@ def get_parser():
     parser.add_argument("--optim", default="Adam")
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight_decay", type=float, default=0)
-
-    # default per https://arxiv.org/abs/2110.02861
-    parser.add_argument("--optim_quant_block_size", type=int, default=2048)
 
     parser.add_argument("--run_name", default="debug")
     return parser
@@ -131,11 +127,12 @@ if __name__ == "__main__":
         model.compile(fullgraph=True)
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
-    optim = dict(
+    OPTIM_MAP = dict(
         Adam=torch.optim.Adam,
         Adam8bitBnb=bnb.optim.Adam8bit,
-        AdamDTQ8bit=partial(AdamDTQ8bit, block_size=args.optim_quant_block_size),
-    )[args.optim](model.parameters(), args.lr, weight_decay=args.weight_decay)
+        AdamDTQ8bit=AdamDTQ8bit,
+    )
+    optim = OPTIM_MAP[args.optim](model.parameters(), args.lr, weight_decay=args.weight_decay)
     lr_schedule = CosineSchedule(args.lr, len(dloader) * args.n_epochs)
 
     grad_scaler = torch.amp.GradScaler("cuda", enabled=args.amp == "fp16")
