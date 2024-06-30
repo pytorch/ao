@@ -129,7 +129,7 @@ if __name__ == "__main__":
 
     OPTIM_MAP = dict(
         Adam=torch.optim.Adam,
-        Adam8bitBnb=bnb.optim.Adam8bit,
+        AdamBnb8bit=bnb.optim.Adam8bit,
         AdamDTQ8bit=AdamDTQ8bit,
     )
     optim = OPTIM_MAP[args.optim](model.parameters(), args.lr, weight_decay=args.weight_decay)
