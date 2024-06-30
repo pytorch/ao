@@ -1,1 +1,1 @@
-from .optim import AdamInt8
+from .adam import AdamDTQ8bit
