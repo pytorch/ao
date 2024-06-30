@@ -111,8 +111,8 @@ class DTQ8bit(Tensor):
 
         # section 2.1 from https://arxiv.org/abs/2110.02861
         input_float = input_float.reshape(-1, block_size)
-        scale = input_float.abs().amax(-1)
-        input_float = input_float / scale.view(-1, 1).clip(1e-12)
+        scale = input_float.abs().amax(-1).clip(1e-12)
+        input_float = input_float / scale.view(-1, 1)
 
         qmap = torch.tensor(QMAP_SIGNED if signed else QMAP_UNSIGNED, device=input_float.device)
         codes = (qmap.view(1, -1) - input_float.view(-1, 1)).abs().argmin(-1)
@@ -133,7 +133,7 @@ class DTQ8bit(Tensor):
         )
 
     def _apply_fn_to_data(self, fn):
-        return self.__class__(*[fn(getattr(self, name)) for name in self.tensor_attrs], self.shape)
+        return self.__class__(*[fn(getattr(self, name)) for name in self.tensor_attrs], self.signed, self.shape)
 
     @classmethod
     def __torch_function__(cls, func, types, args=(), kwargs=None):
@@ -152,28 +152,6 @@ class DTQ8bit(Tensor):
 
         raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run {func}, this is not supported")
 
-
-def _dequant_list(*args):
-    return [x.dequantize() if isinstance(x, DTQ8bit) else x for x in args]
-
-
-# in-place ops
-# @DTQ8bit.implements(aten.copy_.default)
-# def _(func, *args, **kwargs):
-#     out = func(*_dequant_list(*args), **kwargs)
-
-#     # args[0] is the original quantized tensor to be updated in-place
-#     if isinstance(args[0], DTQ8bit):
-#         out = DTQ8bit.from_float(out, args[0].signed, args[0].block_size)
-#         args[0].codes.copy_(out.codes)
-#         args[0].scale.copy_(out.scale)
-#         # qmap should be the same, don't need to copy
-
-#         # return the original quantized tensor with updated values
-#         out = args[0]
-
-#     return out
-    # return return_and_correct_aliasing(func, args, kwargs, out)
 
 @DTQ8bit.implements(aten.copy_.default)
 def _(func, *args, **kwargs):
@@ -195,7 +173,7 @@ def _(func, *args, **kwargs):
         return dst.copy_(src.dequantize())
 
 
-# out-of-place ops will always return float tensor
 @DTQ8bit.implements(aten.lerp.Scalar)
 def _(func, *args, **kwargs):
-    return func(*_dequant_list(*args), **kwargs)
+    args = [x.dequantize() if isinstance(x, DTQ8bit) else x for x in args]
+    return func(*args, **kwargs)
