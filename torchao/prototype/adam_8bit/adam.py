@@ -37,11 +37,12 @@ class AdamDTQ8bit(Optimizer):
 
     # follow bitsandbytes
     # only apply quantization for tensor with more than 4096 values
-    # state is flattened so that torch.compile won't recompile for tensor with different ndim
+    # TODO: also skip 1D tensor? e.g. biases and norm scales
     def _new_zero_buffer(self, p: Tensor, signed: bool = True):
-        out = torch.zeros_like(p.view(-1))
         if p.numel() >= 4096 and p.numel() % self.block_size == 0:
-            out = DTQ8bit.from_float(out, signed=signed, block_size=self.block_size)
+            out = DTQ8bit.zeros(p.shape, signed, self.block_size, device=p.device)
+        else:
+            out = torch.zeros_like(p)
         return out
 
     @torch.no_grad()
@@ -66,12 +67,13 @@ class AdamDTQ8bit(Optimizer):
                 state = self.state[p]
 
                 # State initialization
+                # state is flattened so that torch.compile won't recompile for tensor with different ndim
                 if len(state) == 0:
                     state['step'] = torch.tensor(0)
-                    state['exp_avg'] = self._new_zero_buffer(p, signed=True)
-                    state['exp_avg_sq'] = self._new_zero_buffer(p, signed=False)
+                    state['exp_avg'] = self._new_zero_buffer(p.view(-1), signed=True)
+                    state['exp_avg_sq'] = self._new_zero_buffer(p.view(-1), signed=False)
                     if group['amsgrad']:
-                        state['max_exp_avg_sq'] = self._new_zero_buffer(p, signed=False)
+                        state['max_exp_avg_sq'] = self._new_zero_buffer(p.view(-1), signed=False)
 
                 # flatten p and grad so that torch.compile won't recompile for tensor with different ndim
                 single_adam(p.view(-1), grad.view(-1), state, group)

@@ -65,6 +65,9 @@ def create_dynamic_map(signed=True, max_exponent_bits=7, total_bits=8):
 QMAP_SIGNED = create_dynamic_map(signed=True)
 QMAP_UNSIGNED = create_dynamic_map(signed=False)
 
+ZERO_CODE_SIGNED = QMAP_SIGNED.index(0)
+ZERO_CODE_UNSIGNED = QMAP_UNSIGNED.index(0)
+
 
 # dynamic tree quantization
 # https://arxiv.org/pdf/1511.04561
@@ -74,15 +77,15 @@ class DTQ8bit(Tensor):
     tensor_attrs = ["codes", "scale", "qmap"]
 
     @staticmethod
-    def __new__(cls, codes: Tensor, scale: Tensor, qmap: Tensor, signed, shape):
+    def __new__(cls, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool):
         return Tensor._make_wrapper_subclass(
             cls,
-            shape,
+            codes.shape,
             device=codes.device,
             requires_grad=False,
         )
 
-    def __init__(self, codes: Tensor, scale: Tensor, qmap: Tensor, signed, shape):
+    def __init__(self, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool):
         self.codes = codes
         self.scale = scale
         self.qmap = qmap
@@ -90,57 +93,48 @@ class DTQ8bit(Tensor):
 
     @property
     def block_size(self):
-        return self.numel() // self.scale.shape[0]
+        return self.codes.numel() // self.scale.numel()
 
     def __tensor_flatten__(self):
-        return self.tensor_attrs, [self.signed, self.shape]
+        return self.tensor_attrs, [self.signed]
 
     @classmethod
     def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
-        return cls(
-            *[tensor_data_dict[name] for name in cls.tensor_attrs],
-            *tensor_attributes,
-        )
+        return cls(*[tensor_data_dict[name] for name in cls.tensor_attrs], *tensor_attributes)
 
     @classmethod
     def from_float(cls, input_float: Tensor, signed: bool = True, block_size: int = 2048):
         shape = input_float.shape
 
         # section 2.1 from https://arxiv.org/abs/2110.02861
-        input_float = input_float.reshape(-1, block_size)
+        input_float = input_float.view(-1, block_size)
         scale = input_float.abs().amax(-1).clip(1e-12)
         input_float = input_float / scale.view(-1, 1)
 
         qmap = torch.tensor(QMAP_SIGNED if signed else QMAP_UNSIGNED, device=input_float.device)
-        codes = (qmap.view(1, -1) - input_float.view(-1, 1)).abs().argmin(-1)
-        return cls(codes, scale, qmap, signed, shape)
+        codes = (qmap.view(1, -1) - input_float.view(-1, 1)).abs().argmin(-1).view(shape)
+        return cls(codes, scale, qmap, signed)
 
     def dequantize(self, output_dtype=None):
         float_data = self.qmap[self.codes]
         float_data = float_data.view(-1, self.block_size) * self.scale.view(-1, 1)
 
         dtype = output_dtype or torch.get_default_dtype()
-        float_data = float_data.view(self.shape).to(dtype)
-        return float_data
+        return float_data.view(self.codes.shape).to(dtype)
+
+    @classmethod
+    def zeros(cls, shape, signed: bool = True, block_size: int = 2048, device=None):
+        shape = (shape,) if isinstance(shape, int) else shape
+        codes = torch.full(shape, ZERO_CODE_SIGNED if signed else ZERO_CODE_UNSIGNED, device=device)
+        qmap = torch.tensor(QMAP_SIGNED if signed else QMAP_UNSIGNED, device=device)
+        scale = torch.ones(codes.numel() // block_size, device=device)
+        return cls(codes, scale, qmap, signed)
 
     def __repr__(self):
         return (
             f"{self.__class__.__name__}(signed={self.signed}, block_size={self.block_size}, "
             f"shape={tuple(self.shape)}, device={self.device}, requires_grad={self.requires_grad})"
         )
-
-    def _apply_fn_to_data(self, fn):
-        return self.__class__(*[fn(getattr(self, name)) for name in self.tensor_attrs], self.signed, self.shape)
-
-    @classmethod
-    def __torch_function__(cls, func, types, args=(), kwargs=None):
-        kwargs = {} if kwargs is None else kwargs
-
-        if func in _ATEN_OP_OR_TORCH_FN_TABLE[cls]:
-            return _ATEN_OP_OR_TORCH_FN_TABLE[cls][func](*args, **kwargs)
-
-        with torch._C.DisableTorchFunctionSubclass():
-            return func(*args, **kwargs)
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
