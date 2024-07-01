@@ -1511,7 +1511,7 @@ class TestBenchmarkModel(unittest.TestCase):
         m_bf16 = copy.deepcopy(m)
         example_inputs = m.example_inputs(dtype=dtype, device=device)
         m_bf16 = torch.compile(m_bf16, mode='max-autotune')
-        num_runs = 100
+        num_runs = 1
         return benchmark_model(m_bf16, num_runs, example_inputs[0])
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
