@@ -76,33 +76,54 @@ class AdamDTQ8bit(Optimizer):
                         state['max_exp_avg_sq'] = self._new_zero_buffer(p.view(-1), signed=False)
 
                 # flatten p and grad so that torch.compile won't recompile for tensor with different ndim
-                single_adam(p.view(-1), grad.view(-1), state, group)
+                # must explicitly convert lr to Tensor since torch.compile() will treat it as a constant
+                # if it is float. practically, only lr is changed during training.
+                single_param_adam(
+                    p.view(-1),
+                    grad.view(-1),
+                    state['step'],
+                    state['exp_avg'],
+                    state['exp_avg_sq'],
+                    state.get('max_exp_avg_sq', None),
+                    torch.tensor(group['lr'], device=p.device),
+                    group['betas'][0],
+                    group['betas'][1],
+                    group['eps'],
+                )
 
         return loss
 
 
-@torch.compile
-def single_adam(p: Tensor, grad: Tensor, state: dict[str, Tensor], group: dict):
-    beta1, beta2 = group['betas']
-    eps = group['eps']
-
-    state['step'] += 1
-    bias_correction1 = 1 - beta1 ** state['step']
-    bias_correction2 = 1 - beta2 ** state['step']
+@torch.compile(fullgraph=True, dynamic=True)
+def single_param_adam(
+    p: Tensor,
+    grad: Tensor,
+    step: Tensor,
+    exp_avg: Tensor,
+    exp_avg_sq: Tensor,
+    max_exp_avg_sq: Tensor | None,
+    lr: Tensor,
+    beta1: float,
+    beta2: float,
+    eps: float,
+):
+    step += 1
+    bias_correction1 = 1 - beta1 ** step
+    bias_correction2 = 1 - beta2 ** step
 
     # keep high precision copy for param update
-    new_exp_avg = state['exp_avg'].lerp(grad, 1 - beta1)
-    new_exp_avg_sq = state['exp_avg_sq'].lerp(grad.square(), 1 - beta2)
+    new_exp_avg = exp_avg.lerp(grad, 1 - beta1)
+    new_exp_avg_sq = exp_avg_sq.lerp(grad.square(), 1 - beta2)
 
-    state['exp_avg'].copy_(new_exp_avg)
-    state['exp_avg_sq'].copy_(new_exp_avg_sq)
+    exp_avg.copy_(new_exp_avg)
+    exp_avg_sq.copy_(new_exp_avg_sq)
 
-    if group['amsgrad']:
-        new_max_exp_avg_sq = torch.maximum(state['max_exp_avg_sq'], new_exp_avg_sq)
-        state['max_exp_avg_sq'].copy_(new_max_exp_avg_sq)
-        denom = (new_max_exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(eps)
+    if max_exp_avg_sq is not None:
+        new_max_exp_avg_sq = torch.maximum(max_exp_avg_sq, new_exp_avg_sq)
+        max_exp_avg_sq.copy_(new_max_exp_avg_sq)
+        denom = (new_max_exp_avg_sq.sqrt() / bias_correction2.sqrt()).add_(eps)
     else:
-        denom = (new_exp_avg_sq.sqrt() / math.sqrt(bias_correction2)).add_(eps)
+        denom = (new_exp_avg_sq.sqrt() / bias_correction2.sqrt()).add_(eps)
 
-    step_size = group['lr'] / bias_correction1
+    step_size = lr / bias_correction1
     p.addcdiv_(new_exp_avg, denom, value=-step_size)

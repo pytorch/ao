@@ -49,6 +49,7 @@ def get_parser():
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight_decay", type=float, default=0)
 
+    parser.add_argument("--project", default="Adam8bit_debug")
     parser.add_argument("--run_name", default="debug")
     return parser
 
@@ -115,7 +116,7 @@ if __name__ == "__main__":
         print(f"{k}: {v}")
 
     Path("wandb_logs").mkdir(exist_ok=True)
-    wandb.init(project="AdamInt8", name=args.run_name, config=args, dir="wandb_logs")
+    wandb.init(project=args.project, name=args.run_name, config=args, dir="wandb_logs")
 
     dloader = get_dloader(args, True)
     print(f"Train dataset: {len(dloader.dataset):,} images")
