@@ -86,6 +86,7 @@ class DTQ8bit(Tensor):
         )
 
     def __init__(self, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool):
+        assert codes.dtype is torch.uint8
         self.codes = codes
         self.scale = scale
         self.qmap = qmap
@@ -112,11 +113,12 @@ class DTQ8bit(Tensor):
         input_float = input_float / scale.view(-1, 1)
 
         qmap = torch.tensor(QMAP_SIGNED if signed else QMAP_UNSIGNED, device=input_float.device)
-        codes = (qmap.view(1, -1) - input_float.view(-1, 1)).abs().argmin(-1).view(shape)
+        codes = (qmap.view(1, -1) - input_float.view(-1, 1)).abs().argmin(-1).to(torch.uint8).view(shape)
         return cls(codes, scale, qmap, signed)
 
     def dequantize(self, output_dtype=None):
-        float_data = self.qmap[self.codes]
+        # torch.compile() cannot use uint8 as index
+        float_data = self.qmap[self.codes.int()]
         float_data = float_data.view(-1, self.block_size) * self.scale.view(-1, 1)
 
         dtype = output_dtype or torch.get_default_dtype()
@@ -125,7 +127,7 @@ class DTQ8bit(Tensor):
     @classmethod
     def zeros(cls, shape, signed: bool = True, block_size: int = 2048, device=None):
         shape = (shape,) if isinstance(shape, int) else shape
-        codes = torch.full(shape, ZERO_CODE_SIGNED if signed else ZERO_CODE_UNSIGNED, device=device)
+        codes = torch.full(shape, ZERO_CODE_SIGNED if signed else ZERO_CODE_UNSIGNED, dtype=torch.uint8, device=device)
         qmap = torch.tensor(QMAP_SIGNED if signed else QMAP_UNSIGNED, device=device)
         scale = torch.ones(codes.numel() // block_size, device=device)
         return cls(codes, scale, qmap, signed)
