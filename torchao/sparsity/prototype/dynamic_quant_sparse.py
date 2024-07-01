@@ -149,6 +149,17 @@ def sparse_quant_int8_cutlass_matmul(
 class Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight(
     Int8DynamicallyQuantizedLinearWeight
 ):
+    def dequantize(self, dtype=None):
+        # overload dequantize op for __repr__
+        zero_points = torch.zeros(self.q_scales.shape, device=self.q_scales.device, dtype=self.q_scales.dtype)
+        int_data_expanded = torch._cslt_sparse_mm(self.int_data, torch.eye(self.shape[1],
+                                                                           dtype=self.int_data.dtype,
+                                                                           device=self.int_data.device))
+        dq_t = dequantize_per_channel(
+            int_data_expanded, self.q_scales, zero_points, self.dtype if dtype is None else dtype
+        ).to(self.dtype)
+
+        return dq_t if not self.transposed else dq_t.t()
 
     @staticmethod
     def _quantized_op(act_mat, w_qtensor, bias):
@@ -158,7 +169,7 @@ class Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight(
         )
 
     @classmethod
-    def from_float(cls, input_float, qmin=-8, qmax=7):
+    def from_float(cls, input_float, qmin=-128, qmax=127):
 
         assert input_float.is_cuda
 

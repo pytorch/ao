@@ -20,29 +20,32 @@ More concretely, we hope to provide tutorials and APIs for both sparse kernels (
 
 ## Success Stories
 
-#### segment-anything
+#### segment-anything-fast
 We applied 2:4 sparsity to accelerate segment-anything, as part of [segment-anything-fast](https://github.com/pytorch-labs/segment-anything-fast).
-The results mentioned in the README of the repo compose sparsity with a suite of other inference acceleration techniques.
 
-From our [benchmarking](https://github.com/pytorch/ao/blob/main/benchmarks/benchmark_sam.py), we see a 1.1x speedup when running with `SEGMENT_ANYTHING_FAST_USE_FLASH_4` enabled.
-To reproduce these benchmarks you can run the following command:
+We were able to provide a **1.16x (22.7 -> 26.5 img/s) speedup over our dense baseline, while maintaining 97.5% (0.581 -> 0.567) of the evaluation accuracy (mIOU)**.
 
-The inference acceleration of semi-structured sparsity depends on the matmul shapes, which is why we don't see additional speedups when applying to all linear layers (attn + mlp) of segment-anything.
-We find that accelerating the MLP linear layers provied the most speedups (`lin1`, `lin2`). To repoduce our benchmarks you can run the following command:
+Overall, we found that accelerating the MLP linear layers provied the most speedups (`lin1`, `lin2`), while mitigating accuracy loss.
 
-```
-python benchmarks/benchmark_sam.py
-```
+Applying sparsity to the attention linear layers led to a slower model, likely due to two reasons:
+- We cannot fuse into our semi-structured sparse matmul with torch.compile.
+- The speedups we observe for sparse matmul depend on the matmul shapes, and the attention matmuls are smaller than the MLP ones.
 
-The following benchmarks we run on an A100, with batch_size=32 and `bfloat16` dtype:
+We were also are able to compose int8 dynamic quantization with 2:4 sparsity for futher speedups.
 
-| qkv  | proj | lin1 | lin2 | time | memory | img/s |
-| ---- | ---- | ---- | ---- | ---- | ------ | ----- |
-| None | None | None | None | 1361.73 | 15.81 | 23.50 |
-| None | None | sparse (cusparselt) | sparse (cusparselt) | 1245.15 | 15.46 | 25.70 |
-| None | None | sparse (cutlass) | sparse (cutlass) | 1251.047651 | 15.41 | 25.59 |
-| sparse (cusparselt) | sparse (cusparselt) | sparse (cusparselt) | sparse (cusparselt) | 1265.43 | 12.71 | 25.29|
-| sparse (cutlass) | sparse (cutlass) | sparse (cutlass) | sparse (cutlass) | 1274.96 | 12.70 | 25.10 |
+We found that applying int8 dynamic quantization to the attention layers, int8 dynamic quantization + 2:4 sparsity to mlp layer 1 and 2:4 sparsity to mlp layer 2 yielded the best configuration.
+
+The following benchmarks we ran for sam ViT-h on an NVIDIA-A100-80GB, with batch_size=32 and `bfloat16` dtype, with `torch.compile="max_autotune"`:
+
+| Model Type | Technique                                                                                            | img/s | memory (MiB) | mIoU (coco2017 val) | relative speedup | relative accuracy |
+|------------|------------------------------------------------------------------------------------------------------|-------|--------------|---------------------|------------------|-------------------|
+| ViT-h      | baseline (bfloat16, max-autotune)                                                                    | 22.75 | 15172        | 0.5811              |                  |                   |
+|            | int8 dynamic quant (attn + mlp)                                                                      | 24.91 | 15154        | 0.5822              | **1.09x**        | **100.19%**       |
+|            | 2:4 sparsity (mlp only)                                                                              | 24.81 | 15632        | 0.5672              | **1.10x**        | **97.61%**        |
+|            | 2:4 sparsity (attn + mlp)                                                                            | 24.30 | 13429        | 0.5306              | **1.07x**        | **91.31%**        |
+|            | int8 dynamic quant (attn)<br>int8 dynamic quant + 2:4 sparsity (mlp lin1)<br>2:4 sparsity (mlp lin2) | 26.46 | 14865        | 0.5668              | **1.16x**        | **97.54%**        |
+
+To reproduce our benchmarks please follow these [instructions](/scripts/sam/README.md).
 
 #### BERT
 
