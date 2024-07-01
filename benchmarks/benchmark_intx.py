@@ -42,15 +42,7 @@ def profile_function(function, args, num_runs):
     # Print a summary
     print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=100))
 
-def test_bitpack_iso():
-    def slow(scale):
-        fake_tensor = torch.randint(2**8, (scale,scale), dtype=torch.uint8).cuda()
-        # packed = pack_slow(fake_tensor, 4)
-        unpacked = unpack_slow(packed, 4)
-    def fast(scale):
-        fake_tensor = torch.randint(2**8, (scale,scale), dtype=torch.uint8).cuda()
-        # packed = pack(fake_tensor, 4)
-        unpacked = unpack(packed, 4)
+def profile_bitpack():
         
     fake_tensor = [torch.randint(2**8, (512,512), dtype=torch.uint8).cuda()]
     func = torch.compile(unpack_cpu, fullgraph=True)
@@ -69,37 +61,18 @@ def test_bitpack_iso():
         print(f'{func}',file=f)
         print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10), file=f)
     prof.export_chrome_trace("trace.json")
-        
-
-def profile_intx(nbits=None):
-    model = torch.nn.Linear(512, 512, dtype=torch.float16).cuda()
-    test_input = torch.randn(1,512, dtype=torch.float16).cuda()
-    if nbits:
-        model = quantize(model, intx_weight_only(nbits, group_size=64, layout="plain"))
-    model = torch.compile(model, fullgraph=True)
-    for i in range(10):
-        model(test_input)
+    '''
+    gpu unpack  on cpu Self CPU time total: 602.501ms
+    cpu unpack on cpu Self CPU time total: 415.469ms
     
+    gpu unpack on gpu: 
+    Self CPU time total: 58.512ms
+    Self CUDA time total: 5.083ms
     
-    with profile(activities=[
-        ProfilerActivity.CPU,
-        ProfilerActivity.CUDA],
-        record_shapes=True,
-        profile_memory=True,
-        with_stack=True
-        ) as prof:
-        with record_function("model_inference"):
-            for _ in range(100):
-                model(test_input)
-        
-    # Print a summary
-    with open("profile.txt", "a") as f:
-        print(f'{nbits} model:',file=f)
-        print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10), file=f)
-
-    # Export the trace
-    prof.export_chrome_trace("trace.json")
-    
+    cpu unpack on gpu:
+    Self CPU time total: 96.947ms
+    Self CUDA time total: 5.253ms
+    '''
             
 def intx_vs_fp16(nbits= [1,2,3,4,5,6,7], scales=[256, 512, 1024],layouts=["plain","packed"], repeats=30):
     class Linear16(torch.nn.Module):
@@ -153,12 +126,13 @@ if __name__ == "__main__":
     intx_vs_fp16(nbits=[5,6,7],scales=[4096], layouts = ["plain","packed"], repeats =10000)
     
     '''
-    scale: 4096 fp16 time: 5.99ms ['plain', 'packed'] speedups:
-    int1: 6.03x     2.02x   
-    int2: 5.80x     2.44x
-    int3: 5.74x     2.67x
-    int4: 5.66x     2.68x     
-    int5: 5.58x     
-    int6: 2.67x     
-    int7: 5.66x     2.68x   
+    scale: 4096 fp16 time: 5.99ms 
+    Layout  plain     packed
+    int1:   6.03x     2.02x   
+    int2:   5.80x     2.44x
+    int3:   5.74x     2.67x
+    int4:       5.66x     2.68x     
+    int5:       5.14x     1.78x     
+    int6:       5.13x     3.07x     
+    int7:       5.13x     1.59x   
     '''
