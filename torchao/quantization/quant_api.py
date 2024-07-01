@@ -358,7 +358,7 @@ def int8_dynamic_activation_int4_weight(group_size=32):
 
     return apply_int8_dynamic_activation_int4_weight_quant
 
-def intx_weight_only(nbits, group_size=8):
+def intx_weight_only(nbits, group_size=64, layout='packed'):
     """
     Applies intx weight-only asymmetric per-group quantization to linear layers, using intx quantization where 
     x is the number of bits specified by the `nbits` argument
@@ -372,11 +372,12 @@ def intx_weight_only(nbits, group_size=8):
         quant_min = 0
         quant_max = 2**nbits - 1
         eps = torch.finfo(torch.float32).eps
-        zero_point_dtype = torch.int64
+        zero_point_dtype = torch.float32
+        zero_point_domain = ZeroPointDomain.FLOAT
         
         return to_intx_quantized(
             weight, mapping_type, block_size, nbits, quant_min = quant_min,
-            quant_max = quant_max, eps = eps, zero_point_dtype=zero_point_dtype,
+            quant_max = quant_max, eps = eps, zero_point_dtype=zero_point_dtype, extended_layout=layout
         )
     
     return apply_intx_weight_only_quant

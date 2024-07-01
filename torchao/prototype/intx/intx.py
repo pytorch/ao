@@ -1,6 +1,6 @@
 import functools
 from collections import defaultdict
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Tuple, Union, List
 
 import torch
 
@@ -40,7 +40,7 @@ class IntxLayout(torch.Tensor):
         int_data: torch.Tensor,
         scale: torch.Tensor,
         zero_point: torch.Tensor,
-        nbits: int,
+        bit_size: int,
     ):
         pass
 
@@ -61,9 +61,8 @@ class IntxLayout(torch.Tensor):
 
 class IntxTensor(torch.Tensor):
     """
-    Affine quantized tensor subclass. Affine quantization means we quantize the floating point tensor with an affine transformation:
-       quantized_tensor = float_tensor / scale + zero_point
-
+    Quantized tensor subclass for sub byte quantization (1-7 bits) with affine assymetric quantization
+    
     The shape and dtype of the tensor subclass represent how the tensor subclass looks externally,
     regardless of the internal representation's type or orientation.
 
@@ -82,7 +81,6 @@ class IntxTensor(torch.Tensor):
         if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
         value during quantization
         default is ZeroPointDomain.INT
-      input_quant_func (Optional[Callable]): function for quantizing the input float Tensor to a quantized tensor subclass object, that takes float Tensor as input and outputs an AffineQuantizedTensor object
       dtype: dtype for external representation of the tensor, e.g. torch.float32
     """
 
@@ -91,7 +89,7 @@ class IntxTensor(torch.Tensor):
         cls,
         layout_tensor: IntxLayout,
         block_size: Tuple[int, ...],
-        nbits: int,
+        bit_size: int,
         shape: torch.Size,
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
@@ -114,7 +112,7 @@ class IntxTensor(torch.Tensor):
         self,
         layout_tensor: IntxLayout,
         block_size: Tuple[int, ...],
-        nbits: int,
+        bit_size: int,
         shape: torch.Size,
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
@@ -124,7 +122,7 @@ class IntxTensor(torch.Tensor):
     ):
         self.layout_tensor = layout_tensor
         self.block_size = block_size
-        self.nbits = nbits
+        self.bit_size = bit_size
         self.quant_min = quant_min
         self.quant_max = quant_max
         self.zero_point_domain = zero_point_domain
@@ -140,16 +138,16 @@ class IntxTensor(torch.Tensor):
         return dequantize_affine(int_data, self.block_size, scale, zero_point, int_data.dtype, self.quant_min, self.quant_max, self.zero_point_domain, output_dtype=output_dtype)
 
     def __tensor_flatten__(self):
-        return ["layout_tensor"], [self.block_size, self.nbits, self.shape,  self.quant_min, self.quant_max, self.zero_point_domain, self.dtype]
+        return ["layout_tensor"], [self.block_size, self.bit_size, self.shape,  self.quant_min, self.quant_max, self.zero_point_domain, self.dtype]
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
         layout_tensor = tensor_data_dict["layout_tensor"]
-        block_size, nbits, shape, quant_min, quant_max, zero_point_domain, dtype = tensor_attributes
+        block_size, bit_size, shape, quant_min, quant_max, zero_point_domain, dtype = tensor_attributes
         return cls(
-            layout_tensor, block_size, nbits,
+            layout_tensor, block_size, bit_size,
             shape if outer_size is None else outer_size,
             quant_min, quant_max, zero_point_domain,
             dtype=dtype, strides=outer_stride,
@@ -161,7 +159,7 @@ class IntxTensor(torch.Tensor):
         input_float: torch.Tensor,
         mapping_type: MappingType,
         block_size: Tuple[int, ...],
-        nbits: int, # maybe in the future this can be a torch.dtype
+        bit_size: int,
         pack_dim: Optional[int] = -1,
         quant_min: Optional[int] = None,
         quant_max: Optional[int]  = None,
@@ -175,20 +173,25 @@ class IntxTensor(torch.Tensor):
     ):
         original_shape = input_float.shape
         quant_min = 0 if quant_min is None else quant_min
-        quant_max = 2**nbits-1 if quant_max is None else quant_max
+        quant_max = 2**bit_size-1 if quant_max is None else quant_max
         target_dtype = torch.uint8
         scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain)
         int_data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
+        
         layout_cls_ctr = get_layout_tensor_constructor(extended_layout)
         # TODO: this is temporary, need to come up with the proper UX
-        if extended_layout == "packed":
-            layout_tensor = layout_cls_ctr(int_data, scale, zero_point, nbits, pack_dim)
+        if extended_layout == "plain":
+            layout_tensor = layout_cls_ctr(int_data, scale, zero_point)
+        elif extended_layout == "packed": 
+            layout_tensor = layout_cls_ctr(int_data, scale, zero_point, bit_size, pack_dim)
+        elif extended_layout == "int6":
+            layout_tensor = layout_cls_ctr(int_data, scale, zero_point, bit_size, pack_dim)
         else:
-            raise NotImplementedError(f"Only 'packed' layout is currently implemented")
+            raise NotImplementedError(f"Only 'packed' or 'plain' layout is currently implemented")
         return cls(
             layout_tensor,
             block_size,
-            nbits,
+            bit_size,
             original_shape,
             quant_min,
             quant_max,
@@ -230,7 +233,7 @@ class IntxTensor(torch.Tensor):
         return self.__class__(
             self.layout_tensor.to(kwargs["device"]),
             self.block_size,
-            self.nbits,
+            self.bit_size,
             self.shape,
             self.quant_min,
             self.quant_max,
@@ -242,7 +245,7 @@ class IntxTensor(torch.Tensor):
         return self.__class__(
             fn(self.layout_tensor),
             self.block_size,
-            self.nbits,
+            self.bit_size,
             self.shape,
             self.quant_min,
             self.quant_max,
@@ -271,26 +274,437 @@ def register_layout_cls(extended_layout: str):
 def get_layout_tensor_constructor(extended_layout: str):
     return _get_layout_tensor_constructor(IntxTensor, extended_layout)
 
+
 @register_layout_cls("packed")
 class PackedTensorLayout(IntxLayout):
     """
-    Layout storage class for plain layout for Intx tensors, it stores scales and zeros as plain tensors 
-    while packing weights from (n, m*8) -> (n, m * nbits)
-
     fields:
       int_data (torch.Tensor): the quantized tensor
       scale (torch.Tensor): the scale Tensor used to map between floating point tensor to quantized tensor
       zero_point (torch.Tensor): the zero_point Tensor used to map between floating point tensor to quantized tensor
-      nbits (int): element size in bits
-      pack_dim (int): the dimension that the tensor was packed along
+      bit_size (int): element size in bits
+    """
+    def __new__(
+        cls,
+        int4_shard: torch.Tensor,
+        int2_shard: torch.Tensor,
+        int1_shard: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        packed_shape: List[int],
+        bit_size: int,
+        pack_dim: int,
+    ):
+        kwargs = {}
+        kwargs["device"] = scale.device
+        kwargs["layout"] = (
+            kwargs.get("layout") if kwargs.get("layout", False) else scale.layout
+        )
+        kwargs["dtype"] = torch.int8
+        kwargs["requires_grad"] = False
+        return torch.Tensor._make_wrapper_subclass(cls, packed_shape, **kwargs)  # type: ignore[attr-defined]
+
+    def __init__(
+        self,
+        int4_shard: torch.Tensor,
+        int2_shard: torch.Tensor,
+        int1_shard: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        packed_shape: List[int],
+        bit_size: int,
+        pack_dim: int,
+    ):
+        self.int4_shard = int4_shard
+        self.int2_shard = int2_shard
+        self.int1_shard = int1_shard
+        self.scale = scale
+        self.zero_point = zero_point
+        self.packed_shape = packed_shape
+        self.bit_size = bit_size
+        self.pack_dim = pack_dim
+    def __repr__(self):
+        return f"{self.__class__.__name__}Int{self.bit_size}{self.packed_shape}"
+    def __tensor_flatten__(self):
+        tensor_data = ["scale", "zero_point"]
+        if self.int4_shard is not None:
+            tensor_data.append("int4_shard")
+        if self.int2_shard is not None:
+            tensor_data.append("int2_shard")
+        if self.int1_shard is not None:
+            tensor_data.append("int1_shard")
+        return tensor_data, [self.packed_shape, self.bit_size, self.pack_dim]
+
+    @classmethod
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
+    ):
+        int4_shard = tensor_data_dict["int4_shard"] if "int4_shard" in tensor_data_dict else None
+        int2_shard = tensor_data_dict["int2_shard"] if "int2_shard" in tensor_data_dict else None
+        int1_shard = tensor_data_dict["int1_shard"] if "int1_shard" in tensor_data_dict else None
+        scale = tensor_data_dict["scale"]
+        zero_point = tensor_data_dict["zero_point"]
+        packed_shape, bit_size, pack_dim = tensor_attributes
+        return cls(int4_shard, int2_shard, int1_shard, scale, zero_point, packed_shape, bit_size, pack_dim)
+
+    def to(self, *args, **kwargs):
+        kwargs = self._get_to_kwargs(*args, **kwargs)
+        int4_shard = self.int4_data.to(kwargs["device"]) if self.int4_shard is not None else None
+        int2_shard = self.int2_data.to(kwargs["device"]) if self.int2_shard is not None else None
+        int1_shard = self.int1_data.to(kwargs["device"]) if self.int1_shard is not None else None
+        return self.__class__(
+            int4_shard,
+            int2_shard,
+            int1_shard,
+            self.scale.to(kwargs["device"]),
+            self.zero_point.to(kwargs["device"]),
+            self.packed_shape,
+            self.bit_size,
+            self.pack_dim
+        )
+
+    def _apply_fn_to_data(self, fn):
+        int4_shard = fn(self.int4_shard) if self.int4_shard is not None else None
+        int2_shard = fn(self.int2_shard) if self.int2_shard is not None else None
+        int1_shard = fn(self.int1_shard) if self.int1_shard is not None else None  
+        return self.__class__(
+            int4_shard,
+            int2_shard,
+            int1_shard,
+            fn(self.scale),
+            fn(self.zero_point),
+            self.packed_shape,
+            self.bit_size,
+            self.pack_dim,
+        )
+
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs):
+        kwargs = {} if kwargs is None else kwargs
+        
+        if func is aten.detach.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+            )
+        if func is aten.t.default:
+            tensor = args[0]
+            new_shape = tensor.packed_shape[::-1]
+            new_pack_dim = len(tensor.packed_shape) - tensor.pack_dim -1
+            int4_shard = tensor.int4_shard.t() if tensor.int4_shard is not None else None
+            int2_shard = tensor.int2_shard.t() if tensor.int2_shard is not None else None
+            int1_shard = tensor.int1_shard.t() if tensor.int1_shard is not None else None
+            new = tensor.__class__(
+                int4_shard,
+                int2_shard,
+                int1_shard,
+                tensor.scale,
+                tensor.zero_point,
+                tensor.packed_shape,
+                tensor.bit_size,
+                new_pack_dim,
+            )
+            return return_and_correct_aliasing(func, args, kwargs, new)
+
+        raise NotImplementedError(
+            f"PlainTensorLayout dispatch: attempting to run {func}, this is not supported"
+        )
+
+    __torch_function__ = torch._C._disabled_torch_function_impl
+
+    def get_plain(self):
+        shards = [self.int4_shard, self.int2_shard, self.int1_shard]
+        shards = [shard for shard in shards if shard is not None]
+        int_data = unpack(shards, self.bit_size, dim = self.pack_dim)
+        return int_data, self.scale, self.zero_point
+
+    @classmethod
+    def from_plain(
+        cls,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        bit_size: int,
+        pack_dim: int,
+    ):
+        shards = pack(int_data, bit_size, dim=pack_dim)
+        int4_shard = shards[0] if bit_size >= 4 else None
+        int1_shard = shards[-1] if bit_size % 2 else None
+        int2_shard = shards[bit_size > 4] if 2 in numbits[bit_size] else None
+        shape = list(int_data.shape)
+        shape[pack_dim] *= bit_size // 8
+        return cls(int4_shard, int2_shard, int1_shard, scale, zero_point, shape, bit_size, pack_dim)
+
+
+@register_layout_cls("int6")
+class Int6TensorLayout(IntxLayout):
+    """
+    fields:
+      int_data (torch.Tensor): the quantized tensor
+      scale (torch.Tensor): the scale Tensor used to map between floating point tensor to quantized tensor
+      zero_point (torch.Tensor): the zero_point Tensor used to map between floating point tensor to quantized tensor
+      bit_size (int): element size in bits
+    """
+    def __new__(
+        cls,
+        int4_shard: torch.Tensor,
+        int2_shard: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        packed_shape: List[int],
+        bit_size: int,
+        pack_dim: int,
+    ):
+        kwargs = {}
+        kwargs["device"] = scale.device
+        kwargs["layout"] = (
+            kwargs.get("layout") if kwargs.get("layout", False) else scale.layout
+        )
+        kwargs["dtype"] = torch.int8
+        kwargs["requires_grad"] = False
+        return torch.Tensor._make_wrapper_subclass(cls, packed_shape, **kwargs)  # type: ignore[attr-defined]
+
+    def __init__(
+        self,
+        int4_shard: torch.Tensor,
+        int2_shard: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        packed_shape: List[int],
+        bit_size: int,
+        pack_dim: int,
+    ):
+        self.int4_shard = int4_shard
+        self.int2_shard = int2_shard
+        self.scale = scale
+        self.zero_point = zero_point
+        self.packed_shape = packed_shape
+        self.bit_size = bit_size
+        self.pack_dim = pack_dim
+    def __repr__(self):
+        return f"{self.__class__.__name__}Int{self.bit_size}{self.packed_shape}"
+    def __tensor_flatten__(self):
+        return ["int4_shard", "int2_shard", "scale", "zero_point"], [self.packed_shape, self.bit_size, self.pack_dim]
+
+    @classmethod
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
+    ):
+        int4_shard = tensor_data_dict["int4_shard"] 
+        int2_shard = tensor_data_dict["int2_shard"]
+        scale = tensor_data_dict["scale"]
+        zero_point = tensor_data_dict["zero_point"]
+        packed_shape, bit_size, pack_dim = tensor_attributes
+        return cls(int4_shard, int2_shard, scale, zero_point, packed_shape, bit_size, pack_dim)
+
+    def to(self, *args, **kwargs):
+        kwargs = self._get_to_kwargs(*args, **kwargs)
+        return self.__class__(
+            self.int4_data.to(kwargs["device"]),
+            self.int2_data.to(kwargs["device"]),
+            self.scale.to(kwargs["device"]),
+            self.zero_point.to(kwargs["device"]),
+            self.packed_shape,
+            self.bit_size,
+            self.pack_dim
+        )
+
+    def _apply_fn_to_data(self, fn):
+        return self.__class__(
+            fn(self.int4_shard),
+            fn(self.int2_shard),
+            fn(self.scale),
+            fn(self.zero_point),
+            self.packed_shape,
+            self.bit_size,
+            self.pack_dim,
+        )
+
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs):
+        kwargs = {} if kwargs is None else kwargs
+        
+        if func is aten.detach.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+            )
+        if func is aten.t.default:
+            tensor = args[0]
+            new = tensor.__class__(
+                tensor.int4_shard.t(),
+                tensor.int2_shard.t(),
+                tensor.scale,
+                tensor.zero_point,
+                tensor.packed_shape[::-1],
+                tensor.bit_size,
+                len(tensor.packed_shape) - tensor.pack_dim -1,
+            )
+            return return_and_correct_aliasing(func, args, kwargs, new)
+
+        raise NotImplementedError(
+            f"PlainTensorLayout dispatch: attempting to run {func}, this is not supported"
+        )
+
+    __torch_function__ = torch._C._disabled_torch_function_impl
+
+    def get_plain(self):
+        int_data = unpack([self.int4_shard, self.int2_shard], self.bit_size, dim = self.pack_dim)
+        return int_data, self.scale, self.zero_point
+
+    @classmethod
+    def from_plain(
+        cls,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        bit_size: int,
+        pack_dim: int,
+    ):
+        int4_shard, int2_shard= pack(int_data, bit_size, dim=pack_dim)
+        shape = list(int_data.shape)
+        shape[pack_dim] *= 6 // 8
+        return cls(int4_shard, int2_shard, scale, zero_point, shape, bit_size, pack_dim)
+    
+
+@register_layout_cls("int6")
+class Int4TensorLayout(IntxLayout):
+    """
+    fields:
+      int_data (torch.Tensor): the quantized tensor
+      scale (torch.Tensor): the scale Tensor used to map between floating point tensor to quantized tensor
+      zero_point (torch.Tensor): the zero_point Tensor used to map between floating point tensor to quantized tensor
+      bit_size (int): element size in bits
+    """
+    def __new__(
+        cls,
+        int4_shard: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        packed_shape: List[int],
+        bit_size: int,
+        pack_dim: int,
+    ):
+        kwargs = {}
+        kwargs["device"] = scale.device
+        kwargs["layout"] = (
+            kwargs.get("layout") if kwargs.get("layout", False) else scale.layout
+        )
+        kwargs["dtype"] = torch.int8
+        kwargs["requires_grad"] = False
+        return torch.Tensor._make_wrapper_subclass(cls, packed_shape, **kwargs)  # type: ignore[attr-defined]
+
+    def __init__(
+        self,
+        int4_shard: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        packed_shape: List[int],
+        bit_size: int,
+        pack_dim: int,
+    ):
+        self.int4_shard = int4_shard
+        self.scale = scale
+        self.zero_point = zero_point
+        self.packed_shape = packed_shape
+        self.bit_size = bit_size
+        self.pack_dim = pack_dim
+    def __repr__(self):
+        return f"{self.__class__.__name__}Int{self.bit_size}{self.packed_shape}"
+    def __tensor_flatten__(self):
+        return ["int4_shard", "scale", "zero_point"], [self.packed_shape, self.bit_size, self.pack_dim]
+
+    @classmethod
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
+    ):
+        int4_shard = tensor_data_dict["int4_shard"] 
+        int2_shard = tensor_data_dict["int2_shard"]
+        scale = tensor_data_dict["scale"]
+        zero_point = tensor_data_dict["zero_point"]
+        packed_shape, bit_size, pack_dim = tensor_attributes
+        return cls(int4_shard, int2_shard, scale, zero_point, packed_shape, bit_size, pack_dim)
+
+    def to(self, *args, **kwargs):
+        kwargs = self._get_to_kwargs(*args, **kwargs)
+        return self.__class__(
+            self.int4_data.to(kwargs["device"]),
+            self.int2_data.to(kwargs["device"]),
+            self.scale.to(kwargs["device"]),
+            self.zero_point.to(kwargs["device"]),
+            self.packed_shape,
+            self.bit_size,
+            self.pack_dim
+        )
+
+    def _apply_fn_to_data(self, fn):
+        return self.__class__(
+            fn(self.int4_shard),
+            fn(self.scale),
+            fn(self.zero_point),
+            self.packed_shape,
+            self.bit_size,
+            self.pack_dim,
+        )
+
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs):
+        kwargs = {} if kwargs is None else kwargs
+        
+        if func is aten.detach.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+            )
+        if func is aten.t.default:
+            tensor = args[0]
+            new = tensor.__class__(
+                tensor.int4_shard.t(),
+                tensor.int2_shard.t(),
+                tensor.scale,
+                tensor.zero_point,
+                tensor.packed_shape[::-1],
+                tensor.bit_size,
+                len(tensor.packed_shape) - tensor.pack_dim -1,
+            )
+            return return_and_correct_aliasing(func, args, kwargs, new)
+
+        raise NotImplementedError(
+            f"PlainTensorLayout dispatch: attempting to run {func}, this is not supported"
+        )
+
+    __torch_function__ = torch._C._disabled_torch_function_impl
+
+    def get_plain(self):
+        int_data = unpack([self.int4_shard], self.bit_size, dim = self.pack_dim)
+        return int_data, self.scale, self.zero_point
+
+    @classmethod
+    def from_plain(
+        cls,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        bit_size: int,
+        pack_dim: int,
+    ):
+        int4_shard= pack(int_data, bit_size, dim=pack_dim)
+        shape = list(int_data.shape)
+        shape[pack_dim] *= 6 // 8
+        return cls(int4_shard, scale, zero_point, shape, bit_size, pack_dim)
+    
+    
+@register_layout_cls("plain")
+class PlainTensorLayout(IntxLayout):
+    """
+    fields:
+      int_data (torch.Tensor): the quantized tensor
+      scale (torch.Tensor): the scale Tensor used to map between floating point tensor to quantized tensor
+      zero_point (torch.Tensor): the zero_point Tensor used to map between floating point tensor to quantized tensor
+      bit_size (int): element size in bits
     """
     def __new__(
         cls,
         int_data: torch.Tensor,
         scale: torch.Tensor,
         zero_point: torch.Tensor,
-        nbits: int,
-        pack_dim: int,
     ):
         shape = int_data.shape
         kwargs = {}
@@ -307,22 +721,18 @@ class PackedTensorLayout(IntxLayout):
         int_data: torch.Tensor,
         scale: torch.Tensor,
         zero_point: torch.Tensor,
-        nbits: int,
-        pack_dim: int,
     ):
         self.int_data = int_data
         self.scale = scale
         self.zero_point = zero_point
-        self.nbits = nbits
-        self.pack_dim = pack_dim
 
     def __repr__(self):
         return (
-            f"{self.__class__.__name__}Int{self.nbits}({self.int_data.shape}) range[{self.int_data.min()}, {self.int_data.max()}])"
+            f"{self.__class__.__name__}({self.int_data.shape}) range[{self.int_data.min()}, {self.int_data.max()}])"
         )
         
     def __tensor_flatten__(self):
-        return ["int_data", "scale", "zero_point"], [self.nbits, self.pack_dim]
+        return ["int_data", "scale", "zero_point"], []
 
     @classmethod
     def __tensor_unflatten__(
@@ -331,8 +741,7 @@ class PackedTensorLayout(IntxLayout):
         int_data = tensor_data_dict["int_data"]
         scale = tensor_data_dict["scale"]
         zero_point = tensor_data_dict["zero_point"]
-        nbits, pack_dim = tensor_attributes
-        return cls(int_data, scale, zero_point, nbits, pack_dim)
+        return cls(int_data, scale, zero_point)
 
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
@@ -348,49 +757,35 @@ class PackedTensorLayout(IntxLayout):
             fn(self.int_data),
             fn(self.scale),
             fn(self.zero_point),
-            self.nbits,
-            self.pack_dim,
         )
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
         kwargs = {} if kwargs is None else kwargs
-        try:
-            return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(func))
-        except Exception as e:
-            pass
-        if func is aten.sub.Tensor:
-            print(args)
-            return return_and_correct_aliasing(
-                func, args, kwargs, args[0]._apply_fn_to_data(lambda x: x - args[1])
-            )
+        
         if func is aten.detach.default:
             return return_and_correct_aliasing(
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
             )
         if func is aten.t.default:
             tensor = args[0]
-            new_pack_dim = len(tensor.shape) - tensor.pack_dim -1
             new_shape = tensor.shape[::-1]
                 
             new = tensor.__class__(
                 tensor.int_data.view(new_shape),
                 tensor.scale,
                 tensor.zero_point,
-                tensor.nbits,
-                new_pack_dim,
             )
             return return_and_correct_aliasing(func, args, kwargs, new)
 
         raise NotImplementedError(
-            f"PackedTensorLayout dispatch: attempting to run {func}, this is not supported"
+            f"PlainTensorLayout dispatch: attempting to run {func}, this is not supported"
         )
 
     __torch_function__ = torch._C._disabled_torch_function_impl
 
     def get_plain(self):
-        unpacked = unpack(self.int_data, self.nbits, dim=self.pack_dim)
-        return unpacked, self.scale, self.zero_point
+        return self.int_data, self.scale, self.zero_point
 
     @classmethod
     def from_plain(
@@ -398,12 +793,8 @@ class PackedTensorLayout(IntxLayout):
         int_data: torch.Tensor,
         scale: torch.Tensor,
         zero_point: torch.Tensor,
-        nbits: int,
-        pack_dim: int = -1,
     ):
-        packed_weight = pack(int_data, nbits, dim=pack_dim)
-        return cls(packed_weight, scale, zero_point, nbits, pack_dim)
-    
+        return cls(int_data, scale, zero_point)
 
 
 @implements(torch.nn.functional.linear)
@@ -485,7 +876,7 @@ def t(func, *args, **kwargs):
     tensor = args[0]
     shape = tensor.shape[::-1]
     new = tensor.__class__(
-        tensor.layout_tensor.t(), transposed_block_size,tensor.nbits, shape, tensor.quant_min, tensor.quant_max, tensor.zero_point_domain, dtype=tensor.dtype, strides=tensor.stride()
+        tensor.layout_tensor.t(), transposed_block_size,tensor.bit_size, shape, tensor.quant_min, tensor.quant_max, tensor.zero_point_domain, dtype=tensor.dtype, strides=tensor.stride()
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
 
