@@ -69,7 +69,7 @@ class AdamDTQ8bit(Optimizer):
                 # State initialization
                 # state is flattened so that torch.compile won't recompile for tensor with different ndim
                 if len(state) == 0:
-                    state['step'] = torch.tensor(0)
+                    state['step'] = torch.tensor(0, device=p.device)
                     state['exp_avg'] = self._new_zero_buffer(p.view(-1), signed=True)
                     state['exp_avg_sq'] = self._new_zero_buffer(p.view(-1), signed=False)
                     if group['amsgrad']:
