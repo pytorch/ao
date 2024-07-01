@@ -81,7 +81,6 @@ import logging
 from torchao.utils import (
     TORCH_VERSION_AFTER_2_3,
     TORCH_VERSION_AFTER_2_4,
-    unwrap_tensor_subclass,
     is_fbcode,
 )
 
@@ -99,21 +98,18 @@ COMMON_DEVICE_DTYPE = list(itertools.product(COMMON_DEVICES, COMMON_DTYPES)).cop
 def _int8wo_api(mod):
     if TORCH_VERSION_AFTER_2_4:
         quantize(mod, int8_weight_only(), set_inductor_config=False)
-        unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int8_woqtensors(mod)
 
 def _int8da_int8w_api(mod):
     if TORCH_VERSION_AFTER_2_4:
         quantize(mod, int8_dynamic_activation_int8_weight(), set_inductor_config=False)
-        unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int8_dqtensors(mod)
 
 def _int4wo_api(mod):
     if TORCH_VERSION_AFTER_2_4:
         quantize(mod, int4_weight_only(), set_inductor_config=False)
-        unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int4_woqtensors(mod)
 
@@ -127,8 +123,8 @@ TENSOR_SUBCLASS_APIS = [
 def undo_recommended_configs():
     torch._inductor.config.coordinate_descent_tuning = False
     torch._inductor.config.coordinate_descent_check_all_directions = False
-    torch._inductor.config.force_fuse_int_mm_with_mul = False  
-    torch._inductor.config.fx_graph_cache = False  
+    torch._inductor.config.force_fuse_int_mm_with_mul = False
+    torch._inductor.config.fx_graph_cache = False
     torch._inductor.config.triton.unique_kernel_names = False
     torch.set_float32_matmul_precision("highest")
 
@@ -845,7 +841,6 @@ class TestSubclass(unittest.TestCase):
                             kwargs_copy["group_size"] = groupsize
                             del kwargs_copy["groupsize"]
                             quantize(mod, int4_weight_only(**kwargs_copy))
-                            unwrap_tensor_subclass(mod)
                         else:
                             change_linear_weights_to_int4_woqtensors(mod, **kwargs)
 
@@ -1259,7 +1254,7 @@ class TestAutoQuant(unittest.TestCase):
         out3 = mod(example_input)
         sqnr2 = SQNR(out, out3)
         self.assertTrue(sqnr2 >= 30)
-    
+
 
     @parameterized.expand(combine_parameters(COMMON_DEVICE_DTYPE,
         [

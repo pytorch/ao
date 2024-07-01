@@ -23,7 +23,6 @@ from typing import Any, Callable, Union, Dict, Optional
 
 from torchao.utils import (
     TORCH_VERSION_AFTER_2_4,
-    unwrap_tensor_subclass,
 )
 
 from .subclass import (
@@ -293,14 +292,15 @@ def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tens
         # on weight
 
         from torchao.dtypes import to_affine_quantized
+        from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
 
         # weight only uint4 asymmetric groupwise quantization
         groupsize = 32
         apply_weight_quant = lambda x: to_affine_quantized(
-          x, "asymmetric", (1, groupsize), torch.int32, 0, 15, 1e-6,
-          zero_point_dtype=torch.bfloat16, preserve_zero=False, zero_point_domain="float")
+          x, MappingType.ASYMMETRIC, (1, groupsize), torch.int32, 0, 15, 1e-6,
+          zero_point_dtype=torch.bfloat16, preserve_zero=False, zero_point_domain=ZeroPointDomain.FLOAT)
 
-        # apply to modules under block0 submodule
+        # apply to nn.Linear modules under block0 submodule
         def filter_fn(module: nn.Module, fqn: str) -> bool:
             return isinstance(module, nn.Linear)
 
@@ -310,6 +310,7 @@ def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tens
     """
     if set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
+
     _replace_with_custom_fn_if_matches_filter(
         model,
         _get_linear_subclass_inserter(apply_tensor_subclass),

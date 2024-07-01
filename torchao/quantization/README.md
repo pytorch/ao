@@ -103,9 +103,6 @@ group_size = 32
 # only works for torch 2.4+
 m = quantize(m, int4_weight_only(group_size=group_size))
 
-# temporary workaround for tensor subclass + torch.compile
-from torchao.utils import unwrap_tensor_subclass
-m = unwrap_tensor_subclass(m)
 # compile the model to improve performance
 m = torch.compile(m, mode='max-autotune')
 
@@ -143,17 +140,15 @@ for n, m in model.named_modules():
         m.weight = nn.Parameter(to_linear_act_quantized(m.weight, input_quant_func))
 ```
 The model/tensor subclass should also be compatible with AOTI and torch.export, currently we can support
-`torch.export.export` and `torch.aot_compile` with the following workaround:
+`torch.export.export` and `torch.aot_compile`
 ```
-from torchao.utils import unwrap_tensor_subclass
-m_unwrapped = unwrap_tensor_subclass(m)
-
-
 # export
-m = torch.export.export(m_unwrapped, example_inputs).module()
+m = torch.export.export(m, example_inputs).module()
+```
 
+```
 # aot_compile
-torch._export.aot_compile(m_unwrapped, example_inputs)
+torch._export.aot_compile(m, example_inputs)
 ```
 
 ### Automatic Inductor Configuration

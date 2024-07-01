@@ -29,11 +29,6 @@ torch._dynamo.config.automatic_dynamic_shapes = False
 torch._inductor.config.force_fuse_int_mm_with_mul = True
 torch._inductor.config.use_mixed_mm = True
 ## compilation configs end
-
-# temporary workaround for the API to work with torch.compile
-from torchao.utils import unwrap_tensor_subclass
-unwrap_tensor_subclass(model)
-
 model = torch.compile(model, mode='max-autotune')
 
 # Must run with no_grad when optimizing for inference

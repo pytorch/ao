@@ -58,6 +58,10 @@ class AQTLayout(torch.Tensor):
     def get_plain() -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         pass
 
+    def __repr__(self):
+        int_data, scale, zero_point = self.get_plain()
+        return f"{self.__class__.__name__}(int_data={int_data}, scale={scale}, zero_point={zero_point})"
+
     @classmethod
     def from_plain(
         cls,
@@ -480,10 +484,6 @@ class TensorCoreTiledAQTLayout(AQTLayout):
         self.scale_and_zero = fn(self.scale_and_zero)
         return self
 
-    def __repr__(self):
-        int_data, scale, zero_point = self.get_plain()
-        return f"TensorCoreTiledAQTLayout(int_data={int_data}, scale={scale}, zero_point={zero_point})"
-
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
         kwargs = {} if kwargs is None else kwargs
@@ -509,9 +509,9 @@ class TensorCoreTiledAQTLayout(AQTLayout):
     def get_plain(self):
         from torchao.quantization.quant_primitives import (
             ZeroPointDomain,
-            unpack_tinygemm_scales_and_zeros,
             quantize_affine,
         )
+        from torchao.quantization.utils import unpack_tinygemm_scales_and_zeros
         cur_shape = self.shape
         assert len(cur_shape) == 4
         inner_k_tiles = cur_shape[-1] * 2

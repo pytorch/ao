@@ -48,7 +48,6 @@ from torchao.utils import (
 from pathlib import Path
 from torchao._models.llama.tokenizer import get_tokenizer
 from torchao._models.llama.model import Transformer, prepare_inputs_for_model
-from torchao.utils import unwrap_tensor_subclass
 import copy
 import tempfile
 from torch.testing._internal.common_utils import TestCase
@@ -196,7 +195,6 @@ class TestQuantFlow(TestCase):
         m = ToyLinearModel().eval().cpu()
         def api(model):
             model = quantize(model, int8_weight_only())
-            unwrap_tensor_subclass(model)
 
         api(m)
 
@@ -588,17 +586,14 @@ class TestQuantFlow(TestCase):
 
         self.assertTrue(torch.equal(res, ref))
 
-        # workaround for export path
-        from torchao.utils import unwrap_tensor_subclass
-        m_unwrapped = unwrap_tensor_subclass(m)
-
-        m = torch.export.export(m_unwrapped, example_inputs).module()
-        exported_model_res = m(*example_inputs)
+        m_copy = copy.deepcopy(m)
+        exported_m = torch.export.export(m, example_inputs).module()
+        exported_model_res = exported_m(*example_inputs)
 
         self.assertTrue(torch.equal(exported_model_res, ref))
 
         # make sure it compiles
-        torch._export.aot_compile(m_unwrapped, example_inputs)
+        torch._export.aot_compile(m_copy, example_inputs)
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
