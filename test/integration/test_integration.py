@@ -83,6 +83,7 @@ from torchao.utils import (
     TORCH_VERSION_AFTER_2_4,
     unwrap_tensor_subclass,
     is_fbcode,
+    benchmark_model
 )
 
 logger = logging.getLogger("INFO")
