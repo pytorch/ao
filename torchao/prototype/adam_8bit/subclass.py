@@ -161,16 +161,16 @@ def _(func, *args, **kwargs):
         dst.codes.copy_(src.codes)
         dst.scale.copy_(src.scale)
         # qmap should be the same, don't need to copy
-        return
 
-    if isinstance(dst, DTQ8bit):
+    elif isinstance(dst, DTQ8bit):
         codes, scale = quantize_8bit_with_qmap(src, dst.qmap, dst.block_size)
         dst.codes.copy_(codes)
         dst.scale.copy_(scale)
-        return
 
-    if isinstance(src, DTQ8bit):
-        return dst.copy_(src.dequantize())
+    else:
+        dst.copy_(src.dequantize())
+
+    return dst
 
 
 @DTQ8bit.implements(aten.lerp.Scalar)
