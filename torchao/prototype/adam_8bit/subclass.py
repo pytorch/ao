@@ -112,6 +112,8 @@ class DTQ8bit(Tensor):
         scale = input_float.abs().amax(-1).clip(1e-12)
         input_float = input_float / scale.view(-1, 1)
 
+        # TODO: investigate if using binary search is faster/more memory efficient
+        # https://blog.demofox.org/2017/06/20/simd-gpu-friendly-branchless-binary-search/
         qmap = torch.tensor(QMAP_SIGNED if signed else QMAP_UNSIGNED, device=input_float.device)
         codes = (qmap.view(1, -1) - input_float.view(-1, 1)).abs().argmin(-1).to(torch.uint8).view(shape)
         return cls(codes, scale, qmap, signed)
