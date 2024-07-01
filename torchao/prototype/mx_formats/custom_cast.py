@@ -15,7 +15,7 @@ from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacke
 # TODO(future): if needed, make the below work on previous PyTorch versions,
 # just need to hunt down the previous location of `libdevice`. An assert
 # at the callsite prevents usage of this on unsupported versions.
-if TORCH_VERSION_AFTER_2_4:
+if TORCH_VERSION_AFTER_2_4 and has_triton():
     from torch._inductor.runtime.triton_helpers import libdevice
 
 from torchao.prototype.mx_formats.constants import (
