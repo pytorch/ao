@@ -69,6 +69,18 @@ ZERO_CODE_SIGNED = QMAP_SIGNED.index(0)
 ZERO_CODE_UNSIGNED = QMAP_UNSIGNED.index(0)
 
 
+def quantize_8bit_with_qmap(input: Tensor, qmap: Tensor, block_size: int):
+    # section 2.1 from https://arxiv.org/abs/2110.02861
+    input = input.view(-1, block_size)
+    scale = input.abs().amax(-1).clip(1e-12)
+    input = input / scale.view(-1, 1)
+
+    # TODO: investigate if using binary search is faster/more memory efficient
+    # https://blog.demofox.org/2017/06/20/simd-gpu-friendly-branchless-binary-search/
+    codes = (qmap.view(1, -1) - input.view(-1, 1)).abs().argmin(-1).to(torch.uint8)
+    return codes, scale
+
+
 # dynamic tree quantization
 # https://arxiv.org/pdf/1511.04561
 # https://arxiv.org/abs/2110.02861
@@ -105,18 +117,9 @@ class DTQ8bit(Tensor):
 
     @classmethod
     def from_float(cls, input_float: Tensor, signed: bool = True, block_size: int = 2048):
-        shape = input_float.shape
-
-        # section 2.1 from https://arxiv.org/abs/2110.02861
-        input_float = input_float.view(-1, block_size)
-        scale = input_float.abs().amax(-1).clip(1e-12)
-        input_float = input_float / scale.view(-1, 1)
-
-        # TODO: investigate if using binary search is faster/more memory efficient
-        # https://blog.demofox.org/2017/06/20/simd-gpu-friendly-branchless-binary-search/
         qmap = torch.tensor(QMAP_SIGNED if signed else QMAP_UNSIGNED, device=input_float.device)
-        codes = (qmap.view(1, -1) - input_float.view(-1, 1)).abs().argmin(-1).to(torch.uint8).view(shape)
-        return cls(codes, scale, qmap, signed)
+        codes, scale = quantize_8bit_with_qmap(input_float, qmap, block_size)
+        return cls(codes.view(input_float.shape), scale, qmap, signed)
 
     def dequantize(self, output_dtype=None):
         # torch.compile() cannot use uint8 as index
@@ -161,8 +164,10 @@ def _(func, *args, **kwargs):
         return
 
     if isinstance(dst, DTQ8bit):
-        src_dtq8bit = DTQ8bit.from_float(src, dst.signed, dst.block_size)
-        return dst.copy_(src_dtq8bit)
+        codes, scale = quantize_8bit_with_qmap(src, dst.qmap, dst.block_size)
+        dst.codes.copy_(codes)
+        dst.scale.copy_(scale)
+        return
 
     if isinstance(src, DTQ8bit):
         return dst.copy_(src.dequantize())
