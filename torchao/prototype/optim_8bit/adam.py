@@ -67,7 +67,7 @@ class AdamDTQ8bit(Optimizer):
                 state = self.state[p]
 
                 # State initialization
-                # state is flattened so that torch.compile won't recompile for tensor with different ndim
+                # state is flattened so that torch.compile won't recompile for tensors with different ndim
                 if len(state) == 0:
                     state['step'] = torch.tensor(0, device=p.device)
                     state['exp_avg'] = self._new_zero_buffer(p.view(-1), signed=True)
@@ -75,9 +75,10 @@ class AdamDTQ8bit(Optimizer):
                     if group['amsgrad']:
                         state['max_exp_avg_sq'] = self._new_zero_buffer(p.view(-1), signed=False)
 
-                # flatten p and grad so that torch.compile won't recompile for tensor with different ndim
+                # flatten p and grad so that torch.compile won't recompile for tensors with different ndim
                 # must explicitly convert lr to Tensor since torch.compile() will treat it as a constant
-                # if it is float. practically, only lr is changed during training.
+                # if it is a python float. practically, only lr is changed during training.
+                state['step'] += 1
                 single_param_adam(
                     p.view(-1),
                     grad.view(-1),
@@ -107,7 +108,6 @@ def single_param_adam(
     beta2: float,
     eps: float,
 ):
-    step += 1
     bias_correction1 = 1 - beta1 ** step
     bias_correction2 = 1 - beta2 ** step
 
