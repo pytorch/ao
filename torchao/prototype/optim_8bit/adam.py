@@ -154,12 +154,15 @@ def single_param_adam_v2_(
     beta2: float,
     eps: float,
 ):
-    assert isinstance(exp_avg, DTQ8bit)
-
     # dequantize
-    exp_avg_fp32 = exp_avg.dequantize()
-    exp_avg_sq_fp32 = exp_avg_sq.dequantize()
-    max_exp_avg_sq_fp32 = max_exp_avg_sq.dequantize() if max_exp_avg_sq is not None else None
+    if isinstance(exp_avg, DTQ8bit):
+        exp_avg_fp32 = exp_avg.dequantize()
+        exp_avg_sq_fp32 = exp_avg_sq.dequantize()
+        max_exp_avg_sq_fp32 = max_exp_avg_sq.dequantize() if max_exp_avg_sq is not None else None
+    else:
+        exp_avg_fp32 = exp_avg
+        exp_avg_sq_fp32 = exp_avg_sq
+        max_exp_avg_sq_fp32 = max_exp_avg_sq
 
     torch._fused_adam_(
         [p],
@@ -175,6 +178,7 @@ def single_param_adam_v2_(
     )
 
     # quantize
-    exp_avg.copy_(exp_avg_fp32)
-    exp_avg_sq.copy_(exp_avg_sq_fp32)
-    max_exp_avg_sq.copy_(max_exp_avg_sq_fp32) if max_exp_avg_sq is not None else None
+    if isinstance(exp_avg, DTQ8bit):
+        exp_avg.copy_(exp_avg_fp32)
+        exp_avg_sq.copy_(exp_avg_sq_fp32)
+        max_exp_avg_sq.copy_(max_exp_avg_sq_fp32) if max_exp_avg_sq is not None else None
