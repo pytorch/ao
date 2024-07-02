@@ -124,15 +124,3 @@ if __name__ == "__main__":
     # profile_intx(6)
     # profile_intx()
     intx_vs_fp16(nbits=[5,6,7],scales=[4096], layouts = ["plain","packed"], repeats =10000)
-    
-    '''
-    scale: 4096 fp16 time: 5.99ms 
-    Layout  plain     packed
-    int1:   6.03x     2.02x   
-    int2:   5.80x     2.44x
-    int3:   5.74x     2.67x
-    int4:       5.66x     2.68x     
-    int5:       5.14x     1.78x     
-    int6:       5.13x     3.07x     
-    int7:       5.13x     1.59x   
-    '''
