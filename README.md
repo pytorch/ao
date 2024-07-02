@@ -29,15 +29,17 @@ The models used were `meta-llama/Llama-2-7b-chat-hf` and `meta-llama/Meta-Llama-
 
 | Model       | Technique          | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
 | ----------- | ------------------ | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
-| Llama-2-7B  | Base (bfloat16)    | 12.212              |  105.02       | 1387.78                 | 13.21            | 13.90           |
-|             | int8dq             | 12.262              |  9.40         | 62.26                   | 6.62             | 8.61            |
-|             | int8wo             | 12.204              |  147.03       | 973.54                  | 6.62             | 8.95            |
-|             | int4wo-64          | 12.843              |  199.81       | 746.45                  | 3.74             | 4.75            |
-|             | int4wo-64-GPTQ     | 12.489              |  199.81       | 746.45                  | 3.74             | 4.75            |
-| Llama-3-8B  | Base (bfloat16)    |                  |  94.91        | 1424.58                 | 15.01            | 16.43           |
-|             | int8dq             |                  |  8.41         | 63.23                   | 7.52             | 9.24            |
-|             | int8wo             |                  |  136.75       | 1028.38                 | 7.52             | 10.42           |
-|             | int4wo-64          |                  |  179.41       | 757.45                  | 4.22             | 6.88            |
+| Llama-2-7B  | Base (bfloat16)    | 12.212              |  105.14       | 1389.35                 | 13.88            | 13.21           |
+|             | int8dq             | 12.262              |    9.20       |   60.93                 |  8.33            |  6.62           |
+|             | int8wo             | 12.204              |  150.18       |  994.40                 |  8.95            |  6.62           |
+|             | int4wo-64          | 12.843              |  199.86       |  746.66                 |  4.50            |  3.74           |
+|             | int4wo-64-GPTQ     | 12.489              |  199.86       |  746.66                 |  4.50            |  3.74           |
+|             | autoquant          | 12.204              |  159.22       | 1069.87                 |  8.91            |  6.72           |
+| Llama-3-8B  | Base (bfloat16)    | N/A                 |   94.97       | 1425.55                 | 16.43            | 15.01           |
+|             | int8dq             | N/A                 |    8.44       |   63.45                 |  8.98            |  7.52           |
+|             | int8wo             | N/A                 |  139.76       | 1051.02                 | 10.42            |  7.52           |
+|             | int4wo-64          | N/A                 |  179.44       |  757.60                 |  6.62            |  4.22           |
+|             | autoquant          | N/A                 |  137.71       | 1037.74                 | 11.08            |  7.54           |
 
 note: Int8 dynamic quantization works best on compute bound as opposed to memory bound models. Some relatable examples might be [SAM](https://github.com/pytorch-labs/segment-anything-fast) which is compute bound vs Llama at batchsize=1 which is memory bound.
 
@@ -81,7 +83,7 @@ swap_linear_with_semi_sparse_linear(model, {"seq.0": SemiSparseLinear})
 
 * [MX](torchao/prototype/mx_formats) implementing training and inference support with tensors using the [OCP MX spec](https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf) data types, which can be described as groupwise scaled float8/float6/float4/int8, with the scales being constrained to powers of two. This work is prototype as the hardware support is not available yet.
 * [nf4](torchao/dtypes/nf4tensor.py) which was used to [implement QLoRA](https://github.com/pytorch/torchtune/blob/main/docs/source/tutorials/qlora_finetune.rst) one of the most popular finetuning algorithms without writing custom Triton or CUDA code. Accessible talk [here](https://x.com/HamelHusain/status/1800315287574847701)
-* [fp6](torchao/prototype/fp6_llm/) for 2x faster inference over fp16 with an easy to use wrapper api `convert_fp6_llm(model)`
+* [fp6](torchao/prototype/quant_llm/) for 2x faster inference over fp16 with an easy to use API `quantize(model, fp6_llm_weight_only())`
 
 ## Composability
 
@@ -92,11 +94,34 @@ A key design principle for us is composability as in any new dtype or layout we 
 
 
 ### Installation
+
 `torchao` makes liberal use of several new features in Pytorch, it's recommended to use it with the current nightly or latest stable version of PyTorch.
 
-Stable Release
+#### Install torch
+
+Install torch stable
+
+```
+pip install torch
+```
+
+Or torch nightlies
+
+```
+pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu121
+```
+
+#### Install torchao
+
+Stable release from Pypi which will default to CUDA 12.1
+
 ```Shell
-pip install torchao --extra-index-url https://download.pytorch.org/whl/test/cu121 # full options are cpu/cu118/cu121/cu124
+pip install torchao
+```
+
+Stable Release from the PyTorch index
+```Shell
+pip install torchao --extra-index-url https://download.pytorch.org/whl/cu121 # full options are cpu/cu118/cu121/cu124
 ```
 
 Nightly Release
@@ -117,9 +142,16 @@ python setup.py install
     * [GaLore](torchao/prototype/galore/) a drop for the Adam Optimizer that allows you to finetune llama 7b on a single 4090 card with up to 70% speedups relative to eager PyTorch
     * [DoRA](torchao/prototype/dora) a newer replacement for QLoRA with more promising convergence characteristics
     * [Fused int4/fp16 Quant Matmul](torchao/prototype/hqq) which is particularly useful for compute bound kernels showing 4x speedups over tinygemm for larger batch sizes such as 512
-* [gau-nernst](https://github.com/gau-nernst) fp6 kernels that are 4x faster than fp16 [torchao/prototype/fp6_llm](torchao/prototype/fp6_llm)
+* [gau-nernst](https://github.com/gau-nernst) fp6 kernels that are 4x faster than fp16 [torchao/prototype/quant_llm](torchao/prototype/quant_llm)
 * [vayuda](https://github.com/vayuda) with generic bitpacking kernels that were code generated using pure PyTorch [prototype/common](torchao/prototype/common)
 * [andreaskopf](https://github.com/andreaskoepf) and [melvinebenezer](https://github.com/melvinebenezer) with [1 bit LLMs](torchao/prototype/dtypes) Bitnet 1.58 bitpacked into uint2 and fully code-generated with torch.compile
+
+## Blogs and Videos
+* [Accelerating Neural Network Training with Semi-Structured (2:4) Sparsity](https://pytorch.org/blog/accelerating-neural-network-training/)
+* [https://mobiusml.github.io/whisper-static-cache-blog/](https://mobiusml.github.io/whisper-static-cache-blog/)
+* [Slaying OOMs at the Mastering LLM's course](https://x.com/HamelHusain/status/1800315287574847701)
+* [Advanced Quantization at CUDA MODE](https://youtu.be/1u9xUK3G4VM?si=4JcPlw2w8chPXW8J)
+* [Chip Huyen's GPU Optimization Workshop](https://www.youtube.com/live/v_q2JTIqE20?si=mf7HeZ63rS-uYpS6)
 
 ## How to contribute
 

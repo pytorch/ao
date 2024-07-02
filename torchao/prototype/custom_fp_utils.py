@@ -216,7 +216,9 @@ def _fpx_unpacked_to_f32(x: Tensor, ebits: int, mbits: int) -> Tensor:
                 exp_biased_f32 = (denormal_exp_biased - left_shift) << MBITS_F32
 
                 # we can update this in-place since the values won't overlap
-                mantissa_lp_int32[mantissa_lp_int32 == mantissa_cmp] = exp_biased_f32 | mantissa_f32
+                # torch.compile() may complain unsupported operand type(s) for |: 'SymInt' and 'int'
+                # thus we use + instead of | here
+                mantissa_lp_int32[mantissa_lp_int32 == mantissa_cmp] = exp_biased_f32 + mantissa_f32
 
         result = torch.where(denormal_mask, mantissa_lp_int32, result)
 

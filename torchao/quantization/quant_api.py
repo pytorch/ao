@@ -16,6 +16,7 @@ and mixed GEMM kernels
 """
 
 import torch
+import torchao
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Any, Callable, Union, Dict, Optional
@@ -258,7 +259,7 @@ def _get_linear_subclass_inserter(constructor):
 
     return insert_subclass
 
-def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tensor], torch.Tensor], filter_fn: Optional[Callable[[torch.nn.Module, str], bool]]=None) -> torch.nn.Module:
+def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tensor], torch.Tensor], filter_fn: Optional[Callable[[torch.nn.Module, str], bool]]=None, set_inductor_config: bool=True) -> torch.nn.Module:
     """Convert the weight of linear modules in the model with `apply_tensor_subclass`
 
     Args:
@@ -266,6 +267,7 @@ def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tens
         apply_tensor_subclass (Callable[[torch.Tensor], torch.Tensor]): function that convert a floating point Tensor to a (quantized) tensor subclass instance (e.g. affine quantized tensor instance)
         filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): function that takes a nn.Module instance and fully qualified name of the module, returns True if we want to run `apply_tensor_subclass` on
         the weight of the module
+        set_inductor_config (bool, optional): Whether to automatically use recommended inductor config settings (defaults to True)
 
     Example::
 
@@ -306,13 +308,8 @@ def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tens
         m = quantize(m, apply_weight_quant, filter_fn)
 
     """
-    if isinstance(apply_tensor_subclass, str):
-        if apply_tensor_subclass not in _APPLY_TS_TABLE:
-            raise ValueError(f"{apply_tensor_subclass} not supported: {_APPLY_TS_TABLE.keys()}")
-        apply_tensor_subclass = _APPLY_TS_TABLE[apply_tensor_subclass]
-
-    assert not isinstance(apply_tensor_subclass, str)
-
+    if set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
     _replace_with_custom_fn_if_matches_filter(
         model,
         _get_linear_subclass_inserter(apply_tensor_subclass),
