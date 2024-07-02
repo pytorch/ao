@@ -2,6 +2,7 @@
 
 import argparse
 import math
+from contextlib import nullcontext
 from pathlib import Path
 
 import bitsandbytes as bnb
@@ -9,6 +10,7 @@ import datasets
 import timm
 import torch
 import torch.nn.functional as F
+from torch.profiler import ProfilerActivity, profile
 from torch.utils.data import DataLoader
 from torchvision.transforms import v2
 from tqdm import tqdm
@@ -34,7 +36,7 @@ class CosineSchedule:
 
 class WandbLogger:
     def __init__(self, args):
-        if args.project is not None:
+        if args.project is not None and not args.profile:
             import wandb
 
             Path("wandb_logs").mkdir(exist_ok=True)
@@ -66,6 +68,7 @@ def get_parser():
 
     parser.add_argument("--project")
     parser.add_argument("--run_name", default="debug")
+    parser.add_argument("--profile", action="store_true")
     return parser
 
 
@@ -127,9 +130,13 @@ def evaluate_model(model, args):
 if __name__ == "__main__":
     args = get_parser().parse_args()
 
+    if args.profile:
+        args.n_epochs = 1
+
     for k, v in vars(args).items():
         print(f"{k}: {v}")
 
+    # wandb is only enabled when args.project is set and args.profile is False
     logger = WandbLogger(args)
     dloader = get_dloader(args, True)
     print(f"Train dataset: {len(dloader.dataset):,} images")
@@ -154,27 +161,39 @@ if __name__ == "__main__":
     step = 0
     for epoch_idx in range(args.n_epochs):
         model.train()
-        for batch in tqdm(dloader, dynamic_ncols=True, desc=f"Epoch {epoch_idx + 1}/{args.n_epochs}"):
-            if args.channels_last:
-                batch["image"] = batch["image"].to(memory_format=torch.channels_last)
+        prof = profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) if args.profile else nullcontext()
 
-            with get_amp_ctx(args.amp):
-                loss = F.cross_entropy(model(batch["image"].cuda()), batch["label"].cuda())
-            grad_scaler.scale(loss).backward()
+        with prof:
+            for batch in tqdm(dloader, dynamic_ncols=True, desc=f"Epoch {epoch_idx + 1}/{args.n_epochs}"):
+                if args.channels_last:
+                    batch["image"] = batch["image"].to(memory_format=torch.channels_last)
 
-            lr = lr_schedule.get_lr(step)
-            for param_group in optim.param_groups:
-                param_group["lr"] = lr
+                with get_amp_ctx(args.amp):
+                    loss = F.cross_entropy(model(batch["image"].cuda()), batch["label"].cuda())
+                grad_scaler.scale(loss).backward()
 
-            if step % 100 == 0:
-                logger.log(dict(loss=loss.item(), lr=lr), step=step)
+                lr = lr_schedule.get_lr(step)
+                for param_group in optim.param_groups:
+                    param_group["lr"] = lr
 
-            grad_scaler.step(optim)
-            grad_scaler.update()
-            optim.zero_grad()
+                if step % 100 == 0:
+                    logger.log(dict(loss=loss.item(), lr=lr), step=step)
 
-            step += 1
+                grad_scaler.step(optim)
+                grad_scaler.update()
+                optim.zero_grad()
 
-        val_acc = evaluate_model(model, args)
-        print(f"Epoch {epoch_idx + 1}/{args.n_epochs}: val_acc={val_acc.item() * 100:.2f}")
-        logger.log(dict(val_acc=val_acc), step=step)
+                step += 1
+
+                if args.profile and step == 50:
+                    break
+
+        if args.profile:
+            prof.export_chrome_trace("trace.json")
+
+        else:
+            val_acc = evaluate_model(model, args)
+            print(f"Epoch {epoch_idx + 1}/{args.n_epochs}: val_acc={val_acc.item() * 100:.2f}")
+            logger.log(dict(val_acc=val_acc), step=step)
+
+    print(f"Max memory allocated: {torch.cuda.max_memory_allocated() / (1 << 30):.2f}GB")
