@@ -55,11 +55,12 @@ In some cases we rewrote popular GenAI models to be significantly faster in nati
 
 | Model Type | Technique                                                                                            | img/s | memory (MiB) | mIoU (coco2017 val) | relative speedup | relative accuracy |
 |------------|------------------------------------------------------------------------------------------------------|-------|--------------|---------------------|------------------|-------------------|
-| ViT-h      | sam (float32, eager)                                                                                 |  2.78 | 28806        | 0.5811              |                  |                   |
-|            | sam-fast-baseline (bfloat16, max-autotune)                                                           | 22.75 | 15172        | 0.5811              | baseline         | baseline          |
-|            | int8 dynamic quant (attn + mlp)                                                                      | 24.91 | 15154        | 0.5822              | **1.09x**        | **100.19%**       |
-|            | 2:4 sparsity (mlp only)                                                                              | 24.81 | 15632        | 0.5672              | **1.10x**        | **97.61%**        |
-|            | int8 dynamic quant (attn)<br>int8 dynamic quant + 2:4 sparsity (mlp lin1)<br>2:4 sparsity (mlp lin2) | 26.46 | 14865        | 0.5668              | **1.16x**        | **97.54%**        |
+| ViT-h      | sam (float32, eager)                                                                                 |  2.78 | 28806        | 0.58                | baseline         | baseline          |
+|            | sam (bfloat16, eager)                                                                                | 14.85 | 14424        | 0.58                | **5.34x**        | **100%**          |
+|            | sam-fast (bfloat16, max-autotune)                                                                    | 22.75 | 15172        | 0.58                | **8.18x**        | **100%**          |
+|            | int8 dynamic quant (attn + mlp)                                                                      | 24.91 | 15154        | 0.58                | **8.96x**        | **100%**          |
+|            | 2:4 sparsity (mlp only)                                                                              | 24.81 | 15632        | 0.57                | **8.92x**        | **98%**           |
+|            | int8 dynamic quant (attn)<br>int8 dynamic quant + 2:4 sparsity (mlp lin1)<br>2:4 sparsity (mlp lin2) | 26.46 | 14865        | 0.57                | **9.52x**        | **98%**           |
 
 The relative speedup is measured purely across the image encoder (ViT) of the model, where we apply our model optimizations. Benchmarks ran on an NVIDIA-A100-80GB with batch_size=32
 
