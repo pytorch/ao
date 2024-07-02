@@ -324,6 +324,7 @@ def _dequantize_affine(
         dequant = dequant * scale
     else:
         assert zero_point_domain == ZeroPointDomain.FLOAT.name, f"Unexpected zero point domain: {zero_point_domain}"
+        # TODO: this seems to be a detail for tinygemm (converting from uint to int, probably need to refactor this)
         mid_point = (quant_max + quant_min + 1) / 2
         # This should allocate new memory and avoid input modification
         dequant = input - mid_point
