@@ -110,6 +110,7 @@ class AdamDTQ8bit(Optimizer):
         return loss
 
 
+# this will work with any optim state tensor subclass that implements aten.lerp.Scalar and aten.copy_.default
 @torch.compile(fullgraph=True, dynamic=True)
 def single_param_adam_v1_(
     p: Tensor,

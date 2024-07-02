@@ -198,4 +198,4 @@ if __name__ == "__main__":
             print(f"Epoch {epoch_idx + 1}/{args.n_epochs}: val_acc={val_acc.item() * 100:.2f}")
             logger.log(dict(val_acc=val_acc), step=step)
 
-    print(f"Max memory allocated: {torch.cuda.max_memory_allocated() / (1 << 30):.2f}GB")
+    print(f"Max memory allocated: {torch.cuda.max_memory_allocated() / (1 << 30):.2f} GB")
