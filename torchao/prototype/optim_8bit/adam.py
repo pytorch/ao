@@ -141,7 +141,7 @@ def single_param_adam_v1_(
     p.addcdiv_(new_exp_avg, denom, value=-step_size)
 
 
-@torch.compile(fullgraph=True, dynamic=True)
+# torch._fused_adam_() cannot be compiled, thus we need to compile dequant and quant code separately.
 def single_param_adam_v2_(
     p: Tensor,
     grad: Tensor,
@@ -154,11 +154,14 @@ def single_param_adam_v2_(
     beta2: float,
     eps: float,
 ):
+    amsgrad = max_exp_avg_sq is not None
+
     # dequantize
     if isinstance(exp_avg, DTQ8bit):
-        exp_avg_fp32 = exp_avg.dequantize()
-        exp_avg_sq_fp32 = exp_avg_sq.dequantize()
-        max_exp_avg_sq_fp32 = max_exp_avg_sq.dequantize() if max_exp_avg_sq is not None else None
+        _dequantize = torch.compile(DTQ8bit.dequantize)
+        exp_avg_fp32 = _dequantize(exp_avg)
+        exp_avg_sq_fp32 = _dequantize(exp_avg_sq)
+        max_exp_avg_sq_fp32 = _dequantize(max_exp_avg_sq) if amsgrad else None
     else:
         exp_avg_fp32 = exp_avg
         exp_avg_sq_fp32 = exp_avg_sq
@@ -169,16 +172,20 @@ def single_param_adam_v2_(
         [grad],
         [exp_avg_fp32],
         [exp_avg_sq_fp32],
-        [max_exp_avg_sq_fp32],
-        amsgrad=max_exp_avg_sq is not None,
+        [max_exp_avg_sq_fp32] if amsgrad else [],
+        [step],
+        amsgrad=amsgrad,
         lr=lr,
         beta1=beta1,
         beta2=beta2,
+        weight_decay=0,
         eps=eps,
+        maximize=False,
     )
 
     # quantize
     if isinstance(exp_avg, DTQ8bit):
-        exp_avg.copy_(exp_avg_fp32)
-        exp_avg_sq.copy_(exp_avg_sq_fp32)
-        max_exp_avg_sq.copy_(max_exp_avg_sq_fp32) if max_exp_avg_sq is not None else None
+        _quantize_copy_ = torch.compile(DTQ8bit.copy_)
+        _quantize_copy_(exp_avg, exp_avg_fp32)
+        _quantize_copy_(exp_avg_sq, exp_avg_sq_fp32)
+        _quantize_copy_(max_exp_avg_sq, max_exp_avg_sq_fp32) if amsgrad else None
