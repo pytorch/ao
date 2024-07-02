@@ -31,7 +31,7 @@ class AdamDTQ8bit(Optimizer):
     def __setstate__(self, state):
         super().__setstate__(state)
         for group in self.param_groups:
-            group.setdefault('amsgrad', False)
+            group.setdefault("amsgrad", False)
 
     # follow bitsandbytes
     # only apply quantization for tensor with more than 4096 values
@@ -51,13 +51,13 @@ class AdamDTQ8bit(Optimizer):
                 loss = closure()
 
         for group in self.param_groups:
-            for p in group['params']:
+            for p in group["params"]:
                 if p.grad is None:
                     continue
 
                 grad = p.grad
                 if grad.is_sparse:
-                    raise RuntimeError('Sparse gradient is not supported')
+                    raise RuntimeError("Sparse gradient is not supported")
 
                 if group["weight_decay"] != 0:
                     grad = grad.add(p, alpha=group["weight_decay"])
@@ -67,41 +67,45 @@ class AdamDTQ8bit(Optimizer):
                 # State initialization
                 # state is flattened so that torch.compile won't recompile for tensors with different ndim
                 if len(state) == 0:
-                    state['step'] = torch.tensor(0, device=p.device)
-                    state['exp_avg'] = self._new_zero_buffer(p.view(-1), signed=True)
-                    state['exp_avg_sq'] = self._new_zero_buffer(p.view(-1), signed=False)
-                    if group['amsgrad']:
-                        state['max_exp_avg_sq'] = self._new_zero_buffer(p.view(-1), signed=False)
+                    state["step"] = torch.tensor(0.0, device=p.device)
+                    state["exp_avg"] = self._new_zero_buffer(p.view(-1), signed=True)
+                    state["exp_avg_sq"] = self._new_zero_buffer(p.view(-1), signed=False)
+                    if group["amsgrad"]:
+                        state["max_exp_avg_sq"] = self._new_zero_buffer(p.view(-1), signed=False)
+
+                state["step"] += 1
 
                 # flatten p and grad so that torch.compile won't recompile for tensors with different ndim
                 # must explicitly convert lr to Tensor since torch.compile() will treat it as a constant
                 # if it is a python float. practically, only lr is changed during training.
-                state['step'] += 1
+                # NOTE: if lr is change at every step, moving lr to CUDA will be a bottleneck.
+                if not isinstance(group["lr"], Tensor):
+                    group["lr"] = torch.tensor(group["lr"], device=p.device)
                 single_param_adam_v1_(
                     p.view(-1),
                     grad.view(-1),
-                    state['step'],
-                    state['exp_avg'],
-                    state['exp_avg_sq'],
-                    state.get('max_exp_avg_sq', None),
-                    torch.tensor(group['lr'], device=p.device),
-                    group['betas'][0],
-                    group['betas'][1],
-                    group['eps'],
+                    state["step"],
+                    state["exp_avg"],
+                    state["exp_avg_sq"],
+                    state.get("max_exp_avg_sq", None),
+                    group["lr"],
+                    group["betas"][0],
+                    group["betas"][1],
+                    group["eps"],
                 )
 
                 # with torch._fused_adam_()
                 # single_param_adam_v2_(
                 #     p.view(-1),
                 #     grad.view(-1),
-                #     state['step'],
-                #     state['exp_avg'],
-                #     state['exp_avg_sq'],
-                #     state.get('max_exp_avg_sq', None),
-                #     group['lr'],
-                #     group['betas'][0],
-                #     group['betas'][1],
-                #     group['eps'],
+                #     state["step"],
+                #     state["exp_avg"],
+                #     state["exp_avg_sq"],
+                #     state.get("max_exp_avg_sq", None),
+                #     group["lr"],
+                #     group["betas"][0],
+                #     group["betas"][1],
+                #     group["eps"],
                 # )
 
         return loss
@@ -174,12 +178,12 @@ def single_param_adam_v2_(
         [exp_avg_sq_fp32],
         [max_exp_avg_sq_fp32] if amsgrad else [],
         [step],
-        amsgrad=amsgrad,
         lr=lr,
         beta1=beta1,
         beta2=beta2,
         weight_decay=0,
         eps=eps,
+        amsgrad=amsgrad,
         maximize=False,
     )
 

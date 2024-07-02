@@ -65,6 +65,7 @@ def get_parser():
     parser.add_argument("--optim", default="Adam")
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight_decay", type=float, default=0)
+    parser.add_argument("--cosine_lr_scheduler", action="store_true")
 
     parser.add_argument("--project")
     parser.add_argument("--run_name", default="debug")
@@ -172,12 +173,13 @@ if __name__ == "__main__":
                     loss = F.cross_entropy(model(batch["image"].cuda()), batch["label"].cuda())
                 grad_scaler.scale(loss).backward()
 
-                lr = lr_schedule.get_lr(step)
-                for param_group in optim.param_groups:
-                    param_group["lr"] = lr
+                if args.cosine_lr_scheduler:
+                    lr = lr_schedule.get_lr(step)
+                    for param_group in optim.param_groups:
+                        param_group["lr"] = lr
 
                 if step % 100 == 0:
-                    logger.log(dict(loss=loss.item(), lr=lr), step=step)
+                    logger.log(dict(loss=loss.item(), lr=optim.param_groups[0]["lr"]), step=step)
 
                 grad_scaler.step(optim)
                 grad_scaler.update()
