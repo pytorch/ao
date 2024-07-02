@@ -202,9 +202,8 @@ def main(
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
             quantize(model, int4_weight_only(group_size=groupsize))
         if "intx" in quantization:
-            nbits = int(quantization.split("-")[-1])
-            assert nbits in [1,2,3,4,5,6,7], "invalid bit size"
-            quantize(model, intx_weight_only(nbits))
+            cfg = quantization.split("-")[1:]
+            quantize(model, intx_weight_only(int(cfg[0]), group_size=int(cfg[1]), layout=cfg[2]))
             
         if "autoquant" == quantization:
             model = autoquant(model, manual=True)

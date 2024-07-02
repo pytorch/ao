@@ -81,9 +81,26 @@ A key design principle for us is composability as in any new dtype or layout we 
 
 
 ### Installation
+
 `torchao` makes liberal use of several new features in Pytorch, it's recommended to use it with the current nightly or latest stable version of PyTorch.
 
-Stable release from Pypi which will default to PyTorch 2.3.1 and CUDA 12.1
+#### Install torch
+
+Install torch stable
+
+```
+pip install torch
+```
+
+Or torch nightlies
+
+```
+pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu121
+```
+
+#### Install torchao
+
+Stable release from Pypi which will default to CUDA 12.1
 
 ```Shell
 pip install torchao
@@ -91,7 +108,7 @@ pip install torchao
 
 Stable Release from the PyTorch index
 ```Shell
-pip install torchao --extra-index-url https://download.pytorch.org/whl/test/cu121 # full options are cpu/cu118/cu121/cu124
+pip install torchao --extra-index-url https://download.pytorch.org/whl/cu121 # full options are cpu/cu118/cu121/cu124
 ```
 
 Nightly Release
@@ -115,6 +132,13 @@ python setup.py install
 * [gau-nernst](https://github.com/gau-nernst) fp6 kernels that are 4x faster than fp16 [torchao/prototype/quant_llm](torchao/prototype/quant_llm)
 * [vayuda](https://github.com/vayuda) with generic bitpacking kernels that were code generated using pure PyTorch [prototype/common](torchao/prototype/common)
 * [andreaskopf](https://github.com/andreaskoepf) and [melvinebenezer](https://github.com/melvinebenezer) with [1 bit LLMs](torchao/prototype/dtypes) Bitnet 1.58 bitpacked into uint2 and fully code-generated with torch.compile
+
+## Blogs and Videos
+* [Accelerating Neural Network Training with Semi-Structured (2:4) Sparsity](https://pytorch.org/blog/accelerating-neural-network-training/)
+* [https://mobiusml.github.io/whisper-static-cache-blog/](https://mobiusml.github.io/whisper-static-cache-blog/)
+* [Slaying OOMs at the Mastering LLM's course](https://x.com/HamelHusain/status/1800315287574847701)
+* [Advanced Quantization at CUDA MODE](https://youtu.be/1u9xUK3G4VM?si=4JcPlw2w8chPXW8J)
+* [Chip Huyen's GPU Optimization Workshop](https://www.youtube.com/live/v_q2JTIqE20?si=mf7HeZ63rS-uYpS6)
 
 ## How to contribute
 
