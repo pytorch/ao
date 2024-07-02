@@ -74,7 +74,7 @@ from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
 from torchao.dtypes import to_affine_quantized
 import copy
 from torchao.quantization.quant_api import (
-    quantize,
+    quantize_,
     int4_weight_only,
 )
 
@@ -101,7 +101,7 @@ m_bf16 = torch.compile(m_bf16, mode='max-autotune')
 # apply int4 weight only quant (compatible with tinygemm int4 weight only quant mm kernel in torchao)
 group_size = 32
 # only works for torch 2.4+
-m = quantize(m, int4_weight_only(group_size=group_size))
+quantize_(m, int4_weight_only(group_size=group_size))
 
 # temporary workaround for tensor subclass + torch.compile
 from torchao.utils import unwrap_tensor_subclass
@@ -168,7 +168,7 @@ torch._inductor.config.force_fuse_int_mm_with_mul = True
 
 # for torch 2.4+
 from torchao.quantization import quantize, int8_dynamic_activation_int8_weight
-quantize(model, int8_dynamic_activation_int8_weight())
+quantize_(model, int8_dynamic_activation_int8_weight())
 
 # for torch 2.2.2 and 2.3
 from torchao.quantization.quant_api import change_linear_weights_to_int8_dqtensors
@@ -180,7 +180,7 @@ change_linear_weights_to_int8_dqtensors(model)
 ```python
 # for torch 2.4+
 from torchao.quantization import quantize, int8_weight_only
-quantize(model, int8_weight_only())
+quantize_(model, int8_weight_only())
 
 # for torch 2.2.2 and 2.3
 from torchao.quantization.quant_api import change_linear_weights_to_int8_woqtensors
@@ -195,7 +195,7 @@ This technique works best when the torch._inductor.config.use_mixed_mm option is
 ```python
 # for torch 2.4+
 from torchao.quantization import quantize, int4_weight_only
-quantize(model, int4_weight_only())
+quantize_(model, int4_weight_only())
 
 # for torch 2.2.2 and 2.3
 from torchao.quantization.quant_api import change_linear_weights_to_int4_woqtensors
