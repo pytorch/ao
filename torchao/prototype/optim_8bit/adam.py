@@ -77,7 +77,7 @@ class AdamDTQ8bit(Optimizer):
                 # must explicitly convert lr to Tensor since torch.compile() will treat it as a constant
                 # if it is a python float. practically, only lr is changed during training.
                 state['step'] += 1
-                single_param_adam(
+                single_param_adam_v1_(
                     p.view(-1),
                     grad.view(-1),
                     state['step'],
@@ -90,11 +90,25 @@ class AdamDTQ8bit(Optimizer):
                     group['eps'],
                 )
 
+                # with torch._fused_adam_()
+                # single_param_adam_v2_(
+                #     p.view(-1),
+                #     grad.view(-1),
+                #     state['step'],
+                #     state['exp_avg'],
+                #     state['exp_avg_sq'],
+                #     state.get('max_exp_avg_sq', None),
+                #     group['lr'],
+                #     group['betas'][0],
+                #     group['betas'][1],
+                #     group['eps'],
+                # )
+
         return loss
 
 
 @torch.compile(fullgraph=True, dynamic=True)
-def single_param_adam(
+def single_param_adam_v1_(
     p: Tensor,
     grad: Tensor,
     step: Tensor,
@@ -125,3 +139,42 @@ def single_param_adam(
 
     step_size = lr / bias_correction1
     p.addcdiv_(new_exp_avg, denom, value=-step_size)
+
+
+@torch.compile(fullgraph=True, dynamic=True)
+def single_param_adam_v2_(
+    p: Tensor,
+    grad: Tensor,
+    step: Tensor,
+    exp_avg: Tensor,
+    exp_avg_sq: Tensor,
+    max_exp_avg_sq: Tensor | None,
+    lr: float,
+    beta1: float,
+    beta2: float,
+    eps: float,
+):
+    assert isinstance(exp_avg, DTQ8bit)
+
+    # dequantize
+    exp_avg_fp32 = exp_avg.dequantize()
+    exp_avg_sq_fp32 = exp_avg_sq.dequantize()
+    max_exp_avg_sq_fp32 = max_exp_avg_sq.dequantize() if max_exp_avg_sq is not None else None
+
+    torch._fused_adam_(
+        [p],
+        [grad],
+        [exp_avg_fp32],
+        [exp_avg_sq_fp32],
+        [max_exp_avg_sq_fp32],
+        amsgrad=max_exp_avg_sq is not None,
+        lr=lr,
+        beta1=beta1,
+        beta2=beta2,
+        eps=eps,
+    )
+
+    # quantize
+    exp_avg.copy_(exp_avg_fp32)
+    exp_avg_sq.copy_(exp_avg_sq_fp32)
+    max_exp_avg_sq.copy_(max_exp_avg_sq_fp32) if max_exp_avg_sq is not None else None
