@@ -1,10 +1,12 @@
 import torch
-from typing import Tuple
+from typing import Tuple, Any
 from functools import reduce
 from importlib.metadata import version
 from math import gcd
 import torch.nn.utils.parametrize as parametrize
 import itertools
+import time
+import warnings
 
 __all__ = [
     "benchmark_model",
@@ -22,20 +24,70 @@ __all__ = [
 ]
 
 
+def _assert_and_get_unique_device(module: torch.nn.Module) -> Any:
+    """
+    Returns the unique device for a module, or None if no device is found.
+    Throws an error if multiple devices are detected.
+    """
+    devices = {p.device for p in module.parameters()} | \
+        {p.device for p in module.buffers()}
+
+    if {torch.device("cpu"), torch.device("meta")} == devices:
+        warnings.warn("Both 'meta' and 'cpu' are present in the list of devices. Module can have one device. We Select 'cpu'.")
+        devices = {torch.device("cpu")}
+    ""
+    assert len(devices) <= 1, (
+        "prepare only works with cpu or single-device CUDA modules, "
+        f"but got devices {devices}"
+    )
+    device = next(iter(devices)) if len(devices) > 0 else None
+    return device
+
+
 def benchmark_model(model, num_runs, input_tensor):
-    start_event = torch.Event(enable_timing=True)
-    end_event = torch.Event(enable_timing=True)
-    start_event.record()
-    start_event.synchronize()
+    if _assert_and_get_unique_device(model).type == "cuda":
+        torch.cuda.synchronize()
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+        start_event.record()
 
-    # benchmark
-    for _ in range(num_runs):
-        with torch.autograd.profiler.record_function("timed region"):
-            model(input_tensor)
+        # benchmark
+        for _ in range(num_runs):
+            with torch.autograd.profiler.record_function("timed region"):
+                model(input_tensor)
 
-    end_event.synchronize()
-    end_event.record()
-    return start_event.elapsed_time(end_event) / num_runs
+        end_event.record()
+        torch.cuda.synchronize()
+        return start_event.elapsed_time(end_event) / num_runs
+
+    elif _assert_and_get_unique_device(model).type == "mps":
+        torch.mps.synchronize()
+        start_event = torch.mps.event.Event(enable_timing=True)
+        end_event = torch.mps.event.Event(enable_timing=True)
+        start_event.record()
+
+        # benchmark
+        for _ in range(num_runs):
+            with torch.autograd.profiler.record_function("timed region"):
+                model(input_tensor)
+
+        end_event.record()
+        torch.mps.synchronize()
+        return start_event.elapsed_time(end_event) / num_runs
+
+    elif _assert_and_get_unique_device(model).type == "cpu":
+        torch.cpu.synchronize()
+        start_time = time.time()
+
+        # benchmark
+        for _ in range(num_runs):
+            with torch.autograd.profiler.record_function("timed region"):
+                model(input_tensor)
+
+        end_time = time.time()
+        torch.cpu.synchronize()
+        average_time_per_run = (end_time - start_time) / num_runs
+        return average_time_per_run
 
 
 def profiler_runner(path, fn, *args, **kwargs):
