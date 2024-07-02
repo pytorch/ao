@@ -381,15 +381,16 @@
 <span class="kn">from</span> <span class="nn">torchao.quantization.quant_api</span> <span class="kn">import</span> <span class="n">_is_linear</span>
 
 <span class="c1"># Sparsity helper functions</span>
-<div class="viewcode-block" id="apply_fake_sparsity"><a class="viewcode-back" href="../../../generated/torchao.sparsity.apply_fake_sparsity.html#torchao.sparsity.apply_fake_sparsity">[docs]</a><span class="k">def</span> <span class="nf">apply_fake_sparsity</span><span class="p">(</span><span class="n">model</span><span class="p">):</span>
+<div class="viewcode-block" id="apply_fake_sparsity"><a class="viewcode-back" href="../../../generated/torchao.sparsity.apply_fake_sparsity.html#torchao.sparsity.apply_fake_sparsity">[docs]</a><span class="k">def</span> <span class="nf">apply_fake_sparsity</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    This function simulates 2:4 sparsity on all linear layers in a model.</span>
 <span class="sd">    It uses the torch.ao.pruning flow.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">filter_fn</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;filter_fn&quot;</span><span class="p">,</span> <span class="n">_is_linear</span><span class="p">)</span>
     <span class="c1"># torch.ao.pruning flow</span>
     <span class="n">sparse_config</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">mod</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_modules</span><span class="p">():</span>
-        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">filter_fn</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
             <span class="n">sparse_config</span><span class="o">.</span><span class="n">append</span><span class="p">({</span><span class="s2">&quot;tensor_fqn&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.weight&quot;</span><span class="p">})</span>
 
     <span class="n">sparsifier</span> <span class="o">=</span> <span class="n">WeightNormSparsifier</span><span class="p">(</span>
@@ -403,7 +404,7 @@
 <div class="viewcode-block" id="apply_sparse_semi_structured"><a class="viewcode-back" href="../../../generated/torchao.sparsity.apply_sparse_semi_structured.html#torchao.sparsity.apply_sparse_semi_structured">[docs]</a><span class="k">def</span> <span class="nf">apply_sparse_semi_structured</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
     <span class="n">filter_fn</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;filter_fn&quot;</span><span class="p">,</span> <span class="n">_is_linear</span><span class="p">)</span>
 
-    <span class="n">apply_fake_sparsity</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
+    <span class="n">apply_fake_sparsity</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">filter_fn</span><span class="o">=</span><span class="n">filter_fn</span><span class="p">)</span>
     <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">mod</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">named_modules</span><span class="p">():</span>
         <span class="k">if</span> <span class="n">filter_fn</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
             <span class="n">mod</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span><span class="n">to_sparse_semi_structured</span><span class="p">(</span><span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="p">))</span></div>
