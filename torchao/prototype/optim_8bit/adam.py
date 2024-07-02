@@ -59,9 +59,6 @@ class AdamDTQ8bit(Optimizer):
                 if grad.is_sparse:
                     raise RuntimeError("Sparse gradient is not supported")
 
-                if group["weight_decay"] != 0:
-                    grad = grad.add(p, alpha=group["weight_decay"])
-
                 state = self.state[p]
 
                 # State initialization
@@ -91,6 +88,7 @@ class AdamDTQ8bit(Optimizer):
                     group["lr"],
                     group["betas"][0],
                     group["betas"][1],
+                    group["weight_decay"],
                     group["eps"],
                 )
 
@@ -105,6 +103,7 @@ class AdamDTQ8bit(Optimizer):
                 #     group["lr"],
                 #     group["betas"][0],
                 #     group["betas"][1],
+                #     group["weight_decay"],
                 #     group["eps"],
                 # )
 
@@ -122,8 +121,12 @@ def single_param_adam_v1_(
     lr: Tensor,
     beta1: float,
     beta2: float,
+    weight_decay: float,
     eps: float,
 ):
+    if weight_decay != 0:
+        grad = grad.add(p, alpha=weight_decay)
+
     bias_correction1 = 1 - beta1 ** step
     bias_correction2 = 1 - beta2 ** step
 
@@ -156,6 +159,7 @@ def single_param_adam_v2_(
     lr: float,
     beta1: float,
     beta2: float,
+    weight_decay: float,
     eps: float,
 ):
     amsgrad = max_exp_avg_sq is not None
@@ -181,7 +185,7 @@ def single_param_adam_v2_(
         lr=lr,
         beta1=beta1,
         beta2=beta2,
-        weight_decay=0,
+        weight_decay=weight_decay,
         eps=eps,
         amsgrad=amsgrad,
         maximize=False,
