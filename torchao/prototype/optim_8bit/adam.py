@@ -78,7 +78,7 @@ class AdamDTQ8bit(Optimizer):
                 # NOTE: if lr is change at every step, moving lr to CUDA will be a bottleneck.
                 if not isinstance(group["lr"], Tensor):
                     group["lr"] = torch.tensor(group["lr"], device=p.device)
-                single_param_adam_v1_(
+                single_param_adam(
                     p.view(-1),
                     grad.view(-1),
                     state["step"],
@@ -92,27 +92,12 @@ class AdamDTQ8bit(Optimizer):
                     group["eps"],
                 )
 
-                # with torch._fused_adam_()
-                # single_param_adam_v2_(
-                #     p.view(-1),
-                #     grad.view(-1),
-                #     state["step"],
-                #     state["exp_avg"],
-                #     state["exp_avg_sq"],
-                #     state.get("max_exp_avg_sq", None),
-                #     group["lr"],
-                #     group["betas"][0],
-                #     group["betas"][1],
-                #     group["weight_decay"],
-                #     group["eps"],
-                # )
-
         return loss
 
 
 # this will work with any optim state tensor subclass that implements aten.lerp.Scalar and aten.copy_.default
 @torch.compile(fullgraph=True, dynamic=True)
-def single_param_adam_v1_(
+def single_param_adam(
     p: Tensor,
     grad: Tensor,
     step: Tensor,
@@ -147,54 +132,3 @@ def single_param_adam_v1_(
 
     step_size = lr / bias_correction1
     p.addcdiv_(new_exp_avg, denom, value=-step_size)
-
-
-# torch._fused_adam_() cannot be compiled, thus we need to compile dequant and quant code separately.
-def single_param_adam_v2_(
-    p: Tensor,
-    grad: Tensor,
-    step: Tensor,
-    exp_avg: Tensor,
-    exp_avg_sq: Tensor,
-    max_exp_avg_sq: Tensor | None,
-    lr: float,
-    beta1: float,
-    beta2: float,
-    weight_decay: float,
-    eps: float,
-):
-    amsgrad = max_exp_avg_sq is not None
-
-    # dequantize
-    if isinstance(exp_avg, DTQ8bit):
-        _dequantize = torch.compile(DTQ8bit.dequantize)
-        exp_avg_fp32 = _dequantize(exp_avg)
-        exp_avg_sq_fp32 = _dequantize(exp_avg_sq)
-        max_exp_avg_sq_fp32 = _dequantize(max_exp_avg_sq) if amsgrad else None
-    else:
-        exp_avg_fp32 = exp_avg
-        exp_avg_sq_fp32 = exp_avg_sq
-        max_exp_avg_sq_fp32 = max_exp_avg_sq
-
-    torch._fused_adam_(
-        [p],
-        [grad],
-        [exp_avg_fp32],
-        [exp_avg_sq_fp32],
-        [max_exp_avg_sq_fp32] if amsgrad else [],
-        [step],
-        lr=lr,
-        beta1=beta1,
-        beta2=beta2,
-        weight_decay=weight_decay,
-        eps=eps,
-        amsgrad=amsgrad,
-        maximize=False,
-    )
-
-    # quantize
-    if isinstance(exp_avg, DTQ8bit):
-        _quantize_copy_ = torch.compile(DTQ8bit.copy_)
-        _quantize_copy_(exp_avg, exp_avg_fp32)
-        _quantize_copy_(exp_avg_sq, exp_avg_sq_fp32)
-        _quantize_copy_(max_exp_avg_sq, max_exp_avg_sq_fp32) if amsgrad else None
