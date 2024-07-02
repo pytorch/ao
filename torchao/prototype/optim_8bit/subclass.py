@@ -69,15 +69,42 @@ ZERO_CODE_SIGNED = QMAP_SIGNED.index(0)
 ZERO_CODE_UNSIGNED = QMAP_UNSIGNED.index(0)
 
 
-def quantize_8bit_with_qmap(input: Tensor, qmap: Tensor, block_size: int):
+def quantize_8bit_with_qmap(input: Tensor, qmap: Tensor, block_size: int, implementation: int = 0):
     # section 2.1 from https://arxiv.org/abs/2110.02861
     input = input.view(-1, block_size)
     scale = input.abs().amax(-1).clip(1e-12)
     input = input / scale.view(-1, 1)
 
-    # TODO: investigate if using binary search is faster/more memory efficient
+    # reference implementation. equation 4 from https://arxiv.org/abs/2110.02861
+    if implementation == 0:
+        codes = (qmap.view(1, -1) - input.view(-1, 1)).abs().argmin(-1)
+        codes = codes.to(torch.uint8)
+
+    # GPU-friendly binary search
     # https://blog.demofox.org/2017/06/20/simd-gpu-friendly-branchless-binary-search/
-    codes = (qmap.view(1, -1) - input.view(-1, 1)).abs().argmin(-1).to(torch.uint8)
+    elif implementation == 1:
+        input = input.view(-1)
+        codes = torch.where(input >= qmap[128], 128, 0)
+        codes += torch.where(input >= qmap[codes + 64], 64, 0)
+        codes += torch.where(input >= qmap[codes + 32], 32, 0)
+        codes += torch.where(input >= qmap[codes + 16], 16, 0)
+        codes += torch.where(input >= qmap[codes + 8], 8, 0)
+        codes += torch.where(input >= qmap[codes + 4], 4, 0)
+        codes += torch.where(input >= qmap[codes + 2], 2, 0)
+        codes += torch.where(input >= qmap[codes + 1], 1, 0)
+
+        # rounding
+        codes_up = (codes + 1).clip(max=255)
+        val_down = qmap[codes]
+        val_up = qmap[codes_up]
+        residual = input - val_down
+        codes = torch.where(residual >= (val_up - val_down) * 0.5, codes_up, codes)
+
+        codes = codes.to(torch.uint8)
+
+    else:
+        raise ValueError(f"Unsupported implementation={implementation}")
+
     return codes, scale
 
 
