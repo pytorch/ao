@@ -69,7 +69,7 @@ ZERO_CODE_SIGNED = QMAP_SIGNED.index(0)
 ZERO_CODE_UNSIGNED = QMAP_UNSIGNED.index(0)
 
 
-def quantize_8bit_with_qmap(input: Tensor, qmap: Tensor, block_size: int, implementation: int = 0):
+def quantize_8bit_with_qmap(input: Tensor, qmap: Tensor, block_size: int, implementation: int = 1):
     # section 2.1 from https://arxiv.org/abs/2110.02861
     input = input.view(-1, block_size)
     scale = input.abs().amax(-1).clip(1e-12)

@@ -175,4 +175,6 @@ if __name__ == "__main__":
 
             step += 1
 
-        logger.log(dict(val_acc=evaluate_model(model, args)), step=step)
+        val_acc = evaluate_model(model, args)
+        print(f"Epoch {epoch_idx + 1}/{args.n_epochs}: val_acc={val_acc.item() * 100:.2f}")
+        logger.log(dict(val_acc=val_acc), step=step)
