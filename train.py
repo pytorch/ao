@@ -9,7 +9,6 @@ import datasets
 import timm
 import torch
 import torch.nn.functional as F
-import wandb
 from torch.utils.data import DataLoader
 from torchvision.transforms import v2
 from tqdm import tqdm
@@ -33,6 +32,22 @@ class CosineSchedule:
         return self.final_lr
 
 
+class WandbLogger:
+    def __init__(self, args):
+        if args.project is not None:
+            import wandb
+
+            Path("wandb_logs").mkdir(exist_ok=True)
+            self.run = wandb.init(project=args.project, name=args.run_name, config=args, dir="wandb_logs")
+
+        else:
+            self.run = None
+
+    def log(self, *args, **kwargs):
+        if self.run is not None:
+            self.run.log(*args, **kwargs)
+
+
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
@@ -49,7 +64,7 @@ def get_parser():
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight_decay", type=float, default=0)
 
-    parser.add_argument("--project", default="Adam8bit_debug")
+    parser.add_argument("--project")
     parser.add_argument("--run_name", default="debug")
     return parser
 
@@ -115,9 +130,7 @@ if __name__ == "__main__":
     for k, v in vars(args).items():
         print(f"{k}: {v}")
 
-    Path("wandb_logs").mkdir(exist_ok=True)
-    wandb.init(project=args.project, name=args.run_name, config=args, dir="wandb_logs")
-
+    logger = WandbLogger(args)
     dloader = get_dloader(args, True)
     print(f"Train dataset: {len(dloader.dataset):,} images")
 
@@ -154,7 +167,7 @@ if __name__ == "__main__":
                 param_group["lr"] = lr
 
             if step % 100 == 0:
-                wandb.log(dict(loss=loss.item(), lr=lr), step=step)
+                logger.log(dict(loss=loss.item(), lr=lr), step=step)
 
             grad_scaler.step(optim)
             grad_scaler.update()
@@ -162,4 +175,4 @@ if __name__ == "__main__":
 
             step += 1
 
-        wandb.log(dict(val_acc=evaluate_model(model, args)), step=step)
+        logger.log(dict(val_acc=evaluate_model(model, args)), step=step)
