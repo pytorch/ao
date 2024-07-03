@@ -1,2 +1,2 @@
-from .adam import AdamDTQ8bit
-from .adamw import AdamWDTQ8bit
+from .adam import Adam8bit
+from .adamw import AdamW8bit

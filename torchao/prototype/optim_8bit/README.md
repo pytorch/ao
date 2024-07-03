@@ -7,15 +7,15 @@ This folder implements 8-bit optimizers using dynamic tree quantization as outli
 This is a drop-in replacement for `torch.optim.Adam`
 
 ```python
-from torchao.prototype.optim_8bit import AdamDTQ8bit
+from torchao.prototype.optim_8bit import Adam8bit
 
 model = ...
-optim = AdamDTQ8bit(model.parameters())
+optim = Adam8bit(model.parameters())
 ```
 
 You can also change quantization block size (default 2048) by passing `block_size=value` to the optimizer.
 
-**Other optimizers**: AdamW is also available as `AdamWDTQ8bit`.
+**Other optimizers**: AdamW is also available as `AdamW8bit`.
 
 NOTE: this requires PyTorch >= 2.3
 

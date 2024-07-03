@@ -7,7 +7,7 @@ from torch.optim import Optimizer
 from .subclass import maybe_new_zero_buffer
 
 
-class AdamWDTQ8bit(Optimizer):
+class AdamW8bit(Optimizer):
     def __init__(
         self,
         params,

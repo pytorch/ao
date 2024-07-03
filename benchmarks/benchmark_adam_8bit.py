@@ -6,7 +6,7 @@
 #   --amp bf16 \
 #   --optim Adam
 # 
-# To use bnb 8-bit optimizer, set --optim AdamBnb8bit. To use 8-bit optimizer implemented in torchao, set --optim AdamDTQ8bit
+# To use bnb 8-bit optimizer, set --optim Adam8bitBnb. To use 8-bit optimizer implemented in torchao, set --optim Adam8bitAo
 # To profile and export chrome trace, set --profile
 # To enable cosine learning rate scheduler, set --cosine_lr_scheduler
 
@@ -25,7 +25,7 @@ from torch.utils.data import DataLoader
 from torchvision.transforms import v2
 from tqdm import tqdm
 
-from torchao.prototype.optim_8bit import AdamDTQ8bit
+from torchao.prototype.optim_8bit import Adam8bit
 
 
 class CosineSchedule:
@@ -161,8 +161,8 @@ if __name__ == "__main__":
 
     OPTIM_MAP = dict(
         Adam=torch.optim.Adam,
-        AdamBnb8bit=bnb.optim.Adam8bit,
-        AdamDTQ8bit=AdamDTQ8bit,
+        Adam8bitBnb=bnb.optim.Adam8bit,
+        Adam8bitAo=Adam8bit,
     )
     optim = OPTIM_MAP[args.optim](model.parameters(), args.lr, weight_decay=args.weight_decay)
     lr_schedule = CosineSchedule(args.lr, len(dloader) * args.n_epochs)

@@ -9,7 +9,7 @@ from torch.testing._internal.common_utils import (
     parametrize,
     run_tests,
 )
-from torchao.prototype.optim_8bit import AdamDTQ8bit, AdamWDTQ8bit
+from torchao.prototype import optim_8bit
 from torchao.prototype.optim_8bit.subclass import quantize_8bit_with_qmap, QMAP_SIGNED
 from torchao.utils import TORCH_VERSION_AFTER_2_3
 
@@ -50,17 +50,14 @@ class TestDTQ8bit(TestCase):
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="bitsandbytes 8-bit Adam only works for CUDA")
 @pytest.mark.xfail(not TORCH_VERSION_AFTER_2_3, reason="torch.compile() fails for PyTorch < 2.3")
 class TestOptim8bit(TestCase):
-    @parametrize("optim_cls,bnb_optim_cls", [
-        (AdamDTQ8bit, bnb.optim.Adam8bit),
-        (AdamWDTQ8bit, bnb.optim.AdamW8bit),
-    ])
-    def test_adam_8bit_correctness(self, optim_cls, bnb_optim_cls):
+    @parametrize("optim_name", ["Adam8bit", "AdamW8bit"])
+    def test_adam_8bit_correctness(self, optim_name):
         device = "cuda"
         model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
         model2 = copy.deepcopy(model1)
 
-        optim1 = bnb_optim_cls(model1.parameters())
-        optim2 = optim_cls(model2.parameters())
+        optim1 = getattr(bnb.optim, optim_name)(model1.parameters())
+        optim2 = getattr(optim_8bit, optim_name)(model2.parameters())
 
         for _ in range(2):
             x = torch.randn(4, 32, device=device)
