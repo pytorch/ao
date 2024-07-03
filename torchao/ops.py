@@ -1,5 +1,6 @@
 import torch
 from torch import Tensor
+
 from torchao.utils import TORCH_VERSION_AFTER_2_4
 
 
@@ -46,27 +47,27 @@ def _(_in_feats, _weights, _scales, splitK = 1):
 
 
 
-def unpack_tensor_core_tiled_layout(packed_w: Tensor, innerKTiles: int) -> Tensor:
+def unpack_tensor_core_tiled_layout(packed_w: Tensor, inner_k_tiles: int) -> Tensor:
     """
     Unpacks weights that were packed with `torch.ops.aten._convert_weight_to_int4pack` to original tensor of shape `N x K`.
 
-    Assumes that the packed weights were generated with `torch.ops.aten._convert_weight_to_int4pack` with `innerKTiles = 2 | 4 | 8`"
+    Assumes that the packed weights were generated with `torch.ops.aten._convert_weight_to_int4pack` with `inner_k_tiles = 2 | 4 | 8`"
 
     Args:
-        packed_w: torch.tensor: 4D tensor with shape (N / 8) x (K / (innerKTiles * 16)) x 32 x innerKTiles, dtype is torch.int32
-        innerKTiles: int
+        packed_w: torch.tensor: 4D tensor with shape (N / 8) x (K / (inner_k_tiles * 16)) x 32 x inner_k_tiles, dtype is torch.int32
+        inner_k_tiles: int
 
     Returns:
         torch.tensor of shape is N x K, dtype is torch.int32
 
     """
     return torch.ops.torchao.unpack_tensor_core_tiled_layout.default(
-        packed_w=packed_w, innerKTiles=innerKTiles
+        packed_w=packed_w, inner_k_tiles=inner_k_tiles
     )
     
 
 @register_custom_op(f"torchao::unpack_tensor_core_tiled_layout")
-def _(packed_w: Tensor, innerKTiles: int) -> Tensor:
+def _(packed_w: Tensor, inner_k_tiles: int) -> Tensor:
     torch._check(
         packed_w.dim() == 4,
         lambda: f"packed weight should be a 42d tensor, got {packed_w.dim()}D",
@@ -76,20 +77,20 @@ def _(packed_w: Tensor, innerKTiles: int) -> Tensor:
         lambda: f"weight must be INT32, got {packed_w.dtype}",
     )
     torch._check(
-        innerKTiles == 2 or innerKTiles == 4 or innerKTiles == 8,
-        lambda: "innerKTiles must be 2, 4, or 8",
+        inner_k_tiles == 2 or inner_k_tiles == 4 or inner_k_tiles == 8,
+        lambda: "inner_k_tiles must be 2, 4, or 8",
     )
     torch._check(packed_w.size(2) == 32, lambda: "packed weight must have 32 at dim 2")
     torch._check(
-        packed_w.size(3) == innerKTiles / 2,
-        lambda: "packed weight must have innerKTiles/2 at dim 3",
+        packed_w.size(3) == inner_k_tiles / 2,
+        lambda: "packed weight must have inner_k_tiles/2 at dim 3",
     )
     N = packed_w.size(0) * 8
-    K = packed_w.size(1) * innerKTiles * 16
+    K = packed_w.size(1) * inner_k_tiles * 16
 
     return torch.empty((N, K), dtype=torch.int32, device=packed_w.device)
 
-def dequantize_tensor_core_tiled_layout(packed_w: Tensor, scales_and_zeros: Tensor, group_size: int, innerKTiles: int) -> Tensor:
+def dequantize_tensor_core_tiled_layout(packed_w: Tensor, scales_and_zeros: Tensor, group_size: int, inner_k_tiles: int) -> Tensor:
     """
     Dequantizes by:
     - Unpacking weights that were packed with `torch.ops.aten._convert_weight_to_int4pack` to original tensor of shape `N x K`
@@ -97,27 +98,27 @@ def dequantize_tensor_core_tiled_layout(packed_w: Tensor, scales_and_zeros: Tens
     - Dequantizing with the scales_and_zeros that were packed with `torchao.quantization.utils.pack_tinygemm_scales_and_zeros`
 
     Assumes:
-    - packed weights were generated with `torch.ops.aten._convert_weight_to_int4pack` with `innerKTiles = 2 | 4 | 8`"
+    - packed weights were generated with `torch.ops.aten._convert_weight_to_int4pack` with `inner_k_tiles = 2 | 4 | 8`"
     - packed scales_and_zeros were generated with `torchao.quantization.utils.pack_tinygemm_scales_and_zeros`
     - qGroupSize is 32 | 64 | 128 | 256
     
     Args:
-        packed_w: torch.tensor: 4D tensor with shape `(N / 8) x (K / (innerKTiles * 16)) x 32 x innerKTiles / 2`, dtype is torch.int32
+        packed_w: torch.tensor: 4D tensor with shape `(N / 8) x (K / (inner_k_tiles * 16)) x 32 x inner_k_tiles / 2`, dtype is torch.int32
         scales_and_zeros: torch.tensor: 3D tensor with shape `numQGroups x N x 2`, dtype is torch.bfloat16 where numQGroups is K / qGroupSize
         qGroupSize: int
-        innerKTiles: int
+        inner_k_tiles: int
 
     Returns:
         torch.tensor of shape is N x K, dtype is torch.bfloat16
 
     """
     return torch.ops.torchao.dequantize_tensor_core_tiled_layout.default(
-        packed_w, scales_and_zeros, group_size, innerKTiles
+        packed_w, scales_and_zeros, group_size, inner_k_tiles
     )
     
 
 @register_custom_op(f"torchao::dequantize_tensor_core_tiled_layout")
-def _(packed_w: Tensor, scales_and_zeros: Tensor, group_size: int, innerKTiles: int) -> Tensor:
+def _(packed_w: Tensor, scales_and_zeros: Tensor, group_size: int, inner_k_tiles: int) -> Tensor:
     # packed_w preconditions
     torch._check(
         packed_w.dim() == 4,
@@ -128,16 +129,16 @@ def _(packed_w: Tensor, scales_and_zeros: Tensor, group_size: int, innerKTiles: 
         lambda: f"weight must be INT32, got {packed_w.dtype}",
     )
     torch._check(
-        innerKTiles == 2 or innerKTiles == 4 or innerKTiles == 8,
-        lambda: "innerKTiles must be 2, 4, or 8",
+        inner_k_tiles == 2 or inner_k_tiles == 4 or inner_k_tiles == 8,
+        lambda: "inner_k_tiles must be 2, 4, or 8",
     )
     torch._check(packed_w.size(2) == 32, lambda: "packed weight must have 32 at dim 2")
     torch._check(
-        packed_w.size(3) == innerKTiles / 2,
-        lambda: "packed weight must have innerKTiles/2 at dim 3",
+        packed_w.size(3) == inner_k_tiles / 2,
+        lambda: "packed weight must have inner_k_tiles/2 at dim 3",
     )
     N = packed_w.size(0) * 8
-    K = packed_w.size(1) * innerKTiles * 16
+    K = packed_w.size(1) * inner_k_tiles * 16
 
     # scales_and_zeros preconditions
     torch._check(scales_and_zeros.dtype is torch.bfloat16, lambda: "scales_and_zeros must be bfloat16")

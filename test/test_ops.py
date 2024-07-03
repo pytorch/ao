@@ -1,20 +1,22 @@
 import itertools
-import torch
-from torch.testing._internal.common_utils import TestCase, IS_FBCODE
-from torch.testing._internal.optests import opcheck
-import torchao
-from torchao.prototype.fp6_llm.fp6_llm import from_tc_float6_e3m2
 import unittest
-from parameterized import parameterized
+
 import pytest
+import torch
+from parameterized import parameterized
+from torch.testing._internal.common_utils import IS_FBCODE, TestCase
+from torch.testing._internal.optests import opcheck
+
+import torchao
+import torchao.quantization
+from torchao.prototype.fp6_llm.fp6_llm import from_tc_float6_e3m2
 from torchao.quantization.utils import (
     get_groupwise_affine_qparams,
-    groupwise_affine_quantize_tensor_from_qparams,
     groupwise_affine_dequantize_tensor_from_qparams,
+    groupwise_affine_quantize_tensor_from_qparams,
     pack_tinygemm_scales_and_zeros,
-    unpack_tinygemm_scales_and_zeros
+    unpack_tinygemm_scales_and_zeros,
 )
-import torchao.quantization
 
 try:
     import torchao.ops
@@ -84,21 +86,21 @@ TEST_CONFIGS_DEQUANT = list(itertools.product(SHAPES, INNERKTILES, QGROUP_SIZES)
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
-@pytest.mark.parametrize("shape, innerKTiles", TEST_CONFIGS_UNPACK, ids=str)
-def test_unpack_tensor_core_tiled_layout_correctness(shape, innerKTiles):
+@pytest.mark.parametrize("shape, inner_k_tiles", TEST_CONFIGS_UNPACK, ids=str)
+def test_unpack_tensor_core_tiled_layout_correctness(shape, inner_k_tiles):
     N, K = shape
-    assert K % (innerKTiles * kTileSizeK) == 0 and N % kTileSizeN == 0
+    assert K % (inner_k_tiles * kTileSizeK) == 0 and N % kTileSizeN == 0
 
     t = torch.randint(0, 16, dtype=torch.int, size=shape, device="cuda")
-    packed_w = torch.ops.aten._convert_weight_to_int4pack(t, innerKTiles)
-    unpacked = torchao.ops.unpack_tensor_core_tiled_layout(packed_w, innerKTiles)
-    assert torch.allclose(t, unpacked)
+    packed_w = torch.ops.aten._convert_weight_to_int4pack(t, inner_k_tiles)
+    unpacked = torchao.ops.unpack_tensor_core_tiled_layout(packed_w, inner_k_tiles)
+    assert torch.equal(t, unpacked)
 
 # TODO: Fix "test_aot_dispatch_dynamic" test failure
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
-@pytest.mark.parametrize("shape, innerKTiles", TEST_CONFIGS_UNPACK , ids=str)
-def test_unpack_tensor_core_tiled_layout_op(shape, innerKTiles):
+@pytest.mark.parametrize("shape, inner_k_tiles", TEST_CONFIGS_UNPACK , ids=str)
+def test_unpack_tensor_core_tiled_layout_op(shape, inner_k_tiles):
     test_utils = [
         "test_schema",
         "test_autograd_registration",
@@ -106,11 +108,11 @@ def test_unpack_tensor_core_tiled_layout_op(shape, innerKTiles):
         "test_aot_dispatch_dynamic",
     ]
     t = torch.randint(0, 16, dtype=torch.int, size=shape, device="cuda")
-    packed_w = torch.ops.aten._convert_weight_to_int4pack(t, innerKTiles)
+    packed_w = torch.ops.aten._convert_weight_to_int4pack(t, inner_k_tiles)
 
     opcheck(
         torch.ops.torchao.unpack_tensor_core_tiled_layout,
-        (packed_w, innerKTiles),
+        (packed_w, inner_k_tiles),
         test_utils=test_utils,
     )
 
@@ -136,8 +138,8 @@ def dequant_ref(q, scales, zeros, group_size, nbits=4, dtype=torch.bfloat16):
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
-@pytest.mark.parametrize("shape, innerKTiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
-def test_dequantize_tensor_core_tiled_layout_correctness(shape, innerKTiles, group_size):
+@pytest.mark.parametrize("shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
+def test_dequantize_tensor_core_tiled_layout_correctness(shape, inner_k_tiles, group_size):
     n, k = shape
     dtype = torch.bfloat16    
     
@@ -145,7 +147,7 @@ def test_dequantize_tensor_core_tiled_layout_correctness(shape, innerKTiles, gro
     nTileSize = 8
     kTileSize = 16
     nTiles = n // nTileSize
-    kTiles = k // (innerKTiles * kTileSize)
+    kTiles = k // (inner_k_tiles * kTileSize)
     numThreads = 32
 
     device = "cuda"
@@ -159,7 +161,7 @@ def test_dequantize_tensor_core_tiled_layout_correctness(shape, innerKTiles, gro
     )
     
     # Pack to tensor core layout
-    packed = torch.ops.aten._convert_weight_to_int4pack(q, innerKTiles)
+    packed = torch.ops.aten._convert_weight_to_int4pack(q, inner_k_tiles)
     scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros)
     q_groups = k // group_size
     assert scales_and_zeros.shape == torch.Size([q_groups, n, 2])
@@ -178,7 +180,7 @@ def test_dequantize_tensor_core_tiled_layout_correctness(shape, innerKTiles, gro
     ).t()
     
     # Actual operation to test
-    dq_op = torchao.ops.dequantize_tensor_core_tiled_layout(packed, scales_and_zeros, group_size, innerKTiles)
+    dq_op = torchao.ops.dequantize_tensor_core_tiled_layout(packed, scales_and_zeros, group_size, inner_k_tiles)
         
     # Compare results
     diff_ao_id = (dq_id - dq_ao).abs().max()
@@ -197,13 +199,13 @@ def test_dequantize_tensor_core_tiled_layout_correctness(shape, innerKTiles, gro
     
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(IS_FBCODE, reason="Skipping the test in fbcode since we don't have TARGET file for kernels")
-@pytest.mark.parametrize("shape, innerKTiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
-def test_dequantize_tensor_core_tiled_layout_op(shape, innerKTiles, group_size):
+@pytest.mark.parametrize("shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
+def test_dequantize_tensor_core_tiled_layout_op(shape, inner_k_tiles, group_size):
     n, k = shape
     device = "cuda"
 
     q = torch.randint(0, 16, shape, dtype=torch.int, device=device)
-    packed_w = torch._convert_weight_to_int4pack(q, innerKTiles)
+    packed_w = torch._convert_weight_to_int4pack(q, inner_k_tiles)
     q_groups = k // group_size
     scales = torch.randn(n, q_groups, dtype=torch.bfloat16, device=device)
     zeros = torch.randn_like(scales)
@@ -217,7 +219,7 @@ def test_dequantize_tensor_core_tiled_layout_op(shape, innerKTiles, group_size):
     ]
     opcheck(
         torch.ops.torchao.dequantize_tensor_core_tiled_layout,
-        (packed_w, scales_and_zeros, group_size, innerKTiles),
+        (packed_w, scales_and_zeros, group_size, inner_k_tiles),
         test_utils=test_utils,
     )
 
