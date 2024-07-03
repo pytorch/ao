@@ -24,14 +24,16 @@ EBITS_F32, MBITS_F32 = 8, 23
 F32_EXP_BIAS = _n_ones(EBITS_F32 - 1)
 
 
-def _f32_to_fpx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
+def _f32_to_fpx_unpacked(
+    x: Tensor, ebits: int, mbits: int, use_stochastic_rounding: bool = False
+) -> Tensor:
     """Convert FP32 numbers to sub-byte floating point numbers with the given
     number of exponent and mantissa bits.
 
     Input: torch.Tensor of dtype torch.float
     Output: torch.Tensor of dtype torch.uint8, where the bit encoding is stored
     in the least significant bits. e.g.
-      fp4: bits 0-3 empty and bits 4-7 in fp4_e2m1 encoding
+      fp4: bits 0-3 empty and bits 4-7 in fp4_e2m1 or fp4_e3m0 encoding
       fp6: bits 0-1 empty and bits 2-7 in fp6_e2m3 or fp6_e3m2 encoding
 
     Note: there are no special values (NaN, inf) support in this code. Values
@@ -109,13 +111,25 @@ def _f32_to_fpx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
     # branch 3: stay in normal range, adjust the exponent and round
     #
     normal_x = x.view(torch.int32)
-    # resulting mantissa is odd
-    mant_odd = (normal_x >> (MBITS_F32 - mbits)) & 1
-    # update exponent, rounding bias part 1
-    val_to_add = ((exp_bias - F32_EXP_BIAS) << MBITS_F32) + magic_adder
-    normal_x += val_to_add
-    # rounding bias part 2
-    normal_x += mant_odd
+    if use_stochastic_rounding:
+        # generate a 32-bit integer
+        rand_values = torch.randint(
+            low=0, high=2**32 - 1, size=x.size(), device=x.device
+        )
+        # zero out the leading (1 + 8 + mbits) bits
+        rand_mask = (1 << (MBITS_F32 - mbits)) - 1
+        # add the random bits
+        normal_x += rand_values & rand_mask
+        # update exponent
+        normal_x += (exp_bias - F32_EXP_BIAS) << MBITS_F32
+    else:
+        # resulting mantissa is odd
+        mant_odd = (normal_x >> (MBITS_F32 - mbits)) & 1
+        # update exponent, rounding bias part 1
+        val_to_add = ((exp_bias - F32_EXP_BIAS) << MBITS_F32) + magic_adder
+        normal_x += val_to_add
+        # rounding bias part 2
+        normal_x += mant_odd
     # take the bits!
     normal_x = normal_x >> (MBITS_F32 - mbits)
     normal_x = normal_x.to(torch.uint8)

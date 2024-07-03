@@ -65,6 +65,7 @@ def to_mx(
     data_hp: torch.Tensor,
     elem_dtype: Union[torch.dtype, str],
     block_size: int,
+    use_stochastic_rounding: bool = False,
 ):
     """
     Takes a high precision tensor and converts to MX scale and raw data, in
@@ -174,14 +175,14 @@ def to_mx(
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
         data_lp = data_lp.to(elem_dtype)
     elif elem_dtype == DTYPE_FP6_E2M3:
-        data_lp = f32_to_f6_e2m3_unpacked(data_lp)
+        data_lp = f32_to_f6_e2m3_unpacked(data_lp, use_stochastic_rounding)
     elif elem_dtype == DTYPE_FP6_E3M2:
-        data_lp = f32_to_f6_e3m2_unpacked(data_lp)
+        data_lp = f32_to_f6_e3m2_unpacked(data_lp, use_stochastic_rounding)
     elif elem_dtype == DTYPE_FP4_E2M1:
-        data_lp = f32_to_f4_e2m1_unpacked(data_lp)
+        data_lp = f32_to_f4_e2m1_unpacked(data_lp, use_stochastic_rounding)
         data_lp = pack_uint4(data_lp)
     elif elem_dtype == DTYPE_FP4_E3M0:
-        data_lp = f32_to_f4_e3m0_unpacked(data_lp)
+        data_lp = f32_to_f4_e3m0_unpacked(data_lp, use_stochastic_rounding)
         data_lp = pack_uint4(data_lp)
     else:
         raise AssertionError("unsupported")
