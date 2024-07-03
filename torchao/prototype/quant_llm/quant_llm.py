@@ -7,6 +7,7 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32, _n_ones
 from torchao.ops import quant_llm_linear
 from torchao.dtypes.utils import _implements, _ATEN_OP_OR_TORCH_FN_TABLE
+from torchao.quantization.quant_api import _get_linear_subclass_inserter
 
 
 _ONES_TABLE = [_n_ones(i) for i in range(8)]
@@ -456,8 +457,8 @@ def quant_llm_fpx_weight_only(ebits: int, mbits: int):
         if (in_dim % 64 != 0) or (out_dim % 256 != 0):
             return weight
         return QuantLlmLinearWeight.from_float(weight, ebits, mbits)
-    return apply_quant_llm
+    return _get_linear_subclass_inserter(apply_quant_llm)
 
 
 def fp6_llm_weight_only():
-    return quant_llm_fpx_weight_only(3, 2)
+    return _get_linear_subclass_inserter(quant_llm_fpx_weight_only(3, 2))

@@ -4,6 +4,7 @@ from .uint4 import UInt4Tensor
 from .affine_quantized_tensor import (
     AffineQuantizedTensor,
     to_affine_quantized,
+    to_affine_quantized_static,
     LayoutType,
     PlainLayoutType,
     TensorCoreTiledLayoutType,
@@ -15,6 +16,7 @@ __all__ = [
     "UInt4Tensor"
     "AffineQuantizedTensor",
     "to_affine_quantized",
+    "to_affine_quantized_static",
     "LayoutType",
     "PlainLayoutType",
     "TensorCoreTiledLayoutType",

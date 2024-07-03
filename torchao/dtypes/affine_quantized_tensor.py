@@ -232,6 +232,7 @@ class AffineQuantizedTensor(torch.Tensor):
 
         scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain)
         int_data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
+
         int_data = layout_type.post_process(int_data)
 
         layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
@@ -246,8 +247,40 @@ class AffineQuantizedTensor(torch.Tensor):
             dtype=input_float.dtype
         )
 
+    @classmethod
+    def from_float_static(
+        cls,
+        input_float: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        block_size: Tuple[int, ...],
+        target_dtype: torch.dtype,
+        quant_min: Optional[int] = None,
+        quant_max: Optional[int]  = None,
+        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+        layout_type: LayoutType = PlainLayoutType(),
+    ):
+        original_shape = input_float.shape
+        input_float = layout_type.pre_process(input_float)
+
+        int_data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
+
+        int_data = layout_type.post_process(int_data)
+
+        layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
+        layout_tensor = layout_tensor_ctr(int_data, scale, zero_point, layout_type)
+        return cls(
+            layout_tensor,
+            block_size,
+            original_shape,
+            quant_min,
+            quant_max,
+            zero_point_domain,
+            dtype=input_float.dtype,
+        )
+
     @property
-    def layout_type(self) -> str:
+    def layout_type(self) -> LayoutType:
         return self.layout_tensor.layout_type
 
     @classmethod
@@ -809,3 +842,4 @@ def t(func, *args, **kwargs):
     return return_and_correct_aliasing(func, args, kwargs, new)
 
 to_affine_quantized = AffineQuantizedTensor.from_float
+to_affine_quantized_static = AffineQuantizedTensor.from_float_static
