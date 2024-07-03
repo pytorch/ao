@@ -1,4 +1,14 @@
 # pip install timm wandb tqdm datasets
+# To fine-tune a pre-trained ViT-Base on resisc45 dataset with BF16 AMP, using default Adam optimizer from PyTorch core
+# 
+# python benchmarks_adam_8bit.py \
+#   --model "timm/vit_base_patch16_224.augreg_in21k" \
+#   --amp bf16 \
+#   --optim Adam
+# 
+# To use bnb 8-bit optimizer, set --optim AdamBnb8bit. To use 8-bit optimizer implemented in torchao, set --optim AdamDTQ8bit
+# To profile and export chrome trace, set --profile
+# To enable cosine learning rate scheduler, set --cosine_lr_scheduler
 
 import argparse
 import math
