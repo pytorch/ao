@@ -3,11 +3,18 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import contextlib
 import os
 import glob
-from datetime import datetime
+import re
+from distutils import log
+from distutils.sysconfig import get_python_lib
 
-from setuptools import find_packages, setup
+from datetime import datetime
+from pathlib import Path
+from setuptools.command.build import build
+from setuptools.command.build_ext import build_ext
+from setuptools import find_packages, setup, Extension
 
 current_date = datetime.now().strftime("%Y.%m.%d")
 
@@ -23,7 +30,7 @@ def read_version(file_path="version.txt"):
 package_name = "torchao-nightly" if os.environ.get("TORCHAO_NIGHTLY") else "torchao"
 version_suffix = os.getenv("VERSION_SUFFIX", "")
 use_cpp = os.getenv('USE_CPP')
-
+install_executorch_kernels = os.getenv('USE_EXECUTORCH', '0')
 
 # Version is year.month.date if using nightlies
 version = current_date if package_name == "torchao-nightly" else read_version()
@@ -51,6 +58,7 @@ def get_extensions():
         print("If you'd like to compile CUDA extensions locally please install the cudatoolkit from https://anaconda.org/nvidia/cuda-toolkit")
 
     use_cuda = torch.cuda.is_available() and CUDA_HOME is not None
+    use_mps = torch.backends.mps.is_available()
     extension = CUDAExtension if use_cuda else CppExtension
 
     if not IS_WINDOWS:
@@ -92,13 +100,17 @@ def get_extensions():
     this_dir = os.path.dirname(os.path.curdir)
     extensions_dir = os.path.join(this_dir, "torchao", "csrc")
     sources = list(glob.glob(os.path.join(extensions_dir, "**/*.cpp"), recursive=True))
-
+    sources = [file_path for file_path in sources if "executorch" not in file_path.split(os.sep)]
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
     cuda_sources = list(glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True))
 
     if use_cuda:
         sources += cuda_sources
 
+    if use_mps:
+        extensions_mps_dir = os.path.join(extensions_dir, "metal")
+        mps_sources = list(glob.glob(os.path.join(extensions_mps_dir, "**/*.mm"), recursive=True))
+        sources += mps_sources
     ext_modules = [
         extension(
             "torchao._C",
@@ -107,8 +119,65 @@ def get_extensions():
             extra_link_args=extra_link_args,
         )
     ]
+    if install_executorch_kernels != '0':
+        ext_modules.append(
+            CMakeExtension(
+                "torchao.executorch_kernels", "torchao/csrc/executorch"
+            )
+        )
 
     return ext_modules
+
+class CMakeExtension(Extension):
+    def __init__(self, name, sourcedir=''):
+        Extension.__init__(self, name, sources=[])
+        self.sourcedir = os.path.abspath(sourcedir)
+
+
+class CMakeBuild(BuildExtension):
+    def build_extension(self, ext: Extension):
+        if not isinstance(ext, CMakeExtension):
+            super().build_extension(ext)
+            return
+
+        default_parallel = str(os.cpu_count() - 1)
+        self.parallel = os.environ.get("CMAKE_BUILD_PARALLEL_LEVEL", default_parallel)
+        extdir = os.path.abspath(os.path.dirname(self.get_ext_fullpath(ext.name)))
+        debug = int(os.environ.get("DEBUG", 0)) if self.debug is None else self.debug
+        cfg = "Debug" if debug else "Release"
+
+        # get_python_lib() typically returns the path to site-packages, where
+        # all pip packages in the environment are installed.
+        cmake_prefix_path = os.environ.get("CMAKE_PREFIX_PATH", get_python_lib())
+
+        # The root of the repo should be the current working directory. Get
+        # the absolute path.
+        repo_root = os.fspath(Path.cwd() / ext.sourcedir)
+        
+        cmake_args = [
+            f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={extdir}",
+            f"-DCMAKE_PREFIX_PATH={cmake_prefix_path}",            
+            f"-DCMAKE_BUILD_TYPE={cfg}",
+        ]
+
+        build_args = [f"-j{self.parallel}"]
+
+        build_args += ["--target", "executorch_kernels", "--clean-first"]
+
+        # Put the cmake cache under the temp directory, like
+        # "pip-out/temp.<plat>/cmake-out".
+        cmake_cache_dir = os.path.join(repo_root, self.build_temp, "cmake-out")
+        self.mkpath(cmake_cache_dir)
+
+        if not self.dry_run:
+            # Dry run should log the command but not actually run it.
+            (Path(cmake_cache_dir) / "CMakeCache.txt").unlink(missing_ok=True)
+
+        self.spawn(["cmake", "-S", repo_root, "-B", cmake_cache_dir, *cmake_args])
+
+        # Build the system.
+        self.spawn(["cmake", "--build", cmake_cache_dir, *build_args])
+    
 
 setup(
     name=package_name,
@@ -124,5 +193,5 @@ setup(
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/pytorch-labs/ao",
-    cmdclass={"build_ext": BuildExtension},
+    cmdclass={"build_ext": CMakeBuild},
 )

@@ -53,3 +53,14 @@ def _(EXPONENT, MANTISSA, _in_feats, _weights, _scales, splitK = 1):
     torch._check(OC == _scales.shape[0], lambda: "Dimensions mismatched")
 
     return _in_feats.new_empty((BS, OC))
+
+
+def int4mv(A: Tensor, B: Tensor, groupSize: int, scalesAndZeros: Tensor) -> Tensor:
+    return torch.ops.torchao.int4mv.default(A, B, groupSize, scalesAndZeros)
+
+
+@register_custom_op("torchao::int4mv")
+def _(A, B, groupSize, scalesAndZeros):
+    M = A.size(0)
+    N = B.size(0)
+    return torch.empty(M, N, dtype=A.dtype, device=A.device)
