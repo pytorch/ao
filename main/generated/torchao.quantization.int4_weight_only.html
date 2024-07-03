@@ -390,6 +390,15 @@
 <span class="sig-prename descclassname"><span class="pre">torchao.quantization.</span></span><span class="sig-name descname"><span class="pre">int4_weight_only</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">group_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">128</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inner_k_tiles</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">8</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/torchao/quantization/quant_api.html#int4_weight_only"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#torchao.quantization.int4_weight_only" title="Permalink to this definition">¶</a></dt>
 <dd><p>Applies uint4 weight-only asymmetric per-group quantization to linear layers, using
 “tensor_core_tiled” layout for speedup with tinygemm kernel</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This is targeting <cite>tinygemm</cite> int4mm kernel (<cite>torch.ops.aten._weight_int4pack_mm</cite>), the main difference
+of quantization algorithm compared to the more traditional type of integer quantization is the following:
+1). zero_point is in floating point domain instead of integer domain (<cite>zero_point_domain`=`ZeroPointDomain.FLOAT</cite>)
+2). floating point zero does not have to be exactly representable (<cite>preserve_zero`=False in `choose_qparams_affine</cite>)
+please follow the relevant code in <cite>choose_qparams_affine</cite>, <cite>quantize_affine</cite> and <cite>dequantize_affine</cite>
+to learn about how the quantization parameters are chosen and how the Tensor is quantized/dequantized for tinygemm</p>
+</div>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
