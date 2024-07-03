@@ -9,8 +9,8 @@ from torch.testing._internal.common_utils import (
     parametrize,
     run_tests,
 )
-from torchao.prototype import optim_8bit
-from torchao.prototype.optim_8bit.subclass_8bit import quantize_8bit_with_qmap, QMAP_SIGNED
+from torchao.prototype import low_bit_optim
+from torchao.prototype.low_bit_optim.subclass_8bit import quantize_8bit_with_qmap, QMAP_SIGNED
 from torchao.utils import TORCH_VERSION_AFTER_2_3
 
 try:
@@ -57,7 +57,7 @@ class TestOptim8bit(TestCase):
         model2 = copy.deepcopy(model1)
 
         optim1 = getattr(bnb.optim, optim_name)(model1.parameters())
-        optim2 = getattr(optim_8bit, optim_name)(model2.parameters())
+        optim2 = getattr(low_bit_optim, optim_name)(model2.parameters())
 
         for _ in range(2):
             x = torch.randn(4, 32, device=device)

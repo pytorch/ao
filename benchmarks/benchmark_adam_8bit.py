@@ -25,7 +25,7 @@ from torch.utils.data import DataLoader
 from torchvision.transforms import v2
 from tqdm import tqdm
 
-from torchao.prototype.optim_8bit import Adam8bit
+from torchao.prototype.low_bit_optim import Adam8bit
 
 
 class CosineSchedule:
