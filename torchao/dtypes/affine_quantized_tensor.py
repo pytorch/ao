@@ -691,13 +691,16 @@ def _quantized_linear_op(input_tensor, weight_qtensor, bias):
             ):
                 x_vals_int8 = input_tensor.layout_tensor.int_data
                 x_scales = input_tensor.layout_tensor.scale
-                w_vals_int8_t = weight_qtensor.layout_tensor.int_data
+                w_vals_int8 = weight_qtensor.layout_tensor.int_data
                 w_scales = weight_qtensor.layout_tensor.scale
-                tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1]).contiguous()
+                tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
                 y_dot_bf16_w_scales_fused = torch._cslt_sparse_mm(
-                    w_vals_int8, tmp.t(), alpha=w_scales, out_dtype=torch.bfloat16
+                    w_vals_int8, tmp.t(), alpha=w_scales.to(torch.float32), out_dtype=torch.bfloat16
                 ).t()
-                y = (y_dot_bf16_w_scales_fused * x_scales).reshape(
+                # print("here")
+                # print(y_dot_bf16_w_scales_fused.shape)
+                # print(x_scales.reshape(-1, 1).shape)
+                y = (y_dot_bf16_w_scales_fused * x_scales.reshape(-1, 1)).reshape(
                     *x_vals_int8.shape[:-1], y_dot_bf16_w_scales_fused.shape[-1]
                 )
                 # downcast at the end
