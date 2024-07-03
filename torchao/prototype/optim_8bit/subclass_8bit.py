@@ -111,7 +111,7 @@ def quantize_8bit_with_qmap(input: Tensor, qmap: Tensor, block_size: int, implem
 # dynamic tree quantization
 # https://arxiv.org/pdf/1511.04561
 # https://arxiv.org/abs/2110.02861
-class DTQ8bit(Tensor):
+class OptimState8bit(Tensor):
     implements = classmethod(_implements)
     tensor_attrs = ["codes", "scale", "qmap"]
 
@@ -178,18 +178,18 @@ class DTQ8bit(Tensor):
         raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run {func}, this is not supported")
 
 
-@DTQ8bit.implements(aten.copy_.default)
+@OptimState8bit.implements(aten.copy_.default)
 def _(func, *args, **kwargs):
     dst = args[0]
     src = args[1]
 
-    if isinstance(dst, DTQ8bit) and isinstance(src, DTQ8bit):
+    if isinstance(dst, OptimState8bit) and isinstance(src, OptimState8bit):
         assert dst.signed == src.signed
         dst.codes.copy_(src.codes)
         dst.scale.copy_(src.scale)
         # qmap should be the same, don't need to copy
 
-    elif isinstance(dst, DTQ8bit):
+    elif isinstance(dst, OptimState8bit):
         codes, scale = quantize_8bit_with_qmap(src, dst.qmap, dst.block_size)
         dst.codes.copy_(codes)
         dst.scale.copy_(scale)
@@ -200,9 +200,9 @@ def _(func, *args, **kwargs):
     return dst
 
 
-@DTQ8bit.implements(aten.lerp.Scalar)
+@OptimState8bit.implements(aten.lerp.Scalar)
 def _(func, *args, **kwargs):
-    args = [x.dequantize() if isinstance(x, DTQ8bit) else x for x in args]
+    args = [x.dequantize() if isinstance(x, OptimState8bit) else x for x in args]
     return func(*args, **kwargs)
 
 
@@ -211,7 +211,7 @@ def _(func, *args, **kwargs):
 # TODO: also skip 1D tensor? e.g. biases and norm scales
 def maybe_new_zero_buffer(p: Tensor, signed: bool = True, block_size: int = 2048):
     if p.numel() >= 4096 and p.numel() %block_size == 0:
-        out = DTQ8bit.zeros(p.shape, signed, block_size, device=p.device)
+        out = OptimState8bit.zeros(p.shape, signed, block_size, device=p.device)
     else:
         out = torch.zeros_like(p)
     return out

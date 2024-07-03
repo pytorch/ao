@@ -10,7 +10,7 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 from torchao.prototype import optim_8bit
-from torchao.prototype.optim_8bit.subclass import quantize_8bit_with_qmap, QMAP_SIGNED
+from torchao.prototype.optim_8bit.subclass_8bit import quantize_8bit_with_qmap, QMAP_SIGNED
 from torchao.utils import TORCH_VERSION_AFTER_2_3
 
 try:
