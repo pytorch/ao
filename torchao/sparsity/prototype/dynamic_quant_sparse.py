@@ -309,3 +309,6 @@ class Int8DynamicallyQuantizedSemiStructuredSparseLinearWeight(QuantizedLinearWe
             input_float.shape,
             dtype=input_float.dtype,
         )
+
+def int8_dynamic_activation_int8_2x4_sparse_weight():
+    return Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight.from_float
