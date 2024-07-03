@@ -11,6 +11,7 @@ from torch.testing._internal.common_utils import (
 )
 from torchao.prototype.optim_8bit import AdamDTQ8bit, AdamWDTQ8bit
 from torchao.prototype.optim_8bit.subclass import quantize_8bit_with_qmap, QMAP_SIGNED
+from torchao.utils import TORCH_VERSION_AFTER_2_3
 
 try:
     import bitsandbytes as bnb
@@ -45,9 +46,10 @@ class TestDTQ8bit(TestCase):
         torch.testing.assert_close(actual_scale, expected_scale)
 
 
+@pytest.mark.skipif(bnb is None, reason="bitsandbytes is not availablle")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="bitsandbytes 8-bit Adam only works for CUDA")
+@pytest.mark.xfail(not TORCH_VERSION_AFTER_2_3, reason="torch.compile() fails for PyTorch < 2.3")
 class TestOptim8bit(TestCase):
-    @pytest.mark.skipif(bnb is None, reason="bitsandbytes is not availablle")
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="bitsandbytes 8-bit Adam only works for CUDA")
     @parametrize("optim_cls,bnb_optim_cls", [
         (AdamDTQ8bit, bnb.optim.Adam8bit),
         (AdamWDTQ8bit, bnb.optim.AdamW8bit),

@@ -17,6 +17,8 @@ You can also change quantization block size (default 2048) by passing `block_siz
 
 **Other optimizers**: AdamW is also available as `AdamWDTQ8bit`.
 
+NOTE: this requires PyTorch >= 2.3
+
 ## Benchmarks
 
 Benchmark script for fine-tuning a [timm](https://github.com/huggingface/pytorch-image-models) model on [resisc45](https://huggingface.co/datasets/timm/resisc45) dataset is available at [benchmarks/benchmark_adam_8bit.py](../../../benchmarks/benchmark_adam_8bit.py).

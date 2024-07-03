@@ -197,7 +197,7 @@ if __name__ == "__main__":
 
                 step += 1
 
-                if args.profile and step == 50:
+                if args.profile and step == 20:
                     break
 
         if args.profile:
