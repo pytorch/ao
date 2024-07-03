@@ -364,6 +364,14 @@ def int4_weight_only(group_size=128, inner_k_tiles=8):
     Applies uint4 weight-only asymmetric per-group quantization to linear layers, using
     "tensor_core_tiled" layout for speedup with tinygemm kernel
 
+    Note:
+        This is targeting `tinygemm` int4mm kernel (`torch.ops.aten._weight_int4pack_mm`), the main difference
+        of quantization algorithm compared to the more traditional type of integer quantization is the following:
+        1). zero_point is in floating point domain instead of integer domain (`zero_point_domain`=`ZeroPointDomain.FLOAT`)
+        2). floating point zero does not have to be exactly representable (`preserve_zero`=False in `choose_qparams_affine`)
+        please follow the relevant code in `choose_qparams_affine`, `quantize_affine` and `dequantize_affine`
+        to learn about how the quantization parameters are chosen and how the Tensor is quantized/dequantized for tinygemm
+
     Args:
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained, choices are [256, 128, 64, 32]
