@@ -1,3 +1,5 @@
+from typing import Optional
+
 import torch
 from torch import Tensor
 from torch.optim import Optimizer
@@ -94,7 +96,7 @@ def single_param_adamw(
     step: Tensor,
     exp_avg: Tensor,
     exp_avg_sq: Tensor,
-    max_exp_avg_sq: Tensor | None,
+    max_exp_avg_sq: Optional[Tensor],
     lr: Tensor,
     beta1: float,
     beta2: float,
