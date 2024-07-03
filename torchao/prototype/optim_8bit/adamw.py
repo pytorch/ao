@@ -5,14 +5,14 @@ from torch.optim import Optimizer
 from .subclass import maybe_new_zero_buffer
 
 
-class AdamDTQ8bit(Optimizer):
+class AdamWDTQ8bit(Optimizer):
     def __init__(
         self,
         params,
         lr=1e-3,
         betas=(0.9, 0.999),
         eps=1e-8,
-        weight_decay=0,
+        weight_decay=1e-2,
         amsgrad=False,
         *,
         block_size=2048,
@@ -69,7 +69,7 @@ class AdamDTQ8bit(Optimizer):
                 # NOTE: if lr is change at every step, moving lr to CUDA will be a bottleneck.
                 if not isinstance(group["lr"], Tensor):
                     group["lr"] = torch.tensor(group["lr"], device=p.device)
-                single_param_adam(
+                single_param_adamw(
                     p.view(-1),
                     grad.view(-1),
                     state["step"],
@@ -88,7 +88,7 @@ class AdamDTQ8bit(Optimizer):
 
 # this will work with any optim state tensor subclass that implements aten.lerp.Scalar and aten.copy_.default
 @torch.compile(fullgraph=True, dynamic=True)
-def single_param_adam(
+def single_param_adamw(
     p: Tensor,
     grad: Tensor,
     step: Tensor,
@@ -101,8 +101,7 @@ def single_param_adam(
     weight_decay: float,
     eps: float,
 ):
-    if weight_decay != 0:
-        grad = grad.add(p, alpha=weight_decay)
+    p.mul_(1 - lr * weight_decay)
 
     bias_correction1 = 1 - beta1 ** step
     bias_correction2 = 1 - beta2 ** step
