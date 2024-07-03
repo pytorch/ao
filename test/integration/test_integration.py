@@ -857,6 +857,35 @@ class TestSubclass(unittest.TestCase):
                         test_dtype=dtype,
                     )
 
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "int4 requires torch nightly.")
+    def test_int4_weight_only_hqq_mixed_quant_subclass_api_grouped(self, device, dtype):
+        if dtype != torch.bfloat16:
+            self.skipTest(f"Fails for {dtype}")
+        for test_shape in ([(16, 128, 256)] + ([(256, 256, 64)] if device=='cuda' else [])):
+            for groupsize in [64, 32]:
+                for inner_k_tiles in [4, 2]:
+                    kwargs = {"groupsize": groupsize, "inner_k_tiles": inner_k_tiles, "num_saved_features": 32}
+
+                    def api(mod):
+                        from torchao.quantization.quant_api import int4_weight_only_hqq_mixed
+                        if TORCH_VERSION_AFTER_2_4:
+                            kwargs_copy = kwargs.copy()
+                            kwargs_copy["group_size"] = groupsize
+                            del kwargs_copy["groupsize"]
+                            quantize(mod, int4_weight_only_hqq_mixed(**kwargs_copy))
+                            # unwrap_tensor_subclass(mod)
+                        else:
+                            change_linear_weights_to_int4_woqtensors(mod, **kwargs)
+
+                    self._test_lin_weight_subclass_api_impl(
+                        api,
+                        device,
+                        15,
+                        test_shape=test_shape,
+                        test_dtype=dtype,
+                    )
+
 
 class TestDynamicQuant(unittest.TestCase):
     def test_dynamic_quant(self):

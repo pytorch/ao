@@ -386,6 +386,28 @@ def int4_weight_only(group_size=128, inner_k_tiles=8):
 
     return apply_int4_weight_only_quant
 
+def int4_weight_only_hqq_mixed(group_size=128, inner_k_tiles=8, num_saved_features=32):
+    """
+    Applies uint4 weight-only asymmetric per-group quantization to linear layers, using
+    "tensor_core_tiled" layout for speedup with tinygemm kernel
+
+    Args:
+        `group_size`: parameter for quantization, controls the granularity of quantization, smaller
+         size is more fine grained, choices are [256, 128, 64, 32]
+        `inner_k_tiles`: parameter for int4 mm kernel, choices are [8, 4, 2]
+    """
+    def apply_int4_weight_only_hqq_mixed_quant(weight):
+        # avoid circular dep
+        from torchao.quantization.hqq import HQQ4Mix16LinearWeight
+        return HQQ4Mix16LinearWeight.from_float(
+            weight, 
+            num_saved_features=num_saved_features, 
+            group_size = group_size,
+            inner_k_tiles = inner_k_tiles,
+            mixed_dtype = weight.dtype,
+        )
+
+    return apply_int4_weight_only_hqq_mixed_quant
 
 def int8_weight_only():
     """
