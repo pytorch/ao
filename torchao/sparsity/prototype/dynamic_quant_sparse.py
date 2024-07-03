@@ -149,12 +149,11 @@ def sparse_quant_int8_cutlass_matmul(
 class Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight(
     Int8DynamicallyQuantizedLinearWeight
 ):
+    # TODO rewrite this to use AffineQuantizedTensor as the base class instead
+
     def dequantize(self, dtype=None):
         # overload dequantize op for __repr__
         zero_points = torch.zeros(self.q_scales.shape, device=self.q_scales.device, dtype=self.q_scales.dtype)
-        int_data_expanded = torch._cslt_sparse_mm(self.int_data, torch.eye(self.shape[1],
-                                                                           dtype=self.int_data.dtype,
-                                                                           device=self.int_data.device))
         dq_t = dequantize_per_channel(
             int_data_expanded, self.q_scales, zero_points, self.dtype if dtype is None else dtype
         ).to(self.dtype)
@@ -309,3 +308,49 @@ class Int8DynamicallyQuantizedSemiStructuredSparseLinearWeight(QuantizedLinearWe
             input_float.shape,
             dtype=input_float.dtype,
         )
+
+
+from torchao.dtypes import to_affine_quantized
+from torchao.quantization.quant_api import MappingType, ZeroPointDomain, to_linear_act_quantized
+
+def int8_dynamic_activation_int8_2x4_sparse_weight():
+    """
+    Applies int8 dynamic symmetric per-token activation and int8 per-channel weight
+    quantization to linear layers
+    """
+    def apply_int8_dynamic_activation_int8_2x4_sparse_weight_quant(weight):
+        in_features = weight.shape[1]
+        # int8 dynamic quantization only has benefit when in_feature > 16
+        if in_features <= 16:
+            return weight
+
+        # avoid circular dep
+        from torchao.dtypes import to_affine_quantized
+        # weight settings
+        mapping_type = MappingType.SYMMETRIC
+        def get_weight_block_size(x):
+            return (1, x.shape[1])
+        target_dtype = torch.int8
+        eps = torch.finfo(torch.float32).eps
+        zero_point_dtype = torch.int64
+
+        # input settings
+        def get_per_token_block_size(x):
+            block_size = list(x.shape)
+            for i in range(len(block_size)-1):
+                block_size[i] = 1
+            return block_size
+
+        input_mapping_type = MappingType.SYMMETRIC
+        input_target_dtype = torch.int8
+        input_eps = 1e-5
+        input_quant_min = -127
+        input_quant_max = 127
+        input_quant_func = lambda x: to_affine_quantized(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype, eps=input_eps, quant_min=input_quant_min, quant_max=input_quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
+
+        block_size = get_weight_block_size(weight)
+        weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, eps=eps, scale_dtype=torch.float32, zero_point_dtype=zero_point_dtype, extended_layout="semi_sparse_cusparselt")
+        weight = to_linear_act_quantized(weight, input_quant_func)
+        return weight
+
+    return apply_int8_dynamic_activation_int8_2x4_sparse_weight_quant
