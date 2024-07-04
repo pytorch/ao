@@ -9,7 +9,7 @@ from .subclass_4bit import maybe_new_4bit_zero_buffer
 
 
 class _Adam(Optimizer):
-    def __init__(self, params, lr, betas, eps, weight_decay, amsgrad) -> None:
+    def __init__(self, params, lr, betas, eps, weight_decay, amsgrad, *, block_size) -> None:
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if not 0.0 <= eps:
@@ -20,6 +20,7 @@ class _Adam(Optimizer):
             raise ValueError("Invalid beta parameter at index 1: {}".format(betas[1]))
         defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, amsgrad=amsgrad)
         super().__init__(params, defaults)
+        self.block_size = block_size
 
     def __setstate__(self, state):
         super().__setstate__(state)
@@ -39,8 +40,7 @@ class Adam8bit(_Adam):
         *,
         block_size=2048
     ) -> None:
-        super().__init__(params, lr, betas, eps, weight_decay, amsgrad)
-        self.block_size = block_size
+        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size)
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -107,8 +107,7 @@ class Adam4bit(_Adam):
         *,
         block_size=128,
     ) -> None:
-        super().__init__(params, lr, betas, eps, weight_decay, amsgrad)
-        self.block_size = block_size
+        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size)
 
     @torch.no_grad()
     def step(self, closure=None):
