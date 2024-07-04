@@ -36,10 +36,10 @@ from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
     Quantizer,
     TwoStepQuantizer,
-    int8da_int4w,
-    int4wo,
-    int8wo,
-    int8da_int8w,
+    int8_dynamic_activation_int4_weight,
+    int4_weight_only,
+    int8_weight_only,
+    int8_dynamic_activation_int8_weight,
 )
 from torchao.utils import (
     TORCH_VERSION_AFTER_2_3,
@@ -89,7 +89,7 @@ class XNNPackDynamicQuantizer(TwoStepQuantizer):
 
 class TorchCompileDynamicQuantizer(Quantizer):
     def quantize(self, model: torch.nn.Module) -> torch.nn.Module:
-        quantize(model, int8da_int8w())
+        quantize(model, int8_dynamic_activation_int8_weight())
         return model
 
 class ToyLinearModel(torch.nn.Module):
@@ -152,7 +152,7 @@ class TestQuantFlow(TestCase):
     def test_dynamic_quant_gpu_singleline(self):
         m = ToyLinearModel().eval()
         example_inputs = m.example_inputs()
-        m = quantize(m, int8da_int8w())
+        m = quantize(m, int8_dynamic_activation_int8_weight())
         quantized = m(*example_inputs)
         # AssertionError: Expecting input to have dtype torch.float32, but got dtype: torch.float64
         # While executing %choose_qparams_tensor_1 : [num_users=2] = call_function[target=torch.ops.quantized_decomposed.choose_qparams.tensor](args = (%arg0_3, -128, 127, 0.000244140625, torch.int8), kwargs = {})
@@ -195,7 +195,7 @@ class TestQuantFlow(TestCase):
         )
         m = ToyLinearModel().eval().cpu()
         def api(model):
-            model = quantize(model, int8wo())
+            model = quantize(model, int8_weight_only())
             unwrap_tensor_subclass(model)
 
         api(m)
@@ -238,7 +238,6 @@ class TestQuantFlow(TestCase):
     def test_8da4w_gptq_quantizer(self):
         from torchao.quantization.GPTQ import Int8DynActInt4WeightGPTQQuantizer
         from torchao._models._eval import InputRecorder, TransformerEvalWrapper
-        torchao._models.llama.model.use_index_put_for_kv_cache = True
         # should be similar to TorchCompileDynamicQuantizer
         precision = torch.bfloat16
         device = "cpu"
@@ -335,10 +334,9 @@ class TestQuantFlow(TestCase):
         )
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    def test_gptq_quantizer_int4wo(self):
+    def test_gptq_quantizer_int4_weight_only(self):
         from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
         from torchao._models._eval import InputRecorder, TransformerEvalWrapper
-        torchao._models.llama.model.use_index_put_for_kv_cache = True
         precision = torch.bfloat16
         device = "cuda"
         checkpoint_path = Path("../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
@@ -397,7 +395,7 @@ class TestQuantFlow(TestCase):
         )
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    def test_quantizer_int4wo(self):
+    def test_quantizer_int4_weight_only(self):
         from torchao.quantization.GPTQ import Int4WeightOnlyQuantizer
         from torchao._models._eval import TransformerEvalWrapper
         precision = torch.bfloat16
@@ -499,11 +497,11 @@ class TestQuantFlow(TestCase):
     # TODO: move to a separate test file
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
     def test_quantized_tensor_subclass_8da4w(self):
-        groupsize = 32
+        group_size = 32
         m = ToyLinearModel().eval()
         m_copy = copy.deepcopy(m)
         example_inputs = m.example_inputs()
-        m = quantize(m, int8da_int4w(groupsize=groupsize))
+        m = quantize(m, int8_dynamic_activation_int4_weight(group_size=group_size))
 
         assert isinstance(m.linear1.weight, LinearActQuantizedTensor)
         assert isinstance(m.linear2.weight, LinearActQuantizedTensor)
@@ -514,7 +512,7 @@ class TestQuantFlow(TestCase):
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
         from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
 
-        quantizer = Int8DynActInt4WeightQuantizer(groupsize=groupsize)
+        quantizer = Int8DynActInt4WeightQuantizer(groupsize=group_size)
         m_copy = quantizer.quantize(m_copy)
         assert isinstance(m_copy.linear1, Int8DynActInt4WeightLinear)
         assert isinstance(m_copy.linear2, Int8DynActInt4WeightLinear)
@@ -531,13 +529,13 @@ class TestQuantFlow(TestCase):
         m_copy = copy.deepcopy(m)
         example_inputs = m.example_inputs(dtype=torch.bfloat16, device="cuda")
 
-        groupsize = 32
-        m = quantize(m, int4wo(groupsize=groupsize))
+        group_size = 32
+        m = quantize(m, int4_weight_only(group_size=group_size))
         assert isinstance(m.linear1.weight, AffineQuantizedTensor)
         assert isinstance(m.linear2.weight, AffineQuantizedTensor)
 
         # reference
-        _ref_change_linear_weights_to_int4_woqtensors(m_copy, groupsize=groupsize)
+        _ref_change_linear_weights_to_int4_woqtensors(m_copy, groupsize=group_size)
 
         res = m(*example_inputs)
         ref = m_copy(*example_inputs)
@@ -552,7 +550,7 @@ class TestQuantFlow(TestCase):
         m_copy = copy.deepcopy(m)
         example_inputs = tuple(map(lambda x: x.to(torch.bfloat16), m.example_inputs()))
 
-        m = quantize(m, int8wo())
+        m = quantize(m, int8_weight_only())
 
         assert isinstance(m.linear1.weight, AffineQuantizedTensor)
         assert isinstance(m.linear2.weight, AffineQuantizedTensor)
@@ -575,7 +573,7 @@ class TestQuantFlow(TestCase):
         m_copy = copy.deepcopy(m)
         # setting batch_size to 20 to be compatible with the kernel
         example_inputs = m.example_inputs(batch_size=20, dtype=torch.bfloat16, device="cuda")
-        m = quantize(m, int8da_int8w())
+        m = quantize(m, int8_dynamic_activation_int8_weight())
 
         assert isinstance(m.linear1.weight, LinearActQuantizedTensor)
         assert isinstance(m.linear2.weight, LinearActQuantizedTensor)
@@ -602,21 +600,6 @@ class TestQuantFlow(TestCase):
         # make sure it compiles
         torch._export.aot_compile(m_unwrapped, example_inputs)
 
-    def test_register_apply_tensor_subclass(self):
-        from torchao import register_apply_tensor_subclass
-        def apply_my_dtype(weight):
-            return weight * 2
-
-        m = ToyLinearModel().eval()
-        example_inputs = m.example_inputs()
-        with self.assertRaisesRegex(ValueError, "not supported"):
-            quantize(m, "my_dtype")
-
-        register_apply_tensor_subclass("my_dtype", apply_my_dtype)
-        # make sure it runs
-        quantize(m, "my_dtype")
-        m(*example_inputs)
-
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantized_tensor_subclass_save_load(self):
@@ -624,7 +607,7 @@ class TestQuantFlow(TestCase):
         m_copy = copy.deepcopy(m)
         example_inputs = m.example_inputs(dtype=torch.bfloat16)
 
-        m = quantize(m, "int8_weight_only")
+        m = quantize(m, int8_weight_only())
         ref = m(*example_inputs)
         with tempfile.NamedTemporaryFile() as f:
             torch.save(m.state_dict(), f)

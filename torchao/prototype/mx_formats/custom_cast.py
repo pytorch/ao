@@ -15,7 +15,7 @@ from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacke
 # TODO(future): if needed, make the below work on previous PyTorch versions,
 # just need to hunt down the previous location of `libdevice`. An assert
 # at the callsite prevents usage of this on unsupported versions.
-if TORCH_VERSION_AFTER_2_4:
+if TORCH_VERSION_AFTER_2_4 and has_triton():
     from torch._inductor.runtime.triton_helpers import libdevice
 
 from torchao.prototype.mx_formats.constants import (
@@ -107,7 +107,19 @@ if has_triton():
     import triton.language as tl
 
     @triton.jit
-    def _fp4_packed_to_bf16(x_packed):
+    def _fp4_packed_to_bf16(
+        x_packed,
+        sign_mask_f4,
+        mantissa_mask_f4,
+        mbits_f4_e2m1,
+        ebits_f4_e2m1,
+        f4_e2m1_exp_bias,
+        mbits_f32,
+        ebits_f32,
+        f32_exp_bias,
+        zero_bits_f32,
+        zero_point_five_bits_f32,
+    ):
         """
         Input: a tensor of packed fp4 values
         Output: a tensor of bfloat16 values
@@ -123,7 +135,7 @@ if has_triton():
         # output = x_unpacked.to(tl.float32)
 
         # save the sign
-        sign_f4 = x & SIGN_MASK_F4
+        sign_f4 = x & sign_mask_f4
 
         # set everything to positive, will add sign back at the end
         x_pos = x ^ sign_f4
@@ -138,25 +150,25 @@ if has_triton():
         denormal_mask = x_pos == 1
 
         # calculate the new exponent and shift it to bits 2:9 of the result
-        exp_biased_f4 = x_pos >> MBITS_F4_E2M1
-        exp_biased_f32 = exp_biased_f4 - F4_E2M1_EXP_BIAS + F32_EXP_BIAS
-        exp_biased_f32 = exp_biased_f32.to(tl.int32) << MBITS_F32
+        exp_biased_f4 = x_pos >> mbits_f4_e2m1
+        exp_biased_f32 = exp_biased_f4 - f4_e2m1_exp_bias + f32_exp_bias
+        exp_biased_f32 = exp_biased_f32.to(tl.int32) << mbits_f32
 
         # shift the mantissa to bits 10:32 of the result
-        mantissa_f4 = x_pos & MANTISSA_MASK_F4
-        mantissa_f32 = mantissa_f4.to(tl.int32) << (MBITS_F32 - MBITS_F4_E2M1)
+        mantissa_f4 = x_pos & mantissa_mask_f4
+        mantissa_f32 = mantissa_f4.to(tl.int32) << (mbits_f32 - mbits_f4_e2m1)
         output = mantissa_f32
 
         # combine the pieces
         result = exp_biased_f32 | mantissa_f32
         # result[zero_mask] = ZERO_BITS_F32
-        result = tl.where(zero_mask, ZERO_BITS_F32, result)
+        result = tl.where(zero_mask, zero_bits_f32, result)
         # result[denormal_mask] = ZERO_POINT_FIVE_BITS_F32
-        result = tl.where(denormal_mask, ZERO_POINT_FIVE_BITS_F32, result)
+        result = tl.where(denormal_mask, zero_point_five_bits_f32, result)
 
         # add sign back
         sign_f32 = sign_f4.to(tl.int32) << (
-            MBITS_F32 - MBITS_F4_E2M1 + EBITS_F32 - EBITS_F4_E2M1
+            mbits_f32 - mbits_f4_e2m1 + ebits_f32 - ebits_f4_e2m1
         )
         result = result | sign_f32
 
@@ -174,6 +186,16 @@ if has_triton():
         x_ptr,
         output_ptr,
         n_elements_in,
+        sign_mask_f4: tl.constexpr,
+        mantissa_mask_f4: tl.constexpr,
+        mbits_f4_e2m1: tl.constexpr,
+        ebits_f4_e2m1: tl.constexpr,
+        f4_e2m1_exp_bias: tl.constexpr,
+        mbits_f32: tl.constexpr,
+        ebits_f32: tl.constexpr,
+        f32_exp_bias: tl.constexpr,
+        zero_bits_f32: tl.constexpr,
+        zero_point_five_bits_f32: tl.constexpr,
         BLOCK_SIZE_IN: tl.constexpr,
     ):
         pid = tl.program_id(axis=0)
@@ -187,7 +209,19 @@ if has_triton():
 
         # packed uint8
         x_packed = tl.load(x_ptr + offsets_in, mask=mask_in)
-        output = _fp4_packed_to_bf16(x_packed)
+        output = _fp4_packed_to_bf16(
+            x_packed,
+            sign_mask_f4,
+            mantissa_mask_f4,
+            mbits_f4_e2m1,
+            ebits_f4_e2m1,
+            f4_e2m1_exp_bias,
+            mbits_f32,
+            ebits_f32,
+            f32_exp_bias,
+            zero_bits_f32,
+            zero_point_five_bits_f32,
+        )
 
         # set up output offsets
         block_start_out = pid * BLOCK_SIZE_OUT
@@ -213,6 +247,18 @@ if has_triton():
         output_ptr,
         n_elements_in,
         mx_block_size: tl.constexpr,
+        sign_mask_f4: tl.constexpr,
+        mantissa_mask_f4: tl.constexpr,
+        mbits_f4_e2m1: tl.constexpr,
+        ebits_f4_e2m1: tl.constexpr,
+        f4_e2m1_exp_bias: tl.constexpr,
+        mbits_f32: tl.constexpr,
+        ebits_f32: tl.constexpr,
+        f32_exp_bias: tl.constexpr,
+        zero_bits_f32: tl.constexpr,
+        zero_point_five_bits_f32: tl.constexpr,
+        e8m0_exponent_bias: tl.constexpr,
+        e8m0_exponent_nan_val: tl.constexpr,
         BLOCK_SIZE_IN: tl.constexpr,
     ):
         pid = tl.program_id(axis=0)
@@ -227,7 +273,19 @@ if has_triton():
         mask_in = offsets_in < n_elements_in
         # packed uint8
         x_packed = tl.load(x_ptr + offsets_in, mask=mask_in)
-        output = _fp4_packed_to_bf16(x_packed)
+        output = _fp4_packed_to_bf16(
+            x_packed,
+            sign_mask_f4,
+            mantissa_mask_f4,
+            mbits_f4_e2m1,
+            ebits_f4_e2m1,
+            f4_e2m1_exp_bias,
+            mbits_f32,
+            ebits_f32,
+            f32_exp_bias,
+            zero_bits_f32,
+            zero_point_five_bits_f32,
+        )
 
         # load scale
         block_start_s = pid * BLOCK_SIZE_S
@@ -236,9 +294,9 @@ if has_triton():
         s = tl.load(s_ptr + offsets_s, mask=mask_s)
 
         # create the scale in bf16
-        s_offset = s.to(tl.int16) - E8M0_EXPONENT_BIAS
+        s_offset = s.to(tl.int16) - e8m0_exponent_bias
         s_fp = libdevice.pow(2.0, s_offset).to(tl.bfloat16)
-        s_fp = tl.where(s != E8M0_EXPONENT_NAN_VAL, s_fp, float("nan"))
+        s_fp = tl.where(s != e8m0_exponent_nan_val, s_fp, float("nan"))
 
         # multiply output by scale
         # TODO(later): see if manipulating the exponent instead of fp
@@ -263,6 +321,16 @@ else:
         x_ptr,
         output_ptr,
         n_elements_in,
+        sign_mask_f4,
+        mantissa_mask_f4,
+        mbits_f4_e2m1,
+        ebits_f4_e2m1,
+        f4_e2m1_exp_bias,
+        mbits_f32,
+        ebits_f32,
+        f32_exp_bias,
+        zero_bits_f32,
+        zero_point_five_bits_f32,
         BLOCK_SIZE_IN,
     ):
         raise AssertionError("unsupported without triton")
@@ -273,6 +341,18 @@ else:
         output_ptr,
         n_elements_in,
         mx_block_size,
+        sign_mask_f4,
+        mantissa_mask_f4,
+        mbits_f4_e2m1,
+        ebits_f4_e2m1,
+        f4_e2m1_exp_bias,
+        mbits_f32,
+        ebits_f32,
+        f32_exp_bias,
+        zero_bits_f32,
+        zero_point_five_bits_f32,
+        e8m0_exponent_bias,
+        e8m0_exponent_nan_val,
         BLOCK_SIZE_IN,
     ):
         raise AssertionError("unsupported without triton")
@@ -294,7 +374,22 @@ def triton_f4_to_bf16(x: torch.Tensor):
     grid = lambda meta: (  # noqa: E731
         triton.cdiv(n_elements_in, meta["BLOCK_SIZE_IN"]),
     )  # noqa: E731,E501
-    triton_f4_to_bf16_kernel[grid](x, output, n_elements_in, BLOCK_SIZE_IN=512)
+    triton_f4_to_bf16_kernel[grid](
+        x,
+        output,
+        n_elements_in,
+        sign_mask_f4=SIGN_MASK_F4,
+        mantissa_mask_f4=MANTISSA_MASK_F4,
+        mbits_f4_e2m1=MBITS_F4_E2M1,
+        ebits_f4_e2m1=EBITS_F4_E2M1,
+        f4_e2m1_exp_bias=F4_E2M1_EXP_BIAS,
+        mbits_f32=MBITS_F32,
+        ebits_f32=EBITS_F32,
+        f32_exp_bias=F32_EXP_BIAS,
+        zero_bits_f32=ZERO_BITS_F32,
+        zero_point_five_bits_f32=ZERO_POINT_FIVE_BITS_F32,
+        BLOCK_SIZE_IN=512,
+    )
     return output
 
 
@@ -318,7 +413,23 @@ def triton_f4_to_scaled_bf16(
         triton.cdiv(n_elements_in, meta["BLOCK_SIZE_IN"]),
     )
     triton_f4_to_scaled_bf16_kernel[grid](
-        x, s_e8m0, output, n_elements_in, mx_block_size
+        x,
+        s_e8m0,
+        output,
+        n_elements_in,
+        mx_block_size,
+        sign_mask_f4=SIGN_MASK_F4,
+        mantissa_mask_f4=MANTISSA_MASK_F4,
+        mbits_f4_e2m1=MBITS_F4_E2M1,
+        ebits_f4_e2m1=EBITS_F4_E2M1,
+        f4_e2m1_exp_bias=F4_E2M1_EXP_BIAS,
+        mbits_f32=MBITS_F32,
+        ebits_f32=EBITS_F32,
+        f32_exp_bias=F32_EXP_BIAS,
+        zero_bits_f32=ZERO_BITS_F32,
+        zero_point_five_bits_f32=ZERO_POINT_FIVE_BITS_F32,
+        e8m0_exponent_bias=E8M0_EXPONENT_BIAS,
+        e8m0_exponent_nan_val=E8M0_EXPONENT_NAN_VAL,
     )
     return output
 
