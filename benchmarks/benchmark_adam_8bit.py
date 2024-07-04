@@ -1,11 +1,11 @@
-# pip install timm wandb tqdm datasets
+# pip install timm wandb tqdm datasets yacs bitsandbytes git+https://github.com/thu-ml/low-bit-optimizers.git
 # To fine-tune a pre-trained ViT-Base on resisc45 dataset with BF16 AMP, using default Adam optimizer from PyTorch core
-# 
+#
 # python benchmarks_adam_8bit.py \
 #   --model "timm/vit_base_patch16_224.augreg_in21k" \
 #   --amp bf16 \
 #   --optim Adam
-# 
+#
 # To use bnb 8-bit optimizer, set --optim Adam8bitBnb. To use 8-bit optimizer implemented in torchao, set --optim Adam8bitAo
 # To profile and export chrome trace, set --profile
 # To enable cosine learning rate scheduler, set --cosine_lr_scheduler
@@ -13,10 +13,12 @@
 import argparse
 import math
 from contextlib import nullcontext
+from functools import partial
 from pathlib import Path
 
 import bitsandbytes as bnb
 import datasets
+import lpmm
 import timm
 import torch
 import torch.nn.functional as F
@@ -25,13 +27,14 @@ from torch.utils.data import DataLoader
 from torchvision.transforms import v2
 from tqdm import tqdm
 
-from torchao.prototype.low_bit_optim import Adam8bit, Adam4bit
+from torchao.prototype.low_bit_optim import Adam4bit, Adam8bit
 
-
+# lpmm doesn't have Adam, only AdamW
 OPTIM_MAP = dict(
     Adam=torch.optim.Adam,
     Adam8bitBnb=bnb.optim.Adam8bit,
     Adam8bitAo=Adam8bit,
+    Adam4bitLpmm=partial(lpmm.optim.AdamW, weight_decay=0, fused=True),
     Adam4bitAo=Adam4bit,
 )
 
