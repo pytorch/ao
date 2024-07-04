@@ -886,9 +886,10 @@
     <span class="k">def</span> <span class="nf">get_plain</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="kn">from</span> <span class="nn">torchao.quantization.quant_primitives</span> <span class="kn">import</span> <span class="p">(</span>
             <span class="n">ZeroPointDomain</span><span class="p">,</span>
-            <span class="n">unpack_tinygemm_scales_and_zeros</span><span class="p">,</span>
             <span class="n">quantize_affine</span><span class="p">,</span>
         <span class="p">)</span>
+        <span class="kn">from</span> <span class="nn">torchao.quantization.utils</span> <span class="kn">import</span> <span class="n">unpack_tinygemm_scales_and_zeros</span>
+
         <span class="n">cur_shape</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span>
         <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">cur_shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">4</span>
         <span class="n">inner_k_tiles</span> <span class="o">=</span> <span class="n">cur_shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="mi">2</span>
