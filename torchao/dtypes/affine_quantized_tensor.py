@@ -509,9 +509,10 @@ class TensorCoreTiledAQTLayout(AQTLayout):
     def get_plain(self):
         from torchao.quantization.quant_primitives import (
             ZeroPointDomain,
-            unpack_tinygemm_scales_and_zeros,
             quantize_affine,
         )
+        from torchao.quantization.utils import unpack_tinygemm_scales_and_zeros
+
         cur_shape = self.shape
         assert len(cur_shape) == 4
         inner_k_tiles = cur_shape[-1] * 2
