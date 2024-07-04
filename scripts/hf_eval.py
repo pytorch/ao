@@ -1,10 +1,18 @@
 import torch
+from tabulate import tabulate
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
-
-from lm_eval.models.huggingface import HFLM
-from lm_eval.evaluator import evaluate
-from lm_eval.tasks import get_task_dict
+try:
+    from lm_eval.models.huggingface import HFLM
+    from lm_eval.evaluator import evaluate
+    from lm_eval.tasks import get_task_dict
+except ImportError as e:
+    print("""
+Error: The 'lm_eval' module was not found.
+To install, follow these steps:
+pip install git+https://github.com/EleutherAI/lm-evaluation-harness.git
+""")
+    raise  # Re-raise the ImportError
 
 from torchao.quantization.quant_api import (
     change_linear_weights_to_int4_woqtensors,
@@ -15,6 +23,21 @@ from torchao.quantization.quant_api import (
 
 torch._inductor.config.force_fuse_int_mm_with_mul = True
 torch._inductor.config.fx_graph_cache = True
+
+def pretty_print_nested_results(results, precision: int = 6):
+    def format_value(value):
+        if isinstance(value, float):
+            return f"{value:.{precision}f}"
+        return value
+
+    main_table = []
+    for task, metrics in results["results"].items():
+        subtable = [[k, format_value(v)] for k, v in metrics.items() if k != 'alias']
+        subtable.sort(key=lambda x: x[0])  # Sort metrics alphabetically
+        formatted_subtable = tabulate(subtable, tablefmt='grid')
+        main_table.append([task, formatted_subtable])
+    
+    print(tabulate(main_table, headers=['Task', 'Metrics'], tablefmt='grid'))
 
 def run_evaluation(repo_id, tasks, limit, device, precision, quantization, compile, batch_size, max_length):
 
@@ -33,7 +56,6 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, compi
         change_linear_weights_to_int4_woqtensors(model.to(device=device))
     elif quantization == "autoquant":
         model = autoquant(model.to(device=device))
-
     with torch.no_grad():
         result = evaluate(
             HFLM(
@@ -44,8 +66,8 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, compi
             get_task_dict(tasks),
             limit = limit,
         )
-    for task, res in result["results"].items():
-        print(f"{task}: {res}")
+
+        pretty_print_nested_results(result)
 
 
 if __name__ == '__main__':

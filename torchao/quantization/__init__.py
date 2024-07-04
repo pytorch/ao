@@ -17,8 +17,6 @@ __all__ = [
     "swap_conv2d_1x1_to_linear"
     "safe_int_mm",
     "autoquant",
-    "change_linears_to_autoquantizable",
-    "change_autoquantizable_to_quantized",
     "get_scale",
     "SmoothFakeDynQuantMixin",
     "SmoothFakeDynamicallyQuantizedLinear",
@@ -32,5 +30,8 @@ __all__ = [
     "dequantize_affine",
     "choose_qprams_affine",
     "quantize",
-    "register_apply_tensor_subclass",
+    "int8_dynamic_activation_int4_weight",
+    "int8_dynamic_activation_int8_weight",
+    "int4_weight_only",
+    "int8_weight_only",
 ]

@@ -76,7 +76,7 @@ class TestOps(TestCase):
 instantiate_parametrized_tests(TestOps)
 
 
-## Tests for `unpack_int4_packed`
+## Tests for `tensor_core_layout`
 kTileSizeN = 8
 kTileSizeK = 16
 
