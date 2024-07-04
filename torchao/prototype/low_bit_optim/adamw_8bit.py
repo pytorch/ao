@@ -4,7 +4,7 @@ import torch
 from torch import Tensor
 from torch.optim import Optimizer
 
-from .subclass_8bit import maybe_new_zero_buffer
+from .subclass_8bit import maybe_new_8bit_zero_buffer
 
 
 class AdamW8bit(Optimizer):
@@ -58,10 +58,10 @@ class AdamW8bit(Optimizer):
                 # state is flattened so that torch.compile won't recompile for tensors with different ndim
                 if len(state) == 0:
                     state["step"] = torch.tensor(0.0, device=p.device)
-                    state["exp_avg"] = maybe_new_zero_buffer(p.view(-1), True, self.block_size)
-                    state["exp_avg_sq"] = maybe_new_zero_buffer(p.view(-1), False, self.block_size)
+                    state["exp_avg"] = maybe_new_8bit_zero_buffer(p.view(-1), True, self.block_size)
+                    state["exp_avg_sq"] = maybe_new_8bit_zero_buffer(p.view(-1), False, self.block_size)
                     if group["amsgrad"]:
-                        state["max_exp_avg_sq"] = maybe_new_zero_buffer(p.view(-1), False, self.block_size)
+                        state["max_exp_avg_sq"] = maybe_new_8bit_zero_buffer(p.view(-1), False, self.block_size)
 
                 state["step"] += 1
 

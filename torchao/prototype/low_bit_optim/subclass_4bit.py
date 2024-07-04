@@ -1,20 +1,27 @@
+import math
+
 import torch
 from torch import Tensor
+from torchao.dtypes.utils import _implements, _ATEN_OP_OR_TORCH_FN_TABLE
 
 from .subclass_8bit import create_dynamic_map
 
 
-# https://github.com/thu-ml/low-bit-optimizers/blob/e3e2854728e498c2a606e3fdb88daa27ae94f9a6/lpmm/config.py#L35-L65
+aten = torch.ops.aten
+
+
+# https://github.com/thu-ml/low-bit-optimizers/blob/e3e2854728e498c2a606e3fdb88daa27ae94f9a6/lpmm/configs/default.yml
 # NOTE: power-1 is linear
-QMAP_SIGNED = create_dynamic_map(max_exponent_bits=3, total_bits=4)
+QMAP_SIGNED = create_dynamic_map(True, 3, 4)
 QMAP_UNSIGNED = torch.linspace(0, 1, 17)[1:].tolist()  # no zero
 
 ZERO_CODE_SIGNED = QMAP_SIGNED.index(0)
-ZERO_CODE_UNSIGNED = QMAP_UNSIGNED[0]  # nearest to zero
+ZERO_CODE_UNSIGNED = 0  # nearest to zero
 
 
 def quantize_4bit_with_qmap(input: Tensor, qmap: Tensor, block_size: int, implementation: int = 1):
     # section 2.1 from https://arxiv.org/abs/2110.02861
+    # TODO: rank-1 scaling for unsigned
     input = input.view(-1, block_size)
     scale = input.abs().amax(-1).clip(1e-12)
     input = input / scale.view(-1, 1)
@@ -34,7 +41,7 @@ def quantize_4bit_with_qmap(input: Tensor, qmap: Tensor, block_size: int, implem
         codes += torch.where(input >= qmap[codes + 1], 1, 0)
 
         # rounding
-        codes_up = (codes + 1).clip(max=16)
+        codes_up = (codes + 1).clip(max=15)
         val_down = qmap[codes]
         val_up = qmap[codes_up]
         residual = input - val_down
@@ -45,85 +52,125 @@ def quantize_4bit_with_qmap(input: Tensor, qmap: Tensor, block_size: int, implem
     else:
         raise ValueError(f"Unsupported implementation={implementation}")
 
+    # packing
+    codes1, codes2 = codes.chunk(2, 0)
+    codes = (codes1 << 4) | codes2
+
     return codes, scale
 
 
-class Optim2State4bit(Tensor):
-    tensor_attrs = ["codes", "scale1", "scale2", "qmap1", "qmap2"]
+class OptimState4bit(Tensor):
+    implements = classmethod(_implements)
+    tensor_attrs = ["codes", "scale", "qmap"]
 
     @staticmethod
-    def __new__(cls, codes1: Tensor, scale1: Tensor, qmap1: Tensor, codes2: Tensor, scale2: Tensor, qmap2: Tensor):
+    def __new__(cls, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool, shape):
         return Tensor._make_wrapper_subclass(
             cls,
-            codes1.shape,
-            device=codes1.device,
+            shape,
+            device=codes.device,
             requires_grad=False,
         )
 
-    def __init__(self, codes1: Tensor, scale1: Tensor, qmap1: Tensor, codes2: Tensor, scale2: Tensor, qmap2: Tensor):
-        assert codes1.dtype is torch.uint8 and codes2.dtype is torch.uint8
-        assert codes1.shape == codes2.shape
-        assert scale1.numel() == scale2.numel()  # must use the same block_size
-        self.codes = (codes1 << 4) & codes2  # packing
-        self.scale1 = scale1
-        self.scale2 = scale2
-        self.qmap1 = qmap1
-        self.qmap2 = qmap2
+    def __init__(self, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool, shape):
+        assert codes.dtype is torch.uint8
+        assert codes.ndim == 1  # flattened buffer
+        self.codes = codes
+        self.scale = scale
+        self.qmap = qmap
+        self.signed = signed
+        self._shape = shape
 
     @property
     def block_size(self):
-        return self.codes.numel() // self.scale1.numel()
+        return self.codes.numel() * 2 // self.scale.numel()
 
     def __tensor_flatten__(self):
-        return self.tensor_attrs, []
+        return self.tensor_attrs, [self.signed, self._shape]
 
     @classmethod
     def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
         return cls(*[tensor_data_dict[name] for name in cls.tensor_attrs], *tensor_attributes)
 
     @classmethod
-    def from_float(cls, state1: Tensor, state2: Tensor, block_size: int = 128):
-        qmap1 = torch.tensor(QMAP_SIGNED, device=state1.device)
-        qmap2 = torch.tensor(QMAP_UNSIGNED, device=state2.device)
-        codes1, scale1 = quantize_4bit_with_qmap(state1, qmap1, block_size)
-        codes2, scale2 = quantize_4bit_with_qmap(state2, qmap2, block_size)
-        return cls(codes1.view(state1.shape), scale1, qmap1, codes2.view(state2.shape), scale2, qmap2)
+    def from_float(cls, input_float: Tensor, signed: bool = True, block_size: int = 128):
+        qmap = torch.tensor(QMAP_SIGNED if signed else QMAP_UNSIGNED, device=input_float.device)
+        codes, scale = quantize_4bit_with_qmap(input_float, qmap, block_size)
+        return cls(codes, scale, qmap, signed, input_float.shape)
 
     def dequantize(self, output_dtype=None):
         # unpack
         codes1 = self.codes >> 4
         codes2 = self.codes & 0b1111
+        codes = torch.stack([codes1, codes2], -1)
 
         # torch.compile() cannot use uint8 as index
-        state1 = self.qmap1[codes1.int()]
-        state2 = self.qmap2[codes2.int()]
-
-        state1 = state1.view(-1, self.block_size) * self.scale1.view(-1, 1)
-        state2 = state2.view(-1, self.block_size) * self.scale2.view(-1, 1)
+        float_data = self.qmap[codes.int()]
+        float_data = float_data.view(-1, self.block_size) * self.scale.view(-1, 1)
 
         dtype = output_dtype or torch.get_default_dtype()
-        return state1.view(self.codes.shape).to(dtype), state2.view(self.codes.shape).to(dtype)
-
-    def copy_(self, state1: Tensor, state2: Tensor):
-        codes1, scale1 = quantize_4bit_with_qmap(state1, self.qmap1, self.block_size)
-        codes2, scale2 = quantize_4bit_with_qmap(state2, self.qmap2, self.block_size)
-        self.codes.copy_((codes1 << 4) & codes2)
-        self.scale1.copy_(scale1)
-        self.scale2.copy_(scale2)
+        return float_data.view(self._shape).to(dtype)
 
     @classmethod
-    def zeros(cls, shape, block_size: int = 128, device=None):
+    def zeros(cls, shape, signed: bool = True, block_size: int = 128, device=None):
         shape = (shape,) if isinstance(shape, int) else shape
-        codes1 = torch.full(shape, ZERO_CODE_SIGNED, dtype=torch.uint8, device=device)
-        codes2 = torch.full(shape, ZERO_CODE_UNSIGNED, dtype=torch.uint8, device=device)
-        qmap1 = torch.tensor(QMAP_SIGNED, device=device)
-        qmap2 = torch.tensor(QMAP_UNSIGNED, device=device)
-        scale1 = torch.ones(codes1.numel() // block_size, device=device)
-        scale2 = torch.ones(codes2.numel() // block_size, device=device)
-        return cls(codes1, scale1, qmap1, codes2, scale2, qmap2)
+        n_elems = math.prod(shape)
+        zero_code = ZERO_CODE_SIGNED if signed else ZERO_CODE_UNSIGNED
+        zero_code = (zero_code << 4) | zero_code  # packing
+
+        codes = torch.full((n_elems // 2,), zero_code, dtype=torch.uint8, device=device)
+        scale = torch.ones(n_elems // block_size, device=device)
+        qmap = torch.tensor(QMAP_SIGNED if signed else QMAP_UNSIGNED, device=device)
+        return cls(codes, scale, qmap, signed, shape)
 
     def __repr__(self):
         return (
-            f"{self.__class__.__name__}(block_size={self.block_size}, "
+            f"{self.__class__.__name__}(signed={self.signed}, block_size={self.block_size}, "
             f"shape={tuple(self.shape)}, device={self.device}, requires_grad={self.requires_grad})"
         )
+
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs):
+        if func in _ATEN_OP_OR_TORCH_FN_TABLE[cls]:
+            return _ATEN_OP_OR_TORCH_FN_TABLE[cls][func](func, *args, **kwargs)
+
+        raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run {func}, this is not supported")
+
+
+@OptimState4bit.implements(aten.copy_.default)
+def _(func, *args, **kwargs):
+    dst = args[0]
+    src = args[1]
+
+    if isinstance(dst, OptimState4bit) and isinstance(src, OptimState4bit):
+        assert dst.signed == src.signed and dst._shape == src._shape
+        dst.codes.copy_(src.codes)
+        dst.scale.copy_(src.scale)
+        # qmap should be the same, don't need to copy
+
+    elif isinstance(dst, OptimState4bit):
+        codes, scale = quantize_4bit_with_qmap(src, dst.qmap, dst.block_size)
+        dst.codes.copy_(codes)
+        dst.scale.copy_(scale)
+
+    else:
+        dst.copy_(src.dequantize())
+
+    return dst
+
+
+@OptimState4bit.implements(aten.lerp.Scalar)
+def _(func, *args, **kwargs):
+    args = [x.dequantize() if isinstance(x, OptimState4bit) else x for x in args]
+    return func(*args, **kwargs)
+
+
+# https://github.com/thu-ml/low-bit-optimizers/blob/e3e2854728e498c2a606e3fdb88daa27ae94f9a6/lpmm/config.py#L37
+# only apply quantization for tensor with more than 4096 values
+# TODO: also skip 1D tensor? e.g. biases and norm scales
+def maybe_new_4bit_zero_buffer(p: Tensor, signed: bool = True, block_size: int = 128):
+    if p.numel() >= 4096 and p.numel() %block_size == 0:
+        out = OptimState4bit.zeros(p.shape, signed, block_size, device=p.device)
+    else:
+        out = torch.zeros_like(p)
+    return out

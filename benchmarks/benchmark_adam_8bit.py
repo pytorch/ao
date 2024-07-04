@@ -25,7 +25,15 @@ from torch.utils.data import DataLoader
 from torchvision.transforms import v2
 from tqdm import tqdm
 
-from torchao.prototype.low_bit_optim import Adam8bit
+from torchao.prototype.low_bit_optim import Adam8bit, Adam4bit
+
+
+OPTIM_MAP = dict(
+    Adam=torch.optim.Adam,
+    Adam8bitBnb=bnb.optim.Adam8bit,
+    Adam8bitAo=Adam8bit,
+    Adam4bitAo=Adam4bit,
+)
 
 
 class CosineSchedule:
@@ -72,7 +80,7 @@ def get_parser():
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--n_workers", type=int, default=4)
 
-    parser.add_argument("--optim", default="Adam")
+    parser.add_argument("--optim", default="Adam", choices=OPTIM_MAP.keys())
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight_decay", type=float, default=0)
     parser.add_argument("--cosine_lr_scheduler", action="store_true")
@@ -159,11 +167,6 @@ if __name__ == "__main__":
         model.compile(fullgraph=True)
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
-    OPTIM_MAP = dict(
-        Adam=torch.optim.Adam,
-        Adam8bitBnb=bnb.optim.Adam8bit,
-        Adam8bitAo=Adam8bit,
-    )
     optim = OPTIM_MAP[args.optim](model.parameters(), args.lr, weight_decay=args.weight_decay)
     lr_schedule = CosineSchedule(args.lr, len(dloader) * args.n_epochs)
 

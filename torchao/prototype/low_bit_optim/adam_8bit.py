@@ -4,7 +4,7 @@ import torch
 from torch import Tensor
 from torch.optim import Optimizer
 
-from .subclass_8bit import maybe_new_zero_buffer
+from .subclass_8bit import maybe_new_8bit_zero_buffer
 
 
 class Adam8bit(Optimizer):
@@ -58,19 +58,20 @@ class Adam8bit(Optimizer):
                 # state is flattened so that torch.compile won't recompile for tensors with different ndim
                 if len(state) == 0:
                     state["step"] = torch.tensor(0.0, device=p.device)
-                    state["exp_avg"] = maybe_new_zero_buffer(p.view(-1), True, self.block_size)
-                    state["exp_avg_sq"] = maybe_new_zero_buffer(p.view(-1), False, self.block_size)
+                    state["exp_avg"] = maybe_new_8bit_zero_buffer(p.view(-1), True, self.block_size)
+                    state["exp_avg_sq"] = maybe_new_8bit_zero_buffer(p.view(-1), False, self.block_size)
                     if group["amsgrad"]:
-                        state["max_exp_avg_sq"] = maybe_new_zero_buffer(p.view(-1), False, self.block_size)
+                        state["max_exp_avg_sq"] = maybe_new_8bit_zero_buffer(p.view(-1), False, self.block_size)
 
                 state["step"] += 1
 
-                # flatten p and grad so that torch.compile won't recompile for tensors with different ndim
                 # must explicitly convert lr to Tensor since torch.compile() will treat it as a constant
                 # if it is a python float. practically, only lr is changed during training.
                 # NOTE: if lr is change at every step, moving lr to CUDA will be a bottleneck.
                 if not isinstance(group["lr"], Tensor):
                     group["lr"] = torch.tensor(group["lr"], device=p.device)
+
+                # flatten p and grad so that torch.compile won't recompile for tensors with different ndim
                 single_param_adam(
                     p.view(-1),
                     grad.view(-1),
