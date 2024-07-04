@@ -11,7 +11,7 @@ from torch.testing._internal.common_utils import (
 )
 from torch.testing._internal.optests import opcheck
 from torchao.utils import is_fbcode
-# from torchao.prototype.quant_llm import from_scaled_tc_fpx
+from torchao.prototype.quant_llm import from_scaled_tc_fpx
 import pytest
 
 if is_fbcode():
