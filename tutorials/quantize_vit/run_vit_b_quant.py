@@ -19,9 +19,9 @@ input_tensor = torch.randn(1, 3, 224, 224, dtype=torch.bfloat16, device='cuda')
 # for APIs for earlier torch version and other quantization techniques
 
 # for torch 2.4+
-from torchao.quantization.quant_api import quantize
+from torchao.quantization.quant_api import quantize_
 from torchao.quantization.quant_api import int8_dynamic_activation_int8_weight
-quantize(model, int8_dynamic_activation_int8_weight())
+quantize_(model, int8_dynamic_activation_int8_weight())
 ## Quantization code - end
 
 ## compilation configs

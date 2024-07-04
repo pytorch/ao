@@ -621,7 +621,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
                 out_features = mod.out_features
                 in_features = mod.in_features
                 # assert out_features % 8 == 0, "require out_features % 8 == 0"
-                print(f"linear: {fqn}, in={in_features}, out={out_features}")
+                logging.info(f"linear: {fqn}, in={in_features}, out={out_features}")
 
                 assert (
                     in_features % self.groupsize == 0
@@ -634,11 +634,11 @@ class Int4WeightOnlyQuantizer(Quantizer):
                     if self.padding_allowed:
                         from .utils import find_multiple
                         import torch.nn.functional as F
-                        print(f"warning: {fqn} is padded to satisfy in_features % 1024 == 0")
+                        logging.warn(f"warning: {fqn} is padded to satisfy in_features % 1024 == 0")
                         padded_in_features = find_multiple(in_features, 1024)
                         weight = F.pad(weight, pad=(0, padded_in_features - in_features))
                     else:
-                        print(f"warning: {fqn} is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, " +
+                        logging.warn(f"warning: {fqn} is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, " +
                                 "and that groupsize and inner_k_tiles*16 evenly divide into it")
                         continue
                 (
@@ -942,12 +942,14 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
         padding_allowed: bool = False,
         precision: torch.dtype = torch.float32,
         scales_precision: torch.dtype = torch.float32,
+        device: torch.device = torch.device("cpu"),
     ) -> None:
         super().__init__()
         self.groupsize: int = groupsize
         self.padding_allowed: bool = padding_allowed
         self.precision: torch.dtype = precision
         self.scales_precision: torch.dtype = scales_precision
+        self.device: torch.device = device
 
     @torch.no_grad()
     def _create_quantized_state_dict(
@@ -960,7 +962,7 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
                 out_features = mod.out_features
                 in_features = mod.in_features
                 # assert out_features % 8 == 0, "require out_features % 8 == 0"
-                print(f"linear: {fqn}, in={in_features}, out={out_features}")
+                logging.info(f"linear: {fqn}, in={in_features}, out={out_features}")
 
                 assert (
                     in_features % self.groupsize == 0
@@ -971,11 +973,11 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
                     if self.padding_allowed:
                         from .utils import find_multiple
                         import torch.nn.functional as F
-                        print(f"warning: {fqn} is padded to satisfy in_features % 1024 == 0")
+                        logging.warn(f"warning: {fqn} is padded to satisfy in_features % 1024 == 0")
                         padded_in_features = find_multiple(in_features, 1024)
                         weight = F.pad(weight, pad=(0, padded_in_features - in_features))
                     else:
-                        print(f"warning: {fqn} is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, " +
+                        logging.warn(f"warning: {fqn} is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, " +
                               "and that groupsize and inner_k_tiles*16 evenly divide into it")
                         continue
                 (
@@ -988,9 +990,9 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
                     self.groupsize,
                     self.scales_precision,
                 )
-                cur_state_dict[f"{fqn}.weight"] = weight_int8.to("cpu")
-                cur_state_dict[f"{fqn}.scales"] = scales.to("cpu")
-                cur_state_dict[f"{fqn}.zeros"] = zeros.to("cpu")
+                cur_state_dict[f"{fqn}.weight"] = weight_int8.to(self.device)
+                cur_state_dict[f"{fqn}.scales"] = scales.to(self.device)
+                cur_state_dict[f"{fqn}.zeros"] = zeros.to(self.device)
                 # TODO: support bias?
 
         return cur_state_dict
