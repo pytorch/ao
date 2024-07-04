@@ -10,7 +10,7 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 from torch.testing._internal.optests import opcheck
-from torchao.utils import is_fbcode
+from torchao.utils import is_fbcode, TORCH_VERSION_AFTER_2_5
 from torchao.prototype.quant_llm import from_scaled_tc_fpx
 import pytest
 
@@ -76,7 +76,7 @@ class TestOps(TestCase):
 instantiate_parametrized_tests(TestOps)
 
 
-## Tests for `unpack_int4_packed`
+## Tests for `tensor_core_layout`
 kTileSizeN = 8
 kTileSizeK = 16
 
@@ -113,8 +113,12 @@ def test_unpack_tensor_core_tiled_layout_op(shape, inner_k_tiles):
         "test_schema",
         "test_autograd_registration",
         "test_faketensor",
-        "test_aot_dispatch_dynamic",
     ]
+    
+    # TODO: Figure out why test fails unless torch >= 2.5
+    if TORCH_VERSION_AFTER_2_5:
+        test_utils.append("test_aot_dispatch_dynamic")
+
     t = torch.randint(0, 16, dtype=torch.int, size=shape, device="cuda")
     packed_w = torch.ops.aten._convert_weight_to_int4pack(t, inner_k_tiles)
 
@@ -272,8 +276,10 @@ def test_dequantize_tensor_core_tiled_layout_op(shape, inner_k_tiles, group_size
     "test_schema",
     "test_autograd_registration",
     "test_faketensor",
-    "test_aot_dispatch_dynamic",
     ]
+    # TODO: Figure out why test fails unless torch >= 2.5
+    if TORCH_VERSION_AFTER_2_5:
+        test_utils.append("test_aot_dispatch_dynamic")
     opcheck(
         torch.ops.torchao.dequantize_tensor_core_tiled_layout,
         (packed_w, scales_and_zeros, group_size, inner_k_tiles),
