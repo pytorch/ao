@@ -42,10 +42,10 @@ class Adam4bit(Adam8bit):
                 # state is flattened so that torch.compile won't recompile for tensors with different ndim
                 if len(state) == 0:
                     state["step"] = torch.tensor(0.0, device=p.device)
-                    state["exp_avg"] = maybe_new_4bit_zero_buffer(p.view(-1), True, self.block_size)
-                    state["exp_avg_sq"] = maybe_new_4bit_zero_buffer(p.view(-1), False, self.block_size)
+                    state["exp_avg"] = maybe_new_4bit_zero_buffer(p.squeeze(), True, self.block_size)
+                    state["exp_avg_sq"] = maybe_new_4bit_zero_buffer(p.squeeze(), False, self.block_size)
                     if group["amsgrad"]:
-                        state["max_exp_avg_sq"] = maybe_new_4bit_zero_buffer(p.view(-1), False, self.block_size)
+                        state["max_exp_avg_sq"] = maybe_new_4bit_zero_buffer(p.squeeze(), False, self.block_size)
 
                 state["step"] += 1
 
@@ -57,8 +57,8 @@ class Adam4bit(Adam8bit):
 
                 # flatten p and grad so that torch.compile won't recompile for tensors with different ndim
                 single_param_adam(
-                    p.view(-1),
-                    grad.view(-1),
+                    p.squeeze(),
+                    grad.squeeze(),
                     state["step"],
                     state["exp_avg"],
                     state["exp_avg_sq"],
