@@ -45,7 +45,7 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, compi
     model = AutoModelForCausalLM.from_pretrained(repo_id).to(device="cpu", dtype=precision)
     
     if compile:
-        model = torch.compile(model, mode="max-autotune", fullgraph=True)
+        model = torch.compile(model, fullgraph=True)
 
     if quantization == "int8dq":
         change_linear_weights_to_int8_dqtensors(model)
@@ -57,16 +57,10 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, compi
     elif quantization == "autoquant":
         model = autoquant(model.to(device=device))
     elif quantization == "fp8":
-        from float8_experimental.float8_linear_utils import swap_linear_with_float8_linear
-        from float8_experimental.float8_dynamic_linear import Float8DynamicLinear
+        from float8_experimental.inference import quantize_to_float8, ActivationCasting, QuantConfig, ScalingGranularity
         model.to(device)
-        swap_linear_with_float8_linear(
-            model,
-            Float8DynamicLinear,
-            from_float_kwargs={
-                "pre_quantize_weight": True,
-            },
-        )
+        quantize_to_float8(model, QuantConfig(ActivationCasting.DYNAMIC), scaling_granularity=ScalingGranularity.TensorWise)
+
         pass  # no quantization applied, model is already on device and precision dtype.
 
     with torch.no_grad():
