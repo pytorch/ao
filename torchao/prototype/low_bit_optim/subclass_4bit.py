@@ -109,7 +109,7 @@ class OptimState4bit(Tensor):
         codes = torch.zeros(n_elems // 2, dtype=torch.uint8, device=device)
         scale = torch.zeros(n_elems // block_size, device=device)
         qmap = torch.tensor(QMAP_SIGNED if signed else QMAP_UNSIGNED, device=device)
-        return cls(codes, scale, qmap, signed, block_size, shape)
+        return cls(codes, scale, qmap, signed, shape)
 
     def __repr__(self):
         return (
