@@ -525,14 +525,14 @@ def _check_linear_int4_k(k, groupsize = 1, inner_k_tiles = None):
         return k_divisible_by_groupsize and k_divisible_by_16_times_inner_k_tiles
     return k_divisible_by_groupsize
 
-def linear_forward_int4(x, weight_int4pack, scales_and_zeros, out_features, groupsize):
+def linear_forward_int4(x, weight_int4pack, scales_and_zeros, out_features, groupsize, dtype=torch.bfloat16):
     origin_x_size = x.size()
     x = x.reshape(-1, origin_x_size[-1])
     c = torch.ops.aten._weight_int4pack_mm(
-        x.to(torch.bfloat16),
+        x.to(dtype),
         weight_int4pack,
         groupsize,
-        scales_and_zeros.to(torch.bfloat16)
+        scales_and_zeros.to(dtype)
     ).to(dtype=x.dtype)
     new_shape = origin_x_size[:-1] + (out_features,)
     c = c.reshape(new_shape)
@@ -546,12 +546,12 @@ class WeightOnlyInt4Linear(torch.nn.Module):
 
     def __init__(
         self, in_features: int, out_features: int,
-        bias=False, device=None, dtype=None, groupsize: int = 128, inner_k_tiles: int = 8,
+        bias=False, device=None, dtype=torch.bfloat16, groupsize: int = 128, inner_k_tiles: int = 8,
     ) -> None:
         super().__init__()
         self.padding = not _check_linear_int4_k(in_features, groupsize, inner_k_tiles)
         if self.padding:
-            from model import find_multiple
+            from .utils import find_multiple
             self.origin_in_features = in_features
             in_features = find_multiple(in_features, 1024)
 
@@ -567,9 +567,10 @@ class WeightOnlyInt4Linear(torch.nn.Module):
             "weight",
             torch.empty((out_features // 8, in_features // (inner_k_tiles * 16), 32, inner_k_tiles // 2), dtype=torch.int32)
         )
+        self.dtype = dtype
         self.register_buffer(
             "scales_and_zeros",
-            torch.empty((in_features // groupsize, out_features, 2), dtype=torch.bfloat16)
+            torch.empty((in_features // groupsize, out_features, 2), dtype=self.dtype)
         )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
@@ -578,10 +579,10 @@ class WeightOnlyInt4Linear(torch.nn.Module):
             input = F.pad(input, pad=(0, self.in_features - self.origin_in_features))
         return linear_forward_int4(
             input,
-            self.weight, self.scales_and_zeros, self.out_features, self.groupsize
+            self.weight, self.scales_and_zeros, self.out_features, self.groupsize, self.dtype
         )
 
-def replace_linear_int4(module, groupsize, inner_k_tiles, padding_allowed, skip_layer_func = None):
+def replace_linear_int4(module, groupsize, inner_k_tiles, padding_allowed, skip_layer_func = None, dtype=torch.bfloat16):
 
     for name, child in module.named_children():
         if isinstance(child, nn.Linear) and (skip_layer_func is None or not skip_layer_func(child.weight)):
@@ -589,9 +590,10 @@ def replace_linear_int4(module, groupsize, inner_k_tiles, padding_allowed, skip_
                 setattr(module, name, WeightOnlyInt4Linear(
                     child.in_features, child.out_features, bias=False,
                     groupsize=groupsize, inner_k_tiles=inner_k_tiles,
+                    dtype=dtype,
                 ))
         else:
-            replace_linear_int4(child, groupsize, inner_k_tiles, padding_allowed, skip_layer_func)
+            replace_linear_int4(child, groupsize, inner_k_tiles, padding_allowed, skip_layer_func, dtype)
 
 class Int4WeightOnlyQuantizer(Quantizer):
     def __init__(
@@ -600,6 +602,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
         padding_allowed: bool = True,
         inner_k_tiles: Optional[int] = 8,
         device: torch.device = torch.device("cuda"),
+        precision: torch.dtype = torch.bfloat16,
     ) -> None:
         super().__init__()
         assert inner_k_tiles in [2, 4, 8]
@@ -609,6 +612,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
         self.groupsize: int = groupsize
         self.padding_allowed: bool = padding_allowed
         self.device: torch.device = device
+        self.precision: torch.dtype = precision
 
     @torch.no_grad()
     def _create_quantized_state_dict(
@@ -648,6 +652,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
                     weight,
                     4,  # n_bit
                     self.groupsize,
+                    self.precision, # precision for scales_and_zeros
                 )
                 weight_int4pack = torch.ops.aten._convert_weight_to_int4pack(w_int4x8.to(self.device), self.inner_k_tiles)
                 cur_state_dict[f"{fqn}.weight"] = weight_int4pack.to(self.device)
@@ -660,6 +665,8 @@ class Int4WeightOnlyQuantizer(Quantizer):
             self.groupsize,
             self.inner_k_tiles,
             self.padding_allowed,
+            skip_layer_func=None,
+            dtype=self.precision,
         )
         return model
 
