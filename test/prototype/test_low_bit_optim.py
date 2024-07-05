@@ -105,21 +105,23 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model1.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1, rtol=1e-5, atol=1e-5)
 
-    # lpmm doesn't have Adam, so we use AdamW(weight_decay=0)
     @pytest.mark.skipif(lpmm is None, reason="lpmm is not availablle")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="lpmm 4-bit Adam only works for CUDA")
     @pytest.mark.xfail(not TORCH_VERSION_AFTER_2_3, reason="torch.compile() fails for PyTorch < 2.3")
-    @parametrize("ao_cls,ref_cls", [
-        (low_bit_optim.Adam4bit, partial(lpmm.optim.AdamW, weight_decay=0)),
-        (low_bit_optim.AdamW4bit, lpmm.optim.AdamW),
-    ])
-    def test_optim_4bit_correctness(self, ao_cls, ref_cls):
+    @parametrize("optim_name", ["Adam4bit", "AdamW4bit"])
+    def test_optim_4bit_correctness(self, optim_name):
         device = "cuda"
         model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
         model2 = copy.deepcopy(model1)
 
-        optim1 = ao_cls(model1.parameters())
-        optim2 = ref_cls(model2.parameters())
+        # lpmm doesn't have Adam. use AdamW with no weight decay instead.
+        if optim_name == "Adam4bit":
+            optim1 = lpmm.optim.AdamW(model1.parameters(), weight_decay=0)
+        elif optim_name == "AdamW4bit":
+            optim1 = lpmm.optim.AdamW(model1.parameters())
+        else:
+            raise ValueError(f"Unsupported {optim_name} optimizer for lpmm")
+        optim2 = getattr(low_bit_optim, optim_name)(model2.parameters())
 
         for _ in range(2):
             x = torch.randn(4, 32, device=device)
