@@ -49,9 +49,7 @@ def quantize_4bit_with_qmap(input: Tensor, qmap: Tensor, block_size: int, implem
         raise ValueError(f"Unsupported implementation={implementation}")
 
     # packing
-    codes1, codes2 = codes.chunk(2, 0)
-    codes = (codes1 << 4) | codes2
-
+    codes = (codes[::2] << 4) | codes[1::2]
     return codes, scale
 
 
@@ -90,9 +88,7 @@ class OptimState4bit(Tensor):
 
     def dequantize(self, output_dtype=None):
         # unpack
-        codes1 = self.codes >> 4
-        codes2 = self.codes & 0b1111
-        codes = torch.cat([codes1, codes2], 0)
+        codes = torch.stack([self.codes >> 4, self.codes & 0b1111], dim=-1)
 
         # torch.compile() cannot use uint8 as index
         float_data = self.qmap[codes.int()]

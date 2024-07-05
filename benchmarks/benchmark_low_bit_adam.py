@@ -11,6 +11,7 @@
 # To enable cosine learning rate scheduler, set --cosine_lr_scheduler
 
 import argparse
+import datetime
 import math
 from contextlib import nullcontext
 from functools import partial
@@ -175,6 +176,7 @@ if __name__ == "__main__":
 
     grad_scaler = torch.amp.GradScaler("cuda", enabled=args.amp == "fp16")
 
+    start_time = datetime.datetime.now()
     step = 0
     for epoch_idx in range(args.n_epochs):
         model.train()
@@ -214,4 +216,5 @@ if __name__ == "__main__":
             print(f"Epoch {epoch_idx + 1}/{args.n_epochs}: val_acc={val_acc.item() * 100:.2f}")
             logger.log(dict(val_acc=val_acc), step=step)
 
-    print(f"Max memory allocated: {torch.cuda.max_memory_allocated() / (1 << 30):.2f} GB")
+    print(f"Time taken: {(datetime.datetime.now() - start_time)}")
+    print(f"Max used: {torch.cuda.max_memory_allocated() / 1e9:.02f} GB")
