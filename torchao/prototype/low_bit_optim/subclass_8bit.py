@@ -65,9 +65,6 @@ def create_dynamic_map(signed=True, max_exponent_bits=7, total_bits=8):
 QMAP_SIGNED = create_dynamic_map(signed=True)
 QMAP_UNSIGNED = create_dynamic_map(signed=False)
 
-ZERO_CODE_SIGNED = QMAP_SIGNED.index(0)
-ZERO_CODE_UNSIGNED = QMAP_UNSIGNED.index(0)
-
 
 def quantize_8bit_with_qmap(input: Tensor, qmap: Tensor, block_size: int, implementation: int = 1):
     # section 2.1 from https://arxiv.org/abs/2110.02861
@@ -142,12 +139,6 @@ class OptimState8bit(Tensor):
     def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
         return cls(*[tensor_data_dict[name] for name in cls.tensor_attrs], *tensor_attributes)
 
-    @classmethod
-    def from_float(cls, input_float: Tensor, signed: bool = True, block_size: int = 2048):
-        qmap = torch.tensor(QMAP_SIGNED if signed else QMAP_UNSIGNED, device=input_float.device)
-        codes, scale = quantize_8bit_with_qmap(input_float, qmap, block_size)
-        return cls(codes.view(input_float.shape), scale, qmap, signed)
-
     def dequantize(self, output_dtype=None):
         # torch.compile() cannot use uint8 as index
         float_data = self.qmap[self.codes.int()]
@@ -158,10 +149,9 @@ class OptimState8bit(Tensor):
 
     @classmethod
     def zeros(cls, shape, signed: bool = True, block_size: int = 2048, device=None):
-        shape = (shape,) if isinstance(shape, int) else shape
-        codes = torch.full(shape, ZERO_CODE_SIGNED if signed else ZERO_CODE_UNSIGNED, dtype=torch.uint8, device=device)
+        codes = torch.zeros(shape, dtype=torch.uint8, device=device)
+        scale = torch.zeros(codes.numel() // block_size, device=device)
         qmap = torch.tensor(QMAP_SIGNED if signed else QMAP_UNSIGNED, device=device)
-        scale = torch.ones(codes.numel() // block_size, device=device)
         return cls(codes, scale, qmap, signed)
 
     def __repr__(self):
@@ -184,7 +174,7 @@ def _(func, *args, **kwargs):
     src = args[1]
 
     if isinstance(dst, OptimState8bit) and isinstance(src, OptimState8bit):
-        assert dst.signed == src.signed
+        assert dst.signed == src.signed and dst.block_size == src.block_size
         dst.codes.copy_(src.codes)
         dst.scale.copy_(src.scale)
         # qmap should be the same, don't need to copy

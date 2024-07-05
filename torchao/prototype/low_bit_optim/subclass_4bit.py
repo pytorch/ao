@@ -88,17 +88,11 @@ class OptimState4bit(Tensor):
     def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
         return cls(*[tensor_data_dict[name] for name in cls.tensor_attrs], *tensor_attributes)
 
-    @classmethod
-    def from_float(cls, input_float: Tensor, signed: bool = True, block_size: int = 128):
-        qmap = torch.tensor(QMAP_SIGNED if signed else QMAP_UNSIGNED, device=input_float.device)
-        codes, scale = quantize_4bit_with_qmap(input_float, qmap, block_size)
-        return cls(codes, scale, qmap, signed, block_size, input_float.shape)
-
     def dequantize(self, output_dtype=None):
         # unpack
         codes1 = self.codes >> 4
         codes2 = self.codes & 0b1111
-        codes = torch.stack([codes1, codes2], -1)
+        codes = torch.cat([codes1, codes2], 0)
 
         # torch.compile() cannot use uint8 as index
         float_data = self.qmap[codes.int()]
@@ -137,7 +131,11 @@ def _(func, *args, **kwargs):
     src = args[1]
 
     if isinstance(dst, OptimState4bit) and isinstance(src, OptimState4bit):
-        assert dst.signed == src.signed and dst._shape == src._shape
+        assert (
+            dst.signed == src.signed
+            and dst.block_size == src.block_size
+            and dst._shape == src._shape
+        )
         dst.codes.copy_(src.codes)
         dst.scale.copy_(src.scale)
         # qmap should be the same, don't need to copy
