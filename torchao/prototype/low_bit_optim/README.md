@@ -25,20 +25,18 @@ To use 4-bit Adam, replace the above with `Adam4bit`. You can also change quanti
 NOTE:
 - The low-bit optimizers require PyTorch >= 2.3
 - For 4-bit optimizers, we don't implement rank-1 normalization for quantizing 2nd moment as originally done in the paper.
+- **Known issue**: When learning rate is updated every step (e.g. using cosine learning rate scheduler), training speed is slower. This is because we have to convert learning rate to a CUDA tensor (which incurs expensive memory transfer cost), since torch.compile() will treat a Python float as a constant and trigger recompile whenever the value is changed.
 
 ## Benchmarks
 
-Benchmark script for fine-tuning a [timm](https://github.com/huggingface/pytorch-image-models) model on [resisc45](https://huggingface.co/datasets/timm/resisc45) dataset is available at [benchmarks/benchmark_adam_8bit.py](../../../benchmarks/benchmark_adam_8bit.py).
+Benchmark script for fine-tuning a [timm](https://github.com/huggingface/pytorch-image-models) model on [resisc45](https://huggingface.co/datasets/timm/resisc45) dataset is available at [benchmarks/benchmark_low_bit_adam.py](../../../benchmarks/benchmark_low_bit_adam.py).
 
 Results for fine-tuning ViT-B with BF16 AMP, on 4070Ti SUPER:
 
+TODO: update this table
+
 Adam impl | max memory (GB) | training time | accuracy
 ----------|-----------------|---------------|----------
-PyTorch   | 5.26            | 9m 11s        | 93.62%
-bnb 8-bit | 4.78            | 9m 10s        | 93.06%
-ao 8-bit  | 4.78            | 9m 15s        | 94.14%
-
-**Known issue**: When learning rate is updated every step (e.g. using cosine learning rate scheduler), training speed is slower. This is because we have to convert learning rate to a CUDA tensor (which incurs expensive memory transfer cost), since torch.compile() will treat a Python float as a constant and trigger recompile whenever the value is changed
 
 ## Credits
 
