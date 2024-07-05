@@ -106,9 +106,9 @@ class TestOptim(TestCase):
             torch.testing.assert_close(p2, p1, rtol=1e-5, atol=1e-5)
 
     # lpmm doesn't have Adam, so we use AdamW(weight_decay=0)
-    # @pytest.mark.xfail(not TORCH_VERSION_AFTER_2_3, reason="torch.compile() fails for PyTorch < 2.3")
     @pytest.mark.skipif(lpmm is None, reason="lpmm is not availablle")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="lpmm 4-bit Adam only works for CUDA")
+    @pytest.mark.xfail(not TORCH_VERSION_AFTER_2_3, reason="torch.compile() fails for PyTorch < 2.3")
     @parametrize("ao_cls,ref_cls", [
         (low_bit_optim.Adam4bit, partial(lpmm.optim.AdamW, weight_decay=0)),
         (low_bit_optim.AdamW4bit, lpmm.optim.AdamW),
