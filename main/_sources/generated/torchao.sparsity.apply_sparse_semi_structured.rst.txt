@@ -1,9 +1,0 @@
-﻿.. role:: hidden
-    :class: hidden-section
-.. currentmodule:: torchao.sparsity
-
-
-apply_sparse_semi_structured
-============================
-
-.. autofunction:: apply_sparse_semi_structured
