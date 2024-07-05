@@ -286,14 +286,20 @@ def run(
     elif compress == "sparse_mlp_only":
         def mlp_only(mod, name):
             return isinstance(mod, torch.nn.Linear) and 'mlp' in name
-        from torchao.sparsity import apply_sparse_semi_structured
-        apply_sparse_semi_structured(predictor.model.image_encoder, filter_fn=mlp_only)
+        from torchao.sparsity import sparsify
+        from torch.sparse import to_sparse_semi_structured, apply_fake_sparsity
+        apply_fake_sparsity(predictor.model.image_encoder, filter_fn=mlp_only)
+        predictor.model.image_encoder = sparsify(predictor.model.image_encoder, to_sparse_semi_structured, filter_fn=mlp_only)
     elif compress == "sparse":
-        from torchao.sparsity import apply_sparse_semi_structured
-        apply_sparse_semi_structured(predictor.model.image_encoder)
+        from torchao.sparsity import sparsify
+        from torch.sparse import to_sparse_semi_structured, apply_fake_sparsity
+        apply_fake_sparsity(predictor.model.image_encoder)
+        predictor.model.image_encoder = sparsify(predictor.model.image_encoder, to_sparse_semi_structured)
     elif compress == "int8_dynamic_quant_sparse":
-        from torchao.sparsity.prototype.dynamic_quant_sparse import Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight
-        from torchao.sparsity import apply_fake_sparsity, apply_sparse_semi_structured
+        from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensor
+        SparseSemiStructuredTensor._FORCE_CUTLASS = False
+        from torchao.sparsity import sparsify, apply_fake_sparsity
+        from torchao.sparsity.prototype.dynamic_quant_sparse import int8_dynamic_activation_int8_2x4_sparse_weight
         from torchao.quantization import quantize, int8_dynamic_activation_int8_weight
         from torchao.utils import unwrap_tensor_subclass
 
@@ -306,6 +312,7 @@ def run(
         def mlp_only(mod, name):
             return isinstance(mod, torch.nn.Linear) and 'mlp' in name
 
+        # apply sparsify first to set qparams
         apply_fake_sparsity(predictor.model.image_encoder,
                             filter_fn=mlp_only)
 
@@ -314,10 +321,13 @@ def run(
                                                  attn_only)
         predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
 
-        predictor.model.image_encoder = quantize(predictor.model.image_encoder,
-                                                 Int8DynamicallyQuantized24CusparseltLinearFuseMulWeight.from_float,
-                                                 mlp_lin1_only)
-        apply_sparse_semi_structured(predictor.model.image_encoder, filter_fn=mlp_lin2_only)
+        predictor.model.image_encoder = sparsify(predictor.model.image_encoder,
+                                                 int8_dynamic_activation_int8_2x4_sparse_weight(),
+                                                 mlp_lin1_only, prune=False)
+
+        predictor.model.image_encoder = sparsify(predictor.model.image_encoder,
+                                                 to_sparse_semi_structured,
+                                                 mlp_lin2_only, prune=False)
     else:
         assert compress is None, f"Unsupported compress mode {compress}"
 
