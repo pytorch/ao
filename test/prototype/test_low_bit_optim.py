@@ -111,6 +111,7 @@ class TestOptim(TestCase):
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="lpmm 4-bit Adam only works for CUDA")
     @parametrize("ao_cls,ref_cls", [
         (low_bit_optim.Adam4bit, partial(lpmm.optim.AdamW, weight_decay=0)),
+        (low_bit_optim.AdamW4bit, lpmm.optim.AdamW),
     ])
     def test_optim_4bit_correctness(self, ao_cls, ref_cls):
         device = "cuda"
