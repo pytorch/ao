@@ -612,6 +612,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
         self.groupsize: int = groupsize
         self.padding_allowed: bool = padding_allowed
         self.device: torch.device = device
+        # precision and dtype are being used interchangeably here
         self.precision: torch.dtype = precision
 
     @torch.no_grad()
@@ -652,7 +653,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
                     weight,
                     4,  # n_bit
                     self.groupsize,
-                    self.precision, # precision for scales_and_zeros
+                    self.precision, # dtype for scales_and_zeros
                 )
                 weight_int4pack = torch.ops.aten._convert_weight_to_int4pack(w_int4x8.to(self.device), self.inner_k_tiles)
                 cur_state_dict[f"{fqn}.weight"] = weight_int4pack.to(self.device)
