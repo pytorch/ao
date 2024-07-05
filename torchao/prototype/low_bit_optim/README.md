@@ -1,23 +1,30 @@
-# 8-bit optimizers
+# Low-bit optimizers
 
-This folder implements 8-bit optimizers using dynamic tree quantization as outlined in https://arxiv.org/abs/2110.02861. The implementation is fully done in Python (with tensor subclass) and relies on `torch.compile()` to generate efficient fused kernel.
+This folder implements:
+
+- 8-bit optimizers as outlined in https://arxiv.org/abs/2110.02861
+- 4-bit optimizers as outlined in https://arxiv.org/abs/2309.01507
+
+The implementation is fully done in Python (with tensor subclass) and relies on `torch.compile()` to generate efficient fused kernel.
 
 ## Usage
 
 This is a drop-in replacement for `torch.optim.Adam`
 
 ```python
-from torchao.prototype.optim_8bit import Adam8bit
+from torchao.prototype.low_bit_optim import Adam8bit
 
 model = ...
 optim = Adam8bit(model.parameters())
 ```
 
-You can also change quantization block size (default 2048) by passing `block_size=value` to the optimizer.
+To use 4-bit Adam, replace the above with `Adam4bit`. You can also change quantization block size by passing `block_size=value` to the optimizer. By default, block size is 2048 for 8-bit optimizers, and 128 for 4-bit optimizers.
 
-**Other optimizers**: AdamW is also available as `AdamW8bit`.
+**Other optimizers**: AdamW is also available as `AdamW8bit` and `AdamW4bit`. Other optimizers can be added based on demand.
 
-NOTE: this requires PyTorch >= 2.3
+NOTE:
+- The low-bit optimizers require PyTorch >= 2.3
+- For 4-bit optimizers, we don't implement rank-1 normalization for quantizing 2nd moment as originally done in the paper.
 
 ## Benchmarks
 
@@ -35,4 +42,4 @@ ao 8-bit  | 4.78            | 9m 15s        | 94.14%
 
 ## Credits
 
-Credits to Tim Dettmers for creating the wonderful bitsandbytes library.
+Credits to Tim Dettmers for creating the wonderful [bitsandbytes](https://github.com/TimDettmers/bitsandbytes) library, and [lpmm](https://github.com/thu-ml/low-bit-optimizers) authors for their work on 4-bit optimizers.

@@ -10,7 +10,7 @@ from .subclass_8bit import create_dynamic_map
 aten = torch.ops.aten
 
 
-# https://github.com/thu-ml/low-bit-optimizers/blob/e3e2854728e498c2a606e3fdb88daa27ae94f9a6/lpmm/configs/default.yml
+# https://github.com/thu-ml/low-bit-optimizers/blob/e3e2854728e498c2a606e3fdb88daa27ae94f9a6/lpmm/configs/2nd_moment_group_128.yml
 # NOTE: power-1 is linear
 QMAP_SIGNED = create_dynamic_map(True, 3, 4)
 QMAP_UNSIGNED = torch.linspace(0, 1, 17)[1:].tolist()  # no zero

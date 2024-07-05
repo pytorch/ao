@@ -6,7 +6,7 @@
 #   --amp bf16 \
 #   --optim Adam
 #
-# To use bnb 8-bit optimizer, set --optim Adam8bitBnb. To use 8-bit optimizer implemented in torchao, set --optim Adam8bitAo
+# See OPTIM_MAP for the available optimizer options
 # To profile and export chrome trace, set --profile
 # To enable cosine learning rate scheduler, set --cosine_lr_scheduler
 
