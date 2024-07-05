@@ -37,7 +37,7 @@ def sparsify(model: torch.nn.Module,
     This function is essentially the same as quantize, put for sparsity subclasses.
 
     Currently, we support two options for sparsity:
-        - semi-sturctured (2:4) sparsity with `to_sparse_semi_structured`
+        - semi-structured (2:4) sparsity with `to_sparse_semi_structured`
         - int8 dynamic quantization + 2:4 sparsity with `int8_dynamic_activation_int8_2x4_sparse_weight`, which is also available via the quantize API
 
     Args:
@@ -61,7 +61,7 @@ def sparsify(model: torch.nn.Module,
         m = sparsify(m, to_sparse_semi_structured, filter_fn)
 
         # for int8 dynamic quantization + 2:4 sparsity
-        from torchao.sparity.prototype import int8_dynamic_activation_int8_2x4_sparse_weight
+        from torchao.sparsity.prototype import int8_dynamic_activation_int8_2x4_sparse_weight
         m = sparsify(m, int8_dynamic_activation_int8_2x4_sparse_weight(), filter_fn)
     """
     _replace_with_custom_fn_if_matches_filter(
