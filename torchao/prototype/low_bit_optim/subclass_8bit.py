@@ -54,9 +54,9 @@ def create_dynamic_map(signed=True, max_exponent_bits=7, total_bits=8):
 
     assert len(data) == 2**total_bits
 
-    gap = 256 - len(data)
-    for i in range(gap):
-        data.append(0)
+    # gap = 256 - len(data)
+    # for i in range(gap):
+    #     data.append(0)
 
     data.sort()
     return data
@@ -200,7 +200,7 @@ def _(func, *args, **kwargs):
 # only apply quantization for tensor with more than 4096 values
 # TODO: also skip 1D tensor? e.g. biases and norm scales
 def maybe_new_8bit_zero_buffer(p: Tensor, signed: bool = True, block_size: int = 2048):
-    if p.numel() >= 4096 and p.numel() %block_size == 0:
+    if p.numel() >= 4096 and p.numel() % block_size == 0:
         out = OptimState8bit.zeros(p.shape, signed, block_size, device=p.device)
     else:
         out = torch.zeros_like(p)

@@ -46,7 +46,7 @@ class TestQuantize(TestCase):
         qmap = torch.tensor(subclass_8bit.QMAP_SIGNED, device=device)
 
         compiled_f = torch.compile(subclass_8bit.quantize_8bit_with_qmap, fullgraph=True)
-        actual_codes, actual_scale = f(x, qmap, 256)
+        actual_codes, actual_scale = compiled_f(x, qmap, 256)
         expected_codes, expected_scale = subclass_8bit.quantize_8bit_with_qmap(x, qmap, 256)
 
         torch.testing.assert_close(actual_codes, expected_codes)
@@ -69,7 +69,7 @@ class TestQuantize(TestCase):
         qmap = torch.tensor(subclass_4bit.QMAP_SIGNED, device=device)
 
         compiled_f = torch.compile(subclass_4bit.quantize_4bit_with_qmap, fullgraph=True)
-        actual_codes, actual_scale = f(x, qmap, 256)
+        actual_codes, actual_scale = compiled_f(x, qmap, 256)
         expected_codes, expected_scale = subclass_4bit.quantize_4bit_with_qmap(x, qmap, 256)
 
         torch.testing.assert_close(actual_codes, expected_codes)
@@ -110,7 +110,7 @@ class TestOptim(TestCase):
     @pytest.mark.skipif(lpmm is None, reason="lpmm is not availablle")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="lpmm 4-bit Adam only works for CUDA")
     @parametrize("ao_cls,ref_cls", [
-        (low_bit_optim.Adam, partial(lpmm.optim.Adam, weight_decay=0)),
+        (low_bit_optim.Adam4bit, partial(lpmm.optim.AdamW, weight_decay=0)),
     ])
     def test_optim_4bit_correctness(self, ao_cls, ref_cls):
         device = "cuda"
