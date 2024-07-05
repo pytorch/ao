@@ -1,7 +1,7 @@
 # pip install timm wandb tqdm datasets yacs bitsandbytes git+https://github.com/thu-ml/low-bit-optimizers.git
 # To fine-tune a pre-trained ViT-Base on resisc45 dataset with BF16 AMP, using default Adam optimizer from PyTorch core
 #
-# python benchmarks_adam_8bit.py \
+# python benchmark_low_bit_adam.py \
 #   --model "timm/vit_base_patch16_224.augreg_in21k" \
 #   --amp bf16 \
 #   --optim Adam
