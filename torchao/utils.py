@@ -213,10 +213,13 @@ def unwrap_tensor_subclass(model, filter_fn=None):
             parametrize.register_parametrization(child, "weight", UnwrapTensorSubclass())
         unwrap_tensor_subclass(child)
     return model
+	
+def is_fbcode():
+    return not hasattr(torch.version, "git_version")
 
 
 def torch_version_at_least(min_version):
-    return version("torch") >= min_version
+    return is_fbcode() or version("torch") >= min_version
 
 TORCH_VERSION_AFTER_2_5 = torch_version_at_least("2.5.0.dev")
 TORCH_VERSION_AFTER_2_4 = torch_version_at_least("2.4.0.dev")
