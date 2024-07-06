@@ -37,6 +37,7 @@ OPTIM_MAP = dict(
     Adam8bitAo=Adam8bit,
     Adam4bitLpmm=partial(lpmm.optim.AdamW, weight_decay=0, fused=True),
     Adam4bitAo=Adam4bit,
+    Adam4bitRank1Lpmm=partial(lpmm.optim.AdamW, weight_decay=0, qconfig=argparse.Namespace(scale_type="rank1")),
 )
 
 
@@ -92,6 +93,7 @@ def get_parser():
     parser.add_argument("--project")
     parser.add_argument("--run_name", default="debug")
     parser.add_argument("--profile", action="store_true")
+    parser.add_argument("--seed", type=int)
     return parser
 
 
@@ -155,6 +157,8 @@ if __name__ == "__main__":
 
     if args.profile:
         args.n_epochs = 1
+    if args.seed is not None:
+        torch.manual_seed(args.seed)
 
     for k, v in vars(args).items():
         print(f"{k}: {v}")
@@ -176,11 +180,11 @@ if __name__ == "__main__":
 
     grad_scaler = torch.amp.GradScaler("cuda", enabled=args.amp == "fp16")
 
-    start_time = datetime.datetime.now()
     step = 0
     for epoch_idx in range(args.n_epochs):
         model.train()
         prof = profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) if args.profile else nullcontext()
+        start_time = datetime.datetime.now()
 
         with prof:
             for batch in tqdm(dloader, dynamic_ncols=True, desc=f"Epoch {epoch_idx + 1}/{args.n_epochs}"):
@@ -212,9 +216,10 @@ if __name__ == "__main__":
             prof.export_chrome_trace("trace.json")
 
         else:
+            print(f"Time taken for epoch {epoch_idx + 1}: {(datetime.datetime.now() - start_time)}")
+
             val_acc = evaluate_model(model, args)
             print(f"Epoch {epoch_idx + 1}/{args.n_epochs}: val_acc={val_acc.item() * 100:.2f}")
             logger.log(dict(val_acc=val_acc), step=step)
 
-    print(f"Time taken: {(datetime.datetime.now() - start_time)}")
-    print(f"Max used: {torch.cuda.max_memory_allocated() / 1e9:.02f} GB")
+    print(f"Max memory used: {torch.cuda.max_memory_allocated() / 1e9:.02f} GB")
