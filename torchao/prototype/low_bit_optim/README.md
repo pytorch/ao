@@ -31,17 +31,15 @@ NOTE:
 
 Benchmark script for fine-tuning a [timm](https://github.com/huggingface/pytorch-image-models) model on [resisc45](https://huggingface.co/datasets/timm/resisc45) dataset is available at [benchmarks/benchmark_low_bit_adam.py](../../../benchmarks/benchmark_low_bit_adam.py).
 
-Results for fine-tuning ViT-H (630M params) with BF16 AMP, batch size 4, 1 epoch, on 4070Ti SUPER:
+Results for fine-tuning ViT-H (630M params) with BF16 AMP, batch size 8, on 4070Ti SUPER, with fixed random seed:
 
-Adam impl  | max memory (GB) | time taken | accuracy
------------|-----------------|------------|----------
-PyTorch    | 12.98           | 10m 08s    | 87.70
-bnb 8-bit  |  8.31           |  8m 38s    | 86.22
-ao 8-bit   |  8.32           | 10m 54s    | 86.67
-lpmm 4-bit |  7.72           |  7m 48s    | 84.70
-ao 4-bit   |  7.72           |  9m 17s    | 85.60
-
-NOTE: time taken includes validation time, and compile time for torchao optimizers.
+Adam impl  | max memory (GB) | time taken for 2nd epoch | accuracy
+-----------|-----------------|--------------------- ----|----------
+PyTorch    | 12.94           | 8m 18s                   | 91.14
+bnb 8-bit  |  8.31           | 6m 50s                   | 90.67
+ao 8-bit   |  8.32           | 9m 04s                   | 90.71
+lpmm 4-bit |  7.72           | 5m 59s                   | 89.97
+ao 4-bit   |  7.72           | 7m 00s                   | 89.94
 
 ## Credits
 
