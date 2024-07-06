@@ -139,7 +139,7 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model1.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1, rtol=1e-5, atol=1e-5)
 
-    @pytest.mark.skipif(not TORCH_VERSION_AFTER_2_3, reason="fp8 requires PyTorch >= 2.3")
+    @pytest.mark.xfail(not TORCH_VERSION_AFTER_2_3, reason="torch.compile() fails for PyTorch < 2.3")
     @parametrize("optim_name", ["AdamFp8", "AdamWFp8"])
     @parametrize("device", _DEVICES)
     def test_optim_fp8_smoke(self, optim_name, device):
