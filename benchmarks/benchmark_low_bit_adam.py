@@ -35,10 +35,10 @@ OPTIM_MAP = dict(
     Adam=torch.optim.Adam,
     Adam8bitBnb=bnb.optim.Adam8bit,
     Adam8bitAo=low_bit_optim.Adam8bit,
+    AdamFp8Ao=low_bit_optim.AdamFp8,
     Adam4bitLpmm=partial(lpmm.optim.AdamW, weight_decay=0, fused=True),
     Adam4bitAo=low_bit_optim.Adam4bit,
     Adam4bitRank1Lpmm=partial(lpmm.optim.AdamW, weight_decay=0, qconfig=argparse.Namespace(scale_type="rank1")),
-    AdamFp8Ao=low_bit_optim.AdamFp8,
 )
 
 
