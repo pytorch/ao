@@ -7,6 +7,7 @@ aten = torch.ops.aten
 
 
 # https://github.com/TimDettmers/bitsandbytes/blob/dada530149212d64d4b69534716202659ef37ec8/bitsandbytes/functional.py#L339-L391
+# NOTE: zero padding is removed so this function can work with 4-bit qmap
 def create_dynamic_map(signed=True, max_exponent_bits=7, total_bits=8):
     """
     Creates the dynamic quantiztion map.
@@ -53,10 +54,6 @@ def create_dynamic_map(signed=True, max_exponent_bits=7, total_bits=8):
     data.append(1.0)
 
     assert len(data) == 2**total_bits
-
-    # gap = 256 - len(data)
-    # for i in range(gap):
-    #     data.append(0)
 
     data.sort()
     return data
