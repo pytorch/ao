@@ -4,6 +4,7 @@ This folder implements:
 
 - 8-bit optimizers as outlined in https://arxiv.org/abs/2110.02861
 - 4-bit optimizers as outlined in https://arxiv.org/abs/2309.01507
+- FP8 optimizers using the native `torch.float8_e4m3fn` dtype (experimental)
 
 The implementation is fully done in Python (with tensor subclass) and relies on `torch.compile()` to generate efficient fused kernel.
 
@@ -18,9 +19,9 @@ model = ...
 optim = Adam8bit(model.parameters())
 ```
 
-To use 4-bit Adam, replace the above with `Adam4bit`. You can also change quantization block size by passing `block_size=value` to the optimizer. By default, block size is 2048 for 8-bit optimizers, and 128 for 4-bit optimizers.
+To use 4-bit Adam, replace the above with `Adam4bit`. Similarly for `AdamFp8`. You can also change quantization block size by passing `block_size=value` to the optimizer. By default, block size is 2048 for 8-bit and FP8 optimizers, and 128 for 4-bit optimizers.
 
-**Other optimizers**: AdamW is also available as `AdamW8bit` and `AdamW4bit`. Other optimizers can be added based on demand.
+**Other optimizers**: AdamW is also available as `AdamW8bit`, `AdamW4bit`, and `AdamWFp8`. Other optimizers can be added based on demand.
 
 NOTE:
 - The low-bit optimizers require PyTorch >= 2.3
@@ -38,6 +39,7 @@ Adam impl      | max memory (GB) | time taken for 2nd epoch | accuracy
 PyTorch        | 12.94           |  8m 18s                  | 91.14
 bnb 8-bit      |  8.31           |  6m 50s                  | 90.67
 ao 8-bit       |  8.32           |  9m 04s                  | 90.71
+ao FP8 E4M3    |  8.32           |  6m 38s                  | 91.08
 lpmm 4-bit     |  7.72           |  5m 59s                  | 89.97
 ao 4-bit       |  7.72           |  7m 00s                  | 89.94
 lpmm 4-bit (*) |  7.73           | 11m 10s                  | 89.71
