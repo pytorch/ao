@@ -1,22 +1,25 @@
-# pip install timm wandb tqdm datasets
+# pip install timm wandb tqdm datasets yacs bitsandbytes git+https://github.com/thu-ml/low-bit-optimizers.git
 # To fine-tune a pre-trained ViT-Base on resisc45 dataset with BF16 AMP, using default Adam optimizer from PyTorch core
-# 
-# python benchmarks_adam_8bit.py \
+#
+# python benchmark_low_bit_adam.py \
 #   --model "timm/vit_base_patch16_224.augreg_in21k" \
 #   --amp bf16 \
 #   --optim Adam
-# 
-# To use bnb 8-bit optimizer, set --optim Adam8bitBnb. To use 8-bit optimizer implemented in torchao, set --optim Adam8bitAo
+#
+# See OPTIM_MAP for the available optimizer options
 # To profile and export chrome trace, set --profile
 # To enable cosine learning rate scheduler, set --cosine_lr_scheduler
 
 import argparse
+import datetime
 import math
 from contextlib import nullcontext
+from functools import partial
 from pathlib import Path
 
 import bitsandbytes as bnb
 import datasets
+import lpmm
 import timm
 import torch
 import torch.nn.functional as F
@@ -25,7 +28,16 @@ from torch.utils.data import DataLoader
 from torchvision.transforms import v2
 from tqdm import tqdm
 
-from torchao.prototype.optim_8bit import Adam8bit
+from torchao.prototype.low_bit_optim import Adam4bit, Adam8bit
+
+# lpmm doesn't have Adam, only AdamW
+OPTIM_MAP = dict(
+    Adam=torch.optim.Adam,
+    Adam8bitBnb=bnb.optim.Adam8bit,
+    Adam8bitAo=Adam8bit,
+    Adam4bitLpmm=partial(lpmm.optim.AdamW, weight_decay=0, fused=True),
+    Adam4bitAo=Adam4bit,
+)
 
 
 class CosineSchedule:
@@ -72,7 +84,7 @@ def get_parser():
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--n_workers", type=int, default=4)
 
-    parser.add_argument("--optim", default="Adam")
+    parser.add_argument("--optim", default="Adam", choices=OPTIM_MAP.keys())
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight_decay", type=float, default=0)
     parser.add_argument("--cosine_lr_scheduler", action="store_true")
@@ -159,16 +171,12 @@ if __name__ == "__main__":
         model.compile(fullgraph=True)
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
-    OPTIM_MAP = dict(
-        Adam=torch.optim.Adam,
-        Adam8bitBnb=bnb.optim.Adam8bit,
-        Adam8bitAo=Adam8bit,
-    )
     optim = OPTIM_MAP[args.optim](model.parameters(), args.lr, weight_decay=args.weight_decay)
     lr_schedule = CosineSchedule(args.lr, len(dloader) * args.n_epochs)
 
     grad_scaler = torch.amp.GradScaler("cuda", enabled=args.amp == "fp16")
 
+    start_time = datetime.datetime.now()
     step = 0
     for epoch_idx in range(args.n_epochs):
         model.train()
@@ -208,4 +216,5 @@ if __name__ == "__main__":
             print(f"Epoch {epoch_idx + 1}/{args.n_epochs}: val_acc={val_acc.item() * 100:.2f}")
             logger.log(dict(val_acc=val_acc), step=step)
 
-    print(f"Max memory allocated: {torch.cuda.max_memory_allocated() / (1 << 30):.2f} GB")
+    print(f"Time taken: {(datetime.datetime.now() - start_time)}")
+    print(f"Max used: {torch.cuda.max_memory_allocated() / 1e9:.02f} GB")

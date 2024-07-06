@@ -7,6 +7,7 @@ aten = torch.ops.aten
 
 
 # https://github.com/TimDettmers/bitsandbytes/blob/dada530149212d64d4b69534716202659ef37ec8/bitsandbytes/functional.py#L339-L391
+# NOTE: zero padding is removed so this function can work with 4-bit qmap
 def create_dynamic_map(signed=True, max_exponent_bits=7, total_bits=8):
     """
     Creates the dynamic quantiztion map.
@@ -54,19 +55,12 @@ def create_dynamic_map(signed=True, max_exponent_bits=7, total_bits=8):
 
     assert len(data) == 2**total_bits
 
-    gap = 256 - len(data)
-    for i in range(gap):
-        data.append(0)
-
     data.sort()
     return data
 
 
 QMAP_SIGNED = create_dynamic_map(signed=True)
 QMAP_UNSIGNED = create_dynamic_map(signed=False)
-
-ZERO_CODE_SIGNED = QMAP_SIGNED.index(0)
-ZERO_CODE_UNSIGNED = QMAP_UNSIGNED.index(0)
 
 
 def quantize_8bit_with_qmap(input: Tensor, qmap: Tensor, block_size: int, implementation: int = 1):
@@ -111,7 +105,7 @@ def quantize_8bit_with_qmap(input: Tensor, qmap: Tensor, block_size: int, implem
 # dynamic tree quantization
 # https://arxiv.org/pdf/1511.04561
 # https://arxiv.org/abs/2110.02861
-class DTQ8bit(Tensor):
+class OptimState8bit(Tensor):
     implements = classmethod(_implements)
     tensor_attrs = ["codes", "scale", "qmap"]
 
@@ -142,12 +136,6 @@ class DTQ8bit(Tensor):
     def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
         return cls(*[tensor_data_dict[name] for name in cls.tensor_attrs], *tensor_attributes)
 
-    @classmethod
-    def from_float(cls, input_float: Tensor, signed: bool = True, block_size: int = 2048):
-        qmap = torch.tensor(QMAP_SIGNED if signed else QMAP_UNSIGNED, device=input_float.device)
-        codes, scale = quantize_8bit_with_qmap(input_float, qmap, block_size)
-        return cls(codes.view(input_float.shape), scale, qmap, signed)
-
     def dequantize(self, output_dtype=None):
         # torch.compile() cannot use uint8 as index
         float_data = self.qmap[self.codes.int()]
@@ -158,10 +146,9 @@ class DTQ8bit(Tensor):
 
     @classmethod
     def zeros(cls, shape, signed: bool = True, block_size: int = 2048, device=None):
-        shape = (shape,) if isinstance(shape, int) else shape
-        codes = torch.full(shape, ZERO_CODE_SIGNED if signed else ZERO_CODE_UNSIGNED, dtype=torch.uint8, device=device)
+        codes = torch.zeros(shape, dtype=torch.uint8, device=device)
+        scale = torch.zeros(codes.numel() // block_size, device=device)
         qmap = torch.tensor(QMAP_SIGNED if signed else QMAP_UNSIGNED, device=device)
-        scale = torch.ones(codes.numel() // block_size, device=device)
         return cls(codes, scale, qmap, signed)
 
     def __repr__(self):
@@ -178,18 +165,18 @@ class DTQ8bit(Tensor):
         raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run {func}, this is not supported")
 
 
-@DTQ8bit.implements(aten.copy_.default)
+@OptimState8bit.implements(aten.copy_.default)
 def _(func, *args, **kwargs):
     dst = args[0]
     src = args[1]
 
-    if isinstance(dst, DTQ8bit) and isinstance(src, DTQ8bit):
-        assert dst.signed == src.signed
+    if isinstance(dst, OptimState8bit) and isinstance(src, OptimState8bit):
+        assert dst.signed == src.signed and dst.block_size == src.block_size
         dst.codes.copy_(src.codes)
         dst.scale.copy_(src.scale)
         # qmap should be the same, don't need to copy
 
-    elif isinstance(dst, DTQ8bit):
+    elif isinstance(dst, OptimState8bit):
         codes, scale = quantize_8bit_with_qmap(src, dst.qmap, dst.block_size)
         dst.codes.copy_(codes)
         dst.scale.copy_(scale)
@@ -200,18 +187,18 @@ def _(func, *args, **kwargs):
     return dst
 
 
-@DTQ8bit.implements(aten.lerp.Scalar)
+@OptimState8bit.implements(aten.lerp.Scalar)
 def _(func, *args, **kwargs):
-    args = [x.dequantize() if isinstance(x, DTQ8bit) else x for x in args]
+    args = [x.dequantize() if isinstance(x, OptimState8bit) else x for x in args]
     return func(*args, **kwargs)
 
 
 # follow bitsandbytes
 # only apply quantization for tensor with more than 4096 values
 # TODO: also skip 1D tensor? e.g. biases and norm scales
-def maybe_new_zero_buffer(p: Tensor, signed: bool = True, block_size: int = 2048):
-    if p.numel() >= 4096 and p.numel() %block_size == 0:
-        out = DTQ8bit.zeros(p.shape, signed, block_size, device=p.device)
+def maybe_new_8bit_zero_buffer(p: Tensor, signed: bool = True, block_size: int = 2048):
+    if p.numel() >= 4096 and p.numel() % block_size == 0:
+        out = OptimState8bit.zeros(p.shape, signed, block_size, device=p.device)
     else:
         out = torch.zeros_like(p)
     return out
