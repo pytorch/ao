@@ -37,7 +37,7 @@ OPTIM_MAP = dict(
     Adam8bitAo=Adam8bit,
     Adam4bitLpmm=partial(lpmm.optim.AdamW, weight_decay=0, fused=True),
     Adam4bitAo=Adam4bit,
-    Adam4bitRank1Lpmm=partial(lpmm.optim.AdamW, weight_decay=0, qconfig=argparse.Namespace(scale_type="rank1"))
+    Adam4bitRank1Lpmm=partial(lpmm.optim.AdamW, weight_decay=0, qconfig=argparse.Namespace(scale_type="rank1")),
 )
 
 
