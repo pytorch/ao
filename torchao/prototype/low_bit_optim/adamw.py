@@ -6,6 +6,7 @@ from torch.optim import Optimizer
 
 from .subclass_8bit import maybe_new_8bit_zero_buffer
 from .subclass_4bit import maybe_new_4bit_zero_buffer
+from .subclass_fp8 import maybe_new_fp8_zero_buffer
 
 
 class _AdamW(Optimizer):
@@ -154,3 +155,22 @@ class AdamW4bit(_AdamW):
         super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size)
 
     _new_buffer = staticmethod(maybe_new_4bit_zero_buffer)
+
+
+class AdamWFp8(_AdamW):
+    def __init__(
+        self,
+        params,
+        lr=1e-3,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+        weight_decay=1e-2,
+        amsgrad=False,
+        *,
+        block_size=2048
+    ) -> None:
+        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size)
+
+    @staticmethod
+    def _new_buffer(p: Tensor, signed: bool, block_size: int):
+        return maybe_new_fp8_zero_buffer(p, block_size)

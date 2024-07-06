@@ -139,6 +139,19 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model1.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1, rtol=1e-5, atol=1e-5)
 
+    @pytest.mark.skipif(not TORCH_VERSION_AFTER_2_3, reason="fp8 requires PyTorch >= 2.3")
+    @parametrize("optim_name", ["AdamFp8", "AdamWFp8"])
+    @parametrize("device", _DEVICES)
+    def test_optim_fp8_smoke(self, optim_name, device):
+        model = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
+        optim = getattr(low_bit_optim, optim_name)(model.parameters())
+
+        x = torch.randn(4, 32, device=device)
+        loss = model(x).sum()
+        loss.backward()
+        optim.step()
+        optim.zero_grad()
+
 
 instantiate_parametrized_tests(TestQuantize)
 instantiate_parametrized_tests(TestOptim)
