@@ -28,15 +28,16 @@ from torch.utils.data import DataLoader
 from torchvision.transforms import v2
 from tqdm import tqdm
 
-from torchao.prototype.low_bit_optim import Adam4bit, Adam8bit
+from torchao.prototype import low_bit_optim
 
 # lpmm doesn't have Adam, only AdamW
 OPTIM_MAP = dict(
     Adam=torch.optim.Adam,
     Adam8bitBnb=bnb.optim.Adam8bit,
-    Adam8bitAo=Adam8bit,
+    Adam8bitAo=low_bit_optim.Adam8bit,
+    AdamFp8Ao=low_bit_optim.AdamFp8,
     Adam4bitLpmm=partial(lpmm.optim.AdamW, weight_decay=0, fused=True),
-    Adam4bitAo=Adam4bit,
+    Adam4bitAo=low_bit_optim.Adam4bit,
     Adam4bitRank1Lpmm=partial(lpmm.optim.AdamW, weight_decay=0, qconfig=argparse.Namespace(scale_type="rank1")),
 )
 
