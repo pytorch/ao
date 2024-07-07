@@ -170,11 +170,12 @@ class CUDAPerformanceTimer(PerformanceTimer):
 
 class PerformanceCounterManager:
     COUNT_KEYS = ["label", "num_tokens", "elapsed", "throughput", "total_flops", "flops_table", "flop_counts"]
-    def __init__(self, depth=10, timer_cls=PerformanceTimer, verbose=False):
+    def __init__(self, depth=10, timer_cls: PerformanceTimer=PerformanceTimer, device_spec: DeviceSpec=None, verbose=False):
         super().__init__()
         self._counts = {}
         self._depth = depth
         self.timer_cls = timer_cls
+        self.device_spec = device_spec
         self.verbose = verbose
 
     @contextmanager
@@ -232,7 +233,7 @@ class PerformanceCounterManager:
     def to_json(self):
         return json.dumps(self.to_dict(), indent=2)
        
-    def get_summary(self, device_spec: DeviceSpec=None):
+    def get_summary(self):
         token_throughput = self.total_tokens / self.total_time
         io_throughput = self.total_io / self.total_time
         flops_throughput = self.total_flops / self.total_time
@@ -250,6 +251,7 @@ class PerformanceCounterManager:
                  "achieved_flops_per_s": achieved_flops_per_s,
                  "arithmetic_intensity": self.total_flops / self.total_io
              }
+        device_spec = self.device_spec
         if device_spec is not None:
             theoretical_bandwidth = device_spec.bandwidth
             theoretical_flop_per_s = device_spec.flop_per_s
