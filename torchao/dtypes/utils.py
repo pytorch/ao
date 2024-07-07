@@ -6,7 +6,7 @@ import functools
 torch_function and torch_dispatch operator dispatch registrations
 
 first key is a tensor subclass type like AffineQuantizedTensor,
-second key is a `func` in __torhc_function__ or __torch_dispatch__,
+second key is a `func` in __torch_function__ or __torch_dispatch__,
 value is a function that implements the dispatch
 """
 _ATEN_OP_OR_TORCH_FN_TABLE: Dict[Callable, Dict[Callable, Callable]] = defaultdict(dict)

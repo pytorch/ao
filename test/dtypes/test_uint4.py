@@ -1,7 +1,9 @@
 import torch
 from torchao.dtypes.uint4 import (
     UInt4Tensor,
-    PerChannelSymmetricWeightUInt4Tensor,
+)
+from torchao.dtypes import (
+    PerChannelSymmetricWeightUInt4Tensor
 )
 import unittest
 from unittest import TestCase, main
