@@ -100,7 +100,7 @@ def test_performance_counter(num_hidden_layers, hidden_size, intermediate_size, 
         expected_flops = 2 * batch_size * seqlen * model_config.hidden_size * model_config.hidden_size
         assert expected_flops == summary_flops[proj_keys[0]]
         
-        # io movement check
+        # io check
         expected_size = attn_proj_io_check(model_config, batch_size, seqlen, element_size)
         assert expected_size == summary_io[proj_keys[0]]
 
@@ -127,7 +127,7 @@ def test_performance_counter(num_hidden_layers, hidden_size, intermediate_size, 
         expected_flops = 2 * batch_size * seqlen * model_config.hidden_size * model_config.intermediate_size
         assert expected_flops == summary_flops[proj_keys[0]]
         
-        # io movement check
+        # io check
         expected_size = ffn_io_check(model_config, batch_size, seqlen, element_size, k)
         assert expected_size == summary_io[proj_keys[0]]
 
@@ -167,7 +167,6 @@ def test_performance_counter_manager(shape, timer_cls, dtype, device_name, bandw
         _ = torch.matmul(a, b)
     end = time.perf_counter()
     elapsed = end - start 
-    # cm.print_summary(labels=["a", "b"], verbose=True)
     assert "a" in cm.counts
     assert "b" in cm.counts
     counts = cm.counts
@@ -197,3 +196,10 @@ def test_performance_counter_manager(shape, timer_cls, dtype, device_name, bandw
     assert abs(summary['token_throughput'] - expected_token_throughput) < 1e-1
     assert abs(summary['io_throughput'] - expected_io_throughput) < 1e-1
     assert abs(summary['flops_throughput'] - expected_flops_throughput) < 1e-1
+    if device_spec is not None:
+        mbu = summary["model_bandwidth_utilization"]
+        mfu = summary["model_flops_utilization"]
+        expected_mbu = expected_io_throughput / bandwidth
+        expected_mfu = expected_flops_throughput / device_spec.flop_per_s
+        assert abs(mbu - expected_mbu) < 1e-1
+        assert abs(mfu - expected_mfu) < 1e-1
