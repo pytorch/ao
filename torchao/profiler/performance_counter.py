@@ -234,6 +234,8 @@ class PerformanceCounterManager:
        
     def get_summary(self, device_spec: DeviceSpec=None):
         token_throughput = self.total_tokens / self.total_time
+        io_throughput = self.total_io / self.total_time
+        flops_throughput = self.total_flops / self.total_time
         achieved_bandwidth = self.total_io / self.total_time
         achieved_flops_per_s = self.total_flops / self.total_time
         stats = { 
@@ -242,20 +244,26 @@ class PerformanceCounterManager:
                  "total_flops": self.total_flops,
                  "total_io": self.total_io,
                  "token_throughput": token_throughput,
+                 "io_throughput": io_throughput,
+                 "flops_throughput": flops_throughput,
                  "achieved_bandwidth": achieved_bandwidth,
                  "achieved_flops_per_s": achieved_flops_per_s,
                  "arithmetic_intensity": self.total_flops / self.total_io
              }
         if device_spec is not None:
+            theoretical_bandwidth = device_spec.bandwidth
+            theoretical_flop_per_s = device_spec.flop_per_s
+
             device_stats = {
                 "device_name": device_spec.name,
-                "theoretical_bandwidth": device_spec.bandwidth,
-                "theoretical_throughput": device_spec.flops,
-                "model_bandwidth_utilization": achieved_bandwidth / device_spec.bandwidth,
-                "model_flops_utilization": achieved_flops_per_s / device_spec.flops,
+                "theoretical_bandwidth": theoretical_bandwidth,
+                "theoretical_throughput": theoretical_flop_per_s,
+                "model_bandwidth_utilization": achieved_bandwidth / theoretical_bandwidth,
+                "model_flops_utilization": achieved_flops_per_s / theoretical_flop_per_s,
             }
             stats.update(device_stats)
         return stats
+    
     def _format_single(self, label, counts, precision, verbose=False):
         ms = round(counts['elapsed'] * 1e3, precision)
         token_throughput = round(counts['token_throughput'], precision)
