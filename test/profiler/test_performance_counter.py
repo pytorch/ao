@@ -4,12 +4,27 @@ import pytest
 transformers = pytest.importorskip("transformers")
 LlamaConfig = transformers.models.llama.modeling_llama.LlamaConfig
 LlamaForCausalLM = transformers.models.llama.modeling_llama.LlamaForCausalLM
+import time
+from contextlib import contextmanager
+from unittest.mock import patch
+
 import torch
 
-from torchao.profiler.performance_counter import PerformanceCounterMode
+from torchao.profiler.device_spec import CUDADeviceSpec
+from torchao.profiler.performance_counter import (
+    CUDAPerformanceTimer,
+    PerformanceCounterManager,
+    PerformanceCounterMode,
+    PerformanceTimer,
+)
 from torchao.utils import TORCH_VERSION_AFTER_2_5
 
 
+@contextmanager
+def patch_device(device_name):
+    with patch("torch.cuda.get_device_name", return_value=device_name):
+        yield
+        
 def get_leaf_nodes(count_keys, module_name):
     return [k for k in count_keys if k.endswith(module_name)]
 
@@ -115,3 +130,70 @@ def test_performance_counter(num_hidden_layers, hidden_size, intermediate_size, 
         # io movement check
         expected_size = ffn_io_check(model_config, batch_size, seqlen, element_size, k)
         assert expected_size == summary_io[proj_keys[0]]
+
+@pytest.mark.parametrize("shape", [(1, 1024, 4096, 4096), (128, 1, 1024, 4096)], ids=lambda p: ",".join(map(str, p)))
+@pytest.mark.parametrize("timer_cls", [PerformanceTimer, CUDAPerformanceTimer], ids=lambda p: p.__name__)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=str)
+@pytest.mark.parametrize("device_name, bandwidth", [(None, 0), ("A100", 2e12)])
+def test_performance_counter_manager(shape, timer_cls, dtype, device_name, bandwidth):
+    
+    batch_size, query_len, in_features, out_features = shape
+    num_tokens = batch_size * query_len
+    element_size = dtype.itemsize
+    a = torch.randn(num_tokens, in_features, dtype=dtype, device="cuda")
+    b = torch.randn(in_features, out_features, dtype=dtype, device="cuda")
+    
+    cm = PerformanceCounterManager(timer_cls=timer_cls)
+    start = time.perf_counter()
+    with cm.count("a", num_tokens=num_tokens):
+        _ = torch.matmul(a, b)
+    end = time.perf_counter()
+    
+    elapsed = (end - start)
+    expected_flops = 2 * num_tokens * in_features * out_features
+    expected_io = (num_tokens * in_features + in_features * out_features + num_tokens * out_features) * element_size 
+    assert cm.total_flops == expected_flops
+    counts = cm.get_counts()
+    assert "a" in counts
+    assert abs(counts['a']['elapsed'] - elapsed) < 1e-1 # +/- 100ms
+    assert counts['a']['total_flops'] == expected_flops
+    assert counts['a']['total_io'] == expected_io
+    assert counts['a']['token_throughput'] == counts['a']['num_tokens'] / counts['a']['elapsed']
+    assert counts['a']['flops_throughput'] == counts['a']['total_flops'] / counts['a']['elapsed']
+    assert counts['a']['io_throughput'] == counts['a']['total_io'] / counts['a']['elapsed']
+    
+    start = time.perf_counter()
+    with cm.count("b", num_tokens=num_tokens):
+        _ = torch.matmul(a, b)
+    end = time.perf_counter()
+    elapsed = end - start 
+    # cm.print_summary(labels=["a", "b"], verbose=True)
+    assert "a" in cm.counts
+    assert "b" in cm.counts
+    counts = cm.counts
+    assert abs(counts['b']['elapsed'] - elapsed) < 1e-1 # +/- 100ms
+    assert counts['b']['total_flops'] == expected_flops
+    assert counts['b']['total_io'] == expected_io
+    assert cm.total_flops == 2 * expected_flops
+    assert cm.total_io == 2 * expected_io
+    
+    if device_name is not None:
+        with patch_device(device_name):
+            device_spec = CUDADeviceSpec(dtype=dtype, bandwidth=bandwidth)
+    else:
+        device_spec = None
+    summary = cm.get_summary(device_spec=device_spec)
+    expected_tokens = 2 * num_tokens
+    expected_total_flops = 2 * expected_flops
+    expected_total_io = 2 * expected_io
+    expected_total_time = cm.total_time
+    expected_token_throughput = expected_tokens / expected_total_time
+    expected_io_throughput = expected_total_io / expected_total_time
+    expected_flops_throughput = expected_total_flops / expected_total_time
+    assert summary['total_tokens'] == expected_tokens
+    assert summary['total_io'] == expected_total_io
+    assert summary['total_flops'] == expected_total_flops
+    assert summary['total_time'] == expected_total_time
+    assert abs(summary['token_throughput'] - expected_token_throughput) < 1e-1
+    assert abs(summary['io_throughput'] - expected_io_throughput) < 1e-1
+    assert abs(summary['flops_throughput'] - expected_flops_throughput) < 1e-1
