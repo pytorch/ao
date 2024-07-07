@@ -136,14 +136,24 @@ def test_performance_counter(num_hidden_layers, hidden_size, intermediate_size, 
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=str)
 @pytest.mark.parametrize("device_name, bandwidth", [(None, 0), ("A100", 2e12)])
 def test_performance_counter_manager(shape, timer_cls, dtype, device_name, bandwidth):
-    
+        
+    # Set up inputs
     batch_size, query_len, in_features, out_features = shape
     num_tokens = batch_size * query_len
     element_size = dtype.itemsize
     a = torch.randn(num_tokens, in_features, dtype=dtype, device="cuda")
     b = torch.randn(in_features, out_features, dtype=dtype, device="cuda")
     
-    cm = PerformanceCounterManager(timer_cls=timer_cls)
+    # Setup device spec
+    if device_name is not None:
+        with patch_device(device_name):
+            device_spec = CUDADeviceSpec(dtype=dtype, bandwidth=bandwidth)
+    else:
+        device_spec = None
+    
+    cm = PerformanceCounterManager(timer_cls=timer_cls, device_spec=device_spec)
+    
+    # Start count
     start = time.perf_counter()
     with cm.count("a", num_tokens=num_tokens):
         _ = torch.matmul(a, b)
@@ -176,12 +186,7 @@ def test_performance_counter_manager(shape, timer_cls, dtype, device_name, bandw
     assert cm.total_flops == 2 * expected_flops
     assert cm.total_io == 2 * expected_io
     
-    if device_name is not None:
-        with patch_device(device_name):
-            device_spec = CUDADeviceSpec(dtype=dtype, bandwidth=bandwidth)
-    else:
-        device_spec = None
-    summary = cm.get_summary(device_spec=device_spec)
+    summary = cm.get_summary()
     expected_tokens = 2 * num_tokens
     expected_total_flops = 2 * expected_flops
     expected_total_io = 2 * expected_io
