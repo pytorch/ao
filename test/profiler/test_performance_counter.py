@@ -156,8 +156,19 @@ def test_performance_stats(label, num_tokens, duration, total_flops, total_io, f
                              io_counts=io_counts,
                              device_bandwidth=device_bandwidth,
                              device_flop_per_s=device_flop_per_s)
-    print(stats)
     
+    # Test derived metrics
+    assert stats.token_throughput == num_tokens / duration
+    assert stats.io_throughput == total_io / duration
+    assert stats.flops_throughput == total_flops / duration
+    if device_bandwidth is not None:
+        assert stats.bandwidth_utilization == stats.io_throughput / device_bandwidth
+    else:
+        assert stats.bandwidth_utilization is None
+    if device_flop_per_s is not None:
+        assert stats.flops_utilization == stats.flops_throughput / device_flop_per_s
+    else:
+        assert stats.flops_utilization is None
 @pytest.mark.parametrize("shape", [(1, 1024, 4096, 4096), (128, 1, 1024, 4096)], ids=lambda p: ",".join(map(str, p)))
 @pytest.mark.parametrize("timer_cls", [PerformanceTimer, CUDAPerformanceTimer], ids=lambda p: p.__name__)
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=str)
