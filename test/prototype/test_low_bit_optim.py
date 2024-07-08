@@ -226,7 +226,7 @@ class TestFSDP2(FSDPTest):
                 if isinstance(m, TransformerBlock):
                     fully_shard(m, **fsdp_kwargs)
         fully_shard(fsdp_model, **fsdp_kwargs)
-        fsdp_optim = torch.optim.AdamW(fsdp_model.parameters(), lr=1e-2)
+        fsdp_optim = low_bit_optim.Adam8bit(fsdp_model.parameters(), lr=1e-2)
 
         torch.manual_seed(42 + self.rank + 1)
         for iter_idx in range(5):
