@@ -252,7 +252,25 @@ def _(func, *args, **kwargs):
 # TODO: also skip 1D tensor? e.g. biases and norm scales
 def maybe_new_8bit_zero_buffer(p: Tensor, signed: bool = True, block_size: int = 2048):
     if p.numel() >= 4096 and p.numel() % block_size == 0:
-        out = OptimState8bit.zeros(p.shape, signed, block_size, device=p.device)
+        from torch.distributed._tensor import DTensor
+
+        if isinstance(p, DTensor):
+            p_local = p._local_tensor
+            out_local = OptimState8bit.zeros(p_local.shape, signed, block_size, device=p_local.device)
+            out = DTensor(
+                local_tensor=out_local,
+                device_mesh=p.device_mesh,
+                placements=p.placements,
+                shape=p.size(),
+                dtype=p_local.dtype,
+                stride=p.stride(),
+                requires_grad=p.requires_grad,
+            )
+
+        else:
+            out = OptimState8bit.zeros(p.shape, signed, block_size, device=p.device)
+
     else:
         out = torch.zeros_like(p)
+
     return out
