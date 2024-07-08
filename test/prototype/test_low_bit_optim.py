@@ -30,6 +30,10 @@ try:
 except ImportError:
     lpmm = None
 
+# for FSDP2 test
+if TORCH_VERSION_AFTER_2_4:
+    from torch.distributed._composable.fsdp import CPUOffloadPolicy, OffloadPolicy, fully_shard
+
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 
@@ -170,8 +174,6 @@ class TestFSDP2(FSDPTest):
     @pytest.mark.skipif(not TORCH_VERSION_AFTER_2_4, reason="torch >= 2.4 required")
     @skip_if_lt_x_gpu(2)
     def test_fsdp2(self):
-        from torch.distributed._composable.fsdp import CPUOffloadPolicy, OffloadPolicy
-
         self.run_subtests(
             {
                 "enable_activation_checkpointing": [False, True],
@@ -185,7 +187,6 @@ class TestFSDP2(FSDPTest):
         )
 
     def _test_fsdp2(self, enable_activation_checkpointing, offload_policy):
-        from torch.distributed._composable.fsdp import fully_shard
         from torch.testing._internal.distributed._tensor.common_dtensor import (
             ModelArgs,
             Transformer,
@@ -207,9 +208,7 @@ class TestFSDP2(FSDPTest):
         with torch.device("cuda"):
             base_model = Transformer(model_args)
         if enable_activation_checkpointing:
-            apply_activation_checkpointing(
-                base_model, auto_wrap_policy=ModuleWrapPolicy({TransformerBlock})
-            )
+            apply_activation_checkpointing(base_model, auto_wrap_policy=ModuleWrapPolicy({TransformerBlock}))
         base_optim = low_bit_optim.Adam8bit(base_model.parameters(), lr=1e-2)
 
         fsdp_kwargs = {"offload_policy": offload_policy}
@@ -237,9 +236,7 @@ class TestFSDP2(FSDPTest):
             base_loss.backward()
             for param in base_model.parameters():
                 if param.grad is not None:
-                    torch.distributed.all_reduce(
-                        param.grad, op=torch.distributed.ReduceOp.AVG
-                    )
+                    torch.distributed.all_reduce(param.grad, op=torch.distributed.ReduceOp.AVG)
             base_optim.step()
             self.assertEqual(fsdp_loss, base_loss)
 
