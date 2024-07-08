@@ -199,8 +199,14 @@ def to_nearest_power_of_10(x, precision=2):
     
     return f"{value:,.{precision}f} {unit}"
 
+class DictGetter:
+    def __getitem__(self, key):
+        if hasattr(self, key):
+            return getattr(self, key)
+        else:
+            raise KeyError(key)
 @dataclass
-class PerformanceStats:
+class PerformanceStats(DictGetter):
     label: str
     num_tokens: int
     duration: float
@@ -294,8 +300,8 @@ class PerformanceCounterManager:
                                      io_summary=perf_timer.get_summary_io_counts(),
                                      flop_counts=perf_timer.flop_counts,
                                      io_counts=perf_timer.io_counts,
-                                     device_bandwidth=self.device_spec.bandwidth if self.device_spec.bandwidth is not None else None,
-                                     device_flops_per_s=self.device_spec.flops_per_s if self.device_spec.flops_per_s is not None else None)
+                                     device_bandwidth=self.device_spec.bandwidth if self.device_spec is not None else None,
+                                     device_flops_per_s=self.device_spec.flops_per_s if self.device_spec is not None else None)
             self._counts[label] = stats
     @property
     def counts(self):
@@ -305,41 +311,29 @@ class PerformanceCounterManager:
 
     @property
     def total_flops(self):
-        return sum(count["total_flops"] for count in self._counts.values())
+        return sum(count.total_flops for count in self._counts.values())
     
     @property
     def total_io(self):
-        return sum(count["total_io"] for count in self._counts.values())
+        return sum(count.total_io for count in self._counts.values())
     @property
     def total_tokens(self):
-        return sum(count["num_tokens"] for count in self._counts.values())
+        return sum(count.num_tokens for count in self._counts.values())
     
     @property
     def total_time(self):
-        return sum(count["duration"] for count in self._counts.values())
-    
-    def to_dict(self):
-        # Convert flop_counts from OpOverloadPackets to str
-        counts = deepcopy(self._counts)
-        for label,label_counts in counts.items():
-            counts[label]['flop_counts'] = {mod: {str(op): count for op, count in op_count.items()} for mod, op_count in label_counts['flop_counts'].items()}
-            counts[label]['io_counts'] = {mod: {str(op): count for op, count in op_count.items()} for mod, op_count in label_counts['io_counts'].items()}
-
-        return counts
-    
-    def to_json(self):
-        return json.dumps(self.to_dict(), indent=2)
+        return sum(count.duration for count in self._counts.values())
     
     def _summarize_stat(self, key):
         return {label: getattr(self._counts[label], key) for label in self._counts.keys()}
     
     @property
     def flops_summary(self):
-        return self._summarize_stat(key="summary_flops")
+        return self._summarize_stat(key="flops_summary")
     
     @property
     def io_summary(self):
-        return self._summarize_stat(key="summary_io")
+        return self._summarize_stat(key="io_summary")
     
     @property
     def flop_counts_summary(self):
@@ -359,11 +353,10 @@ class PerformanceCounterManager:
                                  io_summary=self.io_summary,
                                  flop_counts=self.flop_counts_summary,
                                  io_counts=self.io_counts_summary,
-                                 device_bandwidth=self.device_spec.bandwidth if self.device_spec.bandwidth is not None else None,
-                                 device_flops_per_s=self.device_spec.flops_per_s if self.device_spec.flops_per_s is not None else None)
+                                 device_bandwidth=self.device_spec.bandwidth if self.device_spec is not None else None,
+                                 device_flops_per_s=self.device_spec.flops_per_s if self.device_spec is not None else None)
     
         return stats
-    
     
     def _format_totals(self, precision=2):
         ms = round(self.total_time * 1e3, precision)
@@ -394,6 +387,17 @@ class PerformanceCounterManager:
             _print(text)
         else:
             for label in labels:
+                text = str(self._count[label]) # delegate to __str__ of PerformanceStats object
                 _print(self._count[label])
-                # text = self._format_single(label, self._counts[label], precision=precision, verbose=verbose)
-                # _print(text)
+    
+    def to_dict(self):
+        # Convert flop_counts from OpOverloadPackets to str
+        counts = deepcopy(self._counts)
+        for label,label_counts in counts.items():
+            counts[label]['flop_counts'] = {mod: {str(op): count for op, count in op_count.items()} for mod, op_count in label_counts['flop_counts'].items()}
+            counts[label]['io_counts'] = {mod: {str(op): count for op, count in op_count.items()} for mod, op_count in label_counts['io_counts'].items()}
+
+        return counts
+    
+    def to_json(self):
+        return json.dumps(self.to_dict(), indent=2)

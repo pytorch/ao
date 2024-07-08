@@ -277,19 +277,6 @@ def get_bandwidth(device: int = 0) -> int:
 def get_flops_by_dtype(chip_name: str) -> dict[torch.dtype, float]:
     return _AVAILABLE_GPU_SPECS.get(chip_name, None)
 
-    # # Check for tfloat32
-    # if (
-    #     dtype == torch.float32
-    #     and "tfloat32" in dtype_to_flops
-    #     and torch.get_float32_matmul_precision() != "highest"
-    # ):
-    #     logger.warning("Using tfloat32 tensorcores FLOPs")
-    #     dtype = "tfloat32"
-    # if dtype not in dtype_to_flops:
-    #     logger.warning(f"FLOPs not found for {dtype!r} on {chip!r}")
-    #     return None
-    # return dtype_to_flops[dtype]
-
 
 @dataclass
 class DeviceSpec:
