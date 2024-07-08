@@ -1,5 +1,4 @@
 import copy
-from functools import partial
 
 import pytest
 import torch
@@ -10,9 +9,16 @@ from torch.testing._internal.common_utils import (
     parametrize,
     run_tests,
 )
+from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
+    apply_activation_checkpointing,
+    CheckpointWrapper,
+)
+from torch.distributed.fsdp.wrap import ModuleWrapPolicy
+from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
+from torch.testing._internal.common_fsdp import FSDPTest
 from torchao.prototype import low_bit_optim
 from torchao.prototype.low_bit_optim import subclass_8bit, subclass_4bit
-from torchao.utils import TORCH_VERSION_AFTER_2_3
+from torchao.utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
 
 try:
     import bitsandbytes as bnb
@@ -154,6 +160,92 @@ class TestOptim(TestCase):
         loss.backward()
         optim.step()
         optim.zero_grad()
+
+
+class TestFSDP2(FSDPTest):
+    @property
+    def world_size(self) -> int:
+        return 2
+
+    @pytest.mark.skipif(not TORCH_VERSION_AFTER_2_4, reason="torch >= 2.4 required")
+    @skip_if_lt_x_gpu(2)
+    def test_qlora_fsdp2(self):
+        from torch.distributed._composable.fsdp import CPUOffloadPolicy, OffloadPolicy
+
+        self.run_subtests(
+            {
+                "enable_activation_checkpointing": [False, True],
+                "offload_policy": [
+                    OffloadPolicy(),
+                    CPUOffloadPolicy(pin_memory=True),
+                    CPUOffloadPolicy(pin_memory=False),
+                ],
+            },
+            self._test_fsdp2,
+        )
+
+    def _test_fsdp2(
+        self,
+        enable_activation_checkpointing: bool,
+        offload_policy: "OffloadPolicy",
+    ):
+        from torch.distributed._composable.fsdp import fully_shard
+        from torch.testing._internal.distributed._tensor.common_dtensor import (
+            ModelArgs,
+            Transformer,
+            TransformerBlock,
+        )
+
+        batch_size = 3
+        vocab_size = 1024
+        seq_len = 64
+        model_args = ModelArgs(
+            n_layers=3,
+            n_heads=4,
+            dim=1024,
+            vocab_size=vocab_size,
+            max_seq_len=seq_len,
+            dropout_p=0,
+        )
+        torch.manual_seed(42)
+        with torch.device("cuda"):
+            base_model = Transformer(model_args)
+        if enable_activation_checkpointing:
+            apply_activation_checkpointing(
+                base_model, auto_wrap_policy=ModuleWrapPolicy({TransformerBlock})
+            )
+        base_optim = low_bit_optim.Adam8bit(base_model.parameters(), lr=1e-2)
+
+        fsdp_kwargs = {"offload_policy": offload_policy}
+        fsdp_model = copy.deepcopy(base_model)
+        for m in fsdp_model.modules():
+            if enable_activation_checkpointing:
+                if isinstance(m, CheckpointWrapper):
+                    fully_shard(m, **fsdp_kwargs)
+            else:
+                if isinstance(m, TransformerBlock):
+                    fully_shard(m, **fsdp_kwargs)
+        fully_shard(fsdp_model, **fsdp_kwargs)
+        fsdp_optim = torch.optim.AdamW(fsdp_model.parameters(), lr=1e-2)
+
+        torch.manual_seed(42 + self.rank + 1)
+        for iter_idx in range(5):
+            inp = torch.randint(0, vocab_size, (batch_size, seq_len), device="cuda")
+            fsdp_optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
+            fsdp_loss = fsdp_model(inp).sum()
+            fsdp_loss.backward()
+            fsdp_optim.step()
+
+            base_optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
+            base_loss = base_model(inp).sum()
+            base_loss.backward()
+            for param in base_model.parameters():
+                if param.grad is not None:
+                    torch.distributed.all_reduce(
+                        param.grad, op=torch.distributed.ReduceOp.AVG
+                    )
+            base_optim.step()
+            self.assertEqual(fsdp_loss, base_loss)
 
 
 instantiate_parametrized_tests(TestQuantize)
