@@ -15,6 +15,7 @@ from torchao.profiler.performance_counter import (
     CUDAPerformanceTimer,
     PerformanceCounterManager,
     PerformanceCounterMode,
+    PerformanceStats,
     PerformanceTimer,
 )
 from torchao.utils import TORCH_VERSION_AFTER_2_5
@@ -140,6 +141,24 @@ def device_spec(device_name, bandwidth):
         device_spec = None
     return device_spec
 
+TEST_STATS = [("with_device", 128, 0.1, 123e9, 123e6, {"a": 234e12, "b": 345e9}, 1, {"a": 1, "b": 2}, {"a": 1, "b": 2}, "1", 1e12, 23e12),
+              ("no_device", 128, 0.1, 123e9, 123e6, {"a": 234e12, "b": 345e9}, 1, {"a": 1, "b": 2}, {"a": 1, "b": 2}, "1", None, None)]
+@pytest.mark.parametrize("label, num_tokens, duration, total_flops, total_io, summary_flops, summary_io, flop_counts, io_counts, pretty_summary, device_bandwidth, device_flop_per_s", TEST_STATS)
+def test_performance_stats(label, num_tokens, duration, total_flops, total_io, summary_flops, summary_io, flop_counts, io_counts, pretty_summary, device_bandwidth, device_flop_per_s):
+    stats = PerformanceStats(label=label,
+                             num_tokens=num_tokens,
+                             duration=duration,
+                             total_flops=total_flops,
+                             total_io=total_io,
+                             summary_flops=summary_flops,
+                             summary_io=summary_io,
+                             flop_counts=flop_counts,
+                             io_counts=io_counts,
+                             pretty_summary=pretty_summary,
+                             device_bandwidth=device_bandwidth,
+                             device_flop_per_s=device_flop_per_s)
+    print(stats)
+    
 @pytest.mark.parametrize("shape", [(1, 1024, 4096, 4096), (128, 1, 1024, 4096)], ids=lambda p: ",".join(map(str, p)))
 @pytest.mark.parametrize("timer_cls", [PerformanceTimer, CUDAPerformanceTimer], ids=lambda p: p.__name__)
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=str)
@@ -169,28 +188,28 @@ def test_performance_counter_manager(shape, timer_cls, dtype, device_spec):
     #     _ = torch.matmul(a, b)
     # end = time.perf_counter()
     
-    # elapsed = (end - start)
+    # duration = (end - start)
     # expected_flops = 2 * num_tokens * in_features * out_features
     # expected_io = (num_tokens * in_features + in_features * out_features + num_tokens * out_features) * element_size 
     # assert cm.total_flops == expected_flops
     # counts = cm.get_counts()
     # assert "a" in counts
-    # assert abs(counts['a']['elapsed'] - elapsed) < 1e-1 # +/- 100ms
+    # assert abs(counts['a']['duration'] - duration) < 1e-1 # +/- 100ms
     # assert counts['a']['total_flops'] == expected_flops
     # assert counts['a']['total_io'] == expected_io
-    # assert counts['a']['token_throughput'] == counts['a']['num_tokens'] / counts['a']['elapsed']
-    # assert counts['a']['flops_throughput'] == counts['a']['total_flops'] / counts['a']['elapsed']
-    # assert counts['a']['io_throughput'] == counts['a']['total_io'] / counts['a']['elapsed']
+    # assert counts['a']['token_throughput'] == counts['a']['num_tokens'] / counts['a']['duration']
+    # assert counts['a']['flops_throughput'] == counts['a']['total_flops'] / counts['a']['duration']
+    # assert counts['a']['io_throughput'] == counts['a']['total_io'] / counts['a']['duration']
     
     # start = time.perf_counter()
     # with cm.count("b", num_tokens=num_tokens):
     #     _ = torch.matmul(a, b)
     # end = time.perf_counter()
-    # elapsed = end - start 
+    # duration = end - start 
     # assert "a" in cm.counts
     # assert "b" in cm.counts
     # counts = cm.counts
-    # assert abs(counts['b']['elapsed'] - elapsed) < 1e-1 # +/- 100ms
+    # assert abs(counts['b']['duration'] - duration) < 1e-1 # +/- 100ms
     # assert counts['b']['total_flops'] == expected_flops
     # assert counts['b']['total_io'] == expected_io
     # assert cm.total_flops == 2 * expected_flops
