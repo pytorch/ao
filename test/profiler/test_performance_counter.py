@@ -193,26 +193,46 @@ def device_spec(request):
             return CUDADeviceSpec(dtype=torch.bfloat16, bandwidth=bandwidth)
     else:
         return None
+@pytest.fixture
+def performance_counter_manager(device_spec, request):
+    shape, timer_cls, dtype = request.param
+    batch_size, query_len, in_features, out_features = shape
+    num_tokens = batch_size * query_len
+    element_size = dtype.itemsize
+    a = torch.randn(num_tokens, in_features, dtype=dtype, device="cuda")
+    b = torch.randn(in_features, out_features, dtype=dtype, device="cuda")
+       
+    cm = PerformanceCounterManager(timer_cls=timer_cls, device_spec=device_spec)
     
-@pytest.mark.parametrize("device_spec",[(None, 0), ("A100", 2e12)], indirect=True, ids=lambda p: p[0])
-def test_device_mock(device_spec):
-    print(device_spec)
+    # Start count
+    start = time.perf_counter()
+    with cm.count("a", num_tokens=num_tokens):
+        _ = torch.matmul(a, b)
+    end = time.perf_counter()
+    
+    duration_a = (end - start)
+    expected_flops = 2 * num_tokens * in_features * out_features
+    expected_io = (num_tokens * in_features + in_features * out_features + num_tokens * out_features) * element_size 
+    
+    start = time.perf_counter()
+    with cm.count("b", num_tokens=num_tokens):
+        _ = torch.matmul(a, b)
+    end = time.perf_counter()
+    duration_b = end - start 
 
 @pytest.mark.parametrize("shape", [(1, 1024, 4096, 4096), (128, 1, 1024, 4096)], ids=lambda p: ",".join(map(str, p)))
 @pytest.mark.parametrize("timer_cls", [PerformanceTimer, CUDAPerformanceTimer], ids=lambda p: p.__name__)
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=str)
 @pytest.mark.parametrize("device_spec", [(None, 0), ("A100", 2e12)], indirect=True, ids=lambda p: p[0])
 def test_performance_counter_manager(shape, timer_cls, dtype, device_spec):
-    print(f"Device Spec: {device_spec}")
-    
+    FLOAT_TOL = 1e-5
     # Set up inputs
     batch_size, query_len, in_features, out_features = shape
     num_tokens = batch_size * query_len
     element_size = dtype.itemsize
     a = torch.randn(num_tokens, in_features, dtype=dtype, device="cuda")
     b = torch.randn(in_features, out_features, dtype=dtype, device="cuda")
-    
-    
+       
     cm = PerformanceCounterManager(timer_cls=timer_cls, device_spec=device_spec)
     
     # Start count
@@ -225,48 +245,54 @@ def test_performance_counter_manager(shape, timer_cls, dtype, device_spec):
     expected_flops = 2 * num_tokens * in_features * out_features
     expected_io = (num_tokens * in_features + in_features * out_features + num_tokens * out_features) * element_size 
     assert cm.total_flops == expected_flops
+    assert cm.total_io == expected_io
     counts = cm.get_counts()
-    # assert "a" in counts
-    # assert abs(counts['a']['duration'] - duration) < 1e-1 # +/- 100ms
-    # assert counts['a']['total_flops'] == expected_flops
-    # assert counts['a']['total_io'] == expected_io
-    # assert counts['a']['token_throughput'] == counts['a']['num_tokens'] / counts['a']['duration']
-    # assert counts['a']['flops_throughput'] == counts['a']['total_flops'] / counts['a']['duration']
-    # assert counts['a']['io_throughput'] == counts['a']['total_io'] / counts['a']['duration']
+    assert "a" in counts
+    # Check captured performance stats
+    psa: PerformanceStats = counts["a"]
+    # Raw metrics
+    assert abs(psa.duration - duration) < 1e-1 # +/- 100ms
+    assert psa.total_flops == expected_flops
+    assert psa.total_io == expected_io
+    # Derived metrics
+    assert psa.token_throughput == psa.num_tokens / psa.duration
+    assert psa.achieved_flops_per_s == psa.total_flops / psa.duration
+    assert psa.achieved_bandwidth == psa.total_io / psa.duration
     
-    # start = time.perf_counter()
-    # with cm.count("b", num_tokens=num_tokens):
-    #     _ = torch.matmul(a, b)
-    # end = time.perf_counter()
-    # duration = end - start 
-    # assert "a" in cm.counts
-    # assert "b" in cm.counts
-    # counts = cm.counts
-    # assert abs(counts['b']['duration'] - duration) < 1e-1 # +/- 100ms
-    # assert counts['b']['total_flops'] == expected_flops
-    # assert counts['b']['total_io'] == expected_io
-    # assert cm.total_flops == 2 * expected_flops
-    # assert cm.total_io == 2 * expected_io
+    start = time.perf_counter()
+    with cm.count("b", num_tokens=num_tokens):
+        _ = torch.matmul(a, b)
+    end = time.perf_counter()
+    duration = end - start 
+    assert "b" in cm.counts
+    psb = cm.counts["b"]
+    assert abs(psb.duration - duration) < 1e-1 # +/- 100ms
+    assert psb.total_flops == expected_flops
+    assert psb.total_io == expected_io
     
-    # summary = cm.get_summary()
-    # expected_tokens = 2 * num_tokens
-    # expected_total_flops = 2 * expected_flops
-    # expected_total_io = 2 * expected_io
-    # expected_total_time = cm.total_time
-    # expected_token_throughput = expected_tokens / expected_total_time
-    # expected_io_throughput = expected_total_io / expected_total_time
-    # expected_flops_throughput = expected_total_flops / expected_total_time
-    # assert summary['total_tokens'] == expected_tokens
-    # assert summary['total_io'] == expected_total_io
-    # assert summary['total_flops'] == expected_total_flops
-    # assert summary['total_time'] == expected_total_time
-    # assert abs(summary['token_throughput'] - expected_token_throughput) < 1e-1
-    # assert abs(summary['io_throughput'] - expected_io_throughput) < 1e-1
-    # assert abs(summary['flops_throughput'] - expected_flops_throughput) < 1e-1
-    # if device_spec is not None:
-    #     mbu = summary["model_bandwidth_utilization"]
-    #     mfu = summary["model_flops_utilization"]
-    #     expected_mbu = expected_io_throughput / bandwidth
-    #     expected_mfu = expected_flops_throughput / device_spec.flops_per_s
-    #     assert abs(mbu - expected_mbu) < 1e-1
-    #     assert abs(mfu - expected_mfu) < 1e-1
+    # Test that total properties account for both a and b
+    assert cm.total_time == psa.duration + psb.duration
+    assert cm.total_flops == 2 * expected_flops
+    assert cm.total_io == 2 * expected_io
+    
+    # Test stats_summary property, which returns a new PerformanceStats object with accumulated stats 
+    summary: PerformanceStats = cm.stats_summary
+    # Raw stats
+    assert summary.num_tokens == psa.num_tokens + psb.num_tokens
+    assert summary.total_io == psa.total_io + psb.total_io
+    assert summary.total_flops == psa.total_flops + psb.total_flops
+    assert summary.duration == psa.duration + psb.duration
+
+    # Derived stats
+    expected_token_throughput = (psa.num_tokens + psb.num_tokens) / (psa.duration + psb.duration)
+    expected_io_throughput = (psa.total_io + psb.total_io) / (psa.duration + psb.duration)
+    expected_flops_throughput = (psa.total_flops + psb.total_flops) / (psa.duration + psb.duration)
+    assert abs(summary.token_throughput - expected_token_throughput) < FLOAT_TOL
+    assert abs(summary.achieved_bandwidth - expected_io_throughput) < FLOAT_TOL
+    assert abs(summary.achieved_flops_per_s - expected_flops_throughput) < FLOAT_TOL
+    
+    if device_spec is not None:
+        expected_bandwidth_utilization = expected_io_throughput / device_spec.bandwidth
+        expected_flops_utilization = expected_flops_throughput / device_spec.flops_per_s
+        assert abs(summary.bandwidth_utilization - expected_bandwidth_utilization) < FLOAT_TOL
+        assert abs(summary.flops_utilization - expected_flops_utilization) < FLOAT_TOL
