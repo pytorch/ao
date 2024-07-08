@@ -221,10 +221,10 @@ def is_fbcode():
 def torch_version_at_least(min_version):
     return is_fbcode() or version("torch") >= min_version
 
-TORCH_VERSION_AFTER_2_5 = torch_version_at_least("2.5.0.dev")
-TORCH_VERSION_AFTER_2_4 = torch_version_at_least("2.4.0.dev")
-TORCH_VERSION_AFTER_2_3 = torch_version_at_least("2.3.0.dev")
-TORCH_VERSION_AFTER_2_2 = torch_version_at_least("2.2.0.dev")
+TORCH_VERSION_AFTER_2_5 = torch_version_at_least("2.5.0")
+TORCH_VERSION_AFTER_2_4 = torch_version_at_least("2.4.0")
+TORCH_VERSION_AFTER_2_3 = torch_version_at_least("2.3.0")
+TORCH_VERSION_AFTER_2_2 = torch_version_at_least("2.2.0")
 
 def is_fbcode():
     return not hasattr(torch.version, "git_version")
