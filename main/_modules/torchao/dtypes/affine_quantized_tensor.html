@@ -636,8 +636,11 @@
 
 <div class="viewcode-block" id="AffineQuantizedTensor.to"><a class="viewcode-back" href="../../../generated/torchao.dtypes.AffineQuantizedTensor.html#torchao.dtypes.AffineQuantizedTensor.to">[docs]</a>    <span class="k">def</span> <span class="nf">to</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="n">kwargs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_to_kwargs</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="n">device</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;device&quot;</span><span class="p">)</span>
+        <span class="c1"># not supported yet</span>
+        <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;memory_format&quot;</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;device&quot;</span><span class="p">]),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">),</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span><span class="p">,</span>
@@ -847,8 +850,8 @@
         <span class="k">if</span> <span class="n">device</span> <span class="o">!=</span> <span class="s2">&quot;cuda&quot;</span> <span class="ow">or</span> <span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">device</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">)</span> <span class="ow">and</span> <span class="n">device</span><span class="o">.</span><span class="n">type</span> <span class="o">!=</span> <span class="s2">&quot;cuda&quot;</span><span class="p">):</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;TensorCoreTiledAQTLayout is only available for cuda device&quot;</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">packed_weight</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;device&quot;</span><span class="p">]),</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">scale_and_zero</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;device&quot;</span><span class="p">]),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">packed_weight</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">scale_and_zero</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">),</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">transposed</span>
         <span class="p">)</span>
 
