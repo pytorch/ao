@@ -50,12 +50,13 @@ class _Adam(Optimizer):
                     raise RuntimeError("Sparse gradient is not supported")
 
                 # unwrap DTensor
+                # set requires_grad for unwrapped param to avoid torch.compile() recompilation 
                 if isinstance(p, DTensor):
                     p = p._local_tensor.requires_grad_(True)
                 if isinstance(grad, DTensor):
                     grad = grad._local_tensor
 
-                # flatten p and grad so that torch.compile won't recompile for tensors with different ndim
+                # flatten p and grad to avoid torch.compile() recompilation
                 p = p.view(-1)
                 grad = grad.view(-1)
                 state = self.state[p]
