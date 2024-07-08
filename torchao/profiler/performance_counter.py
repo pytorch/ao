@@ -206,11 +206,10 @@ class PerformanceStats:
     duration: float
     total_flops: int
     total_io: int
-    summary_flops: Dict[str, int]
-    summary_io: Dict[str, int]
+    flops_summary: Dict[str, int]
+    io_summary: Dict[str, int]
     flop_counts: Dict[str, Dict[Any, int]]
     io_counts: Dict[str, Dict[Any, int]]
-    pretty_summary: str
     device_bandwidth: Optional[float] = None
     device_flop_per_s: Optional[float] = None    
     @property
@@ -254,11 +253,16 @@ class PerformanceStats:
               FLOPs 
                 Total: {self._format(self.total_flops, "FLOPs")}
                 Throughput: {self._format(self.flops_throughput, "FLOPs/s")}""")
+        
         if self.bandwidth_utilization is not None:
-            txt += "\n" + textwrap.indent("""Utilization:\n""", " " * 2)
-            txt += textwrap.indent(f"""Bandwidth: {self.bandwidth_utilization:.1f}%""", " " * 4)
+            indent_2 = " " * 2
+            indent_4 = " " * 4
+            txt += "\n" + textwrap.indent("""Utilization:\n""", indent_2)
+            txt += textwrap.indent(f"""Bandwidth: {self.bandwidth_utilization:.1f}%""", indent_4)
+        
         if self.flops_utilization is not None:
-            txt +=  "\n" + textwrap.indent(f"""FLOPs: {self.flops_utilization:.1f}%""", " " * 4)
+            txt +=  "\n" + textwrap.indent(f"""FLOPs: {self.flops_utilization:.1f}%""", indent_4)
+        
         return txt
 class PerformanceCounterManager:
     COUNT_KEYS = ["label", "num_tokens", "elapsed", "throughput", "total_flops", "flops_table", "flop_counts"]
@@ -283,11 +287,10 @@ class PerformanceCounterManager:
                                      elapsed=perf_timer.elapsed,
                                      total_flops=perf_timer.total_flops,
                                      total_io=perf_timer.total_io,
-                                     summary_flops=perf_timer.get_summary_flop_counts(),
-                                     summary_io=perf_timer.get_summary_io_counts(),
+                                     flops_summary=perf_timer.get_summary_flop_counts(),
+                                     io_summary=perf_timer.get_summary_io_counts(),
                                      flop_counts=perf_timer.flop_counts,
                                      io_counts=perf_timer.io_counts,
-                                     pretty_summary=perf_timer.get_pretty_summary(depth=self._depth),
                                      device_bandwidth=self.device_spec.bandwidth if self.device_spec.bandwidth is not None else None,
                                      device_flop_per_s=self.device_spec.flop_per_s if self.device_spec.flop_per_s is not None else None)
             self._counts[label] = stats
@@ -323,13 +326,44 @@ class PerformanceCounterManager:
     
     def to_json(self):
         return json.dumps(self.to_dict(), indent=2)
-       
-    def get_summary(self):
+    
+    def _summarize(self, key):
+        return {label: getattr(self._counts[label], key) for label in self._counts.keys()}
+    
+    @property
+    def flops_summary(self):
+        return self._summarize(key="summary_flops")
+    
+    @property
+    def io_summary(self):
+        return self._summarize(key="summary_io")
+    
+    @property
+    def flop_counts_summary(self):
+        return self._summarize(key="flop_counts")
+    
+    @property
+    def io_counts_summary(self):
+        return self._summarize(key="io_counts")
+    @property
+    def stats_summary(self):
         token_throughput = self.total_tokens / self.total_time
         io_throughput = self.total_io / self.total_time
         flops_throughput = self.total_flops / self.total_time
         achieved_bandwidth = self.total_io / self.total_time
         achieved_flops_per_s = self.total_flops / self.total_time
+
+        stats = PerformanceStats(label="Performance Summary",
+                                 num_tokens=self.total_tokens,
+                                 elapsed=self.total_time,
+                                 total_flops=self.total_flops,
+                                 total_io=self.total_io,
+                                 flops_summary=self.flops_summary,
+                                 io_summary=self.io_summary,
+                                 flop_counts=self.flop_counts_summary,
+                                 io_counts=self.io_counts_summary,
+                                 device_bandwidth=self.device_spec.bandwidth if self.device_spec.bandwidth is not None else None,
+                                 device_flop_per_s=self.device_spec.flop_per_s if self.device_spec.flop_per_s is not None else None)
         stats = { 
                  "total_tokens": self.total_tokens,
                  "total_time": self.total_time,
@@ -357,30 +391,30 @@ class PerformanceCounterManager:
             stats.update(device_stats)
         return stats
     
-    def _format_single(self, label, counts, precision, verbose=False):
-        ms = round(counts['elapsed'] * 1e3, precision)
-        token_throughput = round(counts['token_throughput'], precision)
-        gflops = round(counts['total_flops'] / 1e9, precision)
-        gb = round(counts['total_io'] / 1e9, precision)
-        flop_throughput = round(gflops / counts['elapsed'], precision)
-        io_throughput = round(gb / counts['elapsed'], precision)
-        text = textwrap.dedent(f"""\
-            {label.title()}:
-              Elapsed = {ms:,} ms
-              Tokens:
-                Total {counts['num_tokens']}
-                Throughput {token_throughput} tokens/s
-              IO:
-                Total {gb:,} GB
-                Throughput {io_throughput} GB/s
-              FLOPs: 
-                Total {gflops:,} GFLOPs, 
-                Throughput {flop_throughput:,} GFLOP/s""")
-        if verbose:
-            counts_by_module = counts['pretty_summary']
-            text += textwrap.dedent(f"""\nCounts by Module:\n{counts_by_module}""")
+    # def _format_single(self, label, counts, precision, verbose=False):
+    #     ms = round(counts['elapsed'] * 1e3, precision)
+    #     token_throughput = round(counts['token_throughput'], precision)
+    #     gflops = round(counts['total_flops'] / 1e9, precision)
+    #     gb = round(counts['total_io'] / 1e9, precision)
+    #     flop_throughput = round(gflops / counts['elapsed'], precision)
+    #     io_throughput = round(gb / counts['elapsed'], precision)
+    #     text = textwrap.dedent(f"""\
+    #         {label.title()}:
+    #           Elapsed = {ms:,} ms
+    #           Tokens:
+    #             Total {counts['num_tokens']}
+    #             Throughput {token_throughput} tokens/s
+    #           IO:
+    #             Total {gb:,} GB
+    #             Throughput {io_throughput} GB/s
+    #           FLOPs: 
+    #             Total {gflops:,} GFLOPs, 
+    #             Throughput {flop_throughput:,} GFLOP/s""")
+    #     if verbose:
+    #         counts_by_module = counts['pretty_summary']
+    #         text += textwrap.dedent(f"""\nCounts by Module:\n{counts_by_module}""")
         
-        return text
+    #     return text
     
     def _format_totals(self, precision=2):
         ms = round(self.total_time * 1e3, precision)
@@ -411,5 +445,6 @@ class PerformanceCounterManager:
             _print(text)
         else:
             for label in labels:
-                text = self._format_single(label, self._counts[label], precision=precision, verbose=verbose)
-                _print(text)
+                _print(self._count[label])
+                # text = self._format_single(label, self._counts[label], precision=precision, verbose=verbose)
+                # _print(text)

@@ -141,20 +141,19 @@ def device_spec(device_name, bandwidth):
         device_spec = None
     return device_spec
 
-TEST_STATS = [("with_device", 128, 0.1, 123e9, 123e6, {"a": 234e12, "b": 345e9}, 1, {"a": 1, "b": 2}, {"a": 1, "b": 2}, "1", 1e12, 23e12),
-              ("no_device", 128, 0.1, 123e9, 123e6, {"a": 234e12, "b": 345e9}, 1, {"a": 1, "b": 2}, {"a": 1, "b": 2}, "1", None, None)]
-@pytest.mark.parametrize("label, num_tokens, duration, total_flops, total_io, summary_flops, summary_io, flop_counts, io_counts, pretty_summary, device_bandwidth, device_flop_per_s", TEST_STATS)
-def test_performance_stats(label, num_tokens, duration, total_flops, total_io, summary_flops, summary_io, flop_counts, io_counts, pretty_summary, device_bandwidth, device_flop_per_s):
+TEST_STATS = [("with_device", 128, 0.1, 123e9, 123e6, {"a": 234e12, "b": 345e9}, 1, {"a": 1, "b": 2}, {"a": 1, "b": 2},  1e12, 23e12),
+              ("no_device", 128, 0.1, 123e9, 123e6, {"a": 234e12, "b": 345e9}, 1, {"a": 1, "b": 2}, {"a": 1, "b": 2}, None, None)]
+@pytest.mark.parametrize("label, num_tokens, duration, total_flops, total_io, flops_summary, io_summary, flop_counts, io_counts, device_bandwidth, device_flop_per_s", TEST_STATS)
+def test_performance_stats(label, num_tokens, duration, total_flops, total_io, flops_summary, io_summary, flop_counts, io_counts, device_bandwidth, device_flop_per_s):
     stats = PerformanceStats(label=label,
                              num_tokens=num_tokens,
                              duration=duration,
                              total_flops=total_flops,
                              total_io=total_io,
-                             summary_flops=summary_flops,
-                             summary_io=summary_io,
+                             flops_summary=flops_summary,
+                             io_summary=io_summary,
                              flop_counts=flop_counts,
                              io_counts=io_counts,
-                             pretty_summary=pretty_summary,
                              device_bandwidth=device_bandwidth,
                              device_flop_per_s=device_flop_per_s)
     print(stats)
