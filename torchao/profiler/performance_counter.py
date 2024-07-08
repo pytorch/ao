@@ -5,7 +5,9 @@ import time
 from collections import defaultdict
 from contextlib import contextmanager
 from copy import deepcopy
+from dataclasses import dataclass
 from functools import partial
+from typing import Any, Dict
 
 import torch
 from torch.utils._pytree import tree_map
@@ -168,6 +170,34 @@ class CUDAPerformanceTimer(PerformanceTimer):
         if self.display:
             self._print_exit_msg()        
 
+@dataclass
+class PerformanceStats:
+    label: str
+    num_tokens: int
+    elapsed: float
+    # token_throughput: float
+    total_flops: float
+    # flops_throughput: float
+    total_io: float
+    # io_throughput: float
+    summary_flops: Dict[str, int]
+    summary_io: Dict[str, int]
+    flop_counts: Dict[str, Dict[Any, int]]
+    io_counts: Dict[str, Dict[Any, int]]
+    pretty_summary: str
+    
+    @property
+    def token_throughput(self):
+        return self.num_tokens / self.elapsed
+    
+    @property
+    def flops_throughput(self):
+        return self.total_flops / self.elapsed
+    
+    @property
+    def io_throughput(self):
+        return self.total_io / self.elapsed
+    
 class PerformanceCounterManager:
     COUNT_KEYS = ["label", "num_tokens", "elapsed", "throughput", "total_flops", "flops_table", "flop_counts"]
     def __init__(self, depth=10, timer_cls: PerformanceTimer=PerformanceTimer, device_spec: DeviceSpec=None, verbose=False):
