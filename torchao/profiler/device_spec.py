@@ -299,7 +299,7 @@ class DeviceSpec:
     Fields will be auto-populated in __post_init__ if not already specified
     and if data is available
     - bandwidth (bytes /s)
-    - flop_per_s (FLOP / s)
+    - flops_per_s (FLOP / s)
     - vram (bytes)
     - dtype (torch.dtype) dtype used for theoretical peak performance
     - flops_by_dtype (dict[Union[torch.dtype, str], float]): mapping from dtype to FLOPs
@@ -308,7 +308,7 @@ class DeviceSpec:
     device_type: str
     name: Optional[str] = None
     bandwidth: Optional[int] = None
-    flop_per_s: Optional[int] = None
+    flops_per_s: Optional[int] = None
     vram: Optional[int] = None
     dtype: Optional[torch.dtype] = None
     flops_by_dtype: dict = field(default_factory=dict)
@@ -316,8 +316,8 @@ class DeviceSpec:
     def _post_init_check(self):
         assert self.bandwidth is not None, "GPU bandwidth is None - please specify the bandwidth in GB/s in order to enable speed of light calculations"
         assert self.dtype is not None, "GPU dtype is None - please specify the dtype in order to enable speed of light calculations"
-        assert self.flop_per_s is not None, "GPU flop_per_s is None - please specify the flop_per_s in FLOP/s in order to enable speed of light calculations"
-        self.flops_by_dtype.update({self.dtype: self.flop_per_s})
+        assert self.flops_per_s is not None, "GPU flops_per_s is None - please specify the flops_per_s in FLOP/s in order to enable speed of light calculations"
+        self.flops_by_dtype.update({self.dtype: self.flops_per_s})
 
         # Not needed for downstream calculations atm, no need to assert
         if self.vram is None:
@@ -334,12 +334,12 @@ class DeviceSpec:
 
     def __str__(self):
         if self.bandwidth is not None:
-            bw = round(self.bandwidth, 4)
-        if self.flop_per_s is not None:
-            tflops = round(self.flop_per_s / 1e12, 4)
+            formatted_bw = f"{self.bandwidth / 1e9:,.1f}GB/s"
+        if self.flops_per_s is not None:
+            formatted_flops = f"{self.flops_per_s / 1e12:,.1f}TFLOPs"
         if self.vram is not None:
-            vram_GB = round(self.vram / 1e9, 1)
-        return f"DeviceSpec(device_type={self.device_type}, name={self.name}, dtype={self.dtype}, bandwidth={bw}GB/s, flops={tflops}TFLOPs, vram={vram_GB}GB)"
+            formatted_vram = f"{self.vram / 1e9:,.1f}GB"
+        return f"DeviceSpec(device_type={self.device_type}, name={self.name}, dtype={self.dtype}, bandwidth={formatted_bw}, flops={formatted_flops}, vram={formatted_vram})"
 
     @property
     def roofline_balancepoint(self):
@@ -353,10 +353,10 @@ class DeviceSpec:
             self.bandwidth is not None
         ), "Please set bandwidth in order to calculate roofline balancepoint"
         assert (
-            self.flop_per_s is not None
-        ), "Please set flop_per_s in order to calculate roofline balancepoint"
+            self.flops_per_s is not None
+        ), "Please set flops_per_s in order to calculate roofline balancepoint"
 
-        return self.flop_per_s / self.bandwidth
+        return self.flops_per_s / self.bandwidth
 
 
 @dataclass
@@ -387,7 +387,7 @@ class CUDADeviceSpec(DeviceSpec):
             self.bandwidth = get_bandwidth()
 
         # FLOPs
-        if self.flop_per_s is None:
+        if self.flops_per_s is None:
             chip_name = get_chip_name(self.device)
             if chip_name is None:
                 print(f"No FLOPs data available for device name {self.name}")
@@ -398,13 +398,13 @@ class CUDADeviceSpec(DeviceSpec):
 
                 # Populate flops if not already populated
                 if flops_by_dtype is not None and self.dtype in flops_by_dtype:
-                    self.flop_per_s = flops_by_dtype[self.dtype]
+                    self.flops_per_s = flops_by_dtype[self.dtype]
 
                     if self.dtype == torch.float32:
                         use_tf32 = "tfloat32" in flops_by_dtype and self.use_tensorcores
 
                         if use_tf32:
-                            self.flop_per_s = flops_by_dtype["tfloat32"]
+                            self.flops_per_s = flops_by_dtype["tfloat32"]
                 else:
                     print(
                         f"Could not find FLOPs for dtype {self.dtype} for device {self.name}"
