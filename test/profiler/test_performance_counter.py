@@ -141,7 +141,7 @@ def device_spec(device_name, bandwidth):
         device_spec = None
     return device_spec
 
-TEST_STATS = [("with_device", 128, 0.1, 123e9, 123e6, {"a": 234e12, "b": 345e9}, 1, {"a": 1, "b": 2}, {"a": 1, "b": 2},  1e12, 23e12),
+TEST_STATS = [("with_device", 128, 0.1, 123e9, 123e6, {"a": 234e12, "b": 345e9}, 1, {"a": 1, "b": 2}, {"a": 1, "b": 2},  1e9, 23e9),
               ("no_device", 128, 0.1, 123e9, 123e6, {"a": 234e12, "b": 345e9}, 1, {"a": 1, "b": 2}, {"a": 1, "b": 2}, None, None)]
 @pytest.mark.parametrize("label, num_tokens, duration, total_flops, total_io, flops_summary, io_summary, flop_counts, io_counts, device_bandwidth, device_flop_per_s", TEST_STATS)
 def test_performance_stats(label, num_tokens, duration, total_flops, total_io, flops_summary, io_summary, flop_counts, io_counts, device_bandwidth, device_flop_per_s):
@@ -169,6 +169,30 @@ def test_performance_stats(label, num_tokens, duration, total_flops, total_io, f
         assert stats.flops_utilization == stats.flops_throughput / device_flop_per_s
     else:
         assert stats.flops_utilization is None
+        
+    # Test str - stats should be formatted to closest power of 10 ** 3 with 2 decimal places of precision
+    stats_str = str(stats)
+    print(stats_str)
+    # Base Stats
+    expected_io_str = ".12 GB"
+    expected_flops_str = ".12 TFLOPs"
+    assert expected_io_str in stats_str
+    assert expected_flops_str in stats_str
+
+    # Derived Stats
+    expected_io_throughput_str = "1.23 GB/s"
+    expected_flops_throughput_str = "1.23 TFLOPs/s"
+    assert expected_io_throughput_str in stats_str
+    assert expected_flops_throughput_str in stats_str
+    
+    # Utilization Stats
+    if device_bandwidth is not None:
+        expected_bandwidth_utilization_str = f"{stats.io_throughput / device_bandwidth:.2f}%"
+        assert expected_bandwidth_utilization_str in stats_str
+    if device_flop_per_s is not None:
+        expected_flops_utilization_str = f"{stats.flops_throughput / device_flop_per_s:.2f}%"
+        assert expected_flops_utilization_str in stats_str
+        
 @pytest.mark.parametrize("shape", [(1, 1024, 4096, 4096), (128, 1, 1024, 4096)], ids=lambda p: ",".join(map(str, p)))
 @pytest.mark.parametrize("timer_cls", [PerformanceTimer, CUDAPerformanceTimer], ids=lambda p: p.__name__)
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=str)
