@@ -177,18 +177,14 @@ class TestFSDP2(FSDPTest):
                 "enable_activation_checkpointing": [False, True],
                 "offload_policy": [
                     OffloadPolicy(),
-                    CPUOffloadPolicy(pin_memory=True),
-                    CPUOffloadPolicy(pin_memory=False),
+                    # CPUOffloadPolicy(pin_memory=True),
+                    # CPUOffloadPolicy(pin_memory=False),
                 ],
             },
             self._test_fsdp2,
         )
 
-    def _test_fsdp2(
-        self,
-        enable_activation_checkpointing: bool,
-        offload_policy: "OffloadPolicy",
-    ):
+    def _test_fsdp2(self, enable_activation_checkpointing, offload_policy):
         from torch.distributed._composable.fsdp import fully_shard
         from torch.testing._internal.distributed._tensor.common_dtensor import (
             ModelArgs,

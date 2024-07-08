@@ -3,6 +3,7 @@ from typing import Optional
 import torch
 from torch import Tensor
 from torch.optim import Optimizer
+from torch.distributed._tensor import DTensor
 
 from .subclass_8bit import maybe_new_8bit_zero_buffer
 from .subclass_4bit import maybe_new_4bit_zero_buffer
@@ -48,16 +49,24 @@ class _Adam(Optimizer):
                 if grad.is_sparse:
                     raise RuntimeError("Sparse gradient is not supported")
 
+                # unwrap DTensor
+                if isinstance(p, DTensor):
+                    p = p._local_tensor.requires_grad_(True)
+                if isinstance(grad, DTensor):
+                    grad = grad._local_tensor
+
+                # flatten p and grad so that torch.compile won't recompile for tensors with different ndim
+                p = p.view(-1)
+                grad = grad.view(-1)
                 state = self.state[p]
 
                 # State initialization
-                # state is flattened so that torch.compile won't recompile for tensors with different ndim
                 if len(state) == 0:
                     state["step"] = torch.tensor(0.0, device=p.device)
-                    state["exp_avg"] = self._new_buffer(p.view(-1), True, self.block_size)
-                    state["exp_avg_sq"] = self._new_buffer(p.view(-1), False, self.block_size)
+                    state["exp_avg"] = self._new_buffer(p, True, self.block_size)
+                    state["exp_avg_sq"] = self._new_buffer(p, False, self.block_size)
                     if group["amsgrad"]:
-                        state["max_exp_avg_sq"] = self._new_buffer(p.view(-1), False, self.block_size)
+                        state["max_exp_avg_sq"] = self._new_buffer(p, False, self.block_size)
 
                 state["step"] += 1
 
@@ -67,10 +76,9 @@ class _Adam(Optimizer):
                 if not isinstance(group["lr"], Tensor):
                     group["lr"] = torch.tensor(group["lr"], device=p.device)
 
-                # flatten p and grad so that torch.compile won't recompile for tensors with different ndim
                 single_param_adam(
-                    p.view(-1),
-                    grad.view(-1),
+                    p,
+                    grad,
                     state["step"],
                     state["exp_avg"],
                     state["exp_avg_sq"],
