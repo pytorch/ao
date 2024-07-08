@@ -110,14 +110,14 @@ class PerformanceTimer:
 
     def _print_exit_msg(self):
         gflops = round(self.total_flops / 1e9, self.precision)
-        ms = round(self.elapsed * 1e3, self.precision)
+        ms = round(self.duration * 1e3, self.precision)
         if self.display: 
             print(f"{self.name.upper()}:  Elapsed = {ms} ms, FLOPS = {gflops} GFLOPs")
 
     def __exit__(self, type, value, traceback):
         self.end = time.perf_counter()
         #Convert to ms
-        self.elapsed = (self.end - self.start)
+        self.duration = (self.end - self.start)
         self.perf_counter.__exit__(type, value, traceback)
         if self.display:
             self._print_exit_msg()        
@@ -164,17 +164,46 @@ class CUDAPerformanceTimer(PerformanceTimer):
         self.end.record()
         torch.cuda.synchronize()
         # Convert from ms to s
-        self.elapsed = self.start.elapsed_time(self.end) * 1e-3
+        self.duration = self.start.elapsed_time(self.end) * 1e-3
         self.perf_counter.__exit__(type, value, traceback)
 
         if self.display:
             self._print_exit_msg()        
 
+def to_nearest_power_of_10(x, precision=2):
+    
+    # Dictionary mapping powers of 10 to their metric abbreviations
+    metric_units = {
+        0: '',
+        -6: 'µ',
+        -3: 'm',
+        6: 'M',
+        9: 'G',
+        12: 'T'
+    }
+    
+    # Determine the closest power of 10
+    if x == 0:
+        return f"{x:.{precision}f}"
+    
+    power = int(math.floor(math.log10(abs(x))))
+    # Adjust power to fit within the given metric units
+    powers = sorted(metric_units.keys())
+    closest_power = min(powers, key=lambda p: abs(p - power))
+    
+    # Calculate the value formatted to the closest power of 10
+    value = x / 10**closest_power
+    
+    # Map the power to the metric unit
+    unit = metric_units.get(closest_power, f"e{closest_power}")
+    
+    return f"{value:,.{precision}f} {unit}"
+
 @dataclass
 class PerformanceStats:
     label: str
     num_tokens: int
-    elapsed: float
+    duration: float
     total_flops: int
     total_io: int
     summary_flops: Dict[str, int]
@@ -186,15 +215,15 @@ class PerformanceStats:
     device_flop_per_s: Optional[float] = None    
     @property
     def token_throughput(self):
-        return self.num_tokens / self.elapsed
+        return self.num_tokens / self.duration
     
     @property
     def flops_throughput(self):
-        return self.total_flops / self.elapsed
+        return self.total_flops / self.duration
     
     @property
     def io_throughput(self):
-        return self.total_io / self.elapsed
+        return self.total_io / self.duration
     
     @property
     def bandwidth_utilization(self):
@@ -202,12 +231,35 @@ class PerformanceStats:
             return self.io_throughput / self.device_bandwidth
         else:
             print("Device bandwidth is not specified. Please specify the device bandwidth to enable bandwidth utilization calculation")
+            return None
     @property
     def flops_utilization(self):
-        if self.device_throughput is not None:
+        if self.device_flop_per_s is not None:
             return self.flops_throughput / self.device_flop_per_s
         else:
             print("Device flop_per_s is not specified. Please specify the device throughput to enable flops utilization calculation")
+            return None
+    def _format(self, value, suffix):
+        return to_nearest_power_of_10(value) + suffix
+    def __str__(self):
+        txt = textwrap.dedent(f"""\
+            {self.label}:
+              Duration = {self._format(self.duration, "s")}
+              Tokens
+                Total: {self.num_tokens} tokens
+                Throughput: {self.token_throughput:,.0f} tokens/s
+              IO
+                Total: {self._format(self.total_io, "B")}
+                Throughput: {self._format(self.io_throughput, "B/s")}
+              FLOPs 
+                Total: {self._format(self.total_flops, "FLOPs")}
+                Throughput: {self._format(self.flops_throughput, "FLOPs/s")}""")
+        if self.bandwidth_utilization is not None:
+            txt += "\n" + textwrap.indent("""Utilization:\n""", " " * 2)
+            txt += textwrap.indent(f"""Bandwidth: {self.bandwidth_utilization:.1f}%""", " " * 4)
+        if self.flops_utilization is not None:
+            txt +=  "\n" + textwrap.indent(f"""FLOPs: {self.flops_utilization:.1f}%""", " " * 4)
+        return txt
 class PerformanceCounterManager:
     COUNT_KEYS = ["label", "num_tokens", "elapsed", "throughput", "total_flops", "flops_table", "flop_counts"]
     def __init__(self, depth=10, timer_cls: PerformanceTimer=PerformanceTimer, device_spec: DeviceSpec=None, verbose=False):
