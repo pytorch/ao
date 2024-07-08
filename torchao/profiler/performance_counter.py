@@ -258,10 +258,10 @@ class PerformanceStats:
             indent_2 = " " * 2
             indent_4 = " " * 4
             txt += "\n" + textwrap.indent("""Utilization:\n""", indent_2)
-            txt += textwrap.indent(f"""Bandwidth: {self.bandwidth_utilization:.1f}%""", indent_4)
+            txt += textwrap.indent(f"""Bandwidth: {self.bandwidth_utilization:.2f}%""", indent_4)
         
         if self.flops_utilization is not None:
-            txt +=  "\n" + textwrap.indent(f"""FLOPs: {self.flops_utilization:.1f}%""", indent_4)
+            txt +=  "\n" + textwrap.indent(f"""FLOPs: {self.flops_utilization:.2f}%""", indent_4)
         
         return txt
 class PerformanceCounterManager:
