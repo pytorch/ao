@@ -56,18 +56,16 @@ class _AdamW(Optimizer):
                 if isinstance(grad, DTensor):
                     grad = grad._local_tensor
 
-                # flatten p and grad to avoid torch.compile() recompilation
-                p = p.view(-1)
-                grad = grad.view(-1)
                 state = self.state[p]
 
                 # State initialization
+                # flatten buffer to avoid torch.compile() recompilation
                 if len(state) == 0:
                     state["step"] = torch.tensor(0.0, device=p.device)
-                    state["exp_avg"] = self._new_buffer(p, True, self.block_size)
-                    state["exp_avg_sq"] = self._new_buffer(p, False, self.block_size)
+                    state["exp_avg"] = self._new_buffer(p.view(-1), True, self.block_size)
+                    state["exp_avg_sq"] = self._new_buffer(p.view(-1), False, self.block_size)
                     if group["amsgrad"]:
-                        state["max_exp_avg_sq"] = self._new_buffer(p, False, self.block_size)
+                        state["max_exp_avg_sq"] = self._new_buffer(p.view(-1), False, self.block_size)
 
                 state["step"] += 1
 
@@ -77,6 +75,7 @@ class _AdamW(Optimizer):
                 if not isinstance(group["lr"], Tensor):
                     group["lr"] = torch.tensor(group["lr"], device=p.device)
 
+                # flatten p and grad to avoid torch.compile() recompilation
                 single_param_adamw(
                     p.view(-1),
                     grad.view(-1),
