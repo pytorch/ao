@@ -1,5 +1,7 @@
 import torch
 from torch import Tensor
+from torch.utils._python_dispatch import return_and_correct_aliasing
+
 from torchao.dtypes.utils import _implements, _ATEN_OP_OR_TORCH_FN_TABLE
 
 
@@ -157,6 +159,14 @@ class OptimState8bit(Tensor):
             f"shape={tuple(self.shape)}, device={self.device}, requires_grad={self.requires_grad})"
         )
 
+    def _apply_fn_to_data(self, fn, *args, **kwargs):
+        return self.__class__(
+            fn(self.codes, *args, **kwargs),
+            fn(self.scale, *args, **kwargs),
+            fn(self.qmap, *args, **kwargs),
+            self.signed,
+        )
+
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
         if func in _ATEN_OP_OR_TORCH_FN_TABLE[cls]:
@@ -191,6 +201,50 @@ def _(func, *args, **kwargs):
 def _(func, *args, **kwargs):
     args = [x.dequantize() if isinstance(x, OptimState8bit) else x for x in args]
     return func(*args, **kwargs)
+
+
+# the following ops are required for FSDP
+@OptimState8bit.implements(aten._to_copy.default)
+def _(func, *args, **kwargs):
+    # ignore dtype and layout
+    kwargs.pop("dtype")  
+    kwargs.pop("layout")
+    return args[0]._apply_fn_to_data(func, **kwargs)
+
+
+@OptimState8bit.implements(aten.detach.default)
+def _(func, *args, **kwargs):
+    return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.detach))
+
+
+@OptimState8bit.implements(aten.split.Tensor)
+def _(func, *args, **kwargs):
+    tensor: OptimState8bit = args[0]
+    split_size = args[1]
+    dim = args[2] if len(args) >= 3 else 0
+
+    assert dim == 0  # only support splitting dim=0
+    assert isinstance(split_size, int)  # don't support list
+    assert tensor.numel() % split_size == 0
+
+    codes_list = torch.split(tensor.codes, split_size, dim)
+    scale_list = torch.split(tensor.scale, split_size, dim)
+
+    outputs = []
+    for codes, scale in zip(codes_list, scale_list):
+        outputs.append(OptimState8bit(codes, scale, tensor.qmap.clone(), tensor.signed))
+    return tuple(outputs)
+
+
+@OptimState8bit.implements(aten.empty_like.default)
+def _(func, *args, **kwargs):
+    tensor: OptimState8bit = args[0]
+    return OptimState8bit(
+        torch.empty_like(tensor.codes),
+        torch.empty_like(tensor.scale),
+        tensor.qmap.clone(),
+        tensor.signed,
+    )
 
 
 # follow bitsandbytes
