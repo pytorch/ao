@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import torch
 from torch.utils._pytree import tree_map
@@ -175,17 +175,15 @@ class PerformanceStats:
     label: str
     num_tokens: int
     elapsed: float
-    # token_throughput: float
-    total_flops: float
-    # flops_throughput: float
-    total_io: float
-    # io_throughput: float
+    total_flops: int
+    total_io: int
     summary_flops: Dict[str, int]
     summary_io: Dict[str, int]
     flop_counts: Dict[str, Dict[Any, int]]
     io_counts: Dict[str, Dict[Any, int]]
     pretty_summary: str
-    
+    device_bandwidth: Optional[float] = None
+    device_flop_per_s: Optional[float] = None    
     @property
     def token_throughput(self):
         return self.num_tokens / self.elapsed
@@ -198,11 +196,23 @@ class PerformanceStats:
     def io_throughput(self):
         return self.total_io / self.elapsed
     
+    @property
+    def bandwidth_utilization(self):
+        if self.device_bandwidth is not None:
+            return self.io_throughput / self.device_bandwidth
+        else:
+            print("Device bandwidth is not specified. Please specify the device bandwidth to enable bandwidth utilization calculation")
+    @property
+    def flops_utilization(self):
+        if self.device_throughput is not None:
+            return self.flops_throughput / self.device_flop_per_s
+        else:
+            print("Device flop_per_s is not specified. Please specify the device throughput to enable flops utilization calculation")
 class PerformanceCounterManager:
     COUNT_KEYS = ["label", "num_tokens", "elapsed", "throughput", "total_flops", "flops_table", "flop_counts"]
     def __init__(self, depth=10, timer_cls: PerformanceTimer=PerformanceTimer, device_spec: DeviceSpec=None, verbose=False):
         super().__init__()
-        self._counts = {}
+        self._counts: Dict[str, PerformanceStats] = {}
         self._depth = depth
         self.timer_cls = timer_cls
         self.device_spec = device_spec
@@ -216,20 +226,19 @@ class PerformanceCounterManager:
             yield self
         finally:
             perf_timer.__exit__(None, None, None)
-            self._counts[label] = {"label": label,
-                                  "num_tokens": num_tokens,
-                                  "elapsed": perf_timer.elapsed,
-                                  "token_throughput": num_tokens / perf_timer.elapsed,
-                                  "total_flops": perf_timer.total_flops, 
-                                  "flops_throughput": perf_timer.total_flops / perf_timer.elapsed,
-                                  "total_io": perf_timer.total_io,
-                                  "io_throughput": perf_timer.total_io / perf_timer.elapsed,
-                                  "summary_flops": perf_timer.get_summary_flop_counts(),
-                                  "summary_io": perf_timer.get_summary_io_counts(),
-                                  "flop_counts": perf_timer.flop_counts,
-                                  "io_counts": perf_timer.io_counts,
-                                  "pretty_summary": perf_timer.get_pretty_summary(depth=self._depth),
-                                  }
+            stats = PerformanceStats(label=label, 
+                                     num_tokens=num_tokens, 
+                                     elapsed=perf_timer.elapsed,
+                                     total_flops=perf_timer.total_flops,
+                                     total_io=perf_timer.total_io,
+                                     summary_flops=perf_timer.get_summary_flop_counts(),
+                                     summary_io=perf_timer.get_summary_io_counts(),
+                                     flop_counts=perf_timer.flop_counts,
+                                     io_counts=perf_timer.io_counts,
+                                     pretty_summary=perf_timer.get_pretty_summary(depth=self._depth),
+                                     device_bandwidth=self.device_spec.bandwidth if self.device_spec.bandwidth is not None else None,
+                                     device_flop_per_s=self.device_spec.flop_per_s if self.device_spec.flop_per_s is not None else None)
+            self._counts[label] = stats
     @property
     def counts(self):
         return self._counts
