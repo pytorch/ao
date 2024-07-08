@@ -12,7 +12,7 @@ from torch.testing._internal.common_utils import (
 )
 from torchao.prototype import low_bit_optim
 from torchao.prototype.low_bit_optim import subclass_8bit, subclass_4bit
-from torchao.utils import TORCH_VERSION_AFTER_2_3
+from torchao.utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
 
 try:
     import bitsandbytes as bnb
