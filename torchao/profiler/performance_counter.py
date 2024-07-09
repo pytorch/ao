@@ -1,3 +1,4 @@
+import inspect
 import json
 import math
 import textwrap
@@ -199,14 +200,31 @@ def to_nearest_power_of_10(x, precision=2):
     
     return f"{value:,.{precision}f} {unit}"
 
-class DictGetter:
+class DictMixin:
+    """
+    Mixin to enable dict-like access to dataclass attributes
+    """
     def __getitem__(self, key):
         if hasattr(self, key):
             return getattr(self, key)
         else:
             raise KeyError(key)
+    
+    def __setitem__(self, key, value):
+        setattr(self, key, value)
+        
+    def __contains__(self, key):
+        return hasattr(self, key)
+    
+    def __iter__(self):
+        for key in self.__dict__:
+            yield key
+
+# Function to get all property methods of a class
+def get_property_methods(cls):
+    return [name for name, member in inspect.getmembers(cls, lambda m: isinstance(m, property))]
 @dataclass
-class PerformanceStats(DictGetter):
+class PerformanceStats(DictMixin):
     label: str
     num_tokens: int
     duration: float
@@ -272,7 +290,12 @@ class PerformanceStats(DictGetter):
         return txt
 
     def to_dict(self):
-        return asdict(self)
+        d = asdict(self)
+        # Update dict with properties
+        props = get_property_methods(self.__class__)
+        d.update({prop: getattr(self, prop) for prop in props})
+
+        return d
     
 class PerformanceCounterManager:
     def __init__(self, depth=10, timer_cls: PerformanceTimer=PerformanceTimer, device_spec: DeviceSpec=None, verbose=False):
@@ -379,24 +402,26 @@ class PerformanceCounterManager:
                 Throughput {flop_throughput:,} GFLOP/s""")
         return text
       
-    def print_summary(self, labels: list[str] = None, precision=2, verbose=None):
-        verbose = verbose if verbose is not None else self.verbose
+    def print_summary(self, labels: list[str] = None):
         _print = partial(print, flush=True, end='\n')
+        # Delegate to __str__ of PerformanceStats for pretty printing
         if labels is None:
-            text = self._format_totals(precision=precision)
+            text = str(self.stats_summary)
             _print(text)
         else:
             for label in labels:
-                text = str(self._count[label]) # delegate to __str__ of PerformanceStats object
+                text = str(self._count[label]) 
                 _print(self._count[label])
     
     def to_dict(self):
         # Convert flop_counts from OpOverloadPackets to str
+        # Then delegate to PerformanceStats `to_dict`, which updates with derived metrics (property methods)
         counts = deepcopy(self._counts)
         for label,label_counts in counts.items():
             counts[label]['flop_counts'] = {mod: {str(op): count for op, count in op_count.items()} for mod, op_count in label_counts['flop_counts'].items()}
             counts[label]['io_counts'] = {mod: {str(op): count for op, count in op_count.items()} for mod, op_count in label_counts['io_counts'].items()}
-
+            counts[label] = counts[label].to_dict()
+            
         return counts
     
     def to_json(self):
