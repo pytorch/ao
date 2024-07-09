@@ -259,8 +259,11 @@ class AffineQuantizedTensor(torch.Tensor):
 
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
+        device = kwargs.pop("device")
+        # not supported yet
+        kwargs.pop("memory_format")
         return self.__class__(
-            self.layout_tensor.to(kwargs["device"]),
+            self.layout_tensor.to(device),
             self.block_size,
             self.shape,
             self.quant_min,
@@ -470,8 +473,8 @@ class TensorCoreTiledAQTLayout(AQTLayout):
         if device != "cuda" or (isinstance(device, torch.device) and device.type != "cuda"):
             raise ValueError(f"TensorCoreTiledAQTLayout is only available for cuda device")
         return self.__class__(
-            self.packed_weight.to(kwargs["device"]),
-            self.scale_and_zero.to(kwargs["device"]),
+            self.packed_weight.to(device),
+            self.scale_and_zero.to(device),
             self.transposed
         )
 
@@ -479,6 +482,10 @@ class TensorCoreTiledAQTLayout(AQTLayout):
         self.packed_weight = fn(self.packed_weight)
         self.scale_and_zero = fn(self.scale_and_zero)
         return self
+
+    def __repr__(self):
+        int_data, scale, zero_point = self.get_plain()
+        return f"TensorCoreTiledAQTLayout(int_data={int_data}, scale={scale}, zero_point={zero_point})"
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
@@ -505,9 +512,10 @@ class TensorCoreTiledAQTLayout(AQTLayout):
     def get_plain(self):
         from torchao.quantization.quant_primitives import (
             ZeroPointDomain,
-            unpack_tinygemm_scales_and_zeros,
             quantize_affine,
         )
+        from torchao.quantization.utils import unpack_tinygemm_scales_and_zeros
+
         cur_shape = self.shape
         assert len(cur_shape) == 4
         inner_k_tiles = cur_shape[-1] * 2

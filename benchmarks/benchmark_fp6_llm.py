@@ -1,25 +1,24 @@
 import torch
-from torch import nn
-from torchao.prototype.fp6_llm.fp6_llm import Fp6LlmLinear, from_tc_float6_e3m2
-from torch.utils.benchmark import Timer
 import pandas as pd
+import torch.nn.functional as F
+from torchao.prototype.quant_llm import QuantLlmLinearWeight
+from torchao.utils import benchmark_torch_function_in_microseconds
 from tqdm import tqdm
 
 
 def benchmark(m: int, k: int, n: int):
-    fp6_weight = torch.randint(256, size=(n, k * 3 // 4), dtype=torch.uint8, device="cuda")
-    scales = torch.rand(n, dtype=torch.half, device="cuda") + 0.5
-    fp6_linear = Fp6LlmLinear(fp6_weight, scales)
+    fp6_data = torch.randint(256, size=(n, k * 3 // 4), dtype=torch.uint8, device="cuda")
+    scale = torch.rand(n, dtype=torch.half, device="cuda") + 0.5
+    fp6_weight = QuantLlmLinearWeight(fp6_data, scale, 3, 2)
 
-    fp16_linear = nn.Linear(k, n, bias=True, dtype=torch.half, device="cuda")
-    fp16_linear.weight.data = from_tc_float6_e3m2(fp6_weight, dtype=torch.half) * scales[:, None]
+    fp16_weight = fp6_weight.dequantize(torch.half)
 
     fp16_act = torch.randn(m, k, dtype=torch.half, device="cuda")
-    fp6_output = fp6_linear(fp16_act)
-    fp16_output = fp16_linear(fp16_act)
+    fp6_output = F.linear(fp16_act, fp6_weight)
+    fp16_output = F.linear(fp16_act, fp16_weight)
 
-    fp6_measurement = Timer(stmt="fp6_linear(fp16_act)", globals=locals()).blocked_autorange()
-    fp16_measurement = Timer(stmt="fp16_linear(fp16_act)", globals=locals()).blocked_autorange()
+    fp6_time = benchmark_torch_function_in_microseconds(F.linear, fp16_act, fp6_weight)
+    fp16_time = benchmark_torch_function_in_microseconds(F.linear, fp16_act, fp16_weight)
 
     # follow https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/tests/python/kernel_test.py
     # doesn't seem to be the right way to check for correctness
@@ -29,9 +28,9 @@ def benchmark(m: int, k: int, n: int):
         "m": m,
         "k": k,
         "n": n,
-        "fp6_latency (ms)": fp6_measurement.median * 1000,
-        "fp16_latency (ms)": fp16_measurement.median * 1000,
-        "speedup (d/s)": fp16_measurement.median / fp6_measurement.median,
+        "fp6_latency (ms)": fp6_time,
+        "fp16_latency (ms)": fp16_time,
+        "speedup (d/s)": fp16_time / fp6_time,
         "correct": correct,
     }
 

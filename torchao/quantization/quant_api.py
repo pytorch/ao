@@ -16,6 +16,7 @@ and mixed GEMM kernels
 """
 
 import torch
+import torchao
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Any, Callable, Union, Dict, Optional
@@ -53,7 +54,7 @@ __all__ = [
     "Int4WeightOnlyQuantizer",
     "autoquant",
     "_get_subclass_inserter",
-    "quantize",
+    "quantize_",
     "int8_dynamic_activation_int4_weight",
     "int8_dynamic_activation_int8_weight",
     "int4_weight_only",
@@ -258,20 +259,21 @@ def _get_linear_subclass_inserter(constructor):
 
     return insert_subclass
 
-def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tensor], torch.Tensor], filter_fn: Optional[Callable[[torch.nn.Module, str], bool]]=None) -> torch.nn.Module:
-    """Convert the weight of linear modules in the model with `apply_tensor_subclass`
+def quantize_(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tensor], torch.Tensor], filter_fn: Optional[Callable[[torch.nn.Module, str], bool]]=None, set_inductor_config: bool=True):
+    """Convert the weight of linear modules in the model with `apply_tensor_subclass`, model is modified inplace
 
     Args:
         model (torch.nn.Module): input model
         apply_tensor_subclass (Callable[[torch.Tensor], torch.Tensor]): function that convert a floating point Tensor to a (quantized) tensor subclass instance (e.g. affine quantized tensor instance)
         filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): function that takes a nn.Module instance and fully qualified name of the module, returns True if we want to run `apply_tensor_subclass` on
         the weight of the module
+        set_inductor_config (bool, optional): Whether to automatically use recommended inductor config settings (defaults to True)
 
     Example::
 
         import torch
         import torch.nn as nn
-        from torchao import quantize
+        from torchao import quantize_
 
         # 1. quantize with some predefined `apply_tensor_subclass` method that corresponds to
         # optimized execution paths or kernels (e.g. int4 tinygemm kernel)
@@ -284,7 +286,7 @@ def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tens
         from torchao.quantization.quant_api import int4_weight_only
 
         m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))
-        m = quantize(m, int4_weight_only(group_size=32))
+        quantize_(m, int4_weight_only(group_size=32))
 
         # 2. write your own new apply_tensor_subclass
         # You can also add your own apply_tensor_subclass by manually calling tensor subclass constructor
@@ -303,22 +305,17 @@ def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tens
             return isinstance(module, nn.Linear)
 
         m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))
-        m = quantize(m, apply_weight_quant, filter_fn)
+        quantize_(m, apply_weight_quant, filter_fn)
 
     """
-    if isinstance(apply_tensor_subclass, str):
-        if apply_tensor_subclass not in _APPLY_TS_TABLE:
-            raise ValueError(f"{apply_tensor_subclass} not supported: {_APPLY_TS_TABLE.keys()}")
-        apply_tensor_subclass = _APPLY_TS_TABLE[apply_tensor_subclass]
-
-    assert not isinstance(apply_tensor_subclass, str)
-
+    if set_inductor_config:
+        torchao.quantization.utils.recommended_inductor_config_setter()
     _replace_with_custom_fn_if_matches_filter(
         model,
         _get_linear_subclass_inserter(apply_tensor_subclass),
         _is_linear if filter_fn is None else filter_fn,
     )
-    return model
+
 
 def int8_dynamic_activation_int4_weight(group_size=32):
     """Applies int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear
@@ -366,6 +363,14 @@ def int4_weight_only(group_size=128, inner_k_tiles=8):
     """
     Applies uint4 weight-only asymmetric per-group quantization to linear layers, using
     "tensor_core_tiled" layout for speedup with tinygemm kernel
+
+    Note:
+        This is targeting `tinygemm` int4mm kernel (`torch.ops.aten._weight_int4pack_mm`), the main difference
+        of quantization algorithm compared to the more traditional type of integer quantization is the following:
+        1). zero_point is in floating point domain instead of integer domain (`zero_point_domain`=`ZeroPointDomain.FLOAT`)
+        2). floating point zero does not have to be exactly representable (`preserve_zero`=False in `choose_qparams_affine`)
+        please follow the relevant code in `choose_qparams_affine`, `quantize_affine` and `dequantize_affine`
+        to learn about how the quantization parameters are chosen and how the Tensor is quantized/dequantized for tinygemm
 
     Args:
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller

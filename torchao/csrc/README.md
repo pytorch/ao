@@ -6,6 +6,8 @@ This folder is an example of how to integrate your own custom kernels into ao su
 
 The goal is that you can focus on just writing your custom CUDA or C++ kernel and we can package it up so it's available via `torchao.ops.your_custom_kernel`.
 
+To learn more about custom ops in PyTorch you can refer to the [PyTorch Custom Operators Landing Page](https://pytorch.org/tutorials/advanced/custom_ops_landing_page.html)
+
 
 ## How to add your own kernel in ao
 

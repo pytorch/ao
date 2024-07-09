@@ -36,6 +36,7 @@ __all__ = [
     "groupwise_affine_dequantize_tensor",
     "per_token_dynamic_quant",
     "get_group_qparams_symmetric",
+    "recommended_inductor_config_setter"
 ]
 
 try:
@@ -123,9 +124,9 @@ class _MultiInput:
 
 def guard_dtype_size(tensor_arg, arg_name, dtype=None, size=None):
     if dtype is not None and tensor_arg.dtype != dtype:
-        raise ValueError("Expected Tensor argument {arg_name} to have dtype {dtype}, but got {tensor_arg.dtype} instead.")
+        raise ValueError(f"Expected Tensor argument {arg_name} to have dtype {dtype}, but got {tensor_arg.dtype} instead.")
     if size is not None and tensor_arg.size() != size:
-        raise ValueError("Expected Tensor argument {arg_name} to have size {size}, but got {tensor_arg.size()} instead.")
+        raise ValueError(f"Expected Tensor argument {arg_name} to have size {size}, but got {tensor_arg.size()} instead.")
 
 # taken from
 # https://github.com/mit-han-lab/smoothquant/blob/2f87951dacfb9238d8d657f52ae83a82a3c9ba0c/smoothquant/fake_quant.py#L26
@@ -306,9 +307,9 @@ def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16
     ).reshape(w.shape[0], -1)
 
 
-def pack_tinygemm_scales_and_zeros(scales, zeros):
-    guard_dtype_size(scales, "scales", dtype=torch.bfloat16, size=zeros.size())
-    guard_dtype_size(zeros, "zeros", dtype=torch.bfloat16)
+def pack_tinygemm_scales_and_zeros(scales, zeros, dtype=torch.bfloat16):
+    guard_dtype_size(scales, "scales", dtype=dtype, size=zeros.size())
+    guard_dtype_size(zeros, "zeros", dtype=dtype)
     return (
         torch.cat(
             [
@@ -375,7 +376,7 @@ def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128, dtype=torch.bflo
     w_int4x8 = groupwise_affine_quantize_tensor_from_qparams(
         w, scales, zeros, n_bit, groupsize
     )
-    scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros)
+    scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros, dtype)
     return w_int4x8, scales_and_zeros
 
 
@@ -456,3 +457,20 @@ def per_token_dynamic_quant(input: torch.Tensor) -> torch.Tensor:
         input, scales, zero_points, quant_min, quant_max, torch.int8, orig_dtype
     )
     return input.to(orig_dtype)
+
+def recommended_inductor_config_setter():
+    """
+    Set inductor config to use the following optimizations which have been showed to improve performance for quantized models:
+        coordinate_descent_tuning = True
+        coordinate_descent_check_all_directions = True
+        force_fuse_int_mm_with_mul = True
+        fx_graph_cache = True
+        triton.unique_kernel_names = True
+        torch.set_float32_matmul_precision("high")
+    """
+    torch._inductor.config.coordinate_descent_tuning = True
+    torch._inductor.config.coordinate_descent_check_all_directions = True
+    torch._inductor.config.force_fuse_int_mm_with_mul = True
+    torch._inductor.config.fx_graph_cache = True
+    torch._inductor.config.triton.unique_kernel_names = True
+    torch.set_float32_matmul_precision("high")

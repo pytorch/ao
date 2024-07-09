@@ -30,10 +30,6 @@ of the activations that the different linear layers see, it then benchmarks thes
 import torch
 import torchao
 
-# inductor settings which improve torch.compile performance for quantized modules
-torch._inductor.config.force_fuse_int_mm_with_mul = True
-torch._inductor.config.use_mixed_mm = True
-
 # Plug in your model and example input
 model = torch.nn.Sequential(torch.nn.Linear(32, 64)).cuda().to(torch.bfloat16)
 input = torch.randn(32,32, dtype=torch.bfloat16, device='cuda')
@@ -66,8 +62,13 @@ Affine quantization refers to the type of quantization that maps from floating p
 ### Quantization Primitives
 We used to have different quantize and dequantize operators for quantization with different granularities. But in the end these can all be expressed with a `block_size` argument with different settings, so we unified existing quant primitives to `choose_qparams_affine`, `quantize_affine` and `dequantize_affine` that can represent symmetric/asymmetric per tensor/channel/token/channel_group quantization, this can be used to implement the unified quantized tensor subclass.
 
+Note: these primitive ops supports two "types" of quantization, distinguished by whether `zero_point` is in floating point domain or integer domain. See docstrings for `choose_qparams` for more details.
+
 ### Quantized Tensor Subclass
 We also have a unified quantized tensor subclass that implements how to get a quantized tensor from floating point tensor and what does it mean to call linear ops on an instance of the tensor, e.g. `F.linear` and `aten.addmm`, with this we could dispatch to different operators (e.g. `int4mm` op) based on device (cpu, cuda) and quantization settings (`int4`, `int8`) and also packing formats (e.g. format optimized for cpu int4 mm kernel)
+
+#### Layouts
+We extended the `layout` concept to represent different packing formats for a tensor. `AffineQuantizedTensor` supports `plain` and `tensor_core_tiled` layout. `plain` layout is used for `int8_weight_only` and `int8_dynamic_activation_int8_weight` and also as a default layout. `tensor_core_tiled` layout is used for `int4_weight_only` quantization and is packing the weights in a format that is compatible with tinygemm [int4mm](https://github.com/pytorch/pytorch/blob/39357ba06f48cda7d293a4995aa5eba2a46598b5/aten/src/ATen/native/native_functions.yaml#L4138) kernels.
 
 ### Quantization Flow Example
 Let's use int4 weight only quantization that's targeting tinygemm int4 weight only quantized matmul
@@ -76,10 +77,9 @@ as an example:
 import torch
 from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
 from torchao.dtypes import to_affine_quantized
-from torch._inductor.runtime.runtime_utils import do_bench_gpu
 import copy
 from torchao.quantization.quant_api import (
-    quantize,
+    quantize_,
     int4_weight_only,
 )
 
@@ -105,13 +105,11 @@ example_inputs = m.example_inputs(dtype=dtype, device="cuda")
 m_bf16 = torch.compile(m_bf16, mode='max-autotune')
 # apply int4 weight only quant (compatible with tinygemm int4 weight only quant mm kernel in torchao)
 group_size = 32
-m = quantize(m, int4_weight_only(group_size=group_size))
-
-torch._inductor.config.force_fuse_int_mm_with_mul = True
-torch._inductor.config.use_mixed_mm = True
+# only works for torch 2.4+
+quantize_(m, int4_weight_only(group_size=group_size))
 
 # temporary workaround for tensor subclass + torch.compile
-from torchao.quantization.utils import unwrap_tensor_subclass
+from torchao.utils import unwrap_tensor_subclass
 m = unwrap_tensor_subclass(m)
 # compile the model to improve performance
 m = torch.compile(m, mode='max-autotune')
@@ -163,6 +161,9 @@ m = torch.export.export(m_unwrapped, example_inputs).module()
 torch._export.aot_compile(m_unwrapped, example_inputs)
 ```
 
+### Automatic Inductor Configuration
+The `quantize` and `autoquant` apis now automatically use our recommended inductor configuration setings. You can mimic the same configuration settings for your own experiments by using the `torchao.quantization.utils.recommended_inductor_config_setter` to replicate our recommended configuration settings. Alternatively if you wish to disable these recommended settings, you can use the key word argument `set_inductor_config` and set it to false in the `quantize` or `autoquant` apis to prevent assignment of those configuration settings. You can also overwrite these configuration settings after they are assigned if you so desire, as long as they are overwritten before passing any inputs to the torch.compiled model. This means that previous flows which referenced a variety of inductor configurations that needed to be set are now outdated, though continuing to manually set those same inductor configurations is unlikely to cause any issues.
+
 ### Other Available Quantization Techniques
 #### A8W8 Dynamic Quantization
 
@@ -172,7 +173,7 @@ torch._inductor.config.force_fuse_int_mm_with_mul = True
 
 # for torch 2.4+
 from torchao.quantization import quantize, int8_dynamic_activation_int8_weight
-quantize(model, int8_dynamic_activation_int8_weight())
+quantize_(model, int8_dynamic_activation_int8_weight())
 
 # for torch 2.2.2 and 2.3
 from torchao.quantization.quant_api import change_linear_weights_to_int8_dqtensors
@@ -184,7 +185,7 @@ change_linear_weights_to_int8_dqtensors(model)
 ```python
 # for torch 2.4+
 from torchao.quantization import quantize, int8_weight_only
-quantize(model, int8_weight_only())
+quantize_(model, int8_weight_only())
 
 # for torch 2.2.2 and 2.3
 from torchao.quantization.quant_api import change_linear_weights_to_int8_woqtensors
@@ -199,7 +200,7 @@ This technique works best when the torch._inductor.config.use_mixed_mm option is
 ```python
 # for torch 2.4+
 from torchao.quantization import quantize, int4_weight_only
-quantize(model, int4_weight_only())
+quantize_(model, int4_weight_only())
 
 # for torch 2.2.2 and 2.3
 from torchao.quantization.quant_api import change_linear_weights_to_int4_woqtensors
