@@ -40,6 +40,8 @@ from torchao.profiler.performance_counter import (
 )
 from torchao.utils import TORCH_VERSION_AFTER_2_5
 
+# ------------------- PerformanceCounter Tests ------------------- #
+
 PERFCOUNTER_TEST_CONFIGS = [PerfCounterTestConfig(name="3.5B",
                                                   batch_size=1,
                                                   seqlen=128,
@@ -68,6 +70,8 @@ PERFCOUNTER_TEST_CONFIGS = [PerfCounterTestConfig(name="3.5B",
                                                   num_attention_heads=32 // 4,
                                                   vocab_size=32000 // 4)]
 
+@unittest.skipIf(not TORCH_VERSION_AFTER_2_5, "PerformanceCounter requires torch >= 2.5+.")
+@unittest.skipIf(not torch.cuda.is_available(), "PerformanceCounter requires CUDA")
 @parameterized_class([asdict(cfg) for cfg in PERFCOUNTER_TEST_CONFIGS], class_name_func=get_test_name)
 class PerformanceCounterTest(unittest.TestCase):
     @classmethod
@@ -150,6 +154,8 @@ class PerformanceCounterTest(unittest.TestCase):
             expected_size = ffn_io_check(self.model_config, batch_size, seqlen, element_size, k)
             assert expected_size == self.summary_io[proj_keys[0]]
                  
+# ------------------- PerformanceStats Tests ------------------- #
+
 PERFSTATS_TEST_CONFIGS = [PerfStatsTestConfig(label="with_device", 
                                               num_tokens=128, 
                                               duration=0.1, 
@@ -197,7 +203,7 @@ def test_performance_stats(cfg: PerfStatsTestConfig):
         
     # Test str - stats should be formatted to closest power of 10 ** 3 with 2 decimal places of precision
     stats_str = str(stats)
-    print(stats_str)
+
     # Base Stats
     expected_io_str = ".12 GB"
     expected_flops_str = ".12 TFLOPs"
@@ -218,10 +224,13 @@ def test_performance_stats(cfg: PerfStatsTestConfig):
         expected_flops_utilization_str = f"{stats.achieved_flops_per_s / device_flops_per_s:.2f}%"
         assert expected_flops_utilization_str in stats_str
         
+# ------------------- PerformanceCounterManager Tests ------------------- #
 
 PERFCOUNTERMANAGER_TEST_CONFIGS = [PerfCounterManagerTestConfig("no_device", (1, 1024, 4096, 4096), PerformanceTimer, torch.bfloat16, (None, 0)),
                                    PerfCounterManagerTestConfig("a100", (1, 1024, 4096, 4096), CUDAPerformanceTimer, torch.bfloat16, ("A100", 2e12))]
 
+@unittest.skipIf(not TORCH_VERSION_AFTER_2_5, "PerformanceCounterManager requires torch >= 2.5+.")
+@unittest.skipIf(not torch.cuda.is_available(), "PerformanceCounterManager requires CUDA")
 @parameterized_class([asdict(cfg) for cfg in PERFCOUNTERMANAGER_TEST_CONFIGS], class_name_func=get_test_name)
 class TestPerformanceCounterManager(unittest.TestCase):
     @classmethod
