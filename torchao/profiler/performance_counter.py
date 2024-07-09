@@ -3,6 +3,7 @@ import json
 import math
 import textwrap
 import time
+import warnings
 from collections import defaultdict
 from contextlib import contextmanager
 from copy import deepcopy
@@ -17,8 +18,20 @@ from torch.utils.flop_counter import FlopCounterMode
 
 from .device_spec import DeviceSpec
 
-aten = torch.ops.aten
+# Set to keep track of issued warnings
+_issued_warnings = set()
 
+def warn_once(message):
+    global _issued_warnings
+    if message not in _issued_warnings:
+        warnings.warn(message, CustomWarning)
+        _issued_warnings.add(message)
+
+# Define a custom warning category
+class CustomWarning(UserWarning):
+    pass
+
+aten = torch.ops.aten
 class PerformanceCounterMode(FlopCounterMode):
     def __init__(self, display=False, depth=10, debug=False):
         self.debug = debug
@@ -250,21 +263,38 @@ class PerformanceStats(DictMixin):
         return self.total_io / self.duration
     
     @property
+    def theoretical_io_latency(self):
+        if self.device_bandwidth is not None:
+            return self.total_io / self.device_bandwidth
+        else:
+            warn_once("Device bandwidth is not specified. Please specify the device bandwidth to enable io latency calculation")
+            return None
+
+    @property
+    def theoretical_compute_latency(self):
+        if self.device_flops_per_s is not None:
+            return self.total_flops / self.device_flops_per_s
+        else:
+            warn_once("Device flops_per_s is not specified. Please specify the device throughput to enable compute latency calculation")
+            return None
+        
+    @property
     def bandwidth_utilization(self):
         if self.device_bandwidth is not None:
             return self.achieved_bandwidth / self.device_bandwidth
         else:
-            print("Device bandwidth is not specified. Please specify the device bandwidth to enable bandwidth utilization calculation")
+            warn_once("Device bandwidth is not specified. Please specify the device bandwidth to enable bandwidth utilization calculation")
             return None
     @property
     def flops_utilization(self):
         if self.device_flops_per_s is not None:
             return self.achieved_flops_per_s / self.device_flops_per_s
         else:
-            print("Device flops_per_s is not specified. Please specify the device throughput to enable flops utilization calculation")
+            warn_once("Device flops_per_s is not specified. Please specify the device throughput to enable flops utilization calculation")
             return None
     def _format(self, value, suffix):
         return to_nearest_power_of_10(value) + suffix
+
     def __str__(self):
         txt = textwrap.dedent(f"""\
             {self.label}:
@@ -275,18 +305,23 @@ class PerformanceStats(DictMixin):
               IO
                 Total: {self._format(self.total_io, "B")}
                 Throughput: {self._format(self.achieved_bandwidth, "B/s")}
+                Theoretical Latency: {self._format(self.theoretical_io_latency, "s") if self.theoretical_io_latency is not None else "N/A"}
               FLOPs 
                 Total: {self._format(self.total_flops, "FLOPs")}
-                Throughput: {self._format(self.achieved_flops_per_s, "FLOPs/s")}""")
-        
-        indent_2 = " " * 2
-        indent_4 = " " * 4
-        if self.bandwidth_utilization is not None:
-            txt += "\n" + textwrap.indent("""Utilization:\n""", indent_2)
-            txt += textwrap.indent(f"""Bandwidth: {self.bandwidth_utilization:.2f}%""", indent_4)
-        
-        if self.flops_utilization is not None:
-            txt +=  "\n" + textwrap.indent(f"""FLOPs: {self.flops_utilization:.2f}%""", indent_4)
+                Throughput: {self._format(self.achieved_flops_per_s, "FLOPs/s")}
+                Theoretical Latency: {self._format(self.theoretical_compute_latency, "s") if self.theoretical_compute_latency is not None else "N/A"}
+              Utilization
+                Bandwidth: {self._format(self.bandwidth_utilization, "%") if self.bandwidth_utilization is not None else "N/A"}
+                FLOPs: {self._format(self.flops_utilization, "%") if self.flops_utilization is not None else "N/A"}""")
+                
+        # indent_2 = " " * 2
+        # indent_4 = " " * 4
+        # if self.bandwidth_utilization is not None:
+        #     txt += "\n" + textwrap.indent("""Utilization:\n""", indent_2)
+        #     txt += textwrap.indent(f"""Bandwidth: {self.bandwidth_utilization:.2f}%""", indent_4)
+
+        # if self.flops_utilization is not None:
+        #     txt +=  "\n" + textwrap.indent(f"""FLOPs: {self.flops_utilization:.2f}%""", indent_4)
         
         return txt
 
@@ -411,8 +446,8 @@ class PerformanceCounterManager:
             _print(text)
         else:
             for label in labels:
-                text = str(self._count[label]) 
-                _print(self._count[label])
+                text = str(self._counts[label]) 
+                _print(self._counts[label])
     
     def to_dict(self):
         # Convert flop_counts from OpOverloadPackets to str
