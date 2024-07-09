@@ -620,7 +620,7 @@ class TestQuantFlow(TestCase):
         self.assertEqual(res, ref)
 
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantized_model_to_device(self):
         m = ToyLinearModel().eval().to(torch.bfloat16)
