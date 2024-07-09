@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from unittest.mock import patch
 
 import torch
+from utils import patch_device
 
 from torchao.profiler.device_spec import (
     _AVAILABLE_GPU_SPECS,
@@ -20,11 +21,6 @@ DTYPES = [torch.float32, torch.bfloat16, torch.float16]
 USE_TENSORCORES = [True, False]
 DEVICE_CONFIGS = itertools.product(DEVICE_NAMES, DTYPES, USE_TENSORCORES)
 
-
-@contextmanager
-def patch_device(device_name):
-    with patch("torch.cuda.get_device_name", return_value=device_name):
-        yield
 @pytest.mark.parametrize("device_name, dtype, use_tensorcores", DEVICE_CONFIGS, ids=lambda x: str(x))
 def test_device_spec(device_name, dtype, use_tensorcores):
     with patch_device(device_name):
@@ -33,12 +29,12 @@ def test_device_spec(device_name, dtype, use_tensorcores):
             dtype = "tfloat32"
         chip_name = get_chip_name(device_name)
         expected_flops = _AVAILABLE_GPU_SPECS[chip_name][dtype]
-        assert device_spec.flop_per_s == expected_flops
+        assert device_spec.flops_per_s == expected_flops
         assert device_spec.flops_by_dtype[dtype] == expected_flops
         assert device_spec.roofline_balancepoint == expected_flops / device_spec.bandwidth
         
         with pytest.raises(AssertionError):
-            device_spec.flop_per_s = None
+            device_spec.flops_per_s = None
             print(device_spec.roofline_balancepoint)
         # Prevent setting attributes not in named fields to guard against user error
         with pytest.raises(AttributeError):
@@ -48,21 +44,21 @@ def test_empty_device_spec():
     device_name = "fake device"
     with patch_device(device_name):
         with pytest.raises(AssertionError):
-            device_spec = CUDADeviceSpec()
+            _ = CUDADeviceSpec()
         
         # Ok to instantiate as long as fields are filled
-        device_spec = CUDADeviceSpec(name=device_name, 
-                                     flop_per_s=1.0, 
-                                     bandwidth=1.0, 
-                                     dtype=torch.float32, 
-                                     use_tensorcores=True)
+        _ = CUDADeviceSpec(name=device_name,
+                           flops_per_s=1.0, 
+                           bandwidth=1.0, 
+                           dtype=torch.float32, 
+                           use_tensorcores=True)
     device_name = DEVICE_NAMES[0]
     
     with patch_device(device_name):
         # All critical fields will be auto-filled except for dtype (and vram, but vram is not used for downstream calcs atm)
-        device_spec = CUDADeviceSpec(dtype=torch.float32)
+        _ = CUDADeviceSpec(dtype=torch.float32)
         
         # No dtype specified
         with pytest.raises(AssertionError):
-            device_spec = CUDADeviceSpec()
+            _ = CUDADeviceSpec()
         
