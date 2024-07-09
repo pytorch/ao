@@ -6,7 +6,7 @@ from torchao.quantization.subclass import (
     Int4WeightOnlyQuantizedLinearWeight,
 )
 from torchao.utils import (
-    TORCH_VERSION_AFTER_2_4,
+    TORCH_VERSION_AT_LEAST_2_4,
 )
 from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
@@ -106,7 +106,7 @@ def _bench_quantized_tensor_subclass_perf(api, ref_api, kwargs=None):
     print(f"elapsed time: {elapsed_time}, ref elapsed time: {ref_elapsed_time}")
     assert elapsed_time < 1.05 * ref_elapsed_time
 
-if __name__ == "__main__" and TORCH_VERSION_AFTER_2_4 and torch.cuda.is_available():
+if __name__ == "__main__" and TORCH_VERSION_AT_LEAST_2_4 and torch.cuda.is_available():
     from torchao.quantization.quant_api import change_linear_weights_to_int8_dqtensors
     _bench_quantized_tensor_subclass_perf(change_linear_weights_to_int8_dqtensors, _ref_change_linear_weights_to_int8_dqtensors)
 

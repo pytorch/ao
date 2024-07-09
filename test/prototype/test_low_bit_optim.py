@@ -12,7 +12,7 @@ from torch.testing._internal.common_utils import (
 )
 from torchao.prototype import low_bit_optim
 from torchao.prototype.low_bit_optim import subclass_8bit, subclass_4bit
-from torchao.utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_4
 
 try:
     import bitsandbytes as bnb
@@ -79,7 +79,7 @@ class TestQuantize(TestCase):
 class TestOptim(TestCase):
     @pytest.mark.skipif(bnb is None, reason="bitsandbytes is not availablle")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="bitsandbytes 8-bit Adam only works for CUDA")
-    @pytest.mark.xfail(not TORCH_VERSION_AFTER_2_3, reason="torch.compile() fails for PyTorch < 2.3")
+    @pytest.mark.xfail(not TORCH_VERSION_AT_LEAST_2_3, reason="torch.compile() fails for PyTorch < 2.3")
     @parametrize("optim_name", ["Adam8bit", "AdamW8bit"])
     def test_optim_8bit_correctness(self, optim_name):
         device = "cuda"
@@ -107,7 +107,7 @@ class TestOptim(TestCase):
 
     @pytest.mark.skipif(lpmm is None, reason="lpmm is not availablle")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="lpmm 4-bit Adam only works for CUDA")
-    @pytest.mark.xfail(not TORCH_VERSION_AFTER_2_3, reason="torch.compile() fails for PyTorch < 2.3")
+    @pytest.mark.xfail(not TORCH_VERSION_AT_LEAST_2_3, reason="torch.compile() fails for PyTorch < 2.3")
     @parametrize("optim_name", ["Adam4bit", "AdamW4bit"])
     def test_optim_4bit_correctness(self, optim_name):
         device = "cuda"
@@ -139,13 +139,13 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model1.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1, rtol=1e-5, atol=1e-5)
 
-    @pytest.mark.xfail(not TORCH_VERSION_AFTER_2_3, reason="torch.compile() fails for PyTorch < 2.3")
+    @pytest.mark.xfail(not TORCH_VERSION_AT_LEAST_2_3, reason="torch.compile() fails for PyTorch < 2.3")
     @parametrize("optim_name", ["AdamFp8", "AdamWFp8"])
     @parametrize("device", _DEVICES)
     def test_optim_fp8_smoke(self, optim_name, device):
         if device == "cuda" and torch.cuda.get_device_capability() < (8, 9):
             pytest.skip("FP8 requires compute capability >= 8.9")
-        if device == "cpu" and not TORCH_VERSION_AFTER_2_4:
+        if device == "cpu" and not TORCH_VERSION_AT_LEAST_2_4:
             pytest.skip("fill_cpu not implemented for Float8_e4m3fn")
 
         model = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
