@@ -6,13 +6,26 @@ LlamaConfig = transformers.models.llama.modeling_llama.LlamaConfig
 LlamaForCausalLM = transformers.models.llama.modeling_llama.LlamaForCausalLM
 
 import json
+import tempfile
 import time
+import unittest
 from contextlib import contextmanager
+from dataclasses import asdict
+from pathlib import Path
+from typing import Union
 from unittest.mock import patch
 
 import torch
+from parameterized import parameterized_class
+from utils import (
+    PerfCounterResult,
+    PerfCounterTestConfig,
+    PerfStatsTestConfig,
+    get_test_name,
+    patch_device,
+)
 
-from torchao.profiler.device_spec import CUDADeviceSpec
+from torchao.profiler.device_spec import CUDADeviceSpec, DeviceSpec
 from torchao.profiler.performance_counter import (
     CUDAPerformanceTimer,
     PerformanceCounterManager,
@@ -129,37 +142,50 @@ def test_performance_counter(num_hidden_layers, hidden_size, intermediate_size, 
         expected_size = ffn_io_check(model_config, batch_size, seqlen, element_size, k)
         assert expected_size == summary_io[proj_keys[0]]
 
-@contextmanager
-def patch_device(device_name):
-    with patch("torch.cuda.get_device_name", return_value=device_name):
-        yield
 
-TEST_STATS = [("with_device", 128, 0.1, 123e9, 123e6, {"a": 234e12, "b": 345e9}, 1, {"a": 1, "b": 2}, {"a": 1, "b": 2},  1e9, 23e9),
-              ("no_device", 128, 0.1, 123e9, 123e6, {"a": 234e12, "b": 345e9}, 1, {"a": 1, "b": 2}, {"a": 1, "b": 2}, None, None)]
-@pytest.mark.parametrize("label, num_tokens, duration, total_flops, total_io, flops_summary, io_summary, flop_counts, io_counts, device_bandwidth, device_flops_per_s", TEST_STATS)
-def test_performance_stats(label, num_tokens, duration, total_flops, total_io, flops_summary, io_summary, flop_counts, io_counts, device_bandwidth, device_flops_per_s):
-    stats = PerformanceStats(label=label,
-                             num_tokens=num_tokens,
-                             duration=duration,
-                             total_flops=total_flops,
-                             total_io=total_io,
-                             flops_summary=flops_summary,
-                             io_summary=io_summary,
-                             flop_counts=flop_counts,
-                             io_counts=io_counts,
-                             device_bandwidth=device_bandwidth,
-                             device_flops_per_s=device_flops_per_s)
+
+PERFSTATS_TEST_CONFIGS = [PerfStatsTestConfig(label="with_device", 
+                                              num_tokens=128, 
+                                              duration=0.1, 
+                                              total_flops=123e9, 
+                                              total_io=123e6,
+                                              flops_summary={"a": 234e12, "b": 345e9},
+                                              io_summary={"a": 1, "b": 2}, 
+                                              flop_counts={"a": 234e12, "b": 345e9}, 
+                                              io_counts={"a": 1, "b": 2}, 
+                                              device_bandwidth=1e9, 
+                                              device_flops_per_s=23e9),
+                          PerfStatsTestConfig(label="no_device",
+                                              num_tokens=128,
+                                              duration=0.1,
+                                              total_flops=123e9,
+                                              total_io=123e6,
+                                              flops_summary={"a": 234e12, "b": 345e9},
+                                              io_summary={"a": 1, "b": 2}, 
+                                              flop_counts={"a": 234e12, "b": 345e9},
+                                              io_counts={"a": 1, "b": 2},
+                                              device_bandwidth=None,
+                                              device_flops_per_s=None)]
+@pytest.mark.parametrize("cfg", PERFSTATS_TEST_CONFIGS, ids=lambda cfg: cfg.label)
+def test_performance_stats(cfg: PerfStatsTestConfig):
+    stats = PerformanceStats(**asdict(cfg))
+    num_tokens = cfg.num_tokens
+    duration = cfg.duration
+    total_flops = cfg.total_flops
+    total_io = cfg.total_io
+    device_bandwidth = cfg.device_bandwidth
+    device_flops_per_s = cfg.device_flops_per_s
     
     # Test derived metrics
     assert stats.token_throughput == num_tokens / duration
-    assert stats.io_throughput == total_io / duration
-    assert stats.flops_throughput == total_flops / duration
+    assert stats.achieved_bandwidth == total_io / duration
+    assert stats.achieved_flops_per_s == total_flops / duration
     if device_bandwidth is not None:
-        assert stats.bandwidth_utilization == stats.io_throughput / device_bandwidth
+        assert stats.bandwidth_utilization == stats.achieved_bandwidth / device_bandwidth
     else:
         assert stats.bandwidth_utilization is None
     if device_flops_per_s is not None:
-        assert stats.flops_utilization == stats.flops_throughput / device_flops_per_s
+        assert stats.flops_utilization == stats.achieved_flops_per_s / device_flops_per_s
     else:
         assert stats.flops_utilization is None
         
@@ -180,169 +206,198 @@ def test_performance_stats(label, num_tokens, duration, total_flops, total_io, f
     
     # Utilization Stats
     if device_bandwidth is not None:
-        expected_bandwidth_utilization_str = f"{stats.io_throughput / device_bandwidth:.2f}%"
+        expected_bandwidth_utilization_str = f"{stats.achieved_bandwidth / device_bandwidth:.2f}%"
         assert expected_bandwidth_utilization_str in stats_str
     if device_flops_per_s is not None:
-        expected_flops_utilization_str = f"{stats.flops_throughput / device_flops_per_s:.2f}%"
+        expected_flops_utilization_str = f"{stats.achieved_flops_per_s / device_flops_per_s:.2f}%"
         assert expected_flops_utilization_str in stats_str
         
 
-@pytest.fixture
-def device_spec(request):
-    device_name, bandwidth = request.param
-    if device_name is not None:
-        with patch_device(device_name):
-            return CUDADeviceSpec(dtype=torch.bfloat16, bandwidth=bandwidth)
-    else:
-        return None
-@pytest.fixture
-def performance_counter_manager(device_spec, request):
-    shape, timer_cls, dtype = request.param
-    batch_size, query_len, in_features, out_features = shape
-    num_tokens = batch_size * query_len
-    element_size = dtype.itemsize
-    a = torch.randn(num_tokens, in_features, dtype=dtype, device="cuda")
-    b = torch.randn(in_features, out_features, dtype=dtype, device="cuda")
-       
-    cm = PerformanceCounterManager(timer_cls=timer_cls, device_spec=device_spec)
+# @pytest.fixture
+# def device_spec(request):
+#     device_name, bandwidth = request.param
+#     if device_name is not None:
+#         with patch_device(device_name):
+#             return CUDADeviceSpec(dtype=torch.bfloat16, bandwidth=bandwidth)
+#     else:
+#         return None
     
-    # Start count
-    start = time.perf_counter()
-    with cm.count("a", num_tokens=num_tokens):
-        _ = torch.matmul(a, b)
-    end = time.perf_counter()
     
-    duration_a = (end - start)
-    expected_flops = 2 * num_tokens * in_features * out_features
-    expected_io = (num_tokens * in_features + in_features * out_features + num_tokens * out_features) * element_size 
-    
-    start = time.perf_counter()
-    with cm.count("b", num_tokens=num_tokens):
-        _ = torch.matmul(a, b)
-    end = time.perf_counter()
-    duration_b = end - start 
+PERFCOUNTERMANAGER_TEST_CONFIGS = [PerfCounterTestConfig("no_device", (1, 1024, 4096, 4096), PerformanceTimer, torch.bfloat16, (None, 0)),
+                PerfCounterTestConfig("a100", (1, 1024, 4096, 4096), CUDAPerformanceTimer, torch.bfloat16, ("A100", 2e12))]
 
-@pytest.mark.parametrize("shape", [(1, 1024, 4096, 4096), (128, 1, 1024, 4096)], ids=lambda p: ",".join(map(str, p)))
-@pytest.mark.parametrize("timer_cls", [PerformanceTimer, CUDAPerformanceTimer], ids=lambda p: p.__name__)
-@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=str)
-@pytest.mark.parametrize("device_spec", [(None, 0), ("A100", 2e12)], indirect=True, ids=lambda p: p[0])
-def test_performance_counter_manager(shape, timer_cls, dtype, device_spec, tmpdir):
-    FLOAT_TOL = 1e-5
-    # Set up inputs
-    batch_size, query_len, in_features, out_features = shape
-    num_tokens = batch_size * query_len
-    element_size = dtype.itemsize
-    a = torch.randn(num_tokens, in_features, dtype=dtype, device="cuda")
-    b = torch.randn(in_features, out_features, dtype=dtype, device="cuda")
-       
-    cm = PerformanceCounterManager(timer_cls=timer_cls, device_spec=device_spec)
-    
-    # Start count
-    start = time.perf_counter()
-    with cm.count("a", num_tokens=num_tokens):
-        _ = torch.matmul(a, b)
-    end = time.perf_counter()
-    
-    duration = (end - start)
-    expected_flops = 2 * num_tokens * in_features * out_features
-    expected_io = (num_tokens * in_features + in_features * out_features + num_tokens * out_features) * element_size 
-    assert cm.total_flops == expected_flops
-    assert cm.total_io == expected_io
-    counts = cm.get_counts()
-    assert "a" in counts
-    # Check captured performance stats
-    psa: PerformanceStats = counts["a"]
-    # Raw metrics
-    assert abs(psa.duration - duration) < 1e-1 # +/- 100ms
-    assert psa.total_flops == expected_flops
-    assert psa.total_io == expected_io
-    # Derived metrics
-    assert psa.token_throughput == psa.num_tokens / psa.duration
-    assert psa.achieved_flops_per_s == psa.total_flops / psa.duration
-    assert psa.achieved_bandwidth == psa.total_io / psa.duration
-    
-    start = time.perf_counter()
-    with cm.count("b", num_tokens=num_tokens):
-        _ = torch.matmul(a, b)
-    end = time.perf_counter()
-    duration = end - start 
-    assert "b" in cm.counts
-    psb = cm.counts["b"]
-    assert abs(psb.duration - duration) < 1e-1 # +/- 100ms
-    assert psb.total_flops == expected_flops
-    assert psb.total_io == expected_io
-    
-    # Test that total properties account for both a and b
-    assert cm.total_time == psa.duration + psb.duration
-    assert cm.total_flops == 2 * expected_flops
-    assert cm.total_io == 2 * expected_io
-    
-    # Test stats_summary property, which returns a new PerformanceStats object with accumulated stats 
-    summary: PerformanceStats = cm.stats_summary
-    # Raw stats
-    assert summary.num_tokens == psa.num_tokens + psb.num_tokens
-    assert summary.total_io == psa.total_io + psb.total_io
-    assert summary.total_flops == psa.total_flops + psb.total_flops
-    assert summary.duration == psa.duration + psb.duration
 
-    # Derived stats
-    expected_token_throughput = (psa.num_tokens + psb.num_tokens) / (psa.duration + psb.duration)
-    expected_io_throughput = (psa.total_io + psb.total_io) / (psa.duration + psb.duration)
-    expected_flops_throughput = (psa.total_flops + psb.total_flops) / (psa.duration + psb.duration)
-    assert abs(summary.token_throughput - expected_token_throughput) < FLOAT_TOL
-    assert abs(summary.achieved_bandwidth - expected_io_throughput) < FLOAT_TOL
-    assert abs(summary.achieved_flops_per_s - expected_flops_throughput) < FLOAT_TOL
-    
-    if device_spec is not None:
-        expected_bandwidth_utilization = expected_io_throughput / device_spec.bandwidth
-        expected_flops_utilization = expected_flops_throughput / device_spec.flops_per_s
-        assert abs(summary.bandwidth_utilization - expected_bandwidth_utilization) < FLOAT_TOL
-        assert abs(summary.flops_utilization - expected_flops_utilization) < FLOAT_TOL
-    else:
-        assert summary.bandwidth_utilization is None
-        assert summary.flops_utilization is None
-    
-    # Test json serialization
-    temp_path = tmpdir.mkdir('test_dir').join('performance_counter_manager.json')
-    with open(temp_path, "w") as f:
-        f.write(cm.to_json())
-    with open(temp_path, 'r') as f:
-        perf_dict = json.load(f)
-    assert 'a' in perf_dict
-    assert 'b' in perf_dict
-    
-    #Test basic stats are recorded properly
-    assert perf_dict['a']['num_tokens'] == psa.num_tokens
-    assert perf_dict['a']['total_io'] == psa.total_io
-    assert perf_dict['a']['total_flops'] == psa.total_flops
-    assert perf_dict['a']['duration'] == psa.duration
+@parameterized_class([asdict(cfg) for cfg in PERFCOUNTERMANAGER_TEST_CONFIGS], class_name_func=get_test_name)
+class TestPerformanceCounterManager(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        shape, timer_cls, dtype = cls.shape, cls.timer_cls, cls.dtype
+        batch_size, query_len, in_features, out_features = shape
+        num_tokens = batch_size * query_len
+        element_size = dtype.itemsize
+        a = torch.randn(num_tokens, in_features, dtype=dtype, device="cuda")
+        b = torch.randn(in_features, out_features, dtype=dtype, device="cuda")
+        # Set up device spec
+        device_name, bandwidth = cls.device_spec
+        if device_name is not None:
+            with patch_device(device_name):
+                device_spec = CUDADeviceSpec(dtype=torch.bfloat16, bandwidth=bandwidth)
+        
+        else:
+            device_spec = None
+        
+        # Stateful class level objects, which will be used in individual tests
+        cls.cm = cm =PerformanceCounterManager(timer_cls=timer_cls, device_spec=device_spec)
+        cls.FLOAT_TOL = 1e-5
+        cls.expected = expected = {}
+        
+        # Start count for a
+        start = time.perf_counter()
+        with cm.count("a", num_tokens=num_tokens):
+            _ = torch.matmul(a, b)
+        end = time.perf_counter()
 
-    assert perf_dict['b']['num_tokens'] == psb.num_tokens
-    assert perf_dict['b']['total_io'] == psb.total_io
-    assert perf_dict['b']['total_flops'] == psb.total_flops
-    assert perf_dict['b']['duration'] == psb.duration
+        duration = (end - start)
+        expected_flops = 2 * num_tokens * in_features * out_features
+        expected_io = (num_tokens * in_features + in_features * out_features + num_tokens * out_features) * element_size 
+        
+        expected['a'] = PerfCounterResult(name="a", 
+                                          duration=duration, 
+                                          flops=expected_flops, 
+                                          io=expected_io, 
+                                          total_flops=expected_flops, 
+                                          total_io=expected_io)
+        
+        # Start count for b
+        start = time.perf_counter()
+        with cm.count("b", num_tokens=num_tokens):
+            _ = torch.matmul(a, b)
+        end = time.perf_counter()
+        duration = end - start
+        
+        expected['b'] = PerfCounterResult(name="b",
+                                          duration=duration,
+                                          flops=expected_flops,
+                                          io=expected_io,
+                                          total_flops=cm.total_flops,
+                                          total_io=cm.total_io)
+        
+    def test_perf_stats_a(self):
+        cm: PerformanceCounterManager = self.cm
+        expected = self.expected['a']
+        
+        counts = cm.get_counts()
+        assert "a" in counts
+
+        # Check captured performance stats
+        psa: PerformanceStats = counts["a"]
+        # Raw metrics
+        # Duration won't be exact since timing external to the profiler
+        assert abs(psa.duration - expected.duration) < 1e-1 # +/- 100ms
+        assert psa.total_flops == expected.flops
+        assert psa.total_io == expected.io
+        
+        # Derived metrics
+        assert psa.token_throughput == psa.num_tokens / psa.duration
+        assert psa.achieved_flops_per_s == psa.total_flops / psa.duration
+        assert psa.achieved_bandwidth == psa.total_io / psa.duration
     
-    # Test derived properties are present
-    perf_dict['a']['achieved_flops_per_s'] == psa.achieved_flops_per_s
-    perf_dict['a']['achieved_bandwidth'] == psa.achieved_bandwidth
-    perf_dict['b']['achieved_flops_per_s'] == psb.achieved_flops_per_s
-    perf_dict['b']['achieved_bandwidth'] == psb.achieved_bandwidth
-    
-    if device_spec is not None:
-        assert perf_dict['a']['device_flops_per_s'] == device_spec.flops_per_s
-        assert perf_dict['a']['device_bandwidth'] == device_spec.bandwidth
-        assert perf_dict['a']['bandwidth_utilization'] == psa.bandwidth_utilization
-        assert perf_dict['a']['flops_utilization'] == psa.flops_utilization
-        assert perf_dict['b']['device_flops_per_s'] == device_spec.flops_per_s
-        assert perf_dict['b']['device_bandwidth'] == device_spec.bandwidth
-        assert perf_dict['b']['bandwidth_utilization'] == psb.bandwidth_utilization
-        assert perf_dict['b']['flops_utilization'] == psb.flops_utilization
-    else:
-        assert perf_dict['a']['device_flops_per_s'] is None
-        assert perf_dict['a']['device_bandwidth'] is None
-        assert perf_dict['a']['bandwidth_utilization'] is None
-        assert perf_dict['a']['flops_utilization'] is None
-        assert perf_dict['b']['device_flops_per_s'] is None
-        assert perf_dict['b']['device_bandwidth'] is None
-        assert perf_dict['b']['bandwidth_utilization'] is None
-        assert perf_dict['b']['flops_utilization'] is None
+    def test_perf_stats_b(self):
+        cm: PerformanceCounterManager = self.cm
+        assert "a" in cm.counts
+        assert "b" in cm.counts
+        psa = cm.counts["a"]
+        psb = cm.counts["b"]
+        expected = self.expected['b']
+        assert abs(psb.duration - expected.duration) < 1e-1 # +/- 100ms
+        assert psb.total_flops == expected.flops
+        assert psb.total_io == expected.io
+        
+        # check that **total** flops and io after matmul `b` has run accounts for both matmuls
+        # also check that these global properties are updated correctly in the manager object
+        assert expected.total_flops == psa.total_flops + psb.total_flops == cm.total_flops
+        assert expected.total_io == psa.total_io + psb.total_io == cm.total_io
+        assert cm.total_time == psa.duration + psb.duration
+            
+    def test_stats_summary(self):
+        cm: PerformanceCounterManager = self.cm
+        FLOAT_TOL = self.FLOAT_TOL
+        psa = cm.counts["a"]
+        psb = cm.counts["b"]
+        summary: PerformanceStats = cm.stats_summary
+        
+        # Raw stats
+        assert summary.num_tokens == psa.num_tokens + psb.num_tokens
+        assert summary.total_io == psa.total_io + psb.total_io
+        assert summary.total_flops == psa.total_flops + psb.total_flops
+        assert summary.duration == psa.duration + psb.duration
+
+        # Derived stats
+        expected_token_throughput = (psa.num_tokens + psb.num_tokens) / (psa.duration + psb.duration)
+        expected_io_throughput = (psa.total_io + psb.total_io) / (psa.duration + psb.duration)
+        expected_flops_throughput = (psa.total_flops + psb.total_flops) / (psa.duration + psb.duration)
+        assert abs(summary.token_throughput - expected_token_throughput) < FLOAT_TOL
+        assert abs(summary.achieved_bandwidth - expected_io_throughput) < FLOAT_TOL
+        assert abs(summary.achieved_flops_per_s - expected_flops_throughput) < FLOAT_TOL
+        
+        device_spec = cm.device_spec
+        if device_spec is not None:
+            expected_bandwidth_utilization = expected_io_throughput / device_spec.bandwidth
+            expected_flops_utilization = expected_flops_throughput / device_spec.flops_per_s
+            assert abs(summary.bandwidth_utilization - expected_bandwidth_utilization) < FLOAT_TOL
+            assert abs(summary.flops_utilization - expected_flops_utilization) < FLOAT_TOL
+        else:
+            assert summary.bandwidth_utilization is None
+            assert summary.flops_utilization is None
+            
+    def test_json(self):
+        cm: PerformanceCounterManager = self.cm
+        psa: PerformanceStats = cm.counts["a"]
+        psb: PerformanceStats = cm.counts["b"]
+        device_spec: Union[DeviceSpec, None] = cm.device_spec
+        
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            json_path = Path(tmp_dir) / "test.json"
+            cm.to_json(json_path)    
+
+            with open(json_path, 'r') as f:
+                perf_dict = json.load(f)
+
+            assert 'a' in perf_dict
+            assert 'b' in perf_dict
+            
+            #Test basic stats are recorded properly
+            assert perf_dict['a']['num_tokens'] == psa.num_tokens
+            assert perf_dict['a']['total_io'] == psa.total_io
+            assert perf_dict['a']['total_flops'] == psa.total_flops
+            assert perf_dict['a']['duration'] == psa.duration
+
+            assert perf_dict['b']['num_tokens'] == psb.num_tokens
+            assert perf_dict['b']['total_io'] == psb.total_io
+            assert perf_dict['b']['total_flops'] == psb.total_flops
+            assert perf_dict['b']['duration'] == psb.duration
+            
+            # Test derived properties are present
+            perf_dict['a']['achieved_flops_per_s'] == psa.achieved_flops_per_s
+            perf_dict['a']['achieved_bandwidth'] == psa.achieved_bandwidth
+            perf_dict['b']['achieved_flops_per_s'] == psb.achieved_flops_per_s
+            perf_dict['b']['achieved_bandwidth'] == psb.achieved_bandwidth
+            
+            if device_spec is not None:
+                assert perf_dict['a']['device_flops_per_s'] == device_spec.flops_per_s
+                assert perf_dict['a']['device_bandwidth'] == device_spec.bandwidth
+                assert perf_dict['a']['bandwidth_utilization'] == psa.bandwidth_utilization
+                assert perf_dict['a']['flops_utilization'] == psa.flops_utilization
+                assert perf_dict['b']['device_flops_per_s'] == device_spec.flops_per_s
+                assert perf_dict['b']['device_bandwidth'] == device_spec.bandwidth
+                assert perf_dict['b']['bandwidth_utilization'] == psb.bandwidth_utilization
+                assert perf_dict['b']['flops_utilization'] == psb.flops_utilization
+            else:
+                assert perf_dict['a']['device_flops_per_s'] is None
+                assert perf_dict['a']['device_bandwidth'] is None
+                assert perf_dict['a']['bandwidth_utilization'] is None
+                assert perf_dict['a']['flops_utilization'] is None
+                assert perf_dict['b']['device_flops_per_s'] is None
+                assert perf_dict['b']['device_bandwidth'] is None
+                assert perf_dict['b']['bandwidth_utilization'] is None
+                assert perf_dict['b']['flops_utilization'] is None
