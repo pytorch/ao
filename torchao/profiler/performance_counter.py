@@ -8,7 +8,8 @@ from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 from functools import partial
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Any, Dict, Optional, Union
 
 import torch
 from torch.utils._pytree import tree_map
@@ -273,10 +274,10 @@ class PerformanceStats(DictMixin):
                 Throughput: {self.token_throughput:,.0f} tokens/s
               IO
                 Total: {self._format(self.total_io, "B")}
-                Throughput: {self._format(self.io_throughput, "B/s")}
+                Throughput: {self._format(self.achieved_bandwidth, "B/s")}
               FLOPs 
                 Total: {self._format(self.total_flops, "FLOPs")}
-                Throughput: {self._format(self.flops_throughput, "FLOPs/s")}""")
+                Throughput: {self._format(self.achieved_flops_per_s, "FLOPs/s")}""")
         
         indent_2 = " " * 2
         indent_4 = " " * 4
@@ -424,5 +425,9 @@ class PerformanceCounterManager:
             
         return counts
     
-    def to_json(self):
-        return json.dumps(self.to_dict(), indent=2)
+    def to_json(self, path: Union[str, Path] = None):
+        d = self.to_dict()
+        if path:
+            with open(path, 'w') as f: 
+                f.write(json.dumps(d, indent=2))
+        return d
