@@ -59,7 +59,7 @@ jobs:
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
       script: |
-        conda create -n venv python=3.8 -y
+        conda create -n venv python=3.11 -y
         conda activate venv
         echo "::group::Install newer objcopy that supports --set-section-alignment"
         yum install -y  devtoolset-10-binutils
