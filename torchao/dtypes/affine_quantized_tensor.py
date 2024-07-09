@@ -259,8 +259,11 @@ class AffineQuantizedTensor(torch.Tensor):
 
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
+        device = kwargs.pop("device")
+        # not supported yet
+        kwargs.pop("memory_format")
         return self.__class__(
-            self.layout_tensor.to(kwargs["device"]),
+            self.layout_tensor.to(device),
             self.block_size,
             self.shape,
             self.quant_min,
@@ -470,8 +473,8 @@ class TensorCoreTiledAQTLayout(AQTLayout):
         if device != "cuda" or (isinstance(device, torch.device) and device.type != "cuda"):
             raise ValueError(f"TensorCoreTiledAQTLayout is only available for cuda device")
         return self.__class__(
-            self.packed_weight.to(kwargs["device"]),
-            self.scale_and_zero.to(kwargs["device"]),
+            self.packed_weight.to(device),
+            self.scale_and_zero.to(device),
             self.transposed
         )
 
