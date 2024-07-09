@@ -51,21 +51,29 @@ class _Adam(Optimizer):
 
                 # unwrap DTensor
                 # set requires_grad for unwrapped param to avoid torch.compile() recompilation 
-                if isinstance(p, DTensor):
-                    p = p._local_tensor.requires_grad_(True)
-                if isinstance(grad, DTensor):
-                    grad = grad._local_tensor
+                # if isinstance(p, DTensor):
+                #     p = p._local_tensor.requires_grad_(True)
+                # if isinstance(grad, DTensor):
+                #     grad = grad._local_tensor
 
                 state = self.state[p]
+
+                # uncomment this to flatten tensor to avoid recompiling
+                # but you will get the following error
+                # AssertionError: s8 (could be from ["L['grad']._base._local_tensor.size()[0]"]) not in {s3: ["L['exp_avg']._local_tensor.scale.size()[0]", "L['exp_avg']._local_tensor.scale.size()[0]", "L['exp_avg']._local_tensor.scale.size()[0]", "L['exp_avg']._local_tensor.scale.size()[0]", "L['exp_avg']._local_tensor.scale.size()[0]"], s4: ["L['exp_avg']._local_tensor.qmap.size()[0]", "L['exp_avg']._local_tensor.qmap.size()[0]", "L['exp_avg']._local_tensor.qmap.size()[0]", "L['exp_avg']._local_tensor.qmap.size()[0]", "L['exp_avg']._local_tensor.qmap.size()[0]", "L['exp_avg_sq']._local_tensor.qmap.size()[0]", "L['exp_avg_sq']._local_tensor.qmap.size()[0]", "L['exp_avg_sq']._local_tensor.qmap.size()[0]", "L['exp_avg_sq']._local_tensor.qmap.size()[0]", "L['exp_avg_sq']._local_tensor.qmap.size()[0]"], s12: ["L['grad']._local_tensor.size()[0]", "L['grad']._local_tensor.size()[0]"], s10: ["L['grad']._local_tensor.storage_offset()", "L['grad']._local_tensor.storage_offset()"], s16: ["L['exp_avg_sq']._local_tensor.scale.size()[0]", "L['exp_avg_sq']._local_tensor.scale.size()[0]", "L['exp_avg_sq']._local_tensor.scale.size()[0]", "L['exp_avg_sq']._local_tensor.scale.size()[0]", "L['exp_avg_sq']._local_tensor.scale.size()[0]"], s23: ["L['p']._local_tensor.size()[0]", "L['p']._local_tensor.size()[0]"]}.  If this assert is failing, it could be due to the issue described in https://github.com/pytorch/pytorch/pull/90665
+                # p = p.view(-1)
+                # grad = grad.view(-1)
+
+                # without it, you hit cache size limit
 
                 # State initialization
                 # flatten buffer to avoid torch.compile() recompilation
                 if len(state) == 0:
                     state["step"] = torch.tensor(0.0, device=p.device)
-                    state["exp_avg"] = self._new_buffer(p.view(-1), True, self.block_size)
-                    state["exp_avg_sq"] = self._new_buffer(p.view(-1), False, self.block_size)
+                    state["exp_avg"] = self._new_buffer(p, True, self.block_size)
+                    state["exp_avg_sq"] = self._new_buffer(p, False, self.block_size)
                     if group["amsgrad"]:
-                        state["max_exp_avg_sq"] = self._new_buffer(p.view(-1), False, self.block_size)
+                        state["max_exp_avg_sq"] = self._new_buffer(p, False, self.block_size)
 
                 state["step"] += 1
 
@@ -77,8 +85,8 @@ class _Adam(Optimizer):
 
                 # flatten p and grad to avoid torch.compile() recompilation
                 single_param_adam(
-                    p.view(-1),
-                    grad.view(-1),
+                    p,
+                    grad,
                     state["step"],
                     state["exp_avg"],
                     state["exp_avg_sq"],

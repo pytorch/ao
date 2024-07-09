@@ -178,8 +178,8 @@ def _(func, *args, **kwargs):
 
     elif isinstance(dst, OptimState8bit):
         codes, scale = quantize_8bit_with_qmap(src, dst.qmap, dst.block_size)
-        dst.codes.copy_(codes)
-        dst.scale.copy_(scale)
+        dst.codes.copy_(codes.view(dst.codes.shape))
+        dst.scale.copy_(scale.view(dst.scale.shape))
 
     else:
         dst.copy_(src.dequantize())
@@ -198,7 +198,13 @@ def _(func, *args, **kwargs):
 # TODO: also skip 1D tensor? e.g. biases and norm scales
 def maybe_new_8bit_zero_buffer(p: Tensor, signed: bool = True, block_size: int = 2048):
     if p.numel() >= 4096 and p.numel() % block_size == 0:
-        out = OptimState8bit.zeros(p.shape, signed, block_size, device=p.device)
+        from torch.distributed._tensor import DTensor
+
+        if isinstance(p, DTensor):
+            out = torch.empty_like(p)
+            out._local_tensor = OptimState8bit.zeros(out._local_tensor.shape, signed, block_size, device=out._local_tensor.device)
+        else:
+            out = OptimState8bit.zeros(p.shape, signed, block_size, device=p.device)
     else:
         out = torch.zeros_like(p)
     return out
