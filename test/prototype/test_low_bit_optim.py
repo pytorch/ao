@@ -145,8 +145,6 @@ class TestOptim(TestCase):
     def test_optim_fp8_smoke(self, optim_name, device):
         if device == "cuda" and torch.cuda.get_device_capability() < (8, 9):
             pytest.skip("FP8 requires compute capability >= 8.9")
-        if device == "cpu" and not TORCH_VERSION_AFTER_2_4:
-            pytest.skip("fill_cpu not implemented for 'Float8_e4m3fn")
 
         model = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
         optim = getattr(low_bit_optim, optim_name)(model.parameters())
