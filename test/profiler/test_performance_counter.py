@@ -194,13 +194,17 @@ def test_performance_stats(cfg: PerfStatsTestConfig):
     assert stats.achieved_flops_per_s == total_flops / duration
     if device_bandwidth is not None:
         assert stats.bandwidth_utilization == stats.achieved_bandwidth / device_bandwidth
+        assert stats.theoretical_io_latency == total_io / device_bandwidth
     else:
         assert stats.bandwidth_utilization is None
+        assert stats.theoretical_io_latency is None
     if device_flops_per_s is not None:
         assert stats.flops_utilization == stats.achieved_flops_per_s / device_flops_per_s
+        assert stats.theoretical_compute_latency == total_flops / device_flops_per_s
     else:
         assert stats.flops_utilization is None
-        
+        assert stats.theoretical_compute_latency is None
+    
     # Test str - stats should be formatted to closest power of 10 ** 3 with 2 decimal places of precision
     stats_str = str(stats)
 
@@ -218,12 +222,16 @@ def test_performance_stats(cfg: PerfStatsTestConfig):
     
     # Utilization Stats
     if device_bandwidth is not None:
-        expected_bandwidth_utilization_str = f"{stats.achieved_bandwidth / device_bandwidth:.2f}%"
+        expected_bandwidth_utilization_str = f"{stats.achieved_bandwidth / device_bandwidth:.2f} %"
+        expected_io_latency_str = f"{stats.theoretical_io_latency:.2f} s"
         assert expected_bandwidth_utilization_str in stats_str
+        assert expected_io_latency_str in stats_str
+    
     if device_flops_per_s is not None:
-        expected_flops_utilization_str = f"{stats.achieved_flops_per_s / device_flops_per_s:.2f}%"
+        expected_flops_utilization_str = f"{stats.achieved_flops_per_s / device_flops_per_s:.2f} %"
+        expected_compute_latency_str = f"{stats.theoretical_compute_latency:.2f} s"
         assert expected_flops_utilization_str in stats_str
-        
+        assert expected_compute_latency_str in stats_str
 # ------------------- PerformanceCounterManager Tests ------------------- #
 
 PERFCOUNTERMANAGER_TEST_CONFIGS = [PerfCounterManagerTestConfig("no_device", (1, 1024, 4096, 4096), PerformanceTimer, torch.bfloat16, (None, 0)),
