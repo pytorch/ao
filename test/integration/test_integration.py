@@ -1197,7 +1197,7 @@ class TestAutoQuant(unittest.TestCase):
             (1,  32, 128, 128),
             (32, 32, 128, 128),
         ]))
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "autoquant requires 2.3+.")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "autoquant requires 2.4+.")
     def test_autoquant_compile(self, device, dtype, m1, m2, k, n):
         undo_recommended_configs()
         if device != "cuda" or not torch.cuda.is_available():
