@@ -113,7 +113,7 @@ A key design principle for us is composability as in any new dtype or layout we 
 
 `torchao` makes liberal use of several new features in Pytorch, it's recommended to use it with the current nightly or latest stable version of PyTorch.
 
-Our minimum supported Python version is 3.11
+Our minimum supported Python version is 3.10
 
 #### Install torch
 
