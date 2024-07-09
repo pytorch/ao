@@ -4,6 +4,8 @@ import pytest
 transformers = pytest.importorskip("transformers")
 LlamaConfig = transformers.models.llama.modeling_llama.LlamaConfig
 LlamaForCausalLM = transformers.models.llama.modeling_llama.LlamaForCausalLM
+
+import json
 import time
 from contextlib import contextmanager
 from unittest.mock import patch
@@ -224,7 +226,7 @@ def performance_counter_manager(device_spec, request):
 @pytest.mark.parametrize("timer_cls", [PerformanceTimer, CUDAPerformanceTimer], ids=lambda p: p.__name__)
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=str)
 @pytest.mark.parametrize("device_spec", [(None, 0), ("A100", 2e12)], indirect=True, ids=lambda p: p[0])
-def test_performance_counter_manager(shape, timer_cls, dtype, device_spec):
+def test_performance_counter_manager(shape, timer_cls, dtype, device_spec, tmpdir):
     FLOAT_TOL = 1e-5
     # Set up inputs
     batch_size, query_len, in_features, out_features = shape
@@ -296,3 +298,51 @@ def test_performance_counter_manager(shape, timer_cls, dtype, device_spec):
         expected_flops_utilization = expected_flops_throughput / device_spec.flops_per_s
         assert abs(summary.bandwidth_utilization - expected_bandwidth_utilization) < FLOAT_TOL
         assert abs(summary.flops_utilization - expected_flops_utilization) < FLOAT_TOL
+    else:
+        assert summary.bandwidth_utilization is None
+        assert summary.flops_utilization is None
+    
+    # Test json serialization
+    temp_path = tmpdir.mkdir('test_dir').join('performance_counter_manager.json')
+    with open(temp_path, "w") as f:
+        f.write(cm.to_json())
+    with open(temp_path, 'r') as f:
+        perf_dict = json.load(f)
+    assert 'a' in perf_dict
+    assert 'b' in perf_dict
+    
+    #Test basic stats are recorded properly
+    assert perf_dict['a']['num_tokens'] == psa.num_tokens
+    assert perf_dict['a']['total_io'] == psa.total_io
+    assert perf_dict['a']['total_flops'] == psa.total_flops
+    assert perf_dict['a']['duration'] == psa.duration
+
+    assert perf_dict['b']['num_tokens'] == psb.num_tokens
+    assert perf_dict['b']['total_io'] == psb.total_io
+    assert perf_dict['b']['total_flops'] == psb.total_flops
+    assert perf_dict['b']['duration'] == psb.duration
+    
+    # Test derived properties are present
+    perf_dict['a']['achieved_flops_per_s'] == psa.achieved_flops_per_s
+    perf_dict['a']['achieved_bandwidth'] == psa.achieved_bandwidth
+    perf_dict['b']['achieved_flops_per_s'] == psb.achieved_flops_per_s
+    perf_dict['b']['achieved_bandwidth'] == psb.achieved_bandwidth
+    
+    if device_spec is not None:
+        assert perf_dict['a']['device_flops_per_s'] == device_spec.flops_per_s
+        assert perf_dict['a']['device_bandwidth'] == device_spec.bandwidth
+        assert perf_dict['a']['bandwidth_utilization'] == psa.bandwidth_utilization
+        assert perf_dict['a']['flops_utilization'] == psa.flops_utilization
+        assert perf_dict['b']['device_flops_per_s'] == device_spec.flops_per_s
+        assert perf_dict['b']['device_bandwidth'] == device_spec.bandwidth
+        assert perf_dict['b']['bandwidth_utilization'] == psb.bandwidth_utilization
+        assert perf_dict['b']['flops_utilization'] == psb.flops_utilization
+    else:
+        assert perf_dict['a']['device_flops_per_s'] is None
+        assert perf_dict['a']['device_bandwidth'] is None
+        assert perf_dict['a']['bandwidth_utilization'] is None
+        assert perf_dict['a']['flops_utilization'] is None
+        assert perf_dict['b']['device_flops_per_s'] is None
+        assert perf_dict['b']['device_bandwidth'] is None
+        assert perf_dict['b']['bandwidth_utilization'] is None
+        assert perf_dict['b']['flops_utilization'] is None
