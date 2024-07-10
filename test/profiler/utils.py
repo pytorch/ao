@@ -69,7 +69,7 @@ def ffn_io_check(model_config, batch_size, seqlen, element_size, module_name):
 class PerfStatsTestConfig:
     label: str
     num_tokens: int
-    duration: float
+    latency: float
     total_flops: float
     total_io: float
     flops_summary: dict
@@ -87,7 +87,7 @@ def get_test_name(cls, num, params_dict):
 @dataclass(frozen=True)
 class PerfCounterResult:
     name: str
-    duration: float
+    latency: float
     flops: float
     io: float
     total_flops: float

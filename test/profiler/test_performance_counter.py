@@ -200,7 +200,7 @@ PERFSTATS_TEST_CONFIGS = [
     PerfStatsTestConfig(
         label="with_device",
         num_tokens=128,
-        duration=0.1,
+        latency=0.1,
         total_flops=123e9,
         total_io=123e6,
         flops_summary={"a": 234e12, "b": 345e9},
@@ -213,7 +213,7 @@ PERFSTATS_TEST_CONFIGS = [
     PerfStatsTestConfig(
         label="no_device",
         num_tokens=128,
-        duration=0.1,
+        latency=0.1,
         total_flops=123e9,
         total_io=123e6,
         flops_summary={"a": 234e12, "b": 345e9},
@@ -230,16 +230,16 @@ PERFSTATS_TEST_CONFIGS = [
 def test_performance_stats(cfg: PerfStatsTestConfig):
     stats = PerformanceStats(**asdict(cfg))
     num_tokens = cfg.num_tokens
-    duration = cfg.duration
+    latency = cfg.latency
     total_flops = cfg.total_flops
     total_io = cfg.total_io
     device_bandwidth = cfg.device_bandwidth
     device_flops_per_s = cfg.device_flops_per_s
 
     # Test derived metrics
-    assert stats.token_throughput == num_tokens / duration
-    assert stats.achieved_bandwidth == total_io / duration
-    assert stats.achieved_flops_per_s == total_flops / duration
+    assert stats.token_throughput == num_tokens / latency
+    assert stats.achieved_bandwidth == total_io / latency
+    assert stats.achieved_flops_per_s == total_flops / latency
     if device_bandwidth is not None:
         assert (
             stats.bandwidth_utilization == stats.achieved_bandwidth / device_bandwidth
@@ -347,7 +347,7 @@ class TestTransformerPerformanceCounter(unittest.TestCase):
             _ = torch.matmul(a, b)
         end = time.perf_counter()
 
-        duration = end - start
+        latency = end - start
         expected_flops = 2 * num_tokens * in_features * out_features
         expected_io = (
             num_tokens * in_features
@@ -357,7 +357,7 @@ class TestTransformerPerformanceCounter(unittest.TestCase):
 
         expected["a"] = PerfCounterResult(
             name="a",
-            duration=duration,
+            latency=latency,
             flops=expected_flops,
             io=expected_io,
             total_flops=expected_flops,
@@ -369,11 +369,11 @@ class TestTransformerPerformanceCounter(unittest.TestCase):
         with cm.count("b", num_tokens=num_tokens):
             _ = torch.matmul(a, b)
         end = time.perf_counter()
-        duration = end - start
+        latency = end - start
 
         expected["b"] = PerfCounterResult(
             name="b",
-            duration=duration,
+            latency=latency,
             flops=expected_flops,
             io=expected_io,
             total_flops=cm.total_flops,
@@ -390,15 +390,15 @@ class TestTransformerPerformanceCounter(unittest.TestCase):
         # Check captured performance stats
         psa: PerformanceStats = counts["a"]
         # Raw metrics
-        # Duration won't be exact since timing external to the profiler
-        assert abs(psa.duration - expected.duration) < 1e-1  # +/- 100ms
+        # Latency won't be exact since timing external to the profiler
+        assert abs(psa.latency - expected.latency) < 1e-1  # +/- 100ms
         assert psa.total_flops == expected.flops
         assert psa.total_io == expected.io
 
         # Derived metrics
-        assert psa.token_throughput == psa.num_tokens / psa.duration
-        assert psa.achieved_flops_per_s == psa.total_flops / psa.duration
-        assert psa.achieved_bandwidth == psa.total_io / psa.duration
+        assert psa.token_throughput == psa.num_tokens / psa.latency
+        assert psa.achieved_flops_per_s == psa.total_flops / psa.latency
+        assert psa.achieved_bandwidth == psa.total_io / psa.latency
 
     def test_perf_stats_b(self):
         cm: TransformerPerformanceCounter = self.cm
@@ -407,7 +407,7 @@ class TestTransformerPerformanceCounter(unittest.TestCase):
         psa = cm.counts["a"]
         psb = cm.counts["b"]
         expected = self.expected["b"]
-        assert abs(psb.duration - expected.duration) < 1e-1  # +/- 100ms
+        assert abs(psb.latency - expected.latency) < 1e-1  # +/- 100ms
         assert psb.total_flops == expected.flops
         assert psb.total_io == expected.io
 
@@ -417,7 +417,7 @@ class TestTransformerPerformanceCounter(unittest.TestCase):
             expected.total_flops == psa.total_flops + psb.total_flops == cm.total_flops
         )
         assert expected.total_io == psa.total_io + psb.total_io == cm.total_io
-        assert cm.total_time == psa.duration + psb.duration
+        assert cm.total_time == psa.latency + psb.latency
 
     def test_stats_summary(self):
         cm: TransformerPerformanceCounter = self.cm
@@ -430,17 +430,17 @@ class TestTransformerPerformanceCounter(unittest.TestCase):
         assert summary.num_tokens == psa.num_tokens + psb.num_tokens
         assert summary.total_io == psa.total_io + psb.total_io
         assert summary.total_flops == psa.total_flops + psb.total_flops
-        assert summary.duration == psa.duration + psb.duration
+        assert summary.latency == psa.latency + psb.latency
 
         # Derived stats
         expected_token_throughput = (psa.num_tokens + psb.num_tokens) / (
-            psa.duration + psb.duration
+            psa.latency + psb.latency
         )
         expected_io_throughput = (psa.total_io + psb.total_io) / (
-            psa.duration + psb.duration
+            psa.latency + psb.latency
         )
         expected_flops_throughput = (psa.total_flops + psb.total_flops) / (
-            psa.duration + psb.duration
+            psa.latency + psb.latency
         )
         assert abs(summary.token_throughput - expected_token_throughput) < FLOAT_TOL
         assert abs(summary.achieved_bandwidth - expected_io_throughput) < FLOAT_TOL
@@ -485,12 +485,12 @@ class TestTransformerPerformanceCounter(unittest.TestCase):
             assert perf_dict["a"]["num_tokens"] == psa.num_tokens
             assert perf_dict["a"]["total_io"] == psa.total_io
             assert perf_dict["a"]["total_flops"] == psa.total_flops
-            assert perf_dict["a"]["duration"] == psa.duration
+            assert perf_dict["a"]["latency"] == psa.latency
 
             assert perf_dict["b"]["num_tokens"] == psb.num_tokens
             assert perf_dict["b"]["total_io"] == psb.total_io
             assert perf_dict["b"]["total_flops"] == psb.total_flops
-            assert perf_dict["b"]["duration"] == psb.duration
+            assert perf_dict["b"]["latency"] == psb.latency
 
             # Test derived properties are present
             perf_dict["a"]["achieved_flops_per_s"] == psa.achieved_flops_per_s
