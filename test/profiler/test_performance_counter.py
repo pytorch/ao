@@ -222,13 +222,13 @@ def test_performance_stats(cfg: PerfStatsTestConfig):
     
     # Utilization Stats
     if device_bandwidth is not None:
-        expected_bandwidth_utilization_str = f"{stats.achieved_bandwidth / device_bandwidth:.2f} %"
+        expected_bandwidth_utilization_str = f"{stats.achieved_bandwidth / device_bandwidth:.4f}"
         expected_io_latency_str = f"{stats.theoretical_io_latency:.2f} s"
         assert expected_bandwidth_utilization_str in stats_str
         assert expected_io_latency_str in stats_str
     
     if device_flops_per_s is not None:
-        expected_flops_utilization_str = f"{stats.achieved_flops_per_s / device_flops_per_s:.2f} %"
+        expected_flops_utilization_str = f"{stats.achieved_flops_per_s / device_flops_per_s:.4f}"
         expected_compute_latency_str = f"{stats.theoretical_compute_latency:.2f} s"
         assert expected_flops_utilization_str in stats_str
         assert expected_compute_latency_str in stats_str
@@ -239,7 +239,7 @@ PERFCOUNTERMANAGER_TEST_CONFIGS = [PerfCounterManagerTestConfig("no_device", (1,
 
 @unittest.skipIf(not TORCH_VERSION_AFTER_2_5, "PerformanceCounterManager requires torch >= 2.5+.")
 @unittest.skipIf(not torch.cuda.is_available(), "PerformanceCounterManager requires CUDA")
-@parameterized_class([asdict(cfg) for cfg in PERFCOUNTERMANAGER_TEST_CONFIGS[-1:]], class_name_func=get_test_name)
+@parameterized_class([asdict(cfg) for cfg in PERFCOUNTERMANAGER_TEST_CONFIGS], class_name_func=get_test_name)
 class TestPerformanceCounterManager(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

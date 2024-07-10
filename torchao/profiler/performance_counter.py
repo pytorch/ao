@@ -21,15 +21,16 @@ from .device_spec import DeviceSpec
 # Set to keep track of issued warnings
 _issued_warnings = set()
 
+
+# Define a custom warning category
+class DeviceInfoMissing(UserWarning):
+    pass
+
 def warn_once(message):
     global _issued_warnings
     if message not in _issued_warnings:
-        warnings.warn(message, CustomWarning)
+        warnings.warn(message, DeviceInfoMissing)
         _issued_warnings.add(message)
-
-# Define a custom warning category
-class CustomWarning(UserWarning):
-    pass
 
 aten = torch.ops.aten
 class PerformanceCounterMode(FlopCounterMode):
@@ -292,9 +293,11 @@ class PerformanceStats(DictMixin):
         else:
             warn_once("Device flops_per_s is not specified. Please specify the device throughput to enable flops utilization calculation")
             return None
-    def _format(self, value, suffix):
-        return to_nearest_power_of_10(value) + suffix
-
+    def _format(self, value, suffix, precision=2, round=True):
+        if round:
+            return to_nearest_power_of_10(value, precision=precision) + suffix
+        return f"{value:.{precision}f} " + suffix
+    
     def __str__(self):
         txt = textwrap.dedent(f"""\
             {self.label}:
@@ -311,17 +314,8 @@ class PerformanceStats(DictMixin):
                 Throughput: {self._format(self.achieved_flops_per_s, "FLOPs/s")}
                 Theoretical Latency: {self._format(self.theoretical_compute_latency, "s") if self.theoretical_compute_latency is not None else "N/A"}
               Utilization
-                Bandwidth: {self._format(self.bandwidth_utilization, "%") if self.bandwidth_utilization is not None else "N/A"}
-                FLOPs: {self._format(self.flops_utilization, "%") if self.flops_utilization is not None else "N/A"}""")
-                
-        # indent_2 = " " * 2
-        # indent_4 = " " * 4
-        # if self.bandwidth_utilization is not None:
-        #     txt += "\n" + textwrap.indent("""Utilization:\n""", indent_2)
-        #     txt += textwrap.indent(f"""Bandwidth: {self.bandwidth_utilization:.2f}%""", indent_4)
-
-        # if self.flops_utilization is not None:
-        #     txt +=  "\n" + textwrap.indent(f"""FLOPs: {self.flops_utilization:.2f}%""", indent_4)
+                Bandwidth: {self._format(self.bandwidth_utilization, round=False, precision=4, suffix="%") if self.bandwidth_utilization is not None else "N/A"}
+                FLOPs: {self._format(self.flops_utilization, round=False, precision=4, suffix="%") if self.flops_utilization is not None else "N/A"}""")
         
         return txt
 
