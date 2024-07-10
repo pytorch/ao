@@ -33,10 +33,6 @@ def _assert_and_get_unique_device(module: torch.nn.Module) -> Any:
     devices = {p.device for p in module.parameters()} | \
         {p.device for p in module.buffers()}
 
-    if {torch.device("cpu"), torch.device("meta")} == devices:
-        warnings.warn("Both 'meta' and 'cpu' are present in the list of devices. Module can have one device. We Select 'cpu'.")
-        devices = {torch.device("cpu")}
-    ""
     assert len(devices) <= 1, (
         "prepare only works with cpu or single-device CUDA modules, "
         f"but got devices {devices}"
@@ -46,7 +42,8 @@ def _assert_and_get_unique_device(module: torch.nn.Module) -> Any:
 
 
 def benchmark_model(model, num_runs, input_tensor):
-    if _assert_and_get_unique_device(model).type == "cuda":
+    device_type = _assert_and_get_unique_device(model).type
+    if device_type == "cuda":
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
@@ -61,7 +58,7 @@ def benchmark_model(model, num_runs, input_tensor):
         torch.cuda.synchronize()
         return start_event.elapsed_time(end_event) / num_runs
 
-    elif _assert_and_get_unique_device(model).type == "mps":
+    elif device_type == "mps":
         torch.mps.synchronize()
         start_event = torch.mps.event.Event(enable_timing=True)
         end_event = torch.mps.event.Event(enable_timing=True)
@@ -76,7 +73,7 @@ def benchmark_model(model, num_runs, input_tensor):
         torch.mps.synchronize()
         return start_event.elapsed_time(end_event) / num_runs
 
-    elif _assert_and_get_unique_device(model).type == "cpu":
+    elif device_type == "cpu":
         torch.cpu.synchronize()
         start_time = time.time()
 
