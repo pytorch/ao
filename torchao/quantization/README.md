@@ -162,7 +162,7 @@ torch._export.aot_compile(m_unwrapped, example_inputs)
 ```
 
 ### Automatic Inductor Configuration
-The `quantize` and `autoquant` apis now automatically use our recommended inductor configuration setings. You can mimic the same configuration settings for your own experiments by using the `torchao.quantization.utils.recommended_inductor_config_setter` to replicate our recommended configuration settings. Alternatively if you wish to disable these recommended settings, you can use the key word argument `set_inductor_config` and set it to false in the `quantize` or `autoquant` apis to prevent assignment of those configuration settings. You can also overwrite these configuration settings after they are assigned if you so desire, as long as they are overwritten before passing any inputs to the torch.compiled model. This means that previous flows which referenced a variety of inductor configurations that needed to be set are now outdated, though continuing to manually set those same inductor configurations is unlikely to cause any issues.
+The `quantize_` and `autoquant` apis now automatically use our recommended inductor configuration setings. You can mimic the same configuration settings for your own experiments by using the `torchao.quantization.utils.recommended_inductor_config_setter` to replicate our recommended configuration settings. Alternatively if you wish to disable these recommended settings, you can use the key word argument `set_inductor_config` and set it to false in the `quantize_` or `autoquant` apis to prevent assignment of those configuration settings. You can also overwrite these configuration settings after they are assigned if you so desire, as long as they are overwritten before passing any inputs to the torch.compiled model. This means that previous flows which referenced a variety of inductor configurations that needed to be set are now outdated, though continuing to manually set those same inductor configurations is unlikely to cause any issues.
 
 ### Other Available Quantization Techniques
 #### A8W8 Dynamic Quantization
@@ -172,7 +172,7 @@ The `quantize` and `autoquant` apis now automatically use our recommended induct
 torch._inductor.config.force_fuse_int_mm_with_mul = True
 
 # for torch 2.4+
-from torchao.quantization import quantize, int8_dynamic_activation_int8_weight
+from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight
 quantize_(model, int8_dynamic_activation_int8_weight())
 
 # for torch 2.2.2 and 2.3
@@ -184,7 +184,7 @@ change_linear_weights_to_int8_dqtensors(model)
 
 ```python
 # for torch 2.4+
-from torchao.quantization import quantize, int8_weight_only
+from torchao.quantization import quantize_, int8_weight_only
 quantize_(model, int8_weight_only())
 
 # for torch 2.2.2 and 2.3
@@ -199,7 +199,7 @@ This technique works best when the torch._inductor.config.use_mixed_mm option is
 
 ```python
 # for torch 2.4+
-from torchao.quantization import quantize, int4_weight_only
+from torchao.quantization import quantize_, int4_weight_only
 quantize_(model, int4_weight_only())
 
 # for torch 2.2.2 and 2.3

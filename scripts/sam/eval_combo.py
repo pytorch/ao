@@ -279,9 +279,9 @@ def run(
         block.attn.use_rel_pos = use_rel_pos
 
     if compress == "int8_dynamic_quant":
-        from torchao.quantization import quantize, int8_dynamic_activation_int8_weight
+        from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight
         from torchao.utils import unwrap_tensor_subclass
-        predictor.model.image_encoder = quantize(predictor.model.image_encoder, int8_dynamic_activation_int8_weight())
+        quantize_(predictor.model.image_encoder, int8_dynamic_activation_int8_weight())
         predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
     elif compress == "sparse_mlp_only":
         def mlp_only(mod, name):
@@ -300,7 +300,7 @@ def run(
         SparseSemiStructuredTensor._FORCE_CUTLASS = False
         from torchao.sparsity import sparsify, apply_fake_sparsity
         from torchao.sparsity.prototype.dynamic_quant_sparse import int8_dynamic_activation_int8_2x4_sparse_weight
-        from torchao.quantization import quantize, int8_dynamic_activation_int8_weight
+        from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight
         from torchao.utils import unwrap_tensor_subclass
 
         def attn_only(mod, name):
@@ -316,9 +316,11 @@ def run(
         apply_fake_sparsity(predictor.model.image_encoder,
                             filter_fn=mlp_only)
 
-        predictor.model.image_encoder = quantize(predictor.model.image_encoder,
-                                                 int8_dynamic_activation_int8_weight(),
-                                                 attn_only)
+        quantize_(
+            predictor.model.image_encoder,
+            int8_dynamic_activation_int8_weight(),
+            attn_only
+        )
         predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
 
         predictor.model.image_encoder = sparsify(predictor.model.image_encoder,
@@ -380,7 +382,7 @@ def run(
                                                               batch_size,
                                                               use_compile,
                                                               use_compile_decoder,
-                                                              pad_input_image_batch, 
+                                                              pad_input_image_batch,
                                                               compress)
 
     results = [[r[0], r[1], r[2], r[3].item()] for r in results]
@@ -411,6 +413,6 @@ def run(
         vals = ",".join(map(str, [device, sam_model_type, batch_size, max_memory_allocated_bytes, max_memory_allocated_percentage, img_s, batch_ms_batch_size, mIoU, use_compile,
             use_half, compress, use_compile_decoder, use_rel_pos, pad_input_image_batch, num_workers, num_batches, num_images, profile_path, memory_path]))
         f.write(vals+"\n")
-        
+
 if __name__ == '__main__':
     fire.Fire(run)
