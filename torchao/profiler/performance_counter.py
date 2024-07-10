@@ -410,27 +410,6 @@ class PerformanceCounterManager:
                                  device_flops_per_s=self.device_spec.flops_per_s if self.device_spec is not None else None)
     
         return stats
-    
-    def _format_totals(self, precision=2):
-        ms = round(self.total_time * 1e3, precision)
-        token_throughput = round(self.total_tokens / self.total_time, precision)
-        gflops = round(self.total_flops / 1e9, precision)
-        gb = round(self.total_io / 1e9, precision)
-        flop_throughput = round(gflops / self.total_time, precision)
-        io_throughput = round(gb / self.total_time, precision)
-        text = textwrap.dedent(f"""\
-            FlopCounter Summary:
-              Total time = {ms:,} ms
-              Tokens:
-                Total {self.total_tokens}
-                Throughput {token_throughput:,} tokens/s
-              IO:
-                Total {gb:,} GB
-                Throughput {io_throughput:,} GB/s
-              FLOPs:
-                Total {gflops:,} GFLOPs
-                Throughput {flop_throughput:,} GFLOP/s""")
-        return text
       
     def print_summary(self, labels: list[str] = None):
         _print = partial(print, flush=True, end='\n')
