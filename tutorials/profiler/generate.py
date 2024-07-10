@@ -213,6 +213,7 @@ def main(
     tokenizer_path = checkpoint_path.parent / "tokenizer.model"
     assert tokenizer_path.is_file(), str(tokenizer_path)
 
+    print(f"{GPT_FAST_PREFIX}")
     print("Loading model ...")
     t0 = time.time()
     model = _load_model(checkpoint_path, device, precision)
@@ -226,6 +227,7 @@ def main(
     DEVICE_SPEC = CUDADeviceSpec(dtype=precision)
     PERF_COUNTER = TransformerPerformanceCounter(depth=3, device_spec=DEVICE_SPEC)
     print(DELIMITER)
+    print(f"{PERF_COUNTER_PREFIX}")
     print(f"Using {DEVICE_SPEC}")
     print(f"Model Config: {model.config}")
 
@@ -261,6 +263,7 @@ def main(
         t = time.perf_counter() - t0
         txt = tokenizer.decode(y.tolist())
         print(DELIMITER)
+        print(f"{GPT_FAST_PREFIX}")
         print(f"Generated text for sample {i}: {txt}\n")
 
         tokens_generated = y.size(0) - prompt_length
@@ -323,7 +326,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--checkpoint_path",
         type=Path,
-        default=Path("/home/ubuntu/gpt-fast-dev/checkpoints/7B/model.pth"),
+        default=Path("./checkpoints/7B/model.pth"),
         help="Model checkpoint path.",
     )
     parser.add_argument(

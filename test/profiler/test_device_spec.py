@@ -4,8 +4,6 @@ cuda_driver = pytest.importorskip(
     "triton.runtime.driver", reason="requires triton cuda driver module"
 )
 import itertools
-from contextlib import contextmanager
-from unittest.mock import patch
 
 import torch
 from utils import patch_device
