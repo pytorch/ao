@@ -24,15 +24,18 @@ aten = torch.ops.aten
 # Implement a cleaner solution.
 _issued_warnings = set()
 
+
 # Define a custom warning category
 class DeviceInfoMissing(UserWarning):
     pass
+
 
 def warn_once(message):
     global _issued_warnings
     if message not in _issued_warnings:
         warnings.warn(message, DeviceInfoMissing)
         _issued_warnings.add(message)
+
 
 class PerformanceCounterMode(FlopCounterMode):
     """
@@ -48,48 +51,67 @@ class PerformanceCounterMode(FlopCounterMode):
     - ``get_summary_io_counts``: returns a summary of the IO counts for each module (totals by operator)
     - ``get_summary_flop_counts``: returns a summary of the flop counts for each module (totals by operator)
     """
-    
+
     def __init__(self, display=False, depth=10, debug=False):
         self.debug = debug
         self.io_counts = defaultdict(lambda: defaultdict(int))
         super().__init__(display=display, depth=depth)
-    
+
     def get_io_counts(self):
-        return {k: dict(v) for k,v in self.io_counts.items()}
-    
+        return {k: dict(v) for k, v in self.io_counts.items()}
+
     def get_total_io(self):
-        return sum(self.io_counts['Global'].values())
+        return sum(self.io_counts["Global"].values())
 
     def _get_io_sizes(self, args):
-        sizes = tree_map(lambda x: x.numel() * x.element_size() if isinstance(x, torch.Tensor) else 0, args)
+        sizes = tree_map(
+            lambda x: x.numel() * x.element_size()
+            if isinstance(x, torch.Tensor)
+            else 0,
+            args,
+        )
         if not hasattr(sizes, "__len__"):
             sizes = [sizes]
         return sizes
-    
+
     def get_summary_flop_counts(self):
         flop_counts = self.get_flop_counts()
-        return {k: sum(v.values()) for k,v in flop_counts.items()}
-    
+        return {k: sum(v.values()) for k, v in flop_counts.items()}
+
     def get_summary_io_counts(self):
         io_counts = self.get_io_counts()
-        return {k: sum(v.values()) for k,v in io_counts.items()}
-    
+        return {k: sum(v.values()) for k, v in io_counts.items()}
+
     def _nearest_power_of_10(self, x):
         if x == 0:
             return x, 0
-        
+
         power = int(math.floor(math.log10(abs(x)) / 3))
         scaled_value = x / (10 ** (3 * power))
-    
+
         return scaled_value, power
-    
+
     def pretty_summary_counts(self, type="flops", precision=2, depth=None):
         assert type in ["flops", "io"]
-        metric_units = {0: '', 1: 'k', 2: 'M', 3: 'G', 4: 'T', 5: 'P', 6: 'E', 7: 'Z', 8: 'Y'}
+        metric_units = {
+            0: "",
+            1: "k",
+            2: "M",
+            3: "G",
+            4: "T",
+            5: "P",
+            6: "E",
+            7: "Z",
+            8: "Y",
+        }
 
         if depth is None:
             depth = self.depth
-        summary_counts = self.get_summary_flop_counts() if type == "flops" else self.get_summary_io_counts()
+        summary_counts = (
+            self.get_summary_flop_counts()
+            if type == "flops"
+            else self.get_summary_io_counts()
+        )
         keys_to_print = [k for k in summary_counts.keys() if len(k.split(".")) <= depth]
         units = "FLOPs" if type == "flops" else "B"
         summary_str = []
@@ -98,59 +120,69 @@ class PerformanceCounterMode(FlopCounterMode):
                 continue
             spaces = " " * (len(k.split(".")) - 1)
             scaled_val, power = self._nearest_power_of_10(summary_counts[k])
-            formatted_val = f"{scaled_val:.{precision}f}{metric_units[power]}{units}"      
+            formatted_val = f"{scaled_val:.{precision}f}{metric_units[power]}{units}"
             summary_str.append(f"{spaces}{k}: {formatted_val}")
-        
+
         return "\n".join(summary_str)
-    
+
     def _count_io(self, func_packet, out, args, kwargs):
         arg_sizes = self._get_io_sizes(args)
         kwargs_sizes = self._get_io_sizes(kwargs.values())
         out_sizes = self._get_io_sizes(out)
-        arg_size, kwargs_size, out_size = sum(arg_sizes), sum(kwargs_sizes), sum(out_sizes)
+        arg_size, kwargs_size, out_size = (
+            sum(arg_sizes),
+            sum(kwargs_sizes),
+            sum(out_sizes),
+        )
         return arg_size, kwargs_size, out_size
-    
+
     def _count_flops(self, func_packet, out, args, kwargs):
         if func_packet in self.flop_registry:
             flop_count_func = self.flop_registry[func_packet]
             flop_count = flop_count_func(*args, **kwargs, out_val=out)  # type: ignore[operator]
-            arg_size, kwarg_size, out_size = self._count_io(func_packet, out, args, kwargs)
+            arg_size, kwarg_size, out_size = self._count_io(
+                func_packet, out, args, kwargs
+            )
             total_size = arg_size + kwarg_size + out_size
 
             for par in set(self.mod_tracker.parents):
                 if self.debug:
                     print(f"Counting flops for {par}, {func_packet}: {flop_count}")
-                    print(f"Counting io for {par}, {func_packet}: {sum([arg_size, kwarg_size, out_size])} = {arg_size} + {kwarg_size} + {out_size}")
+                    print(
+                        f"Counting io for {par}, {func_packet}: {sum([arg_size, kwarg_size, out_size])} = {arg_size} + {kwarg_size} + {out_size}"
+                    )
                 self.flop_counts[par][func_packet] += flop_count
                 self.io_counts[par][func_packet] += total_size
-        
+
         return out
+
 
 class PerformanceTimer:
     """
     Context manager that records the duration, io, and flops of a torch operator / module.
-    
+
     Timing is done using `time.perf_counter` and can be overridden to use a different
     timer (see `CUDAPerformanceTimer`).
-    
+
     IO and FLOPs are recorded using `PerformanceCounterMode`.
-    
-    Available attributes: 
+
+    Available attributes:
         name: str
         precision: int
         display: bool
         depth (int): passed to `PerformanceCounterMode` if displaying and determines depth of module tree to display.
     **Note**: these attributes are primarily used for debugging when using the `PerformanceTimer` standalone.
     The PerformanceCounterManager class is a higher-level API that should be used instead.
-    
+
     """
+
     def __init__(self, name, precision=1, display=False, depth=10):
         self.name = name
         self.precision = precision
-        self.display = display 
+        self.display = display
         self.depth = depth
         self.perf_counter = PerformanceCounterMode(display=display, depth=depth)
-        
+
     def __enter__(self):
         self.start = time.perf_counter()
         self.perf_counter.__enter__()
@@ -159,56 +191,61 @@ class PerformanceTimer:
     def _print_exit_msg(self):
         gflops = round(self.total_flops / 1e9, self.precision)
         ms = round(self.duration * 1e3, self.precision)
-        if self.display: 
+        if self.display:
             print(f"{self.name.upper()}:  duration = {ms} ms, FLOPS = {gflops} GFLOPs")
 
     def __exit__(self, type, value, traceback):
         self.end = time.perf_counter()
-        #Convert to ms
-        self.duration = (self.end - self.start)
+        # Convert to ms
+        self.duration = self.end - self.start
         self.perf_counter.__exit__(type, value, traceback)
         if self.display:
-            self._print_exit_msg()        
+            self._print_exit_msg()
 
     @property
     def total_flops(self):
         return self.perf_counter.get_total_flops()
-    
+
     @property
     def total_io(self):
         return self.perf_counter.get_total_io()
-    
+
     @property
     def flops_table(self):
         return self.perf_counter.get_table()
-    
+
     def get_summary_flop_counts(self):
         return self.perf_counter.get_summary_flop_counts()
-    
+
     def get_summary_io_counts(self):
         return self.perf_counter.get_summary_io_counts()
-    
+
     @property
     def flop_counts(self):
         return self.perf_counter.get_flop_counts()
-    
+
     @property
     def io_counts(self):
         return self.perf_counter.get_io_counts()
-    
+
     def get_pretty_summary(self, depth):
-        return self.perf_counter.pretty_summary_counts(depth=depth if depth is not None else self.depth)
+        return self.perf_counter.pretty_summary_counts(
+            depth=depth if depth is not None else self.depth
+        )
+
 
 class CUDAPerformanceTimer(PerformanceTimer):
     """
     `PerformanceTimer` that uses `cudaEvents` to record duration.
-    """        
-    
+    """
+
     def __enter__(self):
         self.start = torch.cuda.Event(enable_timing=True)
         self.end = torch.cuda.Event(enable_timing=True)
         self.start.record()
-        self.perf_counter = PerformanceCounterMode(display=self.display, depth=self.depth)
+        self.perf_counter = PerformanceCounterMode(
+            display=self.display, depth=self.depth
+        )
         self.perf_counter.__enter__()
         return self
 
@@ -220,36 +257,30 @@ class CUDAPerformanceTimer(PerformanceTimer):
         self.perf_counter.__exit__(type, value, traceback)
 
         if self.display:
-            self._print_exit_msg()        
+            self._print_exit_msg()
+
 
 def to_nearest_power_of_10(x, precision=2):
-    
     # Dictionary mapping powers of 10 to their metric abbreviations
-    metric_units = {
-        0: '',
-        -6: 'µ',
-        -3: 'm',
-        6: 'M',
-        9: 'G',
-        12: 'T'
-    }
-    
+    metric_units = {0: "", -6: "µ", -3: "m", 6: "M", 9: "G", 12: "T"}
+
     # Determine the closest power of 10
     if x == 0:
         return f"{x:.{precision}f}"
-    
+
     power = int(math.floor(math.log10(abs(x))))
     # Adjust power to fit within the given metric units
     powers = sorted(metric_units.keys())
     closest_power = min(powers, key=lambda p: abs(p - power))
-    
+
     # Calculate the value formatted to the closest power of 10
     value = x / 10**closest_power
-    
+
     # Map the power to the metric unit
     unit = metric_units.get(closest_power, f"e{closest_power}")
-    
+
     return f"{value:,.{precision}f} {unit}"
+
 
 class DictMixin:
     """
@@ -261,25 +292,29 @@ class DictMixin:
             return getattr(self, key)
         else:
             raise KeyError(key)
-    
+
     def __setitem__(self, key, value):
         setattr(self, key, value)
-        
+
     def __contains__(self, key):
         return hasattr(self, key)
-    
+
     def __iter__(self):
         for key in self.__dict__:
             yield key
 
+
 def _get_property_methods(cls):
-    return [name for name, _ in inspect.getmembers(cls, lambda m: isinstance(m, property))]
+    return [
+        name for name, _ in inspect.getmembers(cls, lambda m: isinstance(m, property))
+    ]
+
 
 @dataclass
 class PerformanceStats(DictMixin):
     """
     Data struct that stores performance statistics.
-    
+
     Attrs:
         num_tokens (int): number of tokens processed
         duration (float): duration in seconds
@@ -291,7 +326,7 @@ class PerformanceStats(DictMixin):
         io_counts (Dict[str, Dict[Any, int]]): data movement by module and operation
         device_bandwidth (Optional[float]): device bandwidth in bytes per second
         device_flops_per_s (Optional[float]): device FLOPs per second
-    
+
     Additionally, the following derived properties are available:
         token_throughput (float): number of tokens processed per second
         achieved_flops_per_s (float): achieved FLOPs per second
@@ -301,7 +336,7 @@ class PerformanceStats(DictMixin):
         theoretical_compute_latency (Optional[float]): theoretical compute latency in seconds, set to None if
         no device FLOPs are available.
     """
-    
+
     label: str
     num_tokens: int
     duration: float
@@ -312,26 +347,28 @@ class PerformanceStats(DictMixin):
     flop_counts: Dict[str, Dict[Any, int]]
     io_counts: Dict[str, Dict[Any, int]]
     device_bandwidth: Optional[float] = None
-    device_flops_per_s: Optional[float] = None    
-    
+    device_flops_per_s: Optional[float] = None
+
     @property
     def token_throughput(self):
         return self.num_tokens / self.duration
-    
+
     @property
     def achieved_flops_per_s(self):
         return self.total_flops / self.duration
-    
+
     @property
     def achieved_bandwidth(self):
         return self.total_io / self.duration
-    
+
     @property
     def theoretical_io_latency(self):
         if self.device_bandwidth is not None:
             return self.total_io / self.device_bandwidth
         else:
-            warn_once("Device bandwidth is not specified. Please specify the device bandwidth to enable io latency calculation")
+            warn_once(
+                "Device bandwidth is not specified. Please specify the device bandwidth to enable io latency calculation"
+            )
             return None
 
     @property
@@ -339,28 +376,36 @@ class PerformanceStats(DictMixin):
         if self.device_flops_per_s is not None:
             return self.total_flops / self.device_flops_per_s
         else:
-            warn_once("Device flops_per_s is not specified. Please specify the device throughput to enable compute latency calculation")
+            warn_once(
+                "Device flops_per_s is not specified. Please specify the device throughput to enable compute latency calculation"
+            )
             return None
-        
+
     @property
     def bandwidth_utilization(self):
         if self.device_bandwidth is not None:
             return self.achieved_bandwidth / self.device_bandwidth
         else:
-            warn_once("Device bandwidth is not specified. Please specify the device bandwidth to enable bandwidth utilization calculation")
+            warn_once(
+                "Device bandwidth is not specified. Please specify the device bandwidth to enable bandwidth utilization calculation"
+            )
             return None
+
     @property
     def flops_utilization(self):
         if self.device_flops_per_s is not None:
             return self.achieved_flops_per_s / self.device_flops_per_s
         else:
-            warn_once("Device flops_per_s is not specified. Please specify the device throughput to enable flops utilization calculation")
+            warn_once(
+                "Device flops_per_s is not specified. Please specify the device throughput to enable flops utilization calculation"
+            )
             return None
+
     def _format(self, value, suffix, precision=2, round=True):
         if round:
             return to_nearest_power_of_10(value, precision=precision) + suffix
         return f"{value:.{precision}f} " + suffix
-    
+
     def __str__(self):
         txt = textwrap.dedent(f"""\
             {self.label}:
@@ -379,7 +424,7 @@ class PerformanceStats(DictMixin):
               Utilization
                 Bandwidth: {self._format(self.bandwidth_utilization, round=False, precision=4, suffix="%") if self.bandwidth_utilization is not None else "N/A"}
                 FLOPs: {self._format(self.flops_utilization, round=False, precision=4, suffix="%") if self.flops_utilization is not None else "N/A"}""")
-        
+
         return txt
 
     def to_dict(self):
@@ -389,15 +434,40 @@ class PerformanceStats(DictMixin):
         d.update({prop: getattr(self, prop) for prop in props})
 
         return d
-    
+
+
 class PerformanceCounterManager:
-    def __init__(self, depth=10, timer_cls: PerformanceTimer=PerformanceTimer, device_spec: DeviceSpec=None, verbose=False):
+    """
+    Context manager-like class for tracking performance across multiple calls
+    to a Transformer model.
+    
+    Provides properties for accessing performance stats for data movement and FLOPs for each context as well as 
+    summary stats across all contexts. 
+    Additionally, if a device_spec is provided, theoretical peak bandwidth / FLOPs stats will be available.
+    
+    See `PerformanceStats` struct for description of tracked metrics.
+        
+    Example:
+        >>> manager = PerformanceCounterManager(device_spec=device_spec)
+        >>> with manager.count(label="prefill", num_tokens=x.numel()):
+        >>>     out = model(encoded_prompt)
+        >>> manager.print_summary(labels=["prefill"]) # prints recorded stats for "prefill" context
+        >>> with manager.count(label="decode", num_tokens=1):
+        >>>     out = model(out[-1])
+        >>> manager.print_summary(labels=["decode"]) # prints recorded stats for "decode" context
+        >>> print(manager.print_summary) # prints accumulated stats across all contexts   
+    """
+    def __init__(
+        self,
+        depth=10,
+        timer_cls: PerformanceTimer = PerformanceTimer,
+        device_spec: DeviceSpec = None,
+    ):
         super().__init__()
         self._counts: Dict[str, PerformanceStats] = {}
         self._depth = depth
         self.timer_cls = timer_cls
         self.device_spec = device_spec
-        self.verbose = verbose
 
     @contextmanager
     def count(self, label: str, num_tokens: int):
@@ -407,98 +477,122 @@ class PerformanceCounterManager:
             yield self
         finally:
             perf_timer.__exit__(None, None, None)
-            stats = PerformanceStats(label=label, 
-                                     num_tokens=num_tokens, 
-                                     duration=perf_timer.duration,
-                                     total_flops=perf_timer.total_flops,
-                                     total_io=perf_timer.total_io,
-                                     flops_summary=perf_timer.get_summary_flop_counts(),
-                                     io_summary=perf_timer.get_summary_io_counts(),
-                                     flop_counts=perf_timer.flop_counts,
-                                     io_counts=perf_timer.io_counts,
-                                     device_bandwidth=self.device_spec.bandwidth if self.device_spec is not None else None,
-                                     device_flops_per_s=self.device_spec.flops_per_s if self.device_spec is not None else None)
+            stats = PerformanceStats(
+                label=label,
+                num_tokens=num_tokens,
+                duration=perf_timer.duration,
+                total_flops=perf_timer.total_flops,
+                total_io=perf_timer.total_io,
+                flops_summary=perf_timer.get_summary_flop_counts(),
+                io_summary=perf_timer.get_summary_io_counts(),
+                flop_counts=perf_timer.flop_counts,
+                io_counts=perf_timer.io_counts,
+                device_bandwidth=self.device_spec.bandwidth
+                if self.device_spec is not None
+                else None,
+                device_flops_per_s=self.device_spec.flops_per_s
+                if self.device_spec is not None
+                else None,
+            )
             self._counts[label] = stats
+
     @property
     def counts(self):
         return self._counts
+
     def get_counts(self):
-        return self._counts            
+        return self._counts
 
     @property
     def total_flops(self):
         return sum(count.total_flops for count in self._counts.values())
-    
+
     @property
     def total_io(self):
         return sum(count.total_io for count in self._counts.values())
+
     @property
     def total_tokens(self):
         return sum(count.num_tokens for count in self._counts.values())
-    
+
     @property
     def total_time(self):
         return sum(count.duration for count in self._counts.values())
-    
+
     def _summarize_stat(self, key):
-        return {label: getattr(self._counts[label], key) for label in self._counts.keys()}
-    
+        return {
+            label: getattr(self._counts[label], key) for label in self._counts.keys()
+        }
+
     @property
     def flops_summary(self):
         return self._summarize_stat(key="flops_summary")
-    
+
     @property
     def io_summary(self):
         return self._summarize_stat(key="io_summary")
-    
+
     @property
     def flop_counts_summary(self):
         return self._summarize_stat(key="flop_counts")
-    
+
     @property
     def io_counts_summary(self):
         return self._summarize_stat(key="io_counts")
+
     @property
     def stats_summary(self):
-        stats = PerformanceStats(label="Performance Summary",
-                                 num_tokens=self.total_tokens,
-                                 duration=self.total_time,
-                                 total_flops=self.total_flops,
-                                 total_io=self.total_io,
-                                 flops_summary=self.flops_summary,
-                                 io_summary=self.io_summary,
-                                 flop_counts=self.flop_counts_summary,
-                                 io_counts=self.io_counts_summary,
-                                 device_bandwidth=self.device_spec.bandwidth if self.device_spec is not None else None,
-                                 device_flops_per_s=self.device_spec.flops_per_s if self.device_spec is not None else None)
-    
+        stats = PerformanceStats(
+            label="Performance Summary",
+            num_tokens=self.total_tokens,
+            duration=self.total_time,
+            total_flops=self.total_flops,
+            total_io=self.total_io,
+            flops_summary=self.flops_summary,
+            io_summary=self.io_summary,
+            flop_counts=self.flop_counts_summary,
+            io_counts=self.io_counts_summary,
+            device_bandwidth=self.device_spec.bandwidth
+            if self.device_spec is not None
+            else None,
+            device_flops_per_s=self.device_spec.flops_per_s
+            if self.device_spec is not None
+            else None,
+        )
+
         return stats
-      
+
     def print_summary(self, labels: list[str] = None):
-        _print = partial(print, flush=True, end='\n')
+        _print = partial(print, flush=True, end="\n")
         # Delegate to __str__ of PerformanceStats for pretty printing
         if labels is None:
             text = str(self.stats_summary)
             _print(text)
         else:
             for label in labels:
-                text = str(self._counts[label]) 
+                text = str(self._counts[label])
                 _print(self._counts[label])
-    
+
     def to_dict(self):
         # Convert flop_counts from OpOverloadPackets to str
         # Then delegate to PerformanceStats `to_dict`, which updates with derived metrics (property methods)
         counts = deepcopy(self._counts)
-        for label,label_counts in counts.items():
-            counts[label]['flop_counts'] = {mod: {str(op): count for op, count in op_count.items()} for mod, op_count in label_counts['flop_counts'].items()}
-            counts[label]['io_counts'] = {mod: {str(op): count for op, count in op_count.items()} for mod, op_count in label_counts['io_counts'].items()}
+        for label, label_counts in counts.items():
+            counts[label]["flop_counts"] = {
+                mod: {str(op): count for op, count in op_count.items()}
+                for mod, op_count in label_counts["flop_counts"].items()
+            }
+            counts[label]["io_counts"] = {
+                mod: {str(op): count for op, count in op_count.items()}
+                for mod, op_count in label_counts["io_counts"].items()
+            }
             counts[label] = counts[label].to_dict()
-            
+
         return counts
-    
+
     def to_json(self, path: Union[str, Path] = None):
         d = self.to_dict()
         if path:
-            with open(path, 'w') as f: 
+            with open(path, "w") as f:
                 f.write(json.dumps(d, indent=2))
         return d
