@@ -18,9 +18,11 @@ from torch.utils.flop_counter import FlopCounterMode
 
 from .device_spec import DeviceSpec
 
-# Set to keep track of issued warnings
-_issued_warnings = set()
+aten = torch.ops.aten
 
+# TODO: Quick hack to track issued warnings to prevent excessive output each time a field is missing.
+# Implement a cleaner solution.
+_issued_warnings = set()
 
 # Define a custom warning category
 class DeviceInfoMissing(UserWarning):
@@ -32,8 +34,21 @@ def warn_once(message):
         warnings.warn(message, DeviceInfoMissing)
         _issued_warnings.add(message)
 
-aten = torch.ops.aten
 class PerformanceCounterMode(FlopCounterMode):
+    """
+    ``PerformanceCounterMode`` extends FlopCounterMode to track IO in addition to flops.
+
+    It does this using a ``TorchDispatchMode`` per `FlopCounterMode` and tracks the
+    inputs and outputs of each operator, organized by module.
+
+    In addition to the methods exposed by FlopCounterMode, the following methods are
+    available:
+    - ``get_io_counts``: returns a dictionary of module names and their associated IO counts by aten operator
+    - ``get_total_io``: returns the total number of IO operations across all modules
+    - ``get_summary_io_counts``: returns a summary of the IO counts for each module (totals by operator)
+    - ``get_summary_flop_counts``: returns a summary of the flop counts for each module (totals by operator)
+    """
+    
     def __init__(self, display=False, depth=10, debug=False):
         self.debug = debug
         self.io_counts = defaultdict(lambda: defaultdict(int))
@@ -112,6 +127,23 @@ class PerformanceCounterMode(FlopCounterMode):
         return out
 
 class PerformanceTimer:
+    """
+    Context manager that records the duration, io, and flops of a torch operator / module.
+    
+    Timing is done using `time.perf_counter` and can be overridden to use a different
+    timer (see `CUDAPerformanceTimer`).
+    
+    IO and FLOPs are recorded using `PerformanceCounterMode`.
+    
+    Available attributes: 
+        name: str
+        precision: int
+        display: bool
+        depth (int): passed to `PerformanceCounterMode` if displaying and determines depth of module tree to display.
+    **Note**: these attributes are primarily used for debugging when using the `PerformanceTimer` standalone.
+    The PerformanceCounterManager class is a higher-level API that should be used instead.
+    
+    """
     def __init__(self, name, precision=1, display=False, depth=10):
         self.name = name
         self.precision = precision
@@ -166,8 +198,12 @@ class PerformanceTimer:
     
     def get_pretty_summary(self, depth):
         return self.perf_counter.pretty_summary_counts(depth=depth if depth is not None else self.depth)
+
 class CUDAPerformanceTimer(PerformanceTimer):
-        
+    """
+    `PerformanceTimer` that uses `cudaEvents` to record duration.
+    """        
+    
     def __enter__(self):
         self.start = torch.cuda.Event(enable_timing=True)
         self.end = torch.cuda.Event(enable_timing=True)
@@ -217,8 +253,9 @@ def to_nearest_power_of_10(x, precision=2):
 
 class DictMixin:
     """
-    Mixin to enable dict-like access to dataclass attributes
+    Enables dict-like interface to dataclasses.
     """
+
     def __getitem__(self, key):
         if hasattr(self, key):
             return getattr(self, key)
@@ -235,11 +272,36 @@ class DictMixin:
         for key in self.__dict__:
             yield key
 
-# Function to get all property methods of a class
-def get_property_methods(cls):
-    return [name for name, member in inspect.getmembers(cls, lambda m: isinstance(m, property))]
+def _get_property_methods(cls):
+    return [name for name, _ in inspect.getmembers(cls, lambda m: isinstance(m, property))]
+
 @dataclass
 class PerformanceStats(DictMixin):
+    """
+    Data struct that stores performance statistics.
+    
+    Attrs:
+        num_tokens (int): number of tokens processed
+        duration (float): duration in seconds
+        total_flops (int): total FLOPs
+        total_io (int): total data movement in bytes
+        flops_summary (Dict[str, int]): summary of FLOPs by module
+        io_summary (Dict[str, int]): summary of data movement in bytes by module
+        flop_counts (Dict[str, Dict[Any, int]]): FLOP counts by module and operation
+        io_counts (Dict[str, Dict[Any, int]]): data movement by module and operation
+        device_bandwidth (Optional[float]): device bandwidth in bytes per second
+        device_flops_per_s (Optional[float]): device FLOPs per second
+    
+    Additionally, the following derived properties are available:
+        token_throughput (float): number of tokens processed per second
+        achieved_flops_per_s (float): achieved FLOPs per second
+        achieved_bandwidth (float): achieved data movement in bytes per second
+        theoretical_io_latency (Optional[float]): theoretical I/O latency in seconds, set to None if
+        no device bandwidth is available.
+        theoretical_compute_latency (Optional[float]): theoretical compute latency in seconds, set to None if
+        no device FLOPs are available.
+    """
+    
     label: str
     num_tokens: int
     duration: float
@@ -251,6 +313,7 @@ class PerformanceStats(DictMixin):
     io_counts: Dict[str, Dict[Any, int]]
     device_bandwidth: Optional[float] = None
     device_flops_per_s: Optional[float] = None    
+    
     @property
     def token_throughput(self):
         return self.num_tokens / self.duration
@@ -322,7 +385,7 @@ class PerformanceStats(DictMixin):
     def to_dict(self):
         d = asdict(self)
         # Update dict with properties
-        props = get_property_methods(self.__class__)
+        props = _get_property_methods(self.__class__)
         d.update({prop: getattr(self, prop) for prop in props})
 
         return d

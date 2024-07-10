@@ -1,13 +1,15 @@
-import logging
-from collections import defaultdict
-from copy import copy
 from dataclasses import dataclass, field, fields
 from typing import Dict, Optional, Union
 
 import torch
 
-logger = logging.getLogger(__name__)
+"""This module contains the device specs for theoretical peak performance calculations.
 
+- Contains a list of available chips and their corresponding theoretical peak FLOPs performance for various torch.dtypes.
+- Exposes a DeviceSpec interface and a concrete CUDADeviceSpec implementation for CUDA gpus.  Extendable to other device types.
+- Where possible, the CUDADeviceSpec auto-populates its fields by utilizing `torch.cuda` API and `triton.runtime.driver`.
+
+"""
 # Copied from https://github.com/Lightning-AI/pytorch-lightning/blob/master/src/lightning/fabric/utilities/throughput.py
 _AVAILABLE_GPU_SPECS: Dict[str, Dict[Union[str, torch.dtype], float]] = {
     # Hopper
@@ -289,7 +291,7 @@ class DeviceSpec:
     - flops_per_s (FLOP / s)
     - vram (bytes)
     - dtype (torch.dtype) dtype used for theoretical peak performance
-    - flops_by_dtype (dict[Union[torch.dtype, str], float]): mapping from dtype to FLOPs
+    - flops_by_dtype (dict[Union[torch.dtype, str], float]): mapping from dtype to FLOP / s
     """
 
     device_type: str
@@ -349,13 +351,22 @@ class DeviceSpec:
 @dataclass
 class CUDADeviceSpec(DeviceSpec):
     """
-    CUDA specs for theoretical peak performance
+    CUDA specs for theoretical peak performance, conformant with DeviceSpec interface.
 
-    Fields will be auto-populated in __post_init__ if not already specified
-    and if data is available
+    Fields will be auto-populated in __post_init__ if not specified
+    and if data is available.
 
-    See DeviceSpec for a list of available fields
-    See AVAILABLE_GPU_SPECS for a list of available chips
+    See _AVAILABLE_GPU_SPECS for a list of available chip data.
+    
+    Fields and expected units:
+        - device (int): CUDA device index
+        - name (str): name of the device
+        - bandwidth (bytes /s): memory bandwidth in bytes / s
+        - flops_per_s (FLOP / s): FLOPs per second
+        - vram (bytes): VRAM in bytes
+        - dtype (torch.dtype): dtype used for theoretical peak performance
+        - flops_by_dtype (dict[Union[torch.dtype, str], float]): mapping from dtype to FLOP / s
+        - use_tensorcores (bool): whether to use tensorcores if dtype == torch.float32
     """
 
     device_type: str = "cuda"
@@ -373,7 +384,7 @@ class CUDADeviceSpec(DeviceSpec):
         if self.bandwidth is None:
             self.bandwidth = get_bandwidth()
 
-        # FLOPs
+        # FLOPs / s
         if self.flops_per_s is None:
             chip_name = get_chip_name(self.device)
             if chip_name is None:
