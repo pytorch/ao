@@ -20,21 +20,13 @@ from .device_spec import DeviceSpec
 
 aten = torch.ops.aten
 
-# TODO: Quick hack to track issued warnings to prevent excessive output each time a field is missing.
-# Implement a cleaner solution.
-_issued_warnings = set()
 
-
-# Define a custom warning category
 class DeviceInfoMissing(UserWarning):
     pass
 
 
-def warn_once(message):
-    global _issued_warnings
-    if message not in _issued_warnings:
-        warnings.warn(message, DeviceInfoMissing)
-        _issued_warnings.add(message)
+# Prevent excessive output
+warnings.simplefilter("once", DeviceInfoMissing)
 
 
 class PerformanceCounterMode(FlopCounterMode):
@@ -172,7 +164,7 @@ class PerformanceTimer:
         display: bool
         depth (int): passed to `PerformanceCounterMode` if displaying and determines depth of module tree to display.
     **Note**: these attributes are primarily used for debugging when using the `PerformanceTimer` standalone.
-    The PerformanceCounterManager class is a higher-level API that should be used instead.
+    The TransformerPerformanceCounter class is a higher-level API that should be used instead.
 
     """
 
@@ -366,7 +358,7 @@ class PerformanceStats(DictMixin):
         if self.device_bandwidth is not None:
             return self.total_io / self.device_bandwidth
         else:
-            warn_once(
+            warnings.warn(
                 "Device bandwidth is not specified. Please specify the device bandwidth to enable io latency calculation"
             )
             return None
@@ -376,7 +368,7 @@ class PerformanceStats(DictMixin):
         if self.device_flops_per_s is not None:
             return self.total_flops / self.device_flops_per_s
         else:
-            warn_once(
+            warnings.warn(
                 "Device flops_per_s is not specified. Please specify the device throughput to enable compute latency calculation"
             )
             return None
@@ -386,7 +378,7 @@ class PerformanceStats(DictMixin):
         if self.device_bandwidth is not None:
             return self.achieved_bandwidth / self.device_bandwidth
         else:
-            warn_once(
+            warnings.warn(
                 "Device bandwidth is not specified. Please specify the device bandwidth to enable bandwidth utilization calculation"
             )
             return None
@@ -396,7 +388,7 @@ class PerformanceStats(DictMixin):
         if self.device_flops_per_s is not None:
             return self.achieved_flops_per_s / self.device_flops_per_s
         else:
-            warn_once(
+            warnings.warn(
                 "Device flops_per_s is not specified. Please specify the device throughput to enable flops utilization calculation"
             )
             return None
@@ -436,7 +428,7 @@ class PerformanceStats(DictMixin):
         return d
 
 
-class PerformanceCounterManager:
+class TransformerPerformanceCounter:
     """
     Context manager-like class for tracking performance across multiple calls
     to a Transformer model.
@@ -448,7 +440,7 @@ class PerformanceCounterManager:
     See `PerformanceStats` struct for description of tracked metrics.
 
     Example:
-        >>> manager = PerformanceCounterManager(device_spec=device_spec)
+        >>> manager = TransformerPerformanceCounter(device_spec=device_spec)
         >>> with manager.count(label="prefill", num_tokens=x.numel()):
         >>>     out = model(encoded_prompt)
         >>> manager.print_summary(labels=["prefill"]) # prints recorded stats for "prefill" context
