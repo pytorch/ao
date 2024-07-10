@@ -11,7 +11,8 @@ import torch
 import torchao.prototype.mx_formats.config as config
 from torch.utils._triton import has_triton
 from torchao.prototype.mx_formats.constants import (
-    DTYPE_FP4,
+    DTYPE_FP4_E2M1,
+    DTYPE_FP4_E3M0,
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
     F4_E2M1_EXP_BIAS,
@@ -20,10 +21,12 @@ from torchao.prototype.mx_formats.constants import (
 )
 
 from torchao.prototype.mx_formats.custom_cast import (
-    f32_to_f4_unpacked,
+    f32_to_f4_e2m1_unpacked,
+    f32_to_f4_e3m0_unpacked,
     f32_to_f6_e2m3_unpacked,
     f32_to_f6_e3m2_unpacked,
-    f4_unpacked_to_f32,
+    f4_e2m1_unpacked_to_f32,
+    f4_e3m0_unpacked_to_f32,
     f6_e2m3_unpacked_to_f32,
     f6_e3m2_unpacked_to_f32,
     get_bits,
@@ -189,12 +192,12 @@ def test_float6_e2m3_table():
 def _test_fp4_case(f32_val, f32_val_ref, f4_enc_ref):
     # 1. verify that a fp32 value gets quantized to correct fp4 encoding
     # TODO test on cuda
-    f4_unpacked = f32_to_f4_unpacked(torch.tensor(f32_val))
+    f4_unpacked = f32_to_f4_e2m1_unpacked(torch.tensor(f32_val))
     s_enc, e_enc, m_enc = get_sem_bits(f4_unpacked, bitwidth=4)
     assert s_enc + e_enc + m_enc == f4_enc_ref
 
     # 2. verify that fp4 value gets dequantized to correct fp32 value
-    f32_dequantized = f4_unpacked_to_f32(f4_unpacked)
+    f32_dequantized = f4_e2m1_unpacked_to_f32(f4_unpacked)
     assert f32_val_ref == f32_dequantized.item()
 
 
@@ -310,11 +313,11 @@ def test_fp4_6_0():
 
 def test_fp4_pack_unpack():
     orig_vals = torch.Tensor([[0.0, 0.5, 4.0, -0.0], [-0.0, 1.0, -6.0, 3.0]])
-    orig_vals_f4_unpacked = f32_to_f4_unpacked(orig_vals)
+    orig_vals_f4_unpacked = f32_to_f4_e2m1_unpacked(orig_vals)
     orig_vals_f4_packed = pack_uint4(orig_vals_f4_unpacked)
     assert orig_vals_f4_packed.numel() == (orig_vals.numel() / 2)
     orig_vals_f4_packed_unpacked = unpack_uint4(orig_vals_f4_packed)
-    orig_vals_dq = f4_unpacked_to_f32(orig_vals_f4_packed_unpacked)
+    orig_vals_dq = f4_e2m1_unpacked_to_f32(orig_vals_f4_packed_unpacked)
     assert torch.all(orig_vals_dq == orig_vals)
 
 
@@ -323,7 +326,7 @@ def test_fp4_pack_unpack():
 @pytest.mark.skipif(not TORCH_VERSION_AFTER_2_4, reason="requires PyTorch >= 2.4")
 def test_fp4_triton_unscaled_cast():
     packed_vals = torch.arange(0, 255, dtype=torch.uint8, device="cuda")
-    f32_ref = f4_unpacked_to_f32(unpack_uint4(packed_vals))
+    f32_ref = f4_e2m1_unpacked_to_f32(unpack_uint4(packed_vals))
     f32_triton = triton_f4_to_bf16(packed_vals).to(torch.float)
     assert torch.all(torch.eq(f32_ref, f32_triton))
 
@@ -334,7 +337,7 @@ def test_fp4_triton_unscaled_cast():
 def test_fp4_triton_scaled_cast():
     size = (256,)
     orig_vals = torch.randn(size, dtype=torch.float, device="cuda") * 100
-    mxtensor = MXTensor.to_mx(orig_vals, block_size=32, elem_dtype=DTYPE_FP4)
+    mxtensor = MXTensor.to_mx(orig_vals, block_size=32, elem_dtype=DTYPE_FP4_E2M1)
 
     f32_ref = mxtensor.to_dtype(torch.float)
     config.use_fp4_custom_triton_dequant_kernel = True

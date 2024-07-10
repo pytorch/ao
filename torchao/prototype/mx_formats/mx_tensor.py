@@ -23,7 +23,6 @@ import torch
 import torchao.prototype.mx_formats.config as config
 from torchao.prototype.mx_formats.constants import (
     BLOCK_SIZE_DEFAULT,
-    DTYPE_FP4,
     DTYPE_FP4_E2M1,
     DTYPE_FP4_E3M0,
     DTYPE_FP6_E2M3,
@@ -338,7 +337,7 @@ class MXTensor(torch.Tensor):
         orig_dtype,
     ):
         new_size = data_bits.size()
-        if elem_dtype == DTYPE_FP4:
+        if elem_dtype == DTYPE_FP4_E2M1 or elem_dtype == DTYPE_FP4_E3M0:
             # set the tensor size to what it would be without 2x4 packing
             new_size = tensor_size_fp4x2_to_hp(
                 new_size,

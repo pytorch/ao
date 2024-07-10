@@ -8,9 +8,6 @@ DTYPE_FP4_E3M0 = "fp4_e3m0"
 DTYPE_FP6_E3M2 = "fp6_e3m2"
 DTYPE_FP6_E2M3 = "fp6_e2m3"
 
-# Set DTYPE_FP4 for compatibility
-DTYPE_FP4 = DTYPE_FP4_E2M1
-
 # Supported element dtypes
 # TODO(future PR): add support for MX int8
 SUPPORTED_ELEM_DTYPES = [
