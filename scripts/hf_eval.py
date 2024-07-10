@@ -14,10 +14,11 @@ pip install git+https://github.com/EleutherAI/lm-evaluation-harness.git
 """)
     raise  # Re-raise the ImportError
 
-from torchao.quantization.quant_api import (
-    change_linear_weights_to_int4_woqtensors,
-    change_linear_weights_to_int8_dqtensors,
-    change_linear_weights_to_int8_woqtensors,
+from torchao.quantization import (
+    int4_weight_only,
+    int8_weight_only,
+    int8_dynamic_activation_int8_weight,
+    quantize_,
     autoquant,
 )
 
@@ -36,32 +37,32 @@ def pretty_print_nested_results(results, precision: int = 6):
         subtable.sort(key=lambda x: x[0])  # Sort metrics alphabetically
         formatted_subtable = tabulate(subtable, tablefmt='grid')
         main_table.append([task, formatted_subtable])
-    
+
     print(tabulate(main_table, headers=['Task', 'Metrics'], tablefmt='grid'))
 
 def run_evaluation(repo_id, tasks, limit, device, precision, quantization, compile, batch_size, max_length):
 
     tokenizer = AutoTokenizer.from_pretrained(repo_id)
     model = AutoModelForCausalLM.from_pretrained(repo_id).to(device="cpu", dtype=precision)
-    
+
     if compile:
         model = torch.compile(model, mode="max-autotune", fullgraph=True)
 
     if quantization == "int8dq":
-        change_linear_weights_to_int8_dqtensors(model)
+        quantize_(model, int8_dynamic_activation_int8_weight())
     elif quantization == "int8wo":
-        change_linear_weights_to_int8_woqtensors(model)
-    elif quantization == "int4wo": 
+        quantize_(model, int8_weight_only())
+    elif quantization == "int4wo":
         # note cannot quantize this model on cpu and run it on cuda at this time
-        change_linear_weights_to_int4_woqtensors(model.to(device=device))
+        quantize_(model.to(device=device), int4_weight_only())
     elif quantization == "autoquant":
         model = autoquant(model.to(device=device))
     with torch.no_grad():
         result = evaluate(
             HFLM(
-                pretrained=model.to(device), 
-                tokenizer=tokenizer, 
-                batch_size=batch_size, 
+                pretrained=model.to(device),
+                tokenizer=tokenizer,
+                batch_size=batch_size,
                 max_length=max_length),
             get_task_dict(tasks),
             limit = limit,
