@@ -12,6 +12,17 @@ from .performance_counter import (
     TransformerPerformanceCounter,
 )
 
+__all__ = [
+    "CUDAPerformanceTimer",
+    "PerformanceCounterMode",
+    "PerformanceStats",
+    "PerformanceTimer",
+    "TransformerPerformanceCounter",
+    "CUDADeviceSpec",
+    "DeviceSpec",
+    "total_model_params",
+]
+
 _HUGGINGFACE_CAUSAL_LM_BASE_CLASSES = [
     "causallm",
     "pretrainedmodel",
