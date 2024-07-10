@@ -440,13 +440,13 @@ class PerformanceCounterManager:
     """
     Context manager-like class for tracking performance across multiple calls
     to a Transformer model.
-    
-    Provides properties for accessing performance stats for data movement and FLOPs for each context as well as 
-    summary stats across all contexts. 
+
+    Provides properties for accessing performance stats for data movement and FLOPs for each context as well as
+    summary stats across all contexts.
     Additionally, if a device_spec is provided, theoretical peak bandwidth / FLOPs stats will be available.
-    
+
     See `PerformanceStats` struct for description of tracked metrics.
-        
+
     Example:
         >>> manager = PerformanceCounterManager(device_spec=device_spec)
         >>> with manager.count(label="prefill", num_tokens=x.numel()):
@@ -455,8 +455,9 @@ class PerformanceCounterManager:
         >>> with manager.count(label="decode", num_tokens=1):
         >>>     out = model(out[-1])
         >>> manager.print_summary(labels=["decode"]) # prints recorded stats for "decode" context
-        >>> print(manager.print_summary) # prints accumulated stats across all contexts   
+        >>> print(manager.print_summary) # prints accumulated stats across all contexts
     """
+
     def __init__(
         self,
         depth=10,
