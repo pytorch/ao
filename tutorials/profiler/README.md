@@ -99,4 +99,7 @@ Performance Summary:
 Saving performance results to performance_stats.json
 ```
 
-**Note**: `generate.py` script is a stripped down version of the original `gpt-fast` script and currently does not support quantization, tensor parallelism, and speculative decoding, as the primary purpose is to demonstrate basic usage of the performance tracker.
+**Notes**
+- `generate.py` script is a stripped down version of the original `gpt-fast` script and currently does not support quantization, tensor parallelism, and speculative decoding, as the primary purpose is to demonstrate basic usage of the performance tracker.
+- The discrepancy between `gpt-fast` token throughput and that of `TransformerPerformanceCounter` is due to the fact that `gpt-fast` does not account for all prefill tokens 
+  - `gpt-fast` only counts generated tokens -- so even though `prefill` technically generated `len(prompt) + 1` tokens, it counts the number of tokens generated during this phase as `1`, whereas `TransformerPerformanceCounter` includes all `prefill` tokens in the total token count.
