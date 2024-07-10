@@ -151,7 +151,7 @@ class PerformanceCounterMode(FlopCounterMode):
 
 class PerformanceTimer:
     """
-    Context manager that records the duration, io, and flops of a torch operator / module.
+    Context manager that records the latency, io, and flops of a torch operator / module.
 
     Timing is done using `time.perf_counter` and can be overridden to use a different
     timer (see `CUDAPerformanceTimer`).
@@ -182,14 +182,14 @@ class PerformanceTimer:
 
     def _print_exit_msg(self):
         gflops = round(self.total_flops / 1e9, self.precision)
-        ms = round(self.duration * 1e3, self.precision)
+        ms = round(self.latency * 1e3, self.precision)
         if self.display:
-            print(f"{self.name.upper()}:  duration = {ms} ms, FLOPS = {gflops} GFLOPs")
+            print(f"{self.name.upper()}:  latency = {ms} ms, FLOPS = {gflops} GFLOPs")
 
     def __exit__(self, type, value, traceback):
         self.end = time.perf_counter()
         # Convert to ms
-        self.duration = self.end - self.start
+        self.latency = self.end - self.start
         self.perf_counter.__exit__(type, value, traceback)
         if self.display:
             self._print_exit_msg()
@@ -228,7 +228,7 @@ class PerformanceTimer:
 
 class CUDAPerformanceTimer(PerformanceTimer):
     """
-    `PerformanceTimer` that uses `cudaEvents` to record duration.
+    `PerformanceTimer` that uses `cudaEvents` to record latency.
     """
 
     def __enter__(self):
@@ -245,7 +245,7 @@ class CUDAPerformanceTimer(PerformanceTimer):
         self.end.record()
         torch.cuda.synchronize()
         # Convert from ms to s
-        self.duration = self.start.elapsed_time(self.end) * 1e-3
+        self.latency = self.start.elapsed_time(self.end) * 1e-3
         self.perf_counter.__exit__(type, value, traceback)
 
         if self.display:
@@ -309,7 +309,7 @@ class PerformanceStats(DictMixin):
 
     Attrs:
         num_tokens (int): number of tokens processed
-        duration (float): duration in seconds
+        latency (float): latency in seconds
         total_flops (int): total FLOPs
         total_io (int): total data movement in bytes
         flops_summary (Dict[str, int]): summary of FLOPs by module
@@ -331,7 +331,7 @@ class PerformanceStats(DictMixin):
 
     label: str
     num_tokens: int
-    duration: float
+    latency: float
     total_flops: int
     total_io: int
     flops_summary: Dict[str, int]
@@ -343,15 +343,15 @@ class PerformanceStats(DictMixin):
 
     @property
     def token_throughput(self):
-        return self.num_tokens / self.duration
+        return self.num_tokens / self.latency
 
     @property
     def achieved_flops_per_s(self):
-        return self.total_flops / self.duration
+        return self.total_flops / self.latency
 
     @property
     def achieved_bandwidth(self):
-        return self.total_io / self.duration
+        return self.total_io / self.latency
 
     @property
     def theoretical_io_latency(self):
@@ -401,7 +401,7 @@ class PerformanceStats(DictMixin):
     def __str__(self):
         txt = textwrap.dedent(f"""\
             {self.label}:
-              Duration = {self._format(self.duration, "s")}
+              Latency = {self._format(self.latency, "s")}
               Tokens
                 Total: {self.num_tokens} tokens
                 Throughput: {self.token_throughput:,.0f} tokens/s
@@ -473,7 +473,7 @@ class TransformerPerformanceCounter:
             stats = PerformanceStats(
                 label=label,
                 num_tokens=num_tokens,
-                duration=perf_timer.duration,
+                latency=perf_timer.latency,
                 total_flops=perf_timer.total_flops,
                 total_io=perf_timer.total_io,
                 flops_summary=perf_timer.get_summary_flop_counts(),
@@ -510,7 +510,7 @@ class TransformerPerformanceCounter:
 
     @property
     def total_time(self):
-        return sum(count.duration for count in self._counts.values())
+        return sum(count.latency for count in self._counts.values())
 
     def _summarize_stat(self, key):
         return {
@@ -538,7 +538,7 @@ class TransformerPerformanceCounter:
         stats = PerformanceStats(
             label="Performance Summary",
             num_tokens=self.total_tokens,
-            duration=self.total_time,
+            latency=self.total_time,
             total_flops=self.total_flops,
             total_io=self.total_io,
             flops_summary=self.flops_summary,
@@ -555,17 +555,23 @@ class TransformerPerformanceCounter:
 
         return stats
 
-    def print_summary(self, labels: list[str] = None):
+    def print_summary(self, labels: list[str] = None, show: bool=False):
         _print = partial(print, flush=True, end="\n")
         # Delegate to __str__ of PerformanceStats for pretty printing
         if labels is None:
             text = str(self.stats_summary)
-            _print(text)
+            if show: 
+                _print(text) 
+            return text
         else:
+            txts = []
             for label in labels:
                 text = str(self._counts[label])
-                _print(self._counts[label])
-
+                if show: 
+                    _print(text)
+                txts.append(text)
+            return '\n'.join(txts)
+        
     def to_dict(self):
         # Convert flop_counts from OpOverloadPackets to str
         # Then delegate to PerformanceStats `to_dict`, which updates with derived metrics (property methods)
