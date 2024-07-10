@@ -555,23 +555,23 @@ class TransformerPerformanceCounter:
 
         return stats
 
-    def print_summary(self, labels: list[str] = None, show: bool=False):
+    def print_summary(self, labels: list[str] = None, show: bool = False):
         _print = partial(print, flush=True, end="\n")
         # Delegate to __str__ of PerformanceStats for pretty printing
         if labels is None:
             text = str(self.stats_summary)
-            if show: 
-                _print(text) 
+            if show:
+                _print(text)
             return text
         else:
             txts = []
             for label in labels:
                 text = str(self._counts[label])
-                if show: 
+                if show:
                     _print(text)
                 txts.append(text)
-            return '\n'.join(txts)
-        
+            return "\n".join(txts)
+
     def to_dict(self):
         # Convert flop_counts from OpOverloadPackets to str
         # Then delegate to PerformanceStats `to_dict`, which updates with derived metrics (property methods)
