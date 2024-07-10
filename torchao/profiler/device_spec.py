@@ -303,9 +303,15 @@ class DeviceSpec:
     flops_by_dtype: dict = field(default_factory=dict)
 
     def _post_init_check(self):
-        assert self.bandwidth is not None, "GPU bandwidth is None - please specify the bandwidth in GB/s in order to enable speed of light calculations"
-        assert self.dtype is not None, "GPU dtype is None - please specify the dtype in order to enable speed of light calculations"
-        assert self.flops_per_s is not None, "GPU flops_per_s is None - please specify the flops_per_s in FLOP/s in order to enable speed of light calculations"
+        assert (
+            self.bandwidth is not None
+        ), "GPU bandwidth is None - please specify the bandwidth in GB/s in order to enable speed of light calculations"
+        assert (
+            self.dtype is not None
+        ), "GPU dtype is None - please specify the dtype in order to enable speed of light calculations"
+        assert (
+            self.flops_per_s is not None
+        ), "GPU flops_per_s is None - please specify the flops_per_s in FLOP/s in order to enable speed of light calculations"
         self.flops_by_dtype.update({self.dtype: self.flops_per_s})
 
         # Not needed for downstream calculations atm, no need to assert
@@ -357,7 +363,7 @@ class CUDADeviceSpec(DeviceSpec):
     and if data is available.
 
     See _AVAILABLE_GPU_SPECS for a list of available chip data.
-    
+
     Fields and expected units:
         - device (int): CUDA device index
         - name (str): name of the device
