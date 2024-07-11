@@ -10,3 +10,16 @@ cuda,vit_h,32,15203,18,24.329631814054935,41.10214275508732,0.567190438968895,ma
 cuda,vit_h,32,15211,18,24.56229782147879,40.71280330806584,0.5671033117430888,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,154,4928,None,None
 cuda,vit_h,32,15212,18,22.001439043708203,45.45157241821289,0.5719013796228187,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,2,64,None,None
 cuda,vit_h,32,14870,18,23.586484684427163,42.39716148376465,0.5728743877698744,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,2,64,None,None
+cuda,vit_h,32,14870,18,26.080066556091367,38.343460429798476,0.567100022987887,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,154,4928,None,None
+cuda,vit_h,32,14870,18,24.105935759314356,41.483558654785156,0.5728743877698744,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,2,64,None,None
+cuda,vit_h,32,14870,18,26.077327811425214,38.347487412489855,0.567100022987887,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,154,4928,None,None
+cuda,vit_h,32,14869,18,25.878415158662072,38.64224272888976,0.567177072199177,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,154,4928,None,None
+cuda,vit_h,32,14868,18,26.405483383382357,37.870921939998475,0.567177072199177,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse_other,False,True,True,32,154,4928,None,None
+cuda,vit_h,32,14869,18,26.405490913715926,37.87091113994648,0.5669944616184625,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,154,4928,None,None
+cuda,vit_h,32,14869,18,26.638093985525533,37.54022343127758,0.06075761447241241,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,154,4928,None,None
+cuda,vit_h,32,14869,18,26.308018244576076,38.011224969640956,0.5669944616184625,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,154,4928,None,None
+cuda,vit_h,32,12441,15,26.475001207469894,37.77148080801035,0.567177072199177,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,154,4928,None,None
+cuda,vit_h,32,14869,18,25.998585036559202,38.463631716641515,0.567177072199177,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,154,4928,None,None
+cuda,vit_h,32,14869,18,25.5705826577316,39.10743894205465,0.567177072199177,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,154,4928,None,None
+cuda,vit_h,32,14869,18,22.687728699962957,44.076690673828125,0.5769663374200948,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,4,128,None,None
+cuda,vit_h,32,14869,18,26.326282787092705,37.98485369496531,0.567177072199177,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,154,4928,None,None

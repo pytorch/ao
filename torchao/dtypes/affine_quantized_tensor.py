@@ -412,11 +412,9 @@ class PlainAQTLayout(AQTLayout):
         return cls(int_data, scale, zero_point)
 
 @register_layout_cls("semi_sparse_cusparselt")
-class SparseAQTLayout(AQTLayout):
+class SparseAQTLayout(PlainAQTLayout):
     """
     Layout storage class for semi_sparse_cusparselt layout for affine quantized tensor
-
-    It stores int_data in compressed form
     """
     def __new__(
         cls,
@@ -434,41 +432,6 @@ class SparseAQTLayout(AQTLayout):
         shape = torch.Size([zero_point.shape[0],
                             int_data.numel() * 16 // (10 * zero_point.shape[0])])
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
-
-    def __init__(
-        self,
-        int_data: torch.Tensor,
-        scale: torch.Tensor,
-        zero_point: torch.Tensor,
-    ):
-        self.int_data = int_data
-        self.scale = scale
-        self.zero_point = zero_point
-
-    def __tensor_flatten__(self):
-        return ["int_data", "scale", "zero_point"], []
-
-    @classmethod
-    def __tensor_unflatten__(
-        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
-    ):
-        int_data, scale, zero_point = tensor_data_dict["int_data"], tensor_data_dict["scale"], tensor_data_dict["zero_point"]
-        return cls(int_data, scale, zero_point)
-
-    def to(self, *args, **kwargs):
-        kwargs = self._get_to_kwargs(*args, **kwargs)
-        return self.__class__(
-            self.int_data.to(kwargs["device"]),
-            self.scale.to(kwargs["device"]),
-            self.zero_point.to(kwargs["device"]),
-        )
-
-    def _apply_fn_to_data(self, fn):
-        return self.__class__(
-            fn(self.int_data),
-            fn(self.scale),
-            fn(self.zero_point),
-        )
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
@@ -489,15 +452,6 @@ class SparseAQTLayout(AQTLayout):
                                                             dtype=self.int_data.dtype,
                                                             device=self.int_data.device).t())
         return int_data_expanded, self.scale, self.zero_point
-
-    @classmethod
-    def from_plain(
-        cls,
-        int_data: torch.Tensor,
-        scale: torch.Tensor,
-        zero_point: torch.Tensor,
-    ):
-        return cls(int_data, scale, zero_point)
 
 @register_layout_cls("tensor_core_tiled")
 class TensorCoreTiledAQTLayout(AQTLayout):
@@ -684,7 +638,7 @@ def _quantized_linear_op(input_tensor, weight_qtensor, bias):
                     y += bias
                 return y
             
-            # handle int8 + semi_structured_sparse
+            # handle int8 dynamic_quant + semi_structured_sparse
             elif(
                 is_cuda and
                 input_is_int8 and
@@ -696,14 +650,14 @@ def _quantized_linear_op(input_tensor, weight_qtensor, bias):
                 x_scales = input_tensor.layout_tensor.scale
                 w_vals_int8 = weight_qtensor.layout_tensor.int_data
                 w_scales = weight_qtensor.layout_tensor.scale
-                tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1]).contiguous()
+                tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
+                # we fuse one of the scalar matrix multiplications (w_scales) into the sparse mm
                 y_dot_bf16_w_scales_fused = torch._cslt_sparse_mm(
-                    w_vals_int8, tmp.t(), alpha=w_scales, out_dtype=torch.bfloat16
+                    w_vals_int8, tmp.t(), alpha=w_scales.to(torch.float32), out_dtype=torch.bfloat16
                 ).t()
                 y = (y_dot_bf16_w_scales_fused * x_scales.reshape(-1, 1)).reshape(
                     *x_vals_int8.shape[:-1], y_dot_bf16_w_scales_fused.shape[-1]
                 )
-                # downcast at the end
                 output_dtype = input_tensor.dtype
                 y = y.to(output_dtype)
                 if bias is not None:

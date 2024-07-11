@@ -297,7 +297,6 @@ def run(
         predictor.model.image_encoder = sparsify(predictor.model.image_encoder, to_sparse_semi_structured)
     elif compress == "int8_dynamic_quant_sparse":
         from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensor
-        SparseSemiStructuredTensor._FORCE_CUTLASS = False
         from torchao.sparsity import sparsify, apply_fake_sparsity
         from torchao.sparsity.prototype.dynamic_quant_sparse import int8_dynamic_activation_int8_2x4_sparse_weight
         from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight

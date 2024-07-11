@@ -349,7 +349,7 @@ def int8_dynamic_activation_int8_2x4_sparse_weight():
         input_quant_func = lambda x: to_affine_quantized(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype, eps=input_eps, quant_min=input_quant_min, quant_max=input_quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
 
         block_size = get_weight_block_size(weight)
-        weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, eps=eps, scale_dtype=torch.float32, zero_point_dtype=zero_point_dtype, extended_layout="semi_sparse_cusparselt")
+        weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, extended_layout="semi_sparse_cusparselt")
         weight = to_linear_act_quantized(weight, input_quant_func)
         return weight
 
