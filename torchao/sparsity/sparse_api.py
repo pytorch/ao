@@ -31,7 +31,7 @@ def apply_fake_sparsity(model, **kwargs):
     sparsifier.squash_mask()
 
 
-def sparsify(model: torch.nn.Module,
+def sparsify_(model: torch.nn.Module,
              apply_tensor_subclass: Callable[[torch.Tensor], torch.Tensor],
              filter_fn: Optional[Callable[[torch.nn.Module, str], bool]]=None) -> torch.nn.Module:
     """Convert the weight of linear modules in the model with `apply_tensor_subclass`
@@ -50,7 +50,7 @@ def sparsify(model: torch.nn.Module,
     Example::
         import torch
         import torch.nn as nn
-        from torchao.sparsity import sparsify
+        from torchao.sparsity import sparsify_
 
         def filter_fn(module: nn.Module, fqn: str) -> bool:
             return isinstance(module, nn.Linear)
@@ -59,11 +59,11 @@ def sparsify(model: torch.nn.Module,
 
         # for 2:4 sparsity
         from torch.sparse import to_sparse_semi_structured
-        m = sparsify(m, to_sparse_semi_structured, filter_fn)
+        m = sparsify_(m, to_sparse_semi_structured, filter_fn)
 
         # for int8 dynamic quantization + 2:4 sparsity
         from torchao.sparsity.prototype import int8_dynamic_activation_int8_2x4_sparse_weight
-        m = sparsify(m, int8_dynamic_activation_int8_2x4_sparse_weight(), filter_fn)
+        m = sparsify_(m, int8_dynamic_activation_int8_2x4_sparse_weight(), filter_fn)
     """
     _replace_with_custom_fn_if_matches_filter(
         model,
