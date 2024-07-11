@@ -77,9 +77,9 @@ class _Adam(Optimizer):
 
                 state["step"] += 1
 
-                # must explicitly convert lr to Tensor since torch.compile() will treat it as a constant
-                # if it is a python float. practically, only lr is changed during training.
-                # NOTE: if lr is change at every step, moving lr to CUDA will be a bottleneck.
+                # must explicitly convert lr to Tensor since torch.compile() will treat Python float as constant.
+                # practically, only lr is changed during training.
+                # NOTE: if lr is changed at every step, moving lr to CUDA can slow down training 3-4%.
                 if not isinstance(group["lr"], Tensor):
                     group["lr"] = torch.tensor(group["lr"], device=p.device)
 

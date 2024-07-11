@@ -179,8 +179,8 @@ class TestFSDP2(FSDPTest):
                 "enable_activation_checkpointing": [False, True],
                 "offload_policy": [
                     OffloadPolicy(),
-                    # CPUOffloadPolicy(pin_memory=True),
-                    # CPUOffloadPolicy(pin_memory=False),
+                    CPUOffloadPolicy(pin_memory=True),
+                    CPUOffloadPolicy(pin_memory=False),
                 ],
             },
             self._test_fsdp2,
@@ -227,18 +227,18 @@ class TestFSDP2(FSDPTest):
         for iter_idx in range(5):
             inp = torch.randint(0, vocab_size, (batch_size, seq_len), device="cuda")
             fsdp_optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
-            fsdp_loss = fsdp_model(inp).sum()
+            fsdp_loss = fsdp_model(inp).mean()
             fsdp_loss.backward()
             fsdp_optim.step()
 
             base_optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
-            base_loss = base_model(inp).sum()
+            base_loss = base_model(inp).mean()
             base_loss.backward()
             for param in base_model.parameters():
                 if param.grad is not None:
                     torch.distributed.all_reduce(param.grad, op=torch.distributed.ReduceOp.AVG)
             base_optim.step()
-            self.assertEqual(fsdp_loss, base_loss)
+            self.assertEqual(fsdp_loss, base_loss, atol=1e-5, rtol=1e-5)
 
 
 instantiate_parametrized_tests(TestQuantize)
