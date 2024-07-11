@@ -10,7 +10,7 @@ import torch
 from torch.utils._triton import has_triton
 
 from torchao.utils import TORCH_VERSION_AFTER_2_4
-from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32
+from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32, RoundingMode
 
 # TODO(future): if needed, make the below work on previous PyTorch versions,
 # just need to hunt down the previous location of `libdevice`. An assert
@@ -50,40 +50,40 @@ ZERO_BITS_F32 = 0x0
 ZERO_POINT_FIVE_BITS_F32 = 0x3F000000
 
 
-def f32_to_f4_e2m1_unpacked(x, use_stochastic_rounding=False):
+def f32_to_f4_e2m1_unpacked(x, rounding_mode=RoundingMode.TIE_TO_EVEN):
     """
     Input: torch.Tensor of dtype torch.float
     Output: torch.Tensor of dtype torch.uint8, with bits 0-3 empty and
       bits 4-7 in fp4_e2m1
     """
-    return _f32_to_fpx_unpacked(x, EBITS_F4_E2M1, MBITS_F4_E2M1, use_stochastic_rounding=use_stochastic_rounding)
+    return _f32_to_fpx_unpacked(x, EBITS_F4_E2M1, MBITS_F4_E2M1, rounding_mode)
 
 
-def f32_to_f4_e3m0_unpacked(x, use_stochastic_rounding=False):
+def f32_to_f4_e3m0_unpacked(x, rounding_mode=RoundingMode.TIE_TO_EVEN):
     """
     Input: torch.Tensor of dtype torch.float
     Output: torch.Tensor of dtype torch.uint8, with bits 0-3 empty and
       bits 4-7 in fp4_e3m0
     """
-    return _f32_to_fpx_unpacked(x, EBITS_F4_E3M0, MBITS_F4_E3M0, use_stochastic_rounding=use_stochastic_rounding)
+    return _f32_to_fpx_unpacked(x, EBITS_F4_E3M0, MBITS_F4_E3M0, rounding_mode)
 
 
-def f32_to_f6_e2m3_unpacked(x, use_stochastic_rounding=False):
+def f32_to_f6_e2m3_unpacked(x, rounding_mode=RoundingMode.TIE_TO_EVEN):
     """
     Input: torch.Tensor of dtype torch.float
     Output: torch.Tensor of dtype torch.uint8, with bits 0-1 empty and
       bits 2-7 in fp6_e2m3
     """
-    return _f32_to_fpx_unpacked(x, EBITS_F6_E2M3, MBITS_F6_E2M3, use_stochastic_rounding=use_stochastic_rounding)
+    return _f32_to_fpx_unpacked(x, EBITS_F6_E2M3, MBITS_F6_E2M3, rounding_mode)
 
 
-def f32_to_f6_e3m2_unpacked(x, use_stochastic_rounding=False):
+def f32_to_f6_e3m2_unpacked(x, rounding_mode=RoundingMode.TIE_TO_EVEN):
     """
     Input: torch.Tensor of dtype torch.float
     Output: torch.Tensor of dtype torch.uint8, with bits 0-1 empty and
       bits 2-7 in fp6_e3m2
     """
-    return _f32_to_fpx_unpacked(x, EBITS_F6_E3M2, MBITS_F6_E3M2, use_stochastic_rounding=use_stochastic_rounding)
+    return _f32_to_fpx_unpacked(x, EBITS_F6_E3M2, MBITS_F6_E3M2, rounding_mode)
 
 
 def f4_e2m1_unpacked_to_f32(x: torch.Tensor):

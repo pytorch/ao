@@ -12,6 +12,8 @@
 #      - Values outside the representable range of FPx after rounding are clamped to the maximum FPx
 #      magnitude (sign is preserved).
 
+from enum import Enum
+
 import torch
 from torch import Tensor
 
@@ -24,8 +26,16 @@ EBITS_F32, MBITS_F32 = 8, 23
 F32_EXP_BIAS = _n_ones(EBITS_F32 - 1)
 
 
+class RoundingMode(Enum):
+    TIE_TO_EVEN = 0
+    STOCHASTIC = 1
+
+
 def _f32_to_fpx_unpacked(
-    x: Tensor, ebits: int, mbits: int, use_stochastic_rounding: bool = False
+    x: Tensor,
+    ebits: int,
+    mbits: int,
+    rounding_mode: RoundingMode = RoundingMode.TIE_TO_EVEN,
 ) -> Tensor:
     """Convert FP32 numbers to sub-byte floating point numbers with the given
     number of exponent and mantissa bits.
@@ -102,7 +112,7 @@ def _f32_to_fpx_unpacked(
     #
     # branch 2: to conversion to denormal as well as rounding up to normal
     #
-    if use_stochastic_rounding:
+    if rounding_mode == RoundingMode.STOCHASTIC:
         # SR(x) = SR(x + min_normal) - min_normal
         # adjust the denormal values to normal values
         denormal_x = x + min_normal
@@ -135,7 +145,7 @@ def _f32_to_fpx_unpacked(
     # branch 3: stay in normal range, adjust the exponent and round
     #
     normal_x = x.view(torch.int32)
-    if use_stochastic_rounding:
+    if rounding_mode == RoundingMode.STOCHASTIC:
         # generate a 32-bit integer
         rand_values = torch.randint(
             low=0, high=2**32 - 1, size=x.size(), device=x.device
