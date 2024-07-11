@@ -52,7 +52,20 @@ And a quick crash course on inference quantization to help parse the above table
 
 In some cases we rewrote popular GenAI models to be significantly faster in native PyTorch as in no C++/CUDA to achieve at the time SOTA inference performance. These involve more intrusive code changes.
 
-* 8x speedups for Image segmentation models with [sam-fast](https://pytorch.org/blog/accelerating-generative-ai)
+* 9.5x speedups for Image segmentation models with [sam-fast](https://pytorch.org/blog/accelerating-generative-ai) compared to vanilla [sam](https://github.com/facebookresearch/segment-anything).
+* 1.16x speedup when composing int8 quantization with 2:4 sparsity against the accelerated baseline `bfloat16` dtype and `torch.compile="max_autotune"`.
+
+| Model Type | Technique                                                                                            | img/s | memory (MiB) | mIoU (coco2017 val) | relative speedup | relative accuracy |
+|------------|------------------------------------------------------------------------------------------------------|-------|--------------|---------------------|------------------|-------------------|
+| ViT-h      | sam (float32, eager)                                                                                 |  2.78 | 28806        | 0.58                | baseline         | baseline          |
+|            | sam (bfloat16, eager)                                                                                | 14.85 | 14424        | 0.58                | **5.34x**        | **100%**          |
+|            | sam-fast (bfloat16, max-autotune)                                                                    | 22.75 | 15172        | 0.58                | **8.18x**        | **100%**          |
+|            | int8 dynamic quant (attn + mlp)                                                                      | 24.91 | 15154        | 0.58                | **8.96x**        | **100%**          |
+|            | 2:4 sparsity (mlp only)                                                                              | 24.81 | 15632        | 0.57                | **8.92x**        | **98%**           |
+|            | int8 dynamic quant (attn)<br>int8 dynamic quant + 2:4 sparsity (mlp lin1)<br>2:4 sparsity (mlp lin2) | 26.46 | 14865        | 0.57                | **9.52x**        | **98%**           |
+
+The relative speedup is measured purely across the image encoder (ViT) of the model, where we apply our model optimizations. Benchmarks ran on an NVIDIA-A100-80GB with batch_size=32
+
 * 10x speedups for Language models with [gpt-fast](https://pytorch.org/blog/accelerating-generative-ai-2)
 * 3x speedup for Diffusion models with [sd-fast](https://pytorch.org/blog/accelerating-generative-ai-3)
 
