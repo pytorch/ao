@@ -9,6 +9,11 @@ import segment_anything_fast
 import time
 import resource
 
+from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight
+from torchao.sparsity import sparsify_, apply_fake_sparsity, int8_dynamic_activation_int8_2x4_sparse_weight
+from torchao.utils import unwrap_tensor_subclass
+from torch.sparse import to_sparse_semi_structured
+
 torch._dynamo.config.cache_size_limit = 50000
 
 def unbind_jagged(device, data, sizes, offsets):
@@ -279,32 +284,17 @@ def run(
         block.attn.use_rel_pos = use_rel_pos
 
     if compress == "int8_dynamic_quant":
-        from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight
-        from torchao.utils import unwrap_tensor_subclass
         quantize_(predictor.model.image_encoder, int8_dynamic_activation_int8_weight())
         predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
     elif compress == "sparse_mlp_only":
         def mlp_only(mod, name):
             return isinstance(mod, torch.nn.Linear) and 'mlp' in name
-        from torchao.sparsity import sparsify, apply_fake_sparsity
-        from torch.sparse import to_sparse_semi_structured
         apply_fake_sparsity(predictor.model.image_encoder, filter_fn=mlp_only)
         sparsify(predictor.model.image_encoder, to_sparse_semi_structured, filter_fn=mlp_only)
     elif compress == "sparse":
-        from torchao.sparsity import sparsify, apply_fake_sparsity
-        from torch.sparse import to_sparse_semi_structured
         apply_fake_sparsity(predictor.model.image_encoder)
-        sparsify(predictor.model.image_encoder, to_sparse_semi_structured)
+        sparsify_(predictor.model.image_encoder, to_sparse_semi_structured)
     elif compress == "int8_dynamic_quant_sparse":
-        from torch.sparse import to_sparse_semi_structured
-        from torchao.sparsity import sparsify, apply_fake_sparsity
-        from torchao.quantization import (
-            quantize_,
-            int8_dynamic_activation_int8_weight,
-            int8_dynamic_activation_int8_2x4_sparse_weight,
-        )
-        from torchao.utils import unwrap_tensor_subclass
-
         def attn_only(mod, name):
             return isinstance(mod, torch.nn.Linear) and 'attn' in name
         def mlp_lin1_only(mod, name):
@@ -327,9 +317,9 @@ def run(
 
         predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
 
-        predictor.model.image_encoder = sparsify(predictor.model.image_encoder,
-                                                 to_sparse_semi_structured,
-                                                 mlp_lin2_only)
+        predictor.model.image_encoder = sparsify_(predictor.model.image_encoder,
+                                                  to_sparse_semi_structured,
+                                                  mlp_lin2_only)
     else:
         assert compress is None, f"Unsupported compress mode {compress}"
 
