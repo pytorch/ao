@@ -1,1 +1,2 @@
-from .intx import IntxTensor, to_intx_quantized
+from .Intx import IntxTensor
+from .AffineIntxLinear import to_intx_quantized

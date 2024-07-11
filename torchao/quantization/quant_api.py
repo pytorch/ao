@@ -358,26 +358,33 @@ def int8_dynamic_activation_int4_weight(group_size=32):
 
     return apply_int8_dynamic_activation_int4_weight_quant
 
-def intx_weight_only(nbits, group_size=64, layout='packed'):
+def intx_weight_only(nbits, group_size=64, pack_dim=-1):
     """
     Applies intx weight-only asymmetric per-group quantization to linear layers, using intx quantization where 
     x is the number of bits specified by the `nbits` argument
     """
+    
     def apply_intx_weight_only_quant(weight):
         # avoid circular dep
-        from torchao.prototype.intx import to_intx_quantized
-    
+        from torchao.prototype.intx import IntxTensor
+        from torchao.dtypes import to_affine_quantized
+        def intx_converter(weight):
+            return IntxTensor.from_int(weight, bit_size = nbits, pack_dim = pack_dim)
+        
         mapping_type = MappingType.ASYMMETRIC
         block_size = (1, group_size)
         quant_min = 0
         quant_max = 2**nbits - 1
         eps = torch.finfo(torch.float32).eps
-        zero_point_dtype = torch.float32
-        zero_point_domain = ZeroPointDomain.FLOAT
+        zero_point_dtype = torch.int32
+        zero_point_domain = ZeroPointDomain.INT
         
-        return to_intx_quantized(
-            weight, mapping_type, block_size, nbits, quant_min = quant_min,
-            quant_max = quant_max, eps = eps, zero_point_dtype=zero_point_dtype, extended_layout=layout
+        return to_affine_quantized(
+            weight, mapping_type, block_size, torch.uint8, quant_min = quant_min,
+            quant_max = quant_max, eps = eps, 
+            zero_point_dtype=zero_point_dtype, extended_layout="plain",
+            zero_point_domain=zero_point_domain,
+            post_quantization_fn=intx_converter,
         )
     
     return apply_intx_weight_only_quant
