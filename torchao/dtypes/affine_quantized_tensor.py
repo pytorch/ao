@@ -637,7 +637,6 @@ def _quantized_linear_op(input_tensor, weight_qtensor, bias):
                 if bias is not None:
                     y += bias
                 return y
-            
             # handle int8 dynamic_quant + semi_structured_sparse
             elif(
                 is_cuda and
@@ -753,15 +752,14 @@ def functional_linear(*args, **kwargs):
     # using try/except here so that we can have a general fallback when input_tensor/weight_tensor
     # is not picked up by any of the dispatch paths in `_quantized_linear_op`, this allows us to
     # make the branches easier to understand in `_quantized_linear_op`
-    return _quantized_linear_op(input_tensor, weight_tensor, bias)
-    # try:
-    # except:
-    #     pass
-    #     # if isinstance(input_tensor, AffineQuantizedTensor):
-    #     #     input_tensor = input_tensor.dequantize()
-    #     # if isinstance(weight_tensor, AffineQuantizedTensor):
-    #     #     weight_tensor = weight_tensor.dequantize()
-    #     # return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
+    try:
+        return _quantized_linear_op(input_tensor, weight_tensor, bias)
+    except:
+        if isinstance(input_tensor, AffineQuantizedTensor):
+            input_tensor = input_tensor.dequantize()
+        if isinstance(weight_tensor, AffineQuantizedTensor):
+            weight_tensor = weight_tensor.dequantize()
+        return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
 @implements([aten.mm.default, aten.addmm.default])
 def aten_mm(func, *args, **kwargs):

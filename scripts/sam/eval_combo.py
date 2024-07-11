@@ -286,17 +286,17 @@ def run(
     elif compress == "sparse_mlp_only":
         def mlp_only(mod, name):
             return isinstance(mod, torch.nn.Linear) and 'mlp' in name
-        from torchao.sparsity import sparsify
-        from torch.sparse import to_sparse_semi_structured, apply_fake_sparsity
+        from torchao.sparsity import sparsify, apply_fake_sparsity
+        from torch.sparse import to_sparse_semi_structured
         apply_fake_sparsity(predictor.model.image_encoder, filter_fn=mlp_only)
         sparsify(predictor.model.image_encoder, to_sparse_semi_structured, filter_fn=mlp_only)
     elif compress == "sparse":
-        from torchao.sparsity import sparsify
-        from torch.sparse import to_sparse_semi_structured, apply_fake_sparsity
+        from torchao.sparsity import sparsify, apply_fake_sparsity
+        from torch.sparse import to_sparse_semi_structured
         apply_fake_sparsity(predictor.model.image_encoder)
         sparsify(predictor.model.image_encoder, to_sparse_semi_structured)
     elif compress == "int8_dynamic_quant_sparse":
-        from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensor
+        from torch.sparse import to_sparse_semi_structured
         from torchao.sparsity import sparsify, apply_fake_sparsity
         from torchao.quantization import (
             quantize_,
