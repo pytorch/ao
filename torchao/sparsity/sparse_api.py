@@ -7,6 +7,7 @@ from torchao.quantization.quant_api import (
     _is_linear,
     _replace_with_custom_fn_if_matches_filter,
     _get_linear_subclass_inserter,
+    int8_dynamic_activation_int8_2x4_sparse_weight,
 )
 
 # Sparsity helper functions

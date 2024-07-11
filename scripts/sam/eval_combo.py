@@ -282,24 +282,27 @@ def run(
         from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight
         from torchao.utils import unwrap_tensor_subclass
         quantize_(predictor.model.image_encoder, int8_dynamic_activation_int8_weight())
-        unwrap_tensor_subclass(predictor.model.image_encoder)
+        predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
     elif compress == "sparse_mlp_only":
         def mlp_only(mod, name):
             return isinstance(mod, torch.nn.Linear) and 'mlp' in name
         from torchao.sparsity import sparsify
         from torch.sparse import to_sparse_semi_structured, apply_fake_sparsity
         apply_fake_sparsity(predictor.model.image_encoder, filter_fn=mlp_only)
-        predictor.model.image_encoder = sparsify(predictor.model.image_encoder, to_sparse_semi_structured, filter_fn=mlp_only)
+        sparsify(predictor.model.image_encoder, to_sparse_semi_structured, filter_fn=mlp_only)
     elif compress == "sparse":
         from torchao.sparsity import sparsify
         from torch.sparse import to_sparse_semi_structured, apply_fake_sparsity
         apply_fake_sparsity(predictor.model.image_encoder)
-        predictor.model.image_encoder = sparsify(predictor.model.image_encoder, to_sparse_semi_structured)
+        sparsify(predictor.model.image_encoder, to_sparse_semi_structured)
     elif compress == "int8_dynamic_quant_sparse":
         from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensor
         from torchao.sparsity import sparsify, apply_fake_sparsity
-        from torchao.sparsity.prototype.dynamic_quant_sparse import int8_dynamic_activation_int8_2x4_sparse_weight
-        from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight
+        from torchao.quantization import (
+            quantize_,
+            int8_dynamic_activation_int8_weight,
+            int8_dynamic_activation_int8_2x4_sparse_weight,
+        )
         from torchao.utils import unwrap_tensor_subclass
 
         def attn_only(mod, name):

@@ -23,3 +23,5 @@ cuda,vit_h,32,14869,18,25.998585036559202,38.463631716641515,0.567177072199177,m
 cuda,vit_h,32,14869,18,25.5705826577316,39.10743894205465,0.567177072199177,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,154,4928,None,None
 cuda,vit_h,32,14869,18,22.687728699962957,44.076690673828125,0.5769663374200948,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,4,128,None,None
 cuda,vit_h,32,14869,18,26.326282787092705,37.98485369496531,0.567177072199177,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,154,4928,None,None
+cuda,vit_h,32,14869,18,26.364732130607624,37.929457998895025,0.567177072199177,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,154,4928,None,None
+cuda,vit_h,32,14869,18,26.488956903059197,37.75158091953823,0.567177072199177,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,154,4928,None,None
