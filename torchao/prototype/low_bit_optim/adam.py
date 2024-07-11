@@ -110,7 +110,7 @@ class _Adam(Optimizer):
         return loss
 
 
-# static compile optim step for all params at once so we don't need dynamic kernel
+# static compile optim step for all params in a single graph
 @torch.compile(fullgraph=True)
 def param_groups_adam(param_groups):
     for group, lr, (beta1, beta2), weight_decay, eps in param_groups:
