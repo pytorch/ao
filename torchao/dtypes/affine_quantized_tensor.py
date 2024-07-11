@@ -696,7 +696,7 @@ def _quantized_linear_op(input_tensor, weight_qtensor, bias):
                 x_scales = input_tensor.layout_tensor.scale
                 w_vals_int8 = weight_qtensor.layout_tensor.int_data
                 w_scales = weight_qtensor.layout_tensor.scale
-                tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
+                tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1]).contiguous()
                 y_dot_bf16_w_scales_fused = torch._cslt_sparse_mm(
                     w_vals_int8, tmp.t(), alpha=w_scales, out_dtype=torch.bfloat16
                 ).t()
@@ -704,6 +704,7 @@ def _quantized_linear_op(input_tensor, weight_qtensor, bias):
                     *x_vals_int8.shape[:-1], y_dot_bf16_w_scales_fused.shape[-1]
                 )
                 # downcast at the end
+                output_dtype = input_tensor.dtype
                 y = y.to(output_dtype)
                 if bias is not None:
                     y += bias
@@ -798,14 +799,15 @@ def functional_linear(*args, **kwargs):
     # using try/except here so that we can have a general fallback when input_tensor/weight_tensor
     # is not picked up by any of the dispatch paths in `_quantized_linear_op`, this allows us to
     # make the branches easier to understand in `_quantized_linear_op`
-    try:
-        return _quantized_linear_op(input_tensor, weight_tensor, bias)
-    except:
-        if isinstance(input_tensor, AffineQuantizedTensor):
-            input_tensor = input_tensor.dequantize()
-        if isinstance(weight_tensor, AffineQuantizedTensor):
-            weight_tensor = weight_tensor.dequantize()
-        return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
+    return _quantized_linear_op(input_tensor, weight_tensor, bias)
+    # try:
+    # except:
+    #     pass
+    #     # if isinstance(input_tensor, AffineQuantizedTensor):
+    #     #     input_tensor = input_tensor.dequantize()
+    #     # if isinstance(weight_tensor, AffineQuantizedTensor):
+    #     #     weight_tensor = weight_tensor.dequantize()
+    #     # return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
 @implements([aten.mm.default, aten.addmm.default])
 def aten_mm(func, *args, **kwargs):

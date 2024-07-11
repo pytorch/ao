@@ -6,3 +6,7 @@ cuda,vit_h,32,13429,16,24.299052218005198,41.15386851422198,0.5305645705002248,m
 cuda,vit_h,32,14865,18,26.46342281926203,37.7880067453756,0.5668329259098808,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,154,4928,None,None
 cuda,vit_h,32,15203,18,24.104394829823185,41.48621058773685,0.567190438968895,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,154,4928,None,None
 cuda,vit_h,32,15203,18,24.329631814054935,41.10214275508732,0.567190438968895,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,154,4928,None,None
+
+cuda,vit_h,32,15211,18,24.56229782147879,40.71280330806584,0.5671033117430888,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,154,4928,None,None
+cuda,vit_h,32,15212,18,22.001439043708203,45.45157241821289,0.5719013796228187,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,2,64,None,None
+cuda,vit_h,32,14870,18,23.586484684427163,42.39716148376465,0.5728743877698744,max-autotune,torch.bfloat16,int8_dynamic_quant_sparse,False,True,True,32,2,64,None,None
