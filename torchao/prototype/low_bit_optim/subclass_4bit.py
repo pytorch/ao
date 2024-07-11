@@ -151,14 +151,3 @@ def _(func, *args, **kwargs):
 def _(func, *args, **kwargs):
     args = [x.dequantize() if isinstance(x, OptimState4bit) else x for x in args]
     return func(*args, **kwargs)
-
-
-# https://github.com/thu-ml/low-bit-optimizers/blob/e3e2854728e498c2a606e3fdb88daa27ae94f9a6/lpmm/config.py#L37
-# only apply quantization for tensor with more than 4096 values
-# TODO: also skip 1D tensor? e.g. biases and norm scales
-def maybe_new_4bit_zero_buffer(p: Tensor, signed: bool = True, block_size: int = 128):
-    if p.numel() >= 4096 and p.numel() % block_size == 0:
-        out = OptimState4bit.zeros(p.shape, signed, block_size, device=p.device)
-    else:
-        out = torch.zeros_like(p)
-    return out

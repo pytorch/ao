@@ -191,14 +191,3 @@ def _(func, *args, **kwargs):
 def _(func, *args, **kwargs):
     args = [x.dequantize() if isinstance(x, OptimState8bit) else x for x in args]
     return func(*args, **kwargs)
-
-
-# follow bitsandbytes
-# only apply quantization for tensor with more than 4096 values
-# TODO: also skip 1D tensor? e.g. biases and norm scales
-def maybe_new_8bit_zero_buffer(p: Tensor, signed: bool = True, block_size: int = 2048):
-    if p.numel() >= 4096 and p.numel() % block_size == 0:
-        out = OptimState8bit.zeros(p.shape, signed, block_size, device=p.device)
-    else:
-        out = torch.zeros_like(p)
-    return out

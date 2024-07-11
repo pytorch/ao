@@ -96,11 +96,3 @@ def _(func, *args, **kwargs):
 def _(func, *args, **kwargs):
     args = [x.dequantize() if isinstance(x, OptimStateFp8) else x for x in args]
     return func(*args, **kwargs)
-
-
-def maybe_new_fp8_zero_buffer(p: Tensor, block_size: int = 2048):
-    if p.numel() >= 4096 and p.numel() % block_size == 0:
-        out = OptimStateFp8.zeros(p.shape, block_size, device=p.device)
-    else:
-        out = torch.zeros_like(p)
-    return out

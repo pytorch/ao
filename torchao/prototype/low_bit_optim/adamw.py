@@ -5,9 +5,9 @@ from torch import Tensor
 from torch.optim import Optimizer
 from torch.distributed._tensor import DTensor
 
-from .subclass_8bit import maybe_new_8bit_zero_buffer
-from .subclass_4bit import maybe_new_4bit_zero_buffer
-from .subclass_fp8 import maybe_new_fp8_zero_buffer
+from .subclass_8bit import OptimState8bit
+from .subclass_4bit import OptimState4bit
+from .subclass_fp8 import OptimStateFp8
 
 
 class _AdamW(Optimizer):
@@ -29,9 +29,27 @@ class _AdamW(Optimizer):
         for group in self.param_groups:
             group.setdefault("amsgrad", False)
 
+    # bring your own function to create zero-filled subclass
     @staticmethod
-    def _new_buffer(p: Tensor, signed: bool, block_size: int):
+    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
         raise NotImplementedError
+
+    # follow bitsandbytes, only quantize tensors >= 4096 values
+    # also wrap subclass in DTensor when needed
+    def _new_buffer(self, p: Tensor, signed: bool):
+        if p.numel() >= 4096 and p.numel() % self.block_size == 0:
+            if isinstance(p, DTensor):
+                out = torch.empty_like(p)
+                out._local_tensor = self._subclass_zeros(
+                    out._local_tensor,
+                    signed,
+                    self.block_size,
+                )
+            else:
+                out = self._subclass_zeros(p, signed, self.block_size)
+        else:
+            out = torch.zeros_like(p)
+        return out
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -51,10 +69,10 @@ class _AdamW(Optimizer):
 
                 # unwrap DTensor
                 # set requires_grad for unwrapped param to avoid torch.compile() recompilation 
-                if isinstance(p, DTensor):
-                    p = p._local_tensor.requires_grad_(True)
-                if isinstance(grad, DTensor):
-                    grad = grad._local_tensor
+                # if isinstance(p, DTensor):
+                #     p = p._local_tensor.requires_grad_(True)
+                # if isinstance(grad, DTensor):
+                #     grad = grad._local_tensor
 
                 state = self.state[p]
 
@@ -62,10 +80,10 @@ class _AdamW(Optimizer):
                 # flatten buffer to avoid torch.compile() recompilation
                 if len(state) == 0:
                     state["step"] = torch.tensor(0.0, device=p.device)
-                    state["exp_avg"] = self._new_buffer(p.view(-1), True, self.block_size)
-                    state["exp_avg_sq"] = self._new_buffer(p.view(-1), False, self.block_size)
+                    state["exp_avg"] = self._new_buffer(p.view(-1), True)
+                    state["exp_avg_sq"] = self._new_buffer(p.view(-1), False)
                     if group["amsgrad"]:
-                        state["max_exp_avg_sq"] = self._new_buffer(p.view(-1), False, self.block_size)
+                        state["max_exp_avg_sq"] = self._new_buffer(p.view(-1), False)
 
                 state["step"] += 1
 
@@ -145,7 +163,9 @@ class AdamW8bit(_AdamW):
     ) -> None:
         super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size)
 
-    _new_buffer = staticmethod(maybe_new_8bit_zero_buffer)
+    @staticmethod
+    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
+        return OptimState8bit.zeros(p.shape, signed, block_size, p.device)
 
 
 class AdamW4bit(_AdamW):
@@ -162,7 +182,9 @@ class AdamW4bit(_AdamW):
     ) -> None:
         super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size)
 
-    _new_buffer = staticmethod(maybe_new_4bit_zero_buffer)
+    @staticmethod
+    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
+        return OptimState4bit.zeros(p.shape, signed, block_size, p.device)
 
 
 class AdamWFp8(_AdamW):
@@ -180,5 +202,5 @@ class AdamWFp8(_AdamW):
         super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size)
 
     @staticmethod
-    def _new_buffer(p: Tensor, signed: bool, block_size: int):
-        return maybe_new_fp8_zero_buffer(p, block_size)
+    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
+        return OptimStateFp8.zeros(p.shape, block_size, p.device)
