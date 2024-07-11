@@ -290,7 +290,7 @@ def run(
         def mlp_only(mod, name):
             return isinstance(mod, torch.nn.Linear) and 'mlp' in name
         apply_fake_sparsity(predictor.model.image_encoder, filter_fn=mlp_only)
-        sparsify(predictor.model.image_encoder, to_sparse_semi_structured, filter_fn=mlp_only)
+        sparsify_(predictor.model.image_encoder, to_sparse_semi_structured, filter_fn=mlp_only)
     elif compress == "sparse":
         apply_fake_sparsity(predictor.model.image_encoder)
         sparsify_(predictor.model.image_encoder, to_sparse_semi_structured)
