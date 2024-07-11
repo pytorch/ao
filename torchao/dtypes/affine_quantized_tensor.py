@@ -208,7 +208,6 @@ class AffineQuantizedTensor(torch.Tensor):
                 input_float,
                 (0, in_features - orig_in_features, 0, out_features - orig_out_features),
             )
-
         scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain)
         int_data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
 
@@ -216,6 +215,8 @@ class AffineQuantizedTensor(torch.Tensor):
         # TODO: this is temporary, need to come up with the proper UX
         if extended_layout == "tensor_core_tiled":
             layout_tensor = layout_cls_ctr(int_data, scale, zero_point, inner_k_tiles)
+        elif extended_layout == "semi_sparse_cusparselt":
+            layout_tensor = layout_cls_ctr(torch._cslt_compress(int_data), scale, zero_point)
         else:
             layout_tensor = layout_cls_ctr(int_data, scale, zero_point)
         return cls(
@@ -410,6 +411,94 @@ class PlainAQTLayout(AQTLayout):
     ):
         return cls(int_data, scale, zero_point)
 
+@register_layout_cls("semi_sparse_cusparselt")
+class SparseAQTLayout(AQTLayout):
+    """
+    Layout storage class for semi_sparse_cusparselt layout for affine quantized tensor
+
+    It stores int_data in compressed form
+    """
+    def __new__(
+        cls,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+    ):
+        kwargs = {}
+        kwargs["device"] = int_data.device
+        kwargs["layout"] = (
+            kwargs.get("layout") if kwargs.get("layout", False) else int_data.layout
+        )
+        kwargs["dtype"] = int_data.dtype
+        kwargs["requires_grad"] = False
+        shape = torch.Size([zero_point.shape[0],
+                            int_data.numel() * 16 // (10 * zero_point.shape[0])])
+        return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
+
+    def __init__(
+        self,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+    ):
+        self.int_data = int_data
+        self.scale = scale
+        self.zero_point = zero_point
+
+    def __tensor_flatten__(self):
+        return ["int_data", "scale", "zero_point"], []
+
+    @classmethod
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
+    ):
+        int_data, scale, zero_point = tensor_data_dict["int_data"], tensor_data_dict["scale"], tensor_data_dict["zero_point"]
+        return cls(int_data, scale, zero_point)
+
+    def to(self, *args, **kwargs):
+        kwargs = self._get_to_kwargs(*args, **kwargs)
+        return self.__class__(
+            self.int_data.to(kwargs["device"]),
+            self.scale.to(kwargs["device"]),
+            self.zero_point.to(kwargs["device"]),
+        )
+
+    def _apply_fn_to_data(self, fn):
+        return self.__class__(
+            fn(self.int_data),
+            fn(self.scale),
+            fn(self.zero_point),
+        )
+
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs):
+        kwargs = {} if kwargs is None else kwargs
+
+        if func is aten.detach.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+            )
+
+        raise NotImplementedError(
+            f"PlainAQTLayout dispatch: attempting to run {func}, this is not supported"
+        )
+
+    def get_plain(self):
+        int_data_expanded = torch._cslt_sparse_mm(self.int_data,
+                                                  torch.eye(self.shape[1],
+                                                            dtype=self.int_data.dtype,
+                                                            device=self.int_data.device).t())
+        return int_data_expanded, self.scale, self.zero_point
+
+    @classmethod
+    def from_plain(
+        cls,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+    ):
+        return cls(int_data, scale, zero_point)
+
 @register_layout_cls("tensor_core_tiled")
 class TensorCoreTiledAQTLayout(AQTLayout):
     """
@@ -590,6 +679,31 @@ def _quantized_linear_op(input_tensor, weight_qtensor, bias):
 
                 # can downcast only at the very end
                 output_dtype = input_tensor.dtype
+                y = y.to(output_dtype)
+                if bias is not None:
+                    y += bias
+                return y
+            
+            # handle int8 + semi_structured_sparse
+            elif(
+                is_cuda and
+                input_is_int8 and
+                input_tensor.dtype == weight_qtensor.dtype and
+                input_tensor.extended_layout == "plain" and
+                weight_qtensor.extended_layout == "semi_sparse_cusparselt"
+            ):
+                x_vals_int8 = input_tensor.layout_tensor.int_data
+                x_scales = input_tensor.layout_tensor.scale
+                w_vals_int8 = weight_qtensor.layout_tensor.int_data
+                w_scales = weight_qtensor.layout_tensor.scale
+                tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
+                y_dot_bf16_w_scales_fused = torch._cslt_sparse_mm(
+                    w_vals_int8, tmp.t(), alpha=w_scales, out_dtype=torch.bfloat16
+                ).t()
+                y = (y_dot_bf16_w_scales_fused * x_scales.reshape(-1, 1)).reshape(
+                    *x_vals_int8.shape[:-1], y_dot_bf16_w_scales_fused.shape[-1]
+                )
+                # downcast at the end
                 y = y.to(output_dtype)
                 if bias is not None:
                     y += bias
