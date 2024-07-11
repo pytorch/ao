@@ -64,6 +64,8 @@ QMAP_UNSIGNED = create_dynamic_map(signed=False)
 
 
 def quantize_8bit_with_qmap(input: Tensor, qmap: Tensor, block_size: int, implementation: int = 1):
+    shape = input.shape
+
     # section 2.1 from https://arxiv.org/abs/2110.02861
     input = input.view(-1, block_size)
     scale = input.abs().amax(-1).clip(1e-12)
@@ -99,7 +101,7 @@ def quantize_8bit_with_qmap(input: Tensor, qmap: Tensor, block_size: int, implem
     else:
         raise ValueError(f"Unsupported implementation={implementation}")
 
-    return codes, scale
+    return codes.view(shape), scale
 
 
 # dynamic tree quantization

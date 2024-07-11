@@ -8,11 +8,12 @@ DTYPE = torch.float8_e4m3fn
 
 
 def quantize_fp8(input: Tensor, block_size: int):
+    shape = input.shape
     input = input.view(-1, block_size)
     scale = input.abs().amax(-1).clip(1e-12) / torch.finfo(DTYPE).max
     input = input / scale.view(-1, 1)
     codes = input.to(DTYPE).view(-1)
-    return codes, scale
+    return codes.view(shape), scale
 
 
 class OptimStateFp8(Tensor):
