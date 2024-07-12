@@ -8,7 +8,17 @@ from .subclass_4bit import QMAP_SIGNED, QMAP_UNSIGNED, quantize_4bit_with_qmap
 
 
 class Adam4bit(Optimizer):
-    def __init__(self, params, lr, betas, eps, weight_decay, amsgrad, *, block_size) -> None:
+    def __init__(
+        self,
+        params,
+        lr=1e-3,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+        weight_decay=0,
+        amsgrad=False,
+        *,
+        block_size=128,
+    ) -> None:
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if not 0.0 <= eps:
@@ -38,7 +48,7 @@ class Adam4bit(Optimizer):
                 raise NotImplementedError
             else:
                 n_scale = p.numel() // self.block_size
-                state["packed_4bit"] = torch.zeros(p.shape, dtype=torch.uint8, device=p.device)
+                state["packed_4bit"] = torch.zeros(p.numel(), dtype=torch.uint8, device=p.device)
                 state["scale1"] = torch.zeros(n_scale, dtype=p.dtype, device=p.device)
                 state["scale2"] = torch.zeros(n_scale, dtype=p.dtype, device=p.device)
 
