@@ -16,7 +16,7 @@ QMAP_SIGNED = create_dynamic_map(True, 3, 4)
 QMAP_UNSIGNED = torch.linspace(0, 1, 17)[1:].tolist()  # no zero
 
 
-def quantize_4bit_with_qmap(input: Tensor, qmap: Tensor, block_size: int, implementation: int = 1):
+def quantize_4bit_with_qmap(input: Tensor, qmap: Tensor, block_size: int, implementation: int = 1, pack: bool = True):
     # section 2.1 from https://arxiv.org/abs/2110.02861
     input = input.view(-1, block_size)
     scale = input.abs().amax(-1).clip(1e-12)
@@ -49,7 +49,8 @@ def quantize_4bit_with_qmap(input: Tensor, qmap: Tensor, block_size: int, implem
         raise ValueError(f"Unsupported implementation={implementation}")
 
     # packing
-    codes = (codes[::2] << 4) | codes[1::2]
+    if pack:
+        codes = (codes[::2] << 4) | codes[1::2]
     return codes, scale
 
 
