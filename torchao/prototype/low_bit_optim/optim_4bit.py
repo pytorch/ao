@@ -5,7 +5,14 @@ from torch.distributed._tensor import DTensor
 
 from .adam import single_param_adam
 from .adamw import single_param_adamw
-from .subclass_4bit import QMAP_SIGNED, QMAP_UNSIGNED, quantize_4bit_with_qmap
+from .quant_utils import create_dynamic_map, quantize_4bit_with_qmap, dequant_with_qmap
+
+
+# https://github.com/thu-ml/low-bit-optimizers/blob/e3e2854728e498c2a606e3fdb88daa27ae94f9a6/lpmm/configs/2nd_moment_group_128.yml
+# NOTE: power-1 is linear
+# TODO: since QMAP_UNSIGNED is linear, perhaps doing affine quantize is faster?
+QMAP_SIGNED = create_dynamic_map(True, 3, 4)
+QMAP_UNSIGNED = torch.linspace(0, 1, 17)[1:].tolist()  # no zero
 
 
 class Adam4bit(Optimizer):
@@ -128,11 +135,6 @@ class Adam4bit(Optimizer):
         return loss
 
 
-def _dequant_with_qmap(codes: Tensor, qmap: Tensor, scale: Tensor):
-    out = qmap[codes.int()].view(scale.shape[0], -1) * scale.view(-1, 1)
-    return out.view(codes.shape)
-
-
 # static compile optim step for all params in a single graph
 @torch.compile(fullgraph=True)
 def param_groups_adam_4bit(param_groups):
@@ -140,8 +142,8 @@ def param_groups_adam_4bit(param_groups):
         for p, grad, exp_avg, exp_avg_sq, step, packed_4bit, scale1, scale2 in group:
             # unpack and dequant
             if packed_4bit is not None:
-                exp_avg = _dequant_with_qmap(packed_4bit >> 4, qmap_signed, scale1)
-                exp_avg_sq = _dequant_with_qmap(packed_4bit & 0b1111, qmap_unsigned, scale2)
+                exp_avg = dequant_with_qmap(packed_4bit >> 4, qmap_signed, scale1)
+                exp_avg_sq = dequant_with_qmap(packed_4bit & 0b1111, qmap_unsigned, scale2)
 
             single_param_adam(p, grad, step, exp_avg, exp_avg_sq, None, lr, beta1, beta2, weight_decay, eps)
 
@@ -190,8 +192,8 @@ def param_groups_adamw_4bit(param_groups):
         for p, grad, exp_avg, exp_avg_sq, step, packed_4bit, scale1, scale2 in group:
             # unpack and dequant
             if packed_4bit is not None:
-                exp_avg = _dequant_with_qmap(packed_4bit >> 4, qmap_signed, scale1)
-                exp_avg_sq = _dequant_with_qmap(packed_4bit & 0b1111, qmap_unsigned, scale2)
+                exp_avg = dequant_with_qmap(packed_4bit >> 4, qmap_signed, scale1)
+                exp_avg_sq = dequant_with_qmap(packed_4bit & 0b1111, qmap_unsigned, scale2)
 
             single_param_adamw(p, grad, step, exp_avg, exp_avg_sq, None, lr, beta1, beta2, weight_decay, eps)
 
