@@ -31,7 +31,7 @@ except ImportError:
     lpmm = None
 
 # for FSDP2 test
-if TORCH_VERSION_AFTER_2_4:
+if TORCH_VERSION_AFTER_2_3:
     from torch.distributed._composable.fsdp import CPUOffloadPolicy, OffloadPolicy, fully_shard
 
 
