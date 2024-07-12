@@ -17,7 +17,7 @@ from torch.distributed.fsdp.wrap import ModuleWrapPolicy
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torchao.prototype import low_bit_optim
-from torchao.prototype.low_bit_optim import subclass_8bit, subclass_4bit
+from torchao.prototype.low_bit_optim.quant_utils import quantize_8bit_with_qmap, quantize_4bit_with_qmap
 from torchao.utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
 
 try:
@@ -42,10 +42,10 @@ class TestQuantize(TestCase):
     @parametrize("device", _DEVICES)
     def test_quantize_8bit_with_qmap_correctness(self, device):
         x = torch.randn(32, 1024, device=device)
-        qmap = torch.tensor(subclass_8bit.QMAP_SIGNED, device=device)
+        qmap = torch.rand(256, device=device).sort().values
 
-        actual_codes, actual_scale = subclass_8bit.quantize_8bit_with_qmap(x, qmap, 256, implementation=1)
-        expected_codes, expected_scale = subclass_8bit.quantize_8bit_with_qmap(x, qmap, 256, implementation=0)
+        actual_codes, actual_scale = quantize_8bit_with_qmap(x, qmap, 256, implementation=1)
+        expected_codes, expected_scale = quantize_8bit_with_qmap(x, qmap, 256, implementation=0)
 
         torch.testing.assert_close(actual_codes, expected_codes)
         torch.testing.assert_close(actual_scale, expected_scale)
@@ -53,11 +53,11 @@ class TestQuantize(TestCase):
     @parametrize("device", _DEVICES)
     def test_quantize_8bit_with_qmap_compile(self, device):
         x = torch.randn(32, 1024, device=device)
-        qmap = torch.tensor(subclass_8bit.QMAP_SIGNED, device=device)
+        qmap = torch.rand(256, device=device).sort().values
 
-        compiled_f = torch.compile(subclass_8bit.quantize_8bit_with_qmap, fullgraph=True)
+        compiled_f = torch.compile(quantize_8bit_with_qmap, fullgraph=True)
         actual_codes, actual_scale = compiled_f(x, qmap, 256)
-        expected_codes, expected_scale = subclass_8bit.quantize_8bit_with_qmap(x, qmap, 256)
+        expected_codes, expected_scale = quantize_8bit_with_qmap(x, qmap, 256)
 
         torch.testing.assert_close(actual_codes, expected_codes)
         torch.testing.assert_close(actual_scale, expected_scale)
@@ -65,10 +65,10 @@ class TestQuantize(TestCase):
     @parametrize("device", _DEVICES)
     def test_quantize_4bit_with_qmap_correctness(self, device):
         x = torch.randn(32, 1024, device=device)
-        qmap = torch.tensor(subclass_4bit.QMAP_SIGNED, device=device)
+        qmap = torch.rand(16, device=device).sort().values
 
-        actual_codes, actual_scale = subclass_4bit.quantize_4bit_with_qmap(x, qmap, 256, implementation=1)
-        expected_codes, expected_scale = subclass_4bit.quantize_4bit_with_qmap(x, qmap, 256, implementation=0)
+        actual_codes, actual_scale = quantize_4bit_with_qmap(x, qmap, 256, implementation=1)
+        expected_codes, expected_scale = quantize_4bit_with_qmap(x, qmap, 256, implementation=0)
 
         torch.testing.assert_close(actual_codes, expected_codes)
         torch.testing.assert_close(actual_scale, expected_scale)
@@ -76,11 +76,11 @@ class TestQuantize(TestCase):
     @parametrize("device", _DEVICES)
     def test_quantize_4bit_with_qmap_compile(self, device):
         x = torch.randn(32, 1024, device=device)
-        qmap = torch.tensor(subclass_4bit.QMAP_SIGNED, device=device)
+        qmap = torch.rand(16, device=device).sort().values
 
-        compiled_f = torch.compile(subclass_4bit.quantize_4bit_with_qmap, fullgraph=True)
+        compiled_f = torch.compile(quantize_4bit_with_qmap, fullgraph=True)
         actual_codes, actual_scale = compiled_f(x, qmap, 256)
-        expected_codes, expected_scale = subclass_4bit.quantize_4bit_with_qmap(x, qmap, 256)
+        expected_codes, expected_scale = quantize_4bit_with_qmap(x, qmap, 256)
 
         torch.testing.assert_close(actual_codes, expected_codes)
         torch.testing.assert_close(actual_scale, expected_scale)
