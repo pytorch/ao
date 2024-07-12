@@ -10,6 +10,7 @@ import unittest
 import torch
 from torchao.quantization.quant_primitives import (
     fake_quantize_affine,
+    fake_quantize_affine_cachemask,
     quantize_affine,
     dequantize_affine,
     choose_qparams_affine,
@@ -522,6 +523,29 @@ class TestQuantPrimitives(unittest.TestCase):
         dequantized = dequantize_affine(quantized, block_size, scale, zero_point, dtype, quant_min, quant_max)
         fake_quantized = fake_quantize_affine(input, block_size, scale, zero_point, dtype, quant_min, quant_max)
         torch.testing.assert_close(dequantized, fake_quantized)
+
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
+    def test_fake_quantize_affine_cachemask(self):
+        input = torch.randn(10, 10)
+
+        mapping_type = MappingType.SYMMETRIC
+        block_size = list(input.shape)
+        for i in range(len(block_size) - 1):
+            block_size[i] = 1
+        dtype = torch.int8
+        eps = 1e-5
+        quant_min = -127
+        quant_max = 127
+        scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, quant_min, quant_max, eps=eps, scale_dtype=torch.float)
+
+        quantized = quantize_affine(input, block_size, scale, zero_point, dtype, quant_min, quant_max)
+        dequantized = dequantize_affine(quantized, block_size, scale, zero_point, dtype, quant_min, quant_max)
+        (fake_quantized, mask) = fake_quantize_affine_cachemask(
+            input, block_size, scale, zero_point, dtype, quant_min, quant_max,
+        )
+        expected_mask = torch.full(input.shape, True)
+        torch.testing.assert_close(dequantized, fake_quantized)
+        torch.testing.assert_close(expected_mask, mask)
 
 if __name__ == "__main__":
     unittest.main()

@@ -24,6 +24,7 @@ __all__ = [
     "quantize_affine",
     "dequantize_affine",
     "fake_quantize_affine",
+    "fake_quantize_affine_cachemask",
 ]
 
 class MappingType(Enum):
@@ -411,6 +412,76 @@ def fake_quantize_affine(
         value during quantization
         default is ZeroPointDomain.INT
     """
+    (_, fq) = _do_fake_quantize_affine(
+        input,
+        block_size,
+        scale,
+        zero_point,
+        quant_dtype,
+        quant_min,
+        quant_max,
+        zero_point_domain,
+    )
+    return fq
+
+
+def fake_quantize_affine_cachemask(
+    input: torch.Tensor,
+    block_size: Tuple[int, ...],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    quant_dtype: torch.dtype,
+    quant_min: Optional[int] = None,
+    quant_max: Optional[int] = None,
+    zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    General fake quantize op for quantization-aware training (QAT).
+    This is equivalent to calling `quantize_affine` + `dequantize_affine`
+    but without the dtype casts.
+
+    Note: Compared to :func:`~torchao.quantization.quant_primitives.fake_quantize_affine`,
+    this consumes more memory and returns an additional outlier mask for
+    intermediate quantized values.
+
+    Args:
+      Same as :func:`~torchao.quantization.quant_primitives.fake_quantize_affine`.
+
+    Returns:
+      A 2-tuple of (
+          final fake quantized values,
+          outlier mask for intermediate quantized values
+      )
+
+    """
+    (q, dq) = _do_fake_quantize_affine(
+        input,
+        block_size,
+        scale,
+        zero_point,
+        quant_dtype,
+        quant_min,
+        quant_max,
+        zero_point_domain,
+    )
+    mask = torch.logical_and((q >= quant_min), (q <= quant_max))
+    return (dq, mask)
+
+
+def _do_fake_quantize_affine(
+    input: torch.Tensor,
+    block_size: Tuple[int, ...],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    quant_dtype: torch.dtype,
+    quant_min: Optional[int] = None,
+    quant_max: Optional[int] = None,
+    zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Helper function for `fake_quantize_affine` that returns both the
+    intermediate quantized values and the final dequantized values.
+    """
     input_dtype = input.dtype
     quant_min, quant_max = _get_and_check_qmin_qmax(quant_dtype, quant_min, quant_max)
     q = _quantize_affine_no_dtype_cast(
@@ -432,7 +503,7 @@ def fake_quantize_affine(
         zero_point_domain.name,
         output_dtype=input_dtype,
     )
-    return dq
+    return (q, dq)
 
 
 def choose_qparams_affine(
