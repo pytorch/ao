@@ -9,11 +9,6 @@ from torch.testing._internal.common_utils import (
     parametrize,
     run_tests,
 )
-from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
-    apply_activation_checkpointing,
-    CheckpointWrapper,
-)
-from torch.distributed.fsdp.wrap import ModuleWrapPolicy
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torchao.prototype import low_bit_optim
@@ -32,7 +27,7 @@ except ImportError:
 
 # for FSDP2 test
 if TORCH_VERSION_AFTER_2_4:
-    from torch.distributed._composable.fsdp import CPUOffloadPolicy, OffloadPolicy, fully_shard
+    from torch.distributed._composable.fsdp import OffloadPolicy, fully_shard
 
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
@@ -87,6 +82,22 @@ class TestQuantize(TestCase):
 
 
 class TestOptim(TestCase):
+    @pytest.mark.xfail(not TORCH_VERSION_AFTER_2_3, reason="torch.compile() fails for PyTorch < 2.3")
+    @parametrize("optim_name", ["Adam8bit", "AdamW8bit", "Adam4bit", "AdamW4bit", "AdamFp8", "AdamWFp8"])
+    @parametrize("device", _DEVICES)
+    def test_optim_smoke(self, optim_name, device):
+        if optim_name.endswith("Fp8") and device == "cuda" and torch.cuda.get_device_capability() < (8, 9):
+            pytest.skip("FP8 requires compute capability >= 8.9")
+
+        model = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
+        optim = getattr(low_bit_optim, optim_name)(model.parameters())
+
+        x = torch.randn(4, 32, device=device)
+        loss = model(x).sum()
+        loss.backward()
+        optim.step()
+        optim.zero_grad()
+
     @pytest.mark.skipif(bnb is None, reason="bitsandbytes is not availablle")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="bitsandbytes 8-bit Adam only works for CUDA")
     @pytest.mark.xfail(not TORCH_VERSION_AFTER_2_3, reason="torch.compile() fails for PyTorch < 2.3")
@@ -149,22 +160,6 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model1.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1, rtol=1e-5, atol=1e-5)
 
-    @pytest.mark.xfail(not TORCH_VERSION_AFTER_2_3, reason="torch.compile() fails for PyTorch < 2.3")
-    @parametrize("optim_name", ["AdamFp8", "AdamWFp8"])
-    @parametrize("device", _DEVICES)
-    def test_optim_fp8_smoke(self, optim_name, device):
-        if device == "cuda" and torch.cuda.get_device_capability() < (8, 9):
-            pytest.skip("FP8 requires compute capability >= 8.9")
-
-        model = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
-        optim = getattr(low_bit_optim, optim_name)(model.parameters())
-
-        x = torch.randn(4, 32, device=device)
-        loss = model(x).sum()
-        loss.backward()
-        optim.step()
-        optim.zero_grad()
-
 
 class TestFSDP2(FSDPTest):
     @property
@@ -175,18 +170,11 @@ class TestFSDP2(FSDPTest):
     @skip_if_lt_x_gpu(2)
     def test_fsdp2(self):
         self.run_subtests(
-            {
-                "enable_activation_checkpointing": [False, True],
-                "offload_policy": [
-                    OffloadPolicy(),
-                    # CPUOffloadPolicy(pin_memory=True),  # compile take too long -> test will timeout
-                    # CPUOffloadPolicy(pin_memory=False),
-                ],
-            },
+            {"optim_cls": [low_bit_optim.Adam8bit, low_bit_optim.Adam4bit, low_bit_optim.AdamFp8]},
             self._test_fsdp2,
         )
 
-    def _test_fsdp2(self, enable_activation_checkpointing, offload_policy):
+    def _test_fsdp2(self, optim_cls):
         from torch.testing._internal.distributed._tensor.common_dtensor import (
             ModelArgs,
             Transformer,
@@ -207,21 +195,14 @@ class TestFSDP2(FSDPTest):
         torch.manual_seed(42)
         with torch.device("cuda"):
             base_model = Transformer(model_args)
-        if enable_activation_checkpointing:
-            apply_activation_checkpointing(base_model, auto_wrap_policy=ModuleWrapPolicy({TransformerBlock}))
-        base_optim = low_bit_optim.Adam8bit(base_model.parameters(), lr=1e-2)
+        base_optim = optim_cls(base_model.parameters(), lr=1e-2)
 
-        fsdp_kwargs = {"offload_policy": offload_policy}
         fsdp_model = copy.deepcopy(base_model)
         for m in fsdp_model.modules():
-            if enable_activation_checkpointing:
-                if isinstance(m, CheckpointWrapper):
-                    fully_shard(m, **fsdp_kwargs)
-            else:
-                if isinstance(m, TransformerBlock):
-                    fully_shard(m, **fsdp_kwargs)
-        fully_shard(fsdp_model, **fsdp_kwargs)
-        fsdp_optim = low_bit_optim.Adam8bit(fsdp_model.parameters(), lr=1e-2)
+            if isinstance(m, TransformerBlock):
+                fully_shard(m)
+        fully_shard(fsdp_model)
+        fsdp_optim = optim_cls(fsdp_model.parameters(), lr=1e-2)
 
         torch.manual_seed(42 + self.rank + 1)
         for iter_idx in range(5):

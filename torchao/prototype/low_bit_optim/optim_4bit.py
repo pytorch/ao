@@ -56,7 +56,7 @@ class Adam4bit(Optimizer):
                 raise NotImplementedError
             else:
                 n_scale = p.numel() // self.block_size
-                state["packed_4bit"] = torch.zeros(p.numel(), dtype=torch.uint8, device=p.device)
+                state["packed_4bit"] = torch.zeros(p.shape, dtype=torch.uint8, device=p.device)
                 state["scale1"] = torch.zeros(n_scale, dtype=p.dtype, device=p.device)
                 state["scale2"] = torch.zeros(n_scale, dtype=p.dtype, device=p.device)
 
@@ -139,7 +139,7 @@ class Adam4bit(Optimizer):
 @torch.compile(fullgraph=True)
 def param_groups_adam_4bit(param_groups):
     for group, lr, (beta1, beta2), weight_decay, eps, qmap_signed, qmap_unsigned in param_groups:
-        for p, grad, exp_avg, exp_avg_sq, step, packed_4bit, scale1, scale2 in group:
+        for p, grad, step, exp_avg, exp_avg_sq, packed_4bit, scale1, scale2 in group:
             # unpack and dequant
             if packed_4bit is not None:
                 exp_avg = dequant_with_qmap(packed_4bit >> 4, qmap_signed, scale1)
@@ -150,8 +150,8 @@ def param_groups_adam_4bit(param_groups):
             # quant and re-pack
             if packed_4bit is not None:
                 block_size = exp_avg.numel() // scale1.numel()
-                exp_avg_codes, new_scale1 = quantize_4bit_with_qmap(exp_avg, qmap_signed, block_size, pack=False)
-                exp_avg_sq_codes, new_scale2 = quantize_4bit_with_qmap(exp_avg_sq, qmap_unsigned, block_size, pack=False)
+                exp_avg_codes, new_scale1 = quantize_4bit_with_qmap(exp_avg, qmap_signed, block_size)
+                exp_avg_sq_codes, new_scale2 = quantize_4bit_with_qmap(exp_avg_sq, qmap_unsigned, block_size)
 
                 packed_4bit.copy_((exp_avg_codes << 4) | exp_avg_sq_codes)
                 scale1.copy_(new_scale1)
