@@ -18,7 +18,7 @@ from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torchao.prototype import low_bit_optim
 from torchao.prototype.low_bit_optim import subclass_8bit, subclass_4bit
-from torchao.utils import TORCH_VERSION_AFTER_2_2, TORCH_VERSION_AFTER_2_3
+from torchao.utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
 
 try:
     import bitsandbytes as bnb
@@ -31,7 +31,7 @@ except ImportError:
     lpmm = None
 
 # for FSDP2 test
-if TORCH_VERSION_AFTER_2_3:
+if TORCH_VERSION_AFTER_2_4:
     from torch.distributed._composable.fsdp import CPUOffloadPolicy, OffloadPolicy, fully_shard
 
 
@@ -89,7 +89,7 @@ class TestQuantize(TestCase):
 class TestOptim(TestCase):
     @pytest.mark.skipif(bnb is None, reason="bitsandbytes is not availablle")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="bitsandbytes 8-bit Adam only works for CUDA")
-    @pytest.mark.xfail(not TORCH_VERSION_AFTER_2_2, reason="torch.compile() fails for PyTorch < 2.3")
+    @pytest.mark.xfail(not TORCH_VERSION_AFTER_2_3, reason="torch.compile() fails for PyTorch < 2.3")
     @parametrize("optim_name", ["Adam8bit", "AdamW8bit"])
     def test_optim_8bit_correctness(self, optim_name):
         device = "cuda"
@@ -117,7 +117,7 @@ class TestOptim(TestCase):
 
     @pytest.mark.skipif(lpmm is None, reason="lpmm is not availablle")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="lpmm 4-bit Adam only works for CUDA")
-    @pytest.mark.xfail(not TORCH_VERSION_AFTER_2_2, reason="torch.compile() fails for PyTorch < 2.3")
+    @pytest.mark.xfail(not TORCH_VERSION_AFTER_2_3, reason="torch.compile() fails for PyTorch < 2.3")
     @parametrize("optim_name", ["Adam4bit", "AdamW4bit"])
     def test_optim_4bit_correctness(self, optim_name):
         device = "cuda"
@@ -149,7 +149,7 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model1.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1, rtol=1e-5, atol=1e-5)
 
-    @pytest.mark.xfail(not TORCH_VERSION_AFTER_2_2, reason="torch.compile() fails for PyTorch < 2.3")
+    @pytest.mark.xfail(not TORCH_VERSION_AFTER_2_3, reason="torch.compile() fails for PyTorch < 2.3")
     @parametrize("optim_name", ["AdamFp8", "AdamWFp8"])
     @parametrize("device", _DEVICES)
     def test_optim_fp8_smoke(self, optim_name, device):
@@ -171,7 +171,7 @@ class TestFSDP2(FSDPTest):
     def world_size(self) -> int:
         return 2
 
-    @pytest.mark.skipif(not TORCH_VERSION_AFTER_2_3, reason="torch >= 2.4 required")
+    @pytest.mark.skipif(not TORCH_VERSION_AFTER_2_4, reason="torch >= 2.4 required")
     @skip_if_lt_x_gpu(2)
     def test_fsdp2(self):
         self.run_subtests(
