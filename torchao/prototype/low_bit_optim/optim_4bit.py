@@ -4,6 +4,7 @@ from torch.optim import Optimizer
 from torch.distributed._tensor import DTensor
 
 from .adam import single_param_adam
+from .adamw import single_param_adamw
 from .subclass_4bit import QMAP_SIGNED, QMAP_UNSIGNED, quantize_4bit_with_qmap
 
 
@@ -65,8 +66,7 @@ class Adam4bit(Optimizer):
         param_groups = []
 
         for group in self.param_groups:
-            _group_4bit = []
-            _group_other = []
+            _group = []
 
             for p in group["params"]:
                 if p.grad is None:
@@ -90,30 +90,20 @@ class Adam4bit(Optimizer):
                 if not isinstance(group["lr"], Tensor):
                     group["lr"] = torch.tensor(group["lr"], device=p.device)
 
-                if "packed_4bit" in state:
-                    p_grad_state = (
-                        p,
-                        grad,
-                        state["step"],
-                        state["packed_4bit"],
-                        state["scale1"],
-                        state["scale2"],
-                    )
-                    _group_4bit.append(p_grad_state)
-                
-                else:
-                    p_grad_state = (
-                        p,
-                        grad,
-                        state["step"],
-                        state["exp_avg"],
-                        state["exp_avg_sq"],
-                    )
-                    _group_other.append(p_grad_state)
+                p_grad_state = (
+                    p,
+                    grad,
+                    state["step"],
+                    state.get("exp_avg", None),
+                    state.get("exp_avg_sq", None),
+                    state.get("packed_4bit", None),
+                    state.get("scale1", None),
+                    state.get("scale2", None),
+                )
+                _group.append(p_grad_state)
 
             group_and_hparams = (
-                _group_4bit,
-                _group_other,
+                _group,
                 group["lr"],
                 group["betas"],
                 group["weight_decay"],
@@ -138,26 +128,79 @@ class Adam4bit(Optimizer):
         return loss
 
 
+def _dequant_with_qmap(codes: Tensor, qmap: Tensor, scale: Tensor):
+    out = qmap[codes.int()].view(scale.shape[0], -1) * scale.view(-1, 1)
+    return out.view(codes.shape)
+
+
 # static compile optim step for all params in a single graph
 @torch.compile(fullgraph=True)
 def param_groups_adam_4bit(param_groups):
-    for group_4bit, group_other, lr, (beta1, beta2), weight_decay, eps, qmap_signed, qmap_unsigned in param_groups:
-        for p, grad, step, packed_4bit, scale1, scale2 in group_4bit:
-            exp_avg = qmap_signed[(packed_4bit >> 4).int()]
-            exp_avg_sq = qmap_unsigned[(packed_4bit & 0b1111).int()]
+    for group, lr, (beta1, beta2), weight_decay, eps, qmap_signed, qmap_unsigned in param_groups:
+        for p, grad, exp_avg, exp_avg_sq, step, packed_4bit, scale1, scale2 in group:
+            # unpack and dequant
+            if packed_4bit is not None:
+                exp_avg = _dequant_with_qmap(packed_4bit >> 4, qmap_signed, scale1)
+                exp_avg_sq = _dequant_with_qmap(packed_4bit & 0b1111, qmap_unsigned, scale2)
 
-            exp_avg = exp_avg.view(scale1.shape[0], -1) * scale1.view(-1, 1)
-            exp_avg_sq = exp_avg_sq.view(scale2.shape[0], -1) * scale2.view(-1, 1)
-
-            single_param_adam(p, grad, step, exp_avg.view(p.shape), exp_avg_sq.view(p.shape), None, lr, beta1, beta2, weight_decay, eps)
-
-            block_size = exp_avg.numel() // scale1.numel()
-            new_exp_avg_codes, new_scale1 = quantize_4bit_with_qmap(exp_avg, qmap_signed, block_size, pack=False)
-            new_exp_avg_sq_codes, new_scale2 = quantize_4bit_with_qmap(exp_avg_sq, qmap_unsigned, block_size, pack=False)
-
-            packed_4bit.copy_((new_exp_avg_codes << 4) | new_exp_avg_sq_codes)
-            scale1.copy_(new_scale1)
-            scale2.copy_(new_scale2)
-
-        for p, grad, step, exp_avg, exp_avg_sq in group_other:
             single_param_adam(p, grad, step, exp_avg, exp_avg_sq, None, lr, beta1, beta2, weight_decay, eps)
+
+            # quant and re-pack
+            if packed_4bit is not None:
+                block_size = exp_avg.numel() // scale1.numel()
+                exp_avg_codes, new_scale1 = quantize_4bit_with_qmap(exp_avg, qmap_signed, block_size, pack=False)
+                exp_avg_sq_codes, new_scale2 = quantize_4bit_with_qmap(exp_avg_sq, qmap_unsigned, block_size, pack=False)
+
+                packed_4bit.copy_((exp_avg_codes << 4) | exp_avg_sq_codes)
+                scale1.copy_(new_scale1)
+                scale2.copy_(new_scale2)
+
+
+class AdamW4bit(Adam4bit):
+    def __init__(
+        self,
+        params,
+        lr=1e-3,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+        weight_decay=1e-2,
+        amsgrad=False,
+        *,
+        block_size=128,
+    ) -> None:
+        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        param_groups = self._prepare_param_groups()
+        param_groups_adamw_4bit(param_groups)
+
+        return loss
+
+
+# static compile optim step for all params in a single graph
+@torch.compile(fullgraph=True)
+def param_groups_adamw_4bit(param_groups):
+    for group, lr, (beta1, beta2), weight_decay, eps, qmap_signed, qmap_unsigned in param_groups:
+        for p, grad, exp_avg, exp_avg_sq, step, packed_4bit, scale1, scale2 in group:
+            # unpack and dequant
+            if packed_4bit is not None:
+                exp_avg = _dequant_with_qmap(packed_4bit >> 4, qmap_signed, scale1)
+                exp_avg_sq = _dequant_with_qmap(packed_4bit & 0b1111, qmap_unsigned, scale2)
+
+            single_param_adamw(p, grad, step, exp_avg, exp_avg_sq, None, lr, beta1, beta2, weight_decay, eps)
+
+            # quant and re-pack
+            if packed_4bit is not None:
+                block_size = exp_avg.numel() // scale1.numel()
+                exp_avg_codes, new_scale1 = quantize_4bit_with_qmap(exp_avg, qmap_signed, block_size, pack=False)
+                exp_avg_sq_codes, new_scale2 = quantize_4bit_with_qmap(exp_avg_sq, qmap_unsigned, block_size, pack=False)
+
+                packed_4bit.copy_((exp_avg_codes << 4) | exp_avg_sq_codes)
+                scale1.copy_(new_scale1)
+                scale2.copy_(new_scale2)
