@@ -55,82 +55,55 @@ def create_dynamic_map(signed=True, max_exponent_bits=7, total_bits=8):
     return data
 
 
-def quantize_8bit_with_qmap(input: Tensor, qmap: Tensor, block_size: int, implementation: int = 1):
+def scale_tensor(input: Tensor, block_size: int):
+    """Scale tensor so that max(abs(input)) = 1"""
     shape = input.shape
 
     # section 2.1 from https://arxiv.org/abs/2110.02861
     input = input.view(-1, block_size)
     scale = input.abs().amax(-1).clip(1e-12)
     input = input / scale.view(-1, 1)
+    return input.view(shape), scale
 
-    # reference implementation. equation 4 from https://arxiv.org/abs/2110.02861
-    if implementation == 0:
-        codes = (qmap.view(1, -1) - input.view(-1, 1)).abs().argmin(-1)
-        codes = codes.to(torch.uint8)
 
+def quantize_8bit_with_qmap(input: Tensor, qmap: Tensor):
     # GPU-friendly binary search
     # https://blog.demofox.org/2017/06/20/simd-gpu-friendly-branchless-binary-search/
-    elif implementation == 1:
-        input = input.view(-1)
-        codes = torch.where(input >= qmap[128], 128, 0)
-        codes += torch.where(input >= qmap[codes + 64], 64, 0)
-        codes += torch.where(input >= qmap[codes + 32], 32, 0)
-        codes += torch.where(input >= qmap[codes + 16], 16, 0)
-        codes += torch.where(input >= qmap[codes + 8], 8, 0)
-        codes += torch.where(input >= qmap[codes + 4], 4, 0)
-        codes += torch.where(input >= qmap[codes + 2], 2, 0)
-        codes += torch.where(input >= qmap[codes + 1], 1, 0)
+    codes = torch.where(input >= qmap[128], 128, 0)
+    codes += torch.where(input >= qmap[codes + 64], 64, 0)
+    codes += torch.where(input >= qmap[codes + 32], 32, 0)
+    codes += torch.where(input >= qmap[codes + 16], 16, 0)
+    codes += torch.where(input >= qmap[codes + 8], 8, 0)
+    codes += torch.where(input >= qmap[codes + 4], 4, 0)
+    codes += torch.where(input >= qmap[codes + 2], 2, 0)
+    codes += torch.where(input >= qmap[codes + 1], 1, 0)
 
-        # rounding
-        codes_up = (codes + 1).clip(max=255)
-        val_down = qmap[codes]
-        val_up = qmap[codes_up]
-        residual = input - val_down
-        codes = torch.where(residual >= (val_up - val_down) * 0.5, codes_up, codes)
+    # rounding
+    codes_up = (codes + 1).clip(max=255)
+    val_down = qmap[codes]
+    val_up = qmap[codes_up]
+    residual = input - val_down
+    codes = torch.where(residual >= (val_up - val_down) * 0.5, codes_up, codes)
 
-        codes = codes.to(torch.uint8)
-
-    else:
-        raise ValueError(f"Unsupported implementation={implementation}")
-
-    return codes.view(shape), scale
+    return codes.to(torch.uint8)
 
 
-def quantize_4bit_with_qmap(input: Tensor, qmap: Tensor, block_size: int, implementation: int = 1):
-    shape = input.shape
-
-    # section 2.1 from https://arxiv.org/abs/2110.02861
-    input = input.view(-1, block_size)
-    scale = input.abs().amax(-1).clip(1e-12)
-    input = input / scale.view(-1, 1)
-
-    # reference implementation. equation 4 from https://arxiv.org/abs/2110.02861
-    if implementation == 0:
-        codes = (qmap.view(1, -1) - input.view(-1, 1)).abs().argmin(-1)
-        codes = codes.to(torch.uint8)
-
+def quantize_4bit_with_qmap(input: Tensor, qmap: Tensor):
     # GPU-friendly binary search
     # https://blog.demofox.org/2017/06/20/simd-gpu-friendly-branchless-binary-search/
-    elif implementation == 1:
-        input = input.view(-1)
-        codes = torch.where(input >= qmap[8], 8, 0)
-        codes += torch.where(input >= qmap[codes + 4], 4, 0)
-        codes += torch.where(input >= qmap[codes + 2], 2, 0)
-        codes += torch.where(input >= qmap[codes + 1], 1, 0)
+    codes = torch.where(input >= qmap[8], 8, 0)
+    codes += torch.where(input >= qmap[codes + 4], 4, 0)
+    codes += torch.where(input >= qmap[codes + 2], 2, 0)
+    codes += torch.where(input >= qmap[codes + 1], 1, 0)
 
-        # rounding
-        codes_up = (codes + 1).clip(max=15)
-        val_down = qmap[codes]
-        val_up = qmap[codes_up]
-        residual = input - val_down
-        codes = torch.where(residual >= (val_up - val_down) * 0.5, codes_up, codes)
+    # rounding
+    codes_up = (codes + 1).clip(max=15)
+    val_down = qmap[codes]
+    val_up = qmap[codes_up]
+    residual = input - val_down
+    codes = torch.where(residual >= (val_up - val_down) * 0.5, codes_up, codes)
 
-        codes = codes.to(torch.uint8)
-
-    else:
-        raise ValueError(f"Unsupported implementation={implementation}")
-
-    return codes.view(shape), scale
+    return codes.to(torch.uint8)
 
 
 def dequant_with_qmap(codes: Tensor, qmap: Tensor, scale: Tensor):

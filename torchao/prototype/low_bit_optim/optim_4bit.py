@@ -4,7 +4,7 @@ from torch.optim import Optimizer
 
 from .adam import single_param_adam
 from .adamw import single_param_adamw
-from .quant_utils import quantize_4bit_with_qmap, dequant_with_qmap
+from .quant_utils import scale_tensor, quantize_4bit_with_qmap, dequant_with_qmap
 from .subclass_4bit import QMAP_SIGNED, QMAP_UNSIGNED
 
 
@@ -141,8 +141,12 @@ def param_groups_adam_4bit(param_groups):
             # quant and re-pack
             if packed_4bit is not None:
                 block_size = exp_avg.numel() // scale1.numel()
-                exp_avg_codes, new_scale1 = quantize_4bit_with_qmap(exp_avg, qmap_signed, block_size)
-                exp_avg_sq_codes, new_scale2 = quantize_4bit_with_qmap(exp_avg_sq, qmap_unsigned, block_size)
+
+                exp_avg, new_scale1 = scale_tensor(exp_avg, block_size)
+                exp_avg_sq, new_scale2 = scale_tensor(exp_avg_sq, block_size)
+
+                exp_avg_codes = quantize_4bit_with_qmap(exp_avg, qmap_signed)
+                exp_avg_sq_codes = quantize_4bit_with_qmap(exp_avg_sq, qmap_unsigned)
 
                 packed_4bit.copy_((exp_avg_codes << 4) | exp_avg_sq_codes)
                 scale1.copy_(new_scale1)
@@ -191,8 +195,12 @@ def param_groups_adamw_4bit(param_groups):
             # quant and re-pack
             if packed_4bit is not None:
                 block_size = exp_avg.numel() // scale1.numel()
-                exp_avg_codes, new_scale1 = quantize_4bit_with_qmap(exp_avg, qmap_signed, block_size)
-                exp_avg_sq_codes, new_scale2 = quantize_4bit_with_qmap(exp_avg_sq, qmap_unsigned, block_size)
+
+                exp_avg, new_scale1 = scale_tensor(exp_avg, block_size)
+                exp_avg_sq, new_scale2 = scale_tensor(exp_avg_sq, block_size)
+
+                exp_avg_codes = quantize_4bit_with_qmap(exp_avg, qmap_signed)
+                exp_avg_sq_codes = quantize_4bit_with_qmap(exp_avg_sq, qmap_unsigned)
 
                 packed_4bit.copy_((exp_avg_codes << 4) | exp_avg_sq_codes)
                 scale1.copy_(new_scale1)

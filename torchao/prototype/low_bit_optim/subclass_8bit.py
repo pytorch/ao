@@ -2,7 +2,7 @@ import torch
 from torch import Tensor
 from torchao.dtypes.utils import _implements, _ATEN_OP_OR_TORCH_FN_TABLE
 
-from .quant_utils import create_dynamic_map, quantize_8bit_with_qmap, dequant_with_qmap
+from .quant_utils import create_dynamic_map, scale_tensor, quantize_8bit_with_qmap, dequant_with_qmap
 
 
 aten = torch.ops.aten
@@ -82,7 +82,8 @@ def _(func, *args, **kwargs):
         # qmap should be the same, don't need to copy
 
     elif isinstance(dst, OptimState8bit):
-        codes, scale = quantize_8bit_with_qmap(src, dst.qmap, dst.block_size)
+        scaled_src, scale = scale_tensor(src, dst.block_size)
+        codes = quantize_8bit_with_qmap(scaled_src, dst.qmap)
         dst.codes.copy_(codes)
         dst.scale.copy_(scale)
 

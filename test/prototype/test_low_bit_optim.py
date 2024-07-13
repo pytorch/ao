@@ -25,10 +25,6 @@ try:
 except ImportError:
     lpmm = None
 
-# for FSDP2 test
-if TORCH_VERSION_AFTER_2_4:
-    from torch.distributed._composable.fsdp import OffloadPolicy, fully_shard
-
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 
@@ -36,49 +32,45 @@ _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 class TestQuantize(TestCase):
     @parametrize("device", _DEVICES)
     def test_quantize_8bit_with_qmap_correctness(self, device):
-        x = torch.randn(32, 1024, device=device)
+        x = torch.rand(32, 1024, device=device)
         qmap = torch.rand(256, device=device).sort().values
 
-        actual_codes, actual_scale = quantize_8bit_with_qmap(x, qmap, 256, implementation=1)
-        expected_codes, expected_scale = quantize_8bit_with_qmap(x, qmap, 256, implementation=0)
+        actual = (x.unsqueeze(-1) - qmap).abs().argmin(-1).to(torch.uint8)
+        expected = quantize_8bit_with_qmap(x, qmap)
 
-        torch.testing.assert_close(actual_codes, expected_codes)
-        torch.testing.assert_close(actual_scale, expected_scale)
+        torch.testing.assert_close(actual, expected)
 
     @parametrize("device", _DEVICES)
     def test_quantize_8bit_with_qmap_compile(self, device):
-        x = torch.randn(32, 1024, device=device)
+        x = torch.rand(32, 1024, device=device)
         qmap = torch.rand(256, device=device).sort().values
 
         compiled_f = torch.compile(quantize_8bit_with_qmap, fullgraph=True)
-        actual_codes, actual_scale = compiled_f(x, qmap, 256)
-        expected_codes, expected_scale = quantize_8bit_with_qmap(x, qmap, 256)
+        actual = compiled_f(x, qmap)
+        expected = quantize_8bit_with_qmap(x, qmap)
 
-        torch.testing.assert_close(actual_codes, expected_codes)
-        torch.testing.assert_close(actual_scale, expected_scale)
+        torch.testing.assert_close(actual, expected)
 
     @parametrize("device", _DEVICES)
     def test_quantize_4bit_with_qmap_correctness(self, device):
-        x = torch.randn(32, 1024, device=device)
+        x = torch.rand(32, 1024, device=device)
         qmap = torch.rand(16, device=device).sort().values
 
-        actual_codes, actual_scale = quantize_4bit_with_qmap(x, qmap, 256, implementation=1)
-        expected_codes, expected_scale = quantize_4bit_with_qmap(x, qmap, 256, implementation=0)
+        actual = (x.unsqueeze(-1) - qmap).abs().argmin(-1).to(torch.uint8)
+        expected = quantize_4bit_with_qmap(x, qmap)
 
-        torch.testing.assert_close(actual_codes, expected_codes)
-        torch.testing.assert_close(actual_scale, expected_scale)
+        torch.testing.assert_close(actual, expected)
 
     @parametrize("device", _DEVICES)
     def test_quantize_4bit_with_qmap_compile(self, device):
-        x = torch.randn(32, 1024, device=device)
+        x = torch.rand(32, 1024, device=device)
         qmap = torch.rand(16, device=device).sort().values
 
         compiled_f = torch.compile(quantize_4bit_with_qmap, fullgraph=True)
-        actual_codes, actual_scale = compiled_f(x, qmap, 256)
-        expected_codes, expected_scale = quantize_4bit_with_qmap(x, qmap, 256)
+        actual = compiled_f(x, qmap)
+        expected = quantize_4bit_with_qmap(x, qmap)
 
-        torch.testing.assert_close(actual_codes, expected_codes)
-        torch.testing.assert_close(actual_scale, expected_scale)
+        torch.testing.assert_close(actual, expected)
 
 
 class TestOptim(TestCase):
@@ -175,6 +167,7 @@ class TestFSDP2(FSDPTest):
         )
 
     def _test_fsdp2(self, optim_cls):
+        from torch.distributed._composable.fsdp import fully_shard
         from torch.testing._internal.distributed._tensor.common_dtensor import (
             ModelArgs,
             Transformer,
