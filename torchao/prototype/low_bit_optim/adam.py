@@ -105,13 +105,12 @@ class _Adam(Optimizer):
                 loss = closure()
 
         param_groups = self._prepare_param_groups()
-        param_groups_adam(param_groups)
 
+        # static compile optim step for all params in a single graph
+        torch.compile(param_groups_adam, fullgraph=True)(param_groups)
         return loss
 
 
-# static compile optim step for all params in a single graph
-@torch.compile(fullgraph=True)
 def param_groups_adam(param_groups):
     for group, lr, (beta1, beta2), weight_decay, eps in param_groups:
         for p, grad, step, exp_avg, exp_avg_sq, max_exp_avg_sq in group:
@@ -192,6 +191,42 @@ class Adam4bit(_Adam):
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
         return OptimState4bit.zeros(p.shape, signed, block_size, p.device)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        param_groups = self._prepare_param_groups()
+
+        # NOTE: right now, torch.compile(param_groups_adam) will have excessive memory usage for 4-bit optim.
+        # thus, as a workaround, we use torch.compile(single_param_adam) and call it for each param.
+
+        # unwrap DTensor since DTensor does not work well with dynamic compile
+        for group, *_ in param_groups:
+            for i in len(group):
+                group[i] = [x._local_tensor if isinstance(x, DTensor) else x for x in group[i]]
+
+        # flatten p, grad, and optim state to avoid recompilation
+        for group, lr, (beta1, beta2), weight_decay, eps in param_groups:
+            for p, grad, step, exp_avg, exp_avg_sq, max_exp_avg_sq in group:
+                torch.compile(single_param_adam, fullgraph=True, dynamic=True)(
+                    p.view(-1),
+                    grad.view(-1),
+                    step,
+                    exp_avg.view(-1),
+                    exp_avg_sq.view(-1),
+                    max_exp_avg_sq.view(-1) if max_exp_avg_sq is not None else None,
+                    lr,
+                    beta1,
+                    beta2,
+                    weight_decay,
+                    eps,
+                )
+
+        return loss
 
 
 class AdamFp8(_Adam):
