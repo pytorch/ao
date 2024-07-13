@@ -1,7 +1,6 @@
 import torch
 from torch import Tensor
 from torch.optim import Optimizer
-from torch.distributed._tensor import DTensor
 
 from .adam import single_param_adam
 from .adamw import single_param_adamw
@@ -46,13 +45,11 @@ class Adam4bit(Optimizer):
         # follow bitsandbytes, only quantize tensors >= 4096 values
         # also wrap subclass in DTensor when needed
         if p.numel() >= 4096 and p.numel() % self.block_size == 0:
-            if isinstance(p, DTensor):
-                raise NotImplementedError
-            else:
-                n_scale = p.numel() // self.block_size
-                state["packed_4bit"] = torch.zeros(p.shape, dtype=torch.uint8, device=p.device)
-                state["scale1"] = torch.zeros(n_scale, dtype=p.dtype, device=p.device)
-                state["scale2"] = torch.zeros(n_scale, dtype=p.dtype, device=p.device)
+            state["packed_4bit"] = torch.zeros_like(p, dtype=torch.uint8)
+
+            n_scale = p.numel() // self.block_size
+            state["scale1"] = p.new_zeros(n_scale)
+            state["scale2"] = p.new_zeros(n_scale)
 
             # shared qmap among params within a param group
             if "qmap_signed" not in group:
