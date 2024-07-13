@@ -6,6 +6,7 @@ from torch.optim import Optimizer
 from torch.distributed._tensor import DTensor
 
 from .subclass_8bit import OptimState8bit
+from .subclass_4bit import OptimState4bit
 from .subclass_fp8 import OptimStateFp8
 
 
@@ -172,6 +173,25 @@ class Adam8bit(_Adam):
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
         return OptimState8bit.zeros(p.shape, signed, block_size, p.device)
+
+
+class Adam4bit(_Adam):
+    def __init__(
+        self,
+        params,
+        lr=1e-3,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+        weight_decay=0,
+        amsgrad=False,
+        *,
+        block_size=2048
+    ) -> None:
+        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size)
+
+    @staticmethod
+    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
+        return OptimState4bit.zeros(p.shape, signed, block_size, p.device)
 
 
 class AdamFp8(_Adam):

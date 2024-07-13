@@ -5,14 +5,8 @@ from torch.distributed._tensor import DTensor
 
 from .adam import single_param_adam
 from .adamw import single_param_adamw
-from .quant_utils import create_dynamic_map, quantize_4bit_with_qmap, dequant_with_qmap
-
-
-# https://github.com/thu-ml/low-bit-optimizers/blob/e3e2854728e498c2a606e3fdb88daa27ae94f9a6/lpmm/configs/2nd_moment_group_128.yml
-# NOTE: power-1 is linear
-# TODO: since QMAP_UNSIGNED is linear, perhaps doing affine quantize is faster?
-QMAP_SIGNED = create_dynamic_map(True, 3, 4)
-QMAP_UNSIGNED = torch.linspace(0, 1, 17)[1:].tolist()  # no zero
+from .quant_utils import quantize_4bit_with_qmap, dequant_with_qmap
+from .subclass_4bit import QMAP_SIGNED, QMAP_UNSIGNED
 
 
 class Adam4bit(Optimizer):
@@ -189,7 +183,7 @@ class AdamW4bit(Adam4bit):
 @torch.compile(fullgraph=True)
 def param_groups_adamw_4bit(param_groups):
     for group, lr, (beta1, beta2), weight_decay, eps, qmap_signed, qmap_unsigned in param_groups:
-        for p, grad, exp_avg, exp_avg_sq, step, packed_4bit, scale1, scale2 in group:
+        for p, grad, step, exp_avg, exp_avg_sq, packed_4bit, scale1, scale2 in group:
             # unpack and dequant
             if packed_4bit is not None:
                 exp_avg = dequant_with_qmap(packed_4bit >> 4, qmap_signed, scale1)
