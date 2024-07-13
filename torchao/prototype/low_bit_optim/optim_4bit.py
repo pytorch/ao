@@ -194,8 +194,8 @@ def param_groups_adamw_4bit(param_groups):
             # quant and re-pack
             if packed_4bit is not None:
                 block_size = exp_avg.numel() // scale1.numel()
-                exp_avg_codes, new_scale1 = quantize_4bit_with_qmap(exp_avg, qmap_signed, block_size, pack=False)
-                exp_avg_sq_codes, new_scale2 = quantize_4bit_with_qmap(exp_avg_sq, qmap_unsigned, block_size, pack=False)
+                exp_avg_codes, new_scale1 = quantize_4bit_with_qmap(exp_avg, qmap_signed, block_size)
+                exp_avg_sq_codes, new_scale2 = quantize_4bit_with_qmap(exp_avg_sq, qmap_unsigned, block_size)
 
                 packed_4bit.copy_((exp_avg_codes << 4) | exp_avg_sq_codes)
                 scale1.copy_(new_scale1)

@@ -97,6 +97,7 @@ def _(func, *args, **kwargs):
 
     elif isinstance(dst, OptimState4bit):
         codes, scale = quantize_4bit_with_qmap(src, dst.qmap, dst.block_size)
+        codes = codes.view(-1)
         dst.codes.copy_((codes[::2] << 4) & codes[1::2])  # packing
         dst.scale.copy_(scale)
 
