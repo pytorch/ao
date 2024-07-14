@@ -67,7 +67,7 @@ def _f32_to_fpx_unpacked(
     magic_adder = _n_ones(MBITS_F32 - mbits - 1)
 
     # all E bits and M bits are 1s
-    max_normal = 2 ** (_n_ones(ebits) - exp_bias) * (_n_ones(mbits + 1) / (2 ** mbits))
+    max_normal = 2 ** (_n_ones(ebits) - exp_bias) * (_n_ones(mbits + 1) / (2**mbits))
 
     # E bits = 1, M bits = 0
     min_normal = 2 ** (1 - exp_bias)
@@ -104,6 +104,33 @@ def _f32_to_fpx_unpacked(
     denormal_mask = torch.logical_and(torch.logical_not(saturate_mask), x < min_normal)
     normal_mask = torch.logical_not(torch.logical_or(saturate_mask, denormal_mask))
 
+    if rounding_mode == RoundingMode.STOCHASTIC:
+        # generate a shifting tensor for subnormal values
+        shifting_tensor = torch.zeros_like(x, device=x.device)
+        shifting_tensor = torch.where(denormal_mask, min_normal, shifting_tensor)
+
+        # shift the subnormal values to normal range
+        x += shifting_tensor
+
+        # view x as int32
+        x = x.view(torch.int32)
+
+        # generate a 32-bit integer
+        rand_values = torch.randint(
+            low=0, high=2**32 - 1, size=x.size(), device=x.device
+        )
+        # zero out the leading (1 + 8 + mbits) bits
+        rand_mask = (1 << (MBITS_F32 - mbits)) - 1
+        # add the random bits
+        x += rand_values & rand_mask
+
+        # take the leading (1 + 8 + mbits) bits
+        x = x & (~rand_mask)
+        x = x.view(torch.float)
+
+        # shift the subnormal values back
+        x -= shifting_tensor
+
     #
     # branch 1: saturate to max val - handled later in the code which combines
     #   the branches
@@ -112,58 +139,22 @@ def _f32_to_fpx_unpacked(
     #
     # branch 2: to conversion to denormal as well as rounding up to normal
     #
-    if rounding_mode == RoundingMode.STOCHASTIC:
-        # SR(x) = SR(x + min_normal) - min_normal
-        # adjust the denormal values to normal values
-        denormal_x = x + min_normal
-        # view denormal_x as int32 format
-        denormal_x = denormal_x.view(torch.int32)
-        # generate a 32-bit integer
-        rand_values = torch.randint(
-            low=0, high=2**32 - 1, size=x.size(), device=x.device
-        )
-        # zero out the leading (1 + 8 + mbits) bits
-        rand_mask = (1 << (MBITS_F32 - mbits)) - 1
-        # add the random bits
-        denormal_x += rand_values & rand_mask
-        # update exponent
-        denormal_x += (exp_bias - F32_EXP_BIAS) << MBITS_F32
-
-        # take the bits!
-        denormal_x = denormal_x >> (MBITS_F32 - mbits)
-        denormal_x = denormal_x.view(torch.float)
-
-        # adjust the denormal values back
-        denormal_x -= min_normal
-    else:
-        denormal_x = x + denorm_mask_float
-        denormal_x = denormal_x.view(torch.int32)
-        denormal_x -= denorm_mask_int
+    denormal_x = x + denorm_mask_float
+    denormal_x = denormal_x.view(torch.int32)
+    denormal_x -= denorm_mask_int
     denormal_x = denormal_x.to(torch.uint8)
 
     #
     # branch 3: stay in normal range, adjust the exponent and round
     #
     normal_x = x.view(torch.int32)
-    if rounding_mode == RoundingMode.STOCHASTIC:
-        # generate a 32-bit integer
-        rand_values = torch.randint(
-            low=0, high=2**32 - 1, size=x.size(), device=x.device
-        )
-        # zero out the leading (1 + 8 + mbits) bits
-        rand_mask = (1 << (MBITS_F32 - mbits)) - 1
-        # add the random bits
-        normal_x += rand_values & rand_mask
-        # update exponent
-        normal_x += (exp_bias - F32_EXP_BIAS) << MBITS_F32
-    else:
-        # resulting mantissa is odd
-        mant_odd = (normal_x >> (MBITS_F32 - mbits)) & 1
-        # update exponent, rounding bias part 1
-        val_to_add = ((exp_bias - F32_EXP_BIAS) << MBITS_F32) + magic_adder
-        normal_x += val_to_add
-        # rounding bias part 2
-        normal_x += mant_odd
+    # resulting mantissa is odd
+    mant_odd = (normal_x >> (MBITS_F32 - mbits)) & 1
+    # update exponent, rounding bias part 1
+    val_to_add = ((exp_bias - F32_EXP_BIAS) << MBITS_F32) + magic_adder
+    normal_x += val_to_add
+    # rounding bias part 2
+    normal_x += mant_odd
     # take the bits!
     normal_x = normal_x >> (MBITS_F32 - mbits)
     normal_x = normal_x.to(torch.uint8)
@@ -265,8 +256,6 @@ def _fpx_unpacked_to_f32(x: Tensor, ebits: int, mbits: int) -> Tensor:
 
                 # we can update this in-place since the values won't overlap
                 mantissa_lp_int32[mantissa_lp_int32 == mantissa_cmp] = exp_biased_f32 | mantissa_f32
-
-        result = torch.where(denormal_mask, mantissa_lp_int32, result)
 
     # add sign back
     sign_f32 = sign_lp.to(torch.int32) << (MBITS_F32 - mbits + EBITS_F32 - ebits)
