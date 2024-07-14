@@ -192,6 +192,10 @@ class Adam4bit(_Adam):
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
         return OptimState4bit.zeros(p.shape, signed, block_size, p.device)
 
+    @staticmethod
+    def _unwrap_dtensor(p: Tensor):
+        return p._local_tensor if isinstance(p, DTensor) else p
+
     @torch.no_grad()
     def step(self, closure=None):
         loss = None
@@ -205,26 +209,26 @@ class Adam4bit(_Adam):
         # thus, as a workaround, we use torch.compile(single_param_adam) and call it for each param.
 
         # unwrap DTensor since DTensor does not work well with dynamic compile
-        for group, *_ in param_groups:
-            for i in len(group):
-                group[i] = [x._local_tensor if isinstance(x, DTensor) else x for x in group[i]]
-
         # flatten p, grad, and optim state to avoid recompilation
         for group, lr, (beta1, beta2), weight_decay, eps in param_groups:
             for p, grad, step, exp_avg, exp_avg_sq, max_exp_avg_sq in group:
+                # DTensor._local_tensor has .requires_grad = False
+                # to avoid recompilation, set p.requires_grad = False and restore it after optim step
+                p.requires_grad_(False)
                 torch.compile(single_param_adam, fullgraph=True, dynamic=True)(
-                    p.view(-1),
-                    grad.view(-1),
+                    self._unwrap_dtensor(p).view(-1),
+                    self._unwrap_dtensor(grad).view(-1),
                     step,
-                    exp_avg.view(-1),
-                    exp_avg_sq.view(-1),
-                    max_exp_avg_sq.view(-1) if max_exp_avg_sq is not None else None,
+                    self._unwrap_dtensor(exp_avg).view(-1),
+                    self._unwrap_dtensor(exp_avg_sq).view(-1),
+                    self._unwrap_dtensor(max_exp_avg_sq).view(-1) if max_exp_avg_sq is not None else None,
                     lr,
                     beta1,
                     beta2,
                     weight_decay,
                     eps,
                 )
+                p.requires_grad_(True)
 
         return loss
 

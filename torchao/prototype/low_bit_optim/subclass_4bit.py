@@ -98,7 +98,7 @@ def _(func, *args, **kwargs):
     elif isinstance(dst, OptimState4bit):
         scaled_src, scale = scale_tensor(src.view(-1), dst.block_size)
         codes = quantize_4bit_with_qmap(scaled_src, dst.qmap)
-        dst.codes.copy_((codes[::2] << 4) & codes[1::2])  # packing
+        dst.codes.copy_((codes[::2] << 4) | codes[1::2])  # packing
         dst.scale.copy_(scale)
 
     else:
@@ -111,3 +111,11 @@ def _(func, *args, **kwargs):
 def _(func, *args, **kwargs):
     args = [x.dequantize() if isinstance(x, OptimState4bit) else x for x in args]
     return func(*args, **kwargs)
+
+
+@OptimState4bit.implements(aten.view.default)
+def _(func, *args, **kwargs):
+    x, shape = args
+    if len(shape) > 1 or shape[0] != -1:
+        raise ValueError(f"{x.__class__.__name__} only supports .view() with shape=[-1]")
+    return OptimState4bit(x.codes, x.scale, x.qmap, x.signed, (x.numel(),))
