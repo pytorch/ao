@@ -76,15 +76,20 @@ class TestQuantize(TestCase):
 class TestOptim(TestCase):
     @pytest.mark.xfail(not TORCH_VERSION_AFTER_2_3, reason="torch.compile() fails for PyTorch < 2.3")
     @parametrize("optim_name", ["Adam8bit", "AdamW8bit", "Adam4bit", "AdamW4bit", "AdamFp8", "AdamWFp8"])
+    @parametrize("dtype", [torch.float32, torch.bfloat16])
     @parametrize("device", _DEVICES)
-    def test_optim_smoke(self, optim_name, device):
+    def test_optim_smoke(self, optim_name, dtype, device):
         if optim_name.endswith("Fp8") and device == "cuda" and torch.cuda.get_device_capability() < (8, 9):
             pytest.skip("FP8 requires compute capability >= 8.9")
 
-        model = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
+        # reset cache to avoid hitting cache_size_limit, since the function will re-compile for each test
+        torch._dynamo.reset_code_caches()
+
+        model = nn.Sequential(nn.Linear(32, 256), nn.ReLU(), nn.Linear(256, 32))
+        model.to(device=device, dtype=dtype)
         optim = getattr(low_bit_optim, optim_name)(model.parameters())
 
-        x = torch.randn(4, 32, device=device)
+        x = torch.randn(4, 32, device=device, dtype=dtype)
         loss = model(x).sum()
         loss.backward()
         optim.step()
@@ -212,7 +217,7 @@ class TestFSDP2(FSDPTest):
                 if param.grad is not None:
                     torch.distributed.all_reduce(param.grad, op=torch.distributed.ReduceOp.AVG)
             base_optim.step()
-            self.assertEqual(fsdp_loss, base_loss, atol=1e-5, rtol=1e-5)
+            self.assertEqual(fsdp_loss, base_loss)
 
 
 instantiate_parametrized_tests(TestQuantize)
