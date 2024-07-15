@@ -21,6 +21,7 @@ from typing import Dict, Union
 import torch
 
 import torchao.prototype.mx_formats.config as config
+from torchao.prototype.custom_fp_utils import RoundingMode
 from torchao.prototype.mx_formats.constants import (
     BLOCK_SIZE_DEFAULT,
     DTYPE_FP4_E2M1,
@@ -58,7 +59,8 @@ from torchao.prototype.mx_formats.custom_cast import (
     triton_f4_to_scaled_bf16,
     unpack_uint4,
 )
-from torchao.prototype.custom_fp_utils import RoundingMode
+
+SBITS, EBITS_F32, MBITS_F32 = 1, 8, 23
 
 
 def to_mx(
@@ -91,6 +93,14 @@ def to_mx(
     # https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf
     # section 6.3.
     max_abs = torch.amax(torch.abs(data_hp), 1)
+
+    # rounding before calculating the largest power of 2
+    # https://docs.google.com/document/d/156Du0hBRH6umG_i-OrYC574XhpQMUU5SJYG0RTS2tTg/edit#heading=h.akfcp7xpg8cr
+    max_abs = max_abs.to(torch.float32).view(torch.int32)
+    val_to_add = 1 << (MBITS_F32 - 1)
+    mask = ((1 << (EBITS_F32 + SBITS)) - 1) << MBITS_F32
+    max_abs = (max_abs + val_to_add) & mask
+    max_abs = max_abs.view(torch.float32)
 
     # Add an epsilon to prevent the log2 function call for returning -inf
     # where the values are zero.
