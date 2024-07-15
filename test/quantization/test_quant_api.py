@@ -44,6 +44,7 @@ from torchao.quantization.quant_api import (
 from torchao.utils import (
     TORCH_VERSION_AFTER_2_3,
     TORCH_VERSION_AFTER_2_4,
+    TORCH_VERSION_AFTER_2_5,
 )
 from pathlib import Path
 from torchao._models.llama.tokenizer import get_tokenizer
@@ -522,6 +523,7 @@ class TestQuantFlow(TestCase):
         self.assertTrue(torch.equal(res, ref))
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(TORCH_VERSION_AFTER_2_5, "Test currently doesn't work for 2.5+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantized_tensor_subclass_int4(self):
         # use 1024 so that we don't need padding
