@@ -10,7 +10,7 @@ from torch.testing._internal.common_utils import (
 from torchao.utils import TORCH_VERSION_AFTER_2_4
 
 try:
-    from torchao.prototype.fp8 import gemm_split_k, to_float8
+    from torchao.prototype.splitk import gemm_split_k, to_float8
     triton_available = True
 except ImportError:
     triton_available = False
@@ -19,7 +19,7 @@ from torchao.utils import skip_if_compute_capability_less_than
 
 @unittest.skipIf(not triton_available, "Triton is required but not available")
 @unittest.skipIf(not torch.cuda.is_available(), "CUDA is required")
-class TestFP8Gemm(TestCase):
+class TestFP8SplitKGemm(TestCase):
     @skip_if_compute_capability_less_than(9.0)
     def test_gemm_split_k(self):
         dtype = torch.float16
