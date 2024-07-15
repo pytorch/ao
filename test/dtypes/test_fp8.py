@@ -38,7 +38,7 @@ class TestFP8Gemm(TestCase):
         x_fp8, x_inv_s = to_float8(x, dtype=qdtype)
         w_fp8, w_inv_s = to_float8(w, dtype=qdtype)
 
-        y_torch, _ = torch._scaled_mm(x_fp8, w_fp8.t(), out_dtype=dtype, scale_a=x_inv_s, scale_b=w_inv_s)
+        y_torch = torch._scaled_mm(x_fp8, w_fp8.t(), out_dtype=dtype, scale_a=x_inv_s, scale_b=w_inv_s)
         y_triton = gemm_split_k(x_fp8, w_fp8.t(), scale_a=x_inv_s.item(), scale_b=w_inv_s.item())
         y_fp16 = torch.nn.functional.linear(x, w)
 
