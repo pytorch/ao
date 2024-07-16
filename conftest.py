@@ -21,8 +21,10 @@ def set_cuda_visible_devices(worker_id):
         gpu_id = free_gpus[worker_id % len(free_gpus)]
         os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
     else:
-        raise RuntimeError("No free GPUs available")
+        # No GPUs available or nvidia-smi not found; run on CPU
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):
+    # Register the GPU setting fixture
     config.pluginmanager.register(set_cuda_visible_devices)
