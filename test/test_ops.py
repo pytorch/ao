@@ -10,7 +10,7 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 from torch.testing._internal.optests import opcheck
-from torchao.utils import is_fbcode, TORCH_VERSION_AFTER_2_5
+from torchao.utils import is_fbcode, TORCH_VERSION_AT_LEAST_2_5
 from torchao.prototype.quant_llm import from_scaled_tc_fpx
 import pytest
 
@@ -116,7 +116,7 @@ def test_unpack_tensor_core_tiled_layout_op(shape, inner_k_tiles):
     ]
     
     # TODO: Figure out why test fails unless torch >= 2.5
-    if TORCH_VERSION_AFTER_2_5:
+    if TORCH_VERSION_AT_LEAST_2_5:
         test_utils.append("test_aot_dispatch_dynamic")
 
     t = torch.randint(0, 16, dtype=torch.int, size=shape, device="cuda")
@@ -278,7 +278,7 @@ def test_dequantize_tensor_core_tiled_layout_op(shape, inner_k_tiles, group_size
     "test_faketensor",
     ]
     # TODO: Figure out why test fails unless torch >= 2.5
-    if TORCH_VERSION_AFTER_2_5:
+    if TORCH_VERSION_AT_LEAST_2_5:
         test_utils.append("test_aot_dispatch_dynamic")
     opcheck(
         torch.ops.torchao.dequantize_tensor_core_tiled_layout,

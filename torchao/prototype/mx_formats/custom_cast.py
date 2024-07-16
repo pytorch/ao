@@ -9,13 +9,13 @@ import numpy as np
 import torch
 from torch.utils._triton import has_triton
 
-from torchao.utils import TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
 from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32
 
 # TODO(future): if needed, make the below work on previous PyTorch versions,
 # just need to hunt down the previous location of `libdevice`. An assert
 # at the callsite prevents usage of this on unsupported versions.
-if TORCH_VERSION_AFTER_2_4 and has_triton():
+if TORCH_VERSION_AT_LEAST_2_4 and has_triton():
     from torch._inductor.runtime.triton_helpers import libdevice
 
 from torchao.prototype.mx_formats.constants import (
@@ -403,7 +403,7 @@ def triton_f4_to_scaled_bf16(
       size is currently assumed to be 32.
     Output: a tensor of bfloat16 values, multiplied by the encoded scale
     """
-    assert TORCH_VERSION_AFTER_2_4, "unsupported"
+    assert TORCH_VERSION_AT_LEAST_2_4, "unsupported"
     new_shape = (*x.shape[:-1], x.shape[-1] * 2)
     output = torch.empty(*new_shape, device=x.device, dtype=torch.bfloat16)
     assert x.is_contiguous()

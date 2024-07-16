@@ -12,7 +12,7 @@ from torchao.quantization.quant_api import (
     _get_subclass_inserter,
     _is_linear,
 )
-from torchao.utils import TORCH_VERSION_AFTER_2_3
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
 from torch.testing._internal.common_utils import TestCase
 
 
@@ -22,7 +22,7 @@ logging.basicConfig(
 
 class TestSemiStructuredSparse(TestCase):
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "pytorch 2.3+ feature")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "pytorch 2.3+ feature")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_sparse(self):
         input = torch.rand((128, 128)).half().cuda()
@@ -46,7 +46,7 @@ class TestSemiStructuredSparse(TestCase):
 
 class TestQuantSemiSparse(TestCase):
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "pytorch 2.3+ feature")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "pytorch 2.3+ feature")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quant_semi_sparse(self):
         input = torch.rand((128, 128)).half().cuda()

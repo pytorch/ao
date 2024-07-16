@@ -3,9 +3,9 @@ import torch
 import torch.nn as nn
 from torchao.prototype.dtypes import UInt2Tensor
 from torchao.prototype.dtypes.uint2 import unpack_uint2
-from torchao.utils import TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
 
-if not TORCH_VERSION_AFTER_2_4:
+if not TORCH_VERSION_AT_LEAST_2_4:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 @pytest.fixture

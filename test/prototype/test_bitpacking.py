@@ -2,9 +2,9 @@ import torch
 from torchao.prototype.common.bitpacking import pack, unpack
 import pytest
 from torch.utils._triton import has_triton
-from torchao.utils import TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
 
-if not TORCH_VERSION_AFTER_2_4:
+if not TORCH_VERSION_AT_LEAST_2_4:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 dtypes = ((2, 'trinary', 1), (2, None, 1), (3, None, 2), (4, None, 2), (5, None, 4), (6, None, 4), (7, None, 4))

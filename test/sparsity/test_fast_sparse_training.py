@@ -12,7 +12,7 @@ from torchao.sparsity.training import (
     swap_semi_sparse_linear_with_linear,
     SemiSparseLinear
 )
-from torchao.utils import TORCH_VERSION_AFTER_2_4, is_fbcode
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, is_fbcode
 
 class ToyModel(nn.Module):
     def __init__(self):
@@ -28,7 +28,7 @@ class ToyModel(nn.Module):
 
 class TestRuntimeSemiStructuredSparsity(TestCase):
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "pytorch 2.4+ feature")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "pytorch 2.4+ feature")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_runtime_weight_sparsification(self):
@@ -69,7 +69,7 @@ class TestRuntimeSemiStructuredSparsity(TestCase):
         for name, mod in model_c.named_modules():
             assert not isinstance(mod, SemiSparseLinear)
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "pytorch 2.4+ feature")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "pytorch 2.4+ feature")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_runtime_weight_sparsification_compile(self):
