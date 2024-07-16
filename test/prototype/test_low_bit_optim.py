@@ -179,6 +179,9 @@ class TestFSDP2(FSDPTest):
             TransformerBlock,
         )
 
+        torch._dynamo.reset_code_caches()
+        print(f"Testing FSDP2 for {optim_cls.__name__}")
+
         batch_size = 3
         vocab_size = 1024
         seq_len = 64
