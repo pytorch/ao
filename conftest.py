@@ -28,10 +28,6 @@ def set_cuda_visible_devices(worker_id):
     else:
         os.environ['CUDA_VISIBLE_DEVICES'] = ''
 
-@pytest.hookimpl(tryfirst=True)
-def pytest_configure(config):
-    config.pluginmanager.register(set_cuda_visible_devices)
-
 def pytest_collection_modifyitems(config, items):
     parallel_items = []
     sequential_items = []
@@ -41,11 +37,14 @@ def pytest_collection_modifyitems(config, items):
             sequential_items.append(item)
         else:
             parallel_items.append(item)
-    config.parallel_items = parallel_items
-    config.sequential_items = sequential_items
+    # Store the items in config for later use
+    config._metadata = {
+        'parallel_items': parallel_items,
+        'sequential_items': sequential_items
+    }
 
-@pytest.hookimpl(trylast=True)
 def pytest_sessionstart(session):
     config = session.config
-    items = config.parallel_items + config.sequential_items
-    session.items = items
+    if hasattr(config, '_metadata'):
+        items = config._metadata['parallel_items'] + config._metadata['sequential_items']
+        session.items = items

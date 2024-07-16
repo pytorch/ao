@@ -68,4 +68,8 @@ jobs:
         pip install ${{ matrix.torch-spec }}
         pip install -r dev-requirements.txt
         pip install .
-        pytest -n 4 test --verbose -s
+
+        # Run sequential tests
+        pytest -m sequential
+        # Run parallel tests
+        pytest -m "not sequential" -n 4
