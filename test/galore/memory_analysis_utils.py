@@ -1,3 +1,6 @@
+import pytest
+pytestmark = pytest.mark.group1
+
 from functools import partial
 
 import pandas as pd

@@ -1,4 +1,7 @@
 import pytest
+pytestmark = pytest.mark.group1
+
+import pytest
 
 # Skip entire test if triton is not available, otherwise CI failure
 try:

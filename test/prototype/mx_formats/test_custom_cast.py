@@ -1,3 +1,6 @@
+import pytest
+pytestmark = pytest.mark.group2
+
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 

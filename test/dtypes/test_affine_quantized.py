@@ -1,3 +1,6 @@
+import pytest
+pytestmark = pytest.mark.group1
+
 from torch.testing._internal.common_utils import (
     TestCase,
     run_tests,

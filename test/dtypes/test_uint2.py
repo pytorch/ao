@@ -1,4 +1,7 @@
 import pytest
+pytestmark = pytest.mark.group1
+
+import pytest
 import torch
 import torch.nn as nn
 from torchao.prototype.dtypes import UInt2Tensor

@@ -1,4 +1,7 @@
 import pytest
+pytestmark = pytest.mark.group2
+
+import pytest
 import torch
 
 from torchao.prototype.dtypes.uintgen import (

@@ -1,3 +1,6 @@
+import pytest
+pytestmark = pytest.mark.group1
+
 import gc
 import logging
 import os

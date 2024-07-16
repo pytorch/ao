@@ -1,3 +1,6 @@
+import pytest
+pytestmark = pytest.mark.group1
+
 import torch
 
 from torchao.prototype.galore.kernels.adam_downproj_fused import fused_adam_mm_launcher

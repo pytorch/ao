@@ -1,3 +1,6 @@
+import pytest
+pytestmark = pytest.mark.group1
+
 # Skip entire test if following module not available, otherwise CI failure
 import pytest
 
