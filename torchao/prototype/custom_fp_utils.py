@@ -12,6 +12,8 @@
 #      - Values outside the representable range of FPx after rounding are clamped to the maximum FPx
 #      magnitude (sign is preserved).
 
+from enum import Enum
+
 import torch
 from torch import Tensor
 
@@ -24,14 +26,24 @@ EBITS_F32, MBITS_F32 = 8, 23
 F32_EXP_BIAS = _n_ones(EBITS_F32 - 1)
 
 
-def _f32_to_fpx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
+class RoundingMode(Enum):
+    TIE_TO_EVEN = 0
+    STOCHASTIC = 1
+
+
+def _f32_to_fpx_unpacked(
+    x: Tensor,
+    ebits: int,
+    mbits: int,
+    rounding_mode: RoundingMode = RoundingMode.TIE_TO_EVEN,
+) -> Tensor:
     """Convert FP32 numbers to sub-byte floating point numbers with the given
     number of exponent and mantissa bits.
 
     Input: torch.Tensor of dtype torch.float
     Output: torch.Tensor of dtype torch.uint8, where the bit encoding is stored
     in the least significant bits. e.g.
-      fp4: bits 0-3 empty and bits 4-7 in fp4_e2m1 encoding
+      fp4: bits 0-3 empty and bits 4-7 in fp4_e2m1 or fp4_e3m0 encoding
       fp6: bits 0-1 empty and bits 2-7 in fp6_e2m3 or fp6_e3m2 encoding
 
     Note: there are no special values (NaN, inf) support in this code. Values
@@ -91,6 +103,33 @@ def _f32_to_fpx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
     saturate_mask = x >= max_normal
     denormal_mask = torch.logical_and(torch.logical_not(saturate_mask), x < min_normal)
     normal_mask = torch.logical_not(torch.logical_or(saturate_mask, denormal_mask))
+
+    if rounding_mode == RoundingMode.STOCHASTIC:
+        # generate a shifting tensor for subnormal values
+        shifting_tensor = torch.zeros_like(x, device=x.device)
+        shifting_tensor = torch.where(denormal_mask, min_normal, shifting_tensor)
+
+        # shift the subnormal values to normal range
+        x += shifting_tensor
+
+        # view x as int32
+        x = x.view(torch.int32)
+
+        # generate a 32-bit integer
+        rand_values = torch.randint(
+            low=0, high=2**32 - 1, size=x.size(), device=x.device
+        )
+        # zero out the leading (1 + 8 + mbits) bits
+        rand_mask = (1 << (MBITS_F32 - mbits)) - 1
+        # add the random bits
+        x += rand_values & rand_mask
+
+        # take the leading (1 + 8 + mbits) bits
+        x = x & (~rand_mask)
+        x = x.view(torch.float)
+
+        # shift the subnormal values back
+        x -= shifting_tensor
 
     #
     # branch 1: saturate to max val - handled later in the code which combines
