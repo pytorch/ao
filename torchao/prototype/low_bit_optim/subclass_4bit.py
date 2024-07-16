@@ -4,7 +4,7 @@ import torch
 from torch import Tensor
 from torchao.dtypes.utils import _implements, _ATEN_OP_OR_TORCH_FN_TABLE
 
-from .subclass_8bit import create_dynamic_map
+from .quant_utils import create_dynamic_map, scale_tensor, quantize_4bit_with_qmap, dequant_with_qmap
 
 
 aten = torch.ops.aten
@@ -12,45 +12,9 @@ aten = torch.ops.aten
 
 # https://github.com/thu-ml/low-bit-optimizers/blob/e3e2854728e498c2a606e3fdb88daa27ae94f9a6/lpmm/configs/2nd_moment_group_128.yml
 # NOTE: power-1 is linear
+# TODO: since QMAP_UNSIGNED is linear, perhaps doing affine quantize is faster?
 QMAP_SIGNED = create_dynamic_map(True, 3, 4)
 QMAP_UNSIGNED = torch.linspace(0, 1, 17)[1:].tolist()  # no zero
-
-
-def quantize_4bit_with_qmap(input: Tensor, qmap: Tensor, block_size: int, implementation: int = 1):
-    # section 2.1 from https://arxiv.org/abs/2110.02861
-    input = input.view(-1, block_size)
-    scale = input.abs().amax(-1).clip(1e-12)
-    input = input / scale.view(-1, 1)
-
-    # reference implementation. equation 4 from https://arxiv.org/abs/2110.02861
-    if implementation == 0:
-        codes = (qmap.view(1, -1) - input.view(-1, 1)).abs().argmin(-1)
-        codes = codes.to(torch.uint8)
-
-    # GPU-friendly binary search
-    # https://blog.demofox.org/2017/06/20/simd-gpu-friendly-branchless-binary-search/
-    elif implementation == 1:
-        input = input.view(-1)
-        codes = torch.where(input >= qmap[8], 8, 0)
-        codes += torch.where(input >= qmap[codes + 4], 4, 0)
-        codes += torch.where(input >= qmap[codes + 2], 2, 0)
-        codes += torch.where(input >= qmap[codes + 1], 1, 0)
-
-        # rounding
-        codes_up = (codes + 1).clip(max=15)
-        val_down = qmap[codes]
-        val_up = qmap[codes_up]
-        residual = input - val_down
-        codes = torch.where(residual >= (val_up - val_down) * 0.5, codes_up, codes)
-
-        codes = codes.to(torch.uint8)
-
-    else:
-        raise ValueError(f"Unsupported implementation={implementation}")
-
-    # packing
-    codes = (codes[::2] << 4) | codes[1::2]
-    return codes, scale
 
 
 class OptimState4bit(Tensor):
@@ -87,13 +51,8 @@ class OptimState4bit(Tensor):
         return cls(*[tensor_data_dict[name] for name in cls.tensor_attrs], *tensor_attributes)
 
     def dequantize(self, output_dtype=None):
-        # unpack
-        codes = torch.stack([self.codes >> 4, self.codes & 0b1111], dim=-1)
-
-        # torch.compile() cannot use uint8 as index
-        float_data = self.qmap[codes.int()]
-        float_data = float_data.view(-1, self.block_size) * self.scale.view(-1, 1)
-
+        codes = torch.stack([self.codes >> 4, self.codes & 0b1111], dim=-1)  # unpack
+        float_data = dequant_with_qmap(codes, self.qmap, self.scale)
         dtype = output_dtype or torch.get_default_dtype()
         return float_data.view(self._shape).to(dtype)
 
@@ -137,8 +96,9 @@ def _(func, *args, **kwargs):
         # qmap should be the same, don't need to copy
 
     elif isinstance(dst, OptimState4bit):
-        codes, scale = quantize_4bit_with_qmap(src, dst.qmap, dst.block_size)
-        dst.codes.copy_(codes)
+        scaled_src, scale = scale_tensor(src.view(-1), dst.block_size)
+        codes = quantize_4bit_with_qmap(scaled_src, dst.qmap)
+        dst.codes.copy_((codes[::2] << 4) | codes[1::2])  # packing
         dst.scale.copy_(scale)
 
     else:
@@ -153,12 +113,9 @@ def _(func, *args, **kwargs):
     return func(*args, **kwargs)
 
 
-# https://github.com/thu-ml/low-bit-optimizers/blob/e3e2854728e498c2a606e3fdb88daa27ae94f9a6/lpmm/config.py#L37
-# only apply quantization for tensor with more than 4096 values
-# TODO: also skip 1D tensor? e.g. biases and norm scales
-def maybe_new_4bit_zero_buffer(p: Tensor, signed: bool = True, block_size: int = 128):
-    if p.numel() >= 4096 and p.numel() % block_size == 0:
-        out = OptimState4bit.zeros(p.shape, signed, block_size, device=p.device)
-    else:
-        out = torch.zeros_like(p)
-    return out
+@OptimState4bit.implements(aten.view.default)
+def _(func, *args, **kwargs):
+    x, shape = args
+    if len(shape) > 1 or shape[0] != -1:
+        raise ValueError(f"{x.__class__.__name__} only supports .view() with shape=[-1]")
+    return OptimState4bit(x.codes, x.scale, x.qmap, x.signed, (x.numel(),))
