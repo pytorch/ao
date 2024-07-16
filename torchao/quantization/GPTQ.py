@@ -528,6 +528,9 @@ def _check_linear_int4_k(k, groupsize = 1, inner_k_tiles = None):
 def linear_forward_int4(x, weight_int4pack, scales_and_zeros, out_features, groupsize, dtype=torch.bfloat16):
     origin_x_size = x.size()
     x = x.reshape(-1, origin_x_size[-1])
+    if x.device == torch.device("cuda"):
+        # _weight_int4pack_mm CUDA kernel only supports bfloat16
+        dtype = torch.bfloat16
     c = torch.ops.aten._weight_int4pack_mm(
         x.to(dtype),
         weight_int4pack,
