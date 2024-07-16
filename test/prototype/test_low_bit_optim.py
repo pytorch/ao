@@ -183,10 +183,8 @@ class TestFSDP2(FSDPTest):
             TransformerBlock,
         )
 
+        # seems like cache_size_limit is shared between FSDP processes?
         torch._dynamo.config.cache_size_limit = 8 * self.world_size
-
-        print(f"Testing FSDP2 for {optim_cls.__name__}")
-        print(f"Cache size limit: {torch._dynamo.config.cache_size_limit}")
 
         batch_size = 3
         vocab_size = 1024

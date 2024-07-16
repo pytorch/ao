@@ -68,4 +68,4 @@ jobs:
         pip install ${{ matrix.torch-spec }}
         pip install -r dev-requirements.txt
         pip install .
-        TORCH_LOGS="recompiles" pytest test/prototype/test_low_bit_optim.py --verbose -s
+        pytest test --verbose -s

@@ -16,6 +16,8 @@ def quantize_fp8(input: Tensor, block_size: int):
     return codes.view(shape), scale
 
 
+# NOTE: FP8 sign bit is redundant for unsigned optim state.
+# we may investigate how to use it to increase range/precision for unsigned optim state.
 class OptimStateFp8(Tensor):
     implements = classmethod(_implements)
     tensor_attrs = ["codes", "scale"]
