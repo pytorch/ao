@@ -179,7 +179,8 @@ class TestFSDP2(FSDPTest):
             TransformerBlock,
         )
 
-        torch._dynamo.reset_code_caches()
+        torch._dynamo.config.cache_size_limit = 8 * self.world_size
+
         print(f"Testing FSDP2 for {optim_cls.__name__}")
         print(f"Cache size limit: {torch._dynamo.config.cache_size_limit}")
 
