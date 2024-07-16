@@ -181,6 +181,7 @@ class TestFSDP2(FSDPTest):
 
         torch._dynamo.reset_code_caches()
         print(f"Testing FSDP2 for {optim_cls.__name__}")
+        print(f"Cache size limit: {torch._dynamo.config.cache_size_limit}")
 
         batch_size = 3
         vocab_size = 1024
