@@ -166,8 +166,12 @@ class TestFSDP2(FSDPTest):
     @pytest.mark.skipif(not TORCH_VERSION_AFTER_2_4, reason="torch >= 2.4 required")
     @skip_if_lt_x_gpu(2)
     def test_fsdp2(self):
+        optim_classes = [low_bit_optim.Adam8bit, low_bit_optim.Adam4bit]
+        if torch.cuda.get_device_capability() >= (8, 9):
+            optim_classes.append(low_bit_optim.AdamFp8)
+
         self.run_subtests(
-            {"optim_cls": [low_bit_optim.Adam8bit, low_bit_optim.Adam4bit, low_bit_optim.AdamFp8]},
+            {"optim_cls": optim_classes},
             self._test_fsdp2,
         )
 
