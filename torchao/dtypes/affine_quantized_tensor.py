@@ -461,6 +461,8 @@ class TensorCoreTiledAQTLayout(AQTLayout):
 
     @classmethod
     def from_plain(cls, int_data, scale, zero_point, inner_k_tiles=8):
+        # assert int_data.dtype == torch.uint8, "torch.ops.aten._convert_weight_to_int4pack expects `uint8` dtype"
+        # packed_weight = torch.ops.aten._convert_weight_to_int4pack(int_data, inner_k_tiles)
         packed_weight = torch.ops.aten._convert_weight_to_int4pack(int_data.to(torch.int32), inner_k_tiles)
         scale = scale.reshape(int_data.shape[0], -1)
         zero_point = zero_point.reshape(int_data.shape[0], -1)
