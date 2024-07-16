@@ -68,4 +68,4 @@ jobs:
         pip install ${{ matrix.torch-spec }}
         pip install -r dev-requirements.txt
         pip install .
-        pytest test --verbose -s
+        pytest -n 4 test --verbose -s
