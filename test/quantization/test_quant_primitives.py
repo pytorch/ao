@@ -99,6 +99,7 @@ def _groupwise_affine_quantize_tensor_from_qparams(
         .to(torch.int32)
         .reshape_as(w)
     )
+    w_int4x8 = (w_int4x8[::, ::2] << 4 | w_int4x8[::, 1::2]).to(torch.uint8)
 
     return w_int4x8
 

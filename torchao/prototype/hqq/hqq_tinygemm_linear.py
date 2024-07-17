@@ -198,6 +198,7 @@ class HQQLinearTorchWeightOnlyInt4(torch.nn.Module):
             .reshape(shape)
             .contiguous()
         )
+        W_q = (W_q[::, ::2] << 4 | W_q[::, 1::2]).to(torch.uint8)
 
         # group_dequantize_tensor_from_qparams
         # W_r = W_q*scales + min_val

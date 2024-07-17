@@ -245,7 +245,7 @@ class AffineQuantizedTensor(torch.Tensor):
 
         scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain)
         int_data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
-
+        int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
         int_data = layout_type.post_process(int_data)
 
         layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
@@ -570,9 +570,8 @@ class TensorCoreTiledAQTLayout(AQTLayout):
         layout_type: LayoutType
     ):
         assert isinstance(layout_type, TensorCoreTiledLayoutType)
-        # assert int_data.dtype == torch.uint8, "torch.ops.aten._convert_weight_to_int4pack expects `uint8` dtype"
-        # packed_weight = torch.ops.aten._convert_weight_to_int4pack(int_data, inner_k_tiles)
-        packed_weight = torch.ops.aten._convert_weight_to_int4pack(int_data.to(torch.int32), layout_type.inner_k_tiles)
+        assert int_data.dtype == torch.uint8, "torch.ops.aten._convert_weight_to_int4pack expects `uint8` dtype"
+        packed_weight = torch.ops.aten._convert_weight_to_int4pack(int_data, layout_type.inner_k_tiles)
         scale = scale.reshape(int_data.shape[0], -1)
         zero_point = zero_point.reshape(int_data.shape[0], -1)
         scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point)
