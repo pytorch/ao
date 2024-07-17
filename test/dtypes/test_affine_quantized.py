@@ -5,10 +5,14 @@ from torch.testing._internal.common_utils import (
 from torchao.quantization.quant_api import int4_weight_only
 import torch
 import unittest
+from torchao.utils import (
+    TORCH_VERSION_AFTER_2_5,
+)
 
 
 class TestAffineQuantized(TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(TORCH_VERSION_AFTER_2_5, "int4 skipping 2.5+ for now")
     def test_tensor_core_layout_transpose(self):
         t = torch.rand(128, 256, dtype=torch.bfloat16, device="cuda")
         shape = t.shape
