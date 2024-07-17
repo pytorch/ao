@@ -3,10 +3,11 @@ from typing import Optional
 import torch
 from torch import Tensor
 from torch.optim import Optimizer
+from torch.distributed._tensor import DTensor
 
-from .subclass_8bit import maybe_new_8bit_zero_buffer
-from .subclass_4bit import maybe_new_4bit_zero_buffer
-from .subclass_fp8 import maybe_new_fp8_zero_buffer
+from .subclass_8bit import OptimState8bit
+from .subclass_4bit import OptimState4bit
+from .subclass_fp8 import OptimStateFp8
 
 
 class _AdamW(Optimizer):
@@ -28,18 +29,34 @@ class _AdamW(Optimizer):
         for group in self.param_groups:
             group.setdefault("amsgrad", False)
 
+    # bring your own function to create zero-filled subclass
     @staticmethod
-    def _new_buffer(p: Tensor, signed: bool, block_size: int):
+    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
         raise NotImplementedError
 
-    @torch.no_grad()
-    def step(self, closure=None):
-        loss = None
-        if closure is not None:
-            with torch.enable_grad():
-                loss = closure()
+    # follow bitsandbytes, only quantize tensors >= 4096 values
+    # also wrap subclass in DTensor when needed
+    def _new_buffer(self, p: Tensor, signed: bool):
+        if p.numel() >= 4096 and p.numel() % self.block_size == 0:
+            if isinstance(p, DTensor):
+                out = torch.empty_like(p)
+                out._local_tensor = self._subclass_zeros(
+                    out._local_tensor,
+                    signed,
+                    self.block_size,
+                )
+            else:
+                out = self._subclass_zeros(p, signed, self.block_size)
+        else:
+            out = torch.zeros_like(p)
+        return out
+
+    def _prepare_param_groups(self):
+        param_groups = []
 
         for group in self.param_groups:
+            _group = []
+
             for p in group["params"]:
                 if p.grad is None:
                     continue
@@ -51,42 +68,56 @@ class _AdamW(Optimizer):
                 state = self.state[p]
 
                 # State initialization
-                # state is flattened so that torch.compile won't recompile for tensors with different ndim
                 if len(state) == 0:
                     state["step"] = torch.tensor(0.0, device=p.device)
-                    state["exp_avg"] = self._new_buffer(p.view(-1), True, self.block_size)
-                    state["exp_avg_sq"] = self._new_buffer(p.view(-1), False, self.block_size)
+                    state["exp_avg"] = self._new_buffer(p, True)
+                    state["exp_avg_sq"] = self._new_buffer(p, False)
                     if group["amsgrad"]:
-                        state["max_exp_avg_sq"] = self._new_buffer(p.view(-1), False, self.block_size)
+                        state["max_exp_avg_sq"] = self._new_buffer(p, False)
 
                 state["step"] += 1
 
-                # must explicitly convert lr to Tensor since torch.compile() will treat it as a constant
-                # if it is a python float. practically, only lr is changed during training.
-                # NOTE: if lr is change at every step, moving lr to CUDA will be a bottleneck.
+                # must explicitly convert lr to Tensor since torch.compile() will treat Python float as constant.
+                # practically, only lr is changed during training.
+                # NOTE: if lr is changed at every step, moving lr to CUDA can slow down training 3-4%.
                 if not isinstance(group["lr"], Tensor):
                     group["lr"] = torch.tensor(group["lr"], device=p.device)
 
-                # flatten p and grad so that torch.compile won't recompile for tensors with different ndim
-                single_param_adamw(
-                    p.view(-1),
-                    grad.view(-1),
+                p_grad_state = (
+                    p,
+                    grad,
                     state["step"],
                     state["exp_avg"],
                     state["exp_avg_sq"],
                     state.get("max_exp_avg_sq", None),
-                    group["lr"],
-                    group["betas"][0],
-                    group["betas"][1],
-                    group["weight_decay"],
-                    group["eps"],
                 )
+                _group.append(p_grad_state)
 
+            param_groups.append((_group, group["lr"], group["betas"], group["weight_decay"], group["eps"]))
+
+        return param_groups
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        param_groups = self._prepare_param_groups()
+
+        # static compile optim step for all params in a single graph
+        torch.compile(param_groups_adamw, fullgraph=True)(param_groups)
         return loss
 
 
+def param_groups_adamw(param_groups):
+    for group, lr, (beta1, beta2), weight_decay, eps in param_groups:
+        for p, grad, step, exp_avg, exp_avg_sq, max_exp_avg_sq in group:
+            single_param_adamw(p, grad, step, exp_avg, exp_avg_sq, max_exp_avg_sq, lr, beta1, beta2, weight_decay, eps)
+
+
 # this will work with any optim state tensor subclass that implements aten.lerp.Scalar and aten.copy_.default
-@torch.compile(fullgraph=True, dynamic=True)
 def single_param_adamw(
     p: Tensor,
     grad: Tensor,
@@ -133,11 +164,13 @@ class AdamW8bit(_AdamW):
         weight_decay=1e-2,
         amsgrad=False,
         *,
-        block_size=2048
+        block_size=2048,
     ) -> None:
         super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size)
 
-    _new_buffer = staticmethod(maybe_new_8bit_zero_buffer)
+    @staticmethod
+    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
+        return OptimState8bit.zeros(p.shape, signed, block_size, p.device)
 
 
 class AdamW4bit(_AdamW):
@@ -154,7 +187,49 @@ class AdamW4bit(_AdamW):
     ) -> None:
         super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size)
 
-    _new_buffer = staticmethod(maybe_new_4bit_zero_buffer)
+    @staticmethod
+    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
+        return OptimState4bit.zeros(p.shape, signed, block_size, p.device)
+
+    @staticmethod
+    def _unwrap_dtensor(p: Tensor):
+        return p._local_tensor if isinstance(p, DTensor) else p
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        param_groups = self._prepare_param_groups()
+
+        # NOTE: right now, torch.compile(param_groups_adam) will have excessive memory usage for 4-bit optim.
+        # thus, as a workaround, we use torch.compile(single_param_adam) and call it for each param.
+
+        # unwrap DTensor since DTensor does not work well with dynamic compile
+        # flatten p, grad, and optim state to avoid recompilation
+        for group, lr, (beta1, beta2), weight_decay, eps in param_groups:
+            for p, grad, step, exp_avg, exp_avg_sq, max_exp_avg_sq in group:
+                # DTensor._local_tensor has .requires_grad = False
+                # to avoid recompilation, set p.requires_grad = False and restore it after optim step
+                p.requires_grad_(False)
+                torch.compile(single_param_adamw, fullgraph=True, dynamic=True)(
+                    self._unwrap_dtensor(p).view(-1),
+                    self._unwrap_dtensor(grad).view(-1),
+                    step,
+                    self._unwrap_dtensor(exp_avg).view(-1),
+                    self._unwrap_dtensor(exp_avg_sq).view(-1),
+                    self._unwrap_dtensor(max_exp_avg_sq).view(-1) if max_exp_avg_sq is not None else None,
+                    lr,
+                    beta1,
+                    beta2,
+                    weight_decay,
+                    eps,
+                )
+                p.requires_grad_(True)
+
+        return loss
 
 
 class AdamWFp8(_AdamW):
@@ -167,10 +242,10 @@ class AdamWFp8(_AdamW):
         weight_decay=1e-2,
         amsgrad=False,
         *,
-        block_size=2048
+        block_size=2048,
     ) -> None:
         super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size)
 
     @staticmethod
-    def _new_buffer(p: Tensor, signed: bool, block_size: int):
-        return maybe_new_fp8_zero_buffer(p, block_size)
+    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
+        return OptimStateFp8.zeros(p.shape, block_size, p.device)

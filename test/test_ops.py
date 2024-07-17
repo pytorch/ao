@@ -95,6 +95,7 @@ TEST_CONFIGS_UNPACK = list(itertools.product(SHAPES, INNERKTILES))
 TEST_CONFIGS_DEQUANT = list(itertools.product(SHAPES, INNERKTILES, QGROUP_SIZES))
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles", TEST_CONFIGS_UNPACK, ids=str)
 def test_unpack_tensor_core_tiled_layout_correctness(shape, inner_k_tiles):
     N, K = shape
@@ -107,6 +108,7 @@ def test_unpack_tensor_core_tiled_layout_correctness(shape, inner_k_tiles):
 
 # TODO: Fix "test_aot_dispatch_dynamic" test failure
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles", TEST_CONFIGS_UNPACK , ids=str)
 def test_unpack_tensor_core_tiled_layout_op(shape, inner_k_tiles):
     test_utils = [
@@ -114,7 +116,7 @@ def test_unpack_tensor_core_tiled_layout_op(shape, inner_k_tiles):
         "test_autograd_registration",
         "test_faketensor",
     ]
-    
+
     # TODO: Figure out why test fails unless torch >= 2.5
     if TORCH_VERSION_AFTER_2_5:
         test_utils.append("test_aot_dispatch_dynamic")
@@ -137,10 +139,10 @@ def dequant_ref(q, scales, zeros, group_size, nbits=4, dtype=torch.bfloat16):
     assert scales.shape == zeros.shape
 
     midpoint = 2 ** (nbits - 1)
-    
+
     #Convert fron u4 -> s4 and upcast to bfloat16
     q = q.sub(midpoint).to(dtype)
-    
+
     # Dequantize
     q = q.reshape(-1, group_size)
     dq = q * scales.reshape(-1, 1) + zeros.reshape(-1, 1)
@@ -149,21 +151,22 @@ def dequant_ref(q, scales, zeros, group_size, nbits=4, dtype=torch.bfloat16):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
 def test_dequantize_tensor_core_tiled_layout_correctness_quant_dequant(shape, inner_k_tiles, group_size):
     n, k = shape
-    dtype = torch.bfloat16    
+    dtype = torch.bfloat16
 
     device = "cuda"
 
     t = torch.randn(n, k, dtype=dtype, device=device)
     scales, zeros = get_groupwise_affine_qparams(t, n_bit=4, groupsize=group_size, dtype=dtype)
-    
+
     # Quantize
     q = groupwise_affine_quantize_tensor_from_qparams(
         t, scales, zeros, n_bit=4, groupsize=group_size
     )
-    
+
     # Pack to tensor core layout
     packed = torch.ops.aten._convert_weight_to_int4pack(q, inner_k_tiles)
     scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros)
@@ -174,7 +177,7 @@ def test_dequantize_tensor_core_tiled_layout_correctness_quant_dequant(shape, in
     dq_ao = groupwise_affine_dequantize_tensor_from_qparams(
         q, scales, zeros, n_bit=4, groupsize=group_size
     )
-    
+
     # Dequantize by passing in an identity matrix as the activation
     a_eye = torch.eye(k, device=device, dtype=dtype)
     dq_id = torch.ops.aten._weight_int4pack_mm(
@@ -183,23 +186,23 @@ def test_dequantize_tensor_core_tiled_layout_correctness_quant_dequant(shape, in
         group_size,
         scales_and_zeros,
     ).t()
-    
+
     # Actual operation to test
     dq_op = torchao.ops.dequantize_tensor_core_tiled_layout(packed, scales_and_zeros, group_size, inner_k_tiles)
-        
+
     # Compare results
     diff_ao_id = (dq_id - dq_ao).abs().max()
     diff_op_id = (dq_op - dq_id).abs().max()
     diff_op_ao = (dq_op - dq_ao).abs().max()
-    
+
     # There are slight numerical differences when dequantizing with an identity matrix when compared to `groupwise_affine_dequantize`
     # Since the `dequantize_tensor_core_layout` kernel relies on the same underlying bit twiddling tricks for fast
     # conversion from u4 -> s4 -> bf16, the identity matrix dequant hack and `dequantize_tensor_core_layout` are
     # expected to give same results, while both will have similar numerical differences to `groupwise_affine_dequantize`.
-    
-    # Test that the `dequant` kernel gives same results as identity matrix-based dequant 
+
+    # Test that the `dequant` kernel gives same results as identity matrix-based dequant
     assert diff_op_id == 0
-    
+
     # Test that the `dequant` kernel gives same numerical diffs as the `groupwise_affine_dequantize` when compared against the identity matrix
     assert diff_op_ao == diff_ao_id
 
@@ -207,10 +210,11 @@ def test_dequantize_tensor_core_tiled_layout_correctness_quant_dequant(shape, in
 
 # This test differs from one above in that it uses `unpack_tensor_core_tiled_layout` to unpack then dequantize
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
 def test_dequantize_tensor_core_tiled_layout_correctness_unpack_and_dequant(shape, inner_k_tiles, group_size):
     n, k = shape
-    dtype = torch.bfloat16    
+    dtype = torch.bfloat16
     device = "cuda"
 
     # Quantize and pack
@@ -222,13 +226,13 @@ def test_dequantize_tensor_core_tiled_layout_correctness_unpack_and_dequant(shap
 
     packed = torch.ops.aten._convert_weight_to_int4pack(q, inner_k_tiles)
     scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros)
-    
+
     # Unpack and dequantize
     unpacked = torchao.ops.unpack_tensor_core_tiled_layout(packed, inner_k_tiles)
     dq_ao = groupwise_affine_dequantize_tensor_from_qparams(
         unpacked, scales, zeros, n_bit=4, groupsize=group_size
     )
-    
+
     # Dequantize by passing in an identity matrix as the activation
     a_eye = torch.eye(k, device=device, dtype=dtype)
     dq_id = torch.ops.aten._weight_int4pack_mm(
@@ -237,29 +241,30 @@ def test_dequantize_tensor_core_tiled_layout_correctness_unpack_and_dequant(shap
         group_size,
         scales_and_zeros,
     ).t()
-    
+
     # Actual operation to test
     dq_op = torchao.ops.dequantize_tensor_core_tiled_layout(packed, scales_and_zeros, group_size, inner_k_tiles)
-    
+
     # Compare results
     diff_ao_id = (dq_id - dq_ao).abs().max()
     diff_op_id = (dq_op - dq_id).abs().max()
     diff_op_ao = (dq_op - dq_ao).abs().max()
-    
+
     # There are slight numerical differences when dequantizing with an identity matrix when compared to `groupwise_affine_dequantize`
     # Since the `dequantize_tensor_core_layout` kernel relies on the same underlying bit twiddling tricks for fast
     # conversion from u4 -> s4 -> bf16, the identity matrix dequant hack and `dequantize_tensor_core_layout` are
     # expected to give same results, while both will have similar numerical differences to `groupwise_affine_dequantize`.
-    
-    # Test that the `dequant` kernel gives same results as identity matrix-based dequant 
+
+    # Test that the `dequant` kernel gives same results as identity matrix-based dequant
     assert diff_op_id == 0
-    
+
     # Test that the `dequant` kernel gives same numerical diffs as the `groupwise_affine_dequantize` when compared against the identity matrix
     assert diff_op_ao == diff_ao_id
 
     assert diff_op_ao < 1e-1
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
 def test_dequantize_tensor_core_tiled_layout_op(shape, inner_k_tiles, group_size):
     n, k = shape
@@ -271,7 +276,7 @@ def test_dequantize_tensor_core_tiled_layout_op(shape, inner_k_tiles, group_size
     scales = torch.randn(n, q_groups, dtype=torch.bfloat16, device=device)
     zeros = torch.randn_like(scales)
     scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros)
-    
+
     test_utils = [
     "test_schema",
     "test_autograd_registration",
