@@ -22,10 +22,10 @@ only `torch.float32` and `torch.bfloat16` are supported as high precision format
 ```python
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
 # Note: MX int8 is not implemented yet
-from torchao.prototype.mx_formats.constants import DTYPE_FP6_E2M3, DTYPE_FP6_E3M2, DTYPE_FP4
+from torchao.prototype.mx_formats.constants import DTYPE_FP6_E2M3, DTYPE_FP6_E3M2, DTYPE_FP4_E2M1, DTYPE_FP4_E3M0
 x = torch.randn(32, 32, device='cuda')
 
-# elem_dtype can be torch.float8_e4m3fn, torch.float8_e5m2, DTYPE_FP6_E2M3, DTYPE_FP6_E3M2, DTYPE_FP4
+# elem_dtype can be torch.float8_e4m3fn, torch.float8_e5m2, DTYPE_FP6_E2M3, DTYPE_FP6_E3M2, DTYPE_FP4_E2M1, DTYPE_FP4_E3M0
 elem_dtype = torch.float8_e4m3fn
 
 # high precision to MX, block size defaults to 32

@@ -17,7 +17,8 @@ import tabulate
 import torch
 
 from torchao.prototype.mx_formats.constants import (
-    DTYPE_FP4,
+    DTYPE_FP4_E2M1,
+    DTYPE_FP4_E3M0,
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
 )
@@ -295,6 +296,25 @@ for fp32_ref, formula, _s, e, m, label in float4_e2m1_interesting_values:
 float4_e2m1_interesting_values.extend(float4_e2m1_neg)
 del float4_e2m1_neg
 
+# values for fp4_e3m0, no denormal values
+float4_e3m0_interesting_values = [
+    (0, "1.0 * 2^0 * 0.0", "0", "000", "", "zero"),
+    (0.25, "1.0 * 2^-2 * 1.0", "0", "001", "", "smallest_normal"),  # 2**-2 * 1.0
+    (0.5, "1.0 * 2^-1 * 1.0", "0", "010", "", "val2"),  # 2**-1 * 1.0
+    (1.0, "1.0 * 2^0 * 1.0", "0", "011", "", "val3"),  # 2**0 * 1.0
+    (2.0, "1.0 * 2^1 * 1.0", "0", "100", "", "val4"),  # 2**1 * 1.0
+    (4.0, "1.0 * 2^2 * 1.0", "0", "101", "", "val5"),  # 2**2 * 1.0
+    (8.0, "1.0 * 2^3 * 1.0", "0", "110", "", "val6"),  # 2**3 * 1.0
+    (16.0, "1.0 * 2^4 * 1.0", "0", "111", "", "largest_normal"),  # 2**4 * 1.0
+]
+float4_e3m0_neg = []
+for fp32_ref, formula, _s, e, m, label in float4_e3m0_interesting_values:
+    float4_e3m0_neg.append(
+        [-1 * fp32_ref, "-" + formula, "1", e, m, label + "_neg"]
+    )  # noqa: E501
+float4_e3m0_interesting_values.extend(float4_e3m0_neg)
+del float4_e3m0_neg
+
 # https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf, section 5.3.2  # noqa: E501
 float6_e3m2_interesting_values = [
     (0, "1.0 * 2^-2 * 0.0", "0", "000", "00", "zero"),
@@ -500,8 +520,10 @@ def run(dtype):
     headers = ["orig_val", "formula", "s_enc", "e_enc", "m_enc", "note"]
     results = []
 
-    if dtype == DTYPE_FP4:
+    if dtype == DTYPE_FP4_E2M1:
         results = float4_e2m1_interesting_values
+    elif dtype == DTYPE_FP4_E3M0:
+        results = float4_e3m0_interesting_values
     elif dtype == DTYPE_FP6_E3M2:
         results = float6_e3m2_interesting_values
     elif dtype == DTYPE_FP6_E2M3:
@@ -545,6 +567,7 @@ if __name__ == "__main__":
         torch.float8_e5m2,
         DTYPE_FP6_E3M2,
         DTYPE_FP6_E2M3,
-        DTYPE_FP4,
+        DTYPE_FP4_E3M0,
+        DTYPE_FP4_E2M1,
     ):
         run(dtype)

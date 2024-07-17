@@ -68,6 +68,10 @@ def test_linear_eager(elem_dtype, bias, input_shape):
         assert y_sqnr >= 18.0
         assert w_g_sqnr >= 18.0
         assert x_g_sqnr >= 14.0
+    elif elem_dtype == "fp4_e3m0":
+        assert y_sqnr >= 8.0
+        assert w_g_sqnr >= 8.0
+        assert x_g_sqnr >= 8.0
     else:
         assert y_sqnr >= 8.0
         assert w_g_sqnr >= 10.0

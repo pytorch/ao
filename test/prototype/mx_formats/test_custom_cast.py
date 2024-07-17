@@ -10,23 +10,35 @@ import torch
 
 import torchao.prototype.mx_formats.config as config
 from torch.utils._triton import has_triton
+
+from torchao.prototype.custom_fp_utils import RoundingMode
 from torchao.prototype.mx_formats.constants import (
-    DTYPE_FP4,
+    DTYPE_FP4_E2M1,
+    DTYPE_FP4_E3M0,
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
+    F32_MIN_NORMAL,
     F4_E2M1_EXP_BIAS,
+    F4_E3M0_EXP_BIAS,
+    F4_E3M0_MAX,
+    F4_E3M0_MIN_NORMAL,
     F6_E2M3_EXP_BIAS,
     F6_E3M2_EXP_BIAS,
 )
 
 from torchao.prototype.mx_formats.custom_cast import (
-    f32_to_f4_unpacked,
+    EBITS_F4_E3M0,
+    f32_to_f4_e2m1_unpacked,
+    f32_to_f4_e3m0_unpacked,
+    f32_to_f4_e3m0_unpacked,
     f32_to_f6_e2m3_unpacked,
     f32_to_f6_e3m2_unpacked,
-    f4_unpacked_to_f32,
+    f4_e2m1_unpacked_to_f32,
+    f4_e3m0_unpacked_to_f32,
     f6_e2m3_unpacked_to_f32,
     f6_e3m2_unpacked_to_f32,
     get_bits,
+    MBITS_F4_E3M0,
     pack_uint4,
     triton_f4_to_bf16,
     unpack_uint4,
@@ -42,8 +54,7 @@ from torchao.prototype.mx_formats.fp_format_spec import (
     sem_bits_to_sem_vals,
     sem_vals_to_f32,
 )
-
-from torchao.prototype.mx_formats.mx_tensor import MXTensor
+from torchao.prototype.mx_formats.mx_tensor import MXTensor, to_mx
 from torchao.utils import TORCH_VERSION_AFTER_2_4
 
 
@@ -186,24 +197,24 @@ def test_float6_e2m3_table():
 # below we test pos and neg versions of all of these
 
 
-def _test_fp4_case(f32_val, f32_val_ref, f4_enc_ref):
+def _test_fp4_e2m1_case(f32_val, f32_val_ref, f4_enc_ref):
     # 1. verify that a fp32 value gets quantized to correct fp4 encoding
     # TODO test on cuda
-    f4_unpacked = f32_to_f4_unpacked(torch.tensor(f32_val))
+    f4_unpacked = f32_to_f4_e2m1_unpacked(torch.tensor(f32_val))
     s_enc, e_enc, m_enc = get_sem_bits(f4_unpacked, bitwidth=4)
     assert s_enc + e_enc + m_enc == f4_enc_ref
 
     # 2. verify that fp4 value gets dequantized to correct fp32 value
-    f32_dequantized = f4_unpacked_to_f32(f4_unpacked)
+    f32_dequantized = f4_e2m1_unpacked_to_f32(f4_unpacked)
     assert f32_val_ref == f32_dequantized.item()
 
 
-def _test_fp4_cases(cases):
+def _test_fp4_e2m1_cases(cases):
     # test the exp and mantissa with both values of the sign bit
     for s_enc in "0", "1":
         s_i = 1.0 if s_enc == "0" else -1.0
         for val, val_ref, em_enc in cases:
-            _test_fp4_case(s_i * val, s_i * val_ref, s_enc + em_enc)
+            _test_fp4_e2m1_case(s_i * val, s_i * val_ref, s_enc + em_enc)
 
 
 # note: below are written as individual test cases for easy command line
@@ -229,26 +240,26 @@ def _test_fp4_cases(cases):
 #    5.0 -> 4.0
 
 
-def test_fp4_0_0():
+def test_fp4_e2m1_0_0():
     cases = [
         (0.25, 0.0, "000"),  # tie to even
         (0.1, 0.0, "000"),
         (0.0, 0.0, "000"),
         # note: -0.1 is tested in the negative zero test
     ]
-    _test_fp4_cases(cases)
+    _test_fp4_e2m1_cases(cases)
 
 
-def test_fp4_0_5():
+def test_fp4_e2m1_0_5():
     cases = [
         (0.6, 0.5, "001"),
         (0.5, 0.5, "001"),
         (0.4, 0.5, "001"),
     ]
-    _test_fp4_cases(cases)
+    _test_fp4_e2m1_cases(cases)
 
 
-def test_fp4_1_0():
+def test_fp4_e2m1_1_0():
     cases = [
         (1.25, 1.0, "010"),  # tie to even
         (1.1, 1.0, "010"),
@@ -256,19 +267,19 @@ def test_fp4_1_0():
         (0.9, 1.0, "010"),
         (0.75, 1.0, "010"),  # tie to even
     ]
-    _test_fp4_cases(cases)
+    _test_fp4_e2m1_cases(cases)
 
 
-def test_fp4_1_5():
+def test_fp4_e2m1_1_5():
     cases = [
         (1.6, 1.5, "011"),
         (1.5, 1.5, "011"),
         (1.4, 1.5, "011"),
     ]
-    _test_fp4_cases(cases)
+    _test_fp4_e2m1_cases(cases)
 
 
-def test_fp4_2_0():
+def test_fp4_e2m1_2_0():
     cases = [
         (2.5, 2.0, "100"),  # tie to even
         (2.1, 2.0, "100"),
@@ -276,19 +287,19 @@ def test_fp4_2_0():
         (1.9, 2.0, "100"),
         (1.75, 2.0, "100"),  # tie to even
     ]
-    _test_fp4_cases(cases)
+    _test_fp4_e2m1_cases(cases)
 
 
-def test_fp4_3_0():
+def test_fp4_e2m1_3_0():
     cases = [
         (3.1, 3.0, "101"),
         (3.0, 3.0, "101"),
         (2.9, 3.0, "101"),
     ]
-    _test_fp4_cases(cases)
+    _test_fp4_e2m1_cases(cases)
 
 
-def test_fp4_4_0():
+def test_fp4_e2m1_4_0():
     cases = [
         (5.0, 4.0, "110"),  # tie to even
         (4.1, 4.0, "110"),
@@ -296,34 +307,34 @@ def test_fp4_4_0():
         (3.9, 4.0, "110"),
         (3.5, 4.0, "110"),  # tie to even
     ]
-    _test_fp4_cases(cases)
+    _test_fp4_e2m1_cases(cases)
 
 
-def test_fp4_6_0():
+def test_fp4_e2m1_6_0():
     cases = [
         (6.1, 6.0, "111"),
         (6.0, 6.0, "111"),
         (5.9, 6.0, "111"),
     ]
-    _test_fp4_cases(cases)
+    _test_fp4_e2m1_cases(cases)
 
 
-def test_fp4_pack_unpack():
+def test_fp4_e2m1_pack_unpack():
     orig_vals = torch.Tensor([[0.0, 0.5, 4.0, -0.0], [-0.0, 1.0, -6.0, 3.0]])
-    orig_vals_f4_unpacked = f32_to_f4_unpacked(orig_vals)
+    orig_vals_f4_unpacked = f32_to_f4_e2m1_unpacked(orig_vals)
     orig_vals_f4_packed = pack_uint4(orig_vals_f4_unpacked)
     assert orig_vals_f4_packed.numel() == (orig_vals.numel() / 2)
     orig_vals_f4_packed_unpacked = unpack_uint4(orig_vals_f4_packed)
-    orig_vals_dq = f4_unpacked_to_f32(orig_vals_f4_packed_unpacked)
+    orig_vals_dq = f4_e2m1_unpacked_to_f32(orig_vals_f4_packed_unpacked)
     assert torch.all(orig_vals_dq == orig_vals)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(not TORCH_VERSION_AFTER_2_4, reason="requires PyTorch >= 2.4")
-def test_fp4_triton_unscaled_cast():
+def test_fp4_e2m1_triton_unscaled_cast():
     packed_vals = torch.arange(0, 255, dtype=torch.uint8, device="cuda")
-    f32_ref = f4_unpacked_to_f32(unpack_uint4(packed_vals))
+    f32_ref = f4_e2m1_unpacked_to_f32(unpack_uint4(packed_vals))
     f32_triton = triton_f4_to_bf16(packed_vals).to(torch.float)
     assert torch.all(torch.eq(f32_ref, f32_triton))
 
@@ -331,10 +342,10 @@ def test_fp4_triton_unscaled_cast():
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
 @pytest.mark.skipif(not TORCH_VERSION_AFTER_2_4, reason="requires PyTorch >= 2.4")
-def test_fp4_triton_scaled_cast():
+def test_fp4_e2m1_triton_scaled_cast():
     size = (256,)
     orig_vals = torch.randn(size, dtype=torch.float, device="cuda") * 100
-    mxtensor = MXTensor.to_mx(orig_vals, block_size=32, elem_dtype=DTYPE_FP4)
+    mxtensor = MXTensor.to_mx(orig_vals, block_size=32, elem_dtype=DTYPE_FP4_E2M1)
 
     f32_ref = mxtensor.to_dtype(torch.float)
     config.use_fp4_custom_triton_dequant_kernel = True
@@ -411,3 +422,168 @@ def test_fp6_e3m2_rounding(f32_val, f6_e3m2_enc, device):
 
     f6_e3m2_unpacked = f32_to_f6_e3m2_unpacked(torch.tensor(-f32_val, device=device))
     assert f6_e3m2_unpacked.item() == (f6_e3m2_enc | 0b100000)
+
+@pytest.mark.parametrize("hp_dtype", [torch.float32])
+@pytest.mark.parametrize("device", ["cuda", "cpu"])
+@pytest.mark.parametrize("sign", [1, -1])
+@pytest.mark.parametrize(
+    "rounding_mode", [RoundingMode.TIE_TO_EVEN, RoundingMode.STOCHASTIC]
+)
+def test_float4_e2m1_overflow(hp_dtype, device, sign, rounding_mode):
+    data_min = sign * F4_E3M0_MAX
+    data_max = sign * F4_E3M0_MAX * F4_E3M0_MAX
+    data = (
+        torch.rand(1024, 1024, dtype=hp_dtype, device=device) * (data_max - data_min)
+        + data_min
+    )
+
+    data_lp = f32_to_f4_e3m0_unpacked(data, rounding_mode)
+    if sign == 1:
+        target_lp = torch.full_like(data, 2**EBITS_F4_E3M0 - 1, dtype=torch.uint8)
+    else:
+        target_lp = torch.full_like(
+            data, 2 ** (EBITS_F4_E3M0 + 1) - 1, dtype=torch.uint8
+        )
+
+    torch.testing.assert_close(
+        data_lp,
+        target_lp,
+        atol=0,
+        rtol=0,
+    )
+
+
+@pytest.mark.parametrize("hp_dtype", [torch.float32])
+@pytest.mark.parametrize("device", ["cuda", "cpu"])
+def test_float4_e2m1_underflow(hp_dtype, device):
+    data_min = -F4_E3M0_MIN_NORMAL
+    data_max = F4_E3M0_MIN_NORMAL
+    data = (
+        torch.rand(1024, 1024, dtype=hp_dtype, device=device) * (data_max - data_min)
+        + data_min
+    )
+
+    data_lp = f32_to_f4_e3m0_unpacked(data)
+    target_lp = torch.where((data >= 0) & (data <= F4_E3M0_MIN_NORMAL / 2), 0, 1).to(
+        torch.uint8
+    )
+    target_lp = torch.where(
+        data < -F4_E3M0_MIN_NORMAL / 2, 1 + 2**EBITS_F4_E3M0, data_lp
+    )
+
+    torch.testing.assert_close(
+        data_lp,
+        target_lp,
+        atol=0,
+        rtol=0,
+    )
+
+
+@pytest.mark.parametrize("hp_dtype", [torch.float32])
+@pytest.mark.parametrize("device", ["cuda", "cpu"])
+def test_float4_e2m1_underflow_use_stochastic_rounding(hp_dtype, device):
+    data_min = -F4_E3M0_MIN_NORMAL
+    data_max = F4_E3M0_MIN_NORMAL
+    data = (
+        torch.rand(1024, 1024, dtype=hp_dtype, device=device) * (data_max - data_min)
+        + data_min
+    )
+
+    data_lp = f32_to_f4_e3m0_unpacked(data, RoundingMode.STOCHASTIC)
+    target_lp = torch.where((data >= 0) & (data <= F4_E3M0_MIN_NORMAL / 2), 0, 1).to(
+        torch.uint8
+    )
+    target_lp = torch.where(
+        data < -F4_E3M0_MIN_NORMAL / 2, 1 + 2**EBITS_F4_E3M0, data_lp
+    )
+
+
+    torch.testing.assert_close(
+        data_lp,
+        target_lp,
+        atol=1,
+        rtol=0,
+    )
+
+    zeros_in_data_lp = (data_lp == 0).sum().item()
+    zeros_in_target_lp = (target_lp == 0).sum().item()
+
+    assert (
+        zeros_in_data_lp >= zeros_in_target_lp
+    ), f"stochastic rounding should have more non-zero values {zeros_in_data_lp} >= {zeros_in_target_lp}"
+
+
+@pytest.mark.parametrize("exp_range", list(range(-2, 4)))
+@pytest.mark.parametrize("hp_dtype", [torch.float32])
+@pytest.mark.parametrize("device", ["cuda", "cpu"])
+@pytest.mark.parametrize("sign", [1, -1])
+@pytest.mark.parametrize("rounding_mode", [False, True])
+def test_float4_e2m1_normal_cast(exp_range, hp_dtype, device, sign, rounding_mode):
+    if sign == 1:
+        data_min = pow(2, exp_range)
+        data_max = pow(2, exp_range + 1)
+    else:
+        data_min = -pow(2, exp_range + 1)
+        data_max = -pow(2, exp_range)
+
+    data = (
+        torch.rand(1024, 1024, dtype=hp_dtype, device=device) * (data_max - data_min)
+        + data_min
+    )
+
+    data_lp = f32_to_f4_e3m0_unpacked(data, rounding_mode).to(torch.float32)
+    if sign == 1:
+        data_lp = torch.pow(2, data_lp - F4_E3M0_EXP_BIAS)
+    else:
+        data_lp = -torch.pow(2, data_lp - F4_E3M0_EXP_BIAS - 8)
+
+    torch.testing.assert_close(
+        data_lp,
+        data,
+        atol=data_max - data_min,
+        rtol=0,
+    )
+
+
+@pytest.mark.parametrize("data_range", [1, 0.75, 0.5, 0.25, 0.125])
+@pytest.mark.parametrize("hp_dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("device", ["cuda", "cpu"])
+@pytest.mark.parametrize("block_size", [32])
+@pytest.mark.parametrize(
+    "rounding_mode", [RoundingMode.TIE_TO_EVEN, RoundingMode.STOCHASTIC]
+)
+def test_float4_e2m1_mx_qdq(data_range, hp_dtype, block_size, device, rounding_mode):
+    data_min = -data_range
+    data_max = data_range
+    data = (
+        torch.rand(1024, 1024, dtype=hp_dtype, device=device) * (data_max - data_min)
+        + data_min
+    )
+    scale_e8m0_biased, data_lp = to_mx(data, "fp4_e3m0", block_size, rounding_mode)
+    mx_args = MXTensor(scale_e8m0_biased, data_lp, "fp4_e3m0", block_size, data.dtype)
+    data_qdq = mx_args.to_dtype(mx_args._orig_dtype)
+
+    scale_e8m0_unbiased = scale_e8m0_biased - 127
+    scale_fp = torch.pow(
+        torch.full(scale_e8m0_unbiased.size(), 2.0, device=data.device),
+        scale_e8m0_unbiased,
+    )
+    scale_fp = torch.clamp(scale_fp, min=F32_MIN_NORMAL)
+
+    data_lp = data.reshape(-1, block_size) / scale_fp.unsqueeze(1)
+    data_lp = data_lp.reshape(data.shape)
+
+    # exclude overflow values whose error is unbounded
+    saturate_mask = data_lp >= F4_E3M0_MAX
+    data_qdq = torch.where(saturate_mask, data, data_qdq)
+
+    # the largest error equals to max_scale_value * max_exp_range
+    max_scale_value = torch.max(scale_fp)
+    largest_error = max_scale_value * (2**4 - 2**3)
+
+    torch.testing.assert_close(
+        data_qdq,
+        data,
+        atol=largest_error,
+        rtol=0,
+    )
