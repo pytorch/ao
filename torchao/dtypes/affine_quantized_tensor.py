@@ -544,7 +544,7 @@ class TensorCoreTiledAQTLayout(AQTLayout):
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
         device = kwargs["device"]
-        if device != "cuda" or (isinstance(device, torch.device) and device.type != "cuda"):
+        if device != "cuda" and (isinstance(device, torch.device) and device.type != "cuda"):
             raise ValueError(f"TensorCoreTiledAQTLayout is only available for cuda device, can't convert to {device}")
         return self.__class__(
             self.packed_weight.to(device),
