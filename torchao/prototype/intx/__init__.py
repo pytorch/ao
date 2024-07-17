@@ -1,2 +1,2 @@
-from .Intx import IntxTensor
-from .AffineIntxLinear import to_intx_quantized
+from .Intx import IntxTensor, to_intx
+from .bitpacking import pack, unpack, pack_cpu, unpack_cpu, numbits

@@ -48,7 +48,15 @@ class TensorCoreTiledLayoutType(LayoutType):
     def extra_repr(self):
         return f"inner_k_tiles={self.inner_k_tiles}"
 
-
+@dataclass(frozen=True)
+class IntxLayoutType(LayoutType):
+    bit_size: int
+    pack_dim: int = -1
+    
+    def post_process(self, input: torch.Tensor) -> torch.Tensor:
+        from torchao.prototype.intx import to_intx
+        return to_intx(input, self.bit_size, self.pack_dim)
+    
 def _aqt_is_int8(aqt):
     """Check if an AffineQuantizedTensor is int8 quantized Tensor"""
     return (
@@ -581,6 +589,25 @@ class TensorCoreTiledAQTLayout(AQTLayout):
     def get_layout_type(self) -> LayoutType:
         return self.layout_type
 
+@register_layout_cls(IntxLayoutType)
+class IntxAQTLayout(PlainAQTLayout):
+    """
+    Similar to PlainAQTLayout, but with a small modification to support intx conversion
+    """
+    def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return self.int_data.get_plain(), self.scale, self.zero_point
+    
+    @classmethod
+    def from_plain(
+        cls,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        layout_type: LayoutType,
+    ):
+        assert isinstance(layout_type, IntxLayoutType)
+        return cls(int_data, scale, zero_point, layout_type)
+    
 def _quantized_linear_op(input_tensor, weight_qtensor, bias):
     """
     Quantized version of F.linear operator

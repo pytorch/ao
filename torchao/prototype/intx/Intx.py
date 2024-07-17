@@ -7,8 +7,7 @@ import torch
 from torch._dynamo.comptime import comptime
 
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from torchao.quantization.quant_primitives import choose_qparams_affine, MappingType
-from torchao.prototype.intx.bitpacking import pack, unpack, numbits
+from .bitpacking import pack, unpack, numbits
 from torchao.dtypes.utils import (
     _implements,
     _ATEN_OP_OR_TORCH_FN_TABLE,
@@ -46,13 +45,12 @@ class IntxTensor(torch.Tensor):
         bit_size: int,
         pack_dim: int = -1,
     ):
-        kwargs = {}
+        kwargs = {"device": shards[0].device}
         kwargs["device"] = shards[0].device
         kwargs["layout"] = shards[0].layout
         kwargs["requires_grad"] = False
         kwargs["dtype"] = torch.uint8
-        comptime.print(kwargs)
-        return torch.Tensor._make_wrapper_subclass(cls, packed_shape, **kwargs)  # type: ignore[attr-defined]
+        return torch.Tensor._make_wrapper_subclass(cls, packed_shape, **kwargs) 
 
     def __init__(
         self,
@@ -62,8 +60,9 @@ class IntxTensor(torch.Tensor):
         pack_dim: int = -1,
     ):
         shards = [shard.to(torch.uint8) for shard in shards]
-        for atrib in self.bits_to_shard[bit_size]:
-            setattr(self, atrib, shards.pop(0))
+        self.shard = shards
+        for i, atrib in enumerate(self.bits_to_shard[bit_size]):
+            setattr(self, atrib, shards[i])
             
         self.packed_shape = packed_shape
         self.bit_size = bit_size    
@@ -78,7 +77,6 @@ class IntxTensor(torch.Tensor):
     def __tensor_flatten__(self):
         
         return self.__class__.bits_to_shard[self.bit_size], [self.packed_shape, self.bit_size, self.pack_dim]
-
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
@@ -120,12 +118,9 @@ class IntxTensor(torch.Tensor):
     
     @classmethod
     def from_int(cls, int_data: torch.Tensor, bit_size, pack_dim: int = -1):
-        # pdb.set_trace()
         shards = pack(int_data, bit_size, dim=pack_dim)
         shape = list(int_data.shape)
         shape[pack_dim] = shape[pack_dim] * bit_size // 8
-        comptime.print(cls)
-        
         return cls(shards, int_data.shape, bit_size, pack_dim)
     
     
@@ -171,9 +166,7 @@ def detach(func, *args, **kwargs):
     
 @implements([aten.view.default])
 def view(func, *args, **kwargs):
-    # print('view', args)
     new = args[0].apply_transformation(lambda x: x.view(*args[1]))
-    # print(new)
     return return_and_correct_aliasing(
         func, args, kwargs, new
     )
@@ -191,9 +184,7 @@ def sub(func, *args, **kwargs):
 @implements([aten.mul_.Tensor, aten.mul.Tensor])
 def mul(func, *args, **kwargs):
     if func == aten.mul_.Tensor:
-        # print('mul_')
         new = args[0].apply_transformation(lambda x: (x.to(torch.int8)*args[1:]).to(torch.uint8))
-        # print('mul', new)
         return return_and_correct_aliasing(
             func, args, kwargs, new
         )
@@ -213,3 +204,5 @@ def _to_copy(func, *args, **kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, new
     )
+    
+to_intx = IntxTensor.from_int
