@@ -307,9 +307,9 @@ def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16
     ).reshape(w.shape[0], -1)
 
 
-def pack_tinygemm_scales_and_zeros(scales, zeros):
-    guard_dtype_size(scales, "scales", dtype=torch.bfloat16, size=zeros.size())
-    guard_dtype_size(zeros, "zeros", dtype=torch.bfloat16)
+def pack_tinygemm_scales_and_zeros(scales, zeros, dtype=torch.bfloat16):
+    guard_dtype_size(scales, "scales", dtype=dtype, size=zeros.size())
+    guard_dtype_size(zeros, "zeros", dtype=dtype)
     return (
         torch.cat(
             [
@@ -348,7 +348,8 @@ def groupwise_affine_quantize_tensor_from_qparams(
     quant_min = 0
     quant_max = 2 ** n_bit - 1
 
-    return quantize_affine(w, block_size, scales, zeros, output_dtype, quant_min, quant_max, zero_point_domain = ZeroPointDomain.FLOAT)
+    int_data = quantize_affine(w, block_size, scales, zeros, output_dtype, quant_min, quant_max, zero_point_domain = ZeroPointDomain.FLOAT)
+    return int_data
 
 def groupwise_affine_dequantize_tensor_from_qparams(
     w_int4x8,
@@ -376,7 +377,7 @@ def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128, dtype=torch.bflo
     w_int4x8 = groupwise_affine_quantize_tensor_from_qparams(
         w, scales, zeros, n_bit, groupsize
     )
-    scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros)
+    scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros, dtype)
     return w_int4x8, scales_and_zeros
 
 

@@ -54,7 +54,7 @@ __all__ = [
     "Int4WeightOnlyQuantizer",
     "autoquant",
     "_get_subclass_inserter",
-    "quantize",
+    "quantize_",
     "int8_dynamic_activation_int4_weight",
     "int8_dynamic_activation_int8_weight",
     "int4_weight_only",
@@ -259,8 +259,8 @@ def _get_linear_subclass_inserter(constructor):
 
     return insert_subclass
 
-def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tensor], torch.Tensor], filter_fn: Optional[Callable[[torch.nn.Module, str], bool]]=None, set_inductor_config: bool=True) -> torch.nn.Module:
-    """Convert the weight of linear modules in the model with `apply_tensor_subclass`
+def quantize_(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tensor], torch.Tensor], filter_fn: Optional[Callable[[torch.nn.Module, str], bool]]=None, set_inductor_config: bool=True):
+    """Convert the weight of linear modules in the model with `apply_tensor_subclass`, model is modified inplace
 
     Args:
         model (torch.nn.Module): input model
@@ -273,7 +273,7 @@ def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tens
 
         import torch
         import torch.nn as nn
-        from torchao import quantize
+        from torchao import quantize_
 
         # 1. quantize with some predefined `apply_tensor_subclass` method that corresponds to
         # optimized execution paths or kernels (e.g. int4 tinygemm kernel)
@@ -286,7 +286,7 @@ def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tens
         from torchao.quantization.quant_api import int4_weight_only
 
         m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))
-        m = quantize(m, int4_weight_only(group_size=32))
+        quantize_(m, int4_weight_only(group_size=32))
 
         # 2. write your own new apply_tensor_subclass
         # You can also add your own apply_tensor_subclass by manually calling tensor subclass constructor
@@ -305,7 +305,7 @@ def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tens
             return isinstance(module, nn.Linear)
 
         m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))
-        m = quantize(m, apply_weight_quant, filter_fn)
+        quantize_(m, apply_weight_quant, filter_fn)
 
     """
     if set_inductor_config:
@@ -315,7 +315,7 @@ def quantize(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tens
         _get_linear_subclass_inserter(apply_tensor_subclass),
         _is_linear if filter_fn is None else filter_fn,
     )
-    return model
+
 
 def int8_dynamic_activation_int4_weight(group_size=32):
     """Applies int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear
@@ -364,6 +364,14 @@ def int4_weight_only(group_size=128, inner_k_tiles=8):
     Applies uint4 weight-only asymmetric per-group quantization to linear layers, using
     "tensor_core_tiled" layout for speedup with tinygemm kernel
 
+    Note:
+        This is targeting `tinygemm` int4mm kernel (`torch.ops.aten._weight_int4pack_mm`), the main difference
+        of quantization algorithm compared to the more traditional type of integer quantization is the following:
+        1). zero_point is in floating point domain instead of integer domain (`zero_point_domain`=`ZeroPointDomain.FLOAT`)
+        2). floating point zero does not have to be exactly representable (`preserve_zero`=False in `choose_qparams_affine`)
+        please follow the relevant code in `choose_qparams_affine`, `quantize_affine` and `dequantize_affine`
+        to learn about how the quantization parameters are chosen and how the Tensor is quantized/dequantized for tinygemm
+
     Args:
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained, choices are [256, 128, 64, 32]
@@ -372,6 +380,7 @@ def int4_weight_only(group_size=128, inner_k_tiles=8):
     def apply_int4_weight_only_quant(weight):
         # avoid circular dep
         from torchao.dtypes import to_affine_quantized
+        from torchao.dtypes import TensorCoreTiledLayoutType
 
         mapping_type = MappingType.ASYMMETRIC
         block_size = (1, group_size)
@@ -382,7 +391,8 @@ def int4_weight_only(group_size=128, inner_k_tiles=8):
         preserve_zero = False
         zero_point_dtype = torch.bfloat16
         zero_point_domain = ZeroPointDomain.FLOAT
-        return to_affine_quantized(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, extended_layout="tensor_core_tiled", inner_k_tiles=inner_k_tiles)
+        layout_type = TensorCoreTiledLayoutType(inner_k_tiles=inner_k_tiles)
+        return to_affine_quantized(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, layout_type=layout_type)
 
     return apply_int4_weight_only_quant
 

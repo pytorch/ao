@@ -100,7 +100,7 @@ def generate(
     T_new = T + max_new_tokens
     seq = torch.empty(T_new, dtype=prompt.dtype, device=device)
     seq[:T] = prompt.view(-1)
-    
+
     # setup model cache
     max_seq_length = min(T_new, model.config.block_size) if not interactive else 350
     with torch.device(device):
@@ -158,7 +158,7 @@ def main(
     """
 
     torchao.quantization.utils.recommended_inductor_config_setter()
-    
+
     assert checkpoint_path.is_file(), checkpoint_path
     tokenizer_path = checkpoint_path.parent / "tokenizer.model"
     assert tokenizer_path.is_file(), str(tokenizer_path)
@@ -180,11 +180,11 @@ def main(
     prompt_length = encoded.size(0)
 
     torch.manual_seed(1234)
-    
+
 
     if quantization:
         from torchao.quantization.quant_api import (
-            quantize,
+            quantize_,
             int8_weight_only,
             int8_dynamic_activation_int8_weight,
             int4_weight_only,
@@ -193,13 +193,13 @@ def main(
     )
 
         if "int8wo" in quantization:
-            quantize(model, int8_weight_only())
+            quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
-            quantize(model, int8_dynamic_activation_int8_weight())
+            quantize_(model, int8_dynamic_activation_int8_weight())
         if "int4wo" in quantization:
             groupsize=int(quantization.split("-")[-1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
-            quantize(model, int4_weight_only(group_size=groupsize))
+            quantize_(model, int4_weight_only(group_size=groupsize))
         if "autoquant" == quantization:
             model = autoquant(model, manual=True)
 

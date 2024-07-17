@@ -16,7 +16,7 @@ from torchao.prototype.quant_llm import (
 )
 from torchao.prototype.quant_llm.quant_llm import _pack_tc_fpx, _pack_tc_fp6
 from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32
-from torchao.quantization.quant_api import quantize
+from torchao.quantization.quant_api import quantize_
 
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
@@ -91,7 +91,7 @@ class TestQuantLlmLinearWeight(TestCase):
 
         linear = torch.nn.Linear(IC, OC, bias=bias, device=device)
         fpx_linear = copy.deepcopy(linear)
-        quantize(fpx_linear, quant_llm_fpx_weight_only(ebits, mbits))
+        quantize_(fpx_linear, quant_llm_fpx_weight_only(ebits, mbits))
 
         x = torch.randn(N, IC, device=device, dtype=torch.half)
         expected = fpx_linear(x)
