@@ -1,7 +1,9 @@
 import torch
 from torchao.dtypes.uint4 import (
     UInt4Tensor,
-    PerChannelSymmetricWeightUInt4Tensor,
+)
+from torchao.dtypes import (
+    PerChannelSymmetricWeightUInt4Tensor
 )
 import unittest
 from torch.ao.quantization.quantize_pt2e import prepare_pt2e, convert_pt2e
