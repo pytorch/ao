@@ -78,6 +78,7 @@ with more content coming soon.
       quantization
       sparsity
       performant_kernels
+      serialization
 
    .. toctree::
       :glob:
