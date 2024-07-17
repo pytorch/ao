@@ -1,4 +1,7 @@
 import pytest
+pytestmark = pytest.mark.group1
+
+import pytest
 
 triton = pytest.importorskip(
     "triton", minversion="3.0.0", reason="Triton > 3.0.0 required to run this test"

@@ -1,3 +1,6 @@
+import pytest
+pytestmark = pytest.mark.group1
+
 import torch
 from torchao.dtypes.uint4 import (
     UInt4Tensor,

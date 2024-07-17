@@ -1,3 +1,6 @@
+import pytest
+pytestmark = pytest.mark.group2
+
 import torch
 from torchao.prototype.common.bitpacking import pack, unpack
 import pytest

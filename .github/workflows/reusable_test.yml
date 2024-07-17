@@ -1,0 +1,38 @@
+# .github/workflows/reusable_test.yml
+name: Reusable Test Workflow
+
+on:
+  workflow_call:
+    inputs:
+      marker:
+        required: true
+        type: string
+      runner:
+        required: true
+        type: string
+      torch_spec:
+        required: true
+        type: string
+
+jobs:
+  run-tests:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+      - name: Install dependencies
+        run: |
+          conda create -n venv python=3.9 -y
+          conda activate venv
+          echo "::group::Install newer objcopy that supports --set-section-alignment"
+          yum install -y  devtoolset-10-binutils
+          export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
+          python -m pip install --upgrade pip
+          pip install ${{ inputs.torch_spec }}
+          pip install -r dev-requirements.txt
+          pip install .
+      - name: Run tests
+        run: pytest test --verbose -s -m ${{ inputs.marker }}

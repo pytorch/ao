@@ -1,3 +1,6 @@
+import pytest
+pytestmark = pytest.mark.group1
+
 # LLAMA100M = {
 #     "architectures": ["LLaMAForCausalLM"],
 #     "attention_bias": False,

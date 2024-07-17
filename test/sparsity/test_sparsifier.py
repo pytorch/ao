@@ -1,3 +1,6 @@
+import pytest
+pytestmark = pytest.mark.group2
+
 # Owner(s): ["module: unknown"]
 
 import itertools

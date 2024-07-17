@@ -1,3 +1,6 @@
+import pytest
+pytestmark = pytest.mark.group1
+
 import os
 import unittest
 import torch
