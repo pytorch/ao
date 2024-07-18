@@ -68,5 +68,5 @@ jobs:
         pip install ${{ matrix.torch-spec }}
         pip install -r dev-requirements.txt
         pip install .
-        pytest test --verbose -s -m "not multi_gpu" --dist loadfile --tx popen//env:CUDA_VISIBLE_DEVICES=0 --tx popen//env:CUDA_VISIBLE_DEVICES=1 --tx popen//env:CUDA_VISIBLE_DEVICES=2 --tx popen//env:CUDA_VISIBLE_DEVICES=3
+        pytest test --verbose -s -m "not multi_gpu" --dist loadscope --tx popen//env:CUDA_VISIBLE_DEVICES=0 --tx popen//env:CUDA_VISIBLE_DEVICES=1 --tx popen//env:CUDA_VISIBLE_DEVICES=2 --tx popen//env:CUDA_VISIBLE_DEVICES=3
         pytest test --verbose -s -m "multi_gpu"
