@@ -163,6 +163,7 @@ class TestFSDP2(FSDPTest):
     def world_size(self) -> int:
         return 2
 
+    @pytest.mark.multi_gpu
     @pytest.mark.skipif(not TORCH_VERSION_AFTER_2_4, reason="torch >= 2.4 required")
     @skip_if_lt_x_gpu(2)
     def test_fsdp2(self):
