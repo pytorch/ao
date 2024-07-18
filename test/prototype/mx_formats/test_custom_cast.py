@@ -429,7 +429,7 @@ def test_fp6_e3m2_rounding(f32_val, f6_e3m2_enc, device):
 @pytest.mark.parametrize(
     "rounding_mode", [RoundingMode.TIE_TO_EVEN, RoundingMode.STOCHASTIC]
 )
-def test_float4_e2m1_overflow(hp_dtype, device, sign, rounding_mode):
+def test_float4_e3m0_overflow(hp_dtype, device, sign, rounding_mode):
     data_min = sign * F4_E3M0_MAX
     data_max = sign * F4_E3M0_MAX * F4_E3M0_MAX
     data = (
@@ -455,7 +455,7 @@ def test_float4_e2m1_overflow(hp_dtype, device, sign, rounding_mode):
 
 @pytest.mark.parametrize("hp_dtype", [torch.float32])
 @pytest.mark.parametrize("device", ["cuda", "cpu"])
-def test_float4_e2m1_underflow(hp_dtype, device):
+def test_float4_e3m0_underflow(hp_dtype, device):
     data_min = -F4_E3M0_MIN_NORMAL
     data_max = F4_E3M0_MIN_NORMAL
     data = (
@@ -481,7 +481,7 @@ def test_float4_e2m1_underflow(hp_dtype, device):
 
 @pytest.mark.parametrize("hp_dtype", [torch.float32])
 @pytest.mark.parametrize("device", ["cuda", "cpu"])
-def test_float4_e2m1_underflow_use_stochastic_rounding(hp_dtype, device):
+def test_float4_e3m0_underflow_use_stochastic_rounding(hp_dtype, device):
     data_min = -F4_E3M0_MIN_NORMAL
     data_max = F4_E3M0_MIN_NORMAL
     data = (
@@ -518,7 +518,7 @@ def test_float4_e2m1_underflow_use_stochastic_rounding(hp_dtype, device):
 @pytest.mark.parametrize("device", ["cuda", "cpu"])
 @pytest.mark.parametrize("sign", [1, -1])
 @pytest.mark.parametrize("rounding_mode", [False, True])
-def test_float4_e2m1_normal_cast(exp_range, hp_dtype, device, sign, rounding_mode):
+def test_float4_e3m0_normal_cast(exp_range, hp_dtype, device, sign, rounding_mode):
     if sign == 1:
         data_min = pow(2, exp_range)
         data_max = pow(2, exp_range + 1)
@@ -552,7 +552,7 @@ def test_float4_e2m1_normal_cast(exp_range, hp_dtype, device, sign, rounding_mod
 @pytest.mark.parametrize(
     "rounding_mode", [RoundingMode.TIE_TO_EVEN, RoundingMode.STOCHASTIC]
 )
-def test_float4_e2m1_mx_qdq(data_range, hp_dtype, block_size, device, rounding_mode):
+def test_float4_e3m0_mx_qdq(data_range, hp_dtype, block_size, device, rounding_mode):
     data_min = -data_range
     data_max = data_range
     data = (
