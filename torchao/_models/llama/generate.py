@@ -345,7 +345,6 @@ if __name__ == '__main__':
     parser.add_argument('--precision', type=lambda x: getattr(torch, x.split(".")[-1]), default=torch.bfloat16, help='dtype precision to use')
     parser.add_argument('--write_result', type=Path, default=None, help='Path where to write the result')
 
-
     args = parser.parse_args()
     main(
         args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.top_k,
