@@ -320,11 +320,6 @@ def run(
         predictor.model.image_encoder = sparsify_(predictor.model.image_encoder,
                                                   to_sparse_semi_structured,
                                                   mlp_lin2_only)
-    elif compress == "int4_weight_only_quant_sparse":
-        apply_fake_sparsity(predictor.model.image_encoder)
-        quantize_(predictor.model.image_encoder, int8_dynamic_activation_int8_weight())
-        predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
-
     else:
         assert compress is None, f"Unsupported compress mode {compress}"
 
@@ -377,7 +372,7 @@ def run(
                                                               batch_size,
                                                               use_compile,
                                                               use_compile_decoder,
-                                                              pad_input_image_batch, 
+                                                              pad_input_image_batch,
                                                               compress)
 
     results = [[r[0], r[1], r[2], r[3].item()] for r in results]

@@ -51,15 +51,14 @@ Sparsifying your model is also a 1 liner that should work on any model with an `
 ```python
 from torchao.sparsity import sparsify, semi_sparse_weight
 
-m = sparsify(m, semi_sparse_weight)
+m = sparsify_(m, semi_sparse_weight)
 ```
 Sparsity can also be composed with int8 dynamic quantization for further speedups:
 
 ```python
-from torchao.sparsity import sparsify
-from torchao.sparsity.prototype.dynamic_quant_sparse import int8_dynamic_activation_int8_semi_sparse_weight
+from torchao.sparsity import sparsify, int8_dynamic_activation_int8_semi_sparse_weight
 
-m = sparsify(m, int8_dynamic_activation_int8_semi_sparse_weight())
+m = sparsify_(m, int8_dynamic_activation_int8_semi_sparse_weight())
 ```
 We found that applying int8 dynamic quantization to the attention layers, int8 dynamic quantization + semi sparse (2:4) sparsity to mlp layer 1 and 2:4 sparsity to mlp layer 2 yielded the best configuration.
 We were able to provide a **1.16x (22.7 -> 26.5 img/s) speedup over our dense baseline, while maintaining 97.5% (0.581 -> 0.567) of the evaluation accuracy (mIOU)**.
