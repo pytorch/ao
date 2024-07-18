@@ -26,6 +26,7 @@ from torchao.dtypes.utils import (
 )
 from typing import ClassVar
 from dataclasses import dataclass
+from torchao.utils import TORCH_VERSION_AFTER_2_5
 
 aten = torch.ops.aten
 
@@ -569,8 +570,11 @@ class TensorCoreTiledAQTLayout(AQTLayout):
         layout_type: LayoutType
     ):
         assert isinstance(layout_type, TensorCoreTiledLayoutType)
-        int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
-        assert int_data.dtype == torch.uint8, "torch.ops.aten._convert_weight_to_int4pack expects `uint8` dtype"
+        if TORCH_VERSION_AFTER_2_5:
+            int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
+            assert int_data.dtype == torch.uint8, "torch.ops.aten._convert_weight_to_int4pack in torch 2.5 expects `uint8` dtype"
+        else:
+            assert int_data.dtype == torch.int32, "torch.ops.aten._convert_weight_to_int4pack in torch 2.4 expects `int32` dtype"
         packed_weight = torch.ops.aten._convert_weight_to_int4pack(int_data, layout_type.inner_k_tiles)
         scale = scale.reshape(int_data.shape[0], -1)
         zero_point = zero_point.reshape(int_data.shape[0], -1)

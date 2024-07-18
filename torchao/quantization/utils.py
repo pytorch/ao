@@ -17,6 +17,7 @@ from .quant_primitives import (
     dequantize_affine,
     int_scaled_matmul,
 )
+from torchao.utils import TORCH_VERSION_AFTER_2_5
 
 __all__ = [
     "compute_error",
@@ -349,7 +350,8 @@ def groupwise_affine_quantize_tensor_from_qparams(
     quant_max = 2 ** n_bit - 1
 
     int_data = quantize_affine(w, block_size, scales, zeros, output_dtype, quant_min, quant_max, zero_point_domain = ZeroPointDomain.FLOAT)
-    int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
+    if TORCH_VERSION_AFTER_2_5:
+        int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
     return int_data
 
 def groupwise_affine_dequantize_tensor_from_qparams(
