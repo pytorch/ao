@@ -7,8 +7,8 @@ from .affine_quantized_tensor import (
     to_affine_quantized_static,
     LayoutType,
     PlainLayoutType,
+    SemiSparseLayoutType,
     TensorCoreTiledLayoutType,
-    SparseAQTLayout
 )
 
 __all__ = [
@@ -20,6 +20,6 @@ __all__ = [
     "to_affine_quantized_static",
     "LayoutType",
     "PlainLayoutType",
+    "SemiSparseLayoutType",
     "TensorCoreTiledLayoutType",
-    "SparseAQTLayout",
 ]

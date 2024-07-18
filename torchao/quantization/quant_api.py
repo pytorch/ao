@@ -58,7 +58,7 @@ __all__ = [
     "quantize_",
     "int8_dynamic_activation_int4_weight",
     "int8_dynamic_activation_int8_weight",
-    "int8_dynamic_activation_int8_2x4_sparse_weight",
+    "int8_dynamic_activation_int8_semi_sparse_weight",
     "int4_weight_only",
     "int8_weight_only",
 ]
@@ -464,7 +464,8 @@ def int8_dynamic_activation_int8_weight():
 
     return _get_linear_subclass_inserter(apply_int8_dynamic_activation_int8_weight_quant)
 
-def int8_dynamic_activation_int8_2x4_sparse_weight():
+
+def int8_dynamic_activation_int8_semi_sparse_weight():
     """
     Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight 
     quantization + 2:4 sparsity to linear layers.
@@ -477,7 +478,7 @@ def int8_dynamic_activation_int8_2x4_sparse_weight():
 
         # avoid circular dep
         from torchao.dtypes import to_affine_quantized
-        from torchao.dtypes.affine_quantized_tensor import SparseLayoutType
+        from torchao.dtypes.affine_quantized_tensor import SemiSparseLayoutType
         # weight settings
         mapping_type = MappingType.SYMMETRIC
         def get_weight_block_size(x):
@@ -501,7 +502,7 @@ def int8_dynamic_activation_int8_2x4_sparse_weight():
         input_quant_func = lambda x: to_affine_quantized(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype, eps=input_eps, quant_min=input_quant_min, quant_max=input_quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
 
         block_size = get_weight_block_size(weight)
-        weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, layout_type=SparseLayoutType())
+        weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, layout_type=SemiSparseLayoutType())
         weight = to_linear_act_quantized(weight, input_quant_func)
         return weight
 

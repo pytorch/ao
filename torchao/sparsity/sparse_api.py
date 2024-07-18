@@ -7,7 +7,7 @@ from torchao.quantization.quant_api import (
     _is_linear,
     _replace_with_custom_fn_if_matches_filter,
     _get_linear_subclass_inserter,
-    int8_dynamic_activation_int8_2x4_sparse_weight,
+    int8_dynamic_activation_int8_semi_sparse_weight,
 )
 
 # Sparsity helper functions
@@ -44,7 +44,7 @@ def sparsify_(model: torch.nn.Module,
 
     Currently, we support two options for sparsity:
         - semi-structured (2:4) sparsity with `semi_sparse_weight`
-        - int8 dynamic quantization + 2:4 sparsity with `int8_dynamic_activation_int8_2x4_sparse_weight`, which is also available via the quantize API
+        - int8 dynamic quantization + 2:4 sparsity with `int8_dynamic_activation_int8_semi_sparse_weight`, which is also available via the quantize API
 
     Args:
         model (torch.nn.Module): input model
@@ -67,8 +67,8 @@ def sparsify_(model: torch.nn.Module,
         m = sparsify_(m, semi_sparse_weight(), filter_fn)
 
         # for int8 dynamic quantization + 2:4 sparsity
-        from torchao.sparsity.prototype import int8_dynamic_activation_int8_2x4_sparse_weight
-        m = sparsify_(m, int8_dynamic_activation_int8_2x4_sparse_weight(), filter_fn)
+        from torchao.sparsity.prototype import int8_dynamic_activation_int8_semi_sparse_weight
+        m = sparsify_(m, int8_dynamic_activation_int8_semi_sparse_weight(), filter_fn)
     """
     _replace_with_custom_fn_if_matches_filter(
         model,

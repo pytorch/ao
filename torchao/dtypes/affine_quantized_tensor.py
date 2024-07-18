@@ -31,13 +31,18 @@ aten = torch.ops.aten
 class PlainLayoutType(LayoutType):
     pass
 
-
 @dataclass(frozen=True)
-class SparseLayoutType(LayoutType):
+class SemiSparseLayoutType(LayoutType):
+
+    def pre_process(self, input: torch.Tensor) -> torch.Tensor:
+        # prune to 2:4 if not already
+        temp = input.detach()
+        pruning_inds = temp.abs().view(-1, 4).argsort(dim=1)[:, :2]
+        temp.view(-1, 4).scatter_(1, pruning_inds, value=0)
+        return temp
 
     def post_process(self, input: torch.Tensor) -> torch.Tensor:
         return torch._cslt_compress(input)
-
 
 @dataclass(frozen=True)
 class TensorCoreTiledLayoutType(LayoutType):
@@ -480,8 +485,8 @@ class PlainAQTLayout(AQTLayout):
         assert isinstance(layout_type, PlainLayoutType)
         return cls(int_data, scale, zero_point, layout_type)
 
-@register_layout_cls(SparseLayoutType)
-class SparseAQTLayout(PlainAQTLayout):
+@register_layout_cls(SemiSparseLayoutType)
+class SemiSparseAQTLayout(PlainAQTLayout):
     """
     Layout storage class for semi_sparse_cusparselt layout for affine quantized tensor
     """
@@ -531,7 +536,7 @@ class SparseAQTLayout(PlainAQTLayout):
         zero_point: torch.Tensor,
         layout_type: LayoutType,
     ):
-        assert isinstance(layout_type, SparseLayoutType)
+        assert isinstance(layout_type, SemiSparseLayoutType)
         return cls(int_data, scale, zero_point, layout_type)
     
 
@@ -737,7 +742,7 @@ def _quantized_linear_op(input_tensor, weight_qtensor, bias):
                 input_is_int8 and
                 input_tensor.dtype == weight_qtensor.dtype and
                 isinstance(input_tensor.layout_type, PlainLayoutType) and
-                isinstance(weight_qtensor.layout_type, SparseLayoutType)
+                isinstance(weight_qtensor.layout_type, SemiSparseLayoutType)
             ):
                 x_vals_int8 = input_tensor.layout_tensor.int_data
                 x_scales = input_tensor.layout_tensor.scale

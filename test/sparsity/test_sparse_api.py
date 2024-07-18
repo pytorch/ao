@@ -5,7 +5,7 @@ import copy
 import torch
 from torch import nn
 
-from torchao.sparsity import apply_fake_sparsity, sparsify_, int8_dynamic_activation_int8_2x4_sparse_weight
+from torchao.sparsity import apply_fake_sparsity, sparsify_, int8_dynamic_activation_int8_semi_sparse_weight
 from torchao.sparsity.sparse_api import semi_sparse_weight
 from torchao.utils import unwrap_tensor_subclass
 from torchao.quantization.quant_api import (
@@ -69,7 +69,7 @@ class TestQuantSemiSparse(TestCase):
         quantize_(model_copy, int8_dynamic_activation_int8_weight())
         dense_result = model_copy(input)
 
-        sparsify_(model, int8_dynamic_activation_int8_2x4_sparse_weight())
+        quantize_(model, int8_dynamic_activation_int8_semi_sparse_weight())
         sparse_result = model(input)
 
         assert torch.allclose(dense_result, sparse_result, rtol=1e-2, atol=1e-2)
