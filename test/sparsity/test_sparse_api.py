@@ -1,13 +1,16 @@
+import copy
 import logging
 import unittest
-import copy
 
 import torch
 from torch import nn
 
-from torchao.sparsity import apply_fake_sparsity, sparsify_, int8_dynamic_activation_int8_semi_sparse_weight
-from torchao.sparsity.sparse_api import semi_sparse_weight
-from torchao.utils import unwrap_tensor_subclass
+from torchao.sparsity import (
+    apply_fake_sparsity,
+    sparsify_,
+    int8_dynamic_activation_int8_semi_sparse_weight,
+    semi_sparse_weight,
+)
 from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
     _get_subclass_inserter,
@@ -15,10 +18,6 @@ from torchao.quantization.quant_api import (
     int8_dynamic_activation_int8_weight,
     quantize_,
 )
-from torchao.quantization.subclass import (
-    LinearActQuantizedTensor,
-)
-from torchao.dtypes import AffineQuantizedTensor
 from torchao.utils import TORCH_VERSION_AFTER_2_3, unwrap_tensor_subclass
 from torch.testing._internal.common_utils import TestCase
 
