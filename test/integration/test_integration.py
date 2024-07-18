@@ -985,7 +985,10 @@ class TestSaveLoadMeta(unittest.TestCase):
         # save quantized state_dict
         api(model)
 
-        torch.save(model.state_dict(), "test.pth")
+        # unique filename to avoid collision in parallel tests
+        ckpt_name = f"{api.__name__}_{test_device}_{test_dtype}_test.pth"
+
+        torch.save(model.state_dict(), ckpt_name)
         # get quantized reference
         model_qc = torch.compile(model, mode="max-autotune")
         ref_q = model_qc(x).detach()
@@ -998,8 +1001,8 @@ class TestSaveLoadMeta(unittest.TestCase):
         api(model)
 
         # load quantized state_dict
-        state_dict = torch.load("test.pth", mmap=True)
-        os.remove("test.pth")
+        state_dict = torch.load(ckpt_name, mmap=True)
+        os.remove(ckpt_name)
 
         model.load_state_dict(state_dict, assign=True)
         model = model.to(device=test_device, dtype=test_dtype).eval()
