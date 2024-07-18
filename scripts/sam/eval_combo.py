@@ -10,9 +10,8 @@ import time
 import resource
 
 from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight, int4_weight_only
-from torchao.sparsity import sparsify_, apply_fake_sparsity, int8_dynamic_activation_int8_2x4_sparse_weight
+from torchao.sparsity import sparsify_, apply_fake_sparsity, int8_dynamic_activation_int8_semi_sparse_weight, semi_sparse_weight
 from torchao.utils import unwrap_tensor_subclass
-from torch.sparse import to_sparse_semi_structured
 
 torch._dynamo.config.cache_size_limit = 50000
 
@@ -290,10 +289,10 @@ def run(
         def mlp_only(mod, name):
             return isinstance(mod, torch.nn.Linear) and 'mlp' in name
         apply_fake_sparsity(predictor.model.image_encoder, filter_fn=mlp_only)
-        sparsify_(predictor.model.image_encoder, to_sparse_semi_structured, filter_fn=mlp_only)
+        sparsify_(predictor.model.image_encoder, semi_sparse_weight(), filter_fn=mlp_only)
     elif compress == "sparse":
         apply_fake_sparsity(predictor.model.image_encoder)
-        sparsify_(predictor.model.image_encoder, to_sparse_semi_structured)
+        sparsify_(predictor.model.image_encoder, semi_sparse_weight())
     elif compress == "int8_dynamic_quant_sparse":
         def attn_only(mod, name):
             return isinstance(mod, torch.nn.Linear) and 'attn' in name
@@ -318,7 +317,7 @@ def run(
         predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
 
         predictor.model.image_encoder = sparsify_(predictor.model.image_encoder,
-                                                  to_sparse_semi_structured,
+                                                  semi_sparse_weight(),
                                                   mlp_lin2_only)
     else:
         assert compress is None, f"Unsupported compress mode {compress}"
