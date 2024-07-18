@@ -119,7 +119,7 @@ def mx_cast_up_op(aten_op, args, kwargs=None):
 def mx_view_op(aten_op, args, kwargs=None):
     data = args[0]._data
     new_size = args[1]
-    if args[0]._elem_dtype == DTYPE_FP4_E2M1 or args[0]._elem_dtype == DTYPE_FP4_E3M0:
+    if args[0]._elem_dtype in (DTYPE_FP4_E2M1, DTYPE_FP4_E3M0):
         # special case fp4 as we pack two elements per byte
         new_size = tensor_size_hp_to_fp4x2(new_size, data.is_contiguous())
     new_data = aten_op(data, new_size, *args[2:], **kwargs)

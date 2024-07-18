@@ -2,8 +2,8 @@
 
 This is a POC of training and inference with tensors in the MX format from the OCP spec (https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf) in native PyTorch.
 
-Note that the current version of the code is written for readability and 
-numerical correctness and not yet for optimal performance. We welcome 
+Note that the current version of the code is written for readability and
+numerical correctness and not yet for optimal performance. We welcome
 contributions on performance improvements.
 
 Note that there are no BC guarantees at the moment and we plan to evolve
@@ -18,6 +18,11 @@ known.
 
 This is casts between high precision and MX formats implemented in native PyTorch. Currently
 only `torch.float32` and `torch.bfloat16` are supported as high precision formats.
+
+In addition to the five MX foramts defined by OCP Spec 1.0, we implemented another format, E3M0.
+This decision was based on [this paper](https://openreview.net/pdf?id=EoFNy62JGd), which obserbed
+that gradients are almost log-normally distributed. The new format is designed to optimize gradient
+quantization.
 
 ```python
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
@@ -93,7 +98,7 @@ python torchao/prototype/mx_formats/benchmarks/bench_qdq.py
 
 ## floating point format convenience functions
 
-We have a convenience script which summarizes the various properties of 
+We have a convenience script which summarizes the various properties of
 floating point formats:
 
 ```bash
