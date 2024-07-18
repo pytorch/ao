@@ -71,18 +71,6 @@ with more content coming soon.
    .. toctree::
       :glob:
       :maxdepth: 1
-      :caption: Concepts
-      :hidden:
-
-      dtypes
-      quantization
-      sparsity
-      performant_kernels
-      serialization
-
-   .. toctree::
-      :glob:
-      :maxdepth: 1
       :caption: Tutorials
       :hidden:
 
@@ -99,3 +87,12 @@ with more content coming soon.
    api_ref_dtypes
 ..
       api_ref_kernel
+      
+.. toctree::
+   :glob:
+   :maxdepth: 1
+   :caption: Tutorials
+   :hidden:
+
+   serialization
+   
