@@ -1,17 +1,25 @@
 import logging
 import unittest
+import copy
 
 import torch
 from torch import nn
-from torch.sparse import to_sparse_semi_structured
 
 from torchao.sparsity import apply_fake_sparsity, sparsify_, int8_dynamic_activation_int8_2x4_sparse_weight
+from torchao.sparsity.sparse_api import semi_sparse_weight
+from torchao.utils import unwrap_tensor_subclass
 from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
     _get_subclass_inserter,
     _is_linear,
+    int8_dynamic_activation_int8_weight,
+    quantize_,
 )
-from torchao.utils import TORCH_VERSION_AFTER_2_3
+from torchao.quantization.subclass import (
+    LinearActQuantizedTensor,
+)
+from torchao.dtypes import AffineQuantizedTensor
+from torchao.utils import TORCH_VERSION_AFTER_2_3, unwrap_tensor_subclass
 from torch.testing._internal.common_utils import TestCase
 
 
@@ -37,11 +45,10 @@ class TestSemiStructuredSparse(TestCase):
         apply_fake_sparsity(model)
         dense_result = model(input)
 
-        model = sparsify_(model, to_sparse_semi_structured)
+        sparsify_(model, semi_sparse_weight())
         sparse_result = model(input)
 
         assert torch.allclose(dense_result, sparse_result, rtol=1e-3, atol=1e-3)
-
 
 class TestQuantSemiSparse(TestCase):
 
@@ -57,15 +64,15 @@ class TestQuantSemiSparse(TestCase):
             .half()
             .cuda()
         )
-
         apply_fake_sparsity(model)
-        dense_result = model(input)
+        model_copy = copy.deepcopy(model)
+        quantize_(model_copy, int8_dynamic_activation_int8_weight())
+        dense_result = model_copy(input)
 
         sparsify_(model, int8_dynamic_activation_int8_2x4_sparse_weight())
         sparse_result = model(input)
 
-        assert torch.allclose(dense_result, sparse_result, rtol=1e-1, atol=1e-1)
-
+        assert torch.allclose(dense_result, sparse_result, rtol=1e-2, atol=1e-2)
 
 if __name__ == "__main__":
     unittest.main()

@@ -34,6 +34,7 @@ class PlainLayoutType(LayoutType):
 
 @dataclass(frozen=True)
 class SparseLayoutType(LayoutType):
+
     def post_process(self, input: torch.Tensor) -> torch.Tensor:
         return torch._cslt_compress(input)
 
@@ -498,7 +499,8 @@ class SparseAQTLayout(PlainAQTLayout):
         )
         kwargs["dtype"] = int_data.dtype
         kwargs["requires_grad"] = False
-        shape = torch.Size([zero_point.shape[0], int_data.numel() * 16 // (10 * zero_point.shape[0])])
+        shape = torch.Size([zero_point.shape[0],
+                            int_data.numel() * 16 // (10 * zero_point.shape[0])])
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
     @classmethod
@@ -511,7 +513,7 @@ class SparseAQTLayout(PlainAQTLayout):
             )
 
         raise NotImplementedError(
-            f"PlainAQTLayout dispatch: attempting to run {func}, this is not supported"
+            f"SparseAQTLayout dispatch: attempting to run {func}, this is not supported"
         )
 
     def get_plain(self):
