@@ -14,8 +14,6 @@ both because primitives were designed based on the fusions that
 come along with it and because that is how we access the intended quantized
 and mixed GEMM kernels
 """
-from functools import partial
-
 import torch
 import torchao
 import torch.nn as nn
@@ -421,7 +419,6 @@ def int8_weight_only():
 
     return _get_linear_subclass_inserter(apply_int8wo_quant)
 
-
 def int8_dynamic_activation_int8_weight():
     """
     Applies int8 dynamic symmetric per-token activation and int8 per-channel weight
@@ -470,15 +467,14 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight 
     quantization + 2:4 sparsity to linear layers.
     """
-    def apply_int8_dynamic_activation_int8_weight_quant(weight):
+    def apply_int8_dynamic_activation_int8_semi_sparse_weight_quant(weight):
         in_features = weight.shape[1]
         # int8 dynamic quantization only has benefit when in_feature > 16
         if in_features <= 16:
             return weight
 
         # avoid circular dep
-        from torchao.dtypes import to_affine_quantized
-        from torchao.dtypes.affine_quantized_tensor import SemiSparseLayoutType
+        from torchao.dtypes import to_affine_quantized, SemiSparseLayoutType
         # weight settings
         mapping_type = MappingType.SYMMETRIC
         def get_weight_block_size(x):
@@ -502,8 +498,9 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
         input_quant_func = lambda x: to_affine_quantized(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype, eps=input_eps, quant_min=input_quant_min, quant_max=input_quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
 
         block_size = get_weight_block_size(weight)
-        weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, layout_type=SemiSparseLayoutType())
+        layout_type = SemiSparseLayoutType()
+        weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, layout_type=layout_type)
         weight = to_linear_act_quantized(weight, input_quant_func)
         return weight
 
-    return _get_linear_subclass_inserter(apply_int8_dynamic_activation_int8_weight_quant)
+    return _get_linear_subclass_inserter(apply_int8_dynamic_activation_int8_semi_sparse_weight_quant)
