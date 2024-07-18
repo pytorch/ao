@@ -8,13 +8,16 @@ DTYPE = torch.float8_e4m3fn
 
 
 def quantize_fp8(input: Tensor, block_size: int):
+    shape = input.shape
     input = input.view(-1, block_size)
     scale = input.abs().amax(-1).clip(1e-12) / torch.finfo(DTYPE).max
     input = input / scale.view(-1, 1)
     codes = input.to(DTYPE).view(-1)
-    return codes, scale
+    return codes.view(shape), scale
 
 
+# NOTE: FP8 sign bit is redundant for unsigned optim state.
+# we may investigate how to use it to increase range/precision for unsigned optim state.
 class OptimStateFp8(Tensor):
     implements = classmethod(_implements)
     tensor_attrs = ["codes", "scale"]
@@ -96,11 +99,3 @@ def _(func, *args, **kwargs):
 def _(func, *args, **kwargs):
     args = [x.dequantize() if isinstance(x, OptimStateFp8) else x for x in args]
     return func(*args, **kwargs)
-
-
-def maybe_new_fp8_zero_buffer(p: Tensor, block_size: int = 2048):
-    if p.numel() >= 4096 and p.numel() % block_size == 0:
-        out = OptimStateFp8.zeros(p.shape, block_size, device=p.device)
-    else:
-        out = torch.zeros_like(p)
-    return out

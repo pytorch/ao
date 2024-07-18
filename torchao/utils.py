@@ -172,7 +172,7 @@ def _register_custom_op(lib):
             assert fn.__name__[0] == "_", f"Expecting function name starts with `_`, got {fn.__name__}"
             assert not any(c in fn.__name__ for c in ".<>"), f"Expecting op to be defined in normal functions, not lambda or local: {fn.__name__}"
             op_name = fn.__name__[1:]
-            schema = op_name + infer_schema(fn)
+            schema = op_name + infer_schema(fn, mutates_args={})
             lib.define(schema)
             lib.impl(op_name, fn, "CompositeImplicitAutograd")
 

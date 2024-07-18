@@ -261,12 +261,12 @@ def _get_linear_subclass_inserter(constructor):
 
     return insert_subclass
 
-def quantize_(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Tensor], torch.Tensor], filter_fn: Optional[Callable[[torch.nn.Module, str], bool]]=None, set_inductor_config: bool=True):
+def quantize_(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.nn.Module], torch.nn.Module], filter_fn: Optional[Callable[[torch.nn.Module, str], bool]]=None, set_inductor_config: bool=True):
     """Convert the weight of linear modules in the model with `apply_tensor_subclass`, model is modified inplace
 
     Args:
         model (torch.nn.Module): input model
-        apply_tensor_subclass (Callable[[torch.Tensor], torch.Tensor]): function that convert a floating point Tensor to a (quantized) tensor subclass instance (e.g. affine quantized tensor instance)
+        apply_tensor_subclass (Callable[[torch.nn.Module], torch.nn.Module]): function that applies tensor subclass conversion to the weight of a module and return the module (e.g. convert the weight tensor of linear to affine quantized tensor)
         filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): function that takes a nn.Module instance and fully qualified name of the module, returns True if we want to run `apply_tensor_subclass` on
         the weight of the module
         set_inductor_config (bool, optional): Whether to automatically use recommended inductor config settings (defaults to True)
@@ -302,19 +302,24 @@ def quantize_(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.Ten
           x, "asymmetric", (1, groupsize), torch.int32, 0, 15, 1e-6,
           zero_point_dtype=torch.bfloat16, preserve_zero=False, zero_point_domain="float")
 
+        def apply_weight_quant_to_linear(linear):
+            linear.weight = torch.nn.Parameter(apply_weight_quant(linear.weight), requires_grad=False)
+            return linear
+
         # apply to modules under block0 submodule
         def filter_fn(module: nn.Module, fqn: str) -> bool:
             return isinstance(module, nn.Linear)
 
         m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))
-        quantize_(m, apply_weight_quant, filter_fn)
+        quantize_(m, apply_weight_quant_to_linear, filter_fn)
 
     """
     if set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
+
     _replace_with_custom_fn_if_matches_filter(
         model,
-        _get_linear_subclass_inserter(apply_tensor_subclass),
+        apply_tensor_subclass,
         _is_linear if filter_fn is None else filter_fn,
     )
 
@@ -358,7 +363,7 @@ def int8_dynamic_activation_int4_weight(group_size=32):
         weight = to_linear_act_quantized(weight, input_quant_func)
         return weight
 
-    return apply_int8_dynamic_activation_int4_weight_quant
+    return _get_linear_subclass_inserter(apply_int8_dynamic_activation_int4_weight_quant)
 
 
 def int4_weight_only(group_size=128, inner_k_tiles=8):
@@ -382,6 +387,7 @@ def int4_weight_only(group_size=128, inner_k_tiles=8):
     def apply_int4_weight_only_quant(weight):
         # avoid circular dep
         from torchao.dtypes import to_affine_quantized
+        from torchao.dtypes import TensorCoreTiledLayoutType
 
         mapping_type = MappingType.ASYMMETRIC
         block_size = (1, group_size)
@@ -392,9 +398,10 @@ def int4_weight_only(group_size=128, inner_k_tiles=8):
         preserve_zero = False
         zero_point_dtype = torch.bfloat16
         zero_point_domain = ZeroPointDomain.FLOAT
-        return to_affine_quantized(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, extended_layout="tensor_core_tiled", inner_k_tiles=inner_k_tiles)
+        layout_type = TensorCoreTiledLayoutType(inner_k_tiles=inner_k_tiles)
+        return to_affine_quantized(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, layout_type=layout_type)
 
-    return apply_int4_weight_only_quant
+    return _get_linear_subclass_inserter(apply_int4_weight_only_quant)
 
 
 def int8_weight_only():
@@ -412,50 +419,90 @@ def int8_weight_only():
         block_size = (1, weight.shape[1])
         return to_affine_quantized(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype)
 
-    return apply_int8wo_quant
+    return _get_linear_subclass_inserter(apply_int8wo_quant)
 
-
-def apply_int8_dynamic_activation_int8_weight_quant(weight, extended_layout="plain"):
-    in_features = weight.shape[1]
-    # int8 dynamic quantization only has benefit when in_feature > 16
-    if in_features <= 16:
-        return weight
-
-    # avoid circular dep
-    from torchao.dtypes import to_affine_quantized
-    # weight settings
-    mapping_type = MappingType.SYMMETRIC
-    def get_weight_block_size(x):
-        return (1, x.shape[1])
-    target_dtype = torch.int8
-    eps = torch.finfo(torch.float32).eps
-    zero_point_dtype = torch.int64
-
-    # input settings
-    def get_per_token_block_size(x):
-        block_size = list(x.shape)
-        for i in range(len(block_size)-1):
-            block_size[i] = 1
-        return block_size
-
-    input_mapping_type = MappingType.SYMMETRIC
-    input_target_dtype = torch.int8
-    input_eps = 1e-5
-    input_quant_min = -127
-    input_quant_max = 127
-    input_quant_func = lambda x: to_affine_quantized(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype, eps=input_eps, quant_min=input_quant_min, quant_max=input_quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
-
-    block_size = get_weight_block_size(weight)
-    weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, extended_layout=extended_layout)
-    weight = to_linear_act_quantized(weight, input_quant_func)
-    return weight
 
 def int8_dynamic_activation_int8_weight():
     """
     Applies int8 dynamic symmetric per-token activation and int8 per-channel weight
     quantization to linear layers
     """
-    return apply_int8_dynamic_activation_int8_weight_quant
+    def apply_int8_dynamic_activation_int8_weight_quant(weight):
+        in_features = weight.shape[1]
+        # int8 dynamic quantization only has benefit when in_feature > 16
+        if in_features <= 16:
+            return weight
+
+        # avoid circular dep
+        from torchao.dtypes import to_affine_quantized
+        # weight settings
+        mapping_type = MappingType.SYMMETRIC
+        def get_weight_block_size(x):
+            return (1, x.shape[1])
+        target_dtype = torch.int8
+        eps = torch.finfo(torch.float32).eps
+        zero_point_dtype = torch.int64
+
+        # input settings
+        def get_per_token_block_size(x):
+            block_size = list(x.shape)
+            for i in range(len(block_size)-1):
+                block_size[i] = 1
+            return block_size
+
+        input_mapping_type = MappingType.SYMMETRIC
+        input_target_dtype = torch.int8
+        input_eps = 1e-5
+        input_quant_min = -127
+        input_quant_max = 127
+        input_quant_func = lambda x: to_affine_quantized(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype, eps=input_eps, quant_min=input_quant_min, quant_max=input_quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
+
+        block_size = get_weight_block_size(weight)
+        weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype)
+        weight = to_linear_act_quantized(weight, input_quant_func)
+        return weight
+
+    return _get_linear_subclass_inserter(apply_int8_dynamic_activation_int8_weight_quant)
 
 def int8_dynamic_activation_int8_2x4_sparse_weight():
-    return partial(apply_int8_dynamic_activation_int8_weight_quant, extended_layout="semi_sparse_cusparselt")
+    """
+    Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight 
+    quantization + 2:4 sparsity to linear layers.
+    """
+    def apply_int8_dynamic_activation_int8_weight_quant(weight):
+        in_features = weight.shape[1]
+        # int8 dynamic quantization only has benefit when in_feature > 16
+        if in_features <= 16:
+            return weight
+
+        # avoid circular dep
+        from torchao.dtypes import to_affine_quantized
+        from torchao.dtypes.affine_quantized_tensor import SparseLayoutType
+        # weight settings
+        mapping_type = MappingType.SYMMETRIC
+        def get_weight_block_size(x):
+            return (1, x.shape[1])
+        target_dtype = torch.int8
+        eps = torch.finfo(torch.float32).eps
+        zero_point_dtype = torch.int64
+
+        # input settings
+        def get_per_token_block_size(x):
+            block_size = list(x.shape)
+            for i in range(len(block_size)-1):
+                block_size[i] = 1
+            return block_size
+
+        input_mapping_type = MappingType.SYMMETRIC
+        input_target_dtype = torch.int8
+        input_eps = 1e-5
+        input_quant_min = -127
+        input_quant_max = 127
+        input_quant_func = lambda x: to_affine_quantized(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype, eps=input_eps, quant_min=input_quant_min, quant_max=input_quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
+
+        block_size = get_weight_block_size(weight)
+        weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, layout_type=SparseLayoutType())
+        weight = to_linear_act_quantized(weight, input_quant_func)
+        return weight
+
+    return _get_linear_subclass_inserter(apply_int8_dynamic_activation_int8_weight_quant)

@@ -9,7 +9,7 @@ import segment_anything_fast
 import time
 import resource
 
-from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight
+from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight, int4_weight_only
 from torchao.sparsity import sparsify_, apply_fake_sparsity, int8_dynamic_activation_int8_2x4_sparse_weight
 from torchao.utils import unwrap_tensor_subclass
 from torch.sparse import to_sparse_semi_structured
@@ -320,6 +320,11 @@ def run(
         predictor.model.image_encoder = sparsify_(predictor.model.image_encoder,
                                                   to_sparse_semi_structured,
                                                   mlp_lin2_only)
+    elif compress == "int4_weight_only_quant_sparse":
+        apply_fake_sparsity(predictor.model.image_encoder)
+        quantize_(predictor.model.image_encoder, int8_dynamic_activation_int8_weight())
+        predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
+
     else:
         assert compress is None, f"Unsupported compress mode {compress}"
 
