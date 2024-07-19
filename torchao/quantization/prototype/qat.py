@@ -4,7 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Any, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -25,7 +25,10 @@ from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
 )
 from torchao.quantization.unified import TwoStepQuantizer
-from torchao.quantization.utils import get_group_qparams_symmetric
+from torchao.quantization.utils import (
+    _get_per_token_block_size,
+    get_group_qparams_symmetric,
+)
 
 
 # =================
@@ -346,8 +349,14 @@ class Int4WeightOnlyQATLinear(torch.nn.Linear):
         scales, zero_points = get_groupwise_affine_qparams(
             self.weight, n_bit, self.groupsize, self.scales_precision,
         )
-        w_fq = _Int4WeightOnlyFakeQuantize.apply(
-            self.weight, scales, zero_points, qmin, qmax, self.groupsize,
+        w_fq = fake_quantize_per_channel_group(
+            self.weight,
+            scales,
+            zero_points,
+            qmin,
+            qmax,
+            self.groupsize,
+            ZeroPointDomain.FLOAT,
         )
         return F.linear(x, w_fq)
 
@@ -370,39 +379,6 @@ def disable_4w_fake_quant(mod: torch.nn.Module):
 # |   QUANT PRIMITIVES   |
 # ========================
 
-class _Int4WeightOnlyFakeQuantize(torch.autograd.Function):
-    """
-    Implementation of int4 grouped per channel weight-only fake quantize
-    intended to match the numerics of the efficient int4 tinygemm kernel.
-    """
-
-    @staticmethod
-    def forward(ctx, input, scales, zero_points, quant_min, quant_max, groupsize):
-        assert groupsize > 1
-        assert input.shape[-1] % groupsize == 0
-        assert input.dim() == 2
-        n_bit = 4
-        block_size = (1, groupsize)
-        quant_min = 0
-        quant_max = 2 ** n_bit - 1
-        (fq, mask) = fake_quantize_affine_cachemask(
-            input,
-            block_size,
-            scales,
-            zero_points,
-            torch.int32,
-            quant_min,
-            quant_max,
-            zero_point_domain = ZeroPointDomain.FLOAT,
-        )
-        ctx.save_for_backward(mask)
-        return fq
-
-    @staticmethod
-    def backward(ctx, gy):
-        (mask,) = ctx.saved_tensors
-        return gy * mask, None, None, None, None, None
-
 class _GenericFakeQuantize(torch.autograd.Function):
     """
     Implementation of generic fake quantize with backward STE.
@@ -412,31 +388,42 @@ class _GenericFakeQuantize(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, input, scales, zero_points, quant_min, quant_max):
+    def forward(
+        ctx: torch.autograd.function.FunctionCtx,
+        input: torch.Tensor,
+        scales: torch.Tensor,
+        zero_points: torch.Tensor,
+        quant_min: int,
+        quant_max: int,
+        block_size: List[int],
+        zero_point_domain: ZeroPointDomain=ZeroPointDomain.INT,
+    ) -> torch.Tensor:
         # Note: for bf16 inputs, casting them to fp32 has the unexpected
         # side effect of reducing memory footprint significantly, presumably
         # because bf16 * fp32 kernels are not as memory efficient
         assert input.dtype == torch.float32
         assert scales.dtype == torch.float32
         assert zero_points.dtype == torch.int32
-        q = input.mul(1.0 / scales).round().add(zero_points)
-        dq = q.clamp(quant_min, quant_max).sub(zero_points).mul(scales)
-        mask = torch.logical_and((q >= quant_min), (q <= quant_max))
+
+        (fq, mask) = fake_quantize_affine_cachemask(
+            input,
+            block_size,
+            scales,
+            zero_points,
+            torch.int32,
+            quant_min,
+            quant_max,
+            zero_point_domain,
+        )
+
         ctx.save_for_backward(mask)
-        return dq
+        return fq
 
     @staticmethod
     def backward(ctx, gy):
         (mask,) = ctx.saved_tensors
-        return gy * mask, None, None, None, None, None
+        return gy * mask, None, None, None, None, None, None
 
-# TODO: move this to core
-quantized_decomposed_lib.define(
-    "fake_quantize_per_channel_group(Tensor input, Tensor scales, Tensor zero_points, "
-    "int quant_min, int quant_max, int group_size) -> Tensor"
-)
-
-@impl(quantized_decomposed_lib, "fake_quantize_per_channel_group", "CompositeImplicitAutograd")
 def fake_quantize_per_channel_group(
     input: torch.Tensor,
     scales: torch.Tensor,
@@ -444,25 +431,16 @@ def fake_quantize_per_channel_group(
     quant_min: int,
     quant_max: int,
     group_size: int,
+    zero_point_domain: ZeroPointDomain=ZeroPointDomain.INT,
 ) -> torch.Tensor:
     assert group_size > 1
     assert input.shape[-1] % group_size == 0
     assert input.dim() == 2
-    grouped_input = input.reshape(-1, group_size).to(torch.float32)
-    scales = scales.reshape(-1, 1)
-    zero_points = zero_points.reshape(-1, 1)
-    fq = _GenericFakeQuantize.apply(
-        grouped_input, scales, zero_points, quant_min, quant_max,
+    block_size = (1, group_size)
+    return _GenericFakeQuantize.apply(
+        input, scales, zero_points, quant_min, quant_max, block_size, zero_point_domain,
     )
-    return fq.reshape_as(input).to(input.dtype)
 
-# TODO: move this to core
-quantized_decomposed_lib.define(
-    "fake_quantize_per_token(Tensor input, Tensor scales, Tensor zero_points, "
-    "int quant_min, int quant_max) -> Tensor"
-)
-
-@impl(quantized_decomposed_lib, "fake_quantize_per_token", "CompositeImplicitAutograd")
 def fake_quantize_per_token(
     input: torch.Tensor,
     scales: torch.Tensor,
@@ -470,13 +448,13 @@ def fake_quantize_per_token(
     quant_min: int,
     quant_max: int,
 ) -> torch.Tensor:
-    # TODO: we won't need this import anymore once we move this to core
     from torch.ao.quantization.fx._decomposed import _per_token_quant_qparam_dim_check
 
     _per_token_quant_qparam_dim_check(input, scales, zero_points)
+    block_size = _get_per_token_block_size(input)
     fq_input = input.to(torch.float32)
     fq = _GenericFakeQuantize.apply(
-        fq_input, scales, zero_points, quant_min, quant_max,
+        fq_input, scales, zero_points, quant_min, quant_max, block_size,
     )
     return fq.reshape_as(input).to(input.dtype)
 
