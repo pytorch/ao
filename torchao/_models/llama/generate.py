@@ -68,10 +68,11 @@ def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torc
             next_token, next_prob = decode_one_token(
                 model, cur_token, input_pos, **sampling_kwargs
             )
+            next_token, next_prob = next_token.clone(), next_prob.clone()
             input_pos += 1
-            new_tokens.append(next_token.clone())
+            new_tokens.append(next_token)
             callback(new_tokens[-1])
-            new_probs.append(next_prob.clone())
+            new_probs.append(next_prob)
             cur_token = next_token.view(1, -1)
 
     return new_tokens, new_probs
@@ -88,23 +89,32 @@ def generate(
     *,
     interactive: bool,
     callback = lambda x: x,
+    kv_cache_quantization: bool = False,
     **sampling_kwargs
 ) -> torch.Tensor:
     """
     Takes a conditioning sequence (prompt) as input and continues to generate as many tokens as requested.
     """
-
     # create an empty tensor of the expected final shape and fill in the current tokens
     device = prompt.device
     T = prompt.numel()
     T_new = T + max_new_tokens
     seq = torch.empty(T_new, dtype=prompt.dtype, device=device)
     seq[:T] = prompt.view(-1)
-
     # setup model cache
     max_seq_length = min(T_new, model.config.block_size) if not interactive else 350
     with torch.device(device):
         model.setup_caches(max_batch_size=1, max_seq_length=max_seq_length)
+        if kv_cache_quantization:
+            from model import QuantizedKVCache
+            # go through the model and do the swaps
+            from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
+            _replace_with_custom_fn_if_matches_filter(
+                model, 
+                QuantizedKVCache.from_float,
+                lambda x, y: isinstance(x, torchao._models.llama.model.KVCache),
+            )
+
 
     # format model input
     x, input_pos = prepare_inputs_for_model(prompt, max_new_tokens)
@@ -147,6 +157,7 @@ def main(
     temperature: float = 0.8,
     checkpoint_path: Path = Path("checkpoints/meta-Transformer/Transformer-2-7b-chat-hf/model.pth"),
     quantization: Optional[str] = None,
+    kv_cache_quantization: bool = False,
     compile: bool = True,
     compile_prefill: bool = False,
     profile: Optional[Path] = None,
@@ -157,6 +168,7 @@ def main(
     """Generates text samples based on a pre-trained Transformer model and tokenizer.
     """
 
+    # torch.cuda.memory._record_memory_history(True,trace_alloc_max_entries=1000000, trace_alloc_record_context=True)
     torchao.quantization.utils.recommended_inductor_config_setter()
 
     assert checkpoint_path.is_file(), checkpoint_path
@@ -179,9 +191,7 @@ def main(
     encoded = encode_tokens(tokenizer, prompt, bos=True, device=device)
     prompt_length = encoded.size(0)
 
-    torch.manual_seed(1234)
-
-
+    torch.manual_seed(1234)        
     if quantization:
         from torchao.quantization.quant_api import (
             quantize_,
@@ -276,7 +286,14 @@ def main(
                 callback=callback,
                 temperature=temperature,
                 top_k=top_k,
+                kv_cache_quantization=kv_cache_quantization,
             )
+            # if i==3:
+            #     snapshot = torch.cuda.memory._snapshot()
+            #     from pickle import dump
+            #     with open("mem_trace_kvq_no_comp" + '.pickle', 'wb') as f:
+            #         dump(snapshot, f)
+            #     breakpoint()
         if i == -1:
             print(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
             continue
@@ -305,12 +322,13 @@ def main(
     print(f"Model Size: {model_size:.02f} GB")
     if write_result:
         result_txt = f"\n{datetime.today().strftime('%Y%m%d%H%M%S')}, tok/s={tokpersec:6.2f}, mem/s={bandwidth:7.2f} GB/s, peak_mem={mem:5.2f} GB, model_size={model_size:5.2f} GB "
-        result_txt += f"quant: {quantization}, mod: {checkpoint_path.parent.name}, compile: {compile}, compile_prefill: {compile_prefill}, dtype: {precision}, device: {device} "
+        result_txt += f"quant: {quantization}, mod: {checkpoint_path.parent.name}, kv_quant: {kv_cache_quantization}, compile: {compile}, compile_prefill: {compile_prefill}, dtype: {precision}, device: {device} "
         result_txt += f"repro: python generate.py "
         result_txt += f"--quantization {quantization} " if quantization else ""
         result_txt += f"--checkpoint_path {checkpoint_path} "
         result_txt += f"--device {device} "
         result_txt += f"--precision {precision} "
+        result_txt += f"--kv_cache_quantization " if kv_cache_quantization else ""
         result_txt += f"--compile " if compile else ""
         result_txt += f"--compile_prefill " if compile_prefill else ""
         result_txt += f"--profile {profile} " if profile else ""
@@ -348,5 +366,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     main(
         args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.top_k,
-        args.temperature, args.checkpoint_path, args.quantization, args.compile, args.compile_prefill, args.profile, args.device, args.precision, args.write_result
+        args.temperature, args.checkpoint_path, args.quantization, args.kv_cache_quantization, args.compile, args.compile_prefill, args.profile, args.device, args.precision, args.write_result
     )

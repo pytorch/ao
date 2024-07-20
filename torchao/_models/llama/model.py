@@ -85,7 +85,6 @@ class KVCache(nn.Module):
     def update(self, input_pos, k_val, v_val):
         # input_pos: [S], k_val: [B, H, S, D]
         assert input_pos.shape[0] == k_val.shape[2]
-
         if use_index_put_for_kv_cache:
             k_out = torch.ops.aten.index_put_(self.k_cache, [None, None, input_pos], k_val)
             v_out = torch.ops.aten.index_put_(self.v_cache, [None, None, input_pos], v_val)
@@ -97,23 +96,51 @@ class KVCache(nn.Module):
 
         return k_out, v_out
 
-# class QuantizedKVCache(nn.Module):
-#     def __init__(self, max_batch_size, max_seq_length, n_heads, head_dim, dtype=torch.bfloat16):
-#         super().__init__()
-#         cache_shape = (max_batch_size, n_heads, max_seq_length, head_dim)
-#         self.register_buffer('k_cache', torch.zeros(cache_shape, dtype=torch.uint8))
-#         self.register_buffer('v_cache', torch.zeros(cache_shape, dtype=torch.uint8))
-#         self.register_buffer('k_cache_scale', torch.ones(cache_shape, dtype=torch.bfloat16))
-#         self.register_buffer('v_cache_scale', torch.ones(cache_shape, dtype=torch.bfloat16))
-    
-#     def update(self, input_pos, k_val, v_val):
-#         k_out = self.k_cache
-#         v_out = self.v_cache
-#         k_out[:, :, input_pos] = k_val
-#         v_out[:, :, input_pos] = v_val
 
-#     @classmethod
-#     def from_kv_cache(cls, kv_cache):
+# (Pdb) p k_val.shape
+# torch.Size([1, 32, 6, 128])
+# (Pdb) p self.k_cache.shape
+# torch.Size([1, 32, 208, 128]) so want final size to be 1,32,208,[1]
+
+from torchao.quantization.quant_primitives import quantize_affine, dequantize_affine
+from torchao.quantization.utils import quantize_activation_per_token_absmax
+
+class QuantizedKVCache(nn.Module):
+    def __init__(self, max_batch_size, max_seq_length, n_heads, head_dim, scale_dtype=torch.bfloat16):
+        super().__init__()
+        cache_shape = (max_batch_size, n_heads, max_seq_length, head_dim)
+        scale_shape = (max_batch_size, n_heads, max_seq_length, 1)
+        self.register_buffer('k_cache', torch.zeros(cache_shape, dtype=torch.int8))
+        self.register_buffer('v_cache', torch.zeros(cache_shape, dtype=torch.int8))
+        self.register_buffer('k_cache_scale', torch.ones(scale_shape, dtype=scale_dtype))
+        self.register_buffer('v_cache_scale', torch.ones(scale_shape, dtype=scale_dtype))
+    
+    def update(self, input_pos, k_val, v_val):
+        # k_out = self.k_cache*self.k_cache_scale
+        # v_out = self.v_cache*self.v_cache_scale
+        # k_out[:, :, input_pos] = k_val
+        # v_out[:, :, input_pos] = v_val
+
+        q_k_val, k_scale = quantize_activation_per_token_absmax(k_val)
+        self.k_cache[:, :, input_pos] = q_k_val
+        self.k_cache_scale[:, :, input_pos] = k_scale.unsqueeze(-1)
+        del k_val
+
+        q_v_val, v_scale = quantize_activation_per_token_absmax(v_val)
+        self.k_cache[:, :, input_pos] = q_v_val
+        self.k_cache_scale[:, :, input_pos] = v_scale.unsqueeze(-1)
+        del v_val
+
+        # return k_out, v_out
+        return self.k_cache*self.k_cache_scale, self.v_cache*self.v_cache_scale
+
+    @classmethod
+    def from_float(cls, kv_cache):
+        cache_shape = kv_cache.k_cache.shape
+        max_batch_size, n_heads, max_seq_length, head_dim = cache_shape
+        scale_dtype = kv_cache.k_cache.dtype
+        return cls(max_batch_size, max_seq_length, n_heads, head_dim, scale_dtype)
+
 
 
 class Transformer(nn.Module):
