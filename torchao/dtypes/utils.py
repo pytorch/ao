@@ -1,5 +1,5 @@
 import torch
-from typing import Dict, Callable
+from typing import Dict, Callable, Union
 from collections import defaultdict
 import functools
 from dataclasses import dataclass
@@ -89,3 +89,6 @@ def _get_layout_tensor_constructor(cls: Callable, layout_type_class: type(Layout
         raise ValueError(f"layout_name: {layout_type_class} is not supported yet for {cls}")
 
     return _LAYOUT_CONSTRUCTOR_TABLE[cls][layout_type_class]
+
+def is_device(target_device_str: str, device: Union[str, torch.device]):
+    return torch.device(device).type == target_device_str

@@ -642,17 +642,19 @@ class TestQuantFlow(TestCase):
     @unittest.skipIf(TORCH_VERSION_AFTER_2_5, "Test currently doesn't work for 2.5+")
     def test_int4wo_quantized_model_to_device(self):
         # TODO: change initial model to "cpu"
-        m = ToyLinearModel().eval().to(torch.bfloat16).to("cuda")
-        m_copy = copy.deepcopy(m)
-        example_inputs = m.example_inputs(dtype=torch.bfloat16, device="cuda")
+        devices = ["cuda", "cuda:0"]
+        for device in devices:
+            m = ToyLinearModel().eval().to(torch.bfloat16).to(device)
+            m_copy = copy.deepcopy(m)
+            example_inputs = m.example_inputs(dtype=torch.bfloat16, device=device)
 
-        quantize_(m, int4_weight_only())
-        ref = m(*example_inputs)
+            quantize_(m, int4_weight_only())
+            ref = m(*example_inputs)
 
-        example_inputs_cuda = (example_inputs[0].to("cuda"),)
-        m.to(device="cuda")
-        cuda_res = m(*example_inputs_cuda)
-        self.assertEqual(cuda_res.cpu(), ref)
+            example_inputs_cuda = (example_inputs[0].to(device),)
+            m.to(device=device)
+            cuda_res = m(*example_inputs_cuda)
+            self.assertEqual(cuda_res.cpu(), ref)
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
