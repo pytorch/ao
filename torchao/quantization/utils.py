@@ -3,7 +3,7 @@
 
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
@@ -475,3 +475,10 @@ def recommended_inductor_config_setter():
     torch._inductor.config.fx_graph_cache = True
     torch._inductor.config.triton.unique_kernel_names = True
     torch.set_float32_matmul_precision("high")
+
+def _get_per_token_block_size(x: torch.Tensor) -> List[int]:
+    block_size = []
+    for i in range(len(x.shape)-1):
+        block_size.append(1)
+    block_size.append(x.shape[-1])
+    return block_size
