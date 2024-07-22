@@ -25,7 +25,6 @@ from torchao.utils import (
     TORCH_VERSION_AFTER_2_4,
     unwrap_tensor_subclass,
 )
-
 from .subclass import (
     QuantizedLinearWeightBase,
     LinearActQuantizedTensor,
@@ -42,6 +41,7 @@ from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
     Int4WeightOnlyQuantizer,
 )
+from .utils import _get_per_token_block_size
 import logging
 from .autoquant import autoquant, AutoQuantizableLinearWeight
 
@@ -343,19 +343,10 @@ def int8_dynamic_activation_int4_weight(group_size=32):
         quant_min = -8
         quant_max = 7
 
-        # TODO: make a general helper function?
-        # input settings
-        def get_per_token_block_size(x):
-            block_size = []
-            for i in range(len(x.shape)-1):
-                block_size.append(1)
-            block_size.append(x.shape[-1])
-            return block_size
-
         # input settings
         input_mapping_type = MappingType.ASYMMETRIC
         input_target_dtype = torch.int8
-        input_quant_func = lambda x: to_affine_quantized(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype)
+        input_quant_func = lambda x: to_affine_quantized(x, input_mapping_type, _get_per_token_block_size(x), input_target_dtype)
 
         weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps)
         weight = to_linear_act_quantized(weight, input_quant_func)
@@ -441,18 +432,12 @@ def int8_dynamic_activation_int8_weight():
         zero_point_dtype = torch.int64
 
         # input settings
-        def get_per_token_block_size(x):
-            block_size = list(x.shape)
-            for i in range(len(block_size)-1):
-                block_size[i] = 1
-            return block_size
-
         input_mapping_type = MappingType.SYMMETRIC
         input_target_dtype = torch.int8
         input_eps = 1e-5
         input_quant_min = -127
         input_quant_max = 127
-        input_quant_func = lambda x: to_affine_quantized(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype, eps=input_eps, quant_min=input_quant_min, quant_max=input_quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
+        input_quant_func = lambda x: to_affine_quantized(x, input_mapping_type, _get_per_token_block_size(x), input_target_dtype, eps=input_eps, quant_min=input_quant_min, quant_max=input_quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
 
         block_size = get_weight_block_size(weight)
         weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype)
