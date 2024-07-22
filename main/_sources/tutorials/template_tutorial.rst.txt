@@ -66,11 +66,11 @@ Example code (the output below is generated automatically):
 
  .. code-block:: none
 
-    tensor([[0.7135, 0.5221, 0.5694],
-            [0.6404, 0.3970, 0.7990],
-            [0.4127, 0.7575, 0.8433],
-            [0.7701, 0.4560, 0.9841],
-            [0.4473, 0.8839, 0.4431]])
+    tensor([[0.6697, 0.2549, 0.1783],
+            [0.4802, 0.5669, 0.3812],
+            [0.3563, 0.0890, 0.7109],
+            [0.8394, 0.9939, 0.6308],
+            [0.7120, 0.6618, 0.1360]])
 
 
 
@@ -116,6 +116,10 @@ Further Reading
     .. container:: sphx-glr-download sphx-glr-download-python
 
       :download:`Download Python source code: template_tutorial.py <template_tutorial.py>`
+
+    .. container:: sphx-glr-download sphx-glr-download-zip
+
+      :download:`Download zipped: template_tutorial.zip <template_tutorial.zip>`
 
 
 .. only:: html
