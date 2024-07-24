@@ -41,8 +41,6 @@ class SemiSparseLayoutType(LayoutType):
         temp.view(-1, 4).scatter_(1, pruning_inds, value=0)
         return temp
 
-    def post_process(self, input: torch.Tensor) -> torch.Tensor:
-        return torch._cslt_compress(input)
 
 @dataclass(frozen=True)
 class TensorCoreTiledLayoutType(LayoutType):
@@ -490,24 +488,6 @@ class SemiSparseAQTLayout(PlainAQTLayout):
     """
     Layout storage class for semi_sparse_cusparselt layout for affine quantized tensor
     """
-    def __new__(
-        cls,
-        int_data: torch.Tensor,
-        scale: torch.Tensor,
-        zero_point: torch.Tensor,
-        layout_type: LayoutType,
-    ):
-        kwargs = {}
-        kwargs["device"] = int_data.device
-        kwargs["layout"] = (
-            kwargs.get("layout") if kwargs.get("layout", False) else int_data.layout
-        )
-        kwargs["dtype"] = int_data.dtype
-        kwargs["requires_grad"] = False
-        shape = torch.Size([zero_point.shape[0],
-                            int_data.numel() * 16 // (10 * zero_point.shape[0])])
-        return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
-
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
         kwargs = {} if kwargs is None else kwargs
@@ -522,8 +502,11 @@ class SemiSparseAQTLayout(PlainAQTLayout):
         )
 
     def get_plain(self):
+        # Currently we don't have cuSPARSELt expansion routines, so we matmul by 
+        # the identity matrix to get the original dense matrix. This is slow though.
+        cols = self.int_data.numel() * 16 // (10 * self.scale.shape[0])
         int_data_expanded = torch._cslt_sparse_mm(self.int_data,
-                                                  torch.eye(self.shape[1],
+                                                  torch.eye(cols,
                                                             dtype=self.int_data.dtype,
                                                             device=self.int_data.device).t())
         return int_data_expanded, self.scale, self.zero_point
@@ -537,7 +520,8 @@ class SemiSparseAQTLayout(PlainAQTLayout):
         layout_type: LayoutType,
     ):
         assert isinstance(layout_type, SemiSparseLayoutType)
-        return cls(int_data, scale, zero_point, layout_type)
+        int_data_compressed = torch._cslt_compress(int_data)
+        return cls(int_data_compressed, scale, zero_point, layout_type)
     
 
 @register_layout_cls(TensorCoreTiledLayoutType)

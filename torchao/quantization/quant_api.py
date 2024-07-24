@@ -423,7 +423,8 @@ def int8_weight_only():
 
 def _apply_int8_dynamic_activation_int8_weight_quant(weight, layout_type : LayoutType):
     """
-    Helper function for int8 dynamic activation w/wo 2:4 sparsity. 
+    Helper function to specify layout_type for int8 dynamic activation int8 dynamic weight quantization. 
+    Used to compose with semi-structured sparsity. 
     """
     in_features = weight.shape[1]
     # int8 dynamic quantization only has benefit when in_feature > 16
