@@ -26,7 +26,6 @@ from torchao.utils import (
     TORCH_VERSION_AFTER_2_4,
     unwrap_tensor_subclass,
 )
-
 from .subclass import (
     QuantizedLinearWeightBase,
     LinearActQuantizedTensor,
@@ -43,6 +42,7 @@ from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
     Int4WeightOnlyQuantizer,
 )
+from .utils import _get_per_token_block_size
 import logging
 from .autoquant import autoquant, AutoQuantizableLinearWeight
 
@@ -345,19 +345,10 @@ def int8_dynamic_activation_int4_weight(group_size=32):
         quant_min = -8
         quant_max = 7
 
-        # TODO: make a general helper function?
-        # input settings
-        def get_per_token_block_size(x):
-            block_size = []
-            for i in range(len(x.shape)-1):
-                block_size.append(1)
-            block_size.append(x.shape[-1])
-            return block_size
-
         # input settings
         input_mapping_type = MappingType.ASYMMETRIC
         input_target_dtype = torch.int8
-        input_quant_func = lambda x: to_affine_quantized(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype)
+        input_quant_func = lambda x: to_affine_quantized(x, input_mapping_type, _get_per_token_block_size(x), input_target_dtype)
 
         weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps)
         weight = to_linear_act_quantized(weight, input_quant_func)
@@ -421,7 +412,7 @@ def int8_weight_only():
 
     return _get_linear_subclass_inserter(apply_int8wo_quant)
 
-def _apply_int8_dynamic_activation_int8_weight_quant(weight, layout_type : LayoutType):
+def _apply_int8_dynamic_activation_int8_weight_quant(weight : torch.Tensor, layout_type : LayoutType) -> torch.Tensor: 
     """
     Helper function to specify layout_type for int8 dynamic activation int8 dynamic weight quantization. 
     Used to compose with semi-structured sparsity. 
