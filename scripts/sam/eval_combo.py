@@ -311,14 +311,13 @@ def run(
                   int8_dynamic_activation_int8_weight(),
                   attn_only)
         quantize_(predictor.model.image_encoder,
-                  int8_dynamic_activation_int8_2x4_sparse_weight(),
+                  int8_dynamic_activation_int8_semi_sparse_weight(),
                   mlp_lin1_only)
-
+        sparsify_(predictor.model.image_encoder,
+                  semi_sparse_weight(),
+                  mlp_lin2_only)
         predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
 
-        predictor.model.image_encoder = sparsify_(predictor.model.image_encoder,
-                                                  semi_sparse_weight(),
-                                                  mlp_lin2_only)
     else:
         assert compress is None, f"Unsupported compress mode {compress}"
 
