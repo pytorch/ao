@@ -4,6 +4,9 @@ from torchao.dtypes.utils import _implements, _ATEN_OP_OR_TORCH_FN_TABLE
 
 
 aten = torch.ops.aten
+c10d_functional = torch.ops.c10d_functional
+_c10d_functional = torch.ops._c10d_functional
+
 DTYPE = torch.float8_e4m3fn
 
 
@@ -103,3 +106,22 @@ def _(func, *args, **kwargs):
 def _(func, *args, **kwargs):
     x, shape = args
     return OptimStateFp8(x.codes.view(shape), x.scale)
+
+
+# this is needed for DTensor.full_tensor()
+@OptimStateFp8.implements([
+    c10d_functional.all_gather_into_tensor.default,
+    _c10d_functional.all_gather_into_tensor.default,
+    c10d_functional.wait_tensor.default,
+    _c10d_functional.wait_tensor.default,
+])
+def _(func, *args, **kwargs):
+    x = args[0]
+    if not isinstance(x, OptimStateFp8):
+        raise ValueError(f"expecting a OptimStateFp8 but found {type(x)}")
+
+    # assume tensors from all ranks have the same signedness
+    return OptimStateFp8(
+        func(x.codes, *args[1:], **kwargs),
+        func(x.scale, *args[1:], **kwargs),
+    )

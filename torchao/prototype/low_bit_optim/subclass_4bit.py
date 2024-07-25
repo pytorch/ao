@@ -8,7 +8,8 @@ from .quant_utils import create_dynamic_map, scale_tensor, quantize_4bit_with_qm
 
 
 aten = torch.ops.aten
-
+c10d_functional = torch.ops.c10d_functional
+_c10d_functional = torch.ops._c10d_functional
 
 # https://github.com/thu-ml/low-bit-optimizers/blob/e3e2854728e498c2a606e3fdb88daa27ae94f9a6/lpmm/configs/2nd_moment_group_128.yml
 # NOTE: power-1 is linear
@@ -122,3 +123,25 @@ def _(func, *args, **kwargs):
         return OptimState4bit(x.codes, x.scale, x.qmap, x.signed, (x.numel(),))
 
     raise ValueError(f"{x.__class__.__name__} only supports .view() with same shape or shape=[-1]")
+
+
+# this is needed for DTensor.full_tensor()
+@OptimState4bit.implements([
+    c10d_functional.all_gather_into_tensor.default,
+    _c10d_functional.all_gather_into_tensor.default,
+    c10d_functional.wait_tensor.default,
+    _c10d_functional.wait_tensor.default,
+])
+def _(func, *args, **kwargs):
+    x = args[0]
+    if not isinstance(x, OptimState4bit):
+        raise ValueError(f"expecting a OptimState4bit but found {type(x)}")
+
+    codes = func(x.codes, *args[1:], **kwargs)
+    scale = func(x.scale, *args[1:], **kwargs)
+
+    # adjust the first dim
+    shape = (x._shape[0] * codes.numel() // x.codes.numel(),) + x._shape[1:]
+
+    # assume tensors from all ranks have the same signedness
+    return OptimState4bit(codes, scale, x.qmap.clone(), x.signed, shape)

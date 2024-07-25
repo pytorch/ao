@@ -6,6 +6,8 @@ from .quant_utils import create_dynamic_map, scale_tensor, quantize_8bit_with_qm
 
 
 aten = torch.ops.aten
+c10d_functional = torch.ops.c10d_functional
+_c10d_functional = torch.ops._c10d_functional
 
 QMAP_SIGNED = create_dynamic_map(signed=True)
 QMAP_UNSIGNED = create_dynamic_map(signed=False)
@@ -101,3 +103,24 @@ def _(func, *args, **kwargs):
 def _(func, *args, **kwargs):
     x, shape = args
     return OptimState8bit(x.codes.view(shape), x.scale, x.qmap, x.signed)
+
+
+# this is needed for DTensor.full_tensor()
+@OptimState8bit.implements([
+    c10d_functional.all_gather_into_tensor.default,
+    _c10d_functional.all_gather_into_tensor.default,
+    c10d_functional.wait_tensor.default,
+    _c10d_functional.wait_tensor.default,
+])
+def _(func, *args, **kwargs):
+    x = args[0]
+    if not isinstance(x, OptimState8bit):
+        raise ValueError(f"expecting a OptimState8bit but found {type(x)}")
+
+    # assume tensors from all ranks have the same signedness
+    return OptimState8bit(
+        func(x.codes, *args[1:], **kwargs),
+        func(x.scale, *args[1:], **kwargs),
+        x.qmap.clone(),
+        x.signed,
+    )
