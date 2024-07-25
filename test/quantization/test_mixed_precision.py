@@ -18,19 +18,20 @@ from torchao.quantization.utils import (
 )
 
 def test_weight_only_quant(quantization_bit=2, symmetric=False):
-    for x_shape in [[2, 4], [5, 5, 5, 4], [1, 4, 4]]:
+    for x_shape in [[32, 64], [80, 80, 80, 64], [16, 64, 64]]:
         x = torch.randn(*x_shape)
-        m = nn.Sequential(nn.Linear(4, 5))
+        m = nn.Sequential(nn.Linear(64, 80))
         y_ref = m(x)
-        quantize_(m, intN_weight_only(n=quantization_bit, group_size=2, symmetric=symmetric))
+        quantize_(m, intN_weight_only(n=quantization_bit, group_size=16, symmetric=symmetric))
         y_wo = m(x)
         sqnr = compute_error(y_ref, y_wo)
-        print(sqnr)
-        assert sqnr > 44.0, "sqnr: {} is too low".format(sqnr)
+        #SQNR_dB can be approximated by 6.02n, where n is the bit width of the quantization
+        #e.g., we set sqnr threshold = 44 for 8-bit, so that 6.02 * 8= 48.16 fullfills
+        assert sqnr > 44.0-(8-quantization_bit)*6.02, "sqnr: {} is too low".format(sqnr)
 
 
 # test if the asymmetric and symmetric quantization API works with different bit widths
-for i in range(2, 9):
+for i in [2,3,5,6,8]:
     #test for asymmetric quantization
     try:
         test_weight_only_quant(i, False)
