@@ -32,8 +32,18 @@ class OptimState4bit(Tensor):
         )
 
     def __init__(self, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool, shape):
+        """Create quantized 4-bit optimizer state.
+
+        Args
+            codes: quantized 4-bit data stored as uint8.
+            scale: scale data for block-wise quantization.
+            qmap: lookup table that maps between quantized value (code) and float value.
+            signed: whether the tensor is signed or unsigned.
+            shape: shape of original float tensor.
+        """
         assert codes.dtype is torch.uint8
         assert codes.ndim == 1  # flattened buffer
+        assert scale.ndim == 1
         self.codes = codes
         self.scale = scale
         self.qmap = qmap

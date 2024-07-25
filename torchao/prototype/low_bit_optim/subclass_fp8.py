@@ -35,7 +35,14 @@ class OptimStateFp8(Tensor):
         )
 
     def __init__(self, codes: Tensor, scale: Tensor):
+        """Create quantized FP8 optimizer state.
+
+        Args
+            codes: quantized FP8 E4M3FN data. has the same shape as the original float tensor.
+            scale: scale data for block-wise quantization.
+        """
         assert codes.dtype is DTYPE
+        assert scale.ndim == 1
         self.codes = codes
         self.scale = scale
         self.block_size = codes.numel() // scale.numel()

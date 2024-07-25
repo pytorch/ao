@@ -30,7 +30,16 @@ class OptimState8bit(Tensor):
         )
 
     def __init__(self, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool):
+        """Create quantized 8-bit optimizer state.
+
+        Args
+            codes: quantized 8-bit data stored as uint8. has the same shape as the original float tensor.
+            scale: scale data for block-wise quantization.
+            qmap: lookup table that maps between quantized value (code) and float value.
+            signed: whether the tensor is signed or unsigned.
+        """
         assert codes.dtype is torch.uint8
+        assert scale.ndim == 1
         self.codes = codes
         self.scale = scale
         self.qmap = qmap
