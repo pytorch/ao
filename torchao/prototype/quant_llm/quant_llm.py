@@ -6,7 +6,7 @@ from torch import Tensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32, _n_ones
 from torchao.ops import quant_llm_linear
-from torchao.dtypes.utils import _implements, _ATEN_OP_OR_TORCH_FN_TABLE
+from torchao.dtypes.utils import _implements, _dispatch__torch_function__, _dispatch__torch_dispatch__
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
 
 
@@ -348,6 +348,8 @@ _SPLIT_K_MAP = [
 
 class QuantLlmLinearWeight(Tensor):
     implements = classmethod(_implements)
+    __torch_function__ = classmethod(_dispatch__torch_function__)
+    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
 
     @staticmethod
     def __new__(cls, fpx_data: Tensor, scale: Tensor, ebits: int, mbits: int):
@@ -399,26 +401,8 @@ class QuantLlmLinearWeight(Tensor):
             self.mbits,
         )
 
-    @classmethod
-    def __torch_function__(cls, func, types, args=(), kwargs=None):
-        kwargs = {} if kwargs is None else kwargs
-
-        if func in _ATEN_OP_OR_TORCH_FN_TABLE[cls]:
-            return _ATEN_OP_OR_TORCH_FN_TABLE[cls][func](*args, **kwargs)
-
-        with torch._C.DisableTorchFunctionSubclass():
-            return func(*args, **kwargs)
-
-    @classmethod
-    def __torch_dispatch__(cls, func, types, args, kwargs):
-        if func in _ATEN_OP_OR_TORCH_FN_TABLE[cls]:
-            return _ATEN_OP_OR_TORCH_FN_TABLE[cls][func](func, *args, **kwargs)
-
-        raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run {func}, this is not supported")
-
-
 @QuantLlmLinearWeight.implements(torch.nn.functional.linear)
-def _(*args, **kwargs):
+def _(func, types, *args, **kwargs):
     act = args[0]
     weight = args[1]
     bias = args[2] if len(args) >= 3 else None
@@ -447,7 +431,7 @@ def _(*args, **kwargs):
 
 
 @QuantLlmLinearWeight.implements(torch.ops.aten.detach.default)
-def _(func, *args, **kwargs):
+def _(func, types, *args, **kwargs):
     return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.detach))
 
 

@@ -22,12 +22,14 @@ import torchao
 from torchao.dtypes import (
     AffineQuantizedTensor,
 )
+from torchao.quantization import (
+    LinearActivationQuantizedTensor,
+)
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
 )
 from torchao.quantization.subclass import (
-    LinearActQuantizedTensor,
     Int8WeightOnlyQuantizedLinearWeight,
     Int4WeightOnlyQuantizedLinearWeight,
 )
@@ -504,8 +506,8 @@ class TestQuantFlow(TestCase):
         example_inputs = m.example_inputs()
         quantize_(m, int8_dynamic_activation_int4_weight(group_size=group_size))
 
-        assert isinstance(m.linear1.weight, LinearActQuantizedTensor)
-        assert isinstance(m.linear2.weight, LinearActQuantizedTensor)
+        assert isinstance(m.linear1.weight, LinearActivationQuantizedTensor)
+        assert isinstance(m.linear2.weight, LinearActivationQuantizedTensor)
         assert isinstance(m.linear1.weight.original_weight_tensor, AffineQuantizedTensor)
         assert isinstance(m.linear2.weight.original_weight_tensor, AffineQuantizedTensor)
 
@@ -577,8 +579,8 @@ class TestQuantFlow(TestCase):
         example_inputs = m.example_inputs(batch_size=20, dtype=torch.bfloat16, device="cuda")
         quantize_(m, int8_dynamic_activation_int8_weight())
 
-        assert isinstance(m.linear1.weight, LinearActQuantizedTensor)
-        assert isinstance(m.linear2.weight, LinearActQuantizedTensor)
+        assert isinstance(m.linear1.weight, LinearActivationQuantizedTensor)
+        assert isinstance(m.linear2.weight, LinearActivationQuantizedTensor)
         assert isinstance(m.linear1.weight.original_weight_tensor, AffineQuantizedTensor)
         assert isinstance(m.linear2.weight.original_weight_tensor, AffineQuantizedTensor)
 
