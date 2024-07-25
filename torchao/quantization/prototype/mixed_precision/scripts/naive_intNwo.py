@@ -6,7 +6,7 @@ from torchao.quantization.quant_primitives import (
 )
 
 from torchao.quantization import int8_weight_only, int4_weight_only
-
+from torchao.quantization.quant_api import _get_linear_subclass_inserter
 
 def intN_weight_only(group_size=32, n=8, symmetric=False):
     '''
@@ -52,9 +52,9 @@ def intN_weight_only(group_size=32, n=8, symmetric=False):
             return int4_weight_only(group_size=group_size)
         else:
             if symmetric:
-                return apply_intN_weight_only_quant_sym
+                return _get_linear_subclass_inserter(apply_intN_weight_only_quant_sym)
             else:
-                return apply_intN_weight_only_quant_asym
+                return _get_linear_subclass_inserter(apply_intN_weight_only_quant_asym)
     except Exception as e:
         raise  
     
