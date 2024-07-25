@@ -720,6 +720,8 @@ class Int4WeightOnlyQuantizer(Quantizer):
                     self.precision, # dtype for scales_and_zeros
                 )
                 # TODO: just get the device from mod.weight.device?
+                w_cpu = w_int4x8.cpu()
+                w_int4x8 = (w_cpu[::, ::2] << 4 | w_cpu[::, 1::2]).to(torch.uint8)
                 weight_int4pack = torch.ops.aten._convert_weight_to_int4pack(w_int4x8.to(self.device), self.inner_k_tiles)
                 cur_state_dict[f"{fqn}.weight"] = weight_int4pack.to(self.device)
                 cur_state_dict[f"{fqn}.scales_and_zeros"] = scales_and_zeros.to(self.device)
