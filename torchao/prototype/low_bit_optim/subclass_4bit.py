@@ -113,9 +113,15 @@ def _(func, *args, **kwargs):
     return func(*args, **kwargs)
 
 
+# this is needed for DTensor.from_local() and for flattening tensor
 @OptimState4bit.implements(aten.view.default)
 def _(func, *args, **kwargs):
     x, shape = args
-    if len(shape) > 1 or shape[0] != -1:
-        raise ValueError(f"{x.__class__.__name__} only supports .view() with shape=[-1]")
-    return OptimState4bit(x.codes, x.scale, x.qmap, x.signed, (x.numel(),))
+
+    if tuple(x.shape) == tuple(shape):
+        return OptimState4bit(x.codes, x.scale, x.qmap, x.signed, x._shape)
+
+    if len(shape) == 1 and shape[0] == -1:
+        return OptimState4bit(x.codes, x.scale, x.qmap, x.signed, (x.numel(),))
+
+    raise ValueError(f"{x.__class__.__name__} only supports .view() with same shape or shape=[-1]")

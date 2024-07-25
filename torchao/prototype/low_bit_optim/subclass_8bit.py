@@ -97,3 +97,10 @@ def _(func, *args, **kwargs):
 def _(func, *args, **kwargs):
     args = [x.dequantize() if isinstance(x, OptimState8bit) else x for x in args]
     return func(*args, **kwargs)
+
+
+# this is needed for DTensor.from_local()
+@OptimState8bit.implements(aten.view.default)
+def _(func, *args, **kwargs):
+    x, shape = args
+    return OptimState8bit(x.codes.view(shape), x.scale, x.qmap, x.signed)
