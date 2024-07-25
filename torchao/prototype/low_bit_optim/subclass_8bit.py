@@ -33,10 +33,7 @@ class OptimState8bit(Tensor):
         self.scale = scale
         self.qmap = qmap
         self.signed = signed
-
-    @property
-    def block_size(self):
-        return self.codes.numel() // self.scale.numel()
+        self.block_size = codes.numel() // scale.numel()
 
     def __tensor_flatten__(self):
         return self.tensor_attrs, [self.signed]

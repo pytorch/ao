@@ -35,10 +35,7 @@ class OptimStateFp8(Tensor):
         assert codes.dtype is DTYPE
         self.codes = codes
         self.scale = scale
-
-    @property
-    def block_size(self):
-        return self.codes.numel() // self.scale.numel()
+        self.block_size = codes.numel() // scale.numel()
 
     def __tensor_flatten__(self):
         return self.tensor_attrs, []

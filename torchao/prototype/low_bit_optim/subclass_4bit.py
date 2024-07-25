@@ -38,10 +38,7 @@ class OptimState4bit(Tensor):
         self.qmap = qmap
         self.signed = signed
         self._shape = shape
-
-    @property
-    def block_size(self):
-        return self.codes.numel() * 2 // self.scale.numel()
+        self.block_size = codes.numel() * 2 // scale.numel()
 
     def __tensor_flatten__(self):
         return self.tensor_attrs, [self.signed, self._shape]
