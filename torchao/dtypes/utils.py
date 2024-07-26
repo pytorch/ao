@@ -29,11 +29,12 @@ def _implements(cls, aten_ops_or_torch_fns):
 
     if not isinstance(aten_ops_or_torch_fns, (list, tuple)):
         aten_ops_or_torch_fns = [aten_ops_or_torch_fns]
+
     def decorator(func):
         for op in aten_ops_or_torch_fns:
             @functools.wraps(op)
-            def wrapper(*args, **kwargs):
-                return func(*args, **kwargs)
+            def wrapper(f, types, args, kwargs):
+                return func(f, types, args, kwargs)
 
             cls._ATEN_OP_OR_TORCH_FN_TABLE[op] = wrapper
         return func
@@ -50,7 +51,10 @@ def _dispatch__torch_function__(cls, func, types, args=(), kwargs=None):
     kwargs = {} if kwargs is None else kwargs
     if hasattr(cls, "_ATEN_OP_OR_TORCH_FN_TABLE") and \
        func in cls._ATEN_OP_OR_TORCH_FN_TABLE:
-        return cls._ATEN_OP_OR_TORCH_FN_TABLE[func](func, types, *args, **kwargs)
+        try:
+            return cls._ATEN_OP_OR_TORCH_FN_TABLE[func](func, types, args, kwargs)
+        except NotImplementedError:
+            pass
 
     with torch._C.DisableTorchFunctionSubclass():
         return func(*args, **kwargs)
@@ -65,7 +69,7 @@ def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
     """
     if hasattr(cls, "_ATEN_OP_OR_TORCH_FN_TABLE") and \
        func in cls._ATEN_OP_OR_TORCH_FN_TABLE:
-        return cls._ATEN_OP_OR_TORCH_FN_TABLE[func](func, types, *args, **kwargs)
+        return cls._ATEN_OP_OR_TORCH_FN_TABLE[func](func, types, args, kwargs)
 
     raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run unimplemented operator/function: {func}")
 
