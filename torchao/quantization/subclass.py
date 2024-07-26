@@ -126,6 +126,7 @@ class QuantizedLinearWeightBase(torch.Tensor):
         kwargs = {} if kwargs is None else kwargs
 
         if func is torch.nn.functional.linear:
+            breakpoint()
             mat1, w_qtensor, bias = (
                 args[0],
                 args[1],
@@ -441,11 +442,11 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
     def _quantized_op(act_mat, w_qtensor, bias):
         orig_act_size = act_mat.size()
         orig_dtype = act_mat.dtype
-
         # reshape and pad activation
         act_mat = act_mat.reshape(-1, act_mat.shape[-1]).to(torch.bfloat16)
-        pad_size = find_multiple(act_mat.shape[-1], 1024)
-        act_mat = torch.nn.functional.pad(act_mat, (0, pad_size - act_mat.shape[-1]))
+        # Any padding for weight? Otherwise it may cause the mismatch of the shape of the input and the weight
+        # pad_size = find_multiple(act_mat.shape[-1], 1024)
+        # act_mat = torch.nn.functional.pad(act_mat, (0, pad_size - act_mat.shape[-1]))
 
         # matmul
         y = aten._weight_int4pack_mm(
@@ -467,6 +468,7 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         return y.to(orig_dtype)
 
     def dequantize(self):
+        breakpoint()
         eye_shape = self.shape[1] if not self.transposed else self.shape[0]
         w_dq = self._quantized_op(
             torch.eye(eye_shape, device=self.device, dtype=self.dtype), self, None
