@@ -11,6 +11,11 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.distributed.device_mesh import DeviceMesh
 from torch._prims_common import make_contiguous_strides_for
+from torchao.dtypes.utils import (
+    _implements,
+    _dispatch__torch_function__,
+    _dispatch__torch_dispatch__,
+)
 
 
 aten = torch.ops.aten
@@ -18,9 +23,6 @@ aten = torch.ops.aten
 c10d_functional = torch.ops.c10d_functional
 
 from typing import Any, Optional, Tuple, Union, List
-
-NF4_OPS_TABLE: Dict[Any, Any] = {}
-
 
 _INNER_TENSOR_NAMES_FOR_SHARDING = ["quantized_scalers", "quantization_factor", "quantized_data"]
 
@@ -41,17 +43,6 @@ def same_metadata(a: "NF4Tensor", b: "NF4Tensor"):
         and a.scaler_block_size == b.scaler_block_size
         and a.n_blocks == b.n_blocks
     )
-
-
-def implements(aten_ops):
-    """Use this decorator to implement a function for an aten op in __torch_dispatch__"""
-
-    def decorator(func):
-        for op in aten_ops:
-            NF4_OPS_TABLE[op] = func
-        return func
-
-    return decorator
 
 
 def construct_nf4_args(nf4tensor: "NF4Tensor", kwargs: Optional[Dict[str, Any]] = None):
@@ -131,251 +122,6 @@ def expect_args_len_at_k(k: int, op: CompareOp, value: Any, msg: str):
     return decorator
 
 
-@implements([torch.ops.aten.detach])
-def noop_detach(func, *args, **kwargs):
-    return args[0][0]
-
-@implements([torch.ops.aten.clone.default])
-def clone(func, *args, **kwargs):
-    return to_nf4(args[0][0].get_original_weight())
-
-@implements(
-    [
-        aten.detach.default,
-    ]
-)
-def nf4_detach(aten_op, args, kwargs=None):
-    nf4tensor = args[0]
-    updated_attrs = apply_to_inner_tensors(nf4tensor, aten_op, args[1:], kwargs)
-    return NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
-
-
-@implements(
-    [
-        aten.split.Tensor,
-    ]
-)
-def nf4_split(aten_op, args, kwargs=None):
-    if len(args) == 3 and args[2] != 0:
-        raise NotImplementedError(f"aten.split(NF4Tensor, dim={args[2]})")
-    nf4tensor = args[0]
-    num_chunks = nf4tensor.size(0) // args[1]
-
-    attr_to_chunks = {}
-    for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
-        inner_tensor = getattr(nf4tensor, attr)
-        assert inner_tensor.numel() % num_chunks == 0, f"{attr}.numel() not divisible by {num_chunks}"
-        chunks = aten_op(inner_tensor, inner_tensor.numel() // num_chunks, **kwargs)
-        attr_to_chunks[attr] = chunks
-
-    orig_dim = nf4tensor.dim()
-    if orig_dim == 1:
-        chunked_size = (nf4tensor.size(0) // num_chunks, )
-    elif orig_dim == 2:
-        chunked_size = (nf4tensor.size(0) // num_chunks, nf4tensor.size(1))
-    else:
-        chunked_size = ()
-        raise NotImplementedError(f"aten.split(NF4Tensor) wherer NF4Tensor.dim() = {orig_dim}")
-
-    nf4_chunks = []
-    for idx in range(num_chunks):
-        updated_attrs = {
-            "size": chunked_size
-        }
-        for attr, chunks in attr_to_chunks.items():
-            updated_attrs[attr] = chunks[idx]
-        nf4_chunks.append(NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs)))
-    return nf4_chunks
-
-@implements(
-    [
-        aten.new_zeros.default,
-    ]
-)
-@expect_args_len_at_k(1, CompareOp.LT, 3, "aten.view(NF4Tensor) with len(size)=")
-def nf4_new_zeros(aten_op, args, kwargs=None):
-    nf4tensor = args[0]
-    new_size = tuple(args[1])
-    new_size_dim = len(new_size)
-    if nf4tensor.numel() % math.prod(new_size) != 0:
-        raise NotImplementedError(f"aten.new_zeros(NF4Tensor) with new size {new_size}")
-    ratio = nf4tensor.numel() // math.prod(new_size)
-
-    updated_attrs = {}
-    for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
-        inner_tensor = getattr(nf4tensor, attr)
-        assert inner_tensor.size(0) % ratio == 0, f"{attr}.numel() must be divisible by {ratio}"
-        inner_tensor = aten_op(inner_tensor, [inner_tensor.size(0) // ratio], **kwargs)
-        updated_attrs[attr] = inner_tensor
-    updated_attrs["size"] = new_size
-
-    return NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
-
-@implements(
-    [
-        aten.slice.Tensor,
-    ]
-)
-@expect_num_of_args(CompareOp.LT, 5, "aten.slice(NF4Tensor) with customized step")
-@expect_arg_value_at_k(1, CompareOp.EQ, 0, "aten.slice(NF4Tensor) with dim=")
-@expect_arg_value_at_k(2, CompareOp.EQ, 0, "aten.slice(NF4Tensor) with start=")
-def nf4_slice(aten_op, args, kwargs=None):
-    nf4tensor = args[0]
-    # for tensor 512 x 512, tensor[:, :512] dispatch to
-    # aten.slice(dim = 0, end=sys.maxsize)
-    if not args[3] in [nf4tensor.size(0), sys.maxsize]:
-        raise NotImplementedError(f"aten.slice(NF4Tensor) with end={args[3]}")
-    return NF4Tensor(*construct_nf4_args(nf4tensor))
-
-@implements(
-    [
-        aten.view.default,
-    ]
-)
-@expect_args_len_at_k(1, CompareOp.EQ, 1, "aten.view(NF4Tensor) with len(size)=")
-def nf4_view(aten_op, args, kwargs=None):
-    nf4tensor = args[0]
-    size = args[1]
-    if size[0] != -1:
-        raise NotImplementedError(f"aten.view(NF4Tensor) with size={size}")
-    updated_attrs = apply_to_inner_tensors(nf4tensor, aten_op, args[1:], kwargs)
-    updated_attrs.update({
-        "size": [nf4tensor.numel()],
-        "stride": (1, ),
-    })
-    return NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
-
-@implements(
-    [
-        aten.as_strided.default,
-    ]
-)
-@expect_args_len_at_k(1, CompareOp.LT, 3, "aten.as_strided(NF4Tensor) only support dim <= 2 but got dim=")
-def nf4_as_strided(aten_op, args, kwargs=None):
-    nf4tensor = args[0]
-    size = args[1]
-    stride = tuple(args[2])
-    storage_offset = args[3]
-    if math.prod(size) != nf4tensor.numel():
-        raise NotImplementedError(f"aten.as_strided(NF4Tensor) different numel={nf4tensor.numel()} and size={size}")
-    if stride != make_contiguous_strides_for(size):
-        raise NotImplementedError(f"aten.as_strided(NF4Tensor) only support continuous stride={make_contiguous_strides_for(size)} but got stride={stride}")
-    if nf4tensor.storage_offset() != storage_offset:
-        raise NotImplementedError(f"aten.as_strided(NF4Tensor) only support original storage offset {nf4tensor.storage_offset()} but got {storage_offset}")
-    kwargs = {
-        "size": torch.Size(size),
-        "stride": stride,
-        "storage_offset": storage_offset,
-    }
-    return NF4Tensor(*construct_nf4_args(nf4tensor, kwargs))
-
-
-@implements([torch.ops.aten._to_copy.default])
-def _to_copy(func, *args, **kwargs):
-    if not args[0][0].is_contiguous():
-        assert args[0][0].t().is_contiguous()
-        return func(args[0][0].t()).t()
-    out = args[0][0].get_original_weight().to(args[1]["dtype"])
-    if "device" in args[1]:
-        out = out.to(args[1]["device"])
-    return out
-
-
-@implements([torch.ops.aten.to.dtype])
-def to_dtype(func, *args, **kwargs):
-    if not args[0][0].is_contiguous():
-        assert args[0][0].t().is_contiguous()
-        return torch.ops.aten.to.dtype(args[0][0].t(), args[0][1]).t()
-    return args[0][0].get_original_weight().to(args[0][1])
-
-
-@implements([torch.ops.aten.t.default])
-def t_default(func, *args, **kwargs):
-    a = args[0][0]
-    tensor_meta = SubclassTensorArgs(
-        a.size(),
-        (a.stride(1), a.stride(0)),
-        a.storage_offset(),
-        a.dtype,
-        a.device,
-        a.requires_grad,
-    )
-    b = NF4Tensor(
-        tensor_meta,
-        a.block_size,
-        a.n_blocks,
-        a.scaler_block_size,
-        a.quantized_scalers,
-        a.quantization_factor,
-        a.scaler_mean,
-        a.quantized_data,
-        a.nf4,
-    )
-    return b
-
-
-@implements([torch.ops.aten.mm.default])
-def mm_default(func, *args, **kwargs):
-    return linear_nf4(args[0][0], args[0][1])
-
-
-@implements(
-    [
-        aten.copy_.default,
-    ]
-)
-def copy_(func, *args, **kwargs):
-    original: NF4Tensor = args[0][0]
-    copy_in: torch.Tensor = args[0][1]
-
-    # Base Case
-
-    if same_metadata(original, copy_in):
-        original_tensors = original.__tensor_flatten__()[0]
-        for tensor_name in original_tensors:
-            getattr(original, tensor_name).copy_(getattr(copy_in, tensor_name))
-        return
-
-    # Convert Non NF4Tensor into NF4 for copy in
-    if not isinstance(copy_in, NF4Tensor):
-        copy_in_nf4 = NF4Tensor.from_tensor(
-            copy_in, original.block_size, original.scaler_block_size
-        )
-        return original.copy_(copy_in_nf4)
-
-    # Other Tensor is not a NF4Tensor
-    full_precision = copy_in.get_original_weight()
-    same_meta_nf4 = NF4Tensor.from_tensor(
-        full_precision, original.block_size, original.scaler_block_size
-    )
-    return original.copy_(same_meta_nf4)
-
-
-@implements(
-    [
-        aten.is_pinned.default,
-    ]
-)
-def nf4_is_pinned(aten_op, args, kwargs=None):
-    nf4tensor = args[0]
-    for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
-        inner_tensor = getattr(nf4tensor, attr)
-        if not aten_op(inner_tensor, *(args[1:]), **kwargs):
-            return False
-    return True
-
-
-@implements(
-    [
-        aten._pin_memory.default,
-    ]
-)
-def nf4_pin_memory(aten_op, args, kwargs=None):
-    nf4tensor = args[0]
-    updated_attrs = apply_to_inner_tensors(nf4tensor, aten_op, args[1:], kwargs)
-    return NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
-
-
 @dataclass
 class SubclassTensorArgs:
     original_shape: torch.Size
@@ -409,6 +155,8 @@ def get_block_absmax(inpt_tensor: torch.Tensor, block_size: int) -> torch.Tensor
 
 class NF4Tensor(torch.Tensor):
     """NF4Tensor class for converting a weight to the QLoRA NF4 format"""
+
+    implements = classmethod(_implements)
 
     def __new__(
         cls,
@@ -762,7 +510,7 @@ class NF4Tensor(torch.Tensor):
         """TODO we are not supporting torch dispatch at the moment
         instead we have created a Autograd.Function to handle the linear
         """
-        # All ops in the  NF4_OPS_TABLE expect NF4 Tensors as inputs
+        # All ops in the dispatch table expect NF4 Tensors as inputs
         # And don't support mixed tensor subclasses. This will trigger the handler for
         # the next type in the dispatch list
 
@@ -778,28 +526,10 @@ class NF4Tensor(torch.Tensor):
         if not all(allowed_subclasses(t) for t in types):
             return NotImplemented("Up to the next one to handle")
 
-        if func in NF4_OPS_TABLE:
-            return NF4_OPS_TABLE[func](func, args, kwargs)
-        raise NotImplementedError(
-            f"NF4Tensor dispatch: attempting to run {func}, this is not supported"
-        )
+        _dispatch__torch_dispatch__(cls, func, types, args, kwargs)
 
     # Do not force the Float8Tensor type on the returned tensor
-
-    @classmethod
-    def __torch_function__(cls, func, types, args=(), kwargs=None):
-        if kwargs is None:
-            kwargs = {}
-
-        try:
-            if func in NF4_TORCH_FUNCTIONS:
-                return NF4_TORCH_FUNCTIONS[func](*args, **kwargs)
-        except NotImplementedError:
-            pass
-
-        with torch._C.DisableTorchFunctionSubclass():
-            return func(*args, **kwargs)
-
+    __torch_function__ = classmethod(_dispatch__torch_function__)
 
     def fsdp_pre_all_gather(self, mesh: DeviceMesh) -> Tuple[Tuple[torch.Tensor, ...], Any]:
         return (
@@ -862,6 +592,291 @@ class NF4Tensor(torch.Tensor):
         ), (quantized_scalers, quantization_factor, quantized_data)
 
 
+implements = NF4Tensor.implements
+
+@implements([torch.ops.aten.detach])
+def noop_detach(func, types, args, kwargs):
+    return args[0]
+
+@implements([torch.ops.aten.clone.default])
+def clone(func, types, args, kwargs):
+    return to_nf4(args[0].get_original_weight())
+
+@implements(
+    [
+        aten.detach.default,
+    ]
+)
+def nf4_detach(aten_op, types, args, kwargs=None):
+    nf4tensor = args[0]
+    updated_attrs = apply_to_inner_tensors(nf4tensor, aten_op, args[1:], kwargs)
+    return NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
+
+
+@implements(
+    [
+        aten.split.Tensor,
+    ]
+)
+def nf4_split(aten_op, types, args, kwargs=None):
+    if len(args) == 3 and args[2] != 0:
+        raise NotImplementedError(f"aten.split(NF4Tensor, dim={args[2]})")
+    nf4tensor = args[0]
+    num_chunks = nf4tensor.size(0) // args[1]
+
+    attr_to_chunks = {}
+    for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
+        inner_tensor = getattr(nf4tensor, attr)
+        assert inner_tensor.numel() % num_chunks == 0, f"{attr}.numel() not divisible by {num_chunks}"
+        chunks = aten_op(inner_tensor, inner_tensor.numel() // num_chunks, **kwargs)
+        attr_to_chunks[attr] = chunks
+
+    orig_dim = nf4tensor.dim()
+    if orig_dim == 1:
+        chunked_size = (nf4tensor.size(0) // num_chunks, )
+    elif orig_dim == 2:
+        chunked_size = (nf4tensor.size(0) // num_chunks, nf4tensor.size(1))
+    else:
+        chunked_size = ()
+        raise NotImplementedError(f"aten.split(NF4Tensor) wherer NF4Tensor.dim() = {orig_dim}")
+
+    nf4_chunks = []
+    for idx in range(num_chunks):
+        updated_attrs = {
+            "size": chunked_size
+        }
+        for attr, chunks in attr_to_chunks.items():
+            updated_attrs[attr] = chunks[idx]
+        nf4_chunks.append(NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs)))
+    return nf4_chunks
+
+@implements(
+    [
+        aten.new_zeros.default,
+    ]
+)
+@expect_args_len_at_k(1, CompareOp.LT, 3, "aten.view(NF4Tensor) with len(size)=")
+def nf4_new_zeros(aten_op, types, args, kwargs=None):
+    nf4tensor = args[0]
+    new_size = tuple(args[1])
+    new_size_dim = len(new_size)
+    if nf4tensor.numel() % math.prod(new_size) != 0:
+        raise NotImplementedError(f"aten.new_zeros(NF4Tensor) with new size {new_size}")
+    ratio = nf4tensor.numel() // math.prod(new_size)
+
+    updated_attrs = {}
+    for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
+        inner_tensor = getattr(nf4tensor, attr)
+        assert inner_tensor.size(0) % ratio == 0, f"{attr}.numel() must be divisible by {ratio}"
+        inner_tensor = aten_op(inner_tensor, [inner_tensor.size(0) // ratio], **kwargs)
+        updated_attrs[attr] = inner_tensor
+    updated_attrs["size"] = new_size
+
+    return NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
+
+@implements(
+    [
+        aten.slice.Tensor,
+    ]
+)
+@expect_num_of_args(CompareOp.LT, 5, "aten.slice(NF4Tensor) with customized step")
+@expect_arg_value_at_k(1, CompareOp.EQ, 0, "aten.slice(NF4Tensor) with dim=")
+@expect_arg_value_at_k(2, CompareOp.EQ, 0, "aten.slice(NF4Tensor) with start=")
+def nf4_slice(aten_op, types, args, kwargs=None):
+    nf4tensor = args[0]
+    # for tensor 512 x 512, tensor[:, :512] dispatch to
+    # aten.slice(dim = 0, end=sys.maxsize)
+    if not args[3] in [nf4tensor.size(0), sys.maxsize]:
+        raise NotImplementedError(f"aten.slice(NF4Tensor) with end={args[3]}")
+    return NF4Tensor(*construct_nf4_args(nf4tensor))
+
+@implements(
+    [
+        aten.view.default,
+    ]
+)
+@expect_args_len_at_k(1, CompareOp.EQ, 1, "aten.view(NF4Tensor) with len(size)=")
+def nf4_view(aten_op, types, args, kwargs=None):
+    nf4tensor = args[0]
+    size = args[1]
+    if size[0] != -1:
+        raise NotImplementedError(f"aten.view(NF4Tensor) with size={size}")
+    updated_attrs = apply_to_inner_tensors(nf4tensor, aten_op, args[1:], kwargs)
+    updated_attrs.update({
+        "size": [nf4tensor.numel()],
+        "stride": (1, ),
+    })
+    return NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
+
+@implements(
+    [
+        aten.as_strided.default,
+    ]
+)
+@expect_args_len_at_k(1, CompareOp.LT, 3, "aten.as_strided(NF4Tensor) only support dim <= 2 but got dim=")
+def nf4_as_strided(aten_op, types, args, kwargs=None):
+    nf4tensor = args[0]
+    size = args[1]
+    stride = tuple(args[2])
+    storage_offset = args[3]
+    if math.prod(size) != nf4tensor.numel():
+        raise NotImplementedError(f"aten.as_strided(NF4Tensor) different numel={nf4tensor.numel()} and size={size}")
+    if stride != make_contiguous_strides_for(size):
+        raise NotImplementedError(f"aten.as_strided(NF4Tensor) only support continuous stride={make_contiguous_strides_for(size)} but got stride={stride}")
+    if nf4tensor.storage_offset() != storage_offset:
+        raise NotImplementedError(f"aten.as_strided(NF4Tensor) only support original storage offset {nf4tensor.storage_offset()} but got {storage_offset}")
+    kwargs = {
+        "size": torch.Size(size),
+        "stride": stride,
+        "storage_offset": storage_offset,
+    }
+    return NF4Tensor(*construct_nf4_args(nf4tensor, kwargs))
+
+
+@implements([torch.ops.aten._to_copy.default])
+def _to_copy(func, types, args, kwargs):
+    print(f"func: {func}, types: {types}, args: {args}, args[0]: {type(args[0])}")
+    if not args[0].is_contiguous():
+        assert args[0].t().is_contiguous()
+        return func(args[0].t()).t()
+    out = args[0].get_original_weight()
+    print("out:", out)
+    if "dtype" in kwargs:
+        out = out.to(kwargs["dtype"])
+    if "device" in kwargs:
+        out = out.to(kwargs["device"])
+    return out
+
+
+@implements([torch.ops.aten.to.dtype])
+def to_dtype(func, types, args, kwargs):
+    if not args[0].is_contiguous():
+        assert args[0].t().is_contiguous()
+        return torch.ops.aten.to.dtype(args[0].t(), args[1]).t()
+    return args[0].get_original_weight().to(args[1])
+
+
+@implements([torch.ops.aten.t.default])
+def t_default(func, types, args, kwargs):
+    a = args[0]
+    tensor_meta = SubclassTensorArgs(
+        a.size(),
+        (a.stride(1), a.stride(0)),
+        a.storage_offset(),
+        a.dtype,
+        a.device,
+        a.requires_grad,
+    )
+    b = NF4Tensor(
+        tensor_meta,
+        a.block_size,
+        a.n_blocks,
+        a.scaler_block_size,
+        a.quantized_scalers,
+        a.quantization_factor,
+        a.scaler_mean,
+        a.quantized_data,
+        a.nf4,
+    )
+    return b
+
+
+@implements([torch.ops.aten.mm.default])
+def mm_default(func, types, args, kwargs):
+    return linear_nf4(args[0], args[1])
+
+
+@implements(
+    [
+        aten.copy_.default,
+    ]
+)
+def copy_(func, types, args, kwargs):
+    original: NF4Tensor = args[0]
+    copy_in: torch.Tensor = args[1]
+
+    # Base Case
+
+    if same_metadata(original, copy_in):
+        original_tensors = original.__tensor_flatten__()[0]
+        for tensor_name in original_tensors:
+            getattr(original, tensor_name).copy_(getattr(copy_in, tensor_name))
+        return
+
+    # Convert Non NF4Tensor into NF4 for copy in
+    if not isinstance(copy_in, NF4Tensor):
+        copy_in_nf4 = NF4Tensor.from_tensor(
+            copy_in, original.block_size, original.scaler_block_size
+        )
+        return original.copy_(copy_in_nf4)
+
+    # Other Tensor is not a NF4Tensor
+    full_precision = copy_in.get_original_weight()
+    same_meta_nf4 = NF4Tensor.from_tensor(
+        full_precision, original.block_size, original.scaler_block_size
+    )
+    return original.copy_(same_meta_nf4)
+
+
+@implements(
+    [
+        aten.is_pinned.default,
+    ]
+)
+def nf4_is_pinned(aten_op, types, args, kwargs=None):
+    nf4tensor = args[0]
+    for attr in _INNER_TENSOR_NAMES_FOR_SHARDING:
+        inner_tensor = getattr(nf4tensor, attr)
+        if not aten_op(inner_tensor, *(args[1:]), **kwargs):
+            return False
+    return True
+
+
+@implements(
+    [
+        aten._pin_memory.default,
+    ]
+)
+def nf4_pin_memory(aten_op, types, args, kwargs=None):
+    nf4tensor = args[0]
+    updated_attrs = apply_to_inner_tensors(nf4tensor, aten_op, args[1:], kwargs)
+    return NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
+
+
+@implements(torch.Tensor.to)
+def function_to_dtype(func, types, args, kwargs):
+    tensor = args[0]
+    if isinstance(args[1], torch.dtype):
+        # Tensor.to(dtype, non_blocking, copy, memory_format)
+        return tensor.get_original_weight().to(*args[1:], **kwargs)
+    elif (
+        isinstance(args[1], torch.device) or (
+            isinstance(args[1], str) and (
+                args[1] == "cpu" or args[1].startswith("cuda")
+            )
+        )
+    ) and len(args) == 2:
+        # Tensor.to(device, non_blocking)
+        device = args[1]
+        updated_attrs = call_from_inner_tensors(tensor, "to", args[1:], kwargs)
+        updated_attrs["device"] = device
+        return NF4Tensor(*construct_nf4_args(tensor, updated_attrs))
+    else:
+        # Tensor.to(device, dtype, non_blocking, copy, memory_format)
+        # Tensor.to(other, non_blocking, copy)
+        raise NotImplementedError(
+            f"NF4Tensor.to({args[1:]}, {kwargs}) is not supported, passing to dispatch"
+        )
+
+
+@implements(torch.Tensor.cpu)
+def function_cpu(func, types, args, kwargs):
+    nf4tensor = args[0]
+    updated_attrs = call_from_inner_tensors(nf4tensor, "cpu", args[1:], kwargs)
+    updated_attrs["device"] = "cpu"
+    return NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
+
+
 class LinearNF4(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.Tensor, weight: NF4Tensor):
@@ -888,49 +903,3 @@ def linear_nf4(input: torch.Tensor, weight: NF4Tensor) -> torch.Tensor:
 
 def to_nf4(tensor, block_size: int = 64, scaler_block_size: int = 256):
     return NF4Tensor.from_tensor(tensor, block_size, scaler_block_size)
-
-
-NF4_TORCH_FUNCTIONS = {}
-
-
-def implements_torch_function(torch_function):
-    def decorator(func):
-        functools.update_wrapper(func, torch_function)
-        NF4_TORCH_FUNCTIONS[torch_function] = func
-        return func
-
-    return decorator
-
-
-@implements_torch_function(torch.Tensor.to)
-def function_to_dtype(*args, **kwargs):
-    tensor = args[0]
-    if isinstance(args[1], torch.dtype):
-        # Tensor.to(dtype, non_blocking, copy, memory_format)
-        return tensor.get_original_weight().to(*args[1:], **kwargs)
-    elif (
-        isinstance(args[1], torch.device) or (
-            isinstance(args[1], str) and (
-                args[1] == "cpu" or args[1].startswith("cuda")
-            )
-        )
-    ) and len(args) == 2:
-        # Tensor.to(device, non_blocking)
-        device = args[1]
-        updated_attrs = call_from_inner_tensors(tensor, "to", args[1:], kwargs)
-        updated_attrs["device"] = device
-        return NF4Tensor(*construct_nf4_args(tensor, updated_attrs))
-    else:
-        # Tensor.to(device, dtype, non_blocking, copy, memory_format)
-        # Tensor.to(other, non_blocking, copy)
-        raise NotImplementedError(
-            f"NF4Tensor.to({args[1:]}, {kwargs}) is not supported, passing to dispatch"
-        )
-
-
-@implements_torch_function(torch.Tensor.cpu)
-def function_cpu(*args, **kwargs):
-    nf4tensor = args[0]
-    updated_attrs = call_from_inner_tensors(nf4tensor, "cpu", args[1:], kwargs)
-    updated_attrs["device"] = "cpu"
-    return NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
