@@ -27,7 +27,7 @@ class OptimState8bit(Tensor):
         )
 
     def __init__(self, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool):
-        """Create quantized 8-bit optimizer state as proposed in https://arxiv.org/abs/2110.02861.
+        """Create quantized 8-bit optimizer state as proposed in https://arxiv.org/abs/2110.02861
 
         Args
             codes: quantized 8-bit data stored as uint8. Has the same shape as the original float tensor.

@@ -32,7 +32,7 @@ class OptimState4bit(Tensor):
         )
 
     def __init__(self, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool, shape):
-        """Create quantized 4-bit optimizer state as proposed in https://arxiv.org/abs/2309.01507.
+        """Create quantized 4-bit optimizer state as proposed in https://arxiv.org/abs/2309.01507
 
         Args
             codes: quantized and packed 4-bit data stored as uint8.
