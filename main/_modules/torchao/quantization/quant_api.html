@@ -409,8 +409,11 @@
 <span class="p">)</span>
 <span class="kn">from</span> <span class="nn">.subclass</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">QuantizedLinearWeightBase</span><span class="p">,</span>
-    <span class="n">LinearActQuantizedTensor</span><span class="p">,</span>
-    <span class="n">to_linear_act_quantized</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="kn">from</span> <span class="nn">.linear_activation_quantized_tensor</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">LinearActivationQuantizedTensor</span><span class="p">,</span>
+    <span class="n">to_linear_activation_quantized</span><span class="p">,</span>
 <span class="p">)</span>
 
 <span class="kn">from</span> <span class="nn">.quant_primitives</span> <span class="kn">import</span> <span class="p">(</span>
@@ -570,7 +573,7 @@
         <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">QuantizedLinearWeightBase</span><span class="p">)</span>
         <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">AutoQuantizableLinearWeight</span><span class="p">)</span>
         <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">LinearActQuantizedTensor</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">LinearActivationQuantizedTensor</span><span class="p">)</span>
     <span class="p">)</span>
 
 <span class="kn">import</span> <span class="nn">torch.nn.utils.parametrize</span> <span class="k">as</span> <span class="nn">parametrize</span>
@@ -732,7 +735,7 @@
         <span class="n">input_quant_func</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">to_affine_quantized</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">input_mapping_type</span><span class="p">,</span> <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">input_target_dtype</span><span class="p">)</span>
 
         <span class="n">weight</span> <span class="o">=</span> <span class="n">to_affine_quantized</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">,</span> <span class="n">eps</span><span class="p">)</span>
-        <span class="n">weight</span> <span class="o">=</span> <span class="n">to_linear_act_quantized</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">input_quant_func</span><span class="p">)</span>
+        <span class="n">weight</span> <span class="o">=</span> <span class="n">to_linear_activation_quantized</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">input_quant_func</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">weight</span>
 
     <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_int8_dynamic_activation_int4_weight_quant</span><span class="p">)</span></div>
@@ -831,7 +834,7 @@
 
         <span class="n">block_size</span> <span class="o">=</span> <span class="n">get_weight_block_size</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
         <span class="n">weight</span> <span class="o">=</span> <span class="n">to_affine_quantized</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span> <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span> <span class="n">layout_type</span><span class="o">=</span><span class="n">layout_type</span><span class="p">)</span>
-        <span class="n">weight</span> <span class="o">=</span> <span class="n">to_linear_act_quantized</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">input_quant_func</span><span class="p">)</span>
+        <span class="n">weight</span> <span class="o">=</span> <span class="n">to_linear_activation_quantized</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">input_quant_func</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">weight</span>
 
     <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_int8_dynamic_activation_int8_weight_quant</span><span class="p">)</span></div>
@@ -839,7 +842,7 @@
 
 <span class="k">def</span> <span class="nf">int8_dynamic_activation_int8_semi_sparse_weight</span><span class="p">():</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight </span>
+<span class="sd">    Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight</span>
 <span class="sd">    quantization + 2:4 sparsity to linear layers.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">SemiSparseLayoutType</span>
