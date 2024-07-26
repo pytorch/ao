@@ -17,7 +17,8 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.utils import find_multiple
 from torchao.dtypes.utils import (
     _implements,
-    _ATEN_OP_OR_TORCH_FN_TABLE,
+    _dispatch__torch_function__,
+    _dispatch__torch_dispatch__,
     _register_layout_cls,
     _get_layout_tensor_constructor,
     LayoutType,
@@ -295,17 +296,6 @@ class AffineQuantizedTensor(torch.Tensor):
     def layout_type(self) -> LayoutType:
         return self.layout_tensor.layout_type
 
-    @classmethod
-    def __torch_function__(cls, func, types, args=(), kwargs=None):
-        kwargs = {} if kwargs is None else kwargs
-
-        if func in _ATEN_OP_OR_TORCH_FN_TABLE[cls]:
-            return _ATEN_OP_OR_TORCH_FN_TABLE[cls][func](*args, **kwargs)
-
-        with torch._C.DisableTorchFunctionSubclass():
-            return func(*args, **kwargs)
-
-
     def _get_to_kwargs(self, *args, **kwargs):
         device, dtype, _, memory_format = torch._C._nn._parse_to(*args, **kwargs)
         device = self.device if device is None else device
@@ -347,29 +337,23 @@ class AffineQuantizedTensor(torch.Tensor):
             strides=self.stride(),
         )
 
-    @classmethod
-    def __torch_dispatch__(cls, func, types, args, kwargs):
-        # Note: we only added cpu path here for 8da4w, this is for executorch, in the future
-        # 1. we'll add cpu/cuda version (int4mm etc.)
-        # 2. we'll need to hide the 8da4w executorch version under things like layouts (we also have multiple impl for cpu kernel as Michael mentioned), so it will be something like
-        #   cpu device + et laytout --> gives current 8da4w executorch representation
-        #   cpu device + avx layout --> gives optimized kernel for 8da4w in avx cpu etc.
-        #   cuda device + some layout --> gives cuda kernel
 
-        # two scenarios where we currently fall back to vanilla mm:
-        # 1 - when tensor is on CUDA: we'll add this later, we'll also enable dispatching to optimized
-        #     kernels in CPU as well, see the note above
-        # 2 - we're given non-floats - quantizing long to int8 is crazy
+    implements = classmethod(_implements)
+    # Note: we only added cpu path here for 8da4w, this is for executorch, in the future
+    # 1. we'll add cpu/cuda version (int4mm etc.)
+    # 2. we'll need to hide the 8da4w executorch version under things like layouts (we also have multiple impl for cpu kernel as Michael mentioned), so it will be something like
+    #   cpu device + et laytout --> gives current 8da4w executorch representation
+    #   cpu device + avx layout --> gives optimized kernel for 8da4w in avx cpu etc.
+    #   cuda device + some layout --> gives cuda kernel
 
-        if func in _ATEN_OP_OR_TORCH_FN_TABLE[cls]:
-            return _ATEN_OP_OR_TORCH_FN_TABLE[cls][func](func, *args, **kwargs)
+    # two scenarios where we currently fall back to vanilla mm:
+    # 1 - when tensor is on CUDA: we'll add this later, we'll also enable dispatching to optimized
+    #     kernels in CPU as well, see the note above
+    # 2 - we're given non-floats - quantizing long to int8 is crazy
+    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
+    __torch_function__ = classmethod(_dispatch__torch_function__)
 
-        raise NotImplementedError(
-            f"AffineQuantizedTensor dispatch: attempting to run {func}, this is not supported"
-        )
-
-def implements(aten_ops_or_torch_fn):
-    return _implements(AffineQuantizedTensor, aten_ops_or_torch_fn)
+implements = AffineQuantizedTensor.implements
 
 def register_layout_cls(layout_type_class: type(LayoutType)):
     return _register_layout_cls(AffineQuantizedTensor, layout_type_class)
@@ -827,7 +811,7 @@ def _quantized_linear_op(input_tensor, weight_qtensor, bias):
 
 
 @implements(torch.nn.functional.linear)
-def functional_linear(*args, **kwargs):
+def _(func, types, *args, **kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
         args[1],
@@ -846,7 +830,7 @@ def functional_linear(*args, **kwargs):
         return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
 @implements([aten.mm.default, aten.addmm.default])
-def aten_mm(func, *args, **kwargs):
+def _(func, types, *args, **kwargs):
     if not args[0].is_floating_point():
         raise NotImplementedError(f"{func} is not implemented for non floating point input")
 
@@ -885,21 +869,21 @@ def aten_mm(func, *args, **kwargs):
             return func(input_tensor, weight_tensor)
 
 @implements([aten.detach.default])
-def detach(func, *args, **kwargs):
+def _(func, types, *args, **kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
     )
 
 
 @implements([aten.clone.default])
-def clone(func, *args, **kwargs):
+def _(func, types, *args, **kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
     )
 
 
 @implements([aten._to_copy.default])
-def _to_copy(func, *args, **kwargs):
+def _(func, types, *args, **kwargs):
     return return_and_correct_aliasing(
         func,
         args,
@@ -908,7 +892,7 @@ def _to_copy(func, *args, **kwargs):
     )
 
 @implements([aten.t.default])
-def t(func, *args, **kwargs):
+def _(func, types, *args, **kwargs):
     block_size = args[0].block_size
     assert len(block_size) == 2
     transposed_block_size = (block_size[1], block_size[0])

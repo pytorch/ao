@@ -1,6 +1,6 @@
 import torch
 from torch import Tensor
-from torchao.dtypes.utils import _implements, _ATEN_OP_OR_TORCH_FN_TABLE
+from torchao.dtypes.utils import _implements, _dispatch__torch_dispatch__
 
 
 aten = torch.ops.aten
@@ -77,16 +77,11 @@ class OptimStateFp8(Tensor):
             f"shape={tuple(self.shape)}, device={self.device}, requires_grad={self.requires_grad})"
         )
 
-    @classmethod
-    def __torch_dispatch__(cls, func, types, args, kwargs):
-        if func in _ATEN_OP_OR_TORCH_FN_TABLE[cls]:
-            return _ATEN_OP_OR_TORCH_FN_TABLE[cls][func](func, *args, **kwargs)
-
-        raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run {func}, this is not supported")
+    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
 
 
 @OptimStateFp8.implements(aten.copy_.default)
-def _(func, *args, **kwargs):
+def _(func, types, *args, **kwargs):
     dst = args[0]
     src = args[1]
 
@@ -107,14 +102,14 @@ def _(func, *args, **kwargs):
 
 
 @OptimStateFp8.implements(aten.lerp.Scalar)
-def _(func, *args, **kwargs):
+def _(func, types, *args, **kwargs):
     args = [x.dequantize() if isinstance(x, OptimStateFp8) else x for x in args]
     return func(*args, **kwargs)
 
 
 # this is needed for DTensor.from_local()
 @OptimStateFp8.implements(aten.view.default)
-def _(func, *args, **kwargs):
+def _(func, types, *args, **kwargs):
     x, shape = args
     return OptimStateFp8(x.codes.view(shape), x.scale)
 
@@ -126,7 +121,7 @@ def _(func, *args, **kwargs):
     c10d_functional.wait_tensor.default,
     _c10d_functional.wait_tensor.default,
 ])
-def _(func, *args, **kwargs):
+def _(func, types, *args, **kwargs):
     x = args[0]
     if not isinstance(x, OptimStateFp8):
         raise ValueError(f"expecting a OptimStateFp8 but found {type(x)}")

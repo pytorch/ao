@@ -145,7 +145,7 @@ for n, m in model.named_modules():
         # note: quantization for activation need to be applied after the weight quantization
         # quantization activation (needed by dynamic quantization)
         input_quant_func = int8wo_quant  # specify how input activation is quantized
-        m.weight = nn.Parameter(to_linear_act_quantized(m.weight, input_quant_func))
+        m.weight = nn.Parameter(to_linear_activation_quantized(m.weight, input_quant_func))
 ```
 The model/tensor subclass should also be compatible with AOTI and torch.export, currently we can support
 `torch.export.export` and `torch.aot_compile` with the following workaround:

@@ -28,8 +28,11 @@ from torchao.utils import (
 )
 from .subclass import (
     QuantizedLinearWeightBase,
-    LinearActQuantizedTensor,
-    to_linear_act_quantized,
+)
+
+from .linear_activation_quantized_tensor import (
+    LinearActivationQuantizedTensor,
+    to_linear_activation_quantized,
 )
 
 from .quant_primitives import (
@@ -189,7 +192,7 @@ def _is_linear(mod, *args):
         and not isinstance(mod.weight, QuantizedLinearWeightBase)
         and not isinstance(mod.weight, AutoQuantizableLinearWeight)
         and not isinstance(mod.weight, AffineQuantizedTensor)
-        and not isinstance(mod.weight, LinearActQuantizedTensor)
+        and not isinstance(mod.weight, LinearActivationQuantizedTensor)
     )
 
 import torch.nn.utils.parametrize as parametrize
@@ -351,7 +354,7 @@ def int8_dynamic_activation_int4_weight(group_size=32):
         input_quant_func = lambda x: to_affine_quantized(x, input_mapping_type, _get_per_token_block_size(x), input_target_dtype)
 
         weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps)
-        weight = to_linear_act_quantized(weight, input_quant_func)
+        weight = to_linear_activation_quantized(weight, input_quant_func)
         return weight
 
     return _get_linear_subclass_inserter(apply_int8_dynamic_activation_int4_weight_quant)
@@ -450,7 +453,7 @@ def int8_dynamic_activation_int8_weight(layout_type=PlainLayoutType()):
 
         block_size = get_weight_block_size(weight)
         weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, layout_type=layout_type)
-        weight = to_linear_act_quantized(weight, input_quant_func)
+        weight = to_linear_activation_quantized(weight, input_quant_func)
         return weight
 
     return _get_linear_subclass_inserter(apply_int8_dynamic_activation_int8_weight_quant)
@@ -458,7 +461,7 @@ def int8_dynamic_activation_int8_weight(layout_type=PlainLayoutType()):
 
 def int8_dynamic_activation_int8_semi_sparse_weight():
     """
-    Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight 
+    Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight
     quantization + 2:4 sparsity to linear layers.
     """
     from torchao.dtypes import SemiSparseLayoutType
