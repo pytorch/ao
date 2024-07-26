@@ -4,6 +4,9 @@ from torchao.dtypes.utils import _implements, _ATEN_OP_OR_TORCH_FN_TABLE
 
 
 aten = torch.ops.aten
+c10d_functional = torch.ops.c10d_functional
+_c10d_functional = torch.ops._c10d_functional
+
 DTYPE = torch.float8_e4m3fn
 
 
@@ -32,13 +35,21 @@ class OptimStateFp8(Tensor):
         )
 
     def __init__(self, codes: Tensor, scale: Tensor):
+        """Create quantized FP8 optimizer state.
+
+        Args
+            codes: quantized FP8 E4M3FN data. Has the same shape as the original float tensor.
+            scale: scale data for block-wise quantization.
+
+        NOTE: To get block-wise scale, the original float tensor is first reshape to (-1, block_size).
+        Thus, the last dimension of the original float tensor is not necessarily divisible by block size.
+        Given `codes` and `scale`, `block_size` is calculated as `codes.numel() // scale.numel()`.
+        """
         assert codes.dtype is DTYPE
+        assert scale.ndim == 1
         self.codes = codes
         self.scale = scale
-
-    @property
-    def block_size(self):
-        return self.codes.numel() // self.scale.numel()
+        self.block_size = codes.numel() // scale.numel()
 
     def __tensor_flatten__(self):
         return self.tensor_attrs, []
@@ -99,3 +110,29 @@ def _(func, *args, **kwargs):
 def _(func, *args, **kwargs):
     args = [x.dequantize() if isinstance(x, OptimStateFp8) else x for x in args]
     return func(*args, **kwargs)
+
+
+# this is needed for DTensor.from_local()
+@OptimStateFp8.implements(aten.view.default)
+def _(func, *args, **kwargs):
+    x, shape = args
+    return OptimStateFp8(x.codes.view(shape), x.scale)
+
+
+# this is needed for DTensor.full_tensor()
+@OptimStateFp8.implements([
+    c10d_functional.all_gather_into_tensor.default,
+    _c10d_functional.all_gather_into_tensor.default,
+    c10d_functional.wait_tensor.default,
+    _c10d_functional.wait_tensor.default,
+])
+def _(func, *args, **kwargs):
+    x = args[0]
+    if not isinstance(x, OptimStateFp8):
+        raise ValueError(f"expecting a OptimStateFp8 but found {type(x)}")
+
+    # assume tensors from all ranks have the same signedness
+    return OptimStateFp8(
+        func(x.codes, *args[1:], **kwargs),
+        func(x.scale, *args[1:], **kwargs),
+    )
