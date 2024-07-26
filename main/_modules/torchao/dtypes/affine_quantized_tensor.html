@@ -414,6 +414,17 @@
     <span class="k">pass</span>
 
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">SemiSparseLayoutType</span><span class="p">(</span><span class="n">LayoutType</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">pre_process</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">input</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="c1"># prune to 2:4 if not already</span>
+        <span class="n">temp</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span>
+        <span class="n">pruning_inds</span> <span class="o">=</span> <span class="n">temp</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)[:,</span> <span class="p">:</span><span class="mi">2</span><span class="p">]</span>
+        <span class="n">temp</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span><span class="o">.</span><span class="n">scatter_</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">pruning_inds</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">temp</span>
+
+
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span> <span class="nc">TensorCoreTiledLayoutType</span><span class="p">(</span><span class="n">LayoutType</span><span class="p">):</span>
     <span class="n">inner_k_tiles</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">8</span>
 
@@ -854,6 +865,47 @@
         <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout_type</span><span class="p">,</span> <span class="n">PlainLayoutType</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">layout_type</span><span class="p">)</span>
 
+<span class="nd">@register_layout_cls</span><span class="p">(</span><span class="n">SemiSparseLayoutType</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">SemiSparseAQTLayout</span><span class="p">(</span><span class="n">PlainAQTLayout</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Layout storage class for semi_sparse_cusparselt layout for affine quantized tensor</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">__torch_dispatch__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+        <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{}</span> <span class="k">if</span> <span class="n">kwargs</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">kwargs</span>
+
+        <span class="k">if</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">detach</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
+                <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">detach</span><span class="p">)</span>
+            <span class="p">)</span>
+
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;SparseAQTLayout dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">get_plain</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c1"># Currently we don&#39;t have cuSPARSELt expansion routines, so we matmul by </span>
+        <span class="c1"># the identity matrix to get the original dense matrix. This is slow though.</span>
+        <span class="n">cols</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">int_data</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">*</span> <span class="mi">16</span> <span class="o">//</span> <span class="p">(</span><span class="mi">10</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="n">int_data_expanded</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_cslt_sparse_mm</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">int_data</span><span class="p">,</span>
+                                                  <span class="n">torch</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="n">cols</span><span class="p">,</span>
+                                                            <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">int_data</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+                                                            <span class="n">device</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">int_data</span><span class="o">.</span><span class="n">device</span><span class="p">)</span><span class="o">.</span><span class="n">t</span><span class="p">())</span>
+        <span class="k">return</span> <span class="n">int_data_expanded</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">zero_point</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">from_plain</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span>
+        <span class="n">int_data</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">zero_point</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">layout_type</span><span class="p">:</span> <span class="n">LayoutType</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout_type</span><span class="p">,</span> <span class="n">SemiSparseLayoutType</span><span class="p">)</span>
+        <span class="n">int_data_compressed</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_cslt_compress</span><span class="p">(</span><span class="n">int_data</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">int_data_compressed</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">layout_type</span><span class="p">)</span>
+    
+
 <span class="nd">@register_layout_cls</span><span class="p">(</span><span class="n">TensorCoreTiledLayoutType</span><span class="p">)</span>
 <span class="k">class</span> <span class="nc">TensorCoreTiledAQTLayout</span><span class="p">(</span><span class="n">AQTLayout</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
@@ -1045,6 +1097,31 @@
                 <span class="p">)</span>
 
                 <span class="c1"># can downcast only at the very end</span>
+                <span class="n">output_dtype</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dtype</span>
+                <span class="n">y</span> <span class="o">=</span> <span class="n">y</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">output_dtype</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">y</span> <span class="o">+=</span> <span class="n">bias</span>
+                <span class="k">return</span> <span class="n">y</span>
+            <span class="c1"># handle int8 dynamic_quant + semi_structured_sparse</span>
+            <span class="k">elif</span><span class="p">(</span>
+                <span class="n">is_cuda</span> <span class="ow">and</span>
+                <span class="n">input_is_int8</span> <span class="ow">and</span>
+                <span class="n">input_tensor</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">weight_qtensor</span><span class="o">.</span><span class="n">dtype</span> <span class="ow">and</span>
+                <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">layout_type</span><span class="p">,</span> <span class="n">PlainLayoutType</span><span class="p">)</span> <span class="ow">and</span>
+                <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_qtensor</span><span class="o">.</span><span class="n">layout_type</span><span class="p">,</span> <span class="n">SemiSparseLayoutType</span><span class="p">)</span>
+            <span class="p">):</span>
+                <span class="n">x_vals_int8</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">int_data</span>
+                <span class="n">x_scales</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">scale</span>
+                <span class="n">w_vals_int8</span> <span class="o">=</span> <span class="n">weight_qtensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">int_data</span>
+                <span class="n">w_scales</span> <span class="o">=</span> <span class="n">weight_qtensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">scale</span>
+                <span class="n">tmp</span> <span class="o">=</span> <span class="n">x_vals_int8</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">x_vals_int8</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+                <span class="c1"># we fuse one of the scalar matrix multiplications (w_scales) into the sparse mm</span>
+                <span class="n">y_dot_bf16_w_scales_fused</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_cslt_sparse_mm</span><span class="p">(</span>
+                    <span class="n">w_vals_int8</span><span class="p">,</span> <span class="n">tmp</span><span class="o">.</span><span class="n">t</span><span class="p">(),</span> <span class="n">alpha</span><span class="o">=</span><span class="n">w_scales</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">),</span> <span class="n">out_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
+                <span class="p">)</span><span class="o">.</span><span class="n">t</span><span class="p">()</span>
+                <span class="n">y</span> <span class="o">=</span> <span class="p">(</span><span class="n">y_dot_bf16_w_scales_fused</span> <span class="o">*</span> <span class="n">x_scales</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span>
+                    <span class="o">*</span><span class="n">x_vals_int8</span><span class="o">.</span><span class="n">shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">y_dot_bf16_w_scales_fused</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+                <span class="p">)</span>
                 <span class="n">output_dtype</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dtype</span>
                 <span class="n">y</span> <span class="o">=</span> <span class="n">y</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">output_dtype</span><span class="p">)</span>
                 <span class="k">if</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
