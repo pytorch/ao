@@ -9,6 +9,10 @@ import segment_anything_fast
 import time
 import resource
 
+from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight, int4_weight_only
+from torchao.sparsity import sparsify_, apply_fake_sparsity, int8_dynamic_activation_int8_semi_sparse_weight, semi_sparse_weight
+from torchao.utils import unwrap_tensor_subclass
+
 torch._dynamo.config.cache_size_limit = 50000
 
 def unbind_jagged(device, data, sizes, offsets):
@@ -279,30 +283,17 @@ def run(
         block.attn.use_rel_pos = use_rel_pos
 
     if compress == "int8_dynamic_quant":
-        from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight
-        from torchao.utils import unwrap_tensor_subclass
         quantize_(predictor.model.image_encoder, int8_dynamic_activation_int8_weight())
         predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
     elif compress == "sparse_mlp_only":
         def mlp_only(mod, name):
             return isinstance(mod, torch.nn.Linear) and 'mlp' in name
-        from torchao.sparsity import sparsify
-        from torch.sparse import to_sparse_semi_structured, apply_fake_sparsity
         apply_fake_sparsity(predictor.model.image_encoder, filter_fn=mlp_only)
-        predictor.model.image_encoder = sparsify(predictor.model.image_encoder, to_sparse_semi_structured, filter_fn=mlp_only)
+        sparsify_(predictor.model.image_encoder, semi_sparse_weight(), filter_fn=mlp_only)
     elif compress == "sparse":
-        from torchao.sparsity import sparsify
-        from torch.sparse import to_sparse_semi_structured, apply_fake_sparsity
         apply_fake_sparsity(predictor.model.image_encoder)
-        predictor.model.image_encoder = sparsify(predictor.model.image_encoder, to_sparse_semi_structured)
+        sparsify_(predictor.model.image_encoder, semi_sparse_weight())
     elif compress == "int8_dynamic_quant_sparse":
-        from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensor
-        SparseSemiStructuredTensor._FORCE_CUTLASS = False
-        from torchao.sparsity import sparsify, apply_fake_sparsity
-        from torchao.sparsity.prototype.dynamic_quant_sparse import int8_dynamic_activation_int8_2x4_sparse_weight
-        from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight
-        from torchao.utils import unwrap_tensor_subclass
-
         def attn_only(mod, name):
             return isinstance(mod, torch.nn.Linear) and 'attn' in name
         def mlp_lin1_only(mod, name):
@@ -316,20 +307,17 @@ def run(
         apply_fake_sparsity(predictor.model.image_encoder,
                             filter_fn=mlp_only)
 
-        quantize_(
-            predictor.model.image_encoder,
-            int8_dynamic_activation_int8_weight(),
-            attn_only
-        )
+        quantize_(predictor.model.image_encoder,
+                  int8_dynamic_activation_int8_weight(),
+                  attn_only)
+        quantize_(predictor.model.image_encoder,
+                  int8_dynamic_activation_int8_semi_sparse_weight(),
+                  mlp_lin1_only)
+        sparsify_(predictor.model.image_encoder,
+                  semi_sparse_weight(),
+                  mlp_lin2_only)
         predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
 
-        predictor.model.image_encoder = sparsify(predictor.model.image_encoder,
-                                                 int8_dynamic_activation_int8_2x4_sparse_weight(),
-                                                 mlp_lin1_only, prune=False)
-
-        predictor.model.image_encoder = sparsify(predictor.model.image_encoder,
-                                                 to_sparse_semi_structured,
-                                                 mlp_lin2_only, prune=False)
     else:
         assert compress is None, f"Unsupported compress mode {compress}"
 
@@ -413,6 +401,6 @@ def run(
         vals = ",".join(map(str, [device, sam_model_type, batch_size, max_memory_allocated_bytes, max_memory_allocated_percentage, img_s, batch_ms_batch_size, mIoU, use_compile,
             use_half, compress, use_compile_decoder, use_rel_pos, pad_input_image_batch, num_workers, num_batches, num_images, profile_path, memory_path]))
         f.write(vals+"\n")
-
+        
 if __name__ == '__main__':
     fire.Fire(run)

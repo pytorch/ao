@@ -33,6 +33,17 @@ class PlainLayoutType(LayoutType):
     pass
 
 @dataclass(frozen=True)
+class SemiSparseLayoutType(LayoutType):
+
+    def pre_process(self, input: torch.Tensor) -> torch.Tensor:
+        # prune to 2:4 if not already
+        temp = input.detach()
+        pruning_inds = temp.abs().view(-1, 4).argsort(dim=1)[:, :2]
+        temp.view(-1, 4).scatter_(1, pruning_inds, value=0)
+        return temp
+
+
+@dataclass(frozen=True)
 class TensorCoreTiledLayoutType(LayoutType):
     inner_k_tiles: int = 8
 
@@ -473,6 +484,47 @@ class PlainAQTLayout(AQTLayout):
         assert isinstance(layout_type, PlainLayoutType)
         return cls(int_data, scale, zero_point, layout_type)
 
+@register_layout_cls(SemiSparseLayoutType)
+class SemiSparseAQTLayout(PlainAQTLayout):
+    """
+    Layout storage class for semi_sparse_cusparselt layout for affine quantized tensor
+    """
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs):
+        kwargs = {} if kwargs is None else kwargs
+
+        if func is aten.detach.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+            )
+
+        raise NotImplementedError(
+            f"SparseAQTLayout dispatch: attempting to run {func}, this is not supported"
+        )
+
+    def get_plain(self):
+        # Currently we don't have cuSPARSELt expansion routines, so we matmul by 
+        # the identity matrix to get the original dense matrix. This is slow though.
+        cols = self.int_data.numel() * 16 // (10 * self.scale.shape[0])
+        int_data_expanded = torch._cslt_sparse_mm(self.int_data,
+                                                  torch.eye(cols,
+                                                            dtype=self.int_data.dtype,
+                                                            device=self.int_data.device).t())
+        return int_data_expanded, self.scale, self.zero_point
+
+    @classmethod
+    def from_plain(
+        cls,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        layout_type: LayoutType,
+    ):
+        assert isinstance(layout_type, SemiSparseLayoutType)
+        int_data_compressed = torch._cslt_compress(int_data)
+        return cls(int_data_compressed, scale, zero_point, layout_type)
+    
+
 @register_layout_cls(TensorCoreTiledLayoutType)
 class TensorCoreTiledAQTLayout(AQTLayout):
     """
@@ -664,6 +716,31 @@ def _quantized_linear_op(input_tensor, weight_qtensor, bias):
                 )
 
                 # can downcast only at the very end
+                output_dtype = input_tensor.dtype
+                y = y.to(output_dtype)
+                if bias is not None:
+                    y += bias
+                return y
+            # handle int8 dynamic_quant + semi_structured_sparse
+            elif(
+                is_cuda and
+                input_is_int8 and
+                input_tensor.dtype == weight_qtensor.dtype and
+                isinstance(input_tensor.layout_type, PlainLayoutType) and
+                isinstance(weight_qtensor.layout_type, SemiSparseLayoutType)
+            ):
+                x_vals_int8 = input_tensor.layout_tensor.int_data
+                x_scales = input_tensor.layout_tensor.scale
+                w_vals_int8 = weight_qtensor.layout_tensor.int_data
+                w_scales = weight_qtensor.layout_tensor.scale
+                tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
+                # we fuse one of the scalar matrix multiplications (w_scales) into the sparse mm
+                y_dot_bf16_w_scales_fused = torch._cslt_sparse_mm(
+                    w_vals_int8, tmp.t(), alpha=w_scales.to(torch.float32), out_dtype=torch.bfloat16
+                ).t()
+                y = (y_dot_bf16_w_scales_fused * x_scales.reshape(-1, 1)).reshape(
+                    *x_vals_int8.shape[:-1], y_dot_bf16_w_scales_fused.shape[-1]
+                )
                 output_dtype = input_tensor.dtype
                 y = y.to(output_dtype)
                 if bias is not None:
