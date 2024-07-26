@@ -938,7 +938,7 @@ def function_cpu(*args, **kwargs):
     updated_attrs["device"] = "cpu"
     return NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
 
-@torch._dynamo.disable
+@torch._dynamo.allow_in_graph
 def nf4_constructor(
     tensor_meta: SubclassTensorArgs,
     block_size: int,
