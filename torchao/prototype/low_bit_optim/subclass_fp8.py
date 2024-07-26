@@ -38,8 +38,12 @@ class OptimStateFp8(Tensor):
         """Create quantized FP8 optimizer state.
 
         Args
-            codes: quantized FP8 E4M3FN data. has the same shape as the original float tensor.
+            codes: quantized FP8 E4M3FN data. Has the same shape as the original float tensor.
             scale: scale data for block-wise quantization.
+
+        NOTE: To get block-wise scale, the original float tensor is first reshape to (-1, block_size).
+        Thus, the last dimension of the original float tensor is not necessarily divisible by block size.
+        Given `codes` and `scale`, `block_size` is calculated as `codes.numel() // scale.numel()`.
         """
         assert codes.dtype is DTYPE
         assert scale.ndim == 1

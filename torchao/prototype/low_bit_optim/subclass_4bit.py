@@ -32,14 +32,19 @@ class OptimState4bit(Tensor):
         )
 
     def __init__(self, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool, shape):
-        """Create quantized 4-bit optimizer state.
+        """Create quantized 4-bit optimizer state as proposed in https://arxiv.org/abs/2309.01507.
 
         Args
-            codes: quantized 4-bit data stored as uint8.
+            codes: quantized and packed 4-bit data stored as uint8.
             scale: scale data for block-wise quantization.
             qmap: lookup table that maps between quantized value (code) and float value.
             signed: whether the tensor is signed or unsigned.
             shape: shape of original float tensor.
+
+        NOTE: To get block-wise scale, the original float tensor is first reshape to (-1, block_size).
+        Thus, the last dimension of the original float tensor is not necessarily divisible by block size.
+        Given `codes` and `scale`, `block_size` is calculated as `codes.numel() * 2 // scale.numel()`.
+        The extra `* 2` is because `codes` is 4-bit data packed in 8-bit storage.
         """
         assert codes.dtype is torch.uint8
         assert codes.ndim == 1  # flattened buffer

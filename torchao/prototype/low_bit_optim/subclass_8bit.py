@@ -13,9 +13,6 @@ QMAP_SIGNED = create_dynamic_map(signed=True)
 QMAP_UNSIGNED = create_dynamic_map(signed=False)
 
 
-# dynamic tree quantization
-# https://arxiv.org/pdf/1511.04561
-# https://arxiv.org/abs/2110.02861
 class OptimState8bit(Tensor):
     implements = classmethod(_implements)
     tensor_attrs = ["codes", "scale", "qmap"]
@@ -30,13 +27,17 @@ class OptimState8bit(Tensor):
         )
 
     def __init__(self, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool):
-        """Create quantized 8-bit optimizer state.
+        """Create quantized 8-bit optimizer state as proposed in https://arxiv.org/abs/2110.02861.
 
         Args
-            codes: quantized 8-bit data stored as uint8. has the same shape as the original float tensor.
+            codes: quantized 8-bit data stored as uint8. Has the same shape as the original float tensor.
             scale: scale data for block-wise quantization.
             qmap: lookup table that maps between quantized value (code) and float value.
             signed: whether the tensor is signed or unsigned.
+
+        NOTE: To get block-wise scale, the original float tensor is first reshape to (-1, block_size).
+        Thus, the last dimension of the original float tensor is not necessarily divisible by block size.
+        Given `codes` and `scale`, `block_size` is calculated as `codes.numel() // scale.numel()`.
         """
         assert codes.dtype is torch.uint8
         assert scale.ndim == 1
