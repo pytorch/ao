@@ -33,7 +33,7 @@ package_name = "torchao-nightly" if os.environ.get("TORCHAO_NIGHTLY") else "torc
 # Use Git commit ID if VERSION_SUFFIX is not set
 version_suffix = os.getenv("VERSION_SUFFIX")
 if version_suffix is None:
-    version_suffix = f"+{get_git_commit_id()}"
+    version_suffix = f"+git{get_git_commit_id()}"
 
 use_cpp = os.getenv('USE_CPP')
 
