@@ -21,6 +21,7 @@ from torchao.dtypes.utils import (
     _register_layout_cls,
     _get_layout_tensor_constructor,
     LayoutType,
+    is_device,
 )
 from typing import ClassVar
 from dataclasses import dataclass
@@ -544,7 +545,7 @@ class TensorCoreTiledAQTLayout(AQTLayout):
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
         device = kwargs["device"]
-        if device != "cuda" and (isinstance(device, torch.device) and device.type != "cuda"):
+        if not is_device("cuda", device):
             raise ValueError(f"TensorCoreTiledAQTLayout is only available for cuda device, can't convert to {device}")
         return self.__class__(
             self.packed_weight.to(device),
