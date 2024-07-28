@@ -362,18 +362,26 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     groupsize=128,
 ):
     assert groupsize > 1
-    # needed for GPTQ single column dequantize
-    if groupsize > w_int4x8.shape[-1] and scales.shape[-1] == 1:
-        groupsize = w_int4x8.shape[-1]
-    assert w_int4x8.shape[-1] % groupsize == 0
     assert w_int4x8.dim() == 2
+    if TORCH_VERSION_AFTER_2_5:
+        data = w_int4x8.to(torch.int32)
+        high_bits = data >> 4
+        low_bits = data & 0x0F
+        w_int32 = torch.zeros((w_int4x8.shape[0], w_int4x8.shape[1] * 2), dtype=torch.int32, device=w_int4x8.device)
+        w_int32[::, ::2] = high_bits
+        w_int32[::, 1::2] = low_bits
+    else:
+        w_int32 = w_int4x8
 
+    # needed for GPTQ single column dequantize
+    if groupsize > w_int32.shape[-1] and scales.shape[-1] == 1:
+        groupsize = w_int32.shape[-1]
+    assert w_int32.shape[-1] % groupsize == 0
     block_size = (1, groupsize)
     input_dtype = torch.int32
     quant_min = 0
     quant_max = 2**n_bit - 1
-    return dequantize_affine(w_int4x8, block_size, scales, zeros, input_dtype, quant_min, quant_max, zero_point_domain=ZeroPointDomain.FLOAT, output_dtype=scales.dtype)
-
+    return dequantize_affine(w_int32, block_size, scales, zeros, input_dtype, quant_min, quant_max, zero_point_domain=ZeroPointDomain.FLOAT, output_dtype=scales.dtype)
 
 def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128, dtype=torch.bfloat16):
     scales, zeros = get_groupwise_affine_qparams(w, n_bit, groupsize, dtype)
