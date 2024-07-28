@@ -791,6 +791,7 @@
 <span class="k">class</span> <span class="nc">NF4Tensor</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;NF4Tensor class for converting a weight to the QLoRA NF4 format&quot;&quot;&quot;</span>
 
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">disable</span>
     <span class="k">def</span> <span class="fm">__new__</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span>
         <span class="c1"># Args related for base tensor construction</span>
@@ -831,6 +832,7 @@
         <span class="p">)</span>
         <span class="k">return</span> <span class="n">nf4tensor</span>
 
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">disable</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">tensor_meta</span><span class="p">:</span> <span class="n">SubclassTensorArgs</span><span class="p">,</span>
@@ -1139,6 +1141,7 @@
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="fm">__str__</span><span class="p">()</span>
 
     <span class="nd">@classmethod</span>
+    <span class="nd">@torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">disable</span>
     <span class="k">def</span> <span class="nf">__torch_dispatch__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;TODO we are not supporting torch dispatch at the moment</span>
 <span class="sd">        instead we have created a Autograd.Function to handle the linear</span>
@@ -1230,7 +1233,7 @@
             <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Expects out&#39;s data to be the all-gather output&quot;</span>
             <span class="k">return</span>
 
-        <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span>
+        <span class="k">return</span> <span class="n">nf4_constructor</span><span class="p">(</span>
             <span class="n">tensor_meta</span><span class="p">,</span>
             <span class="n">block_size</span><span class="p">,</span>
             <span class="n">n_blocks</span><span class="p">,</span>
@@ -1315,6 +1318,30 @@
     <span class="n">updated_attrs</span> <span class="o">=</span> <span class="n">call_from_inner_tensors</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="s2">&quot;cpu&quot;</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">kwargs</span><span class="p">)</span>
     <span class="n">updated_attrs</span><span class="p">[</span><span class="s2">&quot;device&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;cpu&quot;</span>
     <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span><span class="o">*</span><span class="n">construct_nf4_args</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">updated_attrs</span><span class="p">))</span>
+
+<span class="nd">@torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">allow_in_graph</span>
+<span class="k">def</span> <span class="nf">nf4_constructor</span><span class="p">(</span>
+    <span class="n">tensor_meta</span><span class="p">:</span> <span class="n">SubclassTensorArgs</span><span class="p">,</span>
+    <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">n_blocks</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">scaler_block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">quantized_scalers</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">quantization_factor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">scaler_mean</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">quantized_data</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">nf4</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+<span class="p">):</span>
+    <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span>
+        <span class="n">tensor_meta</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="p">,</span>
+        <span class="n">n_blocks</span><span class="p">,</span>
+        <span class="n">scaler_block_size</span><span class="p">,</span>
+        <span class="n">quantized_scalers</span><span class="p">,</span>
+        <span class="n">quantization_factor</span><span class="p">,</span>
+        <span class="n">scaler_mean</span><span class="p">,</span>
+        <span class="n">quantized_data</span><span class="p">,</span>
+        <span class="n">nf4</span><span class="p">,</span>
+    <span class="p">)</span>
 </pre></div>
 
              </article>
