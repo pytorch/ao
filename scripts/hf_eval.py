@@ -40,12 +40,12 @@ def pretty_print_nested_results(results, precision: int = 6):
 
     print(tabulate(main_table, headers=['Task', 'Metrics'], tablefmt='grid'))
 
-def run_evaluation(repo_id, tasks, limit, device, precision, quantization, compile, batch_size, max_length):
+def run_evaluation(repo_id, tasks, limit, device, precision, quantization, compile, save, batch_size, max_length):
 
     tokenizer = AutoTokenizer.from_pretrained(repo_id)
     model = AutoModelForCausalLM.from_pretrained(repo_id).to(device="cpu", dtype=precision)
 
-    if compile:
+    if quantization == "autoquant" and compile:
         model = torch.compile(model, mode="max-autotune", fullgraph=True)
 
     if quantization == "int8dq":
@@ -57,6 +57,10 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, compi
         quantize_(model.to(device=device), int4_weight_only())
     elif quantization == "autoquant":
         model = autoquant(model.to(device=device))
+
+    if quantization != "autoquant" and compile:
+        model = torch.compile(model, mode="max-autotune", fullgraph=True)
+
     with torch.no_grad():
         result = evaluate(
             HFLM(
@@ -70,6 +74,12 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, compi
 
         pretty_print_nested_results(result)
 
+    if save:
+        # This doesn't work yet: https://github.com/huggingface/transformers/issues/32364
+        # model.save_pretrained("quantized_model_test", safe_serialization=False)
+        file_name = repo_id.split("/")[-1] + "-" + quantization + ".pt"
+        torch.save(model.state_dict(), file_name)
+
 
 if __name__ == '__main__':
     import argparse
@@ -81,8 +91,9 @@ if __name__ == '__main__':
     parser.add_argument('--device', type=str, default="cuda", help='Device to use for evaluation')
     parser.add_argument('-q', '--quantization', default = "None", choices=["int8dq", "int8wo", "int4wo","autoquant", "None"], help='Which quantization technique to apply')
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
+    parser.add_argument('--save', action='store_true', help='Whether to save the model.')
     parser.add_argument('--batch_size', type=int, default=1, help='Batch size to use for evaluation, note int8wo and int4wo work best with small batchsizes, int8dq works better with large batchsizes')
     parser.add_argument('--max_length', type=int, default=None, help='Length of text to process at one time')
 
     args = parser.parse_args()
-    run_evaluation(args.repo_id, args.tasks, args.limit, args.device, args.precision, args.quantization, args.compile, args.batch_size, args.max_length)
+    run_evaluation(args.repo_id, args.tasks, args.limit, args.device, args.precision, args.quantization, args.compile, args.save, args.batch_size, args.max_length)
