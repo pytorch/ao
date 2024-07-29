@@ -1176,17 +1176,15 @@
             <span class="n">w_vals_int8_t</span> <span class="o">=</span> <span class="n">weight_qtensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">int_data</span><span class="o">.</span><span class="n">t</span><span class="p">()</span>
             <span class="n">scale</span> <span class="o">=</span> <span class="n">weight_qtensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">scale</span>
             <span class="n">orig_dtype</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dtype</span>
-            <span class="n">y</span> <span class="o">=</span> <span class="p">(</span>
-                <span class="n">torch</span><span class="o">.</span><span class="n">mm</span><span class="p">(</span>
+            <span class="n">m</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">mm</span><span class="p">(</span>
                     <span class="n">input_tensor</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]),</span>
                     <span class="n">w_vals_int8_t</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">dtype</span><span class="p">),</span>
                 <span class="p">)</span>
-                <span class="o">*</span> <span class="n">scale</span>
-            <span class="p">)</span>
+            <span class="n">y</span> <span class="o">=</span> <span class="n">m</span> <span class="o">*</span> <span class="n">scale</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
             <span class="n">y</span> <span class="o">=</span> <span class="n">y</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">*</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">y</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
             <span class="k">if</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-                <span class="n">y</span> <span class="o">+=</span> <span class="n">bias</span>
-            <span class="k">return</span> <span class="n">y</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">orig_dtype</span><span class="p">)</span>
+                <span class="n">y</span> <span class="o">+=</span> <span class="n">bias</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">y</span>
 
             <span class="c1"># is_cpu and is_mps only, some issue with is_contiguous() currently</span>
             <span class="c1"># return torch.ops.aten._weight_int8pack_mm(input_tensor.contiguous(), w_vals_int8_t, weight_qtensor.layout_tensor.scale)</span>
