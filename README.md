@@ -85,6 +85,12 @@ In some cases we rewrote popular GenAI models to be significantly faster in nati
 
 ### Training
 
+#### Float8
+
+[torchao.float8](torchao/float8) implements training recipes with the scaled float8 dtypes, as laid out in https://arxiv.org/abs/2209.05433.
+
+#### Sparsity
+
 We've added support for semi-structured 2:4 sparsity with 6% end to end speedups on ViT-L
 
 The code change is a 1 liner with the full example available [here](torchao/sparsity/training/)
