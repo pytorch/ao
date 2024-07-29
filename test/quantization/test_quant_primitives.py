@@ -503,7 +503,11 @@ class TestQuantPrimitives(unittest.TestCase):
         n_bit = 4
         groupsize = 128
 
-        w_bf16 = groupwise_affine_dequantize_tensor_from_qparams(input, scales, zeros, n_bit, groupsize)
+        if TORCH_VERSION_AFTER_2_5:
+            input_uint8 = (input[::, ::2] << 4 | input[::, 1::2]).to(torch.uint8)
+            w_bf16 = groupwise_affine_dequantize_tensor_from_qparams(input_uint8, scales, zeros, n_bit, groupsize)
+        else:
+            w_bf16 = groupwise_affine_dequantize_tensor_from_qparams(input, scales, zeros, n_bit, groupsize)
         w_bf16_ref = _groupwise_affine_dequantize_tensor_from_qparams(input, scales, zeros, n_bit, groupsize)
 
         self.assertTrue(torch.equal(w_bf16, w_bf16_ref))
