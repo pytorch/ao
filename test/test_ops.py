@@ -95,20 +95,24 @@ TEST_CONFIGS_UNPACK = list(itertools.product(SHAPES, INNERKTILES))
 TEST_CONFIGS_DEQUANT = list(itertools.product(SHAPES, INNERKTILES, QGROUP_SIZES))
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="weight packing is updated in 2.5+")
+# @pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles", TEST_CONFIGS_UNPACK, ids=str)
 def test_unpack_tensor_core_tiled_layout_correctness(shape, inner_k_tiles):
     N, K = shape
     assert K % (inner_k_tiles * kTileSizeK) == 0 and N % kTileSizeN == 0
 
     t = torch.randint(0, 16, dtype=torch.int, size=shape, device="cuda")
+    if TORCH_VERSION_AFTER_2_5:
+        t = (t[::, ::2] << 4 | t[::, 1::2]).to(torch.uint8)
     packed_w = torch.ops.aten._convert_weight_to_int4pack(t, inner_k_tiles)
     unpacked = torchao.ops.unpack_tensor_core_tiled_layout(packed_w, inner_k_tiles)
+    if TORCH_VERSION_AFTER_2_5:
+        unpacked = (unpacked[::, ::2] << 4 | unpacked[::, 1::2]).to(torch.uint8)
     assert torch.equal(t, unpacked)
 
 # TODO: Fix "test_aot_dispatch_dynamic" test failure
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="weight packing is updated in 2.5+")
+# @pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles", TEST_CONFIGS_UNPACK , ids=str)
 def test_unpack_tensor_core_tiled_layout_op(shape, inner_k_tiles):
     test_utils = [
@@ -122,6 +126,8 @@ def test_unpack_tensor_core_tiled_layout_op(shape, inner_k_tiles):
         test_utils.append("test_aot_dispatch_dynamic")
 
     t = torch.randint(0, 16, dtype=torch.int, size=shape, device="cuda")
+    if TORCH_VERSION_AFTER_2_5:
+        t = (t[::, ::2] << 4 | t[::, 1::2]).to(torch.uint8)
     packed_w = torch.ops.aten._convert_weight_to_int4pack(t, inner_k_tiles)
 
     opcheck(
@@ -151,7 +157,7 @@ def dequant_ref(q, scales, zeros, group_size, nbits=4, dtype=torch.bfloat16):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="weight packing is updated in 2.5+")
+# @pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
 def test_dequantize_tensor_core_tiled_layout_correctness_quant_dequant(shape, inner_k_tiles, group_size):
     n, k = shape
@@ -210,7 +216,7 @@ def test_dequantize_tensor_core_tiled_layout_correctness_quant_dequant(shape, in
 
 # This test differs from one above in that it uses `unpack_tensor_core_tiled_layout` to unpack then dequantize
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="weight packing is updated in 2.5+")
+# @pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
 def test_dequantize_tensor_core_tiled_layout_correctness_unpack_and_dequant(shape, inner_k_tiles, group_size):
     n, k = shape
@@ -229,6 +235,9 @@ def test_dequantize_tensor_core_tiled_layout_correctness_unpack_and_dequant(shap
 
     # Unpack and dequantize
     unpacked = torchao.ops.unpack_tensor_core_tiled_layout(packed, inner_k_tiles)
+    if TORCH_VERSION_AFTER_2_5:
+        unpacked = (unpacked[::, ::2] << 4 | unpacked[::, 1::2]).to(torch.uint8)
+
     dq_ao = groupwise_affine_dequantize_tensor_from_qparams(
         unpacked, scales, zeros, n_bit=4, groupsize=group_size
     )
@@ -264,13 +273,15 @@ def test_dequantize_tensor_core_tiled_layout_correctness_unpack_and_dequant(shap
     assert diff_op_ao < 1e-1
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="weight packing is updated in 2.5+")
+# @pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
 def test_dequantize_tensor_core_tiled_layout_op(shape, inner_k_tiles, group_size):
     n, k = shape
     device = "cuda"
 
     q = torch.randint(0, 16, shape, dtype=torch.int, device=device)
+    if TORCH_VERSION_AFTER_2_5:
+        q = (q[::, ::2] << 4 | q[::, 1::2]).to(torch.uint8)
     packed_w = torch._convert_weight_to_int4pack(q, inner_k_tiles)
     q_groups = k // group_size
     scales = torch.randn(n, q_groups, dtype=torch.bfloat16, device=device)

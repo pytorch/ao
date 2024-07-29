@@ -12,7 +12,7 @@ from torchao.utils import (
 
 class TestAffineQuantized(TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @unittest.skipIf(TORCH_VERSION_AFTER_2_5, "int4 skipping 2.5+ for now")
+    # @unittest.skipIf(TORCH_VERSION_AFTER_2_5, "int4 skipping 2.5+ for now")
     def test_tensor_core_layout_transpose(self):
         l = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
         t = l.weight
