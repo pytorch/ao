@@ -1,7 +1,5 @@
-from torchao.prototype.autoround.utils import freeze_random, assert_same, get_dataloader
 from typing import Optional, Callable, Any, List, Tuple, Dict
 
-freeze_random()
 
 # ==------------------------------------------------------------------------------------------==
 # TorchAO
