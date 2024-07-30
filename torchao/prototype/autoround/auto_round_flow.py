@@ -17,6 +17,7 @@ import os
 def create_qmodel_from_qdq_model(qdq_model):
     # TODO: simplify this process by creating a new class at unwrapper stage
     def _is_quantized_linear(model, fqn):
+        """The linear from auto-round includes qdq weight, scale, zp."""
         return hasattr(model, "scale")
 
     @torch.no_grad()
@@ -58,8 +59,16 @@ def create_qmodel_from_qdq_model(qdq_model):
                 .to(torch.int32)
             )
 
-            # Shift the zeros to align with tinygemm
-            # TODO: more notes or discard this step
+            # Shift the zeros to align with tiny gemm.
+            # The dequantization process in tiny gemm:
+            #   tiny_dequant = (tinny_quant - 8) * scale + tinny_zp
+            # The dequantization porcess in auto-round
+            #   dequant = (quant - zp) * scale
+            # To align with tiny gemm:
+            #   dequant = (quant - 8 + 8 - zp) * scale
+            #           = (quant - 8) * scale + (8 - zp) * scale
+            #              \___/                \______________/
+            #            tiny_quant                 tiny_zp
             zeros = (8 - zeros) * scales
 
             # Pack to tinygemm reqiured format
@@ -74,7 +83,6 @@ def create_qmodel_from_qdq_model(qdq_model):
 
         int_data, scales_and_zeros = _get_qinfo(linear)
 
-        # int_data, scales_and_zeros = _get_qinfo(linear)
         woq_weight = ao_quant.Int4WeightOnlyQuantizedLinearWeight(
             int_data,
             scales_and_zeros,
@@ -95,26 +103,32 @@ def create_qmodel_from_qdq_model(qdq_model):
     return qmodel
 
 
-class ModuleInputCapture(torch.nn.Module):
-    """Capture the input of the given module."""
+class BlockObserver(torch.nn.Module):
+    """Capture the inputs and outputs of the given module.
+
+    Define the hooks to capture the inputs and outputs of the given module. The hooks may model-specific.
+    """
 
     def __init__(self):
         super().__init__()
         # [(args, kwargs), ...]
         self.inputs: List[Tuple[Tuple[Any], Dict[str, Any]]] = []
-        self.outputs = []
+        self.outputs: List[torch.Tensor] = []
 
     def forward(self, *args, **kwarsg):
         self.inputs.append((args, kwarsg))
 
     def __repr__(self):
-        return f"ModuleInputCapture(inputs: {len(self.inputs)})"
+        return f"BlockObserver(inputs: {len(self.inputs)}, outputs: {len(self.outputs)})"
 
     @staticmethod
-    def is_block(block, fqn):
-        pass
+    def is_decoder_block(decoder_cls):
+        def _is_decoder_block(block, fqn):
+            return isinstance(block, decoder_cls)
 
-    def block_input_hook(self, block: torch.nn.Module, args: Tuple[torch.Tensor], kwargs: Dict[str, Any]):
+        return _is_decoder_block
+
+    def block_input_hook(self, block: torch.nn.Module, args: Tuple[torch.Tensor], kwargs: Optional[Dict[str, Any]]):
         partial_kwargs = {k: v for k, v in kwargs.items() if k in ["attention_mask", "position_ids"]}
         self.inputs.append((args, partial_kwargs))
         return args, kwargs
@@ -128,8 +142,8 @@ class ModuleInputCapture(torch.nn.Module):
             raise NotImplementedError(f"Unsupported type: {type(outputs)}")
 
     def register_hooks(self, block):
-        pre_forward_hook_handle = block.register_forward_pre_hook(partial(self, block))
-        forward_hook_handle = block.register_forward_hook(partial(self, block))
+        pre_forward_hook_handle = block.register_forward_pre_hook(self.block_input_hook, with_kwargs=True)
+        forward_hook_handle = block.register_forward_hook(self.block_output_hook)
         return pre_forward_hook_handle, forward_hook_handle
 
 
@@ -137,59 +151,34 @@ class ObservedBlock(torch.nn.Module):
     def __init__(
         self,
         float_block: torch.nn.Module,
-        block_observer: ModuleInputCapture,
+        block_observer: BlockObserver,
         input_hook_handle=None,
         output_hook_handle=None,
     ):
         super().__init__()
         # e.g., replace `transformers.models.llama.modeling_llama.LlamaDecoderLayer`
+        # TODO: Use function is enough?
         self.float_block = float_block
         self.block_observer = block_observer
         self.input_hook_handle = input_hook_handle
         self.output_hook_handle = output_hook_handle
 
-    def remove_hook_handles(self):
-        self.input_hook_handle.remove()
-        self.output_hook_handle.remove()
-
     def forward(self, *args, **kwarsg):
         return self.float_block(*args, **kwarsg)
 
     @classmethod
-    def from_float(cls, float_block: torch.nn.Module, block_observer: ModuleInputCapture = None):
-        # TODO: remove `block_observer`?
-        def capture_inputs_hook(
-            block_observer: ModuleInputCapture,
-            module: torch.nn.Module,
-            args: Tuple[torch.Tensor],
-            kwargs: Dict[str, Any],
-        ) -> Tuple[Any, Any]:
-            partial_kwargs = {k: v for k, v in kwargs.items() if k in ["attention_mask", "position_ids"]}
-            block_observer.inputs.append((args, partial_kwargs))
-            return args, kwargs
-
-        def capture_outputs_hook(
-            block_observer: ModuleInputCapture,
-            module: torch.nn.Module,
-            inputs,
-            outputs,
-        ):
-            block_observer.outputs.append(outputs)
-            return outputs
-
-        if block_observer is None:
-            block_observer = ModuleInputCapture()
-        pre_forward_hook_handle = float_block.register_forward_pre_hook(
-            partial(capture_inputs_hook, block_observer), with_kwargs=True
-        )
-        forward_hook_handle = float_block.register_forward_hook(partial(capture_outputs_hook, block_observer))
+    def from_float(cls, float_block: torch.nn.Module):
+        block_observer = BlockObserver()
+        pre_forward_hook_handle, forward_hook_handle = block_observer.register_hooks(float_block)
         return cls(float_block, block_observer, pre_forward_hook_handle, forward_hook_handle)
+
+    def remove_hook_handles(self):
+        self.input_hook_handle.remove()
+        self.output_hook_handle.remove()
 
     def get_module_inputs_outputs(self):
         self.remove_hook_handles()
-        inputs = self.block_observer.inputs
-        outputs = self.block_observer.outputs
-        return inputs, outputs
+        return self.block_observer.inputs, self.block_observer.outputs
 
 
 def insert_observers_for_block_(
@@ -208,7 +197,7 @@ def apply_auto_round(observed_block: ObservedBlock):
     block = observed_block.float_block
 
     # Start the training process to update the v, alpha and betta.
-    # TODO: refactor the `quant_block_new` to a static method
+    # TODO: refactor the `quant_block_` to a static method
     rounder = auto_round.AutoRound(
         model=block,
         tokenizer=None,
@@ -229,59 +218,25 @@ def apply_auto_round(observed_block: ObservedBlock):
 # ==------------------------------------------------------------------------------------------==
 
 
-@torch.no_grad()
-def gen_text(model, tokenizer, msg=""):
-    device = next(model.parameters()).device
-    inputs = tokenizer("What are we having for dinner?", return_tensors="pt")
-    new_tokens = model.generate(**inputs.to(device), max_length=20)
-    text = tokenizer.decode(new_tokens[0], skip_special_tokens=False)
-    print(f"Generated text ({msg}): {text}")
-
-
-def get_float_model_info(model_name_or_path):
-    import transformers
-
-    # pretrained_model_name_or_path = "/models/Llama-2-7b-chat-hf/"
-    model = transformers.AutoModelForCausalLM.from_pretrained(model_name_or_path)
-    tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path)
-    if "Llama" in model_name_or_path:
-        decoder_cls = transformers.models.llama.modeling_llama.LlamaDecoderLayer
-    elif "opt" in model_name_or_path:
-        decoder_cls = transformers.models.opt.modeling_opt.OPTDecoderLayer
-    else:
-        raise ValueError(f"Unsupported model: {model_name_or_path}")
-    return model, tokenizer, decoder_cls
-
-
 class TestFlow:
     def test_with_opt(self):
         # ==------------------------------------------------------------------------------------------==
         # The Modeling User API
         # ==------------------------------------------------------------------------------------------==
-
-        def get_example_inputs(tokenizer):
-            iters = 4
-            prompt = "What are we having for dinner?"
-            example_inputs = tokenizer(prompt, return_tensors="pt")
-            for i in range(iters):
-                yield example_inputs
-
         with torch.no_grad():
             # Step 0. Load the float model
             device = torch.device("cuda")
 
             model_name_or_path = "facebook/opt-125m"
             # model_name_or_path = "/models/Llama-2-7b-chat-hf/"
-            model, tokenizer, decoder_cls = get_float_model_info(model_name_or_path)
+            model, tokenizer, decoder_cls = ar_utils.get_float_model_info(model_name_or_path)
             model = model.to(device)
 
-            gen_text(model, tokenizer, "float model")
+            ar_utils.gen_text(model, tokenizer, "Float model")
 
             # Step 1. replace the block with an observed block
             # Similar with the `insert_observers_`, but for block
-            is_block = lambda model, fqn: isinstance(model, decoder_cls)
-
-            insert_observers_for_block_(model, is_block)
+            insert_observers_for_block_(model, BlockObserver.is_decoder_block(decoder_cls))
 
             print(f"Model with observer (before calibration): \n{model}")
 
@@ -297,4 +252,4 @@ class TestFlow:
         is_observed_block = lambda model, fqn: isinstance(model, ObservedBlock)
         ao_quant.quantize_(model, apply_auto_round, is_observed_block)
 
-        gen_text(model, tokenizer, "quantized model")
+        ar_utils.gen_text(model, tokenizer, "Quantized model")

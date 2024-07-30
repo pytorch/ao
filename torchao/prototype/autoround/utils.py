@@ -131,3 +131,35 @@ def move_input_to_device(input, device=torch.device("cpu")):
     else:
         raise ValueError(f"Unsupported type: {type(input)}")
     return input
+
+
+@torch.no_grad()
+def gen_text(model, tokenizer, msg=""):
+    device = next(model.parameters()).device
+    inputs = tokenizer("What are we having for dinner?", return_tensors="pt")
+    new_tokens = model.generate(**inputs.to(device), max_length=20)
+    text = tokenizer.decode(new_tokens[0], skip_special_tokens=True)
+    print(f"Generated text ({msg}): {text}")
+
+
+def get_float_model_info(model_name_or_path):
+    import transformers
+
+    # pretrained_model_name_or_path = "/models/Llama-2-7b-chat-hf/"
+    model = transformers.AutoModelForCausalLM.from_pretrained(model_name_or_path)
+    tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path)
+    if "Llama" in model_name_or_path:
+        decoder_cls = transformers.models.llama.modeling_llama.LlamaDecoderLayer
+    elif "opt" in model_name_or_path:
+        decoder_cls = transformers.models.opt.modeling_opt.OPTDecoderLayer
+    else:
+        raise ValueError(f"Unsupported model: {model_name_or_path}")
+    return model, tokenizer, decoder_cls
+
+
+def get_example_inputs(tokenizer):
+    iters = 4
+    prompt = "What are we having for dinner?"
+    example_inputs = tokenizer(prompt, return_tensors="pt")
+    for i in range(iters):
+        yield example_inputs
