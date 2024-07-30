@@ -8,5 +8,5 @@ pip install -r requirements.txt
 
 ### Quantize `facebook/opt-125m` with Auto-round
 ```bash
-pytest -sv ./auto_round_flow.py -k test_with_opt
+python autoround_demo.py
 ```

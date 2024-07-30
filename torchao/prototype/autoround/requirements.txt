@@ -1,3 +1,3 @@
-auto_round @ git+https://github.com/intel/auto-round.git@patch-for-ao
+auto_round @ git+https://github.com/intel/auto-round.git@patch-for-ao-2
 datasets # for loading the calibration dataset
 transformers  # for loading the model

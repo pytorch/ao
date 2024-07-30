@@ -1,5 +1,5 @@
 # ==------------------------------------------------------------------------------------------==
-# Utils
+# Utils for the auto-round (put here temporarily)
 # ==------------------------------------------------------------------------------------------==
 from typing import Optional, Tuple
 import random
@@ -16,56 +16,7 @@ def freeze_random(seed=0):
 
     np.random.seed(seed)
 
-
-def assert_same(
-    a: Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]],
-    b: Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]],
-):
-    assert len(a) == len(b), f"len: {len(a)} != {len(b)}"
-    for i, _ in enumerate(a):
-        assert type(a[i]) == type(b[i]), f"type: {type(a[i])} != {type(b[i])}"
-        if isinstance(a[i], torch.Tensor):
-            torch.testing.assert_allclose(a[i], b[i])
-        elif isinstance(a[i], tuple):
-            assert_same(a[i], b[i])
-        elif isinstance(a[i], dict):
-            for k in a[i].keys():
-                assert k in b[i], f"key: {k} not in {b[i]}"
-                assert_same(a[i][k], b[i].get(k))
-        elif a[i] is None:
-            assert b[i] is None
-        else:
-            raise ValueError(f"Unsupported type: {type(a[i])}")
-    print("Same!")
-
-
-def inspect_module_inputs(inputs, indent=""):
-    if isinstance(inputs, torch.Tensor):
-        print(f"{indent}Tensor: {inputs.shape}")
-    elif isinstance(inputs, tuple) or isinstance(inputs, list):
-        for i in inputs:
-            inspect_module_inputs(i, indent + "  ")
-    elif isinstance(inputs, dict):
-        for k, v in inputs.items():
-            print(f"{indent}{k}:")
-            inspect_module_inputs(v, indent + "  ")
-    elif inputs is None:
-        print(f"{indent}None")
-    else:
-        print(f"{indent}{type(inputs)}")
-
-
 def get_tokenizer_function(tokenizer, seqlen):
-    """Returns a default tokenizer function.
-
-    Args:
-    tokenizer: The tokenizer to be used for tokenization.
-    seqlen: The maximum sequence length.
-
-    Returns: A default tokenizer function that applies the provided tokenizer with truncation and a maximum length of
-    seqlen to the "text" field of examples.
-    """
-
     def default_tokenizer_function(examples):
         example = tokenizer(examples["text"], truncation=True, max_length=seqlen)
         return example
