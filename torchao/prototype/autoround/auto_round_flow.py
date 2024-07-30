@@ -129,7 +129,7 @@ class BlockObserver(torch.nn.Module):
         return _is_decoder_block
 
     def block_input_hook(self, block: torch.nn.Module, args: Tuple[torch.Tensor], kwargs: Optional[Dict[str, Any]]):
-        partial_kwargs = {k: v for k, v in kwargs.items() if k in ["attention_mask", "position_ids"]}
+        partial_kwargs = {k: v for k, v in kwargs.items() if k in ['position_ids', 'attention_mask']}
         self.inputs.append((args, partial_kwargs))
         return args, kwargs
 
@@ -218,7 +218,7 @@ def apply_auto_round(observed_block: ObservedBlock):
 # ==------------------------------------------------------------------------------------------==
 
 
-class TestFlow:
+class TestAutoRound:
     def test_with_opt(self):
         # ==------------------------------------------------------------------------------------------==
         # The Modeling User API
