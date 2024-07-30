@@ -7,7 +7,7 @@ and composable with key systems such as autograd, ```torch.compile``` and distri
 With ``torch.compile`` on, initial results show
 throughput speedups of up to 1.2x on small scale (8 GPUs) LLaMa pretraining jobs.
 
-:warning: <em>See the [feature tracker](https://github.com/pytorch-labs/torchao.float8/issues/187) for upcoming features.</em>
+:warning: <em>See the [feature tracker](https://github.com/pytorch/ao/issues/556) for upcoming features.</em>
 
 :warning: <em>Backwards compatibility is not guaranteed at this point. The codebase is in active development and
 will change rapidly.</em>
