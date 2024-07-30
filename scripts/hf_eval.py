@@ -21,6 +21,10 @@ from torchao.quantization import (
     quantize_,
     autoquant,
 )
+from torchao.sparsity import (
+    sparsify_,
+    semi_sparse_weight,
+)
 
 torch._inductor.config.force_fuse_int_mm_with_mul = True
 torch._inductor.config.fx_graph_cache = True
@@ -40,13 +44,14 @@ def pretty_print_nested_results(results, precision: int = 6):
 
     print(tabulate(main_table, headers=['Task', 'Metrics'], tablefmt='grid'))
 
-def run_evaluation(repo_id, tasks, limit, device, precision, quantization, compile, batch_size, max_length):
+def run_evaluation(repo_id, tasks, limit, device, precision, quantization, sparsity, compile, batch_size, max_length):
 
     tokenizer = AutoTokenizer.from_pretrained(repo_id)
-    model = AutoModelForCausalLM.from_pretrained(repo_id).to(device="cpu", dtype=precision)
+    model = AutoModelForCausalLM.from_pretrained(repo_id).to(dtype=precision, device=device)
 
     if compile:
-        model = torch.compile(model, mode="max-autotune", fullgraph=True)
+            model = torch.compile(model, mode="max-autotune", fullgraph=True)
+
 
     if quantization == "int8dq":
         quantize_(model, int8_dynamic_activation_int8_weight())
@@ -57,12 +62,29 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, compi
         quantize_(model.to(device=device), int4_weight_only())
     elif quantization == "autoquant":
         model = autoquant(model.to(device=device))
+
+    if sparsity == "semi_sparse":
+        def all_linear(mod, name):
+            if isinstance(mod, torch.nn.Linear) and "lm_head" not in name:
+                return True
+            return False
+        torch.sparse.semi_structured._FORCE_CUTLASS = False
+        sparsify_(model, semi_sparse_weight(), filter_fn=all_linear)
+    elif sparsity == "semi_sparse_mlp_only":
+        def all_linear(mod, name):
+            if isinstance(mod, torch.nn.Linear) and "lm_head" not in name and "mlp" in name:
+                return True
+            return False
+        torch.sparse.semi_structured._FORCE_CUTLASS = False
+        sparsify_(model, semi_sparse_weight(), filter_fn=all_linear)
+
     with torch.no_grad():
         result = evaluate(
             HFLM(
                 pretrained=model.to(device),
                 tokenizer=tokenizer,
-                batch_size=batch_size,
+                batch_size="auto",
+                max_batch_size=2048,
                 max_length=max_length),
             get_task_dict(tasks),
             limit = limit,
@@ -80,9 +102,11 @@ if __name__ == '__main__':
     parser.add_argument('--precision', type=lambda x: getattr(torch, x.split(".")[-1]), default=torch.bfloat16, help='dtype precision to use')
     parser.add_argument('--device', type=str, default="cuda", help='Device to use for evaluation')
     parser.add_argument('-q', '--quantization', default = "None", choices=["int8dq", "int8wo", "int4wo","autoquant", "None"], help='Which quantization technique to apply')
+    parser.add_argument('-s', '--sparsity', default = "None", choices=["semi_sparse", "semi_sparse_mlp_only", "None"], help='Which sparsity technique to apply')
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
     parser.add_argument('--batch_size', type=int, default=1, help='Batch size to use for evaluation, note int8wo and int4wo work best with small batchsizes, int8dq works better with large batchsizes')
     parser.add_argument('--max_length', type=int, default=None, help='Length of text to process at one time')
 
     args = parser.parse_args()
-    run_evaluation(args.repo_id, args.tasks, args.limit, args.device, args.precision, args.quantization, args.compile, args.batch_size, args.max_length)
+    print(args)
+    run_evaluation(args.repo_id, args.tasks, args.limit, args.device, args.precision, args.quantization, args.sparsity, args.compile, args.batch_size, args.max_length)
