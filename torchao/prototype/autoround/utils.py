@@ -1,10 +1,8 @@
 # ==------------------------------------------------------------------------------------------==
 # Utils
 # ==------------------------------------------------------------------------------------------==
-from typing import Optional, Callable, Any, List, Tuple, Dict
-
+from typing import Optional, Tuple
 import random
-import os
 import torch
 import numpy as np
 from collections import UserDict
@@ -163,3 +161,12 @@ def get_example_inputs(tokenizer):
     example_inputs = tokenizer(prompt, return_tensors="pt")
     for i in range(iters):
         yield example_inputs
+
+
+def check_package(package_name: str):
+    try:
+        __import__(package_name)
+        return True
+    except ImportError:
+        print(f"Package {package_name} not found.")
+        return False

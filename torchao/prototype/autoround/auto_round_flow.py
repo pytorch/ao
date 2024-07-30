@@ -1,23 +1,19 @@
 from typing import Optional, Callable, Any, List, Tuple, Dict
 import torchao.prototype.autoround.utils as ar_utils
+import torch
+import torchao.quantization as ao_quant
+
 
 ar_utils.freeze_random()
 
-# ==------------------------------------------------------------------------------------------==
-# TorchAO
-# ==------------------------------------------------------------------------------------------==
-
-import torch
-import torchao.quantization as ao_quant
-from functools import partial
-import os
-
-
 @torch.no_grad()
-def create_qmodel_from_qdq_model(qdq_model):
+def create_qmodel_from_qdq_model(qdq_model: torch.nn.Module):
+    """Create a quantized model from a qdq model.
+    
+    The qdq_model includes Linear quantized by auto-round, which includes qdq weight, scale, zp.
+    """
     # TODO: simplify this process by creating a new class at unwrapper stage
-    def _is_quantized_linear(model, fqn):
-        """The linear from auto-round includes qdq weight, scale, zp."""
+    def _is_quantized_linear(model: torch.nn.Module, fqn: str):
         return hasattr(model, "scale")
 
     @torch.no_grad()
