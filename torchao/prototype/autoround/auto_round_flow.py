@@ -1,5 +1,7 @@
 from typing import Optional, Callable, Any, List, Tuple, Dict
+import torchao.prototype.autoround.utils as ar_utils
 
+ar_utils.freeze_random()
 
 # ==------------------------------------------------------------------------------------------==
 # TorchAO
@@ -8,10 +10,10 @@ from typing import Optional, Callable, Any, List, Tuple, Dict
 import torch
 import torchao.quantization as ao_quant
 from functools import partial
-import transformers
 import os
 
 
+@torch.no_grad()
 def create_qmodel_from_qdq_model(qdq_model):
     # TODO: simplify this process by creating a new class at unwrapper stage
     def _is_quantized_linear(model, fqn):
@@ -71,6 +73,8 @@ def create_qmodel_from_qdq_model(qdq_model):
             return packed_int_data, scales_and_zeros
 
         int_data, scales_and_zeros = _get_qinfo(linear)
+
+        # int_data, scales_and_zeros = _get_qinfo(linear)
         woq_weight = ao_quant.Int4WeightOnlyQuantizedLinearWeight(
             int_data,
             scales_and_zeros,
@@ -106,6 +110,28 @@ class ModuleInputCapture(torch.nn.Module):
     def __repr__(self):
         return f"ModuleInputCapture(inputs: {len(self.inputs)})"
 
+    @staticmethod
+    def is_block(block, fqn):
+        pass
+
+    def block_input_hook(self, block: torch.nn.Module, args: Tuple[torch.Tensor], kwargs: Dict[str, Any]):
+        partial_kwargs = {k: v for k, v in kwargs.items() if k in ["attention_mask", "position_ids"]}
+        self.inputs.append((args, partial_kwargs))
+        return args, kwargs
+
+    def block_output_hook(self, block: torch.nn.Module, inputs, outputs):
+        if isinstance(outputs, torch.Tensor):
+            self.outputs.append(outputs)
+        elif isinstance(outputs, (list, tuple)):
+            self.outputs.append(outputs[0])
+        else:
+            raise NotImplementedError(f"Unsupported type: {type(outputs)}")
+
+    def register_hooks(self, block):
+        pre_forward_hook_handle = block.register_forward_pre_hook(partial(self, block))
+        forward_hook_handle = block.register_forward_hook(partial(self, block))
+        return pre_forward_hook_handle, forward_hook_handle
+
 
 class ObservedBlock(torch.nn.Module):
     def __init__(
@@ -138,7 +164,8 @@ class ObservedBlock(torch.nn.Module):
             args: Tuple[torch.Tensor],
             kwargs: Dict[str, Any],
         ) -> Tuple[Any, Any]:
-            block_observer.inputs.append((args, kwargs))
+            partial_kwargs = {k: v for k, v in kwargs.items() if k in ["attention_mask", "position_ids"]}
+            block_observer.inputs.append((args, partial_kwargs))
             return args, kwargs
 
         def capture_outputs_hook(
@@ -187,13 +214,13 @@ def apply_auto_round(observed_block: ObservedBlock):
         tokenizer=None,
         sym=False,  # Both True and False are OK
         bits=4,
-        iters=2,
+        iters=100,
         use_quant_input=False,  # disable it for now
         amp=False,
         low_gpu_mem_usage=False,
         model_dtype=next(block.parameters()).dtype,
     )
-    rounder.quant_block_new(block, block_inputs, block_outputs)
+    rounder.quant_block_(block, block_inputs, block_outputs)
     return create_qmodel_from_qdq_model(observed_block)
 
 
@@ -202,40 +229,72 @@ def apply_auto_round(observed_block: ObservedBlock):
 # ==------------------------------------------------------------------------------------------==
 
 
+@torch.no_grad()
+def gen_text(model, tokenizer, msg=""):
+    device = next(model.parameters()).device
+    inputs = tokenizer("What are we having for dinner?", return_tensors="pt")
+    new_tokens = model.generate(**inputs.to(device), max_length=20)
+    text = tokenizer.decode(new_tokens[0], skip_special_tokens=False)
+    print(f"Generated text ({msg}): {text}")
+
+
+def get_float_model_info(model_name_or_path):
+    import transformers
+
+    # pretrained_model_name_or_path = "/models/Llama-2-7b-chat-hf/"
+    model = transformers.AutoModelForCausalLM.from_pretrained(model_name_or_path)
+    tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path)
+    if "Llama" in model_name_or_path:
+        decoder_cls = transformers.models.llama.modeling_llama.LlamaDecoderLayer
+    elif "opt" in model_name_or_path:
+        decoder_cls = transformers.models.opt.modeling_opt.OPTDecoderLayer
+    else:
+        raise ValueError(f"Unsupported model: {model_name_or_path}")
+    return model, tokenizer, decoder_cls
+
+
 class TestFlow:
     def test_with_opt(self):
         # ==------------------------------------------------------------------------------------------==
         # The Modeling User API
         # ==------------------------------------------------------------------------------------------==
+
+        def get_example_inputs(tokenizer):
+            iters = 4
+            prompt = "What are we having for dinner?"
+            example_inputs = tokenizer(prompt, return_tensors="pt")
+            for i in range(iters):
+                yield example_inputs
+
         with torch.no_grad():
             # Step 0. Load the float model
             device = torch.device("cuda")
-            import transformers
 
-            # pretrained_model_name_or_path = "hf-internal-testing/tiny-random-GPTJForCausalLM"
-            pretrained_model_name_or_path = "facebook/opt-125m"
-            model = transformers.AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path).to(device)
-            tokenizer = transformers.AutoTokenizer.from_pretrained(pretrained_model_name_or_path)
+            model_name_or_path = "facebook/opt-125m"
+            # model_name_or_path = "/models/Llama-2-7b-chat-hf/"
+            model, tokenizer, decoder_cls = get_float_model_info(model_name_or_path)
+            model = model.to(device)
+
+            gen_text(model, tokenizer, "float model")
 
             # Step 1. replace the block with an observed block
             # Similar with the `insert_observers_`, but for block
-            is_block = lambda model, fqn: isinstance(model, transformers.models.opt.modeling_opt.OPTDecoderLayer)
-            # is_block = lambda model, fqn: isinstance(model, transformers.models.gptj.modeling_gptj.GPTJBlock)
+            is_block = lambda model, fqn: isinstance(model, decoder_cls)
+
             insert_observers_for_block_(model, is_block)
 
             print(f"Model with observer (before calibration): \n{model}")
 
             # Step 2. calibrating / training
             # For capturing the input of block
-            # TODO: replace it with a real calibration dataset
-            iters = 4
-            prompt = "The meaning of life is"
-            example_inputs = tokenizer(prompt, return_tensors="pt")
-            for _ in range(iters):
-                model(**example_inputs.to(device))
+            for example_inputs in ar_utils.get_dataloader(tokenizer, seqlen=128, split="train[0:32]"):
+                if example_inputs is not None:
+                    model(**ar_utils.move_input_to_device(example_inputs, device))
 
             print(f"Model with observer (after calibration): \n{model}")
 
         # Step 3. quantize the block
         is_observed_block = lambda model, fqn: isinstance(model, ObservedBlock)
         ao_quant.quantize_(model, apply_auto_round, is_observed_block)
+
+        gen_text(model, tokenizer, "quantized model")
