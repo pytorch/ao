@@ -16,6 +16,7 @@ def freeze_random(seed=0):
 
     np.random.seed(seed)
 
+
 def get_tokenizer_function(tokenizer, seqlen):
     def default_tokenizer_function(examples):
         example = tokenizer(examples["text"], truncation=True, max_length=seqlen)

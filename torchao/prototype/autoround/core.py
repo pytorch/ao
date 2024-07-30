@@ -6,12 +6,14 @@ import torchao.quantization as ao_quant
 
 ar_utils.freeze_random()
 
+
 @torch.no_grad()
 def create_qmodel_from_qdq_model(qdq_model: torch.nn.Module):
     """Create a quantized model from a qdq model.
-    
+
     The qdq_model includes Linear quantized by auto-round, which includes qdq weight, scale, zp.
     """
+
     # TODO: simplify this process by creating a new class at unwrapper stage
     def _is_quantized_linear(model: torch.nn.Module, fqn: str):
         return hasattr(model, "scale")
@@ -125,7 +127,7 @@ class BlockObserver(torch.nn.Module):
         return _is_decoder_block
 
     def block_input_hook(self, block: torch.nn.Module, args: Tuple[torch.Tensor], kwargs: Optional[Dict[str, Any]]):
-        partial_kwargs = {k: v for k, v in kwargs.items() if k in ['position_ids', 'attention_mask']}
+        partial_kwargs = {k: v for k, v in kwargs.items() if k in ["position_ids", "attention_mask"]}
         self.inputs.append((args, partial_kwargs))
         return args, kwargs
 
@@ -207,4 +209,3 @@ def apply_auto_round(observed_block: ObservedBlock):
     )
     rounder.quant_block_(block, block_inputs, block_outputs)
     return create_qmodel_from_qdq_model(observed_block)
-
