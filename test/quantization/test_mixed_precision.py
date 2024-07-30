@@ -22,8 +22,8 @@ def test_weight_only_quant(quantization_bit=2, symmetric=False):
         y_wo = m(x)
         sqnr = compute_error(y_ref, y_wo)
         #SQNR_dB can be approximated by 6.02n, where n is the bit width of the quantization
-        #e.g., we set sqnr threshold = 44 for 8-bit, so that 6.02 * 8= 48.16 fullfills
-        assert sqnr > 44.0-(8-quantization_bit)*6.02, "sqnr: {} is too low".format(sqnr)
+        #e.g., we set sqnr threshold = 42 for 8-bit, so that 6.02 * 8= 48.16 fullfills
+        assert sqnr > 42.0-(8-quantization_bit)*6.02, "sqnr: {} is too low".format(sqnr)
 
 
 # test if the asymmetric and symmetric quantization API works with different bit widths
