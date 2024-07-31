@@ -718,7 +718,6 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skip("skipping for now due to seg fault on nightly")
     def test_aq_int8_weight_only_quant_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             AQWeightOnlyQuantizedLinearWeight.from_float, device, 35, test_dtype=dtype
@@ -729,6 +728,7 @@ class TestSubclass(unittest.TestCase):
         self._test_lin_weight_subclass_impl(
             AQWeightOnlyQuantizedLinearWeight2.from_float, device, 35, test_dtype=dtype
         )
+
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_aq_int8_weight_only_quant_3_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
