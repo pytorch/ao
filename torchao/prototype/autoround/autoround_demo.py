@@ -22,7 +22,7 @@ with torch.no_grad():
     # Similar with the `insert_observers_`, but for block
     insert_observers_for_block_(model, BlockObserver.is_decoder_block(decoder_cls))
 
-    print(f"Model with observer (before calibration): \n{model}")
+    print(f"Model with observers (before calibration): \n{model}")
 
     # Step 2. calibrating / training
     # For capturing the input of block
@@ -30,10 +30,9 @@ with torch.no_grad():
         if example_inputs is not None:
             model(**ar_utils.move_input_to_device(example_inputs, device))
 
-    print(f"Model with observer (after calibration): \n{model}")
+    print(f"Model with observers (after calibration): \n{model}")
 
 # Step 3. quantize the block
 is_observed_block = lambda model, fqn: isinstance(model, ObservedBlock)
 ao_quant.quantize_(model, apply_auto_round, is_observed_block)
-
 ar_utils.gen_text(model, tokenizer, "Quantized model")

@@ -95,7 +95,6 @@ def gen_text(model, tokenizer, msg=""):
 def get_float_model_info(model_name_or_path):
     import transformers
 
-    # pretrained_model_name_or_path = "/models/Llama-2-7b-chat-hf/"
     model = transformers.AutoModelForCausalLM.from_pretrained(model_name_or_path)
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path)
     if "Llama" in model_name_or_path:

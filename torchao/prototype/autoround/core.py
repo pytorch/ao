@@ -98,7 +98,7 @@ def create_qmodel_from_qdq_model(qdq_model: torch.nn.Module):
     qmodel = ao_quant.quant_api._replace_with_custom_fn_if_matches_filter(
         qdq_model, create_qlinear, _is_quantized_linear
     )
-    return qmodel
+    return qmodel.float_block
 
 
 class BlockObserver(torch.nn.Module):
@@ -109,8 +109,7 @@ class BlockObserver(torch.nn.Module):
 
     def __init__(self):
         super().__init__()
-        # [(args, kwargs), ...]
-        self.inputs: List[Tuple[Tuple[Any], Dict[str, Any]]] = []
+        self.inputs: List[Tuple[Tuple[Any], Dict[str, Any]]] = [] #[(args, kwargs), ...]
         self.outputs: List[torch.Tensor] = []
 
     def forward(self, *args, **kwarsg):
@@ -127,11 +126,16 @@ class BlockObserver(torch.nn.Module):
         return _is_decoder_block
 
     def block_input_hook(self, block: torch.nn.Module, args: Tuple[torch.Tensor], kwargs: Optional[Dict[str, Any]]):
-        partial_kwargs = {k: v for k, v in kwargs.items() if k in ["position_ids", "attention_mask"]}
+        """Capture the input of the block for perform infrence on qdq block."""
+        partial_kwargs = {k: v for k, v in kwargs.items() if k in ["attention_mask"]}
         self.inputs.append((args, partial_kwargs))
         return args, kwargs
 
     def block_output_hook(self, block: torch.nn.Module, inputs, outputs):
+        """Capture the output of the block for computing the reconstruction error.
+
+        The output of the block may be a tuple, e.g., (hidden_states, present_key_value, ...), we only take the hidden_states.
+        """
         if isinstance(outputs, torch.Tensor):
             self.outputs.append(outputs)
         elif isinstance(outputs, (list, tuple)):
@@ -165,8 +169,8 @@ class ObservedBlock(torch.nn.Module):
         return self.float_block(*args, **kwarsg)
 
     @classmethod
-    def from_float(cls, float_block: torch.nn.Module):
-        block_observer = BlockObserver()
+    def from_float(cls, float_block: torch.nn.Module, block_observer_cls):
+        block_observer = block_observer_cls()
         pre_forward_hook_handle, forward_hook_handle = block_observer.register_hooks(float_block)
         return cls(float_block, block_observer, pre_forward_hook_handle, forward_hook_handle)
 
@@ -183,7 +187,7 @@ def insert_observers_for_block_(
     model: torch.nn.Module,
     filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = None,
 ) -> ObservedBlock:
-    replacement_fn = lambda m: ObservedBlock.from_float(m)
+    replacement_fn = lambda m: ObservedBlock.from_float(m, BlockObserver)
     return ao_quant.quant_api._replace_with_custom_fn_if_matches_filter(model, replacement_fn, filter_fn)
 
 
