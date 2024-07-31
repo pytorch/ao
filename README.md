@@ -6,7 +6,7 @@
 
 ## Introduction
 
-torchao is a library to create and integrate high-performance custom data types, layouts and kernels into your PyTorch workflows with up to **2x speedups** with **65% less VRAM** for [inference](#inference) and support for [training](#training)
+torchao is a library to create and integrate high-performance custom data types, optimization techniques and kernels into your PyTorch workflows with up to **2x speedups** with **65% less VRAM** for [inference](#inference) and support for [training](#training)
 
 All with no intrusive code changes and minimal accuracy degradation.
 
