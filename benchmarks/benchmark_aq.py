@@ -93,15 +93,14 @@ def _bench_quantized_tensor_subclass_perf(api, ref_api, kwargs=None):
     # warmup
     WARMUP = 5
     RUNS = 100
-    input_tensor = example_inputs[0]
     m = torch.compile(m, mode='max-autotune', fullgraph=True)
 
-    benchmark_model(m, WARMUP, input_tensor)
-    elapsed_time = benchmark_model(m, RUNS, input_tensor)
+    benchmark_model(m, WARMUP, example_inputs)
+    elapsed_time = benchmark_model(m, RUNS, example_inputs)
 
     m_ref = torch.compile(m_ref, mode='max-autotune', fullgraph=True)
-    benchmark_model(m_ref, WARMUP, input_tensor)
-    ref_elapsed_time = benchmark_model(m_ref, RUNS, input_tensor)
+    benchmark_model(m_ref, WARMUP, example_inputs)
+    ref_elapsed_time = benchmark_model(m_ref, RUNS, example_inputs)
 
     print(f"elapsed time: {elapsed_time}, ref elapsed time: {ref_elapsed_time}")
     assert elapsed_time < 1.05 * ref_elapsed_time

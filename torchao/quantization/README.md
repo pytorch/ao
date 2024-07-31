@@ -119,9 +119,9 @@ from torchao.utils import benchmark_model
 
 num_runs = 100
 torch._dynamo.reset()
-bf16_time = benchmark_model(m_bf16, num_runs, example_inputs[0])
+bf16_time = benchmark_model(m_bf16, num_runs, example_inputs)
 print(f"bf16 mean time: {bf16_time}")
-int4_time = benchmark_model(m, num_runs, example_inputs[0])
+int4_time = benchmark_model(m, num_runs, example_inputs)
 print(f"int4 weight only quantized mean time: {int4_time}")
 print(f"speedup: {bf16_time / int4_time}")
 
