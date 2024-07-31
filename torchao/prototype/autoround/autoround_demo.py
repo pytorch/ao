@@ -1,7 +1,13 @@
 import torch
-import torchao.quantization as ao_quant
+
 import torchao.prototype.autoround.utils as ar_utils
-from torchao.prototype.autoround.core import insert_observers_for_block_, apply_auto_round, BlockObserver, ObservedBlock
+import torchao.quantization as ao_quant
+from torchao.prototype.autoround.core import (
+    apply_auto_round,
+    BlockObserver,
+    insert_observers_for_block_,
+    ObservedBlock,
+)
 
 
 # ==------------------------------------------------------------------------------------------==
@@ -26,7 +32,9 @@ with torch.no_grad():
 
     # Step 2. calibrating / training
     # For capturing the input of block
-    for example_inputs in ar_utils.get_dataloader(tokenizer, seqlen=128, split="train[0:32]"):
+    for example_inputs in ar_utils.get_dataloader(
+        tokenizer, seqlen=128, split="train[0:32]"
+    ):
         if example_inputs is not None:
             model(**ar_utils.move_input_to_device(example_inputs, device))
 

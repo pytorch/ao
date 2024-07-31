@@ -1,6 +1,8 @@
-from typing import Optional, Callable, Any, List, Tuple, Dict
-import torchao.prototype.autoround.utils as ar_utils
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
 import torch
+
+import torchao.prototype.autoround.utils as ar_utils
 import torchao.quantization as ao_quant
 
 
@@ -32,7 +34,9 @@ def create_qmodel_from_qdq_model(qdq_model: torch.nn.Module):
             orig_shape = qdq_weight.shape
             oc, ic = orig_shape
             groupsize = linear.group_size
-            assert ic % groupsize == 0, f"expect k % groupsize == 0, but got {ic % groupsize}"
+            assert (
+                ic % groupsize == 0
+            ), f"expect k % groupsize == 0, but got {ic % groupsize}"
             n_groups = ic // groupsize
 
             # Check the shapes of scales and zeros with int_data
@@ -73,7 +77,9 @@ def create_qmodel_from_qdq_model(qdq_model: torch.nn.Module):
             # Hard code inner_k_tiles = 2
             inner_k_tiles = 2
 
-            packed_int_data = torch.ops.aten._convert_weight_to_int4pack(int_data, inner_k_tiles)
+            packed_int_data = torch.ops.aten._convert_weight_to_int4pack(
+                int_data, inner_k_tiles
+            )
             scales_and_zeros = ao_quant.utils.pack_tinygemm_scales_and_zeros(
                 scales.to(torch.bfloat16), zeros.to(torch.bfloat16)
             )
@@ -109,14 +115,18 @@ class BlockObserver(torch.nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.inputs: List[Tuple[Tuple[Any], Dict[str, Any]]] = [] #[(args, kwargs), ...]
+        self.inputs: List[Tuple[Tuple[Any], Dict[str, Any]]] = (
+            []
+        )  # [(args, kwargs), ...]
         self.outputs: List[torch.Tensor] = []
 
     def forward(self, *args, **kwarsg):
         self.inputs.append((args, kwarsg))
 
     def __repr__(self):
-        return f"BlockObserver(inputs: {len(self.inputs)}, outputs: {len(self.outputs)})"
+        return (
+            f"BlockObserver(inputs: {len(self.inputs)}, outputs: {len(self.outputs)})"
+        )
 
     @staticmethod
     def is_decoder_block(decoder_cls):
@@ -125,7 +135,12 @@ class BlockObserver(torch.nn.Module):
 
         return _is_decoder_block
 
-    def block_input_hook(self, block: torch.nn.Module, args: Tuple[torch.Tensor], kwargs: Optional[Dict[str, Any]]):
+    def block_input_hook(
+        self,
+        block: torch.nn.Module,
+        args: Tuple[torch.Tensor],
+        kwargs: Optional[Dict[str, Any]],
+    ):
         """Capture the input of the block for perform infrence on qdq block."""
         partial_kwargs = {k: v for k, v in kwargs.items() if k in ["attention_mask"]}
         self.inputs.append((args, partial_kwargs))
@@ -144,7 +159,9 @@ class BlockObserver(torch.nn.Module):
             raise NotImplementedError(f"Unsupported type: {type(outputs)}")
 
     def register_hooks(self, block):
-        pre_forward_hook_handle = block.register_forward_pre_hook(self.block_input_hook, with_kwargs=True)
+        pre_forward_hook_handle = block.register_forward_pre_hook(
+            self.block_input_hook, with_kwargs=True
+        )
         forward_hook_handle = block.register_forward_hook(self.block_output_hook)
         return pre_forward_hook_handle, forward_hook_handle
 
@@ -171,8 +188,12 @@ class ObservedBlock(torch.nn.Module):
     @classmethod
     def from_float(cls, float_block: torch.nn.Module, block_observer_cls):
         block_observer = block_observer_cls()
-        pre_forward_hook_handle, forward_hook_handle = block_observer.register_hooks(float_block)
-        return cls(float_block, block_observer, pre_forward_hook_handle, forward_hook_handle)
+        pre_forward_hook_handle, forward_hook_handle = block_observer.register_hooks(
+            float_block
+        )
+        return cls(
+            float_block, block_observer, pre_forward_hook_handle, forward_hook_handle
+        )
 
     def remove_hook_handles(self):
         self.input_hook_handle.remove()
@@ -188,7 +209,9 @@ def insert_observers_for_block_(
     filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = None,
 ) -> ObservedBlock:
     replacement_fn = lambda m: ObservedBlock.from_float(m, BlockObserver)
-    return ao_quant.quant_api._replace_with_custom_fn_if_matches_filter(model, replacement_fn, filter_fn)
+    return ao_quant.quant_api._replace_with_custom_fn_if_matches_filter(
+        model, replacement_fn, filter_fn
+    )
 
 
 def apply_auto_round(observed_block: ObservedBlock):

@@ -1,11 +1,12 @@
 # ==------------------------------------------------------------------------------------------==
 # Utils for the auto-round (put here temporarily)
 # ==------------------------------------------------------------------------------------------==
-from typing import Optional, Tuple
 import random
-import torch
-import numpy as np
 from collections import UserDict
+from typing import Optional, Tuple
+
+import numpy as np
+import torch
 
 
 def freeze_random(seed=0):
@@ -25,7 +26,14 @@ def get_tokenizer_function(tokenizer, seqlen):
     return default_tokenizer_function
 
 
-def get_dataloader(tokenizer, seqlen=1024, dataset_name="NeelNanda/pile-10k", split="train", seed=42, batch_size=4):
+def get_dataloader(
+    tokenizer,
+    seqlen=1024,
+    dataset_name="NeelNanda/pile-10k",
+    split="train",
+    seed=42,
+    batch_size=4,
+):
     from datasets import load_dataset
     from torch.utils.data import DataLoader
 
@@ -54,7 +62,9 @@ def get_dataloader(tokenizer, seqlen=1024, dataset_name="NeelNanda/pile-10k", sp
     calib_dataset = calib_dataset.shuffle(seed=seed)
     calib_dataset = calib_dataset.map(tokenizer_function, batched=True)
     calib_dataset.set_format(type="torch", columns=["input_ids"])
-    calib_dataloader = DataLoader(calib_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_batch)
+    calib_dataloader = DataLoader(
+        calib_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_batch
+    )
     return calib_dataloader
 
 
