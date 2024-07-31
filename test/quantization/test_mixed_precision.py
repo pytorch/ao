@@ -1,17 +1,8 @@
 import torch
 import torch.nn as nn
-
-from torchao.quantization.prototype.mixed_precision.naive_intNwo import intN_weight_only
-
 from torchao.quantization import quantize_, int8_weight_only, int4_weight_only
-
-from torchao.quantization.utils import (
-    _apply_logging_hook,
-    compute_error,
-    compute_error as SQNR,
-    _fqn_to_op_to_shape_to_count,
-    LoggingTensorMode,
-)
+from torchao.quantization.utils import compute_error
+from torchao.quantization.prototype.mixed_precision.naive_intNwo import intN_weight_only
 
 def test_weight_only_quant(quantization_bit=2, symmetric=False):
     for x_shape in [[64, 32], [80, 80, 80, 32], [16, 64, 32]]:
