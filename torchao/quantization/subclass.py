@@ -444,9 +444,8 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
 
         # reshape and pad activation
         act_mat = act_mat.reshape(-1, act_mat.shape[-1]).to(torch.bfloat16)
-        # Any padding for weight? Otherwise it may cause the mismatch of the shape of the input and the weight
-        # pad_size = find_multiple(act_mat.shape[-1], 1024)
-        # act_mat = torch.nn.functional.pad(act_mat, (0, pad_size - act_mat.shape[-1]))
+        pad_size = find_multiple(act_mat.shape[-1], 1024)
+        act_mat = torch.nn.functional.pad(act_mat, (0, pad_size - act_mat.shape[-1]))
 
         # matmul
         y = aten._weight_int4pack_mm(

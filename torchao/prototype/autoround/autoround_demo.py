@@ -18,11 +18,11 @@ with torch.no_grad():
     device = torch.device("cuda")
 
     model_name_or_path = "facebook/opt-125m"
-    # model_name_or_path = "/models/Llama-2-7b-chat-hf/"
     model, tokenizer, decoder_cls = ar_utils.get_float_model_info(model_name_or_path)
     model = model.to(device)
 
     ar_utils.gen_text(model, tokenizer, "Float model")
+    # Expected output: A nice dinner with a friend.....
 
     # Step 1. replace the block with an observed block
     # Similar with the `insert_observers_`, but for block
@@ -44,3 +44,4 @@ with torch.no_grad():
 is_observed_block = lambda model, fqn: isinstance(model, ObservedBlock)
 ao_quant.quantize_(model, apply_auto_round, is_observed_block)
 ar_utils.gen_text(model, tokenizer, "Quantized model")
+# Expected output: A nice dinner with a nice wine....
