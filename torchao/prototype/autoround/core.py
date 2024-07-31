@@ -5,7 +5,7 @@ import torch
 import torchao.prototype.autoround.utils as ar_utils
 import torchao.quantization as ao_quant
 
-
+# TODO: remove it before merge
 ar_utils.freeze_random()
 
 
@@ -115,13 +115,9 @@ class BlockObserver(torch.nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.inputs: List[Tuple[Tuple[Any], Dict[str, Any]]] = (
-            []
-        )  # [(args, kwargs), ...]
+        # [(args, kwargs), ...]
+        self.inputs: List[Tuple[Tuple[Any], Dict[str, Any]]] = []
         self.outputs: List[torch.Tensor] = []
-
-    def forward(self, *args, **kwarsg):
-        self.inputs.append((args, kwarsg))
 
     def __repr__(self):
         return (
@@ -149,7 +145,8 @@ class BlockObserver(torch.nn.Module):
     def block_output_hook(self, block: torch.nn.Module, inputs, outputs):
         """Capture the output of the block for computing the reconstruction error.
 
-        The output of the block may be a tuple, e.g., (hidden_states, present_key_value, ...), we only take the hidden_states.
+        The output of the block may be a tuple, e.g., (hidden_states, present_key_value, ...),
+        we only take the hidden_states.
         """
         if isinstance(outputs, torch.Tensor):
             self.outputs.append(outputs)
@@ -176,7 +173,6 @@ class ObservedBlock(torch.nn.Module):
     ):
         super().__init__()
         # e.g., replace `transformers.models.llama.modeling_llama.LlamaDecoderLayer`
-        # TODO: Use function is enough?
         self.float_block = float_block
         self.block_observer = block_observer
         self.input_hook_handle = input_hook_handle
@@ -216,7 +212,7 @@ def insert_observers_for_block_(
 
 def apply_auto_round(observed_block: ObservedBlock):
     block_inputs, block_outputs = observed_block.get_module_inputs_outputs()
-    # Call the autoround to execute the optimization process
+    # Call the auto-round to execute the optimization process
     import auto_round
 
     block = observed_block.float_block
