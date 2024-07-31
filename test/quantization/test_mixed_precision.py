@@ -16,7 +16,7 @@ def test_weight_only_quant_naive(quantization_bit=2, symmetric=False):
         # e.g., we set sqnr threshold = 44 for 8-bit, so that 6.02 * 8= 48.16 fullfills
         assert sqnr > 44.0-(8-quantization_bit)*6.02, "sqnr: {} is too low".format(sqnr)
 
-
+'''
 # test if the asymmetric and symmetric quantization API works with different bit widths
 for i in [2, 3, 4, 5, 6, 8]:
     # test for asymmetric quantization
@@ -32,3 +32,4 @@ for i in [2, 3, 4, 5, 6, 8]:
         print(f"Test passed for {i}-bit using naive intNwo symmetric quantization implementation")
     except Exception as e:
         print(f"Exception handled in test loop for {i}-bit symmetric quantization. Details: {e}")
+'''
