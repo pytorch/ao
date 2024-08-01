@@ -95,6 +95,7 @@ def get_parser():
     parser.add_argument("--project")
     parser.add_argument("--run_name", default="debug")
     parser.add_argument("--profile", action="store_true")
+    parser.add_argument("--n_profile_steps", type=int, default=20)
     parser.add_argument("--seed", type=int)
     return parser
 
@@ -213,7 +214,7 @@ if __name__ == "__main__":
 
                 step += 1
 
-                if args.profile and step == 20:
+                if args.profile and step == args.n_profile_steps:
                     break
 
         if args.profile:
