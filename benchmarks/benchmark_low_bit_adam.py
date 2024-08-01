@@ -32,7 +32,7 @@ from torchao.prototype import low_bit_optim
 
 # lpmm doesn't have Adam, only AdamW
 OPTIM_MAP = dict(
-    Adam=torch.optim.Adam,
+    Adam=partial(torch.optim.Adam, fused=True),
     Adam8bitBnb=bnb.optim.Adam8bit,
     Adam8bitAo=low_bit_optim.Adam8bit,
     AdamFp8Ao=low_bit_optim.AdamFp8,
