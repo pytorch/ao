@@ -10,7 +10,7 @@ class CPUOffloadOptimizer:
         # swap param in param_groups with CPU param
         for param_group in base_optimizer.param_groups:
             for i, p in enumerate(param_group["params"]):
-                p_cpu = p.cpu().pin_memory()
+                p_cpu = p.detach().cpu().pin_memory()
                 param_group["params"][i] = p_cpu
                 self.param_cpu2cuda_map[p_cpu] = p
 
