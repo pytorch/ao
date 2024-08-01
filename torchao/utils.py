@@ -42,8 +42,16 @@ def _assert_and_get_unique_device(module: torch.nn.Module) -> Any:
     return device
 
 
-def benchmark_model(model, num_runs, input_tensor):
-    device_type = _assert_and_get_unique_device(model).type
+def benchmark_model(model, num_runs, args=(), kwargs=None, device_type=None):
+    """Benchmark model runs with `args` and `kwargs` both are optional
+    """
+    if kwargs is None:
+        kwargs = {}
+
+    if device_type is None:
+        assert isinstance(model, torch.nn.Module), "Expecting `model` to be torch.nn.Module if device_type is not provided"
+        device_type = _assert_and_get_unique_device(model).type
+
     if device_type == "cuda":
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
@@ -53,7 +61,7 @@ def benchmark_model(model, num_runs, input_tensor):
         # benchmark
         for _ in range(num_runs):
             with torch.autograd.profiler.record_function("timed region"):
-                model(input_tensor)
+                model(*args, **kwargs)
 
         end_event.record()
         torch.cuda.synchronize()
@@ -68,7 +76,7 @@ def benchmark_model(model, num_runs, input_tensor):
         # benchmark
         for _ in range(num_runs):
             with torch.autograd.profiler.record_function("timed region"):
-                model(input_tensor)
+                model(*args, **kwargs)
 
         end_event.record()
         torch.mps.synchronize()
@@ -81,7 +89,7 @@ def benchmark_model(model, num_runs, input_tensor):
         # benchmark
         for _ in range(num_runs):
             with torch.autograd.profiler.record_function("timed region"):
-                model(input_tensor)
+                model(*args, **kwargs)
 
         end_time = time.time()
         torch.cpu.synchronize()
@@ -264,7 +272,7 @@ def unwrap_tensor_subclass(model, filter_fn=None):
             parametrize.register_parametrization(child, "weight", UnwrapTensorSubclass())
         unwrap_tensor_subclass(child)
     return model
-	
+
 def is_fbcode():
     return not hasattr(torch.version, "git_version")
 
