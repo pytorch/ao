@@ -90,6 +90,7 @@ def get_parser():
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight_decay", type=float, default=0)
     parser.add_argument("--cosine_lr_scheduler", action="store_true")
+    parser.add_argument("--optim_cpu_offload", action="store_true")
 
     parser.add_argument("--project")
     parser.add_argument("--run_name", default="debug")
@@ -177,6 +178,8 @@ if __name__ == "__main__":
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
     optim = OPTIM_MAP[args.optim](model.parameters(), args.lr, weight_decay=args.weight_decay)
+    if args.optim_cpu_offload:
+        optim = low_bit_optim.CPUOffloadOptimizer(optim)
     lr_schedule = CosineSchedule(args.lr, len(dloader) * args.n_epochs)
 
     grad_scaler = torch.amp.GradScaler("cuda", enabled=args.amp == "fp16")
