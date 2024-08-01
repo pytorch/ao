@@ -17,3 +17,4 @@ tabulate  # QOL for printing tables to stdout
 
 # Custom CUDA Extensions
 ninja
+tqdm # nice progress bars
