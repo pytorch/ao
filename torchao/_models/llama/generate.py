@@ -98,11 +98,15 @@ def generate(
     # create an empty tensor of the expected final shape and fill in the current tokens
     device = prompt.device
     T = prompt.numel()
-    T_new = T + max_new_tokens
-    seq = torch.empty(T_new, dtype=prompt.dtype, device=device)
+
+    # max_new_tokens can overflow block_size so we need to cap it
+    max_seq_length = min(T + max_new_tokens, model.config.block_size) if not interactive else 350
+    new_tokens = max_seq_length - T
+
+    # full prompt+output will be stored in seq
+    seq = torch.empty(max_seq_length, dtype=prompt.dtype, device=device)
     seq[:T] = prompt.view(-1)
     # setup model cache
-    max_seq_length = min(T_new, model.config.block_size) if not interactive else 350
     with torch.device(device):
         model.setup_caches(max_batch_size=1, max_seq_length=max_seq_length)
         if kv_cache_quantization:
@@ -117,14 +121,14 @@ def generate(
 
 
     # format model input
-    x, input_pos = prepare_inputs_for_model(prompt, max_new_tokens)
+    x, input_pos = prepare_inputs_for_model(prompt)
 
     # execute prefill
     next_token = prefill(model, x, input_pos, **sampling_kwargs).clone()
     seq[T] = next_token
 
     input_pos = torch.tensor([T], device=device, dtype=torch.int)
-    generated_tokens, _ = decode_n_tokens(model, next_token.view(1, -1), input_pos, max_new_tokens - 1, callback=callback, **sampling_kwargs)
+    generated_tokens, _ = decode_n_tokens(model, next_token.view(1, -1), input_pos, new_tokens-1, callback=callback, **sampling_kwargs)
     seq[T + 1:] = torch.cat(generated_tokens)
 
     return seq
@@ -191,7 +195,9 @@ def main(
     encoded = encode_tokens(tokenizer, prompt, bos=True, device=device)
     prompt_length = encoded.size(0)
 
-    torch.manual_seed(1234)        
+    torch.manual_seed(1234)
+
+
     if quantization:
         from torchao.quantization.quant_api import (
             quantize_,
@@ -303,7 +309,10 @@ def main(
         t = time.perf_counter() - t0
 
         if not interactive:
-            print(tokenizer.decode(y.tolist()))
+                tok_list = y.tolist()
+                # truncate text after end of string token
+                tokens = tok_list if not tokenizer.eos_id() in y else tok_list[:tok_list.index(tokenizer.eos_id())]
+                print(tokenizer.decode(tokens))
         else:
             print()
         tokens_generated = y.size(0) - prompt_length

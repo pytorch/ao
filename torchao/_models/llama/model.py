@@ -12,7 +12,7 @@ from torch import Tensor
 from torch.nn import functional as F
 from torchao.utils import find_multiple
 
-def prepare_inputs_for_model(inps, max_new_tokens=1):
+def prepare_inputs_for_model(inps):
     # this is because input from lm-eval is 2d
     if inps.dim() > 2:
         raise ValueError(f"Expected input to be of dim 1 or 2, but got {inps.dim()}")
@@ -116,23 +116,19 @@ class QuantizedKVCache(nn.Module):
         self.register_buffer('v_cache_scale', torch.ones(scale_shape, dtype=scale_dtype))
     
     def update(self, input_pos, k_val, v_val):
-        # k_out = self.k_cache*self.k_cache_scale
-        # v_out = self.v_cache*self.v_cache_scale
-        # k_out[:, :, input_pos] = k_val
-        # v_out[:, :, input_pos] = v_val
-
         q_k_val, k_scale = quantize_activation_per_token_absmax(k_val)
         self.k_cache[:, :, input_pos] = q_k_val
         self.k_cache_scale[:, :, input_pos] = k_scale.unsqueeze(-1)
-        del k_val
+        k_out = self.k_cache*self.k_cache_scale
+        k_out[:, :, input_pos] = k_val
 
         q_v_val, v_scale = quantize_activation_per_token_absmax(v_val)
-        self.k_cache[:, :, input_pos] = q_v_val
-        self.k_cache_scale[:, :, input_pos] = v_scale.unsqueeze(-1)
-        del v_val
-
-        # return k_out, v_out
-        return self.k_cache*self.k_cache_scale, self.v_cache*self.v_cache_scale
+        self.v_cache[:, :, input_pos] = q_v_val
+        self.v_cache_scale[:, :, input_pos] = v_scale.unsqueeze(-1)
+        v_out = self.v_cache*self.v_cache_scale
+        v_out[:, :, input_pos] = v_val
+        
+        return k_out, v_out
 
     @classmethod
     def from_float(cls, kv_cache):
