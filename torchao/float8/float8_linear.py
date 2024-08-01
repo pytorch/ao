@@ -357,8 +357,10 @@ class Float8Linear(torch.nn.Linear):
         if self.has_any_delayed_scaling:
             self.float8_pre_forward(input)
 
-        input_fp8 = self.cast_input_to_float8(input, self.is_amax_initialized)
-        weight_fp8 = self.cast_weight_to_float8(self.weight, self.is_amax_initialized)
+        with torch.profiler.record_function("Float8Linear::cast_input_to_float8"):
+            input_fp8 = self.cast_input_to_float8(input, self.is_amax_initialized)
+        with torch.profiler.record_function("Float8Linear::cast_weight_to_float8"):
+            weight_fp8 = self.cast_weight_to_float8(self.weight, self.is_amax_initialized)
 
         output = manual_float8_matmul.apply(input_fp8, weight_fp8.t())
 
