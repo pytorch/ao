@@ -51,6 +51,11 @@ jobs:
             torch-spec: '--pre torch==2.5.0.dev20240728 --index-url https://download.pytorch.org/whl/nightly/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
+          - name: SM-89
+            runs-on: linux.g6.4xlarge.nvidia.gpu
+            torch-spec: '--pre torch==2.5.0.dev20240728 --index-url https://download.pytorch.org/whl/nightly/cpu'
+            gpu-arch-type: "gpu"
+            gpu-arch-version: "8.9"
 
     uses: pytorch/test-infra/.github/workflows/linux_job.yml@main
     with:
