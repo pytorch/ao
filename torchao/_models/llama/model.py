@@ -12,7 +12,8 @@ from torch import Tensor
 from torch.nn import functional as F
 from torchao.utils import find_multiple
 
-def prepare_inputs_for_model(inps):
+# TODO remove suplerfluous arg
+def prepare_inputs_for_model(inps, max_new_tokens=1):
     # this is because input from lm-eval is 2d
     if inps.dim() > 2:
         raise ValueError(f"Expected input to be of dim 1 or 2, but got {inps.dim()}")
@@ -85,6 +86,7 @@ class KVCache(nn.Module):
     def update(self, input_pos, k_val, v_val):
         # input_pos: [S], k_val: [B, H, S, D]
         assert input_pos.shape[0] == k_val.shape[2]
+
         if use_index_put_for_kv_cache:
             k_out = torch.ops.aten.index_put_(self.k_cache, [None, None, input_pos], k_val)
             v_out = torch.ops.aten.index_put_(self.v_cache, [None, None, input_pos], v_val)
@@ -97,15 +99,10 @@ class KVCache(nn.Module):
         return k_out, v_out
 
 
-# (Pdb) p k_val.shape
-# torch.Size([1, 32, 6, 128])
-# (Pdb) p self.k_cache.shape
-# torch.Size([1, 32, 208, 128]) so want final size to be 1,32,208,[1]
-
 from torchao.quantization.quant_primitives import quantize_affine, dequantize_affine
 from torchao.quantization.utils import quantize_activation_per_token_absmax
 
-class QuantizedKVCache(nn.Module):
+class AffineQuantizedKVCache(nn.Module):
     def __init__(self, max_batch_size, max_seq_length, n_heads, head_dim, scale_dtype=torch.bfloat16):
         super().__init__()
         cache_shape = (max_batch_size, n_heads, max_seq_length, head_dim)
@@ -116,6 +113,7 @@ class QuantizedKVCache(nn.Module):
         self.register_buffer('v_cache_scale', torch.ones(scale_shape, dtype=scale_dtype))
     
     def update(self, input_pos, k_val, v_val):
+        # quantize current k_val and store it in the cache
         q_k_val, k_scale = quantize_activation_per_token_absmax(k_val)
         self.k_cache[:, :, input_pos] = q_k_val
         self.k_cache_scale[:, :, input_pos] = k_scale.unsqueeze(-1)
@@ -136,8 +134,6 @@ class QuantizedKVCache(nn.Module):
         max_batch_size, n_heads, max_seq_length, head_dim = cache_shape
         scale_dtype = kv_cache.k_cache.dtype
         return cls(max_batch_size, max_seq_length, n_heads, head_dim, scale_dtype)
-
-
 
 class Transformer(nn.Module):
     def __init__(self, config: ModelArgs) -> None:

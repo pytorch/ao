@@ -95,38 +95,40 @@ def generate(
     """
     Takes a conditioning sequence (prompt) as input and continues to generate as many tokens as requested.
     """
+
     # create an empty tensor of the expected final shape and fill in the current tokens
     device = prompt.device
     T = prompt.numel()
 
-    # max_new_tokens can overflow block_size so we need to cap it
+    # calculate how many tokens to generate based on max_new_tokens and model's upper bound (block_size)
     max_seq_length = min(T + max_new_tokens, model.config.block_size) if not interactive else 350
     new_tokens = max_seq_length - T
 
     # full prompt+output will be stored in seq
     seq = torch.empty(max_seq_length, dtype=prompt.dtype, device=device)
     seq[:T] = prompt.view(-1)
-    # setup model cache
+
+    # setup model caches
     with torch.device(device):
         model.setup_caches(max_batch_size=1, max_seq_length=max_seq_length)
         if kv_cache_quantization:
-            from model import QuantizedKVCache
-            # go through the model and do the swaps
+            from model import AffineQuantizedKVCache
             from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
             _replace_with_custom_fn_if_matches_filter(
                 model, 
-                QuantizedKVCache.from_float,
+                AffineQuantizedKVCache.from_float,
                 lambda x, y: isinstance(x, torchao._models.llama.model.KVCache),
             )
 
 
     # format model input
-    x, input_pos = prepare_inputs_for_model(prompt)
+    x, input_pos = prepare_inputs_for_model(prompt, max_new_tokens)
 
     # execute prefill
     next_token = prefill(model, x, input_pos, **sampling_kwargs).clone()
     seq[T] = next_token
 
+    # execute token generation
     input_pos = torch.tensor([T], device=device, dtype=torch.int)
     generated_tokens, _ = decode_n_tokens(model, next_token.view(1, -1), input_pos, new_tokens-1, callback=callback, **sampling_kwargs)
     seq[T + 1:] = torch.cat(generated_tokens)
@@ -172,7 +174,6 @@ def main(
     """Generates text samples based on a pre-trained Transformer model and tokenizer.
     """
 
-    # torch.cuda.memory._record_memory_history(True,trace_alloc_max_entries=1000000, trace_alloc_record_context=True)
     torchao.quantization.utils.recommended_inductor_config_setter()
 
     assert checkpoint_path.is_file(), checkpoint_path
@@ -294,12 +295,6 @@ def main(
                 top_k=top_k,
                 kv_cache_quantization=kv_cache_quantization,
             )
-            # if i==3:
-            #     snapshot = torch.cuda.memory._snapshot()
-            #     from pickle import dump
-            #     with open("mem_trace_kvq_no_comp" + '.pickle', 'wb') as f:
-            #         dump(snapshot, f)
-            #     breakpoint()
         if i == -1:
             print(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
             continue
