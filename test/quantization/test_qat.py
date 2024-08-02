@@ -12,11 +12,11 @@ import unittest
 
 import torch
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
-from torchao.quantization.prototype.qat import (
+from torchao.quantization.prototype.qat.utils import (
     _choose_qparams_per_token_asymmetric,
+    _fake_quantize_per_channel_group,
+    _fake_quantize_per_token,
     _GenericFakeQuantize,
-    fake_quantize_per_channel_group,
-    fake_quantize_per_token,
 )
 from torchao.quantization.quant_primitives import (
     fake_quantize_affine,
@@ -85,7 +85,7 @@ class TestQAT(unittest.TestCase):
         x2 = copy.deepcopy(x)
 
         # fake quant op
-        out = fake_quantize_per_channel_group(
+        out = _fake_quantize_per_channel_group(
             x, s, zp, qmin, qmax, group_size,
         )
         out.sum().backward()
@@ -110,7 +110,7 @@ class TestQAT(unittest.TestCase):
         (s, zp) = _choose_qparams_per_token_asymmetric(x, torch.float32, torch.int32)
 
         # fake quant op
-        out = fake_quantize_per_token(x, s, zp, qmin, qmax)
+        out = _fake_quantize_per_token(x, s, zp, qmin, qmax)
         out.sum().backward()
 
         # compare against PTQ ops
@@ -135,7 +135,7 @@ class TestQAT(unittest.TestCase):
             Int8DynActInt4WeightLinear,
             WeightOnlyInt4Linear,
         )
-        from torchao.quantization.prototype.qat import (
+        from torchao.quantization.prototype.qat.api import (
             Int8DynActInt4WeightQATLinear,
             Int4WeightOnlyQATLinear,
         )
@@ -167,7 +167,7 @@ class TestQAT(unittest.TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
     def test_qat_8da4w_linear(self):
-        from torchao.quantization.prototype.qat import Int8DynActInt4WeightQATLinear
+        from torchao.quantization.prototype.qat.api import Int8DynActInt4WeightQATLinear
         from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
 
         group_size = 128
@@ -425,7 +425,7 @@ class TestQAT(unittest.TestCase):
     # TODO: remove once we fix int4 error: https://github.com/pytorch/ao/pull/517
     @unittest.skipIf(TORCH_VERSION_AFTER_2_5, "int4 doesn't work for 2.5+ right now")
     def test_qat_4w_linear(self):
-        from torchao.quantization.prototype.qat import Int4WeightOnlyQATLinear
+        from torchao.quantization.prototype.qat.api import Int4WeightOnlyQATLinear
         from torchao.quantization.GPTQ import WeightOnlyInt4Linear
 
         group_size = 128

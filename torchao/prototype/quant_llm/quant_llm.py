@@ -402,7 +402,7 @@ class QuantLlmLinearWeight(Tensor):
         )
 
 @QuantLlmLinearWeight.implements(torch.nn.functional.linear)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     act = args[0]
     weight = args[1]
     bias = args[2] if len(args) >= 3 else None
@@ -431,7 +431,7 @@ def _(func, types, *args, **kwargs):
 
 
 @QuantLlmLinearWeight.implements(torch.ops.aten.detach.default)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.detach))
 
 

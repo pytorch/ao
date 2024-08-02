@@ -6,7 +6,7 @@
 
 ## Introduction
 
-torchao is a library to create and integrate high-performance custom data types, layouts and kernels into your PyTorch workflows with up to **2x speedups** with **65% less VRAM** for [inference](#inference) and support for [training](#training)
+torchao is a library to create and integrate high-performance custom data types, optimization techniques and kernels into your PyTorch workflows with up to **2x speedups** with **65% less VRAM** for [inference](#inference) and support for [training](#training)
 
 All with no intrusive code changes and minimal accuracy degradation.
 
@@ -84,6 +84,12 @@ In some cases we rewrote popular GenAI models to be significantly faster in nati
 * 3x speedup for Diffusion models with [sd-fast](https://pytorch.org/blog/accelerating-generative-ai-3)
 
 ### Training
+
+#### Float8
+
+[torchao.float8](torchao/float8) implements training recipes with the scaled float8 dtypes, as laid out in https://arxiv.org/abs/2209.05433.
+
+#### Sparsity
 
 We've added support for semi-structured 2:4 sparsity with 6% end to end speedups on ViT-L
 
