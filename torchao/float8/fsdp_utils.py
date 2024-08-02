@@ -88,6 +88,39 @@ _ops_to_preserve_subclass = {
     torch.ops.aten.clone.default,
 }
 
+# How Tensor Parallel (TP) and FSDP2 work
+
+# Initialization: apply TP first then FSDP2
+# nn.Linear(weight=torch.Tensor)
+#      |
+#      | apply float8 linear, `convert_to_float8_training`
+#      |
+# Float8Linear(weight=WeightWithDynamicFloat8CastTensor)
+#      |
+#      | apply tensor parallel, `parallelize_module` shards rowwise/colwise
+#      |
+# Float8Linear(weight=DTensor(local_tensor=WeightWithDynamicFloat8CastTensor,
+#                             device_mesh=DeviceMesh([0, 1], mesh_dim_names=('tp',)),
+#                             placements=(Shard(dim=0),)))
+#      |
+#      | apply FSDP2, `fully_shard` shards rowwise (dim=0)
+#      |
+# Float8Linear(weight=DTensor(local_tensor=WeightWithDynamicFloat8CastTensor,
+#                             device_mesh=DeviceMesh([[0, 1], [2, 3]], mesh_dim_names=('dp', 'tp')),
+#                             placements=(Shard(dim=0), Shard(dim=0))))
+
+# Forward and backward: FSDP runs first then TP
+# Float8Linear(weight=DTensor(local_tensor=WeightWithDynamicFloat8CastTensor,
+#                             device_mesh=DeviceMesh([[0, 1], [2, 3]], mesh_dim_names=('dp', 'tp')),
+#                             placements=(Shard(dim=0), Shard(dim=0))))
+#      |
+#      |   FSDP unshards parameters within dp mesh
+#      |
+# Float8Linear(weight=DTensor(local_tensor=WeightWithDynamicFloat8CastTensor,
+#                             device_mesh=DeviceMesh([0, 1], mesh_dim_names=('tp',)),
+#                             placements=(Shard(dim=0),)))
+#      |
+#      |   TP compute with torch.mm(input, weight)
 
 class WeightWithDynamicFloat8CastTensor(torch.Tensor):
     @staticmethod
