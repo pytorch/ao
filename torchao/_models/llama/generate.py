@@ -188,7 +188,6 @@ def main(
             int8_weight_only,
             int8_dynamic_activation_int8_weight,
             int4_weight_only,
-            intx_weight_only,
             autoquant,
             unwrap_tensor_subclass
     )

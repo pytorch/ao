@@ -33,6 +33,7 @@ class Linear16(torch.nn.Module):
 @pytest.mark.parametrize("bit_size", bit_sizes)
 @pytest.mark.parametrize("group_size", group_sizes)
 @pytest.mark.parametrize("device", devices)
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")  
 @pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="only works with fix in the nightly build")
 def test_intx_affine_weight_only_model_quant(bit_size, group_size, device):
     scale = 512
@@ -43,7 +44,11 @@ def test_intx_affine_weight_only_model_quant(bit_size, group_size, device):
     output = intx.forward(test_input)
     assert output, "model quantization failed"
     
-
+@pytest.mark.parametrize("bit_size", bit_sizes)
+@pytest.mark.parametrize("group_size", group_sizes)
+@pytest.mark.parametrize("device", devices)
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")  
+@pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="only works with fix in the nightly build")
 def test_intx_affine_weight_only_quant(bit_size): 
     input_float = torch.randn((1,8), dtype=torch.float16)
     print('input_float', input_float)

@@ -48,7 +48,7 @@ def run_evaluation(
 
     print("Loading model ...")
     t0 = time.time()
-    model = _load_model(checkpoint_path, device, precision)
+    model = _load_model(checkpoint_path, "cpu", precision)
 
     if max_length is None:
         max_length = model.config.block_size
@@ -59,9 +59,6 @@ def run_evaluation(
 
 
     if quantization:
-        if "intx" in quantization:
-            cfg = quantization.split("-")[1:]
-            quantize(model, intx_weight_only(int(cfg[0]), group_size=int(cfg[1]), layout=cfg[2]))
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
