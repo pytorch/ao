@@ -49,25 +49,25 @@ class CPUOffloadOptimizer:
         return getattr(self.optim, name)
 
 
-def _copy_grad_d2h(optim: Optimizer, param_map: dict, stream: torch.cuda.Stream):
+def _copy_grad_d2h(optim: Optimizer, param_cpu2cuda_map: dict, stream: torch.cuda.Stream):
     with torch.cuda.stream(stream):
         for param_group in optim.param_groups:
-            for p_cuda in param_group["params"]:
+            for p_cpu in param_group["params"]:
+                p_cuda = param_cpu2cuda_map[p_cpu]
                 if p_cuda.grad is not None:
-                    p_cpu = param_map[p_cuda]
                     p_cpu.grad = p_cuda.grad.to("cpu", non_blocking=True)
-                    
+
                     # only deallocate p_cuda.grad once D2H copy finishes
                     p_cuda.grad.record_stream(stream)
                     p_cuda.grad = None
 
 
-def _copy_param_h2d(optim: Optimizer, param_map: dict, stream: torch.cuda.Stream):
+def _copy_param_h2d(optim: Optimizer, param_cpu2cuda_map: dict, stream: torch.cuda.Stream):
     with torch.cuda.stream(stream):
         for param_group in optim.param_groups:
-            for p_cuda in param_group["params"]:
-                p_cpu = param_map[p_cuda]
+            for p_cpu in param_group["params"]:
                 if p_cpu.grad is not None:
+                    p_cuda = param_cpu2cuda_map[p_cpu]
                     p_cuda.copy_(p_cpu, non_blocking=True)
 
 
@@ -82,11 +82,11 @@ class CPUOffloadOptimizerv2:
 
         # copy param to CPU, so that optim state will be initialized on CPU
         # pin memory here, so that we can do fast async H2D transfer later
-        self.param_cuda2cpu_map = dict()
+        self.param_cpu2cuda_map = dict()
         for i, p_cuda in enumerate(params):
             p_cpu = p_cuda.detach().cpu().pin_memory()
             params[i] = p_cpu
-            self.param_cuda2cpu_map[p_cuda] = p_cpu
+            self.param_cpu2cuda_map[p_cpu] = p_cuda
 
         buckets = [[] for _ in range(num_buckets)]
         bucket_sizes = [0] * num_buckets
@@ -97,7 +97,7 @@ class CPUOffloadOptimizerv2:
         for p in params:
             bin_idx = min(range(num_buckets), key=lambda x: bucket_sizes[x])
             buckets[bin_idx].append(p)
-            buckets[bin_idx] += p.numel()
+            bucket_sizes[bin_idx] += p.numel()
 
         self.optim_list = [base_optimizer_class(bucket, **kwargs) for bucket in buckets]
         self.streams = [torch.cuda.Stream() for _ in range(2)]
@@ -122,19 +122,22 @@ class CPUOffloadOptimizerv2:
         # stream 1: |D2H 1|                 |H2D 1| |D2H 3|                 ...
         # stream 2:                 |D2H 2|                 |H2D 2| |D2H 4| ...
 
+        # must wait until backward finishes
+        torch.cuda.synchronize()
+
         # launch (D2H 1) and (D2H 2)
-        _copy_grad_d2h(self.optim_list[0], self.param_cuda2cpu_map, self.streams[0])
-        _copy_grad_d2h(self.optim_list[1], self.param_cuda2cpu_map, self.streams[1])
+        _copy_grad_d2h(self.optim_list[0], self.param_cpu2cuda_map, self.streams[0])
+        _copy_grad_d2h(self.optim_list[1], self.param_cpu2cuda_map, self.streams[1])
 
         for i, optim in enumerate(self.optim_list):
             stream = self.streams[i % 2]
             stream.synchronize()
             optim.step()
-            _copy_param_h2d(optim, self.param_cuda2cpu_map, stream)
+            _copy_param_h2d(optim, self.param_cpu2cuda_map, stream)
 
             # launch D2H kernel for the next next group
             if i < len(self.optim_list) - 2:
-                _copy_grad_d2h(self.optim_list[i+2], self.param_cuda2cpu_map, stream)
+                _copy_grad_d2h(self.optim_list[i+2], self.param_cpu2cuda_map, stream)
 
         stream.synchronize()
         return loss
@@ -142,3 +145,7 @@ class CPUOffloadOptimizerv2:
     def zero_grad(self, set_to_none=True):
         for optim in self.optim_list:
             optim.zero_grad(set_to_none)
+
+    @property
+    def param_groups(self):
+        return sum((optim.param_groups for optim in self.optim_list), start=[])

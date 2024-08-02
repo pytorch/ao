@@ -91,6 +91,7 @@ def get_parser():
     parser.add_argument("--weight_decay", type=float, default=0)
     parser.add_argument("--cosine_lr_scheduler", action="store_true")
     parser.add_argument("--optim_cpu_offload", action="store_true")
+    parser.add_argument("--optim_cpu_offload_v2", action="store_true")
 
     parser.add_argument("--project")
     parser.add_argument("--run_name", default="debug")
@@ -158,6 +159,8 @@ def evaluate_model(model, args):
 if __name__ == "__main__":
     args = get_parser().parse_args()
 
+    if args.optim_cpu_offload and args.optim_cpu_offload_v2:
+        raise ValueError
     if args.profile:
         args.n_epochs = 1
     if args.seed is not None:
@@ -178,7 +181,10 @@ if __name__ == "__main__":
         model.compile(fullgraph=True)
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
-    optim = OPTIM_MAP[args.optim](model.parameters(), args.lr, weight_decay=args.weight_decay)
+    optim_cls = OPTIM_MAP[args.optim]
+    if args.optim_cpu_offload_v2:
+        optim_cls = partial(low_bit_optim.CPUOffloadOptimizerv2, base_optimizer_class=optim_cls)
+    optim = optim_cls(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     if args.optim_cpu_offload:
         optim = low_bit_optim.CPUOffloadOptimizer(optim)
     lr_schedule = CosineSchedule(args.lr, len(dloader) * args.n_epochs)
