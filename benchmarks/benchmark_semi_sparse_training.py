@@ -216,7 +216,7 @@ if __name__ == "__main__":
             "dense_linear": LinearTest,
             "semi_sparse_linear": SemiSparseLinearOfflineCompressionTest,
         }
-        batch_size = 1
+        batch_size = 16
         cases = list(
             product_dict(
                 mkn=[
