@@ -13,6 +13,7 @@ class CPUOffloadOptimizer:
         def copy_grad_hook(p_cuda):
             if p_cuda.grad is not None:
                 p_cpu = self.param_cuda2cpu_map[p_cuda]
+                self.d2h_grad_stream.wait_stream(torch.cuda.current_stream())
                 with torch.cuda.stream(self.d2h_grad_stream):
                     p_cpu.grad = p_cuda.grad.to("cpu", non_blocking=True)
 
