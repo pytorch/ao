@@ -14,10 +14,23 @@ from torchao.dtypes.utils import (
     _register_layout_cls,
     _get_layout_tensor_constructor,
 )
-import pdb
+
+
 aten = torch.ops.aten
 def implements(aten_ops_or_torch_fn):
     return _implements(IntxTensor, aten_ops_or_torch_fn)
+
+def get_layout_tensor_constructor(layout_type_class: type(LayoutType)):
+    return _get_layout_tensor_constructor(AffineQuantizedTensor, layout_type_class)
+
+@dataclass(frozen=True)
+class IntxLayoutType(LayoutType):
+    bit_size: int
+    pack_dim: int = -1
+    
+    def post_process(self, input: torch.Tensor) -> torch.Tensor:
+        from torchao.prototype.intx import to_intx
+        return to_intx(input, self.bit_size, self.pack_dim)
 
 class IntxTensor(torch.Tensor):
     """
@@ -109,7 +122,7 @@ class IntxTensor(torch.Tensor):
 
     def get_plain(self):
         return unpack(self.get_shards(), self.bit_size, dim = self.pack_dim)
-
+    
     # temporary until kernels on packed tensors are created
     def apply_transformation(self, fn):
         og = self.get_plain()
@@ -204,5 +217,39 @@ def _to_copy(func, *args, **kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, new
     )
-    
+
+# quantization api integrations
 to_intx = IntxTensor.from_int
+
+def intx_affine_weight_only(bit_size, group_size=64, pack_dim=-1):
+    """
+    Applies intx weight-only asymmetric per-group quantization to linear layers, using intx quantization where 
+    x is the number of bits specified by the `nbits` argument
+    """
+    
+    def apply_intx_weight_only_quant(weight):
+        from torchao.quantization.quant_primitives import (
+            MappingType,
+            ZeroPointDomain,
+            choose_qparams_affine,
+            quantize_affine,
+            dequantize_affine,
+        )
+        layout_type = IntxLayoutType(bit_size=bit_size, pack_dim=pack_dim) 
+        mapping_type = MappingType.ASYMMETRIC
+        block_size = (1, group_size)
+        quant_min = 0
+        quant_max = 2**bit_size - 1
+        eps = torch.finfo(torch.float32).eps
+        zero_point_dtype = torch.int32
+        zero_point_domain = ZeroPointDomain.INT
+        
+        return to_affine_quantized(
+            weight, mapping_type, block_size, torch.uint8, quant_min = quant_min,
+            quant_max = quant_max, eps = eps, 
+            zero_point_dtype=zero_point_dtype,
+            zero_point_domain=zero_point_domain,
+            layout_type=layout_type,
+        )
+    
+    return apply_intx_weight_only_quant
