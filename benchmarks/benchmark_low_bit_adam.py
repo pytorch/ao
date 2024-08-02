@@ -79,6 +79,7 @@ def get_parser():
     parser.add_argument("--model", required=True)
 
     parser.add_argument("--amp", default="none")
+    parser.add_argument("--full_bf16", action="store_true")
     parser.add_argument("--channels_last", action="store_true")
     parser.add_argument("--compile", action="store_true")
 
@@ -143,6 +144,8 @@ def evaluate_model(model, args):
 
     for batch in tqdm(val_dloader, dynamic_ncols=True, desc=f"Evaluating"):
         all_labels.append(batch["label"].clone())
+        if args.full_bf16:
+            batch["image"] = batch["image"].bfloat16()
         if args.channels_last:
             batch["image"] = batch["image"].to(memory_format=torch.channels_last)
 
@@ -161,6 +164,8 @@ if __name__ == "__main__":
 
     if args.optim_cpu_offload and args.optim_cpu_offload_v2:
         raise ValueError
+    if args.full_bf16 and args.amp != "none":
+        raise ValueError("When --full_bf16 is set, --amp must be none")
     if args.profile:
         args.n_epochs = 1
     if args.seed is not None:
@@ -175,6 +180,8 @@ if __name__ == "__main__":
     print(f"Train dataset: {len(dloader.dataset):,} images")
 
     model = timm.create_model(args.model, pretrained=True, num_classes=45).cuda()
+    if args.full_bf16:
+        model.bfloat16()
     if args.channels_last:
         model.to(memory_format=torch.channels_last)
     if args.compile:
@@ -199,6 +206,8 @@ if __name__ == "__main__":
 
         with prof:
             for batch in tqdm(dloader, dynamic_ncols=True, desc=f"Epoch {epoch_idx + 1}/{args.n_epochs}"):
+                if args.full_bf16:
+                    batch["image"] = batch["image"].bfloat16()
                 if args.channels_last:
                     batch["image"] = batch["image"].to(memory_format=torch.channels_last)
 
