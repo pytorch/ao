@@ -62,6 +62,7 @@ class TensorCoreTiledLayoutType(LayoutType):
     def extra_repr(self):
         return f"inner_k_tiles={self.inner_k_tiles}"
     
+
 def _aqt_is_int8(aqt):
     """Check if an AffineQuantizedTensor is int8 quantized Tensor"""
     return (
@@ -652,8 +653,6 @@ class TensorCoreTiledAQTLayout(AQTLayout):
 
     def get_layout_type(self) -> LayoutType:
         return self.layout_type
-
-
     
 def _quantized_linear_op(input_tensor, weight_qtensor, bias):
     """
