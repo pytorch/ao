@@ -73,7 +73,7 @@ The following benchmarks were ran for [segment-anything-fast](https://github.com
 |            | 2:4 sparsity (attn + mlp)                                                                            | 24.30 | 13429        | 0.5306              | **1.07x**        | **91.31%**        |
 |            | int8 dynamic quant (attn)<br>int8 dynamic quant + 2:4 sparsity (mlp lin1)<br>2:4 sparsity (mlp lin2) | 26.46 | 14865        | 0.5668              | **1.16x**        | **97.54%**        |
 
-To reproduce our benchmarks please follow these [instructions](/scripts/sam/README.md).
+To reproduce our benchmarks please follow these [instructions](/torchao/eval/_models/sam/README.md).
 
 #### With intrusive code changes
 
