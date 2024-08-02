@@ -1,0 +1,9 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.quantization
+
+
+swap_linear_with_smooth_fq_linear
+=================================
+
+.. autofunction:: swap_linear_with_smooth_fq_linear
