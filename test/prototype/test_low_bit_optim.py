@@ -226,6 +226,15 @@ class TestFSDP2(FSDPTest):
             base_optim.step()
             self.assertEqual(fsdp_loss, base_loss)
 
+        base_param = base_optim.param_groups[0]["params"][0]
+        base_exp_avg = base_optim.state[base_param]["exp_avg"]
+
+        fsdp_param = fsdp_optim.param_groups[0]["params"][0]
+        fsdp_exp_avg = fsdp_optim.state[fsdp_param]["exp_avg"]
+        full_fsdp_exp_avg = fsdp_exp_avg.full_tensor()
+
+        self.assertEqual(base_exp_avg.dequantize(), full_fsdp_exp_avg.dequantize())
+
 
 instantiate_parametrized_tests(TestQuantize)
 instantiate_parametrized_tests(TestOptim)

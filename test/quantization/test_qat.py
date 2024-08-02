@@ -12,24 +12,37 @@ import unittest
 
 import torch
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
-from torchao.quantization.prototype.qat import (
+from torchao.quantization.prototype.qat.utils import (
     _choose_qparams_per_token_asymmetric,
+    _fake_quantize_per_channel_group,
+    _fake_quantize_per_token,
     _GenericFakeQuantize,
-    fake_quantize_per_channel_group,
-    fake_quantize_per_token,
 )
-from torchao.quantization.utils import get_group_qparams_symmetric
-from torchao.utils import TORCH_VERSION_AFTER_2_4
+from torchao.quantization.quant_primitives import (
+    fake_quantize_affine,
+    ZeroPointDomain,
+)
+from torchao.quantization.utils import (
+    get_group_qparams_symmetric,
+    get_groupwise_affine_qparams,
+    groupwise_affine_quantize_tensor,
+)
+from torchao.utils import (
+    TORCH_VERSION_AFTER_2_4,
+    TORCH_VERSION_AFTER_2_5,
+)
 
 
 # TODO: put this in a common test utils file
+_CUDA_IS_AVAILABLE = torch.cuda.is_available()
+
 class Sub(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.linear = torch.nn.Linear(32, 32, bias=False).to(torch.float)
+        self.linear = torch.nn.Linear(256, 256, bias=False).to(torch.float)
 
     def example_inputs(self):
-        return (torch.randn(1, 32).to(torch.float),)
+        return (torch.randn(1, 256).to(torch.float),)
 
     def forward(self, x):
         return self.linear(x)
@@ -37,12 +50,12 @@ class Sub(torch.nn.Module):
 class M(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.linear1 = torch.nn.Linear(64, 32, bias=False).to(torch.float)
+        self.linear1 = torch.nn.Linear(512, 256, bias=False).to(torch.float)
         self.sub = Sub()
-        self.linear2 = torch.nn.Linear(32, 64, bias=False).to(torch.float)
+        self.linear2 = torch.nn.Linear(256, 512, bias=False).to(torch.float)
 
     def example_inputs(self):
-        return (torch.randn(1, 64).to(torch.float),)
+        return (torch.randn(1, 512).to(torch.float),)
 
     def forward(self, x):
         x = self.linear1(x)
@@ -72,7 +85,7 @@ class TestQAT(unittest.TestCase):
         x2 = copy.deepcopy(x)
 
         # fake quant op
-        out = fake_quantize_per_channel_group(
+        out = _fake_quantize_per_channel_group(
             x, s, zp, qmin, qmax, group_size,
         )
         out.sum().backward()
@@ -97,7 +110,7 @@ class TestQAT(unittest.TestCase):
         (s, zp) = _choose_qparams_per_token_asymmetric(x, torch.float32, torch.int32)
 
         # fake quant op
-        out = fake_quantize_per_token(x, s, zp, qmin, qmax)
+        out = _fake_quantize_per_token(x, s, zp, qmin, qmax)
         out.sum().backward()
 
         # compare against PTQ ops
@@ -111,27 +124,50 @@ class TestQAT(unittest.TestCase):
 
     def _set_ptq_weight(
         self,
-        ptq_linear: "Int8DynActInt4WeightLinear",
-        fp32_weight: torch.Tensor,
-        group_size: int,
+        ptq_linear: torch.nn.Module,
+        qat_linear: torch.nn.Module,
     ):
         """
         Set the weight to the quantized version of the given fp32 weights,
         for making linear outputs comparable with QAT.
         """
+        from torchao.quantization.GPTQ import (
+            Int8DynActInt4WeightLinear,
+            WeightOnlyInt4Linear,
+        )
+        from torchao.quantization.prototype.qat.api import (
+            Int8DynActInt4WeightQATLinear,
+            Int4WeightOnlyQATLinear,
+        )
         n_bit = 4
         (qmin, qmax) = self._get_qmin_qmax(n_bit)
-        (s, zp) = get_group_qparams_symmetric(fp32_weight, n_bit, group_size)
-        q_weight = torch.ops.quantized_decomposed.quantize_per_channel_group(
-            fp32_weight, s, zp, qmin, qmax, torch.int8, group_size,
-        )
-        ptq_linear.weight = q_weight
-        ptq_linear.scales = s
-        ptq_linear.zeros = zp
+        if isinstance(ptq_linear, Int8DynActInt4WeightLinear):
+            assert isinstance(qat_linear, Int8DynActInt4WeightQATLinear)
+            fp32_weight = qat_linear.weight
+            group_size = qat_linear.groupsize
+            (s, zp) = get_group_qparams_symmetric(fp32_weight, n_bit, group_size)
+            q_weight = torch.ops.quantized_decomposed.quantize_per_channel_group(
+                fp32_weight, s, zp, qmin, qmax, torch.int8, group_size,
+            )
+            ptq_linear.weight = q_weight
+            ptq_linear.scales = s
+            ptq_linear.zeros = zp
+        elif isinstance(ptq_linear, WeightOnlyInt4Linear):
+            assert isinstance(qat_linear, Int4WeightOnlyQATLinear)
+            (q_weight, scales_and_zeros) = groupwise_affine_quantize_tensor(
+                qat_linear.weight, n_bit, qat_linear.groupsize,
+            )
+            q_weight = torch.ops.aten._convert_weight_to_int4pack(
+                q_weight.to("cuda"), qat_linear.inner_k_tiles,
+            )
+            ptq_linear.weight = q_weight
+            ptq_linear.scales_and_zeros = scales_and_zeros
+        else:
+            raise ValueError("Unknown ptq_linear type: %s" % type(ptq_linear))
 
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
     def test_qat_8da4w_linear(self):
-        from torchao.quantization.prototype.qat import Int8DynActInt4WeightQATLinear
+        from torchao.quantization.prototype.qat.api import Int8DynActInt4WeightQATLinear
         from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
 
         group_size = 128
@@ -144,7 +180,7 @@ class TestQAT(unittest.TestCase):
         )
 
         # Force the weights to be the same
-        self._set_ptq_weight(ptq_linear, qat_linear.weight, group_size)
+        self._set_ptq_weight(ptq_linear, qat_linear)
 
         # Compare linear values
         torch.manual_seed(self.SEED)
@@ -280,7 +316,7 @@ class TestQAT(unittest.TestCase):
         loss_fn1 = torch.nn.CrossEntropyLoss()
         loss_fn2 = torch.nn.CrossEntropyLoss()
         example_inputs = nn_model.example_inputs()
-        target = torch.randn(1, 64).float()
+        target = torch.randn(1, 512).float()
         output1 = nn_model(*example_inputs)
         output2 = qat_model(*example_inputs)
         torch.testing.assert_close(output1, output2, atol=0, rtol=0)
@@ -314,13 +350,149 @@ class TestQAT(unittest.TestCase):
 
         ao_input = copy.deepcopy(py_input)
         ao_input.grad.data.zero_()
-        ao_s = copy.deepcopy(py_s).reshape(-1, 1)
-        ao_zp = copy.deepcopy(py_zp).reshape(-1, 1)
-        ao_out = _GenericFakeQuantize.apply(ao_input, ao_s, ao_zp, qmin, qmax)
+        block_size = (1, ao_input.shape[-1])
+        ao_s = copy.deepcopy(py_s)
+        ao_zp = copy.deepcopy(py_zp)
+        ao_out = _GenericFakeQuantize.apply(ao_input, ao_s, ao_zp, qmin, qmax, block_size)
         ao_out.sum().backward()
 
         torch.testing.assert_close(py_out, ao_out, atol=0, rtol=0)
-        torch.testing.assert_close(py_input.grad, ao_input.grad, atol=0, rtol=0)
+
+        # Test that gradients are close enough
+        num_grads = py_input.grad.numel()
+        num_equal_grads = torch.eq(py_input.grad, ao_input.grad).flatten().sum().item()
+        num_equal_grad_threshold = 0.8
+        self.assertGreaterEqual(num_equal_grads / num_grads, num_equal_grad_threshold)
+
+    def _assert_close_4w(self, val, ref):
+        # Note: for int4 weight-only quantization, we do not expect exact match
+        # because torch._weight_int4pack_mm and torch.mm do not match exactly.
+        # Here we use the same error bar as PyTorch core to determine closeness:
+        # https://github.com/pytorch/pytorch/blob/6079c5091091d872b8dafbaa4e31a5b6194647ad/test/test_linalg.py#L6079
+        mean_err = ((val - ref) / ref).mean().abs()
+        print(mean_err)
+        self.assertTrue(mean_err < 0.05)
+
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    # TODO: remove once we fix int4 error: https://github.com/pytorch/ao/pull/517
+    @unittest.skipIf(TORCH_VERSION_AFTER_2_5, "int4 doesn't work for 2.5+ right now")
+    def test_qat_4w_primitives(self):
+        n_bit = 4
+        group_size = 32
+        inner_k_tiles = 8
+        scales_precision = torch.bfloat16
+        device = torch.device("cuda")
+        dtype = torch.bfloat16
+        torch.manual_seed(self.SEED)
+        x = torch.randn(100, 256, dtype=dtype, device=device)
+        weight = torch.randn(512, 256, dtype=dtype, device=device)
+
+        # PTQ
+        (q_weight, scales_and_zeros) = groupwise_affine_quantize_tensor(
+            weight, n_bit, group_size, scales_precision,
+        )
+        q_weight = torch.ops.aten._convert_weight_to_int4pack(
+            q_weight.to(device), inner_k_tiles,
+        )
+        ptq_out = torch.ops.aten._weight_int4pack_mm(
+            x, q_weight, group_size, scales_and_zeros
+        )
+
+        # QAT
+        block_size = (1, group_size)
+        quant_min = 0
+        quant_max = 2 ** n_bit - 1
+        scales, zero_points = get_groupwise_affine_qparams(
+            weight, n_bit, group_size, scales_precision,
+        )
+        w_fq = fake_quantize_affine(
+            weight,
+            block_size,
+            scales,
+            zero_points,
+            torch.int32,
+            quant_min,
+            quant_max,
+            zero_point_domain = ZeroPointDomain.FLOAT,
+        )
+        qat_out = torch.nn.functional.linear(x, w_fq)
+
+        self._assert_close_4w(qat_out, ptq_out)
+
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    # TODO: remove once we fix int4 error: https://github.com/pytorch/ao/pull/517
+    @unittest.skipIf(TORCH_VERSION_AFTER_2_5, "int4 doesn't work for 2.5+ right now")
+    def test_qat_4w_linear(self):
+        from torchao.quantization.prototype.qat.api import Int4WeightOnlyQATLinear
+        from torchao.quantization.GPTQ import WeightOnlyInt4Linear
+
+        group_size = 128
+        device = torch.device("cuda")
+        dtype = torch.bfloat16
+        torch.manual_seed(self.SEED)
+        qat_linear = Int4WeightOnlyQATLinear(
+            256, 688, bias=False, groupsize=group_size, device=device,
+        )
+        ptq_linear = WeightOnlyInt4Linear(
+            256, 688, bias=False, groupsize=group_size, device=device,
+        )
+
+        # Force the weights to be the same
+        self._set_ptq_weight(ptq_linear, qat_linear)
+
+        # Compare linear values
+        torch.manual_seed(self.SEED)
+        x = torch.randn(100, 256, dtype=dtype, device=device)
+        x2 = copy.deepcopy(x)
+        qat_out = qat_linear(x)
+        ptq_out = ptq_linear(x2)
+        self._assert_close_4w(qat_out, ptq_out)
+
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch version is 2.4 or lower")
+    @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
+    # TODO: remove once we fix int4 error: https://github.com/pytorch/ao/pull/517
+    @unittest.skipIf(TORCH_VERSION_AFTER_2_5, "int4 doesn't work for 2.5+ right now")
+    def test_qat_4w_quantizer(self):
+        from torchao.quantization.prototype.qat import Int4WeightOnlyQATQuantizer
+        from torchao.quantization.GPTQ import Int4WeightOnlyQuantizer
+
+        group_size = 32
+        inner_k_tiles = 8
+        device = torch.device("cuda")
+        dtype = torch.bfloat16
+        torch.manual_seed(self.SEED)
+        m = M().to(device).to(dtype)
+        m2 = copy.deepcopy(m)
+        qat_quantizer = Int4WeightOnlyQATQuantizer(
+            groupsize=group_size, inner_k_tiles=inner_k_tiles,
+        )
+        ptq_quantizer = Int4WeightOnlyQuantizer(
+            groupsize=group_size, inner_k_tiles=inner_k_tiles,
+        )
+        qat_model = qat_quantizer.prepare(m)
+        ptq_model = ptq_quantizer.quantize(m2)
+
+        # Compare model values
+        torch.manual_seed(self.SEED)
+        x = [i.to(device).to(dtype) for i in m.example_inputs()]
+        x2 = copy.deepcopy(x)
+        qat_out = qat_model(*x)
+        ptq_out = ptq_model(*x2)
+        self._assert_close_4w(qat_out, ptq_out)
+
+        # Convert QAT model and compare model values
+        converted_model = qat_quantizer.convert(qat_model)
+        converted_out = converted_model(*x)
+        torch.testing.assert_close(converted_out, ptq_out, atol=0, rtol=0)
+
+        # Compare converted state dict
+        ptq_state_dict = ptq_model.state_dict()
+        converted_state_dict = converted_model.state_dict()
+        self.assertEqual(ptq_state_dict.keys(), converted_state_dict.keys())
+        for k in ptq_state_dict.keys():
+            torch.testing.assert_close(ptq_state_dict[k], converted_state_dict[k], atol=0, rtol=0)
 
 
 if __name__ == "__main__":

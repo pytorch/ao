@@ -17,19 +17,33 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.utils import find_multiple
 from torchao.dtypes.utils import (
     _implements,
-    _ATEN_OP_OR_TORCH_FN_TABLE,
+    _dispatch__torch_function__,
+    _dispatch__torch_dispatch__,
     _register_layout_cls,
     _get_layout_tensor_constructor,
     LayoutType,
+    is_device,
 )
 from typing import ClassVar
 from dataclasses import dataclass
+from torchao.utils import TORCH_VERSION_AFTER_2_5
 
 aten = torch.ops.aten
 
 @dataclass(frozen=True)
 class PlainLayoutType(LayoutType):
     pass
+
+@dataclass(frozen=True)
+class SemiSparseLayoutType(LayoutType):
+
+    def pre_process(self, input: torch.Tensor) -> torch.Tensor:
+        # prune to 2:4 if not already
+        temp = input.detach()
+        pruning_inds = temp.abs().view(-1, 4).argsort(dim=1)[:, :2]
+        temp.view(-1, 4).scatter_(1, pruning_inds, value=0)
+        return temp
+
 
 @dataclass(frozen=True)
 class TensorCoreTiledLayoutType(LayoutType):
@@ -245,20 +259,41 @@ class AffineQuantizedTensor(torch.Tensor):
             dtype=input_float.dtype
         )
 
-    @property
-    def layout_type(self) -> str:
-        return self.layout_tensor.layout_type
-
     @classmethod
-    def __torch_function__(cls, func, types, args=(), kwargs=None):
-        kwargs = {} if kwargs is None else kwargs
+    def from_float_static(
+        cls,
+        input_float: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        block_size: Tuple[int, ...],
+        target_dtype: torch.dtype,
+        quant_min: Optional[int] = None,
+        quant_max: Optional[int]  = None,
+        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+        layout_type: LayoutType = PlainLayoutType(),
+    ):
+        original_shape = input_float.shape
+        input_float = layout_type.pre_process(input_float)
 
-        if func in _ATEN_OP_OR_TORCH_FN_TABLE[cls]:
-            return _ATEN_OP_OR_TORCH_FN_TABLE[cls][func](*args, **kwargs)
+        int_data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
 
-        with torch._C.DisableTorchFunctionSubclass():
-            return func(*args, **kwargs)
+        int_data = layout_type.post_process(int_data)
 
+        layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
+        layout_tensor = layout_tensor_ctr(int_data, scale, zero_point, layout_type)
+        return cls(
+            layout_tensor,
+            block_size,
+            original_shape,
+            quant_min,
+            quant_max,
+            zero_point_domain,
+            dtype=input_float.dtype,
+        )
+
+    @property
+    def layout_type(self) -> LayoutType:
+        return self.layout_tensor.layout_type
 
     def _get_to_kwargs(self, *args, **kwargs):
         device, dtype, _, memory_format = torch._C._nn._parse_to(*args, **kwargs)
@@ -301,29 +336,23 @@ class AffineQuantizedTensor(torch.Tensor):
             strides=self.stride(),
         )
 
-    @classmethod
-    def __torch_dispatch__(cls, func, types, args, kwargs):
-        # Note: we only added cpu path here for 8da4w, this is for executorch, in the future
-        # 1. we'll add cpu/cuda version (int4mm etc.)
-        # 2. we'll need to hide the 8da4w executorch version under things like layouts (we also have multiple impl for cpu kernel as Michael mentioned), so it will be something like
-        #   cpu device + et laytout --> gives current 8da4w executorch representation
-        #   cpu device + avx layout --> gives optimized kernel for 8da4w in avx cpu etc.
-        #   cuda device + some layout --> gives cuda kernel
 
-        # two scenarios where we currently fall back to vanilla mm:
-        # 1 - when tensor is on CUDA: we'll add this later, we'll also enable dispatching to optimized
-        #     kernels in CPU as well, see the note above
-        # 2 - we're given non-floats - quantizing long to int8 is crazy
+    implements = classmethod(_implements)
+    # Note: we only added cpu path here for 8da4w, this is for executorch, in the future
+    # 1. we'll add cpu/cuda version (int4mm etc.)
+    # 2. we'll need to hide the 8da4w executorch version under things like layouts (we also have multiple impl for cpu kernel as Michael mentioned), so it will be something like
+    #   cpu device + et laytout --> gives current 8da4w executorch representation
+    #   cpu device + avx layout --> gives optimized kernel for 8da4w in avx cpu etc.
+    #   cuda device + some layout --> gives cuda kernel
 
-        if func in _ATEN_OP_OR_TORCH_FN_TABLE[cls]:
-            return _ATEN_OP_OR_TORCH_FN_TABLE[cls][func](func, *args, **kwargs)
+    # two scenarios where we currently fall back to vanilla mm:
+    # 1 - when tensor is on CUDA: we'll add this later, we'll also enable dispatching to optimized
+    #     kernels in CPU as well, see the note above
+    # 2 - we're given non-floats - quantizing long to int8 is crazy
+    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
+    __torch_function__ = classmethod(_dispatch__torch_function__)
 
-        raise NotImplementedError(
-            f"AffineQuantizedTensor dispatch: attempting to run {func}, this is not supported"
-        )
-
-def implements(aten_ops_or_torch_fn):
-    return _implements(AffineQuantizedTensor, aten_ops_or_torch_fn)
+implements = AffineQuantizedTensor.implements
 
 def register_layout_cls(layout_type_class: type(LayoutType)):
     return _register_layout_cls(AffineQuantizedTensor, layout_type_class)
@@ -438,6 +467,47 @@ class PlainAQTLayout(AQTLayout):
         assert isinstance(layout_type, PlainLayoutType)
         return cls(int_data, scale, zero_point, layout_type)
 
+@register_layout_cls(SemiSparseLayoutType)
+class SemiSparseAQTLayout(PlainAQTLayout):
+    """
+    Layout storage class for semi_sparse_cusparselt layout for affine quantized tensor
+    """
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs):
+        kwargs = {} if kwargs is None else kwargs
+
+        if func is aten.detach.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+            )
+
+        raise NotImplementedError(
+            f"SparseAQTLayout dispatch: attempting to run {func}, this is not supported"
+        )
+
+    def get_plain(self):
+        # Currently we don't have cuSPARSELt expansion routines, so we matmul by 
+        # the identity matrix to get the original dense matrix. This is slow though.
+        cols = self.int_data.numel() * 16 // (10 * self.scale.shape[0])
+        int_data_expanded = torch._cslt_sparse_mm(self.int_data,
+                                                  torch.eye(cols,
+                                                            dtype=self.int_data.dtype,
+                                                            device=self.int_data.device).t())
+        return int_data_expanded, self.scale, self.zero_point
+
+    @classmethod
+    def from_plain(
+        cls,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        layout_type: LayoutType,
+    ):
+        assert isinstance(layout_type, SemiSparseLayoutType)
+        int_data_compressed = torch._cslt_compress(int_data)
+        return cls(int_data_compressed, scale, zero_point, layout_type)
+    
+
 @register_layout_cls(TensorCoreTiledLayoutType)
 class TensorCoreTiledAQTLayout(AQTLayout):
     """
@@ -499,9 +569,12 @@ class TensorCoreTiledAQTLayout(AQTLayout):
         layout_type: LayoutType
     ):
         assert isinstance(layout_type, TensorCoreTiledLayoutType)
-        # assert int_data.dtype == torch.uint8, "torch.ops.aten._convert_weight_to_int4pack expects `uint8` dtype"
-        # packed_weight = torch.ops.aten._convert_weight_to_int4pack(int_data, inner_k_tiles)
-        packed_weight = torch.ops.aten._convert_weight_to_int4pack(int_data.to(torch.int32), layout_type.inner_k_tiles)
+        if TORCH_VERSION_AFTER_2_5:
+            int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
+            assert int_data.dtype == torch.uint8, "torch.ops.aten._convert_weight_to_int4pack in torch 2.5 expects `uint8` dtype"
+        else:
+            assert int_data.dtype == torch.int32, "torch.ops.aten._convert_weight_to_int4pack in torch 2.4 expects `int32` dtype"
+        packed_weight = torch.ops.aten._convert_weight_to_int4pack(int_data, layout_type.inner_k_tiles)
         scale = scale.reshape(int_data.shape[0], -1)
         zero_point = zero_point.reshape(int_data.shape[0], -1)
         scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point)
@@ -510,8 +583,8 @@ class TensorCoreTiledAQTLayout(AQTLayout):
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
         device = kwargs["device"]
-        if device != "cuda" or (isinstance(device, torch.device) and device.type != "cuda"):
-            raise ValueError(f"TensorCoreTiledAQTLayout is only available for cuda device")
+        if not is_device("cuda", device):
+            raise ValueError(f"TensorCoreTiledAQTLayout is only available for cuda device, can't convert to {device}")
         return self.__class__(
             self.packed_weight.to(device),
             self.scale_and_zero.to(device),
@@ -636,6 +709,31 @@ def _quantized_linear_op(input_tensor, weight_qtensor, bias):
                 if bias is not None:
                     y += bias
                 return y
+            # handle int8 dynamic_quant + semi_structured_sparse
+            elif(
+                is_cuda and
+                input_is_int8 and
+                input_tensor.dtype == weight_qtensor.dtype and
+                isinstance(input_tensor.layout_type, PlainLayoutType) and
+                isinstance(weight_qtensor.layout_type, SemiSparseLayoutType)
+            ):
+                x_vals_int8 = input_tensor.layout_tensor.int_data
+                x_scales = input_tensor.layout_tensor.scale
+                w_vals_int8 = weight_qtensor.layout_tensor.int_data
+                w_scales = weight_qtensor.layout_tensor.scale
+                tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
+                # we fuse one of the scalar matrix multiplications (w_scales) into the sparse mm
+                y_dot_bf16_w_scales_fused = torch._cslt_sparse_mm(
+                    w_vals_int8, tmp.t(), alpha=w_scales.to(torch.float32), out_dtype=torch.bfloat16
+                ).t()
+                y = (y_dot_bf16_w_scales_fused * x_scales.reshape(-1, 1)).reshape(
+                    *x_vals_int8.shape[:-1], y_dot_bf16_w_scales_fused.shape[-1]
+                )
+                output_dtype = input_tensor.dtype
+                y = y.to(output_dtype)
+                if bias is not None:
+                    y += bias
+                return y
             else:
                 input_tensor = input_tensor.dequantize()
 
@@ -698,17 +796,15 @@ def _quantized_linear_op(input_tensor, weight_qtensor, bias):
             w_vals_int8_t = weight_qtensor.layout_tensor.int_data.t()
             scale = weight_qtensor.layout_tensor.scale
             orig_dtype = input_tensor.dtype
-            y = (
-                torch.mm(
+            m = torch.mm(
                     input_tensor.reshape(-1, input_tensor.shape[-1]),
                     w_vals_int8_t.to(input_tensor.dtype),
                 )
-                * scale
-            )
+            y = m * scale.to(m.dtype)
             y = y.reshape(*input_tensor.shape[:-1], y.shape[-1])
             if bias is not None:
-                y += bias
-            return y.to(orig_dtype)
+                y += bias.to(m.dtype)
+            return y
 
             # is_cpu and is_mps only, some issue with is_contiguous() currently
             # return torch.ops.aten._weight_int8pack_mm(input_tensor.contiguous(), w_vals_int8_t, weight_qtensor.layout_tensor.scale)
@@ -717,7 +813,7 @@ def _quantized_linear_op(input_tensor, weight_qtensor, bias):
 
 
 @implements(torch.nn.functional.linear)
-def functional_linear(*args, **kwargs):
+def _(func, types, *args, **kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
         args[1],
@@ -736,7 +832,7 @@ def functional_linear(*args, **kwargs):
         return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
 @implements([aten.mm.default, aten.addmm.default])
-def aten_mm(func, *args, **kwargs):
+def _(func, types, *args, **kwargs):
     if not args[0].is_floating_point():
         raise NotImplementedError(f"{func} is not implemented for non floating point input")
 
@@ -775,21 +871,21 @@ def aten_mm(func, *args, **kwargs):
             return func(input_tensor, weight_tensor)
 
 @implements([aten.detach.default])
-def detach(func, *args, **kwargs):
+def _(func, types, *args, **kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
     )
 
 
 @implements([aten.clone.default])
-def clone(func, *args, **kwargs):
+def _(func, types, *args, **kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
     )
 
 
 @implements([aten._to_copy.default])
-def _to_copy(func, *args, **kwargs):
+def _(func, types, *args, **kwargs):
     return return_and_correct_aliasing(
         func,
         args,
@@ -798,7 +894,7 @@ def _to_copy(func, *args, **kwargs):
     )
 
 @implements([aten.t.default])
-def t(func, *args, **kwargs):
+def _(func, types, *args, **kwargs):
     block_size = args[0].block_size
     assert len(block_size) == 2
     transposed_block_size = (block_size[1], block_size[0])
@@ -810,3 +906,4 @@ def t(func, *args, **kwargs):
     return return_and_correct_aliasing(func, args, kwargs, new)
 
 to_affine_quantized = AffineQuantizedTensor.from_float
+to_affine_quantized_static = AffineQuantizedTensor.from_float_static

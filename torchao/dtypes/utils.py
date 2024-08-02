@@ -1,23 +1,32 @@
 import torch
-from typing import Dict, Callable
+from typing import Dict, Callable, Union
 from collections import defaultdict
 import functools
 from dataclasses import dataclass
 
 """
-torch_function and torch_dispatch operator dispatch registrations
-
-first key is a tensor subclass type like AffineQuantizedTensor,
-second key is a `func` in __torhc_function__ or __torch_dispatch__,
-value is a function that implements the dispatch
+Helper function for implementing aten op or torch function dispatch
+and dispatching to these implementations.
 """
-_ATEN_OP_OR_TORCH_FN_TABLE: Dict[Callable, Dict[Callable, Callable]] = defaultdict(dict)
-
 def _implements(cls, aten_ops_or_torch_fns):
     """Use this decorator to implement a function for an aten ops in __torch_dispatch__
     (if user passed in a list of ops)
     or torch function in __torch_function__ (if user passed in a single object)
+
+    class MyTensor(torch.Tensor):
+        ...
+        implements = classmethod(_implements)
+
+    implements = MyTensor.implements
+
+    @implements(torch.nn.functional.linear):
+    def _(func, types, args, kwargs):
+        ...
+
     """
+    if not hasattr(cls, "_ATEN_OP_OR_TORCH_FN_TABLE"):
+        cls._ATEN_OP_OR_TORCH_FN_TABLE = {}
+
     if not isinstance(aten_ops_or_torch_fns, (list, tuple)):
         aten_ops_or_torch_fns = [aten_ops_or_torch_fns]
     def decorator(func):
@@ -26,9 +35,40 @@ def _implements(cls, aten_ops_or_torch_fns):
             def wrapper(*args, **kwargs):
                 return func(*args, **kwargs)
 
-            _ATEN_OP_OR_TORCH_FN_TABLE[cls][op] = wrapper
+            cls._ATEN_OP_OR_TORCH_FN_TABLE[op] = wrapper
         return func
     return decorator
+
+def _dispatch__torch_function__(cls, func, types, args=(), kwargs=None):
+    """Use this util function for a common `__torch_function__` implementation
+    that dispatches to ops/functions registered with `_implements`
+
+    class MyTensor(torch.Tensor):
+        ...
+        __torch_function__ = classmethod(_dispatch__torch_function__)
+    """
+    kwargs = {} if kwargs is None else kwargs
+    if hasattr(cls, "_ATEN_OP_OR_TORCH_FN_TABLE") and \
+       func in cls._ATEN_OP_OR_TORCH_FN_TABLE:
+        return cls._ATEN_OP_OR_TORCH_FN_TABLE[func](func, types, *args, **kwargs)
+
+    with torch._C.DisableTorchFunctionSubclass():
+        return func(*args, **kwargs)
+
+def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
+    """Use this util function for a common `__torch_dispatch__` implementation
+    that dispatches to ops/functions registered with `_implements`
+
+    class MyTensor(torch.Tensor):
+        ...
+        __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
+    """
+    if hasattr(cls, "_ATEN_OP_OR_TORCH_FN_TABLE") and \
+       func in cls._ATEN_OP_OR_TORCH_FN_TABLE:
+        return cls._ATEN_OP_OR_TORCH_FN_TABLE[func](func, types, *args, **kwargs)
+
+    raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run unimplemented operator/function: {func}")
+
 
 """
 Base class for different LayoutType, should not be instantiated directly
@@ -89,3 +129,6 @@ def _get_layout_tensor_constructor(cls: Callable, layout_type_class: type(Layout
         raise ValueError(f"layout_name: {layout_type_class} is not supported yet for {cls}")
 
     return _LAYOUT_CONSTRUCTOR_TABLE[cls][layout_type_class]
+
+def is_device(target_device_str: str, device: Union[str, torch.device]):
+    return torch.device(device).type == target_device_str
