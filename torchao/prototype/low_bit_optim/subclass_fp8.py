@@ -81,7 +81,7 @@ class OptimStateFp8(Tensor):
 
 
 @OptimStateFp8.implements(aten.copy_.default)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     dst = args[0]
     src = args[1]
 
@@ -102,14 +102,14 @@ def _(func, types, *args, **kwargs):
 
 
 @OptimStateFp8.implements(aten.lerp.Scalar)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     args = [x.dequantize() if isinstance(x, OptimStateFp8) else x for x in args]
     return func(*args, **kwargs)
 
 
 # this is needed for DTensor.from_local()
 @OptimStateFp8.implements(aten.view.default)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     x, shape = args
     return OptimStateFp8(x.codes.view(shape), x.scale)
 
@@ -121,7 +121,7 @@ def _(func, types, *args, **kwargs):
     c10d_functional.wait_tensor.default,
     _c10d_functional.wait_tensor.default,
 ])
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     x = args[0]
     if not isinstance(x, OptimStateFp8):
         raise ValueError(f"expecting a OptimStateFp8 but found {type(x)}")
