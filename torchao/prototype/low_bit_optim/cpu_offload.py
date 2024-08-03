@@ -163,6 +163,8 @@ class CPUOffloadOptimizerv3:
         self.stream = torch.cuda.Stream()
         self.queue = []
 
+        # NOTE: can we offload gradient? need to wait until grad D2H finishes.
+
         def backward_hook(p_cuda):
             if p_cuda.grad is not None:
                 p_cpu = self.param_cuda2cpu_map[p_cuda]
