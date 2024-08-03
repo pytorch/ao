@@ -1,11 +1,17 @@
-# pip install timm wandb tqdm datasets yacs bitsandbytes deepspeed mpi4py git+https://github.com/thu-ml/low-bit-optimizers.git
-# TODO: make deps optional e.g. bnb, lpmm, deepspeed
+# pip install timm wandb tqdm datasets bitsandbytes
 #
-# To fine-tune a pre-trained ViT-Base on resisc45 dataset with BF16 AMP, using default Adam optimizer from PyTorch core
+# optional:
+# - lpmm (4-bit optim): pip install yacs git+https://github.com/thu-ml/low-bit-optimizers.git
+# - DeepSpeed (ZeRO-Offload):
+#     sudo apt install libopenmpi-dev
+#     LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu pip install mpi4p
+#     DS_BUILD_CPU_ADAM=1 pip install deepspeed==0.14.2 --no-cache-dir
+#
+# To fine-tune a pre-trained ViT-Base on resisc45 dataset with BF16 AMP, using default AdamW optimizer from PyTorch core
 # python benchmark_low_bit_adam.py \
 #   --model "timm/vit_base_patch16_224.augreg_in21k" \
 #   --amp bf16 \
-#   --optim Adam
+#   --optim AdamW
 #
 # See OPTIM_MAP for the available optimizer options
 # To profile and export chrome trace, set --profile
@@ -21,8 +27,6 @@ from pathlib import Path
 
 import bitsandbytes as bnb
 import datasets
-import deepspeed
-import lpmm
 import timm
 import torch
 import torch.nn.functional as F
@@ -33,16 +37,24 @@ from tqdm import tqdm
 
 from torchao.prototype import low_bit_optim
 
-# lpmm doesn't have Adam, only AdamW
 OPTIM_MAP = dict(
-    Adam=partial(torch.optim.Adam, fused=True),
-    Adam8bitBnb=bnb.optim.Adam8bit,
-    Adam8bitAo=low_bit_optim.Adam8bit,
-    AdamFp8Ao=low_bit_optim.AdamFp8,
-    Adam4bitLpmm=partial(lpmm.optim.AdamW, weight_decay=0, fused=True),
-    Adam4bitAo=low_bit_optim.Adam4bit,
-    Adam4bitRank1Lpmm=partial(lpmm.optim.AdamW, weight_decay=0, qconfig=argparse.Namespace(scale_type="rank1")),
+    AdamW=partial(torch.optim.AdamW, fused=True),
+    AdamW8bitBnb=bnb.optim.AdamW8bit,
+    AdamW8bitAo=low_bit_optim.AdamW8bit,
+    AdamWFp8Ao=low_bit_optim.AdamWFp8,
+    AdamW4bitAo=low_bit_optim.AdamW4bit,
 )
+
+try:
+    import lpmm
+
+    OPTIM_MAP.update(
+        AdamW4bitLpmm=partial(lpmm.optim.AdamW, fused=True),
+        AdamW4bitRank1Lpmm=partial(lpmm.optim.AdamW, qconfig=argparse.Namespace(scale_type="rank1")),
+    )
+
+except ImportError:
+    pass
 
 
 class CosineSchedule:
@@ -91,7 +103,7 @@ def get_parser():
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--n_workers", type=int, default=4)
 
-    parser.add_argument("--optim", default="Adam", choices=OPTIM_MAP.keys())
+    parser.add_argument("--optim", default="AdamW", choices=OPTIM_MAP.keys())
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight_decay", type=float, default=0)
     parser.add_argument("--cosine_lr_scheduler", action="store_true")
@@ -168,7 +180,7 @@ if __name__ == "__main__":
         assert args.amp == "none", "When --full_bf16 is set, --amp must be none"
     if args.optim_cpu_offload == "deepspeed":
         assert args.amp == "none", "When using DeepSpeed ZeRO-Offload, --amp must be none"
-        assert args.optim == "Adam", "When using DeepSpeed ZeRO-Offload, --optim must be Adam"
+        assert args.optim == "AdamW", "When using DeepSpeed ZeRO-Offload, --optim must be AdamW"
     if args.profile:
         args.n_epochs = 1
     if args.seed is not None:
@@ -192,6 +204,8 @@ if __name__ == "__main__":
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
     if args.optim_cpu_offload == "deepspeed":
+        import deepspeed
+
         model, optim, _, _ = deepspeed.initialize(
             model=model,
             model_parameters=model.parameters(),
@@ -199,12 +213,7 @@ if __name__ == "__main__":
                 train_batch_size=args.batch_size,
                 optimizer=dict(
                     type="Adam",
-                    params=dict(
-                        lr=args.lr,
-                        weight_decay=args.weight_decay,
-                        fp32_optimizer_states=False,
-                        adam_w_mode=False,
-                    ),
+                    params=dict(lr=args.lr, weight_decay=args.weight_decay, fp32_optimizer_states=False),
                 ),
                 bf16=dict(enabled=args.full_bf16),
                 zero_optimization=dict(
