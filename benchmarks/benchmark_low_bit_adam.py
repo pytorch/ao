@@ -12,6 +12,7 @@
 
 import argparse
 import datetime
+import json
 import math
 from contextlib import nullcontext
 from functools import partial
@@ -77,6 +78,7 @@ class WandbLogger:
 def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
+    parser.add_argument("--model_kwargs", type=json.loads, default=dict())
 
     parser.add_argument("--amp", default="none")
     parser.add_argument("--full_bf16", action="store_true")
@@ -91,8 +93,7 @@ def get_parser():
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight_decay", type=float, default=0)
     parser.add_argument("--cosine_lr_scheduler", action="store_true")
-    parser.add_argument("--optim_cpu_offload", action="store_true")
-    parser.add_argument("--optim_cpu_offload_v2", action="store_true")
+    parser.add_argument("--optim_cpu_offload")
 
     parser.add_argument("--project")
     parser.add_argument("--run_name", default="debug")
@@ -161,8 +162,6 @@ def evaluate_model(model, args):
 if __name__ == "__main__":
     args = get_parser().parse_args()
 
-    if args.optim_cpu_offload and args.optim_cpu_offload_v2:
-        raise ValueError
     if args.full_bf16 and args.amp != "none":
         raise ValueError("When --full_bf16 is set, --amp must be none")
     if args.profile:
@@ -178,7 +177,7 @@ if __name__ == "__main__":
     dloader = get_dloader(args, True)
     print(f"Train dataset: {len(dloader.dataset):,} images")
 
-    model = timm.create_model(args.model, pretrained=True, num_classes=45).cuda()
+    model = timm.create_model(args.model, pretrained=True, num_classes=45, **args.model_kwargs).cuda()
     if args.full_bf16:
         model.bfloat16()
     if args.channels_last:
@@ -188,10 +187,12 @@ if __name__ == "__main__":
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
     optim_cls = OPTIM_MAP[args.optim]
-    if args.optim_cpu_offload_v2:
+    if args.optim_cpu_offload == "v2":
         optim_cls = partial(low_bit_optim.CPUOffloadOptimizerv2, base_optimizer_class=optim_cls)
+    elif args.optim_cpu_offload == "v3":
+        optim_cls = partial(low_bit_optim.CPUOffloadOptimizerv3, base_optimizer_class=optim_cls)
     optim = optim_cls(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    if args.optim_cpu_offload:
+    if args.optim_cpu_offload == "v1":
         optim = low_bit_optim.CPUOffloadOptimizer(optim)
     lr_schedule = CosineSchedule(args.lr, len(dloader) * args.n_epochs)
 

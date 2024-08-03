@@ -45,6 +45,9 @@ class CPUOffloadOptimizer:
         for p_cuda, p_cpu in self.param_cuda2cpu_map.items():
             p_cuda.copy_(p_cpu, non_blocking=True)
 
+        # we don't explicitly synchronize here, since forward will
+        # wait for H2D transfer to finish.
+
     # redirect calls to base optimizer
     def __getattr__(self, name: str):
         return getattr(self.optim, name)
@@ -112,12 +115,12 @@ class CPUOffloadOptimizerv2:
 
         # naive:
         # |--D2H transfer N grads--| |--CPU optim step N params--| |--H2D transfer N params--|
-        # 
+        #
         # interleave: transfer with CPU optim step
         # |--D2H transfer group 1--| |--CPU optim step group 1--| |-- H2D transfer group 1 --|
         #                            |-- D2H transfer group 2 --| |--CPU optim step group 2--| ...
         # therefore, we only need to wait for (D2H transfer group 1) and (H2D transfer group K)
-        # 
+        #
         # we will use 2 CUDA streams. optim step is always blocking on host.
         # host:             | optimizer 1 | | optimizer 2 | | optimizer 3 |
         # stream 1: |D2H 1|                 |H2D 1| |D2H 3|                 ...
@@ -138,7 +141,7 @@ class CPUOffloadOptimizerv2:
 
             # launch D2H kernel for the next next group
             if i < len(self.optim_list) - 2:
-                _copy_grad_d2h(self.optim_list[i+2], self.param_cpu2cuda_map, stream)
+                _copy_grad_d2h(self.optim_list[i + 2], self.param_cpu2cuda_map, stream)
 
         stream.synchronize()
         return loss
@@ -150,3 +153,62 @@ class CPUOffloadOptimizerv2:
     @property
     def param_groups(self):
         return sum((optim.param_groups for optim in self.optim_list), start=[])
+
+
+class CPUOffloadOptimizerv3:
+    def __init__(self, params, base_optimizer_class: Type[Optimizer], **kwargs) -> None:
+        params = list(params)
+        self.param_cuda2cpu_map = dict()
+        self.optim_dict = dict()
+        self.stream = torch.cuda.Stream()
+        self.queue = []
+
+        def backward_hook(p_cuda):
+            if p_cuda.grad is not None:
+                p_cpu = self.param_cuda2cpu_map[p_cuda]
+
+                # make sure backward for this param finishes
+                self.stream.wait_stream(torch.cuda.current_stream())
+                with torch.cuda.stream(self.stream):
+                    p_cpu.grad = p_cuda.grad.to("cpu", non_blocking=True)
+                grad_d2h_event = self.stream.record_event()
+
+                # only deallocate p_cuda.grad once D2H copy finishes
+                p_cuda.grad.record_stream(self.stream)
+                p_cuda.grad = None
+
+                self.queue.append((p_cuda, grad_d2h_event))
+
+        for i, p_cuda in enumerate(params):
+            p_cpu = p_cuda.detach().cpu().pin_memory()
+            self.param_cuda2cpu_map[p_cuda] = p_cpu
+            params[i] = p_cpu
+            p_cuda.register_post_accumulate_grad_hook(backward_hook)
+            self.optim_dict[p_cuda] = base_optimizer_class([p_cpu], **kwargs)
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        for p_cuda, grad_d2h_event in self.queue:
+            grad_d2h_event.synchronize()
+            self.optim_dict[p_cuda].step()
+
+            # submit more job to self.stream. it guarantees that we only start
+            # moving param H2D once all backwards finish.
+            p_cpu = self.param_cuda2cpu_map[p_cuda]
+            with torch.cuda.stream(self.stream):
+                p_cuda.copy_(p_cpu, non_blocking=True)
+
+        self.queue = []
+
+        # copy updated param from CPU to CUDA
+        # for p_cuda, p_cpu in self.param_cuda2cpu_map.items():
+        #     p_cuda.copy_(p_cpu, non_blocking=True)
+        return
+
+    def zero_grad(self, set_to_none=True):
+        for optim in self.optim_dict.values():
+            optim.zero_grad()
+
+    @property
+    def param_groups(self):
+        return sum((optim.param_groups for optim in self.optim_dict.values()), start=[])
