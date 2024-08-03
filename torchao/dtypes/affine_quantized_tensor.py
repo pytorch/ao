@@ -607,25 +607,24 @@ class TensorCoreTiledAQTLayout(AQTLayout):
             quantize_affine,
         )
         from torchao.quantization.utils import unpack_tinygemm_scales_and_zeros
+        scale, zero = unpack_tinygemm_scales_and_zeros(self.scale_and_zero)
 
         cur_shape = self.shape
         assert len(cur_shape) == 4
         inner_k_tiles = cur_shape[-1] * 2
         original_shape = (cur_shape[0] * 8, cur_shape[1] * (inner_k_tiles * 16))
         eye_shape = original_shape[1]
-        block_size = (1, 32)
+        groupsize = int(original_shape[1] / scale.shape[-2])
+        block_size = (1, groupsize)
         device = self.device
         original_dtype = torch.bfloat16
-        groupsize = 32
         target_dtype = torch.int32
         quant_min = 0
         quant_max = 15
         zero_point_domain = ZeroPointDomain.FLOAT
         assert len(block_size) == 2 and block_size[0] == 1
-        groupsize = block_size[-1]
         dequantized = torch.ops.aten._weight_int4pack_mm(torch.eye(eye_shape, device=device, dtype=original_dtype), self.packed_weight, groupsize, self.scale_and_zero)
         dequantized = dequantized.t().contiguous()
-        scale, zero = unpack_tinygemm_scales_and_zeros(self.scale_and_zero)
         # TODO: move this to `unpack_tinygemm_scales_and_zeros`?
         scale = scale.reshape(scale.shape[:-1]).contiguous()
         zero = zero.reshape(zero.shape[:-1]).contiguous()
