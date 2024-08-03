@@ -1,6 +1,7 @@
-# pip install timm wandb tqdm datasets yacs bitsandbytes git+https://github.com/thu-ml/low-bit-optimizers.git
-# To fine-tune a pre-trained ViT-Base on resisc45 dataset with BF16 AMP, using default Adam optimizer from PyTorch core
+# pip install timm wandb tqdm datasets yacs bitsandbytes deepspeed mpi4py git+https://github.com/thu-ml/low-bit-optimizers.git
+# TODO: make deps optional e.g. bnb, lpmm, deepspeed
 #
+# To fine-tune a pre-trained ViT-Base on resisc45 dataset with BF16 AMP, using default Adam optimizer from PyTorch core
 # python benchmark_low_bit_adam.py \
 #   --model "timm/vit_base_patch16_224.augreg_in21k" \
 #   --amp bf16 \
@@ -20,6 +21,7 @@ from pathlib import Path
 
 import bitsandbytes as bnb
 import datasets
+import deepspeed
 import lpmm
 import timm
 import torch
@@ -162,8 +164,11 @@ def evaluate_model(model, args):
 if __name__ == "__main__":
     args = get_parser().parse_args()
 
-    if args.full_bf16 and args.amp != "none":
-        raise ValueError("When --full_bf16 is set, --amp must be none")
+    if args.full_bf16:
+        assert args.amp == "none", "When --full_bf16 is set, --amp must be none"
+    if args.optim_cpu_offload == "deepspeed":
+        assert args.amp == "none", "When using DeepSpeed ZeRO-Offload, --amp must be none"
+        assert args.optim == "Adam", "When using DeepSpeed ZeRO-Offload, --optim must be Adam"
     if args.profile:
         args.n_epochs = 1
     if args.seed is not None:
@@ -186,16 +191,40 @@ if __name__ == "__main__":
         model.compile(fullgraph=True)
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
-    optim_cls = OPTIM_MAP[args.optim]
-    if args.optim_cpu_offload == "v2":
-        optim_cls = partial(low_bit_optim.CPUOffloadOptimizerv2, base_optimizer_class=optim_cls)
-    elif args.optim_cpu_offload == "v3":
-        optim_cls = partial(low_bit_optim.CPUOffloadOptimizerv3, base_optimizer_class=optim_cls)
-    optim = optim_cls(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    if args.optim_cpu_offload == "v1":
-        optim = low_bit_optim.CPUOffloadOptimizer(optim)
-    lr_schedule = CosineSchedule(args.lr, len(dloader) * args.n_epochs)
+    if args.optim_cpu_offload == "deepspeed":
+        model, optim, _, _ = deepspeed.initialize(
+            model=model,
+            model_parameters=model.parameters(),
+            config=dict(
+                train_batch_size=args.batch_size,
+                optimizer=dict(
+                    type="Adam",
+                    params=dict(
+                        lr=args.lr,
+                        weight_decay=args.weight_decay,
+                        fp32_optimizer_states=False,
+                        adam_w_mode=False,
+                    ),
+                ),
+                bf16=dict(enabled=args.full_bf16),
+                zero_optimization=dict(
+                    stage=1,  # required at least stage 1 even though it's 1 GPU
+                    offload_optimizer=dict(device="cpu", pin_memory=True),
+                ),
+            ),
+        )
 
+    else:
+        optim_cls = OPTIM_MAP[args.optim]
+        if args.optim_cpu_offload == "v2":
+            optim_cls = partial(low_bit_optim.CPUOffloadOptimizerv2, optimizer_class=optim_cls)
+        elif args.optim_cpu_offload == "v3":
+            optim_cls = partial(low_bit_optim.CPUOffloadOptimizerv3, optimizer_class=optim_cls)
+        optim = optim_cls(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+        if args.optim_cpu_offload == "v1":
+            optim = low_bit_optim.CPUOffloadOptimizer(optim)
+
+    lr_schedule = CosineSchedule(args.lr, len(dloader) * args.n_epochs)
     grad_scaler = torch.amp.GradScaler("cuda", enabled=args.amp == "fp16")
 
     step = 0
@@ -205,7 +234,11 @@ if __name__ == "__main__":
         start_time = datetime.datetime.now()
 
         with prof:
-            for batch in tqdm(dloader, dynamic_ncols=True, desc=f"Epoch {epoch_idx + 1}/{args.n_epochs}"):
+            for batch in tqdm(
+                dloader,
+                dynamic_ncols=True,
+                desc=f"Epoch {epoch_idx + 1}/{args.n_epochs}",
+            ):
                 if args.full_bf16:
                     batch["image"] = batch["image"].bfloat16()
                 if args.channels_last:
@@ -213,7 +246,11 @@ if __name__ == "__main__":
 
                 with get_amp_ctx(args.amp):
                     loss = F.cross_entropy(model(batch["image"].cuda()), batch["label"].cuda())
-                grad_scaler.scale(loss).backward()
+
+                if args.optim_cpu_offload == "deepspeed":
+                    model.backward(loss)
+                else:
+                    grad_scaler.scale(loss).backward()
 
                 if args.cosine_lr_scheduler:
                     lr = lr_schedule.get_lr(step)
@@ -221,11 +258,17 @@ if __name__ == "__main__":
                         param_group["lr"] = lr
 
                 if step % 100 == 0:
-                    logger.log(dict(loss=loss.item(), lr=optim.param_groups[0]["lr"]), step=step)
+                    logger.log(
+                        dict(loss=loss.item(), lr=optim.param_groups[0]["lr"]),
+                        step=step,
+                    )
 
-                grad_scaler.step(optim)
-                grad_scaler.update()
-                optim.zero_grad()
+                if args.optim_cpu_offload == "deepspeed":
+                    model.step()
+                else:
+                    grad_scaler.step(optim)
+                    grad_scaler.update()
+                    optim.zero_grad()
 
                 step += 1
 
