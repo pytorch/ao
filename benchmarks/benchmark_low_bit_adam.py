@@ -208,7 +208,8 @@ if __name__ == "__main__":
                 ),
                 bf16=dict(enabled=args.full_bf16),
                 zero_optimization=dict(
-                    stage=1,  # required at least stage 1 even though it's 1 GPU
+                    stage=2,  # requires ZeRO-2 to enable overlap_comm
+                    overlap_comm=True,  # interleave grad D2H with backward
                     offload_optimizer=dict(device="cpu", pin_memory=True),
                 ),
             ),
