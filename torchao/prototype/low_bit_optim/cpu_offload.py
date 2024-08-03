@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from typing import Type
 
 import torch
@@ -155,6 +156,15 @@ class CPUOffloadOptimizerv2:
         return sum((optim.param_groups for optim in self.optim_list), start=[])
 
 
+# copied verbatim from https://docs.python.org/3/library/collections.html#ordereddict-examples-and-recipes
+class LastUpdatedOrderedDict(OrderedDict):
+    "Store items in the order the keys were last added"
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        self.move_to_end(key)
+
+
 class CPUOffloadOptimizerv3:
     def __init__(self, params, optimizer_class: Type[Optimizer], *, offload_gradients: bool = False, **kwargs) -> None:
         # NOTE: when offload_gradients=True, do not use gradient accumulation.
@@ -163,9 +173,10 @@ class CPUOffloadOptimizerv3:
         self.optim_dict = dict()
         self.stream = torch.cuda.Stream()
 
-        # the queue maintains the order which param we should do optim step on first
-        # TODO: support gradient accumulation i.e. no param should not appear twice
-        self.queue = []
+        # the queue maintains the order which param we should do optim step on first.
+        # if a param is added again (e.g. due to gradient accumulation), it is moved
+        # to the end of the queue.
+        self.queue = LastUpdatedOrderedDict()
 
         def backward_hook(p_cuda):
             if p_cuda.grad is not None:
@@ -176,13 +187,12 @@ class CPUOffloadOptimizerv3:
                 with torch.cuda.stream(self.stream):
                     p_cpu.grad.copy_(p_cuda.grad, non_blocking=True)
 
+                self.queue[p_cuda] = self.stream.record_event()
+
                 # this doesn't seem to work...
                 if offload_gradients:
                     p_cuda.grad.record_stream(self.stream)
                     p_cuda.grad = None
-
-                grad_d2h_event = self.stream.record_event()
-                self.queue.append((p_cuda, grad_d2h_event))
 
         for p_cuda in params:
             p_cpu = p_cuda.detach().cpu().pin_memory()
@@ -198,7 +208,7 @@ class CPUOffloadOptimizerv3:
         if closure is not None:
             loss = closure()
 
-        for p_cuda, grad_d2h_event in self.queue:
+        for p_cuda, grad_d2h_event in self.queue.items():
             grad_d2h_event.synchronize()
             self.optim_dict[p_cuda].step()
 
@@ -209,7 +219,7 @@ class CPUOffloadOptimizerv3:
             with torch.cuda.stream(self.stream):
                 p_cuda.copy_(p_cpu, non_blocking=True)
 
-        self.queue = []
+        self.queue.clear()
         return loss
 
     def zero_grad(self, set_to_none=True):
