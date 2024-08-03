@@ -76,7 +76,7 @@ def _copy_param_h2d(optim: Optimizer, param_cpu2cuda_map: dict, stream: torch.cu
 
 
 class CPUOffloadOptimizerv2:
-    def __init__(self, params, base_optimizer_class: Type[Optimizer], *, num_buckets: int = 10, **kwargs) -> None:
+    def __init__(self, params, optimizer_class: Type[Optimizer], *, num_buckets: int = 10, **kwargs) -> None:
         if num_buckets < 2:
             raise ValueError(f"num_buckets should be >= 2. Received {num_buckets}")
 
@@ -103,7 +103,7 @@ class CPUOffloadOptimizerv2:
             buckets[bin_idx].append(p)
             bucket_sizes[bin_idx] += p.numel()
 
-        self.optim_list = [base_optimizer_class(bucket, **kwargs) for bucket in buckets]
+        self.optim_list = [optimizer_class(bucket, **kwargs) for bucket in buckets]
         self.streams = [torch.cuda.Stream() for _ in range(2)]
 
     @torch.no_grad()
@@ -156,7 +156,7 @@ class CPUOffloadOptimizerv2:
 
 
 class CPUOffloadOptimizerv3:
-    def __init__(self, params, base_optimizer_class: Type[Optimizer], **kwargs) -> None:
+    def __init__(self, params, optimizer_class: Type[Optimizer], **kwargs) -> None:
         params = list(params)
         self.param_cuda2cpu_map = dict()
         self.optim_dict = dict()
@@ -170,21 +170,18 @@ class CPUOffloadOptimizerv3:
                 # make sure backward for this param finishes
                 self.stream.wait_stream(torch.cuda.current_stream())
                 with torch.cuda.stream(self.stream):
-                    p_cpu.grad = p_cuda.grad.to("cpu", non_blocking=True)
+                    p_cpu.grad.copy_(p_cuda.grad, non_blocking=True)
+
                 grad_d2h_event = self.stream.record_event()
-
-                # only deallocate p_cuda.grad once D2H copy finishes
-                p_cuda.grad.record_stream(self.stream)
-                p_cuda.grad = None
-
                 self.queue.append((p_cuda, grad_d2h_event))
 
-        for i, p_cuda in enumerate(params):
+        for p_cuda in params:
             p_cpu = p_cuda.detach().cpu().pin_memory()
+            p_cpu.grad = torch.empty_like(p_cpu, pin_memory=True)  # pre-allocate CPU grad
             self.param_cuda2cpu_map[p_cuda] = p_cpu
-            params[i] = p_cpu
+
             p_cuda.register_post_accumulate_grad_hook(backward_hook)
-            self.optim_dict[p_cuda] = base_optimizer_class([p_cpu], **kwargs)
+            self.optim_dict[p_cuda] = optimizer_class([p_cpu], **kwargs)
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -193,21 +190,21 @@ class CPUOffloadOptimizerv3:
             self.optim_dict[p_cuda].step()
 
             # submit more job to self.stream. it guarantees that we only start
-            # moving param H2D once all backwards finish.
+            # moving param H2D once all backwards finish, since self.stream
+            # will wait for current_stream when moving grad D2H.
             p_cpu = self.param_cuda2cpu_map[p_cuda]
             with torch.cuda.stream(self.stream):
                 p_cuda.copy_(p_cpu, non_blocking=True)
 
         self.queue = []
-
-        # copy updated param from CPU to CUDA
-        # for p_cuda, p_cpu in self.param_cuda2cpu_map.items():
-        #     p_cuda.copy_(p_cpu, non_blocking=True)
         return
 
     def zero_grad(self, set_to_none=True):
-        for optim in self.optim_dict.values():
-            optim.zero_grad()
+        assert set_to_none
+
+        # only clear CUDA grad. CPU grad will always be overwritten by CUDA grad.
+        for p_cuda in self.param_cuda2cpu_map.keys():
+            p_cuda.grad = None
 
     @property
     def param_groups(self):
