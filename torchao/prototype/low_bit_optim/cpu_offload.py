@@ -156,14 +156,16 @@ class CPUOffloadOptimizerv2:
 
 
 class CPUOffloadOptimizerv3:
-    def __init__(self, params, optimizer_class: Type[Optimizer], **kwargs) -> None:
+    def __init__(self, params, optimizer_class: Type[Optimizer], *, offload_gradients: bool = False, **kwargs) -> None:
+        # NOTE: when offload_gradients=True, do not use gradient accumulation.
         params = list(params)
         self.param_cuda2cpu_map = dict()
         self.optim_dict = dict()
         self.stream = torch.cuda.Stream()
-        self.queue = []
 
-        # NOTE: can we offload gradient? need to wait until grad D2H finishes.
+        # the queue maintains the order which param we should do optim step on first
+        # TODO: support gradient accumulation i.e. no param should not appear twice
+        self.queue = []
 
         def backward_hook(p_cuda):
             if p_cuda.grad is not None:
@@ -173,6 +175,11 @@ class CPUOffloadOptimizerv3:
                 self.stream.wait_stream(torch.cuda.current_stream())
                 with torch.cuda.stream(self.stream):
                     p_cpu.grad.copy_(p_cuda.grad, non_blocking=True)
+
+                # this doesn't seem to work...
+                if offload_gradients:
+                    p_cuda.grad.record_stream(self.stream)
+                    p_cuda.grad = None
 
                 grad_d2h_event = self.stream.record_event()
                 self.queue.append((p_cuda, grad_d2h_event))
@@ -187,6 +194,10 @@ class CPUOffloadOptimizerv3:
 
     @torch.no_grad()
     def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            loss = closure()
+
         for p_cuda, grad_d2h_event in self.queue:
             grad_d2h_event.synchronize()
             self.optim_dict[p_cuda].step()
@@ -199,7 +210,7 @@ class CPUOffloadOptimizerv3:
                 p_cuda.copy_(p_cpu, non_blocking=True)
 
         self.queue = []
-        return
+        return loss
 
     def zero_grad(self, set_to_none=True):
         assert set_to_none
