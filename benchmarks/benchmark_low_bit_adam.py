@@ -5,7 +5,7 @@
 # - DeepSpeed (ZeRO-Offload):
 #     sudo apt install libopenmpi-dev
 #     LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu pip install mpi4p
-#     DS_BUILD_CPU_ADAM=1 pip install deepspeed==0.14.2 --no-cache-dir
+#     DS_BUILD_CPU_ADAM=1 pip install deepspeed --no-cache-dir
 #
 # To fine-tune a pre-trained ViT-Base on resisc45 dataset with BF16 AMP, using default AdamW optimizer from PyTorch core
 # python benchmark_low_bit_adam.py \
