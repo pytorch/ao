@@ -718,6 +718,9 @@
 <span class="sd">         size is more fine grained</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="nf">apply_int8_dynamic_activation_int4_weight_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="n">group_size</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">weight</span>
+
         <span class="c1"># avoid circular dep</span>
         <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">to_affine_quantized</span>
 
@@ -760,6 +763,9 @@
 <span class="sd">        `inner_k_tiles`: parameter for int4 mm kernel, choices are [8, 4, 2]</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="nf">apply_int4_weight_only_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="n">group_size</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">weight</span>
+
         <span class="c1"># avoid circular dep</span>
         <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">to_affine_quantized</span>
         <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">TensorCoreTiledLayoutType</span>
@@ -819,18 +825,12 @@
         <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int64</span>
 
         <span class="c1"># input settings</span>
-        <span class="k">def</span> <span class="nf">get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
-            <span class="n">block_size</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
-            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">block_size</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span><span class="p">):</span>
-                <span class="n">block_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
-            <span class="k">return</span> <span class="n">block_size</span>
-
         <span class="n">input_mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
         <span class="n">input_target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
         <span class="n">input_eps</span> <span class="o">=</span> <span class="mf">1e-5</span>
         <span class="n">input_quant_min</span> <span class="o">=</span> <span class="o">-</span><span class="mi">127</span>
         <span class="n">input_quant_max</span> <span class="o">=</span> <span class="mi">127</span>
-        <span class="n">input_quant_func</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">to_affine_quantized</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">input_mapping_type</span><span class="p">,</span> <span class="n">get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">input_target_dtype</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="n">input_eps</span><span class="p">,</span> <span class="n">quant_min</span><span class="o">=</span><span class="n">input_quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="o">=</span><span class="n">input_quant_max</span><span class="p">,</span> <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span> <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">float16</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="n">input_quant_func</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">to_affine_quantized</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">input_mapping_type</span><span class="p">,</span> <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">input_target_dtype</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="n">input_eps</span><span class="p">,</span> <span class="n">quant_min</span><span class="o">=</span><span class="n">input_quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="o">=</span><span class="n">input_quant_max</span><span class="p">,</span> <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span> <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">float16</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span>
 
         <span class="n">block_size</span> <span class="o">=</span> <span class="n">get_weight_block_size</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
         <span class="n">weight</span> <span class="o">=</span> <span class="n">to_affine_quantized</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span> <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span> <span class="n">layout_type</span><span class="o">=</span><span class="n">layout_type</span><span class="p">)</span>
