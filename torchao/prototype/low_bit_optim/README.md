@@ -81,6 +81,18 @@ DeepSpeed ZeRO-Offload | 3.13s/it      | 6.85 GB
 ao                     | 1.52s/it      | 5.24 GB
 ao (offload gradients) | 1.53s/it      | 4.01 GB
 
+For saving and loading `CPUOffloadOptimizer`, it is important that you load model's weights BEFORE creating the optimizer, since we create a CPU copy of the parameters inside `CPUOffloadOptimizer.__init__()`. (TODO: we might want to have a method that synchronizes CUDA and CPU params in either direction - CPU->CUDA and CUDA->CPU)
+
+```python
+ckpt = torch.load("checkpoint.pth")
+
+model = ...
+model.load_state_dict(ckpt["model"])
+
+optim = CPUOffloadOptimizer(model.parameters(), torch.optim.AdamW, fused=True)
+optim.load_state_dict(ckpt["optim"])
+```
+
 ## Credits
 
 Credits to Tim Dettmers for creating the wonderful [bitsandbytes](https://github.com/TimDettmers/bitsandbytes) library, and [lpmm](https://github.com/thu-ml/low-bit-optimizers) authors for their work on 4-bit optimizers.

@@ -44,6 +44,7 @@ class CPUOffloadOptimizer:
                     del self.queue[p_cuda]
                 self.queue[p_cuda] = self.stream.record_event()
 
+                # deallocate CUDA gradients once D2H transfer finishes.
                 if offload_gradients:
                     p_cuda.grad.record_stream(self.stream)
                     p_cuda.grad = None
@@ -91,3 +92,10 @@ class CPUOffloadOptimizer:
         # each param group will only has 1 parameter
         # TODO: we might want to return the original param_groups instead.
         return sum((optim.param_groups for optim in self.optim_dict.values()), start=[])
+
+    def state_dict(self):
+        return [optim.state_dict() for optim in self.optim_dict.values()]
+
+    def load_state_dict(self, state_dict):
+        for optim, optim_state_dict in zip(self.optim_dict.values(), state_dict):
+            optim.load_state_dict(optim_state_dict)

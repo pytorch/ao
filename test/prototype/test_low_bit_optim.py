@@ -1,4 +1,5 @@
 import copy
+import tempfile
 
 import pytest
 import torch
@@ -159,7 +160,7 @@ class TestOptim(TestCase):
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="optim CPU offload requires CUDA")
     @parametrize("offload_grad,grad_accum", [(False, 1), (False, 2), (True, 1)])
-    def test_optim_cpu_offload(self, offload_grad, grad_accum):
+    def test_optim_cpu_offload_correctness(self, offload_grad, grad_accum):
         device = "cuda"
         model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
         model2 = copy.deepcopy(model1)
@@ -178,6 +179,42 @@ class TestOptim(TestCase):
             optim1.step()
             optim1.zero_grad()
 
+            optim2.step()
+            optim2.zero_grad()
+
+        for p1, p2 in zip(model1.parameters(), model2.parameters()):
+            torch.testing.assert_close(p2, p1)
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="optim CPU offload requires CUDA")
+    def test_optim_cpu_offload_save_load(self):
+        device = "cuda"
+        model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
+        optim1 = low_bit_optim.CPUOffloadOptimizer(model1.parameters(), torch.optim.AdamW)
+
+        for _ in range(2):
+            x = torch.randn(4, 32, device=device)
+            model1(x).sum().backward()
+            optim1.step()
+            optim1.zero_grad()
+
+        # save checkpoint. make sure it can be serialized by torch.save()
+        with tempfile.NamedTemporaryFile() as file:
+            torch.save(optim1.state_dict(), file.name)
+            state_dict = torch.load(file.name)
+
+        # resume training
+        model2 = copy.deepcopy(model1)
+        optim2 = low_bit_optim.CPUOffloadOptimizer(model2.parameters(), torch.optim.AdamW)
+        optim2.load_state_dict(state_dict)
+
+        for _ in range(2):
+            x = torch.randn(4, 32, device=device)
+
+            model1(x).sum().backward()
+            optim1.step()
+            optim1.zero_grad()
+
+            model2(x).sum().backward()
             optim2.step()
             optim2.zero_grad()
 
