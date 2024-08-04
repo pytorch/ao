@@ -14,14 +14,6 @@ class CPUOffloadOptimizer:
             optimizer_class: constructor of the base optimizer.
             offload_gradients: free GPU gradients once they are moved to CPU. Not compatible with gradient accumulation.
             kwargs: other keyword arguments to be passed to the base optimizer e.g. `lr`, `weight_decay`.
-
-        NOTE: To minimize the amount of CPU<->GPU data transfer, we keep a copy of parameters and pre-allocate gradients
-        memory on CPU. Therefore, expect your RAM usage to increase by 2x model size + optimizer state (which is 2x model
-        size for Adam).
-
-        NOTE: It is recommended not to `torch.compile()` your whole model when `CPUOffloadOptimizer` is used, as it
-        prevents us from interleaving gradient device-to-host transfer with backward pass. To minimize such impact, you
-        can compile parts of your model separately.
         """
         param_groups = list(params)
         if len(param_groups) == 0:
