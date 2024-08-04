@@ -63,7 +63,7 @@ optim = CPUOffloadOptimizer(model.parameters(), torch.optim.AdamW, fused=True)
 optim = CPUOffloadOptimizer(model.parameters(), torch.optim.AdamW, offload_gradients=True, fused=True)
 ```
 
-This will reduce GPU memory usage by optimizer state size, and also gradient size if `offload_gradients=True`. `CPUOffloadOptimizer` can wrap any base optimizer.
+This will reduce GPU memory usage by optimizer state size, and additionally gradient size if `offload_gradients=True`. `CPUOffloadOptimizer` can wrap any base optimizer.
 
 NOTE:
 - Since the optimizer step is done on CPU, it is highly recommended to use a fast CPU optimizer, such as `torch.optim.AdamW(fused=True)` (requires PyTorch 2.4). For other optimizers, you can try `torch.compile()` their optimizer step.
