@@ -195,13 +195,14 @@ if __name__ == "__main__":
     dloader = get_dloader(args, True)
     print(f"Train dataset: {len(dloader.dataset):,} images")
 
-    model = timm.create_model(args.model, pretrained=True, num_classes=45, **args.model_kwargs).cuda()
+    model = timm.create_model(args.model, pretrained=True, num_classes=45, **args.model_kwargs)
     if args.checkpoint_activations:
         model.set_grad_checkpointing()
     if args.full_bf16:
         model.bfloat16()
     if args.channels_last:
         model.to(memory_format=torch.channels_last)
+    model.cuda()  # move model to CUDA after optionally convert it to BF16
     if args.compile:
         model.compile(fullgraph=True)
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")

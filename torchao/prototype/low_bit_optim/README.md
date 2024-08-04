@@ -66,19 +66,20 @@ optim = CPUOffloadOptimizer(model.parameters(), torch.optim.AdamW, offload_gradi
 This will reduce GPU memory usage by optimizer state size, and also gradient size if `offload_gradients=True`. `CPUOffloadOptimizer` can wrap any base optimizer.
 
 NOTE:
-- Since the optimizer step is done on CPU, it is highly recommended to use a fast CPU optimizer, such as `torch.optim.AdamW(fused=True)`. For other optimizers, you can try `torch.compile()` their optimizer step.
+- Since the optimizer step is done on CPU, it is highly recommended to use a fast CPU optimizer, such as `torch.optim.AdamW(fused=True)` (requires PyTorch 2.4). For other optimizers, you can try `torch.compile()` their optimizer step.
 - To minimize the amount of CPU<->GPU data transfer, we keep a copy of parameters and pre-allocate gradients memory on CPU. Therefore, expect your RAM usage to increase by 2x model size + optimizer state (which is 2x model size for Adam).
 - It is recommended NOT to `torch.compile()` your whole model when `CPUOffloadOptimizer` is used, as it prevents us from interleaving gradient device-to-host transfer with backward pass. To minimize such impact, you can compile parts of your model separately.
 - CPU optimizer step is often the bottleneck when optimizer CPU offload is used. To minimize the slowdown, it is recommended to (1) do full BF16 training (instead of AMP), so that parameters, gradients, and optimizer states are in BF16; and (2) give GPU more work per optimizer step (e.g. larger batch size with activation checkpointing, gradient accumulation).
 - `offload_gradients=True` is not compatible with gradient accumulation, since we clear gradients on GPU every backward pass.
 
-Benchmark done for `timm/vit_giant_patch14_dinov2.lvd142m` (1.1B params), eager mode, full BF16 training, on 4070Ti SUPER, Ryzen 5600, DDR4 RAM. DeepSpeed is untuned.
+Benchmark done for `timm/vit_giant_patch14_dinov2.lvd142m` (1.1B params), eager mode, full BF16 training, activations checkpointing, batch size 32, on 4070Ti SUPER, Ryzen 5600, DDR4 RAM. DeepSpeed is untuned.
 
-Adam offload           | Speed (bs=8) | Max memory (bs=8) | Speed (bs=16) | Max memory (bs=16)
------------------------|--------------|-------------------|---------------|-------------------
-None                   | 3.3 it/s     | 12.15 GB          | OOM           | OOM
-DeepSpeed ZeRO-Offload | 0.5 it/s     |  9.61 GB          | 0.4 it/s      | 14.89 GB
-ao                     | 1.1 it/s     |  7.59 GB          | 0.9 it/s      | 12.86 GB
+Adam offload           | Time per step | Max memory
+-----------------------|---------------|------------
+None                   | 1.27s/it      | 9.82 GB
+DeepSpeed ZeRO-Offload | 3.13s/it      | 6.85 GB
+ao                     | 1.52s/it      | 5.24 GB
+ao (offload gradients) | 1.53s/it      | 4.01 GB
 
 ## Credits
 

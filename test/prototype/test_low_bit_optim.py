@@ -164,9 +164,9 @@ class TestOptim(TestCase):
         model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
         model2 = copy.deepcopy(model1)
 
-        optim1 = torch.optim.AdamW(model1.parameters(), fused=True)
+        optim1 = torch.optim.AdamW(model1.parameters())
         optim2 = low_bit_optim.CPUOffloadOptimizer(
-            model2.parameters(), torch.optim.AdamW, offload_gradients=offload_grad, fused=True,
+            model2.parameters(), torch.optim.AdamW, offload_gradients=offload_grad,
         )
 
         for _ in range(2):
