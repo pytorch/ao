@@ -107,7 +107,7 @@ def get_parser():
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight_decay", type=float, default=0)
     parser.add_argument("--cosine_lr_scheduler", action="store_true")
-    parser.add_argument("--optim_cpu_offload")
+    parser.add_argument("--optim_cpu_offload", choices=["ao", "deepspeed"])
 
     parser.add_argument("--project")
     parser.add_argument("--run_name", default="debug")
@@ -226,13 +226,9 @@ if __name__ == "__main__":
 
     else:
         optim_cls = OPTIM_MAP[args.optim]
-        if args.optim_cpu_offload == "v2":
-            optim_cls = partial(low_bit_optim.CPUOffloadOptimizerv2, optimizer_class=optim_cls)
-        elif args.optim_cpu_offload == "v3":
-            optim_cls = partial(low_bit_optim.CPUOffloadOptimizerv3, optimizer_class=optim_cls)
+        if args.optim_cpu_offload == "ao":
+            optim_cls = partial(low_bit_optim.CPUOffloadOptimizer, optimizer_class=optim_cls)
         optim = optim_cls(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-        if args.optim_cpu_offload == "v1":
-            optim = low_bit_optim.CPUOffloadOptimizer(optim)
 
     lr_schedule = CosineSchedule(args.lr, len(dloader) * args.n_epochs)
     grad_scaler = torch.amp.GradScaler("cuda", enabled=args.amp == "fp16")
@@ -240,15 +236,12 @@ if __name__ == "__main__":
     step = 0
     for epoch_idx in range(args.n_epochs):
         model.train()
-        prof = profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) if args.profile else nullcontext()
+        pbar = tqdm(dloader, dynamic_ncols=True, desc=f"Epoch {epoch_idx + 1}/{args.n_epochs}")
+
         start_time = datetime.datetime.now()
 
-        with prof:
-            for batch in tqdm(
-                dloader,
-                dynamic_ncols=True,
-                desc=f"Epoch {epoch_idx + 1}/{args.n_epochs}",
-            ):
+        with profile() if args.profile else nullcontext() as prof:
+            for batch in pbar:
                 if args.full_bf16:
                     batch["image"] = batch["image"].bfloat16()
                 if args.channels_last:
