@@ -84,8 +84,43 @@ _ops_to_preserve_subclass = {
     torch.ops.aten.as_strided.default,
     torch.ops.aten._to_copy.default,
     torch.ops.aten._pin_memory.default,
+    torch.ops.aten.split.Tensor,
+    torch.ops.aten.clone.default,
 }
 
+# How Tensor Parallel (TP) and FSDP2 work
+
+# Initialization: apply TP first then FSDP2
+# nn.Linear(weight=torch.Tensor)
+#      |
+#      | apply float8 linear, `convert_to_float8_training`
+#      |
+# Float8Linear(weight=WeightWithDynamicFloat8CastTensor)
+#      |
+#      | apply tensor parallel, `parallelize_module` shards rowwise/colwise
+#      |
+# Float8Linear(weight=DTensor(local_tensor=WeightWithDynamicFloat8CastTensor,
+#                             device_mesh=DeviceMesh([0, 1], mesh_dim_names=('tp',)),
+#                             placements=(Shard(dim=0),)))
+#      |
+#      | apply FSDP2, `fully_shard` shards rowwise (dim=0)
+#      |
+# Float8Linear(weight=DTensor(local_tensor=WeightWithDynamicFloat8CastTensor,
+#                             device_mesh=DeviceMesh([[0, 1], [2, 3]], mesh_dim_names=('dp', 'tp')),
+#                             placements=(Shard(dim=0), Shard(dim=0))))
+
+# Forward and backward: FSDP runs first then TP
+# Float8Linear(weight=DTensor(local_tensor=WeightWithDynamicFloat8CastTensor,
+#                             device_mesh=DeviceMesh([[0, 1], [2, 3]], mesh_dim_names=('dp', 'tp')),
+#                             placements=(Shard(dim=0), Shard(dim=0))))
+#      |
+#      |   FSDP unshards parameters within dp mesh
+#      |
+# Float8Linear(weight=DTensor(local_tensor=WeightWithDynamicFloat8CastTensor,
+#                             device_mesh=DeviceMesh([0, 1], mesh_dim_names=('tp',)),
+#                             placements=(Shard(dim=0),)))
+#      |
+#      |   TP compute with torch.mm(input, weight)
 
 class WeightWithDynamicFloat8CastTensor(torch.Tensor):
     @staticmethod
@@ -195,8 +230,17 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
         (data,) = all_gather_outputs
         (scale,) = metadata
         if out is not None:
-            assert isinstance(out, Float8Tensor), f"{type(out)}"
-            out._scale = scale
+            from torch.distributed._tensor import DTensor
+            if isinstance(out, Float8Tensor):
+                out._scale = scale
+            elif isinstance(out, DTensor) and isinstance(
+                out._local_tensor, Float8Tensor
+            ):
+                out._local_tensor._scale = scale
+            else:
+                raise RuntimeError(
+                    f"out must be a Float8Tensor or DTensor(_local_tensor=Float8Tensor), but got {out}"
+                )
             return
         return Float8Tensor(
             data,

@@ -101,21 +101,24 @@ COMMON_DEVICE_DTYPE = list(itertools.product(COMMON_DEVICES, COMMON_DTYPES)).cop
 def _int8wo_api(mod):
     if TORCH_VERSION_AFTER_2_4:
         quantize_(mod, int8_weight_only(), set_inductor_config=False)
-        unwrap_tensor_subclass(mod)
+        if not TORCH_VERSION_AFTER_2_5:
+            unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int8_woqtensors(mod)
 
 def _int8da_int8w_api(mod):
     if TORCH_VERSION_AFTER_2_4:
         quantize_(mod, int8_dynamic_activation_int8_weight(), set_inductor_config=False)
-        unwrap_tensor_subclass(mod)
+        if not TORCH_VERSION_AFTER_2_5:
+            unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int8_dqtensors(mod)
 
 def _int4wo_api(mod):
     if TORCH_VERSION_AFTER_2_4:
         quantize_(mod, int4_weight_only(), set_inductor_config=False)
-        unwrap_tensor_subclass(mod)
+        if not TORCH_VERSION_AFTER_2_5:
+            unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int4_woqtensors(mod)
 
@@ -853,7 +856,8 @@ class TestSubclass(unittest.TestCase):
                             kwargs_copy["group_size"] = groupsize
                             del kwargs_copy["groupsize"]
                             quantize_(mod, int4_weight_only(**kwargs_copy))
-                            unwrap_tensor_subclass(mod)
+                            if not TORCH_VERSION_AFTER_2_5:
+                                unwrap_tensor_subclass(mod)
                         else:
                             change_linear_weights_to_int4_woqtensors(mod, **kwargs)
 
@@ -985,6 +989,9 @@ class TestSaveLoadMeta(unittest.TestCase):
         # save quantized state_dict
         api(model)
 
+        # make sure the model is still runnable
+        model(x)
+
         torch.save(model.state_dict(), "test.pth")
         # get quantized reference
         model_qc = torch.compile(model, mode="max-autotune")
@@ -1004,7 +1011,9 @@ class TestSaveLoadMeta(unittest.TestCase):
         model.load_state_dict(state_dict, assign=True)
         model = model.to(device=test_device, dtype=test_dtype).eval()
 
-        # get quantized reference
+        # make sure the model is still runnable
+        model(x)
+
         model_qc = torch.compile(model, mode="max-autotune")
         test = model_qc(x).detach()
 
@@ -1013,6 +1022,7 @@ class TestSaveLoadMeta(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(is_fbcode(), "'PlainAQTLayout' object has no attribute 'int_data'")
+    @unittest.skipIf(TORCH_VERSION_AFTER_2_5, "Can't save local lambda function for tensor subclass")
     @torch.no_grad()
     def test_save_load_dqtensors(self, device, dtype):
         if device == "cpu":
@@ -1532,7 +1542,7 @@ class TestBenchmarkModel(unittest.TestCase):
         example_inputs = m.example_inputs(dtype=dtype, device=device)
         m_bf16 = torch.compile(m_bf16, mode='max-autotune')
         num_runs = 1
-        return benchmark_model(m_bf16, num_runs, example_inputs[0])
+        return benchmark_model(m_bf16, num_runs, example_inputs)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_benchmark_model_cuda(self):

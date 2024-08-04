@@ -22,71 +22,17 @@ from torchao.dtypes.utils import (
     _register_layout_cls,
     _get_layout_tensor_constructor,
     LayoutType,
+    PlainLayoutType,
     is_device,
 )
-from typing import ClassVar
 from dataclasses import dataclass
 from torchao.utils import TORCH_VERSION_AFTER_2_5
 
 aten = torch.ops.aten
 
-@dataclass(frozen=True)
-class PlainLayoutType(LayoutType):
-    pass
-
-@dataclass(frozen=True)
-class SemiSparseLayoutType(LayoutType):
-
-    def pre_process(self, input: torch.Tensor) -> torch.Tensor:
-        # prune to 2:4 if not already
-        temp = input.detach()
-        pruning_inds = temp.abs().view(-1, 4).argsort(dim=1)[:, :2]
-        temp.view(-1, 4).scatter_(1, pruning_inds, value=0)
-        return temp
-
-
-@dataclass(frozen=True)
-class TensorCoreTiledLayoutType(LayoutType):
-    inner_k_tiles: int = 8
-
-    def pre_process(self, input: torch.Tensor) -> torch.Tensor:
-        orig_out_features, orig_in_features = input.shape
-        in_features = find_multiple(orig_in_features, 1024)
-        out_features = find_multiple(orig_out_features, 8)
-        input = torch.nn.functional.pad(
-            input,
-            (0, in_features - orig_in_features, 0, out_features - orig_out_features),
-        )
-        return input
-
-    def extra_repr(self):
-        return f"inner_k_tiles={self.inner_k_tiles}"
-
-
-def _aqt_is_int8(aqt):
-    """Check if an AffineQuantizedTensor is int8 quantized Tensor"""
-    return (
-        aqt.layout_tensor.dtype == torch.int8 and
-        aqt.quant_min is None or aqt.quant_min == -128 and
-        aqt.quant_max is None or aqt.quant_max == 127
-    )
-
-def _aqt_is_int8_reduced_range(aqt):
-    return (
-        aqt.layout_tensor.dtype == torch.int8 and
-        aqt.quant_min == -127 and
-        aqt.quant_max is None or aqt.quant_max == 127
-    )
-
-def _aqt_is_uint4(aqt):
-    """Check if an AffineQuantizedTensor is uint4 quantized Tensor"""
-    # TODO: use torch.uint4
-    return (
-        aqt.layout_tensor.dtype == torch.int32 and
-        aqt.quant_min is None or aqt.quant_min == 0 and
-        aqt.quant_max is None or aqt.quant_max == 15
-    )
-
+###############################
+# Base Layout Tensor Subclass #
+###############################
 class AQTLayout(torch.Tensor):
     """
     Base class for the layout tensor for `AffineQuantizedTensor`
@@ -125,6 +71,10 @@ class AQTLayout(torch.Tensor):
             "memory_format": memory_format,
         }
         return kwargs
+
+##############################
+# Tensor Subclass Definition #
+##############################
 
 class AffineQuantizedTensor(torch.Tensor):
     """
@@ -337,7 +287,6 @@ class AffineQuantizedTensor(torch.Tensor):
             strides=self.stride(),
         )
 
-
     implements = classmethod(_implements)
     # Note: we only added cpu path here for 8da4w, this is for executorch, in the future
     # 1. we'll add cpu/cuda version (int4mm etc.)
@@ -353,13 +302,45 @@ class AffineQuantizedTensor(torch.Tensor):
     __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
     __torch_function__ = classmethod(_dispatch__torch_function__)
 
-implements = AffineQuantizedTensor.implements
+
+######################################################
+# LayoutType and Layout Tensor Subclass Registration #
+######################################################
 
 def register_layout_cls(layout_type_class: type(LayoutType)):
     return _register_layout_cls(AffineQuantizedTensor, layout_type_class)
 
 def get_layout_tensor_constructor(layout_type_class: type(LayoutType)):
     return _get_layout_tensor_constructor(AffineQuantizedTensor, layout_type_class)
+
+@dataclass(frozen=True)
+class SemiSparseLayoutType(LayoutType):
+
+    def pre_process(self, input: torch.Tensor) -> torch.Tensor:
+        # prune to 2:4 if not already
+        temp = input.detach()
+        pruning_inds = temp.abs().view(-1, 4).argsort(dim=1)[:, :2]
+        temp.view(-1, 4).scatter_(1, pruning_inds, value=0)
+        return temp
+
+
+@dataclass(frozen=True)
+class TensorCoreTiledLayoutType(LayoutType):
+    inner_k_tiles: int = 8
+
+    def pre_process(self, input: torch.Tensor) -> torch.Tensor:
+        orig_out_features, orig_in_features = input.shape
+        in_features = find_multiple(orig_in_features, 1024)
+        out_features = find_multiple(orig_out_features, 8)
+        input = torch.nn.functional.pad(
+            input,
+            (0, in_features - orig_in_features, 0, out_features - orig_out_features),
+        )
+        return input
+
+    def extra_repr(self):
+        return f"inner_k_tiles={self.inner_k_tiles}"
+
 
 @register_layout_cls(PlainLayoutType)
 class PlainAQTLayout(AQTLayout):
@@ -487,7 +468,7 @@ class SemiSparseAQTLayout(PlainAQTLayout):
         )
 
     def get_plain(self):
-        # Currently we don't have cuSPARSELt expansion routines, so we matmul by 
+        # Currently we don't have cuSPARSELt expansion routines, so we matmul by
         # the identity matrix to get the original dense matrix. This is slow though.
         cols = self.int_data.numel() * 16 // (10 * self.scale.shape[0])
         int_data_expanded = torch._cslt_sparse_mm(self.int_data,
@@ -507,7 +488,7 @@ class SemiSparseAQTLayout(PlainAQTLayout):
         assert isinstance(layout_type, SemiSparseLayoutType)
         int_data_compressed = torch._cslt_compress(int_data)
         return cls(int_data_compressed, scale, zero_point, layout_type)
-    
+
 
 @register_layout_cls(TensorCoreTiledLayoutType)
 class TensorCoreTiledAQTLayout(AQTLayout):
@@ -626,25 +607,24 @@ class TensorCoreTiledAQTLayout(AQTLayout):
             quantize_affine,
         )
         from torchao.quantization.utils import unpack_tinygemm_scales_and_zeros
+        scale, zero = unpack_tinygemm_scales_and_zeros(self.scale_and_zero)
 
         cur_shape = self.shape
         assert len(cur_shape) == 4
         inner_k_tiles = cur_shape[-1] * 2
         original_shape = (cur_shape[0] * 8, cur_shape[1] * (inner_k_tiles * 16))
         eye_shape = original_shape[1]
-        block_size = (1, 32)
+        groupsize = int(original_shape[1] / scale.shape[-2])
+        block_size = (1, groupsize)
         device = self.device
         original_dtype = torch.bfloat16
-        groupsize = 32
         target_dtype = torch.int32
         quant_min = 0
         quant_max = 15
         zero_point_domain = ZeroPointDomain.FLOAT
         assert len(block_size) == 2 and block_size[0] == 1
-        groupsize = block_size[-1]
         dequantized = torch.ops.aten._weight_int4pack_mm(torch.eye(eye_shape, device=device, dtype=original_dtype), self.packed_weight, groupsize, self.scale_and_zero)
         dequantized = dequantized.t().contiguous()
-        scale, zero = unpack_tinygemm_scales_and_zeros(self.scale_and_zero)
         # TODO: move this to `unpack_tinygemm_scales_and_zeros`?
         scale = scale.reshape(scale.shape[:-1]).contiguous()
         zero = zero.reshape(zero.shape[:-1]).contiguous()
@@ -653,6 +633,34 @@ class TensorCoreTiledAQTLayout(AQTLayout):
 
     def get_layout_type(self) -> LayoutType:
         return self.layout_type
+
+#####################################################
+# torch functional and aten operator implementation #
+#####################################################
+
+def _aqt_is_int8(aqt):
+    """Check if an AffineQuantizedTensor is int8 quantized Tensor"""
+    return (
+        aqt.layout_tensor.dtype == torch.int8 and
+        aqt.quant_min is None or aqt.quant_min == -128 and
+        aqt.quant_max is None or aqt.quant_max == 127
+    )
+
+def _aqt_is_int8_reduced_range(aqt):
+    return (
+        aqt.layout_tensor.dtype == torch.int8 and
+        aqt.quant_min == -127 and
+        aqt.quant_max is None or aqt.quant_max == 127
+    )
+
+def _aqt_is_uint4(aqt):
+    """Check if an AffineQuantizedTensor is uint4 quantized Tensor"""
+    # TODO: use torch.uint4
+    return (
+        aqt.layout_tensor.dtype == torch.int32 and
+        aqt.quant_min is None or aqt.quant_min == 0 and
+        aqt.quant_max is None or aqt.quant_max == 15
+    )
 
 def _quantized_linear_op(input_tensor, weight_qtensor, bias):
     """
@@ -811,8 +819,10 @@ def _quantized_linear_op(input_tensor, weight_qtensor, bias):
     raise NotImplementedError("No specialized dispatch found for quantized linear op")
 
 
+implements = AffineQuantizedTensor.implements
+
 @implements(torch.nn.functional.linear)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
         args[1],
@@ -831,7 +841,7 @@ def _(func, types, *args, **kwargs):
         return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
 @implements([aten.mm.default, aten.addmm.default])
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     if not args[0].is_floating_point():
         raise NotImplementedError(f"{func} is not implemented for non floating point input")
 
@@ -870,21 +880,21 @@ def _(func, types, *args, **kwargs):
             return func(input_tensor, weight_tensor)
 
 @implements([aten.detach.default])
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
     )
 
 
 @implements([aten.clone.default])
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
     )
 
 
 @implements([aten._to_copy.default])
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func,
         args,
@@ -893,7 +903,7 @@ def _(func, types, *args, **kwargs):
     )
 
 @implements([aten.t.default])
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     block_size = args[0].block_size
     assert len(block_size) == 2
     transposed_block_size = (block_size[1], block_size[0])

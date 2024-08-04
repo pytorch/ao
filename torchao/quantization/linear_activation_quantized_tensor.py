@@ -91,7 +91,7 @@ class LinearActivationQuantizedTensor(torch.Tensor):
 implements = LinearActivationQuantizedTensor.implements
 
 @implements(torch.nn.functional.linear)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
         args[1],
@@ -106,7 +106,7 @@ def _(func, types, *args, **kwargs):
     raise NotImplementedError("LinearActivationQuantizedTensor: No specialized dispatch found for linear op")
 
 @implements([aten.mm.default, aten.addmm.default])
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     if not args[0].is_floating_point():
         raise NotImplementedError(f"LinearActivationQuantizedTensor: expecting a floating point input")
 
@@ -141,19 +141,19 @@ def _(func, types, *args, **kwargs):
 
 
 @implements(aten.detach.default)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
     )
 
 @implements(aten.clone.default)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
     )
 
 @implements(aten._to_copy.default)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func,
         args,
@@ -162,7 +162,7 @@ def _(func, types, *args, **kwargs):
     )
 
 @implements(aten.t.default)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.t)
     )
