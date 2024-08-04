@@ -93,6 +93,7 @@ def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
     parser.add_argument("--model_kwargs", type=json.loads, default=dict())
+    parser.add_argument("--checkpoint_activations", action="store_true")
 
     parser.add_argument("--amp", default="none")
     parser.add_argument("--full_bf16", action="store_true")
@@ -107,7 +108,7 @@ def get_parser():
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight_decay", type=float, default=0)
     parser.add_argument("--cosine_lr_scheduler", action="store_true")
-    parser.add_argument("--optim_cpu_offload", choices=["ao", "deepspeed"])
+    parser.add_argument("--optim_cpu_offload", choices=["ao", "ao_offload_grads", "deepspeed"])
 
     parser.add_argument("--project")
     parser.add_argument("--run_name", default="debug")
@@ -195,6 +196,8 @@ if __name__ == "__main__":
     print(f"Train dataset: {len(dloader.dataset):,} images")
 
     model = timm.create_model(args.model, pretrained=True, num_classes=45, **args.model_kwargs).cuda()
+    if args.checkpoint_activations:
+        model.set_grad_checkpointing()
     if args.full_bf16:
         model.bfloat16()
     if args.channels_last:
@@ -226,8 +229,12 @@ if __name__ == "__main__":
 
     else:
         optim_cls = OPTIM_MAP[args.optim]
+
         if args.optim_cpu_offload == "ao":
             optim_cls = partial(low_bit_optim.CPUOffloadOptimizer, optimizer_class=optim_cls)
+        elif args.optim_cpu_offload == "ao_offload_grads":
+            optim_cls = partial(low_bit_optim.CPUOffloadOptimizer, optimizer_class=optim_cls, offload_gradients=True)
+
         optim = optim_cls(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
     lr_schedule = CosineSchedule(args.lr, len(dloader) * args.n_epochs)

@@ -44,7 +44,6 @@ class CPUOffloadOptimizer:
                     del self.queue[p_cuda]
                 self.queue[p_cuda] = self.stream.record_event()
 
-                # this doesn't seem to work...
                 if offload_gradients:
                     p_cuda.grad.record_stream(self.stream)
                     p_cuda.grad = None

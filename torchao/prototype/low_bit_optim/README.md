@@ -55,16 +55,22 @@ import torch
 from torchao.prototype.low_bit_optim import CPUOffloadOptimizer
 
 model = ...
+
+# only offload optimizer state
 optim = CPUOffloadOptimizer(model.parameters(), torch.optim.AdamW, fused=True)
+
+# offload optimizer state AND gradients
+optim = CPUOffloadOptimizer(model.parameters(), torch.optim.AdamW, offload_gradients=True, fused=True)
 ```
 
-This will reduce GPU memory usage by the size of optimizer state. `CPUOffloadOptimizer` can wrap any base optimizer.
+This will reduce GPU memory usage by optimizer state size, and also gradient size if `offload_gradients=True`. `CPUOffloadOptimizer` can wrap any base optimizer.
 
 NOTE:
 - Since the optimizer step is done on CPU, it is highly recommended to use a fast CPU optimizer, such as `torch.optim.AdamW(fused=True)`. For other optimizers, you can try `torch.compile()` their optimizer step.
 - To minimize the amount of CPU<->GPU data transfer, we keep a copy of parameters and pre-allocate gradients memory on CPU. Therefore, expect your RAM usage to increase by 2x model size + optimizer state (which is 2x model size for Adam).
-- It is recommended not to `torch.compile()` your whole model when `CPUOffloadOptimizer` is used, as it prevents us from interleaving gradient device-to-host transfer with backward pass. To minimize such impact, you can compile parts of your model separately.
+- It is recommended NOT to `torch.compile()` your whole model when `CPUOffloadOptimizer` is used, as it prevents us from interleaving gradient device-to-host transfer with backward pass. To minimize such impact, you can compile parts of your model separately.
 - CPU optimizer step is often the bottleneck when optimizer CPU offload is used. To minimize the slowdown, it is recommended to (1) do full BF16 training (instead of AMP), so that parameters, gradients, and optimizer states are in BF16; and (2) give GPU more work per optimizer step (e.g. larger batch size with activation checkpointing, gradient accumulation).
+- `offload_gradients=True` is not compatible with gradient accumulation, since we clear gradients on GPU every backward pass.
 
 Benchmark done for `timm/vit_giant_patch14_dinov2.lvd142m` (1.1B params), eager mode, full BF16 training, on 4070Ti SUPER, Ryzen 5600, DDR4 RAM. DeepSpeed is untuned.
 
