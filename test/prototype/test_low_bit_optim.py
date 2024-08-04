@@ -157,6 +157,31 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model1.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1, rtol=1e-5, atol=1e-5)
 
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="optim CPU offload requires CUDA")
+    @parametrize("gradient_accumulation", [1, 2])
+    def test_optim_cpu_offload(self, gradient_accumulation):
+        device = "cuda"
+        model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
+        model2 = copy.deepcopy(model1)
+
+        optim1 = torch.optim.AdamW(model1.parameters(), fused=True)
+        optim2 = low_bit_optim.CPUOffloadOptimizer(model2.parameters(), torch.optim.AdamW, fused=True)
+
+        for _ in range(2):
+            for _ in range(gradient_accumulation):
+                x = torch.randn(4, 32, device=device)
+                model1(x).sum().backward()
+                model2(x).sum().backward()
+
+            optim1.step()
+            optim1.zero_grad()
+
+            optim2.step()
+            optim2.zero_grad()
+
+        for p1, p2 in zip(model1.parameters(), model2.parameters()):
+            torch.testing.assert_close(p2, p1)
+
 
 class TestFSDP2(FSDPTest):
     @property
