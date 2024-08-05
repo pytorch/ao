@@ -143,7 +143,7 @@ def main(layer_id, checkpoint, max_seqlen, maxIter, nsamples):
             vHv = group_product(TvH, v)
             vHv_c = np.array([i.to(torch.float32).cpu().numpy() for i in vHv])
             vhv_c_history.append(vHv_c)
-            trace = np.sum(vHv_c)
+            trace = np.sum(np.abs(vHv_c))
             print("trace", trace)
             trace_history.append(trace)
 
