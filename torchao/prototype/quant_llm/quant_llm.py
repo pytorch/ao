@@ -10,6 +10,7 @@ from torchao.dtypes.utils import _implements, _dispatch__torch_function__, _disp
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
 
 
+aten = torch.ops.aten
 _ONES_TABLE = [_n_ones(i) for i in range(8)]
 
 
@@ -402,7 +403,7 @@ class QuantLlmLinearWeight(Tensor):
         )
 
 @QuantLlmLinearWeight.implements(torch.nn.functional.linear)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     act = args[0]
     weight = args[1]
     bias = args[2] if len(args) >= 3 else None
@@ -430,9 +431,25 @@ def _(func, types, *args, **kwargs):
     return out.view(*act.shape[:-1], out_dim).to(act.dtype)
 
 
-@QuantLlmLinearWeight.implements(torch.ops.aten.detach.default)
-def _(func, types, *args, **kwargs):
+@QuantLlmLinearWeight.implements(aten.detach.default)
+def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.detach))
+
+
+@QuantLlmLinearWeight.implements(aten.clone.default)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.clone))
+
+
+@QuantLlmLinearWeight.implements(aten._to_copy.default)
+def _(func, types, args, kwargs):
+    # only support device kwargs, ignore the rest
+    return return_and_correct_aliasing(
+        func,
+        args,
+        kwargs,
+        args[0]._apply_fn_to_data(lambda x: x.to(device=kwargs.pop("device", None))),
+    )
 
 
 def quant_llm_fpx_weight_only(ebits: int, mbits: int):
@@ -445,4 +462,4 @@ def quant_llm_fpx_weight_only(ebits: int, mbits: int):
 
 
 def fp6_llm_weight_only():
-    return _get_linear_subclass_inserter(quant_llm_fpx_weight_only(3, 2))
+    return quant_llm_fpx_weight_only(3, 2)

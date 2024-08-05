@@ -12,6 +12,7 @@ import resource
 from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight, int4_weight_only
 from torchao.sparsity import sparsify_, apply_fake_sparsity, int8_dynamic_activation_int8_semi_sparse_weight, semi_sparse_weight
 from torchao.utils import unwrap_tensor_subclass
+from torchao.utils import TORCH_VERSION_AFTER_2_5
 
 torch._dynamo.config.cache_size_limit = 50000
 
@@ -284,7 +285,8 @@ def run(
 
     if compress == "int8_dynamic_quant":
         quantize_(predictor.model.image_encoder, int8_dynamic_activation_int8_weight())
-        predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
+        if not TORCH_VERSION_AFTER_2_5:
+            predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
     elif compress == "sparse_mlp_only":
         def mlp_only(mod, name):
             return isinstance(mod, torch.nn.Linear) and 'mlp' in name
@@ -316,7 +318,8 @@ def run(
         sparsify_(predictor.model.image_encoder,
                   semi_sparse_weight(),
                   mlp_lin2_only)
-        predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
+        if not TORCH_VERSION_AFTER_2_5:
+            predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
 
     else:
         assert compress is None, f"Unsupported compress mode {compress}"
@@ -401,6 +404,6 @@ def run(
         vals = ",".join(map(str, [device, sam_model_type, batch_size, max_memory_allocated_bytes, max_memory_allocated_percentage, img_s, batch_ms_batch_size, mIoU, use_compile,
             use_half, compress, use_compile_decoder, use_rel_pos, pad_input_image_batch, num_workers, num_batches, num_images, profile_path, memory_path]))
         f.write(vals+"\n")
-        
+
 if __name__ == '__main__':
     fire.Fire(run)
