@@ -445,4 +445,4 @@ def quant_llm_fpx_weight_only(ebits: int, mbits: int):
 
 
 def fp6_llm_weight_only():
-    return _get_linear_subclass_inserter(quant_llm_fpx_weight_only(3, 2))
+    return quant_llm_fpx_weight_only(3, 2)
