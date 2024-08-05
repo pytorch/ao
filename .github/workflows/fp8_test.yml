@@ -27,7 +27,7 @@ jobs:
           yum install -y  devtoolset-10-binutils
           export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
           python -m pip install --upgrade pip
-          pip install ${{ matrix.torch-spec }}
+          pip install --pre torch==2.5.0.dev20240728+cu121 --index-url https://download.pytorch.org/whl/nightly/cu121
           pip install -r dev-requirements.txt
           pip install .
           pytest test/float8 --verbose -s
