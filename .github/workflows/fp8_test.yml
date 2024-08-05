@@ -1,4 +1,4 @@
-name: Custom Test
+name: FP8 Test
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
       - main
 
 concurrency:
-  group: custom_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
+  group: fp8_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -19,7 +19,7 @@ jobs:
   float8-test:
     runs-on: amz2023.linux.g6.4xlarge.experimental.nvidia.gpu
     steps:
-      - name: Checkout code
+      - name: Checkout code and run
         run: |
           conda create -n venv python=3.9 -y
           conda activate venv
