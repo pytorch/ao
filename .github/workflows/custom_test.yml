@@ -8,6 +8,13 @@ on:
     branches:
       - main
 
+concurrency:
+  group: custom_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
 jobs:
   float8-test:
     runs-on: amz2023.linux.g6.4xlarge.experimental.nvidia.gpu
