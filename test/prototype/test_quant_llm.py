@@ -68,6 +68,15 @@ class TestQuantLlmLinearWeight(TestCase):
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     @parametrize("ebits,mbits", _FPx_DTYPES)
+    def test_to_copy_device(self, ebits, mbits):
+        x = torch.randn(256, 64)
+        fpx = QuantLlmLinearWeight.from_float(x, ebits, mbits).cuda()
+        assert fpx.device.type == "cuda"
+        fpx = fpx.cpu()
+        assert fpx.device.type == "cpu"
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @parametrize("ebits,mbits", _FPx_DTYPES)
     @parametrize("leading_dims", [(4,), (2, 4)])
     @parametrize("bias", [False, True])
     def test_quant_llm_linear_weight(self, ebits, mbits, bias, leading_dims):
