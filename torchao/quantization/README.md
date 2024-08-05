@@ -109,8 +109,11 @@ group_size = 32
 quantize_(m, int4_weight_only(group_size=group_size))
 
 # temporary workaround for tensor subclass + torch.compile
+# NOTE: this is only need for torch 2.5+
+from torchao.utils import TORCH_VERSION_AFTER_2_5
 from torchao.utils import unwrap_tensor_subclass
-m = unwrap_tensor_subclass(m)
+if not TORCH_VERSION_AFTER_2_5:
+    unwrap_tensor_subclass(m)
 # compile the model to improve performance
 m = torch.compile(m, mode='max-autotune')
 

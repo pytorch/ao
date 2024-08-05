@@ -27,6 +27,7 @@ if not TORCH_VERSION_AFTER_2_4:
 from torchao.float8 import Float8LinearConfig
 from torchao.float8.float8_linear_utils import convert_to_float8_training
 
+from torchao.float8.config import CastConfig, ScalingType
 from torchao.float8.float8_scaling_utils import NoopFwToFloat8E5M2BwDynamic
 from torchao.float8.float8_tensor import (
     Float8Tensor,
@@ -43,6 +44,11 @@ from torchao.float8.float8_utils import e4m3_dtype, tensor_to_scale
 from torch.distributed._tensor import distribute_tensor, DTensor, Replicate, Shard
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 from torch.distributed.tensor.parallel import parallelize_module
+from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
+from torch.testing._internal.distributed._tensor.common_dtensor import (
+    ModelArgs,
+    Transformer,
+)
 from tqdm import tqdm
 
 
@@ -303,6 +309,38 @@ def _test_fp8_mlp_tensor_parallelism_compile(mesh: DeviceMesh, size=16):
     _test_fp8_mlp_tensor_parallelism_base(mesh, size, compile=True)
 
 
+def _test_distribute_fsdp_tensor_subclass(tp_mesh: DeviceMesh):
+    torch.manual_seed(42)
+    model = Transformer(ModelArgs(dropout_p=0.0, weight_tying=False)).cuda()
+    convert_to_float8_training(
+        model,
+        config=Float8LinearConfig(
+            enable_fsdp_float8_all_gather=True,
+            cast_config_weight=CastConfig(scaling_type=ScalingType.DYNAMIC),
+        ),
+    )
+    # test Float8ColwiseParallel
+    colwise_param = distribute_tensor(
+        model.layers[0].attention.wq.weight, tp_mesh, [Shard(0)]
+    )
+    assert (
+        isinstance(colwise_param, DTensor)
+        and isinstance(
+            colwise_param._local_tensor, WeightWithDynamicFloat8CastTensor
+        )
+    ), f"expect DTensor(local_tensor={WeightWithDynamicFloat8CastTensor}) but got {colwise_param}"
+    # test Float8RowwiseParallel
+    rowwise_param = distribute_tensor(
+        model.layers[0].attention.wo.weight, tp_mesh, [Shard(1)]
+    )
+    assert (
+        isinstance(rowwise_param, DTensor)
+        and isinstance(
+            rowwise_param._local_tensor, WeightWithDynamicFloat8CastTensor
+        )
+    ), f"expect DTensor(local_tensor={WeightWithDynamicFloat8CastTensor}) but got {colwise_param}"
+
+
 if __name__ == "__main__":
     # float8 only works on CUDA H100 so we only test cuda and we follow
     # other test files to not use TestCase but instead just add the test
@@ -315,6 +353,7 @@ if __name__ == "__main__":
         _test_dtensor_fp8_autograd,
         _test_fp8_mlp_tensor_parallelism_eager,
         _test_fp8_mlp_tensor_parallelism_compile,
+        _test_distribute_fsdp_tensor_subclass,
     ]
 
     for test in tqdm(tests, desc="Running tests"):

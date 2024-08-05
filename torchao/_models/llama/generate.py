@@ -13,6 +13,7 @@ import torchao
 import torch._dynamo.config
 import torch._inductor.config
 from torchao.utils import get_model_size_in_bytes
+from torchao.utils import TORCH_VERSION_AFTER_2_5
 
 def device_sync(device):
     if "cuda" in device:
@@ -115,7 +116,7 @@ def generate(
             from model import AffineQuantizedKVCache
             from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
             _replace_with_custom_fn_if_matches_filter(
-                model, 
+                model,
                 AffineQuantizedKVCache.from_float,
                 lambda x, y: isinstance(x, torchao._models.llama.model.KVCache),
             )
@@ -232,7 +233,8 @@ def main(
             # do autoquantization
             model.finalize_autoquant()
         else:
-            unwrap_tensor_subclass(model)
+            if not TORCH_VERSION_AFTER_2_5:
+                unwrap_tensor_subclass(model)
 
     model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
 

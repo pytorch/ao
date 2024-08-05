@@ -18,7 +18,7 @@ from torchao.quantization.quant_api import (
     int8_dynamic_activation_int8_weight,
     quantize_,
 )
-from torchao.utils import TORCH_VERSION_AFTER_2_3, unwrap_tensor_subclass
+from torchao.utils import TORCH_VERSION_AFTER_2_3
 from torch.testing._internal.common_utils import TestCase
 
 

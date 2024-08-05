@@ -233,6 +233,7 @@ def _quantize_affine_no_dtype_cast(
     # TODO: validations
     # TODO: validate scale/zero_point dimensions are compatible with block_size
     assert input.dtype in [torch.float32, torch.float16, torch.bfloat16], f"Unsupported input dtype: {input.dtype}"
+    assert len(block_size) == input.dim(), f"Got input dim:{input.dim()}, block_size: {block_size}"
     shape_for_reduction, reduction_dims = _get_reduction_params(block_size, input.size())
     original_shape = input.shape
     input = input.view(shape_for_reduction)
@@ -349,6 +350,7 @@ def _dequantize_affine_no_dtype_check(
     zero_point_domain: str = ZeroPointDomain.INT.name,
     output_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
+    assert len(block_size) == input.dim(), f"Got input dim:{input.dim()}, block_size: {block_size}"
     shape_for_reduction, reduction_dims = _get_reduction_params(block_size, input.size())
     original_shape = input.shape
     input = input.view(shape_for_reduction)
@@ -589,7 +591,7 @@ def _choose_qparams_affine(
     if zero_point_dtype is None:
         zero_point_dtype = input.dtype
 
-    assert len(block_size) == input.dim()
+    assert len(block_size) == input.dim(), f"Got input dim:{input.dim()}, block_size: {block_size}"
     shape_for_reduction, reduction_dims = _get_reduction_params(block_size, input.size())
     input = input.view(shape_for_reduction)
 
