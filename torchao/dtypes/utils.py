@@ -9,7 +9,7 @@ from torchao.utils import TORCH_VERSION_AFTER_2_5
 Helper function for implementing aten op or torch function dispatch
 and dispatching to these implementations.
 """
-def _implements(cls, aten_ops_or_torch_fns):
+def _implements(cls, aten_ops_or_torch_fns, dispatch_condition=None):
     """Use this decorator to implement a function for an aten ops in __torch_dispatch__
     (if user passed in a list of ops)
     or torch function in __torch_function__ (if user passed in a single object)
@@ -20,23 +20,51 @@ def _implements(cls, aten_ops_or_torch_fns):
 
     implements = MyTensor.implements
 
+    # NOTE: implements with `dispatch_condition` has precedence over the ones
+    # without `dispatch_condition`
+    # and the `dispatch_condition` is checked in the order that they are registered
+    def dispatch_condition(func, types, args, kwargs):
+        return (
+            isinstance(args[0], AffineQuantizedTensor) and
+            isinstance(args[1], AffineQuantizedTensor)
+        )
+
+    @implements(torch.nn.functional.linear, dispatch_condition):
+    def _(func, types, args, kwargs):
+        ...
+
+    # fallback implementation
     @implements(torch.nn.functional.linear):
     def _(func, types, args, kwargs):
         ...
 
     """
-    if not hasattr(cls, "_ATEN_OP_OR_TORCH_FN_TABLE"):
-        cls._ATEN_OP_OR_TORCH_FN_TABLE = {}
+    # fallback implementation dispatch table
+    if not hasattr(cls, "_DISPATCH_TABLE"):
+        cls._DISPATCH_TABLE = {}
+
+    # dispatch table with an extra dispatch_condition check for a more specific use case
+    if not hasattr(cls, "_DISPATCH_TABLE_WITH_CONDITION"):
+        cls._DISPATCH_TABLE_WITH_CONDITION = defaultdict(list)
+
+    # The reason we separate the fallback implementation dispatch table and dispatch table with condition
+    # is to make sure we always have correct precedence between the two, dispatch table with condition
+    # should take precedence over the fallback implementation dispatch table
 
     if not isinstance(aten_ops_or_torch_fns, (list, tuple)):
         aten_ops_or_torch_fns = [aten_ops_or_torch_fns]
+
     def decorator(func):
         for op in aten_ops_or_torch_fns:
             @functools.wraps(op)
             def wrapper(f, types, args, kwargs):
                 return func(f, types, args, kwargs)
 
-            cls._ATEN_OP_OR_TORCH_FN_TABLE[op] = wrapper
+            if dispatch_condition is None:
+                cls._DISPATCH_TABLE[op] = wrapper
+            else:
+                cls._DISPATCH_TABLE_WITH_CONDITION[op].append((dispatch_condition, wrapper))
+
         return func
     return decorator
 
@@ -49,9 +77,17 @@ def _dispatch__torch_function__(cls, func, types, args=(), kwargs=None):
         __torch_function__ = classmethod(_dispatch__torch_function__)
     """
     kwargs = {} if kwargs is None else kwargs
-    if hasattr(cls, "_ATEN_OP_OR_TORCH_FN_TABLE") and \
-       func in cls._ATEN_OP_OR_TORCH_FN_TABLE:
-        return cls._ATEN_OP_OR_TORCH_FN_TABLE[func](func, types, args, kwargs)
+
+    if hasattr(cls, "_DISPATCH_TABLE_WITH_CONDITION") and \
+       func in cls._DISPATCH_TABLE_WITH_CONDITION:
+        condition_and_impls = cls._DISPATCH_TABLE_WITH_CONDITION[func]
+        for dispatch_condition, impl in condition_and_impls:
+            if dispatch_condition(func, types, args, kwargs):
+                return impl(func, types, args, kwargs)
+
+    # fallback implementation for op
+    if hasattr(cls, "_DISPATCH_TABLE") and func in cls._DISPATCH_TABLE:
+        return cls._DISPATCH_TABLE[func](func, types, args, kwargs)
 
     with torch._C.DisableTorchFunctionSubclass():
         return func(*args, **kwargs)
@@ -64,9 +100,16 @@ def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
         ...
         __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
     """
-    if hasattr(cls, "_ATEN_OP_OR_TORCH_FN_TABLE") and \
-       func in cls._ATEN_OP_OR_TORCH_FN_TABLE:
-        return cls._ATEN_OP_OR_TORCH_FN_TABLE[func](func, types, args, kwargs)
+    if hasattr(cls, "_DISPATCH_TABLE_WITH_CONDITION") and \
+       func in cls._DISPATCH_TABLE_WITH_CONDITION:
+        condition_and_impls = cls._DISPATCH_TABLE_WITH_CONDITION[func]
+        for dispatch_condition, impl in condition_and_impls:
+            if dispatch_condition(func, types, args, kwargs):
+                return impl(func, types, args, kwargs)
+
+    # fallback implementation for op
+    if hasattr(cls, "_DISPATCH_TABLE") and func in cls._DISPATCH_TABLE:
+        return cls._DISPATCH_TABLE[func](func, types, args, kwargs)
 
     raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run unimplemented operator/function: {func}")
 
