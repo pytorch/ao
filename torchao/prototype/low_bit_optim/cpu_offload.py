@@ -53,8 +53,11 @@ class CPUOffloadOptimizer:
             params = param_group.pop("params")
 
             for p_cuda in params:
-                p_cpu = p_cuda.detach().cpu().pin_memory()
-                p_cpu.grad = torch.empty_like(p_cpu, pin_memory=True)  # pre-allocate CPU grad
+                # pre-allocate CPU params and grads
+                p_cpu = torch.empty_like(p_cuda, device="cpu", pin_memory=True)
+                p_cpu.grad = torch.empty_like(p_cpu, pin_memory=True)
+
+                p_cpu.copy_(p_cuda.detach(), non_blocking=True)
                 self.param_cuda2cpu_map[p_cuda] = p_cpu
 
                 p_cuda.register_post_accumulate_grad_hook(backward_hook)
