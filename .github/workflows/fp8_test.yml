@@ -18,7 +18,7 @@ env:
 jobs:
   float8-test:
     uses: pytorch/test-infra/.github/workflows/linux_job.yml@main
-    runs-on: amz2023.linux.g6.4xlarge.experimental.nvidia.gpu
+    runner: amz2023.linux.g6.4xlarge.experimental.nvidia.gpu
     gpu-arch-type: "cuda"
     gpu-arch-version: "12.1"
     script: |
