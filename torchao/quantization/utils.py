@@ -129,6 +129,13 @@ def guard_dtype_size(tensor_arg, arg_name, dtype=None, size=None):
     if size is not None and tensor_arg.size() != size:
         raise ValueError(f"Expected Tensor argument {arg_name} to have size {size}, but got {tensor_arg.size()} instead.")
 
+def _get_per_token_block_size(x: torch.Tensor) -> List[int]:
+    block_size = []
+    for _ in range(len(x.shape)-1):
+        block_size.append(1)
+    block_size.append(x.shape[-1])
+    return block_size
+
 # taken from
 # https://github.com/mit-han-lab/smoothquant/blob/2f87951dacfb9238d8d657f52ae83a82a3c9ba0c/smoothquant/fake_quant.py#L26
 # and slightly modified
@@ -492,10 +499,3 @@ def recommended_inductor_config_setter():
     torch._inductor.config.fx_graph_cache = True
     torch._inductor.config.triton.unique_kernel_names = True
     torch.set_float32_matmul_precision("high")
-
-def _get_per_token_block_size(x: torch.Tensor) -> List[int]:
-    block_size = []
-    for i in range(len(x.shape)-1):
-        block_size.append(1)
-    block_size.append(x.shape[-1])
-    return block_size

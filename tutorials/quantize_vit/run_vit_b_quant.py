@@ -31,8 +31,10 @@ torch._inductor.config.use_mixed_mm = True
 ## compilation configs end
 
 # temporary workaround for the API to work with torch.compile
+from torchao.utils import TORCH_VERSION_AFTER_2_5
 from torchao.utils import unwrap_tensor_subclass
-unwrap_tensor_subclass(model)
+if not TORCH_VERSION_AFTER_2_5:
+    unwrap_tensor_subclass(model)
 
 model = torch.compile(model, mode='max-autotune')
 

@@ -337,6 +337,9 @@ def int8_dynamic_activation_int4_weight(group_size=32):
          size is more fine grained
     """
     def apply_int8_dynamic_activation_int4_weight_quant(weight):
+        if weight.shape[-1] % group_size != 0:
+            return weight
+
         # avoid circular dep
         from torchao.dtypes import to_affine_quantized
 
@@ -379,6 +382,9 @@ def int4_weight_only(group_size=128, inner_k_tiles=8):
         `inner_k_tiles`: parameter for int4 mm kernel, choices are [8, 4, 2]
     """
     def apply_int4_weight_only_quant(weight):
+        if weight.shape[-1] % group_size != 0:
+            return weight
+
         # avoid circular dep
         from torchao.dtypes import to_affine_quantized
         from torchao.dtypes import TensorCoreTiledLayoutType
@@ -438,18 +444,12 @@ def int8_dynamic_activation_int8_weight(layout_type=PlainLayoutType()):
         zero_point_dtype = torch.int64
 
         # input settings
-        def get_per_token_block_size(x):
-            block_size = list(x.shape)
-            for i in range(len(block_size)-1):
-                block_size[i] = 1
-            return block_size
-
         input_mapping_type = MappingType.SYMMETRIC
         input_target_dtype = torch.int8
         input_eps = 1e-5
         input_quant_min = -127
         input_quant_max = 127
-        input_quant_func = lambda x: to_affine_quantized(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype, eps=input_eps, quant_min=input_quant_min, quant_max=input_quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
+        input_quant_func = lambda x: to_affine_quantized(x, input_mapping_type, _get_per_token_block_size(x), input_target_dtype, eps=input_eps, quant_min=input_quant_min, quant_max=input_quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
 
         block_size = get_weight_block_size(weight)
         weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, layout_type=layout_type)
