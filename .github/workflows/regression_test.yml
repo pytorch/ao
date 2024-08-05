@@ -80,21 +80,15 @@ jobs:
   torch-spec: '--pre torch==2.5.0.dev20240728+cu121 --index-url https://download.pytorch.org/whl/nightly/cu121'
   gpu-arch-type: "cuda"
   gpu-arch-version: "12.1"
-
-  uses: pytorch/test-infra/.github/workflows/linux_job.yml@main
-  with:
-    timeout: 60
-    runner: ${{ matrix.runs-on }}
-    gpu-arch-type: ${{ matrix.gpu-arch-type }}
-    gpu-arch-version: ${{ matrix.gpu-arch-version }}
+  test:
     script: |
-      conda create -n venv python=3.9 -y
-      conda activate venv
-      echo "::group::Install newer objcopy that supports --set-section-alignment"
-      yum install -y  devtoolset-10-binutils
-      export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
-      python -m pip install --upgrade pip
-      pip install ${{ matrix.torch-spec }}
-      pip install -r dev-requirements.txt
-      pip install .
-      pytest test/float8 --verbose -s
+        conda create -n venv python=3.9 -y
+        conda activate venv
+        echo "::group::Install newer objcopy that supports --set-section-alignment"
+        yum install -y  devtoolset-10-binutils
+        export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
+        python -m pip install --upgrade pip
+        pip install ${{ matrix.torch-spec }}
+        pip install -r dev-requirements.txt
+        pip install .
+        pytest test/float8 --verbose -s
