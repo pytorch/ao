@@ -431,6 +431,17 @@ class TestFSDPOps(TestCase):
         self.assertEqual(nf4_tensor.dtype, torch.bfloat16)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_to_nf4_cuda(self):
+        nf4_tensor = to_nf4(torch.randn(512 * 512), device="cuda")
+        self.assertEqual(nf4_tensor.device.type, "cuda")
+
+        nf4_tensor = to_nf4(torch.randn(512 * 512), device="cuda")
+        self.assertEqual(nf4_tensor.device.type, "cuda")
+        nf4_tensor = nf4_tensor.to(torch.bfloat16)
+        self.assertEqual(nf4_tensor.device.type, "cuda")
+        self.assertEqual(nf4_tensor.dtype, torch.bfloat16)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_to_cpu(self):
         nf4_tensor = to_nf4(torch.randn(512 * 512, device='cuda'))
         nf4_tensor = nf4_tensor.cpu()

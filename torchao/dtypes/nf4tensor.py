@@ -481,6 +481,7 @@ class NF4Tensor(torch.Tensor):
         inpt_tensor: torch.Tensor,
         block_size: int,
         scaler_block_size: int,
+        device: Optional[torch.device],
     ):
         assert inpt_tensor.dim() <= 2, f"expect input tensor dim <= 2 but got dim = {inpt_tensor.dim()}"
         assert (
@@ -489,7 +490,7 @@ class NF4Tensor(torch.Tensor):
         assert inpt_tensor.is_contiguous, "Input tensor must be contiguous!"
         # I think I want do this
         # assert not inpt_tensor.requires_grad, "Input tensor must not require grad"
-        device = inpt_tensor.device
+        device = inpt_tensor.device if device is None else device
         # Cache the tensor on the class def
         nf4 = torch.tensor(
             [
@@ -530,18 +531,22 @@ class NF4Tensor(torch.Tensor):
             inpt_tensor.stride(),
             inpt_tensor.storage_offset(),
             inpt_tensor.dtype,
-            inpt_tensor.device,
+            device,
             inpt_tensor.requires_grad,
         )
+        # NOTE: Why do device transfers here?
+        # Deferring device changes all the way until here.
+        # A user might want to construct the Tensors on CPU
+        # and then transfer only the small NF4 Tensors to GPU.
         return cls(
             tensor_meta,
             block_size,
             n_blocks,
             scaler_block_size,
-            quantized_scalers,
-            quantization_factor,
-            scaler_mean,
-            quantized_data,
+            quantized_scalers.to(device),
+            quantization_factor.to(device),
+            scaler_mean.to(device),
+            quantized_data.to(device),
             nf4=nf4,
         )
 
@@ -889,8 +894,19 @@ def linear_nf4(input: torch.Tensor, weight: NF4Tensor) -> torch.Tensor:
     return LinearNF4.apply(input, weight)
 
 
-def to_nf4(tensor, block_size: int = 64, scaler_block_size: int = 256):
-    return NF4Tensor.from_tensor(tensor, block_size, scaler_block_size)
+def to_nf4(tensor, block_size: int = 64, scaler_block_size: int = 256, device=None):
+    """Returns an NF4Tensor, which is a Tensor using NF4 as a dtype.
+    Behaves similar to torch.Tensor.to, but with support for special arguments
+    needed to specify the NF4 dtype.
+
+    Args:
+        tensor: Input tensor
+        block_size: Size of the quantization block (default: 64)
+        scaler_block_size: Block size for the scalar quantization (default: 256)
+        device (default device of tensor)
+    """
+
+    return NF4Tensor.from_tensor(tensor, block_size, scaler_block_size, device)
 
 
 NF4_TORCH_FUNCTIONS = {}
