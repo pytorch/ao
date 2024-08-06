@@ -2,7 +2,7 @@ import itertools
 import os
 import torch
 
-from torchao.utils import TORCH_VERSION_AFTER_2_2
+from torchao.utils import TORCH_VERSION_AFTER_2_2, TORCH_VERSION_AFTER_2_3
 
 try:
     # Only works for torch2.2 or newer.
@@ -34,8 +34,15 @@ if TORCH_VERSION_AFTER_2_2:
         Raises:
             AssertionError: If the tensors are not on the same device.
         """
+        
+        # Avoid depcrecation warning spew
+        if not TORCH_VERSION_AFTER_2_3:
+            from torch._dynamo import is_compiling
+        else:
+            from torch.compiler import is_compiling
+            
         # torch.compile path
-        if torch.compiler.is_compiling() or "FakeTensor" in input.__repr__():
+        if is_compiling or "FakeTensor" in input.__repr__():
             return out_dtype(torch.ops.aten.mm.default, torch.int32, input, mat2)
 
         # error checking for cublas path
