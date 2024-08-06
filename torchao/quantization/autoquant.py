@@ -269,19 +269,13 @@ class AQMixin():
         print(f">>time: {res:0.3f}ms for {cls}, to_beat: {best_time:0.3f}ms ")
         return res
 
-###### TODO !!!!!!!!!!!!!!!
-# 1) make class method from_float (just duplicate code)
-# 2) undo changes to quant_api?
-# 3) point to new quantized_op location
-# 4) rewrite the dynamic autoquant test
-
 class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedTensor):
     """
     AutoQuantizable version of Int8DynamicallyQuantizedLinearWeight
     """
     @classmethod
     def from_float(cls, weight):
-        in_features = weight.shape[1]
+        # in_features = weight.shape[1]
         # int8 dynamic quantization only has benefit when in_feature > 16
         # if in_features <= 16:
             # return weight
@@ -352,8 +346,8 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
         print(f">>time: {res_matmul:0.3f}ms for {cls} matmul, to_beat: {best_time:0.3f}ms")
 
         # if the (much faster) matmul kernel is already beat, don't bother benchmarking full op
-        # if res_matmul>=best_time:
-            # return res_matmul
+        if res_matmul>=best_time:
+            return res_matmul
 
         # calculate what time full op needs to beat for dynamic quant to be best given INTERPOLATION_CONSTANT
         to_beat = best_time + INTERPOLATION_CONSTANT/(1-INTERPOLATION_CONSTANT)*(best_time-res_matmul)
@@ -448,7 +442,7 @@ DEFAULT_CLASS_LIST = [
     AQWeightOnlyQuantizedLinearWeight,
     AQWeightOnlyQuantizedLinearWeight2,
     # AQWeightOnlyQuantizedLinearWeight3,
-    # # TODO this gets picked in places where it makes perf worse, why?
+    # TODO this gets picked in places where it makes perf worse, why?
     AQInt8DynamicallyQuantizedLinearWeight,
 ]
 
