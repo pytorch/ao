@@ -210,7 +210,7 @@ def main(
     model_type: str = "linear",
     dtype_filter: str = "both",
 ):
-    assert model_type in ("linear", "ln_linear", "norm_ffn_norm"), "unsupported"
+    assert model_type in ("linear", "ln_linear", "norm_ffn_norm", "norm_ffn_norm_small"), "unsupported"
     assert dtype_filter in ("both", "float8", "bfloat16")
 
     scaling_type_input = ScalingType(scaling_type_input)
@@ -250,8 +250,18 @@ def main(
         input_tensor = torch.randn(
             1, 8192, 4096, device=device, dtype=ref_dtype
         ).requires_grad_()
+    elif model_type == "norm_ffn_norm_small":
+        m_ref = NormFFNResidualNorm(
+            dim=4096,
+            hidden_dim=4096,
+            multiple_of=1024,
+            ffn_dim_multiplier=1.0,
+        )
+        input_tensor = torch.randn(
+            1, 2048, 4096, device=device, dtype=ref_dtype
+        ).requires_grad_()
     else:
-        M, K, N = 4 * 4096, 8192, 7168
+        M, K, N = 4096, 4096, 4096
         m_ref = torch.nn.Sequential(
             torch.nn.Linear(K, N, bias=False),
         )
