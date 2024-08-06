@@ -38,7 +38,7 @@ class Linear16(torch.nn.Module):
 def test_intx_affine_weight_only_model_quant(bit_size, group_size, device):
     scale = 512
     fp16 = Linear16(scale, device)
-    intx = quantize_(fp16, intx_weight_only(bit_size, group_size=group_size))
+    intx = quantize_(fp16, intx_affine_weight_only(bit_size, group_size=group_size))
     intx = torch.compile(intx, fullgraph=True)
     test_input = torch.randn(scale*2, dtype=torch.float16, device=device)
     output = intx.forward(test_input)
