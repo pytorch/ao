@@ -391,6 +391,7 @@
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">copy</span>
 <span class="kn">import</span> <span class="nn">tempfile</span>
 <span class="kn">import</span> <span class="nn">torch</span>
+<span class="kn">from</span> <span class="nn">torchao.utils</span> <span class="kn">import</span> <span class="n">get_model_size_in_bytes</span>
 <span class="kn">from</span> <span class="nn">torchao.quantization.quant_api</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">quantize_</span><span class="p">,</span>
     <span class="n">int4_weight_only</span><span class="p">,</span>
