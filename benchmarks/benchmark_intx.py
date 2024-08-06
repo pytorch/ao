@@ -10,7 +10,7 @@ class Linear16(torch.nn.Module):
     def __init__(self, scale):
         super().__init__()
         self.net = torch.nn.Sequential(
-            torch.nn.Linear(scale*2, scale*2, bias=True, dtype=torch.float16).cuda(),
+            torch.nn.Linear(scale*2, scale, bias=True, dtype=torch.float16).cuda(),
             torch.nn.Linear(scale, scale, bias=True, dtype=torch.float16).cuda(),
             torch.nn.Linear(scale, scale//2, bias=True, dtype=torch.float16).cuda(),
         )
@@ -89,7 +89,6 @@ def intx_vs_fp16(nbits= [1,2,3,4,5,6,7], scales=[256, 512, 1024], repeats=30):
         for bit_size in nbits:
             m = deepcopy(fp16)
             quantize_(m, intx_affine_weight_only(bit_size)) 
-            m = unwrap_tensor_subclass(m)
             m = torch.compile(m, fullgraph=True)
             intx_time = benchmark(m.forward, forward_args, repeats)
             times.append(intx_time)
@@ -98,12 +97,13 @@ def intx_vs_fp16(nbits= [1,2,3,4,5,6,7], scales=[256, 512, 1024], repeats=30):
         results.append(times)
     print("----------- benchmark results -----------")
     for result in results:
-        result_str = "\n".join([f"int{nbits[i]}: {result[1]/result[2]:.2f}x" for i in range(len(nbits))])
-        print(f"scale: {result[0]} fp16 time:{result[1]: .2f}ms speedups:\n{result_str}")
+        print(f"scale: {result[0]} fp16 time:{result[1]: .2f}ms speedups:")
+        for i in range(2, len(result)):
+            print(f"int{nbits[i-2]}: {result[1]/result[i]: .2f}x")
     
         
         
 if __name__ == "__main__":   
-    intx_vs_fp16(nbits=[4])
+    intx_vs_fp16(nbits=[4,7])
     
     
