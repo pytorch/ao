@@ -109,7 +109,7 @@ group_size = 32
 quantize_(m, int4_weight_only(group_size=group_size))
 
 # temporary workaround for tensor subclass + torch.compile
-# NOTE: this is only need for torch 2.5+
+# NOTE: this is only need for torch version < 2.5+
 from torchao.utils import TORCH_VERSION_AFTER_2_5
 from torchao.utils import unwrap_tensor_subclass
 if not TORCH_VERSION_AFTER_2_5:
