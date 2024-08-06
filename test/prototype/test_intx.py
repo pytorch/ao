@@ -4,9 +4,17 @@ import pytest
 
 import torch
 
-from torchao.prototype.intx import intx_affine_weight_only
+from torchao.prototype.intx import intx_affine_weight_only, to_intx
 from torchao.quantization.quant_api import quantize_
 from torchao.utils import TORCH_VERSION_AFTER_2_5
+
+from torchao.quantization.quant_primitives import (
+            MappingType,
+            ZeroPointDomain,
+            choose_qparams_affine,
+            quantize_affine,
+            dequantize_affine,
+        )
 
 bit_sizes = (1,2,3,4,5,6,7)
 group_sizes = [32,64,128]
@@ -38,11 +46,11 @@ class Linear16(torch.nn.Module):
 def test_intx_affine_weight_only_model_quant(bit_size, group_size, device):
     scale = 512
     fp16 = Linear16(scale, device)
-    intx = quantize_(fp16, intx_affine_weight_only(bit_size, group_size=group_size))
-    intx = torch.compile(intx, fullgraph=True)
+    quantize_(fp16, intx_affine_weight_only(bit_size, group_size=group_size))
+    intx = torch.compile(fp16, fullgraph=True)
     test_input = torch.randn(scale*2, dtype=torch.float16, device=device)
     output = intx.forward(test_input)
-    assert output, "model quantization failed"
+    assert output != None, "model quantization failed"
     
 @pytest.mark.parametrize("bit_size", bit_sizes)
 @pytest.mark.parametrize("group_size", group_sizes)
@@ -50,7 +58,7 @@ def test_intx_affine_weight_only_model_quant(bit_size, group_size, device):
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")  
 @pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="only works with fix in the nightly build")
 def test_intx_affine_weight_only_quant(bit_size, group_size, device): 
-    input_float = torch.randn((1,8), dtype=torch.float16, device = device)
+    input_float = torch.randn((1,256), dtype=torch.float16, device = device)
     mapping_type = MappingType.SYMMETRIC
     quant_min = 0
     quant_max = 2**bit_size - 1
@@ -75,7 +83,7 @@ def test_intx_affine_weight_only_quant(bit_size, group_size, device):
         )
         
     q =  to_intx(aqt, bit_size, -1)
-    assert q, "quantization failed"
+    assert q != None, "quantization failed"
     deqaunt = dequantize_affine(
         q, block_size, scale,
         zero_point, target_dtype,
@@ -83,4 +91,4 @@ def test_intx_affine_weight_only_quant(bit_size, group_size, device):
         quant_max = quant_max,
         zero_point_domain = zero_point_domain
     )
-    assert deqaunt, "deqauntization failed"
+    assert deqaunt != None, "deqauntization failed"

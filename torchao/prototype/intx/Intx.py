@@ -97,7 +97,7 @@ class IntxTensor(torch.Tensor):
     def apply_transformation(self, fn):
         og = self.get_plain()
         new = fn(og)
-        return self.from_int(new, self.bit_size, self.pack_dim)
+        return self.from_uint8(new, self.bit_size, self.pack_dim)
     
     # temporary until kernels on packed tensors are created
     def apply_fn_to_shards(self, fn):
@@ -120,7 +120,30 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0].apply_fn_to_shards(torch.detach)
     )
+    
+@implements(aten.view.default)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func, args, kwargs, args[0].apply_transformation(lambda x: x.view(*args[1:]))
+    )
+    
+@implements(aten._to_copy.default)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func, args, kwargs, args[0]
+    )
+    
+@implements(aten.sub.Tensor)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func, args, kwargs, args[0].apply_transformation(lambda x: x - args[1])
+    )
 
+@implements(aten.mul.Tensor)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func, args, kwargs, args[0].apply_transformation(lambda x: (x * args[1]).to(torch.uint8))
+    )
 # quantization api integrations
 to_intx = IntxTensor.from_uint8
 
