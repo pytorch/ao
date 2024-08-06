@@ -83,8 +83,7 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, spars
             HFLM(
                 pretrained=model.to(device),
                 tokenizer=tokenizer,
-                batch_size="auto",
-                max_batch_size=2048,
+                batch_size=batch_size,
                 max_length=max_length),
             get_task_dict(tasks),
             limit = limit,
@@ -108,5 +107,4 @@ if __name__ == '__main__':
     parser.add_argument('--max_length', type=int, default=None, help='Length of text to process at one time')
 
     args = parser.parse_args()
-    print(args)
     run_evaluation(args.repo_id, args.tasks, args.limit, args.device, args.precision, args.quantization, args.sparsity, args.compile, args.batch_size, args.max_length)
