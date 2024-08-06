@@ -18,7 +18,7 @@
 #pragma once
 #include "base.h"
 
-namespace marlin {
+namespace torchao {
 // Predicated asynchronous global->shared copy; used for inputs A where we apply
 // predication to handle batchsizes that are not multiples of 16.
 __device__ inline void cp_async4_pred_zfill(void *smem_ptr,
@@ -140,4 +140,4 @@ __device__ inline void barrier_release(int *lock, bool reset = false) {
                  : "l"(lock), "r"(val));
   }
 }
-} // namespace marlin
+} // namespace torchao

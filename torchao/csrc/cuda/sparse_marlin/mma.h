@@ -18,7 +18,7 @@
 #pragma once
 #include "base.h"
 
-namespace marlin {
+namespace torchao {
 // m16n8k16 tensor core mma instruction with fp16 inputs and fp32
 // output/accumulation.
 __device__ inline void mma(const FragA &a_frag, const FragB &frag_b,
@@ -156,4 +156,4 @@ __device__ inline void scale(FragB &frag_b, FragS &frag_s, int i) {
   frag_b[0] = __hmul2(frag_b[0], s);
   frag_b[1] = __hmul2(frag_b[1], s);
 }
-} // namespace marlin
+} // namespace torchao

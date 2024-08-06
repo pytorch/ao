@@ -17,7 +17,7 @@
 
 #pragma once
 
-namespace marlin {
+namespace torchao {
 
 constexpr int ceildiv(int a, int b) { return (a + b - 1) / b; }
 
@@ -46,4 +46,4 @@ using FragM = Vec<uint, 1>;
 using FragC = Vec<float, 4>;
 using FragS = Vec<half2, 1>; // quantization scales
 
-} // namespace marlin
+} // namespace torchao
