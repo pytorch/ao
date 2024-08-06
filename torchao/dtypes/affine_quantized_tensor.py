@@ -1,5 +1,6 @@
 import torch
-from typing import Dict, Callable, Any, Tuple, Optional, Union
+from typing import Tuple, Optional, Union
+import torchao.ops
 from collections import defaultdict
 import functools
 import math
@@ -39,7 +40,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from torchao.float8.inference import Float8MMConfig
-aten = torch.ops.aten
+
 
 ###############################
 # Base Layout Tensor Subclass #
@@ -489,6 +490,16 @@ class Float8LayoutType(LayoutType):
     mm_config: Optional[Float8MMConfig] = None
 
 
+@dataclass(frozen=True)
+class MarlinSparseLayoutType(LayoutType):
+
+    # Inject 2:4 sparsity
+    def pre_process(self, input: torch.Tensor) -> torch.Tensor:
+        from torchao.sparsity.marlin import inject_24  # avoid circular import
+        w_24, _ = inject_24(input, *input.shape)
+        return w_24
+
+
 @register_layout_cls(PlainLayoutType)
 class PlainAQTLayout(AQTLayout):
     """
@@ -642,6 +653,153 @@ class SemiSparseAQTLayout(PlainAQTLayout):
         return cls(int_data_compressed, scale, zero_point, layout_type)
 
 
+@register_layout_cls(MarlinSparseLayoutType)
+class MarlinSparseAQTLayout(AQTLayout):
+    """
+    Layout storage class for sparse_marlin_24 layout for affine quantized tensor. 
+    
+    Can be used with 4 bits and 8 bits quantization.
+
+    Original marlin documentation and information:
+    https://github.com/IST-DASLab/marlin/tree/master
+
+    Sparse marlin documentation and information:
+    https://github.com/IST-DASLab/Sparse-Marlin?tab=readme-ov-file
+
+    fields:
+        original_shape (torch.Size): the original shape of the tensor. used to unpack the tensor to the original shape
+        group_size (int): the group size used to pack the tensor
+        num_bits (int): the number of bits used to quantize the tensor
+    """
+
+    implements = classmethod(_implements)
+    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
+    __torch_function__ = classmethod(_dispatch__torch_function__)
+
+    def __new__(
+        cls,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        meta: torch.Tensor,
+        layout_type: LayoutType,
+        original_shape: torch.Size,
+        group_size: int,
+        num_bits: int,
+    ):
+        kwargs = {}
+        kwargs["device"] = int_data.device
+        kwargs["layout"] = (
+            kwargs.get("layout") if kwargs.get("layout", False) else int_data.layout
+        )
+        kwargs["dtype"] = int_data.dtype
+        kwargs["requires_grad"] = False
+        shape = int_data.shape
+        return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
+
+    def __init__(
+        self,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        meta: torch.Tensor,
+        layout_type: LayoutType,
+        original_shape: torch.Size,
+        group_size: int,
+        num_bits: int,
+    ):
+        self.int_data = int_data
+        self.scale = scale
+        self.zero_point = zero_point
+        self.meta = meta
+        self.layout_type = layout_type
+        self.original_shape = original_shape
+        self.group_size = group_size
+        self.num_bits = num_bits
+
+    def get_plain(self):
+        from torchao.sparsity.marlin import unpack_from_marlin_24  # avoid circular import
+        int_data_expanded, scales_expanded = unpack_from_marlin_24(
+            self.int_data, 
+            self.scale, 
+            self.meta, 
+            self.original_shape,
+            self.group_size,
+            self.num_bits,
+        )
+        return int_data_expanded, scales_expanded, self.zero_point
+
+    @classmethod
+    def from_plain(
+        cls,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        layout_type: LayoutType,
+    ):
+        from torchao.sparsity.marlin import pack_to_marlin_24, const  # avoid circular import
+        assert isinstance(layout_type, MarlinSparseLayoutType)
+
+        # Linear layers are (in_features, out_features) but the int_data that is reaching this point
+        # is (out_features, in_features). We need to transpose it to match the expected shape in the marlin code.
+        # NOTE(reviewers): Please check if this is what I should do.
+        q_w_24 = int_data.t()
+        scale = scale.reshape(-1, q_w_24.shape[1])
+
+        if q_w_24.dtype != torch.int32:
+            raise ValueError("Only `torch.int32` weights are supported.")
+        
+        in_features, out_features = q_w_24.shape
+        if in_features % 128 != 0 or out_features != 256 == 0:
+            raise ValueError(
+                "`in_features` must be divisible by 64 and `out_features` by 256."
+            )
+
+        # NOTE: The current marlin 2:4 kernel supports both 4 and 8 bits quantization but fp8
+        # will require a bit more work to get our current quantization flow to work with it.
+        # Check the link for a reference: https://github.com/neuralmagic/nm-vllm/tree/main
+        num_bits = 4 if torch.max(q_w_24) < 16 else -1
+        if num_bits not in [4]:
+            raise ValueError(
+                f"Only {[4]} bits are supported, got {num_bits}."
+            )
+
+        group_size = in_features // scale.shape[0]
+        if group_size == 0:
+            group_size = in_features
+        assert group_size <= in_features, "Group size must be less than or equal to in_features."
+
+        if group_size not in const.SUPPORTED_GROUP_SIZES:
+            raise ValueError(
+                f"Only {const.SUPPORTED_GROUP_SIZES} group sizes are supported, got {group_size}."
+            )
+
+        # Compress quantized weight to marlin 2:4 format
+        marlin_24_q_w_comp, marlin_24_s, meta = pack_to_marlin_24(q_w_24, scale, num_bits, group_size)
+
+        return cls(
+            marlin_24_q_w_comp, marlin_24_s, zero_point, 
+            meta, layout_type, q_w_24.shape,
+            group_size, num_bits
+        )
+    
+    def get_layout_type(self) -> LayoutType:
+        return self.layout_type
+
+    def _apply_fn_to_data(self, fn):
+        self.int_data = fn(self.int_data)
+        self.scale = fn(self.scale)
+        self.zero_point = fn(self.zero_point)
+        self.meta = fn(self.meta)
+        return self
+
+
+# Marlin Sparse op dispatch registration 
+@MarlinSparseAQTLayout.implements(aten.detach.default)
+def block_sparse_detach(func, types, args, kwargs):
+    return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.detach))
+
+
 @register_layout_cls(Float8LayoutType)
 class Float8AQTLayout(AQTLayout):
     """
@@ -758,7 +916,7 @@ class Float8AQTLayout(AQTLayout):
                 f"scale={scale},\n"
                 f"transposed={self.transposed}, "
                 f"layout_type={layout_type})")
-
+    
 
 @register_layout_cls(TensorCoreTiledLayoutType)
 class TensorCoreTiledAQTLayout(AQTLayout):
@@ -940,6 +1098,7 @@ def _aqt_is_uint4(aqt):
         aqt.quant_min is None or aqt.quant_min == 0 and
         aqt.quant_max is None or aqt.quant_max == 15
     )
+
 
 implements = AffineQuantizedTensor.implements
 
@@ -1219,6 +1378,58 @@ def _linear_fp_act_fp8_weight_impl(
     ).reshape(out_shape)
 
 
+def _linear_fp_act_int4_weight_sparse_marlin_check(input_tensor, weight_tensor, bias):
+    return (
+        _aqt_is_uint4(weight_tensor) and
+        input_tensor.dtype == torch.float16 and
+        len(weight_tensor.shape) == 2 and
+        weight_tensor.zero_point_domain == ZeroPointDomain.INT and
+        isinstance(weight_tensor.layout_type, MarlinSparseLayoutType)
+    )
+
+def _linear_fp_act_int4_weight_sparse_marlin_impl(input_tensor, weight_tensor, bias):
+    from torchao.sparsity.marlin import marlin_24_workspace, const
+
+    sparse_w_int4 = weight_tensor.layout_tensor.int_data
+    scale = weight_tensor.layout_tensor.scale
+    meta = weight_tensor.layout_tensor.meta
+    original_shape = weight_tensor.layout_tensor.original_shape
+    num_bits = weight_tensor.layout_tensor.num_bits
+
+    # Saves batch size for reshaping back to original shape after the matmul
+    # Reshapes tensor to (m, k) where m is in_features * batch and k is out_features
+    # NOTE(reviewers): Please check if I am handling the batch size correctly
+    batch_size = -1
+    if input_tensor.dim() == 3:
+        batch_size = input_tensor.size(0)
+        input_tensor = input_tensor.reshape(-1, input_tensor.shape[-1]).contiguous()
+
+    size_m = input_tensor.shape[0]
+    size_n = original_shape[1]
+    size_k = input_tensor.shape[1]
+    workspace_24 = marlin_24_workspace(original_shape[1])
+
+    # Pad input_tensor dim 1 to a multiple of the marlin tile size (16)
+    if size_k % const.TILE != 0:
+        pad_size = find_multiple(size_k, const.TILE)
+        input_tensor = torch.nn.functional.pad(input_tensor, (0, pad_size - size_k))
+        size_k = pad_size
+
+    out = torchao.ops.marlin_24_gemm(
+        input_tensor, sparse_w_int4, meta, scale, 
+        workspace_24, num_bits, size_m, size_n, size_k
+    )
+    torch.cuda.synchronize()
+
+    # Reshape back to original shape
+    if batch_size != -1:
+        out = out.reshape(batch_size, -1, out.shape[-1])
+
+    if bias is not None:
+        out += bias.to(out.dtype)
+    return out
+
+
 def _register_aqt_quantized_linear_dispatches():
     for dispatch_condition, impl in [
         (_linear_int8_act_int8_weight_check, _linear_int8_act_int8_weight_impl),
@@ -1227,6 +1438,7 @@ def _register_aqt_quantized_linear_dispatches():
         (_linear_bf16_act_uint4_weight_check, _linear_bf16_act_uint4_weight_impl),
         (_linear_fp_act_int8_weight_check, _linear_fp_act_int8_weight_impl),
         (_linear_f16_act_fpx_weight_check, _linear_f16_act_fpx_weight_impl),
+        (_linear_fp_act_int4_weight_sparse_marlin_check, _linear_fp_act_int4_weight_sparse_marlin_impl),
     ]:
         register_aqt_quantized_linear_dispatch(dispatch_condition, impl)
 
