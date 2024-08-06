@@ -49,9 +49,8 @@ def test_intx_affine_weight_only_model_quant(bit_size, group_size, device):
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")  
 @pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="only works with fix in the nightly build")
-def test_intx_affine_weight_only_quant(bit_size): 
-    input_float = torch.randn((1,8), dtype=torch.float16)
-    print('input_float', input_float)
+def test_intx_affine_weight_only_quant(bit_size, group_size, device): 
+    input_float = torch.randn((1,8), dtype=torch.float16, device = device)
     mapping_type = MappingType.SYMMETRIC
     quant_min = 0
     quant_max = 2**bit_size - 1
@@ -59,7 +58,7 @@ def test_intx_affine_weight_only_quant(bit_size):
     zero_point_dtype = torch.int32
     zero_point_domain = ZeroPointDomain.INT
     target_dtype = torch.uint8
-    block_size = (1, input_float.shape[1])
+    block_size = (1, group_size)
     
     scale, zero_point = choose_qparams_affine(
             input_float, mapping_type, block_size,
