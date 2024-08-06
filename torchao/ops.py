@@ -159,3 +159,80 @@ def _(packed_w: Tensor, scales_and_zeros: Tensor, group_size: int, inner_k_tiles
     torch._check(scales_and_zeros.size(2) == 2, lambda: "scales_and_zeros must have 2 at dim 2")
     
     return torch.empty((N, K), dtype=torch.bfloat16, device=packed_w.device)
+
+
+def marlin_24_mm(
+    x: Tensor,
+    weight_marlin: Tensor,
+    meta: Tensor,
+    s: Tensor,
+    workspace: Tensor,
+    thread_k: int = -1, 
+    thread_m: int = -1, 
+    sms: int = -1, 
+    max_par: int = 16,
+) -> Tensor:
+    """
+    Sparse Marlin 2:4 matrix multiplication. Reference: https://github.com/IST-DASLab/Sparse-Marlin/tree/main
+
+    Args:
+        x: input matrix of shape `(n, k/2)` in column-major layout.
+        weight_marlin: weight matrix of original shape `(m, k)` in Marlin format; see `Layer.pack()`.
+        meta: metadata information for 2:4 sparsity.
+        s: scales of shape `(n / groupsize / 2, m)`.
+        workspace: tensor with at least `m / 128 * max_par` entries that are all zero.
+        thread_k:  size of a thread_tile in `A` (can usually be left as auto -1).
+        thread_m: size of a thread_tile in `A` (can usually be left as auto -1).
+        sms: number of SMs to use for the kernel (can usually be left as auto -1).
+        max_par: maximum number of batch 64 problems to solve in parallel for large input sizes.
+
+    Returns:
+        output matrix of shape `(n, m)` in column-major layout.
+    """
+    out = torch.empty((x.size(0), s.size(1)), dtype=x.dtype, device=x.device)
+
+    # From: https://github.com/IST-DASLab/Sparse-Marlin/blob/c2ffa2395a3ada26c8cb7f910a5ec65bd3ce288a/marlin/marlin_cuda.cpp#L66
+    prob_n = x.size(0)
+    prob_m = out.size(1)
+    prob_k = x.size(1)
+    group_size = -1 if s.size(0) == 1 else prob_k / 2 / s.size(0)
+    device = torch.cuda.current_device()
+    cuda_stream = torch.cuda.current_stream(device)
+
+    torch.ops.torchao.marlin_24_mm.default(
+        x, weight_marlin, meta, out, 
+        s, prob_m, prob_n, prob_k, 
+        workspace, group_size, device, cuda_stream, 
+        thread_k, thread_m, sms, max_par
+    )
+
+    return out
+
+
+@register_custom_op(f"torchao::dequantize_tensor_core_tiled_layout")
+def _(
+    weight_marlin: Tensor,
+    x: Tensor,
+    meta: Tensor,
+    s: Tensor,
+    workspace: Tensor,
+    thread_k: int = -1, 
+    thread_m: int = -1, 
+    sms: int = -1, 
+    max_par: int = 16,
+) -> Tensor:
+    
+    # Dimensions check
+    torch._check(weight_marlin.dim() == 2, lambda: f"weight_marlin should be a 2d tensor, got {weight_marlin.dim()}D")
+    torch._check(x.dim() == 2, lambda: f"x should be a 2d tensor, got {x.dim()}D")
+    torch._check(s.dim() == 2, lambda: f"s should be a 2d tensor, got {s.dim()}D")
+
+    # Check if the dimensions are compatible
+    torch._check(
+        x.size(1) * 2 == weight_marlin.size(1),
+        lambda: f"weight_marlin should have 2x the number of columns as x, got {weight_marlin.size(1)} and {x.size(1)}",
+    )
+
+    # TODO(diogo): Add more checks here
+
+    return torch.empty((x.size(0), s.size(1)), dtype=x.dtype, device=x.device)
