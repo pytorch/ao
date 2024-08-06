@@ -361,7 +361,7 @@ def int8_dynamic_activation_int4_weight(group_size=32):
         return weight
 
     return _get_linear_subclass_inserter(apply_int8_dynamic_activation_int4_weight_quant)
- 
+
 
 def int4_weight_only(group_size=128, inner_k_tiles=8):
     """
