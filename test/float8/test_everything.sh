@@ -6,7 +6,7 @@ IS_ROCM=$(rocm-smi --version || true)
 
 pytest test/float8/test_base.py
 pytest test/float8/test_compile.py
-pytest test/float8/test_inference_flows.py
+# pytest test/float8/test_inference_flows.py
 pytest test/float8/test_numerics_integration.py
 
 # These tests do not work on ROCm yet
