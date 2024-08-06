@@ -1,4 +1,4 @@
-name: Run Regression Tests
+name: Test fp8
 
 on:
   push:
