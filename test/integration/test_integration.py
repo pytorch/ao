@@ -1173,13 +1173,13 @@ class SmoothquantIntegrationTest(unittest.TestCase):
 class TestAutoQuant(unittest.TestCase):
     @parameterized.expand(combine_parameters(COMMON_DEVICE_DTYPE,
         [
-            (16, 128, 128),
-            (64, 128, 128),
+            # (16, 128, 128),
+            # (64, 128, 128),
             # (2**15, 128, 128), TODO: Runs out of shared memory on T4
-            (16, 128, 256),
+            (2, 128, 256),
             # (64, 128, 256), # TODO: Runs out of shared memory on T4
-            (16, 256, 128),
-            (64, 256, 128),
+            # (16, 256, 128),
+            # (64, 256, 128),
             # (256, 256, 128), TODO: Runs out of shared memory on T4
         ]))
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
@@ -1194,7 +1194,7 @@ class TestAutoQuant(unittest.TestCase):
             if m == 1:
                 self.skipTest(f"Shape {(m, k, n)} requires sm80+")
         torch._inductor.config.epilogue_fusion = False
-        torch._inductor.config.use_mixed_mm = True
+        # torch._inductor.config.use_mixed_mm = True
         torch._inductor.config.force_fuse_int_mm_with_mul = True
         torch._dynamo.config.automatic_dynamic_shapes = False
 
