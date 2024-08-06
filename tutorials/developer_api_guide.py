@@ -26,6 +26,7 @@ from torchao.dtypes.utils import (
 
 aten = torch.ops.aten
 
+
 ###############################
 # Base Layout Tensor Subclass #
 ###############################
@@ -33,6 +34,7 @@ class MyDTypeLayout(torch.Tensor):
     """
     Base class for the layout tensor for `MyDTypeTensor`
     """
+
     # get the original unpacked Tensors
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor]:
         return self.int_data, self.scale
@@ -59,9 +61,11 @@ class MyDTypeLayout(torch.Tensor):
 
     __torch_function__ = torch._C._disabled_torch_function_impl
 
+
 ##############################
 # Tensor Subclass Definition #
 ##############################
+
 
 class MyDTypeTensor(torch.Tensor):
     """We need to define __new__ for constructing a new tensor subclass instance and __init__ for initialize
@@ -189,12 +193,15 @@ class MyDTypeTensor(torch.Tensor):
     __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
     __torch_function__ = classmethod(_dispatch__torch_function__)
 
+
 ######################################################
 # LayoutType and Layout Tensor Subclass Registration #
 ######################################################
 
+
 def register_layout_cls(layout_type_class: type(LayoutType)):
     return _register_layout_cls(MyDTypeTensor, layout_type_class)
+
 
 def get_layout_tensor_constructor(layout_type_class: type(LayoutType)):
     return _get_layout_tensor_constructor(MyDTypeTensor, layout_type_class)
@@ -236,7 +243,7 @@ class PlainMyDTypeLayout(MyDTypeLayout):
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
         int_data, scale = tensor_data_dict["int_data"], tensor_data_dict["scale"]
-        layout_type, = tensor_attributes
+        (layout_type,) = tensor_attributes
         return cls(int_data, scale, layout_type)
 
     @classmethod
@@ -272,11 +279,13 @@ class PlainMyDTypeLayout(MyDTypeLayout):
             f"MyDTypeLayout dispatch: attempting to run {func}, this is not supported"
         )
 
+
 #####################################################
 # torch functional and aten operator implementation #
 #####################################################
 
 implements = MyDTypeTensor.implements
+
 
 def _quantized_linear_op(input_tensor, weight_tensor, bias):
     if isinstance(input_tensor, MyDTypeTensor):
@@ -327,6 +336,7 @@ class M(torch.nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.linear(x)
 
+
 #####################
 # Factory functions #
 #####################
@@ -353,9 +363,7 @@ for _ in range(NUM_WARMUPS):
 print("after compile:", benchmark_model(compiled, NUM_RUNS, example_inputs[0]))
 
 # convert weights to quantized weights
-m.linear.weight = torch.nn.Parameter(
-    to_my_dtype(m.linear.weight), requires_grad=False
-)
+m.linear.weight = torch.nn.Parameter(to_my_dtype(m.linear.weight), requires_grad=False)
 
 for _ in range(NUM_WARMUPS):
     m(*example_inputs)
@@ -369,4 +377,6 @@ for _ in range(NUM_WARMUPS):
 
 # NOTE: currently there is no speedup because we just dequantize the weight in the _quantized_linear op
 # we plan to add custom op example in the future and that will help us to get speedup
-print("after quantization and compile:", benchmark_model(m, NUM_RUNS, example_inputs[0]))
+print(
+    "after quantization and compile:", benchmark_model(m, NUM_RUNS, example_inputs[0])
+)

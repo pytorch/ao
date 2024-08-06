@@ -19,7 +19,7 @@ class PerChannelNormObserver(UniformQuantizationObserverBase):
             quant_min=None,
             quant_max=None,
             eps=torch.finfo(torch.float32).eps,
-            **kwargs
+            **kwargs,
         )
         # set averaging constant so quantization flow knows observer is memoryless.
         self.averaging_constant = 1.0

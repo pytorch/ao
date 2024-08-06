@@ -20,6 +20,7 @@ AUTOTUNER_ENABLE = bool(int(os.getenv("TORCHAO_AUTOTUNER_ENABLE", 0)))
 if TORCH_VERSION_AFTER_2_2:
     from torch._dynamo import is_compiling as dynamo_is_compiling
     from torch._higher_order_ops.out_dtype import out_dtype
+
     def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
         """
         Performs a safe integer matrix multiplication, considering different paths for
@@ -56,9 +57,9 @@ if TORCH_VERSION_AFTER_2_2:
 
         if device_cpu or bad_dimensions_for_cublas:
             # fallback path
-            return torch.matmul(input.cpu().to(torch.int32), mat2.cpu().to(torch.int32)).to(
-                input.device.type
-            )
+            return torch.matmul(
+                input.cpu().to(torch.int32), mat2.cpu().to(torch.int32)
+            ).to(input.device.type)
 
         # cublas paths
         if not mat2.is_contiguous():  # silently gives incorrect result without this
@@ -71,6 +72,7 @@ if TORCH_VERSION_AFTER_2_2:
             )  # (it seems the transpose makes cublas check the above j constraint on i)
         return out_dtype(torch.ops.aten.mm.default, torch.int32, input, mat2)
 else:
+
     def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
         """
         Performs a fallback integer matrix multiplication for torch versions before 2.2.
@@ -84,7 +86,9 @@ else:
         """
         # We can improve on this by writing Triton code that works for older versions of Triton
         # that ship with 2.1 or 2.0.
-        return torch.matmul(input.to(torch.float32), mat2.to(torch.float32)).to(torch.int32)
+        return torch.matmul(input.to(torch.float32), mat2.to(torch.float32)).to(
+            torch.int32
+        )
 
 
 def int_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
@@ -104,7 +108,9 @@ def int_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return safe_int_mm(a, b)
 
 
-def int_scaled_matmul(a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor) -> torch.Tensor:
+def int_scaled_matmul(
+    a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor
+) -> torch.Tensor:
     """
     Performs scaled integer matrix multiplication.
 

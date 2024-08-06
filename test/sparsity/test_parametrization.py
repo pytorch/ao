@@ -171,5 +171,6 @@ class TestFakeSparsity(TestCase):
         y_hat = model_trace(x)
         self.assertEqual(y_hat, y)
 
+
 if __name__ == "__main__":
     unittest.main()

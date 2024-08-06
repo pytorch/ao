@@ -4,6 +4,7 @@ from .base_scheduler import BaseScheduler
 
 __all__ = ["LambdaSL"]
 
+
 class LambdaSL(BaseScheduler):
     """Sets the sparsity level of each parameter group to the final sl
     times a given function. When last_epoch=-1, sets initial sl as zero.
@@ -34,7 +35,9 @@ class LambdaSL(BaseScheduler):
             self.sl_lambdas = [sl_lambda] * len(sparsifier.groups)
         else:
             if len(sl_lambda) != len(sparsifier.groups):
-                raise ValueError(f"Expected {len(sparsifier.groups)} lr_lambdas, but got {len(sl_lambda)}")
+                raise ValueError(
+                    f"Expected {len(sparsifier.groups)} lr_lambdas, but got {len(sl_lambda)}"
+                )
             self.sl_lambdas = list(sl_lambda)
         super().__init__(sparsifier, last_epoch, verbose)
 
@@ -42,6 +45,9 @@ class LambdaSL(BaseScheduler):
         if not self._get_sl_called_within_step:
             warnings.warn(
                 "To get the last sparsity level computed by the scheduler, "
-                "please use `get_last_sl()`.")
-        return [base_sl * lmbda(self.last_epoch)
-                for lmbda, base_sl in zip(self.sl_lambdas, self.base_sl)]
+                "please use `get_last_sl()`."
+            )
+        return [
+            base_sl * lmbda(self.last_epoch)
+            for lmbda, base_sl in zip(self.sl_lambdas, self.base_sl)
+        ]

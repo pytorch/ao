@@ -7,7 +7,9 @@ from tqdm import tqdm
 
 
 def benchmark(m: int, k: int, n: int):
-    fp6_data = torch.randint(256, size=(n, k * 3 // 4), dtype=torch.uint8, device="cuda")
+    fp6_data = torch.randint(
+        256, size=(n, k * 3 // 4), dtype=torch.uint8, device="cuda"
+    )
     scale = torch.rand(n, dtype=torch.half, device="cuda") + 0.5
     fp6_weight = QuantLlmLinearWeight(fp6_data, scale, 3, 2)
 
@@ -18,7 +20,9 @@ def benchmark(m: int, k: int, n: int):
     fp16_output = F.linear(fp16_act, fp16_weight)
 
     fp6_time = benchmark_torch_function_in_microseconds(F.linear, fp16_act, fp6_weight)
-    fp16_time = benchmark_torch_function_in_microseconds(F.linear, fp16_act, fp16_weight)
+    fp16_time = benchmark_torch_function_in_microseconds(
+        F.linear, fp16_act, fp16_weight
+    )
 
     # follow https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/tests/python/kernel_test.py
     # doesn't seem to be the right way to check for correctness

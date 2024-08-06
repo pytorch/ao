@@ -325,9 +325,7 @@ def _test_distribute_fsdp_tensor_subclass(tp_mesh: DeviceMesh):
     )
     assert (
         isinstance(colwise_param, DTensor)
-        and isinstance(
-            colwise_param._local_tensor, WeightWithDynamicFloat8CastTensor
-        )
+        and isinstance(colwise_param._local_tensor, WeightWithDynamicFloat8CastTensor)
     ), f"expect DTensor(local_tensor={WeightWithDynamicFloat8CastTensor}) but got {colwise_param}"
     # test Float8RowwiseParallel
     rowwise_param = distribute_tensor(
@@ -335,9 +333,7 @@ def _test_distribute_fsdp_tensor_subclass(tp_mesh: DeviceMesh):
     )
     assert (
         isinstance(rowwise_param, DTensor)
-        and isinstance(
-            rowwise_param._local_tensor, WeightWithDynamicFloat8CastTensor
-        )
+        and isinstance(rowwise_param._local_tensor, WeightWithDynamicFloat8CastTensor)
     ), f"expect DTensor(local_tensor={WeightWithDynamicFloat8CastTensor}) but got {colwise_param}"
 
 

@@ -29,7 +29,10 @@ import copy
 
 def _apply_weight_only_uint4_quant(model):
     def fn(mod):
-        mod.weight = torch.nn.Parameter(PerChannelSymmetricWeightUInt4Tensor.from_float(mod.weight), requires_grad=False)
+        mod.weight = torch.nn.Parameter(
+            PerChannelSymmetricWeightUInt4Tensor.from_float(mod.weight),
+            requires_grad=False,
+        )
         return mod
 
     _replace_with_custom_fn_if_matches_filter(
@@ -38,28 +41,46 @@ def _apply_weight_only_uint4_quant(model):
         lambda mod, fqn: isinstance(mod, torch.nn.Linear),
     )
 
-@unittest.skip("FAILED test/dtypes/test_uint4.py::TestUInt4::test_basic_tensor_ops - AttributeError: module 'torch' has no attribute 'uint4'")
+
+@unittest.skip(
+    "FAILED test/dtypes/test_uint4.py::TestUInt4::test_basic_tensor_ops - AttributeError: module 'torch' has no attribute 'uint4'"
+)
 class TestUInt4(QuantizationTestCase):
     def test_basic_tensor_ops(self):
-        x = UInt4Tensor(torch.tensor([
-            [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
-            [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
-            [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
-        ], dtype=torch.uint8))
+        x = UInt4Tensor(
+            torch.tensor(
+                [
+                    [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
+                    [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
+                    [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
+                ],
+                dtype=torch.uint8,
+            )
+        )
         self.assertEqual(x.shape, (3, 16))
         # TODO: make sure this returns torch.uint4
         self.assertIs(x.dtype, torch.uint4)
         # making sure these works
         x.to(torch.uint8)
-        expected = UInt4Tensor(torch.tensor([
-            [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
-        ], dtype=torch.uint8))
+        expected = UInt4Tensor(
+            torch.tensor(
+                [
+                    [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF],
+                ],
+                dtype=torch.uint8,
+            )
+        )
         self.assertEqual(x[0:1, :], expected)
-        expected = UInt4Tensor(torch.tensor([
-            [0x23, 0x45],
-            [0x23, 0x45],
-            [0x23, 0x45],
-        ], dtype=torch.uint8))
+        expected = UInt4Tensor(
+            torch.tensor(
+                [
+                    [0x23, 0x45],
+                    [0x23, 0x45],
+                    [0x23, 0x45],
+                ],
+                dtype=torch.uint8,
+            )
+        )
         self.assertEqual(x[:, 2:6], expected)
         torch.save(x, "uint4_tensor.pt")
         x = torch.load("uint4_tensor.pt")
@@ -84,6 +105,7 @@ class TestUInt4(QuantizationTestCase):
             OP_TO_ANNOTATOR,
             QuantizationConfig,
         )
+
         class Uint4Observer(ObserverBase):
             def __init__(self, *args, **kwargs):
                 # just faking a dtype here
@@ -99,9 +121,15 @@ class TestUInt4(QuantizationTestCase):
             def convert(self, model: GraphModule, observer_node: Node):
                 with model.graph.inserting_before(observer_node):
                     q_node = model.graph.call_function(
-                        torch.ops.qtensors.quantize_per_tensor_uint4, (observer_node.args[0], 1.0, 0), {})
+                        torch.ops.qtensors.quantize_per_tensor_uint4,
+                        (observer_node.args[0], 1.0, 0),
+                        {},
+                    )
                     dq_node = model.graph.call_function(
-                        torch.ops.qtensors.dequantize_per_tensor_uint4, (q_node, 1.0, 0), {})
+                        torch.ops.qtensors.dequantize_per_tensor_uint4,
+                        (q_node, 1.0, 0),
+                        {},
+                    )
                     observer_node.replace_all_uses_with(dq_node)
                     model.graph.erase_node(observer_node)
 
@@ -160,10 +188,12 @@ class TestUInt4(QuantizationTestCase):
                     if _is_annotated(partition):
                         continue
 
-                    linear_node.meta["quantization_annotation"] = QuantizationAnnotation(
-                        input_qspec_map=input_qspec_map,
-                        output_qspec=quantization_config.output_activation,
-                        _annotated=True,
+                    linear_node.meta["quantization_annotation"] = (
+                        QuantizationAnnotation(
+                            input_qspec_map=input_qspec_map,
+                            output_qspec=quantization_config.output_activation,
+                            _annotated=True,
+                        )
                     )
                     _mark_nodes_as_annotated(partition)
 
@@ -214,13 +244,12 @@ class TestUInt4(QuantizationTestCase):
         m = convert_pt2e(m, fold_quantize=False)
         pt2_quant_output = m(*example_inputs)
 
-        node_occurrence = {
-            ns.call_function(k): v for k, v in node_occurrence.items()
-        }
+        node_occurrence = {ns.call_function(k): v for k, v in node_occurrence.items()}
         node_list = [ns.call_function(n) for n in node_list]
         self.checkGraphModuleNodes(
             m, expected_node_occurrence=node_occurrence, expected_node_list=node_list
         )
+
 
 if __name__ == "__main__":
     unittest.main()

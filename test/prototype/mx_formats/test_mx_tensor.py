@@ -121,17 +121,11 @@ def test_exponent_nan_out(elem_dtype):
         [E8M0_EXPONENT_NAN_VAL, 23, 42], dtype=torch.uint8, device="cuda"
     )
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
-        data_bits = torch.tensor(
-            [0, 1, 2, 3, 4, 5], dtype=elem_dtype, device="cuda"
-        )  # noqa: E501
+        data_bits = torch.tensor([0, 1, 2, 3, 4, 5], dtype=elem_dtype, device="cuda")  # noqa: E501
     elif elem_dtype in (DTYPE_FP6_E2M3, DTYPE_FP6_E3M2):
-        data_bits = torch.tensor(
-            [0, 1, 2, 3, 4, 5], dtype=torch.uint8, device="cuda"
-        )  # noqa: E501
+        data_bits = torch.tensor([0, 1, 2, 3, 4, 5], dtype=torch.uint8, device="cuda")  # noqa: E501
     elif elem_dtype == DTYPE_FP4:
-        data_bits = torch.tensor(
-            [0, 1, 2, 3, 4, 5], dtype=torch.uint8, device="cuda"
-        )  # noqa: E501
+        data_bits = torch.tensor([0, 1, 2, 3, 4, 5], dtype=torch.uint8, device="cuda")  # noqa: E501
         data_bits = pack_uint4(data_bits)
     else:
         raise AssertionError("unsupported")

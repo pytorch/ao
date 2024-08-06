@@ -4,9 +4,17 @@ from typing import Tuple
 import torch
 from torch import Tensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32, _n_ones
+from torchao.prototype.custom_fp_utils import (
+    _f32_to_fpx_unpacked,
+    _fpx_unpacked_to_f32,
+    _n_ones,
+)
 from torchao.ops import quant_llm_linear
-from torchao.dtypes.utils import _implements, _dispatch__torch_function__, _dispatch__torch_dispatch__
+from torchao.dtypes.utils import (
+    _implements,
+    _dispatch__torch_function__,
+    _dispatch__torch_dispatch__,
+)
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
 
 
@@ -15,11 +23,23 @@ _ONES_TABLE = [_n_ones(i) for i in range(8)]
 
 
 def _pack(x: Tensor, n_bits: int) -> Tensor:
-    return reduce(torch.bitwise_or, [x[..., i::(8 // n_bits)] << (8 - (i + 1) * n_bits) for i in range(8 // n_bits)])
+    return reduce(
+        torch.bitwise_or,
+        [
+            x[..., i :: (8 // n_bits)] << (8 - (i + 1) * n_bits)
+            for i in range(8 // n_bits)
+        ],
+    )
 
 
 def _unpack(x: Tensor, n_bits: int) -> Tensor:
-    return torch.stack([(x >> (8 - (i + 1) * n_bits)) & ((1 << n_bits) - 1) for i in range(8 // n_bits)], dim=-1).flatten(-2)
+    return torch.stack(
+        [
+            (x >> (8 - (i + 1) * n_bits)) & ((1 << n_bits) - 1)
+            for i in range(8 // n_bits)
+        ],
+        dim=-1,
+    ).flatten(-2)
 
 
 # https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/fp6_llm/csrc/utils/weight_prepacking.h#L87-L116
@@ -33,8 +53,40 @@ def _bit_interleave(x: Tensor, n_bits: int, undo: bool = False) -> Tensor:
 
     if not undo:
         bit_order = {
-            1: [1, 5, 9, 13, 17, 21, 25, 29, 3, 7, 11, 15, 19, 23, 27, 31,
-                0, 4, 8, 12, 16, 20, 24, 28, 2, 6, 10, 14, 18, 22, 26, 30],
+            1: [
+                1,
+                5,
+                9,
+                13,
+                17,
+                21,
+                25,
+                29,
+                3,
+                7,
+                11,
+                15,
+                19,
+                23,
+                27,
+                31,
+                0,
+                4,
+                8,
+                12,
+                16,
+                20,
+                24,
+                28,
+                2,
+                6,
+                10,
+                14,
+                18,
+                22,
+                26,
+                30,
+            ],
             2: [1, 5, 9, 13, 3, 7, 11, 15, 0, 4, 8, 12, 2, 6, 10, 14],
             4: [1, 5, 3, 7, 0, 4, 2, 6],
         }[n_bits]
@@ -43,8 +95,40 @@ def _bit_interleave(x: Tensor, n_bits: int, undo: bool = False) -> Tensor:
         # this is inverse of the above, obtained by running
         # [v.index(i) for i in range(len(v))]
         bit_order = {
-            1: [16, 0, 24, 8, 17, 1, 25, 9, 18, 2, 26, 10, 19, 3, 27, 11,
-                20, 4, 28, 12, 21, 5, 29, 13, 22, 6, 30, 14, 23, 7, 31, 15],
+            1: [
+                16,
+                0,
+                24,
+                8,
+                17,
+                1,
+                25,
+                9,
+                18,
+                2,
+                26,
+                10,
+                19,
+                3,
+                27,
+                11,
+                20,
+                4,
+                28,
+                12,
+                21,
+                5,
+                29,
+                13,
+                22,
+                6,
+                30,
+                14,
+                23,
+                7,
+                31,
+                15,
+            ],
             2: [8, 0, 12, 4, 9, 1, 13, 5, 10, 2, 14, 6, 11, 3, 15, 7],
             4: [4, 0, 6, 2, 5, 1, 7, 3],
         }[n_bits]
@@ -80,8 +164,12 @@ def _pack_tc_fpx(tensor: Tensor, nbits: int) -> Tensor:
             tensor_ybit = (tensor >> (nbits - used_bits - y)) & mask
             tensor_ybit = _pack(tensor_ybit, y)
 
-            tensor_ybit = tensor_ybit.view(32, -1, 4).permute(1, 0, 2).flip(2)  # Pass 2 from original code
-            tensor_ybit = _bit_interleave(tensor_ybit.flatten(), y)             # Pass 3 from original code
+            tensor_ybit = (
+                tensor_ybit.view(32, -1, 4).permute(1, 0, 2).flip(2)
+            )  # Pass 2 from original code
+            tensor_ybit = _bit_interleave(
+                tensor_ybit.flatten(), y
+            )  # Pass 3 from original code
             fragments.append(tensor_ybit)
             used_bits += y
 
@@ -123,7 +211,9 @@ def to_scaled_tc_fpx(tensor: Tensor, ebits: int, mbits: int) -> Tuple[Tensor, Te
 
     # workaround: global lookup table
     exp_bias = _ONES_TABLE[ebits - 1]
-    max_normal = 2 ** (_ONES_TABLE[ebits] - exp_bias) * (_ONES_TABLE[mbits + 1] / (2 ** mbits))
+    max_normal = 2 ** (_ONES_TABLE[ebits] - exp_bias) * (
+        _ONES_TABLE[mbits + 1] / (2**mbits)
+    )
 
     tensor = tensor.float()
     scale = tensor.abs().amax(1).clamp(min=1e-12) / max_normal
@@ -149,8 +239,10 @@ def _unpack_tc_fpx(tensor: Tensor, nbits: int) -> Tensor:
             tensor_ybit = tensor[offset : offset + size_ybit]
             offset += size_ybit
 
-            tensor_ybit = _bit_interleave(tensor_ybit, y, undo=True)            # undo Pass 3
-            tensor_ybit = tensor_ybit.view(-1, 32, 4).flip(2).permute(1, 0, 2)  # undo Pass 2
+            tensor_ybit = _bit_interleave(tensor_ybit, y, undo=True)  # undo Pass 3
+            tensor_ybit = (
+                tensor_ybit.view(-1, 32, 4).flip(2).permute(1, 0, 2)
+            )  # undo Pass 2
 
             tensor_ybit = _unpack(tensor_ybit.flatten(), y)
             tensor_ybit = tensor_ybit << (nbits - used_bits - y)
@@ -221,7 +313,7 @@ _SPLIT_K_MAP = [
         10240: 5,
         14336: 7,
         28672: 7,
-        57344: 7
+        57344: 7,
     },
     {  # tokens: [65:128]
         3072: 9,
@@ -232,7 +324,7 @@ _SPLIT_K_MAP = [
         10240: 5,
         14336: 7,
         28672: 7,
-        57344: 6
+        57344: 6,
     },
     {  # tokens: [129:192]
         3072: 6,
@@ -243,7 +335,7 @@ _SPLIT_K_MAP = [
         10240: 5,
         14336: 5,
         28672: 5,
-        57344: 4
+        57344: 4,
     },
     {  # tokens: [193:256]
         3072: 9,
@@ -254,7 +346,7 @@ _SPLIT_K_MAP = [
         10240: 4,
         14336: 8,
         28672: 6,
-        57344: 4
+        57344: 4,
     },
     {  # tokens: [257:320]
         3072: 7,
@@ -265,7 +357,7 @@ _SPLIT_K_MAP = [
         10240: 1,
         14336: 3,
         28672: 3,
-        57344: 4
+        57344: 4,
     },
     {  # tokens: [321:384]
         3072: 3,
@@ -276,7 +368,7 @@ _SPLIT_K_MAP = [
         10240: 8,
         14336: 3,
         28672: 4,
-        57344: 3
+        57344: 3,
     },
     {  # tokens: [385:448]
         3072: 5,
@@ -287,7 +379,7 @@ _SPLIT_K_MAP = [
         10240: 3,
         14336: 1,
         28672: 1,
-        57344: 3
+        57344: 3,
     },
     {  # tokens: [449:512]
         3072: 2,
@@ -298,7 +390,7 @@ _SPLIT_K_MAP = [
         10240: 2,
         14336: 6,
         28672: 4,
-        57344: 1
+        57344: 1,
     },
     {  # tokens: [513:576]
         3072: 2,
@@ -309,7 +401,7 @@ _SPLIT_K_MAP = [
         10240: 3,
         14336: 3,
         28672: 1,
-        57344: 1
+        57344: 1,
     },
     {  # tokens: [577:640]
         3072: 5,
@@ -320,7 +412,7 @@ _SPLIT_K_MAP = [
         10240: 1,
         14336: 1,
         28672: 1,
-        57344: 1
+        57344: 1,
     },
     {  # tokens: [641:704]
         3072: 3,
@@ -331,7 +423,7 @@ _SPLIT_K_MAP = [
         10240: 2,
         14336: 1,
         28672: 1,
-        57344: 1
+        57344: 1,
     },
     {  # tokens: [705:768]
         3072: 3,
@@ -342,8 +434,8 @@ _SPLIT_K_MAP = [
         10240: 1,
         14336: 1,
         28672: 1,
-        57344: 1
-    }
+        57344: 1,
+    },
 ]
 
 
@@ -375,8 +467,12 @@ class QuantLlmLinearWeight(Tensor):
         return ["fpx_data", "scale"], [self.ebits, self.mbits]
 
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
-        return cls(tensor_data_dict["fpx_data"], tensor_data_dict["scale"], *tensor_attributes)
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None
+    ):
+        return cls(
+            tensor_data_dict["fpx_data"], tensor_data_dict["scale"], *tensor_attributes
+        )
 
     @classmethod
     def from_float(cls, input_float: Tensor, ebits: int, mbits: int):
@@ -385,7 +481,9 @@ class QuantLlmLinearWeight(Tensor):
 
     def dequantize(self, output_dtype=None):
         output_dtype = output_dtype or torch.get_default_dtype()
-        return from_scaled_tc_fpx(self.fpx_data, self.ebits, self.mbits, self.scale).to(output_dtype)
+        return from_scaled_tc_fpx(self.fpx_data, self.ebits, self.mbits, self.scale).to(
+            output_dtype
+        )
 
     def __repr__(self):
         dtype = f"fp{1 + self.ebits + self.mbits}_e{self.ebits}m{self.mbits}"
@@ -401,6 +499,7 @@ class QuantLlmLinearWeight(Tensor):
             self.ebits,
             self.mbits,
         )
+
 
 @QuantLlmLinearWeight.implements(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
@@ -433,12 +532,16 @@ def _(func, types, args, kwargs):
 
 @QuantLlmLinearWeight.implements(aten.detach.default)
 def _(func, types, args, kwargs):
-    return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.detach))
+    return return_and_correct_aliasing(
+        func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+    )
 
 
 @QuantLlmLinearWeight.implements(aten.clone.default)
 def _(func, types, args, kwargs):
-    return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.clone))
+    return return_and_correct_aliasing(
+        func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+    )
 
 
 @QuantLlmLinearWeight.implements(aten._to_copy.default)
@@ -458,6 +561,7 @@ def quant_llm_fpx_weight_only(ebits: int, mbits: int):
         if (in_dim % 64 != 0) or (out_dim % 256 != 0):
             return weight
         return QuantLlmLinearWeight.from_float(weight, ebits, mbits)
+
     return _get_linear_subclass_inserter(apply_quant_llm)
 
 

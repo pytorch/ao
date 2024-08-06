@@ -10,11 +10,13 @@ from typing import List, Optional
 from generate import (
     _load_model,
     device_sync,
-
 )
 from torchao.quantization.quant_api import (
-    quantize_, int4_weight_only, int8_weight_only, int8_dynamic_activation_int8_weight, unwrap_tensor_subclass
-
+    quantize_,
+    int4_weight_only,
+    int8_weight_only,
+    int8_dynamic_activation_int8_weight,
+    unwrap_tensor_subclass,
 )
 from torchao._models._eval import TransformerEvalWrapper, InputRecorder
 
@@ -24,12 +26,13 @@ from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
 from torchao._models.llama.model import prepare_inputs_for_model
 from torchao.utils import TORCH_VERSION_AFTER_2_5
 
+
 def run_evaluation(
     checkpoint_path: Path,
     tasks: List[str],
     limit: Optional[int] = None,
-    device = "cuda",
-    precision = torch.bfloat16,
+    device="cuda",
+    precision=torch.bfloat16,
     quantization: Optional[str] = None,
     compile=False,
     max_length=None,
@@ -54,10 +57,9 @@ def run_evaluation(
     if max_length is None:
         max_length = model.config.block_size
 
-    device_sync(device=device) # MKG
+    device_sync(device=device)  # MKG
     print(f"Time to load model: {time.time() - t0:.02f} seconds")
     tokenizer = get_tokenizer(tokenizer_path, checkpoint_path)
-
 
     if quantization:
         if "int8wo" in quantization:
@@ -65,25 +67,35 @@ def run_evaluation(
         if "int8dq" in quantization:
             quantize_(model, int8_dynamic_activation_int8_weight())
         if "int4wo" in quantization and not "gptq" in quantization:
-            groupsize=int(quantization.split("-")[-1])
-            assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
+            groupsize = int(quantization.split("-")[-1])
+            assert (
+                groupsize in [32, 64, 128, 256]
+            ), f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
             quantize_(model.to(device), int4_weight_only(group_size=groupsize))
         if "int4wo" in quantization and "gptq" in quantization:
-            groupsize=int(quantization.split("-")[-2])
-            assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
-            assert precision==torch.bfloat16, f"{quantization} requires precision or bfloat16 but got {precision}"
+            groupsize = int(quantization.split("-")[-2])
+            assert (
+                groupsize in [32, 64, 128, 256]
+            ), f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
+            assert (
+                precision == torch.bfloat16
+            ), f"{quantization} requires precision or bfloat16 but got {precision}"
             assert "cuda" in device, "int4 gptq quantization only works on cuda"
-            inputs = InputRecorder(
-                tokenizer,
-                calibration_seq_length,
-                prepare_inputs_for_model,
-                pad_calibration_inputs,
-                model.config.vocab_size,
-                device="cpu"
-            ).record_inputs(
-                calibration_tasks,
-                calibration_limit,
-            ).get_inputs()
+            inputs = (
+                InputRecorder(
+                    tokenizer,
+                    calibration_seq_length,
+                    prepare_inputs_for_model,
+                    pad_calibration_inputs,
+                    model.config.vocab_size,
+                    device="cpu",
+                )
+                .record_inputs(
+                    calibration_tasks,
+                    calibration_limit,
+                )
+                .get_inputs()
+            )
 
             quantizer = Int4WeightOnlyGPTQQuantizer(groupsize=groupsize, device=device)
             model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
@@ -106,21 +118,76 @@ def run_evaluation(
             limit=limit,
         )
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description='Run HF Model Evaluation')
-    parser.add_argument('--checkpoint_path', type=Path, default=Path("../../../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
-    parser.add_argument('--tasks', nargs='+', type=str, default=["wikitext"], help='List of lm-eluther tasks to evaluate usage: --tasks task1 task2')
-    parser.add_argument('--limit', type=int, default=None, help='Number of eval samples to evaluate')
-    parser.add_argument('--precision', type=lambda x: getattr(torch, x.split(".")[-1]), default=torch.bfloat16, help='dtype precision to use')
-    parser.add_argument('--device', type=str, default="cuda", help='Device to use for evaluation')
-    parser.add_argument("-q", "--quantization", type=str, help="Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, int4wo-<groupsize>-gptq")
-    parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
-    parser.add_argument('--max_length', type=int, default=None, help='Length of text to process at one time')
-    parser.add_argument('--calibration_tasks', type=str, nargs='+', default=['wikitext'], help='tasks to do gptq calibration on, if doing gptq')
-    parser.add_argument('--calibration_limit', type=int, default=1000, help='number of samples to use for gptq calibration')
-    parser.add_argument('--calibration_seq_length', type=int, default=100, help='length of sequences to use for gptq calibration')
-    parser.add_argument('--pad_calibration_inputs', type=bool, default=False, help='pads sequences shorter than calibration_seq_length to that length, yielding more calibration inputs but running much slower')
+
+    parser = argparse.ArgumentParser(description="Run HF Model Evaluation")
+    parser.add_argument(
+        "--checkpoint_path",
+        type=Path,
+        default=Path("../../../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"),
+        help="Model checkpoint path.",
+    )
+    parser.add_argument(
+        "--tasks",
+        nargs="+",
+        type=str,
+        default=["wikitext"],
+        help="List of lm-eluther tasks to evaluate usage: --tasks task1 task2",
+    )
+    parser.add_argument(
+        "--limit", type=int, default=None, help="Number of eval samples to evaluate"
+    )
+    parser.add_argument(
+        "--precision",
+        type=lambda x: getattr(torch, x.split(".")[-1]),
+        default=torch.bfloat16,
+        help="dtype precision to use",
+    )
+    parser.add_argument(
+        "--device", type=str, default="cuda", help="Device to use for evaluation"
+    )
+    parser.add_argument(
+        "-q",
+        "--quantization",
+        type=str,
+        help="Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, int4wo-<groupsize>-gptq",
+    )
+    parser.add_argument(
+        "--compile", action="store_true", help="Whether to compile the model."
+    )
+    parser.add_argument(
+        "--max_length",
+        type=int,
+        default=None,
+        help="Length of text to process at one time",
+    )
+    parser.add_argument(
+        "--calibration_tasks",
+        type=str,
+        nargs="+",
+        default=["wikitext"],
+        help="tasks to do gptq calibration on, if doing gptq",
+    )
+    parser.add_argument(
+        "--calibration_limit",
+        type=int,
+        default=1000,
+        help="number of samples to use for gptq calibration",
+    )
+    parser.add_argument(
+        "--calibration_seq_length",
+        type=int,
+        default=100,
+        help="length of sequences to use for gptq calibration",
+    )
+    parser.add_argument(
+        "--pad_calibration_inputs",
+        type=bool,
+        default=False,
+        help="pads sequences shorter than calibration_seq_length to that length, yielding more calibration inputs but running much slower",
+    )
 
     args = parser.parse_args()
     run_evaluation(

@@ -16,7 +16,6 @@ logger = logging.getLogger(__file__)
 
 
 class Autotuner(KernelInterface):
-
     def __init__(
         self,
         fn,
@@ -357,7 +356,6 @@ def autotune(
 
 
 class Heuristics(KernelInterface):
-
     def __init__(self, fn, arg_names, values) -> None:
         self.fn = fn
         self.values = values

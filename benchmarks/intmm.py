@@ -90,7 +90,9 @@ def run_benchmarks(shapes):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="integer matmul benchmarks")
-    parser.add_argument("--file_path", type=str, required=True, help="Path to csv file with shapes")
+    parser.add_argument(
+        "--file_path", type=str, required=True, help="Path to csv file with shapes"
+    )
     args = parser.parse_args()
     # Access the file path provided as an argument
     file_path = args.file_path

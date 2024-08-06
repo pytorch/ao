@@ -110,5 +110,6 @@ class TestWandaSparsifier(TestCase):
 
         sparsifier.squash_mask()
 
+
 if __name__ == "__main__":
     unittest.main()

@@ -289,9 +289,7 @@ float4_e2m1_interesting_values = [
 ]
 float4_e2m1_neg = []
 for fp32_ref, formula, _s, e, m, label in float4_e2m1_interesting_values:
-    float4_e2m1_neg.append(
-        [-1 * fp32_ref, "-" + formula, "1", e, m, label + "_neg"]
-    )  # noqa: E501
+    float4_e2m1_neg.append([-1 * fp32_ref, "-" + formula, "1", e, m, label + "_neg"])  # noqa: E501
 float4_e2m1_interesting_values.extend(float4_e2m1_neg)
 del float4_e2m1_neg
 
@@ -305,9 +303,7 @@ float6_e3m2_interesting_values = [
 ]
 float6_e3m2_neg = []
 for fp32_ref, formula, _s, e, m, label in float6_e3m2_interesting_values:
-    float6_e3m2_neg.append(
-        [-1 * fp32_ref, "-" + formula, "1", e, m, label + "_neg"]
-    )  # noqa: E501
+    float6_e3m2_neg.append([-1 * fp32_ref, "-" + formula, "1", e, m, label + "_neg"])  # noqa: E501
 float6_e3m2_interesting_values.extend(float6_e3m2_neg)
 del float6_e3m2_neg
 

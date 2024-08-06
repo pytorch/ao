@@ -14,10 +14,12 @@ __all__ = [
 
 aten = torch.ops.aten
 
+
 class LinearActivationQuantizedTensor(torch.Tensor):
     """
     Applies activation quantization for linear operator
     """
+
     def __new__(
         cls,
         original_weight_tensor: torch.Tensor,
@@ -47,7 +49,7 @@ class LinearActivationQuantizedTensor(torch.Tensor):
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
         original_weight_tensor = tensor_data_dict["original_weight_tensor"]
-        input_quant_func, = tensor_attributes
+        (input_quant_func,) = tensor_attributes
         return cls(
             original_weight_tensor,
             input_quant_func,
@@ -88,7 +90,9 @@ class LinearActivationQuantizedTensor(torch.Tensor):
     __torch_function__ = classmethod(_dispatch__torch_function__)
     __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
 
+
 implements = LinearActivationQuantizedTensor.implements
+
 
 @implements(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
@@ -103,12 +107,17 @@ def _(func, types, args, kwargs):
         aqt = input_quant_func(input_tensor)
         return torch.nn.functional.linear(aqt, original_weight_tensor, bias)
 
-    raise NotImplementedError("LinearActivationQuantizedTensor: No specialized dispatch found for linear op")
+    raise NotImplementedError(
+        "LinearActivationQuantizedTensor: No specialized dispatch found for linear op"
+    )
+
 
 @implements([aten.mm.default, aten.addmm.default])
 def _(func, types, args, kwargs):
     if not args[0].is_floating_point():
-        raise NotImplementedError(f"LinearActivationQuantizedTensor: expecting a floating point input")
+        raise NotImplementedError(
+            f"LinearActivationQuantizedTensor: expecting a floating point input"
+        )
 
     if func == aten.addmm.default:
         assert args[1].shape[-1] == args[2].shape[0], (
@@ -146,11 +155,13 @@ def _(func, types, args, kwargs):
         func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
     )
 
+
 @implements(aten.clone.default)
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
     )
+
 
 @implements(aten._to_copy.default)
 def _(func, types, args, kwargs):
@@ -161,10 +172,12 @@ def _(func, types, args, kwargs):
         args[0].to(*args[1:], **kwargs)._apply_fn_to_data(torch.clone),
     )
 
+
 @implements(aten.t.default)
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.t)
     )
+
 
 to_linear_activation_quantized = LinearActivationQuantizedTensor.from_float

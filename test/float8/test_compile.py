@@ -150,7 +150,10 @@ def test_aot_eager(
 @pytest.mark.parametrize(
     "scaling_type_grad_output", [ScalingType.DELAYED, ScalingType.DYNAMIC]
 )
-@unittest.skipIf(not torch.cuda.is_available() or not is_H100, "CUDA with float8 support not available")
+@unittest.skipIf(
+    not torch.cuda.is_available() or not is_H100,
+    "CUDA with float8 support not available",
+)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
 def test_inductor(
     fullgraph,
@@ -197,7 +200,10 @@ class TestGraphBreaks(DynamoTestCase):
                 return x_hp
             return x_fp8
 
-    @unittest.skipIf(not torch.cuda.is_available() or not is_H100, "CUDA with float8 support not available")
+    @unittest.skipIf(
+        not torch.cuda.is_available() or not is_H100,
+        "CUDA with float8 support not available",
+    )
     def test_float8_with_graph_break_in_the_middle(self):
         """Test that having Float8Tensor object at the boundary of a subgraph"""
         cnts = CompileCounterWithBackend("inductor")
@@ -210,7 +216,10 @@ class TestGraphBreaks(DynamoTestCase):
         self.assertEqual(cnts.frame_count, 2, "Compiled graph should have 2 frames!")
         torch.testing.assert_close(y_eager, y_compiled)
 
-    @unittest.skipIf(not torch.cuda.is_available() or not is_H100, "CUDA with float8 support not available")
+    @unittest.skipIf(
+        not torch.cuda.is_available() or not is_H100,
+        "CUDA with float8 support not available",
+    )
     def test_float8_graph_input(self):
         """Test that having Float8Tensor object as a graph input"""
 
@@ -231,7 +240,10 @@ class TestGraphBreaks(DynamoTestCase):
         )
         torch.testing.assert_close(y2_eager, y2_compiled)
 
-    @unittest.skipIf(not torch.cuda.is_available() or not is_H100, "CUDA with float8 support not available")
+    @unittest.skipIf(
+        not torch.cuda.is_available() or not is_H100,
+        "CUDA with float8 support not available",
+    )
     def test_float8_graph_output(self):
         """Test that having Float8Tensor object as a graph output works"""
         cnts = CompileCounterWithBackend("inductor")
@@ -258,7 +270,10 @@ class TestGraphBreaks(DynamoTestCase):
         )
 
 
-@unittest.skipIf(not torch.cuda.is_available() or not is_H100, "CUDA with float8 support not available")
+@unittest.skipIf(
+    not torch.cuda.is_available() or not is_H100,
+    "CUDA with float8 support not available",
+)
 def test_sync_amax_func():
     torch._dynamo.reset()
     cnts = CompileCounterWithBackend("inductor")
@@ -296,7 +311,10 @@ class capture_stderr(list):
         sys.stderr = self.sys_stderr
 
 
-@unittest.skipIf(not torch.cuda.is_available() or not is_H100, "CUDA with float8 support not available")
+@unittest.skipIf(
+    not torch.cuda.is_available() or not is_H100,
+    "CUDA with float8 support not available",
+)
 def test_sync_amax_func_cuda_graph_success():
     torch._dynamo.reset()
     with capture_stderr() as stderr:

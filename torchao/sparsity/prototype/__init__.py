@@ -1,7 +1,11 @@
 # Sparsifier
 from torchao.sparsity.prototype.sparsifier.base_sparsifier import BaseSparsifier
-from torchao.sparsity.prototype.sparsifier.weight_norm_sparsifier import WeightNormSparsifier
-from torchao.sparsity.prototype.sparsifier.nearly_diagonal_sparsifier import NearlyDiagonalSparsifier
+from torchao.sparsity.prototype.sparsifier.weight_norm_sparsifier import (
+    WeightNormSparsifier,
+)
+from torchao.sparsity.prototype.sparsifier.nearly_diagonal_sparsifier import (
+    NearlyDiagonalSparsifier,
+)
 
 # Scheduler
 from torchao.sparsity.prototype.scheduler.base_scheduler import BaseScheduler
