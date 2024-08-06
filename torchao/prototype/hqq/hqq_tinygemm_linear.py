@@ -1,5 +1,4 @@
-
-#mobicham's tinygemm hqq eval script
+# mobicham's tinygemm hqq eval script
 import torch
 
 device = "cuda"

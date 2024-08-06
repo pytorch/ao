@@ -40,6 +40,7 @@ is_H100 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9
 if not is_H100:
     pytest.skip("Unsupported CUDA device capability version", allow_module_level=True)
 
+
 class TestFloat8Common:
     def broadcast_module(self, module: nn.Module) -> None:
         # Broadcast for multi-threaded process group tests since seed is per

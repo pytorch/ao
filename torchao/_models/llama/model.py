@@ -12,6 +12,7 @@ from torch import Tensor
 from torch.nn import functional as F
 from torchao.utils import find_multiple
 
+
 # TODO remove suplerfluous arg
 def prepare_inputs_for_model(inps, max_new_tokens=1):
     # this is because input from lm-eval is 2d
@@ -20,6 +21,7 @@ def prepare_inputs_for_model(inps, max_new_tokens=1):
 
     input_pos = torch.arange(0, inps.numel(), device=inps.device)
     return (inps.view(1, -1), input_pos)
+
 
 @dataclass
 class ModelArgs:
@@ -48,48 +50,88 @@ class ModelArgs:
         if name in transformer_configs:
             return cls(**transformer_configs[name])
         # fuzzy search
-        config = [config for config in transformer_configs if config in str(name).upper() or config in str(name)]
+        config = [
+            config
+            for config in transformer_configs
+            if config in str(name).upper() or config in str(name)
+        ]
 
         # We may have two or more configs matched (e.g. "7B" and "Mistral-7B"). Find the best config match,
         # take longer name (as it have more symbols matched)
         if len(config) > 1:
             config.sort(key=len, reverse=True)
-            assert len(config[0]) != len(config[1]), name # make sure only one 'best' match
+            assert len(config[0]) != len(
+                config[1]
+            ), name  # make sure only one 'best' match
 
         return cls(**transformer_configs[config[0]])
 
 
 transformer_configs = {
-    "CodeLlama-7b-Python-hf": dict(block_size=16384, vocab_size=32000, n_layer=32, dim = 4096, rope_base=1000000),
+    "CodeLlama-7b-Python-hf": dict(
+        block_size=16384, vocab_size=32000, n_layer=32, dim=4096, rope_base=1000000
+    ),
     "7B": dict(n_layer=32, n_head=32, dim=4096),
     "13B": dict(n_layer=40, n_head=40, dim=5120),
     "30B": dict(n_layer=60, n_head=52, dim=6656),
-    "34B": dict(n_layer=48, n_head=64, dim=8192, vocab_size=32000, n_local_heads=8, intermediate_size=22016, rope_base=1000000), # CodeLlama-34B-Python-hf
-    "70B": dict(n_layer=80, n_head=64, dim=8192, n_local_heads=8, intermediate_size=28672),
-    "Mistral-7B": dict(n_layer=32, n_head=32, n_local_heads=8, dim=4096, intermediate_size=14336, vocab_size=32000),
+    "34B": dict(
+        n_layer=48,
+        n_head=64,
+        dim=8192,
+        vocab_size=32000,
+        n_local_heads=8,
+        intermediate_size=22016,
+        rope_base=1000000,
+    ),  # CodeLlama-34B-Python-hf
+    "70B": dict(
+        n_layer=80, n_head=64, dim=8192, n_local_heads=8, intermediate_size=28672
+    ),
+    "Mistral-7B": dict(
+        n_layer=32,
+        n_head=32,
+        n_local_heads=8,
+        dim=4096,
+        intermediate_size=14336,
+        vocab_size=32000,
+    ),
     "stories15M": dict(n_layer=6, n_head=6, dim=288),
     "stories110M": dict(n_layer=12, n_head=12, dim=768),
-    "Llama-3-8B": dict(block_size=8192, n_layer=32, n_head=32, n_local_heads=8, dim=4096, intermediate_size=14336, vocab_size=128256),
+    "Llama-3-8B": dict(
+        block_size=8192,
+        n_layer=32,
+        n_head=32,
+        n_local_heads=8,
+        dim=4096,
+        intermediate_size=14336,
+        vocab_size=128256,
+    ),
 }
 
-# this is a model specific variable that controls whether index_put is used for the kv_cache update, 
+# this is a model specific variable that controls whether index_put is used for the kv_cache update,
 # it is needed for GPTQ but otherwise attenuates perf so the default is to not use it
 use_index_put_for_kv_cache = False
 
+
 class KVCache(nn.Module):
-    def __init__(self, max_batch_size, max_seq_length, n_heads, head_dim, dtype=torch.bfloat16):
+    def __init__(
+        self, max_batch_size, max_seq_length, n_heads, head_dim, dtype=torch.bfloat16
+    ):
         super().__init__()
         cache_shape = (max_batch_size, n_heads, max_seq_length, head_dim)
-        self.register_buffer('k_cache', torch.zeros(cache_shape, dtype=dtype))
-        self.register_buffer('v_cache', torch.zeros(cache_shape, dtype=dtype))
+        self.register_buffer("k_cache", torch.zeros(cache_shape, dtype=dtype))
+        self.register_buffer("v_cache", torch.zeros(cache_shape, dtype=dtype))
 
     def update(self, input_pos, k_val, v_val):
         # input_pos: [S], k_val: [B, H, S, D]
         assert input_pos.shape[0] == k_val.shape[2]
 
         if use_index_put_for_kv_cache:
-            k_out = torch.ops.aten.index_put_(self.k_cache, [None, None, input_pos], k_val)
-            v_out = torch.ops.aten.index_put_(self.v_cache, [None, None, input_pos], v_val)
+            k_out = torch.ops.aten.index_put_(
+                self.k_cache, [None, None, input_pos], k_val
+            )
+            v_out = torch.ops.aten.index_put_(
+                self.v_cache, [None, None, input_pos], v_val
+            )
         else:
             k_out = self.k_cache
             v_out = self.v_cache
@@ -102,30 +144,42 @@ class KVCache(nn.Module):
 from torchao.quantization.quant_primitives import quantize_affine, dequantize_affine
 from torchao.quantization.utils import quantize_activation_per_token_absmax
 
+
 class AffineQuantizedKVCache(nn.Module):
-    def __init__(self, max_batch_size, max_seq_length, n_heads, head_dim, scale_dtype=torch.bfloat16):
+    def __init__(
+        self,
+        max_batch_size,
+        max_seq_length,
+        n_heads,
+        head_dim,
+        scale_dtype=torch.bfloat16,
+    ):
         super().__init__()
         cache_shape = (max_batch_size, n_heads, max_seq_length, head_dim)
         scale_shape = (max_batch_size, n_heads, max_seq_length, 1)
-        self.register_buffer('k_cache', torch.zeros(cache_shape, dtype=torch.int8))
-        self.register_buffer('v_cache', torch.zeros(cache_shape, dtype=torch.int8))
-        self.register_buffer('k_cache_scale', torch.ones(scale_shape, dtype=scale_dtype))
-        self.register_buffer('v_cache_scale', torch.ones(scale_shape, dtype=scale_dtype))
-    
+        self.register_buffer("k_cache", torch.zeros(cache_shape, dtype=torch.int8))
+        self.register_buffer("v_cache", torch.zeros(cache_shape, dtype=torch.int8))
+        self.register_buffer(
+            "k_cache_scale", torch.ones(scale_shape, dtype=scale_dtype)
+        )
+        self.register_buffer(
+            "v_cache_scale", torch.ones(scale_shape, dtype=scale_dtype)
+        )
+
     def update(self, input_pos, k_val, v_val):
         # quantize current k_val and store it in the cache
         q_k_val, k_scale = quantize_activation_per_token_absmax(k_val)
         self.k_cache[:, :, input_pos] = q_k_val
         self.k_cache_scale[:, :, input_pos] = k_scale.unsqueeze(-1)
-        k_out = self.k_cache*self.k_cache_scale
+        k_out = self.k_cache * self.k_cache_scale
         k_out[:, :, input_pos] = k_val
 
         q_v_val, v_scale = quantize_activation_per_token_absmax(v_val)
         self.v_cache[:, :, input_pos] = q_v_val
         self.v_cache_scale[:, :, input_pos] = v_scale.unsqueeze(-1)
-        v_out = self.v_cache*self.v_cache_scale
+        v_out = self.v_cache * self.v_cache_scale
         v_out[:, :, input_pos] = v_val
-        
+
         return k_out, v_out
 
     @classmethod
@@ -135,13 +189,16 @@ class AffineQuantizedKVCache(nn.Module):
         scale_dtype = kv_cache.k_cache.dtype
         return cls(max_batch_size, max_seq_length, n_heads, head_dim, scale_dtype)
 
+
 class Transformer(nn.Module):
     def __init__(self, config: ModelArgs) -> None:
         super().__init__()
         self.config = config
 
         self.tok_embeddings = nn.Embedding(config.vocab_size, config.dim)
-        self.layers = nn.ModuleList(TransformerBlock(config) for _ in range(config.n_layer))
+        self.layers = nn.ModuleList(
+            TransformerBlock(config) for _ in range(config.n_layer)
+        )
         self.norm = RMSNorm(config.dim, eps=config.norm_eps)
         self.output = nn.Linear(config.dim, config.vocab_size, bias=False)
 
@@ -151,7 +208,10 @@ class Transformer(nn.Module):
         self.max_seq_length = -1
 
     def setup_caches(self, max_batch_size, max_seq_length):
-        if self.max_seq_length >= max_seq_length and self.max_batch_size >= max_batch_size:
+        if (
+            self.max_seq_length >= max_seq_length
+            and self.max_batch_size >= max_batch_size
+        ):
             return
         head_dim = self.config.dim // self.config.n_head
         max_seq_length = find_multiple(max_seq_length, 8)
@@ -164,10 +224,23 @@ class Transformer(nn.Module):
         elif hasattr(self.output, "scales_and_zeros"):
             dtype = self.output.scales_and_zeros.dtype
         for b in self.layers:
-            b.attention.kv_cache = KVCache(max_batch_size, max_seq_length, self.config.n_local_heads, head_dim, dtype)
+            b.attention.kv_cache = KVCache(
+                max_batch_size,
+                max_seq_length,
+                self.config.n_local_heads,
+                head_dim,
+                dtype,
+            )
 
-        self.freqs_cis = precompute_freqs_cis(self.config.block_size, self.config.dim // self.config.n_head, self.config.rope_base, dtype)
-        self.causal_mask = torch.tril(torch.ones(self.max_seq_length, self.max_seq_length, dtype=torch.bool))
+        self.freqs_cis = precompute_freqs_cis(
+            self.config.block_size,
+            self.config.dim // self.config.n_head,
+            self.config.rope_base,
+            dtype,
+        )
+        self.causal_mask = torch.tril(
+            torch.ones(self.max_seq_length, self.max_seq_length, dtype=torch.bool)
+        )
 
     def forward(self, idx: Tensor, input_pos: Optional[Tensor] = None) -> Tensor:
         assert self.freqs_cis is not None, "Caches must be initialized first"
@@ -194,7 +267,9 @@ class TransformerBlock(nn.Module):
         self.ffn_norm = RMSNorm(config.dim, config.norm_eps)
         self.attention_norm = RMSNorm(config.dim, config.norm_eps)
 
-    def forward(self, x: Tensor, input_pos: Tensor, freqs_cis: Tensor, mask: Tensor) -> Tensor:
+    def forward(
+        self, x: Tensor, input_pos: Tensor, freqs_cis: Tensor, mask: Tensor
+    ) -> Tensor:
         h = x + self.attention(self.attention_norm(x), freqs_cis, mask, input_pos)
         out = h + self.feed_forward(self.ffn_norm(h))
         return out
@@ -224,7 +299,13 @@ class Attention(nn.Module):
             wv = state_dict.pop(prefix + "wv.weight")
             state_dict[prefix + "wqkv.weight"] = torch.cat([wq, wk, wv])
 
-    def forward(self, x: Tensor, freqs_cis: Tensor, mask: Tensor, input_pos: Optional[Tensor] = None) -> Tensor:
+    def forward(
+        self,
+        x: Tensor,
+        freqs_cis: Tensor,
+        mask: Tensor,
+        input_pos: Optional[Tensor] = None,
+    ) -> Tensor:
         bsz, seqlen, _ = x.shape
 
         kv_size = self.n_local_heads * self.head_dim
@@ -278,10 +359,11 @@ class RMSNorm(nn.Module):
 
 
 def precompute_freqs_cis(
-    seq_len: int, n_elem: int, base: int = 10000,
-    dtype: torch.dtype = torch.bfloat16
+    seq_len: int, n_elem: int, base: int = 10000, dtype: torch.dtype = torch.bfloat16
 ) -> Tensor:
-    freqs = 1.0 / (base ** (torch.arange(0, n_elem, 2)[: (n_elem // 2)].float() / n_elem))
+    freqs = 1.0 / (
+        base ** (torch.arange(0, n_elem, 2)[: (n_elem // 2)].float() / n_elem)
+    )
     t = torch.arange(seq_len, device=freqs.device)
     freqs = torch.outer(t, freqs)
     freqs_cis = torch.polar(torch.ones_like(freqs), freqs)

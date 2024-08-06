@@ -18,7 +18,6 @@ logging.basicConfig(level=logging.INFO)
 
 
 class TestQuantFlow(unittest.TestCase):
-
     def setUp(self):
         os.environ["TORCHAO_AUTOTUNER_ENABLE"] = "1"
 

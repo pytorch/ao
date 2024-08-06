@@ -17,7 +17,6 @@ class Quantizer(ABC):
     def quantize(
         self, model: torch.nn.Module, *args: Any, **kwargs: Any
     ) -> torch.nn.Module:
-
         pass
 
 
@@ -27,11 +26,9 @@ class TwoStepQuantizer:
     def prepare(
         self, model: torch.nn.Module, *args: Any, **kwargs: Any
     ) -> torch.nn.Module:
-
         pass
 
     def convert(
         self, model: torch.nn.Module, *args: Any, **kwargs: Any
     ) -> torch.nn.Module:
-
         pass

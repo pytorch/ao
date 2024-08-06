@@ -31,5 +31,6 @@ class TestAffineQuantized(TestCase):
             aqt_shape = aqt.shape
             self.assertEqual(aqt_shape, shape)
 
+
 if __name__ == "__main__":
     run_tests()

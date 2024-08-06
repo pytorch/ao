@@ -45,8 +45,7 @@ def run(profile_folder: Optional[str] = None):
             )
 
             if (
-                elem_dtype != DTYPE_FP4
-                and use_fp4_custom_triton_dequant_kernel  # noqa: E501
+                elem_dtype != DTYPE_FP4 and use_fp4_custom_triton_dequant_kernel  # noqa: E501
             ):
                 # custom_triton_kernels only works for fp4
                 continue

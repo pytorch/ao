@@ -4,7 +4,12 @@ import torch
 from torch import Tensor
 from torchao.dtypes.utils import _implements, _dispatch__torch_dispatch__
 
-from .quant_utils import create_dynamic_map, scale_tensor, quantize_4bit_with_qmap, dequant_with_qmap
+from .quant_utils import (
+    create_dynamic_map,
+    scale_tensor,
+    quantize_4bit_with_qmap,
+    dequant_with_qmap,
+)
 
 
 aten = torch.ops.aten
@@ -60,8 +65,12 @@ class OptimState4bit(Tensor):
         return self.tensor_attrs, [self.signed, self._shape]
 
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
-        return cls(*[tensor_data_dict[name] for name in cls.tensor_attrs], *tensor_attributes)
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None
+    ):
+        return cls(
+            *[tensor_data_dict[name] for name in cls.tensor_attrs], *tensor_attributes
+        )
 
     def dequantize(self, output_dtype=None):
         codes = torch.stack([self.codes >> 4, self.codes & 0b1111], dim=-1)  # unpack
@@ -132,16 +141,20 @@ def _(func, types, args, kwargs):
     if len(shape) == 1 and shape[0] == -1:
         return OptimState4bit(x.codes, x.scale, x.qmap, x.signed, (x.numel(),))
 
-    raise ValueError(f"{x.__class__.__name__} only supports .view() with same shape or shape=[-1]")
+    raise ValueError(
+        f"{x.__class__.__name__} only supports .view() with same shape or shape=[-1]"
+    )
 
 
 # this is needed for DTensor.full_tensor()
-@OptimState4bit.implements([
-    c10d_functional.all_gather_into_tensor.default,
-    _c10d_functional.all_gather_into_tensor.default,
-    c10d_functional.wait_tensor.default,
-    _c10d_functional.wait_tensor.default,
-])
+@OptimState4bit.implements(
+    [
+        c10d_functional.all_gather_into_tensor.default,
+        _c10d_functional.all_gather_into_tensor.default,
+        c10d_functional.wait_tensor.default,
+        _c10d_functional.wait_tensor.default,
+    ]
+)
 def _(func, types, args, kwargs):
     x = args[0]
     if not isinstance(x, OptimState4bit):

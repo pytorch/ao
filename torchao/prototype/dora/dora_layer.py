@@ -190,5 +190,3 @@ class BNBDoRALinear(DoRALinear):
 class HQQDoRALinear(DoRALinear):
     def dequantize(self):
         return self.base_layer.dequantize()
-
-

@@ -18,8 +18,7 @@ from .linear_activation_quantized_tensor import (  # noqat: F403
 )
 
 __all__ = [
-    "swap_conv2d_1x1_to_linear"
-    "safe_int_mm",
+    "swap_conv2d_1x1_to_linear" "safe_int_mm",
     "autoquant",
     "get_scale",
     "SmoothFakeDynQuantMixin",

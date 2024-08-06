@@ -26,8 +26,8 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-class TestSemiStructuredSparse(TestCase):
 
+class TestSemiStructuredSparse(TestCase):
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "pytorch 2.3+ feature")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_sparse(self):
@@ -49,8 +49,8 @@ class TestSemiStructuredSparse(TestCase):
 
         assert torch.allclose(dense_result, sparse_result, rtol=1e-3, atol=1e-3)
 
-class TestQuantSemiSparse(TestCase):
 
+class TestQuantSemiSparse(TestCase):
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "pytorch 2.3+ feature")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quant_semi_sparse(self):
@@ -72,6 +72,7 @@ class TestQuantSemiSparse(TestCase):
         sparse_result = model(input)
 
         assert torch.allclose(dense_result, sparse_result, rtol=1e-2, atol=1e-2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1093,5 +1093,6 @@ class TestFPGMPruner(TestCase):
                 expected_conv1, expected_conv2, device
             )
 
+
 if __name__ == "__main__":
     unittest.main()

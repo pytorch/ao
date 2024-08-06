@@ -54,9 +54,10 @@ def get_name_to_shapes_iter(
     K: Optional[int],
     N: Optional[int],
 ):
-    if shape_gen_name == 'llama':
-        assert M == K == N == None, \
-            f'M, K, N arguments not supported for shape_gen_name {shape_gen_name}'
+    if shape_gen_name == "llama":
+        assert (
+            M == K == N == None
+        ), f"M, K, N arguments not supported for shape_gen_name {shape_gen_name}"
         bsz, seq_len = 4, 4096
         M = bsz * seq_len
         # LLaMa 2 70B single-node weight shapes
@@ -70,49 +71,52 @@ def get_name_to_shapes_iter(
         }
         return name_to_shapes_70b.items()
 
-    elif shape_gen_name == 'square':
-        assert M == K == N == None, \
-            f'M, K, N arguments not supported for shape_gen_name {shape_gen_name}'
+    elif shape_gen_name == "square":
+        assert (
+            M == K == N == None
+        ), f"M, K, N arguments not supported for shape_gen_name {shape_gen_name}"
         name_to_shapes = {}
         min_power_of_2 = 5  # 32
         max_power_of_2 = 16  # 65,536
         for idx, power_of_2 in enumerate(range(min_power_of_2, max_power_of_2 + 1)):
-            val = 2 ** power_of_2
+            val = 2**power_of_2
             name_to_shapes[idx] = val, val, val
         return name_to_shapes.items()
 
-    elif shape_gen_name == 'sweep':
-        assert M == K == N == None, \
-            f'M, K, N arguments not supported for shape_gen_name {shape_gen_name}'
+    elif shape_gen_name == "sweep":
+        assert (
+            M == K == N == None
+        ), f"M, K, N arguments not supported for shape_gen_name {shape_gen_name}"
         name_to_shapes = {}
         min_p2 = 5  # 32
         max_p2 = 16  # 65,536
         counter = 0
         for M_p2 in range(min_p2, max_p2 + 1):
-            M = 2 ** M_p2
+            M = 2**M_p2
             for K_p2 in range(min_p2, max_p2 + 1):
-                K = 2 ** K_p2
+                K = 2**K_p2
                 for N_p2 in range(min_p2, max_p2 + 1):
-                    N = 2 ** N_p2
+                    N = 2**N_p2
                     name_to_shapes[counter] = M, K, N
                     counter += 1
         return name_to_shapes.items()
 
-    elif shape_gen_name == 'custom':
-        assert M is not None and K is not None and N is not None, \
-            'M, K, N must be specified for custom shape_gen'
+    elif shape_gen_name == "custom":
+        assert (
+            M is not None and K is not None and N is not None
+        ), "M, K, N must be specified for custom shape_gen"
         name_to_shapes = {
             1: (M, K, N),
         }
         return name_to_shapes.items()
 
-    raise AssertionError(f'unknown shape_gen_name {shape_gen_name}')
+    raise AssertionError(f"unknown shape_gen_name {shape_gen_name}")
 
 
 @torch.inference_mode()
 def run(
     n_limit: Optional[int] = None,
-    shape_gen_name: str = 'llama',
+    shape_gen_name: str = "llama",
     out_filename: Optional[str] = None,
     M: Optional[int] = None,
     K: Optional[int] = None,
@@ -120,14 +124,25 @@ def run(
 ):
     device = "cuda"
 
-    headers = ("fast_accum", "name", "M", "K", "N", "ref_time_s", "fp8_time_s", "fp8_speedup")
+    headers = (
+        "fast_accum",
+        "name",
+        "M",
+        "K",
+        "N",
+        "ref_time_s",
+        "fp8_time_s",
+        "fp8_speedup",
+    )
     results = []
 
     dtype = torch.bfloat16
     name_to_shapes = get_name_to_shapes_iter(shape_gen_name, M, K, N)
     fast_accum_vals = [True, False]
 
-    for idx, (fast_accum, (name, (M, K, N))) in enumerate(itertools.product(fast_accum_vals, name_to_shapes)):
+    for idx, (fast_accum, (name, (M, K, N))) in enumerate(
+        itertools.product(fast_accum_vals, name_to_shapes)
+    ):
         if n_limit is not None and idx >= n_limit:
             break
 
@@ -186,6 +201,7 @@ def run(
 
     if out_filename is not None:
         data_df.to_csv(out_filename)
+
 
 def main() -> None:
     fire.Fire(run)

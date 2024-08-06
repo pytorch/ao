@@ -55,8 +55,12 @@ class OptimStateFp8(Tensor):
         return self.tensor_attrs, []
 
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
-        return cls(*[tensor_data_dict[name] for name in cls.tensor_attrs], *tensor_attributes)
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None
+    ):
+        return cls(
+            *[tensor_data_dict[name] for name in cls.tensor_attrs], *tensor_attributes
+        )
 
     def dequantize(self, output_dtype=None):
         float_data = self.codes.float()
@@ -115,12 +119,14 @@ def _(func, types, args, kwargs):
 
 
 # this is needed for DTensor.full_tensor()
-@OptimStateFp8.implements([
-    c10d_functional.all_gather_into_tensor.default,
-    _c10d_functional.all_gather_into_tensor.default,
-    c10d_functional.wait_tensor.default,
-    _c10d_functional.wait_tensor.default,
-])
+@OptimStateFp8.implements(
+    [
+        c10d_functional.all_gather_into_tensor.default,
+        _c10d_functional.all_gather_into_tensor.default,
+        c10d_functional.wait_tensor.default,
+        _c10d_functional.wait_tensor.default,
+    ]
+)
 def _(func, types, args, kwargs):
     x = args[0]
     if not isinstance(x, OptimStateFp8):

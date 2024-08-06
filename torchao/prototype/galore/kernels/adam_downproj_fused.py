@@ -273,7 +273,6 @@ def fused_adam_mm_launcher(
     output_dtype=None,
     kernel=None,
 ):
-
     device = a.device
     # handle non-contiguous inputs if necessary
     # a = grad

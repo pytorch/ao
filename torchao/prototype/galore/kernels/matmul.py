@@ -304,7 +304,6 @@ def triton_mm_launcher(
     output_dtype=None,
     kernel=matmul,
 ):
-
     device = a.device
     # handle non-contiguous inputs if necessary
     # a = grad

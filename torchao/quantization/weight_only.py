@@ -9,6 +9,7 @@ from .utils import dynamically_quantize_per_channel
 
 __all__ = ["WeightOnlyInt8QuantLinear"]
 
+
 class WeightOnlyInt8QuantLinear(torch.nn.Linear):
     """
     This class is a replacement for `torch.nn.Linear`. It implements a

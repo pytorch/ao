@@ -279,7 +279,7 @@ def _mixed_mm_kernel(
         # the strides are adjusted accordingly, since we to stride by stride_bk to get rows of BLK_N
         # and stride_bn to get columns of BLK_K
         B = B + (rbn[:, None] * stride_bk + rbk[None, :] * stride_bn)
-        
+
     # Grouping is along K, so in the forward pass, each block loads a row vector of BLK_K x BLK_N
     # where grouping varies along N, hence the mainloop marches down the K dimension, where
     # group idx is given by K // QGROUP_SIZE

@@ -15,6 +15,7 @@ from torchao.quantization.utils import _lm_eval_available, _MultiInput
 
 if _lm_eval_available:
     import lm_eval
+
     try:  # lm_eval version 0.4
         from lm_eval.evaluator import evaluate  # pyre-ignore[21]
         from lm_eval.models.huggingface import HFLM as eval_wrapper  # pyre-ignore[21]
@@ -67,8 +68,7 @@ if _lm_eval_available:
             # need to take inps and convert to corrent input
             # for model
             self.input_prep_func = (
-                input_prep_func if input_prep_func is not None
-                else lambda x: (x,)
+                input_prep_func if input_prep_func is not None else lambda x: (x,)
             )
 
             self.pad_calibration_inputs = pad_calibration_inputs
@@ -182,13 +182,9 @@ if _lm_eval_available:
         """
         A wrapper class for GPTFast, providing integration with the lm-evaluation-harness library.
         """
+
         def __init__(
-            self,
-            model,
-            tokenizer,
-            max_seq_length,
-            input_prep_func=None,
-            device="cuda"
+            self, model, tokenizer, max_seq_length, input_prep_func=None, device="cuda"
         ):
             super().__init__(tokenizer, None)
             self._model = model
@@ -199,8 +195,7 @@ if _lm_eval_available:
             # need to take inps and convert to corrent input
             # for model
             self.input_prep_func = (
-                input_prep_func if input_prep_func is not None
-                else lambda x: (x,)
+                input_prep_func if input_prep_func is not None else lambda x: (x,)
             )
 
         def _model_call(self, inps):
@@ -214,7 +209,7 @@ if _lm_eval_available:
             return logits
 
         def _model_generate(self, context, max_length, eos_token_id):
-            raise Exception('unimplemented')
+            raise Exception("unimplemented")
 
         def run_eval(self, tasks, limit):
             try:

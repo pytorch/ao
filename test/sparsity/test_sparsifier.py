@@ -486,5 +486,6 @@ class TestNearlyDiagonalSparsifier(TestCase):
                     else:
                         assert mask[row, col] == 0
 
+
 if __name__ == "__main__":
     unittest.main()

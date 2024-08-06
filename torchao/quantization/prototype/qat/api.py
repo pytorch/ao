@@ -32,6 +32,7 @@ from .utils import (
 # |   8da4w QAT   |
 # =================
 
+
 class Int8DynActInt4WeightQATQuantizer(TwoStepQuantizer):
     """
     Quantizer for performing QAT on a model, where linear layers have int8
@@ -53,10 +54,7 @@ class Int8DynActInt4WeightQATQuantizer(TwoStepQuantizer):
         self.scales_precision: torch.dtype = scales_precision
 
     def prepare(
-        self,
-        model: torch.nn.Module,
-        *args: Any,
-        **kwargs: Any
+        self, model: torch.nn.Module, *args: Any, **kwargs: Any
     ) -> torch.nn.Module:
         _replace_linear_8da4w(
             model,
@@ -70,13 +68,11 @@ class Int8DynActInt4WeightQATQuantizer(TwoStepQuantizer):
         return model
 
     def convert(
-        self,
-        model: torch.nn.Module,
-        *args: Any,
-        **kwargs: Any
+        self, model: torch.nn.Module, *args: Any, **kwargs: Any
     ) -> torch.nn.Module:
         _convert_qat_linear_8da4w(model)
         return model
+
 
 def _convert_qat_linear_8da4w(module: torch.nn.Module):
     """
@@ -98,15 +94,25 @@ def _convert_qat_linear_8da4w(module: torch.nn.Module):
             n_bit = 4
             (qmin, qmax) = child._get_qmin_qmax(n_bit)
             (s, zp) = get_group_qparams_symmetric(child.weight, n_bit, child.groupsize)
-            from torchao._executorch_ops import _quantized_decomposed_quantize_per_channel_group_wrapper
+            from torchao._executorch_ops import (
+                _quantized_decomposed_quantize_per_channel_group_wrapper,
+            )
+
             q_weight = _quantized_decomposed_quantize_per_channel_group_wrapper(
-                child.weight, s, zp, qmin, qmax, torch.int8, child.groupsize,
+                child.weight,
+                s,
+                zp,
+                qmin,
+                qmax,
+                torch.int8,
+                child.groupsize,
             )
             quantized_linear.weight = q_weight
             quantized_linear.scales = s
             quantized_linear.zeros = zp
         else:
             _convert_qat_linear_8da4w(child)
+
 
 class Int8DynActInt4WeightQATLinear(torch.nn.Linear):
     """
@@ -157,11 +163,17 @@ class Int8DynActInt4WeightQATLinear(torch.nn.Linear):
         # activations: int8 dynamic asymmetric quant
         if self._fake_quant_enabled:
             (act_scales, act_zp) = _choose_qparams_per_token_asymmetric(
-                x, self.scales_precision, self.zero_points_precision,
+                x,
+                self.scales_precision,
+                self.zero_points_precision,
             )
             (act_qmin, act_qmax) = self._get_qmin_qmax(8)
             x_fq = _fake_quantize_per_token(
-                x, act_scales, act_zp, act_qmin, act_qmax,
+                x,
+                act_scales,
+                act_zp,
+                act_qmin,
+                act_qmax,
             )
         else:
             x_fq = x
@@ -169,7 +181,10 @@ class Int8DynActInt4WeightQATLinear(torch.nn.Linear):
         # weights: int4 grouped per channel symmetric quant
         if self._fake_quant_enabled:
             (weight_scales, weight_zp) = get_group_qparams_symmetric(
-                self.weight, 4, self.groupsize, self.scales_precision,
+                self.weight,
+                4,
+                self.groupsize,
+                self.scales_precision,
             )
             # TODO: pass zp dtype to `get_group_qparams_symmetric` instead
             weight_zp = weight_zp.to(self.zero_points_precision)
@@ -192,12 +207,14 @@ class Int8DynActInt4WeightQATLinear(torch.nn.Linear):
         qmax = 2 ** (n_bit - 1) - 1
         return (qmin, qmax)
 
+
 def enable_8da4w_fake_quant(mod: torch.nn.Module):
     """
     Enable fake quantization for `Int8DynActInt4WeightQATLinear`.
     """
     if isinstance(mod, Int8DynActInt4WeightQATLinear):
         mod.enable_fake_quant()
+
 
 def disable_8da4w_fake_quant(mod: torch.nn.Module):
     """
@@ -210,6 +227,7 @@ def disable_8da4w_fake_quant(mod: torch.nn.Module):
 # ==================
 # |   int4wo QAT   |
 # ==================
+
 
 class Int4WeightOnlyQATQuantizer(TwoStepQuantizer):
     """
@@ -233,10 +251,7 @@ class Int4WeightOnlyQATQuantizer(TwoStepQuantizer):
         self.scales_precision = scales_precision
 
     def prepare(
-        self,
-        model: torch.nn.Module,
-        *args: Any,
-        **kwargs: Any
+        self, model: torch.nn.Module, *args: Any, **kwargs: Any
     ) -> torch.nn.Module:
         _replace_linear_int4(
             model,
@@ -251,13 +266,11 @@ class Int4WeightOnlyQATQuantizer(TwoStepQuantizer):
         return model
 
     def convert(
-        self,
-        model: torch.nn.Module,
-        *args: Any,
-        **kwargs: Any
+        self, model: torch.nn.Module, *args: Any, **kwargs: Any
     ) -> torch.nn.Module:
         _convert_qat_linear_4w(model)
         return model
+
 
 def _convert_qat_linear_4w(module: torch.nn.Module):
     """
@@ -283,15 +296,19 @@ def _convert_qat_linear_4w(module: torch.nn.Module):
             # Load weights and qparams into quantized linear
             n_bit = 4
             (q_weight, scales_and_zeros) = groupwise_affine_quantize_tensor(
-                child.weight, n_bit, child.groupsize,
+                child.weight,
+                n_bit,
+                child.groupsize,
             )
             q_weight = torch.ops.aten._convert_weight_to_int4pack(
-                q_weight.to(child.weight.device), child.inner_k_tiles,
+                q_weight.to(child.weight.device),
+                child.inner_k_tiles,
             )
             quantized_linear.weight = q_weight
             quantized_linear.scales_and_zeros = scales_and_zeros
         else:
             _convert_qat_linear_4w(child)
+
 
 class Int4WeightOnlyQATLinear(torch.nn.Linear):
     """
@@ -342,9 +359,12 @@ class Int4WeightOnlyQATLinear(torch.nn.Linear):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         n_bit = 4
         qmin = 0
-        qmax = 2 ** n_bit - 1
+        qmax = 2**n_bit - 1
         scales, zero_points = get_groupwise_affine_qparams(
-            self.weight, n_bit, self.groupsize, self.scales_precision,
+            self.weight,
+            n_bit,
+            self.groupsize,
+            self.scales_precision,
         )
         w_fq = _fake_quantize_per_channel_group(
             self.weight,
@@ -357,12 +377,14 @@ class Int4WeightOnlyQATLinear(torch.nn.Linear):
         )
         return F.linear(x, w_fq)
 
+
 def enable_4w_fake_quant(mod: torch.nn.Module):
     """
     Enable fake quantization for `Int4WeightOnlyQATLinear`.
     """
     if isinstance(mod, Int4WeightOnlyQATLinear):
         mod.enable_fake_quant()
+
 
 def disable_4w_fake_quant(mod: torch.nn.Module):
     """

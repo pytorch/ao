@@ -5,7 +5,14 @@ from torch.optim.optimizer import Optimizer
 
 
 class CPUOffloadOptimizer:
-    def __init__(self, params, optimizer_class: Type[Optimizer], *, offload_gradients: bool = False, **kwargs) -> None:
+    def __init__(
+        self,
+        params,
+        optimizer_class: Type[Optimizer],
+        *,
+        offload_gradients: bool = False,
+        **kwargs,
+    ) -> None:
         """Offload optimizer to CPU for single-GPU training. This will reduce GPU memory by the size of optimizer state.
         Optimizer step will be done on CPU.
 
@@ -61,7 +68,9 @@ class CPUOffloadOptimizer:
                 self.param_cuda2cpu_map[p_cuda] = p_cpu
 
                 p_cuda.register_post_accumulate_grad_hook(backward_hook)
-                self.optim_dict[p_cuda] = optimizer_class([{"params": p_cpu, **param_group}], **kwargs)
+                self.optim_dict[p_cuda] = optimizer_class(
+                    [{"params": p_cpu, **param_group}], **kwargs
+                )
 
     @torch.no_grad()
     def step(self, closure=None):

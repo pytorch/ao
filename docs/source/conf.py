@@ -60,7 +60,7 @@ sphinx_gallery_conf = {
 
 ### TODO: Delete this when we have content
 suppress_warnings = [
-    'toc.unlisted',
+    "toc.unlisted",
 ]
 ###
 

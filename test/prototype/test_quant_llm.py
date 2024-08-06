@@ -59,11 +59,15 @@ class TestQuantLlmLinearWeight(TestCase):
     def test_from_scaled_tc_fpx_compile(self, ebits, mbits, device):
         M, N = 256, 64
         nbits = 1 + ebits + mbits
-        x = torch.randint(256, size=(M, N // 8 * nbits), dtype=torch.uint8, device=device)
+        x = torch.randint(
+            256, size=(M, N // 8 * nbits), dtype=torch.uint8, device=device
+        )
         scale = torch.randn(M, device=device)
 
         expected = from_scaled_tc_fpx(x, ebits, mbits, scale)
-        actual = torch.compile(from_scaled_tc_fpx, fullgraph=True)(x, ebits, mbits, scale)
+        actual = torch.compile(from_scaled_tc_fpx, fullgraph=True)(
+            x, ebits, mbits, scale
+        )
         torch.testing.assert_close(actual, expected)
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")

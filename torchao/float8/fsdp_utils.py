@@ -122,6 +122,7 @@ _ops_to_preserve_subclass = {
 #      |
 #      |   TP compute with torch.mm(input, weight)
 
+
 class WeightWithDynamicFloat8CastTensor(torch.Tensor):
     @staticmethod
     def __new__(
@@ -231,6 +232,7 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
         (scale,) = metadata
         if out is not None:
             from torch.distributed._tensor import DTensor
+
             if isinstance(out, Float8Tensor):
                 out._scale = scale
             elif isinstance(out, DTensor) and isinstance(

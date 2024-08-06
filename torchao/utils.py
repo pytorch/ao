@@ -31,8 +31,9 @@ def _assert_and_get_unique_device(module: torch.nn.Module) -> Any:
     Returns the unique device for a module, or None if no device is found.
     Throws an error if multiple devices are detected.
     """
-    devices = {p.device for p in module.parameters()} | \
-        {p.device for p in module.buffers()}
+    devices = {p.device for p in module.parameters()} | {
+        p.device for p in module.buffers()
+    }
 
     assert len(devices) <= 1, (
         "prepare only works with cpu or single-device CUDA modules, "
@@ -43,13 +44,14 @@ def _assert_and_get_unique_device(module: torch.nn.Module) -> Any:
 
 
 def benchmark_model(model, num_runs, args=(), kwargs=None, device_type=None):
-    """Benchmark model runs with `args` and `kwargs` both are optional
-    """
+    """Benchmark model runs with `args` and `kwargs` both are optional"""
     if kwargs is None:
         kwargs = {}
 
     if device_type is None:
-        assert isinstance(model, torch.nn.Module), "Expecting `model` to be torch.nn.Module if device_type is not provided"
+        assert isinstance(
+            model, torch.nn.Module
+        ), "Expecting `model` to be torch.nn.Module if device_type is not provided"
         device_type = _assert_and_get_unique_device(model).type
 
     if device_type == "cuda":
@@ -99,12 +101,16 @@ def benchmark_model(model, num_runs, args=(), kwargs=None, device_type=None):
 
 def profiler_runner(path, fn, *args, **kwargs):
     with torch.profiler.profile(
-            activities=[torch.profiler.ProfilerActivity.CPU,
-                        torch.profiler.ProfilerActivity.CUDA],
-            record_shapes=True) as prof:
+        activities=[
+            torch.profiler.ProfilerActivity.CPU,
+            torch.profiler.ProfilerActivity.CUDA,
+        ],
+        record_shapes=True,
+    ) as prof:
         result = fn(*args, **kwargs)
     prof.export_chrome_trace(path)
     return result
+
 
 def get_compute_capability():
     if torch.cuda.is_available():
@@ -112,19 +118,25 @@ def get_compute_capability():
         return float(f"{capability[0]}.{capability[1]}")
     return 0.0
 
+
 def skip_if_compute_capability_less_than(min_capability):
     import unittest
+
     def decorator(test_func):
         def wrapper(*args, **kwargs):
             if get_compute_capability() < min_capability:
-                raise unittest.SkipTest(f"Compute capability is less than {min_capability}")
+                raise unittest.SkipTest(
+                    f"Compute capability is less than {min_capability}"
+                )
             return test_func(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 
 def benchmark_torch_function_in_microseconds(f, *args, **kwargs):
-    import torch.utils.benchmark as benchmark # this avoids importing numpy when torchao module is loaded
+    import torch.utils.benchmark as benchmark  # this avoids importing numpy when torchao module is loaded
 
     # Manual warmup
     f(*args, **kwargs)
@@ -143,6 +155,7 @@ def find_multiple(n: int, *args: Tuple[int]) -> int:
     if n % k == 0:
         return n
     return n + k - (n % k)
+
 
 def _register_custom_op(lib):
     """This decorator is used to preserve some high level operators for torch.export.export
@@ -177,8 +190,12 @@ def _register_custom_op(lib):
 
             # expecting fn.__name__ starts with `_` and we want to take the rest
             # to be the name of the custom op
-            assert fn.__name__[0] == "_", f"Expecting function name starts with `_`, got {fn.__name__}"
-            assert not any(c in fn.__name__ for c in ".<>"), f"Expecting op to be defined in normal functions, not lambda or local: {fn.__name__}"
+            assert (
+                fn.__name__[0] == "_"
+            ), f"Expecting function name starts with `_`, got {fn.__name__}"
+            assert not any(
+                c in fn.__name__ for c in ".<>"
+            ), f"Expecting op to be defined in normal functions, not lambda or local: {fn.__name__}"
             op_name = fn.__name__[1:]
             schema = op_name + infer_schema(fn, mutates_args={})
             lib.define(schema)
@@ -193,12 +210,14 @@ def _register_custom_op(lib):
 
     return decorator
 
+
 def get_model_size_in_bytes(model, ignore_embeddings=False):
     """
     Returns the model size in bytes. The option to ignore embeddings
     is useful for models with disproportionately large embeddings compared
     to other model parameters that get quantized/sparsified.
     """
+
     def flat_size(tensor):
         if hasattr(tensor, "__tensor_flatten__"):
             size = 0
@@ -214,10 +233,13 @@ def get_model_size_in_bytes(model, ignore_embeddings=False):
     model_size = 0
     for name, child in model.named_children():
         if not (isinstance(child, torch.nn.Embedding) and ignore_embeddings):
-            for p in itertools.chain(child.parameters(recurse=False), child.buffers(recurse=False)):
+            for p in itertools.chain(
+                child.parameters(recurse=False), child.buffers(recurse=False)
+            ):
                 model_size += flat_size(p)
             model_size += get_model_size_in_bytes(child, ignore_embeddings)
     return model_size
+
 
 class UnwrapTensorSubclass(torch.nn.Module):
     def forward(self, *tensors):
@@ -253,6 +275,7 @@ class UnwrapTensorSubclass(torch.nn.Module):
 
         return plain_tensors
 
+
 def unwrap_tensor_subclass(model, filter_fn=None):
     """Unwraps (nested) tensor subclass in the model to plain tensors
     This is a workaround to make a model with tensor subclass to work with `torch.export.export`
@@ -262,16 +285,19 @@ def unwrap_tensor_subclass(model, filter_fn=None):
     for name, child in model.named_children():
         # make sure child.weight is a tensor subclass
         if (
-            isinstance(child, torch.nn.Linear) and
-            hasattr(child, "weight") and
-            type(child.weight) is not torch.Tensor and
-            type(child.weight) is not torch.nn.Parameter and
-            isinstance(child.weight, torch.Tensor) and
-            issubclass(type(child.weight), torch.Tensor)
+            isinstance(child, torch.nn.Linear)
+            and hasattr(child, "weight")
+            and type(child.weight) is not torch.Tensor
+            and type(child.weight) is not torch.nn.Parameter
+            and isinstance(child.weight, torch.Tensor)
+            and issubclass(type(child.weight), torch.Tensor)
         ):
-            parametrize.register_parametrization(child, "weight", UnwrapTensorSubclass())
+            parametrize.register_parametrization(
+                child, "weight", UnwrapTensorSubclass()
+            )
         unwrap_tensor_subclass(child)
     return model
+
 
 def is_fbcode():
     return not hasattr(torch.version, "git_version")
@@ -280,10 +306,12 @@ def is_fbcode():
 def torch_version_at_least(min_version):
     return is_fbcode() or version("torch") >= min_version
 
+
 TORCH_VERSION_AFTER_2_5 = torch_version_at_least("2.5.0.dev")
 TORCH_VERSION_AFTER_2_4 = torch_version_at_least("2.4.0.dev")
 TORCH_VERSION_AFTER_2_3 = torch_version_at_least("2.3.0.dev")
 TORCH_VERSION_AFTER_2_2 = torch_version_at_least("2.2.0.dev")
+
 
 def is_fbcode():
     return not hasattr(torch.version, "git_version")

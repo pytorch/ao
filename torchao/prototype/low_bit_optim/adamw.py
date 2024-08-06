@@ -11,7 +11,9 @@ from .subclass_fp8 import OptimStateFp8
 
 
 class _AdamW(Optimizer):
-    def __init__(self, params, lr, betas, eps, weight_decay, amsgrad, *, block_size) -> None:
+    def __init__(
+        self, params, lr, betas, eps, weight_decay, amsgrad, *, block_size
+    ) -> None:
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if not 0.0 <= eps:
@@ -20,7 +22,9 @@ class _AdamW(Optimizer):
             raise ValueError("Invalid beta parameter at index 0: {}".format(betas[0]))
         if not 0.0 <= betas[1] < 1.0:
             raise ValueError("Invalid beta parameter at index 1: {}".format(betas[1]))
-        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, amsgrad=amsgrad)
+        defaults = dict(
+            lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, amsgrad=amsgrad
+        )
         super().__init__(params, defaults)
         self.block_size = block_size
 
@@ -40,7 +44,9 @@ class _AdamW(Optimizer):
         if p.numel() >= 4096 and p.numel() % self.block_size == 0:
             if isinstance(p, DTensor):
                 out = DTensor.from_local(
-                    local_tensor=self._subclass_zeros(p.to_local(), signed, self.block_size),
+                    local_tensor=self._subclass_zeros(
+                        p.to_local(), signed, self.block_size
+                    ),
                     device_mesh=p.device_mesh,
                     placements=p.placements,
                     run_check=False,
@@ -93,7 +99,15 @@ class _AdamW(Optimizer):
                 )
                 _group.append(p_grad_state)
 
-            param_groups.append((_group, group["lr"], group["betas"], group["weight_decay"], group["eps"]))
+            param_groups.append(
+                (
+                    _group,
+                    group["lr"],
+                    group["betas"],
+                    group["weight_decay"],
+                    group["eps"],
+                )
+            )
 
         return param_groups
 
@@ -114,7 +128,19 @@ class _AdamW(Optimizer):
 def param_groups_adamw(param_groups):
     for group, lr, (beta1, beta2), weight_decay, eps in param_groups:
         for p, grad, step, exp_avg, exp_avg_sq, max_exp_avg_sq in group:
-            single_param_adamw(p, grad, step, exp_avg, exp_avg_sq, max_exp_avg_sq, lr, beta1, beta2, weight_decay, eps)
+            single_param_adamw(
+                p,
+                grad,
+                step,
+                exp_avg,
+                exp_avg_sq,
+                max_exp_avg_sq,
+                lr,
+                beta1,
+                beta2,
+                weight_decay,
+                eps,
+            )
 
 
 # this will work with any optim state tensor subclass that implements aten.lerp.Scalar and aten.copy_.default
@@ -133,8 +159,8 @@ def single_param_adamw(
 ):
     p.mul_(1 - lr * weight_decay)
 
-    bias_correction1 = 1 - beta1 ** step
-    bias_correction2 = 1 - beta2 ** step
+    bias_correction1 = 1 - beta1**step
+    bias_correction2 = 1 - beta2**step
 
     # keep high precision copy for param update
     new_exp_avg = exp_avg.lerp(grad, 1 - beta1)
@@ -166,7 +192,9 @@ class AdamW8bit(_AdamW):
         *,
         block_size=2048,
     ) -> None:
-        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size)
+        super().__init__(
+            params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size
+        )
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
@@ -185,7 +213,9 @@ class AdamW4bit(_AdamW):
         *,
         block_size=128,
     ) -> None:
-        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size)
+        super().__init__(
+            params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size
+        )
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
@@ -220,7 +250,9 @@ class AdamW4bit(_AdamW):
                     step,
                     self._unwrap_dtensor(exp_avg).view(-1),
                     self._unwrap_dtensor(exp_avg_sq).view(-1),
-                    self._unwrap_dtensor(max_exp_avg_sq).view(-1) if max_exp_avg_sq is not None else None,
+                    self._unwrap_dtensor(max_exp_avg_sq).view(-1)
+                    if max_exp_avg_sq is not None
+                    else None,
                     lr,
                     beta1,
                     beta2,
@@ -244,7 +276,9 @@ class AdamWFp8(_AdamW):
         *,
         block_size=2048,
     ) -> None:
-        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size)
+        super().__init__(
+            params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size
+        )
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):

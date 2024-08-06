@@ -49,7 +49,6 @@ def get_scale(X_absmax, W_absmax, alpha=0.5):
 
 
 class SmoothFakeDynQuantMixin(torch.nn.Module):
-
     def init_smoothquant_variables(self, alpha):
         self.calibrating = True
         self.x_running_abs_max = None

@@ -62,6 +62,7 @@ class _GenericFakeQuantize(torch.autograd.Function):
         (mask,) = ctx.saved_tensors
         return gy * mask, None, None, None, None, None, None
 
+
 def _fake_quantize_per_channel_group(
     input: torch.Tensor,
     scales: torch.Tensor,
@@ -76,8 +77,15 @@ def _fake_quantize_per_channel_group(
     assert input.dim() == 2
     block_size = (1, group_size)
     return _GenericFakeQuantize.apply(
-        input, scales, zero_points, quant_min, quant_max, block_size, zero_point_domain,
+        input,
+        scales,
+        zero_points,
+        quant_min,
+        quant_max,
+        block_size,
+        zero_point_domain,
     )
+
 
 def _fake_quantize_per_token(
     input: torch.Tensor,
@@ -92,9 +100,15 @@ def _fake_quantize_per_token(
     block_size = _get_per_token_block_size(input)
     fq_input = input.to(torch.float32)
     fq = _GenericFakeQuantize.apply(
-        fq_input, scales, zero_points, quant_min, quant_max, block_size,
+        fq_input,
+        scales,
+        zero_points,
+        quant_min,
+        quant_max,
+        block_size,
     )
     return fq.reshape_as(input).to(input.dtype)
+
 
 # TODO: This is copied from torch/ao/quantization/fx/_decomposed.py.
 # The version in pytorch does not have backward support yet so we add
