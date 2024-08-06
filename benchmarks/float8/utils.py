@@ -6,6 +6,7 @@
 
 import collections
 import re
+from typing import Optional
 
 
 def profiler_output_to_time_by_kernel_name(prof):
@@ -81,3 +82,64 @@ def parse_bw_and_kernel_name(line):
         return result.group(1), result.group(2)
     else:
         return None, None
+
+
+def get_name_to_shapes_iter(
+    shape_gen_name: str,
+    M: Optional[int],
+    K: Optional[int],
+    N: Optional[int],
+):
+    if shape_gen_name == 'llama':
+        assert M == K == N == None, \
+            f'M, K, N arguments not supported for shape_gen_name {shape_gen_name}'
+        bsz, seq_len = 4, 4096
+        M = bsz * seq_len
+        # LLaMa 2 70B single-node weight shapes
+        # assumes fused attn.wqkv and ffn.w13
+        # source: https://fburl.com/gsheet/g8onr7rh
+        name_to_shapes_70b = {
+            "attn.wqkv": (M, 8192, 1280),
+            "attn.w0": (M, 1024, 8192),
+            "ffn.w13": (M, 8192, 7168),
+            "ffn.w2": (M, 3584, 8192),
+        }
+        return name_to_shapes_70b.items()
+
+    elif shape_gen_name == 'square':
+        assert M == K == N == None, \
+            f'M, K, N arguments not supported for shape_gen_name {shape_gen_name}'
+        name_to_shapes = {}
+        min_power_of_2 = 5  # 32
+        max_power_of_2 = 16  # 65,536
+        for idx, power_of_2 in enumerate(range(min_power_of_2, max_power_of_2 + 1)):
+            val = 2 ** power_of_2
+            name_to_shapes[idx] = val, val, val
+        return name_to_shapes.items()
+
+    elif shape_gen_name == 'sweep':
+        assert M == K == N == None, \
+            f'M, K, N arguments not supported for shape_gen_name {shape_gen_name}'
+        name_to_shapes = {}
+        min_p2 = 5  # 32
+        max_p2 = 16  # 65,536
+        counter = 0
+        for M_p2 in range(min_p2, max_p2 + 1):
+            M = 2 ** M_p2
+            for K_p2 in range(min_p2, max_p2 + 1):
+                K = 2 ** K_p2
+                for N_p2 in range(min_p2, max_p2 + 1):
+                    N = 2 ** N_p2
+                    name_to_shapes[counter] = M, K, N
+                    counter += 1
+        return name_to_shapes.items()
+
+    elif shape_gen_name == 'custom':
+        assert M is not None and K is not None and N is not None, \
+            'M, K, N must be specified for custom shape_gen'
+        name_to_shapes = {
+            1: (M, K, N),
+        }
+        return name_to_shapes.items()
+
+    raise AssertionError(f'unknown shape_gen_name {shape_gen_name}')
