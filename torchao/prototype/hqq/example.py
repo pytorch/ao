@@ -5,66 +5,56 @@ from torchao.dtypes.affine_quantized_tensor import (
     ZeroPointDomain,
     PlainAQTLayout,
     PlainLayoutType,
+    TensorCoreTiledAQTLayout,
+    TensorCoreTiledLayoutType,
+    MappingType,
 )
 
 #Parameters
 device, compute_dtype = "cuda:0", torch.bfloat16
 nbits, group_size, axis = 4, 64, 1
 
-linear_layer = torch.nn.Linear(4096, 11800, bias=False)
-W = linear_layer.weight.data.clone()
-
-verbose = True  # For debugging the optimizer
-
-################################################################################################
-# # Uses raw_output=True to produce the same output as hqq lib
-# W_q, scale, zero, shape = HQQQuantizer.quantize(
-#     W,
-#     nbits=nbits,
-#     group_size=group_size,
-#     axis=axis,
-#     compute_dtype=compute_dtype,
-#     device=device,
-#     verbose=verbose,
-#     raw_output=True,
-# )
-# W_r = ((W_q.to(zero.dtype) - zero) * scale).view(shape)
-# print("Check error manually / raw_output=False", (linear_layer.weight.data.cuda() - W_r.float()).abs().mean().item())
-# # compute_dtype bfloat16: 0.0004856811137869954
-# # compute_dtype  float16: 0.00048531172797083855
+linear_layer = torch.nn.Linear(4096, 11800, bias=False, device=device)
+x = torch.randn((1, linear_layer.in_features), dtype=torch.float, device=device)/20.
+y_ref = linear_layer(x)
+W = linear_layer.weight.data.clone().to(device=device, dtype=compute_dtype)
+del linear_layer.weight 
 ################################################################################################
 
-# Uses raw_output=False to produce AffineQuantizedTensor compatible output
-W_q, scale, zero, shape = HQQQuantizer.quantize(
-    W,
-    nbits=nbits,
-    group_size=group_size,
-    axis=axis,
-    compute_dtype=compute_dtype,
-    device=device,
-    verbose=verbose,
-    raw_output=False,
-)
+q_tensor_default = AffineQuantizedTensor.from_float(
+        input_float=W,
+        mapping_type=MappingType.ASYMMETRIC,
+        block_size=[1, group_size],
+        target_dtype=torch.uint8,
+        quant_min=0,
+        quant_max=2**nbits - 1,
+        preserve_zero=False,#Important
+        zero_point_domain= ZeroPointDomain.FLOAT,
+        layout_type=PlainLayoutType(),
+        )
 
-W_r = ((W_q.to(zero.dtype).view([-1, group_size]) - (2**nbits) / 2) * scale + zero).view(shape)
-print("Check error manually / raw_output=True", (linear_layer.weight.data.cuda() - W_r.float()).abs().mean().item())
-# compute_dtype bfloat16: 0.0004856870509684086
-# compute_dtype float16 : 0.00048532348591834307
+linear_layer.weight = q_tensor_default
+print("Default dequantization error", (W - q_tensor_default.dequantize()).abs().mean().item())
+print('Default Dot product error', (y_ref - linear_layer(x.to(compute_dtype))).abs().mean().item())
+# Default dequantization error 0.001953125
+# Default Dot product error 0.0057801781222224236
 
 
-layout_tensor = PlainAQTLayout.from_plain(
-    int_data=W_q, scale=scale, zero_point=zero, layout_type=PlainLayoutType()
-)
+q_tensor_hqq = AffineQuantizedTensor.from_float(
+        input_float=W,
+        mapping_type=MappingType.ASYMMETRIC,
+        block_size=[1, group_size],
+        target_dtype=torch.uint8,
+        quant_min=0,
+        quant_max=2**nbits - 1,
+        preserve_zero=False,#Important
+        zero_point_domain= ZeroPointDomain.FLOAT,
+        layout_type=PlainLayoutType(),
+        use_hqq=True,
+        )
 
-q_tensor = AffineQuantizedTensor(
-    layout_tensor=layout_tensor,
-    block_size=[1, group_size], # axis=1
-    shape=shape,
-    quant_min=0,
-    quant_max=2**nbits - 1,
-    zero_point_domain=ZeroPointDomain.FLOAT,
-    dtype=torch.bfloat16,
-)
-
-print("Check error via AffineQuantizedTensor", (W.cuda() - q_tensor.dequantize().float()).abs().mean().item())
-
+linear_layer.weight = q_tensor_hqq
+print("HQQ dequantization error", (W - q_tensor_hqq.dequantize()).abs().mean().item())
+print('HQQ Dot product error', (y_ref - linear_layer(x.to(compute_dtype))).abs().mean().item())
+# HQQ dequantization error 0.0004863739013671875
+# HQQ Dot product error 0.0014263123739510775
