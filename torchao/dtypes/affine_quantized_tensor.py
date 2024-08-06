@@ -634,7 +634,6 @@ class TensorCoreTiledAQTLayout(AQTLayout):
     def get_layout_type(self) -> LayoutType:
         return self.layout_type
 
-
 #####################################################
 # torch functional and aten operator implementation #
 #####################################################
