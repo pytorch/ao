@@ -13,7 +13,7 @@ from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torchao.prototype import low_bit_optim
 from torchao.prototype.low_bit_optim.quant_utils import quantize_8bit_with_qmap, quantize_4bit_with_qmap
-from torchao.utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4, TORCH_VERSION_AFTER_2_5
 
 try:
     import bitsandbytes as bnb
@@ -81,6 +81,8 @@ class TestOptim(TestCase):
     def test_optim_smoke(self, optim_name, dtype, device):
         if optim_name.endswith("Fp8") and device == "cuda" and torch.cuda.get_device_capability() < (8, 9):
             pytest.skip("FP8 requires compute capability >= 8.9")
+        if optim_name.endswith("4bit") and not TORCH_VERSION_AFTER_2_5:
+            pytest.skip("4-bit Adam requires PyTorch > 2.4")
 
         # reset cache to avoid hitting cache_size_limit, since the function will re-compile for each test
         torch._dynamo.reset_code_caches()
