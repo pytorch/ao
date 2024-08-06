@@ -18,7 +18,6 @@ AUTOTUNER_ENABLE = bool(int(os.getenv("TORCHAO_AUTOTUNER_ENABLE", 0)))
 
 # torch._int_mm doesn't exist before 2.2
 if TORCH_VERSION_AFTER_2_2:
-    from torch._dynamo import is_compiling as dynamo_is_compiling
     from torch._higher_order_ops.out_dtype import out_dtype
     def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
         """
@@ -36,7 +35,7 @@ if TORCH_VERSION_AFTER_2_2:
             AssertionError: If the tensors are not on the same device.
         """
         # torch.compile path
-        if dynamo_is_compiling() or "FakeTensor" in input.__repr__():
+        if torch.compiler.is_compiling() or "FakeTensor" in input.__repr__():
             return out_dtype(torch.ops.aten.mm.default, torch.int32, input, mat2)
 
         # error checking for cublas path
