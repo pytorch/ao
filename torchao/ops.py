@@ -209,7 +209,7 @@ def marlin_24_mm(
     return out
 
 
-@register_custom_op(f"torchao::dequantize_tensor_core_tiled_layout")
+@register_custom_op(f"torchao::marlin_24_mm")
 def _(
     weight_marlin: Tensor,
     x: Tensor,
