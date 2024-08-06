@@ -30,7 +30,6 @@ import datasets
 import timm
 import torch
 import torch.nn.functional as F
-from torch.profiler import ProfilerActivity, profile
 from torch.utils.data import DataLoader
 from torchvision.transforms import v2
 from tqdm import tqdm
@@ -248,7 +247,7 @@ if __name__ == "__main__":
 
         start_time = datetime.datetime.now()
 
-        with profile() if args.profile else nullcontext() as prof:
+        with torch.profiler.profile() if args.profile else nullcontext() as prof:
             for batch in pbar:
                 if args.full_bf16:
                     batch["image"] = batch["image"].bfloat16()

@@ -65,24 +65,7 @@ optim = CPUOffloadOptimizer(model.parameters(), torch.optim.AdamW, offload_gradi
 
 This will reduce GPU memory usage by optimizer state size, and additionally gradient size if `offload_gradients=True`. `CPUOffloadOptimizer` can wrap any base optimizer.
 
-NOTE:
-- Since the optimizer step is done on CPU, it is highly recommended to use a fast CPU optimizer, such as `torch.optim.AdamW(fused=True)` (requires PyTorch 2.4). For other optimizers, you can try `torch.compile()` their optimizer step.
-- To minimize the amount of CPU<->GPU data transfer, we keep a copy of parameters and pre-allocate gradients memory on CPU. Therefore, expect your RAM usage to increase by 2x model size + optimizer state (which is 2x model size for Adam).
-- It is recommended NOT to `torch.compile()` your whole model when `CPUOffloadOptimizer` is used, as it prevents us from interleaving gradient device-to-host transfer with backward pass. To minimize such impact, you can compile parts of your model separately.
-- CPU optimizer step is often the bottleneck when optimizer CPU offload is used. To minimize the slowdown, it is recommended to (1) do full BF16 training (instead of AMP), so that parameters, gradients, and optimizer states are in BF16; and (2) give GPU more work per optimizer step (e.g. larger batch size with activation checkpointing, gradient accumulation).
-- `offload_gradients=True` is not compatible with gradient accumulation, since we clear gradients on GPU every backward pass.
-- Gradient clipping is currently not supported.
-
-Benchmark done for `timm/vit_giant_patch14_dinov2.lvd142m` (1.1B params), eager mode, full BF16 training, activations checkpointing, batch size 32, on 4070Ti SUPER, Ryzen 5600, DDR4 RAM. DeepSpeed is untuned.
-
-Adam offload           | Time per step | Max memory
------------------------|---------------|------------
-None                   | 1.27s/it      | 9.82 GB
-DeepSpeed ZeRO-Offload | 3.13s/it      | 6.85 GB
-ao                     | 1.52s/it      | 5.24 GB
-ao (offload gradients) | 1.53s/it      | 4.01 GB
-
-For saving and loading `CPUOffloadOptimizer`, it is important that you load model's weights BEFORE creating the optimizer, since we create a CPU copy of the parameters inside `CPUOffloadOptimizer.__init__()`. (TODO: we might want to have a method that synchronizes CUDA and CPU params in either direction - CPU->CUDA and CUDA->CPU)
+For saving and loading `CPUOffloadOptimizer`, it is important that you load model's weights BEFORE creating the optimizer, since we create a CPU copy of the parameters inside `CPUOffloadOptimizer.__init__()`. (TODO: we might want to have a method to synchronize CUDA and CPU params in either direction CPU->CUDA and CUDA->CPU, in case they are out of sync.)
 
 ```python
 ckpt = torch.load("checkpoint.pth")
@@ -94,6 +77,36 @@ optim = CPUOffloadOptimizer(model.parameters(), torch.optim.AdamW, fused=True)
 optim.load_state_dict(ckpt["optim"])
 ```
 
+NOTE:
+- Since the optimizer step is done on CPU, it is highly recommended to use a fast CPU optimizer, such as `torch.optim.AdamW(fused=True)` (requires PyTorch 2.4). For other optimizers, you can try `torch.compile()` their optimizer step.
+- To minimize the amount of CPU<->GPU data transfer, we keep a copy of parameters and pre-allocate gradients memory on CPU. Therefore, expect your RAM usage to increase by 2x model size + optimizer state (which is 2x model size for Adam).
+- It is recommended NOT to `torch.compile()` your whole model when `CPUOffloadOptimizer` is used, as it prevents us from interleaving gradient device-to-host transfer with backward pass. To minimize such impact, you can compile parts of your model separately. See [#584](https://github.com/pytorch/ao/pull/584) for more information.
+- CPU optimizer step is often the bottleneck when optimizer CPU offload is used. To minimize the slowdown, it is recommended to (1) do full BF16 training (instead of AMP), so that parameters, gradients, and optimizer states are in BF16; and (2) give GPU more work per optimizer step (e.g. larger batch size with activation checkpointing, gradient accumulation).
+- `offload_gradients=True` is not compatible with gradient accumulation, since we clear gradients on GPU every backward pass.
+- Gradient clipping is currently not supported.
+
+Benchmark done for `timm/vit_giant_patch14_dinov2.lvd142m` (1.1B params), eager mode, full BF16 training, activations checkpointing, batch size 32, on 4070Ti SUPER (16GB VRAM), Ryzen 5600, DDR4 RAM. DeepSpeed is untuned.
+
+Adam offload           | Time per step | Max memory
+-----------------------|---------------|------------
+None                   | 1.27s/it      | 9.82 GB
+DeepSpeed ZeRO-Offload | 3.13s/it      | 6.85 GB
+ao                     | 1.52s/it      | 5.24 GB
+ao (offload gradients) | 1.53s/it      | 4.01 GB
+
+Ablations on AMP and `torch.compile()`
+
+Training config     | Adam offload | Time per step | Max memory
+--------------------|--------------|---------------|------------
+Full BF16, compiled | None         | 1.18s/it      | 9.90 GB
+Full BF16, compiled | ao           | 1.75s/it      | 5.33 GB
+BF16 AMP, eager     | None         | OOM           | OOM
+BF16 AMP, eager     | ao           | 2.18s/it      | 9.90 GB
+
 ## Credits
 
-Credits to Tim Dettmers for creating the wonderful [bitsandbytes](https://github.com/TimDettmers/bitsandbytes) library, and [lpmm](https://github.com/thu-ml/low-bit-optimizers) authors for their work on 4-bit optimizers.
+Credits to
+
+- Tim Dettmers for creating the wonderful [bitsandbytes](https://github.com/TimDettmers/bitsandbytes) library.
+- [lpmm](https://github.com/thu-ml/low-bit-optimizers) authors for their work on 4-bit optimizers.
+- [DeepSpeed](https://github.com/microsoft/DeepSpeed) team for [ZeRO-Offload](https://arxiv.org/abs/2101.06840).
