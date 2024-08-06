@@ -30,6 +30,9 @@ from torchao.utils import TORCH_VERSION_AFTER_2_5
 
 aten = torch.ops.aten
 
+###############################
+# Base Layout Tensor Subclass #
+###############################
 class AQTLayout(torch.Tensor):
     """
     Base class for the layout tensor for `AffineQuantizedTensor`
