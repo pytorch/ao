@@ -39,6 +39,9 @@ class LinearActivationQuantizedTensor(torch.Tensor):
         self.original_weight_tensor = original_weight_tensor
         self.input_quant_func = input_quant_func
 
+    def __repr__(self):
+        return f"LinearActivationQuantizedTensor({self.original_weight_tensor}, {self.input_quant_func})"
+
     def __tensor_flatten__(self):
         return ["original_weight_tensor"], [self.input_quant_func]
 
