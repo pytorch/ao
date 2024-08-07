@@ -338,7 +338,7 @@ class MXTensor(torch.Tensor):
         orig_dtype,
     ):
         new_size = data_bits.size()
-        if elem_dtype == DTYPE_FP4_E2M1 or elem_dtype == DTYPE_FP4_E3M0:
+        if elem_dtype in (DTYPE_FP4_E2M1, DTYPE_FP4_E3M0):
             # set the tensor size to what it would be without 2x4 packing
             new_size = tensor_size_fp4x2_to_hp(
                 new_size,
@@ -364,7 +364,7 @@ class MXTensor(torch.Tensor):
             DTYPE_FP6_E3M2,
         ):
             target_numel = scale_e8m0_bits.numel() * block_size
-        elif elem_dtype == DTYPE_FP4_E2M1 or elem_dtype == DTYPE_FP4_E3M0:
+        elif elem_dtype in (DTYPE_FP4_E2M1, DTYPE_FP4_E3M0):
             assert data_bits.dtype is torch.uint8  # fp4
             target_numel = scale_e8m0_bits.numel() * block_size / 2
         else:

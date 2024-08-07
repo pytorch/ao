@@ -122,7 +122,7 @@ def f6_e3m2_unpacked_to_f32(x: torch.Tensor):
     return _fpx_unpacked_to_f32(x, EBITS_F6_E3M2, MBITS_F6_E3M2)
 
 
-# Note that only E2M1 supports triton currently
+# Note that only E2M1 supports handwritten triton kernel currently
 if has_triton():
     import triton
     import triton.language as tl
