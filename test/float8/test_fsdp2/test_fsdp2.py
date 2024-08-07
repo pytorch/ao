@@ -37,7 +37,8 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
 )
 
 is_H100 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
-if not is_H100:
+is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
+if not is_cuda_8_9:
     pytest.skip("Unsupported CUDA device capability version", allow_module_level=True)
 
 class TestFloat8Common:
