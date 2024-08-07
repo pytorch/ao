@@ -9,6 +9,7 @@ from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
     MappingType,
     int_scaled_matmul,
+    quantize_affine_hqq,
 )
 from torchao.quantization.utils import (
     pack_tinygemm_scales_and_zeros,
@@ -26,7 +27,8 @@ from torchao.dtypes.utils import (
     is_device,
 )
 
-from ..quantization.hqq import quantize_affine_hqq
+#from ..quantization.hqq import quantize_affine_hqq
+
 import math
 
 from dataclasses import dataclass
