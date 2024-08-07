@@ -36,15 +36,18 @@ class _GenericFakeQuantize(torch.autograd.Function):
         quant_max: int,
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
     ) -> torch.Tensor:
-        ## Note: for bf16 inputs, casting them to fp32 has the unexpected
-        ## side effect of reducing memory footprint significantly, presumably
-        ## because bf16 * fp32 kernels are not as memory efficient
-        #assert input.dtype == torch.float32
-        #assert scales.dtype == torch.float32
-        #assert zero_points.dtype == torch.int32
+        # avoid circular deps
+        from torchao.quantization.prototype.qat.affine_fake_quantized_tensor import (
+            AffineFakeQuantizedTensor,
+        )
+
+        if isinstance(input, AffineFakeQuantizedTensor):
+            _input = input.original_tensor
+        else:
+            _input = input
 
         (fq, mask) = fake_quantize_affine_cachemask(
-            input,
+            _input,
             block_size,
             scales,
             zero_points,
@@ -55,7 +58,15 @@ class _GenericFakeQuantize(torch.autograd.Function):
         )
 
         ctx.save_for_backward(mask)
-        return fq
+
+        if isinstance(input, AffineFakeQuantizedTensor):
+            return AffineFakeQuantizedTensor(
+                fq,
+                input.apply_fake_quant_fn,
+                input.fake_quant_enabled,
+            )
+        else:
+            return fq
 
     @staticmethod
     def backward(ctx, gy):
