@@ -48,6 +48,7 @@ def float8_desugar_op(aten_op, args, kwargs=None):
     return Float8Tensor(
         new_data,
         args[0]._scale,
+        args[0]._inv_scale,
         args[0]._orig_dtype,
         args[0]._linear_mm_config,
         args[0]._gemm_input_role,
@@ -62,6 +63,7 @@ def float8_split(aten_op, args, kwargs=None):
         return Float8Tensor(
             data,
             args[0]._scale,
+            args[0]._inv_scale,
             args[0]._orig_dtype,
             args[0]._linear_mm_config,
             args[0]._gemm_input_role,
@@ -78,6 +80,7 @@ def float8_cat(aten_op, args, kwargs=None):
 
     orig_dtype = chunked_tensors[0]._orig_dtype
     scale = chunked_tensors[0]._scale
+    inv_scale = chunked_tensors[0]._inv_scale
     mm_config = chunked_tensors[0]._linear_mm_config
     fp8_dtype = chunked_tensors[0]._data.dtype
     gemm_input_role = chunked_tensors[0]._gemm_input_role
@@ -105,7 +108,7 @@ def float8_cat(aten_op, args, kwargs=None):
 
     new_data = aten_op(chunk_data, *args[1:], **kwargs)
     new_data = new_data.view(fp8_dtype)
-    return Float8Tensor(new_data, scale, orig_dtype, mm_config, gemm_input_role)
+    return Float8Tensor(new_data, scale, inv_scale, orig_dtype, mm_config, gemm_input_role)
 
 
 @implements([aten.sum.dim_IntList])
@@ -130,7 +133,7 @@ def float8_cast_up_op(aten_op, args, kwargs=None):
 
 def preprocess_addmm(a: Float8Tensor, b: Float8Tensor):
     a_data = a._data
-    a_scale = a._scale
+    a_inv_scale = a._inv_scale
     b_data = b._data
 
     scaled_mm_config = choose_scaled_mm_config(
@@ -151,8 +154,8 @@ def preprocess_addmm(a: Float8Tensor, b: Float8Tensor):
         a_data = a_data.contiguous()
     if is_row_major(b_data.stride()):
         b_data = b_data.t().contiguous().t()
-    b_scale = b._scale
-    return a_data, a_scale, b_data, b_scale
+    b_inv_scale = b._inv_scale
+    return a_data, a_inv_scale, b_data, b_inv_scale
 
 
 @implements([aten.mm.default, aten.matmul.default])
@@ -165,7 +168,7 @@ def float8_mm(aten_op, args, kwargs=None):
     ), "Expecting  both Float8Tensor for mm inputs but found {} and {}".format(
         type(a), type(b)
     )
-    a_data, a_scale, b_data, b_scale = preprocess_addmm(a, b)
+    a_data, a_inv_scale, b_data, b_inv_scale = preprocess_addmm(a, b)
     output_dtype = a._orig_dtype
     scaled_mm_config = choose_scaled_mm_config(
         a._gemm_input_role,
@@ -175,13 +178,13 @@ def float8_mm(aten_op, args, kwargs=None):
     )
     if scaled_mm_config.emulate:
         return torch.ops.aten.mm_float8_emulated(
-            a._data, a._scale, b._data, b._scale, output_dtype
+            a._data, a._inv_scale, b._data, b._inv_scale, output_dtype
         )
     tensor_out = addmm_float8_unwrapped(
         a_data,
-        a_scale,
+        a_inv_scale,
         b_data,
-        b_scale,
+        b_inv_scale,
         output_dtype,
         output_scale=None,
         bias=None,
@@ -200,7 +203,7 @@ def float8_addmm(aten_op, args, kwargs=None):
     bias = args[0]
     a = args[1]
     b = args[2]
-    a_data, a_scale, b_data, b_scale = preprocess_addmm(a, b)
+    a_data, a_inv_scale, b_data, b_inv_scale = preprocess_addmm(a, b)
     output_dtype = a._orig_dtype
     assert bias.dtype == output_dtype, "bias dtype must match output dtype"
     scaled_mm_config = choose_scaled_mm_config(
@@ -210,15 +213,16 @@ def float8_addmm(aten_op, args, kwargs=None):
         b._linear_mm_config,
     )
     if scaled_mm_config.emulate:
+        # TODO inv scale here
         out = torch.ops.aten.mm_float8_emulated(
             a._data, a._scale, b._data, b._scale, output_dtype
         )
         return out + bias
     tensor_out = addmm_float8_unwrapped(
         a_data,
-        a_scale,
+        a_inv_scale,
         b_data,
-        b_scale,
+        b_inv_scale,
         output_dtype,
         output_scale=None,
         bias=bias,
@@ -249,6 +253,7 @@ def autocast_to_copy(aten_op, args, kwargs=None):
     return Float8Tensor(
         args[0]._data,
         args[0]._scale,
+        args[0]._inv_scale,
         kwargs["dtype"],
         args[0]._linear_mm_config,
         args[0]._gemm_input_role,
@@ -276,6 +281,7 @@ def allgather_fp8(aten_op, args, kwargs=None):
     return Float8Tensor(
         fp8_out,
         fp8_input._scale,
+        fp8_input._inv_scale,
         fp8_input._orig_dtype,
         fp8_input._linear_mm_config,
         fp8_input._gemm_input_role,
@@ -292,6 +298,7 @@ def wait_tensor_fp8(aten_op, args, kwargs=None):
     return Float8Tensor(
         fp8_out,
         fp8_input._scale,
+        fp8_input._inv_scale,
         fp8_input._orig_dtype,
         fp8_input._linear_mm_config,
         fp8_input._gemm_input_role,
@@ -314,6 +321,7 @@ def index_put_fp8(aten_op, args, kwargs=None):
     return Float8Tensor(
         fp8_out,
         fp8_self._scale,
+        fp8_self._inv_scale,
         fp8_self._orig_dtype,
         fp8_self._linear_mm_config,
         fp8_self._gemm_input_role,
@@ -355,6 +363,7 @@ def copy_fp8(aten_op, args, kwargs=None):
         return Float8Tensor(
             fp8_out,
             self._scale,
+            self._inv_scale,
             self._orig_dtype,
             self._linear_mm_config,
             self._gemm_input_role,

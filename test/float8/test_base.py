@@ -128,6 +128,7 @@ class TestFloat8Tensor(unittest.TestCase):
         fp8_b = Float8Tensor(
             torch.empty(16, dtype=torch.float8_e4m3fn),
             scale_a,
+            scale_a.reciprocal(),
             torch.bfloat16,
             fp8_a._linear_mm_config,
         )
@@ -417,14 +418,14 @@ class TestScaledMM:
 
         out_scaled_mm = addmm_float8_unwrapped(
             a_fp8._data,
-            a_fp8._scale,
+            a_fp8._inv_scale,
             b_fp8._data,
-            b_fp8._scale,
+            b_fp8._inv_scale,
             output_dtype=output_dtype,
             use_fast_accum=use_fast_accum,
         )
         out_emulated = torch.ops.aten.mm_float8_emulated(
-            a_fp8._data, a_fp8._scale, b_fp8._data, b_fp8._scale, output_dtype
+            a_fp8._data, a_fp8._inv_scale, b_fp8._data, b_fp8._inv_scale, output_dtype
         )
 
         if output_dtype != base_dtype:
