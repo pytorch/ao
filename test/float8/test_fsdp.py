@@ -197,9 +197,9 @@ def run(compile_fsdp: bool = False, use_weight_dynamic_scaling: bool = False):
     if not torch.cuda.is_available():
         warnings.warn("CUDA not available, running in emulation_mode")
         emulate = True
-    elif torch.cuda.get_device_capability() < (9, 0):
+    elif torch.cuda.get_device_capability() < (8, 9):
         warnings.warn(
-            f"CUDA capability {torch.cuda.get_device_capability()} < (9.0), running in emulation mode"
+            f"CUDA capability {torch.cuda.get_device_capability()} < (8.9), running in emulation mode"
         )
         emulate = True
 

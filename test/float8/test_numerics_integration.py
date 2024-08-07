@@ -27,7 +27,6 @@ from torchao.float8.float8_linear_utils import (
 )
 from torchao.float8.float8_utils import compute_error, IS_ROCM
 
-is_H100 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
 is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
 
 torch.manual_seed(0)
@@ -89,7 +88,7 @@ class TestFloat8NumericsIntegrationTest:
         "scaling_type_grad_output",
         [ScalingType.DELAYED, ScalingType.DYNAMIC],
     )
-    @pytest.mark.skipif(not is_cuda_8_9, reason="requires H100 GPU")
+    @pytest.mark.skipif(not is_cuda_8_9, reason="requires SM89 compatible machine")
     @pytest.mark.skipif(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
     def test_encoder_fw_bw(
         self,

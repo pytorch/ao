@@ -33,7 +33,6 @@ from torchao.float8.inference import (
 random.seed(0)
 torch.manual_seed(0)
 
-is_H100 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
 is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
 
 class FeedForward(nn.Module):
@@ -66,7 +65,7 @@ class TestHPTrainToFP8LinearInference:
     @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
     @unittest.skipIf(
         not torch.cuda.is_available() or not is_cuda_8_9,
-        "CUDA not available or on non H100 machine",
+        "CUDA not available or machine does not support SM89",
     )
     def test_dynamic_fp8_mlp(self, compile_backend, dtype):
         original_mlp = FeedForward().to("cuda", dtype=dtype)
@@ -101,7 +100,7 @@ class TestHPTrainToFP8LinearInference:
     @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
     @unittest.skipIf(
         not torch.cuda.is_available() or not is_cuda_8_9,
-        "CUDA not available or on non H100 machine",
+        "CUDA not available or machine does not support SM89",
     )
     def test_static_fp8_mlp(self, compile_backend, dtype):
         original_mlp = FeedForward().to("cuda", dtype=dtype)
@@ -140,7 +139,7 @@ class TestHPTrainToFP8LinearInference:
     @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
     @unittest.skipIf(
         not torch.cuda.is_available() or not is_cuda_8_9,
-        "CUDA not available or on non H100 machine",
+        "CUDA not available or machine does not support SM89",
     )
     def test_weight_only_fp8_mlp(self, compile_backend, dtype):
         original_mlp = FeedForward().to("cuda", dtype=dtype)
@@ -190,7 +189,7 @@ class TestFP8TrainToFP8LinearInference:
     @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
     @unittest.skipIf(
         not torch.cuda.is_available() or not is_cuda_8_9,
-        "CUDA not available or on non H100 machine",
+        "CUDA not available or machine does not support SM89",
     )
     def test_fp8_save_and_load(self, dtype: torch.dtype):
         # Initialize FP8 model

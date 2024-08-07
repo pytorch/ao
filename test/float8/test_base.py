@@ -54,7 +54,7 @@ from torchao.float8.inference import (
 random.seed(0)
 torch.manual_seed(0)
 
-is_H100 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
+
 is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
 
 def bitwise_identical(a: Float8Tensor, b: Float8Tensor) -> bool:
