@@ -1,4 +1,4 @@
-name: Test float8
+name: Run Float8 Tests
 
 on:
   push:
