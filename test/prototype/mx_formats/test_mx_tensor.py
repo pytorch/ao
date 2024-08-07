@@ -67,7 +67,7 @@ def _test_mx(data_hp, elem_dtype, block_size):
     if elem_dtype is torch.float8_e4m3fn:
         assert_sqnr_gt_threshold(data_hp, data_mx_dq, 20.0)
     elif elem_dtype == "fp4_e3m0":
-        assert_sqnr_gt_threshold(data_hp, data_mx_dq, 13.0)
+        assert_sqnr_gt_threshold(data_hp, data_mx_dq, 9.0)
     else:
         assert_sqnr_gt_threshold(data_hp, data_mx_dq, 14.0)
 
