@@ -3,7 +3,7 @@ from copy import deepcopy
 
 import torch
 from torchao.utils import unwrap_tensor_subclass
-from torchao.prototype.intx import intx_affine_weight_only, pack, unpack, pack_cpu, unpack_cpu
+from torchao.prototype.uintx import uintx_affine_weight_only, pack, unpack, pack_cpu, unpack_cpu
 from torchao.quantization.quant_api import quantize_
     
 class Linear16(torch.nn.Module):
@@ -73,7 +73,7 @@ def profile_bitpack():
         Self CUDA time total: 5.253ms
     '''
             
-def intx_vs_fp16(nbits= [1,2,3,4,5,6,7], scales=[256, 512, 1024], repeats=30):
+def uintx_vs_fp16(nbits= [1,2,3,4,5,6,7], scales=[256, 512, 1024], repeats=30):
     results  = []
     nbits.sort()
     scales.sort()
@@ -88,10 +88,10 @@ def intx_vs_fp16(nbits= [1,2,3,4,5,6,7], scales=[256, 512, 1024], repeats=30):
         times.append(fp16_time)
         for bit_size in nbits:
             m = deepcopy(fp16)
-            quantize_(m, intx_affine_weight_only(bit_size)) 
+            quantize_(m, uintx_affine_weight_only(bit_size)) 
             m = torch.compile(m, fullgraph=True)
-            intx_time = benchmark(m.forward, forward_args, repeats)
-            times.append(intx_time)
+            uintx_time = benchmark(m.forward, forward_args, repeats)
+            times.append(uintx_time)
         print(f'scale={scale} done')
             
         results.append(times)
@@ -104,6 +104,6 @@ def intx_vs_fp16(nbits= [1,2,3,4,5,6,7], scales=[256, 512, 1024], repeats=30):
         
         
 if __name__ == "__main__":   
-    intx_vs_fp16(nbits=[4,7])
+    uintx_vs_fp16(nbits=[4,7])
     
     

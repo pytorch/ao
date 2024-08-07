@@ -20,7 +20,7 @@ from torchao.dtypes.affine_quantized_tensor import PlainAQTLayout, register_layo
 
 aten = torch.ops.aten
 
-class IntxTensor(torch.Tensor):
+class UintxTensor(torch.Tensor):
     """
     Splits int data into packed shards based on bit size
     fields:
@@ -60,10 +60,8 @@ class IntxTensor(torch.Tensor):
         bit_size: int,
         pack_dim: int = -1,
     ):
-        shards = [shard.to(torch.uint8) for shard in shards]
-        self.shard = shards
-        for i, atrib in enumerate(self.bits_to_shard[bit_size]):
-            setattr(self, atrib, shards[i])
+        for i, attrib in enumerate(self.bits_to_shard[bit_size]):
+            setattr(self, attrib, shards[i])
             
         self.packed_shape = packed_shape
         self.bit_size = bit_size    
@@ -76,8 +74,8 @@ class IntxTensor(torch.Tensor):
         return f"Int{self.bit_size}Tensor(shape = {self.packed_shape}, data = {unpack(self.get_shards(), self.bit_size, dim = self.pack_dim)})"
     
     def __tensor_flatten__(self):
-        
         return self.__class__.bits_to_shard[self.bit_size], [self.packed_shape, self.bit_size, self.pack_dim]
+    
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
@@ -112,7 +110,7 @@ class IntxTensor(torch.Tensor):
         return cls(shards, int_data.shape, bit_size, pack_dim)
 
 
-implements = IntxTensor.implements
+implements = UintxTensor.implements
 
 
 @implements(aten.detach.default)
@@ -136,7 +134,7 @@ def _(func, types, args, kwargs):
 @implements(aten.sub.Tensor)
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
-        func, args, kwargs, args[0].apply_transformation(lambda x: x - args[1])
+        func, args, kwargs, args[0].apply_transformation(lambda x: (x - args[1]).to(torch.uint8))
     )
 
 @implements(aten.mul.Tensor)
@@ -145,19 +143,18 @@ def _(func, types, args, kwargs):
         func, args, kwargs, args[0].apply_transformation(lambda x: (x * args[1]).to(torch.uint8))
     )
 # quantization api integrations
-to_intx = IntxTensor.from_uint8
+to_uintx = UintxTensor.from_uint8
 
 @dataclass(frozen=True)
-class IntxLayoutType(LayoutType):
+class UintxLayoutType(LayoutType):
     bit_size: int
     pack_dim: int = -1
     
     def post_process(self, input: torch.Tensor) -> torch.Tensor:
-        from torchao.prototype.intx import to_intx
-        return to_intx(input, self.bit_size, self.pack_dim)
+        return to_uintx(input, self.bit_size, self.pack_dim)
 
-@register_layout_cls(IntxLayoutType)
-class IntxAQTLayout(PlainAQTLayout):
+@register_layout_cls(UintxLayoutType)
+class UintxAQTLayout(PlainAQTLayout):
     
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         return self.int_data.get_plain(), self.scale, self.zero_point
@@ -170,13 +167,13 @@ class IntxAQTLayout(PlainAQTLayout):
         zero_point: torch.Tensor,
         layout_type: LayoutType,
     ):
-        assert isinstance(layout_type, IntxLayoutType)
+        assert isinstance(layout_type, UintxLayoutType)
         return cls(int_data, scale, zero_point, layout_type)
     
 
-def intx_affine_weight_only(bit_size, group_size=64, pack_dim=-1):
+def uintx_affine_weight_only(bit_size, group_size=64, pack_dim=-1):
     """
-    Applies intx weight-only asymmetric per-group quantization to linear layers, using intx quantization where 
+    Applies uintx weight-only asymmetric per-group quantization to linear layers, using uintx quantization where 
     x is the number of bits specified by the `nbits` argument
     """
     from torchao.quantization.quant_primitives import (
@@ -188,9 +185,9 @@ def intx_affine_weight_only(bit_size, group_size=64, pack_dim=-1):
         )
     from torchao.dtypes import to_affine_quantized
     from torchao.quantization.quant_api import _get_linear_subclass_inserter
-    def apply_intx_weight_only_quant(weight):
+    def apply_uintx_weight_only_quant(weight):
         
-        layout_type = IntxLayoutType(bit_size=bit_size, pack_dim=pack_dim) 
+        layout_type = UintxLayoutType(bit_size=bit_size, pack_dim=pack_dim) 
         mapping_type = MappingType.ASYMMETRIC
         block_size = (1, group_size)
         quant_min = 0
@@ -207,4 +204,4 @@ def intx_affine_weight_only(bit_size, group_size=64, pack_dim=-1):
             layout_type=layout_type,
         )
     
-    return _get_linear_subclass_inserter(apply_intx_weight_only_quant)
+    return _get_linear_subclass_inserter(apply_uintx_weight_only_quant)

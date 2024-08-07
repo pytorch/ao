@@ -68,31 +68,52 @@ def pack_cpu(data: torch.Tensor,
     """
     Inputs:
     data: a tensor of sub byte elements in uint8 
+    elem_size: the size in bits of the elements to pack
     dim: the dimension to pack along
     Returns: a list of packed shards
     
-    given an array such as [0x30,0x29,0x17,0x5,0x20,0x16,0x9,0x2] which are 8 uint6 elements
+    ==================================================================================================
+    given an array such as [0x30,0x29,0x17,0x5,0x20,0x16,0x9,0x22] which are 8 uint6 elements
     first seperate into two shards: the upper 2 bits and the lower 4 bits by using a mask (0x30 and 0x0f respectively)
-    2 bit shards: [0b00110000, 0b00100000, 0b00010000, 0b00000000, 0b00100000, 0b00010000, 0b00000000, 0b00000000]
-                   |------ group 1 ------| |------ group 2 ------| |------ group 3 ------| |------ group 4 ------|
-    4 bit shards: [0b00000000, 0b00001001, 0b00000111, 0b00000101, 0b00000000, 0b00000110, 0b00001001, 0b00000010]
-                   |------------------ group 1 ------------------| |------------------ group 2 ------------------|
-    Then pack each of these shards by shifting each group of 4 uint2s or 2 uint4s to a different position within the 8bit container
-    2bit shard group1 >> 4,  group2 >> 2, group3 >> 0, group4 << 2
-    [0b00000011, 0b00000001, 0b00000100, 0b00000000, 0b00100000, 0b00010000, 0b00000000, 0b00000000]
-    |------ group 1 ------| |------ group 2 ------| |------ group 3 ------| |------ group 4 ------|
-    4 bit shard group1 << 0, group2 << 4
+    2 bit shard:
+    mask: 0x30
+    [0x30,       0x20,       0x10,       0x00,        0x00,       0x10,       0x00,        0x20    ]
+    [0b00110000, 0b00100000, 0b00010000, 0b00000000, 0b00100000, 0b00010000, 0b00000000, 0b00100000]
+    
+    Group elements into subsets that will be shifted to the same position within the 8bit container
+    group1 >> 4,  group2 >> 2, group3 >> 0, group4 << 2
+    
+    [0b00000011, 0b00000010, 0b00000100, 0b00000000, 0b00100000, 0b00010000, 0b00000000, 0b10000000]
+    |------ group 1 ------| |------ group 2 ------| |------ group 3 ------| |------ group 4 ------|           
+    
+    Finally bitwise-or the groups together
+    [0b00000011, 0b00000010, 
+     0b00000100, 0b00000000, 
+     0b00100000, 0b00010000, 
+     0b00000000, 0b01000000]
+
+    [0b00100111, 0b10010010]
+    ==================================================================================================
+    Similarly for 4 bit shards:
+    mask: 0x0f
+    [0x00,       0x09,       0x07,       0x05,       0x00,       0x16,       0x9,        0x02]
+    [0b00000000, 0b00001001, 0b00000111, 0b00000101, 0b00000000, 0b00000110, 0b00001001, 0b00000010]
+    
+    group1 << 0, group2 << 4
     [0b00000000, 0b00001001, 0b00000111, 0b00000101, 0b00000000, 0b01100000, 0b10010000, 0b00100000]
     |------------------ group 1 ------------------| |------------------ group 2 ------------------|
-    finally bitwise or the groups together
-    2 bit shard: [0b00100111, 00010001]
-    4 bit shard: [0b00000000, 0b01101001, 0b10010111, 0b00100101]
-    so we went from 8 elements to 6
-    in general this means we go from 8 * n to elem_size * n
+    
+    bitwise-or:
+    [0b00000000, 0b00001001, 0b00000111, 0b00000101,
+     0b00000000, 0b01100000, 0b10010000, 0b00100000]
+    
+    [0b00000000, 0b01101001, 0b10010111, 0b00100101]
+    ==================================================================================================
+    After pack, data went from 8 elements to 6: [[0, 105, 151, 37], [39, 146]]
+    In general this means pack reduces input tensor size from n * 8 to n * elem_size
     """
     torch._assert(data.shape[dim] % 8 == 0, f"pack dimension size ({data.shape[dim]}) is not divisble by scale")
-    if data.dtype != torch.uint8:
-        data = data.to(torch.uint8)
+    torch._assert(data.dtype == torch.uint8, "data must be uint8")
     output_shape = list(data.shape)
     
     output = []
@@ -184,11 +205,13 @@ def pack(data: torch.Tensor,
     '''
     a less branching but more compute version so better for gpu
     '''
+    torch._assert(data.shape[dim] % 8 == 0, f"pack dimension size ({data.shape[dim]}) is not divisble by scale")
+    torch._assert(data.dtype == torch.uint8, "data must be uint8")
     container_size = 8
     shards = [(data & maskbits[elem_size][i]) >> shifts[elem_size][i] for i in range(len(maskbits[elem_size]))]
     return tuple([_pack(shards[i], numbits[elem_size][i], container_size//numbits[elem_size][i], dim) for i in range(len(maskbits[elem_size]))])
 
-def unpack(shards: List[torch.Tensor],
+def unpack(data: List[torch.Tensor],
                   elem_size: int,
                   dim: Optional[int] = 0) -> torch.Tensor:
     '''
@@ -196,5 +219,5 @@ def unpack(shards: List[torch.Tensor],
     '''
     container_size = 8
     # unpack each 4,2,1 bit shard and unshift them back to the correct position
-    shards = [_unpack(shards[i], numbits[elem_size][i], container_size // numbits[elem_size][i], dim) << shifts[elem_size][i] for i in range(len(shards))]
-    return reduce(torch.bitwise_or, shards)
+    data = [_unpack(data[i], numbits[elem_size][i], container_size // numbits[elem_size][i], dim) << shifts[elem_size][i] for i in range(len(data))]
+    return reduce(torch.bitwise_or, data)
