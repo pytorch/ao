@@ -211,13 +211,16 @@ def main(
     )
 
         if "int8wo" in quantization:
-            quantize_(model, int8_weight_only())
+            torchao.quantization.quant_api.change_linear_weights_to_int8_woqtensors(model)
+            # quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
-            quantize_(model, int8_dynamic_activation_int8_weight())
+            torchao.quantization.quant_api.change_linear_weights_to_int8_dqtensors(model)
+            # quantize_(model, int8_dynamic_activation_int8_weight())
         if "int4wo" in quantization:
             groupsize=int(quantization.split("-")[-1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
-            quantize_(model, int4_weight_only(group_size=groupsize))
+            torchao.quantization.quant_api.change_linear_weights_to_int4_woqtensors(model, groupsize)
+            # quantize_(model, int4_weight_only(group_size=groupsize))
         if "autoquant" == quantization:
             model = autoquant(model, manual=True)
 

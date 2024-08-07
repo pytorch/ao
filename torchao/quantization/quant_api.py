@@ -92,8 +92,8 @@ def change_linear_weights_to_int8_dqtensors(model, filter_fn=None, **kwargs):
     Tensor subclass, effectively applying the same form of quantization
     as apply_dynamic_quant while not modifying the linear modules.
     """
-    if TORCH_VERSION_AFTER_2_4:
-        raise ImportError("This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs")
+    # if TORCH_VERSION_AFTER_2_4:
+        # raise ImportError("This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs")
 
     if filter_fn is None:
         filter_fn = lambda *args: _is_linear(*args) and _in_features_greater_than_16(
@@ -112,8 +112,8 @@ def change_linear_weights_to_int8_woqtensors(model, filter_fn=None, **kwargs):
     effectively applying the same form of quantization
     as apply_weight_only_int8_quant while not modifying the linear modules.
     """
-    if TORCH_VERSION_AFTER_2_4:
-        raise ImportError("This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs")
+    # if TORCH_VERSION_AFTER_2_4:
+        # raise ImportError("This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs")
 
     _replace_with_custom_fn_if_matches_filter(
         model,
@@ -132,8 +132,8 @@ def change_linear_weights_to_int4_woqtensors(model, groupsize=128, inner_k_tiles
          size is more fine grained, choices are [256, 128, 64, 32]
         `inner_k_tiles`: parameter for int4 mm kernel, choices are [8, 4, 2]
     """
-    if TORCH_VERSION_AFTER_2_4:
-        raise ImportError("This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs")
+    # if TORCH_VERSION_AFTER_2_4:
+        # raise ImportError("This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs")
 
     if filter_fn is None:
         filter_fn = _is_linear
