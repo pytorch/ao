@@ -17,6 +17,7 @@ Exponent E8M0 encoding details (OCP spec section 5.4.1):
 """
 
 from typing import Dict, Union
+from enum import Enum
 
 import torch
 
@@ -61,6 +62,18 @@ from torchao.prototype.mx_formats.custom_cast import (
 )
 
 SBITS, EBITS_F32, MBITS_F32 = 1, 8, 23
+EBITS_F4_E2M1, MBITS_F4_E2M1 = 2, 1
+EBITS_F4_E3M0, MBITS_F4_E3M0 = 3, 0
+EBITS_F6_E2M3, MBITS_F6_E2M3 = 2, 3
+EBITS_F6_E3M2, MBITS_F6_E3M2 = 3, 2
+EBITS_F8_E4M3, MBITS_F8_E4M3 = 4, 3
+EBITS_F8_E5M2, MBITS_F8_E5M2 = 5, 2
+
+
+class ScaleCalculationMode(Enum):
+    FLOOR = 0
+    CEIL = 1
+    EVEN = 2
 
 
 def to_mx(
@@ -68,6 +81,7 @@ def to_mx(
     elem_dtype: Union[torch.dtype, str],
     block_size: int,
     rounding_mode: RoundingMode = RoundingMode.TIE_TO_EVEN,
+    scaling_mode: ScaleCalculationMode = ScaleCalculationMode.EVEN,
 ):
     """
     Takes a high precision tensor and converts to MX scale and raw data, in
@@ -94,39 +108,52 @@ def to_mx(
     # section 6.3.
     max_abs = torch.amax(torch.abs(data_hp), 1)
 
-    # rounding before calculating the largest power of 2
-    # https://docs.google.com/document/d/156Du0hBRH6umG_i-OrYC574XhpQMUU5SJYG0RTS2tTg/edit#heading=h.akfcp7xpg8cr
-    max_abs = max_abs.to(torch.float32).view(torch.int32)
-    val_to_add = 1 << (MBITS_F32 - 1)
-    mask = ((1 << (EBITS_F32 + SBITS)) - 1) << MBITS_F32
-    max_abs = (max_abs + val_to_add) & mask
-    max_abs = max_abs.view(torch.float32)
-
     # Add an epsilon to prevent the log2 function call for returning -inf
     # where the values are zero.
     eps = F32_MIN_NORMAL * (max_abs == 0).type(max_abs.dtype)
 
-    # Find largest power of 2 less than or equal to max_abs.
-    largest_p2_lt_max_abs = torch.floor(torch.log2(max_abs + eps))
-
     # Set X to be the largest power-of-two less than or equal to
     # max_abs(v), divided by the largest power of two representable
-    # in the element data type
+    # in the element data type, and get the mbits at the same time
     if elem_dtype == torch.float8_e4m3fn:
         target_max_pow2 = F8E4M3_MAX_POW2
+        mbits = MBITS_F8_E4M3
     elif elem_dtype == torch.float8_e5m2:
         target_max_pow2 = F8E5M2_MAX_POW2
+        mbits = MBITS_F8_E5M2
     elif elem_dtype == DTYPE_FP6_E2M3:
         target_max_pow2 = F6_E2M3_MAX_POW2
+        mbits = MBITS_F6_E2M3
     elif elem_dtype == DTYPE_FP6_E3M2:
         target_max_pow2 = F6_E3M2_MAX_POW2
+        mbits = MBITS_F6_E3M2
     elif elem_dtype == DTYPE_FP4_E2M1:
         target_max_pow2 = F4_E2M1_MAX_POW2
+        mbits = MBITS_F4_E2M1
     elif elem_dtype == DTYPE_FP4_E3M0:
         target_max_pow2 = F4_E3M0_MAX_POW2
+        mbits = MBITS_F4_E3M0
     else:
-        raise AssertionError("unsupported")
-    scale_e8m0_unbiased = largest_p2_lt_max_abs - target_max_pow2
+        raise AssertionError("unsupported element dtype")
+
+    # rounding before calculating the largest power of 2
+    # X = 2^(floor(log2(rounding(max_abs(v)))-max_exp))
+    if scaling_mode == ScaleCalculationMode.EVEN:
+        nan_mask = torch.isnan(max_abs)
+        max_abs = max_abs.to(torch.float32).view(torch.int32)
+        val_to_add = 1 << (MBITS_F32 - mbits - 1)
+        mask = ((1 << (EBITS_F32 + SBITS)) - 1) << MBITS_F32
+        max_abs = (max_abs + val_to_add) & mask
+        max_abs = max_abs.view(torch.float32)
+        max_abs[nan_mask] = torch.tensor(float("nan"), device=max_abs.device)
+
+    # Calculate the scale for different modes
+    if scaling_mode in (ScaleCalculationMode.FLOOR, ScaleCalculationMode.EVEN):
+        scale_e8m0_unbiased = torch.floor(torch.log2(max_abs + eps)) - target_max_pow2
+    elif scaling_mode == ScaleCalculationMode.CEIL:
+        scale_e8m0_unbiased = torch.ceil(torch.log2(max_abs + eps)) - target_max_pow2
+    else:
+        raise AssertionError("unsupported scaling calculation mode")
 
     # Clamp to exponents that can be represented in e8m0
     scale_e8m0_unbiased = torch.clamp(
