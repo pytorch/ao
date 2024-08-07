@@ -21,6 +21,7 @@ from torchao.float8.float8_linear_utils import (
     sync_float8_amax_and_scale_history,
 )
 from torchao.float8.float8_tensor import ScaledMMConfig
+from utils import get_name_to_shapes_iter
 from tqdm import tqdm
 
 # estimating TOPs for matmuls in fp32, fp16, fp8
@@ -96,6 +97,11 @@ def main(
     n_limit: Optional[int] = None,
     fast_accum_filter: Optional[bool] = None,
     shape_name_filter: Optional[str] = None,
+    *,
+    shape_gen_name: str = 'llama',
+    M: Optional[int] = None,
+    K: Optional[int] = None,
+    N: Optional[int] = None,
     scaling_type_input: str = "dynamic",
     scaling_type_weight: str = "dynamic",
     scaling_type_grad_output: str = "dynamic",
@@ -112,14 +118,7 @@ def main(
         cast_config_grad_output=CastConfig(scaling_type=scaling_type_grad_output),
     )
 
-    # LLaMa 2 70B single-node weight shapes
-    # assumes fused attn.wqkv and ffn.w13
-    name_to_shapes_70b = {
-        "attn.wqkv": (8192, 1280),
-        "attn.w0": (1024, 8192),
-        "ffn.w13": (8192, 7168),
-        "ffn.w2": (3584, 8192),
-    }
+    name_to_shapes = get_name_to_shapes_iter(shape_gen_name, M, K, N)
     input_bias = False
     if fast_accum_filter is not None:
         use_fast_accum = [fast_accum_filter]
@@ -127,11 +126,11 @@ def main(
         use_fast_accum = [True, False]
     if shape_name_filter is not None:
         k = shape_name_filter
-        name_to_shapes_70b = {k: name_to_shapes_70b[k]}
+        name_to_shapes = ((k, v) for (k, v) in name_to_shapes if k == shape_name_filter)
     experiment_list: List[Experiment] = []
     dtype = torch.bfloat16
-    for idx, (fast_accum, (name, (K, N))) in enumerate(
-        tqdm(list(product(use_fast_accum, name_to_shapes_70b.items())))
+    for idx, (fast_accum, (name, (M, K, N))) in enumerate(
+        tqdm(list(product(use_fast_accum, name_to_shapes)))
     ):
         if n_limit is not None and idx >= n_limit:
             break
@@ -150,8 +149,6 @@ def main(
         else:
             linear_float8.forward_config = ScaledMMConfig(False, False, False)
 
-        bsz, seq_len = 4, 4096
-        M = bsz * seq_len
         input_tensor = torch.randn(M, K, device=device, dtype=dtype, requires_grad=True)
         ref_forw_backward = lambda: linear_ref(input_tensor).sum().backward()
 
@@ -279,6 +276,10 @@ def invoke_main() -> None:
     parser.add_argument("-o", "--output_path", type=str, required=False)
     parser.add_argument("--disable_compile", action="store_true")
     parser.add_argument("-n", "--n_limit", type=int, required=False)
+    parser.add_argument("--shape_gen_name", type=str, required=False)
+    parser.add_argument("--M", type=int, required=False)
+    parser.add_argument("--K", type=int, required=False)
+    parser.add_argument("--N", type=int, required=False)
     parser.add_argument("--fast_accum_filter", type=bool, required=False)
     parser.add_argument("--shape_name_filter", type=str, required=False)
     parser.add_argument("--scaling_type_input", type=str, required=False)
@@ -287,6 +288,14 @@ def invoke_main() -> None:
     args = parser.parse_args()
     output_path = Path(args.output_path) if args.output_path is not None else None
     kwargs = {}
+    if args.shape_gen_name is not None:
+        kwargs["shape_gen_name"] = args.shape_gen_name
+    if args.M is not None:
+        kwargs["M"] = args.M,
+    if args.K is not None:
+        kwargs["K"] = args.K,
+    if args.N is not None:
+        kwargs["N"] = args.N,
     if args.scaling_type_input is not None:
         kwargs["scaling_type_input"] = args.scaling_type_input
     if args.scaling_type_weight is not None:
