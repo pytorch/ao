@@ -2,6 +2,7 @@ import torch
 from typing import Dict, Callable, Any, Tuple, Optional
 from collections import defaultdict
 import functools
+import math
 from torchao.quantization.quant_primitives import (
     choose_qparams_affine,
     quantize_affine,
@@ -26,10 +27,6 @@ from torchao.dtypes.utils import (
     PlainLayoutType,
     is_device,
 )
-
-#from ..quantization.hqq import quantize_affine_hqq
-
-import math
 
 from dataclasses import dataclass
 from torchao.utils import TORCH_VERSION_AFTER_2_5
