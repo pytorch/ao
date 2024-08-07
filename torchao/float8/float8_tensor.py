@@ -157,6 +157,7 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
         """
         tensor_scaled = tensor * scale
         bits_fp8 = to_fp8_saturated(tensor_scaled, float8_dtype)
+        inv_scale = scale.reciprocal()
 
         if isinstance(bits_fp8, DTensor):
             assert isinstance(
@@ -166,9 +167,11 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
             bits_placements = bits_fp8.placements
             local_bits = bits_fp8.to_local()
             local_scale = scale.to_local()
+            local_inv_scale = inv_scale.to_local()
             inner_float8_tensor = Float8Tensor(
                 local_bits,
                 local_scale,
+                local_inv_scale,
                 tensor.dtype,
                 linear_mm_config=linear_mm_config,
                 gemm_input_role=gemm_input_role,
@@ -185,6 +188,7 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
         return Float8Tensor(
             bits_fp8,
             scale,
+            inv_scale,
             tensor.dtype,
             linear_mm_config=linear_mm_config,
             gemm_input_role=gemm_input_role,
@@ -251,6 +255,11 @@ class Float8Tensor(torch.Tensor):
     * `_scale`: the scale used to scale the original fp32 tensor. We multiply
       by scale to go from fp32 range to fp8 range, and divide by scale to go
       from fp8 range to fp32 range.
+    * `_inv_scale`: the inverse of `_scale`. We need this because the 
+      `torch._scaled_mm` function requires inverse scales, and torch.compile
+      does not reliably fuse this into preceding ops, which can lead to extra
+      GPU kernel launches. If we calculate the inverse scale colocated with 
+      creating the `Float8Tensor` instance, we don't see the extra GPU kernels.
     * `_orig_dtype`: the original dtype of the tensor used to create this
       tensor.
     * `_emulate`: if true using fp32 emulation for the matmuls, helpful
@@ -275,6 +284,7 @@ class Float8Tensor(torch.Tensor):
         cls,
         data: torch.Tensor,
         scale: torch.Tensor,
+        inv_scale: torch.Tensor,
         orig_dtype: torch.dtype,
         linear_mm_config: Optional[LinearMMConfig],
         gemm_input_role: Optional[GemmInputRole] = GemmInputRole.INPUT,
@@ -297,6 +307,7 @@ class Float8Tensor(torch.Tensor):
         )
         self._data = data
         self._scale = scale
+        self._inv_scale = inv_scale
         self._orig_dtype = orig_dtype
         self._linear_mm_config = (
             linear_mm_config if linear_mm_config is not None else LinearMMConfig()
@@ -314,14 +325,15 @@ class Float8Tensor(torch.Tensor):
             "_linear_mm_config": self._linear_mm_config,
             "_gemm_input_role": self._gemm_input_role,
         }
-        return ["_data", "_scale"], ctx
+        return ["_data", "_scale", "_inv_scale"], ctx
 
     @staticmethod
     def __tensor_unflatten__(inner_tensors: Dict, metadata, outer_size, outer_stride):
-        assert len(inner_tensors) == 2
+        assert len(inner_tensors) == 3
         return Float8Tensor(
             inner_tensors["_data"],
             inner_tensors["_scale"],
+            inner_tensors["_inv_scale"],
             metadata["_orig_dtype"],
             metadata["_linear_mm_config"],
             metadata["_gemm_input_role"],
