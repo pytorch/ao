@@ -672,6 +672,8 @@ class TestSubclass(unittest.TestCase):
         test_dtype=torch.bfloat16,
         test_shape=(32, 64, 32),
     ):
+        if not "cuda" in test_device:
+            self.skipTest("test requires cuda")
         m, k, n = test_shape
         x = torch.randn(m, k, device=test_device, dtype=test_dtype)
         lin = torch.nn.Linear(k, n, device=test_device).to(test_dtype)
@@ -710,12 +712,6 @@ class TestSubclass(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     def test_aq_int8_dynamic_quant_subclass(self, device, dtype):
-        self._test_lin_weight_subclass_impl(
-            AQInt8DynamicallyQuantizedLinearWeight.from_float, device, 35, test_dtype=dtype
-        )
-
-    @parameterized.expand(COMMON_DEVICE_DTYPE)
-    def test_aq_int8_weight_only_quant_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             AQInt8DynamicallyQuantizedLinearWeight.from_float, device, 35, test_dtype=dtype
         )
