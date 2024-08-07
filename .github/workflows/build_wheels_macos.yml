@@ -45,6 +45,7 @@ jobs:
       smoke-test-script: packaging/smoke_test.py
       package-name: torchao
       trigger-event: ${{ github.event_name }}
+      runner-type: macos-m1-12
       # This is the CUDA version to be uploaded to torchao-nightly pypi
       # upload-to-pypi: cu121
     # secrets:
