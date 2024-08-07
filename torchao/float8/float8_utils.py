@@ -52,8 +52,7 @@ def amax_to_scale(
     # to care about this for float32/bfloat16.
     if orig_dtype is torch.float16:
         res = torch.clamp(res, max=torch.finfo(torch.float16).max)
-    return res.float()
-    return scale
+    return res.to(torch.float32)
 
 
 @torch.no_grad()
