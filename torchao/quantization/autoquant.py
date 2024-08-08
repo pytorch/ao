@@ -275,6 +275,7 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
     """
     @classmethod
     def from_float(cls, weight):
+        # TODO test if this is valid
         # in_features = weight.shape[1]
         # int8 dynamic quantization only has benefit when in_feature > 16
         # if in_features <= 16:
