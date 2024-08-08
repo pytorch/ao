@@ -29,19 +29,19 @@ class _GenericFakeQuantize(torch.autograd.Function):
     def forward(
         ctx: torch.autograd.function.FunctionCtx,
         input: torch.Tensor,
+        block_size: List[int],
         scales: torch.Tensor,
         zero_points: torch.Tensor,
         quant_min: int,
         quant_max: int,
-        block_size: List[int],
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
     ) -> torch.Tensor:
-        # Note: for bf16 inputs, casting them to fp32 has the unexpected
-        # side effect of reducing memory footprint significantly, presumably
-        # because bf16 * fp32 kernels are not as memory efficient
-        assert input.dtype == torch.float32
-        assert scales.dtype == torch.float32
-        assert zero_points.dtype == torch.int32
+        ## Note: for bf16 inputs, casting them to fp32 has the unexpected
+        ## side effect of reducing memory footprint significantly, presumably
+        ## because bf16 * fp32 kernels are not as memory efficient
+        #assert input.dtype == torch.float32
+        #assert scales.dtype == torch.float32
+        #assert zero_points.dtype == torch.int32
 
         (fq, mask) = fake_quantize_affine_cachemask(
             input,
@@ -76,7 +76,7 @@ def _fake_quantize_per_channel_group(
     assert input.dim() == 2
     block_size = (1, group_size)
     return _GenericFakeQuantize.apply(
-        input, scales, zero_points, quant_min, quant_max, block_size, zero_point_domain,
+        input, block_size, scales, zero_points, quant_min, quant_max, zero_point_domain,
     )
 
 def _fake_quantize_per_token(
@@ -92,7 +92,7 @@ def _fake_quantize_per_token(
     block_size = _get_per_token_block_size(input)
     fq_input = input.to(torch.float32)
     fq = _GenericFakeQuantize.apply(
-        fq_input, scales, zero_points, quant_min, quant_max, block_size,
+        fq_input, block_size, scales, zero_points, quant_min, quant_max,
     )
     return fq.reshape_as(input).to(input.dtype)
 
@@ -143,3 +143,51 @@ def _choose_qparams_per_token_asymmetric(
     zero_point = torch.clamp(zero_point, qmin, qmax).round()
 
     return scale.to(scales_precision), zero_point.to(zero_points_precision)
+
+def _unwrap_affine_fake_quantized_tensor(t: torch.Tensor):
+    """
+    Return the original, non-fake-quantized float tensor from a `AffineFakeQuantizedTensor`.
+    """
+    # avoid circular dependencies
+    from torchao.quantization.prototype.qat.affine_fake_quantized_tensor import (
+        AffineFakeQuantizedTensor,
+    )
+    assert isinstance(t, AffineFakeQuantizedTensor)
+    return t.original_tensor
+
+def _is_linear_with_fq_weight(mod: torch.nn.Module, *args):
+    """
+    Return whether this is a nn.Linear module with `AffineFakeQuantizeTensor` weights.
+    """
+    # avoid circular dependencies
+    from torchao.quantization.linear_activation_quantized_tensor import (
+        LinearActivationQuantizedTensor,
+    )
+    from torchao.quantization.prototype.qat.affine_fake_quantized_tensor import (
+        AffineFakeQuantizedTensor,
+    )
+    if not isinstance(mod, torch.nn.Linear) or not hasattr(mod, "weight"):
+        return False
+    weight = mod.weight
+    if isinstance(weight, LinearActivationQuantizedTensor):
+        weight = weight.original_weight_tensor
+    return isinstance(weight, AffineFakeQuantizedTensor)
+
+def _enable_fake_quant(mod: torch.nn.Module, enable: bool):
+    """
+    Enable or disable fake quantization in the activations and weights of a `nn.Linear` module.
+    """
+    from torchao.quantization.linear_activation_quantized_tensor import (
+        LinearActivationQuantizedTensor,
+    )
+    from torchao.quantization.prototype.qat.affine_fake_quantized_tensor import (
+        AffineFakeQuantizedTensor,
+    )
+    if not _is_linear_with_fq_weight(mod):
+        return
+    weight = mod.weight
+    if isinstance(weight, LinearActivationQuantizedTensor):
+        weight.input_quant_func_enabled = enable
+        weight = weight.original_weight_tensor
+    assert isinstance(weight, AffineFakeQuantizedTensor)
+    weight.fake_quant_enabled = enable

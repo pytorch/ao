@@ -183,6 +183,7 @@ def _replace_with_custom_fn_if_matches_filter(
 def _is_linear(mod, *args):
     # avoid circular dep
     from torchao.dtypes import AffineQuantizedTensor
+    from torchao.quantization.prototype.qat.affine_fake_quantized_tensor import AffineFakeQuantizedTensor
 
     # adding weight tensor subclass isinstance check to make sure the weight is only quantized once
     # when it is shared by multiple linear modules
@@ -193,6 +194,7 @@ def _is_linear(mod, *args):
         and not isinstance(mod.weight, AutoQuantizableLinearWeight)
         and not isinstance(mod.weight, AffineQuantizedTensor)
         and not isinstance(mod.weight, LinearActivationQuantizedTensor)
+        and not isinstance(mod.weight, AffineFakeQuantizedTensor)
     )
 
 import torch.nn.utils.parametrize as parametrize
@@ -257,9 +259,9 @@ def swap_conv2d_1x1_to_linear(model, filter_fn=None):
     )
 
 
-def _get_linear_subclass_inserter(constructor):
+def _get_linear_subclass_inserter(constructor, requires_grad=False):
     def insert_subclass(lin):
-        lin.weight = torch.nn.Parameter(constructor(lin.weight), requires_grad=False)
+        lin.weight = torch.nn.Parameter(constructor(lin.weight), requires_grad=requires_grad)
         return lin
 
     return insert_subclass
