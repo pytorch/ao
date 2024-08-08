@@ -711,28 +711,28 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4)
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_5, "autoquant+aqt needs newer pytorch")
     def test_aq_int8_dynamic_quant_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             AQInt8DynamicallyQuantizedLinearWeight.from_float, device, 35, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4)
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_5, "autoquant+aqt needs newer pytorch")
     def test_aq_int8_weight_only_quant_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             AQWeightOnlyQuantizedLinearWeight.from_float, device, 35, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4)
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_5, "autoquant+aqt needs newer pytorch")
     def test_aq_int8_weight_only_quant_2_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             AQWeightOnlyQuantizedLinearWeight2.from_float, device, 35, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4)
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_5, "autoquant+aqt needs newer pytorch")
     def test_aq_int8_weight_only_quant_3_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             AQWeightOnlyQuantizedLinearWeight3.from_float, device, 35, test_dtype=dtype
