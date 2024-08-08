@@ -14,6 +14,8 @@
 // 
 // This file is adapted from https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/fp6_llm/csrc/fp6_linear.cu
 
+#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800  // at least Ampere
+
 #include "kernel_matmul.cuh"
 #include "kernel_reduction.cuh"
 
@@ -200,3 +202,5 @@ TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
 }
 
 } // namespace torchao
+
+#endif
