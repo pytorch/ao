@@ -54,8 +54,8 @@ from torchao.float8.inference import (
 random.seed(0)
 torch.manual_seed(0)
 
-is_H100 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
 
+is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
 
 def bitwise_identical(a: Float8Tensor, b: Float8Tensor) -> bool:
     assert torch.all(a._data == b._data).item(), "scales are not identical"
@@ -223,7 +223,7 @@ class TestFloat8Linear:
             # verify initialization flags got updated
             assert m_fp8.is_amax_initialized, "Amax was not properly initialized"
 
-    @pytest.mark.parametrize("emulate", [True, False] if is_H100 else [True])
+    @pytest.mark.parametrize("emulate", [True, False] if is_cuda_8_9 else [True])
     @pytest.mark.parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
     @pytest.mark.parametrize(
         "scaling_type_input", [ScalingType.DELAYED, ScalingType.DYNAMIC]
@@ -271,7 +271,7 @@ class TestFloat8Linear:
             config,
         )
 
-    @pytest.mark.parametrize("emulate", [True, False] if is_H100 else [True])
+    @pytest.mark.parametrize("emulate", [True, False] if is_cuda_8_9 else [True])
     @pytest.mark.parametrize(
         "linear_dtype", [torch.float16, torch.bfloat16, torch.float32]
     )
@@ -325,7 +325,7 @@ class TestFloat8Linear:
     @pytest.mark.parametrize(
         "linear_dtype", [torch.float16, torch.bfloat16, torch.float32]
     )
-    @pytest.mark.parametrize("emulate", [True, False] if is_H100 else [True])
+    @pytest.mark.parametrize("emulate", [True, False] if is_cuda_8_9 else [True])
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_type_cast(self, linear_dtype: torch.dtype, emulate: bool):
         emulate = (
@@ -393,7 +393,7 @@ class TestFloat8Linear:
 
 class TestScaledMM:
     @unittest.skipIf(
-        not is_H100,
+        not is_cuda_8_9,
         "CUDA not available",
     )
     @pytest.mark.parametrize(
@@ -437,7 +437,7 @@ class TestScaledMM:
             atol, rtol = 2e-3, 2e-3
         torch.testing.assert_close(out_scaled_mm, out_emulated, atol=atol, rtol=rtol)
 
-    @unittest.skipIf(not is_H100, "CUDA not available")
+    @unittest.skipIf(not is_cuda_8_9, "CUDA not available")
     def test_different_configs_error(self):
         x_fp32 = torch.randn(16, 16, device="cuda")
         x_scale = torch.tensor(1.0, device="cuda")
@@ -473,7 +473,7 @@ class TestScaledMM:
             a @ b
 
     @unittest.skipIf(
-        not is_H100,
+        not is_cuda_8_9,
         "CUDA not available",
     )
     @pytest.mark.parametrize(
@@ -718,6 +718,8 @@ class TestFloat8LinearUtils(unittest.TestCase):
             (zero_cnt, max_cnt) = fp8_tensor_statistics(fp8_over_underflow, lp_dtype)
             self.assertEqual((zero_cnt, max_cnt), (tensor_len, tensor_len))
 
+# ghstack test 1
+# ghstack test 2
 
 if __name__ == "__main__":
     pytest.main([__file__])

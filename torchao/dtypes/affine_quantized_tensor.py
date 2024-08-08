@@ -155,6 +155,10 @@ class AffineQuantizedTensor(torch.Tensor):
         int_data, scale, zero_point = self.layout_tensor.get_plain()
         return dequantize_affine(int_data, self.block_size, scale, zero_point, int_data.dtype, self.quant_min, self.quant_max, self.zero_point_domain, output_dtype=output_dtype)
 
+    @staticmethod
+    def _quantized_linear_op(input_tensor, weight_tensor, bias):
+        return _quantized_linear_op(input_tensor, weight_tensor, bias)
+
     def __tensor_flatten__(self):
         return ["layout_tensor"], [self.block_size, self.shape, self.quant_min, self.quant_max, self.zero_point_domain, self.dtype]
 
@@ -832,7 +836,7 @@ def _(func, types, args, kwargs):
     # is not picked up by any of the dispatch paths in `_quantized_linear_op`, this allows us to
     # make the branches easier to understand in `_quantized_linear_op`
     try:
-        return _quantized_linear_op(input_tensor, weight_tensor, bias)
+        return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
     except:
         if isinstance(input_tensor, AffineQuantizedTensor):
             input_tensor = input_tensor.dequantize()

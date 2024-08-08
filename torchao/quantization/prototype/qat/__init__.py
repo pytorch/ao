@@ -5,6 +5,7 @@ from .api import (
     enable_8da4w_fake_quant,
     Int4WeightOnlyQATQuantizer,
     Int8DynActInt4WeightQATQuantizer,
+    Int8DynActInt4WeightQATLinear,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "enable_8da4w_fake_quant",
     "Int4WeightOnlyQATQuantizer",
     "Int8DynActInt4WeightQATQuantizer",
+    "Int8DynActInt4WeightQATLinear",
 ]
