@@ -3,6 +3,7 @@ from typing import Dict, Callable, Union
 from collections import defaultdict
 import functools
 from dataclasses import dataclass
+from torchao.utils import TORCH_VERSION_AFTER_2_5
 
 """
 Helper function for implementing aten op or torch function dispatch
@@ -94,7 +95,6 @@ Plain LayoutType, the most basic LayoutType, also has no extra metadata, will ty
 class PlainLayoutType(LayoutType):
     pass
 
-
 """
 layout tensor constructor registration for different tensor subclassesa
 
@@ -117,6 +117,9 @@ def _register_layout_cls(cls: Callable, layout_type_class: type(LayoutType)):
     """
     def decorator(layout_cls):
         _LAYOUT_CONSTRUCTOR_TABLE[cls][layout_type_class] = layout_cls.from_plain
+        if TORCH_VERSION_AFTER_2_5:
+            # Allow serialization to work for models uses this layout tensor subclass
+            torch.serialization.add_safe_globals([layout_type_class, layout_cls])
         return layout_cls
     return decorator
 

@@ -52,6 +52,9 @@ class ZeroPointDomain(Enum):
     INT = auto()
     FLOAT = auto()
 
+if TORCH_VERSION_AFTER_2_5:
+    torch.serialization.add_safe_globals([MappingType, ZeroPointDomain])
+
 """
 Map from dtype to the bound value of integers
 TODO: maybe can replace this with call to torch.iinfo

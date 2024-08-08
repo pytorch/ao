@@ -920,3 +920,7 @@ def _(func, types, args, kwargs):
 
 to_affine_quantized = AffineQuantizedTensor.from_float
 to_affine_quantized_static = AffineQuantizedTensor.from_float_static
+
+if TORCH_VERSION_AFTER_2_5:
+    # Allow a model with AffineQuantizedTensor weights to be loaded with `weights_only=True`
+    torch.serialization.add_safe_globals([AffineQuantizedTensor])
