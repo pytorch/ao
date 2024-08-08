@@ -26,8 +26,8 @@ except ImportError:
     try:
         from torch._inductor.runtime.runtime_utils import do_bench
     except ImportError:
-        from torch._inductor.runtime.benchmarking.benchmarker import benchmark as do_bench
-
+        from torch._inductor.runtime.benchmarking import benchmarker
+        do_bench = benchmarker.benchmark
 
 __all__ = [
     "AutoQuantizableLinearWeight",
@@ -236,7 +236,8 @@ def do_autoquant_bench(op, *args, **kwargs):
             from torch._inductor.runtime.runtime_utils import do_bench_gpu
             res = do_bench_gpu(lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median")
         elif TORCH_VERSION_AFTER_2_5:
-            from torch._inductor.runtime.benchmarking.benchmarker import benchmark_gpu as do_bench_gpu
+            from torch._inductor.runtime.benchmarking import benchmarker
+            do_bench_gpu = benchmarker.benchmark_gpu
             res = do_bench_gpu(lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median")
         else:
             res = do_bench(lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median")
