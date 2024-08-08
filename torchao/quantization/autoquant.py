@@ -20,15 +20,6 @@ from torchao.quantization.utils import quantize_activation_per_token_absmax
 
 import torch.nn.functional as F
 
-try:
-    from torch._inductor.utils import do_bench
-except ImportError:
-    try:
-        from torch._inductor.runtime.runtime_utils import do_bench
-    except ImportError:
-        from torch._inductor.runtime.benchmarking import benchmarker
-        do_bench = benchmarker.benchmark
-
 __all__ = [
     "AutoQuantizableLinearWeight",
     "autoquant",
@@ -232,14 +223,16 @@ def do_autoquant_bench(op, *args, **kwargs):
         graph = torch.cuda.CUDAGraph()
         with torch.cuda.graph(graph, stream=stream):
             op(*args, **kwargs)
-        if TORCH_VERSION_AFTER_2_3 and not TORCH_VERSION_AFTER_2_5:
+        if TORCH_VERSION_AFTER_2_5:
+            from torch._inductor.runtime.benchmarking import benchmarker
+            res = benchmarker.benchmark_gpu(
+                lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median"
+            )
+        elif TORCH_VERSION_AFTER_2_3:
             from torch._inductor.runtime.runtime_utils import do_bench_gpu
             res = do_bench_gpu(lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median")
-        elif TORCH_VERSION_AFTER_2_5 and torch.cuda.is_available():
-            from torch._inductor.runtime.benchmarking import benchmarker
-            do_bench_gpu = benchmarker.benchmark_gpu
-            res = do_bench_gpu(lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median")
         else:
+            from torch._inductor.utils import do_bench
             res = do_bench(lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median")
     return res
 
