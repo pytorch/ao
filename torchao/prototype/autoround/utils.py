@@ -1,12 +1,42 @@
 # ==------------------------------------------------------------------------------------------==
 # Utils for the auto-round (put here temporarily)
 # ==------------------------------------------------------------------------------------------==
+import logging
 import random
-from collections import UserDict
-from typing import Optional, Tuple
+
+import auto_round
 
 import numpy as np
 import torch
+
+get_dataloader = auto_round.calib_dataset.get_dataloader
+
+
+def see_memory_usage(message, force=True):
+    # Modified from DeepSpeed
+    import gc
+
+    import torch.distributed as dist
+
+    if not force:
+        return
+    if dist.is_initialized() and not dist.get_rank() == 0:
+        return
+
+    # python doesn't do real-time garbage collection so do it explicitly to get the correct RAM reports
+    gc.collect()
+
+    # Print message except when distributed but not rank 0
+    logging.info(message)
+    logging.info(
+        f"AllocatedMem {round(torch.cuda.memory_allocated() / (1024 * 1024 * 1024),2 )} GB \
+        MaxAllocatedMem {round(torch.cuda.max_memory_allocated() / (1024 * 1024 * 1024),2)} GB \
+        ReservedMem {round(torch.cuda.memory_reserved() / (1024 * 1024 * 1024),2)} GB \
+        MaxReservedMem {round(torch.cuda.max_memory_reserved() / (1024 * 1024 * 1024))} GB "
+    )
+
+    # get the peak memory to report correct data, so reset the counter for the next call
+    torch.cuda.reset_peak_memory_stats()
 
 
 def freeze_random(seed=0):
@@ -18,86 +48,31 @@ def freeze_random(seed=0):
     np.random.seed(seed)
 
 
-def get_tokenizer_function(tokenizer, seqlen):
-    def default_tokenizer_function(examples):
-        example = tokenizer(examples["text"], truncation=True, max_length=seqlen)
-        return example
-
-    return default_tokenizer_function
-
-
-def get_dataloader(
-    tokenizer,
-    seqlen=1024,
-    dataset_name="NeelNanda/pile-10k",
-    split="train",
-    seed=42,
-    batch_size=4,
-):
-    from datasets import load_dataset
-    from torch.utils.data import DataLoader
-
-    tokenizer_function = get_tokenizer_function(tokenizer, seqlen)
-
-    @torch.no_grad()
-    def collate_batch(batch):
-        input_ids_new = []
-        for text in batch:
-            input_ids = text["input_ids"]
-            if input_ids.shape[0] < seqlen:
-                continue
-            input_ids = input_ids[:seqlen]
-            input_ids_list = input_ids.tolist()
-            if input_ids_list.count(input_ids_list[-1]) > seqlen // 2:
-                continue
-            input_ids_new.append(input_ids)
-        # TODO: need to handle the case where all input_ids are empty
-        if len(input_ids_new) == 0:
-            return None
-        tmp = torch.vstack(input_ids_new)
-        res = {"input_ids": tmp}
-        return res
-
-    calib_dataset = load_dataset(dataset_name, split=split)
-    calib_dataset = calib_dataset.shuffle(seed=seed)
-    calib_dataset = calib_dataset.map(tokenizer_function, batched=True)
-    calib_dataset.set_format(type="torch", columns=["input_ids"])
-    calib_dataloader = DataLoader(
-        calib_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_batch
-    )
-    return calib_dataloader
+def has_tensor_of_type(mod, cls):
+    for name, param in mod.named_parameters():
+        if isinstance(param, cls):
+            return True
+    return False
 
 
-def move_input_to_device(input, device=torch.device("cpu")):
-    """Moves input data to the specified device.
-
-    Args:
-    input: The input data to be moved.
-    device: The target device.
-
-    Returns:
-    The input data on the specified device.
-    """
+def move_data_to_device(input, device=torch.device("cpu")):
     if isinstance(input, torch.Tensor):
         return input.to(device)
-    if isinstance(input, dict) or isinstance(input, UserDict):
+    if isinstance(input, dict):
         for inp in input.keys():
-            input[inp] = move_input_to_device(input[inp], device)
-    elif isinstance(input, list) or isinstance(input, tuple):
-        input_res = []
-        for inp in input:
-            input_res.append(move_input_to_device(inp, device))
-        input = input_res
-    else:
-        raise ValueError(f"Unsupported type: {type(input)}")
+            input[inp] = move_data_to_device(input[inp], device)
+    elif isinstance(input, (list, tuple)):
+        input = [move_data_to_device(inp, device) for inp in input]
     return input
 
 
 @torch.no_grad()
-def gen_text(model, tokenizer, msg=""):
+def gen_text(
+    model, tokenizer, msg="", device="cuda", prompt="What's AI?", max_length=20
+):
     device = next(model.parameters()).device
-    inputs = tokenizer("What are we having for dinner?", return_tensors="pt")
-    new_tokens = model.generate(**inputs.to(device), max_length=20)
+    inputs = tokenizer(prompt, return_tensors="pt")
+    new_tokens = model.generate(**inputs.to(device), max_length=max_length)
     text = tokenizer.decode(new_tokens[0], skip_special_tokens=True)
     print(f"Generated text ({msg}): {text}")
 
@@ -105,7 +80,9 @@ def gen_text(model, tokenizer, msg=""):
 def get_float_model_info(model_name_or_path):
     import transformers
 
-    model = transformers.AutoModelForCausalLM.from_pretrained(model_name_or_path)
+    model = transformers.AutoModelForCausalLM.from_pretrained(
+        model_name_or_path, low_cpu_mem_usage=False
+    )
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path)
     if "Llama" in model_name_or_path:
         decoder_cls = transformers.models.llama.modeling_llama.LlamaDecoderLayer
@@ -114,20 +91,3 @@ def get_float_model_info(model_name_or_path):
     else:
         raise ValueError(f"Unsupported model: {model_name_or_path}")
     return model, tokenizer, decoder_cls
-
-
-def get_example_inputs(tokenizer):
-    iters = 4
-    prompt = "What are we having for dinner?"
-    example_inputs = tokenizer(prompt, return_tensors="pt")
-    for i in range(iters):
-        yield example_inputs
-
-
-def check_package(package_name: str):
-    try:
-        __import__(package_name)
-        return True
-    except ImportError:
-        print(f"Package {package_name} not found.")
-        return False
