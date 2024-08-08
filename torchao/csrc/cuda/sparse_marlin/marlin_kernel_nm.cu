@@ -23,9 +23,10 @@
 #include <cuda_runtime.h>
 #include <iostream>
 
-#include <torch/extension.h>
+#include <ATen/ATen.h>
 #include <ATen/core/Tensor.h>
 #include <torch/library.h>
+#include <torch/extension.h>
 
 #include "base.h"
 #include "mem.h"
@@ -775,7 +776,7 @@ int64_t marlin_cuda_2_4(
   cudaStream_t stream = 0;  // Move to argument list if needed
 
   if (sms == -1)
-    cudaDeviceGetAttribute(reinterpret_cast<int*>(sms), cudaDevAttrMultiProcessorCount, dev);
+    cudaDeviceGetAttribute(reinterpret_cast<int*>(&sms), cudaDevAttrMultiProcessorCount, dev);
 
   if (thread_k == -1 || thread_m == -1) {
     if (prob_n <= 16) {
@@ -793,20 +794,23 @@ int64_t marlin_cuda_2_4(
   int thread_m_blocks = thread_m / 16;
   int group_blocks = (groupsize == -1) ? -1 : groupsize / 16;
   int blocks = sms;
+
   if (prob_m % thread_m != 0 || prob_k % thread_k != 0 ||
       (group_blocks != -1 && (prob_k / 2) % group_blocks != 0))
     return ERR_PROB_SHAPE;
   if (prob_m == 0 || prob_n == 0 || prob_k == 0)
     return 0;
-  const int4 *A_ptr = (const int4 *) &A;
-  const int4 *B_ptr = (const int4 *) &B;
-  const int4 *meta_ptr = (const int4 *) &meta;
-  int4 *C_ptr = (int4 *) &C;
-  const int4 *s_ptr = (const int4 *) &s;
+
+  auto A_ptr = reinterpret_cast<const int4*>(A.data_ptr<at::Half>());
+  auto B_ptr = reinterpret_cast<const int4*>(B.data_ptr<int>());
+  auto meta_ptr = reinterpret_cast<const int4*>(meta.data_ptr<short>());
+  auto C_ptr = reinterpret_cast<int4*>(C.data_ptr<at::Half>());
+  auto s_ptr = reinterpret_cast<const int4*>(s.data_ptr<at::Half>());
 
   int cols = prob_m / thread_m;
-  int *locks = (int *) &workspace;
+  auto locks = reinterpret_cast<int*>(workspace.data_ptr<int>());
   int ret = 0;
+
   for (int i = 0; i < tot_n_blocks; i += 4) {
     int thread_n_blocks = tot_n_blocks - i;
     prob_n = tot_n - 16 * i;

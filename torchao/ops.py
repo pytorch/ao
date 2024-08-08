@@ -195,7 +195,7 @@ def marlin_24_mm(
     prob_n = x.size(0)
     prob_m = out.size(1)
     prob_k = x.size(1)
-    group_size = -1 if s.size(0) == 1 else prob_k / 2 / s.size(0)
+    group_size = -1 if s.size(0) == 1 else int(prob_k / 2 / s.size(0))
     device = torch.cuda.current_device()
 
     torch.ops.torchao.marlin_24_mm.default(
