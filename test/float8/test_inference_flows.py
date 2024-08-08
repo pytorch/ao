@@ -267,6 +267,7 @@ class TestFP8Export:
         not torch.cuda.is_available() or not is_H100,
         "CUDA not available or on non H100 machine",
     )
+    @unittest.skip("Pytorch needs a fix to ensure codegen maintains stride order")
     def test_fp8_export(self):
         export_model = FeedForward().to("cuda")
         quant_config = QuantConfig(ActivationCasting.DYNAMIC)
