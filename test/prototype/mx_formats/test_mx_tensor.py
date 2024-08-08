@@ -7,11 +7,15 @@
 import pytest
 
 import torch
+from torchao.prototype.custom_fp_utils import RoundingMode
 from torchao.prototype.mx_formats import config
 from torchao.prototype.mx_formats.constants import (
-    DTYPE_FP4,
+    DTYPE_FP4_E2M1,
+    DTYPE_FP4_E3M0,
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
+    F32_MIN_NORMAL,
+    F4_E3M0_MAX,
     SUPPORTED_ELEM_DTYPES,
 )
 
@@ -21,6 +25,7 @@ from torchao.prototype.mx_formats.mx_tensor import (
     E8M0_EXPONENT_NAN_VAL,
     MXTensor,
     to_dtype,
+    to_mx,
 )
 
 from torchao.quantization.utils import compute_error
@@ -65,6 +70,8 @@ def _test_mx(data_hp, elem_dtype, block_size):
 
     if elem_dtype is torch.float8_e4m3fn:
         assert_sqnr_gt_threshold(data_hp, data_mx_dq, 20.0)
+    elif elem_dtype == "fp4_e3m0":
+        assert_sqnr_gt_threshold(data_hp, data_mx_dq, 9.0)
     else:
         assert_sqnr_gt_threshold(data_hp, data_mx_dq, 14.0)
 
@@ -128,7 +135,7 @@ def test_exponent_nan_out(elem_dtype):
         data_bits = torch.tensor(
             [0, 1, 2, 3, 4, 5], dtype=torch.uint8, device="cuda"
         )  # noqa: E501
-    elif elem_dtype == DTYPE_FP4:
+    elif elem_dtype == DTYPE_FP4_E2M1 or elem_dtype == DTYPE_FP4_E3M0:
         data_bits = torch.tensor(
             [0, 1, 2, 3, 4, 5], dtype=torch.uint8, device="cuda"
         )  # noqa: E501
@@ -164,7 +171,7 @@ def test_block_sizes(elem_dtype):
     Smoke test for various block sizes
     """
     for B in (1, 2, 32):
-        if B == 1 and elem_dtype == DTYPE_FP4:
+        if B == 1 and (elem_dtype == DTYPE_FP4_E2M1 or elem_dtype == DTYPE_FP4_E3M0):
             pytest.skip("unsupported configuration")
         tensor_hp = torch.randn(B, device="cuda", dtype=torch.bfloat16)
         _test_mx(tensor_hp, elem_dtype, B)
@@ -177,7 +184,7 @@ def test_transpose(elem_dtype, fp4_triton):
     """
     Verify that transposing an MX tensor works
     """
-    if elem_dtype != DTYPE_FP4 and fp4_triton:
+    if elem_dtype != DTYPE_FP4_E2M1 and fp4_triton:
         pytest.skip("unsupported configuration")
 
     tensor_hp = torch.randn(128, 256, device="cuda", dtype=torch.bfloat16)
@@ -264,3 +271,47 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
         hp_dtype,
     )
     torch.testing.assert_close(x_mx_dq, x_mx_c_dq, atol=0, rtol=0)
+
+
+@pytest.mark.parametrize("data_range", [1, 0.75, 0.5, 0.25, 0.125])
+@pytest.mark.parametrize("hp_dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.parametrize("device", ["cuda", "cpu"])
+@pytest.mark.parametrize("block_size", [32])
+@pytest.mark.parametrize(
+    "rounding_mode", [RoundingMode.TIE_TO_EVEN, RoundingMode.STOCHASTIC]
+)
+def test_float4_e3m0_mx_qdq(data_range, hp_dtype, block_size, device, rounding_mode):
+    data_min = -data_range
+    data_max = data_range
+    data = (
+        torch.rand(1024, 1024, dtype=hp_dtype, device=device) * (data_max - data_min)
+        + data_min
+    )
+    scale_e8m0_biased, data_lp = to_mx(data, "fp4_e3m0", block_size, rounding_mode)
+    mx_args = MXTensor(scale_e8m0_biased, data_lp, "fp4_e3m0", block_size, data.dtype)
+    data_qdq = mx_args.to_dtype(mx_args._orig_dtype)
+
+    scale_e8m0_unbiased = scale_e8m0_biased - 127
+    scale_fp = torch.pow(
+        torch.full(scale_e8m0_unbiased.size(), 2.0, device=data.device),
+        scale_e8m0_unbiased,
+    )
+    scale_fp = torch.clamp(scale_fp, min=F32_MIN_NORMAL)
+
+    data_lp = data.reshape(-1, block_size) / scale_fp.unsqueeze(1)
+    data_lp = data_lp.reshape(data.shape)
+
+    # exclude overflow values whose error is unbounded
+    saturate_mask = data_lp >= F4_E3M0_MAX
+    data_qdq = torch.where(saturate_mask, data, data_qdq)
+
+    # the largest error equals to max_scale_value * max_exp_range
+    max_scale_value = torch.max(scale_fp)
+    largest_error = max_scale_value * (2**4 - 2**3)
+
+    torch.testing.assert_close(
+        data_qdq,
+        data,
+        atol=largest_error,
+        rtol=0,
+    )

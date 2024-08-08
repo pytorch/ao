@@ -68,6 +68,10 @@ def test_linear_eager(elem_dtype, bias, input_shape):
         assert y_sqnr >= 18.0
         assert w_g_sqnr >= 18.0
         assert x_g_sqnr >= 14.0
+    elif elem_dtype == "fp4_e3m0":
+        assert y_sqnr >= 4.0
+        assert w_g_sqnr >= 4.8
+        assert x_g_sqnr >= 3.2
     else:
         assert y_sqnr >= 8.0
         assert w_g_sqnr >= 10.0
@@ -162,6 +166,8 @@ def test_inference_linear(elem_dtype, bias, input_shape):
     sqnr = compute_error(y_ref, y_mx)
     if elem_dtype is torch.float8_e4m3fn:
         assert sqnr >= 20.0
+    elif elem_dtype == "fp4_e3m0":
+        assert sqnr >= 8.0
     else:
         assert sqnr >= 11.0
 
@@ -188,6 +194,8 @@ def test_inference_compile_simple(elem_dtype):
     sqnr = compute_error(y_ref, y_mx)
     if elem_dtype is torch.float8_e4m3fn:
         assert sqnr >= 20.0
+    elif elem_dtype == "fp4_e3m0":
+        assert sqnr >= 9.4
     else:
         assert sqnr >= 13.5
 
