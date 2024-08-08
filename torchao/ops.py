@@ -197,12 +197,11 @@ def marlin_24_mm(
     prob_k = x.size(1)
     group_size = -1 if s.size(0) == 1 else prob_k / 2 / s.size(0)
     device = torch.cuda.current_device()
-    cuda_stream = torch.cuda.current_stream(device)
 
     torch.ops.torchao.marlin_24_mm.default(
         x, weight_marlin, meta, out, 
         s, prob_m, prob_n, prob_k, 
-        workspace, group_size, device, cuda_stream, 
+        workspace, group_size, device,
         thread_k, thread_m, sms, max_par
     )
 

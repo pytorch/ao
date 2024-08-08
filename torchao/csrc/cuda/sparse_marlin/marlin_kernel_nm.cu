@@ -23,6 +23,10 @@
 #include <cuda_runtime.h>
 #include <iostream>
 
+#include <torch/extension.h>
+#include <ATen/core/Tensor.h>
+#include <torch/library.h>
+
 #include "base.h"
 #include "mem.h"
 #include "mma.h"
@@ -748,30 +752,30 @@ const int SHARED_MEM =
 const int ERR_PROB_SHAPE = 1;
 const int ERR_KERN_SHAPE = 2;
 
-int marlin_cuda_2_4(
-    const void *A, 
-    const void *B, 
-    const void *meta, 
-    void *C,
-    void *s, 
-    int prob_m, 
-    int prob_n, 
-    int prob_k,
-    void *workspace, 
-    int groupsize = -1, 
-    int dev = 0,
-    cudaStream_t stream = 0, 
-    int thread_k = -1,
-    int thread_m = -1, 
-    int sms = -1, 
-    int max_par = 16
+int64_t marlin_cuda_2_4(
+    const at::Tensor A, 
+    const at::Tensor B, 
+    const at::Tensor meta, 
+    at::Tensor C,
+    at::Tensor s, 
+    int64_t prob_m, 
+    int64_t prob_n, 
+    int64_t prob_k,
+    at::Tensor workspace, 
+    int64_t groupsize = -1, 
+    int64_t dev = 0,
+    int64_t thread_k = -1,
+    int64_t thread_m = -1, 
+    int64_t sms = -1, 
+    int64_t max_par = 16
   ) {
   int tot_n = prob_n;
   int tot_n_blocks = ceildiv(tot_n, 16);
   int pad = 16 * tot_n_blocks - tot_n;
+  cudaStream_t stream = 0;  // Move to argument list if needed
 
   if (sms == -1)
-    cudaDeviceGetAttribute(&sms, cudaDevAttrMultiProcessorCount, dev);
+    cudaDeviceGetAttribute(reinterpret_cast<int*>(sms), cudaDevAttrMultiProcessorCount, dev);
 
   if (thread_k == -1 || thread_m == -1) {
     if (prob_n <= 16) {
@@ -794,14 +798,14 @@ int marlin_cuda_2_4(
     return ERR_PROB_SHAPE;
   if (prob_m == 0 || prob_n == 0 || prob_k == 0)
     return 0;
-  const int4 *A_ptr = (const int4 *)A;
-  const int4 *B_ptr = (const int4 *)B;
-  const int4 *meta_ptr = (const int4 *)meta;
-  int4 *C_ptr = (int4 *)C;
-  const int4 *s_ptr = (const int4 *)s;
+  const int4 *A_ptr = (const int4 *) &A;
+  const int4 *B_ptr = (const int4 *) &B;
+  const int4 *meta_ptr = (const int4 *) &meta;
+  int4 *C_ptr = (int4 *) &C;
+  const int4 *s_ptr = (const int4 *) &s;
 
   int cols = prob_m / thread_m;
-  int *locks = (int *)workspace;
+  int *locks = (int *) &workspace;
   int ret = 0;
   for (int i = 0; i < tot_n_blocks; i += 4) {
     int thread_n_blocks = tot_n_blocks - i;
