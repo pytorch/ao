@@ -150,7 +150,7 @@ def single_param_adamw(
 
     # merge weight decay and param update in a single .add_() to make this work with quantized param
     step_size = lr / bias_correction1
-    p.add_(-lr * weight_decay - step_size * new_exp_avg / denom)
+    p.add_(-lr * weight_decay * p - step_size * new_exp_avg / denom)
 
 
 class AdamW(_AdamW):
