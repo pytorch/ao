@@ -1,8 +1,8 @@
 import torch
-from torch import Tensor
+from torch import Tensor, nn
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.dtypes.utils import _implements, _dispatch__torch_function__, _dispatch__torch_dispatch__
+from torchao.dtypes.utils import _dispatch__torch_dispatch__, _dispatch__torch_function__, _implements
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
 
 aten = torch.ops.aten
@@ -171,4 +171,11 @@ class _Int8WeightOnlyLinear(torch.autograd.Function):
 
 
 def int8_weight_only_quantized_training():
-    return _get_linear_subclass_inserter(Int8QTLinearWeight.from_float)
+    def apply_int8_linear_weight(linear: nn.Linear):
+        linear.weight = nn.Parameter(
+            Int8QTLinearWeight.from_float(linear.weight),
+            requires_grad=linear.weight.requires_grad,
+        )
+        return linear
+
+    return apply_int8_linear_weight
