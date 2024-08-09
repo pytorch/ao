@@ -142,10 +142,15 @@ def _(func, types, args, kwargs):
     return args[0]
 
 
-# this might be unnecessary
 @Int8QTLinearWeight.implements(aten.addcdiv_.default)
 def _(func, types, args, kwargs):
     out = torch.addcdiv(args[0].dequantize(), *args[1:], **kwargs)
+    return args[0].copy_(out)
+
+
+@Int8QTLinearWeight.implements(aten.add_.Tensor)
+def _(func, types, args, kwargs):
+    out = torch.add(args[0].dequantize(), *args[1:], **kwargs)
     return args[0].copy_(out)
 
 

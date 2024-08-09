@@ -131,8 +131,6 @@ def single_param_adamw(
     weight_decay: float,
     eps: float,
 ):
-    p.mul_(1 - lr * weight_decay)
-
     bias_correction1 = 1 - beta1 ** step
     bias_correction2 = 1 - beta2 ** step
 
@@ -150,8 +148,23 @@ def single_param_adamw(
     else:
         denom = (new_exp_avg_sq.sqrt() / bias_correction2.sqrt()).add_(eps)
 
+    # merge weight decay and param update in a single .add_() to make this work with quantized param
     step_size = lr / bias_correction1
-    p.addcdiv_(new_exp_avg, denom, value=-step_size)
+    p.add_(-lr * weight_decay - step_size * new_exp_avg / denom)
+
+
+class AdamW(_AdamW):
+    def __init__(
+        self,
+        params,
+        lr=1e-3,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+        weight_decay=1e-2,
+        amsgrad=False,
+    ) -> None:
+        """AdamW optimizer that supports quantized training (parameter is quantized)."""
+        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=float("inf"))
 
 
 class AdamW8bit(_AdamW):

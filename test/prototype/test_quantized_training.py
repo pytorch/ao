@@ -11,6 +11,7 @@ from torch.testing._internal.common_utils import (
 )
 
 from torchao.prototype.quantized_training import Int8QTLinearWeight, int8_weight_only_quantized_training
+from torchao.prototype.low_bit_optim import AdamW
 from torchao.quantization.quant_api import quantize_
 
 
@@ -68,6 +69,38 @@ class TestQuantizedTraining(TestCase):
 
         for p_fp32, p_int8 in zip(model_fp32.parameters(), model_int8.parameters()):
             torch.testing.assert_close(p_fp32.grad, p_int8.grad, atol=1e-3, rtol=1e-2)
+
+    @parametrize("device", _DEVICES)
+    def test_int8_linear_training(self, device):
+        bsize = 4
+        embed_dim = 32
+        n_classes = 10
+
+        model_fp32 = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim * 2, bias=False),
+            nn.GELU(),
+            nn.Linear(embed_dim * 2, n_classes),
+        ).to(device)
+        model_int8 = copy.deepcopy(model_fp32)
+        quantize_(model_int8, int8_weight_only_quantized_training())
+
+        optim_fp32 = AdamW(model_fp32.parameters())
+        optim_int8 = AdamW(model_int8.parameters())
+
+        for _ in range(2):
+            inputs = torch.randn(bsize, embed_dim, device=device)
+            labels = torch.randint(n_classes, size=(bsize,), device=device)
+            F.cross_entropy(model_fp32(inputs), labels).backward()
+            F.cross_entropy(model_int8(inputs), labels).backward()
+
+            optim_fp32.step()
+            optim_fp32.zero_grad()
+            optim_int8.step()
+            optim_int8.zero_grad()
+
+            with torch.no_grad():
+                for p_fp32, p_int8 in zip(model_fp32.parameters(), model_int8.parameters()):
+                    torch.testing.assert_close(p_fp32, p_int8.dequantize(), atol=1e-2, rtol=1e-2)
 
 
 instantiate_parametrized_tests(TestQuantizedTraining)
