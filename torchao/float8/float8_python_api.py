@@ -23,9 +23,9 @@ import torch
 # For output going from fp32 -> fp8 we multiply by the scale
 def addmm_float8_unwrapped(
     a_data: torch.Tensor,
-    a_scale: torch.Tensor,
+    a_inv_scale: torch.Tensor,
     b_data: torch.Tensor,
-    b_scale: torch.tensor,
+    b_inv_scale: torch.tensor,
     output_dtype: torch.dtype,
     output_scale: Optional[torch.Tensor] = None,
     bias: Optional[torch.Tensor] = None,
@@ -36,8 +36,10 @@ def addmm_float8_unwrapped(
     as inputs. This is used to standardize the logic between subclassed and non subclassed
     versions of the linear module.
     """
-    a_inverse_scale = a_scale.reciprocal()
-    b_inverse_scale = b_scale.reciprocal()
+    # a_inverse_scale = a_scale.reciprocal()
+    # b_inverse_scale = b_scale.reciprocal()
+    a_inverse_scale = a_inv_scale
+    b_inverse_scale = b_inv_scale
     if output_dtype == torch.float32 and bias is not None:
         # Bias is not supported by _scaled_mm when output is fp32
         output = torch._scaled_mm(

@@ -209,6 +209,7 @@ def main(
     scaling_type_grad_output: str = "dynamic",
     model_type: str = "linear",
     dtype_filter: str = "both",
+    skip_amax_sync: bool = False,
 ):
     assert model_type in ("linear", "ln_linear", "norm_ffn_norm", "norm_ffn_norm_small"), "unsupported"
     assert dtype_filter in ("both", "float8", "bfloat16")
@@ -220,6 +221,9 @@ def main(
         cast_config_input=CastConfig(scaling_type=scaling_type_input),
         cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
         cast_config_grad_output=CastConfig(scaling_type=scaling_type_grad_output),
+        # for now we don't care about amax init for performance profiling
+        enable_amax_init=False,
+        enable_pre_and_post_forward = not skip_amax_sync,
     )
     scaling_repr = "_".join(
         [
@@ -290,7 +294,7 @@ def main(
         # inspection of the fw+bw torch.compile without the scale
         # syncing code
         # TODO(future): make this better
-        if linear_requires_sync(config):
+        if linear_requires_sync(config) and not skip_amax_sync:
             with record_function("scale_amax_and_scales"):
                 sync_amax_history(m_float8)
         out = float8_forw(x)

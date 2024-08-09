@@ -217,7 +217,7 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
                 reduce_amax=True,
                 gemm_input_role=GemmInputRole.WEIGHT,
             )
-        return (float8_tensor._data,), (float8_tensor._scale,)
+        return (float8_tensor._data,), (float8_tensor._scale, float8_tensor._inv_scale)
 
     def fsdp_post_all_gather(
         self,
@@ -228,7 +228,7 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
         out: Optional[torch.Tensor] = None,
     ):
         (data,) = all_gather_outputs
-        (scale,) = metadata
+        (scale, inv_scale) = metadata
         if out is not None:
             from torch.distributed._tensor import DTensor
             if isinstance(out, Float8Tensor):
@@ -245,6 +245,7 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
         return Float8Tensor(
             data,
             scale,
+            inv_scale,
             param_dtype,
             self._linear_mm_config,
             gemm_input_role=GemmInputRole.WEIGHT,
@@ -407,7 +408,7 @@ class WeightWithDelayedFloat8CastTensor(torch.Tensor):
             self._linear_mm_config,
             GemmInputRole.WEIGHT,
         )
-        return (float8_tensor._data,), (float8_tensor._scale,)
+        return (float8_tensor._data,), (float8_tensor._scale, float8_tensor._inv_scale)
 
     def fsdp_post_all_gather(
         self,
@@ -418,14 +419,16 @@ class WeightWithDelayedFloat8CastTensor(torch.Tensor):
         out: Optional[torch.Tensor] = None,
     ):
         (data,) = all_gather_outputs
-        (scale,) = metadata
+        (scale, inv_scale) = metadata
         if out is not None:
             assert isinstance(out, Float8Tensor), f"{type(out)}"
             out._scale = scale
+            out._inv_scale = inv_scale
             return
         return Float8Tensor(
             data,
             scale,
+            inv_scale,
             param_dtype,
             self._linear_mm_config,
             gemm_input_role=GemmInputRole.WEIGHT,
