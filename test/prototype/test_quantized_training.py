@@ -1,5 +1,6 @@
 import copy
 
+import pytest
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -10,9 +11,13 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 
-from torchao.prototype.quantized_training import Int8QTLinearWeight, int8_weight_only_quantized_training
 from torchao.prototype.low_bit_optim import AdamW
+from torchao.prototype.quantized_training import Int8QTLinearWeight, int8_weight_only_quantized_training
 from torchao.quantization.quant_api import quantize_
+from torchao.utils import TORCH_VERSION_AFTER_2_3
+
+if not TORCH_VERSION_AFTER_2_3:
+    pytest.skip("Requires torch>=2.4")
 
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
