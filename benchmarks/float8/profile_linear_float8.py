@@ -6,6 +6,7 @@
 
 import copy
 import io
+import os
 import random
 from contextlib import nullcontext, redirect_stdout
 from dataclasses import dataclass, field
@@ -30,6 +31,7 @@ from utils import (
     parse_bw_and_kernel_name,
     profiler_output_to_gpu_time_for_key,
     profiler_output_to_filtered_time_by_kernel_name,
+    update_triton_kernels_in_prof_chome_trace_with_torch_logs,
 )
 
 # don't truncate long kernel names
@@ -151,7 +153,9 @@ class NormFFNResidualNorm(nn.Module):
 
 @dataclass
 class ProfileConfig:
-    file_path: Optional[str] = None
+    trace_file_path: Optional[str] = None
+    logs_file_path: Optional[str] = None
+    trace_modified_file_path: Optional[str] = None
     name: Optional[str] = None
     cuda: bool = True
     iters: int = 0
@@ -162,12 +166,21 @@ class ProfileConfig:
 
 
 def profile_function(
-    config: ProfileConfig, func: Callable, *args, **kwargs
+    config: ProfileConfig, 
+    func: Callable, 
+    *args, 
+    **kwargs,
 ) -> torch.profiler.profile:
     """Profile a torch function and save the result to a file"""
     seed = 123
     random.seed(seed)
     torch.manual_seed(seed)
+
+    # save torch.compile logs to a file specific to this benchmark run
+    # TODO(future): can we hack torch.compile to print to file only and not stdout?
+    # or maybe just use tlparse?
+    torch._logging.set_logs(output_code=True)
+    torch._logging._init_logs(log_file_name=config.logs_file_path)
 
     activities = [ProfilerActivity.CPU]
     if config.cuda:
@@ -182,6 +195,10 @@ def profile_function(
         nullcontext() if config.name is None else record_function(config.name)
     )
     profile_memory = config.memory_profile_path is not None
+
+    # warm up
+    func(*args, **kwargs)
+
     with profile(
         activities=activities,
         profile_memory=profile_memory,
@@ -195,8 +212,20 @@ def profile_function(
                 if config.sync:
                     torch.cuda.synchronize()
 
-    if config.file_path is not None:
-        prof.export_chrome_trace(config.file_path)
+    if config.trace_file_path is not None:
+        prof.export_chrome_trace(config.trace_file_path)
+
+    # modify the trace to have the triton kernel metadata and code
+    # visible inline
+    update_triton_kernels_in_prof_chome_trace_with_torch_logs(
+        config.trace_file_path,
+        config.logs_file_path,
+        config.trace_modified_file_path,
+    )
+
+    # undo custom log settings
+    torch._logging.set_logs(output_code=False)
+    torch._logging._init_logs(log_file_name=None)
 
     return prof
 
@@ -312,15 +341,9 @@ def main(
     # if the `TORCHINDUCTOR_PROFILE` env var is enabled, parse its output
     # to populate triton kernel bandwidth further down in the script
     f = io.StringIO()
+    nc = nullcontext()
     try:
         with redirect_stdout(f):
-            # warm up
-            for _ in range(1):
-                if dtype_filter != "float8":
-                    ref_forw_backward(input_tensor)
-                if dtype_filter != "bfloat16":
-                    float8_forw_backward_wrapper(input_tensor)
-
             profile_iters = 5
             ref_times, float8_times = None, None
             data = []
@@ -330,13 +353,18 @@ def main(
             if dtype_filter != "float8":
                 # Profile Reference Model
                 print("profiling ref")
-                ref_suffix = f"_{model_type}_ref_compile_{compile}.json"
-                ref_path = profile_path_prefix + ref_suffix
+                ref_trace_suffix = f"_{model_type}_ref_compile_{compile}.json"
+                ref_logs_suffix = f"_{model_type}_ref_compile_{compile}.txt"
+                trace_ref_path = profile_path_prefix + ref_trace_suffix
+                log_ref_path = profile_path_prefix + ref_logs_suffix
+                trace_ref_modified_path = trace_ref_path.replace(".json", "_modified.json")
                 profile_config = ProfileConfig(
-                    ref_path, ref_suffix, iters=profile_iters, warmup_iters=2, sync=True
+                    trace_ref_path, log_ref_path, trace_ref_modified_path, ref_trace_suffix, iters=profile_iters, warmup_iters=2, sync=True
                 )
                 p = profile_function(profile_config, ref_forw_backward, input_tensor)
-                print(f"saved {ref_path}")
+                print(f"saved profiling trace to {trace_ref_path}")
+                print(f"saved torch logs to {log_ref_path}")
+                print(f"saved modified trace to {trace_ref_modified_path}")
                 ref_times = profiler_output_to_filtered_time_by_kernel_name(p, profile_iters, num_leaf_tensors)
                 total_time_ms = sum(v for v in ref_times.values()) / 1e3 / profile_iters
                 for k, v in ref_times.items():
@@ -355,21 +383,30 @@ def main(
             if dtype_filter != "bfloat16":
                 # Profile Float8 Model
                 print("profiling float8")
-                float8_suffix = (
+                float8_trace_suffix = (
                     f"_{model_type}_float8_compile_{compile}_{scaling_repr}.json"
                 )
-                float8_path = profile_path_prefix + float8_suffix
+                float8_log_suffix = (
+                    f"_{model_type}_float8_compile_{compile}_{scaling_repr}.txt"
+                )
+                trace_float8_path = profile_path_prefix + float8_trace_suffix
+                log_float8_path = profile_path_prefix + float8_log_suffix
+                trace_float8_modified_path = trace_float8_path.replace(".json", "_modified.json")
                 profile_config = ProfileConfig(
-                    float8_path,
-                    float8_suffix,
+                    trace_float8_path,
+                    log_float8_path,
+                    trace_float8_modified_path,
+                    float8_trace_suffix,
                     iters=profile_iters,
                     warmup_iters=2,
                     sync=True,
                 )
                 p = profile_function(
-                    profile_config, float8_forw_backward_wrapper, input_tensor
+                    profile_config, float8_forw_backward_wrapper, input_tensor 
                 )
-                print(f"saved {float8_path}")
+                print(f"saved profiling trace to {trace_float8_path}")
+                print(f"saved torch logs to {log_float8_path}")
+                print(f"saved modified trace to {trace_float8_modified_path}")
                 float8_times = profiler_output_to_filtered_time_by_kernel_name(p, profile_iters, num_leaf_tensors)
                 total_time_ms = sum(v for v in float8_times.values()) / 1e3 / profile_iters
                 for k, v in float8_times.items():
@@ -396,14 +433,15 @@ def main(
         # print the redirected stdout back to regular stdout
         print(f.getvalue())
 
-    # populate the triton kernel bandwidth
-    for line in f.getvalue().split("\n"):
-        maybe_bw, maybe_kernel_name = parse_bw_and_kernel_name(line)
-        if maybe_kernel_name is not None:
-            # O(N) search, but it's ok since lists are small
-            for datum in data:
-                if datum[1] == maybe_kernel_name:
-                    datum[-1] = maybe_bw
+    if os.environ.get("TORCHINDUCTOR_PROFILE", "") != "":
+        # populate the triton kernel bandwidth
+        for line in f.getvalue().split("\n"):
+            maybe_bw, maybe_kernel_name = parse_bw_and_kernel_name(line)
+            if maybe_kernel_name is not None:
+                # O(N) search, but it's ok since lists are small
+                for datum in data:
+                    if datum[1] == maybe_kernel_name:
+                        datum[-1] = maybe_bw
 
     df = pd.DataFrame(
         data,
