@@ -1,9 +1,11 @@
+from typing import Optional
+
 import torch
 from torch import Tensor, nn
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.dtypes.utils import _dispatch__torch_dispatch__, _dispatch__torch_function__, _implements
-from torchao.quantization.quant_api import _get_linear_subclass_inserter
+
 
 aten = torch.ops.aten
 
@@ -156,7 +158,7 @@ def _(func, types, args, kwargs):
 
 class _Int8WeightOnlyLinear(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input: Tensor, weight: Int8QTLinearWeight, bias: Tensor | None = None):
+    def forward(ctx, input: Tensor, weight: Int8QTLinearWeight, bias: Optional[Tensor] = None):
         ctx.save_for_backward(input, weight)
         ctx.bias = bias is not None
 
