@@ -201,7 +201,9 @@ class AffineQuantizedTensor(torch.Tensor):
             nbits = int(math.log2(quant_max + 1))
             axis  = 1 if (block_size[0]==1) else 0
             group_size = max(block_size)
-            int_data, scale, zero_point, _ = quantize_affine_hqq(input_float, nbits=nbits, group_size=group_size, axis=axis, compute_dtype=input_float.dtype, device=input_float.device, verbose=False, raw_output=False)
+            compute_dtype = zero_point_dtype if (zero_point_dtype is not None) else input_float.dtype
+            device = input_float.device
+            int_data, scale, zero_point, _ = quantize_affine_hqq(input_float, nbits=nbits, group_size=group_size, axis=axis, compute_dtype=compute_dtype, device=device, verbose=False, raw_output=False)
 
         else:
             input_float = layout_type.pre_process(input_float)
