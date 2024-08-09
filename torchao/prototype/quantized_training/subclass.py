@@ -8,6 +8,8 @@ from torchao.dtypes.utils import _dispatch__torch_dispatch__, _dispatch__torch_f
 
 
 aten = torch.ops.aten
+c10d_functional = torch.ops.c10d_functional
+_c10d_functional = torch.ops._c10d_functional
 
 
 # the main difference of this tensor subclass from AffineQuantizedTensor:
@@ -154,6 +156,39 @@ def _(func, types, args, kwargs):
 def _(func, types, args, kwargs):
     out = torch.add(args[0].dequantize(), *args[1:], **kwargs)
     return args[0].copy_(out)
+
+
+# FSDP ops
+@Int8QTLinearWeight.implements(aten.split.Tensor)
+def _(func, types, args, kwargs):
+    if len(args) == 3 and args[2] != 0:
+        raise NotImplementedError("Int8QTLinearWeight only supports split at dim=0")
+
+    int8_weight: Int8QTLinearWeight = args[0]
+    if int8_weight.ndim != 2:
+        raise NotImplementedError("Int8QTLinearWeight only supports split when ndim=2")
+
+    int_data_list = func(int8_weight.int_data, *args[1:], **kwargs)
+    scale_list = func(int8_weight.scale, *args[1:], **kwargs)
+    return [
+        Int8QTLinearWeight(int_data, scale, requires_grad=int8_weight.requires_grad)
+        for int_data, scale in zip(int_data_list, scale_list)
+    ]
+
+
+@Int8QTLinearWeight.implements([
+    c10d_functional.all_gather_into_tensor.default,
+    _c10d_functional.all_gather_into_tensor.default,
+    c10d_functional.wait_tensor.default,
+    _c10d_functional.wait_tensor.default,
+])
+def _(func, types, args, kwargs):
+    x: Int8QTLinearWeight = args[0]
+    return Int8QTLinearWeight(
+        func(x.int_data, *args[1:], **kwargs),
+        func(x.scale, *args[1:], **kwargs),
+        requires_grad=x.requires_grad,
+    )
 
 
 class _Int8WeightOnlyLinear(torch.autograd.Function):
