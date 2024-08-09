@@ -29,7 +29,7 @@ from utils import (
     kernel_name_to_category,
     parse_bw_and_kernel_name,
     profiler_output_to_gpu_time_for_key,
-    profiler_output_to_time_by_kernel_name,
+    profiler_output_to_filtered_time_by_kernel_name,
 )
 
 # don't truncate long kernel names
@@ -210,7 +210,7 @@ def main(
     model_type: str = "linear",
     dtype_filter: str = "both",
 ):
-    assert model_type in ("linear", "ln_linear", "norm_ffn_norm"), "unsupported"
+    assert model_type in ("linear", "ln_linear", "norm_ffn_norm", "norm_ffn_norm_small"), "unsupported"
     assert dtype_filter in ("both", "float8", "bfloat16")
 
     scaling_type_input = ScalingType(scaling_type_input)
@@ -250,8 +250,18 @@ def main(
         input_tensor = torch.randn(
             1, 8192, 4096, device=device, dtype=ref_dtype
         ).requires_grad_()
+    elif model_type == "norm_ffn_norm_small":
+        m_ref = NormFFNResidualNorm(
+            dim=4096,
+            hidden_dim=4096,
+            multiple_of=1024,
+            ffn_dim_multiplier=1.0,
+        )
+        input_tensor = torch.randn(
+            1, 2048, 4096, device=device, dtype=ref_dtype
+        ).requires_grad_()
     else:
-        M, K, N = 4 * 4096, 8192, 7168
+        M, K, N = 4096, 4096, 4096
         m_ref = torch.nn.Sequential(
             torch.nn.Linear(K, N, bias=False),
         )
@@ -302,85 +312,89 @@ def main(
     # if the `TORCHINDUCTOR_PROFILE` env var is enabled, parse its output
     # to populate triton kernel bandwidth further down in the script
     f = io.StringIO()
-    with redirect_stdout(f):
-        # warm up
-        for _ in range(1):
+    try:
+        with redirect_stdout(f):
+            # warm up
+            for _ in range(1):
+                if dtype_filter != "float8":
+                    ref_forw_backward(input_tensor)
+                if dtype_filter != "bfloat16":
+                    float8_forw_backward_wrapper(input_tensor)
+
+            profile_iters = 5
+            ref_times, float8_times = None, None
+            data = []
+
+            num_leaf_tensors = 1 + len(list(m_ref.parameters()))
+
             if dtype_filter != "float8":
-                ref_forw_backward(input_tensor)
+                # Profile Reference Model
+                print("profiling ref")
+                ref_suffix = f"_{model_type}_ref_compile_{compile}.json"
+                ref_path = profile_path_prefix + ref_suffix
+                profile_config = ProfileConfig(
+                    ref_path, ref_suffix, iters=profile_iters, warmup_iters=2, sync=True
+                )
+                p = profile_function(profile_config, ref_forw_backward, input_tensor)
+                print(f"saved {ref_path}")
+                ref_times = profiler_output_to_filtered_time_by_kernel_name(p, profile_iters, num_leaf_tensors)
+                total_time_ms = sum(v for v in ref_times.values()) / 1e3 / profile_iters
+                for k, v in ref_times.items():
+                    v_ms = v / 1e3 / profile_iters
+                    data.append(
+                        [
+                            "0_ref",
+                            k,
+                            kernel_name_to_category(k),
+                            v_ms,
+                            v_ms / total_time_ms,
+                            None,
+                        ]
+                    )
+
             if dtype_filter != "bfloat16":
-                float8_forw_backward_wrapper(input_tensor)
-
-        profile_iters = 5
-        ref_times, float8_times = None, None
-        data = []
-
-        if dtype_filter != "float8":
-            # Profile Reference Model
-            print("profiling ref")
-            ref_suffix = f"_{model_type}_ref_compile_{compile}.json"
-            ref_path = profile_path_prefix + ref_suffix
-            profile_config = ProfileConfig(
-                ref_path, ref_suffix, iters=profile_iters, warmup_iters=2, sync=True
-            )
-            p = profile_function(profile_config, ref_forw_backward, input_tensor)
-            print(f"saved {ref_path}")
-            ref_times = profiler_output_to_time_by_kernel_name(p)
-            total_time_ms = sum(v for v in ref_times.values()) / 1e3 / profile_iters
-            for k, v in ref_times.items():
-                v_ms = v / 1e3 / profile_iters
-                data.append(
-                    [
-                        "0_ref",
-                        k,
-                        kernel_name_to_category(k),
-                        v_ms,
-                        v_ms / total_time_ms,
-                        None,
-                    ]
+                # Profile Float8 Model
+                print("profiling float8")
+                float8_suffix = (
+                    f"_{model_type}_float8_compile_{compile}_{scaling_repr}.json"
                 )
-
-        if dtype_filter != "bfloat16":
-            # Profile Float8 Model
-            print("profiling float8")
-            float8_suffix = (
-                f"_{model_type}_float8_compile_{compile}_{scaling_repr}.json"
-            )
-            float8_path = profile_path_prefix + float8_suffix
-            profile_config = ProfileConfig(
-                float8_path,
-                float8_suffix,
-                iters=profile_iters,
-                warmup_iters=2,
-                sync=True,
-            )
-            p = profile_function(
-                profile_config, float8_forw_backward_wrapper, input_tensor
-            )
-            print(f"saved {float8_path}")
-            float8_times = profiler_output_to_time_by_kernel_name(p)
-            total_time_ms = sum(v for v in float8_times.values()) / 1e3 / profile_iters
-            for k, v in float8_times.items():
-                v_ms = v / 1e3 / profile_iters
-                data.append(
-                    [
-                        "1_float8",
-                        k,
-                        kernel_name_to_category(k),
-                        v / 1e3 / profile_iters,
-                        v_ms / total_time_ms,
-                        None,
-                    ]
+                float8_path = profile_path_prefix + float8_suffix
+                profile_config = ProfileConfig(
+                    float8_path,
+                    float8_suffix,
+                    iters=profile_iters,
+                    warmup_iters=2,
+                    sync=True,
                 )
+                p = profile_function(
+                    profile_config, float8_forw_backward_wrapper, input_tensor
+                )
+                print(f"saved {float8_path}")
+                float8_times = profiler_output_to_filtered_time_by_kernel_name(p, profile_iters, num_leaf_tensors)
+                total_time_ms = sum(v for v in float8_times.values()) / 1e3 / profile_iters
+                for k, v in float8_times.items():
+                    v_ms = v / 1e3 / profile_iters
+                    data.append(
+                        [
+                            "1_float8",
+                            k,
+                            kernel_name_to_category(k),
+                            v / 1e3 / profile_iters,
+                            v_ms / total_time_ms,
+                            None,
+                        ]
+                    )
 
-            # get the time spent per user annotation
-            sync_time_us = profiler_output_to_gpu_time_for_key(
-                p, "scale_amax_and_scales"
-            )
-            sync_time_ms = sync_time_us / profile_iters / 1e3
-            print(f"Sync time ms: {sync_time_ms}")
+                # get the time spent per user annotation
+                sync_time_us = profiler_output_to_gpu_time_for_key(
+                    p, "scale_amax_and_scales"
+                )
+                sync_time_ms = sync_time_us / profile_iters / 1e3
+                print(f"Sync time ms: {sync_time_ms}")
 
-    # print the redirected stdout back to regular stdout
-    print(f.getvalue())
+    finally:
+        # print the redirected stdout back to regular stdout
+        print(f.getvalue())
 
     # populate the triton kernel bandwidth
     for line in f.getvalue().split("\n"):
