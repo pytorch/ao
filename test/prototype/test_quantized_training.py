@@ -17,7 +17,7 @@ from torchao.quantization.quant_api import quantize_
 from torchao.utils import TORCH_VERSION_AFTER_2_3
 
 if not TORCH_VERSION_AFTER_2_3:
-    pytest.skip("Requires torch>=2.4")
+    pytest.skip("Requires torch>=2.4", allow_module_level=True)
 
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
