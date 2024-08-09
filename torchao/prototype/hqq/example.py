@@ -15,6 +15,7 @@ device, compute_dtype = "cuda:0", torch.bfloat16
 group_size, axis = 64, 1
 in_features, out_features = 4096, 11800
 
+torch.random.manual_seed(100)
 linear_layer = torch.nn.Linear(in_features, out_features, bias=False, device=device)
 x = torch.randn((1, linear_layer.in_features), dtype=torch.float, device=device)/20.
 y_ref = linear_layer(x)
@@ -52,8 +53,8 @@ for nbits in list(range(2, 9))[::-1]:
     linear_layer.weight = q_tensor_default
     print("nbits", nbits, "| Default dequantization error", (W - q_tensor_default.dequantize()).abs().mean().item())
     print("nbits", nbits, '| Default Dot product error', (y_ref - linear_layer(x.to(compute_dtype))).abs().mean().item())
-    # 4-bit Default dequantization error 0.001953125
-    # 4-bit Default Dot product error 0.0057801781222224236
+    # nbits 4 | Default dequantization error 0.001953125
+    # nbits 4 | Default Dot product error 0.005926903802901506
 
 
     q_tensor_hqq = AffineQuantizedTensor.from_float(
@@ -72,10 +73,8 @@ for nbits in list(range(2, 9))[::-1]:
     linear_layer.weight = q_tensor_hqq
     print("nbits", nbits, "| HQQ dequantization error", (W - q_tensor_hqq.dequantize()).abs().mean().item())
     print("nbits", nbits, '| HQQ Dot product error', (y_ref - linear_layer(x.to(compute_dtype))).abs().mean().item())
-    # 4-bit HQQ dequantization error 0.0004863739013671875
-    # 4-bit HQQ Dot product error 0.0014263123739510775
-
-
+    # nbits 4 | HQQ dequantization error 0.0004863739013671875
+    # nbits 4 | HQQ Dot product error 0.0014713306445628405
 
 ################################################################################################
 #quant_api example
@@ -97,7 +96,8 @@ linear_layer_default = int4_weight_only_patch_fct(linear_layer_default)
 print("nbits", nbits, "| Default dequantization error", (W - linear_layer_default(torch.eye(W.shape[1], dtype=W.dtype, device=W.device)).T).abs().mean().item())
 print("nbits", nbits, '| Default Dot product error', (y_ref - linear_layer_default(x.to(compute_dtype))).abs().mean().item())
 # nbits 4 | Default dequantization error 0.000492095947265625
-# nbits 4 | Default Dot product error 0.0014874768676236272
+# nbits 4 | Default Dot product error 0.0015244047390297055
+
 
 q_tensor_hqq = AffineQuantizedTensor.from_float(
         input_float=W,
@@ -115,4 +115,4 @@ linear_layer.weight = q_tensor_hqq
 print("nbits", nbits, "| HQQ dequantization error", (W - linear_layer(torch.eye(W.shape[1], dtype=W.dtype, device=W.device)).T).abs().mean().item())
 print("nbits", nbits, '| HQQ Dot product error', (y_ref - linear_layer(x.to(compute_dtype))).abs().mean().item())
 # nbits 4 | HQQ dequantization error 0.0004863739013671875
-# nbits 4 | HQQ Dot product error 0.00143970618955791
+# nbits 4 | HQQ Dot product error 0.0014699687017127872
