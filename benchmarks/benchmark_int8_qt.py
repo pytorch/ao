@@ -2,7 +2,7 @@
 # pip install transformers sentencepiece wandb
 #
 # BF16 baseline: python benchmarks/benchmark_int8_qt.py --seed 2024 --n_steps 10_000
-# INT8 QT:       python benchamrks/benchmark_int8_qt.py --seed 2024 --n_steps 10_000 --quantize int8_weight_only
+# INT8 QT:       python benchmarks/benchmark_int8_qt.py --seed 2024 --n_steps 10_000 --quantize int8_weight_only
 
 import os
 
@@ -105,8 +105,12 @@ if __name__ == "__main__":
         quantize_(model, int8_weight_only_quantized_training())
     elif args.quantize is not None:
         raise ValueError(f"Unsupported quantize={args.quantize}")
-    print(f"No. of params: {sum(p.numel() for p in model.parameters())}")
-    print(f"No. of buffers: {sum(p.numel() for p in model.buffers())}")
+    print(f"No. of params: {sum(p.numel() for p in model.parameters()):,}")
+    print(f"No. of buffers: {sum(p.numel() for p in model.buffers()):,}")
+
+    # turn off these flags (set by quantize_()) to speed up compile time
+    torch._inductor.config.coordinate_descent_tuning = False
+    torch._inductor.config.coordinate_descent_check_all_directions = False
 
     optim = getattr(low_bit_optim, args.optim)(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
