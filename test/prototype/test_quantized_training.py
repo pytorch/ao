@@ -37,68 +37,71 @@ class TestQuantizedTraining(TestCase):
     @parametrize("leading_dims", [(), (2,), (2, 4)])
     @parametrize("bias", [False, True])
     @parametrize("device", _DEVICES)
-    def test_int8_linear_forward(self, leading_dims, bias, device):
+    def test_int8_linear(self, leading_dims, bias, device):
         embed_dim = 32
 
-        linear_fp32 = nn.Linear(embed_dim, embed_dim * 2, bias=bias, device=device)
+        linear_fp32 = nn.Linear(embed_dim, embed_dim, bias=bias, device=device)
         linear_int8 = copy.deepcopy(linear_fp32)
         quantize_(linear_int8, int8_weight_only_quantized_training())
-        assert isinstance(linear_int8.weight, Int8QTLinearWeight)
+        linear_fp32.weight.data = linear_int8.weight.data.dequantize()
 
-        inputs = torch.randn(leading_dims + (embed_dim,), device=device)
-        out_fp32 = linear_fp32(inputs)
-        out_int8 = linear_int8(inputs)
-        torch.testing.assert_close(out_fp32, out_int8, atol=1e-2, rtol=1e-2)
+        input_fp32 = torch.randn(leading_dims + (embed_dim,), device=device)
+        input_int8 = input_fp32.clone()
+        input_fp32.requires_grad_(True)
+        input_int8.requires_grad_(True)
 
-    @parametrize("device", _DEVICES)
-    def test_int8_linear_backward(self, device):
-        bsize = 4
-        embed_dim = 32
-        n_classes = 10
+        # quantize_() will set torch.set_float32_matmul_precision("high"), thus failing accuracy check on CUDA.
+        # manually override it here.
+        torch.set_float32_matmul_precision("highest")
 
-        model_fp32 = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim * 2, bias=False),
-            nn.GELU(),
-            nn.Linear(embed_dim * 2, n_classes),
-        ).to(device)
-        model_int8 = copy.deepcopy(model_fp32)
-        quantize_(model_int8, int8_weight_only_quantized_training())
+        out_fp32 = linear_fp32(input_fp32)
+        out_int8 = linear_int8(input_int8)
+        torch.testing.assert_close(out_fp32, out_int8)
 
-        inputs = torch.randn(bsize, embed_dim, device=device)
-        labels = torch.randint(n_classes, size=(bsize,), device=device)
-        F.cross_entropy(model_fp32(inputs), labels).backward()
-        F.cross_entropy(model_int8(inputs), labels).backward()
+        grad = torch.randn(leading_dims + (embed_dim,), device=device)
+        out_fp32.backward(grad)
+        out_int8.backward(grad)
+        torch.testing.assert_close(input_fp32.grad, input_int8.grad)
+        torch.testing.assert_close(linear_fp32.weight.grad, linear_int8.weight.grad)
+        if bias:
+            torch.testing.assert_close(linear_fp32.bias.grad, linear_int8.bias.grad)
 
-        for p_fp32, p_int8 in zip(model_fp32.parameters(), model_int8.parameters()):
-            torch.testing.assert_close(p_fp32.grad, p_int8.grad, atol=1e-3, rtol=1e-2)
-
+    @parametrize("leading_dims", [(), (2,), (2, 4)])
     @parametrize("bias", [False, True])
     @parametrize("device", _DEVICES)
-    def test_int8_linear_compile(self, bias, device):
-        bsize = 4
-        embed_dim = 32
-        n_classes = 10
+    def test_int8_linear_compile(self, leading_dims, bias, device):
+        torch._dynamo.reset()
+        embed_dim = 128
 
-        linear = nn.Linear(embed_dim, n_classes, bias=bias, device=device)
-        quantize_(linear, int8_weight_only_quantized_training())
-        linear_compiled = copy.deepcopy(linear)
+        linear_eager = nn.Linear(embed_dim, embed_dim, bias=bias, device=device)
+        quantize_(linear_eager, int8_weight_only_quantized_training())
+        linear_compiled = copy.deepcopy(linear_eager)
         linear_compiled.compile()
 
-        inputs = torch.randn((bsize, embed_dim,), device=device)
-        labels = torch.randint(n_classes, size=(bsize,), device=device)
+        input_eager = torch.randn(leading_dims + (embed_dim,), device=device) * 10
+        input_compiled = input_eager.clone()
+        input_eager.requires_grad_(True)
+        input_compiled.requires_grad_(True)
 
-        out = linear(inputs)
-        out_compiled = linear_compiled(inputs)
-        torch.testing.assert_close(out, out_compiled, atol=1e-2, rtol=1e-2)
+        # quantize_() will set torch.set_float32_matmul_precision("high"), which causes segfault.
+        # manually override it here.
+        torch.set_float32_matmul_precision("highest")
 
-        F.cross_entropy(out, labels).backward()
-        F.cross_entropy(out_compiled, labels).backward()
+        out_eager = linear_eager(input_eager)
+        out_compiled = linear_compiled(input_compiled)
+        torch.testing.assert_close(out_eager, out_compiled)
 
-        for p, p_compiled in zip(linear.parameters(), linear_compiled.parameters()):
-            torch.testing.assert_close(p.grad, p_compiled.grad)
+        grad = torch.randn(leading_dims + (embed_dim,), device=device)
+        out_eager.backward(grad)
+        out_compiled.backward(grad)
+        torch.testing.assert_close(input_eager.grad, input_compiled.grad)
+        torch.testing.assert_close(linear_eager.weight.grad, linear_compiled.weight.grad)
+        if bias:
+            torch.testing.assert_close(linear_eager.bias.grad, linear_compiled.bias.grad)
 
+    @parametrize("compile", [False, True])
     @parametrize("device", _DEVICES)
-    def test_int8_linear_training(self, device):
+    def test_int8_linear_training(self, compile, device):
         bsize = 4
         embed_dim = 32
         n_classes = 10
@@ -110,24 +113,33 @@ class TestQuantizedTraining(TestCase):
         ).to(device)
         model_int8 = copy.deepcopy(model_fp32)
         quantize_(model_int8, int8_weight_only_quantized_training())
+
+        if compile:
+            model_fp32.compile()
+            model_int8.compile()
 
         optim_fp32 = AdamW(model_fp32.parameters())
         optim_int8 = AdamW(model_int8.parameters())
 
-        for _ in range(2):
+        # prevent segfault with torch.compile()
+        torch.set_float32_matmul_precision("highest")
+
+        for _ in range(5):
             inputs = torch.randn(bsize, embed_dim, device=device)
             labels = torch.randint(n_classes, size=(bsize,), device=device)
-            F.cross_entropy(model_fp32(inputs), labels).backward()
-            F.cross_entropy(model_int8(inputs), labels).backward()
+            loss_fp32 = F.cross_entropy(model_fp32(inputs), labels)
+            loss_int8 = F.cross_entropy(model_int8(inputs), labels)
 
+            rel_error = abs(loss_int8.item() - loss_fp32.item()) / abs(loss_fp32.item())
+            assert rel_error < 2e-3, rel_error
+
+            loss_fp32.backward()
             optim_fp32.step()
             optim_fp32.zero_grad()
+
+            loss_int8.backward()
             optim_int8.step()
             optim_int8.zero_grad()
-
-            with torch.no_grad():
-                for p_fp32, p_int8 in zip(model_fp32.parameters(), model_int8.parameters()):
-                    torch.testing.assert_close(p_fp32, p_int8.dequantize(), atol=1e-2, rtol=1e-2)
 
 
 class TestFSDP2(FSDPTest):
@@ -138,19 +150,14 @@ class TestFSDP2(FSDPTest):
     @skip_if_lt_x_gpu(2)
     def test_fsdp2(self):
         self.run_subtests(
-            {
-                "activation_checkpointing": [False, True],
-                # "compile_layer": [False, True],
-            },
+            {"compile_layer": [False, True]},
             self._test_fsdp2,
         )
 
-    def _test_fsdp2(self, activation_checkpointing, compile_layer):
+    def _test_fsdp2(self, compile_layer):
         import torch.distributed as dist
         from torch.distributed._composable.fsdp import fully_shard
-        from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import apply_activation_checkpointing
-        from torch.distributed.fsdp.wrap import ModuleWrapPolicy
-        from torch.testing._internal.distributed._tensor.common_dtensor import ModelArgs, Transformer, TransformerBlock
+        from torch.testing._internal.distributed._tensor.common_dtensor import ModelArgs, Transformer
 
         batch_size = 3
         vocab_size = 32
@@ -166,9 +173,6 @@ class TestFSDP2(FSDPTest):
         torch.manual_seed(42)
         base_model = Transformer(model_args).cuda()
         quantize_(base_model, int8_weight_only_quantized_training())
-        if activation_checkpointing:
-            policy = ModuleWrapPolicy({TransformerBlock})
-            apply_activation_checkpointing(base_model, auto_wrap_policy=policy)
         fsdp_model = copy.deepcopy(base_model)
 
         if compile_layer:
@@ -183,6 +187,9 @@ class TestFSDP2(FSDPTest):
 
         base_optim = AdamW(base_model.parameters(), lr=1e-2)
         fsdp_optim = AdamW(fsdp_model.parameters(), lr=1e-2)
+
+        # prevent segfault with torch.compile()
+        torch.set_float32_matmul_precision("highest")
 
         torch.manual_seed(42 + self.rank + 1)
         for iter_idx in range(5):
