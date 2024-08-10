@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional, Tuple
 
 import torch
 from torch import Tensor, nn
@@ -81,6 +81,20 @@ class Int8QTLinearWeight(Tensor):
             f"{self.__class__.__name__}(shape={tuple(self.shape)}, dtype={self.dtype}, device={self.device}, "
             f"requires_grad={self.requires_grad})"
         )
+
+    def fsdp_pre_all_gather(self, mesh):
+        return (self.int_data, self.scale), None
+
+    def fsdp_post_all_gather(
+        self,
+        all_gather_outputs: Tuple[Tensor, ...],
+        metadata: Any,
+        param_dtype: torch.dtype,
+        *,
+        out: Optional[Tensor] = None,
+    ):
+        int_data, scale = all_gather_outputs
+        return Int8QTLinearWeight(int_data, scale), all_gather_outputs
 
 
 @Int8QTLinearWeight.implements(torch.nn.functional.linear)
@@ -193,9 +207,9 @@ def _(func, types, args, kwargs):
     return Int8QTLinearWeight(int_data, scale)
 
 
-@Int8QTLinearWeight.implements(aten.view.default)
+# don't do anything. workaround for FSDP2. might give unexpected or wrong results.
+@Int8QTLinearWeight.implements([aten.view.default, aten.as_strided.default])
 def _(func, types, args, kwargs):
-    # don't do anything. workaround for FSDP2. might give unexpected results
     out = Int8QTLinearWeight(
         args[0].int_data,
         args[0].scale,
