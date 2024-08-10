@@ -1,8 +1,8 @@
 # pre-train a mini Llama2 on TinyStories with INT8 quantized training
 # pip install transformers sentencepiece wandb
 #
-# BF16 baseline: python benchmarks/benchmark_int8_qt.py --seed 2024 --step 10_000
-# INT8 QT:       python benchamrks/benchmark_int8_qt.py --seed 2024 --step 10_000 --quantize int8_weight_only
+# BF16 baseline: python benchmarks/benchmark_int8_qt.py --seed 2024 --n_steps 10_000
+# INT8 QT:       python benchamrks/benchmark_int8_qt.py --seed 2024 --n_steps 10_000 --quantize int8_weight_only
 
 import os
 
@@ -108,7 +108,7 @@ if __name__ == "__main__":
     print(f"No. of params: {sum(p.numel() for p in model.parameters())}")
     print(f"No. of buffers: {sum(p.numel() for p in model.buffers())}")
 
-    optim = getattr(low_bit_optim, args.oprim)(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optim = getattr(low_bit_optim, args.optim)(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
     data = get_tinystories().cuda()
     run = wandb.init(dir="/tmp", config=args, project=args.project, name=args.run_name)
