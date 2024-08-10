@@ -20,6 +20,7 @@ class Int8QTLinearWeight(Tensor):
     __torch_function__ = classmethod(_dispatch__torch_function__)
     __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
 
+    @staticmethod
     def __new__(cls, int_data, scale, requires_grad=False):
         return Tensor._make_wrapper_subclass(
             cls,
@@ -35,6 +36,8 @@ class Int8QTLinearWeight(Tensor):
         """
         # NOTE: should scale always be FP32?
         assert int_data.dtype is torch.int8
+        assert int_data.ndim == 2
+        assert scale.ndim == 1
         self.int_data = int_data
         self.scale = scale
 
@@ -91,11 +94,12 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, out)
 
 
-@Int8QTLinearWeight.implements(aten.clone.default)
+@Int8QTLinearWeight.implements([aten.clone.default, aten.slice.Tensor])
 def _(func, types, args, kwargs):
+    # will error out if try to slice 2nd dim
     out = Int8QTLinearWeight(
-        args[0].int_data.clone(),
-        args[0].scale.clone(),
+        func(args[0].int_data, *args[1:], **kwargs),
+        func(args[0].scale, *args[1:], **kwargs),
         requires_grad=args[0].requires_grad,
     )
     return return_and_correct_aliasing(func, args, kwargs, out)
@@ -165,23 +169,49 @@ def _(func, types, args, kwargs):
         raise NotImplementedError("Int8QTLinearWeight only supports split at dim=0")
 
     int8_weight: Int8QTLinearWeight = args[0]
-    if int8_weight.ndim != 2:
-        raise NotImplementedError("Int8QTLinearWeight only supports split when ndim=2")
-
     int_data_list = func(int8_weight.int_data, *args[1:], **kwargs)
     scale_list = func(int8_weight.scale, *args[1:], **kwargs)
-    return [
-        Int8QTLinearWeight(int_data, scale, requires_grad=int8_weight.requires_grad)
-        for int_data, scale in zip(int_data_list, scale_list)
+
+    # requires_grad must be False here
+    out = [
+        Int8QTLinearWeight(int_data, scale, requires_grad=False) for int_data, scale in zip(int_data_list, scale_list)
     ]
+    return out
 
 
-@Int8QTLinearWeight.implements([
-    c10d_functional.all_gather_into_tensor.default,
-    _c10d_functional.all_gather_into_tensor.default,
-    c10d_functional.wait_tensor.default,
-    _c10d_functional.wait_tensor.default,
-])
+@Int8QTLinearWeight.implements(aten.new_zeros.default)
+def _(func, types, args, kwargs):
+    size = args[1]
+    if len(size) != 2:
+        raise NotImplementedError
+
+    # ignore other kwargs. NOTE: is requires_grad needed?
+    device = kwargs.get("device")
+    dtype = kwargs.get("dtype")
+    int_data = torch.zeros(size, device=device, dtype=torch.int8)
+    scale = torch.zeros(size[0], device=device, dtype=dtype)
+    return Int8QTLinearWeight(int_data, scale)
+
+
+@Int8QTLinearWeight.implements(aten.view.default)
+def _(func, types, args, kwargs):
+    # don't do anything. workaround for FSDP2. might give unexpected results
+    out = Int8QTLinearWeight(
+        args[0].int_data,
+        args[0].scale,
+        requires_grad=args[0].requires_grad,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, out)
+
+
+@Int8QTLinearWeight.implements(
+    [
+        c10d_functional.all_gather_into_tensor.default,
+        _c10d_functional.all_gather_into_tensor.default,
+        c10d_functional.wait_tensor.default,
+        _c10d_functional.wait_tensor.default,
+    ]
+)
 def _(func, types, args, kwargs):
     x: Int8QTLinearWeight = args[0]
     return Int8QTLinearWeight(
