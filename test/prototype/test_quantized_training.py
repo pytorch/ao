@@ -165,9 +165,9 @@ class TestFSDP2(FSDPTest):
         vocab_size = 32
         seq_len = 64
         model_args = ModelArgs(
-            n_layers=3,
-            n_heads=4,
-            dim=1024,
+            n_layers=2,
+            n_heads=2,
+            dim=128,
             vocab_size=vocab_size,
             max_seq_len=seq_len,
             dropout_p=0,
@@ -192,6 +192,10 @@ class TestFSDP2(FSDPTest):
 
         # prevent segfault with torch.compile()
         torch.set_float32_matmul_precision("highest")
+
+        # turn off these flags (set by quantize_()) to speed up compile time in CI
+        torch._inductor.config.coordinate_descent_tuning = False
+        torch._inductor.config.coordinate_descent_check_all_directions = False
 
         torch.manual_seed(42 + self.rank + 1)
         for iter_idx in range(5):
