@@ -127,7 +127,12 @@ def _(func, types, args, kwargs):
     [
         aten.detach.default,
         aten.clone.default,
+        # FSDP ops
         aten.slice.Tensor,
+        c10d_functional.all_gather_into_tensor.default,
+        _c10d_functional.all_gather_into_tensor.default,
+        c10d_functional.wait_tensor.default,
+        _c10d_functional.wait_tensor.default,
     ]
 )
 def _(func, types, args, kwargs):
@@ -139,17 +144,15 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, out)
 
 
-# TODO: also handle non_blocking kwarg?
 @Int8QTLinearWeight.implements(aten._to_copy.default)
 def _(func, types, args, kwargs):
-    # we ignore memory_format in kwargs
     # only perform dtype casting on scale, which determines the appearance dtype
+    # TODO: handle non_blocking kwarg?
     device = kwargs.get("device", None)
     dtype = kwargs.get("dtype", None)
     out = Int8QTLinearWeight(
         args[0].int_data.to(device=device),
         args[0].scale.to(device=device, dtype=dtype),
-        requires_grad=args[0].requires_grad,
     )
     return return_and_correct_aliasing(func, args, kwargs, out)
 
@@ -169,20 +172,19 @@ def _(func, types, args, kwargs):
     return func(*args, **kwargs)
 
 
-# TODO: handle non_blocking kwarg?
 @Int8QTLinearWeight.implements(aten.copy_.default)
 def _(func, types, args, kwargs):
     if isinstance(args[0], Int8QTLinearWeight) and isinstance(args[1], Int8QTLinearWeight):
-        args[0].int_data.copy_(args[1].int_data)
-        args[0].scale.copy_(args[1].scale)
+        args[0].int_data.copy_(args[1].int_data, **kwargs)
+        args[0].scale.copy_(args[1].scale, **kwargs)
 
     elif isinstance(args[0], Int8QTLinearWeight):
         int_data, scale = Int8QTLinearWeight.quantize(args[1], stochastic_rounding=True)
-        args[0].int_data.copy_(int_data)
-        args[0].scale.copy_(scale)
+        args[0].int_data.copy_(int_data, **kwargs)
+        args[0].scale.copy_(scale, **kwargs)
 
     else:
-        args[0].copy_(args[1].dequantize())
+        args[0].copy_(args[1].dequantize(), **kwargs)
 
     return args[0]
 
@@ -225,29 +227,8 @@ def _(func, types, args, kwargs):
 # don't do anything. workaround for FSDP2. might give unexpected or wrong results.
 @Int8QTLinearWeight.implements([aten.view.default, aten.as_strided.default])
 def _(func, types, args, kwargs):
-    out = Int8QTLinearWeight(
-        args[0].int_data,
-        args[0].scale,
-        requires_grad=args[0].requires_grad,
-    )
+    out = Int8QTLinearWeight(args[0].int_data, args[0].scale)
     return return_and_correct_aliasing(func, args, kwargs, out)
-
-
-@Int8QTLinearWeight.implements(
-    [
-        c10d_functional.all_gather_into_tensor.default,
-        _c10d_functional.all_gather_into_tensor.default,
-        c10d_functional.wait_tensor.default,
-        _c10d_functional.wait_tensor.default,
-    ]
-)
-def _(func, types, args, kwargs):
-    x: Int8QTLinearWeight = args[0]
-    return Int8QTLinearWeight(
-        func(x.int_data, *args[1:], **kwargs),
-        func(x.scale, *args[1:], **kwargs),
-        requires_grad=x.requires_grad,
-    )
 
 
 def int8_weight_only_quantized_training():
