@@ -102,6 +102,7 @@ class TestQuantizedTraining(TestCase):
     @parametrize("compile", [False, True])
     @parametrize("device", _DEVICES)
     def test_int8_linear_training(self, compile, device):
+        torch._dynamo.reset()
         bsize = 4
         embed_dim = 32
         n_classes = 10
@@ -159,6 +160,7 @@ class TestFSDP2(FSDPTest):
         from torch.distributed._composable.fsdp import fully_shard
         from torch.testing._internal.distributed._tensor.common_dtensor import ModelArgs, Transformer
 
+        torch._dynamo.reset()
         batch_size = 3
         vocab_size = 32
         seq_len = 64
