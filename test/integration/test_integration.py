@@ -1022,7 +1022,6 @@ class TestSaveLoadMeta(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(is_fbcode(), "'PlainAQTLayout' object has no attribute 'int_data'")
-    @unittest.skipIf(TORCH_VERSION_AFTER_2_5, "Can't save local lambda function for tensor subclass")
     @torch.no_grad()
     def test_save_load_dqtensors(self, device, dtype):
         if device == "cpu":
@@ -1226,7 +1225,7 @@ class TestAutoQuant(unittest.TestCase):
                 self.skipTest(f"bfloat16 requires sm80+")
             if m1 == 1 or m2 == 1:
                 self.skipTest(f"Shape {(m1, m2, k, n)} requires sm80+")
-        # This test fails on v0.4.0 and torch 2.4, so skipping for now. 
+        # This test fails on v0.4.0 and torch 2.4, so skipping for now.
         if m1 == 1 or m2 == 1 and not TORCH_VERSION_AFTER_2_5:
             self.skipTest(f"Shape {(m1, m2, k, n)} requires torch version > 2.4")
         model = torch.nn.Sequential(
@@ -1299,7 +1298,7 @@ class TestAutoQuant(unittest.TestCase):
                 self.skipTest(f"bfloat16 requires sm80+")
             if m1 == 1 or m2 == 1:
                 self.skipTest(f"Shape {(m1, m2, k, n)} requires sm80+")
-        # This test fails on v0.4.0 and torch 2.4, so skipping for now. 
+        # This test fails on v0.4.0 and torch 2.4, so skipping for now.
         if m1 == 1 or m2 == 1 and not TORCH_VERSION_AFTER_2_5:
             self.skipTest(f"Shape {(m1, m2, k, n)} requires torch version > 2.4")
 
