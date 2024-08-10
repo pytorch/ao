@@ -113,7 +113,7 @@ class _Int8WeightOnlyLinear(torch.autograd.Function):
         input, weight = ctx.saved_tensors
 
         dinput = (grad_output * weight.scale) @ weight.int_data.to(grad_output.dtype)
-        dweight = grad_output.flatten(0, -2).T @ input.flatten(0, -2)
+        dweight = grad_output.view(-1, weight.shape[0]).T @ input.view(-1, weight.shape[1])
         dbias = grad_output.sum(0) if ctx.bias else None
         return dinput, dweight, dbias
 
