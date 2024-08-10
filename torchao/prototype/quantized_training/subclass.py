@@ -21,7 +21,7 @@ class Int8QTLinearWeight(Tensor):
     __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
 
     @staticmethod
-    def __new__(cls, int_data, scale, requires_grad=False):
+    def __new__(cls, int_data: Tensor, scale: Tensor, requires_grad: bool = False):
         return Tensor._make_wrapper_subclass(
             cls,
             int_data.shape,
@@ -30,7 +30,7 @@ class Int8QTLinearWeight(Tensor):
             requires_grad=requires_grad,
         )
 
-    def __init__(self, int_data, scale, requires_grad=False):
+    def __init__(self, int_data: Tensor, scale: Tensor, requires_grad: bool = False):
         """Create a symmetric quantized INT8 weight. This tensor will appear to have the same dtype
         as `scale.dtype`. All in-place update ops will perform stochastic rounding.
         """

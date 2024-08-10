@@ -113,22 +113,22 @@ class TestFSDP2(FSDPTest):
     @skip_if_lt_x_gpu(2)
     def test_fsdp2(self):
         self.run_subtests(
-            {"activation_checkpointing": [False, True]},
+            {
+                "activation_checkpointing": [False, True],
+                # "compile_layer": [False, True],
+            },
             self._test_fsdp2,
         )
 
-    def _test_fsdp2(self, activation_checkpointing):
+    def _test_fsdp2(self, activation_checkpointing, compile_layer):
         import torch.distributed as dist
         from torch.distributed._composable.fsdp import fully_shard
-        from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
-            CheckpointWrapper,
-            apply_activation_checkpointing,
-        )
+        from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import apply_activation_checkpointing
         from torch.distributed.fsdp.wrap import ModuleWrapPolicy
         from torch.testing._internal.distributed._tensor.common_dtensor import ModelArgs, Transformer, TransformerBlock
 
         batch_size = 3
-        vocab_size = 1024
+        vocab_size = 32
         seq_len = 64
         model_args = ModelArgs(
             n_layers=3,
@@ -144,14 +144,19 @@ class TestFSDP2(FSDPTest):
         if activation_checkpointing:
             policy = ModuleWrapPolicy({TransformerBlock})
             apply_activation_checkpointing(base_model, auto_wrap_policy=policy)
-        base_optim = AdamW(base_model.parameters(), lr=1e-2)
-
         fsdp_model = copy.deepcopy(base_model)
-        for m in fsdp_model.modules():
-            cls_to_shard = CheckpointWrapper if activation_checkpointing else TransformerBlock
-            if isinstance(m, cls_to_shard):
-                fully_shard(m)
+
+        if compile_layer:
+            for layer in base_model.layers:
+                layer.compile()
+
+        for layer in fsdp_model.layers:
+            if compile_layer:
+                layer.compile()
+            fully_shard(layer)
         fully_shard(fsdp_model)
+
+        base_optim = AdamW(base_model.parameters(), lr=1e-2)
         fsdp_optim = AdamW(fsdp_model.parameters(), lr=1e-2)
 
         torch.manual_seed(42 + self.rank + 1)
@@ -169,7 +174,10 @@ class TestFSDP2(FSDPTest):
                 if param.grad is not None:
                     dist.all_reduce(param.grad, op=dist.ReduceOp.AVG)
             base_optim.step()
-            self.assertEqual(fsdp_loss, base_loss)
+
+            # due to stochastic rounding, use a pretty large tolerance here
+            rel_error = (fsdp_loss - base_loss).abs() / base_loss.abs()
+            assert rel_error < 0.05, rel_error
 
 
 instantiate_parametrized_tests(TestQuantizedTraining)
