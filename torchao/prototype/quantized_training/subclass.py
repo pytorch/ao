@@ -139,6 +139,7 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, out)
 
 
+# TODO: also handle non_blocking kwarg?
 @Int8QTLinearWeight.implements(aten._to_copy.default)
 def _(func, types, args, kwargs):
     # we ignore memory_format in kwargs
@@ -168,6 +169,7 @@ def _(func, types, args, kwargs):
     return func(*args, **kwargs)
 
 
+# TODO: handle non_blocking kwarg?
 @Int8QTLinearWeight.implements(aten.copy_.default)
 def _(func, types, args, kwargs):
     if isinstance(args[0], Int8QTLinearWeight) and isinstance(args[1], Int8QTLinearWeight):
@@ -212,9 +214,9 @@ def _(func, types, args, kwargs):
     if len(size) != 2:
         raise NotImplementedError
 
-    # ignore other kwargs. NOTE: is requires_grad needed?
-    device = kwargs.get("device")
-    dtype = kwargs.get("dtype")
+    # TODO: handle pin_memory kwarg?
+    device = kwargs.get("device", args[0].device)
+    dtype = kwargs.get("dtype", args[0].dtype)
     int_data = torch.zeros(size, device=device, dtype=torch.int8)
     scale = torch.zeros(size[0], device=device, dtype=dtype)
     return Int8QTLinearWeight(int_data, scale)

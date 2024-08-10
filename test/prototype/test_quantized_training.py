@@ -4,12 +4,9 @@ import pytest
 import torch
 import torch.nn.functional as F
 from torch import nn
-from torch.testing._internal.common_utils import (
-    TestCase,
-    instantiate_parametrized_tests,
-    parametrize,
-    run_tests,
-)
+from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
+from torch.testing._internal.common_fsdp import FSDPTest
+from torch.testing._internal.common_utils import TestCase, instantiate_parametrized_tests, parametrize, run_tests
 
 from torchao.prototype.low_bit_optim import AdamW
 from torchao.prototype.quantized_training import Int8QTLinearWeight, int8_weight_only_quantized_training
@@ -106,6 +103,73 @@ class TestQuantizedTraining(TestCase):
             with torch.no_grad():
                 for p_fp32, p_int8 in zip(model_fp32.parameters(), model_int8.parameters()):
                     torch.testing.assert_close(p_fp32, p_int8.dequantize(), atol=1e-2, rtol=1e-2)
+
+
+class TestFSDP2(FSDPTest):
+    @property
+    def world_size(self) -> int:
+        return 2
+
+    @skip_if_lt_x_gpu(2)
+    def test_fsdp2(self):
+        self.run_subtests(
+            {"activation_checkpointing": [False, True]},
+            self._test_fsdp2,
+        )
+
+    def _test_fsdp2(self, activation_checkpointing):
+        import torch.distributed as dist
+        from torch.distributed._composable.fsdp import fully_shard
+        from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
+            CheckpointWrapper,
+            apply_activation_checkpointing,
+        )
+        from torch.distributed.fsdp.wrap import ModuleWrapPolicy
+        from torch.testing._internal.distributed._tensor.common_dtensor import ModelArgs, Transformer, TransformerBlock
+
+        batch_size = 3
+        vocab_size = 1024
+        seq_len = 64
+        model_args = ModelArgs(
+            n_layers=3,
+            n_heads=4,
+            dim=1024,
+            vocab_size=vocab_size,
+            max_seq_len=seq_len,
+            dropout_p=0,
+        )
+        torch.manual_seed(42)
+        base_model = Transformer(model_args).cuda()
+        quantize_(base_model, int8_weight_only_quantized_training())
+        if activation_checkpointing:
+            policy = ModuleWrapPolicy({TransformerBlock})
+            apply_activation_checkpointing(base_model, auto_wrap_policy=policy)
+        base_optim = AdamW(base_model.parameters(), lr=1e-2)
+
+        fsdp_model = copy.deepcopy(base_model)
+        for m in fsdp_model.modules():
+            cls_to_shard = CheckpointWrapper if activation_checkpointing else TransformerBlock
+            if isinstance(m, cls_to_shard):
+                fully_shard(m)
+        fully_shard(fsdp_model)
+        fsdp_optim = AdamW(fsdp_model.parameters(), lr=1e-2)
+
+        torch.manual_seed(42 + self.rank + 1)
+        for iter_idx in range(5):
+            inp = torch.randint(0, vocab_size, (batch_size, seq_len), device="cuda")
+            fsdp_optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
+            fsdp_loss = fsdp_model(inp).sum()
+            fsdp_loss.backward()
+            fsdp_optim.step()
+
+            base_optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
+            base_loss = base_model(inp).sum()
+            base_loss.backward()
+            for param in base_model.parameters():
+                if param.grad is not None:
+                    dist.all_reduce(param.grad, op=dist.ReduceOp.AVG)
+            base_optim.step()
+            self.assertEqual(fsdp_loss, base_loss)
 
 
 instantiate_parametrized_tests(TestQuantizedTraining)
