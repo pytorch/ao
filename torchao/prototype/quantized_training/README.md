@@ -25,6 +25,6 @@ optim = AdamW(model.parameters(), lr=3e-4)
 
 It is recommended to use optimizers from `torchao.prototype.low_bit_optim` for quantized training, because they can automatically generate efficient fused optimizer kernel for `dequant->optimizer_step->quant` thanks to `torch.compile()`.
 
-[`benchmarks/benchmark_int8_qt.py`](../../../benchbenchmarks/benchmark_int8_qt.py) demonstrates an end-to-end Llama2 pre-training using this INT8 quantized training.
+[`benchmarks/benchmark_int8_qt.py`](../../../benchmarks/benchmark_int8_qt.py) demonstrates an end-to-end Llama2 pre-training using this INT8 quantized training.
 
 See [#644](https://github.com/pytorch/ao/pull/644) for some early results.
