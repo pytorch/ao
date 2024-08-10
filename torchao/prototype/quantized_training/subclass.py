@@ -97,24 +97,44 @@ class Int8QTLinearWeight(Tensor):
         return Int8QTLinearWeight(int_data, scale), all_gather_outputs
 
 
+class _Int8WeightOnlyLinear(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input: Tensor, weight: Int8QTLinearWeight, bias: Optional[Tensor] = None):
+        ctx.save_for_backward(input, weight)
+        ctx.bias = bias is not None
+
+        # NOTE: we have to .T before .to(input.dtype) for torch.compile() mixed matmul to work
+        out = (input @ weight.int_data.T.to(input.dtype)) * weight.scale
+        out = out + bias if bias is not None else out
+        return out
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input, weight = ctx.saved_tensors
+
+        dinput = (grad_output * weight.scale) @ weight.int_data.to(grad_output.dtype)
+        dweight = grad_output.flatten(0, -2).T @ input.flatten(0, -2)
+        dbias = grad_output.sum(0) if ctx.bias else None
+        return dinput, dweight, dbias
+
+
 @Int8QTLinearWeight.implements(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     return _Int8WeightOnlyLinear.apply(*args, **kwargs)
 
 
-@Int8QTLinearWeight.implements(aten.detach.default)
-def _(func, types, args, kwargs):
-    out = Int8QTLinearWeight(args[0].int_data, args[0].scale, requires_grad=False)
-    return return_and_correct_aliasing(func, args, kwargs, out)
-
-
-@Int8QTLinearWeight.implements([aten.clone.default, aten.slice.Tensor])
+@Int8QTLinearWeight.implements(
+    [
+        aten.detach.default,
+        aten.clone.default,
+        aten.slice.Tensor,
+    ]
+)
 def _(func, types, args, kwargs):
     # will error out if try to slice 2nd dim
     out = Int8QTLinearWeight(
         func(args[0].int_data, *args[1:], **kwargs),
         func(args[0].scale, *args[1:], **kwargs),
-        requires_grad=args[0].requires_grad,
     )
     return return_and_correct_aliasing(func, args, kwargs, out)
 
@@ -141,6 +161,7 @@ def _(func, types, args, kwargs):
     return torch.zeros(args[0].shape, dtype=dtype, device=device)
 
 
+# out-of-place math ops always return plain tensor
 @Int8QTLinearWeight.implements([aten.sub.Tensor, aten.mul.Tensor])
 def _(func, types, args, kwargs):
     args = [x.dequantize() if isinstance(x, Int8QTLinearWeight) else x for x in args]
@@ -164,16 +185,11 @@ def _(func, types, args, kwargs):
     return args[0]
 
 
-@Int8QTLinearWeight.implements(aten.addcdiv_.default)
+@Int8QTLinearWeight.implements([aten.addcdiv_.default, aten.add_.Tensor])
 def _(func, types, args, kwargs):
-    out = torch.addcdiv(args[0].dequantize(), *args[1:], **kwargs)
-    return args[0].copy_(out)
-
-
-@Int8QTLinearWeight.implements(aten.add_.Tensor)
-def _(func, types, args, kwargs):
-    out = torch.add(args[0].dequantize(), *args[1:], **kwargs)
-    return args[0].copy_(out)
+    original = args[0]
+    out = func(args[0].dequantize(), *args[1:], **kwargs)
+    return original.copy_(out)
 
 
 # FSDP ops
@@ -186,10 +202,7 @@ def _(func, types, args, kwargs):
     int_data_list = func(int8_weight.int_data, *args[1:], **kwargs)
     scale_list = func(int8_weight.scale, *args[1:], **kwargs)
 
-    # requires_grad must be False here
-    out = [
-        Int8QTLinearWeight(int_data, scale, requires_grad=False) for int_data, scale in zip(int_data_list, scale_list)
-    ]
+    out = [Int8QTLinearWeight(int_data, scale) for int_data, scale in zip(int_data_list, scale_list)]
     return out
 
 
@@ -233,27 +246,6 @@ def _(func, types, args, kwargs):
         func(x.scale, *args[1:], **kwargs),
         requires_grad=x.requires_grad,
     )
-
-
-class _Int8WeightOnlyLinear(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, input: Tensor, weight: Int8QTLinearWeight, bias: Optional[Tensor] = None):
-        ctx.save_for_backward(input, weight)
-        ctx.bias = bias is not None
-
-        # NOTE: we have to .T before .to(input.dtype) for torch.compile() mixed matmul to work
-        out = (input @ weight.int_data.T.to(input.dtype)) * weight.scale
-        out = out + bias if bias is not None else out
-        return out
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        input, weight = ctx.saved_tensors
-
-        dinput = (grad_output * weight.scale) @ weight.int_data.to(grad_output.dtype)
-        dweight = grad_output.flatten(0, -2).T @ input.flatten(0, -2)
-        dbias = grad_output.sum(0) if ctx.bias else None
-        return dinput, dweight, dbias
 
 
 def int8_weight_only_quantized_training():
