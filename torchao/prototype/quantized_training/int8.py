@@ -22,17 +22,16 @@ class Int8QTLinearWeight(Tensor):
 
     @staticmethod
     @torch._dynamo.disable
-    def __new__(cls, int_data: Tensor, scale: Tensor, requires_grad: bool = False):
+    def __new__(cls, int_data: Tensor, scale: Tensor):
         return Tensor._make_wrapper_subclass(
             cls,
             int_data.shape,
             dtype=scale.dtype,
             device=int_data.device,
-            requires_grad=requires_grad,
         )
 
     @torch._dynamo.disable
-    def __init__(self, int_data: Tensor, scale: Tensor, requires_grad: bool = False):
+    def __init__(self, int_data: Tensor, scale: Tensor):
         """Create a symmetric quantized INT8 weight. This tensor will appear to have the same dtype
         as `scale.dtype`. All in-place update ops will perform stochastic rounding.
         """
@@ -51,6 +50,7 @@ class Int8QTLinearWeight(Tensor):
         return cls(tensor_data_dict["int_data"], tensor_data_dict["scale"], *tensor_attributes)
 
     @staticmethod
+    @torch.no_grad()
     def quantize(tensor: Tensor, stochastic_rounding: bool = False):
         original_dtype = tensor.dtype
         tensor = tensor.float()
@@ -71,9 +71,13 @@ class Int8QTLinearWeight(Tensor):
 
     @classmethod
     def from_float(cls, tensor: Tensor):
-        """Convert a float tensor into INT8 quantized weight. No stochastic rounding is performed."""
+        """Convert a float tensor into INT8 quantized weight. No stochastic rounding is performed.
+        This function is not differentiable.
+        """
         int_data, scale = cls.quantize(tensor.detach())
-        return cls(int_data, scale, requires_grad=tensor.requires_grad)
+        out = cls(int_data, scale)
+        out.requires_grad_(tensor.requires_grad)
+        return out
 
     def dequantize(self):
         return self.int_data * self.scale.view(-1, 1)
