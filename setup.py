@@ -10,7 +10,7 @@ import subprocess
 
 from setuptools import find_packages, setup
 
-current_date = datetime.now().strftime("%Y.%m.%d")
+current_date = datetime.now().strftime("%Y%m%d")
 
 
 def get_git_commit_id():
@@ -35,9 +35,9 @@ if version_suffix is None:
 
 use_cpp = os.getenv('USE_CPP')
 
-
-# Version is year.month.date if using nightlies
-version = current_date if os.environ.get("TORCHAO_NIGHTLY") else read_version()
+version_prefix = read_version()
+# Version is version.dev year month date if using nightlies and version if not
+version = f"{version_prefix}.dev{current_date}" if os.environ.get("TORCHAO_NIGHTLY") else version_prefix
 
 import torch
 
