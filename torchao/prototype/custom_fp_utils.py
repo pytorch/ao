@@ -12,7 +12,7 @@
 #      - Values outside the representable range of FPx after rounding are clamped to the maximum FPx
 #      magnitude (sign is preserved).
 
-from enum import Enum
+from enum import Enum, auto
 
 import torch
 from torch import Tensor
@@ -27,8 +27,14 @@ F32_EXP_BIAS = _n_ones(EBITS_F32 - 1)
 
 
 class RoundingMode(Enum):
-    TIE_TO_EVEN = 0
-    STOCHASTIC = 1
+    """
+    Enum representing the different methods for rounding values during MX block scaling.
+    There are two methods available:
+    TIE_TO_EVEN: This method rounds values to the nearest even number. It is used by default.
+    STOCHASTIC: This method uses stochastic rounding, which benefits the gradient quantization in MX4 training.
+    """
+    TIE_TO_EVEN = auto()
+    STOCHASTIC = auto()
 
 
 def _f32_to_fpx_unpacked(
