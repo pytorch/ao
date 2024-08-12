@@ -17,7 +17,7 @@ Exponent E8M0 encoding details (OCP spec section 5.4.1):
 """
 
 from typing import Dict, Union
-from enum import Enum
+from enum import Enum, auto
 
 import torch
 
@@ -71,9 +71,20 @@ EBITS_F8_E5M2, MBITS_F8_E5M2 = 5, 2
 
 
 class ScaleCalculationMode(Enum):
-    FLOOR = 0
-    CEIL = 1
-    EVEN = 2
+    """
+    Enum representing the different methods for calculating MX block scaling.
+    There are three methods available:
+    FLOOR: This method is recommended by the OCP MX Spec 1.0 and uses X = 2^floor(log2(max_abs(v))-max_exp).
+           It result in overflow issues for large values and bad for gradient quantization.
+    CEIL: This method avoids overflow issues, but small values may shift to 0 due to a large scaling factor.
+           It uses X = 2^ceil(log2(max_abs(v))-max_exp).
+    EVEN: This method is a trade-off between Option 1 and Option 2. It uses X = 2^(floor(log2(rounding(max_abs(v)))-max_exp)).
+           It provides better accuracy for MX4 training compared to FLOOR and CEIL.
+    By default, we use the EVEN method for better accuracy.
+    """
+    FLOOR = auto()
+    CEIL = auto()
+    EVEN = auto()
 
 
 def to_mx(
