@@ -174,7 +174,7 @@ class Float8InferenceLinear(torch.nn.Linear):
 
 
 def cast_to_float8_e4m3_inference(
-    inpt_tensor: torch.Tensor,
+    input_tensor: torch.Tensor,
     linear_mm_config: LinearMMConfig,
     reduce_amax: bool = False,
     static_quantization_scale: Optional[torch.Tensor] = None,
@@ -182,7 +182,7 @@ def cast_to_float8_e4m3_inference(
     """Casts an input tensor to the Float8 (e4m3fn*)
 
     Args:
-        inpt_tensor: The input tensor to be cast.
+        input_tensor: The input tensor to be cast.
         linear_mm_config: Configuration settings for the matrix multiplication
         reduce_amax: Whether to reduce the amax (absolute maximum) among the local distributed group.
         static_quantization_scale: Optional tensor specifying the scale for activation. Default is None.
@@ -193,15 +193,15 @@ def cast_to_float8_e4m3_inference(
     Note:
         If the input tensor is already in Float8 format, it is returned as is without re-casting.
     """
-    if tensor_already_casted_to_fp8(inpt_tensor):
-        return inpt_tensor
+    if tensor_already_casted_to_fp8(input_tensor):
+        return input_tensor
     scale = (
         static_quantization_scale
         if static_quantization_scale is not None
-        else tensor_to_scale(inpt_tensor, e4m3_dtype, reduce_amax)
+        else tensor_to_scale(input_tensor, e4m3_dtype, reduce_amax)
     )
     return hp_tensor_and_scale_to_float8(
-        inpt_tensor,
+        input_tensor,
         scale,
         e4m3_dtype,
         linear_mm_config,
