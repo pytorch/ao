@@ -6,9 +6,9 @@ import torchao
 
 from torchao.prototype.autoround.core import (
     auto_round_config,
-    MultiTensor,
     prepare_model_for_applying_auto_round_,
 )
+from torchao.prototype.autoround.mul_tensors import MultiTensor
 
 
 def main(args):
