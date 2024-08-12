@@ -1,6 +1,5 @@
-import logging
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, Tuple
 
 import torch
 from torch.utils._pytree import tree_flatten, tree_unflatten
@@ -99,7 +98,7 @@ class MultiTensor(torch.Tensor):
         return flattened, non_tensors_equal
 
     @classmethod
-    def __torch_function__(cls, func, types, args=(), kwargs=None, skip_gptq=False):
+    def __torch_function__(cls, func, types, args=(), kwargs=None):
         kwargs = {} if kwargs is None else kwargs
         # combine args and kwargs and remove lists and tuples
         flat_args, spec = tree_flatten((args, kwargs))
@@ -108,16 +107,13 @@ class MultiTensor(torch.Tensor):
         # run function for each of the multitensors and return a multitensor
         outputs = []
         with torch._C.DisableTorchFunctionSubclass():
-            # Note: for the decoder, apply auto-round to it
-            if func is torch.ops.transformers_ops.general_decoder:
-                outputs = optimize_decoder(func, grouped_args, spec)
-            else:
-                for i, inp in enumerate(grouped_args):
-                    cur_args, cur_kwargs = tree_unflatten(inp, spec)
-                    cur_args = ar_utils.move_data_to_device(cur_args, "cuda")
-                    cur_kwargs = ar_utils.move_data_to_device(cur_kwargs, "cuda")
-                    out = func(*cur_args, **cur_kwargs)
-                    outputs.append(out.cpu() if isinstance(out, torch.Tensor) else out)
+            for i, inp in enumerate(grouped_args):
+                cur_args, cur_kwargs = tree_unflatten(inp, spec)
+                # TODO: Cann't release the cuda memory, fix it later
+                # cur_args = ar_utils.move_data_to_device(cur_args, "cuda")
+                # cur_kwargs = ar_utils.move_data_to_device(cur_kwargs, "cuda")
+                out = func(*cur_args, **cur_kwargs)
+                outputs.append(out.cpu() if isinstance(out, torch.Tensor) else out)
             grouped_outputs = [tree_flatten(x)[0] for x in outputs]
             out_spec = tree_flatten(outputs[0])[1]
             # convert [[A,b1,c1], [A,b2,c2] [A,b3,c3]] => [A, MultiTensor(b1,b2,b3), MultiTensor(c1,c2,c3)]
@@ -163,6 +159,7 @@ auto_round_config = AutoRoundConfig()
 @torch.no_grad()
 def create_qmodel_from_qdq_model(qdq_model: torch.nn.Module):
     """Create a quantized model from a qdq model.
+
     The qdq_model includes Linear quantized by auto-round, which includes qdq weight, scale, zp.
     """
 
@@ -202,16 +199,18 @@ def create_qmodel_from_qdq_model(qdq_model: torch.nn.Module):
     return qmodel
 
 
+@torch.no_grad()
 def apply_auto_round(observed_block, grouped_args, spec, block_outputs):
     # Call the auto-round to execute the optimization process
     import auto_round
+
+    ar_utils.see_memory_usage("Before apply auto-round")
 
     global auto_round_config
 
     block = observed_block
 
     # Start the training process to update the v, alpha and betta.
-    # TODO: refactor the `quant_block_v2_` to a static method
     rounder = auto_round.AutoRound(
         model=block,
         tokenizer=None,
@@ -224,6 +223,7 @@ def apply_auto_round(observed_block, grouped_args, spec, block_outputs):
         model_dtype=next(block.parameters()).dtype,
     )
 
+    @torch.no_grad()
     def _unflatten_grouped_args(grouped_args, spec):
         inputs = []
         for i, inp in enumerate(grouped_args):
@@ -232,160 +232,51 @@ def apply_auto_round(observed_block, grouped_args, spec, block_outputs):
         return inputs
 
     block_inputs = _unflatten_grouped_args(grouped_args, spec)
-    rounder.quant_block_v2_(
-        block, inputs=block_inputs, outputs=block_outputs, device="cuda"
-    )
-    return create_qmodel_from_qdq_model(block)
-
-
-@torch.no_grad()
-def _infer_mod(mod, cur_args, cur_kwargs):
-    mod.to("cuda")
-    cur_args = ar_utils.move_data_to_device(cur_args, "cuda")
-    cur_kwargs = ar_utils.move_data_to_device(cur_kwargs, "cuda")
-    out = mod(*cur_args, **cur_kwargs)
-    mod.to("cpu")
-    return out.cpu() if isinstance(out, torch.Tensor) else out
-
-
-@torch.no_grad()
-def infer_mod(mod, grouped_args, spec):
-    outputs = []
-    for i, inp in enumerate(grouped_args):
-        cur_args, cur_kwargs = tree_unflatten(inp, spec)
-        cur_kwargs.pop("idx")
-        out = _infer_mod(mod, cur_args, cur_kwargs)
-        outputs.append(out)
-    return outputs
-
-
-class _ModuleMapping:
-    def __init__(self):
-        self._modules_mapping: Dict[int, torch.nn.Module] = {}
-
-    def add_module(self, idx, mod):
-        self._modules_mapping[idx] = mod
-
-    def get_module(self, idx):
-        return self._modules_mapping[idx]
-
-    def reset(self):
-        self._modules_mapping = {}
-
-    def generate_id(self):
-        return len(self._modules_mapping) + 1
-
-
-module_mapping = _ModuleMapping()
-
-
-from torch.library import Library
-
-t_lib = Library("transformers_ops", "DEF")
-tran_ops = torch.ops.transformers_ops
-
-# The `general_decoder` serves as a flag to inform the dispatcher that this function(decoder block) is intended for optimization.
-# All of the args and kwargs will be passed to the optimized function,
-# that unpack them and return the correct output.
-# The call flow:
-#   `_DecoderLayerWrapper.forward`
-#       ->`general_decoder` under `__torch_function__`
-#       -> `optimize_decoder`
-#       -> return the optimized output
-t_lib.define("general_decoder(Tensor hidden_state) -> (Tensor, Tensor[])")
-
-
-def optimize_decoder(func, grouped_args, spec):
-    first_grouped_args = grouped_args[0]
-    first_cur_args, first_cur_kwargs = tree_unflatten(first_grouped_args, spec)
-    decoder_block_idx = first_cur_kwargs["idx"]
-    logging.info(f"Optimizing decoder layer {decoder_block_idx}")
-    decoder_block = module_mapping.get_module(decoder_block_idx)
-    origin_output = infer_mod(decoder_block, grouped_args, spec)
-    apply_auto_round(decoder_block, grouped_args, spec, origin_output)
-    return ar_utils.move_data_to_device(origin_output, "cpu")
-
-
-def _replace_buffers_and_params(model):
-    for name, buf in model.named_buffers(recurse=False):
-        setattr(model, name, MultiTensor([buf]))
-    for name, param in model.named_parameters(recurse=False):
-        setattr(model, name, torch.nn.Parameter(MultiTensor([param]), False))
-    return model
-
-
-def _revert_replace_buffers_and_params(model):
-    for name, buf in model.named_buffers(recurse=False):
-        if isinstance(buf, MultiTensor):
-            setattr(model, name, buf.values[0])
-    for name, param in model.named_parameters(recurse=False):
-        if isinstance(param, MultiTensor):
-            setattr(model, name, torch.nn.Parameter(param.values[0], False))
-    return model
-
-
-def _replace_with_custom_fn_if_matches_filter(
-    model: torch.nn.Module,
-    replacement_fn,
-    filter_fn,
-    cur_fqn="",
-) -> None:
-    if filter_fn(model, cur_fqn[:-1]):
-        model = replacement_fn(model)
-    for name, child in model.named_children():
-        new_child = _replace_with_custom_fn_if_matches_filter(
-            child, replacement_fn, filter_fn, f"{cur_fqn}{name}."
+    with torch.enable_grad():
+        rounder.quant_block_v2_(
+            block, inputs=block_inputs, outputs=block_outputs, device="cuda"
         )
-        if new_child is not child:
-            setattr(model, name, new_child)
-    return model
+    block.to("cpu")
+    qmodel = create_qmodel_from_qdq_model(block)
+    ar_utils.see_memory_usage("After apply auto-round.")
+    return qmodel
 
 
-class _DecoderLayerWrapper(torch.nn.Module):
-    def __init__(self, orig_mod, idx):
-        super().__init__()
-        self.idx = idx
-        module_mapping.add_module(idx, orig_mod)
+@torch.no_grad()
+def optimize_module(
+    module: torch.nn.Module,
+    args: Tuple[MultiTensor],
+    kwargs: Dict[str, MultiTensor],
+    output: tuple[MultiTensor],
+):
+    # Remove the hook before otpimization process to avoid the recursive call
+    module._forward_hook_handle_for_autoround.remove()
+    flat_args, spec = tree_flatten((args, kwargs))
+    grouped_args = MultiTensor.flat_to_grouped(flat_args)
+    output_flat_args, output_spec = tree_flatten((output, {}))
+    output_grouped_args = MultiTensor.flat_to_grouped(output_flat_args)
+    apply_auto_round(module, grouped_args, spec, output_grouped_args)
+    torch.cuda.empty_cache()
 
-    def forward(self, *args, **kwargs):
-        kwargs.update({"idx": self.idx})
-        return torch.ops.transformers_ops.general_decoder(*args, **kwargs)
 
-
+@torch.no_grad()
 def prepare_model_for_applying_auto_round_(model, is_decoder):
-    global module_mapping
-    module_mapping = _ModuleMapping()
+    def forward_hook(
+        module,
+        args: Tuple[MultiTensor],
+        kwargs: Dict[str, MultiTensor],
+        output: tuple[MultiTensor],
+    ):
+        optimize_module(module, args, kwargs, output)
+        return output
 
-    def replace_decoder_block(mod):
-        new_id = module_mapping.generate_id()
-        return _DecoderLayerWrapper(mod, new_id)
+    def _register_forward_hook(module: torch.nn.Module):
+        forward_hook_handle = module.register_forward_hook(
+            forward_hook, with_kwargs=True
+        )
+        module._forward_hook_handle_for_autoround = forward_hook_handle
+        return module
 
-    # 1) Replace the decoder block with a wrapper block
-    _replace_with_custom_fn_if_matches_filter(model, replace_decoder_block, is_decoder)
-
-    # 2) Replace the buffers and parameters with MultiTensor
-    _replace_with_custom_fn_if_matches_filter(
-        model, _replace_buffers_and_params, lambda x, y: True
+    ao_quant.quant_api._replace_with_custom_fn_if_matches_filter(
+        model, _register_forward_hook, is_decoder
     )
-
-    logging.debug("Model is prepared for applying auto-round")
-    logging.debug(model)
-
-
-def post_process_model_after_applying_auto_round_(model):
-
-    def revert_decoder_block_replacement(mod):
-        return module_mapping.get_module(mod.idx)
-
-    # 1) Revert the decoder block replacement, the block has been optimized
-    is_wrapped_decoder = lambda mod, fqn: isinstance(mod, _DecoderLayerWrapper)
-    _replace_with_custom_fn_if_matches_filter(
-        model, revert_decoder_block_replacement, is_wrapped_decoder
-    )
-
-    # 2) Revert the buffers and parameters
-    _replace_with_custom_fn_if_matches_filter(
-        model, _revert_replace_buffers_and_params, lambda mod, fqn: True
-    )
-    logging.debug("Model is post-processed after applying auto-round")
-    logging.debug(model)
