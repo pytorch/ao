@@ -6,7 +6,7 @@ import torch
 from torch.autograd import Variable
 import torch.nn.functional as F
 import numpy as np
-
+# torch._dynamo.config.capture_scalar_outputs = True
 
 # original supermask
 scores_min=None
@@ -21,7 +21,7 @@ uniform_init_01 = False
 def percentile(t, q):
     """Return the value that is larger than q% of t"""
     k = 1 + round(.01 * float(q) * (t.numel() - 1))
-    return t.view(-1).kthvalue(k).values.item()
+    return t.view(-1).kthvalue(k).values
 
 
 def to_bsr(tensor, blocksize=256):
@@ -46,9 +46,9 @@ class GetSubnet(torch.autograd.Function):
     """Supermask STE function"""
     @staticmethod
     def forward(ctx, scores, zeros, ones, sparsity):
-        scores.clamp_(min=scores_min,max=scores_max)
-        k_val = percentile(scores, sparsity*100)
-        return torch.where(scores < k_val, zeros.to(scores.device), ones.to(scores.device))
+        clamped_scores = scores.clamp(min=scores_min,max=scores_max)
+        k_val = percentile(clamped_scores, sparsity*100)
+        return torch.where(clamped_scores < k_val, zeros.to(scores.device), ones.to(scores.device))
     @staticmethod
     def backward(ctx, g):
         return g, None, None, None

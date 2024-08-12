@@ -13,6 +13,8 @@ import torch.utils.data
 import utils
 from torch import nn
 
+from torch.sparse._triton_ops_meta import optimize_bsr_dense_addmm
+
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from supermask import apply_supermask, SupermaskLinear
 
@@ -169,11 +171,25 @@ def get_args_parser(add_help=True):
     parser.add_argument('--bsr', type=int, nargs='?', const=256, default=None, help='Convert sparsified weights to BSR format with optional block size (default: 256)')
     parser.add_argument("--bfloat16", action="store_true", help="Use bfloat16")
     parser.add_argument("--float16", action="store_true", help="Use float16")
+    parser.add_argument("--tune-kernel-params", action="store_true", help="Tune kernel params")
 
     return parser
 
 
 if __name__ == "__main__":
     args = get_args_parser().parse_args()
+    if args.bsr and args.tune_kernel_params:
+        print("TUNING BSR params for vit-b shapes")
+        if args.bfloat16:
+            dtype = torch.bfloat16
+        elif args.float16:
+            dtype = torch.float16
+        else:
+            dtype = torch.float32
+        assert args.model == "vit_b_16", "Only vit-b-16 is supported for now"
+        optimize_bsr_dense_addmm(3072, 768, 50432, args.bsr, args.bsr, dtype=dtype, sparsity=args.sparsity_linear, verbose=True)
+        optimize_bsr_dense_addmm(768, 3072, 50432, args.bsr, args.bsr, dtype=dtype, sparsity=args.sparsity_linear, verbose=True)
+
+    print("BENCHMARKING")
     result = main(args)
     print(f"{result} ms", file=sys.stderr)
