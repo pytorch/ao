@@ -387,22 +387,22 @@ class SubclassTensorArgs:
     requires_grad: bool
 
 
-def get_block_absmax(inpt_tensor: torch.Tensor, block_size: int) -> torch.Tensor:
+def get_block_absmax(input_tensor: torch.Tensor, block_size: int) -> torch.Tensor:
     """Iterate through a flattened tensor getting the absmax scalers for each block
 
     Args:
-        inpt_tensor: Input tensor to get scalers for
+        input_tensor: Input tensor to get scalers for
         block_size: Block size for the scanning window
     Returns:
         torch.Tensor: Tensor of scalers for each block
     """
-    assert inpt_tensor.dim() == 1, "Input tensor must be flattened"
+    assert input_tensor.dim() == 1, "Input tensor must be flattened"
     assert (
-        inpt_tensor.numel() % block_size
-    ) == 0, f"Input tensor must be divisible by block size, got {inpt_tensor.numel()} and {block_size}"
+        input_tensor.numel() % block_size
+    ) == 0, f"Input tensor must be divisible by block size, got {input_tensor.numel()} and {block_size}"
 
-    n_blocks = inpt_tensor.numel() // block_size
-    blocks = inpt_tensor.view(n_blocks, block_size)
+    n_blocks = input_tensor.numel() // block_size
+    blocks = input_tensor.view(n_blocks, block_size)
     block_scalers = blocks.abs().max(dim=1).values
     return block_scalers
 
@@ -478,18 +478,18 @@ class NF4Tensor(torch.Tensor):
     @torch.no_grad()
     def from_tensor(
         cls,
-        inpt_tensor: torch.Tensor,
+        input_tensor: torch.Tensor,
         block_size: int,
         scaler_block_size: int,
     ):
-        assert inpt_tensor.dim() <= 2, f"expect input tensor dim <= 2 but got dim = {inpt_tensor.dim()}"
+        assert input_tensor.dim() <= 2, f"expect input tensor dim <= 2 but got dim = {input_tensor.dim()}"
         assert (
-            inpt_tensor.numel() % block_size == 0
-        ), f"Input tensor must be divisible by block size, got {inpt_tensor.numel()} and {block_size}"
-        assert inpt_tensor.is_contiguous, "Input tensor must be contiguous!"
+            input_tensor.numel() % block_size == 0
+        ), f"Input tensor must be divisible by block size, got {input_tensor.numel()} and {block_size}"
+        assert input_tensor.is_contiguous, "Input tensor must be contiguous!"
         # I think I want do this
-        # assert not inpt_tensor.requires_grad, "Input tensor must not require grad"
-        device = inpt_tensor.device
+        # assert not input_tensor.requires_grad, "Input tensor must not require grad"
+        device = input_tensor.device
         # Cache the tensor on the class def
         nf4 = torch.tensor(
             [
@@ -511,27 +511,27 @@ class NF4Tensor(torch.Tensor):
                 1.0000,
             ],
             device=device,
-            dtype=inpt_tensor.dtype,
+            dtype=input_tensor.dtype,
         )
-        n_blocks = inpt_tensor.numel() // block_size
+        n_blocks = input_tensor.numel() // block_size
         # Double quantization
         (
             quantized_scalers,
             quantization_factor,
             scaler_mean,
         ) = cls.double_quantize_scalers(
-            inpt_tensor.flatten(), block_size, scaler_block_size
+            input_tensor.flatten(), block_size, scaler_block_size
         )
         quantized_data = cls.convert_to_norm_float_weight(
-            inpt_tensor, n_blocks, block_size, nf4
+            input_tensor, n_blocks, block_size, nf4
         )
         tensor_meta = SubclassTensorArgs(
-            inpt_tensor.size(),
-            inpt_tensor.stride(),
-            inpt_tensor.storage_offset(),
-            inpt_tensor.dtype,
-            inpt_tensor.device,
-            inpt_tensor.requires_grad,
+            input_tensor.size(),
+            input_tensor.stride(),
+            input_tensor.storage_offset(),
+            input_tensor.dtype,
+            input_tensor.device,
+            input_tensor.requires_grad,
         )
         return cls(
             tensor_meta,
@@ -547,7 +547,7 @@ class NF4Tensor(torch.Tensor):
 
     @staticmethod
     def double_quantize_scalers(
-        inpt_tensor: torch.Tensor,
+        input_tensor: torch.Tensor,
         block_size: int,
         scaler_block_size: int,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -557,7 +557,7 @@ class NF4Tensor(torch.Tensor):
         And then we calculate the absmax quantization factors for each block again. We then quantize the scalers to int8.
 
         Args:
-            inpt_tensor: Input tensor to convert to QLoRA format, typically a weight tensor
+            input_tensor: Input tensor to convert to QLoRA format, typically a weight tensor
 
         Returns:
             torch.Tensor: Tensor of per_block quantization factors stored in int8 format
@@ -565,14 +565,14 @@ class NF4Tensor(torch.Tensor):
             torch.Tensor: Tensor of per_scaler_block quantization factors stored in int16 format
                 size: (n_scaler_blocks)
         """
-        assert inpt_tensor.dim() == 1, "Input tensor must be flattened"
+        assert input_tensor.dim() == 1, "Input tensor must be flattened"
         assert (
-            inpt_tensor.numel() % scaler_block_size
-        ) == 0, f"Input tensor must be divisible by block size, got {inpt_tensor.numel()} and {scaler_block_size}"
+            input_tensor.numel() % scaler_block_size
+        ) == 0, f"Input tensor must be divisible by block size, got {input_tensor.numel()} and {scaler_block_size}"
 
         # First round of quantization
-        # Produces: A tensor of size (n_blocks) of inpt_tensor.dtype
-        scalers_1 = get_block_absmax(inpt_tensor, block_size)
+        # Produces: A tensor of size (n_blocks) of input_tensor.dtype
+        scalers_1 = get_block_absmax(input_tensor, block_size)
         scalers_1_mean = scalers_1.mean()
         scalers_1 = scalers_1 - scalers_1_mean
         # Second round of quantization
@@ -607,38 +607,38 @@ class NF4Tensor(torch.Tensor):
 
     def dequantize_scalers(
         self,
-        inpt_tensor: torch.Tensor,
+        input_tensor: torch.Tensor,
         quantization_factor: torch.Tensor,
         scaler_block_size: int,
     ) -> torch.Tensor:
         """Used to unpack the double quantized scalers
 
         Args;
-            inpt_tensor: Input tensor to convert to QLoRA format this is the quantized scalers in int8 format
+            input_tensor: Input tensor to convert to QLoRA format this is the quantized scalers in int8 format
             quantization_factor: Tensor of per_scaler_block quantization factors stored in inpt_weight.dtype
                 size: (n_scaler_blocks)
             scaler_block_size: Scaler block size to use for double quantization.
 
         """
-        assert inpt_tensor.dim() == 1, "Input tensor must be flattened"
+        assert input_tensor.dim() == 1, "Input tensor must be flattened"
         assert (
-            inpt_tensor.numel() % scaler_block_size
-        ) == 0, f"Input tensor must be divisible by block size, got {inpt_tensor.numel()} and {scaler_block_size}"
-        n_scaler_blocks = inpt_tensor.numel() // scaler_block_size
-        inpt_tensor = inpt_tensor.view(n_scaler_blocks, scaler_block_size)
-        dequantized = (inpt_tensor / quantization_factor.unsqueeze(-1)).flatten().to(
+            input_tensor.numel() % scaler_block_size
+        ) == 0, f"Input tensor must be divisible by block size, got {input_tensor.numel()} and {scaler_block_size}"
+        n_scaler_blocks = input_tensor.numel() // scaler_block_size
+        input_tensor = input_tensor.view(n_scaler_blocks, scaler_block_size)
+        dequantized = (input_tensor / quantization_factor.unsqueeze(-1)).flatten().to(
             self.dtype
         ) + self.scaler_mean
         return dequantized
 
     @staticmethod
     def convert_to_norm_float_weight(
-        inpt_tensor: torch.Tensor, n_blocks: int, block_size: int, nf4: torch.Tensor
+        input_tensor: torch.Tensor, n_blocks: int, block_size: int, nf4: torch.Tensor
     ) -> torch.Tensor:
         """Convert a tensor to the normalized float weight format"""
-        flattened_tensor = inpt_tensor.flatten()
+        flattened_tensor = input_tensor.flatten()
         #  Since we are using uint8 we will encode 2 entries per byte
-        numel = inpt_tensor.numel()
+        numel = input_tensor.numel()
         assert (
             numel % 2 == 0
         ), "Number of elements must be even just to not have to think about the end"
@@ -646,13 +646,13 @@ class NF4Tensor(torch.Tensor):
         blocks = flattened_tensor.view(n_blocks, block_size)
 
         # Scale the blocks
-        scalers = get_block_absmax(inpt_tensor.flatten(), block_size)
+        scalers = get_block_absmax(input_tensor.flatten(), block_size)
         scales = scalers.unsqueeze(-1).expand(n_blocks, block_size)
         scaled_blocks = blocks / scales
 
         # Returns a flattened tensor with each element quantized to nf4 index
         # See Note: Quantize in Chunks
-        quantized_blocks = torch.empty(numel, dtype=torch.uint8, device=inpt_tensor.device)
+        quantized_blocks = torch.empty(numel, dtype=torch.uint8, device=input_tensor.device)
         flattened = scaled_blocks.flatten()
         for chunk_num in range(math.ceil(numel / CHUNK_SIZE)):
             start = chunk_num * CHUNK_SIZE
