@@ -74,15 +74,13 @@ def create_qmodel_from_qdq_model(qdq_model: torch.nn.Module):
 
 
 @torch.no_grad()
-def apply_auto_round(observed_block, grouped_args, spec, block_outputs):
+def apply_auto_round(block, grouped_args, spec, block_outputs):
     # Call the auto-round to execute the optimization process
     import auto_round
 
     ar_utils.see_memory_usage("Before apply auto-round")
 
     global auto_round_config
-
-    block = observed_block
 
     # Start the training process to update the v, alpha and betta.
     rounder = auto_round.AutoRound(
@@ -121,7 +119,7 @@ def optimize_module(
     module: torch.nn.Module,
     args: Tuple[MultiTensor],
     kwargs: Dict[str, MultiTensor],
-    output: tuple[MultiTensor],
+    output: Tuple[MultiTensor],
 ):
     # Remove the hook before otpimization process to avoid the recursive call
     module._forward_hook_handle_for_autoround.remove()
@@ -140,7 +138,7 @@ def prepare_model_for_applying_auto_round_(model, is_decoder):
         module,
         args: Tuple[MultiTensor],
         kwargs: Dict[str, MultiTensor],
-        output: tuple[MultiTensor],
+        output: Tuple[MultiTensor],
     ):
         optimize_module(module, args, kwargs, output)
         return output
