@@ -88,6 +88,11 @@ def str2torch_dtype(torch_dtype_str):
     else:
         raise ValueError(f"Unsupported torch_dtype_str: {torch_dtype_str}")
 
+def gen_example_inputs(tokenizer, device):
+    inputs = tokenizer("What's AI?", return_tensors="pt")
+    input_ids = inputs["input_ids"].to(device)
+    return (input_ids, )
+
 def get_float_model_info(model_name_or_path, torch_dtype=torch.float32):
     import transformers
 
