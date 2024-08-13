@@ -19,6 +19,14 @@ if not TORCH_VERSION_AFTER_2_3:
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 
+# using TF32 will cause mixed mm to segfault with triton backend
+# fixed by https://github.com/pytorch/pytorch/pull/133173 but just set here to be safe
+# also required for correctness check
+torch.set_float32_matmul_precision("highest")
+
+# we always use `quantize_(set_inductor_config=False)` to reduce compile time in CI
+# and make sure TF32 is not used (see above).
+
 
 class TestQuantizedTraining(TestCase):
     @parametrize("device", _DEVICES)
@@ -42,7 +50,7 @@ class TestQuantizedTraining(TestCase):
 
         linear_fp32 = nn.Linear(embed_dim, embed_dim, bias=bias, device=device)
         linear_int8 = copy.deepcopy(linear_fp32)
-        quantize_(linear_int8, int8_weight_only_quantized_training())
+        quantize_(linear_int8, int8_weight_only_quantized_training(), set_inductor_config=False)
         linear_fp32.weight.data = linear_int8.weight.data.dequantize()
 
         input_fp32 = torch.randn(leading_dims + (embed_dim,), device=device)
@@ -50,14 +58,12 @@ class TestQuantizedTraining(TestCase):
         input_fp32.requires_grad_(True)
         input_int8.requires_grad_(True)
 
-        # quantize_() will set torch.set_float32_matmul_precision("high"), thus failing accuracy check on CUDA.
-        # manually override it here.
-        torch.set_float32_matmul_precision("highest")
-
+        # test forward
         out_fp32 = linear_fp32(input_fp32)
         out_int8 = linear_int8(input_int8)
         torch.testing.assert_close(out_fp32, out_int8)
 
+        # test backward
         grad = torch.randn(leading_dims + (embed_dim,), device=device)
         out_fp32.backward(grad)
         out_int8.backward(grad)
@@ -74,7 +80,7 @@ class TestQuantizedTraining(TestCase):
         embed_dim = 128
 
         linear_eager = nn.Linear(embed_dim, embed_dim, bias=bias, device=device)
-        quantize_(linear_eager, int8_weight_only_quantized_training())
+        quantize_(linear_eager, int8_weight_only_quantized_training(), set_inductor_config=False)
         linear_compiled = copy.deepcopy(linear_eager)
         linear_compiled.compile()
 
@@ -82,10 +88,6 @@ class TestQuantizedTraining(TestCase):
         input_compiled = input_eager.clone()
         input_eager.requires_grad_(True)
         input_compiled.requires_grad_(True)
-
-        # quantize_() will set torch.set_float32_matmul_precision("high"), which causes segfault.
-        # manually override it here.
-        torch.set_float32_matmul_precision("highest")
 
         out_eager = linear_eager(input_eager)
         out_compiled = linear_compiled(input_compiled)
@@ -113,7 +115,8 @@ class TestQuantizedTraining(TestCase):
             nn.Linear(embed_dim * 2, n_classes),
         ).to(device)
         model_int8 = copy.deepcopy(model_fp32)
-        quantize_(model_int8, int8_weight_only_quantized_training())
+        # don't set inductor flags to speed up CI time
+        quantize_(model_int8, int8_weight_only_quantized_training(), set_inductor_config=False)
 
         if compile:
             model_fp32.compile()
@@ -121,9 +124,6 @@ class TestQuantizedTraining(TestCase):
 
         optim_fp32 = AdamW(model_fp32.parameters())
         optim_int8 = AdamW(model_int8.parameters())
-
-        # prevent segfault with torch.compile()
-        torch.set_float32_matmul_precision("highest")
 
         for _ in range(5):
             inputs = torch.randn(bsize, embed_dim, device=device)
@@ -174,7 +174,7 @@ class TestFSDP2(FSDPTest):
         )
         torch.manual_seed(42)
         base_model = Transformer(model_args).cuda()
-        quantize_(base_model, int8_weight_only_quantized_training())
+        quantize_(base_model, int8_weight_only_quantized_training(), set_inductor_config=False)
         fsdp_model = copy.deepcopy(base_model)
 
         if compile_layer:
@@ -189,13 +189,6 @@ class TestFSDP2(FSDPTest):
 
         base_optim = AdamW(base_model.parameters(), lr=1e-2)
         fsdp_optim = AdamW(fsdp_model.parameters(), lr=1e-2)
-
-        # prevent segfault with torch.compile()
-        torch.set_float32_matmul_precision("highest")
-
-        # turn off these flags (set by quantize_()) to speed up compile time in CI
-        torch._inductor.config.coordinate_descent_tuning = False
-        torch._inductor.config.coordinate_descent_check_all_directions = False
 
         torch.manual_seed(42 + self.rank + 1)
         for iter_idx in range(5):

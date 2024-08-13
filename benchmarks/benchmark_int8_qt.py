@@ -102,15 +102,11 @@ if __name__ == "__main__":
     if args.activation_checkpointing:
         model.gradient_checkpointing_enable()
     if args.quantize == "int8_weight_only":
-        quantize_(model, int8_weight_only_quantized_training())
+        quantize_(model, int8_weight_only_quantized_training(), set_inductor_config=False)
     elif args.quantize is not None:
         raise ValueError(f"Unsupported quantize={args.quantize}")
     print(f"No. of params: {sum(p.numel() for p in model.parameters()):,}")
     print(f"No. of buffers: {sum(p.numel() for p in model.buffers()):,}")
-
-    # turn off these flags (set by quantize_()) to speed up compile time
-    torch._inductor.config.coordinate_descent_tuning = False
-    torch._inductor.config.coordinate_descent_check_all_directions = False
 
     optim = getattr(low_bit_optim, args.optim)(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
