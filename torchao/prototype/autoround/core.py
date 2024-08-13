@@ -22,7 +22,7 @@ class AutoRoundConfig:
     train_bs: int = 8
     eval_bs: int = 4
     seed: int = 42
-    amp: bool = False
+    amp: bool = True
     nsamples: int = 128
     seqlen: int = 2048
 
@@ -90,7 +90,7 @@ def apply_auto_round(block, grouped_args, spec, block_outputs):
         bits=auto_round_config.bits,
         iters=auto_round_config.iters,
         use_quant_input=False,  # disable it for now
-        amp=False,
+        amp=auto_round_config.amp,
         low_gpu_mem_usage=False,
         model_dtype=next(block.parameters()).dtype,
     )
