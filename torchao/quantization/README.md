@@ -109,8 +109,11 @@ group_size = 32
 quantize_(m, int4_weight_only(group_size=group_size))
 
 # temporary workaround for tensor subclass + torch.compile
+# NOTE: this is only need for torch version < 2.5+
+from torchao.utils import TORCH_VERSION_AFTER_2_5
 from torchao.utils import unwrap_tensor_subclass
-m = unwrap_tensor_subclass(m)
+if not TORCH_VERSION_AFTER_2_5:
+    unwrap_tensor_subclass(m)
 # compile the model to improve performance
 m = torch.compile(m, mode='max-autotune')
 
@@ -119,9 +122,9 @@ from torchao.utils import benchmark_model
 
 num_runs = 100
 torch._dynamo.reset()
-bf16_time = benchmark_model(m_bf16, num_runs, example_inputs[0])
+bf16_time = benchmark_model(m_bf16, num_runs, example_inputs)
 print(f"bf16 mean time: {bf16_time}")
-int4_time = benchmark_model(m, num_runs, example_inputs[0])
+int4_time = benchmark_model(m, num_runs, example_inputs)
 print(f"int4 weight only quantized mean time: {int4_time}")
 print(f"speedup: {bf16_time / int4_time}")
 
@@ -145,8 +148,10 @@ for n, m in model.named_modules():
         # note: quantization for activation need to be applied after the weight quantization
         # quantization activation (needed by dynamic quantization)
         input_quant_func = int8wo_quant  # specify how input activation is quantized
-        m.weight = nn.Parameter(to_linear_act_quantized(m.weight, input_quant_func))
+        m.weight = nn.Parameter(to_linear_activation_quantized(m.weight, input_quant_func))
 ```
+
+#### Workaround with `unwrap_tensor_subclass` for `export`, `AOTI` and `torch.compile` (pytorch 2.4 and before only)
 The model/tensor subclass should also be compatible with AOTI and torch.export, currently we can support
 `torch.export.export` and `torch.aot_compile` with the following workaround:
 ```
@@ -160,6 +165,11 @@ m = torch.export.export(m_unwrapped, example_inputs).module()
 # aot_compile
 torch._export.aot_compile(m_unwrapped, example_inputs)
 ```
+
+For `torch.compile`, if you are using pytorch nightly or pytorch 2.5+, you won't need to use `unwrap_tensor_subclass` in order to be compatible with `torch.compile`,
+but if you use 2.4 or before, you'll need to use `unwrap_tensor_subclass` as well to be able to run `torch.compile` on the quantized model.
+
+Note that the workaround will not be needed after https://github.com/pytorch/pytorch/issues/129682 is fixed.
 
 ### Automatic Inductor Configuration
 The `quantize_` and `autoquant` apis now automatically use our recommended inductor configuration setings. You can mimic the same configuration settings for your own experiments by using the `torchao.quantization.utils.recommended_inductor_config_setter` to replicate our recommended configuration settings. Alternatively if you wish to disable these recommended settings, you can use the key word argument `set_inductor_config` and set it to false in the `quantize_` or `autoquant` apis to prevent assignment of those configuration settings. You can also overwrite these configuration settings after they are assigned if you so desire, as long as they are overwritten before passing any inputs to the torch.compiled model. This means that previous flows which referenced a variety of inductor configurations that needed to be set are now outdated, though continuing to manually set those same inductor configurations is unlikely to cause any issues.

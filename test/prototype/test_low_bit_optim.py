@@ -1,4 +1,5 @@
 import copy
+import tempfile
 
 import pytest
 import torch
@@ -13,7 +14,7 @@ from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torchao.prototype import low_bit_optim
 from torchao.prototype.low_bit_optim.quant_utils import quantize_8bit_with_qmap, quantize_4bit_with_qmap
-from torchao.utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4, TORCH_VERSION_AFTER_2_5
 
 try:
     import bitsandbytes as bnb
@@ -81,6 +82,8 @@ class TestOptim(TestCase):
     def test_optim_smoke(self, optim_name, dtype, device):
         if optim_name.endswith("Fp8") and device == "cuda" and torch.cuda.get_device_capability() < (8, 9):
             pytest.skip("FP8 requires compute capability >= 8.9")
+        if optim_name.endswith("4bit") and not TORCH_VERSION_AFTER_2_5:
+            pytest.skip("4-bit Adam requires PyTorch > 2.4")
 
         # reset cache to avoid hitting cache_size_limit, since the function will re-compile for each test
         torch._dynamo.reset_code_caches()
@@ -157,6 +160,69 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model1.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1, rtol=1e-5, atol=1e-5)
 
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="optim CPU offload requires CUDA")
+    @parametrize("offload_grad,grad_accum", [(False, 1), (False, 2), (True, 1)])
+    def test_optim_cpu_offload_correctness(self, offload_grad, grad_accum):
+        device = "cuda"
+        model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
+        model2 = copy.deepcopy(model1)
+
+        optim1 = torch.optim.AdamW(model1.parameters())
+        optim2 = low_bit_optim.CPUOffloadOptimizer(
+            model2.parameters(), torch.optim.AdamW, offload_gradients=offload_grad,
+        )
+
+        for _ in range(2):
+            for _ in range(grad_accum):
+                x = torch.randn(4, 32, device=device)
+                model1(x).sum().backward()
+                model2(x).sum().backward()
+
+            optim1.step()
+            optim1.zero_grad()
+
+            optim2.step()
+            optim2.zero_grad()
+
+        for p1, p2 in zip(model1.parameters(), model2.parameters()):
+            torch.testing.assert_close(p2, p1)
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="optim CPU offload requires CUDA")
+    def test_optim_cpu_offload_save_load(self):
+        device = "cuda"
+        model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
+        optim1 = low_bit_optim.CPUOffloadOptimizer(model1.parameters(), torch.optim.AdamW)
+
+        for _ in range(2):
+            x = torch.randn(4, 32, device=device)
+            model1(x).sum().backward()
+            optim1.step()
+            optim1.zero_grad()
+
+        # save checkpoint. make sure it can be serialized by torch.save()
+        with tempfile.NamedTemporaryFile() as file:
+            torch.save(optim1.state_dict(), file.name)
+            state_dict = torch.load(file.name)
+
+        # resume training
+        model2 = copy.deepcopy(model1)
+        optim2 = low_bit_optim.CPUOffloadOptimizer(model2.parameters(), torch.optim.AdamW)
+        optim2.load_state_dict(state_dict)
+
+        for _ in range(2):
+            x = torch.randn(4, 32, device=device)
+
+            model1(x).sum().backward()
+            optim1.step()
+            optim1.zero_grad()
+
+            model2(x).sum().backward()
+            optim2.step()
+            optim2.zero_grad()
+
+        for p1, p2 in zip(model1.parameters(), model2.parameters()):
+            torch.testing.assert_close(p2, p1)
+
 
 class TestFSDP2(FSDPTest):
     @property
@@ -164,6 +230,7 @@ class TestFSDP2(FSDPTest):
         return 2
 
     @pytest.mark.skipif(not TORCH_VERSION_AFTER_2_4, reason="torch >= 2.4 required")
+    @pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="https://github.com/pytorch/ao/issues/652")
     @skip_if_lt_x_gpu(2)
     def test_fsdp2(self):
         optim_classes = [low_bit_optim.Adam8bit, low_bit_optim.Adam4bit]
@@ -225,6 +292,15 @@ class TestFSDP2(FSDPTest):
                     torch.distributed.all_reduce(param.grad, op=torch.distributed.ReduceOp.AVG)
             base_optim.step()
             self.assertEqual(fsdp_loss, base_loss)
+
+        base_param = base_optim.param_groups[0]["params"][0]
+        base_exp_avg = base_optim.state[base_param]["exp_avg"]
+
+        fsdp_param = fsdp_optim.param_groups[0]["params"][0]
+        fsdp_exp_avg = fsdp_optim.state[fsdp_param]["exp_avg"]
+        full_fsdp_exp_avg = fsdp_exp_avg.full_tensor()
+
+        self.assertEqual(base_exp_avg.dequantize(), full_fsdp_exp_avg.dequantize())
 
 
 instantiate_parametrized_tests(TestQuantize)

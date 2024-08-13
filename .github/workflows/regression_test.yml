@@ -23,7 +23,7 @@ jobs:
         include:
           - name: CUDA 2.2.2
             runs-on: linux.g5.12xlarge.nvidia.gpu
-            torch-spec: 'torch==2.2.2'
+            torch-spec: 'torch==2.2.2 "numpy<2" '
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.1"
           - name: CUDA 2.3
@@ -38,7 +38,7 @@ jobs:
             gpu-arch-version: "12.1"
           - name: CPU 2.2.2
             runs-on: linux.4xlarge
-            torch-spec: 'torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu'
+            torch-spec: 'torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu "numpy<2" '
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
           - name: CPU 2.3

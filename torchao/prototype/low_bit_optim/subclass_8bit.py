@@ -1,19 +1,18 @@
 import torch
 from torch import Tensor
-from torchao.dtypes.utils import _implements, _ATEN_OP_OR_TORCH_FN_TABLE
+from torchao.dtypes.utils import _implements, _dispatch__torch_dispatch__
 
 from .quant_utils import create_dynamic_map, scale_tensor, quantize_8bit_with_qmap, dequant_with_qmap
 
 
 aten = torch.ops.aten
+c10d_functional = torch.ops.c10d_functional
+_c10d_functional = torch.ops._c10d_functional
 
 QMAP_SIGNED = create_dynamic_map(signed=True)
 QMAP_UNSIGNED = create_dynamic_map(signed=False)
 
 
-# dynamic tree quantization
-# https://arxiv.org/pdf/1511.04561
-# https://arxiv.org/abs/2110.02861
 class OptimState8bit(Tensor):
     implements = classmethod(_implements)
     tensor_attrs = ["codes", "scale", "qmap"]
@@ -28,15 +27,25 @@ class OptimState8bit(Tensor):
         )
 
     def __init__(self, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool):
+        """Create quantized 8-bit optimizer state as proposed in https://arxiv.org/abs/2110.02861
+
+        Args
+            codes: quantized 8-bit data stored as uint8. Has the same shape as the original float tensor.
+            scale: scale data for block-wise quantization.
+            qmap: lookup table that maps between quantized value (code) and float value.
+            signed: whether the tensor is signed or unsigned.
+
+        NOTE: To get block-wise scale, the original float tensor is first reshape to (-1, block_size).
+        Thus, the last dimension of the original float tensor is not necessarily divisible by block size.
+        Given `codes` and `scale`, `block_size` is calculated as `codes.numel() // scale.numel()`.
+        """
         assert codes.dtype is torch.uint8
+        assert scale.ndim == 1
         self.codes = codes
         self.scale = scale
         self.qmap = qmap
         self.signed = signed
-
-    @property
-    def block_size(self):
-        return self.codes.numel() // self.scale.numel()
+        self.block_size = codes.numel() // scale.numel()
 
     def __tensor_flatten__(self):
         return self.tensor_attrs, [self.signed]
@@ -62,16 +71,11 @@ class OptimState8bit(Tensor):
             f"shape={tuple(self.shape)}, device={self.device}, requires_grad={self.requires_grad})"
         )
 
-    @classmethod
-    def __torch_dispatch__(cls, func, types, args, kwargs):
-        if func in _ATEN_OP_OR_TORCH_FN_TABLE[cls]:
-            return _ATEN_OP_OR_TORCH_FN_TABLE[cls][func](func, *args, **kwargs)
-
-        raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run {func}, this is not supported")
+    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
 
 
 @OptimState8bit.implements(aten.copy_.default)
-def _(func, *args, **kwargs):
+def _(func, types, args, kwargs):
     dst = args[0]
     src = args[1]
 
@@ -94,6 +98,34 @@ def _(func, *args, **kwargs):
 
 
 @OptimState8bit.implements(aten.lerp.Scalar)
-def _(func, *args, **kwargs):
+def _(func, types, args, kwargs):
     args = [x.dequantize() if isinstance(x, OptimState8bit) else x for x in args]
     return func(*args, **kwargs)
+
+
+# this is needed for DTensor.from_local()
+@OptimState8bit.implements(aten.view.default)
+def _(func, types, args, kwargs):
+    x, shape = args
+    return OptimState8bit(x.codes.view(shape), x.scale, x.qmap, x.signed)
+
+
+# this is needed for DTensor.full_tensor()
+@OptimState8bit.implements([
+    c10d_functional.all_gather_into_tensor.default,
+    _c10d_functional.all_gather_into_tensor.default,
+    c10d_functional.wait_tensor.default,
+    _c10d_functional.wait_tensor.default,
+])
+def _(func, types, args, kwargs):
+    x = args[0]
+    if not isinstance(x, OptimState8bit):
+        raise ValueError(f"expecting a OptimState8bit but found {type(x)}")
+
+    # assume tensors from all ranks have the same signedness
+    return OptimState8bit(
+        func(x.codes, *args[1:], **kwargs),
+        func(x.scale, *args[1:], **kwargs),
+        x.qmap.clone(),
+        x.signed,
+    )

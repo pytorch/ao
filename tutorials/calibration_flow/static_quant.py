@@ -11,7 +11,7 @@ from torch import Tensor
 from torchao.dtypes import to_affine_quantized_static
 from torchao.quantization.utils import compute_error
 from torchao.quantization import quantize_
-from torchao.quantization.subclass import to_linear_act_quantized
+from torchao.quantization import to_linear_activation_quantized
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 
 
@@ -60,7 +60,7 @@ def apply_static_quant(observed_linear):
     # activation quantization
     act_scale, act_zero_point = observed_linear.act_obs.calculate_qparams()
     input_quant_func = lambda x: to_affine_quantized_static(x, act_scale, act_zero_point, x.shape, target_dtype)
-    linear.weight = torch.nn.Parameter(to_linear_act_quantized(linear.weight, input_quant_func), requires_grad=False)
+    linear.weight = torch.nn.Parameter(to_linear_activation_quantized(linear.weight, input_quant_func), requires_grad=False)
 
     return linear
 
