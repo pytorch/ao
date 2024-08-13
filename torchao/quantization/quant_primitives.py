@@ -26,6 +26,7 @@ __all__ = [
     "dequantize_affine",
     "fake_quantize_affine",
     "fake_quantize_affine_cachemask",
+    "quantize_affine_hqq",
 ]
 
 class MappingType(Enum):
