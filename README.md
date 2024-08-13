@@ -165,7 +165,9 @@ python setup.py install
     * [DoRA](torchao/prototype/dora) a newer replacement for QLoRA with more promising convergence characteristics
     * [Fused int4/fp16 Quant Matmul](torchao/prototype/hqq) which is particularly useful for compute bound kernels showing 4x speedups over tinygemm for larger batch sizes such as 512
 * [gau-nernst](https://github.com/gau-nernst) fp6 kernels that are 4x faster than fp16 [torchao/prototype/quant_llm](torchao/prototype/quant_llm)
-* [vayuda](https://github.com/vayuda) with generic bitpacking kernels that were code generated using pure PyTorch [prototype/common](torchao/prototype/common)
+* [vayuda](https://github.com/vayuda) 
+    * generic bitpacking kernels that were code generated using pure PyTorch [prototype/common](torchao/prototype/common)
+    * `UintxTensor` that is added to [torch/dtypes](https://github.com/pytorch/ao/tree/main/torchao/dtypes/uintx) as a building block for lower bit dtypes (`uint1` to `uint7`)
 * [andreaskopf](https://github.com/andreaskoepf) and [melvinebenezer](https://github.com/melvinebenezer) with [1 bit LLMs](torchao/prototype/dtypes) Bitnet 1.58 bitpacked into uint2 and fully code-generated with torch.compile
 
 ## Blogs and Videos
