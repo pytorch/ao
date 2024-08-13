@@ -10,7 +10,7 @@ from .subclass_4bit import OptimState4bit
 from .subclass_fp8 import OptimStateFp8
 
 
-class _AdamW(Optimizer):
+class _AdamWBase(Optimizer):
     def __init__(self, params, lr, betas, eps, weight_decay, amsgrad, *, block_size) -> None:
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
@@ -153,7 +153,7 @@ def single_param_adamw(
     p.add_(-lr * weight_decay * p - step_size * new_exp_avg / denom)
 
 
-class AdamW(_AdamW):
+class _AdamW(_AdamWBase):
     def __init__(
         self,
         params,
@@ -163,11 +163,12 @@ class AdamW(_AdamW):
         weight_decay=1e-2,
         amsgrad=False,
     ) -> None:
-        """AdamW optimizer that supports quantized training (parameter is quantized)."""
+        """AdamW optimizer that supports quantized training (parameter is quantized). This optimizer should
+        only be used with torchao's quantized training."""
         super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=float("inf"))
 
 
-class AdamW8bit(_AdamW):
+class AdamW8bit(_AdamWBase):
     def __init__(
         self,
         params,
@@ -186,7 +187,7 @@ class AdamW8bit(_AdamW):
         return OptimState8bit.zeros(p.shape, signed, block_size, p.device)
 
 
-class AdamW4bit(_AdamW):
+class AdamW4bit(_AdamWBase):
     def __init__(
         self,
         params,
@@ -245,7 +246,7 @@ class AdamW4bit(_AdamW):
         return loss
 
 
-class AdamWFp8(_AdamW):
+class AdamWFp8(_AdamWBase):
     def __init__(
         self,
         params,

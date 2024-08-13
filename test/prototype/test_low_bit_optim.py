@@ -98,30 +98,6 @@ class TestOptim(TestCase):
         optim.step()
         optim.zero_grad()
 
-    @parametrize("device", _DEVICES)
-    def test_optim_standard_correctness(self, device):
-        model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
-        model2 = copy.deepcopy(model1)
-
-        optim1 = torch.optim.AdamW(model1.parameters())
-        optim2 = low_bit_optim.AdamW(model2.parameters())
-
-        for _ in range(2):
-            x = torch.randn(4, 32, device=device)
-
-            loss1 = model1(x).sum()
-            loss1.backward()
-            optim1.step()
-            optim1.zero_grad()
-
-            loss2 = model2(x).sum()
-            loss2.backward()
-            optim2.step()
-            optim2.zero_grad()
-
-        for p1, p2 in zip(model1.parameters(), model2.parameters()):
-            torch.testing.assert_close(p2, p1, rtol=1e-5, atol=1e-5)
-
     @pytest.mark.skipif(bnb is None, reason="bitsandbytes is not availablle")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="bitsandbytes 8-bit Adam only works for CUDA")
     @pytest.mark.xfail(not TORCH_VERSION_AFTER_2_3, reason="torch.compile() fails for PyTorch < 2.3")

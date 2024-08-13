@@ -8,7 +8,7 @@ from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torch.testing._internal.common_utils import TestCase, instantiate_parametrized_tests, parametrize, run_tests
 
-from torchao.prototype.low_bit_optim import AdamW
+from torchao.prototype.low_bit_optim import _AdamW
 from torchao.prototype.quantized_training import Int8QTLinearWeight, int8_weight_only_quantized_training
 from torchao.quantization.quant_api import quantize_
 from torchao.utils import TORCH_VERSION_AFTER_2_3
@@ -122,8 +122,8 @@ class TestQuantizedTraining(TestCase):
             model_fp32.compile()
             model_int8.compile()
 
-        optim_fp32 = AdamW(model_fp32.parameters())
-        optim_int8 = AdamW(model_int8.parameters())
+        optim_fp32 = _AdamW(model_fp32.parameters())
+        optim_int8 = _AdamW(model_int8.parameters())
 
         for _ in range(5):
             inputs = torch.randn(bsize, embed_dim, device=device)
@@ -187,8 +187,8 @@ class TestFSDP2(FSDPTest):
             fully_shard(layer)
         fully_shard(fsdp_model)
 
-        base_optim = AdamW(base_model.parameters(), lr=1e-2)
-        fsdp_optim = AdamW(fsdp_model.parameters(), lr=1e-2)
+        base_optim = _AdamW(base_model.parameters(), lr=1e-2)
+        fsdp_optim = _AdamW(fsdp_model.parameters(), lr=1e-2)
 
         torch.manual_seed(42 + self.rank + 1)
         for iter_idx in range(5):

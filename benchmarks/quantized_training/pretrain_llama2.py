@@ -108,6 +108,9 @@ if __name__ == "__main__":
     print(f"No. of params: {sum(p.numel() for p in model.parameters()):,}")
     print(f"No. of buffers: {sum(p.numel() for p in model.buffers()):,}")
 
+    # only use optimizers from torchao.prototype.low_bit_optim to support quantized training
+    if args.optim == "AdamW":
+        args.optim = "_AdamW"
     optim = getattr(low_bit_optim, args.optim)(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
     data = get_tinystories().cuda()
