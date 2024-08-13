@@ -1,8 +1,8 @@
 # pre-train a mini Llama2 on TinyStories with INT8 quantized training
 # pip install transformers sentencepiece wandb
 #
-# BF16 baseline: python benchmarks/benchmark_int8_qt.py --seed 2024 --n_steps 10_000
-# INT8 QT:       python benchmarks/benchmark_int8_qt.py --seed 2024 --n_steps 10_000 --quantize int8_weight_only
+# BF16 baseline: python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --n_steps 10_000
+# INT8 QT:       python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --n_steps 10_000 --quantize int8_weight_only
 
 import os
 
