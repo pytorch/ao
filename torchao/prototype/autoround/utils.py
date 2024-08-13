@@ -70,17 +70,25 @@ def move_data_to_device(input, device=torch.device("cpu")):
 def gen_text(
     model, tokenizer, msg="", device="cuda", prompt="What's AI?", max_length=20
 ):
-    device = next(model.parameters()).device
     inputs = tokenizer(prompt, return_tensors="pt")
+    model = model.to(device)
     new_tokens = model.generate(**inputs.to(device), max_length=max_length)
     text = tokenizer.decode(new_tokens[0], skip_special_tokens=True)
     print(f"Generated text ({msg}): {text}")
 
 
-def get_float_model_info(model_name_or_path):
+def gen_example_inputs(tokenizer, device):
+    inputs = tokenizer("What's AI?", return_tensors="pt")
+    input_ids = inputs["input_ids"].to(device)
+    return (input_ids,)
+
+
+def get_float_model_info(model_name_or_path, torch_dtype=torch.float32):
     import transformers
 
-    model = transformers.AutoModelForCausalLM.from_pretrained(model_name_or_path)
+    model = transformers.AutoModelForCausalLM.from_pretrained(
+        model_name_or_path, torch_dtype=torch_dtype
+    )
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path)
     if "Llama" in model_name_or_path:
         decoder_cls = transformers.models.llama.modeling_llama.LlamaDecoderLayer
@@ -89,3 +97,31 @@ def get_float_model_info(model_name_or_path):
     else:
         raise ValueError(f"Unsupported model: {model_name_or_path}")
     return model, tokenizer, decoder_cls
+
+
+def dump_elapsed_time(customized_msg=""):
+    """Get the elapsed time for decorated functions.
+
+    Args:
+        customized_msg (string, optional): The parameter passed to decorator. Defaults to None.
+    """
+    import logging
+    import time
+
+    def f(func):
+        def fi(*args, **kwargs):
+            start = time.time()
+            res = func(*args, **kwargs)
+            end = time.time()
+            logging.warning(
+                "%s elapsed time: %s ms"
+                % (
+                    customized_msg if customized_msg else func.__qualname__,
+                    round((end - start) * 1000, 2),
+                )
+            )
+            return res
+
+        return fi
+
+    return f

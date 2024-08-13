@@ -19,12 +19,13 @@ class AutoRoundConfig:
     sym: bool = False
     iters: int = 200
     group_size: int = 128
-    train_bs: int = 8
+    train_bs: int = 4
     eval_bs: int = 4
     seed: int = 42
-    amp: bool = False
+    amp: bool = True
     nsamples: int = 128
     seqlen: int = 2048
+    quant_lm_head: bool = False
 
 
 auto_round_config = AutoRoundConfig()
@@ -73,6 +74,7 @@ def create_qmodel_from_qdq_model(qdq_model: torch.nn.Module):
     return qmodel
 
 
+@ar_utils.dump_elapsed_time()
 @torch.no_grad()
 def apply_auto_round(block, grouped_args, spec, block_outputs):
     # Call the auto-round to execute the optimization process
@@ -90,7 +92,7 @@ def apply_auto_round(block, grouped_args, spec, block_outputs):
         bits=auto_round_config.bits,
         iters=auto_round_config.iters,
         use_quant_input=False,  # disable it for now
-        amp=False,
+        amp=auto_round_config.amp,
         low_gpu_mem_usage=False,
         model_dtype=next(block.parameters()).dtype,
     )
