@@ -7,6 +7,7 @@ from torchao.quantization.quant_api import (
     _is_linear,
     _replace_with_custom_fn_if_matches_filter,
     _get_linear_subclass_inserter,
+    int8_dynamic_activation_int8_semi_sparse_weight,
 )
 
 # Sparsity helper functions
@@ -29,16 +30,21 @@ def apply_fake_sparsity(model, **kwargs):
     sparsifier.step()
     sparsifier.squash_mask()
 
+def semi_sparse_weight():
+    """
+    Convert the weight of linear moduels to semi-structured (2:4) sparsity
+    """
+    return _get_linear_subclass_inserter(to_sparse_semi_structured)
 
-def sparsify(model: torch.nn.Module,
+def sparsify_(model: torch.nn.Module,
              apply_tensor_subclass: Callable[[torch.Tensor], torch.Tensor],
              filter_fn: Optional[Callable[[torch.nn.Module, str], bool]]=None) -> torch.nn.Module:
     """Convert the weight of linear modules in the model with `apply_tensor_subclass`
     This function is essentially the same as quantize, put for sparsity subclasses.
 
     Currently, we support two options for sparsity:
-        - semi-structured (2:4) sparsity with `to_sparse_semi_structured`
-        - int8 dynamic quantization + 2:4 sparsity with `int8_dynamic_activation_int8_2x4_sparse_weight`, which is also available via the quantize API
+        - semi-structured (2:4) sparsity with `semi_sparse_weight`
+        - int8 dynamic quantization + 2:4 sparsity with `int8_dynamic_activation_int8_semi_sparse_weight`, which is also available via the quantize API
 
     Args:
         model (torch.nn.Module): input model
@@ -49,7 +55,7 @@ def sparsify(model: torch.nn.Module,
     Example::
         import torch
         import torch.nn as nn
-        from torchao.sparsity import sparsify
+        from torchao.sparsity import sparsify_
 
         def filter_fn(module: nn.Module, fqn: str) -> bool:
             return isinstance(module, nn.Linear)
@@ -57,17 +63,15 @@ def sparsify(model: torch.nn.Module,
         m = nn.Sequential(nn.Linear(32, 1024), nn.Linear(1024, 32))
 
         # for 2:4 sparsity
-        from torch.sparse import to_sparse_semi_structured
-        m = sparsify(m, to_sparse_semi_structured, filter_fn)
+        from torchao.sparse_api import semi_sparse_weight
+        m = sparsify_(m, semi_sparse_weight(), filter_fn)
 
         # for int8 dynamic quantization + 2:4 sparsity
-        from torchao.sparsity.prototype import int8_dynamic_activation_int8_2x4_sparse_weight
-        m = sparsify(m, int8_dynamic_activation_int8_2x4_sparse_weight(), filter_fn)
+        from torchao.sparsity.prototype import int8_dynamic_activation_int8_semi_sparse_weight
+        m = sparsify_(m, int8_dynamic_activation_int8_semi_sparse_weight(), filter_fn)
     """
     _replace_with_custom_fn_if_matches_filter(
         model,
-        _get_linear_subclass_inserter(apply_tensor_subclass),
+        apply_tensor_subclass, 
         _is_linear if filter_fn is None else filter_fn,
     )
-
-    return model

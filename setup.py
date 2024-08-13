@@ -6,10 +6,18 @@
 import os
 import glob
 from datetime import datetime
+import subprocess
 
 from setuptools import find_packages, setup
 
 current_date = datetime.now().strftime("%Y.%m.%d")
+
+
+def get_git_commit_id():
+    try:
+        return subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('ascii').strip()
+    except Exception:
+        return ""
 
 def read_requirements(file_path):
     with open(file_path, "r") as file:
@@ -21,7 +29,12 @@ def read_version(file_path="version.txt"):
 
 # Determine the package name based on the presence of an environment variable
 package_name = "torchao-nightly" if os.environ.get("TORCHAO_NIGHTLY") else "torchao"
-version_suffix = os.getenv("VERSION_SUFFIX", "")
+
+# Use Git commit ID if VERSION_SUFFIX is not set
+version_suffix = os.getenv("VERSION_SUFFIX")
+if version_suffix is None:
+    version_suffix = f"+git{get_git_commit_id()}"
+
 use_cpp = os.getenv('USE_CPP')
 
 

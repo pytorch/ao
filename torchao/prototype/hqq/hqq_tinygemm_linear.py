@@ -12,6 +12,7 @@ from hqq.core.quantize import *
 from hqq.core.utils import *
 
 import torch.nn.functional as F
+from torchao.utils import TORCH_VERSION_AFTER_2_5
 
 
 class HQQLinearTorchWeightOnlyInt4(torch.nn.Module):
@@ -198,6 +199,8 @@ class HQQLinearTorchWeightOnlyInt4(torch.nn.Module):
             .reshape(shape)
             .contiguous()
         )
+        if TORCH_VERSION_AFTER_2_5:
+            W_q = (W_q[::, ::2] << 4 | W_q[::, 1::2]).to(torch.uint8)
 
         # group_dequantize_tensor_from_qparams
         # W_r = W_q*scales + min_val

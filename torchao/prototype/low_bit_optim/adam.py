@@ -39,11 +39,11 @@ class _Adam(Optimizer):
     def _new_buffer(self, p: Tensor, signed: bool):
         if p.numel() >= 4096 and p.numel() % self.block_size == 0:
             if isinstance(p, DTensor):
-                out = torch.empty_like(p)
-                out._local_tensor = self._subclass_zeros(
-                    out._local_tensor,
-                    signed,
-                    self.block_size,
+                out = DTensor.from_local(
+                    local_tensor=self._subclass_zeros(p.to_local(), signed, self.block_size),
+                    device_mesh=p.device_mesh,
+                    placements=p.placements,
+                    run_check=False,
                 )
             else:
                 out = self._subclass_zeros(p, signed, self.block_size)

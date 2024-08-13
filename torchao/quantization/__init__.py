@@ -12,6 +12,10 @@ from .utils import *  # noqa: F403
 from .weight_only import *  # noqa: F403
 from .unified import *
 from .autoquant import *
+from .linear_activation_quantized_tensor import (  # noqat: F403
+    LinearActivationQuantizedTensor,
+    to_linear_activation_quantized,
+)
 
 __all__ = [
     "swap_conv2d_1x1_to_linear"
@@ -32,6 +36,9 @@ __all__ = [
     "quantize_",
     "int8_dynamic_activation_int4_weight",
     "int8_dynamic_activation_int8_weight",
+    "int8_dynamic_activation_int8_semi_sparse_weight",
     "int4_weight_only",
     "int8_weight_only",
+    "LinearActivationQuantizedTensor",
+    "to_linear_activation_quantized",
 ]

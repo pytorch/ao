@@ -14,21 +14,25 @@ both because primitives were designed based on the fusions that
 come along with it and because that is how we access the intended quantized
 and mixed GEMM kernels
 """
-
+from functools import partial
 import torch
 import torchao
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Any, Callable, Union, Dict, Optional
 
+from torchao.dtypes import PlainLayoutType
 from torchao.utils import (
     TORCH_VERSION_AFTER_2_4,
     unwrap_tensor_subclass,
 )
 from .subclass import (
     QuantizedLinearWeightBase,
-    LinearActQuantizedTensor,
-    to_linear_act_quantized,
+)
+
+from .linear_activation_quantized_tensor import (
+    LinearActivationQuantizedTensor,
+    to_linear_activation_quantized,
 )
 
 from .quant_primitives import (
@@ -44,6 +48,7 @@ from .GPTQ import (
 from .utils import _get_per_token_block_size
 import logging
 from .autoquant import autoquant, AutoQuantizableLinearWeight
+from torchao.utils import TORCH_VERSION_AFTER_2_5
 
 
 __all__ = [
@@ -57,6 +62,7 @@ __all__ = [
     "quantize_",
     "int8_dynamic_activation_int4_weight",
     "int8_dynamic_activation_int8_weight",
+    "int8_dynamic_activation_int8_semi_sparse_weight",
     "int4_weight_only",
     "int8_weight_only",
 ]
@@ -187,7 +193,7 @@ def _is_linear(mod, *args):
         and not isinstance(mod.weight, QuantizedLinearWeightBase)
         and not isinstance(mod.weight, AutoQuantizableLinearWeight)
         and not isinstance(mod.weight, AffineQuantizedTensor)
-        and not isinstance(mod.weight, LinearActQuantizedTensor)
+        and not isinstance(mod.weight, LinearActivationQuantizedTensor)
     )
 
 import torch.nn.utils.parametrize as parametrize
@@ -321,6 +327,35 @@ def quantize_(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.nn.
         _is_linear if filter_fn is None else filter_fn,
     )
 
+def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
+    # avoid circular dep
+    from torchao.dtypes import to_affine_quantized
+
+    mapping_type = MappingType.ASYMMETRIC
+    target_dtype = torch.int8
+    return to_affine_quantized(x, mapping_type, _get_per_token_block_size(x), target_dtype)
+
+def apply_int8_dynamic_activation_int4_weight_quant(weight, group_size=32):
+    if weight.shape[-1] % group_size != 0:
+        return weight
+
+    # avoid circular dep
+    from torchao.dtypes import to_affine_quantized
+
+    # weight settings
+    mapping_type = MappingType.SYMMETRIC
+    block_size = (1, group_size)
+    target_dtype = torch.int8
+    eps = torch.finfo(torch.float32).eps
+    quant_min = -8
+    quant_max = 7
+
+    # input settings
+    input_quant_func = _int8_asymm_per_token_quant
+
+    weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps)
+    weight = to_linear_activation_quantized(weight, input_quant_func)
+    return weight
 
 def int8_dynamic_activation_int4_weight(group_size=32):
     """Applies int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear
@@ -331,28 +366,11 @@ def int8_dynamic_activation_int4_weight(group_size=32):
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained
     """
-    def apply_int8_dynamic_activation_int4_weight_quant(weight):
-        # avoid circular dep
-        from torchao.dtypes import to_affine_quantized
+    def insert_subclass(lin):
+        lin.weight = torch.nn.Parameter(apply_int8_dynamic_activation_int4_weight_quant(lin.weight, group_size), requires_grad=False)
+        return lin
 
-        # weight settings
-        mapping_type = MappingType.SYMMETRIC
-        block_size = (1, group_size)
-        target_dtype = torch.int8
-        eps = torch.finfo(torch.float32).eps
-        quant_min = -8
-        quant_max = 7
-
-        # input settings
-        input_mapping_type = MappingType.ASYMMETRIC
-        input_target_dtype = torch.int8
-        input_quant_func = lambda x: to_affine_quantized(x, input_mapping_type, _get_per_token_block_size(x), input_target_dtype)
-
-        weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps)
-        weight = to_linear_act_quantized(weight, input_quant_func)
-        return weight
-
-    return _get_linear_subclass_inserter(apply_int8_dynamic_activation_int4_weight_quant)
+    return insert_subclass
 
 
 def int4_weight_only(group_size=128, inner_k_tiles=8):
@@ -374,6 +392,9 @@ def int4_weight_only(group_size=128, inner_k_tiles=8):
         `inner_k_tiles`: parameter for int4 mm kernel, choices are [8, 4, 2]
     """
     def apply_int4_weight_only_quant(weight):
+        if weight.shape[-1] % group_size != 0:
+            return weight
+
         # avoid circular dep
         from torchao.dtypes import to_affine_quantized
         from torchao.dtypes import TensorCoreTiledLayoutType
@@ -410,7 +431,18 @@ def int8_weight_only():
 
     return _get_linear_subclass_inserter(apply_int8wo_quant)
 
-def int8_dynamic_activation_int8_weight():
+def _int8_symm_per_token_reduced_range_quant(x: torch.Tensor) -> torch.Tensor:
+    # avoid circular dep
+    from torchao.dtypes import to_affine_quantized
+    mapping_type = MappingType.SYMMETRIC
+    target_dtype = torch.int8
+    eps = 1e-5
+    quant_min = -127
+    quant_max = 127
+    return to_affine_quantized(x, mapping_type, _get_per_token_block_size(x), target_dtype, eps=eps, quant_min=quant_min, quant_max=quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
+
+
+def int8_dynamic_activation_int8_weight(layout_type=PlainLayoutType()):
     """
     Applies int8 dynamic symmetric per-token activation and int8 per-channel weight
     quantization to linear layers
@@ -432,16 +464,61 @@ def int8_dynamic_activation_int8_weight():
         zero_point_dtype = torch.int64
 
         # input settings
-        input_mapping_type = MappingType.SYMMETRIC
-        input_target_dtype = torch.int8
-        input_eps = 1e-5
-        input_quant_min = -127
-        input_quant_max = 127
-        input_quant_func = lambda x: to_affine_quantized(x, input_mapping_type, _get_per_token_block_size(x), input_target_dtype, eps=input_eps, quant_min=input_quant_min, quant_max=input_quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
+        input_quant_func = _int8_symm_per_token_reduced_range_quant
 
         block_size = get_weight_block_size(weight)
-        weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype)
-        weight = to_linear_act_quantized(weight, input_quant_func)
+        weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, layout_type=layout_type)
+        weight = to_linear_activation_quantized(weight, input_quant_func)
         return weight
 
     return _get_linear_subclass_inserter(apply_int8_dynamic_activation_int8_weight_quant)
+
+
+def int8_dynamic_activation_int8_semi_sparse_weight():
+    """
+    Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight
+    quantization + 2:4 sparsity to linear layers.
+    """
+    from torchao.dtypes import SemiSparseLayoutType
+    return int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType())
+
+
+def uintx_weight_only(bit_width, group_size=64, pack_dim=-1):
+    """
+    Applies uintx weight-only asymmetric per-group quantization to linear layers, using uintx quantization where
+    x is the number of bits specified by the `bit_width` argument
+    """
+    from torchao.quantization.quant_primitives import (
+        MappingType,
+        ZeroPointDomain,
+        choose_qparams_affine,
+        quantize_affine,
+        dequantize_affine,
+    )
+    from torchao.dtypes.uintx.Uintx import UintxLayoutType
+    from torchao.dtypes import to_affine_quantized
+    from torchao.quantization.quant_api import _get_linear_subclass_inserter
+    def apply_uintx_weight_only_quant(weight):
+
+        layout_type = UintxLayoutType(bit_width=bit_width, pack_dim=pack_dim)
+        mapping_type = MappingType.ASYMMETRIC
+        block_size = (1, group_size)
+        quant_min = 0
+        quant_max = 2**bit_width - 1
+        eps = torch.finfo(torch.float32).eps
+        zero_point_dtype = torch.int32
+        zero_point_domain = ZeroPointDomain.INT
+
+        return to_affine_quantized(
+            weight, mapping_type, block_size, torch.uint8,
+            quant_min = quant_min, quant_max = quant_max,
+            eps = eps, zero_point_dtype=zero_point_dtype,
+            zero_point_domain=zero_point_domain,
+            layout_type=layout_type,
+        )
+
+    return _get_linear_subclass_inserter(apply_uintx_weight_only_quant)
+
+
+if TORCH_VERSION_AFTER_2_5:
+    torch.serialization.add_safe_globals([_int8_asymm_per_token_quant, _int8_symm_per_token_reduced_range_quant])

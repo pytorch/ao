@@ -6,7 +6,7 @@
 
 ## Introduction
 
-torchao is a library to create and integrate high-performance custom data types, layouts and kernels into your PyTorch workflows with up to **2x speedups** with **65% less VRAM** for [inference](#inference) and support for [training](#training)
+torchao is a library to create and integrate high-performance custom data types, optimization techniques and kernels into your PyTorch workflows with up to **2x speedups** with **65% less VRAM** for [inference](#inference) and support for [training](#training)
 
 All with no intrusive code changes and minimal accuracy degradation.
 
@@ -49,20 +49,18 @@ And a quick crash course on inference quantization to help parse the above table
 
 Sparsifying your model is also a 1 liner that should work on any model with an `nn.Linear`. We find that sparsity works best on compute bound models like SAM, specifically the MLP layers.
 ```python
-from torchao.sparsity import sparsify
-from torch.sparse import to_sparse_semi_structured
+from torchao.sparsity import sparsify, semi_sparse_weight()
 
-m = sparsify(m, to_sparse_semi_structured)
+m = sparsify_(m, semi_sparse_weight())
 ```
 Sparsity can also be composed with int8 dynamic quantization for further speedups:
 
 ```python
-from torchao.sparsity import sparsify
-from torchao.sparsity.prototype.dynamic_quant_sparse import int8_dynamic_activation_int8_2x4_sparse_weight
+from torchao.sparsity import sparsify, int8_dynamic_activation_int8_semi_sparse_weight
 
-m = sparsify(m, int8_dynamic_activation_int8_2x4_sparse_weight())
+m = sparsify_(m, int8_dynamic_activation_int8_semi_sparse_weight())
 ```
-We found that applying int8 dynamic quantization to the attention layers, int8 dynamic quantization + 2:4 sparsity to mlp layer 1 and 2:4 sparsity to mlp layer 2 yielded the best configuration.
+We found that applying int8 dynamic quantization to the attention layers, int8 dynamic quantization + semi sparse (2:4) sparsity to mlp layer 1 and 2:4 sparsity to mlp layer 2 yielded the best configuration.
 We were able to provide a **1.16x (22.7 -> 26.5 img/s) speedup over our dense baseline, while maintaining 97.5% (0.581 -> 0.567) of the evaluation accuracy (mIOU)**.
 
 The following benchmarks were ran for [segment-anything-fast](https://github.com/pytorch-labs/segment-anything-fast) ViT-h on an NVIDIA-A100-80GB, with batch_size=32 and `bfloat16` dtype, with `torch.compile="max_autotune"`:
@@ -75,7 +73,7 @@ The following benchmarks were ran for [segment-anything-fast](https://github.com
 |            | 2:4 sparsity (attn + mlp)                                                                            | 24.30 | 13429        | 0.5306              | **1.07x**        | **91.31%**        |
 |            | int8 dynamic quant (attn)<br>int8 dynamic quant + 2:4 sparsity (mlp lin1)<br>2:4 sparsity (mlp lin2) | 26.46 | 14865        | 0.5668              | **1.16x**        | **97.54%**        |
 
-To reproduce our benchmarks please follow these [instructions](/scripts/sam/README.md).
+To reproduce our benchmarks please follow these [instructions](/torchao/_models/sam/README.md).
 
 #### With intrusive code changes
 
@@ -86,6 +84,12 @@ In some cases we rewrote popular GenAI models to be significantly faster in nati
 * 3x speedup for Diffusion models with [sd-fast](https://pytorch.org/blog/accelerating-generative-ai-3)
 
 ### Training
+
+#### Float8
+
+[torchao.float8](torchao/float8) implements training recipes with the scaled float8 dtypes, as laid out in https://arxiv.org/abs/2209.05433.
+
+#### Sparsity
 
 We've added support for semi-structured 2:4 sparsity with 6% end to end speedups on ViT-L
 
@@ -161,7 +165,9 @@ python setup.py install
     * [DoRA](torchao/prototype/dora) a newer replacement for QLoRA with more promising convergence characteristics
     * [Fused int4/fp16 Quant Matmul](torchao/prototype/hqq) which is particularly useful for compute bound kernels showing 4x speedups over tinygemm for larger batch sizes such as 512
 * [gau-nernst](https://github.com/gau-nernst) fp6 kernels that are 4x faster than fp16 [torchao/prototype/quant_llm](torchao/prototype/quant_llm)
-* [vayuda](https://github.com/vayuda) with generic bitpacking kernels that were code generated using pure PyTorch [prototype/common](torchao/prototype/common)
+* [vayuda](https://github.com/vayuda) 
+    * generic bitpacking kernels that were code generated using pure PyTorch [prototype/common](torchao/prototype/common)
+    * `UintxTensor` that is added to [torch/dtypes](https://github.com/pytorch/ao/tree/main/torchao/dtypes/uintx) as a building block for lower bit dtypes (`uint1` to `uint7`)
 * [andreaskopf](https://github.com/andreaskoepf) and [melvinebenezer](https://github.com/melvinebenezer) with [1 bit LLMs](torchao/prototype/dtypes) Bitnet 1.58 bitpacked into uint2 and fully code-generated with torch.compile
 
 ## Blogs and Videos
