@@ -3,20 +3,22 @@ import argparse
 import torch
 
 import torchao
+import torchao.prototype.autoround.utils as ar_utils
 
 from torchao.prototype.autoround.core import (
     auto_round_config,
     prepare_model_for_applying_auto_round_,
 )
 from torchao.prototype.autoround.multi_tensor import MultiTensor
-import torchao.prototype.autoround.utils as ar_utils
 
 
-
-def quantize_model_with_autoround(model, tokenizer, decoder_cls, auto_round_config=auto_round_config, device="cuda"):
+def quantize_model_with_autoround(
+    model, tokenizer, decoder_cls, auto_round_config=auto_round_config, device="cuda"
+):
     with torch.no_grad():
         # 0. Get the model, tokenizer, and decoder_cls
         import torchao.prototype.autoround.utils as ar_utils
+
         # 1. Prepare the model for applying auto-round
         # User should provide the `is_decoder` function for identifying the decoder block
         # It can be extended to other modules, such as `lm_head`, the function like:
@@ -27,7 +29,7 @@ def quantize_model_with_autoround(model, tokenizer, decoder_cls, auto_round_conf
             )
         else:
             is_decoder = lambda mod, fqn: isinstance(mod, decoder_cls)
-            
+
         prepare_model_for_applying_auto_round_(model, is_decoder)
 
         # 2. Caliration and optimization
@@ -80,7 +82,10 @@ def main(args):
     auto_round_config.nsamples = args.nsamples
     auto_round_config.seqlen = args.seqlen
     auto_round_config.quant_lm_head = args.quant_lm_head
-    quantize_model_with_autoround(model, tokenizer, decoder_cls, auto_round_config, device=device)
+    quantize_model_with_autoround(
+        model, tokenizer, decoder_cls, auto_round_config, device=device
+    )
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(

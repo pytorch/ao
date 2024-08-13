@@ -77,16 +77,18 @@ def gen_text(
     print(f"Generated text ({msg}): {text}")
 
 
-
 def gen_example_inputs(tokenizer, device):
     inputs = tokenizer("What's AI?", return_tensors="pt")
     input_ids = inputs["input_ids"].to(device)
-    return (input_ids, )
+    return (input_ids,)
+
 
 def get_float_model_info(model_name_or_path, torch_dtype=torch.float32):
     import transformers
 
-    model = transformers.AutoModelForCausalLM.from_pretrained(model_name_or_path, torch_dtype=torch_dtype)
+    model = transformers.AutoModelForCausalLM.from_pretrained(
+        model_name_or_path, torch_dtype=torch_dtype
+    )
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path)
     if "Llama" in model_name_or_path:
         decoder_cls = transformers.models.llama.modeling_llama.LlamaDecoderLayer
@@ -103,8 +105,8 @@ def dump_elapsed_time(customized_msg=""):
     Args:
         customized_msg (string, optional): The parameter passed to decorator. Defaults to None.
     """
-    import time
     import logging
+    import time
 
     def f(func):
         def fi(*args, **kwargs):
@@ -113,7 +115,10 @@ def dump_elapsed_time(customized_msg=""):
             end = time.time()
             logging.warning(
                 "%s elapsed time: %s ms"
-                % (customized_msg if customized_msg else func.__qualname__, round((end - start) * 1000, 2))
+                % (
+                    customized_msg if customized_msg else func.__qualname__,
+                    round((end - start) * 1000, 2),
+                )
             )
             return res
 

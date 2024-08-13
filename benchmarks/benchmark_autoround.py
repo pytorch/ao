@@ -1,11 +1,11 @@
-import torch
 import argparse
-import torchao.prototype.autoround.utils as ar_utils
-from torchao.prototype.autoround.core import auto_round_config
-from torchao.utils import TORCH_VERSION_AFTER_2_4, benchmark_model
-from torchao.prototype.autoround.autoround_demo import quantize_model_with_autoround
 import logging
 
+import torch
+import torchao.prototype.autoround.utils as ar_utils
+from torchao.prototype.autoround.autoround_demo import quantize_model_with_autoround
+from torchao.prototype.autoround.core import auto_round_config
+from torchao.utils import benchmark_model, TORCH_VERSION_AFTER_2_4
 
 
 def main(args):
@@ -29,22 +29,23 @@ def main(args):
             auto_round_config.seqlen = args.seqlen
             auto_round_config.quant_lm_head = args.quant_lm_head
             if args.woq_int4:
-                from torchao.quantization import quantize_, int4_weight_only
+                from torchao.quantization import int4_weight_only, quantize_
+
                 quantize_(model, int4_weight_only(group_size=32))
             else:
-                model = quantize_model_with_autoround(model, tokenizer, decoder_cls, auto_round_config, device=device)
+                model = quantize_model_with_autoround(
+                    model, tokenizer, decoder_cls, auto_round_config, device=device
+                )
         if args.skip_compile:
             logging.warning("Skip compiling the model!")
         else:
-            model = torch.compile(model, mode='max-autotune')
+            model = torch.compile(model, mode="max-autotune")
 
         torch._dynamo.reset()
         msg = "Quantized-model" if not args.bench_float_model else "Float-model"
         time = benchmark_model(model, args.num_runs, example_inputs)
 
-        
         print(f"{msg} mean time of {args.num_runs} runs: {time}")
-
 
 
 if __name__ == "__main__" and TORCH_VERSION_AFTER_2_4 and torch.cuda.is_available():

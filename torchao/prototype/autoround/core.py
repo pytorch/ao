@@ -73,6 +73,7 @@ def create_qmodel_from_qdq_model(qdq_model: torch.nn.Module):
     )
     return qmodel
 
+
 @ar_utils.dump_elapsed_time()
 @torch.no_grad()
 def apply_auto_round(block, grouped_args, spec, block_outputs):
