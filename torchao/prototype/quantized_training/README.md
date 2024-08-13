@@ -8,7 +8,7 @@ Typically, low-precision weights cannot be trained directly due to quantization 
 
 There are 2 main benefits for training in this way:
 1. Reduce memory footprint. Also reduce communication bandwidth in distributed setting.
-2. What you train is what you serve (WYTIWYS).
+2. What you train is what you serve ([WYTIWYS](https://github.com/google/aqt?tab=readme-ov-file#features)).
 
 Currently we only support weight-only channel-wise INT8 symmetric quantization.
 
