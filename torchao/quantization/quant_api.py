@@ -410,21 +410,7 @@ def int4_weight_only(group_size=128, inner_k_tiles=8):
         zero_point_domain = ZeroPointDomain.FLOAT
         layout_type = TensorCoreTiledLayoutType(inner_k_tiles=inner_k_tiles)
 
-        if(use_hqq):
-            return  AffineQuantizedTensor.from_float(
-                input_float=weight,
-                mapping_type=mapping_type,
-                block_size=block_size,
-                target_dtype=target_dtype,
-                quant_min=quant_min,
-                quant_max=quant_max,
-                zero_point_dtype=zero_point_dtype,
-                preserve_zero=preserve_zero,
-                zero_point_domain= zero_point_domain,
-                layout_type=layout_type,
-                use_hqq=True)
-        else:
-            return to_affine_quantized(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, layout_type=layout_type)
+        return to_affine_quantized(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, layout_type=layout_type, use_hqq=use_hqq)
 
     return _get_linear_subclass_inserter(apply_int4_weight_only_quant)
 

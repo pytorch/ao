@@ -2,7 +2,7 @@ import unittest
 import torch
 from torchao.prototype.hqq.core import HQQQuantizer
 from torchao.dtypes.affine_quantized_tensor import (
-    AffineQuantizedTensor,
+    to_affine_quantized,
     ZeroPointDomain,
     PlainAQTLayout,
     PlainLayoutType,
@@ -32,7 +32,7 @@ y_ref = linear_layer(x)
 W = linear_layer.weight.data.clone().to(device=device, dtype=compute_dtype)
 
 def _eval_hqq(nbits, W, y_ref, layout_type):
-    q_tensor_hqq = AffineQuantizedTensor.from_float(
+    q_tensor_hqq = to_affine_quantized(
             input_float=W,
             mapping_type=mapping_type,
             block_size=block_size,
