@@ -68,10 +68,11 @@ def quantize_model_with_autoround(model, tokenizer, decoder_cls, auto_round_conf
 
 def main(args):
     model_name_or_path = args.model_name_or_path
+    # Use `torch.bfloat16` as the default dtype for better perf
+    torch_dtype = torch.bfloat16
     model, tokenizer, decoder_cls = ar_utils.get_float_model_info(
-        model_name_or_path, torch_dtype="auto"
+        model_name_or_path, torch_dtype=torch_dtype
     )
-    torch_dtype = model.config.torch_dtype
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = model.to(device)
     # Workaround for disabling the `kv_cache`, which cause the OOM.
