@@ -70,7 +70,6 @@ def move_data_to_device(input, device=torch.device("cpu")):
 def gen_text(
     model, tokenizer, msg="", device="cuda", prompt="What's AI?", max_length=20
 ):
-    device = next(model.parameters()).device
     inputs = tokenizer(prompt, return_tensors="pt")
     model = model.to(device)
     new_tokens = model.generate(**inputs.to(device), max_length=max_length)
@@ -78,15 +77,6 @@ def gen_text(
     print(f"Generated text ({msg}): {text}")
 
 
-def str2torch_dtype(torch_dtype_str):
-    if torch_dtype_str == "float32":
-        return torch.float32
-    elif torch_dtype_str == "float16":
-        return torch.float16
-    elif torch_dtype_str == "bfloat16":
-        return torch.bfloat16
-    else:
-        raise ValueError(f"Unsupported torch_dtype_str: {torch_dtype_str}")
 
 def gen_example_inputs(tokenizer, device):
     inputs = tokenizer("What's AI?", return_tensors="pt")

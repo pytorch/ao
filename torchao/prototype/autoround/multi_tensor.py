@@ -67,10 +67,6 @@ class MultiTensor(torch.Tensor):
         # convert [[A,b1,c1], [A,b2,c2] [A,b3,c3]] => [(A,A,A), (b1,b2,b3), (c1,c2,c3)]
         flat_tups = list(zip(*grouped))
         # convert [(A,A,A), (b1,b2,b3), (c1,c2,c3)] => [A, MultiTensor(b1,b2,b3), MultiTensor(c1,c2,c3)]
-        # flattened = [
-        #     cls(tup).cpu() if isinstance(tup[0], torch.Tensor) else tup[0]
-        #     for tup in flat_tups
-        # ]
         flattened = [
             cls(tup) if isinstance(tup[0], torch.Tensor) else tup[0]
             for tup in flat_tups
@@ -103,11 +99,7 @@ class MultiTensor(torch.Tensor):
         with torch._C.DisableTorchFunctionSubclass():
             for i, inp in enumerate(grouped_args):
                 cur_args, cur_kwargs = tree_unflatten(inp, spec)
-                # TODO: Cann't release the gpu memory, fix it later
-                # cur_args = ar_utils.move_data_to_device(cur_args, "cuda")
-                # cur_kwargs = ar_utils.move_data_to_device(cur_kwargs, "cuda")
                 out = func(*cur_args, **cur_kwargs)
-                # outputs.append(out.cpu() if isinstance(out, torch.Tensor) else out)
                 outputs.append(out if isinstance(out, torch.Tensor) else out)
             grouped_outputs = [tree_flatten(x)[0] for x in outputs]
             out_spec = tree_flatten(outputs[0])[1]
