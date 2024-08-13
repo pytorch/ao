@@ -14,6 +14,8 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_5,
 )
+from torchao.utils import _register_custom_op
+from torchao.float8.float8_utils import FP8_TYPES
 from torchao.utils import _register_custom_op, _is_float8_type
 from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32, _n_ones
 
@@ -109,6 +111,9 @@ def _get_and_check_qmin_qmax(dtype, quant_min, quant_max):
     """
     if dtype in FP8_TYPES:
         quant_min_lower_bound, quant_max_upper_bound = torch.finfo(dtype).min, torch.finfo(dtype).max
+    if dtype not in _DTYPE_TO_QVALUE_BOUNDS:
+    if dtype in FP8_TYPES:
+        quant_min_lower_bound, quant_max_upper_bound = torch.finfo(dtype).min, torch.finfo(dtype).max
     elif dtype not in _DTYPE_TO_QVALUE_BOUNDS:
         raise ValueError(f"Unsupported dtype: {dtype}")
     else:
@@ -172,6 +177,9 @@ def quantize_affine(
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     output_dtype: torch.dtype,
+    quant_min: Optional[int | float] = None,
+    quant_max: Optional[int | float] = None,
+    zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
     quant_min: Optional[Union[int, float]] = None,
     quant_max: Optional[Union[int, float]] = None,
     zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
@@ -228,6 +236,9 @@ def _quantize_affine(
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     output_dtype: torch.dtype,
+    quant_min: Optional[int | float] = None,
+    quant_max: Optional[int | float] = None,
+    zero_point_domain: str = ZeroPointDomain.INT.name,
     quant_min: Optional[Union[int, float, bool]] = None,
     quant_max: Optional[Union[int, float, bool]] = None,
     zero_point_domain: Optional[str] = ZeroPointDomain.INT.name,
@@ -262,6 +273,9 @@ def _quantize_affine_no_dtype_cast(
     block_size: List[int],
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
+    quant_min: int | float,
+    quant_max: int | float,
+    zero_point_domain: str = ZeroPointDomain.INT.name,
     quant_min: Union[int, float],
     quant_max: Union[int, float],
     zero_point_domain: Optional[str] = ZeroPointDomain.INT.name,
@@ -315,6 +329,8 @@ def dequantize_affine(
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     input_dtype: torch.dtype,
+    quant_min: Optional[int | float] = None,
+    quant_max: Optional[int | float] = None,
     quant_min: Optional[Union[int, float]] = None,
     quant_max: Optional[Union[int, float]] = None,
     zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
@@ -362,6 +378,9 @@ def _dequantize_affine(
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     input_dtype: torch.dtype,
+    quant_min: Optional[int | float] = None,
+    quant_max: Optional[int | float] = None,
+    zero_point_domain: str = ZeroPointDomain.INT.name,
     quant_min: Optional[Union[int, float, bool]] = None,
     quant_max: Optional[Union[int, float, bool]] = None,
     zero_point_domain: Optional[str] = ZeroPointDomain.INT.name,
@@ -391,6 +410,9 @@ def _dequantize_affine_no_dtype_check(
     block_size: List[int],
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
+    quant_min: int | float,
+    quant_max: int | float,
+    zero_point_domain: str = ZeroPointDomain.INT.name,
     quant_min: Union[int, float],
     quant_max: Union[int, float],
     zero_point_domain: Optional[str] = ZeroPointDomain.INT.name,
@@ -450,6 +472,8 @@ def fake_quantize_affine(
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     quant_dtype: torch.dtype,
+    quant_min: Optional[int | float] = None,
+    quant_max: Optional[int | float] = None,
     quant_min: Optional[Union[int, float]] = None,
     quant_max: Optional[Union[int, float]] = None,
     zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
@@ -494,6 +518,8 @@ def fake_quantize_affine_cachemask(
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     quant_dtype: torch.dtype,
+    quant_min: Optional[int | float] = None,
+    quant_max: Optional[int | float] = None,
     quant_min: Optional[Union[int, float]] = None,
     quant_max: Optional[Union[int, float]] = None,
     zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
@@ -537,6 +563,8 @@ def _do_fake_quantize_affine(
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     quant_dtype: torch.dtype,
+    quant_min: Optional[int | float] = None,
+    quant_max: Optional[int | float] = None,
     quant_min: Optional[Union[int, float]] = None,
     quant_max: Optional[Union[int, float]] = None,
     zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
@@ -574,6 +602,8 @@ def choose_qparams_affine(
    mapping_type: MappingType,
    block_size: Tuple[int, ...],
    target_dtype: torch.dtype,
+   quant_min: Optional[int | float] = None,
+   quant_max: Optional[int | float] = None,
    quant_min: Optional[Union[int, float]] = None,
    quant_max: Optional[Union[int, float]] = None,
    eps: Optional[float] = None,
@@ -627,6 +657,48 @@ def choose_qparams_affine(
         preserve_zero,
         zero_point_domain.name if zero_point_domain is not None else None,
     )
+
+
+def choose_qparams_affine_with_min_max(
+   min_val: torch.Tensor,
+   max_val: torch.Tensor,
+   mapping_type: MappingType,
+   block_size: Tuple[int, ...],
+   target_dtype: torch.dtype,
+   quant_min: Optional[int | float] = None,
+   quant_max: Optional[int | float] = None,
+   eps: Optional[float] = None,
+   scale_dtype: Optional[torch.dtype] = None,
+   zero_point_dtype: Optional[torch.dtype] = None,
+   preserve_zero: bool = True,
+   zero_point_domain = ZeroPointDomain.INT,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """A variant of :func:`~torchao.quantization.quant_primitives.choose_qparams_affine`
+    operator that pass in min_val and max_val directly instead of deriving these from a single input.
+    This is used for observers in static quantization where min_val and max_val may be obtained through
+    tracking all the data in calibration data set.
+
+    Args:
+      Mostly same as :func:`~torchao.quantization.quant_primitives.choose_qparams_affine`. with one
+      difference: instead of passing in `input` Tensor and use that to calculate min_val/max_val
+      and then scale/zero_point, we pass in min_val/max_val directly
+    """
+    return _choose_qparams_affine(
+        None,
+        mapping_type.name,
+        block_size,
+        target_dtype,
+        quant_min,
+        quant_max,
+        eps,
+        scale_dtype,
+        zero_point_dtype,
+        preserve_zero,
+        zero_point_domain.name if zero_point_domain is not None else None,
+        min_val,
+        max_val,
+    )
+
 
 
 def choose_qparams_affine_with_min_max(
