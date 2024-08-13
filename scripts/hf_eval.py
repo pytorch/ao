@@ -57,6 +57,9 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, compi
         quantize_(model.to(device=device), int4_weight_only())
     elif quantization == "autoquant":
         model = autoquant(model.to(device=device))
+    elif quantization == "autoround":
+        from torchao.prototype.autoround.autoround_demo import quantize_model_with_autoround
+        model = quantize_model_with_autoround(model.to(device=device), tokenizer=tokenizer)
     with torch.no_grad():
         result = evaluate(
             HFLM(
