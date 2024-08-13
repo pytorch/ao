@@ -8,7 +8,7 @@ from torchao.prototype.autoround.core import (
     auto_round_config,
     prepare_model_for_applying_auto_round_,
 )
-from torchao.prototype.autoround.mul_tensors import MultiTensor
+from torchao.prototype.autoround.multi_tensor import MultiTensor
 
 
 def main(args):
@@ -55,11 +55,11 @@ def main(args):
             input_ids_lst.append(data["input_ids"])
             attn_mask_lst.append(data["attention_mask"])
 
-        mul_t_input_ids = MultiTensor(input_ids_lst)
-        mul_t_attn_mask = MultiTensor(attn_mask_lst)
+        multi_t_input_ids = MultiTensor(input_ids_lst)
+        multi_t_attn_mask = MultiTensor(attn_mask_lst)
 
         # The optimization is applied during the forward pass
-        out = model(mul_t_input_ids, mul_t_attn_mask)
+        out = model(multi_t_input_ids, multi_t_attn_mask)
 
         excepted_affine_quantized_tensors = 6 * 12 + int(args.quant_lm_head)
         assert (

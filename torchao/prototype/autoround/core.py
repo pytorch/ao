@@ -7,7 +7,7 @@ from torch.utils._pytree import tree_flatten, tree_unflatten
 import torchao.prototype.autoround.utils as ar_utils
 import torchao.quantization as ao_quant
 from torchao.dtypes import to_affine_quantized_static
-from torchao.prototype.autoround.mul_tensors import MultiTensor
+from torchao.prototype.autoround.multi_tensor import MultiTensor
 
 # TODO: remove it before merge
 ar_utils.freeze_random()

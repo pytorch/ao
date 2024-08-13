@@ -1,1 +1,1 @@
-from torchao.prototype.autoround.mul_tensors import MultiTensor
+from torchao.prototype.autoround.multi_tensor import MultiTensor
