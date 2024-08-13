@@ -638,7 +638,7 @@ def _choose_qparams_affine(
 #HQQ
 ############################################################################
 # Shrinking operator (proximal operator for the lp norm)
-def shrink_lp_op(x: torch.Tensor, beta: float, lp_norm: float) -> torch.Tensor:
+def _shrink_lp_op(x: torch.Tensor, beta: float, lp_norm: float) -> torch.Tensor:
     if lp_norm == 1:
         return torch.sign(x) * torch.nn.functional.relu(torch.abs(x) - 1.0 / beta)
     else:
@@ -686,7 +686,7 @@ def optimize_weights_proximal_legacy(
     for i in range(iters):
         W_q = torch.round(W_f * scale + zero).clamp(min_max[0], min_max[1])
         W_r = (W_q - zero) / scale
-        W_e = shrink_lp_op(W_f - W_r, beta, lp_norm)
+        W_e = _shrink_lp_op(W_f - W_r, beta, lp_norm)
         zero = torch.mean(W_q - (W_f - W_e) * scale, axis=axis, keepdim=True)
         beta *= kappa
 
@@ -708,7 +708,7 @@ def optimize_weights_proximal_legacy(
     return W_q, scale, zero
 
 # Mainly used to check if the group-size is divisible by numel()
-def is_divisible(val1: int, val2: int) -> bool:
+def _is_divisible(val1: int, val2: int) -> bool:
     return int(val2 * math.ceil(val1 / val2)) == val1
 
 # Converts hqq format W_dequant = (W_q - zero)*scale into affinequantized format: (W_q - mid_point)*scale_ao + zero_ao
@@ -736,7 +736,7 @@ def quantize_affine_hqq(
 ) -> tuple:
     assert axis in [0, 1], "axis should be either 0 or 1"
     if group_size is not None:
-        assert is_divisible(tensor.numel(), group_size), (
+        assert _is_divisible(tensor.numel(), group_size), (
             "group_size should be divisble by the total tensor dimensions. shape: "
             + str(tensor.shape)
             + ", group_size: "
