@@ -390,6 +390,14 @@ class TestFloat8Linear:
         s = m.__repr__()
         assert "i:dyn,w:del,go:dyn" in s
 
+    @unittest.skipIf(not is_cuda_8_9, "CUDA 8.9 not available")
+    def test_inference_mode(self):
+        x = torch.randn(32, 32, device='cuda')
+        m = nn.Sequential(nn.Linear(32, 32)).cuda()
+        m = convert_to_float8_training(m)
+        with torch.inference_mode(mode=True):
+            y = m(x)
+
 
 class TestScaledMM:
     @unittest.skipIf(
@@ -718,8 +726,6 @@ class TestFloat8LinearUtils(unittest.TestCase):
             (zero_cnt, max_cnt) = fp8_tensor_statistics(fp8_over_underflow, lp_dtype)
             self.assertEqual((zero_cnt, max_cnt), (tensor_len, tensor_len))
 
-# ghstack test 1
-# ghstack test 2
 
 if __name__ == "__main__":
     pytest.main([__file__])
