@@ -768,22 +768,22 @@
     <span class="n">requires_grad</span><span class="p">:</span> <span class="nb">bool</span>
 
 
-<span class="k">def</span> <span class="nf">get_block_absmax</span><span class="p">(</span><span class="n">inpt_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="k">def</span> <span class="nf">get_block_absmax</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Iterate through a flattened tensor getting the absmax scalers for each block</span>
 
 <span class="sd">    Args:</span>
-<span class="sd">        inpt_tensor: Input tensor to get scalers for</span>
+<span class="sd">        input_tensor: Input tensor to get scalers for</span>
 <span class="sd">        block_size: Block size for the scanning window</span>
 <span class="sd">    Returns:</span>
 <span class="sd">        torch.Tensor: Tensor of scalers for each block</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">assert</span> <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;Input tensor must be flattened&quot;</span>
+    <span class="k">assert</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;Input tensor must be flattened&quot;</span>
     <span class="k">assert</span> <span class="p">(</span>
-        <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">block_size</span>
-    <span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Input tensor must be divisible by block size, got </span><span class="si">{</span><span class="n">inpt_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">block_size</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">block_size</span>
+    <span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Input tensor must be divisible by block size, got </span><span class="si">{</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">block_size</span><span class="si">}</span><span class="s2">&quot;</span>
 
-    <span class="n">n_blocks</span> <span class="o">=</span> <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">//</span> <span class="n">block_size</span>
-    <span class="n">blocks</span> <span class="o">=</span> <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">n_blocks</span><span class="p">,</span> <span class="n">block_size</span><span class="p">)</span>
+    <span class="n">n_blocks</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">//</span> <span class="n">block_size</span>
+    <span class="n">blocks</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">n_blocks</span><span class="p">,</span> <span class="n">block_size</span><span class="p">)</span>
     <span class="n">block_scalers</span> <span class="o">=</span> <span class="n">blocks</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">values</span>
     <span class="k">return</span> <span class="n">block_scalers</span>
 
@@ -859,18 +859,18 @@
     <span class="nd">@torch</span><span class="o">.</span><span class="n">no_grad</span><span class="p">()</span>
     <span class="k">def</span> <span class="nf">from_tensor</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span>
-        <span class="n">inpt_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">input_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
         <span class="n">scaler_block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="p">):</span>
-        <span class="k">assert</span> <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">&lt;=</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;expect input tensor dim &lt;= 2 but got dim = </span><span class="si">{</span><span class="n">inpt_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">&lt;=</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;expect input tensor dim &lt;= 2 but got dim = </span><span class="si">{</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">block_size</span> <span class="o">==</span> <span class="mi">0</span>
-        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Input tensor must be divisible by block size, got </span><span class="si">{</span><span class="n">inpt_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">block_size</span><span class="si">}</span><span class="s2">&quot;</span>
-        <span class="k">assert</span> <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">is_contiguous</span><span class="p">,</span> <span class="s2">&quot;Input tensor must be contiguous!&quot;</span>
+            <span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">block_size</span> <span class="o">==</span> <span class="mi">0</span>
+        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Input tensor must be divisible by block size, got </span><span class="si">{</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">block_size</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">is_contiguous</span><span class="p">,</span> <span class="s2">&quot;Input tensor must be contiguous!&quot;</span>
         <span class="c1"># I think I want do this</span>
-        <span class="c1"># assert not inpt_tensor.requires_grad, &quot;Input tensor must not require grad&quot;</span>
-        <span class="n">device</span> <span class="o">=</span> <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">device</span>
+        <span class="c1"># assert not input_tensor.requires_grad, &quot;Input tensor must not require grad&quot;</span>
+        <span class="n">device</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">device</span>
         <span class="c1"># Cache the tensor on the class def</span>
         <span class="n">nf4</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span>
             <span class="p">[</span>
@@ -892,27 +892,27 @@
                 <span class="mf">1.0000</span><span class="p">,</span>
             <span class="p">],</span>
             <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span>
-            <span class="n">dtype</span><span class="o">=</span><span class="n">inpt_tensor</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
         <span class="p">)</span>
-        <span class="n">n_blocks</span> <span class="o">=</span> <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">//</span> <span class="n">block_size</span>
+        <span class="n">n_blocks</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">//</span> <span class="n">block_size</span>
         <span class="c1"># Double quantization</span>
         <span class="p">(</span>
             <span class="n">quantized_scalers</span><span class="p">,</span>
             <span class="n">quantization_factor</span><span class="p">,</span>
             <span class="n">scaler_mean</span><span class="p">,</span>
         <span class="p">)</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">double_quantize_scalers</span><span class="p">(</span>
-            <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">scaler_block_size</span>
+            <span class="n">input_tensor</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">scaler_block_size</span>
         <span class="p">)</span>
         <span class="n">quantized_data</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">convert_to_norm_float_weight</span><span class="p">(</span>
-            <span class="n">inpt_tensor</span><span class="p">,</span> <span class="n">n_blocks</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">nf4</span>
+            <span class="n">input_tensor</span><span class="p">,</span> <span class="n">n_blocks</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">nf4</span>
         <span class="p">)</span>
         <span class="n">tensor_meta</span> <span class="o">=</span> <span class="n">SubclassTensorArgs</span><span class="p">(</span>
-            <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">size</span><span class="p">(),</span>
-            <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">stride</span><span class="p">(),</span>
-            <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">storage_offset</span><span class="p">(),</span>
-            <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
-            <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
-            <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">,</span>
+            <span class="n">input_tensor</span><span class="o">.</span><span class="n">size</span><span class="p">(),</span>
+            <span class="n">input_tensor</span><span class="o">.</span><span class="n">stride</span><span class="p">(),</span>
+            <span class="n">input_tensor</span><span class="o">.</span><span class="n">storage_offset</span><span class="p">(),</span>
+            <span class="n">input_tensor</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+            <span class="n">input_tensor</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
+            <span class="n">input_tensor</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
             <span class="n">tensor_meta</span><span class="p">,</span>
@@ -928,7 +928,7 @@
 
     <span class="nd">@staticmethod</span>
     <span class="k">def</span> <span class="nf">double_quantize_scalers</span><span class="p">(</span>
-        <span class="n">inpt_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">input_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
         <span class="n">scaler_block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
@@ -938,7 +938,7 @@
 <span class="sd">        And then we calculate the absmax quantization factors for each block again. We then quantize the scalers to int8.</span>
 
 <span class="sd">        Args:</span>
-<span class="sd">            inpt_tensor: Input tensor to convert to QLoRA format, typically a weight tensor</span>
+<span class="sd">            input_tensor: Input tensor to convert to QLoRA format, typically a weight tensor</span>
 
 <span class="sd">        Returns:</span>
 <span class="sd">            torch.Tensor: Tensor of per_block quantization factors stored in int8 format</span>
@@ -946,14 +946,14 @@
 <span class="sd">            torch.Tensor: Tensor of per_scaler_block quantization factors stored in int16 format</span>
 <span class="sd">                size: (n_scaler_blocks)</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="k">assert</span> <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;Input tensor must be flattened&quot;</span>
+        <span class="k">assert</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;Input tensor must be flattened&quot;</span>
         <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">scaler_block_size</span>
-        <span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Input tensor must be divisible by block size, got </span><span class="si">{</span><span class="n">inpt_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">scaler_block_size</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">scaler_block_size</span>
+        <span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Input tensor must be divisible by block size, got </span><span class="si">{</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">scaler_block_size</span><span class="si">}</span><span class="s2">&quot;</span>
 
         <span class="c1"># First round of quantization</span>
-        <span class="c1"># Produces: A tensor of size (n_blocks) of inpt_tensor.dtype</span>
-        <span class="n">scalers_1</span> <span class="o">=</span> <span class="n">get_block_absmax</span><span class="p">(</span><span class="n">inpt_tensor</span><span class="p">,</span> <span class="n">block_size</span><span class="p">)</span>
+        <span class="c1"># Produces: A tensor of size (n_blocks) of input_tensor.dtype</span>
+        <span class="n">scalers_1</span> <span class="o">=</span> <span class="n">get_block_absmax</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">block_size</span><span class="p">)</span>
         <span class="n">scalers_1_mean</span> <span class="o">=</span> <span class="n">scalers_1</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
         <span class="n">scalers_1</span> <span class="o">=</span> <span class="n">scalers_1</span> <span class="o">-</span> <span class="n">scalers_1_mean</span>
         <span class="c1"># Second round of quantization</span>
@@ -988,38 +988,38 @@
 
     <span class="k">def</span> <span class="nf">dequantize_scalers</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
-        <span class="n">inpt_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">input_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">quantization_factor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">scaler_block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Used to unpack the double quantized scalers</span>
 
 <span class="sd">        Args;</span>
-<span class="sd">            inpt_tensor: Input tensor to convert to QLoRA format this is the quantized scalers in int8 format</span>
+<span class="sd">            input_tensor: Input tensor to convert to QLoRA format this is the quantized scalers in int8 format</span>
 <span class="sd">            quantization_factor: Tensor of per_scaler_block quantization factors stored in inpt_weight.dtype</span>
 <span class="sd">                size: (n_scaler_blocks)</span>
 <span class="sd">            scaler_block_size: Scaler block size to use for double quantization.</span>
 
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="k">assert</span> <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;Input tensor must be flattened&quot;</span>
+        <span class="k">assert</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;Input tensor must be flattened&quot;</span>
         <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">scaler_block_size</span>
-        <span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Input tensor must be divisible by block size, got </span><span class="si">{</span><span class="n">inpt_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">scaler_block_size</span><span class="si">}</span><span class="s2">&quot;</span>
-        <span class="n">n_scaler_blocks</span> <span class="o">=</span> <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">//</span> <span class="n">scaler_block_size</span>
-        <span class="n">inpt_tensor</span> <span class="o">=</span> <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">n_scaler_blocks</span><span class="p">,</span> <span class="n">scaler_block_size</span><span class="p">)</span>
-        <span class="n">dequantized</span> <span class="o">=</span> <span class="p">(</span><span class="n">inpt_tensor</span> <span class="o">/</span> <span class="n">quantization_factor</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span>
+            <span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">scaler_block_size</span>
+        <span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Input tensor must be divisible by block size, got </span><span class="si">{</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">scaler_block_size</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="n">n_scaler_blocks</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">//</span> <span class="n">scaler_block_size</span>
+        <span class="n">input_tensor</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">n_scaler_blocks</span><span class="p">,</span> <span class="n">scaler_block_size</span><span class="p">)</span>
+        <span class="n">dequantized</span> <span class="o">=</span> <span class="p">(</span><span class="n">input_tensor</span> <span class="o">/</span> <span class="n">quantization_factor</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span>
         <span class="p">)</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">scaler_mean</span>
         <span class="k">return</span> <span class="n">dequantized</span>
 
     <span class="nd">@staticmethod</span>
     <span class="k">def</span> <span class="nf">convert_to_norm_float_weight</span><span class="p">(</span>
-        <span class="n">inpt_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">n_blocks</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">nf4</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
+        <span class="n">input_tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">n_blocks</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">nf4</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Convert a tensor to the normalized float weight format&quot;&quot;&quot;</span>
-        <span class="n">flattened_tensor</span> <span class="o">=</span> <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+        <span class="n">flattened_tensor</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
         <span class="c1">#  Since we are using uint8 we will encode 2 entries per byte</span>
-        <span class="n">numel</span> <span class="o">=</span> <span class="n">inpt_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span>
+        <span class="n">numel</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span>
         <span class="k">assert</span> <span class="p">(</span>
             <span class="n">numel</span> <span class="o">%</span> <span class="mi">2</span> <span class="o">==</span> <span class="mi">0</span>
         <span class="p">),</span> <span class="s2">&quot;Number of elements must be even just to not have to think about the end&quot;</span>
@@ -1027,13 +1027,13 @@
         <span class="n">blocks</span> <span class="o">=</span> <span class="n">flattened_tensor</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">n_blocks</span><span class="p">,</span> <span class="n">block_size</span><span class="p">)</span>
 
         <span class="c1"># Scale the blocks</span>
-        <span class="n">scalers</span> <span class="o">=</span> <span class="n">get_block_absmax</span><span class="p">(</span><span class="n">inpt_tensor</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span> <span class="n">block_size</span><span class="p">)</span>
+        <span class="n">scalers</span> <span class="o">=</span> <span class="n">get_block_absmax</span><span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span> <span class="n">block_size</span><span class="p">)</span>
         <span class="n">scales</span> <span class="o">=</span> <span class="n">scalers</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">expand</span><span class="p">(</span><span class="n">n_blocks</span><span class="p">,</span> <span class="n">block_size</span><span class="p">)</span>
         <span class="n">scaled_blocks</span> <span class="o">=</span> <span class="n">blocks</span> <span class="o">/</span> <span class="n">scales</span>
 
         <span class="c1"># Returns a flattened tensor with each element quantized to nf4 index</span>
         <span class="c1"># See Note: Quantize in Chunks</span>
-        <span class="n">quantized_blocks</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">numel</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">inpt_tensor</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+        <span class="n">quantized_blocks</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">numel</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
         <span class="n">flattened</span> <span class="o">=</span> <span class="n">scaled_blocks</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
         <span class="k">for</span> <span class="n">chunk_num</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">numel</span> <span class="o">/</span> <span class="n">CHUNK_SIZE</span><span class="p">)):</span>
             <span class="n">start</span> <span class="o">=</span> <span class="n">chunk_num</span> <span class="o">*</span> <span class="n">CHUNK_SIZE</span>
