@@ -22,6 +22,7 @@ from tokenizer import get_tokenizer
 import time
 from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
 from torchao._models.llama.model import prepare_inputs_for_model
+from torchao.utils import TORCH_VERSION_AFTER_2_5
 
 def run_evaluation(
     checkpoint_path: Path,
@@ -88,7 +89,8 @@ def run_evaluation(
             model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
             model = quantizer.quantize(model, inputs).to(device)
         else:
-            unwrap_tensor_subclass(model)
+            if not TORCH_VERSION_AFTER_2_5:
+                unwrap_tensor_subclass(model)
 
     if compile:
         model = torch.compile(model, mode="max-autotune", fullgraph=True)

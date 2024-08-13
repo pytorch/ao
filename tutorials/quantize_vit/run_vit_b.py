@@ -11,15 +11,15 @@ model = models.vit_b_16(weights=models.ViT_B_16_Weights.IMAGENET1K_V1)
 model.eval().cuda().to(torch.bfloat16)
 
 # Input tensor (batch_size, channels, height, width)
-input_tensor = torch.randn(1, 3, 224, 224, dtype=torch.bfloat16, device='cuda')
+inputs = (torch.randn(1, 3, 224, 224, dtype=torch.bfloat16, device='cuda'),)
 
 model = torch.compile(model, mode='max-autotune')
 
 # Must run with no_grad when optimizing for inference
 with torch.no_grad():
     # warmup
-    benchmark_model(model, 5, input_tensor)
+    benchmark_model(model, 5, inputs)
     # benchmark
-    print("elapsed_time: ", benchmark_model(model, 100, input_tensor), " milliseconds")
+    print("elapsed_time: ", benchmark_model(model, 100, inputs), " milliseconds")
     # Create a trace
-    profiler_runner("bfloat16.json.gz", benchmark_model, model, 5, input_tensor)
+    profiler_runner("bfloat16.json.gz", benchmark_model, model, 5, inputs)

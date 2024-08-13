@@ -3,6 +3,7 @@
 
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
+import os
 import sys
 import time
 from pathlib import Path
@@ -13,6 +14,7 @@ import torchao
 import torch._dynamo.config
 import torch._inductor.config
 from torchao.utils import get_model_size_in_bytes
+from torchao.utils import TORCH_VERSION_AFTER_2_5
 
 def device_sync(device):
     if "cuda" in device:
@@ -68,10 +70,11 @@ def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torc
             next_token, next_prob = decode_one_token(
                 model, cur_token, input_pos, **sampling_kwargs
             )
+            next_token, next_prob = next_token.clone(), next_prob.clone()
             input_pos += 1
-            new_tokens.append(next_token.clone())
+            new_tokens.append(next_token)
             callback(new_tokens[-1])
-            new_probs.append(next_prob.clone())
+            new_probs.append(next_prob)
             cur_token = next_token.view(1, -1)
 
     return new_tokens, new_probs
@@ -88,6 +91,7 @@ def generate(
     *,
     interactive: bool,
     callback = lambda x: x,
+    kv_cache_quantization: bool = False,
     **sampling_kwargs
 ) -> torch.Tensor:
     """
@@ -97,14 +101,27 @@ def generate(
     # create an empty tensor of the expected final shape and fill in the current tokens
     device = prompt.device
     T = prompt.numel()
-    T_new = T + max_new_tokens
-    seq = torch.empty(T_new, dtype=prompt.dtype, device=device)
+
+    # calculate how many tokens to generate based on max_new_tokens and model's upper bound (block_size)
+    max_seq_length = min(T + max_new_tokens, model.config.block_size) if not interactive else 350
+    new_tokens = max_seq_length - T
+
+    # full prompt+output will be stored in seq
+    seq = torch.empty(max_seq_length, dtype=prompt.dtype, device=device)
     seq[:T] = prompt.view(-1)
 
-    # setup model cache
-    max_seq_length = min(T_new, model.config.block_size) if not interactive else 350
+    # setup model caches
     with torch.device(device):
         model.setup_caches(max_batch_size=1, max_seq_length=max_seq_length)
+        if kv_cache_quantization:
+            from model import AffineQuantizedKVCache
+            from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
+            _replace_with_custom_fn_if_matches_filter(
+                model,
+                AffineQuantizedKVCache.from_float,
+                lambda x, y: isinstance(x, torchao._models.llama.model.KVCache),
+            )
+
 
     # format model input
     x, input_pos = prepare_inputs_for_model(prompt, max_new_tokens)
@@ -113,8 +130,9 @@ def generate(
     next_token = prefill(model, x, input_pos, **sampling_kwargs).clone()
     seq[T] = next_token
 
+    # execute token generation
     input_pos = torch.tensor([T], device=device, dtype=torch.int)
-    generated_tokens, _ = decode_n_tokens(model, next_token.view(1, -1), input_pos, max_new_tokens - 1, callback=callback, **sampling_kwargs)
+    generated_tokens, _ = decode_n_tokens(model, next_token.view(1, -1), input_pos, new_tokens-1, callback=callback, **sampling_kwargs)
     seq[T + 1:] = torch.cat(generated_tokens)
 
     return seq
@@ -147,6 +165,8 @@ def main(
     temperature: float = 0.8,
     checkpoint_path: Path = Path("checkpoints/meta-Transformer/Transformer-2-7b-chat-hf/model.pth"),
     quantization: Optional[str] = None,
+    kv_cache_quantization: bool = False,
+    save: bool = False,
     compile: bool = True,
     compile_prefill: bool = False,
     profile: Optional[Path] = None,
@@ -215,9 +235,15 @@ def main(
             # do autoquantization
             model.finalize_autoquant()
         else:
-            unwrap_tensor_subclass(model)
+            if not TORCH_VERSION_AFTER_2_5:
+                unwrap_tensor_subclass(model)
 
     model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
+
+    if save:
+        output_dir = str(checkpoint_path.cwd())
+        filename = str(checkpoint_path.name).split(".")[0]
+        torch.save(model.state_dict(), os.path.join(output_dir, filename + f"-{quantization}.pt"))
 
     if compile:
         print("Compiling Model")
@@ -276,6 +302,7 @@ def main(
                 callback=callback,
                 temperature=temperature,
                 top_k=top_k,
+                kv_cache_quantization=kv_cache_quantization,
             )
         if i == -1:
             print(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
@@ -286,7 +313,10 @@ def main(
         t = time.perf_counter() - t0
 
         if not interactive:
-            print(tokenizer.decode(y.tolist()))
+                tok_list = y.tolist()
+                # truncate text after end of string token
+                tokens = tok_list if not tokenizer.eos_id() in y else tok_list[:tok_list.index(tokenizer.eos_id())]
+                print(tokenizer.decode(tokens))
         else:
             print()
         tokens_generated = y.size(0) - prompt_length
@@ -305,12 +335,13 @@ def main(
     print(f"Model Size: {model_size:.02f} GB")
     if write_result:
         result_txt = f"\n{datetime.today().strftime('%Y%m%d%H%M%S')}, tok/s={tokpersec:6.2f}, mem/s={bandwidth:7.2f} GB/s, peak_mem={mem:5.2f} GB, model_size={model_size:5.2f} GB "
-        result_txt += f"quant: {quantization}, mod: {checkpoint_path.parent.name}, compile: {compile}, compile_prefill: {compile_prefill}, dtype: {precision}, device: {device} "
+        result_txt += f"quant: {quantization}, mod: {checkpoint_path.parent.name}, kv_quant: {kv_cache_quantization}, compile: {compile}, compile_prefill: {compile_prefill}, dtype: {precision}, device: {device} "
         result_txt += f"repro: python generate.py "
         result_txt += f"--quantization {quantization} " if quantization else ""
         result_txt += f"--checkpoint_path {checkpoint_path} "
         result_txt += f"--device {device} "
         result_txt += f"--precision {precision} "
+        result_txt += f"--kv_cache_quantization " if kv_cache_quantization else ""
         result_txt += f"--compile " if compile else ""
         result_txt += f"--compile_prefill " if compile_prefill else ""
         result_txt += f"--profile {profile} " if profile else ""
@@ -337,6 +368,8 @@ if __name__ == '__main__':
     parser.add_argument('--temperature', type=float, default=0.8, help='Temperature for sampling.')
     parser.add_argument('--checkpoint_path', type=Path, default=Path("../../../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
     parser.add_argument('-q', '--quantization', type=str, help='Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, autoquant')
+    parser.add_argument('--kv_cache_quantization', action='store_true', help='Whether to quantize the KV cache')
+    parser.add_argument('--save', action='store_true', help='Whether to save the quantized model.')
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
     parser.add_argument('--compile_prefill', action='store_true', help='Whether to compile the prefill (improves prefill perf, but higher compile times)')
     parser.add_argument('--profile', type=Path, default=None, help='Profile path.')
@@ -347,5 +380,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     main(
         args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.top_k,
-        args.temperature, args.checkpoint_path, args.quantization, args.compile, args.compile_prefill, args.profile, args.device, args.precision, args.write_result
+        args.temperature, args.checkpoint_path, args.quantization, args.kv_cache_quantization, args.save, args.compile, args.compile_prefill, args.profile, args.device, args.precision, args.write_result
     )
