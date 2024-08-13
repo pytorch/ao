@@ -21,7 +21,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Any, Callable, Union, Dict, Optional
 
-from torchao.dtypes import PlainLayoutType
+from torchao.dtypes import (
+    to_affine_quantized, 
+    TensorCoreTiledLayoutType, 
+    PlainLayoutType
+)
 from torchao.utils import (
     TORCH_VERSION_AFTER_2_4,
     unwrap_tensor_subclass,
@@ -373,7 +377,7 @@ def int8_dynamic_activation_int4_weight(group_size=32):
     return insert_subclass
 
 
-def int4_weight_only(group_size=128, inner_k_tiles=8):
+def int4_weight_only(group_size=128, layout_type=TensorCoreTiledLayoutType(inner_k_tiles=8)):
     """
     Applies uint4 weight-only asymmetric per-group quantization to linear layers, using
     "tensor_core_tiled" layout for speedup with tinygemm kernel
@@ -389,15 +393,11 @@ def int4_weight_only(group_size=128, inner_k_tiles=8):
     Args:
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained, choices are [256, 128, 64, 32]
-        `inner_k_tiles`: parameter for int4 mm kernel, choices are [8, 4, 2]
+        `layout_type`: layout type for quantized tensor, default is `TensorCoreTiledLayoutType(inner_k_tiles=8)`
     """
     def apply_int4_weight_only_quant(weight):
         if weight.shape[-1] % group_size != 0:
             return weight
-
-        # avoid circular dep
-        from torchao.dtypes import to_affine_quantized
-        from torchao.dtypes import TensorCoreTiledLayoutType
 
         mapping_type = MappingType.ASYMMETRIC
         block_size = (1, group_size)
@@ -408,7 +408,6 @@ def int4_weight_only(group_size=128, inner_k_tiles=8):
         preserve_zero = False
         zero_point_dtype = torch.bfloat16
         zero_point_domain = ZeroPointDomain.FLOAT
-        layout_type = TensorCoreTiledLayoutType(inner_k_tiles=inner_k_tiles)
         return to_affine_quantized(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, layout_type=layout_type)
 
     return _get_linear_subclass_inserter(apply_int4_weight_only_quant)
