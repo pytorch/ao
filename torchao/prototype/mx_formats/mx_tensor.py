@@ -21,9 +21,11 @@ from typing import Dict, Union
 import torch
 
 import torchao.prototype.mx_formats.config as config
+from torchao.prototype.custom_fp_utils import RoundingMode
 from torchao.prototype.mx_formats.constants import (
     BLOCK_SIZE_DEFAULT,
-    DTYPE_FP4,
+    DTYPE_FP4_E2M1,
+    DTYPE_FP4_E3M0,
     DTYPE_FP6_E2M3,
     DTYPE_FP6_E3M2,
     E8M0_EXPONENT_BIAS,
@@ -31,6 +33,8 @@ from torchao.prototype.mx_formats.constants import (
     F32_MIN_NORMAL,
     F4_E2M1_MAX,
     F4_E2M1_MAX_POW2,
+    F4_E3M0_MAX,
+    F4_E3M0_MAX_POW2,
     F6_E2M3_MAX,
     F6_E2M3_MAX_POW2,
     F6_E3M2_MAX,
@@ -43,10 +47,12 @@ from torchao.prototype.mx_formats.constants import (
 )
 
 from torchao.prototype.mx_formats.custom_cast import (
-    f32_to_f4_unpacked,
+    f32_to_f4_e2m1_unpacked,
+    f32_to_f4_e3m0_unpacked,
     f32_to_f6_e2m3_unpacked,
     f32_to_f6_e3m2_unpacked,
-    f4_unpacked_to_f32,
+    f4_e2m1_unpacked_to_f32,
+    f4_e3m0_unpacked_to_f32,
     f6_e2m3_unpacked_to_f32,
     f6_e3m2_unpacked_to_f32,
     pack_uint4,
@@ -59,6 +65,7 @@ def to_mx(
     data_hp: torch.Tensor,
     elem_dtype: Union[torch.dtype, str],
     block_size: int,
+    rounding_mode: RoundingMode = RoundingMode.TIE_TO_EVEN,
 ):
     """
     Takes a high precision tensor and converts to MX scale and raw data, in
@@ -103,8 +110,10 @@ def to_mx(
         target_max_pow2 = F6_E2M3_MAX_POW2
     elif elem_dtype == DTYPE_FP6_E3M2:
         target_max_pow2 = F6_E3M2_MAX_POW2
-    elif elem_dtype == DTYPE_FP4:
+    elif elem_dtype == DTYPE_FP4_E2M1:
         target_max_pow2 = F4_E2M1_MAX_POW2
+    elif elem_dtype == DTYPE_FP4_E3M0:
+        target_max_pow2 = F4_E3M0_MAX_POW2
     else:
         raise AssertionError("unsupported")
     scale_e8m0_unbiased = largest_p2_lt_max_abs - target_max_pow2
@@ -151,8 +160,10 @@ def to_mx(
         max_pos = F6_E2M3_MAX
     elif elem_dtype == DTYPE_FP6_E3M2:
         max_pos = F6_E3M2_MAX
-    elif elem_dtype == DTYPE_FP4:
+    elif elem_dtype == DTYPE_FP4_E2M1:
         max_pos = F4_E2M1_MAX
+    elif elem_dtype == DTYPE_FP4_E3M0:
+        max_pos = F4_E3M0_MAX
     else:
         raise AssertionError("unsupported")
     data_lp = torch.clamp(
@@ -164,11 +175,14 @@ def to_mx(
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
         data_lp = data_lp.to(elem_dtype)
     elif elem_dtype == DTYPE_FP6_E2M3:
-        data_lp = f32_to_f6_e2m3_unpacked(data_lp)
+        data_lp = f32_to_f6_e2m3_unpacked(data_lp, rounding_mode)
     elif elem_dtype == DTYPE_FP6_E3M2:
-        data_lp = f32_to_f6_e3m2_unpacked(data_lp)
-    elif elem_dtype == DTYPE_FP4:
-        data_lp = f32_to_f4_unpacked(data_lp)
+        data_lp = f32_to_f6_e3m2_unpacked(data_lp, rounding_mode)
+    elif elem_dtype == DTYPE_FP4_E2M1:
+        data_lp = f32_to_f4_e2m1_unpacked(data_lp, rounding_mode)
+        data_lp = pack_uint4(data_lp)
+    elif elem_dtype == DTYPE_FP4_E3M0:
+        data_lp = f32_to_f4_e3m0_unpacked(data_lp, rounding_mode)
         data_lp = pack_uint4(data_lp)
     else:
         raise AssertionError("unsupported")
@@ -210,7 +224,7 @@ def to_dtype(data_lp, scale_e8m0, elem_dtype, block_size, target_dtype):
     elif elem_dtype == DTYPE_FP6_E3M2:
         data_hp = f6_e3m2_unpacked_to_f32(data_lp)
         data_hp = data_hp.to(target_dtype)
-    elif elem_dtype == DTYPE_FP4:
+    elif elem_dtype == DTYPE_FP4_E2M1:
         if config.use_fp4_custom_triton_dequant_kernel:
             data_hp_rescaled = triton_f4_to_scaled_bf16(
                 data_lp,
@@ -225,11 +239,22 @@ def to_dtype(data_lp, scale_e8m0, elem_dtype, block_size, target_dtype):
             f4_unpacked = unpack_uint4(data_lp)
             # for now we only have a cast to f32
             # TODO(future PR): add cast directly to bf16
-            f32 = f4_unpacked_to_f32(f4_unpacked)
+            f32 = f4_e2m1_unpacked_to_f32(f4_unpacked)
             data_hp = f32.to(target_dtype)
             # manually adjust shape to account for the unpacking
             # TODO(future PR): clean up the shape code and remove the hack
             # below
+        orig_shape = (*orig_shape[:-1], orig_shape[-1] * 2)
+    elif elem_dtype == DTYPE_FP4_E3M0:
+        # fp4
+        f4_unpacked = unpack_uint4(data_lp)
+        # for now we only have a cast to f32
+        # TODO(future PR): add cast directly to bf16
+        f32 = f4_e3m0_unpacked_to_f32(f4_unpacked)
+        data_hp = f32.to(target_dtype)
+        # manually adjust shape to account for the unpacking
+        # TODO(future PR): clean up the shape code and remove the hack
+        # below
         orig_shape = (*orig_shape[:-1], orig_shape[-1] * 2)
     else:
         raise AssertionError("unsupported")
@@ -313,7 +338,7 @@ class MXTensor(torch.Tensor):
         orig_dtype,
     ):
         new_size = data_bits.size()
-        if elem_dtype == DTYPE_FP4:
+        if elem_dtype in (DTYPE_FP4_E2M1, DTYPE_FP4_E3M0):
             # set the tensor size to what it would be without 2x4 packing
             new_size = tensor_size_fp4x2_to_hp(
                 new_size,
@@ -339,7 +364,7 @@ class MXTensor(torch.Tensor):
             DTYPE_FP6_E3M2,
         ):
             target_numel = scale_e8m0_bits.numel() * block_size
-        elif elem_dtype == DTYPE_FP4:
+        elif elem_dtype in (DTYPE_FP4_E2M1, DTYPE_FP4_E3M0):
             assert data_bits.dtype is torch.uint8  # fp4
             target_numel = scale_e8m0_bits.numel() * block_size / 2
         else:

@@ -17,7 +17,7 @@ import torch
 from torch.profiler import profile, ProfilerActivity
 from torchao.prototype.mx_formats import config
 from torchao.prototype.mx_formats.constants import (  # noqa: E501
-    DTYPE_FP4,
+    DTYPE_FP4_E2M1,
     SUPPORTED_ELEM_DTYPES,
 )
 
@@ -45,10 +45,10 @@ def run(profile_folder: Optional[str] = None):
             )
 
             if (
-                elem_dtype != DTYPE_FP4
+                elem_dtype != DTYPE_FP4_E2M1
                 and use_fp4_custom_triton_dequant_kernel  # noqa: E501
             ):
-                # custom_triton_kernels only works for fp4
+                # custom_triton_kernels only works for fp4 e2m1
                 continue
 
             print(
