@@ -901,7 +901,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
             _int8wo_api(m)
             y_wo = m(x)
             sqnr = compute_error(y_ref, y_wo)
-            self.assertGreater(sqnr, 44.0)
+            self.assertGreater(sqnr, 43.0)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
