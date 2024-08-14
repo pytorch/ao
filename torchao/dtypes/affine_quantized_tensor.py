@@ -26,7 +26,7 @@ from torchao.dtypes.utils import (
     is_device,
 )
 from dataclasses import dataclass
-from torchao.utils import TORCH_VERSION_AFTER_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 aten = torch.ops.aten
 
@@ -555,7 +555,7 @@ class TensorCoreTiledAQTLayout(AQTLayout):
         layout_type: LayoutType
     ):
         assert isinstance(layout_type, TensorCoreTiledLayoutType)
-        if TORCH_VERSION_AFTER_2_5:
+        if TORCH_VERSION_AT_LEAST_2_5:
             int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
             assert int_data.dtype == torch.uint8, "torch.ops.aten._convert_weight_to_int4pack in torch 2.5 expects `uint8` dtype"
         else:
@@ -921,6 +921,6 @@ def _(func, types, args, kwargs):
 to_affine_quantized = AffineQuantizedTensor.from_float
 to_affine_quantized_static = AffineQuantizedTensor.from_float_static
 
-if TORCH_VERSION_AFTER_2_5:
+if TORCH_VERSION_AT_LEAST_2_5:
     # Allow a model with AffineQuantizedTensor weights to be loaded with `weights_only=True`
     torch.serialization.add_safe_globals([AffineQuantizedTensor])

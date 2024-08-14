@@ -11,8 +11,8 @@ import torch
 from torchao.kernel.intmm import int_scaled_matmul
 from torchao.kernel.intmm import safe_int_mm
 from torchao.utils import (
-    TORCH_VERSION_AFTER_2_3,
-    TORCH_VERSION_AFTER_2_5,
+    TORCH_VERSION_AT_LEAST_2_3,
+    TORCH_VERSION_AT_LEAST_2_5,
 )
 from torchao.utils import _register_custom_op
 
@@ -53,7 +53,7 @@ class ZeroPointDomain(Enum):
     INT = auto()
     FLOAT = auto()
 
-if TORCH_VERSION_AFTER_2_5:
+if TORCH_VERSION_AT_LEAST_2_5:
     torch.serialization.add_safe_globals([MappingType, ZeroPointDomain])
 
 """
@@ -67,7 +67,7 @@ _DTYPE_TO_QVALUE_BOUNDS: Dict[torch.dtype, Tuple[int, int]] = {
     torch.int32: (-(2**31), 2**31 - 1),
 }
 
-if TORCH_VERSION_AFTER_2_3:
+if TORCH_VERSION_AT_LEAST_2_3:
     _DTYPE_TO_QVALUE_BOUNDS.update({
         torch.uint1: (0, 2**1-1),
         torch.uint2: (0, 2**2-1),

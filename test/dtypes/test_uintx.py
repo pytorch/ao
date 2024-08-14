@@ -6,7 +6,7 @@ import torch
 
 from torchao.dtypes.uintx.Uintx import to_uintx
 from torchao.quantization.quant_api import quantize_, uintx_weight_only
-from torchao.utils import TORCH_VERSION_AFTER_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 from torchao.quantization.quant_primitives import (
     MappingType,
@@ -40,7 +40,7 @@ class Linear16(torch.nn.Module):
 @pytest.mark.parametrize("group_size", group_sizes)
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not TORCH_VERSION_AFTER_2_5, reason="only works with fix in the nightly build")
+@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="only works with fix in the nightly build")
 def test_uintx_weight_only_model_quant(bit_width, group_size, device):
     scale = 512
     fp16 = Linear16(scale, device)
@@ -54,7 +54,7 @@ def test_uintx_weight_only_model_quant(bit_width, group_size, device):
 @pytest.mark.parametrize("group_size", group_sizes)
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not TORCH_VERSION_AFTER_2_5, reason="only works with fix in the nightly build")
+@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="only works with fix in the nightly build")
 def test_uintx_weight_only_quant(bit_width, group_size, device):
     input_float = torch.randn((1, 256), dtype=torch.float16, device = device)
     mapping_type = MappingType.SYMMETRIC
