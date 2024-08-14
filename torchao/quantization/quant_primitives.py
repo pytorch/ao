@@ -15,7 +15,6 @@ from torchao.utils import (
     TORCH_VERSION_AFTER_2_5,
 )
 from torchao.utils import _register_custom_op
-from torchao.float8.float8_utils import FP8_TYPES
 
 
 __all__ = [
@@ -55,6 +54,13 @@ class ZeroPointDomain(Enum):
 
 if TORCH_VERSION_AFTER_2_5:
     torch.serialization.add_safe_globals([MappingType, ZeroPointDomain])
+
+FP8_TYPES = {
+    torch.float8_e4m3fn,
+    torch.float8_e5m2,
+    torch.float8_e4m3fnuz,
+    torch.float8_e5m2fnuz,
+}
 
 """
 Map from dtype to the bound value of integers
