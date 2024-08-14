@@ -402,7 +402,14 @@
 <span class="kn">import</span> <span class="nn">torch.nn.functional</span> <span class="k">as</span> <span class="nn">F</span>
 <span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Union</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Optional</span>
 
-<span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">PlainLayoutType</span>
+<span class="kn">from</span> <span class="nn">torchao.dtypes.uintx.Uintx</span> <span class="kn">import</span> <span class="n">UintxLayoutType</span>
+<span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">to_affine_quantized</span><span class="p">,</span> 
+    <span class="n">TensorCoreTiledLayoutType</span><span class="p">,</span> 
+    <span class="n">PlainLayoutType</span><span class="p">,</span>
+    <span class="n">AffineQuantizedTensor</span><span class="p">,</span>
+    <span class="n">SemiSparseLayoutType</span>
+<span class="p">)</span>
 <span class="kn">from</span> <span class="nn">torchao.utils</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">TORCH_VERSION_AFTER_2_4</span><span class="p">,</span>
     <span class="n">unwrap_tensor_subclass</span><span class="p">,</span>
@@ -563,9 +570,6 @@
 
 
 <span class="k">def</span> <span class="nf">_is_linear</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
-    <span class="c1"># avoid circular dep</span>
-    <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">AffineQuantizedTensor</span>
-
     <span class="c1"># adding weight tensor subclass isinstance check to make sure the weight is only quantized once</span>
     <span class="c1"># when it is shared by multiple linear modules</span>
     <span class="k">return</span> <span class="p">(</span>
@@ -709,9 +713,6 @@
     <span class="p">)</span></div>
 
 <span class="k">def</span> <span class="nf">_int8_asymm_per_token_quant</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
-    <span class="c1"># avoid circular dep</span>
-    <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">to_affine_quantized</span>
-
     <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span>
     <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
     <span class="k">return</span> <span class="n">to_affine_quantized</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">target_dtype</span><span class="p">)</span>
@@ -719,9 +720,6 @@
 <span class="k">def</span> <span class="nf">apply_int8_dynamic_activation_int4_weight_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">):</span>
     <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="n">group_size</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">weight</span>
-
-    <span class="c1"># avoid circular dep</span>
-    <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">to_affine_quantized</span>
 
     <span class="c1"># weight settings</span>
     <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
@@ -754,7 +752,7 @@
     <span class="k">return</span> <span class="n">insert_subclass</span></div>
 
 
-<div class="viewcode-block" id="int4_weight_only"><a class="viewcode-back" href="../../../generated/torchao.quantization.int4_weight_only.html#torchao.quantization.int4_weight_only">[docs]</a><span class="k">def</span> <span class="nf">int4_weight_only</span><span class="p">(</span><span class="n">group_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">inner_k_tiles</span><span class="o">=</span><span class="mi">8</span><span class="p">):</span>
+<div class="viewcode-block" id="int4_weight_only"><a class="viewcode-back" href="../../../generated/torchao.quantization.int4_weight_only.html#torchao.quantization.int4_weight_only">[docs]</a><span class="k">def</span> <span class="nf">int4_weight_only</span><span class="p">(</span><span class="n">group_size</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span> <span class="n">layout_type</span><span class="o">=</span><span class="n">TensorCoreTiledLayoutType</span><span class="p">(</span><span class="n">inner_k_tiles</span><span class="o">=</span><span class="mi">8</span><span class="p">)):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Applies uint4 weight-only asymmetric per-group quantization to linear layers, using</span>
 <span class="sd">    &quot;tensor_core_tiled&quot; layout for speedup with tinygemm kernel</span>
@@ -770,15 +768,11 @@
 <span class="sd">    Args:</span>
 <span class="sd">        `group_size`: parameter for quantization, controls the granularity of quantization, smaller</span>
 <span class="sd">         size is more fine grained, choices are [256, 128, 64, 32]</span>
-<span class="sd">        `inner_k_tiles`: parameter for int4 mm kernel, choices are [8, 4, 2]</span>
+<span class="sd">        `layout_type`: layout type for quantized tensor, default is `TensorCoreTiledLayoutType(inner_k_tiles=8)`</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="nf">apply_int4_weight_only_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="n">group_size</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
             <span class="k">return</span> <span class="n">weight</span>
-
-        <span class="c1"># avoid circular dep</span>
-        <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">to_affine_quantized</span>
-        <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">TensorCoreTiledLayoutType</span>
 
         <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span>
         <span class="n">block_size</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">group_size</span><span class="p">)</span>
@@ -789,7 +783,6 @@
         <span class="n">preserve_zero</span> <span class="o">=</span> <span class="kc">False</span>
         <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
         <span class="n">zero_point_domain</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span>
-        <span class="n">layout_type</span> <span class="o">=</span> <span class="n">TensorCoreTiledLayoutType</span><span class="p">(</span><span class="n">inner_k_tiles</span><span class="o">=</span><span class="n">inner_k_tiles</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">to_affine_quantized</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">,</span> <span class="n">eps</span><span class="p">,</span> <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span> <span class="n">preserve_zero</span><span class="o">=</span><span class="n">preserve_zero</span><span class="p">,</span> <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">zero_point_domain</span><span class="p">,</span> <span class="n">layout_type</span><span class="o">=</span><span class="n">layout_type</span><span class="p">)</span>
 
     <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_int4_weight_only_quant</span><span class="p">)</span></div>
@@ -800,9 +793,6 @@
 <span class="sd">    Applies int8 weight-only symmetric per-channel quantization to linear layers.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="nf">apply_int8wo_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
-        <span class="c1"># avoid circular dep</span>
-        <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">to_affine_quantized</span>
-
         <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
         <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
         <span class="n">eps</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span>
@@ -813,8 +803,6 @@
     <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_int8wo_quant</span><span class="p">)</span></div>
 
 <span class="k">def</span> <span class="nf">_int8_symm_per_token_reduced_range_quant</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
-    <span class="c1"># avoid circular dep</span>
-    <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">to_affine_quantized</span>
     <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
     <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
     <span class="n">eps</span> <span class="o">=</span> <span class="mf">1e-5</span>
@@ -834,8 +822,6 @@
         <span class="k">if</span> <span class="n">in_features</span> <span class="o">&lt;=</span> <span class="mi">16</span><span class="p">:</span>
             <span class="k">return</span> <span class="n">weight</span>
 
-        <span class="c1"># avoid circular dep</span>
-        <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">to_affine_quantized</span>
         <span class="c1"># weight settings</span>
         <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
         <span class="k">def</span> <span class="nf">get_weight_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
@@ -860,7 +846,6 @@
 <span class="sd">    Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight</span>
 <span class="sd">    quantization + 2:4 sparsity to linear layers.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">SemiSparseLayoutType</span>
     <span class="k">return</span> <span class="n">int8_dynamic_activation_int8_weight</span><span class="p">(</span><span class="n">layout_type</span><span class="o">=</span><span class="n">SemiSparseLayoutType</span><span class="p">())</span>
 
 
@@ -876,8 +861,6 @@
         <span class="n">quantize_affine</span><span class="p">,</span>
         <span class="n">dequantize_affine</span><span class="p">,</span>
     <span class="p">)</span>
-    <span class="kn">from</span> <span class="nn">torchao.dtypes.uintx.Uintx</span> <span class="kn">import</span> <span class="n">UintxLayoutType</span>
-    <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">to_affine_quantized</span>
     <span class="kn">from</span> <span class="nn">torchao.quantization.quant_api</span> <span class="kn">import</span> <span class="n">_get_linear_subclass_inserter</span>
     <span class="k">def</span> <span class="nf">apply_uintx_weight_only_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
 
