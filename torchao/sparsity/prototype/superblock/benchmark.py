@@ -54,7 +54,7 @@ def verify_sparsity(model):
             sparsity_percentage = (sparse_weights / total_weights) * 100
             print(f"Sparsity verified in layer {name}: {sparsity_percentage:.2f}%")
 
-
+@torch.inference_mode
 def benchmark_in_ms(warmup, iters, f, *args, **kwargs):
     for _ in range(warmup):
         f(*args, **kwargs)
@@ -141,6 +141,7 @@ def main(args):
 
     image = torch.empty(args.batch_size, 3, args.val_crop_size, args.val_crop_size, dtype=dtype, device=device)
 
+    
     model = torch.compile(model, mode='max-autotune', dynamic=False)
 
     return benchmark_in_ms(10, 100, model, image)

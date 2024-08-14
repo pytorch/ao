@@ -136,7 +136,7 @@ class SupermaskLinear(nn.Linear):
             crow_indicies = w.crow_indices()
             col_indices = w.col_indices()
             values = w.values()
-            return torch.ops.blocksparse.linear(x, crow_indicies, col_indices, values, self.bias)
+            return torch.ops.blocksparse.linear(x, crow_indicies, col_indices, values, w.shape[0], w.shape[1], self.bias)
     
 
 class SupermaskConv2d(nn.Conv2d):

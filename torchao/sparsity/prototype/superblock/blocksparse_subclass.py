@@ -3,7 +3,7 @@ from typing import Optional, Tuple, List, Dict, Any, Callable
 
 import torch
 from typing import Optional, Tuple, List, Dict, Any, Callable
-from torch.sparse._triton_ops import bsr_dense_addmm_meta, broadcast_batch_dims, bsr_dense_addmm
+from torch.sparse._triton_ops import bsr_dense_addmm_meta, broadcast_batch_dims, prepare_inputs, bsr_dense_addmm
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.dtypes.utils import (
     _implements,
@@ -12,20 +12,17 @@ from torchao.dtypes.utils import (
 )
 aten = torch.ops.aten
 
-
-
 @torch.library.custom_op("blocksparse::linear", mutates_args=())
-def blocksparse_linear(A: torch.Tensor, crow_indices: torch.Tensor, col_indices: torch.Tensor, values: torch.Tensor, bias: torch.Tensor) -> torch.Tensor:
+def blocksparse_linear(A: torch.Tensor, crow_indices: torch.Tensor, col_indices: torch.Tensor, values: torch.Tensor, M: int, K: int, bias: torch.Tensor) -> torch.Tensor:
     shape = A.shape
     A_2d = A.view(-1, shape[-1])
     bias = bias.unsqueeze(1).expand(-1, A_2d.shape[0])
-    # weight_bsr = BlockSparseTensor(
-    #         shape = shape,
-    #         bsr_crow_indicies=crow_indices,
-    #         bsr_col_indicies=col_indices,
-    #         bsr_values=values,
-    #     )
-    weight_bsr = torch.sparse_bsr_tensor(crow_indices, col_indices, values)
+    weight_bsr = BlockSparseTensor(
+            shape = torch.Size([M, K]),
+            bsr_crow_indicies=crow_indices,
+            bsr_col_indicies=col_indices,
+            bsr_values=values,
+        )
     res = bsr_dense_addmm(bias, weight_bsr, A_2d.t())
     res = res.view(*shape[:-1], -1)
     return res
@@ -33,11 +30,9 @@ def blocksparse_linear(A: torch.Tensor, crow_indices: torch.Tensor, col_indices:
 
 # # Write the FakeTensor kernel
 @torch.library.register_fake("blocksparse::linear")
-def blocksparse_linear_abstract(A: torch.Tensor, crow_indices: torch.Tensor, col_indices: torch.Tensor, values: torch.Tensor, bias: torch.Tensor) -> torch.Tensor:
-    print(A.shape)
-    print(bias.shape)
-    print(crow_indices.shape)
-    return torch.empty(A.shape[:-1], dtype=A.dtype, device=A.device)
+def blocksparse_linear_abstract(A: torch.Tensor, crow_indices: torch.Tensor, col_indices: torch.Tensor, values: torch.Tensor, M: int, K:int , bias: torch.Tensor) -> torch.Tensor:
+    new_shape = A.shape[:-1] + (bias.shape[0],)
+    return torch.empty(new_shape, dtype=A.dtype, device=A.device)
 
 
 class BlockSparseTensor(torch.Tensor):
@@ -172,4 +167,4 @@ def block_sparse_col_indices(func, types, args, kwargs):
 
 @implements(aten._nnz.default)
 def block_sparse__nnz(func, types, args, kwargs):
-    return args[0].bsr_values.numel()
+    return args[0].bsr_values.shape[0]
