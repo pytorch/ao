@@ -121,13 +121,14 @@ if __name__ == "__main__":
     log_interval = 50
     pbar = tqdm(total=args.n_steps, dynamic_ncols=True)
     model.train()
+    _get_loss = torch.compile(get_loss) if args.compile else get_loss
 
     while step < args.n_steps:
         # randomly select a continuous chunk, then reshape it
         idx = torch.randint(0, data.shape[0] - args.batch_size * args.seq_len, (1,)).item()
         batch = data[idx : idx + args.batch_size * args.seq_len].view(args.batch_size, args.seq_len).long()
 
-        loss = torch.compile(get_loss)(model, batch)
+        loss = _get_loss(model, batch)
         loss.backward()
 
         if step % log_interval == 0:
