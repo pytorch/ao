@@ -68,9 +68,10 @@ _DTYPE_TO_QVALUE_BOUNDS: Dict[torch.dtype, Tuple[int, int]] = {
     torch.int16: (-(2**15), 2**15 - 1),
     torch.int32: (-(2**31), 2**31 - 1),
 }
+_SUB_BYTE_DTYPE_BOUNDS: Dict[torch.dtype, Tuple[int, int]] = {}
 
 if TORCH_VERSION_AT_LEAST_2_3:
-    _DTYPE_TO_QVALUE_BOUNDS.update({
+    _SUB_BYTE_DTYPE_BOUNDS = {
         torch.uint1: (0, 2**1-1),
         torch.uint2: (0, 2**2-1),
         torch.uint3: (0, 2**3-1),
@@ -78,7 +79,10 @@ if TORCH_VERSION_AT_LEAST_2_3:
         torch.uint5: (0, 2**5-1),
         torch.uint6: (0, 2**6-1),
         torch.uint7: (0, 2**7-1),
-    })
+    }
+    _DTYPE_TO_QVALUE_BOUNDS.update(
+        _SUB_BYTE_DTYPE_BOUNDS
+    )
 
 
 quant_lib = torch.library.Library("quant", "FRAGMENT")
@@ -216,6 +220,10 @@ def _quantize_affine(
     """op definition that has compatible signatures with custom op library
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(output_dtype, quant_min, quant_max)
+    # workaround for uintx dtypes, since we don't have native Uintx dtype connected with
+    # torch.uintx dtypes yet
+    if output_dtype in _SUB_BYTE_DTYPE_BOUNDS:
+        output_dtype = torch.uint8
     return _quantize_affine_no_dtype_cast(
         input,
         block_size,
@@ -328,10 +336,9 @@ def _dequantize_affine(
 ) -> torch.Tensor:
     """op definition that has compatible signatures with custom op library
     """
-
-    # TODO: validations
     # TODO: validate scale/zero_point dimensions are compatible with block_size
-    assert input.dtype == input_dtype, f"Expected: {input_dtype}, got: {input.dtype}"
+    if input_dtype not in _SUB_BYTE_DTYPE_BOUNDS:
+        assert input.dtype == input_dtype, f"Expected: {input_dtype}, got: {input.dtype}"
     assert output_dtype in [torch.float32, torch.float16, torch.bfloat16], f"Unsupported output dtype: {output_dtype}"
     quant_min, quant_max = _get_and_check_qmin_qmax(input_dtype, quant_min, quant_max)
     return _dequantize_affine_no_dtype_check(
