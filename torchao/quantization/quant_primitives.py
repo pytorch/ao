@@ -16,6 +16,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
 )
 from torchao.utils import _register_custom_op
+from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32, _n_ones
 
 
 __all__ = [
@@ -23,8 +24,11 @@ __all__ = [
     "int_scaled_matmul",
     "choose_qparams_affine",
     "choose_qparams_affine_with_min_max",
+    "choose_qparams_affine_fpx",
     "quantize_affine",
     "dequantize_affine",
+    "quantize_affine_fpx",
+    "dequantize_affine_fpx",
     "fake_quantize_affine",
     "fake_quantize_affine_cachemask",
     "quantize_affine_hqq",
@@ -84,6 +88,8 @@ if TORCH_VERSION_AT_LEAST_2_3:
         _SUB_BYTE_DTYPE_BOUNDS
     )
 
+
+_ONES_TABLE = [_n_ones(i) for i in range(8)]
 
 quant_lib = torch.library.Library("quant", "FRAGMENT")
 
@@ -698,7 +704,6 @@ def _choose_qparams_affine(
 
     return scale.to(dtype=scale_dtype), zero_point.to(dtype=zero_point_dtype)
 
-
 #HQQ
 ############################################################################
 # Shrinking operator (proximal operator for the lp norm)
@@ -866,3 +871,32 @@ def quantize_affine_hqq(
     torch.cuda.empty_cache()
 
     return W_q, scale, zero, shape
+
+
+def choose_qparams_affine_fpx(tensor: torch.Tensor, ebits: int, mbits: int) -> torch.Tensor:
+    # _n_ones() is not compatible with torch.compile() due to << operator
+    # https://github.com/pytorch/pytorch/issues/119152
+    # exp_bias = _n_ones(ebits - 1)
+    # max_normal = 2 ** (_n_ones(ebits) - exp_bias) * (_n_ones(mbits + 1) / (2 ** mbits))
+
+    # workaround: global lookup table
+    exp_bias = _ONES_TABLE[ebits - 1]
+    max_normal = 2 ** (_ONES_TABLE[ebits] - exp_bias) * (_ONES_TABLE[mbits + 1] / (2 ** mbits))
+
+    tensor = tensor.float()
+    scale = tensor.abs().amax(1).clamp(min=1e-12) / max_normal
+    return scale.half()
+
+def quantize_affine_fpx(tensor: torch.Tensor, scale: torch.Tensor, ebits: int, mbits: int) -> torch.Tensor:
+    """Quantizes the float32 high precision floating point tensor to low precision floating point number and
+    converts the result to unpacked floating point format with the format of 00SEEEMM (for fp6_e3m2) where S means sign bit, e means exponent bit and m means mantissa bit
+    """
+    tensor = tensor.float()
+    tensor_fpx = _f32_to_fpx_unpacked(tensor / scale.view(-1, 1), ebits, mbits)
+    return tensor_fpx
+
+def dequantize_affine_fpx(tensor: torch.Tensor, scale: torch.Tensor, ebits: int, mbits: int, output_dtype: torch.dtype = torch.float32) -> torch.Tensor:
+    tensor = _fpx_unpacked_to_f32(tensor, ebits, mbits)
+    tensor = tensor * scale.float().view(-1, 1)
+    tensor = tensor.to(dtype=output_dtype)
+    return tensor
