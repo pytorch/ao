@@ -273,12 +273,29 @@ def unwrap_tensor_subclass(model, filter_fn=None):
         unwrap_tensor_subclass(child)
     return model
 
+def parse_version(version_string):
+    # Remove any suffixes like '+cu121' or '.dev'
+    version = version_string.split('+')[0].split('.dev')[0]
+    return [int(x) for x in version.split('.')]
+
+def compare_versions(v1, v2):
+    v1_parts = parse_version(v1)
+    v2_parts = parse_version(v2)
+    
+    for i in range(max(len(v1_parts), len(v2_parts))):
+        v1_part = v1_parts[i] if i < len(v1_parts) else 0
+        v2_part = v2_parts[i] if i < len(v2_parts) else 0
+        if v1_part > v2_part:
+            return 1
+        elif v1_part < v2_part:
+            return -1
+    return 0
+
 def is_fbcode():
     return not hasattr(torch.version, "git_version")
 
-
 def torch_version_at_least(min_version):
-    return is_fbcode() or version("torch").replace(".dev", "") >= min_version.replace(".dev", "")
+    return is_fbcode() or compare_versions(torch.__version__, min_version) >= 0
 
 TORCH_VERSION_AT_LEAST_2_5 = torch_version_at_least("2.5.0")
 TORCH_VERSION_AT_LEAST_2_4 = torch_version_at_least("2.4.0")
