@@ -360,7 +360,7 @@ def main(
 
     # if the `TORCHINDUCTOR_PROFILE` env var is enabled, parse its output
     # to populate triton kernel bandwidth further down in the script
-    if os.environ.get("TORCHINDUCTOR_PROFILE", "") != "":
+    if os.environ.get("TORCHINDUCTOR_PROFILE", "") == "":
         context = nullcontext()
         f = None 
     else:
