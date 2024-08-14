@@ -30,7 +30,7 @@ from torchao.dtypes import (
     SemiSparseLayoutType
 )
 from torchao.utils import (
-    TORCH_VERSION_AFTER_2_4,
+    TORCH_VERSION_AT_LEAST_2_4,
     unwrap_tensor_subclass,
 )
 from .subclass import (
@@ -55,7 +55,7 @@ from .GPTQ import (
 from .utils import _get_per_token_block_size
 import logging
 from .autoquant import autoquant, AutoQuantizableLinearWeight
-from torchao.utils import TORCH_VERSION_AFTER_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
 __all__ = [
@@ -100,7 +100,7 @@ def change_linear_weights_to_int8_dqtensors(model, filter_fn=None, **kwargs):
     Tensor subclass, effectively applying the same form of quantization
     as apply_dynamic_quant while not modifying the linear modules.
     """
-    if TORCH_VERSION_AFTER_2_4:
+    if TORCH_VERSION_AT_LEAST_2_4:
         raise ImportError("This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs")
 
     if filter_fn is None:
@@ -120,7 +120,7 @@ def change_linear_weights_to_int8_woqtensors(model, filter_fn=None, **kwargs):
     effectively applying the same form of quantization
     as apply_weight_only_int8_quant while not modifying the linear modules.
     """
-    if TORCH_VERSION_AFTER_2_4:
+    if TORCH_VERSION_AT_LEAST_2_4:
         raise ImportError("This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs")
 
     _replace_with_custom_fn_if_matches_filter(
@@ -140,7 +140,7 @@ def change_linear_weights_to_int4_woqtensors(model, groupsize=128, inner_k_tiles
          size is more fine grained, choices are [256, 128, 64, 32]
         `inner_k_tiles`: parameter for int4 mm kernel, choices are [8, 4, 2]
     """
-    if TORCH_VERSION_AFTER_2_4:
+    if TORCH_VERSION_AT_LEAST_2_4:
         raise ImportError("This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs")
 
     if filter_fn is None:
@@ -503,5 +503,5 @@ def uintx_weight_only(bit_width, group_size=64, pack_dim=-1):
     return _get_linear_subclass_inserter(apply_uintx_weight_only_quant)
 
 
-if TORCH_VERSION_AFTER_2_5:
+if TORCH_VERSION_AT_LEAST_2_5:
     torch.serialization.add_safe_globals([_int8_asymm_per_token_quant, _int8_symm_per_token_reduced_range_quant])

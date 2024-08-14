@@ -2,11 +2,11 @@ import itertools
 import os
 import torch
 
-from torchao.utils import TORCH_VERSION_AFTER_2_2
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_2
 
 try:
     # Only works for torch2.2 or newer.
-    if TORCH_VERSION_AFTER_2_2:
+    if TORCH_VERSION_AT_LEAST_2_2:
         from torchao.kernel import intmm_triton
     else:
         intmm_triton = None
@@ -17,7 +17,7 @@ except ImportError:
 AUTOTUNER_ENABLE = bool(int(os.getenv("TORCHAO_AUTOTUNER_ENABLE", 0)))
 
 # torch._int_mm doesn't exist before 2.2
-if TORCH_VERSION_AFTER_2_2:
+if TORCH_VERSION_AT_LEAST_2_2:
     from torch._dynamo import is_compiling as dynamo_is_compiling
     from torch._higher_order_ops.out_dtype import out_dtype
     def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
