@@ -411,7 +411,7 @@
     <span class="n">SemiSparseLayoutType</span>
 <span class="p">)</span>
 <span class="kn">from</span> <span class="nn">torchao.utils</span> <span class="kn">import</span> <span class="p">(</span>
-    <span class="n">TORCH_VERSION_AFTER_2_4</span><span class="p">,</span>
+    <span class="n">TORCH_VERSION_AT_LEAST_2_4</span><span class="p">,</span>
     <span class="n">unwrap_tensor_subclass</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span> <span class="nn">.subclass</span> <span class="kn">import</span> <span class="p">(</span>
@@ -436,7 +436,7 @@
 <span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="n">_get_per_token_block_size</span>
 <span class="kn">import</span> <span class="nn">logging</span>
 <span class="kn">from</span> <span class="nn">.autoquant</span> <span class="kn">import</span> <span class="n">autoquant</span><span class="p">,</span> <span class="n">AutoQuantizableLinearWeight</span>
-<span class="kn">from</span> <span class="nn">torchao.utils</span> <span class="kn">import</span> <span class="n">TORCH_VERSION_AFTER_2_5</span>
+<span class="kn">from</span> <span class="nn">torchao.utils</span> <span class="kn">import</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span>
 
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
@@ -481,7 +481,7 @@
 <span class="sd">    Tensor subclass, effectively applying the same form of quantization</span>
 <span class="sd">    as apply_dynamic_quant while not modifying the linear modules.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">TORCH_VERSION_AFTER_2_4</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_4</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span><span class="s2">&quot;This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs&quot;</span><span class="p">)</span>
 
     <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -501,7 +501,7 @@
 <span class="sd">    effectively applying the same form of quantization</span>
 <span class="sd">    as apply_weight_only_int8_quant while not modifying the linear modules.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">TORCH_VERSION_AFTER_2_4</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_4</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span><span class="s2">&quot;This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs&quot;</span><span class="p">)</span>
 
     <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
@@ -521,7 +521,7 @@
 <span class="sd">         size is more fine grained, choices are [256, 128, 64, 32]</span>
 <span class="sd">        `inner_k_tiles`: parameter for int4 mm kernel, choices are [8, 4, 2]</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">if</span> <span class="n">TORCH_VERSION_AFTER_2_4</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_4</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span><span class="s2">&quot;This API is deprecated for pytorch 2.4+, please checkout quantization/README.md for most up to date APIs&quot;</span><span class="p">)</span>
 
     <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -884,7 +884,7 @@
     <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_uintx_weight_only_quant</span><span class="p">)</span>
 
 
-<span class="k">if</span> <span class="n">TORCH_VERSION_AFTER_2_5</span><span class="p">:</span>
+<span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
     <span class="n">torch</span><span class="o">.</span><span class="n">serialization</span><span class="o">.</span><span class="n">add_safe_globals</span><span class="p">([</span><span class="n">_int8_asymm_per_token_quant</span><span class="p">,</span> <span class="n">_int8_symm_per_token_reduced_range_quant</span><span class="p">])</span>
 </pre></div>
 
