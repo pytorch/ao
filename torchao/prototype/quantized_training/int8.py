@@ -12,10 +12,14 @@ c10d_functional = torch.ops.c10d_functional
 _c10d_functional = torch.ops._c10d_functional
 
 
-# the main difference of this tensor subclass from AffineQuantizedTensor:
-# 1. F.linear is differentiable i.e. backward is defined.
-# 2. support stochastic rounding when casting from floating point.
 class Int8QTLinearWeight(Tensor):
+    """INT8 symmetric quantization weight, with absmax scaling [-127, 127]. The main difference
+    of this tensor subclass from AffineQuantizedTensor:
+    1. `F.linear` is differentiable i.e. backward is defined.
+    2. All in-place ops, such as `aten.copy_`, will perform stochastic rounding.
+        `Int8QTLinearWeight.from_float()` does not perform stochastic rounding.
+    """
+
     implements = classmethod(_implements)
     __torch_function__ = classmethod(_dispatch__torch_function__)
     __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
@@ -52,6 +56,11 @@ class Int8QTLinearWeight(Tensor):
     @staticmethod
     @torch.no_grad()
     def quantize(tensor: Tensor, stochastic_rounding: bool = False):
+        """Normal rounding will always round down small changes in weight update. To tackle this problem,
+        stochastic rounding can be used, which has a low chance, but not zero, of rounding up. The
+        probability of rounding up is equal to x - ⌊x⌋, which indicates how close the value is to the next
+        integer value. Thus, stochastic rounding also approximates the floating point value exactly.
+        """
         original_dtype = tensor.dtype
         tensor = tensor.float()
 
@@ -64,7 +73,6 @@ class Int8QTLinearWeight(Tensor):
         else:
             tensor = tensor.round()
 
-        # NOTE: is clipping necessary?
         tensor = tensor.clip(-128, 127).to(torch.int8)
         return tensor, scale.to(original_dtype)
 

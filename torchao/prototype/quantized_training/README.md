@@ -6,6 +6,8 @@ This folder contains experimental work on quantized training (QT). The main diff
 
 Typically, low-precision weights cannot be trained directly due to quantization error: a small change in the quantized weight will be round down to zero. To tackle this problem, we use **stochastic rounding** for weight update. In simple terms, stochastic rounding will round up or down randomly, but with a higher chance if it is closer to that direction. For example, 0.8 will have 80% chance of rounding up and 20% of rounding down. It also follows that on average, stochastic rounding will estimate the floating point value exactly.
 
+In precise terms, the probability of rounding up is `x - ⌊x⌋`. Note that when the value is exactly an integer value, the probability of rounding up is zero.
+
 There are 2 main benefits for training in this way:
 1. Reduce memory footprint. Also reduce communication bandwidth in distributed setting.
 2. What you train is what you serve ([WYTIWYS](https://github.com/google/aqt?tab=readme-ov-file#features)).
@@ -20,18 +22,18 @@ Usage
 
 ```python
 from torchao.prototype.quantized_training import int8_weight_only_quantized_training
-from torchao.prototype.low_bit_optim import AdamW
+from torchao.prototype.low_bit_optim import _AdamW
 from torchao.quantization.quant_api import quantize_
 
 model = ...
 quantize_(model, int8_weight_only_quantized_training())
 
-optim = AdamW(model.parameters(), lr=3e-4)
+optim = _AdamW(model.parameters(), lr=3e-4)
 ```
 
-It is recommended to use optimizers from `torchao.prototype.low_bit_optim` for quantized training, because they can automatically generate efficient fused optimizer kernel for `dequant->optimizer_step->quant` thanks to `torch.compile()`.
+Only `torch.optim.Adam` and optimizers from `torchao.prototype.low_bit_optim` are known to work with quantized training in this folder. This is because we implement stochastic rounding logic within tensor subclass instead of the optimizer. We provide `torchao.prototype.low_bit_optim._AdamW` as an alternative to `torch.optim.AdamW` specifically for this purpose.
 
-[`benchmarks/benchmark_int8_qt.py`](../../../benchmarks/benchmark_int8_qt.py) demonstrates an end-to-end Llama2 pre-training using this INT8 quantized training.
+[`benchmarks/quantized_training/pretrain_llama2.py`](../../../benchmarks/quantized_training/pretrain_llama2.py) demonstrates an end-to-end Llama2 pre-training using this INT8 quantized training.
 
 See [#644](https://github.com/pytorch/ao/pull/644) for some early results.
 
@@ -39,4 +41,4 @@ See [#644](https://github.com/pytorch/ao/pull/644) for some early results.
 
 - INT8 activation x INT8 weight. This can potentially leverage INT8 Tensor Cores, which is 2x faster than FP16/BF16 Tensor Cores.
 - INT4 weight only (with group-wise quantization). This can be used with INT4 tinygemm deployment in mind (or other optimized INT4 kernels).
-- FP8 activation x FP8 weight. The current FP8 training recipe can be seen as a form of QAT, which maintains a high-precision copy of model weights.
+- FP8 activation x FP8 weight. The current FP8 training recipe can be seen as a form of QAT, which maintains a high-precision copy of model weights. We can eliminate the high-precision copy.
