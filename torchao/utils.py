@@ -18,6 +18,12 @@ __all__ = [
     "_register_custom_op",
     "get_model_size_in_bytes",
     "unwrap_tensor_subclass",
+    "TORCH_VERSION_AT_LEAST_2_2",
+    "TORCH_VERSION_AT_LEAST_2_3",
+    "TORCH_VERSION_AT_LEAST_2_4",
+    "TORCH_VERSION_AT_LEAST_2_5",
+
+    # Needs to be deprecated in the future
     "TORCH_VERSION_AFTER_2_2",
     "TORCH_VERSION_AFTER_2_3",
     "TORCH_VERSION_AFTER_2_4",
@@ -172,7 +178,7 @@ def _register_custom_op(lib):
     from torch._inductor.decomposition import register_decomposition
 
     def decorator(fn):
-        if TORCH_VERSION_AFTER_2_5:
+        if TORCH_VERSION_AT_LEAST_2_5:
             from torch._library.infer_schema import infer_schema
 
             # expecting fn.__name__ starts with `_` and we want to take the rest
@@ -273,17 +279,41 @@ def unwrap_tensor_subclass(model, filter_fn=None):
         unwrap_tensor_subclass(child)
     return model
 
+def parse_version(version_string):
+    # Remove any suffixes like '+cu121' or '.dev'
+    version = version_string.split('+')[0].split('.dev')[0]
+    return [int(x) for x in version.split('.')]
+
+def compare_versions(v1, v2):
+    v1_parts = parse_version(v1)
+    v2_parts = parse_version(v2)
+    
+    for i in range(max(len(v1_parts), len(v2_parts))):
+        v1_part = v1_parts[i] if i < len(v1_parts) else 0
+        v2_part = v2_parts[i] if i < len(v2_parts) else 0
+        if v1_part > v2_part:
+            return 1
+        elif v1_part < v2_part:
+            return -1
+    return 0
+
 def is_fbcode():
     return not hasattr(torch.version, "git_version")
-
 
 def torch_version_at_least(min_version):
+    return is_fbcode() or compare_versions(torch.__version__, min_version) >= 0
+
+TORCH_VERSION_AT_LEAST_2_5 = torch_version_at_least("2.5.0")
+TORCH_VERSION_AT_LEAST_2_4 = torch_version_at_least("2.4.0")
+TORCH_VERSION_AT_LEAST_2_3 = torch_version_at_least("2.3.0")
+TORCH_VERSION_AT_LEAST_2_2 = torch_version_at_least("2.2.0")
+
+
+## Deprecated, will be deleted in the future
+def _torch_version_at_least(min_version):
     return is_fbcode() or version("torch") >= min_version
 
-TORCH_VERSION_AFTER_2_5 = torch_version_at_least("2.5.0.dev")
-TORCH_VERSION_AFTER_2_4 = torch_version_at_least("2.4.0.dev")
-TORCH_VERSION_AFTER_2_3 = torch_version_at_least("2.3.0.dev")
-TORCH_VERSION_AFTER_2_2 = torch_version_at_least("2.2.0.dev")
-
-def is_fbcode():
-    return not hasattr(torch.version, "git_version")
+TORCH_VERSION_AFTER_2_5 = _torch_version_at_least("2.5.0.dev")
+TORCH_VERSION_AFTER_2_4 = _torch_version_at_least("2.4.0.dev")
+TORCH_VERSION_AFTER_2_3 = _torch_version_at_least("2.3.0.dev")
+TORCH_VERSION_AFTER_2_2 = _torch_version_at_least("2.2.0.dev")

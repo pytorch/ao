@@ -26,7 +26,7 @@ from .utils import (
 from torchao.utils import (
     find_multiple,
 )
-from torchao.utils import TORCH_VERSION_AFTER_2_3
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
 from typing import Any, Dict, Optional
 from .unified import Quantizer
 
@@ -44,7 +44,7 @@ if not _lm_eval_available:
 
 add_ons = []
 
-if TORCH_VERSION_AFTER_2_3:
+if TORCH_VERSION_AT_LEAST_2_3:
     add_ons += ["Int8DynActInt4WeightQuantizer", "Int8DynActInt4WeightGPTQQuantizer"]
 
 
