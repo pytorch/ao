@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from enum import Enum, auto
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple, Dict, Union
 import torch
 
 from torchao.kernel.intmm import int_scaled_matmul
@@ -209,8 +209,8 @@ def _quantize_affine(
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     output_dtype: torch.dtype,
-    quant_min: Optional[Union[int, float]] = None,
-    quant_max: Optional[Union[int, float]] = None,
+    quant_min: Optional[Union[int, float, bool]] = None,
+    quant_max: Optional[Union[int, float, bool]] = None,
     zero_point_domain: str = ZeroPointDomain.INT.name,
 ) -> torch.Tensor:
     """op definition that has compatible signatures with custom op library
@@ -288,8 +288,8 @@ def dequantize_affine(
       scale (Tensor): quantization parameter for affine quantization
       zero_point (Tensor): quantization parameter for affine quantization
       dtype (torch.dtype): requested dtype (e.g. torch.uint8) for output Tensor
-      quant_min (Optional[int]): minimum quantized value for input Tensor
-      quant_max (Optional[int]): maximum quantized value for input Tensor
+      quant_min (Optional[Union[int, float]]): minimum quantized value for input Tensor
+      quant_max (Optional[Union[int, float]]): maximum quantized value for input Tensor
       output_dtype (torch.dtype): dtype for output Tensor, default is fp32
       zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be eitehr integer or float
         if zero_point is in integer domain, zero point is added to the quantized integer value during
@@ -321,8 +321,8 @@ def _dequantize_affine(
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     input_dtype: torch.dtype,
-    quant_min: Optional[Union[int, float]] = None,
-    quant_max: Optional[Union[int, float]] = None,
+    quant_min: Optional[Union[int, float, bool]] = None,
+    quant_max: Optional[Union[int, float, bool]] = None,
     zero_point_domain: str = ZeroPointDomain.INT.name,
     output_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
@@ -579,8 +579,8 @@ def _choose_qparams_affine(
    mapping_type: str,
    block_size: List[int],
    target_dtype: torch.dtype,
-   quant_min: Optional[Union[int, float]] = None,
-   quant_max: Optional[Union[int, float]] = None,
+   quant_min: Optional[Union[int, float, bool]] = None,
+   quant_max: Optional[Union[int, float, bool]] = None,
    eps: Optional[float] = None,
    scale_dtype: Optional[torch.dtype] = None,
    zero_point_dtype: Optional[torch.dtype] = None,

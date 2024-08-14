@@ -1,5 +1,5 @@
 import torch
-from typing import Dict, Callable, Any, Tuple, Optional
+from typing import Dict, Callable, Any, Tuple, Optional, Union
 from collections import defaultdict
 import functools
 from torchao.quantization.quant_primitives import (
@@ -109,8 +109,8 @@ class AffineQuantizedTensor(torch.Tensor):
         layout_tensor: AQTLayout,
         block_size: Tuple[int, ...],
         shape: torch.Size,
-        quant_min: Optional[int] = None,
-        quant_max: Optional[int] = None,
+        quant_min: Optional[Union[int, float]] = None,
+        quant_max: Optional[Union[int, float]] = None,
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
         dtype=None,
         strides=None,
@@ -131,8 +131,8 @@ class AffineQuantizedTensor(torch.Tensor):
         layout_tensor: AQTLayout,
         block_size: Tuple[int, ...],
         shape: torch.Size,
-        quant_min: Optional[int] = None,
-        quant_max: Optional[int] = None,
+        quant_min: Optional[Union[int, float]] = None,
+        quant_max: Optional[Union[int, float]] = None,
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
         dtype=None,
         strides=None,
