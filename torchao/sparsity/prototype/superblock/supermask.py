@@ -130,7 +130,7 @@ class SupermaskLinear(nn.Linear):
             subnet = self.get_mask()
             w = (self.weight*self.scale+self.shift) * subnet
         else:
-            w = self.weight.data
+            w = self.weight
         return F.linear(x, w, self.bias)
     
 

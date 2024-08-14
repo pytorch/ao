@@ -17,7 +17,7 @@ from torch.sparse._triton_ops_meta import optimize_bsr_dense_addmm
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from supermask import apply_supermask, SupermaskLinear
-
+from blocksparse_subclass import BlockSparseTensor
 
 def apply_sparsity(model):
     for name, module in model.named_modules():
@@ -29,7 +29,10 @@ def apply_bsr(model, blocksize):
     for name, module in model.named_modules():
             if isinstance(module, torch.nn.Linear) and "mlp" in name:
                 try:
-                    module.weight = torch.nn.Parameter(to_bsr(module.weight.data, blocksize))
+                    bsr_data = to_bsr(module.weight.data, blocksize)
+                    # subclass = BlockSparseTensor.from_bsr(bsr_data, blocksize)
+                    subclass = BlockSparseTensor.from_dense(module.weight.data, blocksize)
+                    module.weight = torch.nn.Parameter(subclass)
                     print(f"Converted {name} to bsr format.")
                 except ValueError as e:
                     print(f"Unable to convert weight of {name} to bsr format: {e}")
@@ -137,7 +140,9 @@ def main(args):
         # assert torch.allclose(output2, output1), "Output of model before and after changing format to BSR should be equal"
 
     image = torch.empty(args.batch_size, 3, args.val_crop_size, args.val_crop_size, dtype=dtype, device=device)
-    # model = torch.compile(model, mode='max-autotune')
+
+    model = torch.compile(model, mode='max-autotune', dynamic=False)
+
     return benchmark_in_ms(10, 100, model, image)
 
 
