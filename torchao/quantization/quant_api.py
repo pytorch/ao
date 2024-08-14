@@ -21,10 +21,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Any, Callable, Union, Dict, Optional
 
+from torchao.dtypes.uintx.Uintx import UintxLayoutType
 from torchao.dtypes import (
     to_affine_quantized, 
     TensorCoreTiledLayoutType, 
-    PlainLayoutType
+    PlainLayoutType,
+    AffineQuantizedTensor,
+    SemiSparseLayoutType
 )
 from torchao.utils import (
     TORCH_VERSION_AFTER_2_4,
@@ -186,9 +189,6 @@ def _replace_with_custom_fn_if_matches_filter(
 
 
 def _is_linear(mod, *args):
-    # avoid circular dep
-    from torchao.dtypes import AffineQuantizedTensor
-
     # adding weight tensor subclass isinstance check to make sure the weight is only quantized once
     # when it is shared by multiple linear modules
     return (
@@ -332,9 +332,6 @@ def quantize_(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.nn.
     )
 
 def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
-    # avoid circular dep
-    from torchao.dtypes import to_affine_quantized
-
     mapping_type = MappingType.ASYMMETRIC
     target_dtype = torch.int8
     return to_affine_quantized(x, mapping_type, _get_per_token_block_size(x), target_dtype)
@@ -342,9 +339,6 @@ def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
 def apply_int8_dynamic_activation_int4_weight_quant(weight, group_size=32):
     if weight.shape[-1] % group_size != 0:
         return weight
-
-    # avoid circular dep
-    from torchao.dtypes import to_affine_quantized
 
     # weight settings
     mapping_type = MappingType.SYMMETRIC
@@ -418,9 +412,6 @@ def int8_weight_only():
     Applies int8 weight-only symmetric per-channel quantization to linear layers.
     """
     def apply_int8wo_quant(weight):
-        # avoid circular dep
-        from torchao.dtypes import to_affine_quantized
-
         mapping_type = MappingType.SYMMETRIC
         target_dtype = torch.int8
         eps = torch.finfo(torch.float32).eps
@@ -431,8 +422,6 @@ def int8_weight_only():
     return _get_linear_subclass_inserter(apply_int8wo_quant)
 
 def _int8_symm_per_token_reduced_range_quant(x: torch.Tensor) -> torch.Tensor:
-    # avoid circular dep
-    from torchao.dtypes import to_affine_quantized
     mapping_type = MappingType.SYMMETRIC
     target_dtype = torch.int8
     eps = 1e-5
@@ -452,8 +441,6 @@ def int8_dynamic_activation_int8_weight(layout_type=PlainLayoutType()):
         if in_features <= 16:
             return weight
 
-        # avoid circular dep
-        from torchao.dtypes import to_affine_quantized
         # weight settings
         mapping_type = MappingType.SYMMETRIC
         def get_weight_block_size(x):
@@ -478,7 +465,6 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight
     quantization + 2:4 sparsity to linear layers.
     """
-    from torchao.dtypes import SemiSparseLayoutType
     return int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType())
 
 
@@ -494,8 +480,6 @@ def uintx_weight_only(bit_width, group_size=64, pack_dim=-1):
         quantize_affine,
         dequantize_affine,
     )
-    from torchao.dtypes.uintx.Uintx import UintxLayoutType
-    from torchao.dtypes import to_affine_quantized
     from torchao.quantization.quant_api import _get_linear_subclass_inserter
     def apply_uintx_weight_only_quant(weight):
 
