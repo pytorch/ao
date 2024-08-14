@@ -1,8 +1,8 @@
 # pre-train a mini Llama2 on TinyStories with INT8 quantized training
 # pip install transformers sentencepiece wandb
 #
-# BF16 baseline: python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --n_steps 10_000
-# INT8 QT:       python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --n_steps 10_000 --quantize int8_weight_only
+# BF16 baseline: python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --n_steps 10_000 --compile
+# INT8 QT:       python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --n_steps 10_000 --compile --quantize int8_weight_only
 
 import os
 
@@ -73,6 +73,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--quantize")
     parser.add_argument("--activation_checkpointing", action="store_true")
+    parser.add_argument("--compile", action="store_true")
 
     parser.add_argument("--n_steps", type=int, default=1000)
     parser.add_argument("--batch_size", type=int, default=4)
@@ -133,7 +134,8 @@ if __name__ == "__main__":
             log_dict = dict(
                 loss=loss.item(),
                 lr=optim.param_groups[0]["lr"],
-                max_memory_allocated=torch.cuda.max_memory_allocated(),
+                max_memory_allocated=torch.cuda.max_memory_allocated() / 1e9,
+                max_memory_active=torch.cuda.memory_stats().get("active_bytes.all.peak", 0) / 1e9,
             )
             run.log(log_dict, step=step)
             pbar.set_postfix(loss=log_dict["loss"])
