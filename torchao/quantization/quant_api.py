@@ -389,7 +389,7 @@ def int4_weight_only(group_size=128, layout_type=TensorCoreTiledLayoutType(inner
          size is more fine grained, choices are [256, 128, 64, 32]
         `layout_type`: layout type for quantized tensor, default is `TensorCoreTiledLayoutType(inner_k_tiles=8)`
     """
-    def apply_int4_weight_only_quant(weight):
+    def apply_int4_weight_only_quant(weight, use_hqq=False):
         if weight.shape[-1] % group_size != 0:
             return weight
 
