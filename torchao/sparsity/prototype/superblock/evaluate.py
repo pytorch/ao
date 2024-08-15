@@ -15,7 +15,7 @@ from torchvision.transforms.functional import InterpolationMode
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from supermask import apply_supermask, SupermaskLinear
-
+# from benchmark import apply_sparsity, apply_bsr, verify_sparsity
 
 def apply_sparsity(model):
     for name, module in model.named_modules():
@@ -82,16 +82,16 @@ def load_data(valdir, args):
             )
 
         # for META internal
-        dataset_test = torchvision.datasets.ImageFolder(
-            valdir,
-            preprocessing,
-        )
-        # for OSS
-        # dataset_test = torchvision.datasets.ImageNet(
+        # dataset_test = torchvision.datasets.ImageFolder(
         #     valdir,
-        #     split='val',
-        #     transform=preprocessing
+        #     preprocessing,
         # )
+        #for OSS
+        dataset_test = torchvision.datasets.ImageNet(
+            valdir,
+            split='val',
+            transform=preprocessing
+        )
         if args.cache_dataset:
             print(f"Saving dataset_test to {cache_path}")
             utils.mkdir(os.path.dirname(cache_path))

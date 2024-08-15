@@ -25,7 +25,7 @@ def apply_sparsity(model):
             module.sparsify_offline()
 
 
-def apply_bsr(model, blocksize):
+def apply_bsr(model, blocksize=64):
     for name, module in model.named_modules():
             if isinstance(module, torch.nn.Linear) and "mlp" in name:
                 try:
