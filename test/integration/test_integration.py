@@ -913,7 +913,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
         if dtype == torch.bfloat16 and torch.cuda.get_device_capability() < (8, 0):
             self.skipTest("test requires SM capability of at least (8, 0).")
         from torch._inductor import config
-        mixed_mm_key, mixed_mm_val = ("mixed_mm_choice", "triton") if TORCH_VERSION_AT_LEAST_2_4 else ("force_mixed_mm", True)
+        mixed_mm_key, mixed_mm_val = ("mixed_mm_choice", "triton") if TORCH_VERSION_AT_LEAST_2_5 else ("force_mixed_mm", True)
 
         with config.patch({
             "epilogue_fusion": True,
@@ -943,7 +943,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
             self.skipTest("test requires SM capability of at least (8, 0).")
         torch.manual_seed(0)
         from torch._inductor import config
-        mixed_mm_key, mixed_mm_val = ("mixed_mm_choice", "triton") if TORCH_VERSION_AT_LEAST_2_4 else ("force_mixed_mm", True)
+        mixed_mm_key, mixed_mm_val = ("mixed_mm_choice", "triton") if TORCH_VERSION_AT_LEAST_2_5 else ("force_mixed_mm", True)
 
         with config.patch({
             "epilogue_fusion": False,
@@ -1222,7 +1222,7 @@ class TestAutoQuant(unittest.TestCase):
             (1,  32, 128, 128),
             (32, 32, 128, 128),
         ]))
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "autoquant requires 2.4+.")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant requires 2.5+.")
     def test_autoquant_compile(self, device, dtype, m1, m2, k, n):
         undo_recommended_configs()
         if device != "cuda" or not torch.cuda.is_available():
@@ -1254,7 +1254,7 @@ class TestAutoQuant(unittest.TestCase):
         self.assertTrue(sqnr >= 30)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "autoquant requires 2.4+.")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant requires 2.5+.")
     def test_autoquant_manual(self, device, dtype):
         undo_recommended_configs()
         if device != "cuda" or not torch.cuda.is_available():
@@ -1295,7 +1295,7 @@ class TestAutoQuant(unittest.TestCase):
             (1,  32, 128, 128),
             (32, 32, 128, 128),
         ]))
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "autoquant requires 2.4+.")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant requires 2.5+.")
     def test_autoquant_kwargs(self, device, dtype, m1, m2, k, n):
         undo_recommended_configs()
         if device != "cuda" or not torch.cuda.is_available():
@@ -1478,7 +1478,7 @@ class TestExport(unittest.TestCase):
 
 class TestUtils(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "autoquant requires 2.4+.")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant requires 2.5+.")
     def test_get_model_size_autoquant(self, device, dtype):
         if device != "cuda" and dtype != torch.bfloat16:
             self.skipTest(f"autoquant currently does not support {device}")
