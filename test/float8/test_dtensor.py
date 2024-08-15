@@ -101,8 +101,8 @@ def _test_scaled_mm(mesh: DeviceMesh, size=16):
         (size, size),
     )
     for idx, (lhs_placement, rhs_placement) in enumerate(placement_combs):
-        x_scale = tensor_to_scale(x_fp32, fp8_dtype).float()
-        y_scale = tensor_to_scale(y_fp32, fp8_dtype).float()
+        x_scale = tensor_to_scale(x_fp32, fp8_dtype, None).float()
+        y_scale = tensor_to_scale(y_fp32, fp8_dtype, None).float()
 
         x_fp8 = hp_tensor_and_scale_to_float8(
             x_fp32, x_scale, fp8_dtype, None, GemmInputRole.INPUT
@@ -132,7 +132,7 @@ def _test_fp8_redistribute(mesh: DeviceMesh, size=16):
 
     x_fp32 = torch.rand(size, size, device=device)
 
-    x_scale = tensor_to_scale(x_fp32, fp8_dtype).float()
+    x_scale = tensor_to_scale(x_fp32, fp8_dtype, None).float()
 
     x_fp8 = hp_tensor_and_scale_to_float8(x_fp32, x_scale, fp8_dtype)
 
@@ -159,7 +159,7 @@ def _test_dtensor_cast_to_fp8(mesh: DeviceMesh, size=16):
     x_fp32 = torch.rand(size, size, device=device)
     dist_x_fp32 = distribute_tensor(x_fp32, mesh, [Shard(0)])
 
-    dist_x_scale = tensor_to_scale(dist_x_fp32, fp8_dtype).float()
+    dist_x_scale = tensor_to_scale(dist_x_fp32, fp8_dtype, None).float()
     assert isinstance(dist_x_scale, DTensor)
 
     dist_x_fp8 = hp_tensor_and_scale_to_float8(dist_x_fp32, dist_x_scale, fp8_dtype)
@@ -175,10 +175,10 @@ def _test_dtensor_fp8_autograd(mesh: DeviceMesh, size=16):
     target = torch.rand(size, 2 * size, device=device)
 
     dist_x_fp32 = distribute_tensor(x_fp32, mesh, [Shard(0)])
-    dist_x_scale = tensor_to_scale(dist_x_fp32, fp8_dtype).float()
+    dist_x_scale = tensor_to_scale(dist_x_fp32, fp8_dtype, None).float()
 
     dist_wight_fp32 = distribute_tensor(local_weight, mesh, [Shard(0)])
-    dist_weight_scale = tensor_to_scale(dist_wight_fp32, fp8_dtype).float()
+    dist_weight_scale = tensor_to_scale(dist_wight_fp32, fp8_dtype, None).float()
     dist_target = distribute_tensor(target, mesh, [Shard(0)])
 
     dist_x_fp8 = hp_tensor_and_scale_to_float8(

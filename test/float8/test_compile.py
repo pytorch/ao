@@ -190,6 +190,7 @@ class TestGraphBreaks(DynamoTestCase):
                 e4m3_dtype,
                 self.fp8_amax_x,
                 LinearMMConfig(),
+                tile_size=None
             )
             if self.graph_break:
                 torch._dynamo.graph_break()

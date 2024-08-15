@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Iterable, Literal, Tuple, Union
+from typing import Iterable, Literal, Tuple, Union, Optional
 
 import torchao.float8.config as config
 
@@ -61,6 +61,7 @@ def amax_history_to_scale(
     float8_dtype: torch.Tensor,
     orig_dtype: torch.dtype,
     history_to_scale_fn_type: Literal["max"],
+    stack: bool
 ):
     """Takes in a history of amax values and returns a scale tensor.
     Args:
@@ -68,38 +69,35 @@ def amax_history_to_scale(
         float8_dtype: The float8 dtype.
         orig_dtype: The original dtype of the tensor.
         history_to_scale_fn_type: The type of function to use to convert the history to a scale.
+        stack: Whether the amax_history is a stack of amax histories and we will calculate amax of each entry in the stack.
     """
     if history_to_scale_fn_type == "max":
-        amax = torch.max(amax_history)
+        if stack:
+            amax = torch.max(amax_history, dim=1).values
+        else:
+            amax = torch.max(amax_history)
         return amax_to_scale(amax, float8_dtype, orig_dtype)
-    raise NotImplementedError()
-
-
-@torch.no_grad()
-def amax_history_to_scale_stack(
-    amax_history: torch.Tensor,
-    float8_dtype: torch.dtype,
-    orig_dtype: torch.dtype,
-    history_to_scale_fn_type: Literal["max"],
-) -> torch.Tensor:
-    """Takes in a stack of amax_history tensors and returns a scale tensor.
-    Args:
-        amax_history: A 2D tensor containing a stack of amax histories.
-        float8_dtype: The float8 dtype.
-        orig_dtype: The original dtype of the tensor.
-        history_to_scale_fn_type: The type of function to use to convert the history to a scale.
-    """
-    if history_to_scale_fn_type == "max":
-        amax_stack = torch.max(amax_history, dim=1).values
-        return amax_to_scale(amax_stack, float8_dtype, orig_dtype)
     raise NotImplementedError(
         f"Invalid history_to_scale_fn_type, only 'max' is supported. Got: {history_to_scale_fn_type}"
     )
 
 
 @torch.no_grad()
-def tensor_to_amax(x: torch.Tensor, reduce_amax: bool = False) -> torch.Tensor:
-    amax = torch.max(torch.abs(x))
+def tensor_to_amax(
+    x: torch.Tensor, tile_size: Optional[Tuple[int, int]], reduce_amax: bool = False
+) -> torch.Tensor:
+    if tile_size is None:
+        amax = torch.max(torch.abs(x))
+    else:
+        assert x.dim(), "NYI; only handles 2d inputs and group sizes for now"
+        assert x.dim() == len(
+            tile_size
+        ), f"len(tile_size) must match tensor dim, got len(tile_size)={len(tile_size)} and x.dim={x.dim()}"
+        assert x.shape[0] % tile_size[0] == 0 and x.shape[1] % tile_size[1] == 0, "Tensor shape must be divisible by group size"
+        tiled = x.unfold(0, tile_size[0], tile_size[0]).unfold(
+            1, tile_size[1], tile_size[1]
+        )
+        amax = torch.max(torch.abs(tiled), dim=(-1)).values.max(dim=-1).values
 
     # If the user asked for distributed reduction, do it.
     # If the user did not ask for it, assume that it will
@@ -112,9 +110,12 @@ def tensor_to_amax(x: torch.Tensor, reduce_amax: bool = False) -> torch.Tensor:
 
 @torch.no_grad()
 def tensor_to_scale(
-    x: torch.Tensor, float8_dtype: torch.dtype, reduce_amax: bool = False
+    x: torch.Tensor,
+    float8_dtype: torch.dtype,
+    tile_size: Optional[Tuple[int, int]],
+    reduce_amax: bool = False,
 ) -> torch.Tensor:
-    amax = tensor_to_amax(x, reduce_amax=reduce_amax)
+    amax = tensor_to_amax(x, tile_size, reduce_amax=reduce_amax)
     return amax_to_scale(amax, float8_dtype, x.dtype)
 
 
@@ -243,3 +244,40 @@ def pad_tensor_for_matmul(
     pad_dim2 = dim2_aligned - dim2
 
     return torch.nn.functional.pad(tensor, (0, pad_dim2, 0, pad_dim1))
+
+
+def repeat_scale(tensor: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
+    """
+    Repeat the scale tensor to match the dimensions of the input tensor.
+    
+    Args:
+        tensor (torch.Tensor): The input tensor.
+        scale (torch.Tensor): The scale tensor to be repeated.
+    
+    Returns:
+        torch.Tensor: The repeated scale tensor.
+    
+    Raises:
+        ValueError: If the scale and tensor dimensions are incompatible.
+    """
+    # Check dimensions
+    if not (scale.dim() in {0, 1} or (scale.dim() == tensor.dim() and scale.dim() == 2)):
+        raise ValueError(f"Scale and tensor must have compatible dimensions. "
+                         f"Got scale.dim() = {scale.dim()} and tensor.dim() = {tensor.dim()}")
+    
+    # Check if scale is a scalar (0-dim tensor)
+    if scale.dim() <= 1:
+        return scale
+    
+    # Initialize repeated scale
+    scales_repeated = scale
+    
+    # Repeat scale if necessary
+    if scale.dim() > 1:  # Skip this part if scale is 1-dimensional
+        for i in range(tensor.dim()):
+            # Check if repetition is needed
+            if tensor.shape[i] // scale.shape[i] not in {tensor.shape[i], 1}:
+                repeat_factor = tensor.shape[i] // scale.shape[i]
+                scales_repeated = scales_repeated.repeat_interleave(repeat_factor, dim=i)
+    
+    return scales_repeated
