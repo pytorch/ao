@@ -770,7 +770,7 @@
 <span class="sd">         size is more fine grained, choices are [256, 128, 64, 32]</span>
 <span class="sd">        `layout_type`: layout type for quantized tensor, default is `TensorCoreTiledLayoutType(inner_k_tiles=8)`</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">def</span> <span class="nf">apply_int4_weight_only_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">apply_int4_weight_only_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">use_hqq</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="n">group_size</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
             <span class="k">return</span> <span class="n">weight</span>
 
