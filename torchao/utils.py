@@ -7,6 +7,8 @@ import torch.nn.utils.parametrize as parametrize
 import itertools
 import time
 import warnings
+import re
+
 
 __all__ = [
     "benchmark_model",
@@ -279,23 +281,20 @@ def unwrap_tensor_subclass(model, filter_fn=None):
         unwrap_tensor_subclass(child)
     return model
 
+
 def parse_version(version_string):
-    # Remove any suffixes like '+cu121' or '.dev'
-    version = version_string.split('+')[0].split('.dev')[0]
-    return [int(x) for x in version.split('.')]
+    # Extract just the X.Y.Z part from the version string
+    match = re.match(r'(\d+\.\d+\.\d+)', version_string)
+    if match:
+        version = match.group(1)
+        return [int(x) for x in version.split('.')]
+    else:
+        raise ValueError(f"Invalid version string format: {version_string}")
 
 def compare_versions(v1, v2):
     v1_parts = parse_version(v1)
     v2_parts = parse_version(v2)
-    
-    for i in range(max(len(v1_parts), len(v2_parts))):
-        v1_part = v1_parts[i] if i < len(v1_parts) else 0
-        v2_part = v2_parts[i] if i < len(v2_parts) else 0
-        if v1_part > v2_part:
-            return 1
-        elif v1_part < v2_part:
-            return -1
-    return 0
+    return (v1_parts > v2_parts) - (v1_parts < v2_parts)
 
 def is_fbcode():
     return not hasattr(torch.version, "git_version")
