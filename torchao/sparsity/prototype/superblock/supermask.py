@@ -6,7 +6,6 @@ import torch
 from torch.autograd import Variable
 import torch.nn.functional as F
 import numpy as np
-# torch._dynamo.config.capture_scalar_outputs = True
 
 # original supermask
 scores_min=None

@@ -198,7 +198,6 @@ def main(args):
         verify_sparsity(model)
         if args.bsr:
             apply_bsr(model)
-
     if model_ema:
         evaluate(model_ema, criterion, data_loader_test, device=device, log_suffix="EMA", args=args)
     else:

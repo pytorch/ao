@@ -161,4 +161,4 @@ if __name__ == "__main__":
     args = get_args_parser().parse_args()
 
     result = main(args)
-    print(f"{result.3f} ms", file=sys.stderr)
+    print(f"{result:.3f} ms", file=sys.stderr)
