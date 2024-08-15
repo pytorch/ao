@@ -2,6 +2,7 @@ import torch
 from typing import Dict, Callable, Any, Tuple, Optional
 from collections import defaultdict
 import functools
+import math
 from torchao.quantization.quant_primitives import (
     choose_qparams_affine,
     quantize_affine,
@@ -9,6 +10,7 @@ from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
     MappingType,
     int_scaled_matmul,
+    quantize_affine_hqq,
 )
 from torchao.quantization.utils import (
     pack_tinygemm_scales_and_zeros,
@@ -27,7 +29,7 @@ from torchao.dtypes.utils import (
 )
 from torch.utils._python_dispatch import is_traceable_wrapper_subclass
 from dataclasses import dataclass
-from torchao.utils import TORCH_VERSION_AFTER_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 aten = torch.ops.aten
 
@@ -203,14 +205,26 @@ class AffineQuantizedTensor(torch.Tensor):
         preserve_zero: bool = True,
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
         layout_type: LayoutType = PlainLayoutType(),
+        use_hqq: bool = False,
     ):
         original_shape = input_float.shape
-        input_float = layout_type.pre_process(input_float)
 
-        scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain)
-        int_data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
+        if(use_hqq):
+            assert zero_point_domain == ZeroPointDomain.FLOAT and mapping_type == MappingType.ASYMMETRIC and quant_min==0, "Invalid input parameters for HQQ quantization."
+            nbits = int(math.log2(quant_max + 1))
+            axis  = 1 if (block_size[0]==1) else 0
+            group_size = max(block_size)
+            compute_dtype = zero_point_dtype if (zero_point_dtype is not None) else input_float.dtype
+            device = input_float.device
+            int_data, scale, zero_point, _ = quantize_affine_hqq(input_float, nbits=nbits, group_size=group_size, axis=axis, compute_dtype=compute_dtype, device=device, verbose=False, raw_output=False)
+            int_data = int_data.to(target_dtype)
+
+        else:
+            input_float = layout_type.pre_process(input_float)
+            scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain)
+            int_data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
+        
         int_data = layout_type.post_process(int_data)
-
         layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
         layout_tensor = layout_tensor_ctr(int_data, scale, zero_point, layout_type)
         return cls(
@@ -562,9 +576,11 @@ class TensorCoreTiledAQTLayout(AQTLayout):
         scale: torch.Tensor,
         zero_point: torch.Tensor,
         layout_type: LayoutType
-    ):
+    ):	
+        
         assert isinstance(layout_type, TensorCoreTiledLayoutType)
-        if TORCH_VERSION_AFTER_2_5:
+                
+        if TORCH_VERSION_AT_LEAST_2_5:
             int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
             assert int_data.dtype == torch.uint8, "torch.ops.aten._convert_weight_to_int4pack in torch 2.5 expects `uint8` dtype"
         else:
@@ -980,6 +996,6 @@ def _(func, types, args, kwargs):
 to_affine_quantized = AffineQuantizedTensor.from_float
 to_affine_quantized_static = AffineQuantizedTensor.from_float_static
 
-if TORCH_VERSION_AFTER_2_5:
+if TORCH_VERSION_AT_LEAST_2_5:
     # Allow a model with AffineQuantizedTensor weights to be loaded with `weights_only=True`
     torch.serialization.add_safe_globals([AffineQuantizedTensor])

@@ -14,7 +14,7 @@ import torchao
 import torch._dynamo.config
 import torch._inductor.config
 from torchao.utils import get_model_size_in_bytes
-from torchao.utils import TORCH_VERSION_AFTER_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 def device_sync(device):
     if "cuda" in device:
@@ -235,7 +235,7 @@ def main(
             # do autoquantization
             model.finalize_autoquant()
         else:
-            if not TORCH_VERSION_AFTER_2_5:
+            if not TORCH_VERSION_AT_LEAST_2_5:
                 unwrap_tensor_subclass(model)
 
     model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
