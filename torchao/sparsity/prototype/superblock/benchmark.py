@@ -12,9 +12,12 @@ import torch
 import torch.utils.data
 import utils
 from torch import nn
+from torch.sparse._triton_ops_meta import optimize_bsr_dense_addmm
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from supermask import apply_supermask, SupermaskLinear
+from blocksparse import BlockSparseTensor
+from utils import benchmark_inference
 
 
 def apply_sparsity(model):
@@ -25,20 +28,12 @@ def apply_sparsity(model):
 
 def apply_bsr(model, blocksize):
     for name, module in model.named_modules():
-            if isinstance(module, torch.nn.Linear) and "mlp" in name:
-                try:
-                    module.weight = torch.nn.Parameter(to_bsr(module.weight.data, blocksize))
-                    print(f"Converted {name} to bsr format.")
-                except ValueError as e:
-                    print(f"Unable to convert weight of {name} to bsr format: {e}")
-
-
-def to_bsr(tensor, blocksize):
-    if tensor.ndim != 2:
-        raise ValueError("to_bsr expects 2D tensor")
-    if tensor.size(0) % blocksize or tensor.size(1) % blocksize:
-        raise ValueError("Tensor dimensions must be divisible by blocksize")
-    return tensor.to_sparse_bsr(blocksize)
+        if isinstance(module, torch.nn.Linear) and "mlp" in name:
+            try:
+                module.weight = torch.nn.Parameter(BlockSparseTensor.from_dense(module.weight.data, blocksize))
+                print(f"Converted {name} to bsr format.")
+            except ValueError as e:
+                print(f"Unable to convert weight of {name} to bsr format: {e}")
 
 
 def verify_sparsity(model):
@@ -49,23 +44,7 @@ def verify_sparsity(model):
             sparsity_percentage = (sparse_weights / total_weights) * 100
             print(f"Sparsity verified in layer {name}: {sparsity_percentage:.2f}%")
 
-
-def benchmark_in_ms(warmup, iters, f, *args, **kwargs):
-    for _ in range(warmup):
-        f(*args, **kwargs)
-    torch.cuda.synchronize()
-    start_event = torch.cuda.Event(enable_timing=True)
-    end_event = torch.cuda.Event(enable_timing=True)
-    start_event.record()
-
-    for _ in range(iters):
-        f(*args, **kwargs)
-
-    end_event.record()
-    torch.cuda.synchronize()
-    return start_event.elapsed_time(end_event) / float(iters)
-
-
+@torch.inference_mode
 def main(args):
     print(args)
     device = torch.device(args.device)
@@ -83,8 +62,11 @@ def main(args):
         print("Using float16")
         dtype = torch.float16
 
-    # Sample input
-    # input = torch.rand(32, 3, 224, 224, dtype=dtype).to(device)
+    if args.bsr and args.tune_kernel_params:
+        print("Tuning kernel params")
+        assert args.model == "vit_b_16", "--tune-kernel-params only supported for vit-b-16!"
+        optimize_bsr_dense_addmm(3072, 768, 50432, args.bsr, args.bsr, dtype=dtype, sparsity=args.sparsity_linear, verbose=True)
+        optimize_bsr_dense_addmm(768, 3072, 50432, args.bsr, args.bsr, dtype=dtype, sparsity=args.sparsity_linear, verbose=True)
 
     print("Creating model")
     model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=num_classes)
@@ -112,7 +94,6 @@ def main(args):
             raise FileNotFoundError(f"No checkpoint found at {args.weights_path}.")
 
     model.to(device)
-    # output0 = model(input)
 
     if args.sparsify_weights:
         apply_sparsity(model)
@@ -134,9 +115,11 @@ def main(args):
         # output2 = model(input)
         # assert torch.allclose(output2, output1), "Output of model before and after changing format to BSR should be equal"
 
+    model = torch.compile(model, mode='max-autotune')
+
     image = torch.empty(args.batch_size, 3, args.val_crop_size, args.val_crop_size, dtype=dtype, device=device)
-    # model = torch.compile(model, mode='max-autotune')
-    return benchmark_in_ms(10, 100, model, image)
+
+    return benchmark_inference(10, 100, model, image)
 
 
 def get_args_parser(add_help=True):
@@ -169,6 +152,7 @@ def get_args_parser(add_help=True):
     parser.add_argument('--bsr', type=int, nargs='?', const=256, default=None, help='Convert sparsified weights to BSR format with optional block size (default: 256)')
     parser.add_argument("--bfloat16", action="store_true", help="Use bfloat16")
     parser.add_argument("--float16", action="store_true", help="Use float16")
+    parser.add_argument("--tune-kernel-params", action="store_true", help="Tune kernel params")
 
     return parser
 
@@ -176,4 +160,4 @@ def get_args_parser(add_help=True):
 if __name__ == "__main__":
     args = get_args_parser().parse_args()
     result = main(args)
-    print(f"{result} ms", file=sys.stderr)
+    print(f"{result:.3f} ms", file=sys.stderr)
