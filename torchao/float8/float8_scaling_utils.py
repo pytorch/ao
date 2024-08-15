@@ -36,7 +36,7 @@ def hp_tensor_to_float8_dynamic(
     linear_mm_config: LinearMMConfig,
     reduce_amax: bool = False,
     gemm_input_role: GemmInputRole = GemmInputRole.INPUT,
-    group_size: Optional[Tuple[int, int]] = None,
+    tile_size: Optional[Tuple[int, int]] = None,
 ) -> Float8Tensor:
     """
     Given a high precision tensor `hp_tensor`,
@@ -50,7 +50,7 @@ def hp_tensor_to_float8_dynamic(
         reduce_amax: whether to reduce the max(abs(hp_tensor)) value across distributed ranks
         gemm_input_role: Defines the role of this tensor (input, weight or grad_output) in
           the 3 fwd/bwd gemms of linear
-        group_size | None: This shape of the tile used to calculate the abs max of the input tensor.
+        tile_size | None: This shape of the tile used to calculate the abs max of the input tensor.
             Example: hp_tensor.shape = (M, K)
             - (M, N): The tile is the size of the tensor, i.e. the max is calculated for the entire tensor | TensorWise scaling
             - (1, M); 1 scale per row | RowWise scaling
@@ -58,7 +58,7 @@ def hp_tensor_to_float8_dynamic(
     """
     if tensor_already_casted_to_fp8(hp_tensor):
         return hp_tensor
-    scale = tensor_to_scale(hp_tensor, float8_dtype, group_size, reduce_amax)
+    scale = tensor_to_scale(hp_tensor, float8_dtype, tile_size, reduce_amax)
     return hp_tensor_and_scale_to_float8(
         hp_tensor,
         scale,
@@ -75,7 +75,7 @@ def hp_tensor_to_float8_delayed(
     amax_buffer: torch.Tensor,
     linear_mm_config: Optional[LinearMMConfig] = None,
     gemm_input_role: Optional[GemmInputRole] = GemmInputRole.INPUT,
-    group_size: Optional[Tuple[int, int]] = None,
+    tile_size: Optional[Tuple[int, int]] = None,
 ) -> Float8Tensor:
     """
     Given a high precision tensor `hp_tensor` and relevant metadata, scales it using
@@ -92,13 +92,13 @@ def hp_tensor_to_float8_delayed(
           the 3 fwd/bwd gemms of linear
         gemm_input_role: Defines the role of this tensor (input, weight or grad_output) in
           the 3 fwd/bwd gemms of linear
-        group_size: This shape of the tile used to calculate the abs max of the input tensor.
+        tile_size: This shape of the tile used to calculate the abs max of the input tensor.
             Example: hp_tensor.shape = (M, K)
             - (M, N) | None: The tile is the size of the tensor, i.e. the max is calculated for the entire tensor | TensorWise scaling
             - (1, M); 1 scale per row | RowWise scaling
             - (A, B); where A < M and B < K, 1 scale per (A, B) block | BlockWise scaling
     """
-    amax_buffer.fill_(tensor_to_amax(hp_tensor, group_size))
+    amax_buffer.fill_(tensor_to_amax(hp_tensor, tile_size))
     return hp_tensor_and_scale_to_float8(
         hp_tensor,
         s,
@@ -130,7 +130,7 @@ def _maybe_initialize_amaxes_scales_for_float8_cast(
         # activations and gradients
 
         # We hardcode TensorWise Scaling on delayed scaling for now
-        new_amax = tensor_to_amax(x, group_size=None, reduce_amax=reduce_amax)
+        new_amax = tensor_to_amax(x, tile_size=None, reduce_amax=reduce_amax)
         cur_amax.fill_(new_amax)
         amax_history[0] = new_amax
         new_scale = amax_history_to_scale(

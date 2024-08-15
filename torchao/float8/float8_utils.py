@@ -84,18 +84,18 @@ def amax_history_to_scale(
 
 @torch.no_grad()
 def tensor_to_amax(
-    x: torch.Tensor, group_size: Optional[Tuple[int, int]], reduce_amax: bool = False
+    x: torch.Tensor, tile_size: Optional[Tuple[int, int]], reduce_amax: bool = False
 ) -> torch.Tensor:
-    if group_size is None:
+    if tile_size is None:
         amax = torch.max(torch.abs(x))
     else:
         assert x.dim(), "NYI; only handles 2d inputs and group sizes for now"
         assert x.dim() == len(
-            group_size
-        ), f"len(group_size) must match tensor dim, got len(group_size)={len(group_size)} and x.dim={x.dim()}"
-        assert x.shape[0] % group_size[0] == 0 and x.shape[1] % group_size[1] == 0, "Tensor shape must be divisible by group size"
-        tiled = x.unfold(0, group_size[0], group_size[0]).unfold(
-            1, group_size[1], group_size[1]
+            tile_size
+        ), f"len(tile_size) must match tensor dim, got len(tile_size)={len(tile_size)} and x.dim={x.dim()}"
+        assert x.shape[0] % tile_size[0] == 0 and x.shape[1] % tile_size[1] == 0, "Tensor shape must be divisible by group size"
+        tiled = x.unfold(0, tile_size[0], tile_size[0]).unfold(
+            1, tile_size[1], tile_size[1]
         )
         amax = torch.max(torch.abs(tiled), dim=(-1)).values.max(dim=-1).values
 
@@ -112,10 +112,10 @@ def tensor_to_amax(
 def tensor_to_scale(
     x: torch.Tensor,
     float8_dtype: torch.dtype,
-    group_size: Optional[Tuple[int, int]],
+    tile_size: Optional[Tuple[int, int]],
     reduce_amax: bool = False,
 ) -> torch.Tensor:
-    amax = tensor_to_amax(x, group_size, reduce_amax=reduce_amax)
+    amax = tensor_to_amax(x, tile_size, reduce_amax=reduce_amax)
     return amax_to_scale(amax, float8_dtype, x.dtype)
 
 
