@@ -13,7 +13,7 @@ import torch
 import unittest
 import tempfile
 from torchao.utils import (
-    TORCH_VERSION_AFTER_2_5,
+    TORCH_VERSION_AT_LEAST_2_5,
 )
 
 
@@ -46,7 +46,7 @@ class TestAffineQuantized(TestCase):
                 torch.save(ql.state_dict(), f)
                 f.seek(0)
                 # `weights_only=True` is enabled for torch 2.5+
-                if TORCH_VERSION_AFTER_2_5:
+                if TORCH_VERSION_AT_LEAST_2_5:
                     _ = torch.load(f, weights_only=True)
                 else:
                     _ = torch.load(f, weights_only=False)

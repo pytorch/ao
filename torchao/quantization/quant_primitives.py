@@ -12,8 +12,8 @@ import torch, math
 from torchao.kernel.intmm import int_scaled_matmul
 from torchao.kernel.intmm import safe_int_mm
 from torchao.utils import (
-    TORCH_VERSION_AFTER_2_3,
-    TORCH_VERSION_AFTER_2_5,
+    TORCH_VERSION_AT_LEAST_2_3,
+    TORCH_VERSION_AT_LEAST_2_5,
 )
 from torchao.utils import _register_custom_op
 
@@ -22,6 +22,7 @@ __all__ = [
     "safe_int_mm",
     "int_scaled_matmul",
     "choose_qparams_affine",
+    "choose_qparams_affine_with_min_max",
     "quantize_affine",
     "dequantize_affine",
     "fake_quantize_affine",
@@ -54,7 +55,7 @@ class ZeroPointDomain(Enum):
     INT = auto()
     FLOAT = auto()
 
-if TORCH_VERSION_AFTER_2_5:
+if TORCH_VERSION_AT_LEAST_2_5:
     torch.serialization.add_safe_globals([MappingType, ZeroPointDomain])
 
 """
@@ -68,7 +69,7 @@ _DTYPE_TO_QVALUE_BOUNDS: Dict[torch.dtype, Tuple[int, int]] = {
     torch.int32: (-(2**31), 2**31 - 1),
 }
 
-if TORCH_VERSION_AFTER_2_3:
+if TORCH_VERSION_AT_LEAST_2_3:
     _DTYPE_TO_QVALUE_BOUNDS.update({
         torch.uint1: (0, 2**1-1),
         torch.uint2: (0, 2**2-1),
@@ -572,9 +573,51 @@ def choose_qparams_affine(
         zero_point_domain.name
     )
 
+
+def choose_qparams_affine_with_min_max(
+   min_val: torch.Tensor,
+   max_val: torch.Tensor,
+   mapping_type: MappingType,
+   block_size: Tuple[int, ...],
+   target_dtype: torch.dtype,
+   quant_min: Optional[int] = None,
+   quant_max: Optional[int] = None,
+   eps: Optional[float] = None,
+   scale_dtype: Optional[torch.dtype] = None,
+   zero_point_dtype: Optional[torch.dtype] = None,
+   preserve_zero: bool = True,
+   zero_point_domain = ZeroPointDomain.INT,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """A variant of :func:`~torchao.quantization.quant_primitives.choose_qparams_affine`
+    operator that pass in min_val and max_val directly instead of deriving these from a single input.
+    This is used for observers in static quantization where min_val and max_val may be obtained through
+    tracking all the data in calibration data set.
+
+    Args:
+      Mostly same as :func:`~torchao.quantization.quant_primitives.choose_qparams_affine`. with one
+      difference: instead of passing in `input` Tensor and use that to calculate min_val/max_val
+      and then scale/zero_point, we pass in min_val/max_val directly
+    """
+    return _choose_qparams_affine(
+        None,
+        mapping_type.name,
+        block_size,
+        target_dtype,
+        quant_min,
+        quant_max,
+        eps,
+        scale_dtype,
+        zero_point_dtype,
+        preserve_zero,
+        zero_point_domain.name,
+        min_val,
+        max_val,
+    )
+
+
 @register_custom_op
 def _choose_qparams_affine(
-   input: torch.Tensor,
+   input: Optional[torch.Tensor],
    mapping_type: str,
    block_size: List[int],
    target_dtype: torch.dtype,
@@ -585,23 +628,38 @@ def _choose_qparams_affine(
    zero_point_dtype: Optional[torch.dtype] = None,
    preserve_zero: bool = True,
    zero_point_domain: str = "INT",
+   min_val: Optional[torch.Tensor] = None,
+   max_val: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """op definition that has compatible signatures with custom op library
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
     assert mapping_type in [MappingType.SYMMETRIC.name, MappingType.ASYMMETRIC.name], f"Unsupported mapping type: {mapping_type}"
 
-    if scale_dtype is None:
-        scale_dtype = input.dtype
-    if zero_point_dtype is None:
-        zero_point_dtype = input.dtype
+    if input is not None:
+        if scale_dtype is None:
+            scale_dtype = input.dtype
+        if zero_point_dtype is None:
+            zero_point_dtype = input.dtype
+        if eps is None:
+            eps = torch.finfo(input.dtype).eps
 
-    assert len(block_size) == input.dim(), f"Got input dim:{input.dim()}, block_size: {block_size}"
-    shape_for_reduction, reduction_dims = _get_reduction_params(block_size, input.size())
-    input = input.view(shape_for_reduction)
+        assert len(block_size) == input.dim(), f"Got input dim:{input.dim()}, block_size: {block_size}"
+        shape_for_reduction, reduction_dims = _get_reduction_params(block_size, input.size())
+        input = input.view(shape_for_reduction)
 
-    min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
-    max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
+        min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
+        max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
+    else:
+        assert min_val is not None and max_val is not None, "Need to provide `min_val` and `max_val` when `input` is None, got: {min_val, max_val}"
+        assert min_val.dtype == max_val.dtype, "Expecting `min_val` and `max_val` to have the same dtype, got: {min_val.dtype, max_val.dtype}"
+
+        if scale_dtype is None:
+            scale_dtype = min_val.dtype
+        if zero_point_dtype is None:
+            zero_point_dtype = min_val.dtype
+        if eps is None:
+            eps = torch.finfo(min_val.dtype).eps
 
     if preserve_zero:
         min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
@@ -617,10 +675,12 @@ def _choose_qparams_affine(
             raise ValueError("preserve_zero == False is not supported for symmetric quantization")
         if zero_point_domain != ZeroPointDomain.INT.name:
             raise ValueError("zero_point_domain != ZeroPointDomain.INT is not supported for symmetric quantization")
+        scale = torch.clamp(scale, min=eps)
         zero_point = torch.full_like(scale, int((quant_max + quant_min + 1) / 2))
     else:
         assert mapping_type == MappingType.ASYMMETRIC.name
         scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
+        scale = torch.clamp(scale, min=eps)
         if preserve_zero:
             zero_point = quant_min - torch.round(min_val_neg / scale)
             zero_point = torch.clamp(zero_point, quant_min, quant_max)
@@ -628,10 +688,6 @@ def _choose_qparams_affine(
             assert zero_point_domain == ZeroPointDomain.FLOAT.name, "if not preserve_zero, zero_point must be in FLOAT domain"
             mid_point = (quant_max + quant_min + 1) / 2
             zero_point = min_val_neg + scale * mid_point
-
-    if eps is None:
-        eps = torch.finfo(input.dtype).eps
-    scale = torch.clamp(scale, min=eps)
 
     return scale.to(dtype=scale_dtype), zero_point.to(dtype=zero_point_dtype)
 

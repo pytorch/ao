@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 from typing import Optional, List
 from functools import reduce
 

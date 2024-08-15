@@ -12,6 +12,25 @@ from typing import List, Optional, Tuple
 import torch
 import torch.distributed as dist
 
+### IMAGENET UTILS
+@torch.inference_mode
+def benchmark_inference(warmup, iters, f, *args, **kwargs):
+    for _ in range(warmup):
+        f(*args, **kwargs)
+
+    torch.cuda.synchronize()
+    start_event = torch.cuda.Event(enable_timing=True)
+    end_event = torch.cuda.Event(enable_timing=True)
+    start_event.record()
+
+    for _ in range(iters):
+        f(*args, **kwargs)
+
+    end_event.record()
+    torch.cuda.synchronize()
+    return start_event.elapsed_time(end_event) / float(iters)
+
+
 
 class SmoothedValue:
     """Track a series of values and provide access to smoothed values over a

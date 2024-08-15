@@ -6,7 +6,7 @@ import sys
 import pathlib
 
 import torch
-from torchao.utils import TORCH_VERSION_AFTER_2_4, TORCH_VERSION_AFTER_2_2
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_2
 
 
 # Check if CUDA is available, if not, exit the script
