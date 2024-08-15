@@ -396,6 +396,7 @@ class WeightWithDelayedFloat8CastTensor(torch.Tensor):
                 e4m3_dtype,
                 self.is_amax_initialized,
                 reduce_amax=True,
+                tile_size=None
             )
             self.is_amax_initialized = True
 
@@ -406,6 +407,7 @@ class WeightWithDelayedFloat8CastTensor(torch.Tensor):
             self._amax_buffer,
             self._linear_mm_config,
             GemmInputRole.WEIGHT,
+            tile_size=None,
         )
         return (float8_tensor._data,), (float8_tensor._scale,)
 
