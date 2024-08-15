@@ -130,13 +130,9 @@ class SupermaskLinear(nn.Linear):
         if not self.sparsify_weights:
             subnet = self.get_mask()
             w = (self.weight*self.scale+self.shift) * subnet
-            return F.linear(x, w, self.bias)
         else:
             w = self.weight
-            crow_indicies = w.crow_indices()
-            col_indices = w.col_indices()
-            values = w.values()
-            return torch.ops.blocksparse.linear(x, crow_indicies, col_indices, values, w.shape[0], w.shape[1], self.bias)
+        return F.linear(x, w, self.bias)
     
 
 class SupermaskConv2d(nn.Conv2d):
