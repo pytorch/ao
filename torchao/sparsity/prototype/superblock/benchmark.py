@@ -12,10 +12,11 @@ import torch
 import torch.utils.data
 import utils
 from torch import nn
+from torch.sparse._triton_ops_meta import optimize_bsr_dense_addmm
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from supermask import apply_supermask, SupermaskLinear
-from blocksparse_subclass import BlockSparseTensor
+from blocksparse import BlockSparseTensor
 
 def apply_sparsity(model):
     for name, module in model.named_modules():
@@ -23,14 +24,14 @@ def apply_sparsity(model):
             module.sparsify_offline()
 
 
-def apply_bsr(model, blocksize=64):
+def apply_bsr(model, blocksize):
     for name, module in model.named_modules():
-            if isinstance(module, torch.nn.Linear) and "mlp" in name:
-                try:
-                    module.weight = torch.nn.Parameter(BlockSparseTensor.from_dense(module.weight.data, blocksize))
-                    print(f"Converted {name} to bsr format.")
-                except ValueError as e:
-                    print(f"Unable to convert weight of {name} to bsr format: {e}")
+        if isinstance(module, torch.nn.Linear) and "mlp" in name:
+            try:
+                module.weight = torch.nn.Parameter(BlockSparseTensor.from_dense(module.weight.data, blocksize))
+                print(f"Converted {name} to bsr format.")
+            except ValueError as e:
+                print(f"Unable to convert weight of {name} to bsr format: {e}")
 
 
 def to_bsr(tensor, blocksize):
@@ -83,6 +84,12 @@ def main(args):
         print("Using float16")
         dtype = torch.float16
 
+    if args.bsr and args.tune_kernel_params:
+        print("Tuning kernel params")
+        assert args.model == "vit_b_16", "--tune-kernel-params only supported for vit-b-16!"
+        optimize_bsr_dense_addmm(3072, 768, 50432, args.bsr, args.bsr, dtype=dtype, sparsity=args.sparsity_linear, verbose=True)
+        optimize_bsr_dense_addmm(768, 3072, 50432, args.bsr, args.bsr, dtype=dtype, sparsity=args.sparsity_linear, verbose=True)
+
     # Sample input
     # input = torch.rand(32, 3, 224, 224, dtype=dtype).to(device)
 
@@ -134,10 +141,9 @@ def main(args):
         # output2 = model(input)
         # assert torch.allclose(output2, output1), "Output of model before and after changing format to BSR should be equal"
 
-    image = torch.empty(args.batch_size, 3, args.val_crop_size, args.val_crop_size, dtype=dtype, device=device)
-
-    
     model = torch.compile(model, mode='max-autotune')
+
+    image = torch.empty(args.batch_size, 3, args.val_crop_size, args.val_crop_size, dtype=dtype, device=device)
 
     return benchmark_in_ms(10, 100, model, image)
 
@@ -179,18 +185,6 @@ def get_args_parser(add_help=True):
 
 if __name__ == "__main__":
     args = get_args_parser().parse_args()
-    if args.bsr and args.tune_kernel_params:
-        print("TUNING BSR params for vit-b shapes")
-        if args.bfloat16:
-            dtype = torch.bfloat16
-        elif args.float16:
-            dtype = torch.float16
-        else:
-            dtype = torch.float32
-        assert args.model == "vit_b_16", "Only vit-b-16 is supported for now"
-        optimize_bsr_dense_addmm(3072, 768, 50432, args.bsr, args.bsr, dtype=dtype, sparsity=args.sparsity_linear, verbose=True)
-        optimize_bsr_dense_addmm(768, 3072, 50432, args.bsr, args.bsr, dtype=dtype, sparsity=args.sparsity_linear, verbose=True)
 
-    print("BENCHMARKING")
     result = main(args)
     print(f"{result} ms", file=sys.stderr)
