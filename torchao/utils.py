@@ -7,6 +7,7 @@ import torch.nn.utils.parametrize as parametrize
 import itertools
 import time
 import warnings
+import re
 
 __all__ = [
     "benchmark_model",
@@ -282,20 +283,37 @@ def unwrap_tensor_subclass(model, filter_fn=None):
 def parse_version(version_string):
     # Remove any suffixes like '+cu121' or '.dev'
     version = version_string.split('+')[0].split('.dev')[0]
-    return [int(x) for x in version.split('.')]
+    parts = re.findall(r'\d+|\D+', version)
+    return [int(x) if x.isdigit() else x for x in parts]
 
 def compare_versions(v1, v2):
     v1_parts = parse_version(v1)
     v2_parts = parse_version(v2)
-    
     for i in range(max(len(v1_parts), len(v2_parts))):
-        v1_part = v1_parts[i] if i < len(v1_parts) else 0
-        v2_part = v2_parts[i] if i < len(v2_parts) else 0
-        if v1_part > v2_part:
+        if i >= len(v1_parts):
+            return -1
+        elif i >= len(v2_parts):
             return 1
-        elif v1_part < v2_part:
+        
+        v1_part = v1_parts[i]
+        v2_part = v2_parts[i]
+        
+        if isinstance(v1_part, int) and isinstance(v2_part, int):
+            if v1_part > v2_part:
+                return 1
+            elif v1_part < v2_part:
+                return -1
+        elif isinstance(v1_part, str) and isinstance(v2_part, str):
+            if v1_part > v2_part:
+                return 1
+            elif v1_part < v2_part:
+                return -1
+        elif isinstance(v1_part, int):
+            return 1
+        else:
             return -1
     return 0
+
 
 def is_fbcode():
     return not hasattr(torch.version, "git_version")
