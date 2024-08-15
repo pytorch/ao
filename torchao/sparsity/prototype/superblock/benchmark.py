@@ -20,8 +20,7 @@ from torchao.sparsity import sparsify_, apply_fake_sparsity, int8_dynamic_activa
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from supermask import apply_supermask, SupermaskLinear
 from blocksparse import BlockSparseTensor
-from utils import benchmark_inference
-from torchao.utils import benchmark_model
+from torchao.utils import benchmark_model, profiler_runner
 
 
 def apply_sparsity(model):
@@ -140,7 +139,14 @@ def main(args):
     model = torch.compile(model, mode='max-autotune', fullgraph=True)
 
     image = torch.randn(args.batch_size, 3, args.val_crop_size, args.val_crop_size, dtype=dtype, device=device)
-    return benchmark_inference(10, 100, model, image) 
+
+    # warmup
+    benchmark_model(model, 10, args=(image,)) 
+    if args.profile:
+        return profiler_runner(f"{time.time()}.json.gz", benchmark_model, model, 10, (image,)) 
+    else:
+        return benchmark_model(model, 10, args=(image,)) 
+
 
 
 def get_args_parser(add_help=True):
@@ -174,6 +180,7 @@ def get_args_parser(add_help=True):
     parser.add_argument("--bfloat16", action="store_true", help="Use bfloat16")
     parser.add_argument("--float16", action="store_true", help="Use float16")
     parser.add_argument("--tune-kernel-params", action="store_true", help="Tune kernel params")
+    parser.add_argument("--profile", action="store_true", help="Profile the run and dump Prefetto trace")   
 
     return parser
 
