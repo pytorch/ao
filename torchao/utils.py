@@ -190,7 +190,7 @@ def _register_custom_op(lib):
             op_name = fn.__name__[1:]
             schema = op_name + infer_schema(fn, mutates_args={})
             lib.define(schema)
-            lib.impl(op_name, fn, "CompositeImplicitAutograd")
+            lib.impl(op_name, fn, "CompositeExplicitAutograd")
 
             lib_namespace = lib.ns
             op = getattr(getattr(torch.ops, lib_namespace), op_name)
