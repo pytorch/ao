@@ -93,6 +93,7 @@ def tensor_to_amax(
         assert x.dim() == len(
             group_size
         ), f"len(group_size) must match tensor dim, got len(group_size)={len(group_size)} and x.dim={x.dim()}"
+        assert x.shape[0] % group_size[0] == 0 and x.shape[1] % group_size[1] == 0, "Tensor shape must be divisible by group size"
         tiled = x.unfold(0, group_size[0], group_size[0]).unfold(
             1, group_size[1], group_size[1]
         )
@@ -243,3 +244,40 @@ def pad_tensor_for_matmul(
     pad_dim2 = dim2_aligned - dim2
 
     return torch.nn.functional.pad(tensor, (0, pad_dim2, 0, pad_dim1))
+
+
+def repeat_scale(tensor: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
+    """
+    Repeat the scale tensor to match the dimensions of the input tensor.
+    
+    Args:
+        tensor (torch.Tensor): The input tensor.
+        scale (torch.Tensor): The scale tensor to be repeated.
+    
+    Returns:
+        torch.Tensor: The repeated scale tensor.
+    
+    Raises:
+        ValueError: If the scale and tensor dimensions are incompatible.
+    """
+    # Check dimensions
+    if not (scale.dim() in {0, 1} or (scale.dim() == tensor.dim() and scale.dim() == 2)):
+        raise ValueError(f"Scale and tensor must have compatible dimensions. "
+                         f"Got scale.dim() = {scale.dim()} and tensor.dim() = {tensor.dim()}")
+    
+    # Check if scale is a scalar (0-dim tensor)
+    if scale.dim() <= 1:
+        return scale
+    
+    # Initialize repeated scale
+    scales_repeated = scale
+    
+    # Repeat scale if necessary
+    if scale.dim() > 1:  # Skip this part if scale is 1-dimensional
+        for i in range(tensor.dim()):
+            # Check if repetition is needed
+            if tensor.shape[i] // scale.shape[i] not in {tensor.shape[i], 1}:
+                repeat_factor = tensor.shape[i] // scale.shape[i]
+                scales_repeated = scales_repeated.repeat_interleave(repeat_factor, dim=i)
+    
+    return scales_repeated

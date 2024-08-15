@@ -14,6 +14,7 @@ from torchao.float8.float8_utils import (
     e4m3_dtype,
     tensor_to_amax,
     to_fp8_saturated,
+    repeat_scale
 )
 from torch.distributed._tensor import DTensor
 
@@ -155,21 +156,7 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
 
         DTensor Invariant: DTensor must always be the outer most tensor subclass
         """
-        scales_repeated = scale
-
-        assert scale.dim() in {0, 1} or (
-            scale.dim() == tensor.dim() and scale.dim() == 2
-        ), f"scale and tensor must have the same number of dimensions, got scale.dim() = {scale.dim()} and tensor.dim() = {tensor.dim()}"
-
-        if scale.dim() > 1:  # Skip this part if scale is a scalar
-            for i in range(tensor.dim()):
-                # Needs repeat factor if not braodcastable
-                if tensor.shape[i] // scale.shape[i] not in {tensor.shape[i], 1}:
-                    repeat_factor = tensor.shape[i] // scale.shape[i]
-                    scales_repeated = scales_repeated.repeat_interleave(
-                        repeat_factor, dim=i
-                    )
-
+        scales_repeated = repeat_scale(tensor, scale)
         tensor_scaled = tensor * scales_repeated
         bits_fp8 = to_fp8_saturated(tensor_scaled, float8_dtype)
 
@@ -220,7 +207,7 @@ class _FromFloat8ConstrFunc(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, tensor):
-        return tensor._data.to(tensor._orig_dtype) / tensor._scale
+        return tensor._data.to(tensor._orig_dtype) / repeat_scale(tensor, tensor._scale).to(tensor._orig_dtype)
 
     @staticmethod
     def backward(ctx, g):

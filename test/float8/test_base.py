@@ -45,6 +45,9 @@ from torchao.float8.float8_utils import (
     FP8_TYPES,
     tensor_to_scale,
 )
+from torchao.float8.float8_scaling_utils import (
+    hp_tensor_to_float8_dynamic
+)
 from torchao.float8.inference import (
     ActivationCasting,
     QuantConfig,
@@ -148,6 +151,85 @@ class TestFloat8Tensor(unittest.TestCase):
         torch.save(fp8_module.state_dict(), buffer)
         buffer.seek(0)
         _ = torch.load(buffer, weights_only=True)
+
+    def test_group_wise_scaling(self):
+        M, N = 16, 32
+        a = torch.rand(M, N)
+        
+        # Test tensor-wise scaling
+        tst = hp_tensor_to_float8_dynamic(a, torch.float8_e4m3fn, LinearMMConfig(), group_size=(M, N))
+        self.assertEqual(tst._scale.shape, torch.Size([1, 1]))
+        
+        # Test row-wise scaling
+        tst = hp_tensor_to_float8_dynamic(a, torch.float8_e4m3fn, LinearMMConfig(), group_size=(1, N))
+        self.assertEqual(tst._scale.shape, torch.Size([M, 1]))
+        
+        # Test block-wise scaling
+        tst = hp_tensor_to_float8_dynamic(a, torch.float8_e4m3fn, LinearMMConfig(), group_size=(4, 4))
+        self.assertEqual(tst._scale.shape, torch.Size([4, 8]))
+
+    def test_group_wise_scaling_different_shapes(self):
+        test_cases = [
+            ((32, 64), (1, 32)),
+            ((32, 64), (8, 8)),
+            ((32, 64), (16, 16)),
+            ((64, 32), (1, 32)),
+            ((64, 32), (8, 8)),
+            ((64, 32), (16, 16)),
+            ((128, 128), (1, 32)),
+            ((128, 128), (8, 8)),
+            ((128, 128), (16, 16)),
+        ]
+        
+        for shape, group_size in test_cases:
+            with self.subTest(shape=shape, group_size=group_size):
+                a = torch.rand(*shape)
+                tst = hp_tensor_to_float8_dynamic(a, torch.float8_e4m3fn, LinearMMConfig(), group_size=group_size)
+                expected_scale_shape = (shape[0] // group_size[0], shape[1] // group_size[1])
+                self.assertEqual(tst._scale.shape, torch.Size(expected_scale_shape))
+
+    def test_group_wise_scaling_preserves_dtype(self):
+        M, N = 16, 32
+        a = torch.rand(M, N, dtype=torch.float16)
+        group_size = (4, 4)
+        
+        tst = hp_tensor_to_float8_dynamic(a, torch.float8_e4m3fn, LinearMMConfig(), group_size=group_size)
+        self.assertEqual(tst.to_original_precision().dtype, torch.float16)
+
+    def test_group_wise_scaling_invalid_group_size(self):
+        M, N = 16, 32
+        a = torch.rand(M, N)
+        
+        with self.assertRaises(AssertionError):
+            hp_tensor_to_float8_dynamic(a, torch.float8_e4m3fn, LinearMMConfig(), group_size=(3, 3))
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    def test_group_wise_scaling_gpu(self):
+        M, N = 16, 32
+        a = torch.rand(M, N).cuda()
+        group_size = (4, 4)
+        
+        tst = hp_tensor_to_float8_dynamic(a, torch.float8_e4m3fn, LinearMMConfig(), group_size=group_size)
+        self.assertTrue(tst._scale.is_cuda)
+        self.assertEqual(tst._scale.shape, torch.Size([4, 8]))
+
+    def test_group_wise_scaling_backward(self):
+        M, N = 16, 32
+        a = torch.rand(M, N, requires_grad=True)
+        group_size = (4, 4)
+        
+        tst = hp_tensor_to_float8_dynamic(a, torch.float8_e4m3fn, LinearMMConfig(), group_size=group_size)
+        loss = tst.to_original_precision().sum()
+        loss.backward()
+        
+        self.assertIsNotNone(a.grad)
+        self.assertEqual(a.grad.shape, a.shape)
+
+    def test_3d_tensor_scaling_fails(self):
+        with pytest.raises(ValueError):
+            b = torch.rand((16, 16, 16), dtype=torch.bfloat16)
+            hp_tensor_to_float8_dynamic(b, torch.float8_e4m3fn, LinearMMConfig(), group_size=(4, 4, 4))
+
 
 
 class TestFloat8Linear:
