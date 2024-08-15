@@ -1,9 +1,5 @@
 import torch
 from typing import Optional, Tuple, List, Dict, Any, Callable
-
-import torch
-from typing import Optional, Tuple, List, Dict, Any, Callable
-from torch.sparse._triton_ops import bsr_dense_addmm_meta, broadcast_batch_dims, prepare_inputs, bsr_dense_addmm
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.dtypes.utils import (
     _implements,
@@ -17,7 +13,6 @@ def blocksparse_linear(A: torch.Tensor, crow_indices: torch.Tensor, col_indices:
     weight_bsr = torch.sparse_bsr_tensor(crow_indices, col_indices, values, size=(M, K))
     return torch.nn.functional.linear(A, weight_bsr, bias)
 
-# # Write the FakeTensor kernel
 @torch.library.register_fake("blocksparse::linear")
 def blocksparse_linear_abstract(A: torch.Tensor, crow_indices: torch.Tensor, col_indices: torch.Tensor, values: torch.Tensor, M: int, K:int , bias: torch.Tensor) -> torch.Tensor:
     new_shape = A.shape[:-1] + (bias.shape[0],)
@@ -42,7 +37,6 @@ class BlockSparseTensor(torch.Tensor):
         bsr_crow_indicies: Optional[torch.Tensor],
         bsr_col_indicies: Optional[torch.Tensor],
         bsr_values: Optional[torch.Tensor],
-        transposed: bool = False,
         requires_grad: bool = False,
     ):
         if bsr_values is not None:
@@ -60,7 +54,6 @@ class BlockSparseTensor(torch.Tensor):
         tensor.bsr_crow_indicies = bsr_crow_indicies
         tensor.bsr_col_indicies = bsr_col_indicies
         tensor.bsr_values = bsr_values
-        tensor.transposed = transposed
         return tensor
 
     def __repr__(self) -> str:  # type: ignore[override]
@@ -107,7 +100,6 @@ class BlockSparseTensor(torch.Tensor):
             bsr_crow_indicies=crow_indicies,
             bsr_col_indicies=col_indicies,
             bsr_values=values,
-            transposed=False,
             requires_grad=False,
         )
 
@@ -117,30 +109,14 @@ class BlockSparseTensor(torch.Tensor):
             bsr_crow_indicies=func(self.bsr_crow_indicies),
             bsr_col_indicies=func(self.bsr_col_indicies),
             bsr_values=func(self.bsr_values),
-            transposed=self.transposed,
             requires_grad=self.requires_grad,
         )
-
-    def transpose(self):
-        return BlockSparseTensor(
-            shape = torch.Size([self.shape[-1], self.shape[0]]),
-            bsr_crow_indicies=self.bsr_crow_indicies,
-            bsr_col_indicies=self.bsr_col_indicies,
-            bsr_values=self.bsr_values,
-            transposed=not self.transposed,
-            requires_grad=self.requires_grad,
-        )
-
 
 implements = BlockSparseTensor.implements
 
 @implements(aten.detach.default)
 def block_sparse_detach(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, args[0].apply_fn_to_shard(torch.detach))
-
-@implements(aten.t.default)
-def block_sparse_transpose(func, types, args, kwargs):
-    return return_and_correct_aliasing(func, args, kwargs, args[0].transpose())
 
 @implements(aten.values.default)
 def block_sparse_values(func, types, args, kwargs):
