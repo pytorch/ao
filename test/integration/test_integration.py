@@ -913,7 +913,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
         if dtype == torch.bfloat16 and torch.cuda.get_device_capability() < (8, 0):
             self.skipTest("test requires SM capability of at least (8, 0).")
         from torch._inductor import config
-        mixed_mm_key, mixed_mm_val = ("mixed_mm_choice", "triton") if TORCH_VERSION_AT_LEAST_2_4 else ("force_mixed_mm", True)
+        mixed_mm_key, mixed_mm_val = ("mixed_mm_choice", "triton") if TORCH_VERSION_AT_LEAST_2_5 else ("force_mixed_mm", True)
 
         with config.patch({
             "epilogue_fusion": True,
@@ -943,7 +943,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
             self.skipTest("test requires SM capability of at least (8, 0).")
         torch.manual_seed(0)
         from torch._inductor import config
-        mixed_mm_key, mixed_mm_val = ("mixed_mm_choice", "triton") if TORCH_VERSION_AT_LEAST_2_4 else ("force_mixed_mm", True)
+        mixed_mm_key, mixed_mm_val = ("mixed_mm_choice", "triton") if TORCH_VERSION_AT_LEAST_2_5 else ("force_mixed_mm", True)
 
         with config.patch({
             "epilogue_fusion": False,
