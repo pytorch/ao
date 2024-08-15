@@ -20,3 +20,4 @@ ninja
 
 # Linting
 ruff
+pre-commit
