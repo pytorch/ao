@@ -11,6 +11,11 @@ from torchao.dtypes.affine_quantized_tensor import (
     MappingType,
 )
 
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_4,
+    TORCH_VERSION_AT_LEAST_2_5,
+)
+
 cuda_available = torch.cuda.is_available()
 
 #Parameters
@@ -37,11 +42,18 @@ def _init_data(in_features, out_features, compute_dtype, device, torch_seed):
 
 def _eval_hqq(nbits, layout_type):
     W, x, y_ref  = _init_data(in_features, out_features, compute_dtype, device, torch_seed)
+    
+    #Plain layout
+    target_dtype = torch.uint8
+    #Tensorcore layout
+    if isinstance(layout_type, TensorCoreTiledLayoutType):
+    	target_dtype = torch.uint8 if TORCH_VERSION_AT_LEAST_2_5 else torch.int32
+    	
     q_tensor_hqq = to_affine_quantized(
             input_float=W,
             mapping_type=mapping_type,
             block_size=block_size,
-            target_dtype=torch.int32 if isinstance(layout_type, TensorCoreTiledLayoutType) else torch.uint8,
+            target_dtype=target_dtype,
             quant_min=0,
             quant_max=2**nbits - 1,
             zero_point_domain=zero_point_domain,
