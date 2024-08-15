@@ -17,30 +17,11 @@ uniform_init_01 = False
 # scores_min=0.
 # scores_max=1.
 # uniform_init_01 = True
-torch.ops.import_module("blocksparse_subclass")
 
 def percentile(t, q):
     """Return the value that is larger than q% of t"""
     k = 1 + round(.01 * float(q) * (t.numel() - 1))
     return t.view(-1).kthvalue(k).values
-
-
-def to_bsr(tensor, blocksize=256):
-    if tensor.ndim != 2:
-        print("Tensor is not 2D, skipping BSR conversion.")
-        return tensor  
-    
-    if tensor.size(0) % blocksize or tensor.size(1) % blocksize:
-        print("Tensor dimensions are not divisible by blocksize, skipping BSR conversion.")
-        return tensor  
-    
-    try:
-        converted_tensor = tensor.to_sparse_bsr(blocksize=blocksize)
-        print(f"Converted tensor to BSR format with blocksize: {blocksize}")
-        return converted_tensor 
-    except ValueError as e:
-        print(f"Unable to convert tensor to BSR format: {e}")
-        return tensor 
 
 
 class GetSubnet(torch.autograd.Function):

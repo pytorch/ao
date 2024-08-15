@@ -15,40 +15,7 @@ from torchvision.transforms.functional import InterpolationMode
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from supermask import apply_supermask, SupermaskLinear
-# from benchmark import apply_sparsity, apply_bsr, verify_sparsity
-
-def apply_sparsity(model):
-    for name, module in model.named_modules():
-        if isinstance(module, SupermaskLinear) and "mlp" in name:
-            module.sparsify_offline()
-
-
-def apply_bsr(model):
-    for name, module in model.named_modules():
-            if isinstance(module, torch.nn.Linear) and "mlp" in name:
-                try:
-                    module.weight = torch.nn.Parameter(to_bsr(module.weight.data, args.bsr))
-                    print(f"Converted {name} to bsr format.")
-                except ValueError as e:
-                    print(f"Unable to convert weight of {name} to bsr format: {e}")
-
-
-def to_bsr(tensor, blocksize):
-    if tensor.ndim != 2:
-        raise ValueError("to_bsr expects 2D tensor")
-    if tensor.size(0) % blocksize or tensor.size(1) % blocksize:
-        raise ValueError("Tensor dimensions must be divisible by blocksize")
-    return tensor.to_sparse_bsr(blocksize)
-
-
-def verify_sparsity(model):
-    for name, module in model.named_modules():
-        if isinstance(module, nn.Linear):
-            total_weights = module.weight.numel()
-            sparse_weights = (module.weight == 0).sum().item()
-            sparsity_percentage = (sparse_weights / total_weights) * 100
-            print(f"Sparsity verified in layer {name}: {sparsity_percentage:.2f}%")
-
+from benchmark import apply_sparsity, apply_bsr, verify_sparsity
 
 def _get_cache_path(filepath):
     h = hashlib.sha1(filepath.encode()).hexdigest()
@@ -231,6 +198,7 @@ def main(args):
         verify_sparsity(model)
         if args.bsr:
             apply_bsr(model)
+
     if model_ema:
         evaluate(model_ema, criterion, data_loader_test, device=device, log_suffix="EMA", args=args)
     else:
