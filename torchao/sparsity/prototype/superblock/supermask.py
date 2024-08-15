@@ -182,18 +182,6 @@ class SupermaskConv2d(nn.Conv2d):
         w = (self.weight*self.scale+self.shift) * subnet
         return F.conv2d(x, w, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
-@torch.no_grad()
-def set_sparsity(modules, sparsity):
-    """Set the sparsity for supermask layers"""
-    sm_idx = 0
-    for mod in modules:
-        if isinstance(mod, (SupermaskLinear, SupermaskConv2d)):
-            mod.sparsity=sparsity[sm_idx]
-            sm_idx += 1
-            print(mod)
-            print('Sparsity: ', mod.sparsity)
-
-
 def apply_supermask(
     model,
     linear_sparsity=0.0,

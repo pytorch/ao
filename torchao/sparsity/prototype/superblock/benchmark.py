@@ -14,10 +14,14 @@ import utils
 from torch import nn
 from torch.sparse._triton_ops_meta import optimize_bsr_dense_addmm
 
+from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight, int4_weight_only
+from torchao.sparsity import sparsify_, apply_fake_sparsity, int8_dynamic_activation_int8_semi_sparse_weight, semi_sparse_weight
+
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from supermask import apply_supermask, SupermaskLinear
 from blocksparse import BlockSparseTensor
 from utils import benchmark_inference
+from torchao.utils import benchmark_model
 
 
 def apply_sparsity(model):
@@ -71,19 +75,40 @@ def main(args):
     print("Creating model")
     model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=num_classes)
 
-    apply_supermask(
-        model,
-        linear_sparsity=args.sparsity_linear,
-        linear_sp_tilesize=args.sp_linear_tile_size,
-        conv1x1_sparsity=args.sparsity_conv1x1,
-        conv1x1_sp_tilesize=args.sp_conv1x1_tile_size,
-        conv_sparsity=args.sparsity_conv,
-        conv_sp_tilesize=args.sp_conv_tile_size,
-        skip_last_layer_sparsity=args.skip_last_layer_sparsity,
-        skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
-        device=device,
-        verbose=False,
-    )
+
+    if args.sparsity == "bsr":
+        apply_supermask(
+            model,
+            linear_sparsity=args.sparsity_linear,
+            linear_sp_tilesize=args.sp_linear_tile_size,
+            conv1x1_sparsity=args.sparsity_conv1x1,
+            conv1x1_sp_tilesize=args.sp_conv1x1_tile_size,
+            conv_sparsity=args.sparsity_conv,
+            conv_sp_tilesize=args.sp_conv_tile_size,
+            skip_last_layer_sparsity=args.skip_last_layer_sparsity,
+            skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
+            device=device,
+            verbose=False,
+        )
+
+    elif args.sparsity == "semi_structured":
+        sparse_config = []
+        from torch.ao.pruning import WeightNormSparsifier
+        for name, mod in model.named_modules():
+            if args.skip_last_layer_sparsity and "heads.head" in name:
+                continue
+            if args.skip_first_transformer_sparsity and "encoder.layers.encoder_layer_0" in name:
+                continue
+            if isinstance(mod, torch.nn.Linear): 
+                sparse_config.append({"tensor_fqn": f"{name}.weight"})
+
+        sparsifier = WeightNormSparsifier(
+            sparsity_level=1.0, sparse_block_shape=(1, 4), zeros_per_block=2
+        )
+        sparsifier.prepare(model, sparse_config)
+        sparsifier.step()
+        sparsifier.squash_mask()
+
 
     if args.weights_path:
         try:
@@ -94,32 +119,28 @@ def main(args):
             raise FileNotFoundError(f"No checkpoint found at {args.weights_path}.")
 
     model.to(device)
-
-    if args.sparsify_weights:
-        apply_sparsity(model)
-        verify_sparsity(model)
-
-        # verify correctness
-        # output1 = model(input)
-        # assert torch.allclose(output0, output1), "Output of model before and after weight sparsification should be equal"
-
     if dtype:
         model = model.to(dtype)
 
-    if args.bsr:
-        if not args.sparsify_weights:
-            raise ValueError("--bsr can only be used when --sparsify_weights is also specified.")
-        apply_bsr(model, blocksize=args.bsr)
+    if args.sparsity == "bsr":
+        apply_sparsity(model)
+        verify_sparsity(model)
+        if args.bsr:
+            apply_bsr(model, blocksize=args.bsr)
+        
 
-        # verify correctness
-        # output2 = model(input)
-        # assert torch.allclose(output2, output1), "Output of model before and after changing format to BSR should be equal"
+    if args.sparsity == "semi_structured":
+        torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
+        def mlp_only(mod, name):
+            return isinstance(mod, torch.nn.Linear) and 'mlp' in name
+        sparsify_(model,
+                  semi_sparse_weight(),
+                  mlp_only)
 
-    model = torch.compile(model, mode='max-autotune')
+    model = torch.compile(model, mode='max-autotune', fullgraph=True)
 
-    image = torch.empty(args.batch_size, 3, args.val_crop_size, args.val_crop_size, dtype=dtype, device=device)
-
-    return benchmark_inference(10, 100, model, image)
+    image = torch.randn(args.batch_size, 3, args.val_crop_size, args.val_crop_size, dtype=dtype, device=device)
+    return benchmark_inference(10, 100, model, image) 
 
 
 def get_args_parser(add_help=True):
@@ -140,6 +161,7 @@ def get_args_parser(add_help=True):
     parser.add_argument("--weights-path", type=str, help="path of pretrained weights to load")
 
     # NOTE: sparsity args
+    parser.add_argument("--sparsity", choices=["bsr", "semi_structured"], default=None, help='weight sparsification to apply')
     parser.add_argument("--sparsity-linear", type=float, default=0.0)
     parser.add_argument("--sp-linear-tile-size", type=int, default=1)
     parser.add_argument("--sparsity-conv1x1", type=float, default=0.0)
@@ -148,7 +170,6 @@ def get_args_parser(add_help=True):
     parser.add_argument("--sp-conv-tile-size", type=int, default=1)
     parser.add_argument("--skip-last-layer-sparsity", action="store_true", help="Skip applying sparsity to the last linear layer (for vit only)")
     parser.add_argument("--skip-first-transformer-sparsity", action="store_true", help="Skip applying sparsity to the first transformer layer (for vit only)")
-    parser.add_argument('--sparsify-weights', action='store_true', help='Apply weight sparsification in evaluation mode')
     parser.add_argument('--bsr', type=int, nargs='?', const=256, default=None, help='Convert sparsified weights to BSR format with optional block size (default: 256)')
     parser.add_argument("--bfloat16", action="store_true", help="Use bfloat16")
     parser.add_argument("--float16", action="store_true", help="Use float16")

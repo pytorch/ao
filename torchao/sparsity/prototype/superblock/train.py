@@ -160,7 +160,7 @@ def load_data(traindir, valdir, args):
                 preprocessing,
             ) if args.meta else torchvision.datasets.ImageNet(
                 traindir,
-                split="train",
+                split="val",
                 transform=preprocessing,
             )
             if args.cache_dataset:
@@ -169,7 +169,13 @@ def load_data(traindir, valdir, args):
                 utils.save_on_master((dataset, traindir), cache_path)
         print("Took", time.time() - st)
         print(f"Number of training images: {len(dataset)}")
-        train_sampler = torch.utils.data.distributed.DistributedSampler(dataset) if args.distributed else torch.utils.data.RandomSampler(dataset)
+        if args.distributed:
+            if hasattr(args, "ra_sampler") and args.ra_sampler:
+                train_sampler = RASampler(dataset, shuffle=True, repetitions=args.ra_reps)
+            else:
+                train_sampler = torch.utils.data.distributed.DistributedSampler(dataset)
+        else:
+            train_sampler = torch.utils.data.RandomSampler(dataset)
 
     print("Loading validation data")
     cache_path = _get_cache_path(valdir)
@@ -178,7 +184,7 @@ def load_data(traindir, valdir, args):
         print(f"Loading dataset_test from {cache_path}")
         dataset_test, _ = torch.load(cache_path)
     else:
-        if args.weights and args.test_only:
+        if args.weights:
             weights = torchvision.models.get_weight(args.weights)
             preprocessing = weights.transforms()
         else:
@@ -201,6 +207,7 @@ def load_data(traindir, valdir, args):
         print(f"Number of validation images: {len(dataset_test)}")
         test_sampler = torch.utils.data.distributed.DistributedSampler(dataset_test, shuffle=False) if args.distributed else torch.utils.data.SequentialSampler(dataset_test)
 
+    # for evaluation
     if traindir is None:
         return dataset_test, test_sampler
 
@@ -222,7 +229,7 @@ def main(args):
     else:
         torch.backends.cudnn.benchmark = True
 
-    train_dir = os.path.join(args.data_path, "train")
+    train_dir = os.path.join(args.data_path, "val")
     val_dir = os.path.join(args.data_path, "val")
     dataset, dataset_test, train_sampler, test_sampler = load_data(train_dir, val_dir, args)
 
@@ -257,27 +264,45 @@ def main(args):
     if args.weights_path is not None:
         sd = torch.load(args.weights_path, map_location="cpu")
         model.load_state_dict(sd)
-        
-    if args.sparsify_weights and not args.test_only:
-        raise ValueError("--sparsify-weights can only be used when --test-only is also specified.")
-
-    apply_supermask(
-        model,
-        linear_sparsity=args.sparsity_linear,
-        linear_sp_tilesize=args.sp_linear_tile_size,
-        conv1x1_sparsity=args.sparsity_conv1x1,
-        conv1x1_sp_tilesize=args.sp_conv1x1_tile_size,
-        conv_sparsity=args.sparsity_conv,
-        conv_sp_tilesize=args.sp_conv_tile_size,
-        skip_last_layer_sparsity=args.skip_last_layer_sparsity,
-        skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
-        device=device,
-        verbose=True,
-    )
 
     model.to(device)
     if args.distributed and args.sync_bn:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+        
+    if args.sparsity == "bsr":
+        apply_supermask(
+            model,
+            linear_sparsity=args.sparsity_linear,
+            linear_sp_tilesize=args.sp_linear_tile_size,
+            conv1x1_sparsity=args.sparsity_conv1x1,
+            conv1x1_sp_tilesize=args.sp_conv1x1_tile_size,
+            conv_sparsity=args.sparsity_conv,
+            conv_sp_tilesize=args.sp_conv_tile_size,
+            skip_last_layer_sparsity=args.skip_last_layer_sparsity,
+            skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
+            device=device,
+            verbose=True,
+        )
+    elif args.sparsity == "semi_structured":
+        sparse_config = []
+        from torch.ao.pruning import WeightNormSparsifier
+        for name, mod in model.named_modules():
+            if args.skip_last_layer_sparsity and name == "module.heads.head":
+                continue
+            if args.skip_first_transformer_sparsity and "encoder.layers.encoder_layer_0" in name:
+                continue
+            if isinstance(mod, torch.nn.Linear) and "mlp" in name: 
+                sparse_config.append({"tensor_fqn": f"{name}.weight"})
+
+        sparsifier = WeightNormSparsifier(
+            sparsity_level=1.0, sparse_block_shape=(1, 4), zeros_per_block=2
+        )
+        sparsifier.prepare(model, sparse_config)
+        sparsifier.step()
+
+
+    else:
+        print("No sparsity applied!")
 
     criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
 
@@ -377,9 +402,8 @@ def main(args):
             try:
                 checkpoint = torch.load(latest_checkpoint, map_location="cpu")
                 model_without_ddp.load_state_dict(checkpoint["model"])
-                if not args.test_only:
-                    optimizer.load_state_dict(checkpoint["optimizer"])
-                    lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
+                optimizer.load_state_dict(checkpoint["optimizer"])
+                lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
                 args.start_epoch = checkpoint["epoch"] + 1
                 if model_ema:
                     model_ema.load_state_dict(checkpoint["model_ema"])
@@ -395,18 +419,6 @@ def main(args):
     else:
         args.start_epoch = 0
 
-    if args.test_only:
-        # We disable the cudnn benchmarking because it can noticeably affect the accuracy
-        torch.backends.cudnn.benchmark = False
-        torch.backends.cudnn.deterministic = True
-        if args.bsr and not args.sparsify_weights:
-            raise ValueError("--bsr can only be used when --sparsify_weights is also specified.")
-        if args.sparsify_weights:
-            apply_sparsity(model)
-            verify_sparsity(model)
-            if args.bsr:
-                apply_bsr(model, args.bsr)
-        
         if model_ema:
             evaluate(model_ema, criterion, data_loader_test, device=device, log_suffix="EMA")
         else:
@@ -518,12 +530,6 @@ def get_args_parser(add_help=True):
         help="Use sync batch norm",
         action="store_true",
     )
-    parser.add_argument(
-        "--test-only",
-        dest="test_only",
-        help="Only test the model",
-        action="store_true",
-    )
     parser.add_argument("--auto-augment", default=None, type=str, help="auto augment policy (default: None)")
     parser.add_argument("--ra-magnitude", default=9, type=int, help="magnitude of auto augment policy")
     parser.add_argument("--augmix-severity", default=3, type=int, help="severity of augmix policy")
@@ -573,6 +579,7 @@ def get_args_parser(add_help=True):
     parser.add_argument("--weights-path", type=str)
 
     # NOTE: sparsity args
+    parser.add_argument("--sparsity", choices=["bsr", "semi_structured"], default=None, help='weight sparsification to apply')
     parser.add_argument("--sparsity-linear", type=float, default=0.0)
     parser.add_argument("--sp-linear-tile-size", type=int, default=1)
     parser.add_argument("--sparsity-conv1x1", type=float, default=0.0)
@@ -581,10 +588,8 @@ def get_args_parser(add_help=True):
     parser.add_argument("--sp-conv-tile-size", type=int, default=1)
     parser.add_argument("--skip-last-layer-sparsity", action="store_true", help="Skip applying sparsity to the last linear layer (for vit only)")
     parser.add_argument("--skip-first-transformer-sparsity", action="store_true", help="Skip applying sparsity to the first transformer layer (for vit only)")
-    parser.add_argument('--sparsify-weights', action='store_true', help='Apply weight sparsification in evaluation mode')
     parser.add_argument('--bsr', type=int, nargs='?', const=256, default=None, help='Convert sparsified weights to BSR format with optional block size (default: 256)')
-
-
+    parser.add_argument('--meta', action='store_true', help='Use Meta internal imagenet structure')
     return parser
 
 
