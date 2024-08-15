@@ -70,7 +70,7 @@ class TestFloat8Tensor(unittest.TestCase):
         lp_dtypes = FP8_TYPES
         for hp_dtype, lp_dtype in itertools.product(hp_dtypes, lp_dtypes):
             x1_hp = torch.randn(4, 4, dtype=hp_dtype)
-            x1_s = tensor_to_scale(x1_hp, lp_dtype)
+            x1_s = tensor_to_scale(x1_hp, lp_dtype, None)
             x2_lp = hp_tensor_and_scale_to_float8(x1_hp, x1_s, lp_dtype)
             x3_hp = x2_lp.to_original_precision()
             self.assertTrue(x3_hp.dtype == hp_dtype)
@@ -80,7 +80,7 @@ class TestFloat8Tensor(unittest.TestCase):
         for f8_dtype in lp_dtypes:
             x = torch.randn(1).requires_grad_()
             grad = torch.randn(1)
-            x_s = tensor_to_scale(x, f8_dtype)
+            x_s = tensor_to_scale(x, f8_dtype, None)
             x_f8 = hp_tensor_and_scale_to_float8(x, x_s, f8_dtype)
             x_f8_hp = x_f8.to_original_precision()
             x_f8_hp.backward(grad)
@@ -89,7 +89,7 @@ class TestFloat8Tensor(unittest.TestCase):
 
     def test_split_cat(self):
         a = torch.rand(16, 16, dtype=torch.bfloat16)
-        scale = tensor_to_scale(a, e4m3_dtype)
+        scale = tensor_to_scale(a, e4m3_dtype, None)
         fp8_a = hp_tensor_and_scale_to_float8(a, scale, e4m3_dtype)
 
         splits = torch.split(fp8_a, 16)
@@ -98,13 +98,13 @@ class TestFloat8Tensor(unittest.TestCase):
 
     def test_index_put(self):
         a = torch.rand(16, dtype=torch.bfloat16)
-        scale_a = tensor_to_scale(a, torch.float8_e4m3fn)
+        scale_a = tensor_to_scale(a, torch.float8_e4m3fn, None)
         fp8_a = hp_tensor_and_scale_to_float8(a, scale_a, torch.float8_e4m3fn)
 
         index = torch.randint(0, 15, (16,), dtype=torch.long)
 
         b = torch.rand(16, 16, dtype=torch.bfloat16)
-        scale_b = tensor_to_scale(b, torch.float8_e4m3fn)
+        scale_b = tensor_to_scale(b, torch.float8_e4m3fn, None)
         fp8_b = hp_tensor_and_scale_to_float8(b, scale_a, torch.float8_e4m3fn)
         fp8_b_bad = hp_tensor_and_scale_to_float8(b, scale_b, torch.float8_e4m3fn)
 
@@ -116,7 +116,7 @@ class TestFloat8Tensor(unittest.TestCase):
 
     def test_copy_(self):
         a = torch.rand(16, dtype=torch.bfloat16)
-        scale_a = tensor_to_scale(a, torch.float8_e4m3fn)
+        scale_a = tensor_to_scale(a, torch.float8_e4m3fn, None)
         fp8_a = hp_tensor_and_scale_to_float8(a, scale_a, torch.float8_e4m3fn)
 
         b = torch.empty(16, dtype=torch.bfloat16)
@@ -417,8 +417,8 @@ class TestScaledMM:
         a = torch.randn(16, 16, device="cuda", dtype=base_dtype)
         b = torch.randn(32, 16, device="cuda", dtype=base_dtype).t()
 
-        a_scale = tensor_to_scale(a, input_dtype).float()
-        b_scale = tensor_to_scale(b, input_dtype).float()
+        a_scale = tensor_to_scale(a, input_dtype, None).float()
+        b_scale = tensor_to_scale(b, input_dtype, None).float()
 
         a_fp8 = hp_tensor_and_scale_to_float8(a, a_scale, input_dtype)
         b_fp8 = hp_tensor_and_scale_to_float8(b, b_scale, input_dtype)
@@ -496,8 +496,8 @@ class TestScaledMM:
         a = torch.randn(16, 41, device="cuda", dtype=base_dtype)
         b = torch.randn(41, 128, device="cuda", dtype=base_dtype)
 
-        a_scale = tensor_to_scale(a, input_dtype).float()
-        b_scale = tensor_to_scale(b, input_dtype).float()
+        a_scale = tensor_to_scale(a, input_dtype, None).float()
+        b_scale = tensor_to_scale(b, input_dtype, None).float()
 
         a_fp8 = hp_tensor_and_scale_to_float8(
             a, a_scale, input_dtype, None, GemmInputRole.INPUT
@@ -596,7 +596,7 @@ class TestNumerics:
 
         target_amax = float8_max_pos / (FP16_MAX_POS + 1e-12)
         x = torch.tensor([target_amax], dtype=torch.float16, device="cuda")
-        scale = tensor_to_scale(x, float8_dtype)
+        scale = tensor_to_scale(x, float8_dtype, None)
         assert not torch.any(torch.isinf(scale))
 
 

@@ -126,7 +126,7 @@ class Float8InferenceLinear(torch.nn.Linear):
         assert not isinstance(
             self.weight, Float8Tensor
         ), "Weight has already been quantized, cannot quantize again."
-        scale = tensor_to_scale(self.weight, dtype)
+        scale = tensor_to_scale(self.weight, dtype, None)
         quantized_weight = hp_tensor_and_scale_to_float8(
             self.weight,
             scale,
@@ -198,7 +198,7 @@ def cast_to_float8_e4m3_inference(
     scale = (
         static_quantization_scale
         if static_quantization_scale is not None
-        else tensor_to_scale(input_tensor, e4m3_dtype, reduce_amax)
+        else tensor_to_scale(input_tensor, e4m3_dtype, None, reduce_amax)
     )
     return hp_tensor_and_scale_to_float8(
         input_tensor,

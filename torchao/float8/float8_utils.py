@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Iterable, Literal, Tuple, Union
+from typing import Iterable, Literal, Tuple, Union, Optional
 
 import torchao.float8.config as config
 
@@ -61,6 +61,7 @@ def amax_history_to_scale(
     float8_dtype: torch.Tensor,
     orig_dtype: torch.dtype,
     history_to_scale_fn_type: Literal["max"],
+    stack: bool
 ):
     """Takes in a history of amax values and returns a scale tensor.
     Args:
@@ -68,38 +69,34 @@ def amax_history_to_scale(
         float8_dtype: The float8 dtype.
         orig_dtype: The original dtype of the tensor.
         history_to_scale_fn_type: The type of function to use to convert the history to a scale.
+        stack: Whether the amax_history is a stack of amax histories and we will calculate amax of each entry in the stack.
     """
     if history_to_scale_fn_type == "max":
-        amax = torch.max(amax_history)
+        if stack:
+            amax = torch.max(amax_history, dim=1).values
+        else:
+            amax = torch.max(amax_history)
         return amax_to_scale(amax, float8_dtype, orig_dtype)
-    raise NotImplementedError()
-
-
-@torch.no_grad()
-def amax_history_to_scale_stack(
-    amax_history: torch.Tensor,
-    float8_dtype: torch.dtype,
-    orig_dtype: torch.dtype,
-    history_to_scale_fn_type: Literal["max"],
-) -> torch.Tensor:
-    """Takes in a stack of amax_history tensors and returns a scale tensor.
-    Args:
-        amax_history: A 2D tensor containing a stack of amax histories.
-        float8_dtype: The float8 dtype.
-        orig_dtype: The original dtype of the tensor.
-        history_to_scale_fn_type: The type of function to use to convert the history to a scale.
-    """
-    if history_to_scale_fn_type == "max":
-        amax_stack = torch.max(amax_history, dim=1).values
-        return amax_to_scale(amax_stack, float8_dtype, orig_dtype)
     raise NotImplementedError(
         f"Invalid history_to_scale_fn_type, only 'max' is supported. Got: {history_to_scale_fn_type}"
     )
 
 
 @torch.no_grad()
-def tensor_to_amax(x: torch.Tensor, reduce_amax: bool = False) -> torch.Tensor:
-    amax = torch.max(torch.abs(x))
+def tensor_to_amax(
+    x: torch.Tensor, group_size: Optional[Tuple[int, int]], reduce_amax: bool = False
+) -> torch.Tensor:
+    if group_size is None:
+        amax = torch.max(torch.abs(x))
+    else:
+        assert x.dim(), "NYI; only handles 2d inputs and group sizes for now"
+        assert x.dim() == len(
+            group_size
+        ), f"len(group_size) must match tensor dim, got len(group_size)={len(group_size)} and x.dim={x.dim()}"
+        tiled = x.unfold(0, group_size[0], group_size[0]).unfold(
+            1, group_size[1], group_size[1]
+        )
+        amax = torch.max(torch.abs(tiled), dim=(-1)).values.max(dim=-1).values
 
     # If the user asked for distributed reduction, do it.
     # If the user did not ask for it, assume that it will
@@ -112,9 +109,12 @@ def tensor_to_amax(x: torch.Tensor, reduce_amax: bool = False) -> torch.Tensor:
 
 @torch.no_grad()
 def tensor_to_scale(
-    x: torch.Tensor, float8_dtype: torch.dtype, reduce_amax: bool = False
+    x: torch.Tensor,
+    float8_dtype: torch.dtype,
+    group_size: Optional[Tuple[int, int]],
+    reduce_amax: bool = False,
 ) -> torch.Tensor:
-    amax = tensor_to_amax(x, reduce_amax=reduce_amax)
+    amax = tensor_to_amax(x, group_size, reduce_amax=reduce_amax)
     return amax_to_scale(amax, float8_dtype, x.dtype)
 
 

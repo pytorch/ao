@@ -155,7 +155,22 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
 
         DTensor Invariant: DTensor must always be the outer most tensor subclass
         """
-        tensor_scaled = tensor * scale
+        scales_repeated = scale
+
+        assert scale.dim() in {0, 1} or (
+            scale.dim() == tensor.dim() and scale.dim() == 2
+        ), f"scale and tensor must have the same number of dimensions, got scale.dim() = {scale.dim()} and tensor.dim() = {tensor.dim()}"
+
+        if scale.dim() > 1:  # Skip this part if scale is a scalar
+            for i in range(tensor.dim()):
+                # Needs repeat factor if not braodcastable
+                if tensor.shape[i] // scale.shape[i] not in {tensor.shape[i], 1}:
+                    repeat_factor = tensor.shape[i] // scale.shape[i]
+                    scales_repeated = scales_repeated.repeat_interleave(
+                        repeat_factor, dim=i
+                    )
+
+        tensor_scaled = tensor * scales_repeated
         bits_fp8 = to_fp8_saturated(tensor_scaled, float8_dtype)
 
         if isinstance(bits_fp8, DTensor):
@@ -218,7 +233,7 @@ def hp_tensor_and_scale_to_float8(
     float8_dtype=e4m3_dtype,
     linear_mm_config: Optional[LinearMMConfig] = None,
     gemm_input_role: Optional[GemmInputRole] = GemmInputRole.INPUT,
-):
+) -> "Float8Tensor":
     """
     Given a high precision tensor `hp_tensor` and a precalculated scale `s`,
     scales `hp_tensor` by `s` and returns a `Float8Tensor` of the result.
@@ -279,11 +294,10 @@ class Float8Tensor(torch.Tensor):
         linear_mm_config: Optional[LinearMMConfig],
         gemm_input_role: Optional[GemmInputRole] = GemmInputRole.INPUT,
     ):
-        assert (
-            scale.numel() == 1
-        ), "Scale should contain a single value, but got: {} elements".format(
-            scale.numel()
-        )
+        for i, (data_dim, scale_dim) in enumerate(zip(data.shape, scale.shape)):
+            assert (
+                data_dim % scale_dim == 0
+            ), f"Dimension {i} of scale ({scale_dim}) does not evenly divide dimension {i} of data ({data_dim})"
 
         self = torch.Tensor._make_wrapper_subclass(
             cls,
