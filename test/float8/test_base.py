@@ -187,6 +187,7 @@ class TestFloat8Tensor(unittest.TestCase):
                 tst = hp_tensor_to_float8_dynamic(a, torch.float8_e4m3fn, LinearMMConfig(), group_size=group_size)
                 expected_scale_shape = (shape[0] // group_size[0], shape[1] // group_size[1])
                 self.assertEqual(tst._scale.shape, torch.Size(expected_scale_shape))
+                self.assertEqual(tst._scale.dtype, torch.float32)
 
     def test_group_wise_scaling_preserves_dtype(self):
         M, N = 16, 32
@@ -212,6 +213,8 @@ class TestFloat8Tensor(unittest.TestCase):
         tst = hp_tensor_to_float8_dynamic(a, torch.float8_e4m3fn, LinearMMConfig(), group_size=group_size)
         self.assertTrue(tst._scale.is_cuda)
         self.assertEqual(tst._scale.shape, torch.Size([4, 8]))
+        self.assertEqual(tst._scale.dtype, torch.float32)
+
 
     def test_group_wise_scaling_backward(self):
         M, N = 16, 32
