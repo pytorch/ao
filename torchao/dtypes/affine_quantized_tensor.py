@@ -858,7 +858,12 @@ def _linear_fp_act_int8_weight_impl(input_tensor, weight_tensor, bias):
         y += bias.to(m.dtype)
     return y
 
+def _linear_awq_check(input_tensor, weight_tensor, bias):
+    from torchao.prototype.awq.core import AWQ_AQTLayout
+    return isinstance(weight_tensor.layout_tensor, AWQ_AQTLayout)
 
+def _linear_awq_impl(input_tensor, weight_tensor, bias):
+    return torch.nn.functional.linear(input_tensor / weight_tensor.layout_tensor.layout_type.scales, weight_tensor.dequantize(), bias)
 def _register_quantized_linear_dispatches():
     for dispatch_condition, impl in [
         (_linear_int8_act_int8_weight_check, _linear_int8_act_int8_weight_impl),
@@ -866,6 +871,7 @@ def _register_quantized_linear_dispatches():
         (_linear_quantized_act_fallback_check, _linear_quantized_act_fallback_impl),
         (_linear_bf16_act_uint4_weight_check, _linear_bf16_act_uint4_weight_impl),
         (_linear_fp_act_int8_weight_check, _linear_fp_act_int8_weight_impl),
+        (_linear_awq_check, _linear_awq_impl),
     ]:
         _register_quantized_linear_dispatch(dispatch_condition, impl)
 
