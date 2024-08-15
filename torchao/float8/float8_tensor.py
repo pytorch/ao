@@ -14,6 +14,7 @@ from torchao.float8.float8_utils import (
     e4m3_dtype,
     tensor_to_amax,
     to_fp8_saturated,
+    repeat_scale
 )
 from torch.distributed._tensor import DTensor
 
@@ -155,7 +156,8 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
 
         DTensor Invariant: DTensor must always be the outer most tensor subclass
         """
-        tensor_scaled = tensor * scale
+        scales_repeated = repeat_scale(tensor, scale)
+        tensor_scaled = tensor * scales_repeated
         bits_fp8 = to_fp8_saturated(tensor_scaled, float8_dtype)
 
         if isinstance(bits_fp8, DTensor):
@@ -205,7 +207,7 @@ class _FromFloat8ConstrFunc(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, tensor):
-        return tensor._data.to(tensor._orig_dtype) / tensor._scale
+        return tensor._data.to(tensor._orig_dtype) / repeat_scale(tensor, tensor._scale).to(tensor._orig_dtype)
 
     @staticmethod
     def backward(ctx, g):
@@ -218,7 +220,7 @@ def hp_tensor_and_scale_to_float8(
     float8_dtype=e4m3_dtype,
     linear_mm_config: Optional[LinearMMConfig] = None,
     gemm_input_role: Optional[GemmInputRole] = GemmInputRole.INPUT,
-):
+) -> "Float8Tensor":
     """
     Given a high precision tensor `hp_tensor` and a precalculated scale `s`,
     scales `hp_tensor` by `s` and returns a `Float8Tensor` of the result.
@@ -279,11 +281,10 @@ class Float8Tensor(torch.Tensor):
         linear_mm_config: Optional[LinearMMConfig],
         gemm_input_role: Optional[GemmInputRole] = GemmInputRole.INPUT,
     ):
-        assert (
-            scale.numel() == 1
-        ), "Scale should contain a single value, but got: {} elements".format(
-            scale.numel()
-        )
+        for i, (data_dim, scale_dim) in enumerate(zip(data.shape, scale.shape)):
+            assert (
+                data_dim % scale_dim == 0
+            ), f"Dimension {i} of scale ({scale_dim}) does not evenly divide dimension {i} of data ({data_dim})"
 
         self = torch.Tensor._make_wrapper_subclass(
             cls,
