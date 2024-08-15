@@ -20,6 +20,7 @@ from torchvision.transforms.functional import InterpolationMode
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from supermask import apply_supermask, SupermaskLinear
+from benchmark import apply_sparsity, apply_bsr, verify_sparsity
 
 
 def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, model_ema=None, scaler=None):
@@ -72,40 +73,6 @@ def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, arg
         metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
         metric_logger.meters["img/s"].update(batch_size / (time.time() - start_time))
         
-
-def apply_sparsity(model):
-    for module in model.modules():
-        if isinstance(module, SupermaskLinear):
-            module.sparsify_offline()
-            
-            
-def apply_bsr(model):
-    for name, module in model.named_modules():
-            if isinstance(module, torch.nn.Linear):
-                try:
-                    module.weight = torch.nn.Parameter(to_bsr(module.weight.data, args.bsr))
-                    print(f"Converted {name} to bsr format.")
-                except ValueError as e:
-                    print(f"Unable to convert weight of {name} to bsr format: {e}")
-
-
-def to_bsr(tensor, blocksize):
-    if tensor.ndim != 2:
-        raise ValueError("to_bsr expects 2D tensor")
-    if tensor.size(0) % blocksize or tensor.size(1) % blocksize:
-        raise ValueError("Tensor dimensions must be divisible by blocksize")
-    return tensor.to_sparse_bsr(blocksize)
-
-
-def verify_sparsity(model):
-    for name, module in model.named_modules():
-        if isinstance(module, nn.Linear):
-            total_weights = module.weight.numel()
-            sparse_weights = (module.weight == 0).sum().item()
-            sparsity_percentage = (sparse_weights / total_weights) * 100
-            print(f"Sparsity verified in layer {name}: {sparsity_percentage:.2f}%")
-
-
 def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix=""):
     model.eval()
     metric_logger = utils.MetricLogger(delimiter="  ")
@@ -161,41 +128,48 @@ def _get_cache_path(filepath):
 def load_data(traindir, valdir, args):
     # Data loading code
     print("Loading data")
-    val_resize_size, val_crop_size, train_crop_size = (
+    val_resize_size, val_crop_size, = (
         args.val_resize_size,
         args.val_crop_size,
-        args.train_crop_size,
     )
     interpolation = InterpolationMode(args.interpolation)
-
-    print("Loading training data")
-    st = time.time()
-    cache_path = _get_cache_path(traindir)
-    if args.cache_dataset and os.path.exists(cache_path):
-        # Attention, as the transforms are also cached!
-        print(f"Loading dataset_train from {cache_path}")
-        dataset, _ = torch.load(cache_path)
-    else:
-        auto_augment_policy = getattr(args, "auto_augment", None)
-        random_erase_prob = getattr(args, "random_erase", 0.0)
-        ra_magnitude = args.ra_magnitude
-        augmix_severity = args.augmix_severity
-        dataset = torchvision.datasets.ImageFolder(
-            traindir,
-            presets.ClassificationPresetTrain(
+    if traindir is not None:
+        train_crop_size = args.train_crop_size
+        print("Loading training data")
+        st = time.time()
+        cache_path = _get_cache_path(traindir)
+        if args.cache_dataset and os.path.exists(cache_path):
+            # Attention, as the transforms are also cached!
+            print(f"Loading dataset_train from {cache_path}")
+            dataset, _ = torch.load(cache_path)
+        else:
+            auto_augment_policy = getattr(args, "auto_augment", None)
+            random_erase_prob = getattr(args, "random_erase", 0.0)
+            ra_magnitude = args.ra_magnitude
+            augmix_severity = args.augmix_severity
+            preprocessing = presets.ClassificationPresetTrain(
                 crop_size=train_crop_size,
                 interpolation=interpolation,
                 auto_augment_policy=auto_augment_policy,
                 random_erase_prob=random_erase_prob,
                 ra_magnitude=ra_magnitude,
                 augmix_severity=augmix_severity,
-            ),
-        )
-        if args.cache_dataset:
-            print(f"Saving dataset_train to {cache_path}")
-            utils.mkdir(os.path.dirname(cache_path))
-            utils.save_on_master((dataset, traindir), cache_path)
-    print("Took", time.time() - st)
+            )
+            dataset = torchvision.datasets.ImageFolder(
+                traindir,
+                preprocessing,
+            ) if args.meta else torchvision.datasets.ImageNet(
+                traindir,
+                split="train",
+                transform=preprocessing,
+            )
+            if args.cache_dataset:
+                print(f"Saving dataset_train to {cache_path}")
+                utils.mkdir(os.path.dirname(cache_path))
+                utils.save_on_master((dataset, traindir), cache_path)
+        print("Took", time.time() - st)
+        print(f"Number of training images: {len(dataset)}")
+        train_sampler = torch.utils.data.distributed.DistributedSampler(dataset) if args.distributed else torch.utils.data.RandomSampler(dataset)
 
     print("Loading validation data")
     cache_path = _get_cache_path(valdir)
@@ -211,29 +185,24 @@ def load_data(traindir, valdir, args):
             preprocessing = presets.ClassificationPresetEval(
                 crop_size=val_crop_size, resize_size=val_resize_size, interpolation=interpolation
             )
-
         dataset_test = torchvision.datasets.ImageFolder(
             valdir,
             preprocessing,
+        ) if args.meta else torchvision.datasets.ImageNet(
+            valdir,
+            split='val',
+            transform=preprocessing
         )
         if args.cache_dataset:
             print(f"Saving dataset_test to {cache_path}")
             utils.mkdir(os.path.dirname(cache_path))
             utils.save_on_master((dataset_test, valdir), cache_path)
         
-        print(f"Number of training images: {len(dataset)}")
         print(f"Number of validation images: {len(dataset_test)}")
+        test_sampler = torch.utils.data.distributed.DistributedSampler(dataset_test, shuffle=False) if args.distributed else torch.utils.data.SequentialSampler(dataset_test)
 
-    print("Creating data loaders")
-    if args.distributed:
-        if hasattr(args, "ra_sampler") and args.ra_sampler:
-            train_sampler = RASampler(dataset, shuffle=True, repetitions=args.ra_reps)
-        else:
-            train_sampler = torch.utils.data.distributed.DistributedSampler(dataset)
-        test_sampler = torch.utils.data.distributed.DistributedSampler(dataset_test, shuffle=False)
-    else:
-        train_sampler = torch.utils.data.RandomSampler(dataset)
-        test_sampler = torch.utils.data.SequentialSampler(dataset_test)
+    if traindir is None:
+        return dataset_test, test_sampler
 
     return dataset, dataset_test, train_sampler, test_sampler
 
@@ -436,7 +405,7 @@ def main(args):
             apply_sparsity(model)
             verify_sparsity(model)
             if args.bsr:
-                apply_bsr(model)
+                apply_bsr(model, args.bsr)
         
         if model_ema:
             evaluate(model_ema, criterion, data_loader_test, device=device, log_suffix="EMA")
@@ -597,7 +566,6 @@ def get_args_parser(add_help=True):
         "--train-crop-size", default=224, type=int, help="the random crop size used for training (default: 224)"
     )
     parser.add_argument("--clip-grad-norm", default=None, type=float, help="the maximum gradient norm (default None)")
-    parser.add_argument("--ra-sampler", action="store_true", help="whether to use Repeated Augmentation in training")
     parser.add_argument(
         "--ra-reps", default=3, type=int, help="number of repetitions for Repeated Augmentation (default: 3)"
     )
