@@ -217,13 +217,14 @@ class AffineQuantizedTensor(torch.Tensor):
             compute_dtype = zero_point_dtype if (zero_point_dtype is not None) else input_float.dtype
             device = input_float.device
             int_data, scale, zero_point, _ = quantize_affine_hqq(input_float, nbits=nbits, group_size=group_size, axis=axis, compute_dtype=compute_dtype, device=device, verbose=False, raw_output=False)
+            int_data = int_data.to(target_dtype)
 
         else:
             input_float = layout_type.pre_process(input_float)
             scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain)
             int_data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
-            int_data = layout_type.post_process(int_data)
         
+        int_data = layout_type.post_process(int_data)
         layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
         layout_tensor = layout_tensor_ctr(int_data, scale, zero_point, layout_type)
         return cls(
@@ -575,8 +576,10 @@ class TensorCoreTiledAQTLayout(AQTLayout):
         scale: torch.Tensor,
         zero_point: torch.Tensor,
         layout_type: LayoutType
-    ):
+    ):	
+        
         assert isinstance(layout_type, TensorCoreTiledLayoutType)
+                
         if TORCH_VERSION_AT_LEAST_2_5:
             int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
             assert int_data.dtype == torch.uint8, "torch.ops.aten._convert_weight_to_int4pack in torch 2.5 expects `uint8` dtype"

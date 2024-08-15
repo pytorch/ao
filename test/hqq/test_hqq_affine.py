@@ -32,6 +32,7 @@ in_features       = 4096
 out_features      = 11800
 torch_seed        = 100
 
+
 def _init_data(in_features, out_features, compute_dtype, device, torch_seed):
     torch.random.manual_seed(torch_seed)
     linear_layer = torch.nn.Linear(in_features, out_features, bias=False, device=device)
@@ -48,7 +49,7 @@ def _eval_hqq(nbits, layout_type):
     #Tensorcore layout
     if isinstance(layout_type, TensorCoreTiledLayoutType):
     	target_dtype = torch.uint8 if TORCH_VERSION_AT_LEAST_2_5 else torch.int32
-    	
+    	    	
     q_tensor_hqq = to_affine_quantized(
             input_float=W,
             mapping_type=mapping_type,
