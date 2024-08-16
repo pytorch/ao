@@ -53,7 +53,7 @@ def create_qmodel_from_qdq_model(qdq_model: torch.nn.Module):
             quant_max = 15
             # Shift the zeros to align with tiny gemm.
             # The dequantization process in tiny gemm:
-            #   tiny_dequant = (tinny_quant - 8) * scale + tinny_zp
+            #   tiny_dequant = (tiny_quant - 8) * scale + tiny_zp
             # The dequantization porcess in auto-round
             #   dequant = (quant - zp) * scale
             # To align with tiny gemm:
