@@ -6,7 +6,7 @@ from torch.utils._pytree import tree_flatten, tree_unflatten
 
 import torchao.prototype.autoround.utils as ar_utils
 import torchao.quantization as ao_quant
-from torchao.dtypes import to_affine_quantized_static, TensorCoreTiledLayoutType
+from torchao.dtypes import TensorCoreTiledLayoutType, to_affine_quantized_static
 from torchao.prototype.autoround.multi_tensor import MultiTensor
 from torchao.quantization.quant_primitives import ZeroPointDomain
 from torchao.utils import find_multiple
@@ -62,7 +62,7 @@ def create_qmodel_from_qdq_model(qdq_model: torch.nn.Module):
             #              \__/                 \______________/
             #            tiny_quant                 tiny_zp
             mid_point = (quant_max - quant_min + 1) / 2
-            shifted_zero_point  = (mid_point - zero_point) * scale
+            shifted_zero_point = (mid_point - zero_point) * scale
             block_size = (1, observed_linear.group_size)
             orig_out_features, orig_in_features = input_float.shape
             in_features = find_multiple(orig_in_features, 1024)
@@ -72,12 +72,22 @@ def create_qmodel_from_qdq_model(qdq_model: torch.nn.Module):
             # pad scale/zero_point from [orig_out_features, orig_num_groups] to [out_features, new_num_groups]
             pad_scale = torch.nn.functional.pad(
                 scale,
-                (0, new_num_groups - orig_num_groups, 0, out_features - orig_out_features)
-                )
+                (
+                    0,
+                    new_num_groups - orig_num_groups,
+                    0,
+                    out_features - orig_out_features,
+                ),
+            )
             pad_shifted_zero_point = torch.nn.functional.pad(
                 shifted_zero_point,
-                (0, new_num_groups - orig_num_groups, 0, out_features - orig_out_features)
-                )
+                (
+                    0,
+                    new_num_groups - orig_num_groups,
+                    0,
+                    out_features - orig_out_features,
+                ),
+            )
             return to_affine_quantized_static(
                 input_float=input_float,
                 scale=pad_scale.to(torch.bfloat16),
@@ -89,7 +99,7 @@ def create_qmodel_from_qdq_model(qdq_model: torch.nn.Module):
                 zero_point_domain=ZeroPointDomain.FLOAT,
                 layout_type=TensorCoreTiledLayoutType(inner_k_tiles=inner_k_tiles),
             )
-    
+
         observed_linear.weight = torch.nn.Parameter(
             weight_quant_func(observed_linear.weight), requires_grad=False
         )
