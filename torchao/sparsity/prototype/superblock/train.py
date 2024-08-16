@@ -24,6 +24,7 @@ from benchmark import apply_sparsity, apply_bsr, verify_sparsity
 
 
 def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, model_ema=None, scaler=None):
+    return
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter("lr", utils.SmoothedValue(window_size=1, fmt="{value}"))
@@ -73,7 +74,7 @@ def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, arg
         metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
         metric_logger.meters["img/s"].update(batch_size / (time.time() - start_time))
         
-def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix=""):
+def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix="", dtype=torch.float32):
     model.eval()
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = f"Test: {log_suffix}"
@@ -81,16 +82,16 @@ def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix="
     num_processed_samples = 0
     with torch.inference_mode():
         for image, target in metric_logger.log_every(data_loader, print_freq, header):
-            image = image.to(device, non_blocking=True)
-            target = target.to(device, non_blocking=True)
+            image = image.to(device, non_blocking=True).to(dtype)
+            target = target.to(device, non_blocking=True).to(dtype)
             output = model(image)
-            loss = criterion(output, target)
+            # loss = criterion(output, target)
 
             acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
             # FIXME need to take into account that the datasets
             # could have been padded in distributed setup
             batch_size = image.shape[0]
-            metric_logger.update(loss=loss.item())
+            # metric_logger.update(loss=loss.item())
             metric_logger.meters["acc1"].update(acc1.item(), n=batch_size)
             metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
             num_processed_samples += batch_size
@@ -157,12 +158,12 @@ def load_data(traindir, valdir, args):
             )
             dataset = torchvision.datasets.ImageFolder(
                 traindir,
-                preprocessing,
-            ) if args.meta else torchvision.datasets.ImageNet(
-                traindir,
-                split="val",
-                transform=preprocessing,
-            )
+                preprocessing)
+            # ) if args.meta else torchvision.datasets.ImageNet(
+            #     traindir,
+            #     split="train",
+            #     transform=preprocessing,
+            # )
             if args.cache_dataset:
                 print(f"Saving dataset_train to {cache_path}")
                 utils.mkdir(os.path.dirname(cache_path))
@@ -229,7 +230,7 @@ def main(args):
     else:
         torch.backends.cudnn.benchmark = True
 
-    train_dir = os.path.join(args.data_path, "val")
+    train_dir = os.path.join(args.data_path, "train_blurred")
     val_dir = os.path.join(args.data_path, "val")
     dataset, dataset_test, train_sampler, test_sampler = load_data(train_dir, val_dir, args)
 
@@ -285,7 +286,7 @@ def main(args):
         )
     elif args.sparsity == "semi_structured":
         sparse_config = []
-        from torch.ao.pruning import WeightNormSparsifier
+        from torchao.sparsity.prototype.sparsifier.weight_norm_sparsifier import WeightNormSparsifier
         for name, mod in model.named_modules():
             if args.skip_last_layer_sparsity and name == "module.heads.head":
                 continue
@@ -418,12 +419,11 @@ def main(args):
             args.start_epoch = 0
     else:
         args.start_epoch = 0
-
+        print("Zero-shot evaluation")
         if model_ema:
             evaluate(model_ema, criterion, data_loader_test, device=device, log_suffix="EMA")
         else:
             evaluate(model, criterion, data_loader_test, device=device)
-        return
 
     print("Start training")
     start_time = time.time()
@@ -443,6 +443,8 @@ def main(args):
                 "epoch": epoch,
                 "args": args,
             }
+            if sparsifier:
+                checkpoint["sparsifier"] = sparsifier.state_dict()
             if model_ema:
                 checkpoint["model_ema"] = model_ema.state_dict()
             if scaler:

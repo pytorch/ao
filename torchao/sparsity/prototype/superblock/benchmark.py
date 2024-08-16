@@ -143,7 +143,7 @@ def main(args):
     # warmup
     benchmark_model(model, 10, args=(image,)) 
     if args.profile:
-        return profiler_runner(f"{time.time()}.json.gz", benchmark_model, model, 10, (image,)) 
+        return profiler_runner("test.json.gz", benchmark_model, model, 10, (image,)) 
     else:
         return benchmark_model(model, 10, args=(image,)) 
 
