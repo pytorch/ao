@@ -12,7 +12,10 @@ from typing import List, Optional, Tuple
 import torch
 import torch.distributed as dist
 
-from torchao.sparsity.prototype.superblock.supermask import SupermaskLinear
+from torchao.sparsity import sparsify_, semi_sparse_weight
+from torchao.sparsity.prototype.superblock.supermask import SupermaskLinear, apply_supermask
+from torchao.sparsity.prototype.superblock.blocksparse import block_sparse_weight
+from torchao.sparsity.prototype.sparsifier.weight_norm_sparsifier import WeightNormSparsifier
 
 ### Custom sparsification utils
 def apply_sparsity(model):
@@ -22,7 +25,7 @@ def apply_sparsity(model):
             
 def verify_sparsity(model):
     for name, module in model.named_modules():
-        if isinstance(module, nn.Linear):
+        if isinstance(module, torch.nn.Linear):
             total_weights = module.weight.numel()
             sparse_weights = (module.weight == 0).sum().item()
             sparsity_percentage = (sparse_weights / total_weights) * 100
@@ -50,6 +53,61 @@ def mlp_only_with_args(mod, name, skip_last_layer_sparsity=False, skip_first_tra
         return True
     return False
 
+### other
+
+def accelerate_with_sparsity(model, args):
+    if args.sparsity == "bsr":
+        apply_sparsity(model)
+        verify_sparsity(model)
+        assert args.bsr is not None, "BSR requires a block size"
+        sparsify_(model, block_sparse_weight(blocksize=args.bsr), superblock_only)
+
+    elif args.sparsity == "semi_structured":
+        if args.quantization:
+            quantize_(model,
+                    int8_dynamic_activation_int8_semi_sparse_weight(),
+                    mlp_0_only)
+            sparsify_(model,
+                    semi_sparse_weight(), 
+                    mlp_3_only)
+        else:
+            sparsify_(model,
+                    semi_sparse_weight(),
+                    mlp_only)
+
+def simulate_sparsity(model, args):
+    if args.sparsity == "bsr":
+        apply_supermask(
+            model,
+            linear_sparsity=args.sparsity_linear,
+            linear_sp_tilesize=args.sp_linear_tile_size,
+            conv1x1_sparsity=args.sparsity_conv1x1,
+            conv1x1_sp_tilesize=args.sp_conv1x1_tile_size,
+            conv_sparsity=args.sparsity_conv,
+            conv_sp_tilesize=args.sp_conv_tile_size,
+            skip_last_layer_sparsity=args.skip_last_layer_sparsity,
+            skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
+            device=args.device,
+            verbose=False,
+        )
+    elif args.sparsity == "semi_structured":
+        sparse_config = []
+        for name, mod in model.named_modules():
+            if mlp_only_with_args(mod, name,
+                                  skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
+                                  skip_last_layer_sparsity=args.skip_last_layer_sparsity):
+                sparse_config.append({"tensor_fqn": f"{name}.weight"})
+
+        sparsifier = WeightNormSparsifier(
+            sparsity_level=1.0, sparse_block_shape=(1, 4), zeros_per_block=2
+        )
+        sparsifier.prepare(model, sparse_config)
+        for line in sparse_config:
+            print(line)
+        sparsifier.step()
+        return sparsifier
+    else:
+        print("No sparsity applied!")
 
 
 ### Existing torchvision utils

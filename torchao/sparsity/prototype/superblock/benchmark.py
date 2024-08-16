@@ -13,12 +13,7 @@ import torch.utils.data
 import utils
 from torch import nn
 from torch.sparse._triton_ops_meta import optimize_bsr_dense_addmm
-
-from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight, int4_weight_only
-from torchao.sparsity import sparsify_, semi_sparse_weight
-from torchao.sparsity.prototype.superblock.supermask import apply_supermask
-from torchao.sparsity.prototype.superblock.blocksparse import block_sparse_weight
-from torchao.sparsity.prototype.superblock.utils import mlp_0_only, mlp_3_only, mlp_only, superblock_only, apply_sparsity, verify_sparsity
+from torchao.sparsity.prototype.superblock.utils import accelerate_with_sparsity, simulate_sparsity
 from torchao.utils import benchmark_model, profiler_runner
 
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
@@ -52,20 +47,7 @@ def main(args):
     model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=num_classes)
 
     # Fake sparsity necessary for BSR
-    if args.sparsity == "bsr":
-        apply_supermask(
-            model,
-            linear_sparsity=args.sparsity_linear,
-            linear_sp_tilesize=args.sp_linear_tile_size,
-            conv1x1_sparsity=args.sparsity_conv1x1,
-            conv1x1_sp_tilesize=args.sp_conv1x1_tile_size,
-            conv_sparsity=args.sparsity_conv,
-            conv_sp_tilesize=args.sp_conv_tile_size,
-            skip_last_layer_sparsity=args.skip_last_layer_sparsity,
-            skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
-            device=device,
-            verbose=False,
-        )
+    simulate_sparsity(model, args)
 
     if args.weights_path:
         try:
@@ -77,24 +59,8 @@ def main(args):
 
     model.to(device).to(dtype)
 
-    if args.sparsity == "bsr":
-        apply_sparsity(model)
-        verify_sparsity(model)
-        assert args.bsr is not None, "BSR requires a block size"
-        sparsify_(model, block_sparse_weight(blocksize=args.bsr), superblock_only)
-
-    elif args.sparsity == "semi_structured":
-        if args.quantization:
-            quantize_(model,
-                    int8_dynamic_activation_int8_semi_sparse_weight(),
-                    mlp_0_only)
-            sparsify_(model,
-                    semi_sparse_weight(), 
-                    mlp_3_only)
-        else:
-            sparsify_(model,
-                    semi_sparse_weight(),
-                    mlp_only)
+    # Fake sparsity necessary for BSR
+    accelerate_with_sparsity(model, args)
 
     # compile 
     model = torch.compile(model, mode='max-autotune', fullgraph=True)

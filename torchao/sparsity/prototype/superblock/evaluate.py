@@ -43,39 +43,7 @@ def main(args):
     print("Creating model")
     model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=num_classes)
 
-    if args.sparsity == "bsr":
-        apply_supermask(
-            model,
-            linear_sparsity=args.sparsity_linear,
-            linear_sp_tilesize=args.sp_linear_tile_size,
-            conv1x1_sparsity=args.sparsity_conv1x1,
-            conv1x1_sp_tilesize=args.sp_conv1x1_tile_size,
-            conv_sparsity=args.sparsity_conv,
-            conv_sp_tilesize=args.sp_conv_tile_size,
-            skip_last_layer_sparsity=args.skip_last_layer_sparsity,
-            skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
-            device=device,
-            verbose=False,
-        )
-
-    sparsifier = None
-    if args.sparsity == "semi_structured":
-        sparse_config = []
-        for name, mod in model.named_modules():
-            if mlp_only_with_args(mod, name,
-                                  skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
-                                  skip_last_layer_sparsity=args.skip_last_layer_sparsity):
-                sparse_config.append({"tensor_fqn": f"{name}.weight"})
-
-        sparsifier = WeightNormSparsifier(
-            sparsity_level=1.0, sparse_block_shape=(1, 4), zeros_per_block=2
-        )
-        sparsifier.prepare(model, sparse_config)
-        for line in sparse_config:
-            print(line)
-        sparsifier.step()
-        if not args.weights_path:
-            sparsifier.squash_mask()
+    sparsifier_or_none = simulate_sparsity(model, args)
 
     if args.weights_path:
         try:
@@ -87,20 +55,9 @@ def main(args):
 
     model.to(device).bfloat16()
 
-    if args.sparsity == "bsr":
-        assert args.bsr is not None and args.bsr > 0
-        apply_sparsity(model)
-        verify_sparsity(model)
-        sparsify_(model, block_sparse_weight(blocksize=args.bsr), superblock_only)
-
-    if sparsifier:
+    if sparsifier_or_none is not None:
         sparsifier.squash_mask()
-    if args.sparsity == "semi_structured":
-        sparsify_(model,
-                  semi_sparse_weight(),
-                  partial(mlp_only_with_args, 
-                    skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
-                    skip_last_layer_sparsity=args.skip_last_layer_sparsity))
+    accelerate_with_sparsity(model, args)
             
     criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
     evaluate(model, criterion, data_loader_test, device=device, dtype=torch.bfloat16)

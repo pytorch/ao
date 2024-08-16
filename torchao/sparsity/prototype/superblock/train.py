@@ -18,10 +18,7 @@ from torch import nn
 from torch.utils.data.dataloader import default_collate
 from torchvision.transforms.functional import InterpolationMode
 
-from torchao.sparsity.prototype.superblock.supermask import apply_supermask
-from torchao.sparsity.prototype.superblock.utils import mlp_only_with_args
-from torchao.sparsity.prototype.sparsifier.weight_norm_sparsifier import WeightNormSparsifier
-
+from torchao.sparsity.prototype.superblock.utils import simulate_sparsity
 
 def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, model_ema=None, scaler=None):
     model.train()
@@ -266,38 +263,7 @@ def main(args):
     if args.distributed and args.sync_bn:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
         
-    if args.sparsity == "bsr":
-        apply_supermask(
-            model,
-            linear_sparsity=args.sparsity_linear,
-            linear_sp_tilesize=args.sp_linear_tile_size,
-            conv1x1_sparsity=args.sparsity_conv1x1,
-            conv1x1_sp_tilesize=args.sp_conv1x1_tile_size,
-            conv_sparsity=args.sparsity_conv,
-            conv_sp_tilesize=args.sp_conv_tile_size,
-            skip_last_layer_sparsity=args.skip_last_layer_sparsity,
-            skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
-            device=device,
-            verbose=True,
-        )
-    elif args.sparsity == "semi_structured":
-        sparse_config = []
-        for name, mod in model.named_modules():
-            if mlp_only_with_args(mod, name,
-                                  skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
-                                  skip_last_layer_sparsity=args.skip_last_layer_sparsity):
-                sparse_config.append({"tensor_fqn": f"{name}.weight"})
-
-        sparsifier = WeightNormSparsifier(
-            sparsity_level=1.0, sparse_block_shape=(1, 4), zeros_per_block=2
-        )
-        sparsifier.prepare(model, sparse_config)
-        for line in sparse_config:
-            print(line)
-        sparsifier.step()
-    else:
-        print("No sparsity applied!")
-
+    sparsifier = simulate_sparsity(model, args)
     criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
 
     custom_keys_weight_decay = []
