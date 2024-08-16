@@ -67,9 +67,14 @@ def main(args):
 
     if args.bsr and args.tune_kernel_params:
         print("Tuning kernel params")
-        assert args.model == "vit_b_16", "--tune-kernel-params only supported for vit-b-16!"
-        optimize_bsr_dense_addmm(3072, 768, 50432, args.bsr, args.bsr, dtype=dtype, sparsity=args.sparsity_linear, verbose=True)
-        optimize_bsr_dense_addmm(768, 3072, 50432, args.bsr, args.bsr, dtype=dtype, sparsity=args.sparsity_linear, verbose=True)
+        if args.model == "vit_b_16":
+            optimize_bsr_dense_addmm(3072, 768, 50432, args.bsr, args.bsr, dtype=dtype, sparsity=args.sparsity_linear, verbose=True)
+            optimize_bsr_dense_addmm(768, 3072, 50432, args.bsr, args.bsr, dtype=dtype, sparsity=args.sparsity_linear, verbose=True)
+        elif args.model == "vit_h_14":
+            optimize_bsr_dense_addmm(5120, 1280, 65792, args.bsr, args.bsr, dtype=dtype, sparsity=args.sparsity_linear, verbose=True)
+            optimize_bsr_dense_addmm(1280, 5120, 65792, args.bsr, args.bsr, dtype=dtype, sparsity=args.sparsity_linear, verbose=True)
+        else:
+            raise NotImplementedError("Tuning kernel params for this model is not supported yet.")
 
     print("Creating model")
     model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=num_classes)
@@ -130,11 +135,25 @@ def main(args):
 
     if args.sparsity == "semi_structured":
         torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
+        def out_proj_only(mod, name):
+            return isinstance(mod, torch.nn.Linear) and 'out_proj' in name
+        def mlp_0_only(mod, name):
+            return isinstance(mod, torch.nn.Linear) and 'mlp.0' in name
+        def mlp_3_only(mod, name):
+            return isinstance(mod, torch.nn.Linear) and 'mlp.3' in name
         def mlp_only(mod, name):
             return isinstance(mod, torch.nn.Linear) and 'mlp' in name
-        sparsify_(model,
-                  semi_sparse_weight(),
-                  mlp_only)
+        if args.quantization:
+            quantize_(model,
+                    int8_dynamic_activation_int8_semi_sparse_weight(),
+                    mlp_0_only)
+            sparsify_(model,
+                    semi_sparse_weight(), 
+                    mlp_3_only)
+        else:
+            sparsify_(model,
+                    semi_sparse_weight(),
+                    mlp_only)
 
     model = torch.compile(model, mode='max-autotune', fullgraph=True)
 
@@ -145,7 +164,7 @@ def main(args):
     if args.profile:
         return profiler_runner("test.json.gz", benchmark_model, model, 10, (image,)) 
     else:
-        return benchmark_model(model, 10, args=(image,)) 
+        return benchmark_model(model, 100, args=(image,)) 
 
 
 
@@ -181,6 +200,7 @@ def get_args_parser(add_help=True):
     parser.add_argument("--float16", action="store_true", help="Use float16")
     parser.add_argument("--tune-kernel-params", action="store_true", help="Tune kernel params")
     parser.add_argument("--profile", action="store_true", help="Profile the run and dump Prefetto trace")   
+    parser.add_argument("--quantization", action="store_true", help="Profile the run and dump Prefetto trace")   
 
     return parser
 
@@ -189,3 +209,4 @@ if __name__ == "__main__":
     args = get_args_parser().parse_args()
     result = main(args)
     print(f"{result:.3f} ms", file=sys.stderr)
+    print(f"{1000/result:.3f} img/s")

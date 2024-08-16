@@ -12,6 +12,13 @@ from typing import List, Optional, Tuple
 import torch
 import torch.distributed as dist
 
+### Custom sparsification utils
+
+def block_sparse_weight():
+    pass
+
+### Existing torchvision utils
+
 class SmoothedValue:
     """Track a series of values and provide access to smoothed values over a
     window or the global series average.

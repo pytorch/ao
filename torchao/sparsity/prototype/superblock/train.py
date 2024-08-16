@@ -24,7 +24,6 @@ from benchmark import apply_sparsity, apply_bsr, verify_sparsity
 
 
 def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, model_ema=None, scaler=None):
-    return
     model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter("lr", utils.SmoothedValue(window_size=1, fmt="{value}"))
@@ -288,7 +287,7 @@ def main(args):
         sparse_config = []
         from torchao.sparsity.prototype.sparsifier.weight_norm_sparsifier import WeightNormSparsifier
         for name, mod in model.named_modules():
-            if args.skip_last_layer_sparsity and name == "module.heads.head":
+            if args.skip_last_layer_sparsity and "heads.head" in name:
                 continue
             if args.skip_first_transformer_sparsity and "encoder.layers.encoder_layer_0" in name:
                 continue
@@ -296,12 +295,12 @@ def main(args):
                 sparse_config.append({"tensor_fqn": f"{name}.weight"})
 
         sparsifier = WeightNormSparsifier(
-            sparsity_level=1.0, sparse_block_shape=(1, 4), zeros_per_block=2
+            sparsity_level=1.0,
+            sparse_block_shape=(1, 4),
+            zeros_per_block=2
         )
         sparsifier.prepare(model, sparse_config)
         sparsifier.step()
-
-
     else:
         print("No sparsity applied!")
 

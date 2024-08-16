@@ -78,7 +78,6 @@ def main(args):
         if not args.weights_path:
             sparsifier.squash_mask()
 
-
     if args.weights_path:
         try:
             checkpoint = torch.load(args.weights_path, map_location="cpu")
