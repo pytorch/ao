@@ -7,7 +7,6 @@ import torch.utils.benchmark as benchmark
 import torch.nn.functional as F
 from torch import nn
 from torch.sparse import SparseSemiStructuredTensor, to_sparse_semi_structured
-from tqdm import tqdm
 
 from torch.sparse._triton_ops_meta import optimize_bsr_dense_addmm
 from torchao.utils import benchmark_model
@@ -140,7 +139,7 @@ if __name__ == "__main__":
         ]
         results = (
             run_gpu_sparse_benchmark(m, k, n, args)
-            for (m, k, n) in tqdm(bert_shapes)
+            for (m, k, n) in bert_shapes
         )
     elif args.mode == "vit-mlp-shapes":
         vit_shapes= [
@@ -151,7 +150,7 @@ if __name__ == "__main__":
         ]
         results = (
             run_gpu_sparse_benchmark(m, k, n, args)
-            for (m, k, n) in tqdm(vit_shapes)
+            for (m, k, n) in vit_shapes
         )
     elif args.mode == "nvidia-fixed-k":
         mn_vals = [
@@ -176,7 +175,7 @@ if __name__ == "__main__":
         ]
         results = (
             run_gpu_sparse_benchmark(mn, 10240, mn, args)
-            for mn in tqdm(mn_vals)
+            for mn in mn_vals
         )
     elif args.mode == "nvidia-fixed-mn":
         k_vals = [
@@ -198,7 +197,7 @@ if __name__ == "__main__":
         ]
         results = (
             run_gpu_sparse_benchmark(10240, k, 10240, args)
-            for k in tqdm(k_vals)
+            for k in k_vals
         )
 
     else:
