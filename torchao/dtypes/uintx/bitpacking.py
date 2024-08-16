@@ -1,6 +1,5 @@
 import torch
-import numpy as np
-from typing import Optional, Union, List
+from typing import Optional, List
 from functools import reduce
 
 # for selecting the shards from 8 bits
@@ -67,11 +66,11 @@ def pack_cpu(data: torch.Tensor,
          dim: Optional[int] = -1) -> List[torch.Tensor]:
     """
     Inputs:
-    data: a tensor of sub byte elements in uint8 
+    data: a tensor of sub byte elements in uint8
     elem_size: the size in bits of the elements to pack
     dim: the dimension to pack along
     Returns: a list of packed shards
-    
+
     ==================================================================================================
     given an array such as [0x30,0x29,0x17,0x5,0x20,0x16,0x9,0x22] which are 8 uint6 elements
     first seperate into two shards: the upper 2 bits and the lower 4 bits by using a mask (0x30 and 0x0f respectively)
@@ -79,17 +78,17 @@ def pack_cpu(data: torch.Tensor,
     mask: 0x30
     [0x30,       0x20,       0x10,       0x00,        0x00,       0x10,       0x00,        0x20    ]
     [0b00110000, 0b00100000, 0b00010000, 0b00000000, 0b00100000, 0b00010000, 0b00000000, 0b00100000]
-    
+
     Group elements into subsets that will be shifted to the same position within the 8bit container
     group1 >> 4,  group2 >> 2, group3 >> 0, group4 << 2
-    
+
     [0b00000011, 0b00000010, 0b00000100, 0b00000000, 0b00100000, 0b00010000, 0b00000000, 0b10000000]
-    |------ group 1 ------| |------ group 2 ------| |------ group 3 ------| |------ group 4 ------|           
-    
+    |------ group 1 ------| |------ group 2 ------| |------ group 3 ------| |------ group 4 ------|
+
     Finally bitwise-or the groups together
-    [0b00000011, 0b00000010, 
-     0b00000100, 0b00000000, 
-     0b00100000, 0b00010000, 
+    [0b00000011, 0b00000010,
+     0b00000100, 0b00000000,
+     0b00100000, 0b00010000,
      0b00000000, 0b01000000]
 
     [0b00100111, 0b10010010]
@@ -98,15 +97,15 @@ def pack_cpu(data: torch.Tensor,
     mask: 0x0f
     [0x00,       0x09,       0x07,       0x05,       0x00,       0x16,       0x9,        0x02]
     [0b00000000, 0b00001001, 0b00000111, 0b00000101, 0b00000000, 0b00000110, 0b00001001, 0b00000010]
-    
+
     group1 << 0, group2 << 4
     [0b00000000, 0b00001001, 0b00000111, 0b00000101, 0b00000000, 0b01100000, 0b10010000, 0b00100000]
     |------------------ group 1 ------------------| |------------------ group 2 ------------------|
-    
+
     bitwise-or:
     [0b00000000, 0b00001001, 0b00000111, 0b00000101,
      0b00000000, 0b01100000, 0b10010000, 0b00100000]
-    
+
     [0b00000000, 0b01101001, 0b10010111, 0b00100101]
     ==================================================================================================
     After pack, data went from 8 elements to 6: [[0, 105, 151, 37], [39, 146]]
@@ -115,7 +114,7 @@ def pack_cpu(data: torch.Tensor,
     torch._assert(data.shape[dim] % 8 == 0, f"pack dimension size ({data.shape[dim]}) is not divisble by scale")
     torch._assert(data.dtype == torch.uint8, "data must be uint8")
     output_shape = list(data.shape)
-    
+
     output = []
     for i in range(len(numbits[elem_size])):
         output_shape[dim] = data.shape[dim] * numbits[elem_size][i] // 8
@@ -133,23 +132,23 @@ def pack_cpu(data: torch.Tensor,
 
 
 def unpack_cpu(data: List[torch.Tensor],
-           elem_size: int, 
+           elem_size: int,
            dim: Optional[int] = -1) -> torch.Tensor:
     """
     Unpacks small dtype elements from a larger dtype.
-    
+
     Inputs:
     data: - a list of packed shards
     elem_size: the size in bits of the elements to unpack
     dim: the dimension to unpack along
-    
+
     Returns: torch.Tensor - a tensor of the unpacked elements.
     """
     # define the output tensor
     output_shape = list(data[0].shape)
     output_shape[dim] = data[0].shape[dim] * 8 // numbits[elem_size][0]
     output = torch.zeros(output_shape, dtype=torch.uint8, device=data[0].device)
-    
+
     for i in range(len(numbits[elem_size])):
         # define variables for the current shard
         bit_size = numbits[elem_size][i]
@@ -162,7 +161,7 @@ def unpack_cpu(data: List[torch.Tensor],
             group = data[i] & unpack_mask[bit_size][j]
             shift_amt = j * bit_size - rel_pos
             output_narrow.copy_(torch.bitwise_or(output_narrow, abs_rsh(group, j * bit_size - rel_pos)))
-    return output 
+    return output
 
 # these are faster on the GPU
 
@@ -172,13 +171,13 @@ def _pack(data, elem_size, scale, dim):
     '''
     packed_shape = list(data.shape)
     packed_shape[dim] = packed_shape[dim] // scale
-    
+
     packed = torch.zeros(packed_shape, dtype=data.dtype, device=data.device)
-    
+
     for i in range(scale):
         narrow_slice = data.narrow(dim, data.shape[dim]*i//scale, data.shape[dim] // scale)
         packed |= narrow_slice << (elem_size * i)
-    
+
     return packed
 
 def _unpack(data, element_size, scale, dim):
@@ -187,15 +186,15 @@ def _unpack(data, element_size, scale, dim):
     '''
     unpacked_shape = list(data.shape)
     unpacked_shape[dim] *= scale
-    
+
     nbits = (1 << element_size) - 1  # mask for the last element_size bits
-    
+
     unpacked_data = torch.zeros(unpacked_shape, dtype=data.dtype, device=data.device)
-    
+
     for i in range(scale):
         shift_amt = element_size * i
         chunk = unpacked_data.narrow(dim, unpacked_data.shape[dim]*i//scale, unpacked_data.shape[dim] // scale).copy_((data >> shift_amt) & nbits)
-    
+
     return unpacked_data
 
 

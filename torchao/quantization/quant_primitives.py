@@ -5,14 +5,15 @@
 # LICENSE file in the root directory of this source tree.
 
 from enum import Enum, auto
-from typing import List, Optional, Tuple, Dict
-import torch
+from typing import List, Optional, Tuple, Dict, Callable, Union
+import torch, math
+
 
 from torchao.kernel.intmm import int_scaled_matmul
 from torchao.kernel.intmm import safe_int_mm
 from torchao.utils import (
-    TORCH_VERSION_AFTER_2_3,
-    TORCH_VERSION_AFTER_2_5,
+    TORCH_VERSION_AT_LEAST_2_3,
+    TORCH_VERSION_AT_LEAST_2_5,
 )
 from torchao.utils import _register_custom_op
 
@@ -21,10 +22,12 @@ __all__ = [
     "safe_int_mm",
     "int_scaled_matmul",
     "choose_qparams_affine",
+    "choose_qparams_affine_with_min_max",
     "quantize_affine",
     "dequantize_affine",
     "fake_quantize_affine",
     "fake_quantize_affine_cachemask",
+    "quantize_affine_hqq",
 ]
 
 class MappingType(Enum):
@@ -52,7 +55,7 @@ class ZeroPointDomain(Enum):
     INT = auto()
     FLOAT = auto()
 
-if TORCH_VERSION_AFTER_2_5:
+if TORCH_VERSION_AT_LEAST_2_5:
     torch.serialization.add_safe_globals([MappingType, ZeroPointDomain])
 
 """
@@ -66,7 +69,7 @@ _DTYPE_TO_QVALUE_BOUNDS: Dict[torch.dtype, Tuple[int, int]] = {
     torch.int32: (-(2**31), 2**31 - 1),
 }
 
-if TORCH_VERSION_AFTER_2_3:
+if TORCH_VERSION_AT_LEAST_2_3:
     _DTYPE_TO_QVALUE_BOUNDS.update({
         torch.uint1: (0, 2**1-1),
         torch.uint2: (0, 2**2-1),
@@ -570,9 +573,51 @@ def choose_qparams_affine(
         zero_point_domain.name
     )
 
+
+def choose_qparams_affine_with_min_max(
+   min_val: torch.Tensor,
+   max_val: torch.Tensor,
+   mapping_type: MappingType,
+   block_size: Tuple[int, ...],
+   target_dtype: torch.dtype,
+   quant_min: Optional[int] = None,
+   quant_max: Optional[int] = None,
+   eps: Optional[float] = None,
+   scale_dtype: Optional[torch.dtype] = None,
+   zero_point_dtype: Optional[torch.dtype] = None,
+   preserve_zero: bool = True,
+   zero_point_domain = ZeroPointDomain.INT,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """A variant of :func:`~torchao.quantization.quant_primitives.choose_qparams_affine`
+    operator that pass in min_val and max_val directly instead of deriving these from a single input.
+    This is used for observers in static quantization where min_val and max_val may be obtained through
+    tracking all the data in calibration data set.
+
+    Args:
+      Mostly same as :func:`~torchao.quantization.quant_primitives.choose_qparams_affine`. with one
+      difference: instead of passing in `input` Tensor and use that to calculate min_val/max_val
+      and then scale/zero_point, we pass in min_val/max_val directly
+    """
+    return _choose_qparams_affine(
+        None,
+        mapping_type.name,
+        block_size,
+        target_dtype,
+        quant_min,
+        quant_max,
+        eps,
+        scale_dtype,
+        zero_point_dtype,
+        preserve_zero,
+        zero_point_domain.name,
+        min_val,
+        max_val,
+    )
+
+
 @register_custom_op
 def _choose_qparams_affine(
-   input: torch.Tensor,
+   input: Optional[torch.Tensor],
    mapping_type: str,
    block_size: List[int],
    target_dtype: torch.dtype,
@@ -583,23 +628,38 @@ def _choose_qparams_affine(
    zero_point_dtype: Optional[torch.dtype] = None,
    preserve_zero: bool = True,
    zero_point_domain: str = "INT",
+   min_val: Optional[torch.Tensor] = None,
+   max_val: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """op definition that has compatible signatures with custom op library
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
     assert mapping_type in [MappingType.SYMMETRIC.name, MappingType.ASYMMETRIC.name], f"Unsupported mapping type: {mapping_type}"
 
-    if scale_dtype is None:
-        scale_dtype = input.dtype
-    if zero_point_dtype is None:
-        zero_point_dtype = input.dtype
+    if input is not None:
+        if scale_dtype is None:
+            scale_dtype = input.dtype
+        if zero_point_dtype is None:
+            zero_point_dtype = input.dtype
+        if eps is None:
+            eps = torch.finfo(input.dtype).eps
 
-    assert len(block_size) == input.dim(), f"Got input dim:{input.dim()}, block_size: {block_size}"
-    shape_for_reduction, reduction_dims = _get_reduction_params(block_size, input.size())
-    input = input.view(shape_for_reduction)
+        assert len(block_size) == input.dim(), f"Got input dim:{input.dim()}, block_size: {block_size}"
+        shape_for_reduction, reduction_dims = _get_reduction_params(block_size, input.size())
+        input = input.view(shape_for_reduction)
 
-    min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
-    max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
+        min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
+        max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
+    else:
+        assert min_val is not None and max_val is not None, "Need to provide `min_val` and `max_val` when `input` is None, got: {min_val, max_val}"
+        assert min_val.dtype == max_val.dtype, "Expecting `min_val` and `max_val` to have the same dtype, got: {min_val.dtype, max_val.dtype}"
+
+        if scale_dtype is None:
+            scale_dtype = min_val.dtype
+        if zero_point_dtype is None:
+            zero_point_dtype = min_val.dtype
+        if eps is None:
+            eps = torch.finfo(min_val.dtype).eps
 
     if preserve_zero:
         min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
@@ -615,10 +675,12 @@ def _choose_qparams_affine(
             raise ValueError("preserve_zero == False is not supported for symmetric quantization")
         if zero_point_domain != ZeroPointDomain.INT.name:
             raise ValueError("zero_point_domain != ZeroPointDomain.INT is not supported for symmetric quantization")
+        scale = torch.clamp(scale, min=eps)
         zero_point = torch.full_like(scale, int((quant_max + quant_min + 1) / 2))
     else:
         assert mapping_type == MappingType.ASYMMETRIC.name
         scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
+        scale = torch.clamp(scale, min=eps)
         if preserve_zero:
             zero_point = quant_min - torch.round(min_val_neg / scale)
             zero_point = torch.clamp(zero_point, quant_min, quant_max)
@@ -627,8 +689,173 @@ def _choose_qparams_affine(
             mid_point = (quant_max + quant_min + 1) / 2
             zero_point = min_val_neg + scale * mid_point
 
-    if eps is None:
-        eps = torch.finfo(input.dtype).eps
-    scale = torch.clamp(scale, min=eps)
-
     return scale.to(dtype=scale_dtype), zero_point.to(dtype=zero_point_dtype)
+
+
+#HQQ
+############################################################################
+# Shrinking operator (proximal operator for the lp norm)
+def _shrink_lp_op(x: torch.Tensor, beta: float, lp_norm: float) -> torch.Tensor:
+    if lp_norm == 1:
+        return torch.sign(x) * torch.nn.functional.relu(torch.abs(x) - 1.0 / beta)
+    else:
+        return torch.sign(x) * torch.nn.functional.relu(
+            torch.abs(x) - (1.0 / beta) * torch.pow(torch.abs(x), lp_norm - 1)
+        )
+
+# Proximal solver || W - dequantize(quantize(W))||_p^p
+@torch.inference_mode()
+def optimize_weights_proximal_legacy(
+    tensor: torch.Tensor,
+    scale: torch.Tensor,
+    zero: torch.Tensor,
+    min_max: list,
+    axis: int = 0,
+    dtype: Union[torch.dtype, None] = None,
+    device: Union[str, None] = None,
+    verbose: bool = False,
+    opt_params: dict = {
+        "lp_norm": 0.7,
+        "beta": 1e1,
+        "kappa": 1.01,
+        "iters": 20,
+        "early_stop": True,
+    },
+) -> tuple:
+    lp_norm, beta, kappa, iters, early_stop = (
+        opt_params["lp_norm"],
+        opt_params["beta"],
+        opt_params["kappa"],
+        opt_params["iters"],
+        opt_params["early_stop"],
+    )
+
+    device = tensor.device if (device is None) else torch.device(device)
+
+    if dtype is None:
+        dtype = torch.float16 if (device.type == "cuda") else torch.float32
+
+    W_f = tensor.to(dtype=dtype, device=device)
+    scale = scale.to(dtype=dtype, device=device)
+    zero = zero.to(dtype=dtype, device=device)
+
+    best_error = 1e4
+    for i in range(iters):
+        W_q = torch.round(W_f * scale + zero).clamp(min_max[0], min_max[1])
+        W_r = (W_q - zero) / scale
+        W_e = _shrink_lp_op(W_f - W_r, beta, lp_norm)
+        zero = torch.mean(W_q - (W_f - W_e) * scale, axis=axis, keepdim=True)
+        beta *= kappa
+
+        current_error = float(torch.abs(W_f - W_r).mean())
+        if verbose:
+            print("Iter " + str(i + 1), " | Error: " + str(current_error))
+        if early_stop:
+            if current_error < best_error:
+                best_error = current_error
+            else:
+                break
+
+    scale = scale.to(tensor.device)
+    zero = zero.to(tensor.device)
+    del W_f, W_q, W_r, W_e
+    torch.cuda.empty_cache()
+
+    W_q = torch.round(tensor * scale + zero).clamp(min_max[0], min_max[1])
+    return W_q, scale, zero
+
+# Mainly used to check if the group-size is divisible by numel()
+def _is_divisible(val1: int, val2: int) -> bool:
+    return int(val2 * math.ceil(val1 / val2)) == val1
+
+# Converts hqq format W_dequant = (W_q - zero)*scale into affinequantized format: (W_q - mid_point)*scale_ao + zero_ao
+def _convert_to_affinequantized_format(W_q: torch.Tensor, scale: torch.Tensor, zero: torch.Tensor, nbits: int, shape: Union[List, Tuple, torch.Size]) -> Tuple:
+    quant_min = 0
+    quant_max = 2**nbits - 1
+    mid_point = (quant_max + quant_min + 1) / 2
+    zero_ao = ((mid_point - zero.float()) * scale.float()).to(zero.dtype)
+    scale_ao = scale
+    W_q_ao = W_q.view(shape)
+    return W_q_ao, scale_ao, zero_ao
+
+#Main hqq quantizer function
+def quantize_affine_hqq(
+    tensor: torch.Tensor,
+    nbits: float = 4,
+    group_size: int = 64,
+    optimize: bool = True,
+    axis: int = 1,
+    compute_dtype: torch.dtype = torch.float16,
+    device: str = "cuda",
+    verbose: bool = False,  # to check the optimizer error
+    raw_output: bool = False,  # If True, it will return the quant params in hqq lib format
+    optimize_weights: Callable = optimize_weights_proximal_legacy #weights proximal optimizer function
+) -> tuple:
+    assert axis in [0, 1], "axis should be either 0 or 1"
+    if group_size is not None:
+        assert _is_divisible(tensor.numel(), group_size), (
+            "group_size should be divisble by the total tensor dimensions. shape: "
+            + str(tensor.shape)
+            + ", group_size: "
+            + str(group_size)
+        )
+
+    #It's better to work with float32 here
+    W = tensor.to(device=device, dtype=torch.float32)
+    shape = W.shape
+
+    # Reshape for grouping
+    if group_size is not None:
+        W = (
+            W.reshape([-1, group_size])
+            if (axis == 1)
+            else W.reshape([group_size, -1])
+        )
+
+    # Get min/max values
+    _min = W.min(axis=axis, keepdim=True)[0]
+    _max = W.max(axis=axis, keepdim=True)[0]
+
+    max_v = round(2**nbits - 1)
+    min_v = 0
+    min_max = [min_v, max_v]
+
+    # Clamp to avoid fp16 issues
+    scale = (max_v / (_max - _min)).clamp(max=2e4)
+    zero = -_min * scale
+
+    # Round zero as in: https://github.com/casper-hansen/AutoAWQ/blob/main/awq/quantize/quantizer.py#L42C9-L42C14
+    if nbits in [4]:
+        zero = torch.round(zero)
+
+    # Fine-tune weights
+    if optimize:
+        W_q, scale, zero = optimize_weights(
+            tensor=W,
+            scale=scale,
+            zero=zero,
+            min_max=min_max,
+            axis=axis,
+            device=device,
+            verbose=verbose,
+        )
+    else:
+        W_q = torch.round(W * scale + zero).clamp(min_max[0], min_max[1])
+
+    # Store meta-data (we invert the scale for dequantization)
+    scale = 1.0 / scale
+
+    # Convert to affienquantized format
+    if raw_output is False:
+        W_q, scale, zero = _convert_to_affinequantized_format(W_q, scale, zero, nbits, shape)
+
+    # Make sure all the weights are in the right compute_dtype/device
+    W_q = W_q.to(dtype=torch.uint8, device=device)
+    scale = scale.to(dtype=compute_dtype, device=device)
+    zero = zero.to(dtype=compute_dtype, device=device)
+
+    # cleanup
+    del W, _min, _max
+    torch.cuda.empty_cache()
+
+    return W_q, scale, zero, shape
