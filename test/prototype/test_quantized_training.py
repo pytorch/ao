@@ -152,15 +152,17 @@ class TestFSDP2(FSDPTest):
 
     @skip_if_lt_x_gpu(2)
     def test_fsdp2(self):
+        # FSDP2 + compiled quantized training fails with PyTorch 2.4
+        compile_layer_choices = [False]
+        if TORCH_VERSION_AFTER_2_4:
+            compile_layer_choices.append(True)
+
         self.run_subtests(
-            {"compile_layer": [False, True]},
+            {"compile_layer": compile_layer_choices},
             self._test_fsdp2,
         )
 
     def _test_fsdp2(self, compile_layer):
-        if compile_layer and not TORCH_VERSION_AFTER_2_4:
-            pytest.skip("FSDP2 + compiled quantized training fails with PyTorch 2.4")
-
         import torch.distributed as dist
         from torch.distributed._composable.fsdp import fully_shard
         from torch.testing._internal.distributed._tensor.common_dtensor import ModelArgs, Transformer
