@@ -252,6 +252,9 @@ def _(func, types, args, kwargs):
 
 
 def int8_weight_only_quantized_training():
+    # TODO: right now `_get_linear_subclass_inserter()` will always set `requires_grad=False`
+    # when we have this out of prototype (or there are stable trainable tensor subclasses),
+    # update `_get_linear_subclass_inserter()` to allow `requires_grad=True`.
     def apply_int8_linear_weight(linear: nn.Linear):
         linear.weight = nn.Parameter(
             Int8QTLinearWeight.from_float(linear.weight),
