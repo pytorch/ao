@@ -187,8 +187,8 @@ class TestFSDP2(FSDPTest):
             fully_shard(layer)
         fully_shard(fsdp_model)
 
-        base_optim = _AdamW(base_model.parameters(), lr=1e-2)
-        fsdp_optim = _AdamW(fsdp_model.parameters(), lr=1e-2)
+        base_optim = torch.optim.Adam(base_model.parameters(), lr=1e-2)
+        fsdp_optim = torch.optim.Adam(fsdp_model.parameters(), lr=1e-2)
 
         torch.manual_seed(42 + self.rank + 1)
         for iter_idx in range(5):
