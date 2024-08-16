@@ -50,7 +50,7 @@ def _assert_and_get_unique_device(module: torch.nn.Module) -> Any:
     return device
 
 
-def benchmark_model(model, num_runs, args=(), kwargs=None, device_type=None, num_warmup=10):
+def benchmark_model(model, num_runs, args=(), kwargs=None, device_type=None):
     """Benchmark model runs with `args` and `kwargs` both are optional
     """
     if kwargs is None:
@@ -59,9 +59,6 @@ def benchmark_model(model, num_runs, args=(), kwargs=None, device_type=None, num
     if device_type is None:
         assert isinstance(model, torch.nn.Module), "Expecting `model` to be torch.nn.Module if device_type is not provided"
         device_type = _assert_and_get_unique_device(model).type
-
-    for _ in range(num_warmup):
-        model(*args, **kwargs)
 
     if device_type == "cuda":
         torch.cuda.synchronize()
