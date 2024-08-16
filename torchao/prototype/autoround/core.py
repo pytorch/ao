@@ -46,13 +46,24 @@ def create_qmodel_from_qdq_model(qdq_model: torch.nn.Module):
         scale = observed_linear.scale.to(device)
         zero_point = observed_linear.zp.to(device)
 
-        def weight_quant_func(weight):
+        def weight_quant_func(input_float):
             # TODO(Yi): check the weight shape, `group_size`, and `inner_k_tiles` to make sure the tinygemm can handle it
-            inner_k_tiles = 2
-            shifted_zero_point  = (8 - zero_point) * scale
+            inner_k_tiles = 8
+            quant_min = 0
+            quant_max = 15
+            # Shift the zeros to align with tiny gemm.
+            # The dequantization process in tiny gemm:
+            #   tiny_dequant = (tinny_quant - 8) * scale + tinny_zp
+            # The dequantization porcess in auto-round
+            #   dequant = (quant - zp) * scale
+            # To align with tiny gemm:
+            #   dequant = (quant - 8 + 8 - zp) * scale
+            #           = (quant - 8) * scale + (8 - zp) * scale
+            #              \__/                 \______________/
+            #            tiny_quant                 tiny_zp
+            mid_point = (quant_max - quant_min + 1) / 2
+            shifted_zero_point  = (mid_point - zero_point) * scale
             block_size = (1, observed_linear.group_size)
-            
-            input_float = weight #.to(torch.bfloat16)
             orig_out_features, orig_in_features = input_float.shape
             in_features = find_multiple(orig_in_features, 1024)
             out_features = find_multiple(orig_out_features, 8)
