@@ -234,6 +234,16 @@ def main(
 
             # do autoquantization
             model.finalize_autoquant()
+
+            from torchao.quantization.autoquant import AUTOQUANT_CACHE
+            shapes = []
+            for k in AUTOQUANT_CACHE.keys():
+                act = k[1]
+                w = k[2]
+                M, K = act
+                N = w[0]
+                shapes.append((M, N, K))
+            print("all shapes:", set(shapes))
         else:
             if not TORCH_VERSION_AT_LEAST_2_5:
                 unwrap_tensor_subclass(model)
@@ -375,10 +385,11 @@ if __name__ == '__main__':
     parser.add_argument('--profile', type=Path, default=None, help='Profile path.')
     parser.add_argument('--device', type=str, default=default_device, help='Device to use')
     parser.add_argument('--precision', type=lambda x: getattr(torch, x.split(".")[-1]), default=torch.bfloat16, help='dtype precision to use')
+    parser.add_argument('--print_autoquant_m_n_k', action='store_true', help='Whether to print the M, N, K shapes in AUTOQUANT_CACHE for micro benchmarking.')
     parser.add_argument('--write_result', type=Path, default=None, help='Path where to write the result')
 
     args = parser.parse_args()
     main(
         args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.top_k,
-        args.temperature, args.checkpoint_path, args.quantization, args.kv_cache_quantization, args.save, args.compile, args.compile_prefill, args.profile, args.device, args.precision, args.write_result
+        args.temperature, args.checkpoint_path, args.quantization, args.kv_cache_quantization, args.save, args.compile, args.compile_prefill, args.profile, args.device, args.precision, args.print_autoquant_m_n_k, args.write_result
     )
