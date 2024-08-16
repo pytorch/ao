@@ -19,15 +19,16 @@ if not TORCH_VERSION_AFTER_2_3:
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 
-# using TF32 will cause mixed mm to segfault with triton backend
-# fixed by https://github.com/pytorch/pytorch/pull/133173 but just set here to be safe
-# also required for correctness check
-torch.set_float32_matmul_precision("highest")
 
-# we always use `quantize_(set_inductor_config=False)` to reduce compile time in CI
-# and make sure TF32 is not used (see above).
+def _reset():
+    # using TF32 will cause mixed mm to segfault with triton backend
+    # fixed in nightly by https://github.com/pytorch/pytorch/pull/133173
+    # also required for correctness check
+    torch.set_float32_matmul_precision("highest")
+    torch._dynamo.reset()
 
 
+# we always use `quantize_(set_inductor_config=False)` to reduce compile time in CI.
 class TestQuantizedTraining(TestCase):
     @parametrize("device", _DEVICES)
     def test_int8_stochastic_rounding(self, device):
@@ -46,6 +47,7 @@ class TestQuantizedTraining(TestCase):
     @parametrize("bias", [False, True])
     @parametrize("device", _DEVICES)
     def test_int8_linear(self, leading_dims, bias, device):
+        _reset()
         embed_dim = 32
 
         linear_fp32 = nn.Linear(embed_dim, embed_dim, bias=bias, device=device)
@@ -76,7 +78,7 @@ class TestQuantizedTraining(TestCase):
     @parametrize("bias", [False, True])
     @parametrize("device", _DEVICES)
     def test_int8_linear_compile(self, leading_dims, bias, device):
-        torch._dynamo.reset()
+        _reset()
         embed_dim = 128
 
         linear_eager = nn.Linear(embed_dim, embed_dim, bias=bias, device=device)
@@ -104,7 +106,7 @@ class TestQuantizedTraining(TestCase):
     @parametrize("compile", [False, True])
     @parametrize("device", _DEVICES)
     def test_int8_linear_training(self, compile, device):
-        torch._dynamo.reset()
+        _reset()
         bsize = 4
         embed_dim = 32
         n_classes = 10
@@ -160,7 +162,7 @@ class TestFSDP2(FSDPTest):
         from torch.distributed._composable.fsdp import fully_shard
         from torch.testing._internal.distributed._tensor.common_dtensor import ModelArgs, Transformer
 
-        torch._dynamo.reset()
+        _reset()
         batch_size = 3
         vocab_size = 32
         seq_len = 64
@@ -187,8 +189,8 @@ class TestFSDP2(FSDPTest):
             fully_shard(layer)
         fully_shard(fsdp_model)
 
-        base_optim = torch.optim.Adam(base_model.parameters(), lr=1e-2)
-        fsdp_optim = torch.optim.Adam(fsdp_model.parameters(), lr=1e-2)
+        base_optim = torch.optim.Adam(base_model.parameters(), lr=1e-2, foreach=False, fused=False)
+        fsdp_optim = torch.optim.Adam(fsdp_model.parameters(), lr=1e-2, foreach=False, fused=False)
 
         torch.manual_seed(42 + self.rank + 1)
         for iter_idx in range(5):
