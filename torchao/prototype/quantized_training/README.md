@@ -37,6 +37,15 @@ Only `torch.optim.Adam` and optimizers from `torchao.prototype.low_bit_optim` ar
 
 See [#644](https://github.com/pytorch/ao/pull/644) for some early results.
 
+TODO: investigate suboptimal memory saving when `torch.compile()` is used. Might be due to transposed weight. Memory benchamark for Llama2-1B, bs=4, seq_len=2048, activation checkpointing. 
+
+Model           | Peak memory (GB)
+----------------|-----------------
+BF16 eager      | 11.06847
+BF16 compile    | 10.16915
+INT8 QT eager   | 10.11437
+INT8 QT compile | 10.03365
+
 ## Future ideas
 
 - INT8 activation x INT8 weight. This can potentially leverage INT8 Tensor Cores, which is 2x faster than FP16/BF16 Tensor Cores.

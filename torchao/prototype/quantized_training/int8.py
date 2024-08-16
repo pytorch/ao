@@ -60,6 +60,13 @@ class Int8QTLinearWeight(Tensor):
         stochastic rounding can be used, which has a low chance, but not zero, of rounding up. The
         probability of rounding up is equal to x - ⌊x⌋, which indicates how close the value is to the next
         integer value. Thus, stochastic rounding also approximates the floating point value exactly.
+
+        Currently this function differs from AQT's `int8_weight_only()` in the following way:
+        1. Precision: AQT keeps original dtype when doing quantization, while this function upcasts input
+        to FP32 before quantization, and downcast scale to original dtype.
+        2. Calculate scale: AQT uses `input.abs().amax() / 127.5`, while `input.abs().amax() / 127` is
+        done here.
+        3. Apply scale: AQT uses `input * (1 / scale)`, while this function performs `input / scale`.
         """
         original_dtype = tensor.dtype
         tensor = tensor.float()
