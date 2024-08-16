@@ -18,6 +18,8 @@ class Int8QTLinearWeight(Tensor):
     1. `F.linear` is differentiable i.e. backward is defined.
     2. All in-place ops, such as `aten.copy_`, will perform stochastic rounding.
         `Int8QTLinearWeight.from_float()` does not perform stochastic rounding.
+    3. The numerics for quantization is slightly different. See `Int8QTLinearWeight.quantize()`
+        for more details.
     """
 
     implements = classmethod(_implements)
@@ -244,7 +246,11 @@ def _(func, types, args, kwargs):
     return Int8QTLinearWeight(int_data, scale)
 
 
-# don't do anything. workaround for FSDP2. might give unexpected or wrong results.
+# FSDP2 will call these two ops, expecting a view, not a copy. It doesn't make sense to
+# correctly support these ops. For example, `.scale` depends on the shape of the weight,
+# since this is channel-wise quantization.
+# Thus, this is a workaround for FSDP2. Users SHOULD NOT call these ops directly, since
+# they will produce unexpected or wrong results.
 @Int8QTLinearWeight.implements([aten.view.default, aten.as_strided.default])
 def _(func, types, args, kwargs):
     out = Int8QTLinearWeight(args[0].int_data, args[0].scale)
