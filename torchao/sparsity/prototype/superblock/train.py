@@ -18,9 +18,9 @@ from torch import nn
 from torch.utils.data.dataloader import default_collate
 from torchvision.transforms.functional import InterpolationMode
 
-sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-from supermask import apply_supermask, SupermaskLinear
-from benchmark import apply_sparsity, apply_bsr, verify_sparsity
+from torchao.sparsity.prototype.superblock.supermask import apply_supermask
+from torchao.sparsity.prototype.superblock.utils import mlp_only_with_args
+from torchao.sparsity.prototype.sparsifier.weight_norm_sparsifier import WeightNormSparsifier
 
 
 def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, model_ema=None, scaler=None):
@@ -115,7 +115,6 @@ def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix="
     print(f"{header} Acc@1 {metric_logger.acc1.global_avg:.3f} Acc@5 {metric_logger.acc5.global_avg:.3f}")
     return metric_logger.acc1.global_avg
 
-
 def _get_cache_path(filepath):
     import hashlib
 
@@ -123,7 +122,6 @@ def _get_cache_path(filepath):
     cache_path = os.path.join("~", ".torch", "vision", "datasets", "imagefolder", h[:10] + ".pt")
     cache_path = os.path.expanduser(cache_path)
     return cache_path
-
 
 def load_data(traindir, valdir, args):
     # Data loading code
@@ -213,7 +211,6 @@ def load_data(traindir, valdir, args):
 
     return dataset, dataset_test, train_sampler, test_sampler
 
-
 def main(args):
     if args.output_dir:
         utils.mkdir(args.output_dir)
@@ -285,21 +282,18 @@ def main(args):
         )
     elif args.sparsity == "semi_structured":
         sparse_config = []
-        from torchao.sparsity.prototype.sparsifier.weight_norm_sparsifier import WeightNormSparsifier
         for name, mod in model.named_modules():
-            if args.skip_last_layer_sparsity and "heads.head" in name:
-                continue
-            if args.skip_first_transformer_sparsity and "encoder.layers.encoder_layer_0" in name:
-                continue
-            if isinstance(mod, torch.nn.Linear) and "mlp" in name: 
+            if mlp_only_with_args(mod, name,
+                                  skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
+                                  skip_last_layer_sparsity=args.skip_last_layer_sparsity):
                 sparse_config.append({"tensor_fqn": f"{name}.weight"})
 
         sparsifier = WeightNormSparsifier(
-            sparsity_level=1.0,
-            sparse_block_shape=(1, 4),
-            zeros_per_block=2
+            sparsity_level=1.0, sparse_block_shape=(1, 4), zeros_per_block=2
         )
         sparsifier.prepare(model, sparse_config)
+        for line in sparse_config:
+            print(line)
         sparsifier.step()
     else:
         print("No sparsity applied!")

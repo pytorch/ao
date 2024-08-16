@@ -4,6 +4,7 @@ import os
 import sys
 import warnings
 import hashlib
+from functools import partial
 
 import presets
 import torch
@@ -13,12 +14,13 @@ import utils
 from torch import nn
 from torchvision.transforms.functional import InterpolationMode
 
-sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-from supermask import apply_supermask, SupermaskLinear
-from benchmark import apply_sparsity, apply_bsr, verify_sparsity
-from train import evaluate, _get_cache_path, load_data
-from torchao.sparsity import sparsify_, apply_fake_sparsity, int8_dynamic_activation_int8_semi_sparse_weight, semi_sparse_weight
-from torchao.sparsity import sparsify_, apply_fake_sparsity, int8_dynamic_activation_int8_semi_sparse_weight, semi_sparse_weight
+from torchao.sparsity import sparsify_, semi_sparse_weight
+from torchao.sparsity.prototype.superblock.supermask import apply_supermask
+from torchao.sparsity.prototype.superblock.utils import apply_sparsity, verify_sparsity, mlp_only_with_args
+from torchao.sparsity.prototype.superblock.train import evaluate, _get_cache_path, load_data
+from torchao.sparsity.prototype.sparsifier.weight_norm_sparsifier import WeightNormSparsifier
+
+torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
 
 def main(args):
     utils.init_distributed_mode(args)
@@ -59,13 +61,10 @@ def main(args):
     sparsifier = None
     if args.sparsity == "semi_structured":
         sparse_config = []
-        from torch.ao.pruning import WeightNormSparsifier
         for name, mod in model.named_modules():
-            if args.skip_last_layer_sparsity and "heads.head" in name:
-                continue
-            if args.skip_first_transformer_sparsity and "encoder.layers.encoder_layer_0" in name:
-                continue
-            if isinstance(mod, torch.nn.Linear) and "mlp" in name: 
+            if mlp_only_with_args(mod, name,
+                                  skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
+                                  skip_last_layer_sparsity=args.skip_last_layer_sparsity):
                 sparse_config.append({"tensor_fqn": f"{name}.weight"})
 
         sparsifier = WeightNormSparsifier(
@@ -92,22 +91,16 @@ def main(args):
         assert args.bsr is not None and args.bsr > 0
         apply_sparsity(model)
         verify_sparsity(model)
-        if args.bsr:
-            apply_bsr(model, args.bsr)
+        sparsify_(model, block_sparse_weight(blocksize=args.bsr), superblock_only)
 
     if sparsifier:
         sparsifier.squash_mask()
     if args.sparsity == "semi_structured":
-        torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
-        def filter_fn(mod, name):
-            if args.skip_last_layer_sparsity and "heads.head" in name:
-                return False
-            if args.skip_first_transformer_sparsity and "encoder.layers.encoder_layer_0" in name:
-                return False
-            if isinstance(mod, torch.nn.Linear) and "mlp" in name: 
-                return True
-            return False
-        sparsify_(model, semi_sparse_weight(), filter_fn)
+        sparsify_(model,
+                  semi_sparse_weight(),
+                  partial(mlp_only_with_args, 
+                    skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
+                    skip_last_layer_sparsity=args.skip_last_layer_sparsity))
             
     criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
     evaluate(model, criterion, data_loader_test, device=device, dtype=torch.bfloat16)

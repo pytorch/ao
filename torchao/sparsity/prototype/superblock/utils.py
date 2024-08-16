@@ -12,10 +12,45 @@ from typing import List, Optional, Tuple
 import torch
 import torch.distributed as dist
 
-### Custom sparsification utils
+from torchao.sparsity.prototype.superblock.supermask import SupermaskLinear
 
-def block_sparse_weight():
-    pass
+### Custom sparsification utils
+def apply_sparsity(model):
+    for name, module in model.named_modules():
+        if isinstance(module, SupermaskLinear) and "mlp" in name:
+            module.sparsify_offline()
+            
+def verify_sparsity(model):
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Linear):
+            total_weights = module.weight.numel()
+            sparse_weights = (module.weight == 0).sum().item()
+            sparsity_percentage = (sparse_weights / total_weights) * 100
+            print(f"Sparsity verified in layer {name}: {sparsity_percentage:.2f}%")
+
+# filter functions
+def mlp_0_only(mod, name):
+    return isinstance(mod, torch.nn.Linear) and 'mlp.0' in name
+
+def mlp_3_only(mod, name):
+    return isinstance(mod, torch.nn.Linear) and 'mlp.3' in name
+
+def mlp_only(mod, name):
+    return isinstance(mod, torch.nn.Linear) and 'mlp' in name
+    
+def superblock_only(mod, name):
+    return isinstance(mod, SupermaskLinear) and "mlp" in name
+
+def mlp_only_with_args(mod, name, skip_last_layer_sparsity=False, skip_first_transformer_sparsity=False):
+    if skip_last_layer_sparsity and "heads.head" in name:
+        return False
+    if skip_first_transformer_sparsity and "encoder.layers.encoder_layer_0" in name:
+        return False
+    if isinstance(mod, torch.nn.Linear) and "mlp" in name: 
+        return True
+    return False
+
+
 
 ### Existing torchvision utils
 
