@@ -3,6 +3,7 @@ from typing import Callable, Any, Union, List, Tuple, Dict, Optional, Sequence, 
 import torch.nn as nn
 from torch.utils._pytree import tree_flatten, tree_unflatten
 import gc
+from torchao.quantization.unified import Quantizer
 from torchao.quantization.utils import (
     get_groupwise_affine_qparams,
     groupwise_affine_quantize_tensor_from_qparams,
@@ -336,6 +337,113 @@ class QuantizableModel(nn.Module):
     def state_dict(self):
         return self.get_quantized_state_dict()
 
+class GPTQQuantizer(Quantizer):
+    def __init__(self):
+
+        assert self.get_qparams_func is not None
+
+        assert self.quantize_func is not None
+
+        assert self.dequantize_func is not None
+
+        assert self.combine_qparams_list_func is not None
+
+        #  `make_names_and_values_dict_func`.
+        assert self.make_names_and_values_dict_func is not None
+    
+        assert self.skip_layer_func is not None
+    
+    @torch.no_grad()
+    def _create_quantized_state_dict(
+        self,
+        model,
+        inputs,
+        blocksize=128,
+        percdamp=0.01,
+        groupsize=-1,
+        #  `typing.Dict[<key type>, <value type>]` to avoid runtime subscripting errors.
+    ) -> Dict:
+        MultiTensor.configure_quantization_mode(
+            get_qparams_func=self.get_qparams_func,
+            quantize_func=self.quantize_func,
+            dequantize_func=self.dequantize_func,
+            combine_qparams_list_func=self.combine_qparams_list_func,
+            make_names_and_values_dict_func=self.make_names_and_values_dict_func,
+            skip_layer_func=self.skip_layer_func,
+            percdamp=percdamp,
+            blocksize=blocksize,
+            groupsize=groupsize
+        )
+        # Create and prepare the model
+        original_model = mod()
+        quantizable_model = QuantizableModel(original_model)
+
+        # Replace buffers and parameters with MultiTensor
+        with torch.no_grad():
+            _replace_with_custom_fn_if_matches_filter(
+                model=quantizable_model,
+                replacement_fn=replace_buffers_and_params,
+                filter_fn=lambda x, y: True
+            )
+         # Run the model
+        with torch.no_grad():
+            out = quantizable_model(*inputs)
+
+        return quantizable_model.get_quantized_state_dict()
+
+class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
+    def __init__(
+        self,
+        blocksize=128,
+        percdamp=0.01,
+        groupsize=64,
+        inner_k_tiles=8,
+        padding_allowed=True,
+        device: torch.device = torch.device("cuda"),
+    ):
+        self.blocksize = blocksize
+        self.percdamp = percdamp
+        self.groupsize = groupsize
+        self.inner_k_tiles = inner_k_tiles
+        self.padding_allowed = padding_allowed
+        self.device = device
+        self.act_fake_quant_func = None
+        n_bit = 4
+        self.get_qparams_func = lambda w: get_groupwise_affine_qparams(
+            w, n_bit, groupsize
+        )
+        self.quantize_func = lambda w, qparams: groupwise_affine_quantize_tensor_from_qparams(
+            w, qparams[0], qparams[1], n_bit, groupsize
+        )
+        self.dequantize_func = lambda q, qparams: groupwise_affine_dequantize_tensor_from_qparams(
+            q,
+            qparams[0],
+            qparams[1],
+            n_bit,
+            groupsize,
+        )
+        self.combine_qparams_list_func = lambda qparams_list: [
+            torch.cat(x, dim=1) for x in zip(*qparams_list)
+        ]
+        # skip unless padding_allowed=True or its correctly sized
+        self.skip_layer_func = lambda linear_weight: not (
+            _check_linear_int4_k(linear_weight.shape[-1], groupsize) or padding_allowed
+        )
+        self.make_names_and_values_dict_func = lambda Q, qparams: {
+            "lin.weight": Q,
+        }
+    def quantize(self, model: torch.nn.Module, inputs: List[MultiTensor], **kwargs: Any) -> torch.nn.Module:
+        state_dict = self._create_quantized_state_dict(
+            model,
+            inputs,
+            self.blocksize,
+            self.percdamp,
+            self.groupsize,
+        )
+        model.load_state_dict(state_dict, strict=False)
+        return model
+
+
 def replace_buffers_and_params(model: nn.Module) -> nn.Module:
     for name, buf in model.named_buffers(recurse=False):
         setattr(model, name, MultiTensor([buf]))
@@ -372,68 +480,16 @@ class mod(nn.Module):
         z[:, indices] = y
         return z
 
-# Define quantization functions
-def get_qparams_func(w):
-    n_bit = 4
-    groupsize = 64  # You might want to make this configurable
-    return get_groupwise_affine_qparams(w, n_bit, groupsize)
 
-def quantize_func(w, qparams):
-    n_bit = 4
-    groupsize = 64  # You might want to make this configurable
-    return groupwise_affine_quantize_tensor_from_qparams(w, qparams[0], qparams[1], n_bit, groupsize)
+if __name__ == "__main__":
+    # Create input tensors
+    multi = [
+        MultiTensor([torch.randn(10, 10), torch.randn(10, 10), torch.randn(10, 10)]),
+        MultiTensor([torch.tensor([0,1,2,3,4,5,6,7,8,9]), torch.tensor([0,1,2,3,4,5,6,7,8,9]), torch.tensor([0,1,2,3,4,5,6,7,8,9])])
+    ]
 
-def dequantize_func(q, qparams):
-    n_bit = 4
-    groupsize = 64  # You might want to make this configurable
-    return groupwise_affine_dequantize_tensor_from_qparams(q, qparams[0], qparams[1], n_bit, groupsize)
+    quantizer = Int4WeightOnlyGPTQQuantizer()
+    model = mod()
+    quantized_model = quantizer.quantize(model, multi)
 
-def combine_qparams_list_func(qparams_list):
-    return [torch.cat(x, dim=1) for x in zip(*qparams_list)]
-
-def make_names_and_values_dict_func(Q, qparams):
-    return {
-        "lin.weight": Q,
-        
-    }
-def skip_layer_func(linear_weight):
-    padding_allowed = True  # You might want to make this configurable
-    groupsize = 64  # You might want to make this configurable
-
-
-# Configure the MultiTensor class
-MultiTensor.configure_quantization_mode(
-    get_qparams_func=get_qparams_func,
-    quantize_func=quantize_func,
-    dequantize_func=dequantize_func,
-    combine_qparams_list_func=combine_qparams_list_func,
-    make_names_and_values_dict_func=make_names_and_values_dict_func,
-    skip_layer_func=skip_layer_func,
-    percdamp=0.01,
-    blocksize=128,
-    groupsize=-1
-)
-# Create and prepare the model
-original_model = mod()
-quantizable_model = QuantizableModel(original_model)
-
-# Replace buffers and parameters with MultiTensor
-with torch.no_grad():
-    _replace_with_custom_fn_if_matches_filter(
-        model=quantizable_model,
-        replacement_fn=replace_buffers_and_params,
-        filter_fn=lambda x, y: True
-    )
-
-# Create input tensors
-multi = [
-    MultiTensor([torch.randn(10, 10), torch.randn(10, 10), torch.randn(10, 10)]),
-    MultiTensor([torch.tensor([0,1,2,3,4,5,6,7,8,9]), torch.tensor([0,1,2,3,4,5,6,7,8,9]), torch.tensor([0,1,2,3,4,5,6,7,8,9])])
-]
-
-# Run the model
-with torch.no_grad():
-    out = quantizable_model(*multi)
-
-print("Output:", out)
-print("Quantized state dict:", quantizable_model.get_quantized_state_dict())
+    print("Quantized state dict:", quantized_model.state_dict())
