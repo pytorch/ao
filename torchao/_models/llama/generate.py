@@ -3,6 +3,7 @@
 
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
+import os
 import sys
 import time
 from pathlib import Path
@@ -13,7 +14,7 @@ import torchao
 import torch._dynamo.config
 import torch._inductor.config
 from torchao.utils import get_model_size_in_bytes
-from torchao.utils import TORCH_VERSION_AFTER_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 def device_sync(device):
     if "cuda" in device:
@@ -165,6 +166,7 @@ def main(
     checkpoint_path: Path = Path("checkpoints/meta-Transformer/Transformer-2-7b-chat-hf/model.pth"),
     quantization: Optional[str] = None,
     kv_cache_quantization: bool = False,
+    save: bool = False,
     compile: bool = True,
     compile_prefill: bool = False,
     profile: Optional[Path] = None,
@@ -233,10 +235,15 @@ def main(
             # do autoquantization
             model.finalize_autoquant()
         else:
-            if not TORCH_VERSION_AFTER_2_5:
+            if not TORCH_VERSION_AT_LEAST_2_5:
                 unwrap_tensor_subclass(model)
 
     model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
+
+    if save:
+        output_dir = str(checkpoint_path.cwd())
+        filename = str(checkpoint_path.name).split(".")[0]
+        torch.save(model.state_dict(), os.path.join(output_dir, filename + f"-{quantization}.pt"))
 
     if compile:
         print("Compiling Model")
@@ -362,6 +369,7 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint_path', type=Path, default=Path("../../../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
     parser.add_argument('-q', '--quantization', type=str, help='Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, autoquant')
     parser.add_argument('--kv_cache_quantization', action='store_true', help='Whether to quantize the KV cache')
+    parser.add_argument('--save', action='store_true', help='Whether to save the quantized model.')
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
     parser.add_argument('--compile_prefill', action='store_true', help='Whether to compile the prefill (improves prefill perf, but higher compile times)')
     parser.add_argument('--profile', type=Path, default=None, help='Profile path.')
@@ -372,5 +380,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     main(
         args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.top_k,
-        args.temperature, args.checkpoint_path, args.quantization, args.kv_cache_quantization, args.compile, args.compile_prefill, args.profile, args.device, args.precision, args.write_result
+        args.temperature, args.checkpoint_path, args.quantization, args.kv_cache_quantization, args.save, args.compile, args.compile_prefill, args.profile, args.device, args.precision, args.write_result
     )

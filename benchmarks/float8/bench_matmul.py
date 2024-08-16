@@ -12,6 +12,12 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.utils.benchmark as benchmark
+from torch.profiler import profile, ProfilerActivity, record_function
+
+from utils import (
+    get_name_to_shapes_iter, 
+    profiler_output_to_filtered_time_by_kernel_name,
+)
 
 # estimating TOPs for matmuls in fp32, fp16, fp8
 # assuming A * B = C, with A being M * K, B being K * N, C being M * N
@@ -41,52 +47,74 @@ def benchmark_fn_in_sec(f, *args, **kwargs):
     return measurement.mean
 
 
-def do_benchmarks(tops, peak_tops, f, *args, **kwargs):
-    time_sec = benchmark_fn_in_sec(f, *args, **kwargs)
+def get_gpu_kernel_gemm_time(f, *args, **kwargs):
+    # warmup
+    f(*args, **kwargs)
+    n_iter = 5
+    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+        for idx in range(n_iter):
+            f(*args, **kwargs) 
+    data = profiler_output_to_filtered_time_by_kernel_name(prof, n_iter, num_leaf_tensors=0) 
+    # there is only 1 key, aten::mm or aten::_scaled_mm, with unit nanoseconds
+    assert len(data) == 1
+    if "aten::mm" in data:
+        return data["aten::mm"] / 1e6 / n_iter
+    elif "aten::_scaled_mm" in data:
+        return data["aten::_scaled_mm"] / 1e6 / n_iter
+    else:
+        raise AssertionError("unexpected format of data")
+
+
+def do_benchmarks(
+    tops, 
+    peak_tops, 
+    use_gpu_kernel_time, 
+    f, 
+    *args, 
+    **kwargs,
+):
+    if use_gpu_kernel_time:
+        # just the gemm GPU kernel
+        time_sec = get_gpu_kernel_gemm_time(f, *args, **kwargs)
+    else:
+        # e2e time including kernel launch overhead
+        time_sec = benchmark_fn_in_sec(f, *args, **kwargs)
     tops_sec = float(tops) / time_sec
     pct_top_peak = tops_sec / peak_tops
     return time_sec, tops_sec, pct_top_peak
 
 
 @torch.inference_mode()
-def run(n_limit: Optional[int] = None):
+def run(
+    n_limit: Optional[int] = None,
+    shape_gen_name: str = 'llama',
+    out_filename: Optional[str] = None,
+    M: Optional[int] = None,
+    K: Optional[int] = None,
+    N: Optional[int] = None,
+    use_gpu_kernel_time: bool = False,
+):
     device = "cuda"
 
-    # LLaMa 2 70B single-node weight shapes
-    # assumes fused attn.wqkv and ffn.w13
-    # source: https://fburl.com/gsheet/g8onr7rh
-    name_to_shapes_70b = {
-        "attn.wqkv": (8192, 1280),
-        "attn.w0": (1024, 8192),
-        "ffn.w13": (8192, 7168),
-        "ffn.w2": (3584, 8192),
-    }
-
-    headers = ("name", "shape", "dtype", "ref_time_s", "fp8_time_s", "fp8_speedup")
+    headers = ("fast_accum", "name", "M", "K", "N", "ref_time_s", "fp8_time_s", "fp8_speedup")
     results = []
 
-    name_to_shapes = name_to_shapes_70b
-    dtypes = torch.bfloat16, torch.float16
+    dtype = torch.bfloat16
+    name_to_shapes = get_name_to_shapes_iter(shape_gen_name, M, K, N)
+    fast_accum_vals = [True, False]
 
-    for idx, (dtype, (name, (K, N))) in enumerate(
-        itertools.product(dtypes, name_to_shapes.items())
-    ):
+    for idx, (fast_accum, (name, (M, K, N))) in enumerate(itertools.product(fast_accum_vals, name_to_shapes)):
         if n_limit is not None and idx >= n_limit:
             break
 
-        # source: Xiao Sun, these are realistic for LLaMa 70B training
-        bsz, seq_len = 4, 4096
-
-        M = bsz * seq_len
-        print("M, K, N:", M, K, N)
         tops = 2 * M * N * K
-        print(f"tops: {tops:.2E}")
+        print("M, K, N:", M, K, N, f"tops: {tops:.2E}")
 
         # raw torch.mm
         A = torch.randn(M, K, device=device, dtype=dtype)
         m_ref = nn.Sequential(nn.Linear(K, N, dtype=dtype, device=device, bias=False))
         ref_time_sec, ref_tops_sec, ref_pct_top_peak = do_benchmarks(
-            tops, dtype_to_peak_tops[dtype], m_ref, A
+            tops, dtype_to_peak_tops[dtype], use_gpu_kernel_time, m_ref, A
         )
         print(
             f"{dtype} time_sec {ref_time_sec:.2E}, tops/sec {ref_tops_sec:.2E}, pct_peak {ref_pct_top_peak:.3f}"
@@ -99,37 +127,41 @@ def run(n_limit: Optional[int] = None):
         d1, d2, d3 = torch.float8_e4m3fn, torch.float8_e4m3fn, dtype
         A = torch.zeros(M, K, device=device, dtype=d1)
         B = torch.zeros(K, N, device=device, dtype=d2).t().contiguous().t()
+        scale_a = torch.tensor([1.0], device=device)
+        scale_b = torch.tensor([1.0], device=device)
 
         def do_matmul(A, B):
-            scale_a = torch.tensor([1.0], device=device)
-            scale_b = torch.tensor([1.0], device=device)
             return torch._scaled_mm(
-                A, B, scale_a, scale_b, out_dtype=d3, use_fast_accum=False
+                A, B, scale_a, scale_b, out_dtype=d3, use_fast_accum=fast_accum
             )
 
         fp8_time_sec, fp8_tops_sec, fp8_pct_top_peak = do_benchmarks(
-            tops, dtype_to_peak_tops[d1], do_matmul, A, B
+            tops, dtype_to_peak_tops[d1], use_gpu_kernel_time, do_matmul, A, B
         )
         print(
             f"fp8 time_sec {fp8_time_sec:.2E}, tops/sec {fp8_tops_sec:.2E}, pct_peak {fp8_pct_top_peak:.3f}"
         )
 
-        del A, B
+        del A, B, scale_a, scale_b
 
         results.append(
             [
+                fast_accum,
                 name,
-                (M, K, N),
-                dtype,
+                M,
+                K,
+                N,
                 ref_time_sec,
                 fp8_time_sec,
                 ref_time_sec / fp8_time_sec,
             ]
         )
 
-    data_pd = pd.DataFrame(results, columns=headers)
-    print(data_pd)
+    data_df = pd.DataFrame(results, columns=headers)
+    print(data_df)
 
+    if out_filename is not None:
+        data_df.to_csv(out_filename)
 
 def main() -> None:
     fire.Fire(run)

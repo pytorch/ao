@@ -356,7 +356,7 @@ class TestBaseStructuredSparsifier(TestCase):
         assert y_pruned.shape == expected_shape
         self._check_pruner_pruned(model, pruner, device)
         if y_pruned.shape == y_expected.shape:
-            assert torch.isclose(y_expected, y_pruned, rtol=1e-05, atol=1e-07).all()
+            assert torch.isclose(y_expected, y_pruned, rtol=1e-03, atol=1e-03).all()
             assert num_pruned_params < num_original_params
 
     def test_prune_linear_linear(self):

@@ -6,6 +6,7 @@ from torchao.dtypes.utils import (
 )
 from typing import Callable
 from torch.utils._python_dispatch import return_and_correct_aliasing
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 __all__ = [
     "LinearActivationQuantizedTensor",
@@ -39,6 +40,9 @@ class LinearActivationQuantizedTensor(torch.Tensor):
         self.original_weight_tensor = original_weight_tensor
         self.input_quant_func = input_quant_func
 
+    def __repr__(self):
+        return f"LinearActivationQuantizedTensor({self.original_weight_tensor}, {self.input_quant_func})"
+
     def __tensor_flatten__(self):
         return ["original_weight_tensor"], [self.input_quant_func]
 
@@ -52,6 +56,13 @@ class LinearActivationQuantizedTensor(torch.Tensor):
             original_weight_tensor,
             input_quant_func,
         )
+
+    @staticmethod
+    def _quantized_linear_op(input_tensor, weight_tensor, bias):
+        input_quant_func = weight_tensor.input_quant_func
+        original_weight_tensor = weight_tensor.original_weight_tensor
+        aqt = input_quant_func(input_tensor)
+        return torch.nn.functional.linear(aqt, original_weight_tensor, bias)
 
     @classmethod
     def from_float(cls, input_float, input_quant_func):
@@ -98,10 +109,7 @@ def _(func, types, args, kwargs):
         args[2] if len(args) > 2 else None,
     )
     if isinstance(weight_tensor, LinearActivationQuantizedTensor):
-        input_quant_func = weight_tensor.input_quant_func
-        original_weight_tensor = weight_tensor.original_weight_tensor
-        aqt = input_quant_func(input_tensor)
-        return torch.nn.functional.linear(aqt, original_weight_tensor, bias)
+        return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
 
     raise NotImplementedError("LinearActivationQuantizedTensor: No specialized dispatch found for linear op")
 
@@ -168,3 +176,7 @@ def _(func, types, args, kwargs):
     )
 
 to_linear_activation_quantized = LinearActivationQuantizedTensor.from_float
+
+if TORCH_VERSION_AT_LEAST_2_5:
+    # Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`
+    torch.serialization.add_safe_globals([LinearActivationQuantizedTensor])

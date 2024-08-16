@@ -11,6 +11,7 @@ from torch.testing._internal.common_utils import (
 from torchao.prototype.quant_llm import (
     QuantLlmLinearWeight,
     quant_llm_fpx_weight_only,
+    fp6_llm_weight_only,
     to_scaled_tc_fpx,
     from_scaled_tc_fpx,
 )
@@ -67,6 +68,15 @@ class TestQuantLlmLinearWeight(TestCase):
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     @parametrize("ebits,mbits", _FPx_DTYPES)
+    def test_to_copy_device(self, ebits, mbits):
+        x = torch.randn(256, 64)
+        fpx = QuantLlmLinearWeight.from_float(x, ebits, mbits).cuda()
+        assert fpx.device.type == "cuda"
+        fpx = fpx.cpu()
+        assert fpx.device.type == "cpu"
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @parametrize("ebits,mbits", _FPx_DTYPES)
     @parametrize("leading_dims", [(4,), (2, 4)])
     @parametrize("bias", [False, True])
     def test_quant_llm_linear_weight(self, ebits, mbits, bias, leading_dims):
@@ -92,6 +102,20 @@ class TestQuantLlmLinearWeight(TestCase):
         linear = torch.nn.Linear(IC, OC, bias=bias, device=device)
         fpx_linear = copy.deepcopy(linear)
         quantize_(fpx_linear, quant_llm_fpx_weight_only(ebits, mbits))
+
+        x = torch.randn(N, IC, device=device, dtype=torch.half)
+        expected = fpx_linear(x)
+        actual = torch.compile(fpx_linear, fullgraph=True)(x)
+        torch.testing.assert_close(actual, expected)
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    def test_fp6_llm_quantize(self):
+        N, OC, IC = 4, 256, 64
+        device = "cuda"
+
+        linear = torch.nn.Linear(IC, OC, device=device)
+        fpx_linear = copy.deepcopy(linear)
+        quantize_(fpx_linear, fp6_llm_weight_only())
 
         x = torch.randn(N, IC, device=device, dtype=torch.half)
         expected = fpx_linear(x)

@@ -11,9 +11,9 @@ from io import StringIO
 
 import pytest
 
-from torchao.utils import TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
-if not TORCH_VERSION_AFTER_2_4:
+if not TORCH_VERSION_AT_LEAST_2_5:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 import torch
@@ -33,7 +33,7 @@ from torch._dynamo.test_case import TestCase as DynamoTestCase
 from torch._dynamo.testing import CompileCounterWithBackend
 
 is_H100 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
-
+is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
 
 def _test_compile_base(
     backend: str,
@@ -77,7 +77,7 @@ def _test_compile_base(
 @pytest.mark.parametrize(
     "scaling_type_grad_output", [ScalingType.DELAYED, ScalingType.DYNAMIC]
 )
-@pytest.mark.parametrize("emulate", [False, True] if is_H100 else [True])
+@pytest.mark.parametrize("emulate", [False, True] if is_cuda_8_9 else [True])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
 @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
 def test_eager_only(
@@ -104,7 +104,7 @@ def test_eager_only(
 
 
 @pytest.mark.parametrize("fullgraph", [True])
-@pytest.mark.parametrize("emulate", [False, True] if is_H100 else [True])
+@pytest.mark.parametrize("emulate", [False, True] if is_cuda_8_9 else [True])
 @pytest.mark.parametrize(
     "scaling_type_input", [ScalingType.DELAYED, ScalingType.DYNAMIC]
 )
@@ -150,7 +150,7 @@ def test_aot_eager(
 @pytest.mark.parametrize(
     "scaling_type_grad_output", [ScalingType.DELAYED, ScalingType.DYNAMIC]
 )
-@unittest.skipIf(not torch.cuda.is_available() or not is_H100, "CUDA with float8 support not available")
+@unittest.skipIf(not torch.cuda.is_available() or not is_cuda_8_9, "CUDA with float8 support not available")
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
 def test_inductor(
     fullgraph,
@@ -210,7 +210,7 @@ class TestGraphBreaks(DynamoTestCase):
         self.assertEqual(cnts.frame_count, 2, "Compiled graph should have 2 frames!")
         torch.testing.assert_close(y_eager, y_compiled)
 
-    @unittest.skipIf(not torch.cuda.is_available() or not is_H100, "CUDA with float8 support not available")
+    @unittest.skipIf(not torch.cuda.is_available() or not is_cuda_8_9, "CUDA with float8 support not available")
     def test_float8_graph_input(self):
         """Test that having Float8Tensor object as a graph input"""
 
@@ -231,7 +231,7 @@ class TestGraphBreaks(DynamoTestCase):
         )
         torch.testing.assert_close(y2_eager, y2_compiled)
 
-    @unittest.skipIf(not torch.cuda.is_available() or not is_H100, "CUDA with float8 support not available")
+    @unittest.skipIf(not torch.cuda.is_available() or not is_cuda_8_9, "CUDA with float8 support not available")
     def test_float8_graph_output(self):
         """Test that having Float8Tensor object as a graph output works"""
         cnts = CompileCounterWithBackend("inductor")
@@ -258,7 +258,7 @@ class TestGraphBreaks(DynamoTestCase):
         )
 
 
-@unittest.skipIf(not torch.cuda.is_available() or not is_H100, "CUDA with float8 support not available")
+@unittest.skipIf(not torch.cuda.is_available() or not is_cuda_8_9, "CUDA with float8 support not available")
 def test_sync_amax_func():
     torch._dynamo.reset()
     cnts = CompileCounterWithBackend("inductor")
@@ -296,7 +296,7 @@ class capture_stderr(list):
         sys.stderr = self.sys_stderr
 
 
-@unittest.skipIf(not torch.cuda.is_available() or not is_H100, "CUDA with float8 support not available")
+@unittest.skipIf(not torch.cuda.is_available() or not is_cuda_8_9, "CUDA with float8 support not available")
 def test_sync_amax_func_cuda_graph_success():
     torch._dynamo.reset()
     with capture_stderr() as stderr:

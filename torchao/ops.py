@@ -1,12 +1,12 @@
 import torch
 from torch import Tensor
 
-from torchao.utils import TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
 
 
 def register_custom_op(name):
     def decorator(func):
-        if TORCH_VERSION_AFTER_2_4:
+        if TORCH_VERSION_AT_LEAST_2_4:
             return torch.library.register_fake(f"{name}")(func)
         else:
             return torch.library.impl_abstract(f"{name}")(func)
