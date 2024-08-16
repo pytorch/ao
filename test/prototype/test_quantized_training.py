@@ -11,7 +11,7 @@ from torch.testing._internal.common_utils import TestCase, instantiate_parametri
 from torchao.prototype.low_bit_optim import _AdamW
 from torchao.prototype.quantized_training import Int8QTLinearWeight, int8_weight_only_quantized_training
 from torchao.quantization.quant_api import quantize_
-from torchao.utils import TORCH_VERSION_AFTER_2_3
+from torchao.utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
 
 if not TORCH_VERSION_AFTER_2_3:
     pytest.skip("Requires torch>=2.4", allow_module_level=True)
@@ -158,6 +158,9 @@ class TestFSDP2(FSDPTest):
         )
 
     def _test_fsdp2(self, compile_layer):
+        if compile_layer and not TORCH_VERSION_AFTER_2_4:
+            pytest.skip("FSDP2 + compiled quantized training fails with PyTorch 2.4")
+
         import torch.distributed as dist
         from torch.distributed._composable.fsdp import fully_shard
         from torch.testing._internal.distributed._tensor.common_dtensor import ModelArgs, Transformer
