@@ -36,13 +36,6 @@ class _GenericFakeQuantize(torch.autograd.Function):
         block_size: List[int],
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
     ) -> torch.Tensor:
-        # Note: for bf16 inputs, casting them to fp32 has the unexpected
-        # side effect of reducing memory footprint significantly, presumably
-        # because bf16 * fp32 kernels are not as memory efficient
-        assert input.dtype == torch.float32
-        assert scales.dtype == torch.float32
-        assert zero_points.dtype == torch.int32
-
         (fq, mask) = fake_quantize_affine_cachemask(
             input,
             block_size,
