@@ -1,4 +1,0 @@
-torch
-numpy
-sentencepiece
-packaging

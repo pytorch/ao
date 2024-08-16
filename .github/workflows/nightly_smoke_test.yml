@@ -2,7 +2,7 @@ name: PyTorch CUDA Nightly Smoke Test
 
 on:
   schedule:
-    # 6 am PST every day 
+    # 6 am PST every day
     - cron: "0 14 * * *"
   workflow_dispatch:
 
@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  HUGGING_FACE_HUB_TOKEN: ${{ secrets.HUGGING_FACE_HUB_TOKEN }}
+  HF_TOKEN: ${{ secrets.HF_TOKEN }} 
 
 jobs:
   test:
@@ -34,7 +34,6 @@ jobs:
       script: |
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
-        pip install -r requirements.txt
         pip install -r dev-requirements.txt
         python setup.py install
         pytest test --verbose -s
