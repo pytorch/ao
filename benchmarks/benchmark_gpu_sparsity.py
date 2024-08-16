@@ -9,6 +9,9 @@ from torch import nn
 from torch.sparse import SparseSemiStructuredTensor, to_sparse_semi_structured
 from tqdm import tqdm
 
+from torch.sparse._triton_ops_meta import optimize_bsr_dense_addmm
+from torchao.utils import benchmark_model
+from torchao.sparsity.utils import create_semi_structured_tensor, create_block_sparse_tensor
 
 torch.set_printoptions(
     precision=2,
@@ -19,50 +22,6 @@ torch.set_printoptions(
     sci_mode=False,
 )
 
-def create_block_sparse_tensor(M, N, blocksize, sparsity, dtype):
-    assert sparsity <= 1.0 and sparsity >= 0.0, \
-        "sparsity should be a value between 0 and 1"
-    A = torch.bernoulli(torch.full((M//blocksize, N//blocksize),
-                        1 - sparsity, dtype=dtype))
-    A = torch.repeat_interleave(A, blocksize, dim=0)
-    A = torch.repeat_interleave(A, blocksize, dim=1)
-    return A.to(dtype).contiguous().cuda()
-
-def create_semi_structured_tensor(
-    r, c, dtype
-):
-    """
-    This function returns a 1:2 sparse matrix of size (r, c).
-    Note that this means this matrix will also be 2:4 and 4:8 sparse as well.
-    """
-
-    choices = [[0, 1], [1, 0]]
-    mask_entries = [random.choice(choices) for i in range(r * c // 2)]
-
-    mask = (
-        torch.tensor(mask_entries, dtype=dtype)
-        .reshape(r, c)
-        .contiguous()
-    ).cuda()
-    sparse_weight = torch.rand(r, c).to(dtype).cuda() * mask
-    return sparse_weight
-
-
-def benchmark_in_us(f, *args, **kwargs):
-    torch.cuda.synchronize()
-    torch.cuda.reset_peak_memory_stats()
-    mem_begin = torch.cuda.max_memory_allocated() / 2**20
-    t0 = benchmark.Timer(
-        stmt="f(*args, **kwargs)",
-        globals={"args": args, "kwargs": kwargs, "f": f}
-    )
-    measurement = t0.timeit(number=100)
-    torch.cuda.synchronize()
-    name = measurement.task_spec.description
-    memory = torch.cuda.max_memory_allocated() / 2**20 - mem_begin
-    measurement.mem_use = memory
-    return measurement
-
 
 def run_gpu_sparse_benchmark(m, k, n, args):
     dtype = getattr(torch, args.dtype)
@@ -70,28 +29,34 @@ def run_gpu_sparse_benchmark(m, k, n, args):
     x = torch.randn(n, k).to(dtype).cuda()
     b = torch.randn(m, dtype=dtype).cuda()
 
-
+    # handle sparsity types
     if args.sparsity == "semi-structured":
         SparseSemiStructuredTensor._FORCE_CUTLASS = args.backend == "cutlass"
         A = create_semi_structured_tensor(m, k, dtype)
         A_sparse = to_sparse_semi_structured(A)
-
     elif args.sparsity == "block-sparse":
         A = create_block_sparse_tensor(m, k, args.block_size, args.sparsity_level, dtype)
         A_sparse = A.to_sparse_bsr(blocksize=args.block_size)
+        # BSR kernel tuning
+        if args.bsr_autotune:
+            print("Tuning kernel params")
+            optimize_bsr_dense_addmm(m, k, n, args.block_size, args.block_size,
+                                     dtype=dtype, sparsity=args.sparsity_level, verbose=True)
     else:
         raise ValueError(f"Unknown sparsity: {args.sparsity}")
 
     if args.eval_fn == "linear":
         dense_output = F.linear(x, A, b)
         sparse_output = F.linear(x, A_sparse, b)
-        dense_time = benchmark_in_us(F.linear, x, A, b)
-        sparse_time = benchmark_in_us(F.linear, x, A_sparse, b)
+        # warmup
+        benchmark_model(F.linear, 10, args=(x, A, b), device_type="cuda")
+        dense_time = benchmark_model(F.linear, 100, args=(x, A, b), device_type="cuda")
 
+        benchmark_model(F.linear, 10, args=(x, A_sparse, b), device_type="cuda")
+        sparse_time = benchmark_model(F.linear, 100, args=(x, A_sparse, b), device_type="cuda")
     elif args.eval_fn == "mm":
         dense_output = torch.mm(A, x.t())
         sparse_output = torch.mm(A_sparse, x.t())
-
         dense_time = benchmark_in_us(torch.mm, A, x.t())
         sparse_time = benchmark_in_us(torch.mm, A_sparse, x.t())
     else:
@@ -104,13 +69,9 @@ def run_gpu_sparse_benchmark(m, k, n, args):
         "k": k,
         "n": n,
         "dtype": args.dtype,
-        "sparse_latency (ms)": sparse_time.median * 1000,
-        "sparse_latency iqr": sparse_time.iqr* 1000,
-        "sparse_mem": sparse_time.mem_use,
-        "dense_latency (ms)": dense_time.median* 1000,
-        "dense_latenct iqr": dense_time.iqr* 1000,
-        "dense_mem": dense_time.mem_use,
-        "speedup (d/s)": dense_time.median / sparse_time.median,
+        "sparse_latency (ms)": sparse_time,
+        "dense_latency (ms)": dense_time,
+        "speedup (d/s)": dense_time / sparse_time,
         "contiguous": sparse_output.is_contiguous(),
     }
 
@@ -122,7 +83,7 @@ if __name__ == "__main__":
         type=str,
         choices=[
             "bert-large",
-            "sam-vit-b",
+            "vit-mlp-shapes",
             "nvidia-fixed-k",
             "nvidia-fixed-mn",
         ],
@@ -165,6 +126,7 @@ if __name__ == "__main__":
     parser.add_argument("--eval-fn", type=str, choices=["linear", "mm"], default="linear")
     parser.add_argument("-contiguous", action="store_true")
     parser.add_argument("-save", action="store_true")
+    parser.add_argument("-bsr-autotune", action="store_true", help="Tune BSR kernel parameters")
     args = parser.parse_args()
 
     print(f"Started benchmark: {args}")
@@ -180,19 +142,16 @@ if __name__ == "__main__":
             run_gpu_sparse_benchmark(m, k, n, args)
             for (m, k, n) in tqdm(bert_shapes)
         )
-    elif args.mode == "sam-vitb-shapes":
-        batch_size = 256
-        sam_vitb_shapes = [
-            (768, 3072, 1024 * batch_size),
-            (2304, 768, 1024 * batch_size),
-            (3072, 768, 1024 * batch_size),
-            (768, 768, 1024 * batch_size),
-            (2304, 768, 1225 * batch_size),
-            (768, 768, 1225 * batch_size),
+    elif args.mode == "vit-mlp-shapes":
+        vit_shapes= [
+            (768, 3072, 50432),
+            (3072, 768, 50432),
+            (1280, 5120, 65792),
+            (5120, 1280, 65792),
         ]
         results = (
             run_gpu_sparse_benchmark(m, k, n, args)
-            for (m, k, n) in tqdm(sam_vitb_shapes)
+            for (m, k, n) in tqdm(vit_shapes)
         )
     elif args.mode == "nvidia-fixed-k":
         mn_vals = [
@@ -252,55 +211,3 @@ if __name__ == "__main__":
         df.to_csv(save_file)
         print(f"Finished benchmark: {args.mode} saved results to {save_file}")
     print(df)
-    import torch
-    print(torch.utils.collect_env.get_pretty_env_info())
-
-    import matplotlib.pyplot as plt
-    import numpy as np
-    plt.figure(figsize=(10, 5))
-
-    data = [
-            [ 0.971323, 1.114185,  1.103950,  0.963362],
-            [ 1.793014, 1.291936, 2.169129, 2.033742],
-            [ 1.851897, 1.656134,  2.020207, 1.884365],
-            [ 3.298112, 3.555021, 3.927926, 2.656046]]
-
-    columns = ('Attention QKV', 'Attention Output', 'MLP Lin1', 'MLP Lin2')
-    rows = ["sparsity_level=0.8, block_size=32", "sparsity_level=0.8, block_size=64", "sparsity_level=0.9, block_size=32", "sparsity_level=0.9, block_size=64"]
-
-    values = np.arange(0, 4, 0.5)
-
-    # Get some pastel shades for the colors
-    colors = plt.cm.Paired(np.linspace(0, 1, 7))
-    n_rows = len(data)
-
-    index = np.arange(len(columns))
-    bar_width = 0.15
-
-    # Initialize the vertical-offset for the grouped bar chart.
-    y_offset = np.zeros((n_rows, len(columns)))
-
-    # Plot bars and create text labels for the table
-    cell_text = []
-    for row in range(n_rows):
-        plt.bar(index + row * bar_width, data[row], bar_width, bottom=y_offset[row], color=colors[row])
-        y_offset[row] = y_offset[row] + data[row]
-        cell_text.append(['%1.2fx' % (x) for x in y_offset[row]])
-
-    # Add a table at the bottom of the axes
-    the_table = plt.table(cellText=cell_text,
-                        rowLabels=rows,
-                        rowColours=colors,
-                        colLabels=columns,
-                        loc='bottom')
-
-    # Adjust layout to make room for the table:
-    plt.subplots_adjust(left=0.2, bottom=0)
-    plt.axhline(y=1, linestyle='--', color='gray')
-    plt.ylabel(f"Speedup (Dense/Sparse)")
-    plt.yticks()
-    plt.xticks([], [])
-    plt.title(f'{args.mode} Microbenchmarks (dtype={args.dtype})')
-
-    plt.show()
-    plt.savefig('foo.png', bbox_inches='tight')
