@@ -44,7 +44,7 @@ from torchao.prototype.mx_formats.fp_format_spec import (
 )
 
 from torchao.prototype.mx_formats.mx_tensor import MXTensor
-from torchao.utils import TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
 
 
 torch.manual_seed(0)
@@ -320,7 +320,7 @@ def test_fp4_pack_unpack():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(not TORCH_VERSION_AFTER_2_4, reason="requires PyTorch >= 2.4")
+@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_4, reason="requires PyTorch >= 2.4")
 def test_fp4_triton_unscaled_cast():
     packed_vals = torch.arange(0, 255, dtype=torch.uint8, device="cuda")
     f32_ref = f4_unpacked_to_f32(unpack_uint4(packed_vals))
@@ -330,7 +330,7 @@ def test_fp4_triton_unscaled_cast():
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(not TORCH_VERSION_AFTER_2_4, reason="requires PyTorch >= 2.4")
+@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_4, reason="requires PyTorch >= 2.4")
 def test_fp4_triton_scaled_cast():
     size = (256,)
     orig_vals = torch.randn(size, dtype=torch.float, device="cuda") * 100

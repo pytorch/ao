@@ -20,7 +20,7 @@ from torchao.prototype.mx_formats.mx_linear import (
 )
 
 from torchao.quantization.utils import compute_error
-from torchao.utils import TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
 
 # trying to outsmart flake8
 __has_cuda = torch.cuda.is_available()
@@ -28,7 +28,7 @@ IS_CUDA_GE_89 = __has_cuda and torch.cuda.get_device_capability() >= (8, 9)
 
 torch.manual_seed(2)
 
-if not TORCH_VERSION_AFTER_2_4:
+if not TORCH_VERSION_AT_LEAST_2_4:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
