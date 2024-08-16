@@ -77,8 +77,10 @@ def gen_text(
     print(f"Generated text ({msg}): {text}")
 
 
-def gen_example_inputs(tokenizer, device):
-    inputs = tokenizer("What's AI?", return_tensors="pt")
+def gen_example_inputs(tokenizer, device, max_length=20):
+    inputs = tokenizer(
+        "What's AI?", return_tensors="pt", padding="max_length", max_length=max_length
+    )
     input_ids = inputs["input_ids"].to(device)
     return (input_ids,)
 

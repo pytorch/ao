@@ -21,7 +21,7 @@ def main(args):
         # Workaround for disabling the `kv_cache`, which cause the OOM.
         model.config.use_cache = False
 
-        example_inputs = ar_utils.gen_example_inputs(tokenizer, device)
+        example_inputs = ar_utils.gen_example_inputs(tokenizer, device, max_length=1024)
         # Note: as the real model is quite large, we run the benchmark two times for the float model and the quantized model seperately
         if not args.bench_float_model:
             auto_round_config.iters = args.iters
@@ -43,6 +43,8 @@ def main(args):
 
         torch._dynamo.reset()
         msg = "Quantized-model" if not args.bench_float_model else "Float-model"
+        if args.woq_int4:
+            msg += " with int4 weight only "
         time = benchmark_model(model, args.num_runs, example_inputs)
 
         print(f"{msg} mean time of {args.num_runs} runs: {time}")
@@ -61,7 +63,7 @@ if __name__ == "__main__" and TORCH_VERSION_AFTER_2_4 and torch.cuda.is_availabl
     )
     parser.add_argument("--seed", default=0, type=int, help="Random seed for torch")
     parser.add_argument(
-        "--iters", default=200, type=int, help="Number of iterations for optimization"
+        "--iters", default=20, type=int, help="Number of iterations for optimization"
     )
     parser.add_argument(
         "--num_runs", default=100, type=int, help="Number of runs for benchmarking"
