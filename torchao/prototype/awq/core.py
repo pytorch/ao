@@ -50,25 +50,28 @@ class AWQObserver(AffineQuantizedObserverBase):
         )
         self.average = torch.zeros(weight_shape[-1], dtype=torch.float32)
         self.counter = 0
-        self.output_sum = torch.zeros(weight_shape[0], dtype=torch.float32)
+        self.calibration_data = []
 
-    def forward(self, input: torch.Tensor, output: torch.Tensor):
+    def forward(self, input: torch.Tensor):
         self.average = self.average * self.counter / (self.counter + input.shape[0])  + input.abs().sum(dim=0) / (self.counter + input.shape[0])
         self.counter += 1
-        self.output_sum += output.sum(dim=0)
+        self.calibration_data.append(input)
 
     
-    def calculate_qparams(self, weight, calibration_data):
+    def calculate_qparams(self, orig_weight):
         best_error = float("inf")
         best_ratio = -1
         best_scales = None
 
         n_grid = 20
         history = []
+        calibration_data = torch.cat(self.calibration_data, dim=0)
+        unquantized_result = F.linear(calibration_data, orig_weight).sum(dim=0)
         x_max = self.average 
         for ratio in range(n_grid):
             ratio = ratio * 1 / n_grid
-            scales = x_max.pow(ratio).clamp(min=1e-4).view(-1)
+            weight = deepcopy(orig_weight)
+            scales = x_max.pow(ratio)
             scales = scales / (scales.max() * scales.min()).sqrt()
             weight.mul_(scales)
             quantized_weight = to_affine_quantized(
@@ -85,13 +88,14 @@ class AWQObserver(AffineQuantizedObserverBase):
                 zero_point_domain = self.zero_point_domain,
                 layout_type = AWQLayoutType(scales)
                 ) 
-            scaled_activation = (calibration_data).to(torch.bfloat16)
+            scaled_activation = (calibration_data)
             out = F.linear(scaled_activation, quantized_weight).sum(dim=0)
-
+            
             loss = (
-                (self.output_sum - out).float().pow(2).mean().item()
+                (unquantized_result - out).pow(2).mean().item()
             )  # float prevents overflow
             # print(f"ratio: {ratio}, loss: {loss}")
+            # print(ratio, loss)
             history.append(loss)
             
             is_best = loss < best_error
@@ -99,23 +103,20 @@ class AWQObserver(AffineQuantizedObserverBase):
                 best_error = loss
                 best_ratio = ratio
                 best_scales = scales
-        print(f"best scale: {best_scales}, best error: {best_error}")
+        # print(f"best error: {best_error}")
                 
-        if best_ratio == -1:
-            print(history)
-            raise Exception
+        
         # print(best_ratio)
-        best_scales = best_scales.view(-1)
 
         assert torch.isnan(best_scales).sum() == 0, best_scales
         return best_scales.detach()
 
 @dataclass(frozen=True)
 class AWQLayoutType(LayoutType):
-    scales: torch.Tensor
+    equalization_scale: torch.Tensor
     
     def pre_process(self, input: torch.Tensor) -> torch.Tensor:
-        return input / (self.scales.view(1, -1))
+        return input * self.equalization_scale
     
 @register_layout_cls(AWQLayoutType)
 class AWQ_AQTLayout(PlainAQTLayout):

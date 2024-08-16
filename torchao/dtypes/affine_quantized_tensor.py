@@ -879,7 +879,8 @@ def _linear_awq_check(input_tensor, weight_tensor, bias):
     return isinstance(weight_tensor.layout_tensor, AWQ_AQTLayout)
 
 def _linear_awq_impl(input_tensor, weight_tensor, bias):
-    return torch.nn.functional.linear(input_tensor / weight_tensor.layout_tensor.layout_type.scales, weight_tensor.dequantize(), bias)
+    # print('awq inp, scales: ',input_tensor.shape, weight_tensor.layout_tensor.layout_type.equalization_scale.shape)
+    return torch.nn.functional.linear(input_tensor / weight_tensor.layout_tensor.layout_type.equalization_scale, weight_tensor.dequantize(), bias)
 def _register_quantized_linear_dispatches():
     for dispatch_condition, impl in [
         (_linear_int8_act_int8_weight_check, _linear_int8_act_int8_weight_impl),
