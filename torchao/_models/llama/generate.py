@@ -5,9 +5,10 @@
 # LICENSE file in the root directory of this source tree.
 import os
 import sys
+import textwrap
 import time
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 from datetime import datetime
 import torch
 import torchao
@@ -15,6 +16,21 @@ import torch._dynamo.config
 import torch._inductor.config
 from torchao.utils import get_model_size_in_bytes
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.profiler import (
+    CUDADeviceSpec,
+    TransformerPerformanceCounter,
+    total_model_params,
+)
+
+DEVICE_SPEC: CUDADeviceSpec
+PERF_COUNTER: TransformerPerformanceCounter
+PERF_COUNTER_PREFIX = "TransformerPerfCounter"
+GPT_FAST_PREFIX = "GPTFast"
+DELIMITER = "\n" + "=" * 30 + "\n"
+
+PROFILER_ON = True
+# Note: this does not work with compile
+PROFILER_FINE_GRAINED_ON = False
 
 def device_sync(device):
     if "cuda" in device:
@@ -54,14 +70,48 @@ def sample(logits, temperature: float = 1.0, top_k: Optional[int] = None):
 
 def prefill(model: Transformer, x: torch.Tensor, input_pos: torch.Tensor, **sampling_kwargs) -> torch.Tensor:
     # input_pos: [B, S]
-    logits = model(x, input_pos)
-    return sample(logits, **sampling_kwargs)[0]
+    seqlen = input_pos.shape[-1]
+    num_tokens = input_pos.numel()
+    assert num_tokens == seqlen
 
-def decode_one_token(model: Transformer, x: torch.Tensor, input_pos: torch.Tensor, **sampling_kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
+    if PROFILER_FINE_GRAINED_ON:
+        step_name = f"prefill_seqlen-{seqlen}".upper()
+        with PERF_COUNTER.count(step_name, num_tokens=num_tokens):
+            logits = model(x, input_pos)
+            next_token = sample(logits, **sampling_kwargs)[0]
+        print(DELIMITER)
+        stats_str = PERF_COUNTER.print_summary(labels=[step_name], show=False)
+        print(f"{PERF_COUNTER_PREFIX} Metrics\n{stats_str}")
+    else:
+        logits = model(x, input_pos)
+        next_token = sample(logits, **sampling_kwargs)[0]
+    return next_token
+
+
+def decode_one_token(
+    model: Transformer, x: torch.Tensor, input_pos: torch.Tensor, **sampling_kwargs
+) -> Tuple[torch.Tensor, torch.Tensor]:
     # input_pos: [B, 1]
-    assert input_pos.shape[-1] == 1
-    logits = model(x, input_pos)
-    return sample(logits, **sampling_kwargs)
+    if PROFILER_FINE_GRAINED_ON:
+        # can't compile Tensor.item()
+        context_len = input_pos[-1].item()
+        num_tokens = input_pos.numel()
+        assert input_pos.shape[-1] == 1
+        assert num_tokens == 1
+        num_tokens = input_pos.numel()
+        step_name = f"decode_ctx-{context_len}_num_toks-{num_tokens}".upper()
+        with PERF_COUNTER.count(step_name, num_tokens=num_tokens):
+            logits = model(x, input_pos)
+            next_token = sample(logits, **sampling_kwargs)
+        print(DELIMITER)
+        stats_str = PERF_COUNTER.print_summary(labels=[step_name], show=False)
+        print(f"{PERF_COUNTER_PREFIX} Metrics\n{stats_str}")
+    else:
+        logits = model(x, input_pos)
+        next_token = sample(logits, **sampling_kwargs)
+
+    return next_token
+
 
 def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torch.Tensor, num_new_tokens: int, callback=lambda _: _, **sampling_kwargs):
     new_tokens, new_probs = [], []
@@ -126,12 +176,15 @@ def generate(
     # format model input
     x, input_pos = prepare_inputs_for_model(prompt, max_new_tokens)
 
+    # global PERF_COUNTER
     # execute prefill
+    # with PERF_COUNTER.count("prefill", num_tokens=input_pos.numel()):
     next_token = prefill(model, x, input_pos, **sampling_kwargs).clone()
     seq[T] = next_token
 
     # execute token generation
     input_pos = torch.tensor([T], device=device, dtype=torch.int)
+    # with PERF_COUNTER.count("decode_n_tokens", input_pos.numel()):
     generated_tokens, _ = decode_n_tokens(model, next_token.view(1, -1), input_pos, new_tokens-1, callback=callback, **sampling_kwargs)
     seq[T + 1:] = torch.cat(generated_tokens)
 
@@ -172,6 +225,7 @@ def main(
     profile: Optional[Path] = None,
     device=default_device,
     precision=torch.bfloat16,
+    perf_stats_save_path: Union[Path, str] = Path("performance_stats.json"),
     write_result: Optional[Path] = None,
 ) -> None:
     """Generates text samples based on a pre-trained Transformer model and tokenizer.
@@ -200,7 +254,6 @@ def main(
     prompt_length = encoded.size(0)
 
     torch.manual_seed(1234)
-
 
     if quantization:
         from torchao.quantization.quant_api import (
@@ -254,13 +307,30 @@ def main(
             prefill = torch.compile(prefill, fullgraph=True, dynamic=True)
 
 
+    if PROFILER_ON:
+        global DEVICE_SPEC
+        global PERF_COUNTER
+
+        DEVICE_SPEC = CUDADeviceSpec(dtype=precision)
+        PERF_COUNTER = TransformerPerformanceCounter(depth=3, device_spec=DEVICE_SPEC)
+        print(DELIMITER)
+        print(f"{PERF_COUNTER_PREFIX}")
+        print(f"Using {DEVICE_SPEC}")
+        print(f"Model Config: {model.config}")
+
+        # num_active_params = total_model_params(model, exclude_embeddings=True)
+        # num_params = total_model_params(model, exclude_embeddings=False)
+        # # in GB
+        # model_size = num_params * precision.itemsize / 1e9
+        # print(f"Active params, Total Params: {num_active_params}, {num_params}")
+
     aggregate_metrics = {
         'tokens_per_sec': [],
     }
     start = -1 if compile else 0
 
     for i in range(start, num_samples):
-        if i==0:
+        if i == 0:
             torch.cuda.reset_peak_memory_stats()
         device_sync(device=device) # MKG
         if i >= 0 and interactive:
@@ -286,6 +356,7 @@ def main(
                 # print(, end='', flush=True)
         else:
             callback = lambda x : x
+
         t0 = time.perf_counter()
         import contextlib
         if (i != num_samples - 1 or not profile):
@@ -293,17 +364,32 @@ def main(
         else:
             torch.profiler._utils._init_for_cuda_graphs()
             prof = torch.profiler.profile()
+
         with prof:
-            y = generate(
-                model,
-                encoded,
-                max_new_tokens,
-                interactive=interactive,
-                callback=callback,
-                temperature=temperature,
-                top_k=top_k,
-                kv_cache_quantization=kv_cache_quantization,
-            )
+            if PROFILER_ON:
+                with PERF_COUNTER.count("all", max_new_tokens):
+                    y = generate(
+                        model,
+                        encoded,
+                        max_new_tokens,
+                        interactive=interactive,
+                        callback=callback,
+                        temperature=temperature,
+                        top_k=top_k,
+                        kv_cache_quantization=kv_cache_quantization,
+                    )
+            else:
+                y = generate(
+                    model,
+                    encoded,
+                    max_new_tokens,
+                    interactive=interactive,
+                    callback=callback,
+                    temperature=temperature,
+                    top_k=top_k,
+                    kv_cache_quantization=kv_cache_quantization,
+                )
+
         if i == -1:
             print(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
             continue
@@ -313,14 +399,27 @@ def main(
         t = time.perf_counter() - t0
 
         if not interactive:
-                tok_list = y.tolist()
-                # truncate text after end of string token
-                tokens = tok_list if not tokenizer.eos_id() in y else tok_list[:tok_list.index(tokenizer.eos_id())]
-                print(tokenizer.decode(tokens))
+            tok_list = y.tolist()
+            # truncate text after end of string token
+            tokens = tok_list if not tokenizer.eos_id() in y else tok_list[:tok_list.index(tokenizer.eos_id())]
+            print(tokenizer.decode(tokens))
         else:
             print()
         tokens_generated = y.size(0) - prompt_length
         tokens_sec = tokens_generated / t
+
+        # sample_metrics = textwrap.dedent(f"""\
+        #     {GPT_FAST_PREFIX} Sample Metrics
+        #     Time for inference {i+1}: {prompt_length} prompt tokens {tokens_generated} tokens generated, {t:.02f} sec total, {tokens_sec:.02f} tokens/sec
+        #     Bandwidth achieved: {model_size * tokens_sec / 1e9:.02f} GB/s""")
+        # print(
+        #     textwrap.indent(
+        #         sample_metrics,
+        #         prefix="  ",
+        #         predicate=lambda line: not line.startswith(GPT_FAST_PREFIX),
+        #     )
+        # )
+
         aggregate_metrics['tokens_per_sec'].append(tokens_sec)
         print(f"Time for inference {i + 1}: {t:.02f} sec total, {tokens_sec:.02f} tokens/sec")
         print(f"Bandwidth achieved: {model_size * tokens_sec:.02f} GB/s")
@@ -333,6 +432,30 @@ def main(
     print(f"Average Bandwidth: {bandwidth:.02f} GB/s")
     print(f"Peak Memory Usage: {mem:.02f} GB")
     print(f"Model Size: {model_size:.02f} GB")
+
+
+    if PROFILER_ON:
+        print(DELIMITER)
+        gpt_stats = textwrap.dedent(f"""\
+            {GPT_FAST_PREFIX} Aggregate Stats
+            Average tokens/sec: {torch.mean(torch.tensor(aggregate_metrics['tokens_per_sec'])).item():.2f}
+            Memory used: {torch.cuda.max_memory_reserved() / 1e9:.02f} GB""")
+
+        print(
+            textwrap.indent(
+                gpt_stats,
+                prefix="  ",
+                predicate=lambda line: not line.startswith(GPT_FAST_PREFIX),
+            )
+        )
+
+        # Print performance summary from TransformerPerformanceCounter
+        print(DELIMITER)
+        total_stats_str = PERF_COUNTER.print_summary(show=False)
+        print(f"{PERF_COUNTER_PREFIX}\n{total_stats_str}")
+        print(f"\nSaving performance results to {perf_stats_save_path}")
+        PERF_COUNTER.to_json(perf_stats_save_path)
+
     if write_result:
         result_txt = f"\n{datetime.today().strftime('%Y%m%d%H%M%S')}, tok/s={tokpersec:6.2f}, mem/s={bandwidth:7.2f} GB/s, peak_mem={mem:5.2f} GB, model_size={model_size:5.2f} GB "
         result_txt += f"quant: {quantization}, mod: {checkpoint_path.parent.name}, kv_quant: {kv_cache_quantization}, compile: {compile}, compile_prefill: {compile_prefill}, dtype: {precision}, device: {device} "
@@ -375,10 +498,16 @@ if __name__ == '__main__':
     parser.add_argument('--profile', type=Path, default=None, help='Profile path.')
     parser.add_argument('--device', type=str, default=default_device, help='Device to use')
     parser.add_argument('--precision', type=lambda x: getattr(torch, x.split(".")[-1]), default=torch.bfloat16, help='dtype precision to use')
+    parser.add_argument(
+        "--perf_stats_save_path",
+        type=Path,
+        default=Path("performance_stats.json"),
+        help="Path to save performance stats.",
+    )
     parser.add_argument('--write_result', type=Path, default=None, help='Path where to write the result')
 
     args = parser.parse_args()
     main(
         args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.top_k,
-        args.temperature, args.checkpoint_path, args.quantization, args.kv_cache_quantization, args.save, args.compile, args.compile_prefill, args.profile, args.device, args.precision, args.write_result
+        args.temperature, args.checkpoint_path, args.quantization, args.kv_cache_quantization, args.save, args.compile, args.compile_prefill, args.profile, args.device, args.precision, args.perf_stats_save_path, args.write_result
     )
