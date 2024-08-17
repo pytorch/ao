@@ -178,7 +178,8 @@ def _replace_with_custom_fn_if_matches_filter(
         None
     """
     if filter_fn(model, cur_fqn[:-1]):
-        model.to(device=device)  # move to device before quantization
+        if device is not None:
+            model.to(device=device)  # move to device before quantization
         model = replacement_fn(model)
         return model
     else:
@@ -188,7 +189,8 @@ def _replace_with_custom_fn_if_matches_filter(
             )
             if new_child is not child:
                 setattr(model, name, new_child)
-        model.to(device=device)  # move parent module to device
+        if device is not None:
+            model.to(device=device)  # move parent module to device
         return model
 
 
