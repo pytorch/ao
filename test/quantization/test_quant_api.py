@@ -698,7 +698,6 @@ class TestQuantFlow(TestCase):
         torch.cuda.synchronize()
         time_baseline = time.perf_counter() - time0
         memory_baseline = torch.cuda.max_memory_allocated()
-        print(memory_baseline)
 
         del m
         reset_memory()
@@ -707,7 +706,6 @@ class TestQuantFlow(TestCase):
         quantize_(m, int8_weight_only(), device="cuda")
         time_streaming = time.perf_counter() - time0
         memory_streaming = torch.cuda.max_memory_allocated()
-        print(memory_streaming)
 
         for param in m.parameters():
             assert param.is_cuda
