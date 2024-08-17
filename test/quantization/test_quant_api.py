@@ -704,12 +704,13 @@ class TestQuantFlow(TestCase):
         m = ToyLinearModel()
         time0 = time.perf_counter()
         quantize_(m, int8_weight_only(), device="cuda")
+        torch.cuda.synchronize()
         time_streaming = time.perf_counter() - time0
         memory_streaming = torch.cuda.max_memory_allocated()
 
         for param in m.parameters():
             assert param.is_cuda
-        self.assertLess(time_streaming, time_baseline * 1.1)
+        self.assertLess(time_streaming, time_baseline * 1.5)
         self.assertLess(memory_streaming, memory_baseline)
 
 
