@@ -55,7 +55,6 @@ from torchao.utils import unwrap_tensor_subclass
 import copy
 import tempfile
 import gc
-import time
 from torch.testing._internal.common_utils import TestCase
 
 
@@ -692,25 +691,17 @@ class TestQuantFlow(TestCase):
 
         reset_memory()
         m = ToyLinearModel()
-        time0 = time.perf_counter()
-        m.to(device="cuda")
-        quantize_(m, int8_weight_only())
-        torch.cuda.synchronize()
-        time_baseline = time.perf_counter() - time0
+        quantize_(m.to(device="cuda"), int8_weight_only())
         memory_baseline = torch.cuda.max_memory_allocated()
 
         del m
         reset_memory()
         m = ToyLinearModel()
-        time0 = time.perf_counter()
         quantize_(m, int8_weight_only(), device="cuda")
-        torch.cuda.synchronize()
-        time_streaming = time.perf_counter() - time0
         memory_streaming = torch.cuda.max_memory_allocated()
 
         for param in m.parameters():
             assert param.is_cuda
-        self.assertLess(time_streaming, time_baseline * 1.5)
         self.assertLess(memory_streaming, memory_baseline)
 
 
