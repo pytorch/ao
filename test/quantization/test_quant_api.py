@@ -54,6 +54,8 @@ from torchao._models.llama.model import Transformer, prepare_inputs_for_model
 from torchao.utils import unwrap_tensor_subclass
 import copy
 import tempfile
+import gc
+import time
 from torch.testing._internal.common_utils import TestCase
 
 
@@ -679,6 +681,38 @@ class TestQuantFlow(TestCase):
 
         res = m_copy(*example_inputs)
         self.assertEqual(res, ref)
+
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_quantized_model_streaming(self):
+        def reset_memory():
+            gc.collect()
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats()
+
+        reset_memory()
+        m = ToyLinearModel()
+        time0 = time.perf_counter()
+        m.to(device="cuda")
+        quantize_(m, int8_weight_only())
+        torch.cuda.synchronize()
+        time_baseline = time.perf_counter() - time0
+        memory_baseline = torch.cuda.max_memory_allocated()
+        print(memory_baseline)
+
+        del m
+        reset_memory()
+        m = ToyLinearModel()
+        time0 = time.perf_counter()
+        quantize_(m, int8_weight_only(), device="cuda")
+        time_streaming = time.perf_counter() - time0
+        memory_streaming = torch.cuda.max_memory_allocated()
+        print(memory_streaming)
+
+        for param in m.parameters():
+            assert param.is_cuda
+        self.assertLess(time_streaming, time_baseline * 1.1)
+        self.assertLess(memory_streaming, memory_baseline)
 
 
 if __name__ == "__main__":
