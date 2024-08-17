@@ -11,6 +11,7 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.distributed.device_mesh import DeviceMesh
 from torch._prims_common import make_contiguous_strides_for
+import torch._dynamo.tensor_version_op
 
 
 aten = torch.ops.aten
@@ -148,6 +149,16 @@ def nf4_detach(aten_op, args, kwargs=None):
     nf4tensor = args[0]
     updated_attrs = apply_to_inner_tensors(nf4tensor, aten_op, args[1:], kwargs)
     return NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
+
+
+@implements(
+    [
+        torch.ops.prims._unsafe_set_version_counter.default,
+    ]
+)
+def nf4__unsafe_set_version_counter(func, args, kwargs=None):
+    nf4tensor = args[0]
+    apply_to_inner_tensors(nf4tensor, func, args[1:], kwargs)
 
 
 @implements(
@@ -322,6 +333,7 @@ def mm_default(func, *args, **kwargs):
 @implements(
     [
         aten.copy_.default,
+        torch.ops.fsdp.copy_.default,
     ]
 )
 def copy_(func, *args, **kwargs):
@@ -853,7 +865,13 @@ class NF4Tensor(torch.Tensor):
             return
 
         return nf4_constructor(
-            tensor_meta,
+            # tensor_meta,
+            tensor_meta.original_shape,
+            tensor_meta.original_strides,
+            tensor_meta.storage_offset,
+            tensor_meta.dtype,
+            tensor_meta.device,
+            tensor_meta.requires_grad,
             block_size,
             n_blocks,
             scaler_block_size,
@@ -940,7 +958,13 @@ def function_cpu(*args, **kwargs):
 
 @torch._dynamo.allow_in_graph
 def nf4_constructor(
-    tensor_meta: SubclassTensorArgs,
+    # tensor_meta: SubclassTensorArgs,
+    original_shape,
+    original_strides,
+    storage_offset,
+    dtype,
+    device,
+    requires_grad,
     block_size: int,
     n_blocks: int,
     scaler_block_size: int,
@@ -951,7 +975,15 @@ def nf4_constructor(
     nf4: torch.Tensor,
 ):
     return NF4Tensor(
-        tensor_meta,
+        SubclassTensorArgs(
+            original_shape,
+            original_strides,
+            storage_offset,
+            dtype,
+            device,
+            requires_grad,
+        ),
+        # tensor_meta,
         block_size,
         n_blocks,
         scaler_block_size,
