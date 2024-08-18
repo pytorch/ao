@@ -49,6 +49,8 @@ def addmm_float8_unwrapped(
             out_dtype=output_dtype,
             use_fast_accum=use_fast_accum,
         )
+        if output_type in [torch.float16, torch.float32, torch.bfloat16]:
+            output = output[0]
         output += bias
         return output
     output = torch._scaled_mm(
@@ -61,4 +63,6 @@ def addmm_float8_unwrapped(
         out_dtype=output_dtype,
         use_fast_accum=use_fast_accum,
     )
+    if output_type in [torch.float16, torch.float32, torch.bfloat16]:
+        output = output[0]
     return output
