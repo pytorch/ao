@@ -4,8 +4,8 @@ import torch
 import torch.nn as nn
 from torchao.quantization import quantize_
 import random
-sys.path.append("/home/hanxianhuang/ao/torchao/quantization/prototype/mixed_precision")
-from my_naive_intNwo import intN_weight_only
+
+from naive_intNwo import intN_weight_only
 
 import copy
 from lm_eval.evaluator import evaluate
