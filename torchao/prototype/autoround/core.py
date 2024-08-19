@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 from typing import Dict, Tuple
 
@@ -46,11 +47,36 @@ def create_qmodel_from_qdq_model(qdq_model: torch.nn.Module):
         scale = observed_linear.scale.to(device)
         zero_point = observed_linear.zp.to(device)
 
-        def weight_quant_func(input_float):
+        def to_uintx_weight(input_float):
+            quant_min = 0
+            quant_max = auto_round_config.bits**2 - 1
+            block_size = (1, observed_linear.group_size)
+            from torchao.dtypes.uintx.Uintx import UintxLayoutType
+            from torchao.quantization.quant_primitives import (
+                MappingType,
+                ZeroPointDomain,
+            )
+
+            pack_dim = -1
+            bit_width = auto_round_config.bits
+            layout_type = UintxLayoutType(bit_width=bit_width, pack_dim=pack_dim)
+            return to_affine_quantized_static(
+                input_float=input_float,
+                scale=scale.to(torch.bfloat16),
+                zero_point=zero_point,
+                block_size=block_size,
+                target_dtype=torch.uint8,
+                quant_min=quant_min,
+                quant_max=quant_max,
+                zero_point_domain=ZeroPointDomain.INT,
+                layout_type=layout_type,
+            )
+
+        def to_int4_tinygemm_weight(input_float):
             # TODO(Yi): check the weight shape, `group_size`, and `inner_k_tiles` to make sure the tinygemm can handle it
             inner_k_tiles = 8
             quant_min = 0
-            quant_max = 15
+            quant_max = auto_round_config.bits**2 - 1
             # Shift the zeros to align with tiny gemm.
             # The dequantization process in tiny gemm:
             #   tiny_dequant = (tiny_quant - 8) * scale + tiny_zp
@@ -61,7 +87,7 @@ def create_qmodel_from_qdq_model(qdq_model: torch.nn.Module):
             #           = (quant - 8) * scale + (8 - zp) * scale
             #              \__/                 \______________/
             #            tiny_quant                 tiny_zp
-            mid_point = (quant_max - quant_min + 1) / 2
+            mid_point = (quant_max + quant_min + 1) / 2
             shifted_zero_point = (mid_point - zero_point) * scale
             block_size = (1, observed_linear.group_size)
             orig_out_features, orig_in_features = input_float.shape
@@ -94,14 +120,20 @@ def create_qmodel_from_qdq_model(qdq_model: torch.nn.Module):
                 zero_point=pad_shifted_zero_point.to(torch.bfloat16),
                 block_size=block_size,
                 target_dtype=torch.int32,
-                quant_min=0,
-                quant_max=15,
+                quant_min=quant_min,
+                quant_max=quant_max,
                 zero_point_domain=ZeroPointDomain.FLOAT,
                 layout_type=TensorCoreTiledLayoutType(inner_k_tiles=inner_k_tiles),
             )
 
+        # TODO(Yi): better way to select the weight quantization function
+        if auto_round_config.bits == 4:
+            weight_func = to_int4_tinygemm_weight
+        else:
+            weight_func = to_uintx_weight
+
         observed_linear.weight = torch.nn.Parameter(
-            weight_quant_func(observed_linear.weight), requires_grad=False
+            weight_func(observed_linear.weight), requires_grad=False
         )
         del observed_linear.scale
         del observed_linear.zp
@@ -152,9 +184,10 @@ def apply_auto_round(block, grouped_args, spec, block_outputs):
         rounder.quant_block_v2_(
             block, inputs=block_inputs, outputs=block_outputs, device="cuda"
         )
-    qmodel = create_qmodel_from_qdq_model(block)
+    # TODO(Yi): move block to cpu will cause the accuracy issue.
+    block = create_qmodel_from_qdq_model(block)
     ar_utils.see_memory_usage("After apply auto-round.")
-    return qmodel
+    return block
 
 
 @torch.no_grad()
