@@ -3,6 +3,7 @@
 #pragma once
 #include <torchao/experimental/kernels/cpu/aarch64/quantization/quantize.h>
 #include <torchao/experimental/kernels/cpu/aarch64/reduction/reduction.h>
+#include <cassert>
 #include <functional>
 #include <random>
 #include <vector>
