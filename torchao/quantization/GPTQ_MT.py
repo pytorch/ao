@@ -363,12 +363,6 @@ class GPTQQuantizer(Quantizer):
         with torch.no_grad():
             out = model(*inputs)
         state_dict = self.state_dict_manager.get_state_dict()
-        regular_state_dict = defaultdict(torch.tensor)
-        for key, value in state_dict.items():
-            if isinstance(value, MultiTensor):
-                regular_state_dict[key] = value.values[0]  
-            else:
-                regular_state_dict[key] = value
         return state_dict
 
 class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
@@ -417,7 +411,6 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
         self._check_functions()
 
     def quantize(self, model: torch.nn.Module, inputs: List[MultiTensor], **kwargs: Any) -> torch.nn.Module:
-        print("Here")
         state_dict = self._create_quantized_state_dict(
             model,
             inputs,
