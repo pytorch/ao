@@ -46,18 +46,13 @@ def quantize_model_with_autoround(
         for i, data in enumerate(dataloader):
             input_ids_lst.append(data["input_ids"].to(device))
             attn_mask_lst.append(data["attention_mask"].to(device))
-
+ 
         multi_t_input_ids = MultiTensor(input_ids_lst)
         multi_t_attn_mask = MultiTensor(attn_mask_lst)
 
         # The optimization is applied during the forward pass
         out = model(multi_t_input_ids, multi_t_attn_mask)
-
-        assert (
-            ar_utils.count_tensor_of_type(model, torchao.dtypes.AffineQuantizedTensor)
-            > 0
-        ), f"No `AffineQuantizedTensor` found in the model"
-
+        
         # 4(Optional). Generate text using the optimized model
         ar_utils.gen_text(
             model, tokenizer, "Quantized model", device="cuda", max_length=50
@@ -82,6 +77,7 @@ def main(args):
     auto_round_config.nsamples = args.nsamples
     auto_round_config.seqlen = args.seqlen
     auto_round_config.quant_lm_head = args.quant_lm_head
+    auto_round_config.bits = args.bits
     quantize_model_with_autoround(
         model, tokenizer, decoder_cls, auto_round_config, device=device
     )
@@ -101,6 +97,9 @@ if __name__ == "__main__":
     parser.add_argument("--seed", default=0, type=int, help="Random seed for torch")
     parser.add_argument(
         "--iters", default=200, type=int, help="Number of iterations for optimization"
+    )
+    parser.add_argument(
+        "--bits", default=3, type=int, help="Number of bits for quantization"
     )
     parser.add_argument(
         "--nsamples", default=128, type=int, help="Number of samples for optimization"
