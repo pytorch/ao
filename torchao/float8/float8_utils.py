@@ -281,3 +281,39 @@ def repeat_scale(tensor: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
                 scales_repeated = scales_repeated.repeat_interleave(repeat_factor, dim=i)
     
     return scales_repeated
+
+def get_rowwise_tile_size(x: torch.Tensor) -> torch.Tensor:
+    """ Returns the tile_size for an input tensor if using rowwise tiling.
+
+    Args:
+        x: The input tensor.
+
+    Returns:
+        The tile size for the input tensor.
+    """
+    return (1, x.size(-1))
+
+def flatten_input(x: torch.Tensor) -> torch.Tensor:
+    """Flattens the input tensor to 2D.
+
+    Args:
+        x: The input tensor.
+
+    Returns:
+        The flattened input tensor.
+    """
+    return x.reshape(-1, x.size(-1))
+
+def get_out_shape(input: torch.Tensor, weight: torch.Tensor) -> Tuple[int, int]:
+    """Returns the unflattened shape of the input tensor.
+
+    Args:
+        input: The input tensor possibly more than 2 dimensions
+        weight: The weight tensor.
+
+    Returns:
+        The unflattened shape of the input tensor.
+    """
+    out_dim = weight.size(0)
+    inpt_dims = input.shape[:-1]
+    return (*inpt_dims, out_dim)

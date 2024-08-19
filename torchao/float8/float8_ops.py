@@ -8,7 +8,7 @@ from typing import Any, Dict, Tuple
 import torch
 
 from torchao.float8.float8_python_api import addmm_float8_unwrapped
-from torchao.float8.float8_tensor import choose_scaled_mm_config, Float8Tensor
+from torchao.float8.float8_tensor import choose_scaled_mm_config, Float8Tensor, ScaledMMConfig
 from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
 
 from torch.utils._pytree import tree_map
@@ -129,10 +129,34 @@ def float8_cast_up_op(aten_op, args, kwargs=None):
     return aten_op(*new_args, **new_kwargs)
 
 
+def preprocess_data(a_data: torch.Tensor, b_data: torch.Tensor, scaled_mm_config: ScaledMMConfig) -> Tuple[torch.Tensor, torch.Tensor]:
+    """ Preprocess the inner fp8 data tensors for admmm
+
+    Args:
+        a_data: Input tensor A.
+        b_data: Input tensor B.
+        scaled_mm_config: Configuration for _scaled_mm.
+
+    Returns:
+        Preprocessed tensors A and B in the format for _scaled_mm.
+    """
+    if scaled_mm_config.pad_inner_dim:
+        assert a_data.size(1) == b_data.size(
+            0
+        ), f"Inner dims must match for mm, got {a_data.size(1)} and {b_data.size(0)}"
+        a_data = pad_tensor_for_matmul(a_data, dims=1)
+        b_data = pad_tensor_for_matmul(b_data, dims=0)
+    if not is_row_major(a_data.stride()):
+        a_data = a_data.contiguous()
+    if is_row_major(b_data.stride()):
+        b_data = b_data.t().contiguous().t()
+    return a_data, b_data
+
 def preprocess_addmm(a: Float8Tensor, b: Float8Tensor):
     a_data = a._data
     a_scale = a._scale
     b_data = b._data
+    b_scale = b._scale
 
     scaled_mm_config = choose_scaled_mm_config(
         a._gemm_input_role,
@@ -141,18 +165,7 @@ def preprocess_addmm(a: Float8Tensor, b: Float8Tensor):
         b._linear_mm_config,
     )
 
-    if scaled_mm_config.pad_inner_dim:
-        assert a._data.size(1) == b._data.size(
-            0
-        ), f"Inner dims must match for mm, got {a._data.size(1)} and {b._data.size(0)}"
-        a_data = pad_tensor_for_matmul(a_data, dims=1)
-        b_data = pad_tensor_for_matmul(b_data, dims=0)
-
-    if not is_row_major(a_data.stride()):
-        a_data = a_data.contiguous()
-    if is_row_major(b_data.stride()):
-        b_data = b_data.t().contiguous().t()
-    b_scale = b._scale
+    a_data, b_data = preprocess_data(a_data, b_data, scaled_mm_config)
     return a_data, a_scale, b_data, b_scale
 
 
