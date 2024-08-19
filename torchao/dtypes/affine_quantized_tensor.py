@@ -323,7 +323,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         )
 
     @classmethod
-    def from_float_float(
+    def from_float_float8(
         cls,
         input_float: torch.Tensor,
         mapping_type: MappingType,
