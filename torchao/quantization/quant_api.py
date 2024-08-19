@@ -497,7 +497,7 @@ def float8_weight_only():
         block_size = (1, weight.shape[1])
         return to_affine_quantized_float8(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype)
 
-    return _get_linear_subclass_inserter(apply_int8wo_quant)
+    return _get_linear_subclass_inserter(apply_float8wo_quant)
 
 
 if TORCH_VERSION_AFTER_2_5:
