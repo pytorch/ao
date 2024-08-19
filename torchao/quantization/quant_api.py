@@ -482,6 +482,23 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     from torchao.dtypes import SemiSparseLayoutType
     return int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType())
 
+def float8_weight_only():
+    """
+    Applies float8 weight-only symmetric per-channel quantization to linear layers.
+    """
+    def apply_float8wo_quant(weight):
+        # avoid circular dep
+        from torchao.dtypes import to_affine_quantized_float8
+
+        mapping_type = MappingType.SYMMETRIC
+        target_dtype = torch.float8_e4m3fn
+        eps = torch.finfo(torch.float32).eps
+        zero_point_dtype = torch.float32
+        block_size = (1, weight.shape[1])
+        return to_affine_quantized_float8(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype)
+
+    return _get_linear_subclass_inserter(apply_int8wo_quant)
+
 
 if TORCH_VERSION_AFTER_2_5:
     torch.serialization.add_safe_globals([_int8_asymm_per_token_quant, _int8_symm_per_token_reduced_range_quant])

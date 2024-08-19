@@ -247,7 +247,7 @@ class AffineQuantizedTensor(torch.Tensor):
         )
 
     @classmethod
-    def from_float_float(
+    def from_float_float8(
         cls,
         input_float: torch.Tensor,
         mapping_type: MappingType,
@@ -955,6 +955,7 @@ def _(func, types, args, kwargs):
 
 to_affine_quantized = AffineQuantizedTensor.from_float
 to_affine_quantized_static = AffineQuantizedTensor.from_float_static
+to_affine_quantized_float8 = AffineQuantizedTensor.from_float_float8
 
 if TORCH_VERSION_AFTER_2_5:
     # Allow a model with AffineQuantizedTensor weights to be loaded with `weights_only=True`
