@@ -4,7 +4,7 @@
 import random
 
 import auto_round
-
+import logging
 import numpy as np
 import torch
 
@@ -85,6 +85,12 @@ def gen_example_inputs(tokenizer, device, max_length=20):
     return (input_ids,)
 
 
+def auto_detect_decoder_cls(model):
+    for name, module in model.named_modules():
+        if isinstance(module, torch.nn.ModuleList):
+            first_module = module[0]
+            return type(first_module)
+    
 def get_float_model_info(model_name_or_path, torch_dtype=torch.float32):
     import transformers
 
@@ -97,7 +103,10 @@ def get_float_model_info(model_name_or_path, torch_dtype=torch.float32):
     elif "opt" in model_name_or_path:
         decoder_cls = transformers.models.opt.modeling_opt.OPTDecoderLayer
     else:
-        raise ValueError(f"Unsupported model: {model_name_or_path}")
+        decoder_cls = auto_detect_decoder_cls(model)
+        logging.warning(f"auto detect decoder_cls: {decoder_cls}")
+        if decoder_cls is None:
+            raise ValueError(f"Unsupported model: {model_name_or_path}")
     return model, tokenizer, decoder_cls
 
 

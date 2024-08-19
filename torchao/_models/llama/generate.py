@@ -30,7 +30,7 @@ default_device = 'cuda' if torch.cuda.is_available() else 'cpu'
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 
-from torchao._models.llama.model import Transformer, prepare_inputs_for_model
+from torchao._models.llama.model import Transformer, prepare_inputs_for_model, TransformerBlock
 from torchao._models.llama.tokenizer import get_tokenizer
 
 def multinomial_sample_one_no_sync(probs_sort): # Does multinomial sampling without a cuda synchronization
@@ -144,7 +144,8 @@ def encode_tokens(tokenizer, string, bos=True, device=default_device):
     return torch.tensor(tokens, dtype=torch.int, device=device)
 
 def _load_model(checkpoint_path, device, precision):
-    checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
+    # checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
+    checkpoint = torch.load(str(checkpoint_path),weights_only=True)
     if "model" in checkpoint and "stories" in str(checkpoint_path):
         checkpoint = checkpoint["model"]
 
@@ -220,6 +221,20 @@ def main(
             groupsize=int(quantization.split("-")[-1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
             quantize_(model, int4_weight_only(group_size=groupsize))
+        if "autoround" == quantization:
+            from torchao.prototype.autoround.autoround_demo import quantize_model_with_autoround
+            from torchao.prototype.autoround.core import auto_round_config
+            import torchao.prototype.autoround.utils as ar_utils
+            from transformers import AutoTokenizer
+            _tokenizer = AutoTokenizer.from_pretrained(checkpoint_path.parent)
+            model = model.to(device)
+            # TODO: Enable other `train_bs`
+            auto_round_config.train_bs = 1
+            auto_round_config.iters = 200
+            auto_round_config.nsamples = 128
+            model.set_caches_for_calib(max_seq_length=auto_round_config.seqlen, max_batch_size=auto_round_config.train_bs)
+            quantize_model_with_autoround(model, tokenizer=_tokenizer, decoder_cls=TransformerBlock, auto_round_config=auto_round_config, device="cuda", gen_text=False)
+            model.clean_caches_for_calib()
         if "autoquant" == quantization:
             model = autoquant(model, manual=True)
 

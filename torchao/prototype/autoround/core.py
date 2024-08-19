@@ -11,7 +11,7 @@ from torchao.dtypes import TensorCoreTiledLayoutType, to_affine_quantized_static
 from torchao.prototype.autoround.multi_tensor import MultiTensor
 from torchao.quantization.quant_primitives import ZeroPointDomain
 from torchao.utils import find_multiple
-
+import logging
 # TODO: remove it before merge
 ar_utils.freeze_random()
 
@@ -147,12 +147,16 @@ def create_qmodel_from_qdq_model(qdq_model: torch.nn.Module):
     )
     return qmodel
 
-
+layer_idx = 0
 @ar_utils.dump_elapsed_time()
 @torch.no_grad()
 def apply_auto_round(block, grouped_args, spec, block_outputs):
     # Call the auto-round to execute the optimization process
     import auto_round
+    
+    global layer_idx
+    layer_idx += 1
+    logging.info(f"Apply auto-round for layer {layer_idx}")
 
     ar_utils.see_memory_usage("Before apply auto-round")
 

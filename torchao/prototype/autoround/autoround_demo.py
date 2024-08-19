@@ -13,7 +13,7 @@ from torchao.prototype.autoround.multi_tensor import MultiTensor
 
 
 def quantize_model_with_autoround(
-    model, tokenizer, decoder_cls, auto_round_config=auto_round_config, device="cuda"
+    model, tokenizer, decoder_cls, auto_round_config=auto_round_config, device="cuda", gen_text=True,
 ):
     with torch.no_grad():
         # 0. Get the model, tokenizer, and decoder_cls
@@ -61,9 +61,10 @@ def quantize_model_with_autoround(
         print(f"Number of quantized weight: {num_quantized_weight}")
 
         # 4(Optional). Generate text using the optimized model
-        ar_utils.gen_text(
-            model, tokenizer, "Quantized model", device="cuda", max_length=50
-        )
+        if gen_text:
+            ar_utils.gen_text(
+                model, tokenizer, "Quantized model", device="cuda", max_length=50
+            )
         return model
 
 
