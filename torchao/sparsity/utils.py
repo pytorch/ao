@@ -1,7 +1,40 @@
+import random
 import torch
 from torch.ao.quantization.observer import UniformQuantizationObserverBase
 
-__all__ = ["PerChannelNormObserver"]
+__all__ = [
+    "create_block_sparse_tensor",
+    "create_semi_structured_tensor",
+    "PerChannelNormObserver",
+]
+
+def create_block_sparse_tensor(M, N, blocksize, sparsity, dtype):
+    assert sparsity <= 1.0 and sparsity >= 0.0, \
+        "sparsity should be a value between 0 and 1"
+    A = torch.bernoulli(torch.full((M//blocksize, N//blocksize),
+                        1 - sparsity, dtype=dtype))
+    A = torch.repeat_interleave(A, blocksize, dim=0)
+    A = torch.repeat_interleave(A, blocksize, dim=1)
+    return A.to(dtype).contiguous().cuda()
+
+def create_semi_structured_tensor(
+    r, c, dtype
+):
+    """
+    This function returns a 1:2 sparse matrix of size (r, c).
+    Note that this means this matrix will also be 2:4 and 4:8 sparse as well.
+    """
+
+    choices = [[0, 1], [1, 0]]
+    mask_entries = [random.choice(choices) for i in range(r * c // 2)]
+
+    mask = (
+        torch.tensor(mask_entries, dtype=dtype)
+        .reshape(r, c)
+        .contiguous()
+    ).cuda()
+    sparse_weight = torch.rand(r, c).to(dtype).cuda() * mask
+    return sparse_weight
 
 
 # Observers
