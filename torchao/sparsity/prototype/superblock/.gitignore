@@ -1,5 +1,8 @@
 */*.pyc
 
+# Model checkpoints
+*.pth
+
 # Editor temporaries
 *.swa
 *.swb

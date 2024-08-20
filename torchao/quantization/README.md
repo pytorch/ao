@@ -49,12 +49,14 @@ import pickle
 import torchao.quantization
 
 # After the first forward pass (when quantization was done)
+from torchao.quantization.autoquant import AUTOQUANT_CACHE
 with open("quantization-cache.pkl", "wb") as f:
-    pickle.dump(torchao.quantization.AUTOQUANT_CACHE)
+    pickle.dump(AUTOQUANT_CACHE)
 
 # On load
+from torchao.quantization.autoquant import AUTOQUANT_CACHE
 with open("quantization-cache.pkl", "rb") as f:
-    torchao.quantization.AUTOQUANT_CACHE.update(pickle.load(f))
+    AUTOQUANT_CACHE.update(pickle.load(f))
 ```
 ## Affine Quantization
 Affine quantization refers to the type of quantization that maps from floating point numbers to quantized numbers (typically integer) with an affine transformation, i.e.: `quantized_val = float_val / scale + zero_point` where `scale` and `zero_point` are quantization parameters for some granularity and based on some data.
@@ -110,9 +112,9 @@ quantize_(m, int4_weight_only(group_size=group_size))
 
 # temporary workaround for tensor subclass + torch.compile
 # NOTE: this is only need for torch version < 2.5+
-from torchao.utils import TORCH_VERSION_AFTER_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 from torchao.utils import unwrap_tensor_subclass
-if not TORCH_VERSION_AFTER_2_5:
+if not TORCH_VERSION_AT_LEAST_2_5:
     unwrap_tensor_subclass(m)
 # compile the model to improve performance
 m = torch.compile(m, mode='max-autotune')

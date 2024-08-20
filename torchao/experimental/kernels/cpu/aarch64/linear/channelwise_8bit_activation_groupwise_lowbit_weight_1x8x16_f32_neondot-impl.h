@@ -6,6 +6,7 @@
 #include <torchao/experimental/kernels/cpu/aarch64/reduction/reduction.h>
 #include <torchao/experimental/kernels/cpu/aarch64/valpacking/valpack.h>
 #include <cassert>
+#include <cstring>
 
 namespace torchao::kernels::cpu::aarch64::linear {
 namespace channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot::
@@ -324,7 +325,7 @@ int inline weight_data_size_impl(
   }
 
   // Replace n with next multiple of 8 >= n
-  n = ((n + 3) >> 3) << 3;
+  n = ((n + 7) / 8) * 8;
 
   return col_size * n;
 }

@@ -18,9 +18,7 @@ from torch import nn
 from torch.utils.data.dataloader import default_collate
 from torchvision.transforms.functional import InterpolationMode
 
-sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-from supermask import apply_supermask, SupermaskLinear
-
+from torchao.sparsity.prototype.superblock.utils import simulate_sparsity
 
 def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, args, model_ema=None, scaler=None):
     model.train()
@@ -72,41 +70,7 @@ def train_one_epoch(model, criterion, optimizer, data_loader, device, epoch, arg
         metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
         metric_logger.meters["img/s"].update(batch_size / (time.time() - start_time))
         
-
-def apply_sparsity(model):
-    for module in model.modules():
-        if isinstance(module, SupermaskLinear):
-            module.sparsify_offline()
-            
-            
-def apply_bsr(model):
-    for name, module in model.named_modules():
-            if isinstance(module, torch.nn.Linear):
-                try:
-                    module.weight = torch.nn.Parameter(to_bsr(module.weight.data, args.bsr))
-                    print(f"Converted {name} to bsr format.")
-                except ValueError as e:
-                    print(f"Unable to convert weight of {name} to bsr format: {e}")
-
-
-def to_bsr(tensor, blocksize):
-    if tensor.ndim != 2:
-        raise ValueError("to_bsr expects 2D tensor")
-    if tensor.size(0) % blocksize or tensor.size(1) % blocksize:
-        raise ValueError("Tensor dimensions must be divisible by blocksize")
-    return tensor.to_sparse_bsr(blocksize)
-
-
-def verify_sparsity(model):
-    for name, module in model.named_modules():
-        if isinstance(module, nn.Linear):
-            total_weights = module.weight.numel()
-            sparse_weights = (module.weight == 0).sum().item()
-            sparsity_percentage = (sparse_weights / total_weights) * 100
-            print(f"Sparsity verified in layer {name}: {sparsity_percentage:.2f}%")
-
-
-def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix=""):
+def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix="", dtype=torch.float32):
     model.eval()
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = f"Test: {log_suffix}"
@@ -114,16 +78,16 @@ def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix="
     num_processed_samples = 0
     with torch.inference_mode():
         for image, target in metric_logger.log_every(data_loader, print_freq, header):
-            image = image.to(device, non_blocking=True)
-            target = target.to(device, non_blocking=True)
+            image = image.to(device, non_blocking=True).to(dtype)
+            target = target.to(device, non_blocking=True).to(dtype)
             output = model(image)
-            loss = criterion(output, target)
+            # loss = criterion(output, target)
 
             acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
             # FIXME need to take into account that the datasets
             # could have been padded in distributed setup
             batch_size = image.shape[0]
-            metric_logger.update(loss=loss.item())
+            # metric_logger.update(loss=loss.item())
             metric_logger.meters["acc1"].update(acc1.item(), n=batch_size)
             metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
             num_processed_samples += batch_size
@@ -148,7 +112,6 @@ def evaluate(model, criterion, data_loader, device, print_freq=100, log_suffix="
     print(f"{header} Acc@1 {metric_logger.acc1.global_avg:.3f} Acc@5 {metric_logger.acc5.global_avg:.3f}")
     return metric_logger.acc1.global_avg
 
-
 def _get_cache_path(filepath):
     import hashlib
 
@@ -157,45 +120,57 @@ def _get_cache_path(filepath):
     cache_path = os.path.expanduser(cache_path)
     return cache_path
 
-
 def load_data(traindir, valdir, args):
     # Data loading code
     print("Loading data")
-    val_resize_size, val_crop_size, train_crop_size = (
+    val_resize_size, val_crop_size, = (
         args.val_resize_size,
         args.val_crop_size,
-        args.train_crop_size,
     )
     interpolation = InterpolationMode(args.interpolation)
-
-    print("Loading training data")
-    st = time.time()
-    cache_path = _get_cache_path(traindir)
-    if args.cache_dataset and os.path.exists(cache_path):
-        # Attention, as the transforms are also cached!
-        print(f"Loading dataset_train from {cache_path}")
-        dataset, _ = torch.load(cache_path)
-    else:
-        auto_augment_policy = getattr(args, "auto_augment", None)
-        random_erase_prob = getattr(args, "random_erase", 0.0)
-        ra_magnitude = args.ra_magnitude
-        augmix_severity = args.augmix_severity
-        dataset = torchvision.datasets.ImageFolder(
-            traindir,
-            presets.ClassificationPresetTrain(
+    if traindir is not None:
+        train_crop_size = args.train_crop_size
+        print("Loading training data")
+        st = time.time()
+        cache_path = _get_cache_path(traindir)
+        if args.cache_dataset and os.path.exists(cache_path):
+            # Attention, as the transforms are also cached!
+            print(f"Loading dataset_train from {cache_path}")
+            dataset, _ = torch.load(cache_path)
+        else:
+            auto_augment_policy = getattr(args, "auto_augment", None)
+            random_erase_prob = getattr(args, "random_erase", 0.0)
+            ra_magnitude = args.ra_magnitude
+            augmix_severity = args.augmix_severity
+            preprocessing = presets.ClassificationPresetTrain(
                 crop_size=train_crop_size,
                 interpolation=interpolation,
                 auto_augment_policy=auto_augment_policy,
                 random_erase_prob=random_erase_prob,
                 ra_magnitude=ra_magnitude,
                 augmix_severity=augmix_severity,
-            ),
-        )
-        if args.cache_dataset:
-            print(f"Saving dataset_train to {cache_path}")
-            utils.mkdir(os.path.dirname(cache_path))
-            utils.save_on_master((dataset, traindir), cache_path)
-    print("Took", time.time() - st)
+            )
+            dataset = torchvision.datasets.ImageFolder(
+                traindir,
+                preprocessing)
+            # ) if args.meta else torchvision.datasets.ImageNet(
+            #     traindir,
+            #     split="train",
+            #     transform=preprocessing,
+            # )
+            if args.cache_dataset:
+                print(f"Saving dataset_train to {cache_path}")
+                utils.mkdir(os.path.dirname(cache_path))
+                utils.save_on_master((dataset, traindir), cache_path)
+        print("Took", time.time() - st)
+        print(f"Number of training images: {len(dataset)}")
+        if args.distributed:
+            if hasattr(args, "ra_sampler") and args.ra_sampler:
+                train_sampler = RASampler(dataset, shuffle=True, repetitions=args.ra_reps)
+            else:
+                train_sampler = torch.utils.data.distributed.DistributedSampler(dataset)
+        else:
+            train_sampler = torch.utils.data.RandomSampler(dataset)
 
     print("Loading validation data")
     cache_path = _get_cache_path(valdir)
@@ -204,39 +179,34 @@ def load_data(traindir, valdir, args):
         print(f"Loading dataset_test from {cache_path}")
         dataset_test, _ = torch.load(cache_path)
     else:
-        if args.weights and args.test_only:
+        if args.weights:
             weights = torchvision.models.get_weight(args.weights)
             preprocessing = weights.transforms()
         else:
             preprocessing = presets.ClassificationPresetEval(
                 crop_size=val_crop_size, resize_size=val_resize_size, interpolation=interpolation
             )
-
         dataset_test = torchvision.datasets.ImageFolder(
             valdir,
             preprocessing,
+        ) if args.meta else torchvision.datasets.ImageNet(
+            valdir,
+            split='val',
+            transform=preprocessing
         )
         if args.cache_dataset:
             print(f"Saving dataset_test to {cache_path}")
             utils.mkdir(os.path.dirname(cache_path))
             utils.save_on_master((dataset_test, valdir), cache_path)
         
-        print(f"Number of training images: {len(dataset)}")
         print(f"Number of validation images: {len(dataset_test)}")
+        test_sampler = torch.utils.data.distributed.DistributedSampler(dataset_test, shuffle=False) if args.distributed else torch.utils.data.SequentialSampler(dataset_test)
 
-    print("Creating data loaders")
-    if args.distributed:
-        if hasattr(args, "ra_sampler") and args.ra_sampler:
-            train_sampler = RASampler(dataset, shuffle=True, repetitions=args.ra_reps)
-        else:
-            train_sampler = torch.utils.data.distributed.DistributedSampler(dataset)
-        test_sampler = torch.utils.data.distributed.DistributedSampler(dataset_test, shuffle=False)
-    else:
-        train_sampler = torch.utils.data.RandomSampler(dataset)
-        test_sampler = torch.utils.data.SequentialSampler(dataset_test)
+    # for evaluation
+    if traindir is None:
+        return dataset_test, test_sampler
 
     return dataset, dataset_test, train_sampler, test_sampler
-
 
 def main(args):
     if args.output_dir:
@@ -253,7 +223,7 @@ def main(args):
     else:
         torch.backends.cudnn.benchmark = True
 
-    train_dir = os.path.join(args.data_path, "train")
+    train_dir = os.path.join(args.data_path, "train_blurred")
     val_dir = os.path.join(args.data_path, "val")
     dataset, dataset_test, train_sampler, test_sampler = load_data(train_dir, val_dir, args)
 
@@ -288,28 +258,12 @@ def main(args):
     if args.weights_path is not None:
         sd = torch.load(args.weights_path, map_location="cpu")
         model.load_state_dict(sd)
-        
-    if args.sparsify_weights and not args.test_only:
-        raise ValueError("--sparsify-weights can only be used when --test-only is also specified.")
-
-    apply_supermask(
-        model,
-        linear_sparsity=args.sparsity_linear,
-        linear_sp_tilesize=args.sp_linear_tile_size,
-        conv1x1_sparsity=args.sparsity_conv1x1,
-        conv1x1_sp_tilesize=args.sp_conv1x1_tile_size,
-        conv_sparsity=args.sparsity_conv,
-        conv_sp_tilesize=args.sp_conv_tile_size,
-        skip_last_layer_sparsity=args.skip_last_layer_sparsity,
-        skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
-        device=device,
-        verbose=True,
-    )
 
     model.to(device)
     if args.distributed and args.sync_bn:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-
+        
+    sparsifier = simulate_sparsity(model, args)
     criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
 
     custom_keys_weight_decay = []
@@ -408,9 +362,8 @@ def main(args):
             try:
                 checkpoint = torch.load(latest_checkpoint, map_location="cpu")
                 model_without_ddp.load_state_dict(checkpoint["model"])
-                if not args.test_only:
-                    optimizer.load_state_dict(checkpoint["optimizer"])
-                    lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
+                optimizer.load_state_dict(checkpoint["optimizer"])
+                lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
                 args.start_epoch = checkpoint["epoch"] + 1
                 if model_ema:
                     model_ema.load_state_dict(checkpoint["model_ema"])
@@ -425,24 +378,11 @@ def main(args):
             args.start_epoch = 0
     else:
         args.start_epoch = 0
-
-    if args.test_only:
-        # We disable the cudnn benchmarking because it can noticeably affect the accuracy
-        torch.backends.cudnn.benchmark = False
-        torch.backends.cudnn.deterministic = True
-        if args.bsr and not args.sparsify_weights:
-            raise ValueError("--bsr can only be used when --sparsify_weights is also specified.")
-        if args.sparsify_weights:
-            apply_sparsity(model)
-            verify_sparsity(model)
-            if args.bsr:
-                apply_bsr(model)
-        
+        print("Zero-shot evaluation")
         if model_ema:
             evaluate(model_ema, criterion, data_loader_test, device=device, log_suffix="EMA")
         else:
             evaluate(model, criterion, data_loader_test, device=device)
-        return
 
     print("Start training")
     start_time = time.time()
@@ -462,6 +402,8 @@ def main(args):
                 "epoch": epoch,
                 "args": args,
             }
+            if sparsifier:
+                checkpoint["sparsifier"] = sparsifier.state_dict()
             if model_ema:
                 checkpoint["model_ema"] = model_ema.state_dict()
             if scaler:
@@ -549,12 +491,6 @@ def get_args_parser(add_help=True):
         help="Use sync batch norm",
         action="store_true",
     )
-    parser.add_argument(
-        "--test-only",
-        dest="test_only",
-        help="Only test the model",
-        action="store_true",
-    )
     parser.add_argument("--auto-augment", default=None, type=str, help="auto augment policy (default: None)")
     parser.add_argument("--ra-magnitude", default=9, type=int, help="magnitude of auto augment policy")
     parser.add_argument("--augmix-severity", default=3, type=int, help="severity of augmix policy")
@@ -597,7 +533,6 @@ def get_args_parser(add_help=True):
         "--train-crop-size", default=224, type=int, help="the random crop size used for training (default: 224)"
     )
     parser.add_argument("--clip-grad-norm", default=None, type=float, help="the maximum gradient norm (default None)")
-    parser.add_argument("--ra-sampler", action="store_true", help="whether to use Repeated Augmentation in training")
     parser.add_argument(
         "--ra-reps", default=3, type=int, help="number of repetitions for Repeated Augmentation (default: 3)"
     )
@@ -605,6 +540,7 @@ def get_args_parser(add_help=True):
     parser.add_argument("--weights-path", type=str)
 
     # NOTE: sparsity args
+    parser.add_argument("--sparsity", choices=["bsr", "semi_structured"], default=None, help='weight sparsification to apply')
     parser.add_argument("--sparsity-linear", type=float, default=0.0)
     parser.add_argument("--sp-linear-tile-size", type=int, default=1)
     parser.add_argument("--sparsity-conv1x1", type=float, default=0.0)
@@ -613,10 +549,8 @@ def get_args_parser(add_help=True):
     parser.add_argument("--sp-conv-tile-size", type=int, default=1)
     parser.add_argument("--skip-last-layer-sparsity", action="store_true", help="Skip applying sparsity to the last linear layer (for vit only)")
     parser.add_argument("--skip-first-transformer-sparsity", action="store_true", help="Skip applying sparsity to the first transformer layer (for vit only)")
-    parser.add_argument('--sparsify-weights', action='store_true', help='Apply weight sparsification in evaluation mode')
     parser.add_argument('--bsr', type=int, nargs='?', const=256, default=None, help='Convert sparsified weights to BSR format with optional block size (default: 256)')
-
-
+    parser.add_argument('--meta', action='store_true', help='Use Meta internal imagenet structure')
     return parser
 
 
