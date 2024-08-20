@@ -744,6 +744,7 @@ def dequantize_affine_float8(
     *,
     output_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
+    #TODO: implement this
     pass
 
 def choose_qparams_affine_float8(
@@ -759,6 +760,7 @@ def choose_qparams_affine_float8(
    preserve_zero: bool = True,
    zero_point_domain = ZeroPointDomain.INT,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
+    #TODO: implement this
     pass
 
 
