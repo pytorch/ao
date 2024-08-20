@@ -1,4 +1,8 @@
-// (c) Meta Platforms, Inc. and affiliates. Confidential and proprietary.
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// All rights reserved.
+//
+// This source code is licensed under the license found in the
+// LICENSE file in the root directory of this source tree.
 
 #pragma once
 
@@ -9,12 +13,9 @@
 
 namespace torchao {
 
-using aligned_byte_ptr =
-    std::unique_ptr<char[], void (*)(void*)>;
+using aligned_byte_ptr = std::unique_ptr<char[], void (*)(void*)>;
 
-aligned_byte_ptr make_aligned_byte_ptr(
-    size_t alignment,
-    size_t size) {
+aligned_byte_ptr make_aligned_byte_ptr(size_t alignment, size_t size) {
   // Adjust size to next multiple of alignment >= size
   size_t adjusted_size = ((size + alignment - 1) / alignment) * alignment;
 
