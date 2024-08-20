@@ -85,6 +85,7 @@ def _register_quantized_linear_dispatch(dispatch_condition, impl):
 
 class AffineQuantizedTensor(torch.Tensor):
     """
+    Adding comments here
     Affine quantized tensor subclass. Affine quantization means we quantize the floating point tensor with an affine transformation:
        quantized_tensor = float_tensor / scale + zero_point
 
