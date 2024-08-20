@@ -31,6 +31,7 @@ from torchao.dtypes import (
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
+    TORCH_VERSION_AT_LEAST_2_5,
     unwrap_tensor_subclass,
 )
 from .subclass import (
@@ -55,7 +56,6 @@ from .GPTQ import (
 from .utils import _get_per_token_block_size
 import logging
 from .autoquant import autoquant, AutoQuantizableLinearWeight
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
 __all__ = [
@@ -195,6 +195,11 @@ def _replace_with_custom_fn_if_matches_filter(
 
 
 def _is_linear(mod, *args):
+    # avoid circular dependencies
+    from torchao.quantization.prototype.qat.affine_fake_quantized_tensor import (
+        AffineFakeQuantizedTensor,
+    )
+
     # adding weight tensor subclass isinstance check to make sure the weight is only quantized once
     # when it is shared by multiple linear modules
     return (
@@ -204,6 +209,7 @@ def _is_linear(mod, *args):
         and not isinstance(mod.weight, AutoQuantizableLinearWeight)
         and not isinstance(mod.weight, AffineQuantizedTensor)
         and not isinstance(mod.weight, LinearActivationQuantizedTensor)
+        and not isinstance(mod.weight, AffineFakeQuantizedTensor)
     )
 
 import torch.nn.utils.parametrize as parametrize
