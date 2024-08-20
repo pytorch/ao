@@ -15,7 +15,17 @@ from torchao.utils import (
     TORCH_VERSION_AFTER_2_5,
 )
 from torchao.utils import _register_custom_op
+from torchao.float8.float8_tensor import (
+    LinearMMConfig,
+    GemmInputRole,
+    Float8Tensor,
+)
 
+from torchao.float8.float8_scaling_utils import (
+    hp_tensor_to_float8_dynamic,
+)
+
+from dataclasses import dataclass
 
 __all__ = [
     "safe_int_mm",
@@ -23,6 +33,9 @@ __all__ = [
     "choose_qparams_affine",
     "quantize_affine",
     "dequantize_affine",
+    "choose_qparams_affine_float8",
+    "quantize_affine_float8",
+    "dequantize_affine_float8",
     "fake_quantize_affine",
     "fake_quantize_affine_cachemask",
 ]
@@ -97,9 +110,10 @@ def _get_and_check_qmin_qmax(dtype, quant_min, quant_max):
     """
     if dtype in FP8_TYPES:
         quant_min_lower_bound, quant_max_upper_bound = torch.finfo(dtype).min, torch.finfo(dtype).max
-    if dtype not in _DTYPE_TO_QVALUE_BOUNDS:
+    elif dtype not in _DTYPE_TO_QVALUE_BOUNDS:
         raise ValueError(f"Unsupported dtype: {dtype}")
-    quant_min_lower_bound, quant_max_upper_bound = _DTYPE_TO_QVALUE_BOUNDS[dtype]
+    else:
+        quant_min_lower_bound, quant_max_upper_bound = _DTYPE_TO_QVALUE_BOUNDS[dtype]
     if quant_min is None:
         quant_min = quant_min_lower_bound
     if quant_max is None:
@@ -641,3 +655,50 @@ def _choose_qparams_affine(
     scale = torch.clamp(scale, min=eps)
 
     return scale.to(dtype=scale_dtype), zero_point.to(dtype=zero_point_dtype)
+
+
+def quantize_affine_float8(
+    input: torch.Tensor,
+    block_size: Tuple[int, ...],
+    output_dtype: torch.dtype,
+    quant_min: Optional[Union[int, float]] = None,
+    quant_max: Optional[Union[int, float]] = None,
+    zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+    reduce_amax: bool = False,
+) -> Float8Tensor:
+    return hp_tensor_to_float8_dynamic(
+        hp_tensor=input,
+        float8_dtype=output_dtype,
+        linear_mm_config=LinearMMConfig(),
+        reduce_amax=reduce_amax,
+        gemm_input_role=GemmInputRole.INPUT
+    )
+
+def dequantize_affine_float8(
+    input: torch.Tensor,
+    block_size: Tuple[int, ...],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    input_dtype: torch.dtype,
+    quant_min: Optional[Union[int, float]] = None,
+    quant_max: Optional[Union[int, float]] = None,
+    zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+    *,
+    output_dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    pass
+
+def choose_qparams_affine_float8(
+   input: torch.Tensor,
+   mapping_type: MappingType,
+   block_size: Tuple[int, ...],
+   target_dtype: torch.dtype,
+   quant_min: Optional[Union[int, float]] = None,
+   quant_max: Optional[Union[int, float]] = None,
+   eps: Optional[float] = None,
+   scale_dtype: Optional[torch.dtype] = None,
+   zero_point_dtype: Optional[torch.dtype] = None,
+   preserve_zero: bool = True,
+   zero_point_domain = ZeroPointDomain.INT,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    pass
