@@ -133,25 +133,39 @@ def _bench_quantized_tensor_subclass_perf(api, ref_api, M, N, K, kwargs=None):
     WARMUP = 20
     RUNS = 100
 
-    m_ref = torch.compile(m_ref, mode='max-autotune', fullgraph=True)
-    benchmark_model(m_ref, WARMUP, example_inputs)
-    ref_elapsed_time = benchmark_model(m_ref, RUNS, example_inputs)
-
-    m = torch.compile(m, mode='max-autotune', fullgraph=True)
-    benchmark_model(m, WARMUP, example_inputs)
-    elapsed_time = benchmark_model(m, RUNS, example_inputs)
-
-
+    torch._dynamo.reset()
     m_bf16 = torch.compile(m_bf16, mode='max-autotune', fullgraph=True)
     benchmark_model(m_bf16, WARMUP, example_inputs)
     bf16_elapsed_time = benchmark_model(m_bf16, RUNS, example_inputs)
 
+    torch._dynamo.reset()
+    m_ref = torch.compile(m_ref, mode='max-autotune', fullgraph=True)
+    benchmark_model(m_ref, WARMUP, example_inputs)
+    ref_elapsed_time = benchmark_model(m_ref, RUNS, example_inputs)
+
+    torch._dynamo.reset()
+    m = torch.compile(m, mode='max-autotune', fullgraph=True)
+    benchmark_model(m, WARMUP, example_inputs)
+    elapsed_time = benchmark_model(m, RUNS, example_inputs)
+
     print(f"{(M, N, K)}: elapsed time: {elapsed_time}, ref elapsed time: {ref_elapsed_time}, bf16 elapsed time: {bf16_elapsed_time}")
 
 if __name__ == "__main__" and TORCH_VERSION_AT_LEAST_2_4 and torch.cuda.is_available():
-    all_shapes = [
-        (20, 2048, 2048),
-    ]
+    # all_shapes = set([
+    #     (20, 2048, 2048),
+    # ])
+    all_shapes = set([
+        (6, 12288, 4096),
+        (6, 4096, 4096),
+        (6, 11008, 4096),
+        (6, 4096, 11008),
+        (6, 32000, 4096),
+        (1, 12288, 4096),
+        (1, 4096, 4096),
+        (1, 11008, 4096),
+        (1, 4096, 11008),
+        (1, 32000, 4096),
+    ])
 
     print("_int8da_int8w_api")
     from torchao.quantization.quant_api import change_linear_weights_to_int8_dqtensors
