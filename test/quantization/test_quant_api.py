@@ -54,6 +54,7 @@ from torchao._models.llama.model import Transformer, prepare_inputs_for_model
 from torchao.utils import unwrap_tensor_subclass
 import copy
 import tempfile
+import gc
 from torch.testing._internal.common_utils import TestCase
 
 
@@ -679,6 +680,29 @@ class TestQuantFlow(TestCase):
 
         res = m_copy(*example_inputs)
         self.assertEqual(res, ref)
+
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_quantized_model_streaming(self):
+        def reset_memory():
+            gc.collect()
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats()
+
+        reset_memory()
+        m = ToyLinearModel()
+        quantize_(m.to(device="cuda"), int8_weight_only())
+        memory_baseline = torch.cuda.max_memory_allocated()
+
+        del m
+        reset_memory()
+        m = ToyLinearModel()
+        quantize_(m, int8_weight_only(), device="cuda")
+        memory_streaming = torch.cuda.max_memory_allocated()
+
+        for param in m.parameters():
+            assert param.is_cuda
+        self.assertLess(memory_streaming, memory_baseline)
 
 
 if __name__ == "__main__":
