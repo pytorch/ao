@@ -379,10 +379,43 @@
              <article itemprop="articleBody" id="pytorch-article" class="pytorch-article">
               
   <h1>Source code for torchao.sparsity.utils</h1><div class="highlight"><pre>
-<span></span><span class="kn">import</span> <span class="nn">torch</span>
+<span></span><span class="kn">import</span> <span class="nn">random</span>
+<span class="kn">import</span> <span class="nn">torch</span>
 <span class="kn">from</span> <span class="nn">torch.ao.quantization.observer</span> <span class="kn">import</span> <span class="n">UniformQuantizationObserverBase</span>
 
-<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;PerChannelNormObserver&quot;</span><span class="p">]</span>
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;create_block_sparse_tensor&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;create_semi_structured_tensor&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;PerChannelNormObserver&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="k">def</span> <span class="nf">create_block_sparse_tensor</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">blocksize</span><span class="p">,</span> <span class="n">sparsity</span><span class="p">,</span> <span class="n">dtype</span><span class="p">):</span>
+    <span class="k">assert</span> <span class="n">sparsity</span> <span class="o">&lt;=</span> <span class="mf">1.0</span> <span class="ow">and</span> <span class="n">sparsity</span> <span class="o">&gt;=</span> <span class="mf">0.0</span><span class="p">,</span> \
+        <span class="s2">&quot;sparsity should be a value between 0 and 1&quot;</span>
+    <span class="n">A</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bernoulli</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">full</span><span class="p">((</span><span class="n">M</span><span class="o">//</span><span class="n">blocksize</span><span class="p">,</span> <span class="n">N</span><span class="o">//</span><span class="n">blocksize</span><span class="p">),</span>
+                        <span class="mi">1</span> <span class="o">-</span> <span class="n">sparsity</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">))</span>
+    <span class="n">A</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">repeat_interleave</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">blocksize</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">A</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">repeat_interleave</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">blocksize</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">A</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span><span class="o">.</span><span class="n">cuda</span><span class="p">()</span>
+
+<span class="k">def</span> <span class="nf">create_semi_structured_tensor</span><span class="p">(</span>
+    <span class="n">r</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">dtype</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    This function returns a 1:2 sparse matrix of size (r, c).</span>
+<span class="sd">    Note that this means this matrix will also be 2:4 and 4:8 sparse as well.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">choices</span> <span class="o">=</span> <span class="p">[[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">]]</span>
+    <span class="n">mask_entries</span> <span class="o">=</span> <span class="p">[</span><span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">choices</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">r</span> <span class="o">*</span> <span class="n">c</span> <span class="o">//</span> <span class="mi">2</span><span class="p">)]</span>
+
+    <span class="n">mask</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">torch</span><span class="o">.</span><span class="n">tensor</span><span class="p">(</span><span class="n">mask_entries</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+        <span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">c</span><span class="p">)</span>
+        <span class="o">.</span><span class="n">contiguous</span><span class="p">()</span>
+    <span class="p">)</span><span class="o">.</span><span class="n">cuda</span><span class="p">()</span>
+    <span class="n">sparse_weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">c</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span><span class="o">.</span><span class="n">cuda</span><span class="p">()</span> <span class="o">*</span> <span class="n">mask</span>
+    <span class="k">return</span> <span class="n">sparse_weight</span>
 
 
 <span class="c1"># Observers</span>
