@@ -7,7 +7,8 @@ cmake -DTORCHAO_LIBRARIES=${TORCHAO_LIBRARIES} -S ${TORCHAO_LIBRARIES}/torchao/e
 cmake --build  ${CMAKE_OUT}
 
 # Run
- ${CMAKE_OUT}/test_quantization
- ${CMAKE_OUT}/test_bitpacking
- ${CMAKE_OUT}/test_linear
- ${CMAKE_OUT}/test_valpacking
+${CMAKE_OUT}/test_quantization
+${CMAKE_OUT}/test_reduction
+${CMAKE_OUT}/test_bitpacking
+${CMAKE_OUT}/test_linear
+${CMAKE_OUT}/test_valpacking

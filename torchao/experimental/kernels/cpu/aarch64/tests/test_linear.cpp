@@ -10,12 +10,11 @@
 float kTol = 0.0001;
 
 template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
-void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot() {
-  int m = 7;
-  int k = 128;
-  int n = 13;
-  int group_size = 32;
-
+void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot(
+    int m,
+    int k,
+    int n,
+    int group_size) {
   auto test_case = torchao::
       channelwise_8bit_activation_groupwise_lowbit_weight_test_case::generate(
           m,
@@ -50,7 +49,7 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot
       test_case.weight_scales.data(),
       /*weight_zeros=*/test_case.weight_zeros.data());
 
-  std::vector<float> output(m * k);
+  std::vector<float> output(m * n);
   kernel<weight_nbit, has_weight_zeros, has_bias, has_clamp>(
       output.data(),
       /*output_m_stride=*/n,
@@ -72,70 +71,53 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot
 TEST(
     test_channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot,
     Standard) {
-  constexpr int weight_nbit = 4;
-  constexpr bool has_weight_zeros = false;
-  constexpr bool has_bias = false;
-  constexpr bool has_clamp = false;
-
   test_channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot<
-      weight_nbit,
-      has_weight_zeros,
-      has_bias,
-      has_clamp>();
+      4 /*weight_nbit*/,
+      false /*has_weight_zeros*/,
+      false /*has_bias*/,
+      false /*has_clamp*/>(
+      /*m=*/7, /*k=*/128, /*n=*/13, /*group_size=*/32);
 }
 
 TEST(
     test_channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot,
     HasWeightZeros) {
-  constexpr int weight_nbit = 4;
-  constexpr bool has_weight_zeros = true;
-  constexpr bool has_bias = false;
-  constexpr bool has_clamp = false;
-
   test_channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot<
-      weight_nbit,
-      has_weight_zeros,
-      has_bias,
-      has_clamp>();
+      4 /*weight_nbit*/,
+      true /*has_weight_zeros*/,
+      false /*has_bias*/,
+      false /*has_clamp*/>(
+      /*m=*/7, /*k=*/128, /*n=*/13, /*group_size=*/32);
 }
 
 TEST(
     test_channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot,
     HasBias) {
-  constexpr int weight_nbit = 4;
-  constexpr bool has_weight_zeros = false;
-  constexpr bool has_bias = true;
-  constexpr bool has_clamp = false;
-
   test_channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot<
-      weight_nbit,
-      has_weight_zeros,
-      has_bias,
-      has_clamp>();
+      4 /*weight_nbit*/,
+      false /*has_weight_zeros*/,
+      true /*has_bias*/,
+      false /*has_clamp*/>(
+      /*m=*/7, /*k=*/128, /*n=*/13, /*group_size=*/32);
 }
 
 TEST(
     test_channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot,
     HasClamp) {
-  constexpr int weight_nbit = 4;
-  constexpr bool has_weight_zeros = false;
-  constexpr bool has_bias = false;
-  constexpr bool has_clamp = true;
-
   test_channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot<
-      weight_nbit,
-      has_weight_zeros,
-      has_bias,
-      has_clamp>();
+      4 /*weight_nbit*/,
+      false /*has_weight_zeros*/,
+      false /*has_bias*/,
+      true /*has_clamp*/>(
+      /*m=*/7, /*k=*/128, /*n=*/13, /*group_size=*/32);
 }
 
 template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
-void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16_f32_neondot() {
-  int m = 7;
-  int k = 64;
-  int n = 13;
-  int group_size = 16;
-
+void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16_f32_neondot(
+    int m,
+    int k,
+    int n,
+    int group_size) {
   auto test_case = torchao::
       channelwise_8bit_activation_groupwise_lowbit_weight_test_case::generate(
           m,
@@ -170,7 +152,7 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16_f32_neondot
       test_case.weight_scales.data(),
       /*weight_zeros=*/test_case.weight_zeros.data());
 
-  std::vector<float> output(m * k);
+  std::vector<float> output(m * n);
   kernel<weight_nbit, has_weight_zeros, has_bias, has_clamp>(
       output.data(),
       /*output_m_stride=*/n,
@@ -192,70 +174,66 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16_f32_neondot
 TEST(
     test_channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16_f32_neondot,
     Standard) {
-  constexpr int weight_nbit = 4;
-  constexpr bool has_weight_zeros = false;
-  constexpr bool has_bias = false;
-  constexpr bool has_clamp = false;
-
   test_channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16_f32_neondot<
-      weight_nbit,
-      has_weight_zeros,
-      has_bias,
-      has_clamp>();
+      4 /*weight_nbit*/,
+      false /*has_weight_zeros*/,
+      false /*has_bias*/,
+      false /*has_clamp*/>(
+      /*m=*/7, /*k=*/64, /*n=*/13, /*group_size=*/16);
 }
 
 TEST(
     test_channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16_f32_neondot,
     HasWeightZeros) {
-  constexpr int weight_nbit = 4;
-  constexpr bool has_weight_zeros = true;
-  constexpr bool has_bias = false;
-  constexpr bool has_clamp = false;
-
   test_channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16_f32_neondot<
-      weight_nbit,
-      has_weight_zeros,
-      has_bias,
-      has_clamp>();
+      4 /*weight_nbit*/,
+      true /*has_weight_zeros*/,
+      false /*has_bias*/,
+      false /*has_clamp*/>(
+      /*m=*/7, /*k=*/64, /*n=*/13, /*group_size=*/16);
 }
 
 TEST(
     test_channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16_f32_neondot,
     HasBias) {
-  constexpr int weight_nbit = 4;
-  constexpr bool has_weight_zeros = false;
-  constexpr bool has_bias = true;
-  constexpr bool has_clamp = false;
-
   test_channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16_f32_neondot<
-      weight_nbit,
-      has_weight_zeros,
-      has_bias,
-      has_clamp>();
+      4 /*weight_nbit*/,
+      false /*has_weight_zeros*/,
+      true /*has_bias*/,
+      false /*has_clamp*/>(
+      /*m=*/7, /*k=*/64, /*n=*/13, /*group_size=*/16);
 }
 
 TEST(
     test_channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16_f32_neondot,
     HasClamp) {
-  constexpr int weight_nbit = 4;
-  constexpr bool has_weight_zeros = false;
-  constexpr bool has_bias = false;
-  constexpr bool has_clamp = true;
-
   test_channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16_f32_neondot<
-      weight_nbit,
-      has_weight_zeros,
-      has_bias,
-      has_clamp>();
+      4 /*weight_nbit*/,
+      false /*has_weight_zeros*/,
+      false /*has_bias*/,
+      true /*has_clamp*/>(
+      /*m=*/7, /*k=*/64, /*n=*/13, /*group_size=*/16);
+}
+
+TEST(
+    test_channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16_f32_neondot,
+    NLessThan4) {
+  for (int n = 1; n < 4; n++) {
+    test_channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16_f32_neondot<
+        4 /*weight_nbit*/,
+        false /*has_weight_zeros*/,
+        false /*has_bias*/,
+        true /*has_clamp*/>(
+        /*m=*/7, /*k=*/64, /*n=*/n, /*group_size=*/16);
+  }
 }
 
 template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
-void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot() {
-  int m = 7;
-  int k = 64;
-  int n = 13;
-  int group_size = 16;
-
+void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot(
+    int m,
+    int k,
+    int n,
+    int group_size) {
   auto test_case = torchao::
       channelwise_8bit_activation_groupwise_lowbit_weight_test_case::generate(
           m,
@@ -290,7 +268,7 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot
       test_case.weight_scales.data(),
       /*weight_zeros=*/test_case.weight_zeros.data());
 
-  std::vector<float> output(m * k);
+  std::vector<float> output(m * n);
   kernel<weight_nbit, has_weight_zeros, has_bias, has_clamp>(
       output.data(),
       /*output_m_stride=*/n,
@@ -312,59 +290,56 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot
 TEST(
     test_channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot,
     Standard) {
-  constexpr int weight_nbit = 4;
-  constexpr bool has_weight_zeros = false;
-  constexpr bool has_bias = false;
-  constexpr bool has_clamp = false;
-
   test_channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot<
-      weight_nbit,
-      has_weight_zeros,
-      has_bias,
-      has_clamp>();
+      4 /*weight_nbit*/,
+      false /*has_weight_zeros*/,
+      false /*has_bias*/,
+      false /*has_clamp*/>(
+      /*m=*/7, /*k=*/64, /*n=*/13, /*group_size=*/16);
 }
 
 TEST(
     test_channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot,
     HasWeightZeros) {
-  constexpr int weight_nbit = 4;
-  constexpr bool has_weight_zeros = true;
-  constexpr bool has_bias = false;
-  constexpr bool has_clamp = false;
-
   test_channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot<
-      weight_nbit,
-      has_weight_zeros,
-      has_bias,
-      has_clamp>();
+      4 /*weight_nbit*/,
+      true /*has_weight_zeros*/,
+      false /*has_bias*/,
+      false /*has_clamp*/>(
+      /*m=*/7, /*k=*/64, /*n=*/13, /*group_size=*/16);
 }
 
 TEST(
     test_channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot,
     HasBias) {
-  constexpr int weight_nbit = 4;
-  constexpr bool has_weight_zeros = false;
-  constexpr bool has_bias = true;
-  constexpr bool has_clamp = false;
-
   test_channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot<
-      weight_nbit,
-      has_weight_zeros,
-      has_bias,
-      has_clamp>();
+      4 /*weight_nbit*/,
+      false /*has_weight_zeros*/,
+      true /*has_bias*/,
+      false /*has_clamp*/>(
+      /*m=*/7, /*k=*/64, /*n=*/13, /*group_size=*/16);
 }
 
 TEST(
     test_channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot,
     HasClamp) {
-  constexpr int weight_nbit = 4;
-  constexpr bool has_weight_zeros = false;
-  constexpr bool has_bias = false;
-  constexpr bool has_clamp = true;
-
   test_channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot<
-      weight_nbit,
-      has_weight_zeros,
-      has_bias,
-      has_clamp>();
+      4 /*weight_nbit*/,
+      false /*has_weight_zeros*/,
+      false /*has_bias*/,
+      true /*has_clamp*/>(
+      /*m=*/7, /*k=*/64, /*n=*/13, /*group_size=*/16);
+}
+
+TEST(
+    test_channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot,
+    NLessThan8) {
+  for (int n = 1; n < 8; n++) {
+    test_channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot<
+        4 /*weight_nbit*/,
+        false /*has_weight_zeros*/,
+        false /*has_bias*/,
+        true /*has_clamp*/>(
+        /*m=*/7, /*k=*/64, /*n=*/n, /*group_size=*/16);
+  }
 }

@@ -1,23 +1,33 @@
 // (c) Meta Platforms, Inc. and affiliates. Confidential and proprietary.
 
 #include <torchao/experimental/kernels/cpu/aarch64/reduction/reduction.h>
+#include <cassert>
 
 void torchao::kernels::cpu::aarch64::reduction::find_min_and_max(
     float32_t& min,
     float32_t& max,
     const float32_t* vals,
     int size) {
-  float32x4_t mins = vdupq_n_f32(0.0);
-  float32x4_t maxes = vdupq_n_f32(0.0);
+  assert(size > 0);
+
+  // Needed in case size < 4 so we don't compare to
+  // uninitialized min/max values
+  min = vals[0];
+  max = min;
+
   int i = 0;
-  for (; i < size; i += 8) {
-    float32x4_t v1 = vld1q_f32(vals + i);
-    float32x4_t v2 = vld1q_f32(vals + i + 4);
-    mins = vminq_f32(v1, v2);
-    maxes = vmaxq_f32(v1, v2);
+  if (i + 3 < size) {
+    float32x4_t mins = vld1q_f32(vals + i);
+    float32x4_t maxes = mins;
+    i += 4;
+    for (; i + 3 < size; i += 4) {
+      float32x4_t v = vld1q_f32(vals + i);
+      mins = vminq_f32(mins, v);
+      maxes = vmaxq_f32(maxes, v);
+    }
+    min = vminvq_f32(mins);
+    max = vmaxvq_f32(maxes);
   }
-  min = vminvq_f32(mins);
-  max = vmaxvq_f32(maxes);
 
   // Remainder
   while (i < size) {

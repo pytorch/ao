@@ -35,6 +35,14 @@ target_link_libraries(
     dep
 )
 
+add_executable(test_reduction test_reduction.cpp)
+target_link_libraries(
+  test_reduction
+    PRIVATE
+    GTest::gtest_main
+    dep
+)
+
 add_executable(test_bitpacking test_bitpacking.cpp)
 target_link_libraries(
   test_bitpacking
@@ -61,6 +69,7 @@ target_link_libraries(
 
 include(GoogleTest)
 gtest_discover_tests(test_quantization)
+gtest_discover_tests(test_reduction)
 gtest_discover_tests(test_bitpacking)
 gtest_discover_tests(test_linear)
 gtest_discover_tests(test_valpacking)
