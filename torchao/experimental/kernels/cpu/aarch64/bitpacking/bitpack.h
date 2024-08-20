@@ -5,6 +5,7 @@
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/macro.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint3.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint4.h>
+#include <cassert>
 
 namespace torchao {
 namespace bitpacking {
