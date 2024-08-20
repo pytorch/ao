@@ -95,20 +95,20 @@ class AffineQuantizedTensor(torch.Tensor):
     fields:
       layout_tensor (AQTLayout): tensor that serves as a general layout storage for the quantized data,
          e.g. storing plain tensors (int_data, scale, zero_point) or packed formats depending on device
-         and operator/kernel
+         and operator/kernel - comment: can we have a simpler way of printing all the available layouts and understanding what they are?
       block_size (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
          e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
-      shape (torch.Size): the shape for the Tensor
-      quant_min (Optional[int]): minimum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`
+      shape (torch.Size): the shape for the Tensor - comment: can we infer this?
+      quant_min (Optional[int]): minimum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data` comment: i believe AQT is assuming float to int whereas fpx work is removing this constraint?
       quant_max (Optional[int]): maximum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`
-      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be eitehr integer or float
+      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be eitehr integer or float  - comment: cant we infer this?
         if zero_point is in integer domain, zero point is added to the quantized integer value during
         quantization
         if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
         value during quantization
         default is ZeroPointDomain.INT
-      input_quant_func (Optional[Callable]): function for quantizing the input float Tensor to a quantized tensor subclass object, that takes float Tensor as input and outputs an AffineQuantizedTensor object
-      dtype: dtype for external representation of the tensor, e.g. torch.float32
+      input_quant_func (Optional[Callable]): function for quantizing the input float Tensor to a quantized tensor subclass object, that takes float Tensor as input and outputs an AffineQuantizedTensor object - comment: I can't figure out scenarios where this is useful
+      dtype: dtype for external representation of the tensor, e.g. torch.float32 - comment: unclear if you mean the packed tensor or just the `__repr__`
     """
 
     @staticmethod
