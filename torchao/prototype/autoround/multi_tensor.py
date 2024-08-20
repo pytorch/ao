@@ -35,7 +35,7 @@ class MultiTensorConfig:
 # If we don't have gpu:
 # multi_tensor_config_cpu_only = MultiTensorConfig(accelerator_device="cpu", offload_device="cpu")
 
-multi_tensor_config = MultiTensorConfig(accelerator_device="cuda", offload_device="cpu")
+multi_tensor_config = MultiTensorConfig(accelerator_device="cuda", offload_device="cuda")
 
 
 class MultiTensor(torch.Tensor):
