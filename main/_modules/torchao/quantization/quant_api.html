@@ -412,6 +412,7 @@
 <span class="p">)</span>
 <span class="kn">from</span> <span class="nn">torchao.utils</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">TORCH_VERSION_AT_LEAST_2_4</span><span class="p">,</span>
+    <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">,</span>
     <span class="n">unwrap_tensor_subclass</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span> <span class="nn">.subclass</span> <span class="kn">import</span> <span class="p">(</span>
@@ -436,7 +437,6 @@
 <span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="n">_get_per_token_block_size</span>
 <span class="kn">import</span> <span class="nn">logging</span>
 <span class="kn">from</span> <span class="nn">.autoquant</span> <span class="kn">import</span> <span class="n">autoquant</span><span class="p">,</span> <span class="n">AutoQuantizableLinearWeight</span>
-<span class="kn">from</span> <span class="nn">torchao.utils</span> <span class="kn">import</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span>
 
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
@@ -576,6 +576,11 @@
 
 
 <span class="k">def</span> <span class="nf">_is_linear</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+    <span class="c1"># avoid circular dependencies</span>
+    <span class="kn">from</span> <span class="nn">torchao.quantization.prototype.qat.affine_fake_quantized_tensor</span> <span class="kn">import</span> <span class="p">(</span>
+        <span class="n">AffineFakeQuantizedTensor</span><span class="p">,</span>
+    <span class="p">)</span>
+
     <span class="c1"># adding weight tensor subclass isinstance check to make sure the weight is only quantized once</span>
     <span class="c1"># when it is shared by multiple linear modules</span>
     <span class="k">return</span> <span class="p">(</span>
@@ -585,6 +590,7 @@
         <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">AutoQuantizableLinearWeight</span><span class="p">)</span>
         <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">)</span>
         <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">LinearActivationQuantizedTensor</span><span class="p">)</span>
+        <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">mod</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span> <span class="n">AffineFakeQuantizedTensor</span><span class="p">)</span>
     <span class="p">)</span>
 
 <span class="kn">import</span> <span class="nn">torch.nn.utils.parametrize</span> <span class="k">as</span> <span class="nn">parametrize</span>
