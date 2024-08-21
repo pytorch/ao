@@ -3,9 +3,9 @@ from typing import List
 
 import torch
 from torch.utils._pytree import tree_flatten, tree_unflatten
+import os
 
-
-def _get_accelerator_device():
+def _get_accelerator_name():
     if torch.xpu.is_available():
         return "xpu"
     elif torch.cuda.is_available():
@@ -16,7 +16,7 @@ def _get_accelerator_device():
 
 @dataclasses.dataclass
 class MultiTensorConfig:
-    accelerator_device: str = _get_accelerator_device()
+    accelerator_device: str = _get_accelerator_name()
     offload_device: str = "cpu"
     ops_to_accelerate: List[str] = dataclasses.field(
         default_factory=lambda: [
@@ -27,7 +27,7 @@ class MultiTensorConfig:
         ]
     )
 
-
+# TODO(Yi): refine this logic to expose a simple API(one parameter) for modeling users
 # If we have enough gpu memory:
 # multi_tensor_config_for_large_vram = MultiTensorConfig(accelerator_device="cuda", offload_device="cuda")
 # If we have limited gpu memory:
@@ -182,4 +182,4 @@ class MultiTensor(torch.Tensor):
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
-        cls(tensor_data_dict["values"])
+        return cls(tensor_data_dict["values"])
