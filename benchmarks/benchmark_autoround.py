@@ -5,7 +5,7 @@ import torch
 import torchao.prototype.autoround.utils as ar_utils
 from torchao.prototype.autoround.autoround_demo import quantize_model_with_autoround
 from torchao.prototype.autoround.core import auto_round_config
-from torchao.utils import benchmark_model, TORCH_VERSION_AFTER_2_4
+from torchao.utils import benchmark_model, TORCH_VERSION_AT_LEAST_2_4
 
 
 def main(args):
@@ -50,7 +50,7 @@ def main(args):
         print(f"{msg} mean time of {args.num_runs} runs: {time}")
 
 
-if __name__ == "__main__" and TORCH_VERSION_AFTER_2_4 and torch.cuda.is_available():
+if __name__ == "__main__" and TORCH_VERSION_AT_LEAST_2_4 and torch.cuda.is_available():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
