@@ -148,7 +148,7 @@ pip install torchao --extra-index-url https://download.pytorch.org/whl/cu121 # f
 
 Nightly Release
 ```Shell
-pip install --pre torchao-nightly --index-url https://download.pytorch.org/whl/nightly/cu121 # full options are cpu/cu118/cu121/cu124
+pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu121 # full options are cpu/cu118/cu121/cu124
 ```
 
 From source
