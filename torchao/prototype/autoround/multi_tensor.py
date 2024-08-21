@@ -1,5 +1,41 @@
+import dataclasses
+from typing import List
+
 import torch
 from torch.utils._pytree import tree_flatten, tree_unflatten
+import os
+
+def _get_accelerator_name():
+    if torch.xpu.is_available():
+        return "xpu"
+    elif torch.cuda.is_available():
+        return "cuda"
+    else:
+        return "cpu"
+
+
+@dataclasses.dataclass
+class MultiTensorConfig:
+    accelerator_device: str = _get_accelerator_name()
+    offload_device: str = "cpu"
+    ops_to_accelerate: List[str] = dataclasses.field(
+        default_factory=lambda: [
+            "linear",
+            "matmul",
+            "bmm",
+            "scaled_dot_product_attention",
+        ]
+    )
+
+# TODO(Yi): refine this logic to expose a simple API(one parameter) for modeling users
+# If we have enough gpu memory:
+# multi_tensor_config_for_large_vram = MultiTensorConfig(accelerator_device="cuda", offload_device="cuda")
+# If we have limited gpu memory:
+# multi_tensor_config_for_small_vram = MultiTensorConfig(accelerator_device="cuda", offload_device="cpu")
+# If we don't have gpu:
+# multi_tensor_config_cpu_only = MultiTensorConfig(accelerator_device="cpu", offload_device="cpu")
+
+multi_tensor_config = MultiTensorConfig(accelerator_device="cuda", offload_device="cuda")
 
 
 class MultiTensor(torch.Tensor):
@@ -99,8 +135,31 @@ class MultiTensor(torch.Tensor):
         with torch._C.DisableTorchFunctionSubclass():
             for i, inp in enumerate(grouped_args):
                 cur_args, cur_kwargs = tree_unflatten(inp, spec)
+                if any(
+                    [op in str(func) for op in multi_tensor_config.ops_to_accelerate]
+                ):
+                    cur_args = [
+                        (
+                            arg.to(multi_tensor_config.accelerator_device)
+                            if isinstance(arg, torch.Tensor)
+                            else arg
+                        )
+                        for arg in cur_args
+                    ]
+                    cur_kwargs = {
+                        k: (
+                            v.to(multi_tensor_config.accelerator_device)
+                            if isinstance(v, torch.Tensor)
+                            else v
+                        )
+                        for k, v in cur_kwargs.items()
+                    }
                 out = func(*cur_args, **cur_kwargs)
-                outputs.append(out if isinstance(out, torch.Tensor) else out)
+                outputs.append(
+                    out.to(multi_tensor_config.offload_device)
+                    if isinstance(out, torch.Tensor)
+                    else out
+                )
             grouped_outputs = [tree_flatten(x)[0] for x in outputs]
             out_spec = tree_flatten(outputs[0])[1]
             # convert [[A,b1,c1], [A,b2,c2] [A,b3,c3]] => [A, MultiTensor(b1,b2,b3), MultiTensor(c1,c2,c3)]
@@ -123,4 +182,4 @@ class MultiTensor(torch.Tensor):
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
-        cls(tensor_data_dict["values"])
+        return cls(tensor_data_dict["values"])

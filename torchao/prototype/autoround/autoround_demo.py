@@ -9,7 +9,7 @@ from torchao.prototype.autoround.core import (
     auto_round_config,
     prepare_model_for_applying_auto_round_,
 )
-from torchao.prototype.autoround.multi_tensor import MultiTensor
+from torchao.prototype.autoround.multi_tensor import multi_tensor_config, MultiTensor
 
 
 def quantize_model_with_autoround(
@@ -44,8 +44,12 @@ def quantize_model_with_autoround(
         input_ids_lst = []
         attn_mask_lst = []
         for i, data in enumerate(dataloader):
-            input_ids_lst.append(data["input_ids"].to(device))
-            attn_mask_lst.append(data["attention_mask"].to(device))
+            input_ids_lst.append(
+                data["input_ids"].to(multi_tensor_config.offload_device)
+            )
+            attn_mask_lst.append(
+                data["attention_mask"].to(multi_tensor_config.offload_device)
+            )
         print(
             f"Number of batches: {len(input_ids_lst)}, shape of all batches: {[inp.shape for inp in input_ids_lst]}"
         )
@@ -75,7 +79,10 @@ def main(args):
         model_name_or_path, torch_dtype=torch_dtype
     )
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = model.to(device)
+    multi_tensor_config.accelerator_device = device
+    if args.enable_offload:
+        multi_tensor_config.offload_device = "cpu"
+    model = model.to(multi_tensor_config.offload_device)
     # Workaround for disabling the `kv_cache`, which cause the OOM.
     model.config.use_cache = False
     # ar_utils.gen_text(model, tokenizer, "Float model", device="cuda", max_length=50)
@@ -123,6 +130,12 @@ if __name__ == "__main__":
         default=False,
         action="store_true",
         help="Quantize the `lm_head` or not",
+    )
+    parser.add_argument(
+        "--enable_offload",
+        default=False,
+        action="store_true",
+        help="Enable the offload for MultiTensor",
     )
     args = parser.parse_args()
     main(args)

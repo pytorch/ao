@@ -8,7 +8,7 @@ from torch.utils._pytree import tree_flatten, tree_unflatten
 import torchao.prototype.autoround.utils as ar_utils
 import torchao.quantization as ao_quant
 from torchao.dtypes import TensorCoreTiledLayoutType, to_affine_quantized_static
-from torchao.prototype.autoround.multi_tensor import MultiTensor
+from torchao.prototype.autoround.multi_tensor import multi_tensor_config, MultiTensor
 from torchao.quantization.quant_primitives import ZeroPointDomain
 from torchao.utils import find_multiple
 
@@ -148,11 +148,19 @@ def create_qmodel_from_qdq_model(qdq_model: torch.nn.Module):
     return qmodel
 
 
+layer_idx = 0
+
+
 @ar_utils.dump_elapsed_time()
 @torch.no_grad()
 def apply_auto_round(block, grouped_args, spec, block_outputs):
     # Call the auto-round to execute the optimization process
     import auto_round
+
+    block = block.to(multi_tensor_config.accelerator_device)
+    global layer_idx
+    layer_idx += 1
+    print(f"Apply auto-round for layer {layer_idx}")
 
     ar_utils.see_memory_usage("Before apply auto-round")
 
@@ -182,7 +190,10 @@ def apply_auto_round(block, grouped_args, spec, block_outputs):
     block_inputs = _unflatten_grouped_args(grouped_args, spec)
     with torch.enable_grad():
         rounder.quant_block_v2_(
-            block, inputs=block_inputs, outputs=block_outputs, device="cuda"
+            block,
+            inputs=block_inputs,
+            outputs=block_outputs,
+            device=multi_tensor_config.accelerator_device,
         )
     # TODO(Yi): move block to cpu will cause the accuracy issue.
     block = create_qmodel_from_qdq_model(block)
