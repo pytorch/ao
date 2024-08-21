@@ -15,22 +15,30 @@ from lm_eval.tasks import get_task_dict
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from ax.service.ax_client import AxClient, ObjectiveProperties
 import torch.multiprocessing as mp
+from ax.modelbridge.cross_validation import cross_validate
+
 
 # quantize a model based on a given quantization configuration
 def quantize_by_fqn_to_config(model, device, fqn_to_config):
-    for fqn, config in fqn_to_config.items():
-        bit_width, groupsize = config.split("_")
-        bit_width = int(bit_width)
-        groupsize = int(groupsize)
+    it = iter(fqn_to_config.items())
+    while True:
+        try:
+            k1, v1 = next(it)
+            k2, v2 = next(it)
+            fqn = k1[8:]
+            bit_width, groupsize = v1, v2
 
-        def filter_fn_sen(child: torch.nn.Module, cur_fqn: str) -> bool:
-            return isinstance(child, torch.nn.Linear) and (fqn in cur_fqn)
 
-        quantize_(
-            model.to(device=device),
-            intN_weight_only(n=bit_width, group_size=groupsize),
-            filter_fn_sen,
-        )
+            def filter_fn_sen(child: torch.nn.Module, cur_fqn: str) -> bool:
+                return isinstance(child, torch.nn.Linear) and (fqn in cur_fqn)
+
+            quantize_(
+                model.to(device=device),
+                intN_weight_only(n=bit_width, group_size=groupsize),
+                filter_fn_sen,
+            )
+        except StopIteration:
+            break
 
 # calculate perplexity on wikitext-document, need to support more tasks
 def cal_wikitext_ppl(model, tokenizer, limit=62):
@@ -48,15 +56,18 @@ def cal_model_size(model, fqn_to_config):
     _sum = 0
     fqn_cofg_dict = dict()
 
-    for fqn, config in fqn_to_config:
-        bit_width, groupsize = config.split("_")
-        bit_width = int(bit_width)
-        groupsize = int(groupsize)
-        bit_zeropoint = 64
-        bit_scale = 8
-
-        fqn_cofg_dict[fqn] = (bit_width, groupsize, bit_zeropoint, bit_scale)
-    # print(fqn_cofg_dict)
+    it = iter(fqn_to_config.items())
+    while True:
+        try:
+            k1, v1 = next(it)
+            k2, v2 = next(it)
+            bit_width, groupsize = v1, v2
+            bit_zeropoint = 64
+            bit_scale = 8
+            fqn = k1[8:]
+            fqn_cofg_dict[fqn] = (bit_width, groupsize, bit_zeropoint, bit_scale)
+        except StopIteration:
+            break
 
     for name, parameter in model.named_parameters():
         flag = 0
@@ -91,28 +102,75 @@ def load_model(repo_id, device):
     return model, tokenizer
 
 def define_parameter_list():
-    # define the search space
-    parameter_choices_list = []
-    for i in [2, 3, 4]:
-        for j in [32, 64]:
-            parameter_choices_list.append(str(i) + "_" + str(j))
-
-    for i in [5, 6, 8]:
-        for j in [32, 64, 128, 256]:
-            parameter_choices_list.append(str(i) + "_" + str(j))
 
     # define the search space for all layers
     parameters_list = []
-    # skip the first3 and last2
+
+    for i in range(0, 3):  
+        parameters_list.append(
+            {
+                "name": f"bitwidth.{i}.",
+                "type": "fixed",
+                "value_type": "int",
+                "value": 5,
+                "is_ordered": True,
+                "sort_values": True,
+            }
+        )
+
+        parameters_list.append(
+            {
+                "name": f"groupsize.{i}.",
+                "type": "fixed",
+                "value_type": "int",
+                "value": 32,
+                "is_ordered": True,
+                "sort_values": True,
+            }
+        )
+
     for i in range(3, 30):  
         parameters_list.append(
             {
-                "name": f".{i}.",
+                "name": f"bitwidth.{i}.",
                 "type": "choice",
-                "value_type": "str",
-                "values": parameter_choices_list,
-                "is_ordered": False,
-                "sort_values": False,
+                "value_type": "int",
+                "values": [2,3,4,5,6,8],
+                "is_ordered": True,
+                "sort_values": True,
+            }
+        )
+
+        parameters_list.append(
+            {
+                "name": f"groupsize.{i}.",
+                "type": "choice",
+                "value_type": "int",
+                "values": [32, 64, 128, 256],
+                "is_ordered": True,
+                "sort_values": True,
+            }
+        )
+
+    for i in range(30, 32):  
+        parameters_list.append(
+            {
+                "name": f"bitwidth.{i}.",
+                "type": "fixed",
+                "value_type": "int",
+                "value": 5,
+                "is_ordered": True,
+                "sort_values": True,
+            }
+        )
+        parameters_list.append(
+            {
+                "name": f"groupsize.{i}.",
+                "type": "fixed",
+                "value_type": "int",
+                "value": 32,
+                "is_ordered": True,
+                "sort_values": True,
             }
         )
 
@@ -124,27 +182,30 @@ def get_initial_samples(num_initial=50):
 
     # auto sample the bit choices with random choice probability positive correlated to FIT score
     for _ in range(num_initial):
-        initial_points = []
+        initial_points = {}
+        for i in range(0, 3):
+            initial_points["bitwidth." + str(i) + "."] = 5
+            initial_points["groupsize." + str(i) + "."] = 32
 
         for i in range(3, 18):
             if i in [5,6,7,10,11,12,16]:
-                initial_points.append(
-                    ("." + str(i) + ".", random.choices(['5_32','5_64','4_32','4_64'], [0,0,50,50])[0])
-                )
+                initial_points["bitwidth." + str(i) + "."] = random.choices([5, 4], [20, 80])[0]
+                initial_points["groupsize." + str(i) + "."] = random.choices([32, 64], [30, 70])[0]
             else:
-                initial_points.append(
-                    ("." + str(i) + ".", random.choices(['5_32','5_64','4_32','4_64'], [5,5,45,45])[0])
-                )
+                initial_points["bitwidth." + str(i) + "."] = random.choices([5, 4], [30, 70])[0]
+                initial_points["groupsize." + str(i) + "."] = random.choices([32, 64], [40, 60])[0]
 
         for i in range(18, 30):
             if i in [22,23,24]:
-                initial_points.append(
-                    ("." + str(i) + ".", random.choices(['5_32','5_64','5_128','4_32','4_64','3_32','3_64','2_32'], [0,0,0,20,20,30,20,10])[0])
-                )
+                initial_points["bitwidth." + str(i) + "."] = random.choices([5, 4, 3, 2], [20, 55, 20, 5])[0]
+                initial_points["groupsize." + str(i) + "."] = random.choices([32, 64, 128, 256], [30, 40, 25, 5])[0]
             else:
-                initial_points.append(
-                    ("." + str(i) + ".", random.choices(['5_32','5_64','5_128','4_32','4_64','3_32','3_64','2_32'], [5,5,5,30,30,10,10,5])[0])
-                )
+                initial_points["bitwidth." + str(i) + "."] = random.choices([5, 4, 3, 2], [30, 55, 10, 5])[0]
+                initial_points["groupsize." + str(i) + "."] = random.choices([32, 64, 128, 256], [40, 40, 15, 5])[0]
+            
+        for i in range(30, 32):
+            initial_points["bitwidth." + str(i) + "."] = 5
+            initial_points["groupsize." + str(i) + "."] = 32
 
         initial_points_set.append(initial_points)
     return initial_points_set
@@ -174,17 +235,10 @@ def run_sequential_BO(device, checkpoint, limit, num_initial, num_trials, model_
     # add initial points into the BO trials
     for i in range(num_initial):
 
-        ax_client.attach_trial(parameters=dict(initial_points_set[i]))
-
-        # add the default settings for first3 + last2 layers to evaluate quantized model
-        initial_points_set[i].append((".0.", "5_32"))
-        initial_points_set[i].append((".1.", "5_32"))
-        initial_points_set[i].append((".2.", "5_32"))
-        initial_points_set[i].append((".30.", "5_32"))
-        initial_points_set[i].append((".31.", "5_32"))
+        ax_client.attach_trial(parameters=initial_points_set[i])
 
         m = copy.deepcopy(model).to(device=device)
-        quantize_by_fqn_to_config(m, device, dict(initial_points_set[i]))
+        quantize_by_fqn_to_config(m, device, initial_points_set[i])
 
         eval_results = eval(m, tokenizer, limit, initial_points_set[i])
         
@@ -205,26 +259,19 @@ def run_sequential_BO(device, checkpoint, limit, num_initial, num_trials, model_
     for k_ in range(num_trials):
         parameters, trial_idx = ax_client.get_next_trial()
 
-        parameter_tuple = []
-        for k, v in parameters.items():
-            parameter_tuple.append((k, v))
-
-        # add the default settings for first3 + last2 layers to evaluate quantized model
-        parameter_tuple.append((".0.", "5_32"))
-        parameter_tuple.append((".1.", "5_32"))
-        parameter_tuple.append((".2.", "5_32"))
-        parameter_tuple.append((".30.", "5_32"))
-        parameter_tuple.append((".31.", "5_32"))
+        #parameter_tuple = []
+        #for k, v in parameters.items():
+        #    parameter_tuple.append((k, v))
 
         m = copy.deepcopy(model).to(device=device)
 
-        quantize_by_fqn_to_config(m, device, dict(parameter_tuple))
+        quantize_by_fqn_to_config(m, device, parameters)
 
-        eval_results = eval(m, tokenizer, limit, parameter_tuple)
+        eval_results = eval(m, tokenizer, limit, parameters)
         
         print("------------")
-        print(trial_idx, parameter_tuple, eval_results)
-        history.append((eval_results, parameter_tuple))
+        print(trial_idx, parameters, eval_results)
+        history.append((eval_results, parameters))
         
         ax_client.complete_trial(
             trial_index=trial_idx,
@@ -234,6 +281,10 @@ def run_sequential_BO(device, checkpoint, limit, num_initial, num_trials, model_
         del m
         torch.cuda.empty_cache()
 
+    stg_model = ax_client.generation_strategy.model
+    cv_results = cross_validate(stg_model)
+    print("----cv results----")
+    print(cv_results)
 
     print("------Finish BO------")
     for h in history:
@@ -247,18 +298,11 @@ def run_sequential_BO(device, checkpoint, limit, num_initial, num_trials, model_
     print(ax_client.generation_strategy.trials_as_df)
 
 # Worker functio to perform BO trials on a specific GPU
-def eval_in_parallel(gpu_id, shared_model, tokenizer, limit, intial_config, return_dict, proc_id, trial_id):
+def eval_in_parallel(gpu_id, shared_model, tokenizer, limit, config, return_dict, proc_id, trial_id):
 
     print(f"Process {proc_id} on GPU {gpu_id} starts!")
 
     model = copy.deepcopy(shared_model).to(device=f'cuda:{gpu_id}')
-
-    config=intial_config
-    config.append((".0.", "5_32"))
-    config.append((".1.", "5_32"))
-    config.append((".2.", "5_32"))
-    config.append((".30.", "5_32"))
-    config.append((".31.", "5_32"))
 
     quantize_by_fqn_to_config(model=model, device=f'cuda:{gpu_id}', fqn_to_config=dict(config))
 
@@ -283,7 +327,7 @@ def run_parallel_BO(device, checkpoint, limit, num_initial, num_trials, model_si
         name="test_quantize_BO",
         objectives={"cal_PPL": ObjectiveProperties(minimize=True)},
         choose_generation_strategy_kwargs={
-            "num_initialization_trials": 1+(num_initial+num_trials)//10, # the number of trials to build generation strategy
+            "num_initialization_trials": 3, # the number of trials to build generation strategy
         },
         outcome_constraints=[constraint],
     )
@@ -347,8 +391,6 @@ def run_parallel_BO(device, checkpoint, limit, num_initial, num_trials, model_si
             current_trial_id, config, eval_results = return_dict[i]
             history.append((eval_results, config))
             ax_client.complete_trial(trial_index=current_trial_id,raw_data=eval_results,)
-
-
 
     print("------Finish BO------")
     for h in history:
