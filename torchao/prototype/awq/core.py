@@ -24,9 +24,11 @@ from torchao.quantization.observer import (
 
 class AWQObserver(AffineQuantizedObserverBase):
     def __init__(self,
-        weight_shape: Tuple[int, int],
+        weight: torch.Tensor,
         mapping_type: MappingType,
         target_dtype: torch.dtype,
+        device: str,
+        scale_search_space_size: int = 20,
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
         eps: Optional[float] = None,
@@ -48,34 +50,22 @@ class AWQObserver(AffineQuantizedObserverBase):
             preserve_zero = preserve_zero,
             zero_point_domain = zero_point_domain,
         )
-        self.average = torch.zeros(weight_shape[-1], dtype=torch.float32)
+        self.weight = weight
+        self.scale_options = scale_search_space_size
+        self.losses = [0] * self.scale_options
+        self.average = torch.zeros(weight.shape[-1], dtype=torch.float32).to(device)
         self.counter = 0
-        self.calibration_data = []
 
     def forward(self, input: torch.Tensor):
-        self.average = self.average * self.counter / (self.counter + input.shape[0])  + input.abs().sum(dim=0) / (self.counter + input.shape[0])
-        self.counter += 1
-        self.calibration_data.append(input)
-
-    
-    def calculate_qparams(self, orig_weight):
-        best_error = float("inf")
-        best_ratio = -1
-        best_scales = None
-
-        n_grid = 20
-        history = []
-        calibration_data = torch.cat(self.calibration_data, dim=0)
-        unquantized_result = F.linear(calibration_data, orig_weight).sum(dim=0)
-        x_max = self.average 
-        for ratio in range(n_grid):
-            ratio = ratio * 1 / n_grid
-            weight = deepcopy(orig_weight)
-            scales = x_max.pow(ratio)
+        self.average = self.average * self.counter / (self.counter + input.shape[0])  + input.abs().sum(dim=1).squeeze(0) / (self.counter + input.shape[0])
+        self.counter += input.shape[0]
+        for i in range(self.scale_options):
+            unquantized_result = F.linear(input, self.weight)
+            ratio = i *1.0 / self.scale_options
+            scales = self.average.pow(ratio).clamp(min=1e-4)
             scales = scales / (scales.max() * scales.min()).sqrt()
-            weight.mul_(scales)
             quantized_weight = to_affine_quantized(
-                weight,
+                self.weight.data * scales,
                 self.mapping_type,
                 self.block_size,
                 self.target_dtype,
@@ -87,29 +77,17 @@ class AWQObserver(AffineQuantizedObserverBase):
                 preserve_zero = self.preserve_zero,
                 zero_point_domain = self.zero_point_domain,
                 layout_type = AWQLayoutType(scales)
-                ) 
-            scaled_activation = (calibration_data)
-            out = F.linear(scaled_activation, quantized_weight).sum(dim=0)
-            
-            loss = (
-                (unquantized_result - out).pow(2).mean().item()
-            )  # float prevents overflow
-            # print(f"ratio: {ratio}, loss: {loss}")
-            # print(ratio, loss)
-            history.append(loss)
-            
-            is_best = loss < best_error
-            if is_best:
-                best_error = loss
-                best_ratio = ratio
-                best_scales = scales
-        # print(f"best error: {best_error}")
-                
-        
-        # print(best_ratio)
-
-        assert torch.isnan(best_scales).sum() == 0, best_scales
-        return best_scales.detach()
+            ) 
+            scaled_activation = (input / scales)
+            out = F.linear(scaled_activation, quantized_weight)
+            self.losses[i] += (unquantized_result - out).pow(2).mean().item()
+    
+    def calculate_qparams(self):
+        losses = torch.tensor(self.losses)
+        ratio = torch.argmin(losses) * 1.0 / self.scale_options
+        scales = self.average.pow(ratio).clamp(min=1e-4)
+        scales = scales / (scales.max() * scales.min()).sqrt() 
+        return scales.detach()
 
 @dataclass(frozen=True)
 class AWQLayoutType(LayoutType):
@@ -130,11 +108,4 @@ class AWQ_AQTLayout(PlainAQTLayout):
     ):
         assert isinstance(layout_type, AWQLayoutType)
         return cls(int_data, scale, zero_point, layout_type)
-
-    
-    
-
-    
-    
-    
     
