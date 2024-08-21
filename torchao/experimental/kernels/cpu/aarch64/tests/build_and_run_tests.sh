@@ -1,4 +1,10 @@
 #!/bin/bash
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 export TORCHAO_LIBRARIES=${SCRIPT_DIR}/../../../../../..
 export CMAKE_OUT=/tmp/cmake-out/torch_ao/tests
