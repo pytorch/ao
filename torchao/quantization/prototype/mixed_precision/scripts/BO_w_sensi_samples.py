@@ -298,11 +298,12 @@ def run_sequential_BO(device, checkpoint, limit, num_initial, num_trials, model_
     print(ax_client.generation_strategy.trials_as_df)
 
 # Worker functio to perform BO trials on a specific GPU
-def eval_in_parallel(gpu_id, shared_model, tokenizer, limit, config, return_dict, proc_id, trial_id):
+def eval_in_parallel(gpu_id, checkpoint, limit, config, return_dict, proc_id, trial_id):
+
+    model, tokenizer = load_model(checkpoint, f'cuda:{gpu_id}')
+    parameters_list = define_parameter_list()
 
     print(f"Process {proc_id} on GPU {gpu_id} starts!")
-
-    model = copy.deepcopy(shared_model).to(device=f'cuda:{gpu_id}')
 
     quantize_by_fqn_to_config(model=model, device=f'cuda:{gpu_id}', fqn_to_config=dict(config))
 
@@ -315,7 +316,7 @@ def eval_in_parallel(gpu_id, shared_model, tokenizer, limit, config, return_dict
 
 
 def run_parallel_BO(device, checkpoint, limit, num_initial, num_trials, model_size_constraint, gpu_list):
-    model, tokenizer = load_model(checkpoint, device)
+
     parameters_list = define_parameter_list()
     initial_points_set = get_initial_samples(num_initial)
 
@@ -349,7 +350,7 @@ def run_parallel_BO(device, checkpoint, limit, num_initial, num_trials, model_si
         # Start the worker processes
         for i, gpu_id in enumerate(gpu_list):
             ax_client.attach_trial(parameters=dict(initial_points_set[id*len(gpu_list)+i]))
-            p = mp.Process(target=eval_in_parallel, args=(gpu_id, model, tokenizer, limit, initial_points_set[id*len(gpu_list)+i], return_dict, i, trial_id))
+            p = mp.Process(target=eval_in_parallel, args=(gpu_id, checkpoint, limit, initial_points_set[id*len(gpu_list)+i], return_dict, i, trial_id))
             trial_id += 1
             p.start()
             processes.append(p)
@@ -377,7 +378,7 @@ def run_parallel_BO(device, checkpoint, limit, num_initial, num_trials, model_si
             parameter_tuple = []
             for k, v in parameters.items():
                 parameter_tuple.append((k, v))            
-            p = mp.Process(target=eval_in_parallel, args=(gpu_id, model, tokenizer, limit, parameter_tuple, return_dict, i, trial_idx))
+            p = mp.Process(target=eval_in_parallel, args=(gpu_id, checkpoint, limit, parameter_tuple, return_dict, i, trial_idx))
             p.start()
             processes.append(p)
 
