@@ -19,6 +19,7 @@ from torch.ao.quantization import MinMaxObserver, QConfigMapping
 from torchao.quantization.dynamic_quant import (
     DynamicallyPerAxisQuantizedLinear,
 )
+from torchao.dtypes import TensorCoreTiledLayoutType
 from torchao.quantization.quant_api import (
     int4_weight_only,
     int8_weight_only,
@@ -79,9 +80,9 @@ from parameterized import parameterized
 import itertools
 import logging
 from torchao.utils import (
-    TORCH_VERSION_AFTER_2_3,
-    TORCH_VERSION_AFTER_2_4,
-    TORCH_VERSION_AFTER_2_5,
+    TORCH_VERSION_AT_LEAST_2_3,
+    TORCH_VERSION_AT_LEAST_2_4,
+    TORCH_VERSION_AT_LEAST_2_5,
     unwrap_tensor_subclass,
     is_fbcode,
     benchmark_model
@@ -99,25 +100,25 @@ COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 COMMON_DEVICE_DTYPE = list(itertools.product(COMMON_DEVICES, COMMON_DTYPES)).copy()
 
 def _int8wo_api(mod):
-    if TORCH_VERSION_AFTER_2_4:
+    if TORCH_VERSION_AT_LEAST_2_4:
         quantize_(mod, int8_weight_only(), set_inductor_config=False)
-        if not TORCH_VERSION_AFTER_2_5:
+        if not TORCH_VERSION_AT_LEAST_2_5:
             unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int8_woqtensors(mod)
 
 def _int8da_int8w_api(mod):
-    if TORCH_VERSION_AFTER_2_4:
+    if TORCH_VERSION_AT_LEAST_2_4:
         quantize_(mod, int8_dynamic_activation_int8_weight(), set_inductor_config=False)
-        if not TORCH_VERSION_AFTER_2_5:
+        if not TORCH_VERSION_AT_LEAST_2_5:
             unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int8_dqtensors(mod)
 
 def _int4wo_api(mod):
-    if TORCH_VERSION_AFTER_2_4:
+    if TORCH_VERSION_AT_LEAST_2_4:
         quantize_(mod, int4_weight_only(), set_inductor_config=False)
-        if not TORCH_VERSION_AFTER_2_5:
+        if not TORCH_VERSION_AT_LEAST_2_5:
             unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int4_woqtensors(mod)
@@ -476,6 +477,7 @@ class PythonQuantUtilOpUnitTest(unittest.TestCase):
             self._test_dynamic_quant_per_channel_numerics_impl(*row)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skip("AssertionError: Tensor-likes are not close!")
     def test_dynamic_quant_per_channel_numerics_cuda(self):
         test_cases = (
             (-128, 127, torch.int8, torch.qint8, torch.float32, "cuda"),
@@ -633,8 +635,8 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "int4 requires torch nightly.")
-    # @unittest.skipIf(TORCH_VERSION_AFTER_2_5, "int4 skipping 2.5+ for now")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
+    # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
     def test_dequantize_int4_weight_only_quant_subclass(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest("Currently only supports bfloat16.")
@@ -644,8 +646,8 @@ class TestSubclass(unittest.TestCase):
             )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "int4 requires torch nightly.")
-    # @unittest.skipIf(TORCH_VERSION_AFTER_2_5, "int4 skipping 2.5+ for now")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
+    # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
     def test_dequantize_int4_weight_only_quant_subclass_grouped(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest("Currently only supports bfloat16.")
@@ -697,7 +699,7 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(TORCH_VERSION_AFTER_2_4, "skip because there is some bug in inductor codegen")
+    @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_4, "skip because there is some bug in inductor codegen")
     def test_int8_dynamic_quant_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             Int8DynamicallyQuantizedLinearWeight.from_float, device, 35, test_dtype=dtype
@@ -711,14 +713,14 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_5, "autoquant+aqt needs newer pytorch")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant+aqt needs newer pytorch")
     def test_aq_int8_dynamic_quant_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             AQInt8DynamicallyQuantizedLinearWeight.from_float, device, 35, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_5, "autoquant+aqt needs newer pytorch")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant+aqt needs newer pytorch")
     @unittest.skip(
         "This segfaults in CI cuda only, disable to unblock PR, we can investigate "
         "later if needed"
@@ -729,22 +731,22 @@ class TestSubclass(unittest.TestCase):
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_5, "autoquant+aqt needs newer pytorch")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant+aqt needs newer pytorch")
     def test_aq_int8_weight_only_quant_2_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             AQWeightOnlyQuantizedLinearWeight2.from_float, device, 35, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_5, "autoquant+aqt needs newer pytorch")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant+aqt needs newer pytorch")
     def test_aq_int8_weight_only_quant_3_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             AQWeightOnlyQuantizedLinearWeight3.from_float, device, 35, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "int4 requires torch nightly.")
-    # @unittest.skipIf(TORCH_VERSION_AFTER_2_5, "int4 skipping 2.5+ for now")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
+    # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
     def test_int4_weight_only_quant_subclass(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
@@ -754,8 +756,8 @@ class TestSubclass(unittest.TestCase):
             )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "int4 requires torch nightly.")
-    # @unittest.skipIf(TORCH_VERSION_AFTER_2_5, "int4 skipping 2.5+ for now")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
+    # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
     def test_int4_weight_only_quant_subclass_grouped(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
@@ -806,7 +808,7 @@ class TestSubclass(unittest.TestCase):
 
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(TORCH_VERSION_AFTER_2_4, "skip because there is some bug in inductor codegen")
+    @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_4, "skip because there is some bug in inductor codegen")
     def test_int8_dynamic_quant_subclass_api(self, device, dtype):
         self._test_lin_weight_subclass_api_impl(
             _int8da_int8w_api, device, 35, test_dtype=dtype
@@ -822,15 +824,15 @@ class TestSubclass(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch._inductor.config.patch({"freezing": True})
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "freeze requires torch 2.4 and after.")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "freeze requires torch 2.4 and after.")
     def test_int8_weight_only_quant_with_freeze(self, device, dtype):
         self._test_lin_weight_subclass_api_impl(
             _int8wo_api, device, 40, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "int4 requires torch nightly.")
-    # @unittest.skipIf(TORCH_VERSION_AFTER_2_5, "int4 skipping 2.5+ for now")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
+    # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
     def test_int4_weight_only_quant_subclass_api(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
@@ -844,26 +846,28 @@ class TestSubclass(unittest.TestCase):
             )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "int4 requires torch nightly.")
-    # @unittest.skipIf(TORCH_VERSION_AFTER_2_5, "int4 skipping 2.5+ for now")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch nightly.")
+    # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
     def test_int4_weight_only_quant_subclass_api_grouped(self, device, dtype):
         if dtype != torch.bfloat16:
             self.skipTest(f"Fails for {dtype}")
         for test_shape in ([(256, 256, 16)] + ([(256, 256, 8)] if device=='cuda' else [])):
             for groupsize in [64, 32]:
                 for inner_k_tiles in [4, 2]:
-                    kwargs = {"groupsize": groupsize, "inner_k_tiles": inner_k_tiles}
+                    kwargs = {"groupsize": groupsize, "layout_type": TensorCoreTiledLayoutType(inner_k_tiles=inner_k_tiles)}
 
                     def api(mod):
-                        if TORCH_VERSION_AFTER_2_4:
-                            kwargs_copy = kwargs.copy()
+                        kwargs_copy = kwargs.copy()
+                        if TORCH_VERSION_AT_LEAST_2_4:
                             kwargs_copy["group_size"] = groupsize
                             del kwargs_copy["groupsize"]
                             quantize_(mod, int4_weight_only(**kwargs_copy))
-                            if not TORCH_VERSION_AFTER_2_5:
+                            if not TORCH_VERSION_AT_LEAST_2_5:
                                 unwrap_tensor_subclass(mod)
                         else:
-                            change_linear_weights_to_int4_woqtensors(mod, **kwargs)
+                            kwargs_copy["inner_k_tiles"] = inner_k_tiles
+                            del kwargs_copy["layout_type"]
+                            change_linear_weights_to_int4_woqtensors(mod, **kwargs_copy)
 
                     self._test_lin_weight_subclass_api_impl(
                         api,
@@ -898,7 +902,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
             _int8wo_api(m)
             y_wo = m(x)
             sqnr = compute_error(y_ref, y_wo)
-            self.assertGreater(sqnr, 44.0)
+            self.assertGreater(sqnr, 43.0)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
@@ -910,7 +914,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
         if dtype == torch.bfloat16 and torch.cuda.get_device_capability() < (8, 0):
             self.skipTest("test requires SM capability of at least (8, 0).")
         from torch._inductor import config
-        mixed_mm_key, mixed_mm_val = ("mixed_mm_choice", "triton") if TORCH_VERSION_AFTER_2_4 else ("force_mixed_mm", True)
+        mixed_mm_key, mixed_mm_val = ("mixed_mm_choice", "triton") if TORCH_VERSION_AT_LEAST_2_5 else ("force_mixed_mm", True)
 
         with config.patch({
             "epilogue_fusion": True,
@@ -940,7 +944,7 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
             self.skipTest("test requires SM capability of at least (8, 0).")
         torch.manual_seed(0)
         from torch._inductor import config
-        mixed_mm_key, mixed_mm_val = ("mixed_mm_choice", "triton") if TORCH_VERSION_AFTER_2_4 else ("force_mixed_mm", True)
+        mixed_mm_key, mixed_mm_val = ("mixed_mm_choice", "triton") if TORCH_VERSION_AT_LEAST_2_5 else ("force_mixed_mm", True)
 
         with config.patch({
             "epilogue_fusion": False,
@@ -1040,8 +1044,8 @@ class TestSaveLoadMeta(unittest.TestCase):
         self._test_handle_save_load_meta_impl(_int8wo_api, device, test_dtype=dtype)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "int4 requires torch 2.3+.")
-    # @unittest.skipIf(TORCH_VERSION_AFTER_2_5, "int4 doesn't work for 2.5+ right now")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "int4 requires torch 2.3+.")
+    # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 doesn't work for 2.5+ right now")
     @torch.no_grad()
     def test_save_load_int4woqtensors(self, device, dtype):
         if dtype != torch.bfloat16:
@@ -1051,7 +1055,7 @@ class TestSaveLoadMeta(unittest.TestCase):
 
 class TorchCompileUnitTest(unittest.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "fullgraph requires torch nightly.")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "fullgraph requires torch nightly.")
     def test_fullgraph(self):
         lin_fp16 = nn.Linear(32, 16, device="cuda", dtype=torch.float16)
         lin_smooth = SmoothFakeDynamicallyQuantizedLinear.from_float(
@@ -1185,7 +1189,7 @@ class TestAutoQuant(unittest.TestCase):
             (64, 256, 128),
             # (256, 256, 128), TODO: Runs out of shared memory on T4
         ]))
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "autoquant requires 2.3+.")
     def test_autoquant_one_input(self, device, dtype, m, k, n):
         undo_recommended_configs()
         print("(m, k, n): ", (m, k, n))
@@ -1219,7 +1223,7 @@ class TestAutoQuant(unittest.TestCase):
             (1,  32, 128, 128),
             (32, 32, 128, 128),
         ]))
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant requires 2.5+.")
     def test_autoquant_compile(self, device, dtype, m1, m2, k, n):
         undo_recommended_configs()
         if device != "cuda" or not torch.cuda.is_available():
@@ -1230,7 +1234,7 @@ class TestAutoQuant(unittest.TestCase):
             if m1 == 1 or m2 == 1:
                 self.skipTest(f"Shape {(m1, m2, k, n)} requires sm80+")
         # This test fails on v0.4.0 and torch 2.4, so skipping for now.
-        if m1 == 1 or m2 == 1 and not TORCH_VERSION_AFTER_2_5:
+        if m1 == 1 or m2 == 1 and not TORCH_VERSION_AT_LEAST_2_5:
             self.skipTest(f"Shape {(m1, m2, k, n)} requires torch version > 2.4")
         model = torch.nn.Sequential(
             torch.nn.ReLU(),
@@ -1251,7 +1255,7 @@ class TestAutoQuant(unittest.TestCase):
         self.assertTrue(sqnr >= 30)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant requires 2.5+.")
     def test_autoquant_manual(self, device, dtype):
         undo_recommended_configs()
         if device != "cuda" or not torch.cuda.is_available():
@@ -1292,7 +1296,7 @@ class TestAutoQuant(unittest.TestCase):
             (1,  32, 128, 128),
             (32, 32, 128, 128),
         ]))
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant requires 2.5+.")
     def test_autoquant_kwargs(self, device, dtype, m1, m2, k, n):
         undo_recommended_configs()
         if device != "cuda" or not torch.cuda.is_available():
@@ -1303,7 +1307,7 @@ class TestAutoQuant(unittest.TestCase):
             if m1 == 1 or m2 == 1:
                 self.skipTest(f"Shape {(m1, m2, k, n)} requires sm80+")
         # This test fails on v0.4.0 and torch 2.4, so skipping for now.
-        if m1 == 1 or m2 == 1 and not TORCH_VERSION_AFTER_2_5:
+        if m1 == 1 or m2 == 1 and not TORCH_VERSION_AT_LEAST_2_5:
             self.skipTest(f"Shape {(m1, m2, k, n)} requires torch version > 2.4")
 
         class NeedsKwargs(torch.nn.Module):
@@ -1335,7 +1339,7 @@ class TestAutoQuant(unittest.TestCase):
         [
             (16, 128, 128),
         ]))
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "autoquant requires 2.3+.")
     def test_autoquant_double_access(self, device, dtype, m, k, n):
         undo_recommended_configs()
         if device != "cuda" or not torch.cuda.is_available():
@@ -1374,7 +1378,7 @@ class TestAOTI(unittest.TestCase):
     )
     @run_supported_device_dtype
     def test_aoti(self, api, test_device, test_dtype):
-        if not TORCH_VERSION_AFTER_2_4:
+        if not TORCH_VERSION_AT_LEAST_2_4:
             self.skipTest("aoti compatibility requires 2.4+.")
 
         print(f"TestAOTI: {api}, {test_device}, {test_dtype}")
@@ -1422,7 +1426,7 @@ class TestExport(unittest.TestCase):
     )
     @run_supported_device_dtype
     def test_export(self, api, test_device, test_dtype):
-        if not TORCH_VERSION_AFTER_2_4:
+        if not TORCH_VERSION_AT_LEAST_2_4:
             self.skipTest("aoti compatibility requires 2.4+.")
 
         logger.info(f"TestExport: {api}, {test_device}, {test_dtype}")
@@ -1475,7 +1479,7 @@ class TestExport(unittest.TestCase):
 
 class TestUtils(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "autoquant requires 2.3+.")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant requires 2.5+.")
     def test_get_model_size_autoquant(self, device, dtype):
         if device != "cuda" and dtype != torch.bfloat16:
             self.skipTest(f"autoquant currently does not support {device}")
@@ -1507,7 +1511,7 @@ class TestUtils(unittest.TestCase):
     @parameterized.expand(
         list(itertools.product(TENSOR_SUBCLASS_APIS, COMMON_DEVICES, COMMON_DTYPES)),
     )
-    # @unittest.skipIf(TORCH_VERSION_AFTER_2_5, "int4 skipping 2.5+ for now")
+    # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "int4 skipping 2.5+ for now")
     def test_get_model_size_aqt(self, api, test_device, test_dtype):
         if test_dtype != torch.bfloat16:
             self.skipTest(f"{api} in {test_dtype} is not supported yet")

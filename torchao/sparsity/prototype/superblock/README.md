@@ -1,12 +1,12 @@
 # SuperBlock
 
-SuperBlock combines two techniques for efficient neural network training and inference: Supermask and Block Compressed Sparse Row (BSR). 
+SuperBlock combines two techniques for efficient neural network training and inference: Supermask and Block Compressed Sparse Row (BSR).
 The techniques are described in this [blog post](https://pytorch.org/blog/speeding-up-vits/).
 
 ### Supermask
 [Supermask](https://arxiv.org/abs/2207.00670) is a technique for applying structured sparsity to neural networks using a learned mask. It works by learning a continuous mask (scores) that is applied element-wise to the weights of a neural network layer. The mask scores are learned separately from the weights and are thresholded based on a target sparsity level to obtain a binary mask. The mask determines which weigths are kept and which are pruned, and is learned during training.
 
-During inference, the binary mask is applied element-wise to the weights, pruning the weights that correspond to a 0 in the mask, resulting in a sparse network that can be efficiently computed. 
+During inference, the binary mask is applied element-wise to the weights, pruning the weights that correspond to a 0 in the mask, resulting in a sparse network that can be efficiently computed.
 
 ### Block compressed Sparse Row Format (BSR)
 [The BSR format](https://pytorch.org/docs/main/sparse.html#sparse-bsr-tensor) is a sparse matrix representation that stores dense sub-blocks of non-zero elements instead of individual non-zero elements. The matrix is divided into equal-sized blocks, and only the non-zero blocks are stored.
@@ -105,7 +105,7 @@ torchrun --nproc_per_node=8 train.py\
     --model vit_b_16 --epochs 300 --batch-size 512 --opt adamw --lr 0.003 --wd 0.3\
     --lr-scheduler cosineannealinglr --lr-warmup-method linear --lr-warmup-epochs 30\
     --lr-warmup-decay 0.033 --amp --label-smoothing 0.11 --mixup-alpha 0.2 --auto-augment ra\
-    --clip-grad-norm 1 --ra-sampler --cutmix-alpha 1.0 --model-ema\ 
+    --clip-grad-norm 1 --ra-sampler --cutmix-alpha 1.0 --model-ema\
     --sparsity-linear 0.9 --sp-linear-tile-size 32
 ```
 Through this command, we are training a `vit_b_16` with 90% sparsity to linear layers using 32x32 tiles.
@@ -124,7 +124,7 @@ NGPUS=1 # put number of available GPUS here
 
 * Offline sparsification with BSR:
   ```
-  torchrun --nproc_per_node=${NGPUS} evaluate.py  --model vit_b_16 --batch-size 256 --sparsity-linear 0.9 --sp-linear-tile-size 32 --weights-path ${MODEL_PATH}  --data-path ${IMAGENET_PATH} --sparsify-weights --bsr 32
+  python evaluate.py  --model vit_b_16 --batch-size 256 --sparsity-linear 0.9 --sp-linear-tile-size 32 --weights-path ${MODEL_PATH}  --data-path ${IMAGENET_PATH} --sparsity bsr --bsr 64
   ```
   This command applies 90% sparsity to linear layers using 32x32 tiles, loads the model weights from ${MODEL_PATH}, loads the ImageNet validation set located at the specified path, applies offline sparsification to the weights, and converts the sparse weights to BSR format with a block size of 32. It is recommended to set `--bsr`      the same as tile size.
 
@@ -184,7 +184,7 @@ python benchmark.py --model vit_b_16 \
   --batch-size 256 \
   --sparsity-linear ${SPARSITY} \
   --sp-linear-tile-size ${BLOCK_SIZE} \
-  --sparsify-weights \
+  --sparsity bsr\
   --bsr ${BLOCK_SIZE} \
   --weights-path ./checkpoints/sp${SPARSITY}-ts${BLOCK_SIZE}.pth \
   > /dev/null
@@ -197,7 +197,7 @@ Result:
 ### Evaluate:
 8 x A100 GPUs:
 ```
-torchrun --nproc_per_node=8 evaluate.py --model vit_b_16 --batch-size 256 --sparsity-linear ${SPARSITY} --sp-linear-tile-size ${BLOCK_SIZE} --bsr ${BLOCK_SIZE} --sparsify-weights --weights-path checkpoints/sp${SPARSITY}-ts${BLOCK_SIZE}.pth --data-path ${IMAGENET_PATH}
+torchrun --nproc_per_node=8 evaluate.py --model vit_b_16 --batch-size 256 --sparsity-linear ${SPARSITY} --sp-linear-tile-size ${BLOCK_SIZE} --bsr ${BLOCK_SIZE} --sparsity bsr --weights-path checkpoints/sp${SPARSITY}-ts${BLOCK_SIZE}.pth --data-path ${IMAGENET_PATH}
 ```
 Result:
 ```
@@ -207,7 +207,7 @@ Test:  Acc@1 77.644 Acc@5 93.554
 
 1 x A100 GPUs:
 ```
-torchrun --nproc_per_node=1 evaluate.py --model vit_b_16 --batch-size 256 --sparsity-linear ${SPARSITY} --sp-linear-tile-size ${BLOCK_SIZE} --bsr ${BLOCK_SIZE} --sparsify-weights --weights-path checkpoints/sp${SPARSITY}-ts${BLOCK_SIZE}.pth --data-path ${IMAGENET_PATH}
+torchrun --nproc_per_node=1 evaluate.py --model vit_b_16 --batch-size 256 --sparsity-linear ${SPARSITY} --sp-linear-tile-size ${BLOCK_SIZE} --bsr ${BLOCK_SIZE} --sparsity bsr--weights-path checkpoints/sp${SPARSITY}-ts${BLOCK_SIZE}.pth --data-path ${IMAGENET_PATH}
 ```
 Result:
 ```

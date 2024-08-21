@@ -4,7 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import List, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import torch
 
@@ -15,6 +15,15 @@ from torchao.quantization.quant_primitives import (
 from torchao.quantization.utils import (
     _get_per_token_block_size,
 )
+
+
+# Attribute name representing the forward prehook wrapping the
+# linear input in an `AffineFakeQuantizedTensor` on a linear module.
+#
+# The value of this attribute is a 2-tuple of (prehook, handle).
+# The prehook can be disabled by calling `handle.remove()`, and
+# re-enabled by calling `module.register_forward_pre_hook(prehook)`.
+_QAT_LINEAR_SUBCLASS_INPUT_PREHOOK = "_qat_linear_subclass_input_prehook"
 
 
 class _GenericFakeQuantize(torch.autograd.Function):
@@ -29,22 +38,25 @@ class _GenericFakeQuantize(torch.autograd.Function):
     def forward(
         ctx: torch.autograd.function.FunctionCtx,
         input: torch.Tensor,
+        block_size: List[int],
         scales: torch.Tensor,
         zero_points: torch.Tensor,
         quant_min: int,
         quant_max: int,
-        block_size: List[int],
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
     ) -> torch.Tensor:
-        # Note: for bf16 inputs, casting them to fp32 has the unexpected
-        # side effect of reducing memory footprint significantly, presumably
-        # because bf16 * fp32 kernels are not as memory efficient
-        assert input.dtype == torch.float32
-        assert scales.dtype == torch.float32
-        assert zero_points.dtype == torch.int32
+        # avoid circular dependencies
+        from torchao.quantization.prototype.qat.affine_fake_quantized_tensor import (
+            AffineFakeQuantizedTensor,
+        )
+
+        if isinstance(input, AffineFakeQuantizedTensor):
+            _input = input.original_tensor
+        else:
+            _input = input
 
         (fq, mask) = fake_quantize_affine_cachemask(
-            input,
+            _input,
             block_size,
             scales,
             zero_points,
@@ -62,6 +74,31 @@ class _GenericFakeQuantize(torch.autograd.Function):
         (mask,) = ctx.saved_tensors
         return gy * mask, None, None, None, None, None, None
 
+
+class _UnwrapAffineFakeQuantizedTensor(torch.autograd.Function):
+    """
+    Helper autograd function to unwrap `AffineFakeQuantizedTensor` while ensuring
+    gradients are still passed to the tensor subclass. This is used in place of
+    `_GenericFakeQuantize` when fake quant is disabled.
+    """
+
+    @staticmethod
+    def forward(
+        ctx: torch.autograd.function.FunctionCtx,
+        input: torch.Tensor,
+    ) -> torch.Tensor:
+        # avoid circular dependencies
+        from torchao.quantization.prototype.qat.affine_fake_quantized_tensor import (
+            AffineFakeQuantizedTensor,
+        )
+        assert isinstance(input, AffineFakeQuantizedTensor)
+        return input.original_tensor
+
+    @staticmethod
+    def backward(ctx, gy):
+        return gy,
+
+
 def _fake_quantize_per_channel_group(
     input: torch.Tensor,
     scales: torch.Tensor,
@@ -76,7 +113,7 @@ def _fake_quantize_per_channel_group(
     assert input.dim() == 2
     block_size = (1, group_size)
     return _GenericFakeQuantize.apply(
-        input, scales, zero_points, quant_min, quant_max, block_size, zero_point_domain,
+        input, block_size, scales, zero_points, quant_min, quant_max, zero_point_domain,
     )
 
 def _fake_quantize_per_token(
@@ -92,7 +129,7 @@ def _fake_quantize_per_token(
     block_size = _get_per_token_block_size(input)
     fq_input = input.to(torch.float32)
     fq = _GenericFakeQuantize.apply(
-        fq_input, scales, zero_points, quant_min, quant_max, block_size,
+        fq_input, block_size, scales, zero_points, quant_min, quant_max,
     )
     return fq.reshape_as(input).to(input.dtype)
 
@@ -143,3 +180,82 @@ def _choose_qparams_per_token_asymmetric(
     zero_point = torch.clamp(zero_point, qmin, qmax).round()
 
     return scale.to(scales_precision), zero_point.to(zero_points_precision)
+
+def _forward_pre_hook_handler(
+    mod: torch.nn.Linear,
+    prehook: Callable,
+    handler: torch.utils.hooks.RemovableHandle,
+):
+    """
+    Store a 2-tuple (prehook function, handler) as an attribute on the given linear module.
+    """
+    setattr(mod, _QAT_LINEAR_SUBCLASS_INPUT_PREHOOK, (prehook, handler))
+
+def _unwrap_affine_fake_quantized_tensor(t: torch.Tensor):
+    """
+    Return the original, non-fake-quantized float tensor from a `AffineFakeQuantizedTensor`.
+    """
+    # avoid circular dependencies
+    from torchao.quantization.prototype.qat.affine_fake_quantized_tensor import (
+        AffineFakeQuantizedTensor,
+    )
+    assert isinstance(t, AffineFakeQuantizedTensor)
+    return t.original_tensor
+
+def _is_linear_with_fq_weight(mod: torch.nn.Module, *args):
+    """
+    Return whether this is a nn.Linear module with `AffineFakeQuantizeTensor` weights.
+    """
+    # avoid circular dependencies
+    from torchao.quantization.prototype.qat.affine_fake_quantized_tensor import (
+        AffineFakeQuantizedTensor,
+    )
+    if not isinstance(mod, torch.nn.Linear) or not hasattr(mod, "weight"):
+        return False
+    weight = mod.weight
+    return isinstance(weight, AffineFakeQuantizedTensor)
+
+def _enable_fake_quant(mod: torch.nn.Module, enable: bool):
+    """
+    Enable or disable fake quantization in the activations and weights of a `nn.Linear` module.
+    """
+    from torchao.quantization.prototype.qat.affine_fake_quantized_tensor import (
+        AffineFakeQuantizedTensor,
+    )
+    if not _is_linear_with_fq_weight(mod):
+        return
+    weight = mod.weight
+    assert isinstance(weight, AffineFakeQuantizedTensor)
+    weight.fake_quant_enabled = enable
+
+    # Enable/disable input fake quant
+    if hasattr(mod, _QAT_LINEAR_SUBCLASS_INPUT_PREHOOK):
+        (prehook, handle) = getattr(mod, _QAT_LINEAR_SUBCLASS_INPUT_PREHOOK)
+        if enable and handle is None:
+            handle = mod.register_forward_pre_hook(prehook)
+        elif not enable and handle is not None:
+            handle.remove()
+            handle = None
+        setattr(mod, _QAT_LINEAR_SUBCLASS_INPUT_PREHOOK, (prehook, handle))
+
+def _get_qat_linear_subclass_inserter(
+    weight_constructor: Callable,
+    input_constructor: Optional[Callable] = None,
+) -> Callable:
+    """
+    Return a function that inserts wraps the weight and/or input activation of a
+    linear module in tensor subclasses.
+
+    Args:
+        weight_constructor: constructor of the weight subclass, accepts a tensor
+        input_constructor: (optional) constructor of the input subclass, accepts a tensor
+    """
+    def insert_subclass(lin):
+        lin.weight = torch.nn.Parameter(weight_constructor(lin.weight), requires_grad=True)
+        if input_constructor is not None:
+            prehook = lambda _, args: tuple([input_constructor(args[0])] + list(args[1:]))
+            handle = lin.register_forward_pre_hook(prehook)
+            setattr(lin, _QAT_LINEAR_SUBCLASS_INPUT_PREHOOK, (prehook, handle))
+        return lin
+
+    return insert_subclass

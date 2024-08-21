@@ -12,6 +12,105 @@ from typing import List, Optional, Tuple
 import torch
 import torch.distributed as dist
 
+from torchao.sparsity import sparsify_, semi_sparse_weight
+from torchao.sparsity.prototype.superblock.supermask import SupermaskLinear, apply_supermask
+from torchao.sparsity.prototype.superblock.blocksparse import block_sparse_weight
+from torchao.sparsity.prototype.sparsifier.weight_norm_sparsifier import WeightNormSparsifier
+
+### Custom sparsification utils
+def apply_sparsity(model):
+    for name, module in model.named_modules():
+        if isinstance(module, SupermaskLinear) and "mlp" in name:
+            module.sparsify_offline()
+            
+def verify_sparsity(model):
+    for name, module in model.named_modules():
+        if isinstance(module, torch.nn.Linear):
+            total_weights = module.weight.numel()
+            sparse_weights = (module.weight == 0).sum().item()
+            sparsity_percentage = (sparse_weights / total_weights) * 100
+            print(f"Sparsity verified in layer {name}: {sparsity_percentage:.2f}%")
+
+# filter functions
+def mlp_0_only(mod, name):
+    return isinstance(mod, torch.nn.Linear) and 'mlp.0' in name
+
+def mlp_3_only(mod, name):
+    return isinstance(mod, torch.nn.Linear) and 'mlp.3' in name
+
+def mlp_only(mod, name):
+    return isinstance(mod, torch.nn.Linear) and 'mlp' in name
+    
+def superblock_only(mod, name):
+    return isinstance(mod, SupermaskLinear) and "mlp" in name
+
+def mlp_only_with_args(mod, name, skip_last_layer_sparsity=False, skip_first_transformer_sparsity=False):
+    if skip_last_layer_sparsity and "heads.head" in name:
+        return False
+    if skip_first_transformer_sparsity and "encoder.layers.encoder_layer_0" in name:
+        return False
+    if isinstance(mod, torch.nn.Linear) and "mlp" in name: 
+        return True
+    return False
+
+### other
+
+def accelerate_with_sparsity(model, args):
+    if args.sparsity == "bsr":
+        apply_sparsity(model)
+        verify_sparsity(model)
+        assert args.bsr is not None, "BSR requires a block size"
+        sparsify_(model, block_sparse_weight(blocksize=args.bsr), superblock_only)
+
+    elif args.sparsity == "semi_structured":
+        if args.quantization:
+            quantize_(model,
+                    int8_dynamic_activation_int8_semi_sparse_weight(),
+                    mlp_0_only)
+            sparsify_(model,
+                    semi_sparse_weight(), 
+                    mlp_3_only)
+        else:
+            sparsify_(model,
+                    semi_sparse_weight(),
+                    mlp_only)
+
+def simulate_sparsity(model, args):
+    if args.sparsity == "bsr":
+        apply_supermask(
+            model,
+            linear_sparsity=args.sparsity_linear,
+            linear_sp_tilesize=args.sp_linear_tile_size,
+            conv1x1_sparsity=args.sparsity_conv1x1,
+            conv1x1_sp_tilesize=args.sp_conv1x1_tile_size,
+            conv_sparsity=args.sparsity_conv,
+            conv_sp_tilesize=args.sp_conv_tile_size,
+            skip_last_layer_sparsity=args.skip_last_layer_sparsity,
+            skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
+            device=args.device,
+            verbose=False,
+        )
+    elif args.sparsity == "semi_structured":
+        sparse_config = []
+        for name, mod in model.named_modules():
+            if mlp_only_with_args(mod, name,
+                                  skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
+                                  skip_last_layer_sparsity=args.skip_last_layer_sparsity):
+                sparse_config.append({"tensor_fqn": f"{name}.weight"})
+
+        sparsifier = WeightNormSparsifier(
+            sparsity_level=1.0, sparse_block_shape=(1, 4), zeros_per_block=2
+        )
+        sparsifier.prepare(model, sparse_config)
+        for line in sparse_config:
+            print(line)
+        sparsifier.step()
+        return sparsifier
+    else:
+        print("No sparsity applied!")
+
+
+### Existing torchvision utils
 
 class SmoothedValue:
     """Track a series of values and provide access to smoothed values over a

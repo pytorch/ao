@@ -10,7 +10,7 @@ from .subclass_4bit import OptimState4bit
 from .subclass_fp8 import OptimStateFp8
 
 
-class _Adam(Optimizer):
+class _AdamBase(Optimizer):
     def __init__(self, params, lr, betas, eps, weight_decay, amsgrad, *, block_size) -> None:
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
@@ -155,7 +155,7 @@ def single_param_adam(
     p.addcdiv_(new_exp_avg, denom, value=-step_size)
 
 
-class Adam8bit(_Adam):
+class Adam8bit(_AdamBase):
     def __init__(
         self,
         params,
@@ -174,7 +174,7 @@ class Adam8bit(_Adam):
         return OptimState8bit.zeros(p.shape, signed, block_size, p.device)
 
 
-class Adam4bit(_Adam):
+class Adam4bit(_AdamBase):
     def __init__(
         self,
         params,
@@ -233,7 +233,7 @@ class Adam4bit(_Adam):
         return loss
 
 
-class AdamFp8(_Adam):
+class AdamFp8(_AdamBase):
     def __init__(
         self,
         params,

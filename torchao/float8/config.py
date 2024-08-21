@@ -8,7 +8,6 @@ import enum
 from dataclasses import dataclass
 
 
-# TODO(future): consider renaming to ScalingType
 class ScalingType(enum.Enum):
     DELAYED = "delayed"
     DYNAMIC = "dynamic"

@@ -1,9 +1,11 @@
-# Following is a example for a simple dtype implemented with tensor subclass
-# it shows
-#    * the basic structure of a new dtype tensor subclass (__new__, __init__, __tensor_flatten__, __tensor_unflatten__)
-#    * two types of dispatch that people can overwrite (__torch_function__, __torch_dispatch__)
-#    * how to abstract away packing format with layout
-#    * how the tensor subclass composes with torch.compile to get speedup
+"""
+Following is a example for a simple dtype implemented with tensor subclass
+it shows
+    * the basic structure of a new dtype tensor subclass (__new__, __init__, __tensor_flatten__, __tensor_unflatten__)
+    * two types of dispatch that people can overwrite (__torch_function__, __torch_dispatch__)
+    * how to abstract away packing format with layout
+    * how the tensor subclass composes with torch.compile to get speedup
+"""
 
 
 import functools

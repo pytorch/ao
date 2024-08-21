@@ -7,7 +7,6 @@ from torch.autograd import Variable
 import torch.nn.functional as F
 import numpy as np
 
-
 # original supermask
 scores_min=None
 scores_max=9e9
@@ -21,34 +20,16 @@ uniform_init_01 = False
 def percentile(t, q):
     """Return the value that is larger than q% of t"""
     k = 1 + round(.01 * float(q) * (t.numel() - 1))
-    return t.view(-1).kthvalue(k).values.item()
-
-
-def to_bsr(tensor, blocksize=256):
-    if tensor.ndim != 2:
-        print("Tensor is not 2D, skipping BSR conversion.")
-        return tensor  
-    
-    if tensor.size(0) % blocksize or tensor.size(1) % blocksize:
-        print("Tensor dimensions are not divisible by blocksize, skipping BSR conversion.")
-        return tensor  
-    
-    try:
-        converted_tensor = tensor.to_sparse_bsr(blocksize=blocksize)
-        print(f"Converted tensor to BSR format with blocksize: {blocksize}")
-        return converted_tensor 
-    except ValueError as e:
-        print(f"Unable to convert tensor to BSR format: {e}")
-        return tensor 
+    return t.view(-1).kthvalue(k).values
 
 
 class GetSubnet(torch.autograd.Function):
     """Supermask STE function"""
     @staticmethod
     def forward(ctx, scores, zeros, ones, sparsity):
-        scores.clamp_(min=scores_min,max=scores_max)
-        k_val = percentile(scores, sparsity*100)
-        return torch.where(scores < k_val, zeros.to(scores.device), ones.to(scores.device))
+        clamped_scores = scores.clamp(min=scores_min,max=scores_max)
+        k_val = percentile(clamped_scores, sparsity*100)
+        return torch.where(clamped_scores < k_val, zeros.to(scores.device), ones.to(scores.device))
     @staticmethod
     def backward(ctx, g):
         return g, None, None, None
@@ -130,7 +111,7 @@ class SupermaskLinear(nn.Linear):
             subnet = self.get_mask()
             w = (self.weight*self.scale+self.shift) * subnet
         else:
-            w = self.weight.data
+            w = self.weight
         return F.linear(x, w, self.bias)
     
 
@@ -200,18 +181,6 @@ class SupermaskConv2d(nn.Conv2d):
 
         w = (self.weight*self.scale+self.shift) * subnet
         return F.conv2d(x, w, self.bias, self.stride, self.padding, self.dilation, self.groups)
-
-@torch.no_grad()
-def set_sparsity(modules, sparsity):
-    """Set the sparsity for supermask layers"""
-    sm_idx = 0
-    for mod in modules:
-        if isinstance(mod, (SupermaskLinear, SupermaskConv2d)):
-            mod.sparsity=sparsity[sm_idx]
-            sm_idx += 1
-            print(mod)
-            print('Sparsity: ', mod.sparsity)
-
 
 def apply_supermask(
     model,
