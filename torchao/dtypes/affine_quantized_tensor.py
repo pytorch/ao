@@ -23,7 +23,6 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.dtypes.utils import (
     LayoutType,
     PlainLayoutType,
-    FpxLayoutType,
     is_device,
     get_out_shape,
 )
@@ -337,7 +336,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         zero_point_dtype: Optional[torch.dtype] = None,
         preserve_zero: bool = True,
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
-        layout_type: LayoutType = FpxLayoutType(),
+        layout_type: LayoutType = PlainLayoutType(),
     ):
         original_shape = input_float.shape
         input_float = layout_type.pre_process(input_float)
@@ -348,7 +347,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         float8_data = layout_type.post_process(float8_data)
 
         layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
-        layout_tensor = layout_tensor_ctr(float8_data, float8_data, None, layout_type)
+        layout_tensor = layout_tensor_ctr(float8_data, scale, zero_point, layout_type)
         return cls(
             layout_tensor,
             block_size,

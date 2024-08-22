@@ -25,10 +25,6 @@ class LayoutType:
     def extra_repr(self) -> str:
         return ""
 
-@dataclass(frozen=True)
-class FpxLayoutType(LayoutType):
-    pass
-
 
 """
 Plain LayoutType, the most basic LayoutType, also has no extra metadata, will typically be the default
