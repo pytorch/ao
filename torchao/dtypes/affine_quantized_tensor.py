@@ -25,7 +25,6 @@ from torchao.dtypes.utils import (
     _get_layout_tensor_constructor,
     LayoutType,
     PlainLayoutType,
-    FpxLayoutType,
     is_device,
 )
 from torch.utils._python_dispatch import is_traceable_wrapper_subclass
@@ -284,7 +283,7 @@ class AffineQuantizedTensor(torch.Tensor):
         zero_point_dtype: Optional[torch.dtype] = None,
         preserve_zero: bool = True,
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
-        layout_type: LayoutType = FpxLayoutType(),
+        layout_type: LayoutType = PlainLayoutType(),
     ):
         original_shape = input_float.shape
         input_float = layout_type.pre_process(input_float)
@@ -295,7 +294,7 @@ class AffineQuantizedTensor(torch.Tensor):
         float8_data = layout_type.post_process(float8_data)
 
         layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
-        layout_tensor = layout_tensor_ctr(float8_data, float8_data, None, layout_type)
+        layout_tensor = layout_tensor_ctr(float8_data, scale, zero_point, layout_type)
         return cls(
             layout_tensor,
             block_size,
@@ -696,98 +695,6 @@ class TensorCoreTiledAQTLayout(AQTLayout):
         zero = zero.reshape(zero.shape[:-1]).contiguous()
         int_data = quantize_affine(dequantized, block_size, scale, zero, target_dtype, quant_min, quant_max, zero_point_domain)
         return int_data, scale, zero
-
-    def get_layout_type(self) -> LayoutType:
-        return self.layout_type
-
-
-@register_layout_cls(FpxLayoutType)
-class FpxAQTLayout(AQTLayout):
-
-    def __new__(
-        cls,
-        int_data: torch.Tensor,
-        scale: torch.Tensor,
-        layout_type: LayoutType,
-    ):
-        kwargs = {}
-        kwargs["device"] = int_data.device
-        kwargs["layout"] = (
-            kwargs.get("layout") if kwargs.get("layout", False) else int_data.layout
-        )
-        kwargs["dtype"] = int_data.dtype
-        kwargs["requires_grad"] = False
-        shape = int_data.shape
-        return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
-
-    def __init__(
-        self,
-        int_data: torch.Tensor,
-        scale: torch.Tensor,
-        layout_type: LayoutType,
-    ):
-        self.int_data = int_data
-        self.scale = scale
-        self.layout_type = layout_type
-
-    def __tensor_flatten__(self):
-        return ["int_data", "scale"], [self.layout_type]
-
-    @classmethod
-    def __tensor_unflatten__(
-        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
-    ):
-        int_data, scale = tensor_data_dict["int_data"], tensor_data_dict["scale"]
-        layout_type, = tensor_attributes
-        return cls(int_data, scale, layout_type)
-
-    def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        return self.int_data.get_plain(), self.scale
-
-    @classmethod
-    def from_plain(
-        cls,
-        int_data: torch.Tensor,
-        scale: torch.Tensor,
-        zero_point: Optional[torch.Tensor],
-        layout_type: LayoutType,
-    ):
-        assert isinstance(layout_type, FpxLayoutType)
-        return cls(int_data, scale, layout_type)
-
-    def __repr__(self):
-        int_data, scale = self.get_plain()
-        layout_type = self.get_layout_type()
-        return f"{self.__class__.__name__}(int_data={int_data}, scale={scale}, layout_type={layout_type})"
-
-    def _apply_fn_to_data(self, fn):
-        return self.__class__(
-            fn(self.int_data),
-            fn(self.scale),
-            self.layout_type,
-        )
-
-    @classmethod
-    def __torch_dispatch__(cls, func, types, args, kwargs):
-        kwargs = {} if kwargs is None else kwargs
-
-        if func is aten.detach.default:
-            return return_and_correct_aliasing(
-                func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
-            )
-
-        if func is aten.t.default:
-            tensor = args[0]
-            new = tensor.__class__(
-                tensor.int_data.view(tensor.shape[::-1]), tensor.scale, tensor.layout_type
-            )
-            return return_and_correct_aliasing(func, args, kwargs, new)
-
-        raise NotImplementedError(
-            f"FpxAQTLayout dispatch: attempting to run {func}, this is not supported"
-        )
-
-    __torch_function__ = torch._C._disabled_torch_function_impl
 
     def get_layout_type(self) -> LayoutType:
         return self.layout_type
