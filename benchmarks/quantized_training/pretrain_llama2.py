@@ -9,17 +9,27 @@ import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 import argparse
+from functools import partial
 from pathlib import Path
 
 import numpy as np
 import torch
 import wandb
+from torch.utils.checkpoint import checkpoint
 from tqdm import tqdm
 
+from torchao._models.llama.model import ModelArgs, Transformer
 from torchao.prototype import low_bit_optim
 from torchao.prototype.quantized_training import int8_weight_only_quantized_training
 from torchao.quantization.quant_api import quantize_
-from torchao._models.llama.model import Transformer, ModelArgs
+
+
+# hack from fairseq
+# https://github.com/facebookresearch/fairseq/blob/920a548ca770fb1a951f7f4289b4d3a0c1bc226f/fairseq/modules/checkpoint_activations.py
+def enable_activation_checkpointing(m: torch.nn.Module):
+    assert not hasattr(m, "_forward")
+    m._forward = m.forward
+    m.forward = partial(checkpoint, m.forward)
 
 
 def get_loss(model: Transformer, batch: torch.Tensor):
@@ -104,8 +114,8 @@ if __name__ == "__main__":
     with torch.device("cuda"):
         model.setup_caches(args.batch_size, args.seq_len, training=True)
     if args.activation_checkpointing:
-        # TODO
-        pass
+        for layer in model.layers:
+            enable_activation_checkpointing(layer)
     if args.quantize == "int8_weight_only":
         quantize_(model, int8_weight_only_quantized_training(), set_inductor_config=False)
     elif args.quantize is not None:
