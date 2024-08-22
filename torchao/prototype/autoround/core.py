@@ -80,11 +80,11 @@ def apply_auto_round():
     def _apply_auto_round(optimized_model: torch.nn.Module):
         """Create a quantized model from the model optimized by auto-round.
 
-        The `optimized_model` includes `Linear` layers optimized by auto-round, which includes qdq weight, scale, zp.
+        The `optimized_model` includes `Linear` layers optimized by auto-round, which includes `qdq_weight`, `scale`, `zp`.
         """
 
         @torch.no_grad()
-        def convert_weight_to_affine_quantized_tensor(observed_linear):
+        def convert_weight_to_affine_quantized_tensor(observed_linear: torch.nn.Module):
             device = observed_linear.weight.device
             scale = observed_linear.scale.to(device)
             zero_point = observed_linear.zp.to(device)
@@ -166,7 +166,10 @@ def apply_auto_round():
                 )
 
             # TODO(Yi): better way to select the weight quantization function
-            if _auto_round_config.bits == 4:
+            if (
+                _auto_round_config.bits == 4
+                and observed_linear.weight.device.type == "cuda"
+            ):
                 weight_func = to_int4_tinygemm_weight
             else:
                 weight_func = to_uintx_weight
@@ -195,7 +198,7 @@ def apply_auto_round():
 def _apply_auto_round_optimization(
     block, grouped_args, spec, block_outputs, config: _AutoRoundConfig
 ):
-    # Call the auto-round to execute the optimization process
+    # Call the auto-round to execute the optimization process.
     # https://github.com/intel/auto-round/tree/patch-for-ao-2
     # TODO(Yi), make the branch more stable
     if ar_utils.is_auto_round_available():
@@ -214,8 +217,6 @@ def _apply_auto_round_optimization(
         _optimization_tracker.optimized_layers,
         _optimization_tracker.num_layers,
     )
-
-    ar_utils.see_memory_usage("Before apply auto-round")
 
     # Start the training process to update the v, alpha and betta.
     rounder = auto_round.AutoRound(
@@ -246,7 +247,6 @@ def _apply_auto_round_optimization(
             outputs=block_outputs,
             device=_multi_tensor_config.accelerator_name,
         )
-    ar_utils.see_memory_usage("After apply auto-round.")
 
 
 @ar_utils.dump_elapsed_time()
@@ -267,4 +267,3 @@ def apply_auto_round_optimization(
     _apply_auto_round_optimization(
         module, grouped_args, spec, output_grouped_args, config
     )
-    torch.cuda.empty_cache()

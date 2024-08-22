@@ -20,7 +20,7 @@ class _MultiTensorConfig:
 
 # Note: As the `MultiTensor` includes a list of tensors, during the calibration stage,
 # placing all output tensors on the GPU would consume a significant amount of GPU memory.
-# This is especially true for models with a large lm-head, such as Llama-3.1.
+# This is especially true for models with a large `lm-head`, such as Llama-3.1.
 # In these cases, we load the model onto the CPU and only transfer tensors to the GPU for compute-intensive operations.
 _multi_tensor_config = _MultiTensorConfig(
     accelerator_name="cuda" if torch.cuda.is_available() else "cpu"
