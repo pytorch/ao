@@ -56,7 +56,7 @@ from .GPTQ import (
 from .utils import _get_per_token_block_size
 import logging
 from .autoquant import autoquant, AutoQuantizableLinearWeight
-
+from torchao.dtypes.utils import FpxLayoutType
 
 __all__ = [
     "swap_conv2d_1x1_to_linear",
@@ -502,8 +502,8 @@ def float8_weight_only():
         eps = torch.finfo(torch.float32).eps
         zero_point_dtype = torch.float32
         block_size = (1, weight.shape[1])
-        return to_affine_quantized_float8(input_float=weight, mapping_type=mapping_type, block_size=block_size, target_dtype=target_dtype,
-                eps=eps, zero_point_dtype=zero_point_dtype)
+        return to_affine_quantized(input_float=weight, mapping_type=mapping_type, block_size=block_size, target_dtype=target_dtype,
+                eps=eps, zero_point_dtype=zero_point_dtype, layout_type=FpxLayoutType())
 
     return _get_linear_subclass_inserter(apply_float8wo_quant)
 
