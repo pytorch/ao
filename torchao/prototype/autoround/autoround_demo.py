@@ -20,12 +20,15 @@ def quantize_model_with_autoround_(
     model,
     tokenizer,
     decoder_cls,
-    dataloader: torch.utils.data.DataLoader,
     bits: int = 4,
     group_size: int = 128,
     iters: int = 200,
     quant_lm_head: bool = False,
     speedup_optimization: bool = True,
+    seqlen: int = 2048,
+    dataset_name: str = "NeelNanda/pile-10k",
+    bs: int = 4,
+    nsamples: int = 128,
 ):
     # Step 1. Prepare the model for applying auto-round
     # User need to prepare a `is_target_module` function for identifying the target modules that need to be quantized.
@@ -53,7 +56,13 @@ def quantize_model_with_autoround_(
     )
 
     # Step 2. Caliration and optimization
-
+    dataloader = ar_utils.get_dataloader(
+        tokenizer,
+        seqlen=seqlen,
+        dataset_name=dataset_name,
+        bs=bs,
+        nsamples=nsamples,
+    )
     input_ids_lst = []
     attn_mask_lst = []
     for data in dataloader:
@@ -92,23 +101,18 @@ def main(args):
 
     model = model.to(args.model_device)
 
-    dataloader = ar_utils.get_dataloader(
-        tokenizer,
-        seqlen=args.seqlen,
-        dataset_name=args.dataset_name,
-        bs=args.train_bs,
-        nsamples=args.nsamples,
-    )
-
     quantize_model_with_autoround_(
-        model,
-        tokenizer,
-        decoder_cls,
-        dataloader=dataloader,
+        model=model,
+        tokenizer=tokenizer,
+        decoder_cls=decoder_cls,
         bits=args.bits,
         iters=args.iters,
         quant_lm_head=args.quant_lm_head,
         speedup_optimization=args.speedup_optimization,
+        seqlen=args.seqlen,
+        dataset_name=args.dataset_name,
+        bs=args.train_bs,
+        nsamples=args.nsamples,
     )
     # Revert the `use_cache`
     model.config.use_cache = True

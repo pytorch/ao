@@ -133,9 +133,10 @@ class MultiTensor(torch.Tensor):
                     ]
                 )[-1]
                 if func in _multi_tensor_config.ops_to_accelerate:
+                    accelerator_name = _multi_tensor_config.accelerator_name
                     cur_args = [
                         (
-                            arg.to(_multi_tensor_config.accelerator_name)
+                            arg.to(accelerator_name)
                             if isinstance(arg, torch.Tensor)
                             else arg
                         )
@@ -143,9 +144,7 @@ class MultiTensor(torch.Tensor):
                     ]
                     cur_kwargs = {
                         k: (
-                            v.to(_multi_tensor_config.accelerator_name)
-                            if isinstance(v, torch.Tensor)
-                            else v
+                            v.to(accelerator_name) if isinstance(v, torch.Tensor) else v
                         )
                         for k, v in cur_kwargs.items()
                     }

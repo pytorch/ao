@@ -1,10 +1,9 @@
 # ==------------------------------------------------------------------------------------------==
-# Utils for the auto-round (put here temporarily)
+# Utils for the auto-round
 # ==------------------------------------------------------------------------------------------==
 import logging
 import random
 
-import auto_round
 import numpy as np
 import torch
 
@@ -32,6 +31,8 @@ def is_auto_round_available() -> bool:
 
 if is_auto_round_available():
     import auto_round
+
+    get_dataloader = auto_round.calib_dataset.get_dataloader
 else:
     raise ImportError(
         (
@@ -39,8 +40,6 @@ else:
             "Please install it with `pip install https://github.com/intel/auto-round.git@patch-for-ao-2`"
         )
     )
-
-get_dataloader = auto_round.calib_dataset.get_dataloader
 
 
 def singleton(cls):
