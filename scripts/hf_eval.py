@@ -18,7 +18,6 @@ from torchao.quantization import (
     int4_weight_only,
     int8_weight_only,
     int8_dynamic_activation_int8_weight,
-    float8_weight_only,
     quantize_,
     autoquant,
     fpx_weight_only,
