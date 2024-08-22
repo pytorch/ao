@@ -130,6 +130,9 @@ def skip_if_compute_capability_less_than(min_capability):
         return wrapper
     return decorator
 
+def compute_max_diff(output: torch.Tensor, output_ref: torch.Tensor) -> torch.Tensor:
+    return torch.mean(torch.abs(output - output_ref)) / torch.mean(
+        torch.abs(output_ref))
 
 def benchmark_torch_function_in_microseconds(f, *args, **kwargs):
     import torch.utils.benchmark as benchmark # this avoids importing numpy when torchao module is loaded
