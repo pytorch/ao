@@ -1,7 +1,6 @@
 import logging
-import os
-from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+import dataclasses
+from typing import Callable, Dict, Tuple
 
 import torch
 from torch.utils._pytree import tree_flatten, tree_unflatten
@@ -14,26 +13,17 @@ from torchao.quantization.quant_primitives import ZeroPointDomain
 from torchao.utils import find_multiple
 
 
-@dataclass
+@ar_utils.singleton
+@dataclasses.dataclass
 class _AutoRoundConfig:
-    bits: int = 4  # Impact the quality a lot
-    group_size: int = 128  # Impact the quality a lot
-    iters: int = 200  # Impact the quantization time a lot
-    # Discard, user can customize the calibration dataset by themselves. It impact the quality, but too large will cause OOM.
-    nsamples: int = 128
-    seqlen: int = 2048
-    train_bs: int = 4
-    # Discard for now, use `asym` by default for using the `tinygemm` by default
-    sym: bool = False
-    # amp: bool = True, Discard, enable it by default, as it can speed up the training process a lot
-    # Discard, the functionality was merged into the `is_target_module` function
-    # quant_lm_head: bool = False
-
+    bits: int = 4
+    group_size: int = 128
+    iters: int = 200
 
 _auto_round_config = _AutoRoundConfig()
 
-
-@dataclass
+@ar_utils.singleton
+@dataclasses.dataclass
 class _OptimizationTracker:
     num_layers: int = 0
     optimized_layers: int = 0
@@ -73,7 +63,8 @@ def prepare_model_for_applying_auto_round_(
         module._forward_hook_handle_for_auto_round = forward_hook_handle
         _optimization_tracker.num_layers += 1
         return module
-
+    
+    model.eval()
     ao_quant.quant_api._replace_with_custom_fn_if_matches_filter(
         model, _register_forward_hook, is_target_module
     )
@@ -105,7 +96,7 @@ def apply_auto_round():
                 layout_type = UintxLayoutType(bit_width=bit_width, pack_dim=pack_dim)
                 return to_affine_quantized_static(
                     input_float=input_float,
-                    scale=scale.to(torch.bfloat16),
+                    scale=scale.to(input_float.dtype),
                     zero_point=zero_point,
                     block_size=block_size,
                     target_dtype=torch.uint8,
@@ -228,6 +219,7 @@ def _apply_auto_round_optimization(
         sym=False,  # Both `True` and `False` are OK, but use `asym` by default for using the `tinygemm` by default
         bits=config.bits,
         iters=config.iters,
+        group_size=config.group_size,
         use_quant_input=False,  # disable it for now
         amp=True,
         model_dtype=next(block.parameters()).dtype,

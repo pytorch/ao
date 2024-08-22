@@ -4,9 +4,39 @@
 import random
 
 import auto_round
-
+import logging
 import numpy as np
 import torch
+
+def _is_package_available(pkg_name, metadata_name=None):
+    # Copied from Accelerate https://github.com/huggingface/accelerate
+    import importlib
+
+    # Check we're not importing a "pkg_name" directory somewhere but the actual library by trying to grab the version
+    package_exists = importlib.util.find_spec(pkg_name) is not None
+    if package_exists:
+        try:
+            # Some libraries have different names in the metadata
+            _ = importlib.metadata.metadata(
+                pkg_name if metadata_name is None else metadata_name
+            )
+            return True
+        except importlib.metadata.PackageNotFoundError:
+            return False
+
+
+def is_auto_round_available() -> bool:
+    return _is_package_available("auto_round")
+
+if is_auto_round_available():
+    import auto_round
+else:
+    raise ImportError(
+        (
+            "This example requires the `auto-round` library."
+            "Please install it with `pip install https://github.com/intel/auto-round.git@patch-for-ao-2`"
+        )
+    )
 
 get_dataloader = auto_round.calib_dataset.get_dataloader
 
@@ -19,6 +49,17 @@ def _get_accelerator_name():
     else:
         return "cpu"
 
+def singleton(cls):
+    """Singleton decorator."""
+    instances = {}
+
+    def _singleton(*args, **kw):
+        """Create a singleton object."""
+        if cls not in instances:
+            instances[cls] = cls(*args, **kw)
+        return instances[cls]
+
+    return _singleton
 
 def freeze_random(seed=0):
     random.seed(seed)
@@ -52,27 +93,17 @@ def see_memory_usage(message: str = "", force=True):
     gc.collect()
 
     # Print message except when distributed but not rank 0
-    logging.info(message)
-    logging.info(
-        f"AllocatedMem {round(torch.cuda.memory_allocated() / (1024 * 1024 * 1024),2 )} GB \
-        MaxAllocatedMem {round(torch.cuda.max_memory_allocated() / (1024 * 1024 * 1024),2)} GB \
-        ReservedMem {round(torch.cuda.memory_reserved() / (1024 * 1024 * 1024),2)} GB \
-        MaxReservedMem {round(torch.cuda.max_memory_reserved() / (1024 * 1024 * 1024))} GB "
+    logging.warning(message)
+    bytes_to_gb = 1024 * 1024 * 1024
+    logging.warning(
+        f"AllocatedMem {round(torch.cuda.memory_allocated() / (bytes_to_gb),2 )} GB \
+        MaxAllocatedMem {round(torch.cuda.max_memory_allocated() / (bytes_to_gb),2)} GB \
+        ReservedMem {round(torch.cuda.memory_reserved() / (bytes_to_gb),2)} GB \
+        MaxReservedMem {round(torch.cuda.max_memory_reserved() / (bytes_to_gb))} GB "
     )
 
     # get the peak memory to report correct data, so reset the counter for the next call
     torch.cuda.reset_peak_memory_stats()
-
-
-def move_data_to_device(input, device=torch.device("cpu")):
-    if isinstance(input, torch.Tensor):
-        return input.to(device)
-    elif isinstance(input, dict):
-        for inp in input.keys():
-            input[inp] = move_data_to_device(input[inp], device)
-    elif isinstance(input, (list, tuple)):
-        input = [move_data_to_device(inp, device) for inp in input]
-    return input
 
 
 @torch.no_grad()
@@ -93,6 +124,11 @@ def gen_example_inputs(tokenizer, device, max_length=20):
     input_ids = inputs["input_ids"].to(device)
     return (input_ids,)
 
+def _auto_detect_decoder_cls(model):
+    for name, module in model.named_modules():
+        if isinstance(module, torch.nn.ModuleList):
+            first_module = module[0]
+            return type(first_module)
 
 def get_float_model_info(model_name_or_path, torch_dtype=torch.float32):
     import transformers
@@ -101,12 +137,10 @@ def get_float_model_info(model_name_or_path, torch_dtype=torch.float32):
         model_name_or_path, torch_dtype=torch_dtype
     )
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_name_or_path)
-    if "Llama" in model_name_or_path:
-        decoder_cls = transformers.models.llama.modeling_llama.LlamaDecoderLayer
-    elif "opt" in model_name_or_path:
-        decoder_cls = transformers.models.opt.modeling_opt.OPTDecoderLayer
-    else:
-        raise ValueError(f"Unsupported model: {model_name_or_path}")
+    decoder_cls = _auto_detect_decoder_cls(model)
+    logging.warning(f"Detected decoder class: {decoder_cls}")
+    if decoder_cls is None:
+        raise ValueError(f"Cannot detect the decoder class from the model, please provide it manually.")
     return model, tokenizer, decoder_cls
 
 
@@ -138,22 +172,3 @@ def dump_elapsed_time(customized_msg=""):
     return f
 
 
-def _is_package_available(pkg_name, metadata_name=None):
-    # Copied from Accelerate https://github.com/huggingface/accelerate
-    import importlib
-
-    # Check we're not importing a "pkg_name" directory somewhere but the actual library by trying to grab the version
-    package_exists = importlib.util.find_spec(pkg_name) is not None
-    if package_exists:
-        try:
-            # Some libraries have different names in the metadata
-            _ = importlib.metadata.metadata(
-                pkg_name if metadata_name is None else metadata_name
-            )
-            return True
-        except importlib.metadata.PackageNotFoundError:
-            return False
-
-
-def is_auto_round_available() -> bool:
-    return _is_package_available("auto_round")
