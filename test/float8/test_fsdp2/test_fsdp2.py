@@ -3,7 +3,7 @@ import itertools
 import pytest
 import threading
 import unittest
-from typing import Any, List
+from typing import Any, List, Optional
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
@@ -59,7 +59,7 @@ class TestFloat8Common:
         self.broadcast_module(module)
         return module
 
-    def init_transformer(self, weight_tying: bool, dtype: torch.dtype | None = None) -> nn.Module:
+    def init_transformer(self, weight_tying: bool, dtype: Optional[torch.dtype] = None) -> nn.Module:
         torch.manual_seed(42)
         args = ModelArgs(
             n_layers=3,
