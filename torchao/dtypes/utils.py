@@ -25,7 +25,6 @@ class LayoutType:
     def extra_repr(self) -> str:
         return ""
 
-
 """
 Plain LayoutType, the most basic LayoutType, also has no extra metadata, will typically be the default
 """
