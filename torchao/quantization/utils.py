@@ -362,8 +362,7 @@ def groupwise_affine_quantize_tensor_from_qparams(
         # Move to cpu, until issue with MPS memory management of temporary tensors is resolved
         if int_data_device_type == 'mps':
             int_data = int_data.cpu()
-        int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
-        if int_data_device_type == 'mps':
+            int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
             int_data = int_data.to(device='mps')
     return int_data
 

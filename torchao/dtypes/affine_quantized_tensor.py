@@ -71,6 +71,7 @@ class AQTLayout(TorchAOBaseTensor):
         """ Construct a Layout from data, scale, zero_point and the layout_type"""
         pass
 
+    @torch._dynamo.disable
     def __repr__(self):
         data, scale, zero_point = self.get_plain()
         layout_type = self.get_layout_type()
@@ -180,6 +181,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         self.quant_max = quant_max
         self.zero_point_domain = zero_point_domain
 
+    @torch._dynamo.disable
     def __repr__(self):
         return (
             f"{self.__class__.__name__}(data={str(self.dequantize())}..., shape={self.shape}, block_size={self.block_size}, "
@@ -676,6 +678,8 @@ class MarlinSparseAQTLayout(AQTLayout):
     __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
     __torch_function__ = classmethod(_dispatch__torch_function__)
 
+    @staticmethod
+    @torch._dynamo.disable
     def __new__(
         cls,
         int_data: torch.Tensor,
@@ -697,6 +701,7 @@ class MarlinSparseAQTLayout(AQTLayout):
         shape = int_data.shape
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
+    @torch._dynamo.disable
     def __init__(
         self,
         int_data: torch.Tensor,
@@ -717,8 +722,24 @@ class MarlinSparseAQTLayout(AQTLayout):
         self.group_size = group_size
         self.num_bits = num_bits
 
+    def __tensor_flatten__(self):
+        return ["int_data", "scale", "zero_point", "meta"], [self.layout_type, self.original_shape, self.group_size, self.num_bits]
+
+    @classmethod
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
+    ):
+        int_data = tensor_data_dict["int_data"]
+        scale = tensor_data_dict["scale"]
+        zero_point = tensor_data_dict["zero_point"]
+        meta = tensor_data_dict["meta"]
+        layout_type, original_shape, group_size, num_bits = tensor_attributes
+        return cls(int_data, scale, zero_point, meta, layout_type, original_shape, group_size, num_bits)
+
+    @torch._dynamo.disable
     def get_plain(self):
         from torchao.sparsity.marlin import unpack_from_marlin_24  # avoid circular import
+        unpack_from_marlin_24 = torch._dynamo.disable(unpack_from_marlin_24) 
         int_data_expanded, scales_expanded = unpack_from_marlin_24(
             self.int_data, 
             self.scale, 
@@ -730,6 +751,7 @@ class MarlinSparseAQTLayout(AQTLayout):
         return int_data_expanded, scales_expanded, self.zero_point
 
     @classmethod
+    @torch._dynamo.disable
     def from_plain(
         cls,
         int_data: torch.Tensor,
@@ -1169,7 +1191,7 @@ def _linear_int8_act_int8_weight_semi_structured_sparse_impl(input_tensor, weigh
     tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
     # we fuse one of the scalar matrix multiplications (w_scales) into the sparse mm
     y_dot_bf16_w_scales_fused = torch._cslt_sparse_mm(
-        w_vals_int8, tmp.t(), alpha=w_scales.to(torch.float32), out_dtype=torch.bfloat16
+        w_vals_int8, tmp.t(), alpha=w_scales.to(torch.float32), out_dtype=torch.bfloat16,
     ).t()
     y = (y_dot_bf16_w_scales_fused * x_scales.reshape(-1, 1)).reshape(
         *x_vals_int8.shape[:-1], y_dot_bf16_w_scales_fused.shape[-1]
@@ -1380,6 +1402,7 @@ def _linear_fp_act_fp8_weight_impl(
 
 def _linear_fp_act_int4_weight_sparse_marlin_check(input_tensor, weight_tensor, bias):
     return (
+        isinstance(weight_tensor, AffineQuantizedTensor) and
         _aqt_is_uint4(weight_tensor) and
         input_tensor.dtype == torch.float16 and
         len(weight_tensor.shape) == 2 and
@@ -1389,11 +1412,13 @@ def _linear_fp_act_int4_weight_sparse_marlin_check(input_tensor, weight_tensor, 
 
 def _linear_fp_act_int4_weight_sparse_marlin_impl(input_tensor, weight_tensor, bias):
     from torchao.sparsity.marlin import marlin_24_workspace, const
+    assert isinstance(weight_tensor, AffineQuantizedTensor)
 
     sparse_w_int4 = weight_tensor.layout_tensor.int_data
     scale = weight_tensor.layout_tensor.scale
     meta = weight_tensor.layout_tensor.meta
     original_shape = weight_tensor.layout_tensor.original_shape
+    print("original_shape", original_shape)
     num_bits = weight_tensor.layout_tensor.num_bits
 
     # Saves batch size for reshaping back to original shape after the matmul
@@ -1402,12 +1427,14 @@ def _linear_fp_act_int4_weight_sparse_marlin_impl(input_tensor, weight_tensor, b
     batch_size = -1
     if input_tensor.dim() == 3:
         batch_size = input_tensor.size(0)
-        input_tensor = input_tensor.reshape(-1, input_tensor.shape[-1]).contiguous()
+        input_tensor = input_tensor.reshape(-1, input_tensor.shape[-1])
 
     size_m = input_tensor.shape[0]
     size_n = original_shape[1]
     size_k = input_tensor.shape[1]
     workspace_24 = marlin_24_workspace(original_shape[1])
+
+    print(size_m, size_n, size_k)
 
     # Pad input_tensor dim 1 to a multiple of the marlin tile size (16)
     if size_k % const.TILE != 0:
@@ -1419,11 +1446,9 @@ def _linear_fp_act_int4_weight_sparse_marlin_impl(input_tensor, weight_tensor, b
         input_tensor, sparse_w_int4, meta, scale, 
         workspace_24, num_bits, size_m, size_n, size_k
     )
-    torch.cuda.synchronize()
 
-    # Reshape back to original shape
     if batch_size != -1:
-        out = out.reshape(batch_size, -1, out.shape[-1])
+        out = out.view(batch_size, -1, out.shape[-1])
 
     if bias is not None:
         out += bias.to(out.dtype)
