@@ -43,15 +43,6 @@ else:
 get_dataloader = auto_round.calib_dataset.get_dataloader
 
 
-def _get_accelerator_name():
-    if torch.xpu.is_available():
-        return "xpu"
-    elif torch.cuda.is_available():
-        return "cuda"
-    else:
-        return "cpu"
-
-
 def singleton(cls):
     """Singleton decorator."""
     instances = {}

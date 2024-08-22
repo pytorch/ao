@@ -66,9 +66,6 @@ def quantize_model_with_autoround_(
     multi_t_input_ids = MultiTensor(input_ids_lst)
     multi_t_attn_mask = MultiTensor(attn_mask_lst)
 
-    # if offload:
-    #     multi_tensor_config.enable_offload = True
-
     # The optimization is applied during the forward pass
     out = model(multi_t_input_ids, multi_t_attn_mask)
 
@@ -80,8 +77,6 @@ def quantize_model_with_autoround_(
     )
     print(f"Quantized {num_quantized_weight} Linear layers.")
 
-    # Generate text using the quantized model
-    ar_utils.gen_text(model, tokenizer, "Quantized model", max_length=50)
     return model
 
 
@@ -117,6 +112,9 @@ def main(args):
     )
     # Revert the `use_cache`
     model.config.use_cache = True
+
+    # Generate text using the quantized model
+    ar_utils.gen_text(model, tokenizer, "Quantized model", max_length=50)
 
 
 if __name__ == "__main__":
