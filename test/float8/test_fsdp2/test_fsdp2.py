@@ -109,7 +109,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         precompute: bool,
         scaling_type_weight: ScalingType,
         compile_transformer_block: bool,
-        dtype: torch.dtype | None = None,
+        dtype: Optional[torch.dtype] = None,
     ):
         if not enable_fsdp_float8_all_gather and precompute:
             return
