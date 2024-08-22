@@ -292,16 +292,16 @@ class TorchAOBaseTensor(torch.Tensor):
                 args.remove(arg)
         if "layout" in kwargs:
             kwargs.pop("layout")
-        device, dtype, _, memory_format = torch._C._nn._parse_to(*args, **kwargs)
+        # ignoring `non_blocking` and `memory_format` args since these are not
+        # very useful for most of the tensor subclasses
+        # if in the future there are use cases that need these, we'd recommend
+        # to override `_get_to_kwargs` and return these args
+        device, dtype, _, _ = torch._C._nn._parse_to(*args, **kwargs)
         device = self.device if device is None else device
         dtype = self.dtype if dtype is None else dtype
-        memory_format = (
-            memory_format if memory_format is not None else torch.preserve_format
-        )
         kwargs = {
             "device": device,
             "dtype": dtype,
-            "memory_format": memory_format,
         }
         return kwargs
 
