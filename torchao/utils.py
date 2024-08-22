@@ -59,13 +59,8 @@ def benchmark_model(model, num_runs, args=(), kwargs=None, device_type=None):
     if device_type is None:
         assert isinstance(model, torch.nn.Module), "Expecting `model` to be torch.nn.Module if device_type is not provided"
         device_type = _assert_and_get_unique_device(model).type
-    
-    # warmup
-    for _ in range(5):
-        model(*args, **kwargs)
 
     if device_type == "cuda":
-        torch.cuda.empty_cache()
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)

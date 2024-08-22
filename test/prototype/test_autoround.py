@@ -53,7 +53,7 @@ def _is_two_linear(mod, fqn):
 
 class TestAutoRond(TestCase):
 
-    @pytest.mark.skip(not TORCH_VERSION_AT_LEAST_2_5, "Requires torch 1.5 or later")
+    @pytest.mark.skip(not TORCH_VERSION_AT_LEAST_2_5, "Requires torch 2.5 or later")
     @parametrize("device", _AVAILABLE_DEVICES)
     @torch.no_grad()
     def test_auto_round(self, device: str):
