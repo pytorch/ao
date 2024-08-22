@@ -266,8 +266,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
         device = kwargs.pop("device")
-        # not supported yet
-        kwargs.pop("memory_format")
         return self.__class__(
             self.layout_tensor.to(device),
             self.block_size,
