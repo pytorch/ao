@@ -397,7 +397,6 @@
     <span class="n">pack_tinygemm_scales_and_zeros</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span> <span class="nn">torch.utils._python_dispatch</span> <span class="kn">import</span> <span class="n">return_and_correct_aliasing</span>
-<span class="kn">from</span> <span class="nn">torchao.utils</span> <span class="kn">import</span> <span class="n">find_multiple</span>
 <span class="kn">from</span> <span class="nn">torchao.dtypes.utils</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">_implements</span><span class="p">,</span>
     <span class="n">_dispatch__torch_function__</span><span class="p">,</span>
@@ -410,14 +409,18 @@
 <span class="p">)</span>
 <span class="kn">from</span> <span class="nn">torch.utils._python_dispatch</span> <span class="kn">import</span> <span class="n">is_traceable_wrapper_subclass</span>
 <span class="kn">from</span> <span class="nn">dataclasses</span> <span class="kn">import</span> <span class="n">dataclass</span>
-<span class="kn">from</span> <span class="nn">torchao.utils</span> <span class="kn">import</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span>
+<span class="kn">from</span> <span class="nn">torchao.utils</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">find_multiple</span><span class="p">,</span>
+    <span class="n">TorchAOBaseTensor</span><span class="p">,</span>
+    <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">,</span>
+<span class="p">)</span>
 
 <span class="n">aten</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span>
 
 <span class="c1">###############################</span>
 <span class="c1"># Base Layout Tensor Subclass #</span>
 <span class="c1">###############################</span>
-<span class="k">class</span> <span class="nc">AQTLayout</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
+<span class="k">class</span> <span class="nc">AQTLayout</span><span class="p">(</span><span class="n">TorchAOBaseTensor</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Base class for the layout tensor for `AffineQuantizedTensor`</span>
 <span class="sd">    &quot;&quot;&quot;</span>
@@ -442,19 +445,6 @@
         <span class="n">layout_type</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_layout_type</span><span class="p">()</span>
         <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">(int_data=</span><span class="si">{</span><span class="n">int_data</span><span class="si">}</span><span class="s2">, scale=</span><span class="si">{</span><span class="n">scale</span><span class="si">}</span><span class="s2">, zero_point=</span><span class="si">{</span><span class="n">zero_point</span><span class="si">}</span><span class="s2">, layout_type=</span><span class="si">{</span><span class="n">layout_type</span><span class="si">}</span><span class="s2">)&quot;</span>
 
-    <span class="k">def</span> <span class="nf">_get_to_kwargs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
-        <span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">memory_format</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_nn</span><span class="o">.</span><span class="n">_parse_to</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
-        <span class="n">device</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">device</span> <span class="k">if</span> <span class="n">device</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">device</span>
-        <span class="n">dtype</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span> <span class="k">if</span> <span class="n">dtype</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">dtype</span>
-        <span class="n">memory_format</span> <span class="o">=</span> <span class="p">(</span>
-            <span class="n">memory_format</span> <span class="k">if</span> <span class="n">memory_format</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">torch</span><span class="o">.</span><span class="n">preserve_format</span>
-        <span class="p">)</span>
-        <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{</span>
-            <span class="s2">&quot;device&quot;</span><span class="p">:</span> <span class="n">device</span><span class="p">,</span>
-            <span class="s2">&quot;dtype&quot;</span><span class="p">:</span> <span class="n">dtype</span><span class="p">,</span>
-            <span class="s2">&quot;memory_format&quot;</span><span class="p">:</span> <span class="n">memory_format</span><span class="p">,</span>
-        <span class="p">}</span>
-        <span class="k">return</span> <span class="n">kwargs</span>
 
 <span class="c1">##############################</span>
 <span class="c1"># Tensor Subclass Definition #</span>
@@ -464,7 +454,7 @@
 <span class="k">def</span> <span class="nf">_register_quantized_linear_dispatch</span><span class="p">(</span><span class="n">dispatch_condition</span><span class="p">,</span> <span class="n">impl</span><span class="p">):</span>
     <span class="n">_QLINEAR_DISPATCH_TABLE</span><span class="p">[</span><span class="n">dispatch_condition</span><span class="p">]</span> <span class="o">=</span> <span class="n">impl</span>
 
-<div class="viewcode-block" id="AffineQuantizedTensor"><a class="viewcode-back" href="../../../generated/torchao.dtypes.AffineQuantizedTensor.html#torchao.dtypes.AffineQuantizedTensor">[docs]</a><span class="k">class</span> <span class="nc">AffineQuantizedTensor</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
+<div class="viewcode-block" id="AffineQuantizedTensor"><a class="viewcode-back" href="../../../generated/torchao.dtypes.AffineQuantizedTensor.html#torchao.dtypes.AffineQuantizedTensor">[docs]</a><span class="k">class</span> <span class="nc">AffineQuantizedTensor</span><span class="p">(</span><span class="n">TorchAOBaseTensor</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Affine quantized tensor subclass. Affine quantization means we quantize the floating point tensor with an affine transformation:</span>
 <span class="sd">       quantized_tensor = float_tensor / scale + zero_point</span>
@@ -604,7 +594,7 @@
             <span class="n">input_float</span> <span class="o">=</span> <span class="n">layout_type</span><span class="o">.</span><span class="n">pre_process</span><span class="p">(</span><span class="n">input_float</span><span class="p">)</span>
             <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="n">choose_qparams_affine</span><span class="p">(</span><span class="n">input_float</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">,</span> <span class="n">eps</span><span class="p">,</span> <span class="n">scale_dtype</span><span class="p">,</span> <span class="n">zero_point_dtype</span><span class="p">,</span> <span class="n">preserve_zero</span><span class="p">,</span> <span class="n">zero_point_domain</span><span class="p">)</span>
             <span class="n">int_data</span> <span class="o">=</span> <span class="n">quantize_affine</span><span class="p">(</span><span class="n">input_float</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">,</span> <span class="n">zero_point_domain</span><span class="p">)</span>
-        
+
         <span class="n">int_data</span> <span class="o">=</span> <span class="n">layout_type</span><span class="o">.</span><span class="n">post_process</span><span class="p">(</span><span class="n">int_data</span><span class="p">)</span>
         <span class="n">layout_tensor_ctr</span> <span class="o">=</span> <span class="n">get_layout_tensor_constructor</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">layout_type</span><span class="p">))</span>
         <span class="n">layout_tensor</span> <span class="o">=</span> <span class="n">layout_tensor_ctr</span><span class="p">(</span><span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">layout_type</span><span class="p">)</span>
@@ -654,25 +644,9 @@
     <span class="k">def</span> <span class="nf">layout_type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LayoutType</span><span class="p">:</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">layout_type</span>
 
-    <span class="k">def</span> <span class="nf">_get_to_kwargs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
-        <span class="n">device</span><span class="p">,</span> <span class="n">dtype</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">memory_format</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_nn</span><span class="o">.</span><span class="n">_parse_to</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
-        <span class="n">device</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">device</span> <span class="k">if</span> <span class="n">device</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">device</span>
-        <span class="n">dtype</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span> <span class="k">if</span> <span class="n">dtype</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">dtype</span>
-        <span class="n">memory_format</span> <span class="o">=</span> <span class="p">(</span>
-            <span class="n">memory_format</span> <span class="k">if</span> <span class="n">memory_format</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">torch</span><span class="o">.</span><span class="n">preserve_format</span>
-        <span class="p">)</span>
-        <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{</span>
-            <span class="s2">&quot;device&quot;</span><span class="p">:</span> <span class="n">device</span><span class="p">,</span>
-            <span class="s2">&quot;dtype&quot;</span><span class="p">:</span> <span class="n">dtype</span><span class="p">,</span>
-            <span class="s2">&quot;memory_format&quot;</span><span class="p">:</span> <span class="n">memory_format</span><span class="p">,</span>
-        <span class="p">}</span>
-        <span class="k">return</span> <span class="n">kwargs</span>
-
 <div class="viewcode-block" id="AffineQuantizedTensor.to"><a class="viewcode-back" href="../../../generated/torchao.dtypes.AffineQuantizedTensor.html#torchao.dtypes.AffineQuantizedTensor.to">[docs]</a>    <span class="k">def</span> <span class="nf">to</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="n">kwargs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_to_kwargs</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
         <span class="n">device</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;device&quot;</span><span class="p">)</span>
-        <span class="c1"># not supported yet</span>
-        <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;memory_format&quot;</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">),</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
@@ -827,6 +801,11 @@
                 <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">detach</span><span class="p">)</span>
             <span class="p">)</span>
 
+        <span class="k">if</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">clone</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
+                <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">clone</span><span class="p">)</span>
+            <span class="p">)</span>
+
         <span class="k">if</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">t</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
             <span class="n">tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
             <span class="n">new</span> <span class="o">=</span> <span class="n">tensor</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span>
@@ -957,10 +936,10 @@
         <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">zero_point</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">layout_type</span><span class="p">:</span> <span class="n">LayoutType</span>
-    <span class="p">):</span>	
-        
+    <span class="p">):</span>
+
         <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout_type</span><span class="p">,</span> <span class="n">TensorCoreTiledLayoutType</span><span class="p">)</span>
-                
+
         <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
             <span class="n">int_data</span> <span class="o">=</span> <span class="p">(</span><span class="n">int_data</span><span class="p">[::,</span> <span class="p">::</span><span class="mi">2</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="mi">4</span> <span class="o">|</span> <span class="n">int_data</span><span class="p">[::,</span> <span class="mi">1</span><span class="p">::</span><span class="mi">2</span><span class="p">])</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
             <span class="k">assert</span> <span class="n">int_data</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">,</span> <span class="s2">&quot;torch.ops.aten._convert_weight_to_int4pack in torch 2.5 expects `uint8` dtype&quot;</span>
@@ -996,6 +975,11 @@
         <span class="k">if</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">detach</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
             <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
                 <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">detach</span><span class="p">)</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">clone</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
+                <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">clone</span><span class="p">)</span>
             <span class="p">)</span>
 
         <span class="k">if</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">t</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
