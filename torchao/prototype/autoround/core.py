@@ -1,5 +1,5 @@
-import logging
 import dataclasses
+import logging
 from typing import Callable, Dict, Tuple
 
 import torch
@@ -20,7 +20,9 @@ class _AutoRoundConfig:
     group_size: int = 128
     iters: int = 200
 
+
 _auto_round_config = _AutoRoundConfig()
+
 
 @ar_utils.singleton
 @dataclasses.dataclass
@@ -63,7 +65,7 @@ def prepare_model_for_applying_auto_round_(
         module._forward_hook_handle_for_auto_round = forward_hook_handle
         _optimization_tracker.num_layers += 1
         return module
-    
+
     model.eval()
     ao_quant.quant_api._replace_with_custom_fn_if_matches_filter(
         model, _register_forward_hook, is_target_module

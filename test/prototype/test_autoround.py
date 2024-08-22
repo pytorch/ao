@@ -1,5 +1,5 @@
-import logging
 import unittest
+
 import torch
 from torch.testing._internal.common_utils import TestCase
 from torchao import quantize_
@@ -10,19 +10,6 @@ from torchao.prototype.autoround.core import (
     prepare_model_for_applying_auto_round_,
 )
 from torchao.prototype.autoround.multi_tensor import MultiTensor
-from torchao.quantization.observer import AffineQuantizedMinMaxObserver, PerTensor
-from torchao.quantization.quant_api import (
-    _replace_with_custom_fn_if_matches_filter,
-    int4_weight_only,
-    int8_dynamic_activation_int4_weight,
-    int8_dynamic_activation_int8_weight,
-    int8_weight_only,
-    Quantizer,
-    TwoStepQuantizer,
-    uintx_weight_only,
-)
-from torchao.quantization.quant_primitives import fake_quantize_affine, MappingType
-from torchao.quantization.utils import compute_error
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
@@ -56,7 +43,7 @@ def _is_two_linear(mod, fqn):
 
 class TestAutoRond(TestCase):
     # Adapted from https://github.com/pytorch/ao/pull/721
-    
+
     @unittest.skipIf(not torch.cuda.is_available(), "Requires CUDA")
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "Requires torch 1.5 or later")
     @torch.no_grad()
@@ -69,6 +56,7 @@ class TestAutoRond(TestCase):
         m = M().eval().to(device)
         before_quant = m(*example_inputs)
         from torchao.prototype.autoround import multi_tensor as mt
+
         mt.accelerator_name = "cpu"
         prepare_model_for_applying_auto_round_(
             m, is_target_module=_is_two_linear, bits=7, group_size=32, iters=20

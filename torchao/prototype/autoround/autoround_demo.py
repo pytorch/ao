@@ -39,7 +39,7 @@ def quantize_model_with_autoround_(
     prepare_model_for_applying_auto_round_(
         model, is_target_module, bits, group_size, iters
     )
-    
+
     # Step 2. Caliration and optimization
     model_device = next(model.parameters()).device
     input_ids_lst = []
@@ -84,7 +84,7 @@ def main(args):
     ar_utils.gen_text(model, tokenizer, "Float model", max_length=50)
 
     model = model.to(args.device)
-    
+
     dataloader = ar_utils.get_dataloader(
         tokenizer,
         seqlen=args.seqlen,
@@ -92,7 +92,7 @@ def main(args):
         bs=args.train_bs,
         nsamples=args.nsamples,
     )
-    
+
     quantize_model_with_autoround_(
         model,
         tokenizer,
@@ -168,7 +168,6 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     main(args)
-
 
 
 # p autoround_demo.py -m /models//models/Llama-2-7b-chat-hf/  --iters 20 --device cuda

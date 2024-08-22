@@ -1,12 +1,13 @@
 # ==------------------------------------------------------------------------------------------==
 # Utils for the auto-round (put here temporarily)
 # ==------------------------------------------------------------------------------------------==
+import logging
 import random
 
 import auto_round
-import logging
 import numpy as np
 import torch
+
 
 def _is_package_available(pkg_name, metadata_name=None):
     # Copied from Accelerate https://github.com/huggingface/accelerate
@@ -27,6 +28,7 @@ def _is_package_available(pkg_name, metadata_name=None):
 
 def is_auto_round_available() -> bool:
     return _is_package_available("auto_round")
+
 
 if is_auto_round_available():
     import auto_round
@@ -49,6 +51,7 @@ def _get_accelerator_name():
     else:
         return "cpu"
 
+
 def singleton(cls):
     """Singleton decorator."""
     instances = {}
@@ -60,6 +63,7 @@ def singleton(cls):
         return instances[cls]
 
     return _singleton
+
 
 def freeze_random(seed=0):
     random.seed(seed)
@@ -124,11 +128,13 @@ def gen_example_inputs(tokenizer, device, max_length=20):
     input_ids = inputs["input_ids"].to(device)
     return (input_ids,)
 
+
 def _auto_detect_decoder_cls(model):
     for name, module in model.named_modules():
         if isinstance(module, torch.nn.ModuleList):
             first_module = module[0]
             return type(first_module)
+
 
 def get_float_model_info(model_name_or_path, torch_dtype=torch.float32):
     import transformers
@@ -140,7 +146,9 @@ def get_float_model_info(model_name_or_path, torch_dtype=torch.float32):
     decoder_cls = _auto_detect_decoder_cls(model)
     logging.warning(f"Detected decoder class: {decoder_cls}")
     if decoder_cls is None:
-        raise ValueError(f"Cannot detect the decoder class from the model, please provide it manually.")
+        raise ValueError(
+            f"Cannot detect the decoder class from the model, please provide it manually."
+        )
     return model, tokenizer, decoder_cls
 
 
@@ -170,5 +178,3 @@ def dump_elapsed_time(customized_msg=""):
         return fi
 
     return f
-
-
