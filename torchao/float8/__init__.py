@@ -27,6 +27,7 @@ from torchao.float8.fsdp_utils import precompute_float8_dynamic_scale_for_fsdp
 
 # Needed to load Float8Tensor with weights_only = True
 from torch.serialization import add_safe_globals
+
 add_safe_globals([Float8Tensor, ScaledMMConfig, GemmInputRole, LinearMMConfig])
 
 __all__ = [
