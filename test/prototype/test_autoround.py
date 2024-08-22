@@ -51,7 +51,7 @@ def _is_two_linear(mod, fqn):
     return isinstance(mod, TwoLinear)
 
 
-class TestAutoRond(TestCase):
+class TestAutoRound(TestCase):
 
     @pytest.mark.skip(not TORCH_VERSION_AT_LEAST_2_5, "Requires torch 2.5 or later")
     @parametrize("device", _AVAILABLE_DEVICES)
@@ -88,7 +88,7 @@ class TestAutoRond(TestCase):
         assert after_quant is not None, "Quantized model forward pass failed"
 
 
-instantiate_parametrized_tests(TestAutoRond)
+instantiate_parametrized_tests(TestAutoRound)
 
 if __name__ == "__main__":
     run_tests()
