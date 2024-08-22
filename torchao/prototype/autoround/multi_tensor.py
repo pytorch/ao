@@ -3,39 +3,28 @@ from typing import List
 
 import torch
 from torch.utils._pytree import tree_flatten, tree_unflatten
-import os
-
-def _get_accelerator_name():
-    if torch.xpu.is_available():
-        return "xpu"
-    elif torch.cuda.is_available():
-        return "cuda"
-    else:
-        return "cpu"
 
 
 @dataclasses.dataclass
-class MultiTensorConfig:
-    accelerator_device: str = _get_accelerator_name()
-    offload_device: str = "cpu"
+class _MultiTensorConfig:
+    accelerator_name: bool = False
     ops_to_accelerate: List[str] = dataclasses.field(
         default_factory=lambda: [
-            "linear",
-            "matmul",
-            "bmm",
-            "scaled_dot_product_attention",
+            torch.nn.functional.linear,
+            torch.matmul,
+            torch.bmm,
+            torch.nn.functional.scaled_dot_product_attention,
         ]
     )
 
-# TODO(Yi): refine this logic to expose a simple API(one parameter) for modeling users
-# If we have enough gpu memory:
-# multi_tensor_config_for_large_vram = MultiTensorConfig(accelerator_device="cuda", offload_device="cuda")
-# If we have limited gpu memory:
-# multi_tensor_config_for_small_vram = MultiTensorConfig(accelerator_device="cuda", offload_device="cpu")
-# If we don't have gpu:
-# multi_tensor_config_cpu_only = MultiTensorConfig(accelerator_device="cpu", offload_device="cpu")
 
-multi_tensor_config = MultiTensorConfig(accelerator_device="cuda", offload_device="cuda")
+# Note: As the `MultiTensor` includes a list of tensors, during the calibration stage,
+# placing all output tensors on the GPU would consume a significant amount of GPU memory.
+# This is especially true for models with a large `lm-head`, such as Llama-3.1.
+# In these cases, we load the model onto the CPU and only transfer tensors to the GPU for compute-intensive operations.
+_multi_tensor_config = _MultiTensorConfig(
+    accelerator_name="cuda" if torch.cuda.is_available() else "cpu"
+)
 
 
 class MultiTensor(torch.Tensor):
@@ -135,12 +124,18 @@ class MultiTensor(torch.Tensor):
         with torch._C.DisableTorchFunctionSubclass():
             for i, inp in enumerate(grouped_args):
                 cur_args, cur_kwargs = tree_unflatten(inp, spec)
-                if any(
-                    [op in str(func) for op in multi_tensor_config.ops_to_accelerate]
-                ):
+                cur_arg_device_name = (
+                    ["cpu"]
+                    + [
+                        arg.device.type
+                        for arg in cur_args
+                        if isinstance(arg, torch.Tensor)
+                    ]
+                )[-1]
+                if func in _multi_tensor_config.ops_to_accelerate:
                     cur_args = [
                         (
-                            arg.to(multi_tensor_config.accelerator_device)
+                            arg.to(_multi_tensor_config.accelerator_name)
                             if isinstance(arg, torch.Tensor)
                             else arg
                         )
@@ -148,17 +143,18 @@ class MultiTensor(torch.Tensor):
                     ]
                     cur_kwargs = {
                         k: (
-                            v.to(multi_tensor_config.accelerator_device)
+                            v.to(_multi_tensor_config.accelerator_name)
                             if isinstance(v, torch.Tensor)
                             else v
                         )
                         for k, v in cur_kwargs.items()
                     }
                 out = func(*cur_args, **cur_kwargs)
+                # If the `accelerator_name` is `cuda` and the current argument device name is `cpu`,
+                # we offload the computation results to the GPU.
+                offload = _multi_tensor_config.accelerator_name != cur_arg_device_name
                 outputs.append(
-                    out.to(multi_tensor_config.offload_device)
-                    if isinstance(out, torch.Tensor)
-                    else out
+                    out.to("cpu") if isinstance(out, torch.Tensor) and offload else out
                 )
             grouped_outputs = [tree_flatten(x)[0] for x in outputs]
             out_spec = tree_flatten(outputs[0])[1]
@@ -166,8 +162,8 @@ class MultiTensor(torch.Tensor):
             flat_outputs, non_tensors_equal = cls.grouped_to_flat(grouped_outputs)
             assert non_tensors_equal, (
                 f"ERR: found a function in model: {func} which "
-                + "caused an error in MultiTensor, the function dispatch only works for functions"
-                + " with Tensor outputs or that have the same non-Tensor output value for all across all inputs"
+                "caused an error in MultiTensor, the function dispatch only works for functions"
+                " with Tensor outputs or that have the same non-Tensor output value for all across all inputs"
             )
             return tree_unflatten(flat_outputs, out_spec)
 
