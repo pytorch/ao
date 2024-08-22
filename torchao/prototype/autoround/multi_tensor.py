@@ -1,41 +1,34 @@
 import dataclasses
+import os
 from typing import List
 
 import torch
 from torch.utils._pytree import tree_flatten, tree_unflatten
-import os
 
-def _get_accelerator_name():
-    if torch.xpu.is_available():
-        return "xpu"
-    elif torch.cuda.is_available():
-        return "cuda"
-    else:
-        return "cpu"
+from torchao.prototype.autoround.utils import _get_accelerator_name
+
+accelerator_name: str = _get_accelerator_name()
 
 
 @dataclasses.dataclass
 class MultiTensorConfig:
-    accelerator_device: str = _get_accelerator_name()
-    offload_device: str = "cpu"
+    enable_offload: bool = False
     ops_to_accelerate: List[str] = dataclasses.field(
         default_factory=lambda: [
-            "linear",
-            "matmul",
-            "bmm",
-            "scaled_dot_product_attention",
+            torch.nn.functional.linear,
+            torch.matmul,
+            torch.bmm,
+            torch.nn.functional.scaled_dot_product_attention,
         ]
     )
 
-# TODO(Yi): refine this logic to expose a simple API(one parameter) for modeling users
-# If we have enough gpu memory:
-# multi_tensor_config_for_large_vram = MultiTensorConfig(accelerator_device="cuda", offload_device="cuda")
-# If we have limited gpu memory:
-# multi_tensor_config_for_small_vram = MultiTensorConfig(accelerator_device="cuda", offload_device="cpu")
-# If we don't have gpu:
-# multi_tensor_config_cpu_only = MultiTensorConfig(accelerator_device="cpu", offload_device="cpu")
 
-multi_tensor_config = MultiTensorConfig(accelerator_device="cuda", offload_device="cuda")
+# Note: As the `MultiTensor` includes a list of tensors,
+# if we are doing optimization on GPU, it's easy to cause OOM error for LLMs,
+# especially for model has a big `lm-head`, like Llama-3.1.
+# So, we need to offload the computation results to DRAM.
+# For some computation-intensive operations, we load the tensors to GPU for acceleration.
+multi_tensor_config = MultiTensorConfig(enable_offload=False)
 
 
 class MultiTensor(torch.Tensor):
@@ -135,12 +128,10 @@ class MultiTensor(torch.Tensor):
         with torch._C.DisableTorchFunctionSubclass():
             for i, inp in enumerate(grouped_args):
                 cur_args, cur_kwargs = tree_unflatten(inp, spec)
-                if any(
-                    [op in str(func) for op in multi_tensor_config.ops_to_accelerate]
-                ):
+                if func in multi_tensor_config.ops_to_accelerate:
                     cur_args = [
                         (
-                            arg.to(multi_tensor_config.accelerator_device)
+                            arg.to(accelerator_name)
                             if isinstance(arg, torch.Tensor)
                             else arg
                         )
@@ -148,16 +139,15 @@ class MultiTensor(torch.Tensor):
                     ]
                     cur_kwargs = {
                         k: (
-                            v.to(multi_tensor_config.accelerator_device)
-                            if isinstance(v, torch.Tensor)
-                            else v
+                            v.to(accelerator_name) if isinstance(v, torch.Tensor) else v
                         )
                         for k, v in cur_kwargs.items()
                     }
                 out = func(*cur_args, **cur_kwargs)
                 outputs.append(
-                    out.to(multi_tensor_config.offload_device)
+                    out.to("cpu")
                     if isinstance(out, torch.Tensor)
+                    and multi_tensor_config.enable_offload
                     else out
                 )
             grouped_outputs = [tree_flatten(x)[0] for x in outputs]
@@ -166,8 +156,8 @@ class MultiTensor(torch.Tensor):
             flat_outputs, non_tensors_equal = cls.grouped_to_flat(grouped_outputs)
             assert non_tensors_equal, (
                 f"ERR: found a function in model: {func} which "
-                + "caused an error in MultiTensor, the function dispatch only works for functions"
-                + " with Tensor outputs or that have the same non-Tensor output value for all across all inputs"
+                "caused an error in MultiTensor, the function dispatch only works for functions"
+                " with Tensor outputs or that have the same non-Tensor output value for all across all inputs"
             )
             return tree_unflatten(flat_outputs, out_spec)
 

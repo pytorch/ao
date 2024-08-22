@@ -11,6 +11,15 @@ import torch
 get_dataloader = auto_round.calib_dataset.get_dataloader
 
 
+def _get_accelerator_name():
+    if torch.xpu.is_available():
+        return "xpu"
+    elif torch.cuda.is_available():
+        return "cuda"
+    else:
+        return "cpu"
+
+
 def freeze_random(seed=0):
     random.seed(seed)
 
@@ -28,8 +37,8 @@ def count_tensor_of_type(mod, cls):
     return res
 
 
-def see_memory_usage(message, force=True):
-    # Modified from DeepSpeed
+def see_memory_usage(message: str = "", force=True):
+    # Modified from DeepSpeed https://github.com/microsoft/DeepSpeed
     import gc
     import logging
 
@@ -127,3 +136,24 @@ def dump_elapsed_time(customized_msg=""):
         return fi
 
     return f
+
+
+def _is_package_available(pkg_name, metadata_name=None):
+    # Copied from Accelerate https://github.com/huggingface/accelerate
+    import importlib
+
+    # Check we're not importing a "pkg_name" directory somewhere but the actual library by trying to grab the version
+    package_exists = importlib.util.find_spec(pkg_name) is not None
+    if package_exists:
+        try:
+            # Some libraries have different names in the metadata
+            _ = importlib.metadata.metadata(
+                pkg_name if metadata_name is None else metadata_name
+            )
+            return True
+        except importlib.metadata.PackageNotFoundError:
+            return False
+
+
+def is_auto_round_available() -> bool:
+    return _is_package_available("auto_round")

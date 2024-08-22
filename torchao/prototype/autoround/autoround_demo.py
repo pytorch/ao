@@ -6,96 +6,109 @@ import torchao
 import torchao.prototype.autoround.utils as ar_utils
 
 from torchao.prototype.autoround.core import (
-    auto_round_config,
+    apply_auto_round,
     prepare_model_for_applying_auto_round_,
 )
 from torchao.prototype.autoround.multi_tensor import multi_tensor_config, MultiTensor
+from torchao.quantization import quantize_
+
+ar_utils.freeze_random(42)
 
 
-def quantize_model_with_autoround(
-    model, tokenizer, decoder_cls, auto_round_config=auto_round_config, device="cuda"
+@torch.no_grad()
+def quantize_model_with_autoround_(
+    model,
+    tokenizer,
+    decoder_cls,
+    bits: int = 4,
+    group_size: int = 128,
+    iters: int = 200,
+    quant_lm_head: bool = False,
+    seqlen: int = 2048,
+    bs: int = 4,
+    nsamples: int = 128,
+    offload: bool = False,
 ):
-    with torch.no_grad():
-        # 0. Get the model, tokenizer, and decoder_cls
-        import torchao.prototype.autoround.utils as ar_utils
-
-        # 1. Prepare the model for applying auto-round
-        # User should provide the `is_decoder` function for identifying the decoder block
-        # It can be extended to other modules, such as `lm_head`, the function like:
-        #   is_target_module = lambda mod, fqn: isinstance(mod, decoder_cls) or "lm_head" in fqn
-        if auto_round_config.quant_lm_head:
-            is_decoder = (
-                lambda mod, fqn: isinstance(mod, decoder_cls) or "lm_head" in fqn
-            )
-        else:
-            is_decoder = lambda mod, fqn: isinstance(mod, decoder_cls)
-
-        prepare_model_for_applying_auto_round_(model, is_decoder)
-
-        # 2. Caliration and optimization
-        dataloader = ar_utils.get_dataloader(
-            tokenizer,
-            auto_round_config.seqlen,
-            seed=auto_round_config.seed,
-            bs=auto_round_config.train_bs,
-            nsamples=auto_round_config.nsamples,
+    # 1. Prepare the model for applying auto-round
+    # User need to prepare a `is_target_module` function for identifying the target modules that need to be quantized.
+    if quant_lm_head:
+        is_target_module = (
+            lambda mod, fqn: isinstance(mod, decoder_cls) or "lm_head" in fqn
         )
+    else:
+        is_target_module = lambda mod, fqn: isinstance(mod, decoder_cls)
 
-        input_ids_lst = []
-        attn_mask_lst = []
-        for i, data in enumerate(dataloader):
-            input_ids_lst.append(
-                data["input_ids"].to(multi_tensor_config.offload_device)
-            )
-            attn_mask_lst.append(
-                data["attention_mask"].to(multi_tensor_config.offload_device)
-            )
-        print(
-            f"Number of batches: {len(input_ids_lst)}, shape of all batches: {[inp.shape for inp in input_ids_lst]}"
-        )
+    prepare_model_for_applying_auto_round_(
+        model, is_target_module, bits, group_size, iters
+    )
 
-        multi_t_input_ids = MultiTensor(input_ids_lst)
-        multi_t_attn_mask = MultiTensor(attn_mask_lst)
+    # Step 2. Caliration and optimization
+    dataloader = ar_utils.get_dataloader(
+        tokenizer,
+        seqlen=seqlen,
+        bs=bs,
+        nsamples=nsamples,
+    )
 
-        # The optimization is applied during the forward pass
-        out = model(multi_t_input_ids, multi_t_attn_mask)
-        num_quantized_weight = ar_utils.count_tensor_of_type(
-            model, torchao.dtypes.AffineQuantizedTensor
-        )
-        print(f"Number of quantized weight: {num_quantized_weight}")
+    model_device = next(model.parameters()).device
+    input_ids_lst = []
+    attn_mask_lst = []
+    for i, data in enumerate(dataloader):
+        input_ids_lst.append(data["input_ids"].to(model_device))
+        attn_mask_lst.append(data["attention_mask"].to(model_device))
+    print(
+        f"Number of batches: {len(input_ids_lst)}, shape of all batches: {[inp.shape for inp in input_ids_lst]}"
+    )
 
-        # 4(Optional). Generate text using the optimized model
-        ar_utils.gen_text(
-            model, tokenizer, "Quantized model", device="cuda", max_length=50
-        )
-        return model
+    multi_t_input_ids = MultiTensor(input_ids_lst)
+    multi_t_attn_mask = MultiTensor(attn_mask_lst)
+
+    if offload:
+        multi_tensor_config.enable_offload = "cpu"
+
+    # The optimization is applied during the forward pass
+    out = model(multi_t_input_ids, multi_t_attn_mask)
+
+    # Step 3. Apply the quantization
+    quantize_(model, apply_auto_round(), is_target_module)
+
+    num_quantized_weight = ar_utils.count_tensor_of_type(
+        model, torchao.dtypes.AffineQuantizedTensor
+    )
+    print(f"Quantized {num_quantized_weight} Linear layers.")
+
+    # 4(Optional). Generate text using the optimized model
+    ar_utils.gen_text(model, tokenizer, "Quantized model", max_length=50)
+    return model
 
 
 def main(args):
+    # Get the model, tokenizer, and decoder_cls
     model_name_or_path = args.model_name_or_path
-    # Use `torch.bfloat16` as the default dtype for better perf
+    # Use `torch.bfloat16` as the default dtype for better speed performance
     torch_dtype = torch.bfloat16
     model, tokenizer, decoder_cls = ar_utils.get_float_model_info(
         model_name_or_path, torch_dtype=torch_dtype
     )
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    multi_tensor_config.accelerator_device = device
-    if args.enable_offload:
-        multi_tensor_config.offload_device = "cpu"
-    model = model.to(multi_tensor_config.offload_device)
-    # Workaround for disabling the `kv_cache`, which cause the OOM.
+    # Disabling the `kv_cache`, which cause the OOM.
     model.config.use_cache = False
-    # ar_utils.gen_text(model, tokenizer, "Float model", device="cuda", max_length=50)
+    ar_utils.gen_text(model, tokenizer, "Float model", max_length=50)
 
-    auto_round_config.iters = args.iters
-    auto_round_config.nsamples = args.nsamples
-    auto_round_config.seqlen = args.seqlen
-    auto_round_config.quant_lm_head = args.quant_lm_head
-    auto_round_config.bits = args.bits
-    auto_round_config.train_bs = args.train_bs
-    quantize_model_with_autoround(
-        model, tokenizer, decoder_cls, auto_round_config, device=device
+    model = model.to(args.device)
+    quantize_model_with_autoround_(
+        model,
+        tokenizer,
+        decoder_cls,
+        bits=args.bits,
+        iters=args.iters,
+        quant_lm_head=args.quant_lm_head,
+        seqlen=args.seqlen,
+        bs=args.train_bs,
+        nsamples=args.nsamples,
+        offload=args.enable_offload,
     )
+    # Revert the `kv_cache` value
+    model.config.use_cache = True
 
 
 if __name__ == "__main__":
@@ -114,16 +127,22 @@ if __name__ == "__main__":
         "--iters", default=200, type=int, help="Number of iterations for optimization"
     )
     parser.add_argument(
-        "--bits", default=3, type=int, help="Number of bits for quantization"
+        "--bits", default=4, type=int, help="Number of bits for quantization"
     )
     parser.add_argument(
         "--train_bs", default=4, type=int, help="Batch size for training"
     )
     parser.add_argument(
-        "--nsamples", default=128, type=int, help="Number of samples for optimization"
+        "--nsamples",
+        default=128,
+        type=int,
+        help="Number of samples for calibration dataset",
     )
     parser.add_argument(
-        "--seqlen", default=2048, type=int, help="Sequence length for optimization"
+        "--seqlen",
+        default=2048,
+        type=int,
+        help="Sequence length for calibration dataset",
     )
     parser.add_argument(
         "--quant_lm_head",
@@ -132,10 +151,24 @@ if __name__ == "__main__":
         help="Quantize the `lm_head` or not",
     )
     parser.add_argument(
+        "-d",
+        "--device",
+        default="cuda",
+        type=str,
+        choices=["cpu", "cuda"],
+        help="Device for running the model",
+    )
+    parser.add_argument(
+        "-offload",
         "--enable_offload",
         default=False,
         action="store_true",
-        help="Enable the offload for MultiTensor",
+        help="Enable the offload for `MultiTensor`",
     )
     args = parser.parse_args()
     main(args)
+
+
+# p autoround_demo.py -m /models//models/Llama-2-7b-chat-hf/  --iters 20 --device cpu
+# p autoround_demo.py -m /models//models/Llama-2-7b-chat-hf/  --iters 20 --device cuda
+# p autoround_demo.py -m /models/Meta-Llama-3.1-8B-Instruct/  --iters 20 --device cpu --enable_offload
