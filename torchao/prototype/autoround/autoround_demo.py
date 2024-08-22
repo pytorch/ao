@@ -9,7 +9,7 @@ from torchao.prototype.autoround.core import (
     apply_auto_round,
     prepare_model_for_applying_auto_round_,
 )
-from torchao.prototype.autoround.multi_tensor import multi_tensor_config, MultiTensor
+from torchao.prototype.autoround.multi_tensor import MultiTensor
 from torchao.quantization import quantize_
 
 ar_utils.freeze_random(42)
@@ -25,7 +25,7 @@ def quantize_model_with_autoround_(
     group_size: int = 128,
     iters: int = 200,
     quant_lm_head: bool = False,
-    offload: bool = False,
+    speedup_optimization: bool = True,
 ):
     # Step 1. Prepare the model for applying auto-round
     # User need to prepare a `is_target_module` function for identifying the target modules that need to be quantized.
@@ -35,13 +35,25 @@ def quantize_model_with_autoround_(
         )
     else:
         is_target_module = lambda mod, fqn: isinstance(mod, decoder_cls)
+    model_device = next(model.parameters()).device
+    device = (
+        "cuda"
+        if (model_device.type == "cuda")
+        or (speedup_optimization and torch.cuda.is_available())
+        else "cpu"
+    )
 
     prepare_model_for_applying_auto_round_(
-        model, is_target_module, bits, group_size, iters
+        model,
+        is_target_module,
+        bits,
+        group_size,
+        iters,
+        device=device,
     )
 
     # Step 2. Caliration and optimization
-    model_device = next(model.parameters()).device
+
     input_ids_lst = []
     attn_mask_lst = []
     for data in dataloader:
@@ -54,8 +66,8 @@ def quantize_model_with_autoround_(
     multi_t_input_ids = MultiTensor(input_ids_lst)
     multi_t_attn_mask = MultiTensor(attn_mask_lst)
 
-    if offload:
-        multi_tensor_config.enable_offload = True
+    # if offload:
+    #     multi_tensor_config.enable_offload = True
 
     # The optimization is applied during the forward pass
     out = model(multi_t_input_ids, multi_t_attn_mask)
@@ -83,7 +95,7 @@ def main(args):
     model.config.use_cache = False
     ar_utils.gen_text(model, tokenizer, "Float model", max_length=50)
 
-    model = model.to(args.device)
+    model = model.to(args.model_device)
 
     dataloader = ar_utils.get_dataloader(
         tokenizer,
@@ -101,7 +113,7 @@ def main(args):
         bits=args.bits,
         iters=args.iters,
         quant_lm_head=args.quant_lm_head,
-        offload=args.enable_offload,
+        speedup_optimization=args.speedup_optimization,
     )
     # Revert the `use_cache`
     model.config.use_cache = True
@@ -125,13 +137,16 @@ if __name__ == "__main__":
         help="Dataset name for calibration",
     )
     parser.add_argument(
-        "--iters", default=200, type=int, help="Number of iterations for optimization"
+        "--iters",
+        default=200,
+        type=int,
+        help="Number of iterations for auto-round optimization",
     )
     parser.add_argument(
         "--bits", default=4, type=int, help="Number of bits for quantization"
     )
     parser.add_argument(
-        "--train_bs", default=4, type=int, help="Batch size for training"
+        "--train_bs", default=4, type=int, help="Batch size for auto-round optimization"
     )
     parser.add_argument(
         "--nsamples",
@@ -153,22 +168,18 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-d",
-        "--device",
+        "--model_device",
         default="cuda",
         type=str,
         choices=["cpu", "cuda"],
-        help="Device for running the model",
+        help="Device for loading the float model",
     )
     parser.add_argument(
-        "-offload",
-        "--enable_offload",
+        "-s",
+        "--speedup_optimization",
         default=False,
         action="store_true",
-        help="Enable the offload for `MultiTensor`",
+        help="Load the compute-intensive operations to GPU for acceleration",
     )
     args = parser.parse_args()
     main(args)
-
-
-# p autoround_demo.py -m /models//models/Llama-2-7b-chat-hf/  --iters 20 --device cuda
-# p autoround_demo.py -m /models/Meta-Llama-3.1-8B-Instruct/  --iters 20 --device cpu --enable_offload

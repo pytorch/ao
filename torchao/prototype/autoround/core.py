@@ -1,6 +1,6 @@
 import dataclasses
 import logging
-from typing import Callable, Dict, Tuple
+from typing import Callable, Dict, Optional, Tuple
 
 import torch
 from torch.utils._pytree import tree_flatten, tree_unflatten
@@ -8,7 +8,7 @@ from torch.utils._pytree import tree_flatten, tree_unflatten
 import torchao.prototype.autoround.utils as ar_utils
 import torchao.quantization as ao_quant
 from torchao.dtypes import TensorCoreTiledLayoutType, to_affine_quantized_static
-from torchao.prototype.autoround.multi_tensor import accelerator_name, MultiTensor
+from torchao.prototype.autoround.multi_tensor import _multi_tensor_config, MultiTensor
 from torchao.quantization.quant_primitives import ZeroPointDomain
 from torchao.utils import find_multiple
 
@@ -41,7 +41,10 @@ def prepare_model_for_applying_auto_round_(
     bits: int = 4,
     group_size: int = 128,
     iters: int = 200,
+    device: Optional[torch.types.Device] = None,
 ):
+
+    _multi_tensor_config.accelerator_name = device
 
     _auto_round_config.bits = bits
     _auto_round_config.group_size = group_size
@@ -204,7 +207,7 @@ def _apply_auto_round_optimization(
                 "Please install it with `pip install https://github.com/intel/auto-round.git@patch-for-ao-2`"
             )
         )
-    block = block.to(accelerator_name)
+    block = block.to(_multi_tensor_config.accelerator_name)
     _optimization_tracker.optimized_layers += 1
     logging.warning(
         "Apply auto-round optimization on layer %d / %d.",
@@ -241,7 +244,7 @@ def _apply_auto_round_optimization(
             block,
             inputs=block_inputs,
             outputs=block_outputs,
-            device=accelerator_name,
+            device=_multi_tensor_config.accelerator_name,
         )
     ar_utils.see_memory_usage("After apply auto-round.")
 

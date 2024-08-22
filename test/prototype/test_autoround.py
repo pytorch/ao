@@ -1,7 +1,14 @@
 import unittest
 
+import pytest
+
 import torch
-from torch.testing._internal.common_utils import TestCase
+from torch.testing._internal.common_utils import (
+    instantiate_parametrized_tests,
+    parametrize,
+    run_tests,
+    TestCase,
+)
 from torchao import quantize_
 
 from torchao.dtypes import AffineQuantizedTensor
@@ -12,7 +19,10 @@ from torchao.prototype.autoround.core import (
 from torchao.prototype.autoround.multi_tensor import MultiTensor
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
+_AVAILABLE_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 
+
+# Copied from https://github.com/pytorch/ao/pull/721
 class TwoLinear(torch.nn.Module):
     def __init__(self, in_features=64, out_features=128):
         super().__init__()
@@ -42,24 +52,24 @@ def _is_two_linear(mod, fqn):
 
 
 class TestAutoRond(TestCase):
-    # Adapted from https://github.com/pytorch/ao/pull/721
 
-    @unittest.skipIf(not torch.cuda.is_available(), "Requires CUDA")
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "Requires torch 1.5 or later")
+    @pytest.mark.skip(not TORCH_VERSION_AT_LEAST_2_5, "Requires torch 1.5 or later")
+    @parametrize("device", _AVAILABLE_DEVICES)
     @torch.no_grad()
-    def test_auto_round(self):
-        device = "cpu"
+    def test_auto_round(self, device: str):
         example_inputs = (
             torch.randn(32, 64).to(device),
             torch.randn(32, 64).to(device),
         )
         m = M().eval().to(device)
         before_quant = m(*example_inputs)
-        from torchao.prototype.autoround import multi_tensor as mt
-
-        mt.accelerator_name = "cpu"
         prepare_model_for_applying_auto_round_(
-            m, is_target_module=_is_two_linear, bits=7, group_size=32, iters=20
+            m,
+            is_target_module=_is_two_linear,
+            bits=7,
+            group_size=32,
+            iters=20,
+            device=device,
         )
         input1 = []
         input2 = []
@@ -78,5 +88,7 @@ class TestAutoRond(TestCase):
         assert after_quant is not None, "Quantized model forward pass failed"
 
 
+instantiate_parametrized_tests(TestAutoRond)
+
 if __name__ == "__main__":
-    unittest.main()
+    run_tests()
