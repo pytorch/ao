@@ -179,7 +179,7 @@ if __name__ == "__main__":
         name=args.run_name,
         config=args,
         dir="/tmp",
-        mode="disabled" if args.project is not None else None,
+        mode="disabled" if args.project is None else None,
     )
     dloader = get_dloader(args, True)
     print(f"Train dataset: {len(dloader.dataset):,} images")
@@ -257,7 +257,11 @@ if __name__ == "__main__":
                 if args.cosine_lr_scheduler:
                     lr = lr_schedule.get_lr(step)
                     for param_group in optim.param_groups:
-                        param_group["lr"] = lr
+                        if isinstance(param_group["lr"], torch.Tensor):
+                            param_group["lr"].fill_(lr)
+                        else:
+                            assert False
+                            param_group["lr"] = lr
 
                 if step % log_interval == 0:
                     log_dict = dict(loss=loss.item(), lr=optim.param_groups[0]["lr"])
@@ -289,4 +293,6 @@ if __name__ == "__main__":
             print(f"Epoch {epoch_idx + 1}/{args.n_epochs}: val_acc={val_acc.item() * 100:.2f}")
             logger.log(dict(val_acc=val_acc), step=step)
 
-    print(f"Max memory used: {torch.cuda.max_memory_allocated() / 1e9:.02f} GB")
+    peak_mem = torch.cuda.max_memory_allocated() / 1e9
+    print(f"Max memory used: {peak_mem:.02f} GB")
+    logger.log(dict(max_memory_allocated=peak_mem))

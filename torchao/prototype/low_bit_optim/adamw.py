@@ -20,7 +20,7 @@ class _AdamWBase(Optimizer):
             raise ValueError("Invalid beta parameter at index 0: {}".format(betas[0]))
         if not 0.0 <= betas[1] < 1.0:
             raise ValueError("Invalid beta parameter at index 1: {}".format(betas[1]))
-        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, amsgrad=amsgrad)
+        defaults = dict(lr=torch.tensor(lr), betas=betas, eps=eps, weight_decay=weight_decay, amsgrad=amsgrad)
         super().__init__(params, defaults)
         self.block_size = block_size
 
@@ -81,6 +81,10 @@ class _AdamWBase(Optimizer):
                 # practically, only lr is changed during training.
                 # NOTE: if lr is changed at every step, moving lr to CUDA can slow down training 3-4%.
                 if not isinstance(group["lr"], Tensor):
+                    raise ValueError(
+                        "lr was changed to a non-Tensor object. If you want to update lr, please use "
+                        "optim.param_groups[0]['lr'].fill_(new_lr)"
+                    )
                     group["lr"] = torch.tensor(group["lr"], device=p.device)
 
                 p_grad_state = (
