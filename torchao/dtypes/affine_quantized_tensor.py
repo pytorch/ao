@@ -1,5 +1,5 @@
 import torch
-from typing import Dict, Callable, Any, Tuple, Optional, Union
+from typing import Dict, Callable, Any, Tuple, Optional
 from collections import defaultdict
 import functools
 import math
