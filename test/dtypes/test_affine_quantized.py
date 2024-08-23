@@ -8,12 +8,14 @@ from torchao.quantization.quant_api import (
     int8_dynamic_activation_int4_weight,
     int8_dynamic_activation_int8_weight,
     int8_dynamic_activation_int8_semi_sparse_weight,
+    float8_weight_only,
 )
 import torch
 import unittest
 import tempfile
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
+    TORCH_VERSION_AFTER_2_5,
 )
 
 
@@ -47,6 +49,22 @@ class TestAffineQuantized(TestCase):
                 f.seek(0)
                 # `weights_only=True` is enabled for torch 2.5+
                 if TORCH_VERSION_AT_LEAST_2_5:
+                    _ = torch.load(f, weights_only=True)
+                else:
+                    _ = torch.load(f, weights_only=False)
+
+
+class TestAffineQuantizedFloat(TestCase):
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_weights_only(self):
+        for apply_quant in [float8_weight_only()]:
+            l = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
+            ql = apply_quant(l)
+            with tempfile.NamedTemporaryFile() as f:
+                torch.save(ql.state_dict(), f)
+                f.seek(0)
+                # `weights_only=True` is enabled for torch 2.5+
+                if TORCH_VERSION_AFTER_2_5:
                     _ = torch.load(f, weights_only=True)
                 else:
                     _ = torch.load(f, weights_only=False)
