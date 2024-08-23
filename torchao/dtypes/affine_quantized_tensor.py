@@ -36,6 +36,7 @@ from torchao.utils import (
 
 aten = torch.ops.aten
 
+
 ###############################
 # Base Layout Tensor Subclass #
 ###############################
@@ -198,8 +199,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         use_hqq: bool = False,
     ):
         original_shape = input_float.shape
+        input_float = layout_type.pre_process(input_float)
 
-        if(use_hqq):
+        if use_hqq:
             assert zero_point_domain == ZeroPointDomain.FLOAT and mapping_type == MappingType.ASYMMETRIC and quant_min==0, "Invalid input parameters for HQQ quantization."
             nbits = int(math.log2(quant_max + 1))
             axis  = 1 if (block_size[0]==1) else 0
@@ -208,11 +210,10 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             device = input_float.device
             int_data, scale, zero_point, _ = quantize_affine_hqq(input_float, nbits=nbits, group_size=group_size, axis=axis, compute_dtype=compute_dtype, device=device, verbose=False, raw_output=False)
             int_data = int_data.to(target_dtype)
-
         else:
-            input_float = layout_type.pre_process(input_float)
             scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain)
             int_data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
+            # Note: output will be uint8 tensor for sub byte tensors for now
 
         int_data = layout_type.post_process(int_data)
         layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
