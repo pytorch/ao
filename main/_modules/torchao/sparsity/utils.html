@@ -387,6 +387,7 @@
     <span class="s2">&quot;create_block_sparse_tensor&quot;</span><span class="p">,</span>
     <span class="s2">&quot;create_semi_structured_tensor&quot;</span><span class="p">,</span>
     <span class="s2">&quot;PerChannelNormObserver&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;mask_creator&quot;</span><span class="p">,</span>
 <span class="p">]</span>
 
 <span class="k">def</span> <span class="nf">create_block_sparse_tensor</span><span class="p">(</span><span class="n">M</span><span class="p">,</span> <span class="n">N</span><span class="p">,</span> <span class="n">blocksize</span><span class="p">,</span> <span class="n">sparsity</span><span class="p">,</span> <span class="n">dtype</span><span class="p">):</span>
@@ -467,6 +468,40 @@
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
             <span class="s2">&quot;PerChannelNormObserver is designed to store activations only. &quot;</span>
         <span class="p">)</span></div>
+
+
+<span class="k">def</span> <span class="nf">mask_creator</span><span class="p">(</span>
+        <span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">N</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
+        <span class="n">M</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Class for creating N:M sparsity masks.</span>
+<span class="sd">    Masks will be created using the N:M ratio, where for every block of </span>
+<span class="sd">    M weights, N will be pruned based on ranked weight value. Each mask </span>
+<span class="sd">    will correspond to the given tensor.</span>
+<span class="sd">    :param tensor: The input tensor to create a mask for</span>
+<span class="sd">    :param N: The number of weights in a group to keep</span>
+<span class="sd">    :param M: The size of a weight group</span>
+<span class="sd">    :return: A mask tensor with the same shape as the input tensor</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">mask</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="c1"># for i, tensor in enumerate(tensors):</span>
+    <span class="k">if</span> <span class="n">tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">M</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Tensor of size </span><span class="si">{</span><span class="n">tensor</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2"> can&#39;t be evenly divided into &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">M</span><span class="si">}</span><span class="s2"> groups&quot;</span><span class="p">)</span>
+
+    <span class="n">num_groups</span> <span class="o">=</span> <span class="n">tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">//</span> <span class="n">M</span>
+
+    <span class="c1"># N:M sparsity for linear layers</span>
+    <span class="n">tensor_temp</span> <span class="o">=</span> <span class="n">tensor</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">num_groups</span><span class="p">,</span> <span class="n">M</span><span class="p">)</span>
+    <span class="n">index</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="n">tensor_temp</span><span class="p">,</span> <span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)[:,</span> <span class="p">:</span><span class="nb">int</span><span class="p">(</span><span class="n">M</span> <span class="o">-</span> <span class="n">N</span><span class="p">)]</span>
+
+    <span class="n">w_b</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">tensor_temp</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">tensor_temp</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+    <span class="n">mask</span> <span class="o">=</span> <span class="n">w_b</span><span class="o">.</span><span class="n">scatter_</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="n">index</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">mask</span>
 </pre></div>
 
              </article>
