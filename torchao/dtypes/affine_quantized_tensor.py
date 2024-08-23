@@ -188,8 +188,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         mapping_type: MappingType,
         block_size: Tuple[int, ...],
         target_dtype: torch.dtype,
-        quant_min: Optional[int] = None,
-        quant_max: Optional[int]  = None,
+        quant_min: Optional[Union[int, float]] = None,
+        quant_max: Optional[Union[int, float]]  = None,
         eps: Optional[float] = None,
         scale_dtype: Optional[torch.dtype] = None,
         zero_point_dtype: Optional[torch.dtype] = None,
@@ -258,42 +258,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             quant_max,
             zero_point_domain,
             dtype=input_float.dtype,
-        )
-
-    @classmethod
-    def from_float_float8(
-        cls,
-        input_float: torch.Tensor,
-        mapping_type: MappingType,
-        block_size: Tuple[int, ...],
-        target_dtype: torch.dtype,
-        quant_min: Optional[float] = None,
-        quant_max: Optional[float]  = None,
-        eps: Optional[float] = None,
-        scale_dtype: Optional[torch.dtype] = None,
-        zero_point_dtype: Optional[torch.dtype] = None,
-        preserve_zero: bool = True,
-        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
-        layout_type: LayoutType = PlainLayoutType(),
-    ):
-        original_shape = input_float.shape
-        input_float = layout_type.pre_process(input_float)
-
-        scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain)
-        float8_data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
-        
-        float8_data = layout_type.post_process(float8_data)
-
-        layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
-        layout_tensor = layout_tensor_ctr(float8_data, scale, zero_point, layout_type)
-        return cls(
-            layout_tensor,
-            block_size,
-            original_shape,
-            quant_min,
-            quant_max,
-            zero_point_domain,
-            dtype=input_float.dtype
         )
 
     @property
@@ -1011,7 +975,6 @@ def _(func, types, args, kwargs):
 
 to_affine_quantized = AffineQuantizedTensor.from_float
 to_affine_quantized_static = AffineQuantizedTensor.from_float_static
-to_affine_quantized_float8 = AffineQuantizedTensor.from_float_float8
 
 if TORCH_VERSION_AT_LEAST_2_5:
     # Allow a model with AffineQuantizedTensor weights to be loaded with `weights_only=True`

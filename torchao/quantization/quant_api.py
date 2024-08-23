@@ -494,7 +494,6 @@ def float8_weight_only():
     """
     def apply_float8wo_quant(weight):
         # avoid circular dep
-        from torchao.dtypes import to_affine_quantized_float8
 
         mapping_type = MappingType.SYMMETRIC
         target_dtype = torch.float8_e4m3fn
