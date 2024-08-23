@@ -134,5 +134,21 @@ class TestAffineQuantized(TestCase):
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantized)
 
+class TestAffineQuantizedFloat(TestCase):
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_weights_only(self):
+        for apply_quant in [float8_weight_only()]:
+            l = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
+            ql = apply_quant(l)
+            with tempfile.NamedTemporaryFile() as f:
+                torch.save(ql.state_dict(), f)
+                f.seek(0)
+                # `weights_only=True` is enabled for torch 2.5+
+                if TORCH_VERSION_AFTER_2_5:
+                    _ = torch.load(f, weights_only=True)
+                else:
+                    _ = torch.load(f, weights_only=False)
+
+
 if __name__ == "__main__":
     run_tests()
