@@ -38,6 +38,21 @@ class Linear16(torch.nn.Module):
 
 @pytest.mark.parametrize("bit_width", bit_widths)
 @pytest.mark.parametrize("group_size", group_sizes)
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="only works with fix in the nightly build")
+def test_uintx_quant_on_cpu_then_move_to_cuda(bit_width, group_size):
+    scale = 512
+    fp16_mod_on_cpu = Linear16(scale, "cpu")
+    quantize_(fp16_mod_on_cpu, uintx_weight_only(bit_width, group_size=group_size))
+    test_input_on_cpu = torch.randn(scale*2, dtype=torch.float16, device="cpu")
+    output_on_cpu = fp16_mod_on_cpu(test_input_on_cpu)
+    fp16_mod_on_cuda = fp16_mod_on_cpu.to("cuda")
+    test_input_on_cuda = test_input_on_cpu.to("cuda")
+    output_on_cuda = fp16_mod_on_cuda(test_input_on_cuda)
+    assert torch.allclose(output_on_cpu, output_on_cuda.cpu(), atol=1.0e-3), "The output of the model on CPU and CUDA should be close"
+
+@pytest.mark.parametrize("bit_width", bit_widths)
+@pytest.mark.parametrize("group_size", group_sizes)
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="only works with fix in the nightly build")

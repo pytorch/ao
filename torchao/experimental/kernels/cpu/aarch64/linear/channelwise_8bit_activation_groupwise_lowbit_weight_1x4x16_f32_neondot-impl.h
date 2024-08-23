@@ -1,4 +1,8 @@
-// (c) Meta Platforms, Inc. and affiliates. Confidential and proprietary.
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// All rights reserved.
+//
+// This source code is licensed under the license found in the
+// LICENSE file in the root directory of this source tree.
 
 #pragma once
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/bitpack.h>
@@ -218,7 +222,21 @@ void kernel_impl(
       if constexpr (has_clamp) {
         res = clamp(res, clamp_min, clamp_max);
       }
-      vst1q_f32(output + m_idx * output_m_stride + n_idx, res);
+
+      // Store result
+      int remaining = n - n_idx;
+      float* store_loc = output + m_idx * output_m_stride + n_idx;
+      if (remaining >= 4) {
+        vst1q_f32(store_loc, res);
+      } else if (remaining >= 3) {
+        vst1_f32(store_loc, vget_low_f32(res));
+        *(store_loc + 2) = res[2];
+      } else if (remaining >= 2) {
+        vst1_f32(store_loc, vget_low_f32(res));
+      } else {
+        *(store_loc) = res[0];
+      }
+
     } // n_idx
     activation_data_byte_ptr += (activation_ptr - activation_data_byte_ptr);
   } // m_idx

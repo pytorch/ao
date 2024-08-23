@@ -12,7 +12,7 @@ def intN_weight_only(group_size=32, n=8, symmetric=False):
     '''
         Apply int N-bit weight only quantization to a linear layer.
         Args:
-            `groupsize`: parameter for quantization, controls the granularity of quantization, smaller size is more fine grained, choices are [512, 256, 128, 64, 32]
+            `group_size`: parameter for quantization, controls the granularity of quantization, smaller size is more fine grained, choices are [512, 256, 128, 64, 32]
             `n`: number of bits to quantize to, choices are [8, 6, 5, 4, 3, 2]
         Usage:
             from torchao.quantization import quantize_

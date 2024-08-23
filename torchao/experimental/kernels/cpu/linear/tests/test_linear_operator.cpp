@@ -30,7 +30,8 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight(
           has_weight_zeros,
           has_bias,
           has_clamp);
-  float output[m * n];
+
+  auto output = std::vector<float>(m * n);
 
   for (auto linear_scheduling_policy :
        {LinearTileSchedulingPolicy::single_mc_parallel_nc,
@@ -82,7 +83,7 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight(
           linear_tiling_params,
           linear_scheduling_policy,
           activation_data_buffer.get(),
-          output,
+          output.data(),
           m,
           n,
           k,
