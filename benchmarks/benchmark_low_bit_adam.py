@@ -260,7 +260,6 @@ if __name__ == "__main__":
                         if isinstance(param_group["lr"], torch.Tensor):
                             param_group["lr"].fill_(lr)
                         else:
-                            assert False
                             param_group["lr"] = lr
 
                 if step % log_interval == 0:

@@ -85,7 +85,6 @@ class _AdamBase(Optimizer):
                         "lr was changed to a non-Tensor object. If you want to update lr, please use "
                         "optim.param_groups[0]['lr'].fill_(new_lr)"
                     )
-                    group["lr"] = torch.tensor(group["lr"], device=p.device)
 
                 p_grad_state = (
                     p,
