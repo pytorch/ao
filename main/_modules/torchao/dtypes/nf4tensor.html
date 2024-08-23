@@ -720,7 +720,7 @@
     <span class="c1"># Convert Non NF4Tensor into NF4 for copy in</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">copy_in</span><span class="p">,</span> <span class="n">NF4Tensor</span><span class="p">):</span>
         <span class="n">copy_in_nf4</span> <span class="o">=</span> <span class="n">NF4Tensor</span><span class="o">.</span><span class="n">from_tensor</span><span class="p">(</span>
-            <span class="n">copy_in</span><span class="p">,</span> <span class="n">original</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span> <span class="n">original</span><span class="o">.</span><span class="n">scaler_block_size</span>
+            <span class="n">copy_in</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">original</span><span class="o">.</span><span class="n">device</span><span class="p">),</span> <span class="n">original</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span> <span class="n">original</span><span class="o">.</span><span class="n">scaler_block_size</span>
         <span class="p">)</span>
         <span class="k">return</span> <span class="n">original</span><span class="o">.</span><span class="n">copy_</span><span class="p">(</span><span class="n">copy_in_nf4</span><span class="p">)</span>
 
