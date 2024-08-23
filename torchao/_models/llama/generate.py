@@ -65,7 +65,9 @@ def decode_one_token(model: Transformer, x: torch.Tensor, input_pos: torch.Tenso
 
 def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torch.Tensor, num_new_tokens: int, callback=lambda _: _, **sampling_kwargs):
     new_tokens, new_probs = [], []
-    for i in range(num_new_tokens):
+    for i in range(min(num_new_tokens, 100)):
+        if i%100 == 0:
+            print(i)
         with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_mem_efficient=False, enable_math=True): # Actually better for Inductor to codegen attention here
             next_token, next_prob = decode_one_token(
                 model, cur_token, input_pos, **sampling_kwargs
@@ -112,15 +114,15 @@ def generate(
 
     # setup model caches
     with torch.device(device):
-        model.setup_caches(max_batch_size=1, max_seq_length=max_seq_length)
-        if kv_cache_quantization:
-            from model import AffineQuantizedKVCache
-            from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
-            _replace_with_custom_fn_if_matches_filter(
-                model,
-                AffineQuantizedKVCache.from_float,
-                lambda x, y: isinstance(x, torchao._models.llama.model.KVCache),
-            )
+        model.setup_caches(max_batch_size=1, max_seq_length=max_seq_length, kv_cache_quantization=kv_cache_quantization, quadratic_causal_mask=False, prompt_length=T)
+        # if kv_cache_quantization:
+        #     from model import AffineQuantizedKVCache
+        #     from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
+        #     _replace_with_custom_fn_if_matches_filter(
+        #         model,
+        #         AffineQuantizedKVCache.from_float,
+        #         lambda x, y: isinstance(x, torchao._models.llama.model.KVCache),
+        #     )
 
 
     # format model input
@@ -129,11 +131,11 @@ def generate(
     # execute prefill
     next_token = prefill(model, x, input_pos, **sampling_kwargs).clone()
     seq[T] = next_token
-
     # execute token generation
     input_pos = torch.tensor([T], device=device, dtype=torch.int)
     generated_tokens, _ = decode_n_tokens(model, next_token.view(1, -1), input_pos, new_tokens-1, callback=callback, **sampling_kwargs)
-    seq[T + 1:] = torch.cat(generated_tokens)
+    
+    seq = torch.cat((seq[:T+1], *generated_tokens))
 
     return seq
 
@@ -253,7 +255,7 @@ def main(
         if compile_prefill:
             prefill = torch.compile(prefill, fullgraph=True, dynamic=True)
 
-
+    # torch.cuda.memory._record_memory_history(True,trace_alloc_max_entries=250000, trace_alloc_record_context=True)
     aggregate_metrics = {
         'tokens_per_sec': [],
     }
@@ -304,6 +306,12 @@ def main(
                 top_k=top_k,
                 kv_cache_quantization=kv_cache_quantization,
             )
+            # snapshot = torch.cuda.memory._snapshot()
+            # with open("kv_cache_quant" + '.pickle', 'wb') as f:
+            #     from pickle import dump
+            #     dump(snapshot, f)
+            # print("peak mem", torch.cuda.max_memory_reserved() /1e9)
+            # breakpoint()
         if i == -1:
             print(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
             continue
@@ -316,7 +324,10 @@ def main(
                 tok_list = y.tolist()
                 # truncate text after end of string token
                 tokens = tok_list if not tokenizer.eos_id() in y else tok_list[:tok_list.index(tokenizer.eos_id())]
-                print(tokenizer.decode(tokens))
+                try:
+                    print(tokenizer.decode(tokens))
+                except:
+                    pass
         else:
             print()
         tokens_generated = y.size(0) - prompt_length
@@ -341,7 +352,6 @@ def main(
         result_txt += f"--checkpoint_path {checkpoint_path} "
         result_txt += f"--device {device} "
         result_txt += f"--precision {precision} "
-        result_txt += f"--kv_cache_quantization " if kv_cache_quantization else ""
         result_txt += f"--compile " if compile else ""
         result_txt += f"--compile_prefill " if compile_prefill else ""
         result_txt += f"--profile {profile} " if profile else ""
@@ -350,6 +360,7 @@ def main(
         result_txt += f"--max_new_tokens {max_new_tokens} "
         result_txt += f"--top_k {top_k} "
         result_txt += f"--temperature {temperature} "
+        result_txt += f"--kv_cache_quantization " if kv_cache_quantization else ""
         f=open(write_result, "a")
         f.write(result_txt)
         f.close()
@@ -362,7 +373,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--prompt', type=str, default="Hello, my name is", help='Input prompt.')
     parser.add_argument('--interactive', action='store_true', help='Whether to launch in interactive mode')
-    parser.add_argument('--num_samples', type=int, default=5, help='Number of samples.')
+    parser.add_argument('--num_samples', type=int, default=1, help='Number of samples.')
     parser.add_argument('--max_new_tokens', type=int, default=200, help='Maximum number of new tokens.')
     parser.add_argument('--top_k', type=int, default=200, help='Top-k for sampling.')
     parser.add_argument('--temperature', type=float, default=0.8, help='Temperature for sampling.')

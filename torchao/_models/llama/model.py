@@ -72,7 +72,7 @@ transformer_configs = {
     "stories15M": dict(n_layer=6, n_head=6, dim=288),
     "stories110M": dict(n_layer=12, n_head=12, dim=768),
     "Llama-3-8B": dict(block_size=8192, n_layer=32, n_head=32, n_local_heads=8, dim=4096, intermediate_size=14336, vocab_size=128256, rope_base=500000),
-    "Llama-3.1-8B": dict(block_size=8192, n_layer=32, n_head=32, n_local_heads=8, dim=4096, intermediate_size=14336, vocab_size=128256, rope_base=500000, use_scaled_rope=True)
+    "Llama-3.1-8B": dict(block_size=131072, n_layer=32, n_head=32, n_local_heads=8, dim=4096, intermediate_size=14336, vocab_size=128256, rope_base=500000, use_scaled_rope=True)
 }
 
 # this is a model specific variable that controls whether index_put is used for the kv_cache update, 
@@ -153,9 +153,10 @@ class Transformer(nn.Module):
         self.max_batch_size = -1
         self.max_seq_length = -1
 
-    def setup_caches(self, max_batch_size, max_seq_length, training: bool = False):
+    def setup_caches(self, max_batch_size, max_seq_length, training: bool=False, kv_cache_quantization=None, quadratic_causal_mask=True, prompt_length=None):
         if self.max_seq_length >= max_seq_length and self.max_batch_size >= max_batch_size:
             return
+        
         head_dim = self.config.dim // self.config.n_head
         max_seq_length = find_multiple(max_seq_length, 8)
         self.max_seq_length = max_seq_length
@@ -166,10 +167,23 @@ class Transformer(nn.Module):
             dtype = self.output.scales.dtype
         elif hasattr(self.output, "scales_and_zeros"):
             dtype = self.output.scales_and_zeros.dtype
+
+        self.quadratic_causal_mask = quadratic_causal_mask
+        if self.quadratic_causal_mask:
+            self.causal_mask = torch.tril(torch.ones(self.max_seq_length, self.max_seq_length, dtype=torch.bool))
+        else:
+            assert prompt_length is not None and prompt_length>1, "need to set prompt_length>1 to use non quadratic causal mask in setup_caches"
+            self.causal_mask = torch.ones(1, 1, 1, self.max_seq_length, dtype=torch.bool)
+            self.causal_mask[:,:,:,:prompt_length-1]=0
+
         if not training:
             for b in self.layers:
-                b.attention.kv_cache = KVCache(max_batch_size, max_seq_length, self.config.n_local_heads, head_dim, dtype)
-
+                if kv_cache_quantization:
+                    with torch.device('meta'):
+                        b.attention.kv_cache = KVCache(max_batch_size, max_seq_length, self.config.n_local_heads, head_dim, dtype)
+                    b.attention.kv_cache = AffineQuantizedKVCache.from_float(b.attention.kv_cache)
+                else:
+                    b.attention.kv_cache = KVCache(max_batch_size, max_seq_length, self.config.n_local_heads, head_dim, dtype)
         self.freqs_cis = precompute_freqs_cis(
             self.config.block_size, 
             self.config.dim // self.config.n_head, 
@@ -177,16 +191,23 @@ class Transformer(nn.Module):
             dtype, 
             use_scaled=self.config.use_scaled_rope
         )
-        self.causal_mask = torch.tril(torch.ones(self.max_seq_length, self.max_seq_length, dtype=torch.bool))
+        
 
     def forward(self, idx: Tensor, input_pos: Optional[Tensor] = None) -> Tensor:
         assert self.freqs_cis is not None, "Caches must be initialized first"
-        if input_pos is not None:
-            mask = self.causal_mask[None, None, input_pos]
-            freqs_cis = self.freqs_cis[input_pos]
-        else:
+
+        if input_pos is None: 
             mask = None
             freqs_cis = self.freqs_cis[:idx.shape[1]]
+        elif self.quadratic_causal_mask:
+            mask = self.causal_mask[None, None, input_pos]
+        elif len(input_pos)>1: # prefill
+            mask = torch.tril(torch.ones(len(input_pos), self.max_seq_length, dtype=torch.bool, device=input_pos.device)).unsqueeze(0).unsqueeze(0)
+        else:
+            self.causal_mask[0,0,0,input_pos-1] = 0
+            mask = self.causal_mask
+        freqs_cis = self.freqs_cis[input_pos]
+        
         x = self.tok_embeddings(idx)
 
         for i, layer in enumerate(self.layers):
