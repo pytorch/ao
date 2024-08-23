@@ -870,34 +870,34 @@
     <span class="k">return</span> <span class="n">int8_dynamic_activation_int8_weight</span><span class="p">(</span><span class="n">layout_type</span><span class="o">=</span><span class="n">SemiSparseLayoutType</span><span class="p">())</span>
 
 
-<span class="k">def</span> <span class="nf">uintx_weight_only</span><span class="p">(</span><span class="n">bit_width</span><span class="p">,</span> <span class="n">group_size</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">pack_dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">uintx_weight_only</span><span class="p">(</span><span class="n">dtype</span><span class="p">,</span> <span class="n">group_size</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">pack_dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Applies uintx weight-only asymmetric per-group quantization to linear layers, using uintx quantization where</span>
-<span class="sd">    x is the number of bits specified by the `bit_width` argument</span>
+<span class="sd">    x is the number of bits specified by `dtype`</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        `dtype`: torch.uint1 to torch.uint7 sub byte dtypes</span>
+<span class="sd">        `group_size`: parameter for quantization, controls the granularity of quantization, smaller</span>
+<span class="sd">         size is more fine grained, defaults to 64</span>
+<span class="sd">        `pack_dim`: the dimension we use for packing, defaults to -1</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="kn">from</span> <span class="nn">torchao.quantization.quant_primitives</span> <span class="kn">import</span> <span class="p">(</span>
         <span class="n">MappingType</span><span class="p">,</span>
         <span class="n">ZeroPointDomain</span><span class="p">,</span>
-        <span class="n">choose_qparams_affine</span><span class="p">,</span>
-        <span class="n">quantize_affine</span><span class="p">,</span>
-        <span class="n">dequantize_affine</span><span class="p">,</span>
     <span class="p">)</span>
     <span class="kn">from</span> <span class="nn">torchao.quantization.quant_api</span> <span class="kn">import</span> <span class="n">_get_linear_subclass_inserter</span>
-    <span class="k">def</span> <span class="nf">apply_uintx_weight_only_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
 
-        <span class="n">layout_type</span> <span class="o">=</span> <span class="n">UintxLayoutType</span><span class="p">(</span><span class="n">bit_width</span><span class="o">=</span><span class="n">bit_width</span><span class="p">,</span> <span class="n">pack_dim</span><span class="o">=</span><span class="n">pack_dim</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">apply_uintx_weight_only_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
+        <span class="n">layout_type</span> <span class="o">=</span> <span class="n">UintxLayoutType</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">,</span> <span class="n">pack_dim</span><span class="o">=</span><span class="n">pack_dim</span><span class="p">)</span>
         <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span>
         <span class="n">block_size</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">group_size</span><span class="p">)</span>
-        <span class="n">quant_min</span> <span class="o">=</span> <span class="mi">0</span>
-        <span class="n">quant_max</span> <span class="o">=</span> <span class="mi">2</span><span class="o">**</span><span class="n">bit_width</span> <span class="o">-</span> <span class="mi">1</span>
         <span class="n">eps</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span>
         <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span>
         <span class="n">zero_point_domain</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span>
 
         <span class="k">return</span> <span class="n">to_affine_quantized</span><span class="p">(</span>
-            <span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">,</span>
-            <span class="n">quant_min</span> <span class="o">=</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span> <span class="o">=</span> <span class="n">quant_max</span><span class="p">,</span>
-            <span class="n">eps</span> <span class="o">=</span> <span class="n">eps</span><span class="p">,</span> <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span>
+            <span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">dtype</span><span class="p">,</span>
+            <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span> <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span>
             <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">zero_point_domain</span><span class="p">,</span>
             <span class="n">layout_type</span><span class="o">=</span><span class="n">layout_type</span><span class="p">,</span>
         <span class="p">)</span>
