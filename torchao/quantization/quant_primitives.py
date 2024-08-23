@@ -177,8 +177,8 @@ def quantize_affine(
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     output_dtype: torch.dtype,
-    quant_min: Optional[Union[int, float]] = None,
-    quant_max: Optional[Union[int, float]] = None,
+    quant_min: Optional[int] = None,
+    quant_max: Optional[int] = None,
     zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
     quant_min: Optional[Union[int, float]] = None,
     quant_max: Optional[Union[int, float]] = None,
@@ -194,7 +194,7 @@ def quantize_affine(
       output_dtype (torch.dtype): requested dtype (e.g. torch.uint8) for output Tensor
       quant_min (Optional[int]): minimum quantized value for output Tensor, if not specified, it will be derived from dtype
       quant_max (Optional[int]): maximum quantized value for output Tensor, if not specified, it will be derived from dtype
-      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be either integer or float
+      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be eitehr integer or float
         if zero_point is in integer domain, zero point is added to the quantized integer value during
         quantization
         if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
@@ -236,8 +236,8 @@ def _quantize_affine(
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     output_dtype: torch.dtype,
-    quant_min: Optional[Union[int, float]] = None,
-    quant_max: Optional[Union[int, float]] = None,
+    quant_min: Optional[int] = None,
+    quant_max: Optional[int] = None,
     zero_point_domain: str = ZeroPointDomain.INT.name,
     quant_min: Optional[Union[int, float, bool]] = None,
     quant_max: Optional[Union[int, float, bool]] = None,
@@ -273,8 +273,8 @@ def _quantize_affine_no_dtype_cast(
     block_size: List[int],
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
-    quant_min: Union[int, float],
-    quant_max: Union[int, float],
+    quant_min: int,
+    quant_max: int,
     zero_point_domain: str = ZeroPointDomain.INT.name,
     quant_min: Union[int, float],
     quant_max: Union[int, float],
@@ -329,10 +329,8 @@ def dequantize_affine(
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     input_dtype: torch.dtype,
-    quant_min: Optional[int | float] = None,
-    quant_max: Optional[int | float] = None,
-    quant_min: Optional[Union[int, float]] = None,
-    quant_max: Optional[Union[int, float]] = None,
+    quant_min: Optional[int] = None,
+    quant_max: Optional[int] = None,
     zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
     *,
     output_dtype: torch.dtype = torch.float32,
@@ -344,7 +342,7 @@ def dequantize_affine(
                                e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
       scale (Tensor): quantization parameter for affine quantization
       zero_point (Tensor): quantization parameter for affine quantization
-      input_dtype (torch.dtype): requested dtype (e.g. torch.uint8) for output Tensor
+      dtype (torch.dtype): requested dtype (e.g. torch.uint8) for output Tensor
       quant_min (Optional[int]): minimum quantized value for input Tensor
       quant_max (Optional[int]): maximum quantized value for input Tensor
       output_dtype (torch.dtype): dtype for output Tensor, default is fp32
@@ -378,8 +376,8 @@ def _dequantize_affine(
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     input_dtype: torch.dtype,
-    quant_min: Optional[Union[int, float]] = None,
-    quant_max: Optional[Union[int, float]] = None,
+    quant_min: Optional[int] = None,
+    quant_max: Optional[int] = None,
     zero_point_domain: str = ZeroPointDomain.INT.name,
     quant_min: Optional[Union[int, float, bool]] = None,
     quant_max: Optional[Union[int, float, bool]] = None,
@@ -410,8 +408,8 @@ def _dequantize_affine_no_dtype_check(
     block_size: List[int],
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
-    quant_min: Union[int, float],
-    quant_max: Union[int, float],
+    quant_min: int,
+    quant_max: int,
     zero_point_domain: str = ZeroPointDomain.INT.name,
     quant_min: Union[int, float],
     quant_max: Union[int, float],
@@ -472,10 +470,8 @@ def fake_quantize_affine(
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     quant_dtype: torch.dtype,
-    quant_min: Optional[int | float] = None,
-    quant_max: Optional[int | float] = None,
-    quant_min: Optional[Union[int, float]] = None,
-    quant_max: Optional[Union[int, float]] = None,
+    quant_min: Optional[int] = None,
+    quant_max: Optional[int] = None,
     zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
 ) -> torch.Tensor:
     """
@@ -518,10 +514,8 @@ def fake_quantize_affine_cachemask(
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     quant_dtype: torch.dtype,
-    quant_min: Optional[int | float] = None,
-    quant_max: Optional[int | float] = None,
-    quant_min: Optional[Union[int, float]] = None,
-    quant_max: Optional[Union[int, float]] = None,
+    quant_min: Optional[int] = None,
+    quant_max: Optional[int] = None,
     zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
@@ -563,10 +557,8 @@ def _do_fake_quantize_affine(
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     quant_dtype: torch.dtype,
-    quant_min: Optional[int | float] = None,
-    quant_max: Optional[int | float] = None,
-    quant_min: Optional[Union[int, float]] = None,
-    quant_max: Optional[Union[int, float]] = None,
+    quant_min: Optional[int] = None,
+    quant_max: Optional[int] = None,
     zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
@@ -602,10 +594,8 @@ def choose_qparams_affine(
    mapping_type: MappingType,
    block_size: Tuple[int, ...],
    target_dtype: torch.dtype,
-   quant_min: Optional[int | float] = None,
-   quant_max: Optional[int | float] = None,
-   quant_min: Optional[Union[int, float]] = None,
-   quant_max: Optional[Union[int, float]] = None,
+   quant_min: Optional[int] = None,
+   quant_max: Optional[int] = None,
    eps: Optional[float] = None,
    scale_dtype: Optional[torch.dtype] = None,
    zero_point_dtype: Optional[torch.dtype] = None,
@@ -832,8 +822,8 @@ def _choose_qparams_affine(
    mapping_type: str,
    block_size: List[int],
    target_dtype: torch.dtype,
-   quant_min: Optional[Union[int, float]] = None,
-   quant_max: Optional[Union[int, float]] = None,
+   quant_min: Optional[int] = None,
+   quant_max: Optional[int] = None,
    eps: Optional[float] = None,
    scale_dtype: Optional[torch.dtype] = None,
    zero_point_dtype: Optional[torch.dtype] = None,
