@@ -18,9 +18,9 @@
 # To enable cosine learning rate scheduler, set --cosine_lr_scheduler
 
 import argparse
-import datetime
 import json
 import math
+import time
 from contextlib import nullcontext
 from functools import partial
 
@@ -230,14 +230,12 @@ if __name__ == "__main__":
     lr_schedule = CosineSchedule(args.lr, len(dloader) * args.n_epochs)
     grad_scaler = torch.amp.GradScaler("cuda", enabled=args.amp == "fp16")
     log_interval = 10
+    t0 = time.perf_counter()
 
     step = 0
     for epoch_idx in range(args.n_epochs):
         model.train()
         pbar = tqdm(dloader, dynamic_ncols=True, desc=f"Epoch {epoch_idx + 1}/{args.n_epochs}")
-
-        start_time = datetime.datetime.now()
-        t0 = start_time
 
         with torch.profiler.profile() if args.profile else nullcontext() as prof:
             for batch in pbar:
@@ -265,8 +263,8 @@ if __name__ == "__main__":
                 if step % log_interval == 0:
                     log_dict = dict(loss=loss.item(), lr=optim.param_groups[0]["lr"])
                     if step > 0:
-                        t1 = datetime.datetime.now()
-                        log_dict["imgs_per_second"] = args.batch_size * log_interval / (t1 - t0).total_seconds()
+                        t1 = time.perf_counter()
+                        log_dict["imgs_per_second"] = args.batch_size * log_interval / (t1 - t0)
                         t0 = t1
                     logger.log(log_dict, step=step)
 
@@ -286,8 +284,6 @@ if __name__ == "__main__":
             prof.export_chrome_trace("trace.json")
 
         else:
-            print(f"Time taken for epoch {epoch_idx + 1}: {(datetime.datetime.now() - start_time)}")
-
             val_acc = evaluate_model(model, args)
             print(f"Epoch {epoch_idx + 1}/{args.n_epochs}: val_acc={val_acc.item() * 100:.2f}")
             logger.log(dict(val_acc=val_acc), step=step)
