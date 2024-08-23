@@ -1,18 +1,37 @@
 """
-This is a example flow for GPTQ like calibration flows, where we:
-(1) optimize (quantize) one module at a time
-(2) with each optimization step, we need to get a set of all calibration data
-(3) the output of each module is calculated based on the optimized (quantized) module, and then pass down to the next module
+Traditional calibration flow has the following flow (see static_quant.py for code examples):
+
+(1). insert input/output observers to the modules
+(2). run the model with calibration data so the observers in the model can record the statistics of the data flowing through them, observation does not change the output of a layer
+(3). convert the observed module to quantized module (or quantize the weights with the quantization parameters based on the observer statistics)
+
+By GPTQ like flow we mean a flow that does not fit into the above flow very well because
+(1) optimize (quantize) one layer (module) at a time and the the output of each layer is calculated based on the optimized (quantized) module, and then pass down to the next layer, this means layers are not independent
+(2) with each optimization step, we need to use all the input data for that layer instead of just some derived statistics like min_val/max_val
+
+To use the traditional flow, we'd need to
+(1). insert observers for the layer we want to optimize, that will record all the inputs
+(2). each time, run the entire model upto layer N, then optimize layer N, and then
+continue the process for layer N+1, this means we'll need to run O(N^2) layers in total.
+
+So we'd like to use a flow that only runs each layer a constant time so we get O(N) time complexity.
 
 In this tutorial we mainly use two things:
 (1) MultiTensor subclass https://gist.github.com/HDCharles/a1b575bbf8875f994af8a01b225e1227
-(2) Module forward hooks
+
+It stores a list of Tensors (calibration data). This is used to pass around all the calibration data to a layer, we can optimize the layer, and then output another MultiTensor object for future layers.
+
+(2) Module forward pre hooks (https://pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module.register_forward_pre_hook)
+
+This is used for modifying the behavior of the forward function of `module`, it allows [modification](https://discuss.pytorch.org/t/use-forward-pre-hook-to-modify-nn-module-parameters/108498/2) of the module itself, and also allows modifying the input of the module.
+
+This can be used when we try to optimize (quantize) the layer, and then want the next layer to consume the output of the optimized layer directly.
 """
 import torch
 import torch.nn as nn
 from torch.utils._pytree import tree_flatten, tree_unflatten
 import gc
-from typing import Tuple, Dict
+from typing import Tuple, Dict, Any
 from torchao.quantization.utils import compute_error
 from torchao.dtypes import to_affine_quantized_static
 from torchao.quantization import quantize_
@@ -27,6 +46,8 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     fake_quantize_affine,
 )
+
+torch.manual_seed(0)
 
 class MultiTensor(torch.Tensor):
     @staticmethod
@@ -139,135 +160,104 @@ class MultiTensor(torch.Tensor):
     ):
         return cls(tensor_data_dict["values"])
 
-class TwoLinear(torch.nn.Module):
-    def __init__(self, in_features=64, out_features=128):
-        super().__init__()
-        self.linear1 = torch.nn.Linear(in_features, out_features)
-        self.linear2 = torch.nn.Linear(in_features, out_features)
-
-    def forward(self, x, y):
-        x = self.linear1(x)
-        y = self.linear2(y)
-        return x + y
-
 class M(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.two_linear1 = TwoLinear()
-        self.two_linear2 = TwoLinear(128, 256)
+        self.linear = torch.nn.Linear(64, 128)
 
-    def forward(self, x, y):
-        x1 = self.two_linear1(x, y)
-        x2 = self.two_linear2(x1, x1)
-        return x2
+    def forward(self, x):
+        x = self.linear(x)
+        return x
 
-def _is_two_linear(mod, fqn):
-    return isinstance(mod, TwoLinear)
+def _is_linear(mod, fqn):
+    return isinstance(mod, torch.nn.Linear)
 
 # Adapted from https://github.com/pytorch/ao/pull/581
 def prepare_model_for_optimization_(model):
-    def forward_hook(
+    def forward_pre_hook(
         module,
         args: Tuple[MultiTensor],
-        kwargs: Dict[str, MultiTensor],
-        output: Tuple[MultiTensor],
+        kwargs: Dict[str, Any],
     ):
         # remove the hook to avoid recursive calls
-        module._forward_hook_handle.remove()
-        # in this case args will be a tuple of 2 MultiTensors since
-        # the TwoLinear module takes 2 inputs, and each input will collect a list of normal Tensors
+        module._forward_pre_hook_handle.remove()
+        # we'll have a single MultiTensor as argument, that contains a list of activation Tensors
+        # from previous layer
 
-        # we can use these two MultiTensors to calculate the quantization parameters for each input Tensor
-        act_obs1 = AffineQuantizedMinMaxObserver(MappingType.ASYMMETRIC, torch.uint8, granularity_type=PerTensor(), eps=torch.finfo(torch.float32).eps, scale_dtype=torch.float32, zero_point_dtype=torch.int32)
+        # we can use the MultiTensor to calculate the quantization parameters for each input Tensor
+        act_obs = AffineQuantizedMinMaxObserver(MappingType.ASYMMETRIC, torch.uint8, granularity_type=PerTensor(), eps=torch.finfo(torch.float32).eps, scale_dtype=torch.float32, zero_point_dtype=torch.int32)
         for inp in args[0]:
-            act_obs1(inp)
+            act_obs(inp)
 
-        act_obs2 = AffineQuantizedMinMaxObserver(MappingType.ASYMMETRIC, torch.uint8, granularity_type=PerTensor(), eps=torch.finfo(torch.float32).eps, scale_dtype=torch.float32, zero_point_dtype=torch.int32)
-        for inp in args[1]:
-            act_obs2(inp)
-
-        input_scale1, input_zp1 = act_obs1.calculate_qparams()
-        input_scale2, input_zp2 = act_obs2.calculate_qparams()
+        input_scale, input_zp = act_obs.calculate_qparams()
 
         # we can optimize/modify the module here
-        module.input_scale1 = input_scale1
-        module.input_zp1 = input_zp1
-        module.input_scale2 = input_scale2
-        module.input_zp2 = input_zp2
+        module.input_scale = input_scale
+        module.input_zp = input_zp
 
         # rerun the module with quantized and dequantized inputs
-        new_input1 = []
+        new_input = []
         for inp in args[0]:
-            new_input1.append(fake_quantize_affine(inp, inp.shape, input_scale1, input_zp1, torch.uint8))
+            new_input.append(fake_quantize_affine(inp, inp.shape, input_scale, input_zp, torch.uint8))
 
-        new_input2 = []
-        for inp in args[1]:
-            new_input2.append(fake_quantize_affine(inp, inp.shape, input_scale2, input_zp2, torch.uint8))
+        mt = MultiTensor(new_input)
 
-        mt1 = MultiTensor(new_input1)
-        mt2 = MultiTensor(new_input2)
+        # tuple of modified args and kwargs
+        return ((mt,), {})
 
-        output_with_fake_quantized_inputs = module(mt1, mt2)
-        # we can return the modified output so it can be consumed by future modules
-        return output_with_fake_quantized_inputs
-
-    def _register_forward_hook(module: torch.nn.Module):
-        forward_hook_handle = module.register_forward_hook(
-            forward_hook, with_kwargs=True
+    def _register_forward_pre_hook(module: torch.nn.Module):
+        """Adds a forward pre hook for the module, that runs before module.forward is run that can
+        modify the module and the input of the module
+        docs for `module.register_forward_pre_hook` can be found in https://pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module.register_forward_pre_hook
+        """
+        forward_pre_hook_handle = module.register_forward_pre_hook(
+            forward_pre_hook, with_kwargs=True
         )
-        module._forward_hook_handle = forward_hook_handle
+        module._forward_pre_hook_handle = forward_pre_hook_handle
         return module
 
     _replace_with_custom_fn_if_matches_filter(
-        model, _register_forward_hook, _is_two_linear
+        model, _register_forward_pre_hook, _is_linear
     )
 
 # using a function to align with the API in quant_api
 def apply_activation_static_quant():
-    def _apply_activation_static_quant(observed_two_linear):
+    def _apply_activation_static_quant(observed_linear):
         target_dtype = torch.uint8
 
-        linear1 = observed_two_linear.linear1
-        # activation quantization
-        act_scale, act_zero_point = observed_two_linear.input_scale1, observed_two_linear.input_zp1
-        input_quant_func1 = lambda x: to_affine_quantized_static(x, act_scale, act_zero_point, x.shape, target_dtype)
-        linear1.weight = torch.nn.Parameter(to_linear_activation_quantized(linear1.weight, input_quant_func1), requires_grad=False)
+        # we can quantize the weight here as well
 
-        linear2 = observed_two_linear.linear2
         # activation quantization
-        act_scale, act_zero_point = observed_two_linear.input_scale2, observed_two_linear.input_zp2
-        input_quant_func2 = lambda x: to_affine_quantized_static(x, act_scale, act_zero_point, x.shape, target_dtype)
-        linear2.weight = torch.nn.Parameter(to_linear_activation_quantized(linear2.weight, input_quant_func2), requires_grad=False)
-        del observed_two_linear.input_scale1
-        del observed_two_linear.input_zp1
-        del observed_two_linear.input_scale2
-        del observed_two_linear.input_zp2
-        return observed_two_linear
+        act_scale, act_zero_point = observed_linear.input_scale, observed_linear.input_zp
+        input_quant_func = lambda x: to_affine_quantized_static(x, act_scale, act_zero_point, x.shape, target_dtype)
+        observed_linear.weight = torch.nn.Parameter(to_linear_activation_quantized(observed_linear.weight, input_quant_func), requires_grad=False)
+
+        del observed_linear.input_scale
+        del observed_linear.input_zp
+        return observed_linear
 
     return _apply_activation_static_quant
 
 
-example_inputs = (torch.randn(32, 64), torch.randn(32, 64),)
+example_inputs = (torch.randn(32, 64),)
 m = M().eval()
 before_quant = m(*example_inputs)
 prepare_model_for_optimization_(m)
-input1 = []
-input2 = []
+inputs = []
 for _ in range(10):
-    input1.append(torch.randn(32, 64))
-    input2.append(torch.randn(32, 64))
+    inputs.append(torch.randn(32, 64))
 
-mt_input1 = MultiTensor(input1)
-mt_input2 = MultiTensor(input2)
+mt_input = MultiTensor(inputs)
 
-out = m(mt_input1, mt_input2)
+out = m(mt_input)
 
 # just quantizing activation since we only observed quantization, this could be extended to support
 # quantizing weight as well
-quantize_(m, apply_activation_static_quant(), _is_two_linear)
+quantize_(m, apply_activation_static_quant(), _is_linear)
 for l in m.modules():
     if isinstance(l, torch.nn.Linear):
         assert isinstance(l.weight, LinearActivationQuantizedTensor)
 
 after_quant = m(*example_inputs)
+print("sqnr:", compute_error(before_quant, after_quant))
 assert compute_error(before_quant, after_quant) > 35

@@ -17,7 +17,17 @@ aten = torch.ops.aten
 
 class LinearActivationQuantizedTensor(torch.Tensor):
     """
-    Applies activation quantization for linear operator
+    Applies activation quantization for linear operator, this is used to support
+    dynamic quantization or static quantization, user can pass in a `input_quant_func`
+    that is used to quantize the activation
+
+    Args:
+      `original_weight_tensor`: the weight tensor, if weight need to be quantized as well, we'd need
+        to apply quantization to weight first, e.g. for int8 dynamic activation int8 weight quantization
+        we will first apply int8 quantization to weight and then apply LinearActivationQuantizedTensor
+        on top of it
+      `input_quant_func` (Callable[[torch.Tensor], torch.Tensor]): a function that takes a high precision floating point tensor and returns
+        a quantized tensor, this is used to quantize input
     """
     def __new__(
         cls,
@@ -35,7 +45,7 @@ class LinearActivationQuantizedTensor(torch.Tensor):
     def __init__(
         self,
         original_weight_tensor: torch.Tensor,
-        input_quant_func: Callable,
+        input_quant_func: Callable[[torch.Tensor], torch.Tensor],
     ):
         self.original_weight_tensor = original_weight_tensor
         self.input_quant_func = input_quant_func
