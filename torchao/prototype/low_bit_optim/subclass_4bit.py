@@ -24,12 +24,7 @@ class OptimState4bit(Tensor):
 
     @staticmethod
     def __new__(cls, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool, shape):
-        return Tensor._make_wrapper_subclass(
-            cls,
-            shape,
-            device=codes.device,
-            requires_grad=False,
-        )
+        return Tensor._make_wrapper_subclass(cls, shape, device=codes.device)
 
     def __init__(self, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool, shape):
         """Create quantized 4-bit optimizer state as proposed in https://arxiv.org/abs/2309.01507

@@ -151,7 +151,7 @@ class Float8InferenceLinear(torch.nn.Linear):
         Create an nn.Linear with fp8 compute from another nn.Linear
 
         Args:
-            mod (torch.nn.Linear): nn.Linear to convert
+            module (torch.nn.Linear): nn.Linear to convert
             quant_config (QuantConfig): Configuration for the weight and activation casting
         """
         forward_config = ScaledMMConfig(

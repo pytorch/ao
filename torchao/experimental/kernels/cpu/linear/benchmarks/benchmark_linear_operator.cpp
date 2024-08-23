@@ -1,4 +1,8 @@
-// (c) Meta Platforms, Inc. and affiliates. Confidential and proprietary.
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// All rights reserved.
+//
+// This source code is licensed under the license found in the
+// LICENSE file in the root directory of this source tree.
 
 #include <benchmark/benchmark.h>
 #include <torchao/experimental/kernels/cpu/aarch64/tests/test_utils.h>

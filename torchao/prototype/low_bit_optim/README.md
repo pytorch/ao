@@ -26,23 +26,23 @@ To use 4-bit Adam, replace the above with `Adam4bit`. Similarly for `AdamFp8`. Y
 NOTE:
 - The low-bit optimizers require PyTorch >= 2.3. FP8 optimizers require CUDA compute capability >= 8.9.
 - For 4-bit optimizers, we don't implement rank-1 normalization for quantizing 2nd moment as originally done in the paper.
-- **Known issue**: When learning rate is updated every step (e.g. using cosine learning rate scheduler), training speed is slower. This is because we have to convert learning rate to a CUDA tensor (which incurs expensive memory transfer cost), since torch.compile() will treat a Python float as a constant and trigger recompile whenever the value is changed.
+- The first training step is expected to be slow since the optimizer needs to be compiled.
 
 ## Benchmarks
 
 Benchmark script for fine-tuning a [timm](https://github.com/huggingface/pytorch-image-models) model on [resisc45](https://huggingface.co/datasets/timm/resisc45) dataset is available at [benchmarks/benchmark_low_bit_adam.py](../../../benchmarks/benchmark_low_bit_adam.py).
 
-Results for fine-tuning ViT-H (630M params) with BF16 AMP for 2 epochs, batch size 8, on 4070Ti SUPER, with fixed random seed:
+Results for fine-tuning ViT-H (630M params) with BF16 AMP for 1 epoch, batch size 8, cosine LR scheduler, 4070Ti SUPER, fixed random seed:
 
-Adam impl      | max memory (GB) | time taken for 2nd epoch | accuracy
----------------|-----------------|--------------------------|----------
-PyTorch        | 12.94           |  8m 18s                  | 91.14
-bnb 8-bit      |  8.31           |  6m 50s                  | 90.67
-ao 8-bit       |  8.31           |  6m 44s                  | 90.63
-ao FP8 E4M3    |  8.32           |  6m 35s                  | 90.98
-lpmm 4-bit     |  7.72           |  5m 59s                  | 89.97
-ao 4-bit       |  7.72           |  7m 13s                  | 90.05
-lpmm 4-bit (*) |  7.73           | 11m 10s                  | 89.71
+Adam impl       | max memory (GB) | imgs/s | accuracy
+----------------|-----------------|--------|----------
+PyTorch (fused) | 12.23           | 41.8   | 94.38
+bnb 8-bit       |  8.32           | 43.6   | 94.18
+ao 8-bit        |  8.33           | 42.6   | 94.25
+ao FP8 E4M3     |  9.27           | 44.1   | 94.40
+lpmm 4-bit      |  7.72           | 46.0   | 94.29
+ao 4-bit        |  7.72           | 40.0   | 94.03
+lpmm 4-bit (*)  |  7.74           | 26.6   | 94.25
 
 (*) means rank-1 normalization is used for 2nd optimizer state. Refer to [paper](https://arxiv.org/abs/2309.01507) for more details.
 

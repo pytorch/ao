@@ -27,12 +27,7 @@ class OptimStateFp8(Tensor):
 
     @staticmethod
     def __new__(cls, codes: Tensor, scale: Tensor):
-        return Tensor._make_wrapper_subclass(
-            cls,
-            codes.shape,
-            device=codes.device,
-            requires_grad=False,
-        )
+        return Tensor._make_wrapper_subclass(cls, codes.shape, device=codes.device)
 
     def __init__(self, codes: Tensor, scale: Tensor):
         """Create quantized FP8 optimizer state.

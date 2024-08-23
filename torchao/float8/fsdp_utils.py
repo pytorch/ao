@@ -59,7 +59,7 @@ def precompute_float8_dynamic_scale_for_fsdp(module: nn.Module) -> None:
         return
 
     # inf-norm is equivalent to max(abs(w))
-    max_weights = torch._foreach_norm(weights, ord=math.inf)  # Partial
+    max_weights = torch._foreach_norm(weights, ord=math.inf, dtype=torch.float32)  # Partial
     amax_tensor = torch.stack(max_weights)  # Partial
     # clamp is dispatched through DTensor
     # it will issue a single all-reduce
