@@ -7,6 +7,9 @@ from torchao.quantization.quant_primitives import (
     choose_qparams_affine,
     quantize_affine,
     dequantize_affine,
+    choose_qparams_affine_float8,
+    quantize_affine_float8,
+    dequantize_affine_float8,
     ZeroPointDomain,
     MappingType,
     int_scaled_matmul,
@@ -23,6 +26,7 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.dtypes.utils import (
     LayoutType,
     PlainLayoutType,
+    FpxLayoutType,
     is_device,
     get_out_shape,
 )
@@ -335,19 +339,24 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         scale_dtype: Optional[torch.dtype] = None,
         zero_point_dtype: Optional[torch.dtype] = None,
         preserve_zero: bool = True,
-        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
-        layout_type: LayoutType = PlainLayoutType(),
+        zero_point_domain: ZeroPointDomain = ZeroPointDomain.FLOAT,
+        layout_type: LayoutType = FpxLayoutType(),
     ):
         original_shape = input_float.shape
         input_float = layout_type.pre_process(input_float)
 
-        scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain)
-        float8_data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
-        
+        # scale, zero_point = choose_qparams_affine_float8(input_float, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain)
+        float8_data = quantize_affine_float8(
+            input=input_float,
+            block_size=block_size,
+            output_dtype=target_dtype,
+            quant_min=quant_min,
+            quant_max=quant_max,
+        )
         float8_data = layout_type.post_process(float8_data)
 
         layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
-        layout_tensor = layout_tensor_ctr(float8_data, scale, zero_point, layout_type)
+        layout_tensor = layout_tensor_ctr(float8_data._data, float8_data._scale, None, layout_type)
         return cls(
             layout_tensor,
             block_size,
