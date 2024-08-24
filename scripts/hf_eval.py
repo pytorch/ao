@@ -62,14 +62,14 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, spars
     elif quantization == "autoquant":
         model = autoquant(model.to(device=device))
     elif quantization == "awq":
-        from torchao.prototype.awq.test import ObservedLinear, insert_awq_observer, awq_quant 
-        insert_awq_observer(model, device)
         from datasets import load_dataset
+        from torchao.prototype.awq.api import ObservedLinear, insert_awq_observer, awq_quant 
+        
+        insert_awq_observer(model, precision, device)
         wikitext103 = load_dataset("wikitext", "wikitext-103-v1")
         wikitext103_train  = wikitext103["train"]
         wikitext103_calibration = wikitext103_train.select(range(100))
         calibration_input_ids = [tokenizer.encode(text, return_tensors="pt") for text in wikitext103_calibration["text"]]
-        print(len(calibration_input_ids))
         model.to(device)
         print("running awq calibration")
         for i, ids in enumerate(calibration_input_ids):
@@ -82,7 +82,7 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, spars
         quantize_(model, awq_quant, is_observed_linear)
 
     if quantization != "autoquant" and compile:
-        model = torch.compile(model, fullgraph=True)
+        model = torch.compile(model, mode= "max-autotune", fullgraph=True)
 
     if sparsity == "semi_sparse":
         def all_linear(mod, name):
@@ -125,7 +125,7 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, spars
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Run HF Model Evaluation')
-    parser.add_argument('--repo_id', type=str, default="meta-llama/Llama-2-7b-hf", help='Repository ID to download from HF.')
+    parser.add_argument('--repo_id', type=str, default="meta-llama/Meta-Llama-3-8B", help='Repository ID to download from HF.')
     parser.add_argument('--tasks', nargs='+', type=str, default=["wikitext"], help='List of lm-eluther tasks to evaluate usage: --tasks task1 task2')
     parser.add_argument('--limit', type=int, default=None, help='Number of eval samples to evaluate')
     parser.add_argument('--precision', type=lambda x: getattr(torch, x.split(".")[-1]), default=torch.bfloat16, help='dtype precision to use')
