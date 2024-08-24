@@ -45,6 +45,7 @@ if _lm_eval_available:
         def __init__(
             self,
             tokenizer,
+            model,
             calibration_seq_length,
             input_prep_func=None,
             pad_calibration_inputs=False,
@@ -63,7 +64,7 @@ if _lm_eval_available:
             self.vocab_size = vocab_size
             self._max_seq_length = calibration_seq_length
             self.calibration_seq_length = calibration_seq_length
-
+            self.model_ = model
             # need to take inps and convert to corrent input
             # for model
             self.input_prep_func = (
@@ -145,35 +146,13 @@ if _lm_eval_available:
             return self.inputs
 
         def _model_call(self, inps):
-            inps = inps.squeeze(0)
-            T = len(inps)
-            if (
-                # can't use inputs that are too short when padding disabled
-                (T < self.calibration_seq_length and not self.pad_calibration_inputs)
-                or
-                # can't use inputs that actually use token we use for padding
-                (self.pad_calibration_inputs and self.pad_token in inps)
-            ):
-                # give random output
-                return torch.randn(
-                    (1, T, self.vocab_size), dtype=torch.bfloat16, device=self._device
-                )
+            input = self.input_prep_func(inps.to(self._device))
 
-            # pad or truncate to the right size
-            if T >= self.calibration_seq_length:
-                inps = inps[: self.calibration_seq_length]
-            else:
-                inps = F.pad(inps, (self.pad_token, self.calibration_seq_length - T))
-
-            inps = inps.unsqueeze(0)
-            model_in = self.input_prep_func(inps)
-
-            self.add_input(model_in)
-
-            # output `something` with correct shape to keep eval going
-            return torch.randn(
-                (1, T, self.vocab_size), dtype=torch.bfloat16, device=self._device
-            )
+            max_seq_length = min(max(inps.size()), self.max_length)
+            with torch.device(self._device):
+                self.model_.setup_caches(self.batch_size, max_seq_length)
+            logits = self.model_(*input)
+            return logits
 
         def _model_generate(self, context, max_length, eos_token_id):
             raise Exception("unimplemented")
@@ -190,7 +169,7 @@ if _lm_eval_available:
             input_prep_func=None,
             device="cuda"
         ):
-            super().__init__(tokenizer, None)
+            super().__init__(tokenizer, model, None)
             self._model = model
             # self.tokenizer = tokenizer
             self._device = torch.device(device)

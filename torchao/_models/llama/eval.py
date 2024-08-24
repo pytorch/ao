@@ -49,7 +49,8 @@ def run_evaluation(
 
     print("Loading model ...")
     t0 = time.time()
-    model = _load_model(checkpoint_path, "cpu", precision)
+    model = _load_model(checkpoint_path, "cuda", precision).to(device)
+    print(model)
 
     if max_length is None:
         max_length = model.config.block_size
@@ -75,6 +76,7 @@ def run_evaluation(
             assert "cuda" in device, "int4 gptq quantization only works on cuda"
             inputs = InputRecorder(
                 tokenizer,
+                model,
                 calibration_seq_length,
                 prepare_inputs_for_model,
                 pad_calibration_inputs,
@@ -88,6 +90,23 @@ def run_evaluation(
             quantizer = Int4WeightOnlyGPTQQuantizer(groupsize=groupsize, device=device)
             model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
             model = quantizer.quantize(model, inputs).to(device)
+        elif "awq" in quantization:
+            from torchao.prototype.awq.test import ObservedLinear, insert_awq_observer, awq_quant 
+            insert_awq_observer(model, device)
+            InputRecorder(
+                tokenizer,
+                model,
+                calibration_seq_length,
+                prepare_inputs_for_model,
+                pad_calibration_inputs,
+                model.config.vocab_size,
+                device=device
+            ).record_inputs(
+                calibration_tasks,
+                calibration_limit,
+            ).get_inputs()
+            is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
+            quantize_(model, awq_quant, is_observed_linear)
         else:
             if not TORCH_VERSION_AT_LEAST_2_5:
                 unwrap_tensor_subclass(model)

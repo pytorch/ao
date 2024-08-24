@@ -43,7 +43,7 @@ def pretty_print_nested_results(results, precision: int = 6):
 def run_evaluation(repo_id, tasks, limit, device, precision, quantization, compile, save, batch_size, max_length):
 
     tokenizer = AutoTokenizer.from_pretrained(repo_id)
-    model = AutoModelForCausalLM.from_pretrained(repo_id).to(device="cpu", dtype=precision)
+    model = AutoModelForCausalLM.from_pretrained(repo_id, torch_dtype=precision).to(device="cpu", dtype=precision)
 
     if quantization == "autoquant" and compile:
         model = torch.compile(model, mode="max-autotune", fullgraph=True)
@@ -57,9 +57,28 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, compi
         quantize_(model.to(device=device), int4_weight_only())
     elif quantization == "autoquant":
         model = autoquant(model.to(device=device))
+    elif quantization == "awq":
+        from torchao.prototype.awq.test import ObservedLinear, insert_awq_observer, awq_quant 
+        insert_awq_observer(model, device)
+        from datasets import load_dataset
+        wikitext103 = load_dataset("wikitext", "wikitext-103-v1")
+        wikitext103_train  = wikitext103["train"]
+        wikitext103_calibration = wikitext103_train.select(range(100))
+        calibration_input_ids = [tokenizer.encode(text, return_tensors="pt") for text in wikitext103_calibration["text"]]
+        print(len(calibration_input_ids))
+        model.to(device)
+        print("running awq calibration")
+        for i, ids in enumerate(calibration_input_ids):
+            if ids.shape[-1] == 0:
+                continue
+            model(ids.to(device))
+
+
+        is_observed_linear = lambda m, fqn: isinstance(model, ObservedLinear)
+        quantize_(model, awq_quant, is_observed_linear)
 
     if quantization != "autoquant" and compile:
-        model = torch.compile(model, mode="max-autotune", fullgraph=True)
+        model = torch.compile(model, fullgraph=True)
 
     with torch.no_grad():
         result = evaluate(
@@ -84,12 +103,12 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, compi
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Run HF Model Evaluation')
-    parser.add_argument('--repo_id', type=str, default="meta-llama/Meta-Llama-3-8B", help='Repository ID to download from HF.')
+    parser.add_argument('--repo_id', type=str, default="meta-llama/Llama-2-7b-hf", help='Repository ID to download from HF.')
     parser.add_argument('--tasks', nargs='+', type=str, default=["wikitext"], help='List of lm-eluther tasks to evaluate usage: --tasks task1 task2')
     parser.add_argument('--limit', type=int, default=None, help='Number of eval samples to evaluate')
     parser.add_argument('--precision', type=lambda x: getattr(torch, x.split(".")[-1]), default=torch.bfloat16, help='dtype precision to use')
     parser.add_argument('--device', type=str, default="cuda", help='Device to use for evaluation')
-    parser.add_argument('-q', '--quantization', default = "None", choices=["int8dq", "int8wo", "int4wo","autoquant", "None"], help='Which quantization technique to apply')
+    parser.add_argument('-q', '--quantization', default = "None", choices=["int8dq", "int8wo", "int4wo","autoquant", "awq", "None"], help='Which quantization technique to apply')
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
     parser.add_argument('--save', action='store_true', help='Whether to save the model.')
     parser.add_argument('--batch_size', type=int, default=1, help='Batch size to use for evaluation, note int8wo and int4wo work best with small batchsizes, int8dq works better with large batchsizes')
