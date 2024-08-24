@@ -53,7 +53,7 @@ class AWQObserver(AffineQuantizedObserverBase):
         )
         self.weight = weight
         self.scale_options = scale_search_space_size
-        self.losses = [0] * self.scale_options
+        self.losses = torch.zeros(self.scale_options, dtype= input_dtype)
         self.average = torch.zeros(weight.shape[-1], dtype=torch.float32).to(device)
         self.counter = 0
 
