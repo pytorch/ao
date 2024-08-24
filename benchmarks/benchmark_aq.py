@@ -17,6 +17,7 @@ from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
 )
 import copy
+from torchao.utils import unwrap_tensor_subclass
 
 def _int8wo_api(mod, **kwargs):
     if TORCH_VERSION_AT_LEAST_2_4:
@@ -133,15 +134,17 @@ def _bench_quantized_tensor_subclass_perf(api, ref_api, M, N, K, kwargs=None):
     WARMUP = 20
     RUNS = 100
 
+    torch._dynamo.reset()
     m_ref = torch.compile(m_ref, mode='max-autotune', fullgraph=True)
     benchmark_model(m_ref, WARMUP, example_inputs)
     ref_elapsed_time = benchmark_model(m_ref, RUNS, example_inputs)
 
+    torch._dynamo.reset()
     m = torch.compile(m, mode='max-autotune', fullgraph=True)
     benchmark_model(m, WARMUP, example_inputs)
     elapsed_time = benchmark_model(m, RUNS, example_inputs)
 
-
+    torch._dynamo.reset()
     m_bf16 = torch.compile(m_bf16, mode='max-autotune', fullgraph=True)
     benchmark_model(m_bf16, WARMUP, example_inputs)
     bf16_elapsed_time = benchmark_model(m_bf16, RUNS, example_inputs)

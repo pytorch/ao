@@ -209,7 +209,7 @@ def pad_tensor_for_matmul(
 
     Args:
         tensor: The tensor to pad.
-        both: Whether to pad both dimensions or just the second dimension.
+        dims: Dimensions to pad.
 
     Returns:
         torch.Tensor: The padded tensor.

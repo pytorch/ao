@@ -49,14 +49,14 @@ And a quick crash course on inference quantization to help parse the above table
 
 Sparsifying your model is also a 1 liner that should work on any model with an `nn.Linear`. We find that sparsity works best on compute bound models like SAM, specifically the MLP layers.
 ```python
-from torchao.sparsity import sparsify, semi_sparse_weight()
+from torchao.sparsity import sparsify_, semi_sparse_weight
 
 m = sparsify_(m, semi_sparse_weight())
 ```
 Sparsity can also be composed with int8 dynamic quantization for further speedups:
 
 ```python
-from torchao.sparsity import sparsify, int8_dynamic_activation_int8_semi_sparse_weight
+from torchao.sparsity import sparsify_, int8_dynamic_activation_int8_semi_sparse_weight
 
 m = sparsify_(m, int8_dynamic_activation_int8_semi_sparse_weight())
 ```
@@ -148,7 +148,7 @@ pip install torchao --extra-index-url https://download.pytorch.org/whl/cu121 # f
 
 Nightly Release
 ```Shell
-pip install --pre torchao-nightly --index-url https://download.pytorch.org/whl/nightly/cu121 # full options are cpu/cu118/cu121/cu124
+pip install --pre torchao --index-url https://download.pytorch.org/whl/nightly/cu121 # full options are cpu/cu118/cu121/cu124
 ```
 
 From source

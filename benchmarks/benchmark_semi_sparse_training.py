@@ -16,6 +16,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils import benchmark
 
+from torch.sparse import to_sparse_semi_structured
 from torchao.sparsity.training import SemiSparseLinear, swap_linear_with_semi_sparse_linear
 from torchao.sparsity.training.autograd import semi_structured_sparsify
 
@@ -118,6 +119,18 @@ class LinearTest(torch.nn.Module):
     def bw(self):
         self.out.backward(self.grad, retain_graph=True)
 
+class SemiSparseLinearOfflineCompressionTest(torch.nn.Module):
+    def __init__(self, mkn):
+        super().__init__()
+        m, k, n = mkn
+        self.model = torch.nn.Linear(k, n).cuda().half()
+        self.model.weight = torch.nn.Parameter(to_sparse_semi_structured(self.model.weight))
+        self.input = torch.randn([m, k], device='cuda', dtype=torch.half, requires_grad=True)
+        self.grad = torch.randn([m, n], device="cuda", dtype=torch.half)
+
+    def fw(self):
+        self.out = self.model(self.input)
+
 class SemiSparseLinearTest(LinearTest):
     def __init__(self, mkn):
         super().__init__(mkn)
@@ -170,8 +183,8 @@ class SAM_W24_ALL(SAMTest):
 
 if __name__ == "__main__":
     print("BENCHMARKING")
-    parser = argparse.ArgumentParser(description='run semi-structured spares training benchmarks')
-    parser.add_argument('--mode', type=str, choices=["linear", "vit"], help='nn.Linear/ViT-e2e benchmarking', default="vit")
+    parser = argparse.ArgumentParser(description='run semi-structured sparse training benchmarks')
+    parser.add_argument('--mode', type=str, choices=["linear", "llama3-8b", "vit"], help='nn.Linear/ViT-e2e benchmarking', default="vit")
     parser.add_argument('--save', action="store_true", help="save benchmarking results")
     args = parser.parse_args()
     if args.mode == "linear":
@@ -196,6 +209,34 @@ if __name__ == "__main__":
             cases,
             fw=True,
             bw=True,
+            cuda_graph=True,
+            blocked_autorange=True)
+    elif args.mode == "llama3-8b":
+        functions = {
+            "dense_linear": LinearTest,
+            "semi_sparse_linear": SemiSparseLinearOfflineCompressionTest,
+        }
+        batch_size = 16
+        cases = list(
+            product_dict(
+                mkn=[
+                    # attn q and o
+                    (batch_size, 4096, 4096),
+                    # attn k and v
+                    (batch_size, 4096, 1024),
+                    # mlp up and gate
+                    (batch_size, 4096, 14336),
+                    # mlp down
+                    (batch_size, 14336, 4096),
+                ],
+            )
+        )
+
+        df = benchmark_helper(
+            functions, 
+            cases,
+            fw=True,
+            bw=False,
             cuda_graph=True,
             blocked_autorange=True)
 

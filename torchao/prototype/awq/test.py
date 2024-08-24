@@ -67,6 +67,7 @@ class ToyLinearModel(torch.nn.Module):
         x = self.linear2(x)
         x = self.linear3(x)
         return x
+    
 if __name__ == "__main__":
     for i in range(10):
         device = ("cpu")

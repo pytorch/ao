@@ -1,3 +1,5 @@
+from functools import partial
+
 import torch
 from typing import Optional, Tuple, List, Dict, Any, Callable
 from torch.utils._python_dispatch import return_and_correct_aliasing
@@ -6,6 +8,8 @@ from torchao.dtypes.utils import (
     _dispatch__torch_function__,
     _dispatch__torch_dispatch__,
 )
+from torchao.quantization.quant_api import _get_linear_subclass_inserter
+
 aten = torch.ops.aten
 
 # bsr wrapper custom op
@@ -136,3 +140,6 @@ def block_sparse_linear(func, types, args, kwargs):
                                         w.col_indices(),
                                         w.values(),
                                         w.shape[0], w.shape[1], bias)
+
+def block_sparse_weight(blocksize=64):
+    return _get_linear_subclass_inserter(partial(BlockSparseTensor.from_dense, blocksize=blocksize))

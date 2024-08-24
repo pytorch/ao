@@ -31,6 +31,7 @@ from torchao.dtypes import (
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
+    TORCH_VERSION_AT_LEAST_2_5,
     unwrap_tensor_subclass,
 )
 from .subclass import (
@@ -55,7 +56,6 @@ from .GPTQ import (
 from .utils import _get_per_token_block_size
 import logging
 from .autoquant import autoquant, AutoQuantizableLinearWeight
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
 __all__ = [
@@ -161,6 +161,7 @@ def _replace_with_custom_fn_if_matches_filter(
     replacement_fn,
     filter_fn,
     cur_fqn="",
+    device=None,
 ) -> None:
     """
     Recursively replaces each child module in `model` with the result of `replacement_fn(child)`
@@ -171,24 +172,34 @@ def _replace_with_custom_fn_if_matches_filter(
         replacement_fn (Callable[[torch.nn.Module], torch.nn.Module]): The function to replace matching modules.
         filter_fn (Callable[[torch.nn.Module], bool]): The filter function to determine which modules to replace.
         cur_fqn (str, optional): The current fully qualified name of the module being processed. Defaults to "".
+        device (device, optional): Device to move the model to before applying `filter_fn`. Defaults to None.
 
     Returns:
         None
     """
     if filter_fn(model, cur_fqn[:-1]):
+        if device is not None:
+            model.to(device=device)  # move to device before quantization
         model = replacement_fn(model)
         return model
     else:
         for name, child in model.named_children():
             new_child = _replace_with_custom_fn_if_matches_filter(
-                child, replacement_fn, filter_fn, f"{cur_fqn}{name}."
+                child, replacement_fn, filter_fn, f"{cur_fqn}{name}.", device
             )
             if new_child is not child:
                 setattr(model, name, new_child)
+        if device is not None:
+            model.to(device=device)  # move parent module to device
         return model
 
 
 def _is_linear(mod, *args):
+    # avoid circular dependencies
+    from torchao.quantization.prototype.qat.affine_fake_quantized_tensor import (
+        AffineFakeQuantizedTensor,
+    )
+
     # adding weight tensor subclass isinstance check to make sure the weight is only quantized once
     # when it is shared by multiple linear modules
     return (
@@ -198,6 +209,7 @@ def _is_linear(mod, *args):
         and not isinstance(mod.weight, AutoQuantizableLinearWeight)
         and not isinstance(mod.weight, AffineQuantizedTensor)
         and not isinstance(mod.weight, LinearActivationQuantizedTensor)
+        and not isinstance(mod.weight, AffineFakeQuantizedTensor)
     )
 
 import torch.nn.utils.parametrize as parametrize
@@ -269,7 +281,13 @@ def _get_linear_subclass_inserter(constructor):
 
     return insert_subclass
 
-def quantize_(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.nn.Module], torch.nn.Module], filter_fn: Optional[Callable[[torch.nn.Module, str], bool]]=None, set_inductor_config: bool=True):
+def quantize_(
+    model: torch.nn.Module,
+    apply_tensor_subclass: Callable[[torch.nn.Module], torch.nn.Module],
+    filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = None,
+    set_inductor_config: bool = True,
+    device: Optional[torch.types.Device] = None,
+):
     """Convert the weight of linear modules in the model with `apply_tensor_subclass`, model is modified inplace
 
     Args:
@@ -278,6 +296,8 @@ def quantize_(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.nn.
         filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): function that takes a nn.Module instance and fully qualified name of the module, returns True if we want to run `apply_tensor_subclass` on
         the weight of the module
         set_inductor_config (bool, optional): Whether to automatically use recommended inductor config settings (defaults to True)
+        device (device, optional): Device to move module to before applying `filter_fn`. This can be set to `"cuda"` to speed up quantization. The final model will be on the specified `device`.
+            Defaults to None (do not change device).
 
     Example::
 
@@ -329,6 +349,7 @@ def quantize_(model: torch.nn.Module, apply_tensor_subclass: Callable[[torch.nn.
         model,
         apply_tensor_subclass,
         _is_linear if filter_fn is None else filter_fn,
+        device=device,
     )
 
 def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
@@ -468,34 +489,34 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     return int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType())
 
 
-def uintx_weight_only(bit_width, group_size=64, pack_dim=-1):
+def uintx_weight_only(dtype, group_size=64, pack_dim=-1):
     """
     Applies uintx weight-only asymmetric per-group quantization to linear layers, using uintx quantization where
-    x is the number of bits specified by the `bit_width` argument
+    x is the number of bits specified by `dtype`
+
+    Args:
+        `dtype`: torch.uint1 to torch.uint7 sub byte dtypes
+        `group_size`: parameter for quantization, controls the granularity of quantization, smaller
+         size is more fine grained, defaults to 64
+        `pack_dim`: the dimension we use for packing, defaults to -1
     """
     from torchao.quantization.quant_primitives import (
         MappingType,
         ZeroPointDomain,
-        choose_qparams_affine,
-        quantize_affine,
-        dequantize_affine,
     )
     from torchao.quantization.quant_api import _get_linear_subclass_inserter
-    def apply_uintx_weight_only_quant(weight):
 
-        layout_type = UintxLayoutType(bit_width=bit_width, pack_dim=pack_dim)
+    def apply_uintx_weight_only_quant(weight):
+        layout_type = UintxLayoutType(dtype=dtype, pack_dim=pack_dim)
         mapping_type = MappingType.ASYMMETRIC
         block_size = (1, group_size)
-        quant_min = 0
-        quant_max = 2**bit_width - 1
         eps = torch.finfo(torch.float32).eps
         zero_point_dtype = torch.int32
         zero_point_domain = ZeroPointDomain.INT
 
         return to_affine_quantized(
-            weight, mapping_type, block_size, torch.uint8,
-            quant_min = quant_min, quant_max = quant_max,
-            eps = eps, zero_point_dtype=zero_point_dtype,
+            weight, mapping_type, block_size, dtype,
+            eps=eps, zero_point_dtype=zero_point_dtype,
             zero_point_domain=zero_point_domain,
             layout_type=layout_type,
         )

@@ -130,18 +130,15 @@ class TestFakeSparsity(TestCase):
             model_load.seq[1].parametrizations["weight"].original,
         )
 
-        # Check the masks are not preserved in the state_dict
-        # We store the state_dicts in the sparsifier, not in the model itself.
-        # TODO: Need to find a clean way of exporting the parametrized model
-        self.assertNotEqual(
+        self.assertEqual(
             model_save.linear.parametrizations["weight"][0].mask,
             model_load.linear.parametrizations["weight"][0].mask,
         )
-        self.assertNotEqual(
+        self.assertEqual(
             model_save.seq[0].parametrizations["weight"][0].mask,
             model_load.seq[0].parametrizations["weight"][0].mask,
         )
-        self.assertNotEqual(
+        self.assertEqual(
             model_save.seq[1].parametrizations["weight"][0].mask,
             model_load.seq[1].parametrizations["weight"][0].mask,
         )

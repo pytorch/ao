@@ -53,14 +53,12 @@ class AWQObserver(AffineQuantizedObserverBase):
         )
         self.weight = weight
         self.scale_options = scale_search_space_size
-        self.losses = torch.zeros(self.scale_options)
-        self.average = torch.zeros(weight.shape[-1], dtype=input_dtype).to(device)
+        self.losses = [0] * self.scale_options
+        self.average = torch.zeros(weight.shape[-1], dtype=torch.float32).to(device)
         self.counter = 0
 
     def forward(self, input: torch.Tensor):
-        if input.dim() == 3:
-            input = input.squeeze(0)
-        self.average = self.average * self.counter / (self.counter + input.shape[0])  + input.abs().sum(dim=0) / (self.counter + input.shape[0])
+        self.average = self.average * self.counter / (self.counter + input.shape[0])  + input.abs().sum(dim=1).squeeze(0) / (self.counter + input.shape[0])
         self.counter += input.shape[0]
         for i in range(self.scale_options):
             unquantized_result = F.linear(input, self.weight)
@@ -84,7 +82,6 @@ class AWQObserver(AffineQuantizedObserverBase):
             scaled_activation = (input / scales)
             out = F.linear(scaled_activation, quantized_weight)
             self.losses[i] += (unquantized_result - out).pow(2).mean().item()
-        # print(self.losses[0])
     
     def calculate_qparams(self):
         ratio = torch.argmin(self.losses) * 1.0 / self.scale_options
