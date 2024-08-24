@@ -13,14 +13,12 @@ from torchao.quantization.quant_api import (
 from torchao.dtypes import (
     to_affine_quantized,
 )
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 import torch
 import unittest
 import tempfile
 
-from torchao.utils import (
-    TORCH_VERSION_AT_LEAST_2_5,
-)
 
 class TestAffineQuantized(TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
