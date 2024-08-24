@@ -26,18 +26,17 @@ class ObservedLinear(torch.nn.Linear):
         observed_linear.bias = float_linear.bias
         return observed_linear
     
-def insert_awq_observer(model, device):
+def insert_awq_observer(model, input_dtype, device):
     _is_linear = lambda m, fqn: isinstance(m, torch.nn.Linear)
     def replace_with_observer(layer):
-        observer = AWQObserver((layer.weight), MappingType.ASYMMETRIC, torch.int8, device)
+        observer = AWQObserver(layer.weight, input_dtype, MappingType.ASYMMETRIC, torch.int8, device)
         return ObservedLinear.from_float(layer, observer)
     _replace_with_custom_fn_if_matches_filter(model, replace_with_observer, _is_linear)
 
 # converting observed linear module to linear module with quantzied weights
 # with tensor subclasses
-def awq_quant(observed_linear):
+def awq_quant(observed_linear, target_dtype=torch.int8):
     assert observed_linear.act_obs.counter > 0, "Calibrate the observer first" 
-    target_dtype = torch.int8
     block_size = (1, -1)
     mapping_type = MappingType.ASYMMETRIC
     # weight quantization
@@ -88,7 +87,7 @@ if __name__ == "__main__":
         int8wo_out = torch.cat([m_int8wo(i.squeeze(0)) for i in dataset])
 
         # calibrate
-        insert_awq_observer(m, device)
+        insert_awq_observer(m, dtype, device)
         for example in calibration_data:
             m(example.to(device))
         # print('calibrated')

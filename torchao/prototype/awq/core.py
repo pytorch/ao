@@ -25,6 +25,7 @@ from torchao.quantization.observer import (
 class AWQObserver(AffineQuantizedObserverBase):
     def __init__(self,
         weight: torch.Tensor,
+        input_dtype: torch.dtype,
         mapping_type: MappingType,
         target_dtype: torch.dtype,
         device: str,
@@ -52,12 +53,14 @@ class AWQObserver(AffineQuantizedObserverBase):
         )
         self.weight = weight
         self.scale_options = scale_search_space_size
-        self.losses = [0] * self.scale_options
-        self.average = torch.zeros(weight.shape[-1], dtype=torch.float32).to(device)
+        self.losses = torch.zeros(self.scale_options)
+        self.average = torch.zeros(weight.shape[-1], dtype=input_dtype).to(device)
         self.counter = 0
 
     def forward(self, input: torch.Tensor):
-        self.average = self.average * self.counter / (self.counter + input.shape[0])  + input.abs().sum(dim=1).squeeze(0) / (self.counter + input.shape[0])
+        if input.dim() == 3:
+            input = input.squeeze(0)
+        self.average = self.average * self.counter / (self.counter + input.shape[0])  + input.abs().sum(dim=0) / (self.counter + input.shape[0])
         self.counter += input.shape[0]
         for i in range(self.scale_options):
             unquantized_result = F.linear(input, self.weight)
@@ -81,10 +84,10 @@ class AWQObserver(AffineQuantizedObserverBase):
             scaled_activation = (input / scales)
             out = F.linear(scaled_activation, quantized_weight)
             self.losses[i] += (unquantized_result - out).pow(2).mean().item()
+        # print(self.losses[0])
     
     def calculate_qparams(self):
-        losses = torch.tensor(self.losses)
-        ratio = torch.argmin(losses) * 1.0 / self.scale_options
+        ratio = torch.argmin(self.losses) * 1.0 / self.scale_options
         scales = self.average.pow(ratio).clamp(min=1e-4)
         scales = scales / (scales.max() * scales.min()).sqrt() 
         return scales.detach()
@@ -108,11 +111,4 @@ class AWQ_AQTLayout(PlainAQTLayout):
     ):
         assert isinstance(layout_type, AWQLayoutType)
         return cls(int_data, scale, zero_point, layout_type)
-
-    
-    
-
-    
-    
-    
     

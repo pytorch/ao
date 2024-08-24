@@ -49,7 +49,7 @@ def run_evaluation(
 
     print("Loading model ...")
     t0 = time.time()
-    model = _load_model(checkpoint_path, "cuda", precision).to(device)
+    model = _load_model(checkpoint_path, "cpu", precision).to(device)
     print(model)
 
     if max_length is None:
@@ -92,7 +92,7 @@ def run_evaluation(
             model = quantizer.quantize(model, inputs).to(device)
         elif "awq" in quantization:
             from torchao.prototype.awq.test import ObservedLinear, insert_awq_observer, awq_quant 
-            insert_awq_observer(model, device)
+            insert_awq_observer(model, precision, device)
             InputRecorder(
                 tokenizer,
                 model,
