@@ -19,12 +19,7 @@ class OptimState8bit(Tensor):
 
     @staticmethod
     def __new__(cls, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool):
-        return Tensor._make_wrapper_subclass(
-            cls,
-            codes.shape,
-            device=codes.device,
-            requires_grad=False,
-        )
+        return Tensor._make_wrapper_subclass(cls, codes.shape, device=codes.device)
 
     def __init__(self, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool):
         """Create quantized 8-bit optimizer state as proposed in https://arxiv.org/abs/2110.02861

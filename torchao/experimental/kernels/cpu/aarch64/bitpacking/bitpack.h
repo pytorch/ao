@@ -1,10 +1,15 @@
-// (c) Meta Platforms, Inc. and affiliates. Confidential and proprietary.
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+// All rights reserved.
+//
+// This source code is licensed under the license found in the
+// LICENSE file in the root directory of this source tree.
 
 #pragma once
 #include <arm_neon.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/macro.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint3.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint4.h>
+#include <cassert>
 
 namespace torchao {
 namespace bitpacking {

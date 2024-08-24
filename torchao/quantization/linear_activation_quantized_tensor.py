@@ -6,7 +6,10 @@ from torchao.dtypes.utils import (
 )
 from typing import Callable
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import (
+    TorchAOBaseTensor,
+    TORCH_VERSION_AT_LEAST_2_5,
+)
 
 __all__ = [
     "LinearActivationQuantizedTensor",
@@ -15,9 +18,19 @@ __all__ = [
 
 aten = torch.ops.aten
 
-class LinearActivationQuantizedTensor(torch.Tensor):
+class LinearActivationQuantizedTensor(TorchAOBaseTensor):
     """
-    Applies activation quantization for linear operator
+    Applies activation quantization for linear operator, this is used to support
+    dynamic quantization or static quantization, user can pass in a `input_quant_func`
+    that is used to quantize the activation
+
+    Args:
+      `original_weight_tensor`: the weight tensor, if weight need to be quantized as well, we'd need
+        to apply quantization to weight first, e.g. for int8 dynamic activation int8 weight quantization
+        we will first apply int8 quantization to weight and then apply LinearActivationQuantizedTensor
+        on top of it
+      `input_quant_func` (Callable[[torch.Tensor], torch.Tensor]): a function that takes a high precision floating point tensor and returns
+        a quantized tensor, this is used to quantize input
     """
     def __new__(
         cls,
@@ -35,7 +48,7 @@ class LinearActivationQuantizedTensor(torch.Tensor):
     def __init__(
         self,
         original_weight_tensor: torch.Tensor,
-        input_quant_func: Callable,
+        input_quant_func: Callable[[torch.Tensor], torch.Tensor],
     ):
         self.original_weight_tensor = original_weight_tensor
         self.input_quant_func = input_quant_func
@@ -73,20 +86,6 @@ class LinearActivationQuantizedTensor(torch.Tensor):
             fn(self.original_weight_tensor),
             self.input_quant_func,
         )
-
-    def _get_to_kwargs(self, *args, **kwargs):
-        device, dtype, _, memory_format = torch._C._nn._parse_to(*args, **kwargs)
-        device = self.device if device is None else device
-        dtype = self.dtype if dtype is None else dtype
-        memory_format = (
-            memory_format if memory_format is not None else torch.preserve_format
-        )
-        kwargs = {
-            "device": device,
-            "dtype": dtype,
-            "memory_format": memory_format,
-        }
-        return kwargs
 
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)

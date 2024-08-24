@@ -11,9 +11,29 @@ from torchao.dtypes.utils import (
     _dispatch__torch_dispatch__,
 )
 from torchao.dtypes.affine_quantized_tensor import PlainAQTLayout, register_layout_cls
-
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
 
 aten = torch.ops.aten
+
+# Note: Uintx does not work for torch 2.3 and below
+_DTYPE_TO_BIT_WIDTH = {}
+_BIT_WIDTH_TO_DTYPE = {}
+
+if TORCH_VERSION_AT_LEAST_2_3:
+    _DTYPE_TO_BIT_WIDTH = {
+        torch.uint1: 1,
+        torch.uint2: 2,
+        torch.uint3: 3,
+        torch.uint4: 4,
+        torch.uint5: 5,
+        torch.uint6: 6,
+        torch.uint7: 7,
+    }
+
+    _BIT_WIDTH_TO_DTYPE = {v: k for k, v in _DTYPE_TO_BIT_WIDTH.items()}
+else:
+    print("uintx feature need torch 2.3+, please upgrade pytorch")
+
 
 class UintxTensor(torch.Tensor):
     """
@@ -90,7 +110,8 @@ class UintxTensor(torch.Tensor):
     def apply_transformation(self, fn):
         og = self.get_plain()
         new = fn(og)
-        return self.from_uint8(new, self.bit_width, self.pack_dim)
+        dtype = _BIT_WIDTH_TO_DTYPE[self.bit_width]
+        return self.from_uint8(new, dtype, self.pack_dim)
 
     # temporary until kernels on packed tensors are created
     def apply_fn_to_shards(self, fn):
@@ -98,15 +119,45 @@ class UintxTensor(torch.Tensor):
         return self.__class__(new_shards, self.packed_shape, self.bit_width, self.pack_dim)
 
     @classmethod
-    def from_uint8(cls, int_data: torch.Tensor, bit_width, pack_dim: int = -1):
+    def from_uint8(cls, int_data: torch.Tensor, dtype: torch.dtype, pack_dim: int = -1):
+        assert dtype in _DTYPE_TO_BIT_WIDTH.keys(), "Expected dtype to be one of {_DTYPE_TO_BIT_WIDTH.keys()}"
+        bit_width = _DTYPE_TO_BIT_WIDTH[dtype]
         shards = pack(int_data, bit_width, dim=pack_dim)
         shape = list(int_data.shape)
         shape[pack_dim] = shape[pack_dim] * bit_width // 8
         return cls(shards, int_data.shape, bit_width, pack_dim)
 
 
-implements = UintxTensor.implements
+    def _get_to_kwargs(self, *args, **kwargs):
+        device, dtype, _, memory_format = torch._C._nn._parse_to(*args, **kwargs)
+        device = self.device if device is None else device
+        dtype = self.dtype if dtype is None else dtype
+        memory_format = (
+            memory_format if memory_format is not None else torch.preserve_format
+        )
+        kwargs = {
+            "device": device,
+            "dtype": dtype,
+            "memory_format": memory_format,
+        }
+        return kwargs
 
+    def to(self, *args, **kwargs):
+        if "copy" in kwargs:
+            return super().to(*args, **kwargs)
+        kwargs = self._get_to_kwargs(*args, **kwargs)
+        if "device" in kwargs:
+            return self.__class__(
+                list(shard.to(kwargs["device"]) for shard in self.get_shards()),
+                self.packed_shape,
+                self.bit_width,
+                self.pack_dim,
+            )
+        return super().to(*args, **kwargs)
+
+
+
+implements = UintxTensor.implements
 
 @implements(aten.detach.default)
 def _(func, types, args, kwargs):
@@ -137,16 +188,17 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0].apply_transformation(lambda x: (x * args[1]).to(torch.uint8))
     )
+
 # quantization api integrations
 to_uintx = UintxTensor.from_uint8
 
 @dataclass(frozen=True)
 class UintxLayoutType(LayoutType):
-    bit_width: int
+    dtype: torch.dtype
     pack_dim: int = -1
 
     def post_process(self, input: torch.Tensor) -> torch.Tensor:
-        return to_uintx(input, self.bit_width, self.pack_dim)
+        return to_uintx(input, self.dtype, self.pack_dim)
 
 @register_layout_cls(UintxLayoutType)
 class UintxAQTLayout(PlainAQTLayout):

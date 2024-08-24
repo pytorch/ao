@@ -20,6 +20,7 @@ __all__ = [
     "_register_custom_op",
     "get_model_size_in_bytes",
     "unwrap_tensor_subclass",
+    "TorchAOBaseTensor",
     "TORCH_VERSION_AT_LEAST_2_2",
     "TORCH_VERSION_AT_LEAST_2_3",
     "TORCH_VERSION_AT_LEAST_2_4",
@@ -130,6 +131,9 @@ def skip_if_compute_capability_less_than(min_capability):
         return wrapper
     return decorator
 
+def compute_max_diff(output: torch.Tensor, output_ref: torch.Tensor) -> torch.Tensor:
+    return torch.mean(torch.abs(output - output_ref)) / torch.mean(
+        torch.abs(output_ref))
 
 def benchmark_torch_function_in_microseconds(f, *args, **kwargs):
     import torch.utils.benchmark as benchmark # this avoids importing numpy when torchao module is loaded
@@ -280,6 +284,30 @@ def unwrap_tensor_subclass(model, filter_fn=None):
             parametrize.register_parametrization(child, "weight", UnwrapTensorSubclass())
         unwrap_tensor_subclass(child)
     return model
+
+class TorchAOBaseTensor(torch.Tensor):
+    """A util tensor subclass that provides commonly used functions
+    """
+    def _get_to_kwargs(self, *args, **kwargs):
+        # `torch._C._nn._parse_to` can't handle `layout` argument
+        for arg in args:
+            if isinstance(arg, torch.layout):
+                args.remove(arg)
+        if "layout" in kwargs:
+            kwargs.pop("layout")
+        # ignoring `non_blocking` and `memory_format` args since these are not
+        # very useful for most of the tensor subclasses
+        # if in the future there are use cases that need these, we'd recommend
+        # to override `_get_to_kwargs` and return these args
+        device, dtype, _, _ = torch._C._nn._parse_to(*args, **kwargs)
+        device = self.device if device is None else device
+        dtype = self.dtype if dtype is None else dtype
+        kwargs = {
+            "device": device,
+            "dtype": dtype,
+        }
+        return kwargs
+
 
 
 def parse_version(version_string):

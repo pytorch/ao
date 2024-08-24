@@ -11,7 +11,7 @@ from .subclass_fp8 import OptimStateFp8
 
 
 class _AdamBase(Optimizer):
-    def __init__(self, params, lr, betas, eps, weight_decay, amsgrad, *, block_size) -> None:
+    def __init__(self, params, lr, betas, eps, weight_decay, amsgrad, *, block_size, is_adamw) -> None:
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if not 0.0 <= eps:
@@ -20,9 +20,10 @@ class _AdamBase(Optimizer):
             raise ValueError("Invalid beta parameter at index 0: {}".format(betas[0]))
         if not 0.0 <= betas[1] < 1.0:
             raise ValueError("Invalid beta parameter at index 1: {}".format(betas[1]))
-        defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, amsgrad=amsgrad)
+        defaults = dict(lr=torch.tensor(lr), betas=betas, eps=eps, weight_decay=weight_decay, amsgrad=amsgrad)
         super().__init__(params, defaults)
         self.block_size = block_size
+        self.is_adamw = is_adamw
 
     def __setstate__(self, state):
         super().__setstate__(state)
@@ -69,7 +70,7 @@ class _AdamBase(Optimizer):
 
                 # State initialization
                 if len(state) == 0:
-                    state["step"] = torch.tensor(0.0, device=p.device)
+                    state["step"] = torch.tensor(0.0)
                     state["exp_avg"] = self._new_buffer(p, True)
                     state["exp_avg_sq"] = self._new_buffer(p, False)
                     if group["amsgrad"]:
@@ -77,11 +78,11 @@ class _AdamBase(Optimizer):
 
                 state["step"] += 1
 
-                # must explicitly convert lr to Tensor since torch.compile() will treat Python float as constant.
-                # practically, only lr is changed during training.
-                # NOTE: if lr is changed at every step, moving lr to CUDA can slow down training 3-4%.
                 if not isinstance(group["lr"], Tensor):
-                    group["lr"] = torch.tensor(group["lr"], device=p.device)
+                    raise RuntimeError(
+                        "lr was changed to a non-Tensor object. If you want to update lr, please use "
+                        "optim.param_groups[0]['lr'].fill_(new_lr)"
+                    )
 
                 p_grad_state = (
                     p,
@@ -107,14 +108,16 @@ class _AdamBase(Optimizer):
         param_groups = self._prepare_param_groups()
 
         # static compile optim step for all params in a single graph
-        torch.compile(param_groups_adam, fullgraph=True)(param_groups)
+        torch.compile(param_groups_adam, fullgraph=True)(param_groups, self.is_adamw)
         return loss
 
 
-def param_groups_adam(param_groups):
+def param_groups_adam(param_groups, is_adamw):
     for group, lr, (beta1, beta2), weight_decay, eps in param_groups:
         for p, grad, step, exp_avg, exp_avg_sq, max_exp_avg_sq in group:
-            single_param_adam(p, grad, step, exp_avg, exp_avg_sq, max_exp_avg_sq, lr, beta1, beta2, weight_decay, eps)
+            single_param_adam(
+                p, grad, step, exp_avg, exp_avg_sq, max_exp_avg_sq, lr, beta1, beta2, weight_decay, eps, is_adamw
+            )
 
 
 # this will work with any optim state tensor subclass that implements aten.lerp.Scalar and aten.copy_.default
@@ -130,12 +133,13 @@ def single_param_adam(
     beta2: float,
     weight_decay: float,
     eps: float,
+    is_adamw: bool,
 ):
-    if weight_decay != 0:
+    if not is_adamw:
         grad = grad.add(p, alpha=weight_decay)
 
-    bias_correction1 = 1 - beta1 ** step
-    bias_correction2 = 1 - beta2 ** step
+    bias_correction1 = 1 - beta1**step
+    bias_correction2 = 1 - beta2**step
 
     # keep high precision copy for param update
     new_exp_avg = exp_avg.lerp(grad, 1 - beta1)
@@ -152,7 +156,11 @@ def single_param_adam(
         denom = (new_exp_avg_sq.sqrt() / bias_correction2.sqrt()).add_(eps)
 
     step_size = lr / bias_correction1
-    p.addcdiv_(new_exp_avg, denom, value=-step_size)
+    if is_adamw:
+        # merge weight decay and param update in a single .add_() to make this work with quantized param
+        p.add_(-lr * weight_decay * p - step_size * new_exp_avg / denom)
+    else:
+        p.addcdiv_(new_exp_avg, denom, value=-step_size)
 
 
 class Adam8bit(_AdamBase):
@@ -167,7 +175,7 @@ class Adam8bit(_AdamBase):
         *,
         block_size=2048,
     ) -> None:
-        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size)
+        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size, is_adamw=False)
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
@@ -186,7 +194,7 @@ class Adam4bit(_AdamBase):
         *,
         block_size=128,
     ) -> None:
-        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size)
+        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size, is_adamw=False)
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
@@ -227,6 +235,7 @@ class Adam4bit(_AdamBase):
                     beta2,
                     weight_decay,
                     eps,
+                    self.is_adamw,
                 )
                 p.requires_grad_(True)
 
@@ -245,8 +254,121 @@ class AdamFp8(_AdamBase):
         *,
         block_size=2048,
     ) -> None:
-        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size)
+        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size, is_adamw=False)
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
         return OptimStateFp8.zeros(p.shape, block_size, p.device)
+
+
+class AdamW8bit(_AdamBase):
+    def __init__(
+        self,
+        params,
+        lr=1e-3,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+        weight_decay=1e-2,
+        amsgrad=False,
+        *,
+        block_size=2048,
+    ) -> None:
+        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size, is_adamw=True)
+
+    @staticmethod
+    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
+        return OptimState8bit.zeros(p.shape, signed, block_size, p.device)
+
+
+class AdamW4bit(_AdamBase):
+    def __init__(
+        self,
+        params,
+        lr=1e-3,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+        weight_decay=1e-2,
+        amsgrad=False,
+        *,
+        block_size=128,
+    ) -> None:
+        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size, is_adamw=True)
+
+    @staticmethod
+    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
+        return OptimState4bit.zeros(p.shape, signed, block_size, p.device)
+
+    @staticmethod
+    def _unwrap_dtensor(p: Tensor):
+        return p._local_tensor if isinstance(p, DTensor) else p
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        param_groups = self._prepare_param_groups()
+
+        # NOTE: right now, torch.compile(param_groups_adam) will have excessive memory usage for 4-bit optim.
+        # thus, as a workaround, we use torch.compile(single_param_adam) and call it for each param.
+
+        # unwrap DTensor since DTensor does not work well with dynamic compile
+        # flatten p, grad, and optim state to avoid recompilation
+        for group, lr, (beta1, beta2), weight_decay, eps in param_groups:
+            for p, grad, step, exp_avg, exp_avg_sq, max_exp_avg_sq in group:
+                # DTensor._local_tensor has .requires_grad = False
+                # to avoid recompilation, set p.requires_grad = False and restore it after optim step
+                p.requires_grad_(False)
+                torch.compile(single_param_adam, fullgraph=True, dynamic=True)(
+                    self._unwrap_dtensor(p).view(-1),
+                    self._unwrap_dtensor(grad).view(-1),
+                    step,
+                    self._unwrap_dtensor(exp_avg).view(-1),
+                    self._unwrap_dtensor(exp_avg_sq).view(-1),
+                    self._unwrap_dtensor(max_exp_avg_sq).view(-1) if max_exp_avg_sq is not None else None,
+                    lr,
+                    beta1,
+                    beta2,
+                    weight_decay,
+                    eps,
+                    self.is_adamw,
+                )
+                p.requires_grad_(True)
+
+        return loss
+
+
+class AdamWFp8(_AdamBase):
+    def __init__(
+        self,
+        params,
+        lr=1e-3,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+        weight_decay=1e-2,
+        amsgrad=False,
+        *,
+        block_size=2048,
+    ) -> None:
+        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size, is_adamw=True)
+
+    @staticmethod
+    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
+        return OptimStateFp8.zeros(p.shape, block_size, p.device)
+
+
+class _AdamW(_AdamBase):
+    def __init__(
+        self,
+        params,
+        lr=1e-3,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+        weight_decay=1e-2,
+        amsgrad=False,
+    ) -> None:
+        """AdamW optimizer that supports quantized training (parameter is quantized). This optimizer should
+        only be used with torchao's quantized training."""
+        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=float("inf"), is_adamw=True)

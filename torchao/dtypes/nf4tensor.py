@@ -339,7 +339,7 @@ def copy_(func, *args, **kwargs):
     # Convert Non NF4Tensor into NF4 for copy in
     if not isinstance(copy_in, NF4Tensor):
         copy_in_nf4 = NF4Tensor.from_tensor(
-            copy_in, original.block_size, original.scaler_block_size
+            copy_in.to(original.device), original.block_size, original.scaler_block_size
         )
         return original.copy_(copy_in_nf4)
 

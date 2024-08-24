@@ -33,7 +33,7 @@ __all__ = [
 class MappingType(Enum):
     """How floating point number is mapped to integer number
 
-    symmetric mapping means floating point range is symetrically mapped to integer range
+    symmetric mapping means floating point range is symmetrically mapped to integer range
     let's say we have floating point range (-3.5, 10.2) and integer range (-8, 7) (int4)
     we'll use (-10.2, 10.2) as the range for floating point and map that to (-8, 7)
     e.g. scale = (10.2 - (-10.2)) / (7 - (-8))
@@ -68,9 +68,10 @@ _DTYPE_TO_QVALUE_BOUNDS: Dict[torch.dtype, Tuple[int, int]] = {
     torch.int16: (-(2**15), 2**15 - 1),
     torch.int32: (-(2**31), 2**31 - 1),
 }
+_SUB_BYTE_DTYPE_BOUNDS: Dict[torch.dtype, Tuple[int, int]] = {}
 
 if TORCH_VERSION_AT_LEAST_2_3:
-    _DTYPE_TO_QVALUE_BOUNDS.update({
+    _SUB_BYTE_DTYPE_BOUNDS = {
         torch.uint1: (0, 2**1-1),
         torch.uint2: (0, 2**2-1),
         torch.uint3: (0, 2**3-1),
@@ -78,7 +79,10 @@ if TORCH_VERSION_AT_LEAST_2_3:
         torch.uint5: (0, 2**5-1),
         torch.uint6: (0, 2**6-1),
         torch.uint7: (0, 2**7-1),
-    })
+    }
+    _DTYPE_TO_QVALUE_BOUNDS.update(
+        _SUB_BYTE_DTYPE_BOUNDS
+    )
 
 
 quant_lib = torch.library.Library("quant", "FRAGMENT")
@@ -167,7 +171,7 @@ def quantize_affine(
       output_dtype (torch.dtype): requested dtype (e.g. torch.uint8) for output Tensor
       quant_min (Optional[int]): minimum quantized value for output Tensor, if not specified, it will be derived from dtype
       quant_max (Optional[int]): maximum quantized value for output Tensor, if not specified, it will be derived from dtype
-      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be eitehr integer or float
+      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be either integer or float
         if zero_point is in integer domain, zero point is added to the quantized integer value during
         quantization
         if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
@@ -216,6 +220,10 @@ def _quantize_affine(
     """op definition that has compatible signatures with custom op library
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(output_dtype, quant_min, quant_max)
+    # workaround for uintx dtypes, since we don't have native Uintx dtype connected with
+    # torch.uintx dtypes yet
+    if output_dtype in _SUB_BYTE_DTYPE_BOUNDS:
+        output_dtype = torch.uint8
     return _quantize_affine_no_dtype_cast(
         input,
         block_size,
@@ -287,11 +295,11 @@ def dequantize_affine(
                                e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
       scale (Tensor): quantization parameter for affine quantization
       zero_point (Tensor): quantization parameter for affine quantization
-      dtype (torch.dtype): requested dtype (e.g. torch.uint8) for output Tensor
+      input_dtype (torch.dtype): requested dtype (e.g. torch.uint8) for output Tensor
       quant_min (Optional[int]): minimum quantized value for input Tensor
       quant_max (Optional[int]): maximum quantized value for input Tensor
       output_dtype (torch.dtype): dtype for output Tensor, default is fp32
-      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be eitehr integer or float
+      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be either integer or float
         if zero_point is in integer domain, zero point is added to the quantized integer value during
         quantization
         if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
@@ -328,10 +336,9 @@ def _dequantize_affine(
 ) -> torch.Tensor:
     """op definition that has compatible signatures with custom op library
     """
-
-    # TODO: validations
     # TODO: validate scale/zero_point dimensions are compatible with block_size
-    assert input.dtype == input_dtype, f"Expected: {input_dtype}, got: {input.dtype}"
+    if input_dtype not in _SUB_BYTE_DTYPE_BOUNDS:
+        assert input.dtype == input_dtype, f"Expected: {input_dtype}, got: {input.dtype}"
     assert output_dtype in [torch.float32, torch.float16, torch.bfloat16], f"Unsupported output dtype: {output_dtype}"
     quant_min, quant_max = _get_and_check_qmin_qmax(input_dtype, quant_min, quant_max)
     return _dequantize_affine_no_dtype_check(
@@ -413,7 +420,7 @@ def fake_quantize_affine(
       quant_dtype (torch.dtype): desired quantized dtype for determining and validating quant_min and quant_max values.
       quant_min (Optional[int]): minimum quantized value for output Tensor, if not specified, it will be derived from dtype
       quant_max (Optional[int]): maximum quantized value for output Tensor, if not specified, it will be derived from dtype
-      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be eitehr integer or float
+      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be either integer or float
         if zero_point is in integer domain, zero point is added to the quantized integer value during
         quantization
         if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
@@ -549,7 +556,7 @@ def choose_qparams_affine(
 
           If we don't need zero to be exactly representable, we won't do rounding and clamping for zero_point
 
-        zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be eitehr integer or float
+        zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be either integer or float
             if zero_point is in integer domain, zero point is added to the quantized integer value during
             quantization
             if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
