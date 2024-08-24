@@ -258,6 +258,10 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         layout_type: LayoutType = PlainLayoutType(),
         use_hqq: bool = False,
     ):
+        if target_dtype in FP8_TYPES:
+            validate_float8_params(
+                input_float, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain, layout_type, use_hqq
+            )
         original_shape = input_float.shape
         input_float = layout_type.pre_process(input_float)
 
