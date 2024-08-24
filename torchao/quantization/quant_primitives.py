@@ -427,8 +427,8 @@ def fake_quantize_affine(
       scale (float): quantization parameter for affine quantization
       zero_point (int): quantization parameter for affine quantization
       quant_dtype (torch.dtype): desired quantized dtype for determining and validating quant_min and quant_max values.
-      quant_min (Optional[int, float]): minimum quantized value for output Tensor, if not specified, it will be derived from dtype
-      quant_max (Optional[int, float]): maximum quantized value for output Tensor, if not specified, it will be derived from dtype
+      quant_min (Optional[int]): minimum quantized value for output Tensor, if not specified, it will be derived from dtype
+      quant_max (Optional[int]): maximum quantized value for output Tensor, if not specified, it will be derived from dtype
       zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be either integer or float
         if zero_point is in integer domain, zero point is added to the quantized integer value during
         quantization
