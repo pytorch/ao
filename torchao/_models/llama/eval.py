@@ -91,7 +91,7 @@ def run_evaluation(
             model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
             model = quantizer.quantize(model, inputs).to(device)
         elif "awq" in quantization:
-            from torchao.prototype.awq.test import ObservedLinear, insert_awq_observer, awq_quant 
+            from torchao.prototype.awq.api import ObservedLinear, insert_awq_observer, awq_quant 
             insert_awq_observer(model, precision, device)
             InputRecorder(
                 tokenizer,

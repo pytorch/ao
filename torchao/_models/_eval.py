@@ -145,6 +145,38 @@ if _lm_eval_available:
         def get_inputs(self):
             return self.inputs
 
+        # TODO: dispatch based on quant method
+        def _GPTQ_model_call(self, inps):
+            inps = inps.squeeze(0)
+            T = len(inps)
+            if (
+                # can't use inputs that are too short when padding disabled
+                (T < self.calibration_seq_length and not self.pad_calibration_inputs)
+                or
+                # can't use inputs that actually use token we use for padding
+                (self.pad_calibration_inputs and self.pad_token in inps)
+            ):
+                # give random output
+                return torch.randn(
+                    (1, T, self.vocab_size), dtype=torch.bfloat16, device=self._device
+                )
+
+            # pad or truncate to the right size
+            if T >= self.calibration_seq_length:
+                inps = inps[: self.calibration_seq_length]
+            else:
+                inps = F.pad(inps, (self.pad_token, self.calibration_seq_length - T))
+
+            inps = inps.unsqueeze(0)
+            model_in = self.input_prep_func(inps)
+
+            self.add_input(model_in)
+
+            # output `something` with correct shape to keep eval going
+            return torch.randn(
+                (1, T, self.vocab_size), dtype=torch.bfloat16, device=self._device
+            )
+                 
         def _model_call(self, inps):
             input = self.input_prep_func(inps.to(self._device))
 
