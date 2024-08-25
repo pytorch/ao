@@ -6,7 +6,7 @@
 
 ## Introduction
 
-torchao: PyTorch library for custom data types & optimizations. Quantize and sparsify parameters, weights, gradients & activations to any dtype. 
+torchao: PyTorch library for custom data types & optimizations. Quantize and sparsify weights, gradients, optimizers & activations to any dtype. 
 
 From the team that brought you the fast series
 * 8x with in speedups for Image segmentation models with [sam-fast](https://pytorch.org/blog/accelerating-generative-ai) (9.5x with int8 dynamic quantization + 2:4 sparsity)
@@ -19,12 +19,12 @@ torchao just works with `torch.compile()` and `FSDP2` over most PyTorch models o
 
 ### Post Training Quantization
 
-Quantizing your models is a 1 liner that should work on any model with an `nn.Linear` including your favorite HuggingFace model. You can find a more comprehensive usage instructions [here](torchao/quantization/), sparsity [here](/torchao/_models/sam/README.md) and a HuggingFace inference example [here](scripts/hf_eval.py)
+Quantizing and Sparsifying your models is a 1 liner that should work on any model with an `nn.Linear` including your favorite HuggingFace model. You can find a more comprehensive usage instructions [here](torchao/quantization/), sparsity [here](/torchao/_models/sam/README.md) and a HuggingFace inference example [here](scripts/hf_eval.py)
 
 For inference we have the option of
 1. Quantize only the weights: works best for memory bound models
 2. Quantize the weights and activations: works best for compute bound models
-2. Quantize the activations and parameters and sparsify the parameters
+2. Quantize the activations and weights and sparsify the weight
 
 ```python
 from torchao.quantization.quant_api import quantize_, int8_dynamic_activation_int4_weight, int8_dynamic_activation_int8_weight, int8_dynamic_activation_int8_semi_sparse_weight, int4_weight_only, int8_weight_only
@@ -33,23 +33,21 @@ quantize_(m, int4_weight_only())
 
 For gpt-fast `int4_weight_only()` is the best option at bs=1 as it **2x the tok/s and reduces the VRAM requirements by about 65%** over a torch.compiled baseline 
 
-If you're unsure which option to use, you can also run autoquant which will automatically profile layers for you and skip quantizing layers where overhead is too large.
+If you're unsure which option to use, you can also run [autoquant](./torchao/quantization/README.md#autoquantization) which will automatically profile layers for you and skip quantizing layers where overhead is too large.
 
 ```python
 model = torchao.autoquant(torch.compile(model, mode='max-autotune'))
 ```
 
-We also a developer facing API so you can implement your own quantization algorithms so please use the excellent [HQQ](https://github.com/pytorch/ao/tree/main/torchao/prototype/hqq) algorithm as a motivating example.
+We also provide a developer facing API so you can implement your own quantization algorithms so please use the excellent [HQQ](https://github.com/pytorch/ao/tree/main/torchao/prototype/hqq) algorithm as a motivating example.
 
 ### Quantization Aware Training
 
-Quantizing a model in this way is called Post Training Quantization and it can sometimes give you a fast, small but innacurate model. To fix this we recommend you try out Quantization Aware Training and we shared a recipe in collaboration with the torchtune team [here](https://pytorch.org/blog/quantization-aware-training/) where we recovered up to **96% of the accuracy degradation on hellaswag and 68% of the perplexity degradation on wikitext** for Llama3 compared to post-training quantization (PTQ). 
-
-import torch
-from torchtune.models.llama3 import llama3
-from torchao.quantization.prototype.qat import Int8DynActInt4WeightQATQuantizer
+Using post-training quantization can result in a fast and compact model, but may also lead to accuracy degradation. To overcome this limitation, we recommend exploring Quantization Aware Training (QAT). In collaboration with Torchtune, we've developed a QAT recipe that demonstrates significant accuracy improvements over traditional PTQ, recovering **96% of the accuracy degradation on hellaswag and 68% of the perplexity degradation on wikitext** for Llama3 compared to post-training quantization (PTQ). And we've provided a full recipe [here](https://pytorch.org/blog/quantization-aware-training/)
 
 ```python
+from torchao.quantization.prototype.qat import Int8DynActInt4WeightQATQuantizer
+
 qat_quantizer = Int8DynActInt4WeightQATQuantizer()
 
 # Insert "fake quantize" operations into linear layers.
@@ -68,7 +66,7 @@ model = qat_quantizer.convert(model)
 
 [torchao.float8](torchao/float8) implements training recipes with the scaled float8 dtypes, as laid out in https://arxiv.org/abs/2209.05433.
 
-With ``torch.compile`` on, initial results show throughput speedups of up to **1.2x on small scale (8 GPUs) LLaMa pretraining jobs**.
+With ``torch.compile`` on, initial results show throughput speedups of up to **1.2x on small scale (8 GPUs) LLaMa pretraining jobs**. And you can validate the benchmarks [here](./torchao/float8/README.md#benchmarking)
 
 ```python
 from torchao.float8 import convert_to_float8_training
@@ -99,7 +97,7 @@ optim = AdamW8bit(model.parameters()) # replace with Adam4bit and AdamFp8 for th
 
 In practice we are a tiny bit slower that expertly written kernels but the implementations for these optimizers were written a in **few hundred lines of PyTorch code ** and compiled so please use them or copy paste them for your own quantized optimizers. Benchmarks [here](https://github.com/pytorch/ao/tree/main/torchao/prototype/low_bit_optim) 
 
-We also have support for s[ingle GPU CPU offloading](https://github.com/pytorch/ao/tree/main/torchao/prototype/low_bit_optim#optimizer-cpu-offload) where both the gradients (same size as parameters) and the optimizers will be efficiently sent to the CPU. This alone can **reduce your VRAM requirements by 60%**
+We also have support for [single GPU CPU offloading](https://github.com/pytorch/ao/tree/main/torchao/prototype/low_bit_optim#optimizer-cpu-offload) where both the gradients (same size as weights) and the optimizers will be efficiently sent to the CPU. This alone can **reduce your VRAM requirements by 60%**
 
 ```python
 optim = CPUOffloadOptimizer(model.parameters(), torch.optim.AdamW, fused=True)
