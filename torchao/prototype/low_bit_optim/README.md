@@ -30,11 +30,9 @@ NOTE:
 
 ## Benchmarks
 
-Benchmark script for fine-tuning a [timm](https://github.com/huggingface/pytorch-image-models) model on [resisc45](https://huggingface.co/datasets/timm/resisc45) dataset is available at [benchmarks/benchmark_low_bit_adam.py](../../../benchmarks/benchmark_low_bit_adam.py).
+Fine-tune [timm](https://github.com/huggingface/pytorch-image-models)'s ViT-H (630M params) on [resisc45](https://huggingface.co/datasets/timm/resisc45) dataset. BF16 AMP, 1 epoch, batch size 8, cosine LR scheduler, 4070Ti SUPER, fixed random seed. Benchmark script is available at [benchmarks/benchmark_low_bit_adam.py](../../../benchmarks/benchmark_low_bit_adam.py).
 
-Results for fine-tuning ViT-H (630M params) with BF16 AMP for 1 epoch, batch size 8, cosine LR scheduler, 4070Ti SUPER, fixed random seed:
-
-Adam impl       | max memory (GB) | imgs/s | accuracy
+AdamW impl      | Max memory (GB) | imgs/s | accuracy
 ----------------|-----------------|--------|----------
 PyTorch (fused) | 12.23           | 41.8   | 94.38
 bnb 8-bit       |  8.32           | 43.6   | 94.18
@@ -45,6 +43,18 @@ ao 4-bit        |  7.72           | 40.0   | 94.03
 lpmm 4-bit (*)  |  7.74           | 26.6   | 94.25
 
 (*) means rank-1 normalization is used for 2nd optimizer state. Refer to [paper](https://arxiv.org/abs/2309.01507) for more details.
+
+Fine-tune [Llama3.1-8B-Instruct](https://huggingface.co/meta-llama/Meta-Llama-3-8B-Instruct) on [Alpaca](https://huggingface.co/datasets/tatsu-lab/alpaca) dataset. Full BF16, 1 epoch, A100, fixed random seed. Benchmark is done with [torchtune](https://github.com/pytorch/torchtune). See [#]() for more details.
+
+AdamW impl       | Max memory (GB) | toks/s | `truthfulqa_mc2` acc
+-----------------|-----------------|--------|---------------------
+Not fine-tuned   | -               | -      | 54.01
+PyTorch (fused)  | 74.24           | 3,792  | 46.26
+bnb 8-bit        | 59.00           | 3,315  | 45.36
+ao 8-bit         | 59.00           | 3,300  | 41.75
+ao 4-bit         | 51.80           | 2,845  | 43.68
+
+NOTE: lpmm's 4-bit AdamW does not support BF16 weights.
 
 ## Optimizer CPU offload
 
