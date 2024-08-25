@@ -47,7 +47,7 @@ def pretty_print_nested_results(results, precision: int = 6):
 def run_evaluation(repo_id, tasks, limit, device, precision, quantization, sparsity, compile, save, batch_size, max_length):
 
     tokenizer = AutoTokenizer.from_pretrained(repo_id)
-    model = AutoModelForCausalLM.from_pretrained(repo_id, torch_dtype=precision).to(device="cpu")
+    model = AutoModelForCausalLM.from_pretrained(repo_id, torch_dtype=precision).to(device)
 
     if quantization == "autoquant" and compile:
         model = torch.compile(model, mode="max-autotune", fullgraph=True)
@@ -63,16 +63,17 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, spars
         model = autoquant(model.to(device=device))
     elif quantization == "awq":
         from datasets import load_dataset
+        from tqdm import tqdm
         from torchao.prototype.awq.api import ObservedLinear, insert_awq_observer, awq_quant 
         
         insert_awq_observer(model, precision, device)
         wikitext103 = load_dataset("wikitext", "wikitext-103-v1")
         wikitext103_train  = wikitext103["train"]
-        wikitext103_calibration = wikitext103_train.select(range(100))
+        wikitext103_calibration = wikitext103_train.select(range(1))
         calibration_input_ids = [tokenizer.encode(text, return_tensors="pt") for text in wikitext103_calibration["text"]]
         model.to(device)
         print("running awq calibration")
-        for i, ids in enumerate(calibration_input_ids):
+        for i, ids in tqdm(enumerate(calibration_input_ids)):
             if ids.shape[-1] == 0:
                 continue
             model(ids.to(device))
