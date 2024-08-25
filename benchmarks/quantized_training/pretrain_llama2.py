@@ -1,5 +1,5 @@
 # pre-train a mini Llama2 on TinyStories with INT8 quantized training
-# pip install transformers sentencepiece wandb
+# pip install huggingface_hub sentencepiece wandb
 #
 # BF16 baseline: python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --n_steps 10_000 --compile
 # INT8 QT:       python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --n_steps 10_000 --compile --quantize int8_weight_only
@@ -9,21 +9,33 @@ import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 import argparse
+from functools import partial
 from pathlib import Path
 
 import numpy as np
 import torch
 import wandb
+from torch.utils.checkpoint import checkpoint
 from tqdm import tqdm
-from transformers import LlamaConfig, LlamaForCausalLM
 
+from torchao._models.llama.model import ModelArgs, Transformer
 from torchao.prototype import low_bit_optim
 from torchao.prototype.quantized_training import int8_weight_only_quantized_training
 from torchao.quantization.quant_api import quantize_
 
 
-def get_loss(model: LlamaForCausalLM, batch: torch.Tensor):
-    return model(batch, labels=batch).loss
+# hack from fairseq
+# https://github.com/facebookresearch/fairseq/blob/920a548ca770fb1a951f7f4289b4d3a0c1bc226f/fairseq/modules/checkpoint_activations.py
+def enable_activation_checkpointing(m: torch.nn.Module):
+    assert not hasattr(m, "_forward")
+    m._forward = m.forward
+    m.forward = partial(checkpoint, m.forward)
+
+
+def get_loss(model: Transformer, batch: torch.Tensor):
+    logits = model(batch)[:, :-1].flatten(0, 1)
+    labels = batch[:, 1:].flatten()
+    return torch.nn.functional.cross_entropy(logits, labels)
 
 
 def get_tinystories():
@@ -91,17 +103,19 @@ if __name__ == "__main__":
     if args.seed is not None:
         torch.manual_seed(args.seed)
 
-    config = LlamaConfig(
-        hidden_size=args.d_model,
+    config = ModelArgs(
+        block_size=args.seq_len,
+        n_layer=args.depth,
+        n_head=args.d_model // args.head_dim,
+        dim=args.d_model,
         intermediate_size=args.ffn_size,
-        num_hidden_layers=args.depth,
-        num_attention_heads=args.d_model // args.head_dim,
-        max_position_embeddings=args.seq_len,
-        use_cache=False,
     )
-    model = LlamaForCausalLM(config).bfloat16().cuda()
+    model = Transformer(config).bfloat16().cuda()
+    with torch.device("cuda"):
+        model.setup_caches(args.batch_size, args.seq_len, training=True)
     if args.activation_checkpointing:
-        model.gradient_checkpointing_enable()
+        for layer in model.layers:
+            enable_activation_checkpointing(layer)
     if args.quantize == "int8_weight_only":
         quantize_(model, int8_weight_only_quantized_training(), set_inductor_config=False)
     elif args.quantize is not None:

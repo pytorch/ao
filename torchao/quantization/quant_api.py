@@ -489,34 +489,34 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     return int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType())
 
 
-def uintx_weight_only(bit_width, group_size=64, pack_dim=-1):
+def uintx_weight_only(dtype, group_size=64, pack_dim=-1):
     """
     Applies uintx weight-only asymmetric per-group quantization to linear layers, using uintx quantization where
-    x is the number of bits specified by the `bit_width` argument
+    x is the number of bits specified by `dtype`
+
+    Args:
+        `dtype`: torch.uint1 to torch.uint7 sub byte dtypes
+        `group_size`: parameter for quantization, controls the granularity of quantization, smaller
+         size is more fine grained, defaults to 64
+        `pack_dim`: the dimension we use for packing, defaults to -1
     """
     from torchao.quantization.quant_primitives import (
         MappingType,
         ZeroPointDomain,
-        choose_qparams_affine,
-        quantize_affine,
-        dequantize_affine,
     )
     from torchao.quantization.quant_api import _get_linear_subclass_inserter
-    def apply_uintx_weight_only_quant(weight):
 
-        layout_type = UintxLayoutType(bit_width=bit_width, pack_dim=pack_dim)
+    def apply_uintx_weight_only_quant(weight):
+        layout_type = UintxLayoutType(dtype=dtype, pack_dim=pack_dim)
         mapping_type = MappingType.ASYMMETRIC
         block_size = (1, group_size)
-        quant_min = 0
-        quant_max = 2**bit_width - 1
         eps = torch.finfo(torch.float32).eps
         zero_point_dtype = torch.int32
         zero_point_domain = ZeroPointDomain.INT
 
         return to_affine_quantized(
-            weight, mapping_type, block_size, torch.uint8,
-            quant_min = quant_min, quant_max = quant_max,
-            eps = eps, zero_point_dtype=zero_point_dtype,
+            weight, mapping_type, block_size, dtype,
+            eps=eps, zero_point_dtype=zero_point_dtype,
             zero_point_domain=zero_point_domain,
             layout_type=layout_type,
         )

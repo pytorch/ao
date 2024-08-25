@@ -16,7 +16,6 @@ from torchao.quantization.utils import (
     pack_tinygemm_scales_and_zeros,
 )
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from torchao.utils import find_multiple
 from torchao.dtypes.utils import (
     _implements,
     _dispatch__torch_function__,
@@ -29,14 +28,19 @@ from torchao.dtypes.utils import (
 )
 from torch.utils._python_dispatch import is_traceable_wrapper_subclass
 from dataclasses import dataclass
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import (
+    find_multiple,
+    TorchAOBaseTensor,
+    TORCH_VERSION_AT_LEAST_2_5,
+)
 
 aten = torch.ops.aten
+
 
 ###############################
 # Base Layout Tensor Subclass #
 ###############################
-class AQTLayout(torch.Tensor):
+class AQTLayout(TorchAOBaseTensor):
     """
     Base class for the layout tensor for `AffineQuantizedTensor`
     """
@@ -61,19 +65,6 @@ class AQTLayout(torch.Tensor):
         layout_type = self.get_layout_type()
         return f"{self.__class__.__name__}(int_data={int_data}, scale={scale}, zero_point={zero_point}, layout_type={layout_type})"
 
-    def _get_to_kwargs(self, *args, **kwargs):
-        device, dtype, _, memory_format = torch._C._nn._parse_to(*args, **kwargs)
-        device = self.device if device is None else device
-        dtype = self.dtype if dtype is None else dtype
-        memory_format = (
-            memory_format if memory_format is not None else torch.preserve_format
-        )
-        kwargs = {
-            "device": device,
-            "dtype": dtype,
-            "memory_format": memory_format,
-        }
-        return kwargs
 
 ##############################
 # Tensor Subclass Definition #
@@ -83,7 +74,7 @@ _QLINEAR_DISPATCH_TABLE = {}
 def _register_quantized_linear_dispatch(dispatch_condition, impl):
     _QLINEAR_DISPATCH_TABLE[dispatch_condition] = impl
 
-class AffineQuantizedTensor(torch.Tensor):
+class AffineQuantizedTensor(TorchAOBaseTensor):
     """
     Affine quantized tensor subclass. Affine quantization means we quantize the floating point tensor with an affine transformation:
        quantized_tensor = float_tensor / scale + zero_point
@@ -208,8 +199,9 @@ class AffineQuantizedTensor(torch.Tensor):
         use_hqq: bool = False,
     ):
         original_shape = input_float.shape
+        input_float = layout_type.pre_process(input_float)
 
-        if(use_hqq):
+        if use_hqq:
             assert zero_point_domain == ZeroPointDomain.FLOAT and mapping_type == MappingType.ASYMMETRIC and quant_min==0, "Invalid input parameters for HQQ quantization."
             nbits = int(math.log2(quant_max + 1))
             axis  = 1 if (block_size[0]==1) else 0
@@ -218,12 +210,11 @@ class AffineQuantizedTensor(torch.Tensor):
             device = input_float.device
             int_data, scale, zero_point, _ = quantize_affine_hqq(input_float, nbits=nbits, group_size=group_size, axis=axis, compute_dtype=compute_dtype, device=device, verbose=False, raw_output=False)
             int_data = int_data.to(target_dtype)
-
         else:
-            input_float = layout_type.pre_process(input_float)
             scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain)
             int_data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
-        
+            # Note: output will be uint8 tensor for sub byte tensors for now
+
         int_data = layout_type.post_process(int_data)
         layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
         layout_tensor = layout_tensor_ctr(int_data, scale, zero_point, layout_type)
@@ -273,25 +264,9 @@ class AffineQuantizedTensor(torch.Tensor):
     def layout_type(self) -> LayoutType:
         return self.layout_tensor.layout_type
 
-    def _get_to_kwargs(self, *args, **kwargs):
-        device, dtype, _, memory_format = torch._C._nn._parse_to(*args, **kwargs)
-        device = self.device if device is None else device
-        dtype = self.dtype if dtype is None else dtype
-        memory_format = (
-            memory_format if memory_format is not None else torch.preserve_format
-        )
-        kwargs = {
-            "device": device,
-            "dtype": dtype,
-            "memory_format": memory_format,
-        }
-        return kwargs
-
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
         device = kwargs.pop("device")
-        # not supported yet
-        kwargs.pop("memory_format")
         return self.__class__(
             self.layout_tensor.to(device),
             self.block_size,
@@ -446,6 +421,11 @@ class PlainAQTLayout(AQTLayout):
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
             )
 
+        if func is aten.clone.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+            )
+
         if func is aten.t.default:
             tensor = args[0]
             new = tensor.__class__(
@@ -576,10 +556,10 @@ class TensorCoreTiledAQTLayout(AQTLayout):
         scale: torch.Tensor,
         zero_point: torch.Tensor,
         layout_type: LayoutType
-    ):	
-        
+    ):
+
         assert isinstance(layout_type, TensorCoreTiledLayoutType)
-                
+
         if TORCH_VERSION_AT_LEAST_2_5:
             int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
             assert int_data.dtype == torch.uint8, "torch.ops.aten._convert_weight_to_int4pack in torch 2.5 expects `uint8` dtype"
@@ -615,6 +595,11 @@ class TensorCoreTiledAQTLayout(AQTLayout):
         if func is aten.detach.default:
             return return_and_correct_aliasing(
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+            )
+
+        if func is aten.clone.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
             )
 
         if func is aten.t.default:
