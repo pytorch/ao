@@ -193,7 +193,7 @@ class TestFSDP2(FSDPTest):
         return 2
 
     @skip_if_lt_x_gpu(2)
-    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, "requires PyTorch>=2.5")
+    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="requires PyTorch>=2.5")
     def test_fsdp2(self):
         # due to stochastic rounding, use a pretty large tolerance here
         self.run_subtests(
