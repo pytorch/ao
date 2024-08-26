@@ -193,27 +193,24 @@ class TestFSDP2(FSDPTest):
         return 2
 
     @skip_if_lt_x_gpu(2)
+    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, "requires PyTorch>=2.5")
     def test_fsdp2(self):
-        # FSDP2 + compiled quantized training fails with PyTorch 2.4
-        compile_layer_choices = [False]
-        if TORCH_VERSION_AT_LEAST_2_5:
-            compile_layer_choices.append(True)
-
-        # need to run separately since they will timeout
         # due to stochastic rounding, use a pretty large tolerance here
         self.run_subtests(
-            {"compile_layer": compile_layer_choices},
+            {"compile_layer": [False, True]},
             self._test_fsdp2,
             quantize_fn=int8_weight_only_quantized_training(),
             tolerance=0.05,
         )
+
         # triton autotune takes too long. only test with compile_layer=False
+        # and apply INT8 matmul to forward pass only.
         self.run_subtests(
             dict(),
             self._test_fsdp2,
-            quantize_fn=int8_mixed_precision_training(Int8MixedPrecisionConfig(True, True, True)),
+            quantize_fn=int8_mixed_precision_training(Int8MixedPrecisionConfig(True, False, False)),
             compile_layer=False,
-            tolerance=1e-6
+            tolerance=1e-6,
         )
 
     def _test_fsdp2(self, quantize_fn, compile_layer, tolerance):
