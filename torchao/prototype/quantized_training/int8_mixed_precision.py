@@ -112,6 +112,7 @@ def _(func, types, args, kwargs):
         aten.copy_.default,
         aten.addcdiv_.default,
         aten.add_.Tensor,
+        aten.mul_.Tensor,
     ]
 )
 def _(func, types, args, kwargs):

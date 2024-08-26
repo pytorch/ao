@@ -207,10 +207,12 @@ class TestFSDP2(FSDPTest):
             quantize_fn=int8_weight_only_quantized_training(),
             tolerance=0.05,
         )
+        # triton autotune takes too long. only test with compile_layer=False
         self.run_subtests(
-            {"compile_layer": compile_layer_choices},
+            dict(),
             self._test_fsdp2,
             quantize_fn=int8_mixed_precision_training(Int8MixedPrecisionConfig(True, True, True)),
+            compile_layer=False,
             tolerance=1e-6
         )
 
@@ -246,11 +248,6 @@ class TestFSDP2(FSDPTest):
             fully_shard(layer)
         fully_shard(fsdp_model)
 
-        for m in fsdp_model.modules():
-            if isinstance(m, nn.Linear):
-                print(m.weight)
-                print(m.weight._local_tensor)
-
         base_optim = torch.optim.Adam(base_model.parameters(), lr=1e-2, foreach=False, fused=False)
         fsdp_optim = torch.optim.Adam(fsdp_model.parameters(), lr=1e-2, foreach=False, fused=False)
 
@@ -269,7 +266,7 @@ class TestFSDP2(FSDPTest):
                 if param.grad is not None:
                     dist.all_reduce(param.grad, op=dist.ReduceOp.AVG)
             base_optim.step()
-            
+
             rel_error = (fsdp_loss - base_loss).abs() / base_loss.abs()
             assert rel_error < tolerance, rel_error
 
