@@ -120,11 +120,12 @@ if __name__ == "__main__":
     if args.activation_checkpointing:
         for layer in model.layers:
             enable_activation_checkpointing(layer)
+    # NOTE: don't apply to LM head since there are memory issues.
     if args.quantize == "int8_weight_only":
-        quantize_(model, int8_weight_only_quantized_training(), set_inductor_config=False)
+        quantize_(model.layers, int8_weight_only_quantized_training(), set_inductor_config=False)
     elif args.quantize == "int8_mixed_precision":
         cfg = Int8MixedPrecisionConfig(True, True, True)
-        quantize_(model, int8_mixed_precision_training(), set_inductor_config=False)
+        quantize_(model.layers, int8_mixed_precision_training(cfg), set_inductor_config=False)
     elif args.quantize is not None:
         raise ValueError(f"Unsupported quantize={args.quantize}")
     print(f"No. of params: {sum(p.numel() for p in model.parameters()):,}")

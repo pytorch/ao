@@ -2,7 +2,7 @@
 
 This folder contains experimental work on quantized training (QT). The main difference from quantization-aware training (QAT) is that in QT, we don't keep a high-precision copy of model weights. We take inspirations from:
 - Q-GaLore: [[paper](https://arxiv.org/abs/2407.08296)] [[code](https://github.com/VITA-Group/Q-GaLore)]
-- AQT: [[related paper](https://arxiv.org/abs/2105.03536)] [[code](https://github.com/google/aqt)]
+- JetFire: [[paper](https://arxiv.org/abs/2403.12422)] [[code](https://github.com/thu-ml/Jetfire-INT8Training)]
 
 Typically, low-precision weights cannot be trained directly due to quantization error: a small change in the quantized weight will be round down to zero. To tackle this problem, we use **stochastic rounding** for weight update. In simple terms, stochastic rounding will round up or down randomly, but with a higher chance if it is closer to that direction. For example, 0.8 will have 80% chance of rounding up and 20% of rounding down. It also follows that on average, stochastic rounding will estimate the floating point value exactly.
 
@@ -23,7 +23,7 @@ Usage
 ```python
 from torchao.prototype.quantized_training import int8_weight_only_quantized_training
 from torchao.prototype.low_bit_optim import _AdamW
-from torchao.quantization.quant_api import quantize_
+from torchao.quantization import quantize_
 
 model = ...
 quantize_(model, int8_weight_only_quantized_training())
@@ -46,8 +46,46 @@ BF16 compile    | 10.16915
 INT8 QT eager   | 10.11437
 INT8 QT compile | 10.03365
 
+## INT8 mixed-precision
+
+On NVIDIA GPUs, INT8 Tensor Cores can be up to 3x faster than their BF16/FP16 counterparts. In mixed-precision training, we can down-cast activations and weights dynamically to INT8 to leverage faster matmuls. However, since INT8 has very limited range [-128,127], we perform row-wise quantization, similar to how INT8 post-training quantization (PTQ) is done. Weight is still in original precision. This is inspired from prior works:
+
+- AQT: [[related paper](https://arxiv.org/abs/2105.03536)] [[code](https://github.com/google/aqt)]
+- SwitchBack: [[paper](https://arxiv.org/abs/2304.13013)]
+
+Usage
+
+```python
+from torchao.prototype.quantized_training import int8_mixed_precision_training, Int8MixedPrecisionConfig
+from torchao.quantization import quantize_
+
+model = ...
+config = Int8MixedPrecisionConfig(
+    forward=True,
+    backward_grad_input=True,
+    backward_grad_weight=True,
+)
+quantize_(model, int8_mixed_precision_training(config))
+
+# train model as usual
+```
+
+During training, there are 3 matmuls involved in each `nn.Linear` layer:
+- 1 in forward: `output = input @ weight.T`
+- 2 in backward:
+  - `grad_input = grad_output @ weight`
+  - `grad_weight = grad_output.T @ input`
+
+You can configure which matmul to be applied with INT8 mixed-precision using `Int8MixedPrecisionConfig` shown above. If convergence is an issue, we recommend leaving `backward_grad_weight` in original matmul precision, and also `backward_grad_input` if the issue still persists.
+
+Note:
+- When we only apply INT8 mixed-precision in the forward pass, this can be considered QAT.
+- When we only apply INT8 mixed-precision to `forward` and `backward_grad_input`, this is similar to SwitchBack. However, SwitchBack uses tensor-wise scaling for weight. For simplicity, we only support row-wise scaling.
+
+TODO: add some benchmarks
+
 ## Future ideas
 
-- INT8 activation x INT8 weight. This can potentially leverage INT8 Tensor Cores, which is 2x faster than FP16/BF16 Tensor Cores.
+- Tile-wise INT8 quantization to keep quantized weight for both forward and backward pass (similar to JetFire).
 - INT4 weight only (with group-wise quantization). This can be used with INT4 tinygemm deployment in mind (or other optimized INT4 kernels).
 - FP8 activation x FP8 weight. The current FP8 training recipe can be seen as a form of QAT, which maintains a high-precision copy of model weights. We can eliminate the high-precision copy.

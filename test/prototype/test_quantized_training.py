@@ -16,9 +16,9 @@ from torchao.prototype.quantized_training import (
     Int8MixedPrecisionConfig,
 )
 from torchao.quantization.quant_api import quantize_
-from torchao.utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_5
 
-if not TORCH_VERSION_AFTER_2_3:
+if not TORCH_VERSION_AT_LEAST_2_4:
     pytest.skip("Requires torch>=2.4", allow_module_level=True)
 
 
@@ -190,21 +190,29 @@ class TestQuantizedTraining(TestCase):
 class TestFSDP2(FSDPTest):
     @property
     def world_size(self) -> int:
-        return 2
+        return 1
 
-    @skip_if_lt_x_gpu(2)
+    @skip_if_lt_x_gpu(1)
     def test_fsdp2(self):
         # FSDP2 + compiled quantized training fails with PyTorch 2.4
         compile_layer_choices = [False]
-        if TORCH_VERSION_AFTER_2_4:
+        if TORCH_VERSION_AT_LEAST_2_5:
             compile_layer_choices.append(True)
 
+        # need to run separately since they will timeout
         self.run_subtests(
             {"compile_layer": compile_layer_choices},
             self._test_fsdp2,
+            quantize_fn=int8_weight_only_quantized_training(),
         )
+        # TODO: fix FSDP ops. when sharding, need to return the original class
+        # self.run_subtests(
+        #     {"compile_layer": compile_layer_choices},
+        #     self._test_fsdp2,
+        #     quantize_fn=int8_mixed_precision_training(Int8MixedPrecisionConfig(True, True, True)),
+        # )
 
-    def _test_fsdp2(self, compile_layer):
+    def _test_fsdp2(self, quantize_fn, compile_layer):
         import torch.distributed as dist
         from torch.distributed._composable.fsdp import fully_shard
         from torch.testing._internal.distributed._tensor.common_dtensor import ModelArgs, Transformer
@@ -223,7 +231,7 @@ class TestFSDP2(FSDPTest):
         )
         torch.manual_seed(42)
         base_model = Transformer(model_args).cuda()
-        quantize_(base_model, int8_weight_only_quantized_training(), set_inductor_config=False)
+        quantize_(base_model, quantize_fn, set_inductor_config=False)
         fsdp_model = copy.deepcopy(base_model)
 
         if compile_layer:
@@ -235,6 +243,11 @@ class TestFSDP2(FSDPTest):
                 layer.compile()
             fully_shard(layer)
         fully_shard(fsdp_model)
+
+        for m in fsdp_model.modules():
+            if isinstance(m, nn.Linear):
+                print(m.weight)
+                print(m.weight._local_tensor)
 
         base_optim = torch.optim.Adam(base_model.parameters(), lr=1e-2, foreach=False, fused=False)
         fsdp_optim = torch.optim.Adam(fsdp_model.parameters(), lr=1e-2, foreach=False, fused=False)
@@ -256,6 +269,7 @@ class TestFSDP2(FSDPTest):
             base_optim.step()
 
             # due to stochastic rounding, use a pretty large tolerance here
+            # TODO: might want to use difference tolerance for different quantize_fn
             rel_error = (fsdp_loss - base_loss).abs() / base_loss.abs()
             assert rel_error < 0.05, rel_error
 
