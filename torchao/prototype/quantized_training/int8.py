@@ -12,13 +12,41 @@ c10d_functional = torch.ops.c10d_functional
 _c10d_functional = torch.ops._c10d_functional
 
 
+@torch.no_grad()
+def quantize_int8_rowwise(tensor: Tensor, stochastic_rounding: bool = False):
+    """Normal rounding will always round down small changes in weight update. To tackle this problem,
+    stochastic rounding can be used, which has a low chance, but not zero, of rounding up. The
+    probability of rounding up is equal to x - ⌊x⌋, which indicates how close the value is to the next
+    integer value. Thus, stochastic rounding also approximates the floating point value exactly.
+
+    Currently this function differs from AQT's `int8_weight_only()` in the following way:
+    1. Precision: AQT keeps original dtype when doing quantization, while this function upcasts input
+    to FP32 before quantization. Output scale maintains the original input dtype.
+    2. Calculate scale: AQT uses `input.abs().amax() / 127.5`, while `input.abs().amax() / 127` is
+    done here.
+    3. Apply scale: AQT uses `input * (1 / scale)`, while this function performs `input / scale`.
+    """
+    # absmax symmetric quantization
+    scale = tensor.abs().amax(1) / 127  # same dtype as tensor
+    inv_scale = 1.0 / scale.float().clip(1e-12)
+    tensor = tensor.float() * inv_scale.view(-1, 1)  # slightly faster than divide directly
+
+    if stochastic_rounding:
+        tensor = (tensor + torch.rand_like(tensor)).floor()
+    else:
+        tensor = tensor.round()
+
+    tensor = tensor.clip(-128, 127).to(torch.int8)
+    return tensor, scale
+
+
 class Int8QTLinearWeight(Tensor):
     """INT8 symmetric quantization weight, with absmax scaling [-127, 127]. The main difference
     of this tensor subclass from AffineQuantizedTensor:
     1. `F.linear` is differentiable i.e. backward is defined.
     2. All in-place ops, such as `aten.copy_`, will perform stochastic rounding.
         `Int8QTLinearWeight.from_float()` does not perform stochastic rounding.
-    3. The numerics for quantization is slightly different. See `Int8QTLinearWeight.quantize()`
+    3. The numerics for quantization is slightly different. See `quantize_int8_rowwise()`
         for more details.
     """
 
@@ -55,42 +83,12 @@ class Int8QTLinearWeight(Tensor):
     def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
         return cls(tensor_data_dict["int_data"], tensor_data_dict["scale"], *tensor_attributes)
 
-    @staticmethod
-    @torch.no_grad()
-    def quantize(tensor: Tensor, stochastic_rounding: bool = False):
-        """Normal rounding will always round down small changes in weight update. To tackle this problem,
-        stochastic rounding can be used, which has a low chance, but not zero, of rounding up. The
-        probability of rounding up is equal to x - ⌊x⌋, which indicates how close the value is to the next
-        integer value. Thus, stochastic rounding also approximates the floating point value exactly.
-
-        Currently this function differs from AQT's `int8_weight_only()` in the following way:
-        1. Precision: AQT keeps original dtype when doing quantization, while this function upcasts input
-        to FP32 before quantization, and downcast scale to original dtype.
-        2. Calculate scale: AQT uses `input.abs().amax() / 127.5`, while `input.abs().amax() / 127` is
-        done here.
-        3. Apply scale: AQT uses `input * (1 / scale)`, while this function performs `input / scale`.
-        """
-        original_dtype = tensor.dtype
-        tensor = tensor.float()
-
-        # absmax symmetric quantization
-        scale = tensor.abs().amax(-1) / 127
-        tensor = tensor / scale.clip(1e-12).view(-1, 1)
-
-        if stochastic_rounding:
-            tensor = (tensor + torch.rand_like(tensor)).floor()
-        else:
-            tensor = tensor.round()
-
-        tensor = tensor.clip(-128, 127).to(torch.int8)
-        return tensor, scale.to(original_dtype)
-
     @classmethod
     def from_float(cls, tensor: Tensor):
         """Convert a float tensor into INT8 quantized weight. No stochastic rounding is performed.
         This function is not differentiable.
         """
-        int_data, scale = cls.quantize(tensor.detach())
+        int_data, scale = quantize_int8_rowwise(tensor.detach())
         out = cls(int_data, scale)
         out.requires_grad_(tensor.requires_grad)
         return out
@@ -201,7 +199,7 @@ def _(func, types, args, kwargs):
         args[0].scale.copy_(args[1].scale, **kwargs)
 
     elif isinstance(args[0], Int8QTLinearWeight):
-        int_data, scale = Int8QTLinearWeight.quantize(args[1], stochastic_rounding=True)
+        int_data, scale = quantize_int8_rowwise(args[1], stochastic_rounding=True)
         args[0].int_data.copy_(int_data, **kwargs)
         args[0].scale.copy_(scale, **kwargs)
 
