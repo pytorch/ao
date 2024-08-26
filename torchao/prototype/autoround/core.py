@@ -101,7 +101,10 @@ def prepare_model_for_applying_auto_round_(
 
 
 def apply_auto_round():
-    """Create the quantized model from the model optimized by auto-round."""
+    """Create the quantized model from the model optimized by auto-round.
+
+    More details about the auto-round can be found at https://arxiv.org/abs/2309.05516.
+    """
 
     def _apply_auto_round(optimized_model: torch.nn.Module):
         """
