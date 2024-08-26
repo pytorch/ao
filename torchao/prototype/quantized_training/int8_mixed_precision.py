@@ -122,6 +122,8 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
         return grad_input, grad_weight, grad_bias
 
 
+# NOTE: should default config set all to True instead? -> speedup out-of-the-box.
+# only if there are convergence issues, turn off some INT8 matmuls in backward.
 def int8_mixed_precision_training(config: Int8MixedPrecisionConfig = Int8MixedPrecisionConfig()):
     # TODO: right now `_get_linear_subclass_inserter()` will always set `requires_grad=False`
     # when we have this out of prototype (or there are stable trainable tensor subclasses),

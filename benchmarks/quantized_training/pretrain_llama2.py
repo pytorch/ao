@@ -20,7 +20,11 @@ from tqdm import tqdm
 
 from torchao._models.llama.model import ModelArgs, Transformer
 from torchao.prototype import low_bit_optim
-from torchao.prototype.quantized_training import int8_weight_only_quantized_training
+from torchao.prototype.quantized_training import (
+    Int8MixedPrecisionConfig,
+    int8_mixed_precision_training,
+    int8_weight_only_quantized_training,
+)
 from torchao.quantization.quant_api import quantize_
 
 
@@ -118,6 +122,9 @@ if __name__ == "__main__":
             enable_activation_checkpointing(layer)
     if args.quantize == "int8_weight_only":
         quantize_(model, int8_weight_only_quantized_training(), set_inductor_config=False)
+    elif args.quantize == "int8_mixed_precision":
+        cfg = Int8MixedPrecisionConfig(True, True, True)
+        quantize_(model, int8_mixed_precision_training(), set_inductor_config=False)
     elif args.quantize is not None:
         raise ValueError(f"Unsupported quantize={args.quantize}")
     print(f"No. of params: {sum(p.numel() for p in model.parameters()):,}")

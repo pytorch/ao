@@ -11,7 +11,9 @@ from torch.testing._internal.common_utils import TestCase, instantiate_parametri
 from torchao.prototype.low_bit_optim import _AdamW
 from torchao.prototype.quantized_training import (
     int8_weight_only_quantized_training,
+    int8_mixed_precision_training,
     quantize_int8_rowwise,
+    Int8MixedPrecisionConfig,
 )
 from torchao.quantization.quant_api import quantize_
 from torchao.utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
@@ -46,10 +48,18 @@ class TestQuantizedTraining(TestCase):
         # due to the statistical nature, this assertion may still fail, though very rarely.
         torch.testing.assert_close(x_dequant_mean, x, atol=1e-4, rtol=1e-4)
 
+    @staticmethod
+    def _forward_and_backward(module, input, grad):
+        # clone input, since we want to inspect its gradient later
+        input = input.detach().clone().requires_grad_(True)
+        output = module(input)
+        output.backward(grad)
+        return input, output
+
     @parametrize("leading_dims", [(), (2,), (2, 4)])
     @parametrize("bias", [False, True])
     @parametrize("device", _DEVICES)
-    def test_int8_weight_only_linear(self, leading_dims, bias, device):
+    def test_int8_weight_only_correctness(self, leading_dims, bias, device):
         _reset()
         embed_dim = 32
 
@@ -58,20 +68,13 @@ class TestQuantizedTraining(TestCase):
         quantize_(linear_int8, int8_weight_only_quantized_training(), set_inductor_config=False)
         linear_fp32.weight.data = linear_int8.weight.data.dequantize()
 
-        input_fp32 = torch.randn(leading_dims + (embed_dim,), device=device)
-        input_int8 = input_fp32.clone()
-        input_fp32.requires_grad_(True)
-        input_int8.requires_grad_(True)
-
-        # test forward
-        out_fp32 = linear_fp32(input_fp32)
-        out_int8 = linear_int8(input_int8)
-        torch.testing.assert_close(out_fp32, out_int8)
-
-        # test backward
+        input = torch.randn(leading_dims + (embed_dim,), device=device)
         grad = torch.randn(leading_dims + (embed_dim,), device=device)
-        out_fp32.backward(grad)
-        out_int8.backward(grad)
+
+        input_fp32, out_fp32 = self._forward_and_backward(linear_fp32, input, grad)
+        input_int8, out_int8 = self._forward_and_backward(linear_int8, input, grad)
+
+        torch.testing.assert_close(out_fp32, out_int8)
         torch.testing.assert_close(input_fp32.grad, input_int8.grad)
         torch.testing.assert_close(linear_fp32.weight.grad, linear_int8.weight.grad)
         if bias:
@@ -80,7 +83,7 @@ class TestQuantizedTraining(TestCase):
     @parametrize("leading_dims", [(), (2,), (2, 4)])
     @parametrize("bias", [False, True])
     @parametrize("device", _DEVICES)
-    def test_int8_weight_only_linear_compile(self, leading_dims, bias, device):
+    def test_int8_weight_only_compile(self, leading_dims, bias, device):
         _reset()
         embed_dim = 128
 
@@ -89,18 +92,13 @@ class TestQuantizedTraining(TestCase):
         linear_compiled = copy.deepcopy(linear_eager)
         linear_compiled.compile()
 
-        input_eager = torch.randn(leading_dims + (embed_dim,), device=device) * 10
-        input_compiled = input_eager.clone()
-        input_eager.requires_grad_(True)
-        input_compiled.requires_grad_(True)
-
-        out_eager = linear_eager(input_eager)
-        out_compiled = linear_compiled(input_compiled)
-        torch.testing.assert_close(out_eager, out_compiled)
-
+        input = torch.randn(leading_dims + (embed_dim,), device=device) * 10
         grad = torch.randn(leading_dims + (embed_dim,), device=device)
-        out_eager.backward(grad)
-        out_compiled.backward(grad)
+
+        input_eager, out_eager = self._forward_and_backward(linear_eager, input, grad)
+        input_compiled, out_compiled = self._forward_and_backward(linear_compiled, input, grad)
+
+        torch.testing.assert_close(out_eager, out_compiled)
         torch.testing.assert_close(input_eager.grad, input_compiled.grad)
         torch.testing.assert_close(linear_eager.weight.grad, linear_compiled.weight.grad)
         if bias:
@@ -108,7 +106,7 @@ class TestQuantizedTraining(TestCase):
 
     @parametrize("compile", [False, True])
     @parametrize("device", _DEVICES)
-    def test_int8_weight_only_linear_training(self, compile, device):
+    def test_int8_weight_only_training(self, compile, device):
         _reset()
         bsize = 4
         embed_dim = 32
@@ -120,7 +118,6 @@ class TestQuantizedTraining(TestCase):
             nn.Linear(embed_dim * 2, n_classes),
         ).to(device)
         model_int8 = copy.deepcopy(model_fp32)
-        # don't set inductor flags to speed up CI time
         quantize_(model_int8, int8_weight_only_quantized_training(), set_inductor_config=False)
 
         if compile:
@@ -146,6 +143,48 @@ class TestQuantizedTraining(TestCase):
             loss_int8.backward()
             optim_int8.step()
             optim_int8.zero_grad()
+
+    @parametrize("compile", [False, True])
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    def test_int8_mixed_precision_training(self, compile):
+        _reset()
+        bsize = 4
+        embed_dim = 32
+        device = "cuda"
+        config = Int8MixedPrecisionConfig(True, True, True)
+
+        # only use 1 matmul shape to reduce triton autotune time
+        model_ref = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim, bias=False),
+            nn.GELU(),
+            nn.Linear(embed_dim, embed_dim),
+        ).to(device)
+        model_int8mp = copy.deepcopy(model_ref)
+        quantize_(model_int8mp, int8_mixed_precision_training(config), set_inductor_config=False)
+
+        if compile:
+            model_ref.compile()
+            model_int8mp.compile()
+
+        optim_ref = torch.optim.AdamW(model_ref.parameters())
+        optim_int8mp = torch.optim.AdamW(model_int8mp.parameters())
+
+        for i in range(5):
+            inputs = torch.randn(bsize, embed_dim, device=device)
+            labels = torch.randint(embed_dim, size=(bsize,), device=device)
+            loss_ref = F.cross_entropy(model_ref(inputs), labels)
+            loss_int8mp = F.cross_entropy(model_int8mp(inputs), labels)
+
+            rel_error = abs(loss_int8mp.item() - loss_ref.item()) / abs(loss_ref.item())
+            assert rel_error < 3e-2, (i, rel_error)
+
+            loss_ref.backward()
+            optim_ref.step()
+            optim_ref.zero_grad()
+
+            loss_int8mp.backward()
+            optim_int8mp.step()
+            optim_int8mp.zero_grad()
 
 
 class TestFSDP2(FSDPTest):
