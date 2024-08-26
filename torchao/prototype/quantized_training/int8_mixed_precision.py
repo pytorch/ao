@@ -1,8 +1,7 @@
 from typing import NamedTuple
 
 import torch
-import torch.nn.functional as F
-from torch import Tensor
+from torch import Tensor, nn
 from torch.utils._triton import has_triton
 
 from .int8 import quantize_int8_rowwise
@@ -55,7 +54,7 @@ class Int8MixedPrecisionLinearWeight(Tensor):
     def __torch_function__(cls, func, types, args=(), kwargs=None):
         kwargs = kwargs or dict()
 
-        if func is F.linear:
+        if func is torch.nn.functional.linear:
             return _Int8MixedPrecisionLinear.apply(*args, **kwargs)
 
         with torch._C.DisableTorchFunctionSubclass():
@@ -94,9 +93,7 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
     def backward(ctx, grad_output):
         input, weight = ctx.saved_tensors
         grad_input = grad_weight = grad_bias = None
-
         weight: Int8MixedPrecisionLinearWeight
-        sr = weight.config.stochastic_rounding
 
         batch_dims = grad_output.shape[:-1]
         grad_output = grad_output.view(-1, weight.shape[0])
@@ -123,3 +120,17 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
             grad_bias = grad_output.sum(0)
 
         return grad_input, grad_weight, grad_bias
+
+
+def int8_mixed_precision_training(config: Int8MixedPrecisionConfig = Int8MixedPrecisionConfig()):
+    # TODO: right now `_get_linear_subclass_inserter()` will always set `requires_grad=False`
+    # when we have this out of prototype (or there are stable trainable tensor subclasses),
+    # update `_get_linear_subclass_inserter()` to allow `requires_grad=True`.
+    def apply_int8_linear_weight(linear: nn.Linear):
+        linear.weight = nn.Parameter(
+            Int8MixedPrecisionLinearWeight(linear.weight.detach(), config),
+            requires_grad=linear.weight.requires_grad,
+        )
+        return linear
+
+    return apply_int8_linear_weight

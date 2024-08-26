@@ -9,7 +9,10 @@ from torch.testing._internal.common_fsdp import FSDPTest
 from torch.testing._internal.common_utils import TestCase, instantiate_parametrized_tests, parametrize, run_tests
 
 from torchao.prototype.low_bit_optim import _AdamW
-from torchao.prototype.quantized_training import Int8QTLinearWeight, int8_weight_only_quantized_training
+from torchao.prototype.quantized_training import (
+    int8_weight_only_quantized_training,
+    quantize_int8_rowwise,
+)
 from torchao.quantization.quant_api import quantize_
 from torchao.utils import TORCH_VERSION_AFTER_2_3, TORCH_VERSION_AFTER_2_4
 
@@ -35,7 +38,7 @@ class TestQuantizedTraining(TestCase):
         x = torch.randn(32, device=device)
         x_samples = x.view(1, -1).repeat(100_000, 1)
 
-        x_int8, x_scale = Int8QTLinearWeight.quantize(x_samples, stochastic_rounding=True)
+        x_int8, x_scale = quantize_int8_rowwise(x_samples, stochastic_rounding=True)
         x_dequant_samples = x_int8 * x_scale.view(-1, 1)
         x_dequant_mean = x_dequant_samples.mean(0)
 
@@ -46,7 +49,7 @@ class TestQuantizedTraining(TestCase):
     @parametrize("leading_dims", [(), (2,), (2, 4)])
     @parametrize("bias", [False, True])
     @parametrize("device", _DEVICES)
-    def test_int8_linear(self, leading_dims, bias, device):
+    def test_int8_weight_only_linear(self, leading_dims, bias, device):
         _reset()
         embed_dim = 32
 
@@ -77,7 +80,7 @@ class TestQuantizedTraining(TestCase):
     @parametrize("leading_dims", [(), (2,), (2, 4)])
     @parametrize("bias", [False, True])
     @parametrize("device", _DEVICES)
-    def test_int8_linear_compile(self, leading_dims, bias, device):
+    def test_int8_weight_only_linear_compile(self, leading_dims, bias, device):
         _reset()
         embed_dim = 128
 
@@ -105,7 +108,7 @@ class TestQuantizedTraining(TestCase):
 
     @parametrize("compile", [False, True])
     @parametrize("device", _DEVICES)
-    def test_int8_linear_training(self, compile, device):
+    def test_int8_weight_only_linear_training(self, compile, device):
         _reset()
         bsize = 4
         embed_dim = 32
