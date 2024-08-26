@@ -1,8 +1,11 @@
-from typing import NamedTuple
+from typing import Any, NamedTuple, Optional, Tuple
 
 import torch
 from torch import Tensor, nn
+from torch.utils._python_dispatch import return_and_correct_aliasing
 from torch.utils._triton import has_triton
+
+from torchao.dtypes.utils import _dispatch__torch_dispatch__, _dispatch__torch_function__, _implements
 
 from .int8 import quantize_int8_rowwise
 
@@ -16,6 +19,8 @@ else:
 
 
 aten = torch.ops.aten
+c10d_functional = torch.ops.c10d_functional
+_c10d_functional = torch.ops._c10d_functional
 
 
 class Int8MixedPrecisionConfig(NamedTuple):
@@ -25,6 +30,10 @@ class Int8MixedPrecisionConfig(NamedTuple):
 
 
 class Int8MixedPrecisionLinearWeight(Tensor):
+    implements = classmethod(_implements)
+    __torch_function__ = classmethod(_dispatch__torch_function__)
+    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
+
     @staticmethod
     @torch._dynamo.disable
     def __new__(cls, data: Tensor, config: Int8MixedPrecisionConfig):
@@ -50,33 +59,89 @@ class Int8MixedPrecisionLinearWeight(Tensor):
     def __repr__(self):
         return self._data.__repr__()
 
-    @classmethod
-    def __torch_function__(cls, func, types, args=(), kwargs=None):
-        kwargs = kwargs or dict()
+    def to_original(self):
+        return self._data.clone()
 
-        if func is torch.nn.functional.linear:
-            return _Int8MixedPrecisionLinear.apply(*args, **kwargs)
+    def fsdp_pre_all_gather(self, mesh):
+        return (self._data,), (self.config,)
 
-        with torch._C.DisableTorchFunctionSubclass():
-            return func(*args, **kwargs)
+    def fsdp_post_all_gather(
+        self,
+        all_gather_outputs: Tuple[Tensor, ...],
+        metadata: Any,
+        param_dtype: torch.dtype,
+        *,
+        out: Optional[Tensor] = None,
+    ):
+        (data,) = all_gather_outputs
+        (config,) = metadata
+        return Int8MixedPrecisionLinearWeight(data, config), all_gather_outputs
 
-    @classmethod
-    def __torch_dispatch__(cls, func, types, args, kwargs):
-        if func in (aten.detach.default, aten.clone.default, aten._to_copy.default):
-            return cls(func(args[0]._data, *args[1:], **kwargs), args[0].config)
 
-        # TODO: some ops should return the original class i.e. in-place ops
-        args = [x._data if isinstance(x, cls) else x for x in args]
-        return func(*args, **kwargs)
+implements = Int8MixedPrecisionLinearWeight.implements
+
+
+@implements(torch.nn.functional.linear)
+def _(func, types, args, kwargs):
+    return _Int8MixedPrecisionLinear.apply(*args, **kwargs)
+
+
+@implements(
+    [
+        aten.detach.default,
+        aten.clone.default,
+        aten._to_copy.default,
+        # FSDP ops
+        aten.slice.Tensor,
+        aten.new_zeros.default,
+        aten.view.default,
+        aten.as_strided.default,
+        c10d_functional.all_gather_into_tensor.default,
+        _c10d_functional.all_gather_into_tensor.default,
+        c10d_functional.wait_tensor.default,
+        _c10d_functional.wait_tensor.default,
+    ]
+)
+def _(func, types, args, kwargs):
+    out = Int8MixedPrecisionLinearWeight(func(args[0]._data, *args[1:], **kwargs), args[0].config)
+    return return_and_correct_aliasing(func, args, kwargs, out)
+
+
+@implements(
+    [
+        aten.copy_.default,
+        aten.addcdiv_.default,
+        aten.add_.Tensor,
+    ]
+)
+def _(func, types, args, kwargs):
+    unpacked_args = [x._data if isinstance(x, Int8MixedPrecisionLinearWeight) else x for x in args]
+    func(*unpacked_args, **kwargs)
+    return args[0]
+
+
+# called by optimizers. return a normal tensor
+@implements(aten.zeros_like.default)
+def _(func, types, args, kwargs):
+    return func(args[0]._data, *args[1:], **kwargs)
+
+
+# FSDP op
+@implements(aten.split.Tensor)
+def _(func, types, args, kwargs):
+    data_list = func(args[0]._data, *args[1:], **kwargs)
+    return [Int8MixedPrecisionLinearWeight(x, args[0].config) for x in data_list]
 
 
 class _Int8MixedPrecisionLinear(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input: Tensor, weight: Int8MixedPrecisionLinearWeight, bias: Tensor | None = None):
+    def forward(ctx, input: Tensor, weight: Int8MixedPrecisionLinearWeight, bias: Optional[Tensor] = None):
+        ctx.config = weight.config
+        weight = weight._data
         ctx.save_for_backward(input, weight)
         ctx.bias = bias is not None
 
-        if weight.config.forward:
+        if ctx.config.forward:
             batch_dims = input.shape[:-1]
             input = input.view(-1, weight.shape[1])
             input_i8, input_scale = quantize_int8_rowwise(input)
@@ -93,14 +158,13 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
     def backward(ctx, grad_output):
         input, weight = ctx.saved_tensors
         grad_input = grad_weight = grad_bias = None
-        weight: Int8MixedPrecisionLinearWeight
 
         batch_dims = grad_output.shape[:-1]
         grad_output = grad_output.view(-1, weight.shape[0])
         input = input.view(-1, weight.shape[1])
 
         if ctx.needs_input_grad[0]:
-            if weight.config.backward_grad_input:
+            if ctx.config.backward_grad_input:
                 grad_output_i8, grad_output_scale = quantize_int8_rowwise(grad_output)
                 weight_i8_t, weight_scale = quantize_int8_rowwise(weight.T)
                 grad_input = int8_mm_dequant(grad_output_i8, weight_i8_t.T, grad_output_scale, weight_scale)
@@ -109,7 +173,7 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
             grad_input = grad_input.view(*batch_dims, weight.shape[1])
 
         if ctx.needs_input_grad[1]:
-            if weight.config.backward_grad_weight:
+            if ctx.config.backward_grad_weight:
                 grad_output_i8_t, grad_output_scale = quantize_int8_rowwise(grad_output.T)
                 input_i8_t, input_scale = quantize_int8_rowwise(input.T)
                 grad_weight = int8_mm_dequant(grad_output_i8_t, input_i8_t.T, grad_output_scale, input_scale)

@@ -200,19 +200,21 @@ class TestFSDP2(FSDPTest):
             compile_layer_choices.append(True)
 
         # need to run separately since they will timeout
+        # due to stochastic rounding, use a pretty large tolerance here
         self.run_subtests(
             {"compile_layer": compile_layer_choices},
             self._test_fsdp2,
             quantize_fn=int8_weight_only_quantized_training(),
+            tolerance=0.05,
         )
-        # TODO: fix FSDP ops. when sharding, need to return the original class
-        # self.run_subtests(
-        #     {"compile_layer": compile_layer_choices},
-        #     self._test_fsdp2,
-        #     quantize_fn=int8_mixed_precision_training(Int8MixedPrecisionConfig(True, True, True)),
-        # )
+        self.run_subtests(
+            {"compile_layer": compile_layer_choices},
+            self._test_fsdp2,
+            quantize_fn=int8_mixed_precision_training(Int8MixedPrecisionConfig(True, True, True)),
+            tolerance=1e-6
+        )
 
-    def _test_fsdp2(self, quantize_fn, compile_layer):
+    def _test_fsdp2(self, quantize_fn, compile_layer, tolerance):
         import torch.distributed as dist
         from torch.distributed._composable.fsdp import fully_shard
         from torch.testing._internal.distributed._tensor.common_dtensor import ModelArgs, Transformer
@@ -267,11 +269,9 @@ class TestFSDP2(FSDPTest):
                 if param.grad is not None:
                     dist.all_reduce(param.grad, op=dist.ReduceOp.AVG)
             base_optim.step()
-
-            # due to stochastic rounding, use a pretty large tolerance here
-            # TODO: might want to use difference tolerance for different quantize_fn
+            
             rel_error = (fsdp_loss - base_loss).abs() / base_loss.abs()
-            assert rel_error < 0.05, rel_error
+            assert rel_error < tolerance, rel_error
 
 
 instantiate_parametrized_tests(TestQuantizedTraining)
