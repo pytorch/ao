@@ -1,7 +1,10 @@
 import argparse
 
 import torch
+
+import torchao
 import torchao.prototype.autoround.utils as ar_utils
+import torchao.quantization
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 ar_utils.freeze_random(42)
@@ -45,6 +48,10 @@ def bench_accuracy(model, tokenizer, tasks, msg=""):
         torch.cuda.empty_cache()
 
 
+def _is_linear_but_not_lm_head(mod, fqn):
+    return isinstance(mod, torch.nn.Linear) and "lm_head" not in fqn
+
+
 def main(args):
     with torch.no_grad():
         model_name_or_path = args.model_name_or_path
@@ -58,39 +65,64 @@ def main(args):
         model.config.use_cache = False
         msg = "Float-model" if args.eval_float_model else "Quantized-model"
         if not args.eval_float_model:
+            filter_fn = None if args.quant_lm_head else _is_linear_but_not_lm_head
             # Evaluate the quantized model
             if args.woq_int4:
                 msg += " (int4wo)"
                 from torchao.quantization import int4_weight_only, quantize_
 
-                quantize_(model, int4_weight_only(group_size=args.group_size))
-            elif args.uintx:
-                msg += f" (uintx {args.bits} bits)"
-                from torchao.quantization.quant_api import quantize_, uintx_weight_only
-
                 quantize_(
                     model,
-                    uintx_weight_only(bit_width=args.bits, group_size=args.group_size),
+                    int4_weight_only(group_size=args.group_size),
+                    filter_fn=filter_fn,
+                    device=model_device,
                 )
+            elif args.uintx:
+                msg += f" (uintx {args.bits} bits)"
+                from torchao.dtypes.uintx.Uintx import _BIT_WIDTH_TO_DTYPE
+                from torchao.quantization.quant_api import quantize_, uintx_weight_only
+
+                bits = args.bits
+                assert bits in _BIT_WIDTH_TO_DTYPE, f"Invalid bits: {bits}"
+                dtype = _BIT_WIDTH_TO_DTYPE[bits]
+                quantize_(
+                    model,
+                    uintx_weight_only(dtype=dtype, group_size=args.group_size),
+                    filter_fn=filter_fn,
+                    device=model_device,
+                )
+
             else:
                 msg += f" (auto-round {args.bits} bits)"
                 torch.cuda.empty_cache()
-                from torchao.prototype.autoround.autoround_demo import (
+                from torchao.prototype.autoround.autoround_llm import (
                     quantize_model_with_autoround_,
                 )
+
+                # User need to prepare a `is_target_module` function for identifying the target modules that need to be quantized.
+                if args.quant_lm_head:
+                    is_target_module = (
+                        lambda mod, fqn: isinstance(mod, decoder_cls)
+                        or "lm_head" in fqn
+                    )
+                else:
+                    is_target_module = lambda mod, fqn: isinstance(mod, decoder_cls)
 
                 model = quantize_model_with_autoround_(
                     model=model,
                     tokenizer=tokenizer,
-                    decoder_cls=decoder_cls,
+                    is_target_module=is_target_module,
                     bits=args.bits,
+                    group_size=args.group_size,
                     iters=args.iters,
-                    quant_lm_head=args.quant_lm_head,
-                    speedup_optimization=args.speedup_optimization,
                     seqlen=args.seqlen,
                     bs=args.train_bs,
                     nsamples=args.nsamples,
                 )
+            quantized_layer_cnt = ar_utils.count_tensor_of_type(
+                model, torchao.dtypes.AffineQuantizedTensor
+            )
+            msg += f" quantized {quantized_layer_cnt} Linear layers "
         ar_utils.gen_text(model, tokenizer, msg, max_length=50)
 
         bench_accuracy(model, tokenizer, tasks=args.tasks, msg=msg)
@@ -117,7 +149,7 @@ if __name__ == "__main__" and TORCH_VERSION_AT_LEAST_2_5 and torch.cuda.is_avail
         "--bits", default=4, type=int, help="Number of bits for quantization"
     )
     parser.add_argument(
-        "--train_bs", default=4, type=int, help="Batch size for auto-round optimization"
+        "--train_bs", default=8, type=int, help="Batch size for auto-round optimization"
     )
     parser.add_argument(
         "--nsamples",
@@ -152,13 +184,6 @@ if __name__ == "__main__" and TORCH_VERSION_AT_LEAST_2_5 and torch.cuda.is_avail
         help="Device for loading the float model",
     )
     parser.add_argument(
-        "-s",
-        "--speedup_optimization",
-        default=False,
-        action="store_true",
-        help="Load the compute-intensive operations to GPU for acceleration",
-    )
-    parser.add_argument(
         "--eval_float_model",
         default=False,
         action="store_true",
@@ -177,18 +202,6 @@ if __name__ == "__main__" and TORCH_VERSION_AT_LEAST_2_5 and torch.cuda.is_avail
         help="Quantize the model with int4 weight only",
     )
     parser.add_argument(
-        "--full_eval",
-        default=False,
-        action="store_true",
-        help="Evaluate with all tasks",
-    )
-    parser.add_argument(
-        "--quick_eval",
-        default=True,
-        action="store_false",
-        help="Evaluate wikitext and arc_easy",
-    )
-    parser.add_argument(
         "--tasks",
         nargs="+",
         type=str,
@@ -196,28 +209,5 @@ if __name__ == "__main__" and TORCH_VERSION_AT_LEAST_2_5 and torch.cuda.is_avail
         help="List of lm-eluther tasks to evaluate usage: --tasks task1 task2",
     )
     args = parser.parse_args()
-    if args.quick_eval:
-        args.tasks = ["wikitext", "piqa"]
-    if args.full_eval:
-        args.tasks = [
-            "wikitext",
-            "lambada_openai",
-            "hellaswag",
-            "winogrande",
-            "piqa",
-            "mmlu",
-        ]
 
     main(args)
-
-# export MODEL_REPO=meta-llama/Llama-2-7b-chat-hf
-# python benchmark_autoround.py -m $MODEL_REPO
-# python benchmark_autoround.py -m $MODEL_REPO --woq_int4
-# python benchmark_autoround.py -m $MODEL_REPO --uintx --bits 2
-# python benchmark_autoround.py -m $MODEL_REPO --model_device cpu --speedup_optimization
-
-# export MODEL_REPO=/models/Meta-Llama-3.1-8B-Instruct/
-# python benchmark_autoround.py -m $MODEL_REPO
-# python benchmark_autoround.py -m $MODEL_REPO --woq_int4
-# python benchmark_autoround.py -m $MODEL_REPO --uintx --bits 2
-# python benchmark_autoround.py -m $MODEL_REPO  --model_device cpu   --speedup_optimization

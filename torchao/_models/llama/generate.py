@@ -30,7 +30,7 @@ default_device = 'cuda' if torch.cuda.is_available() else 'cpu'
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 
-from torchao._models.llama.model import Transformer, prepare_inputs_for_model
+from torchao._models.llama.model import Transformer, prepare_inputs_for_model, TransformerBlock
 from torchao._models.llama.tokenizer import get_tokenizer
 
 def multinomial_sample_one_no_sync(probs_sort): # Does multinomial sampling without a cuda synchronization
@@ -220,6 +220,34 @@ def main(
             groupsize=int(quantization.split("-")[-1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
             quantize_(model, int4_weight_only(group_size=groupsize))
+
+        if "autoround" in quantization:
+            from torchao.prototype.autoround.autoround_llm import quantize_model_with_autoround_
+            from transformers import AutoTokenizer
+            _tokenizer = AutoTokenizer.from_pretrained(checkpoint_path.parent)
+            # parse args from quantization string, autoround-<iters>-<groupsize>-<quant_lm_head>-<batch_size>-<seqlen>-<model_device>
+            quantization_args = quantization.split("-")
+            iters = int(quantization_args[1]) if len(quantization_args) > 1 else 20
+            groupsize = int(quantization_args[2]) if len(quantization_args) > 2 else 32
+            quant_lm_head = int(quantization_args[3]) == 1 if len(quantization_args) > 3 else False
+            batch_size = int(quantization_args[4]) if len(quantization_args) > 4 else 4
+            seqlen = int(quantization_args[5]) if len(quantization_args) > 5 else 2048
+            model_device_name = quantization_args[6] if len(quantization_args) > 6 else device
+            model_device = torch.device(model_device_name)
+            model = model.to(model_device)
+            print(f"Quantizing model with autoround(iters={iters}, groupsize={groupsize}, quant_lm_head={quant_lm_head}, batch_size={batch_size}, seqlen={seqlen})")
+            with torch.device(model_device):
+                model.setup_caches(max_batch_size=batch_size, max_seq_length=seqlen, training=True)
+
+            if quant_lm_head:
+                is_target_module = (
+                    lambda mod, fqn: isinstance(mod, TransformerBlock) or "output" in fqn
+                )
+            else:
+                is_target_module = lambda mod, fqn: isinstance(mod, TransformerBlock)
+            quantize_model_with_autoround_(model=model, tokenizer=_tokenizer, is_target_module=is_target_module, bits=4, seqlen=seqlen, bs=batch_size, iters=iters)
+            model.to(device)
+            model.reset_caches()
         if "autoquant" == quantization:
             model = autoquant(model, manual=True)
 
@@ -367,7 +395,7 @@ if __name__ == '__main__':
     parser.add_argument('--top_k', type=int, default=200, help='Top-k for sampling.')
     parser.add_argument('--temperature', type=float, default=0.8, help='Temperature for sampling.')
     parser.add_argument('--checkpoint_path', type=Path, default=Path("../../../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
-    parser.add_argument('-q', '--quantization', type=str, help='Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, autoquant')
+    parser.add_argument('-q', '--quantization', type=str, help='Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, autoquant, autoround-<iters>-<groupsize>-<quant_lm_head>-<model_device>')
     parser.add_argument('--kv_cache_quantization', action='store_true', help='Whether to quantize the KV cache')
     parser.add_argument('--save', action='store_true', help='Whether to save the quantized model.')
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')

@@ -82,7 +82,7 @@ class TestAutoRound(TestCase):
         mt_input1 = MultiTensor(input1)
         mt_input2 = MultiTensor(input2)
         out = m(mt_input1, mt_input2)
-        quantize_(m, apply_auto_round(), _is_two_linear)
+        quantize_(m, apply_auto_round(), _is_two_linear, device=device)
         for l in m.modules():
             if isinstance(l, torch.nn.Linear):
                 assert isinstance(l.weight, AffineQuantizedTensor)

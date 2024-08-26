@@ -1,6 +1,6 @@
 import dataclasses
 import logging
-from typing import Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import torch
 from torch.utils._pytree import tree_flatten, tree_unflatten
@@ -8,7 +8,11 @@ from torch.utils._pytree import tree_flatten, tree_unflatten
 import torchao.prototype.autoround.utils as ar_utils
 import torchao.quantization as ao_quant
 from torchao.dtypes import TensorCoreTiledLayoutType, to_affine_quantized_static
-from torchao.prototype.autoround.multi_tensor import _multi_tensor_config, MultiTensor
+from torchao.prototype.autoround.multi_tensor import (
+    _multi_tensor_config,
+    _MultiTensorConfig,
+    MultiTensor,
+)
 from torchao.quantization.quant_primitives import ZeroPointDomain
 from torchao.utils import find_multiple
 
@@ -19,6 +23,7 @@ class _AutoRoundConfig:
     bits: int = 4
     group_size: int = 128
     iters: int = 200
+    use_optimized_layer_output: bool = True
 
 
 _auto_round_config = _AutoRoundConfig()
@@ -29,6 +34,10 @@ _auto_round_config = _AutoRoundConfig()
 class _OptimizationTracker:
     num_layers: int = 0
     optimized_layers: int = 0
+
+    def reset(self):
+        self.num_layers = 0
+        self.optimized_layers = 0
 
 
 _optimization_tracker = _OptimizationTracker()
@@ -41,14 +50,18 @@ def prepare_model_for_applying_auto_round_(
     bits: int = 4,
     group_size: int = 128,
     iters: int = 200,
+    use_optimized_layer_output: bool = True,
     device: Optional[torch.types.Device] = None,
 ):
 
-    _multi_tensor_config.accelerator_name = device
+    _multi_tensor_config.device = device
+    _multi_tensor_config.offload = next(model.parameters()).device.type != device
+    _optimization_tracker.reset()
 
     _auto_round_config.bits = bits
     _auto_round_config.group_size = group_size
     _auto_round_config.iters = iters
+    _auto_round_config.use_optimized_layer_output = use_optimized_layer_output
 
     def forward_hook(
         module,
@@ -93,12 +106,18 @@ def apply_auto_round():
                 quant_min = 0
                 quant_max = _auto_round_config.bits**2 - 1
                 block_size = (1, observed_linear.group_size)
-                from torchao.dtypes.uintx.Uintx import UintxLayoutType
+                from torchao.dtypes.uintx.Uintx import (
+                    _BIT_WIDTH_TO_DTYPE,
+                    UintxLayoutType,
+                )
                 from torchao.quantization.quant_primitives import ZeroPointDomain
 
+                assert (
+                    _auto_round_config.bits in _BIT_WIDTH_TO_DTYPE
+                ), f"Invalid bits: {_auto_round_config.bits}"
+                dtype = _BIT_WIDTH_TO_DTYPE[_auto_round_config.bits]
                 pack_dim = -1
-                bit_width = _auto_round_config.bits
-                layout_type = UintxLayoutType(bit_width=bit_width, pack_dim=pack_dim)
+                layout_type = UintxLayoutType(dtype=dtype, pack_dim=pack_dim)
                 return to_affine_quantized_static(
                     input_float=input_float,
                     scale=scale.to(input_float.dtype),
@@ -196,7 +215,7 @@ def apply_auto_round():
 
 @torch.no_grad()
 def _apply_auto_round_optimization(
-    block, grouped_args, spec, block_outputs, config: _AutoRoundConfig
+    block, block_inputs, block_outputs, config: _AutoRoundConfig
 ):
     # Call the auto-round to execute the optimization process.
     # https://github.com/intel/auto-round/tree/patch-for-ao-2
@@ -210,7 +229,8 @@ def _apply_auto_round_optimization(
                 "Please install it with `pip install https://github.com/intel/auto-round.git@patch-for-ao-2`"
             )
         )
-    block = block.to(_multi_tensor_config.accelerator_name)
+    orig_device = next(block.parameters()).device
+    block = block.to(_multi_tensor_config.device)
     _optimization_tracker.optimized_layers += 1
     logging.warning(
         "Apply auto-round optimization on layer %d / %d.",
@@ -218,35 +238,26 @@ def _apply_auto_round_optimization(
         _optimization_tracker.num_layers,
     )
 
-    # Start the training process to update the v, alpha and betta.
+    # Start the training process to update the v, alpha and beta.
     rounder = auto_round.AutoRound(
         model=block,
         tokenizer=None,
-        sym=False,  # Both `True` and `False` are OK, but use `asym` by default for using the `tinygemm` by default
+        sym=False,
         bits=config.bits,
         iters=config.iters,
         group_size=config.group_size,
-        use_quant_input=False,  # disable it for now
         amp=True,
         model_dtype=next(block.parameters()).dtype,
     )
 
-    @torch.no_grad()
-    def _unflatten_grouped_args(grouped_args, spec):
-        inputs = []
-        for inp in grouped_args:
-            cur_args, cur_kwargs = tree_unflatten(inp, spec)
-            inputs.append((cur_args, cur_kwargs))
-        return inputs
-
-    block_inputs = _unflatten_grouped_args(grouped_args, spec)
     with torch.enable_grad():
         rounder.quant_block_v2_(
             block,
             inputs=block_inputs,
             outputs=block_outputs,
-            device=_multi_tensor_config.accelerator_name,
+            device=_multi_tensor_config.device,
         )
+    block.to(orig_device)
 
 
 @ar_utils.dump_elapsed_time()
@@ -254,16 +265,18 @@ def _apply_auto_round_optimization(
 def apply_auto_round_optimization(
     module: torch.nn.Module,
     args: Tuple[MultiTensor],
-    kwargs: Dict[str, MultiTensor],
-    output: Tuple[MultiTensor],
+    kwargs: Dict[str, Any],
+    output: Any,
     config: _AutoRoundConfig,
 ):
     # Remove the hook to avoid recursive calls
     module._forward_hook_handle_for_auto_round.remove()
-    flat_args, spec = tree_flatten((args, kwargs))
-    grouped_args = MultiTensor.flat_to_grouped(flat_args)
-    output_flat_args, output_spec = tree_flatten((output, {}))
-    output_grouped_args = MultiTensor.flat_to_grouped(output_flat_args)
-    _apply_auto_round_optimization(
-        module, grouped_args, spec, output_grouped_args, config
-    )
+
+    block_inputs = MultiTensor.revert_to_tensor_pairs(args, kwargs)
+    block_outputs = MultiTensor.revert_to_tensor_pairs(output)
+
+    _apply_auto_round_optimization(module, block_inputs, block_outputs, config)
+    # Get the new output of the optimized model
+    if config.use_optimized_layer_output:
+        output = module(*args, **kwargs)
+    return output
