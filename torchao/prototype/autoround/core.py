@@ -53,7 +53,19 @@ def prepare_model_for_applying_auto_round_(
     use_optimized_layer_output: bool = True,
     device: Optional[torch.types.Device] = None,
 ):
+    """Prepares the model for applying auto round optimization.
 
+    Args:
+        model (torch.nn.Module): The floating-point model to be quantized.
+        is_target_module (Callable[[torch.nn.Module, str], bool]): A function that determines
+            whether a module is a target module.
+        bits (int, optional): The number of bits for quantization. Defaults to 4, options are 1 to 8.
+        group_size (int, optional): The group size for quantization. Defaults to 128.
+        iters (int, optional): The number of iterations for optimization. Defaults to 200.
+        use_optimized_layer_output (bool, optional): Whether to use optimized layer output. Defaults to True.
+        device (Optional[torch.types.Device], optional): The device to use for accelrating optimization and calibration.
+            Defaults to None.
+    """
     _multi_tensor_config.device = device
     _multi_tensor_config.offload = next(model.parameters()).device.type != device
     _optimization_tracker.reset()
@@ -89,10 +101,10 @@ def prepare_model_for_applying_auto_round_(
 
 
 def apply_auto_round():
+    """Create the quantized model from the model optimized by auto-round."""
 
     def _apply_auto_round(optimized_model: torch.nn.Module):
-        """Create a quantized model from the model optimized by auto-round.
-
+        """
         The `optimized_model` includes `Linear` layers optimized by auto-round, which includes `qdq_weight`, `scale`, `zp`.
         """
 
