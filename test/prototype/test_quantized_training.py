@@ -190,9 +190,9 @@ class TestQuantizedTraining(TestCase):
 class TestFSDP2(FSDPTest):
     @property
     def world_size(self) -> int:
-        return 1
+        return 2
 
-    @skip_if_lt_x_gpu(1)
+    @skip_if_lt_x_gpu(2)
     def test_fsdp2(self):
         # FSDP2 + compiled quantized training fails with PyTorch 2.4
         compile_layer_choices = [False]
