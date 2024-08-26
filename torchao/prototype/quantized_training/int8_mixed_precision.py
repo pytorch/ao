@@ -57,7 +57,7 @@ class Int8MixedPrecisionLinearWeight(Tensor):
         return cls(tensor_data_dict["_data"], *tensor_attributes)
 
     def __repr__(self):
-        return self._data.__repr__()
+        return f"{self.__class__.__name__}(data={self._data}, config={self.config})"
 
     def to_original(self):
         return self._data.clone()

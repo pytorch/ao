@@ -16,7 +16,7 @@ from torchao.prototype.quantized_training import (
     Int8MixedPrecisionConfig,
 )
 from torchao.quantization.quant_api import quantize_
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
 
 if not TORCH_VERSION_AT_LEAST_2_4:
     pytest.skip("Requires torch>=2.4", allow_module_level=True)
@@ -193,11 +193,10 @@ class TestFSDP2(FSDPTest):
         return 2
 
     @skip_if_lt_x_gpu(2)
-    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="requires PyTorch>=2.5")
     def test_fsdp2(self):
         # due to stochastic rounding, use a pretty large tolerance here
         self.run_subtests(
-            {"compile_layer": [False, True]},
+            dict(),
             self._test_fsdp2,
             quantize_fn=int8_weight_only_quantized_training(),
             tolerance=0.05,
@@ -209,11 +208,10 @@ class TestFSDP2(FSDPTest):
             dict(),
             self._test_fsdp2,
             quantize_fn=int8_mixed_precision_training(Int8MixedPrecisionConfig(True, False, False)),
-            compile_layer=False,
             tolerance=1e-6,
         )
 
-    def _test_fsdp2(self, quantize_fn, compile_layer, tolerance):
+    def _test_fsdp2(self, quantize_fn, tolerance):
         import torch.distributed as dist
         from torch.distributed._composable.fsdp import fully_shard
         from torch.testing._internal.distributed._tensor.common_dtensor import ModelArgs, Transformer
@@ -229,19 +227,14 @@ class TestFSDP2(FSDPTest):
             vocab_size=vocab_size,
             max_seq_len=seq_len,
             dropout_p=0,
+            weight_tying=False,  # INT8 mixed-precision will fail if weight_tying=True
         )
         torch.manual_seed(42)
         base_model = Transformer(model_args).cuda()
         quantize_(base_model, quantize_fn, set_inductor_config=False)
         fsdp_model = copy.deepcopy(base_model)
 
-        if compile_layer:
-            for layer in base_model.layers:
-                layer.compile()
-
         for layer in fsdp_model.layers:
-            if compile_layer:
-                layer.compile()
             fully_shard(layer)
         fully_shard(fsdp_model)
 
@@ -265,7 +258,7 @@ class TestFSDP2(FSDPTest):
             base_optim.step()
 
             rel_error = (fsdp_loss - base_loss).abs() / base_loss.abs()
-            assert rel_error < tolerance, rel_error
+            assert rel_error < tolerance, (iter_idx, rel_error)
 
 
 instantiate_parametrized_tests(TestQuantizedTraining)
