@@ -239,6 +239,8 @@ def get_chip_name(device: int = 0) -> str:
         chip = "a6000"
     elif "a100" in chip:
         chip = "a100"
+    elif "pg509-210" in chip:
+        chip = "a100"
     elif "a40" in chip:
         chip = "a40"
     elif "a10g" in chip:
