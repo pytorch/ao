@@ -17,7 +17,7 @@ python autoround_llm.py -m /model/name/or/path
 
 ### Detailed Usage
 
-`Auto-Round` is a [calibration-based quantization algorithm]. The flow involves three main steps: 1) insert hooks to the modules you want to quantize, 2) Wrap the calibration data with `MultiTensor` and run the model, 3) Replace the optimized weight with `AffineQuantizedTensor` to select the appropriate low-bit kernel.
+`Auto-Round` is a calibration-based quantization algorithm. The flow involves three main steps: 1) insert hooks to the modules you want to quantize, 2) Wrap the calibration data with `MultiTensor` and run the model, 3) Replace the optimized weight with `AffineQuantizedTensor` to select the appropriate low-bit kernel.
 
 > [!NOTE]
 > To learn more about the flow and `MultiTensor`, please refer to [this example](https://github.com/pytorch/ao/blob/main/tutorials/calibration_flow/gptq_like.py).
@@ -29,7 +29,7 @@ model_device = next(model.parameters()).device
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Define a function to identify target modules for quantization.
-# For example, to apply Auto-Round to all decoder layers and the LM head in a Llama model:
+# For example, to apply Auto-Round to all decoder layers and the `lm-head` in a Llama model:
 decoder_cls = transformers.models.llama.modeling_llama.LlamaDecoderLayer
 is_target_module = lambda mod, fqn: isinstance(mod, decoder_cls) or "lm_head" in fqn
 # Prepare the model for Auto-Round
@@ -45,10 +45,10 @@ prepare_model_for_applying_auto_round_(
 )
 ```
 > [!NOTE]
-> To avoid OOM issues, load the model on CPU, and set `device` to `'cuda'`. This will transfer compute-intensive operations to GPU at calibration stage and do optimization on GPU.
+> To avoid OOM issues, load the model on CPU, and set `device` to `'cuda'`.
 
 #### Step 2: Apply Optimization
-Wrap all inputs as a MultiTensor to track calibration data for optimized modules:
+Wrap all inputs as a `MultiTensor` to track all calibration data for optimized modules:
 
 ```python
 input_ids_lst = []
