@@ -62,7 +62,7 @@ def cal_model_size(model, fqn_to_config):
             k1, v1 = next(it)
             k2, v2 = next(it)
             bit_width, groupsize = v1, v2
-            bit_zeropoint = 64
+            bit_zeropoint = 32
             bit_scale = 8
             fqn = k1[8:]
             fqn_cofg_dict[fqn] = (bit_width, groupsize, bit_zeropoint, bit_scale)
@@ -212,7 +212,6 @@ def get_initial_samples(num_initial=50):
 
 def run_sequential_BO(device, checkpoint, limit, num_initial, num_trials, model_size_constraint):
 
-    model, tokenizer = load_model(checkpoint, device)
     parameters_list = define_parameter_list()
     initial_points_set = get_initial_samples(num_initial)
 
@@ -224,7 +223,7 @@ def run_sequential_BO(device, checkpoint, limit, num_initial, num_trials, model_
         name="test_quantize_BO",
         objectives={"cal_PPL": ObjectiveProperties(minimize=True)},
         choose_generation_strategy_kwargs={
-            "num_initialization_trials": 1+(num_initial+num_trials)//10, # the number of trials to build generation strategy
+            "num_initialization_trials": num_initial, # the number of trials to build generation strategy
         },
         outcome_constraints=[constraint],
     )
@@ -237,7 +236,7 @@ def run_sequential_BO(device, checkpoint, limit, num_initial, num_trials, model_
 
         ax_client.attach_trial(parameters=initial_points_set[i])
 
-        m = copy.deepcopy(model).to(device=device)
+        m, tokenizer = load_model(checkpoint, device)
         quantize_by_fqn_to_config(m, device, initial_points_set[i])
 
         eval_results = eval(m, tokenizer, limit, initial_points_set[i])
@@ -258,12 +257,8 @@ def run_sequential_BO(device, checkpoint, limit, num_initial, num_trials, model_
     # run new BO trials
     for k_ in range(num_trials):
         parameters, trial_idx = ax_client.get_next_trial()
-
-        #parameter_tuple = []
-        #for k, v in parameters.items():
-        #    parameter_tuple.append((k, v))
-
-        m = copy.deepcopy(model).to(device=device)
+        
+        m, tokenizer = load_model(checkpoint, device)
 
         quantize_by_fqn_to_config(m, device, parameters)
 
@@ -328,7 +323,7 @@ def run_parallel_BO(device, checkpoint, limit, num_initial, num_trials, model_si
         name="test_quantize_BO",
         objectives={"cal_PPL": ObjectiveProperties(minimize=True)},
         choose_generation_strategy_kwargs={
-            "num_initialization_trials": 3, # the number of trials to build generation strategy
+            "num_initialization_trials": num_initial, # the number of trials to build generation strategy
         },
         outcome_constraints=[constraint],
     )
