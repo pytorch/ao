@@ -495,11 +495,22 @@ class Float8LayoutType(LayoutType):
 @dataclass(frozen=True)
 class MarlinSparseLayoutType(LayoutType):
 
-    # Inject 2:4 sparsity
     def pre_process(self, input: torch.Tensor) -> torch.Tensor:
+        """Preprocess the input tensor to be in the correct format for the Marlin sparse kernel.
+            - 1º: the input tensor is transposed since the linear layer keeps the weights in a transposed format
+            - 2º: tensor is injected with 2:4 sparsity 
+            - 3º: transposes it again because the quantization process will compute the scales for dim=-1
+
+        Args:
+            input (torch.Tensor): the input tensor to preprocess
+
+        Returns:
+            torch.Tensor: the preprocessed tensor
+        """
         from torchao.sparsity.marlin import inject_24  # avoid circular import
-        w_24, _ = inject_24(input, *input.shape)
-        return w_24
+        input_t = input.t()
+        w_24, _ = inject_24(input_t, *input_t.shape)
+        return w_24.t()
 
 
 @register_layout_cls(PlainLayoutType)
@@ -748,7 +759,9 @@ class MarlinSparseAQTLayout(AQTLayout):
             self.group_size,
             self.num_bits,
         )
-        return int_data_expanded, scales_expanded, self.zero_point
+        int_data_expanded_t = int_data_expanded.t()
+        scales_expanded_t = scales_expanded.t()
+        return int_data_expanded_t, scales_expanded_t, self.zero_point
 
     @classmethod
     @torch._dynamo.disable
@@ -764,9 +777,13 @@ class MarlinSparseAQTLayout(AQTLayout):
 
         # Linear layers are (in_features, out_features) but the int_data that is reaching this point
         # is (out_features, in_features). We need to transpose it to match the expected shape in the marlin code.
-        # NOTE(reviewers): Please check if this is what I should do.
         q_w_24 = int_data.t()
-        scale = scale.reshape(-1, q_w_24.shape[1])
+        scale = scale.t()
+
+        if not torch.cuda.get_device_capability()[0] >= 8:
+            raise ValueError(
+                f'Can not use Sparse Marlin 2:4 int4*fp16 kernel with a device of compute capability {torch.cuda.get_device_capability()}, the minimum compute capability is 8.0 for Marlin kernel.'
+            )
 
         if q_w_24.dtype != torch.int32:
             raise ValueError("Only `torch.int32` weights are supported.")
@@ -818,7 +835,7 @@ class MarlinSparseAQTLayout(AQTLayout):
 
 # Marlin Sparse op dispatch registration 
 @MarlinSparseAQTLayout.implements(aten.detach.default)
-def block_sparse_detach(func, types, args, kwargs):
+def _(func, types, args, kwargs):
     return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.detach))
 
 
@@ -1418,37 +1435,23 @@ def _linear_fp_act_int4_weight_sparse_marlin_impl(input_tensor, weight_tensor, b
     scale = weight_tensor.layout_tensor.scale
     meta = weight_tensor.layout_tensor.meta
     original_shape = weight_tensor.layout_tensor.original_shape
-    print("original_shape", original_shape)
     num_bits = weight_tensor.layout_tensor.num_bits
 
-    # Saves batch size for reshaping back to original shape after the matmul
-    # Reshapes tensor to (m, k) where m is in_features * batch and k is out_features
-    # NOTE(reviewers): Please check if I am handling the batch size correctly
-    batch_size = -1
-    if input_tensor.dim() == 3:
-        batch_size = input_tensor.size(0)
-        input_tensor = input_tensor.reshape(-1, input_tensor.shape[-1])
+    # Folds batch dimension into the first dimension
+    input_2d = input_tensor.view(-1, input_tensor.shape[-1])
 
-    size_m = input_tensor.shape[0]
-    size_n = original_shape[1]
-    size_k = input_tensor.shape[1]
+    size_m = input_2d.shape[0]
+    size_n = scale.shape[1]
+    size_k = input_2d.shape[1]
     workspace_24 = marlin_24_workspace(original_shape[1])
 
-    print(size_m, size_n, size_k)
-
-    # Pad input_tensor dim 1 to a multiple of the marlin tile size (16)
-    if size_k % const.TILE != 0:
-        pad_size = find_multiple(size_k, const.TILE)
-        input_tensor = torch.nn.functional.pad(input_tensor, (0, pad_size - size_k))
-        size_k = pad_size
-
     out = torchao.ops.marlin_24_gemm(
-        input_tensor, sparse_w_int4, meta, scale, 
+        input_2d, sparse_w_int4, meta, scale, 
         workspace_24, num_bits, size_m, size_n, size_k
     )
 
-    if batch_size != -1:
-        out = out.view(batch_size, -1, out.shape[-1])
+    # Unfold the batch dimension
+    out = out.reshape(input_tensor.shape[:-1] + (scale.shape[1],))
 
     if bias is not None:
         out += bias.to(out.dtype)
