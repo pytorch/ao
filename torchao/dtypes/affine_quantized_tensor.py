@@ -70,6 +70,12 @@ class AQTLayout(TorchAOBaseTensor):
 # Tensor Subclass Definition #
 ##############################
 
+
+class QuantizedLinearNotImplementedError(NotImplementedError):
+    """ Thin wrapper around NotImplementedError to make it easier to catch this error in the dispatch table """
+    pass
+
+
 _QLINEAR_DISPATCH_TABLE = {}
 def _register_quantized_linear_dispatch(dispatch_condition, impl):
     _QLINEAR_DISPATCH_TABLE[dispatch_condition] = impl
@@ -158,8 +164,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         for dispatch_condition, impl in _QLINEAR_DISPATCH_TABLE.items():
             if dispatch_condition(input_tensor, weight_tensor, bias):
                 return impl(input_tensor, weight_tensor, bias)
-
-        raise NotImplementedError("No specialized dispatch found for quantized linear op")
+        raise QuantizedLinearNotImplementedError("No specialized dispatch found for quantized linear op")
 
     def __tensor_flatten__(self):
         return ["layout_tensor"], [self.block_size, self.shape, self.quant_min, self.quant_max, self.zero_point_domain, self.dtype]
@@ -887,7 +892,7 @@ def _(func, types, args, kwargs):
     # make the branches easier to understand in `_quantized_linear_op`
     try:
         return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
-    except:
+    except QuantizedLinearNotImplementedError:
         if isinstance(input_tensor, AffineQuantizedTensor):
             input_tensor = input_tensor.dequantize()
         if isinstance(weight_tensor, AffineQuantizedTensor):
@@ -910,7 +915,7 @@ def _(func, types, args, kwargs):
     try:
         weight_tensor = weight_tensor.t()
         return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
-    except:
+    except QuantizedLinearNotImplementedError:
         if isinstance(input_tensor, AffineQuantizedTensor):
             input_tensor = input_tensor.dequantize()
         if isinstance(weight_tensor, AffineQuantizedTensor):
@@ -930,7 +935,7 @@ def _(func, types, args, kwargs):
     try:
         weight_tensor = weight_tensor.t()
         return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
-    except:
+    except QuantizedLinearNotImplementedError:
         if isinstance(input_tensor, AffineQuantizedTensor):
             input_tensor = input_tensor.dequantize()
         if isinstance(weight_tensor, AffineQuantizedTensor):
