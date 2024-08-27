@@ -153,10 +153,9 @@ class Transformer(nn.Module):
         self.max_batch_size = -1
         self.max_seq_length = -1
 
-    def setup_caches(self, max_batch_size, max_seq_length, training: bool=False, kv_cache_quantization=None, quadratic_causal_mask=True, prompt_length=None):
+    def setup_caches(self, max_batch_size, max_seq_length, training: bool=False, kv_cache_quantization=None, linear_causal_mask=False, prompt_length=None):
         if self.max_seq_length >= max_seq_length and self.max_batch_size >= max_batch_size:
             return
-        
         head_dim = self.config.dim // self.config.n_head
         max_seq_length = find_multiple(max_seq_length, 8)
         self.max_seq_length = max_seq_length
@@ -168,13 +167,13 @@ class Transformer(nn.Module):
         elif hasattr(self.output, "scales_and_zeros"):
             dtype = self.output.scales_and_zeros.dtype
 
-        self.quadratic_causal_mask = quadratic_causal_mask
-        if self.quadratic_causal_mask:
+        self.linear_causal_mask = linear_causal_mask
+        if not self.linear_causal_mask:
             self.causal_mask = torch.tril(torch.ones(self.max_seq_length, self.max_seq_length, dtype=torch.bool))
         else:
             assert prompt_length is not None and prompt_length>1, "need to set prompt_length>1 to use non quadratic causal mask in setup_caches"
-            self.causal_mask = torch.ones(1, 1, 1, self.max_seq_length, dtype=torch.bool)
-            self.causal_mask[:,:,:,:prompt_length-1]=0
+            self.causal_mask = torch.zeros(1, 1, 1, self.max_seq_length, dtype=torch.bool)
+            self.causal_mask[:,:,:,:prompt_length]=1
 
         if not training:
             for b in self.layers:
@@ -199,15 +198,15 @@ class Transformer(nn.Module):
         if input_pos is None: 
             mask = None
             freqs_cis = self.freqs_cis[:idx.shape[1]]
-        elif self.quadratic_causal_mask:
+        elif not self.linear_causal_mask:
             mask = self.causal_mask[None, None, input_pos]
-        elif len(input_pos)>1: # prefill
+        elif len(input_pos)>1 and self.linear_causal_mask: # prefill for linear causal mask
             mask = torch.tril(torch.ones(len(input_pos), self.max_seq_length, dtype=torch.bool, device=input_pos.device)).unsqueeze(0).unsqueeze(0)
-        else:
-            self.causal_mask[0,0,0,input_pos-1] = 0
+        else: # decode_one_token for linear causal mask
+            self.causal_mask[0,0,0,input_pos] = 1
             mask = self.causal_mask
         freqs_cis = self.freqs_cis[input_pos]
-        
+
         x = self.tok_embeddings(idx)
 
         for i, layer in enumerate(self.layers):

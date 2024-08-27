@@ -65,9 +65,7 @@ def decode_one_token(model: Transformer, x: torch.Tensor, input_pos: torch.Tenso
 
 def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torch.Tensor, num_new_tokens: int, callback=lambda _: _, **sampling_kwargs):
     new_tokens, new_probs = [], []
-    for i in range(min(num_new_tokens, 100)):
-        if i%100 == 0:
-            print(i)
+    for i in range(num_new_tokens):
         with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_mem_efficient=False, enable_math=True): # Actually better for Inductor to codegen attention here
             next_token, next_prob = decode_one_token(
                 model, cur_token, input_pos, **sampling_kwargs
@@ -94,6 +92,8 @@ def generate(
     interactive: bool,
     callback = lambda x: x,
     kv_cache_quantization: bool = False,
+    cache_size: Optional[int] = None,
+    linear_causal_mask: bool=False,
     **sampling_kwargs
 ) -> torch.Tensor:
     """
@@ -114,16 +114,10 @@ def generate(
 
     # setup model caches
     with torch.device(device):
-        model.setup_caches(max_batch_size=1, max_seq_length=max_seq_length, kv_cache_quantization=kv_cache_quantization, quadratic_causal_mask=False, prompt_length=T)
-        # if kv_cache_quantization:
-        #     from model import AffineQuantizedKVCache
-        #     from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
-        #     _replace_with_custom_fn_if_matches_filter(
-        #         model,
-        #         AffineQuantizedKVCache.from_float,
-        #         lambda x, y: isinstance(x, torchao._models.llama.model.KVCache),
-        #     )
-
+        if cache_size is None:
+            cache_size = max_seq_length
+        assert cache_size >= max_seq_length, "need cache_size to be greater than max_new_tokens + size-of-prompt"
+        model.setup_caches(max_batch_size=1, max_seq_length=cache_size, kv_cache_quantization=kv_cache_quantization, linear_causal_mask=linear_causal_mask, prompt_length=T)
 
     # format model input
     x, input_pos = prepare_inputs_for_model(prompt, max_new_tokens)
@@ -168,10 +162,13 @@ def main(
     checkpoint_path: Path = Path("checkpoints/meta-Transformer/Transformer-2-7b-chat-hf/model.pth"),
     quantization: Optional[str] = None,
     kv_cache_quantization: bool = False,
+    cache_size: Optional[int] = None,
+    linear_causal_mask: bool=False,
     save: bool = False,
     compile: bool = True,
     compile_prefill: bool = False,
     profile: Optional[Path] = None,
+    memory_profile: Optional[Path] = None,
     device=default_device,
     precision=torch.bfloat16,
     write_result: Optional[Path] = None,
@@ -255,7 +252,8 @@ def main(
         if compile_prefill:
             prefill = torch.compile(prefill, fullgraph=True, dynamic=True)
 
-    # torch.cuda.memory._record_memory_history(True,trace_alloc_max_entries=250000, trace_alloc_record_context=True)
+    if memory_profile:
+        torch.cuda.memory._record_memory_history(True,trace_alloc_max_entries=250000, trace_alloc_record_context=True)
     aggregate_metrics = {
         'tokens_per_sec': [],
     }
@@ -305,13 +303,9 @@ def main(
                 temperature=temperature,
                 top_k=top_k,
                 kv_cache_quantization=kv_cache_quantization,
+                cache_size=cache_size,
+                linear_causal_mask=linear_causal_mask,
             )
-            # snapshot = torch.cuda.memory._snapshot()
-            # with open("kv_cache_quant" + '.pickle', 'wb') as f:
-            #     from pickle import dump
-            #     dump(snapshot, f)
-            # print("peak mem", torch.cuda.max_memory_reserved() /1e9)
-            # breakpoint()
         if i == -1:
             print(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
             continue
@@ -324,10 +318,7 @@ def main(
                 tok_list = y.tolist()
                 # truncate text after end of string token
                 tokens = tok_list if not tokenizer.eos_id() in y else tok_list[:tok_list.index(tokenizer.eos_id())]
-                try:
-                    print(tokenizer.decode(tokens))
-                except:
-                    pass
+                print(tokenizer.decode(tokens))
         else:
             print()
         tokens_generated = y.size(0) - prompt_length
@@ -335,6 +326,18 @@ def main(
         aggregate_metrics['tokens_per_sec'].append(tokens_sec)
         print(f"Time for inference {i + 1}: {t:.02f} sec total, {tokens_sec:.02f} tokens/sec")
         print(f"Bandwidth achieved: {model_size * tokens_sec:.02f} GB/s")
+
+        if memory_profile and i==0:
+            snapshot = torch.cuda.memory._snapshot()
+            with open(f"{memory_profile}.pickle", 'wb') as f:
+                from pickle import dump
+                dump(snapshot, f)
+            print(
+                f"\nmemory profile {memory_profile}.pickle saved, to convert that to a usable file, use",
+                "python pytorch/torch/cuda/_memory_viz.py trace_plot <pickle file> -o <desired output name>.html"
+            )
+            break
+
     print("==========")
 
     tokpersec = torch.mean(torch.tensor(aggregate_metrics['tokens_per_sec'])).item()
@@ -355,12 +358,16 @@ def main(
         result_txt += f"--compile " if compile else ""
         result_txt += f"--compile_prefill " if compile_prefill else ""
         result_txt += f"--profile {profile} " if profile else ""
+        result_txt += f"--profile {memory_profile} " if memory_profile else ""
         result_txt += f"--interactive " if interactive else ""
         result_txt += f"--num_samples {num_samples} "
         result_txt += f"--max_new_tokens {max_new_tokens} "
         result_txt += f"--top_k {top_k} "
         result_txt += f"--temperature {temperature} "
+        result_txt += f"--cache_size {cache_size}" if cache_size else ""
         result_txt += f"--kv_cache_quantization " if kv_cache_quantization else ""
+        result_txt += f"--linear_causal_mask " if linear_causal_mask else ""
+
         f=open(write_result, "a")
         f.write(result_txt)
         f.close()
@@ -373,17 +380,20 @@ if __name__ == '__main__':
 
     parser.add_argument('--prompt', type=str, default="Hello, my name is", help='Input prompt.')
     parser.add_argument('--interactive', action='store_true', help='Whether to launch in interactive mode')
-    parser.add_argument('--num_samples', type=int, default=1, help='Number of samples.')
+    parser.add_argument('--num_samples', type=int, default=5, help='Number of samples.')
     parser.add_argument('--max_new_tokens', type=int, default=200, help='Maximum number of new tokens.')
     parser.add_argument('--top_k', type=int, default=200, help='Top-k for sampling.')
     parser.add_argument('--temperature', type=float, default=0.8, help='Temperature for sampling.')
     parser.add_argument('--checkpoint_path', type=Path, default=Path("../../../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
     parser.add_argument('-q', '--quantization', type=str, help='Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, autoquant')
     parser.add_argument('--kv_cache_quantization', action='store_true', help='Whether to quantize the KV cache')
+    parser.add_argument('--cache_size', type=int, default=None, help='Force size of cache to be a certain number of tokens, if not set, will use max_new_tokens+prompt_size')
+    parser.add_argument('--linear_causal_mask', action='store_true', help='Whether to use the memory efficient, but slightly less fast, linear causal mask (important for long context lengths)')
     parser.add_argument('--save', action='store_true', help='Whether to save the quantized model.')
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
     parser.add_argument('--compile_prefill', action='store_true', help='Whether to compile the prefill (improves prefill perf, but higher compile times)')
     parser.add_argument('--profile', type=Path, default=None, help='Profile path.')
+    parser.add_argument('--memory_profile', type=Path, default=None, help='filename for memory profile.')
     parser.add_argument('--device', type=str, default=default_device, help='Device to use')
     parser.add_argument('--precision', type=lambda x: getattr(torch, x.split(".")[-1]), default=torch.bfloat16, help='dtype precision to use')
     parser.add_argument('--write_result', type=Path, default=None, help='Path where to write the result')
@@ -391,5 +401,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     main(
         args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.top_k,
-        args.temperature, args.checkpoint_path, args.quantization, args.kv_cache_quantization, args.save, args.compile, args.compile_prefill, args.profile, args.device, args.precision, args.write_result
+        args.temperature, args.checkpoint_path, args.quantization, args.kv_cache_quantization, args.cache_size, args.linear_causal_mask, args.save, args.compile, args.compile_prefill, args.profile, args.memory_profile, args.device, args.precision, args.write_result
     )
