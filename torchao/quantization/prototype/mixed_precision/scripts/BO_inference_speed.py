@@ -250,6 +250,8 @@ def load_model(repo_id, device):
     )
     return model
 
+
+# TODO: make it into a yaml or json file to enable users specify their custom model formats
 def define_parameter_list():
 
     # define the search space for all layers
@@ -393,7 +395,7 @@ def run_sequential_BO(device, checkpoint_path, repo_id, num_PPL_eval_samples, nu
         name="test_quantize_BO",
         objectives={"cal_throughput": ObjectiveProperties(minimize=False)},
         choose_generation_strategy_kwargs={
-            "num_BO_initial_samplesization_trials": num_BO_initial_samples # the number of trials to build generation strategy
+            "num_initialization_trials": num_BO_initial_samples # the number of trials to build generation strategy
         },
         outcome_constraints=[constraint],
     )
@@ -485,7 +487,7 @@ if __name__ == '__main__':
     parser.add_argument('--ppl_constraint', type=float, default=7.5, help='The ppl constraint for BO')
     parser.add_argument('--multi_gpus', action='store_true', help="Use multi-processing to run evaluation on multi-gpus")
     parser.add_argument('--gpu_list', type=str, default="", help="A list of gpus to run evaluation, separated by comma, e.g., --gpu_lists=0,1,2,3")
-    parser.add_argument('--output_path', type=str, default="BO_acc_speed_output.csv", help="The file path to save the BO search trials")
+    parser.add_argument('--output_path', type=str, default="BO_acc_speed_output.csv", help="The csv file path to save the BO search trials")
 
     args = parser.parse_args()
     run_sequential_BO(device=args.device, checkpoint_path=args.checkpoint_path, repo_id=args.repo_id, num_PPL_eval_samples=args.num_PPL_eval_samples, num_BO_initial_samples=args.num_BO_initial_samples, num_trials=args.num_trials, ppl_constraint=args.ppl_constraint, args=args)

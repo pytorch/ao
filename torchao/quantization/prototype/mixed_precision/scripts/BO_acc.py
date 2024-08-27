@@ -25,6 +25,7 @@ def eval(model, tokenizer, num_PPL_eval_samples, fqn_to_config):
         "model_size": (cal_model_size(model, fqn_to_config), 0.0),
     }
 
+# TODO: make it into a yaml or json file to enable users specify their custom model formats
 def define_parameter_list():
 
     # define the search space for all layers
@@ -152,7 +153,7 @@ def run_sequential_BO(device, checkpoint, num_PPL_eval_samples, num_BO_initial_s
         name = "test_quantize_BO",
         objectives = {"cal_PPL": ObjectiveProperties(minimize=True)},
         choose_generation_strategy_kwargs = {
-            "num_BO_initial_samplesization_trials": num_BO_initial_samples, # the number of trials to build generation strategy
+            "num_initialization_trials": num_BO_initial_samples, # the number of trials to build generation strategy
         },
         outcome_constraints = [constraint],
     )
@@ -250,7 +251,7 @@ def run_parallel_BO(device, checkpoint, num_PPL_eval_samples, num_BO_initial_sam
         name = "test_quantize_BO",
         objectives = {"cal_PPL": ObjectiveProperties(minimize=True)},
         choose_generation_strategy_kwargs = {
-            "num_BO_initial_samplesization_trials": num_BO_initial_samples, # the number of trials to build generation strategy
+            "num_initialization_trials": num_BO_initial_samples, # the number of trials to build generation strategy
         },
         outcome_constraints=[constraint],
     )

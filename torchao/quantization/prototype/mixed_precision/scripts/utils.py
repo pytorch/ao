@@ -64,7 +64,7 @@ def cal_wikitext_ppl(model, tokenizer, limit=62):
 
     return result["results"]["wikitext"]["word_perplexity,none"]
 
-
+# TODO: make it generalize to more models
 def cal_model_size(model, fqn_to_config):
     _sum = 0
     fqn_cofg_dict = dict()
