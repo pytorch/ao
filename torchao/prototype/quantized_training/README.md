@@ -37,14 +37,14 @@ Only `torch.optim.Adam` and optimizers from `torchao.prototype.low_bit_optim` ar
 
 See [#644](https://github.com/pytorch/ao/pull/644) for some early results.
 
-TODO: investigate suboptimal memory saving when `torch.compile()` is used. Might be due to transposed weight. Memory benchamark for Llama2-1B, bs=4, seq_len=2048, activation checkpointing. 
+TODO: investigate suboptimal memory saving when `torch.compile()` is used. Might be due to transposed weight. Benchamark for Llama2-1B, bs=4, seq_len=2048, activation checkpointing, 4070Ti SUPER.
 
-Model           | Peak memory (GB)
-----------------|-----------------
-BF16 eager      | 11.06847
-BF16 compile    | 10.16915
-INT8 QT eager   | 10.11437
-INT8 QT compile | 10.03365
+Model           | Peak memory (GB) | toks/s
+----------------|------------------|-------
+BF16 eager      | 11.07            | 6200
+BF16 compile    | 10.25            | 9000
+INT8 QT eager   | 10.12            | 5600
+INT8 QT compile |  9.84            | 8700
 
 ## INT8 mixed-precision
 
@@ -61,9 +61,9 @@ from torchao.quantization import quantize_
 
 model = ...
 config = Int8MixedPrecisionConfig(
-    forward=True,
-    backward_grad_input=True,
-    backward_grad_weight=True,
+    output=True,
+    grad_input=True,
+    grad_weight=True,
 )
 quantize_(model, int8_mixed_precision_training(config))
 
@@ -76,13 +76,20 @@ During training, there are 3 matmuls involved in each `nn.Linear` layer:
   - `grad_input = grad_output @ weight`
   - `grad_weight = grad_output.T @ input`
 
-You can configure which matmul to be applied with INT8 mixed-precision using `Int8MixedPrecisionConfig` shown above. If convergence is an issue, we recommend leaving `backward_grad_weight` in original matmul precision, and also `backward_grad_input` if the issue still persists.
+You can configure which matmul to be applied with INT8 mixed-precision using `Int8MixedPrecisionConfig` shown above. If convergence is an issue, we recommend leaving `grad_weight` in original matmul precision, and also `grad_input` if the issue still persists.
 
 Note:
 - When we only apply INT8 mixed-precision in the forward pass, this can be considered QAT.
-- When we only apply INT8 mixed-precision to `forward` and `backward_grad_input`, this is similar to SwitchBack. However, SwitchBack uses tensor-wise scaling for weight. For simplicity, we only support row-wise scaling.
+- When we only apply INT8 mixed-precision to `output` and `grad_input`, this is similar to SwitchBack. However, SwitchBack uses tensor-wise scaling for weight. For simplicity, we only support row-wise scaling.
 
-TODO: add some benchmarks
+Pre-train Llama2-1B on C4 realnewslike subset. bs=32, seq_len=2048 -> 65k tok/batch. Train for 20k steps (1.3B tokens). Using 4090. INT8 mixed precision is not applied to LM head.
+
+Config               | Tok/s | Peak mem (GB) | Val loss
+---------------------|-------|---------------|---------
+BF16 (baseline)      | ~17k  | 19.47         | 2.97
+INT8 mixed-precision | ~29k  | 19.47         | 2.90
+
+See [#748](https://github.com/pytorch/ao/pull/748) for more results.
 
 ## Future ideas
 

@@ -89,7 +89,6 @@ if __name__ == "__main__":
     parser.add_argument("--head_dim", type=int, default=64)
 
     parser.add_argument("--quantize")
-    parser.add_argument("--quantize_lm_head", action="store_true")
     parser.add_argument("--activation_checkpointing", action="store_true")
     parser.add_argument("--compile", action="store_true")
 
@@ -123,12 +122,11 @@ if __name__ == "__main__":
         for layer in model.layers:
             enable_activation_checkpointing(layer)
 
-    module_to_quantize = model if args.quantize_lm_head else model.layers
     if args.quantize == "int8_weight_only":
-        quantize_(module_to_quantize, int8_weight_only_quantized_training(), set_inductor_config=False)
+        quantize_(model, int8_weight_only_quantized_training(), set_inductor_config=False)
     elif args.quantize == "int8_mixed_precision":
         cfg = Int8MixedPrecisionConfig(True, True, True)
-        quantize_(module_to_quantize, int8_mixed_precision_training(cfg), set_inductor_config=False)
+        quantize_(model, int8_mixed_precision_training(cfg), set_inductor_config=False)
     elif args.quantize is not None:
         raise ValueError(f"Unsupported quantize={args.quantize}")
 

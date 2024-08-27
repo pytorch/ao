@@ -8,6 +8,7 @@ from torch import Tensor
 lib = torch.library.Library("torchao", "FRAGMENT")
 
 
+# TODO: prune configs to speedup triton autotune
 # https://triton-lang.org/main/getting-started/tutorials/03-matrix-multiplication.html
 # (BLOCK_M, BLOCK_N, BLOCK_K, num_stages, num_warps)
 configs = [

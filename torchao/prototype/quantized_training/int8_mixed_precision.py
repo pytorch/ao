@@ -15,7 +15,9 @@ if has_triton():
 else:
 
     def int8_mm_dequant(A: Tensor, B: Tensor, A_scale_rowwise: Tensor, B_scale_colwise: Tensor) -> Tensor:
-        return (A * A_scale_rowwise.view(-1, 1)) @ (B * B_scale_colwise.view(1, -1))
+        A_scaled = A * A_scale_rowwise.view(-1, 1)
+        B_scaled = B * B_scale_colwise.view(1, -1)
+        return A_scaled @ B_scaled
 
 
 aten = torch.ops.aten
@@ -24,9 +26,9 @@ _c10d_functional = torch.ops._c10d_functional
 
 
 class Int8MixedPrecisionConfig(NamedTuple):
-    forward: bool = False
-    backward_grad_input: bool = False
-    backward_grad_weight: bool = False
+    output: bool = False
+    grad_input: bool = False
+    grad_weight: bool = False
 
 
 class Int8MixedPrecisionLinearWeight(Tensor):
@@ -121,10 +123,17 @@ def _(func, types, args, kwargs):
     return args[0]
 
 
-# called by optimizers. return a normal tensor
-@implements(aten.zeros_like.default)
+# return normal tensor
+@implements(
+    [
+        aten.zeros_like.default,  # called by optimizers
+        aten.add.Tensor,
+        aten.mul.Tensor,
+    ]
+)
 def _(func, types, args, kwargs):
-    return func(args[0]._data, *args[1:], **kwargs)
+    unpacked_args = [x._data if isinstance(x, Int8MixedPrecisionLinearWeight) else x for x in args]
+    return func(*unpacked_args, **kwargs)
 
 
 # FSDP op
@@ -142,7 +151,7 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
         ctx.save_for_backward(input, weight)
         ctx.bias = bias is not None
 
-        if ctx.config.forward:
+        if ctx.config.output:
             batch_dims = input.shape[:-1]
             input = input.view(-1, weight.shape[1])
             input_i8, input_scale = quantize_int8_rowwise(input)
@@ -165,7 +174,7 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
         input = input.view(-1, weight.shape[1])
 
         if ctx.needs_input_grad[0]:
-            if ctx.config.backward_grad_input:
+            if ctx.config.grad_input:
                 grad_output_i8, grad_output_scale = quantize_int8_rowwise(grad_output)
                 weight_i8_t, weight_scale = quantize_int8_rowwise(weight.T)
                 grad_input = int8_mm_dequant(grad_output_i8, weight_i8_t.T, grad_output_scale, weight_scale)
@@ -174,7 +183,7 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
             grad_input = grad_input.view(*batch_dims, weight.shape[1])
 
         if ctx.needs_input_grad[1]:
-            if ctx.config.backward_grad_weight:
+            if ctx.config.grad_weight:
                 grad_output_i8_t, grad_output_scale = quantize_int8_rowwise(grad_output.T)
                 input_i8_t, input_scale = quantize_int8_rowwise(input.T)
                 grad_weight = int8_mm_dequant(grad_output_i8_t, input_i8_t.T, grad_output_scale, input_scale)
