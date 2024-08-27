@@ -127,8 +127,10 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model1.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1, rtol=1e-5, atol=1e-5)
 
+    # this will not run in CI because we can't install lpmm
     @pytest.mark.skipif(lpmm is None, reason="lpmm is not availablle")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="lpmm 4-bit Adam only works for CUDA")
+    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_3, reason="requires PyTorch >= 2.3")
     @parametrize("optim_name", ["Adam4bit", "AdamW4bit"])
     def test_optim_4bit_correctness(self, optim_name):
         device = "cuda"
