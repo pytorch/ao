@@ -7,16 +7,21 @@ from torchao.dtypes.utils import (
     LayoutType,
 )
 from torchao.dtypes.affine_quantized_tensor import (
-    PlainAQTLayout, 
+    PlainAQTLayout,
+    TensorCoreTiledAQTLayout, 
     register_layout_cls, 
-    to_affine_quantized
+    to_affine_quantized,
+    AWQ_INT4_LayoutType, 
+    AWQLayoutType
     
 ) 
+from torchao.utils import find_multiple
 
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
 )
+from torchao.quantization.quant_api import int4_weight_only
 from torchao.quantization.observer import (
     PerAxis,
     AffineQuantizedObserverBase,
@@ -25,6 +30,7 @@ from torchao.quantization.observer import (
 class AWQObserver(AffineQuantizedObserverBase):
     def __init__(self,
         weight: torch.Tensor,
+        block_size: Tuple,
         input_dtype: torch.dtype,
         mapping_type: MappingType,
         target_dtype: torch.dtype,
@@ -38,11 +44,10 @@ class AWQObserver(AffineQuantizedObserverBase):
         preserve_zero: Optional[bool] = True,
         zero_point_domain = ZeroPointDomain.INT,
     ):
-        self.block_size = (1, -1)
         super().__init__(
             mapping_type,
             target_dtype,
-            block_size = self.block_size, 
+            block_size = block_size, 
             quant_min = quant_min,
             quant_max = quant_max,
             eps = eps,
@@ -54,8 +59,9 @@ class AWQObserver(AffineQuantizedObserverBase):
         self.weight = weight
         self.scale_options = scale_search_space_size
         self.losses = torch.zeros(self.scale_options, dtype= input_dtype)
-        self.average = torch.zeros(weight.shape[-1], dtype=torch.float32).to(device)
+        self.average = torch.zeros(self.weight.shape[-1], dtype=input_dtype, device=device)
         self.counter = 0
+        self.device = device
 
     def forward(self, input: torch.Tensor):
         self.average = self.average * self.counter / (self.counter + input.shape[0])  + input.abs().sum(dim=1).squeeze(0) / (self.counter + input.shape[0])
@@ -65,8 +71,9 @@ class AWQObserver(AffineQuantizedObserverBase):
             ratio = i *1.0 / self.scale_options
             scales = self.average.pow(ratio).clamp(min=1e-4)
             scales = scales / (scales.max() * scales.min()).sqrt()
+            layout = AWQLayoutType(scales) if self.zero_point_domain == ZeroPointDomain.INT else AWQ_INT4_LayoutType(scales)
             quantized_weight = to_affine_quantized(
-                self.weight.data * scales,
+                self.weight.data,
                 self.mapping_type,
                 self.block_size,
                 self.target_dtype,
@@ -77,7 +84,7 @@ class AWQObserver(AffineQuantizedObserverBase):
                 zero_point_dtype = self.zero_point_dtype,
                 preserve_zero = self.preserve_zero,
                 zero_point_domain = self.zero_point_domain,
-                layout_type = AWQLayoutType(scales)
+                layout_type = layout
             ) 
             scaled_activation = (input / scales)
             out = F.linear(scaled_activation, quantized_weight)
@@ -88,24 +95,3 @@ class AWQObserver(AffineQuantizedObserverBase):
         scales = self.average.pow(ratio).clamp(min=1e-4)
         scales = scales / (scales.max() * scales.min()).sqrt() 
         return scales.detach()
-
-@dataclass(frozen=True)
-class AWQLayoutType(LayoutType):
-    equalization_scale: torch.Tensor
-    
-    def pre_process(self, input: torch.Tensor) -> torch.Tensor:
-        return input * self.equalization_scale
-    
-@register_layout_cls(AWQLayoutType)
-class AWQ_AQTLayout(PlainAQTLayout):
-    @classmethod
-    def from_plain(
-        cls,
-        int_data: torch.Tensor,
-        scale: torch.Tensor,
-        zero_point: torch.Tensor,
-        layout_type: LayoutType,
-    ):
-        assert isinstance(layout_type, AWQLayoutType)
-        return cls(int_data, scale, zero_point, layout_type)
-    
