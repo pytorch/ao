@@ -16,7 +16,7 @@ From the team that brought you the fast series
 torchao just works with `torch.compile()` and `FSDP2` over most PyTorch models on Huggingface out of the box.
 
 > [!NOTE]  
-> For performance benchmarking make sure you're using `torch.compile()` in conjuction with torchao.
+> For performance benchmarking make sure you're using `torch.compile()` in conjuction with torchao and calling `torchao.quantization.utils.recommended_inductor_config_setter()`
 
 ## Inference
 
