@@ -84,8 +84,15 @@ def amax_history_to_scale(
 
 @torch.no_grad()
 def tensor_to_amax(
-    x: torch.Tensor, tile_size: Optional[Tuple[int, int]], reduce_amax: bool = False
+    x: torch.Tensor, *, tile_size: Optional[Tuple[int, int]], reduce_amax: bool = False
 ) -> torch.Tensor:
+    """Converts a tensor to an amax value.
+
+    Args:
+        x: The tensor to convert.
+        tile_size: The size of the tiles to use for tiling.
+        reduce_amax: Whether to reduce the amax across the distributed group.
+    """
     if tile_size is None:
         amax = torch.max(torch.abs(x))
     else:
@@ -112,10 +119,18 @@ def tensor_to_amax(
 def tensor_to_scale(
     x: torch.Tensor,
     float8_dtype: torch.dtype,
+    *,
     tile_size: Optional[Tuple[int, int]],
     reduce_amax: bool = False,
 ) -> torch.Tensor:
-    amax = tensor_to_amax(x, tile_size, reduce_amax=reduce_amax)
+    """Converts a tensor to a scale. This scale maps from quantized to dequantized values.
+
+    Args:
+        x: The tensor to convert.
+        tile_size: The size of the tiles to use for tiling.
+        reduce_amax: Whether to reduce the amax across the distributed group.
+    """
+    amax = tensor_to_amax(x, tile_size=tile_size, reduce_amax=reduce_amax)
     return amax_to_scale(amax, float8_dtype, x.dtype)
 
 

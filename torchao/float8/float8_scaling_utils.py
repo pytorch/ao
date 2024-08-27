@@ -58,7 +58,7 @@ def hp_tensor_to_float8_dynamic(
     """
     if tensor_already_casted_to_fp8(hp_tensor):
         return hp_tensor
-    scale = tensor_to_scale(hp_tensor, float8_dtype, tile_size, reduce_amax)
+    scale = tensor_to_scale(hp_tensor, float8_dtype, tile_size=tile_size, reduce_amax=reduce_amax)
     return hp_tensor_and_scale_to_float8(
         hp_tensor,
         scale,
@@ -99,7 +99,7 @@ def hp_tensor_to_float8_delayed(
             - (A, B); where A < M and B < K, 1 scale per (A, B) block | BlockWise scaling
     """
     assert tile_size is None, f"Delayed scaling is not currently supported for non TensorWise scaling, got tile_size {tile_size}"
-    amax_buffer.fill_(tensor_to_amax(hp_tensor, tile_size))
+    amax_buffer.fill_(tensor_to_amax(hp_tensor, tile_size=tile_size))
     return hp_tensor_and_scale_to_float8(
         hp_tensor,
         s,
@@ -190,7 +190,7 @@ class NoopFwToFloat8E5M2BwDelayed(torch.autograd.Function):
             tile_size=None,
         )
 
-        fp8_amax_grad_output.fill_(tensor_to_amax(go, None))
+        fp8_amax_grad_output.fill_(tensor_to_amax(go, tile_size=None))
 
         res = hp_tensor_and_scale_to_float8(
             go,
@@ -223,7 +223,7 @@ class NoopFwToFloat8E5M2BwDynamic(torch.autograd.Function):
     def backward(ctx, gradY):
         if tensor_already_casted_to_fp8(gradY):
             return gradY, None
-        gradY_scale = tensor_to_scale(gradY, e5m2_dtype, None)
+        gradY_scale = tensor_to_scale(gradY, e5m2_dtype, tile_size=None)
         fp8_tensor = hp_tensor_and_scale_to_float8(
             gradY,
             gradY_scale,
