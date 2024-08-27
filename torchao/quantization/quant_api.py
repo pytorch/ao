@@ -489,15 +489,14 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     """
     return int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType())
 
-def float8_weight_only():
+def float8_weight_only(target_dtype: torch.dtype = torch.float8_e4m3fn):
     """
     Applies float8 weight-only symmetric per-channel quantization to linear layers.
     """
     def apply_float8wo_quant(weight):
         # avoid circular dep
         block_size = (1, weight.shape[1])
-        return to_affine_quantized_floatx(input_float=weight, mapping_type=mapping_type, block_size=block_size, target_dtype=target_dtype,
-                eps=eps, zero_point_dtype=zero_point_dtype)
+        return to_affine_quantized_floatx(input_float=weight, block_size=block_size, target_dtype=target_dtype)
 
     return _get_linear_subclass_inserter(apply_float8wo_quant)
 
