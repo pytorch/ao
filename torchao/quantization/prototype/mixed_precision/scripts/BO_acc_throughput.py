@@ -244,13 +244,6 @@ def eval(model4ppl, model4tp, tokenizer, device, num_PPL_eval_samples, fqn_to_co
         "cal_throughput": (cal_throughput(model=model4tp, tokenizer=tokenizer, device=device), 0.0),
     }
 
-def load_model(repo_id, device):
-    model = AutoModelForCausalLM.from_pretrained(repo_id, torch_dtype=torch.bfloat16).to(
-        device=device
-    )
-    return model
-
-
 # TODO: make it into a yaml or json file to enable users specify their custom model formats
 def define_parameter_list():
 
@@ -327,7 +320,8 @@ def define_parameter_list():
 
     return parameters_list
 
-# add initial search points based on the sensitivity score, need to automate this part
+# add initial search points based on the sensitivity score
+# TODO: automate the initial samples by better leverage the sensitivity scores
 def get_initial_samples(num_BO_initial_samples=50):
     
     initial_points_set = []

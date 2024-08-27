@@ -101,7 +101,8 @@ def define_parameter_list():
 
     return parameters_list
 
-# add initial search points based on the sensitivity score, need to automate this part
+# add initial search points based on the sensitivity score
+# TODO: automate the initial samples by better leverage the sensitivity scores
 def get_initial_samples(num_BO_initial_samples=50):
     initial_points_set = []
 
@@ -139,6 +140,7 @@ def get_initial_samples(num_BO_initial_samples=50):
 This function will run BO trials sequentially on a single GPU.
 Each time the BO gets one new trial, evaluates the trial on the GPU and return the evaluation results to update the BO.
 One trial, one BO update.
+TODO: refactor the sequential BO and parallel BO into a single function
 '''
 def run_sequential_BO(device, checkpoint, num_PPL_eval_samples, num_BO_initial_samples, num_trials, model_size_constraint, output_file):
 
