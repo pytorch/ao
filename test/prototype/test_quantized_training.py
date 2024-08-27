@@ -202,8 +202,7 @@ class TestFSDP2(FSDPTest):
             tolerance=0.05,
         )
 
-        # triton autotune takes too long. only test with compile_layer=False
-        # and apply INT8 matmul to forward pass only.
+        # triton autotune takes too long. apply INT8 matmul to forward pass only.
         self.run_subtests(
             dict(),
             self._test_fsdp2,

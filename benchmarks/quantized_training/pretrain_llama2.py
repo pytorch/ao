@@ -9,6 +9,7 @@ import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 import argparse
+import time
 from functools import partial
 from pathlib import Path
 
@@ -33,11 +34,11 @@ from torchao.quantization.quant_api import quantize_
 def enable_activation_checkpointing(m: torch.nn.Module):
     assert not hasattr(m, "_forward")
     m._forward = m.forward
-    m.forward = partial(checkpoint, m.forward)
+    m.forward = partial(checkpoint, m.forward, use_reentrant=False)
 
 
 def get_loss(model: Transformer, batch: torch.Tensor):
-    logits = model(batch)[:, :-1].flatten(0, 1)
+    logits = model(batch)[:, :-1].float().flatten(0, 1)
     labels = batch[:, 1:].flatten()
     return torch.nn.functional.cross_entropy(logits, labels)
 
@@ -88,6 +89,7 @@ if __name__ == "__main__":
     parser.add_argument("--head_dim", type=int, default=64)
 
     parser.add_argument("--quantize")
+    parser.add_argument("--quantize_lm_head", action="store_true")
     parser.add_argument("--activation_checkpointing", action="store_true")
     parser.add_argument("--compile", action="store_true")
 
@@ -121,17 +123,18 @@ if __name__ == "__main__":
         for layer in model.layers:
             enable_activation_checkpointing(layer)
 
-    # NOTE: don't apply to LM head since there are memory issues.
+    module_to_quantize = model if args.quantize_lm_head else model.layers
     if args.quantize == "int8_weight_only":
-        quantize_(model.layers, int8_weight_only_quantized_training(), set_inductor_config=False)
+        quantize_(module_to_quantize, int8_weight_only_quantized_training(), set_inductor_config=False)
     elif args.quantize == "int8_mixed_precision":
         cfg = Int8MixedPrecisionConfig(True, True, True)
-        quantize_(model.layers, int8_mixed_precision_training(cfg), set_inductor_config=False)
+        quantize_(module_to_quantize, int8_mixed_precision_training(cfg), set_inductor_config=False)
     elif args.quantize is not None:
         raise ValueError(f"Unsupported quantize={args.quantize}")
 
     print(f"No. of params: {sum(p.numel() for p in model.parameters()):,}")
     print(f"No. of buffers: {sum(p.numel() for p in model.buffers()):,}")
+    torch.cuda.reset_peak_memory_stats()  # don't count memory occupied by unquantized weights
 
     # only use optimizers from torchao.prototype.low_bit_optim to support quantized training
     if args.optim == "AdamW":
@@ -146,6 +149,7 @@ if __name__ == "__main__":
     pbar = tqdm(total=args.n_steps, dynamic_ncols=True)
     model.train()
     _get_loss = torch.compile(get_loss) if args.compile else get_loss
+    time0 = time.time()
 
     while step < args.n_steps:
         # randomly select a continuous chunk, then reshape it
@@ -160,8 +164,11 @@ if __name__ == "__main__":
                 loss=loss.item(),
                 lr=optim.param_groups[0]["lr"],
                 max_memory_allocated=torch.cuda.max_memory_allocated() / 1e9,
-                max_memory_active=torch.cuda.memory_stats().get("active_bytes.all.peak", 0) / 1e9,
             )
+            if step > 0:
+                time1 = time.time()
+                log_dict["tokens_per_second"] = (log_interval * args.batch_size * args.seq_len) / (time1 - time0)
+                time0 = time1
             run.log(log_dict, step=step)
             pbar.set_postfix(loss=log_dict["loss"])
 
