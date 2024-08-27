@@ -29,7 +29,7 @@ from torchao.dtypes import (
     PlainLayoutType,
     AffineQuantizedTensor,
     SemiSparseLayoutType,
-    Float8LayoutType
+    to_affine_quantized_floatx
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
@@ -526,13 +526,9 @@ def float8_weight_only():
     """
     def apply_float8wo_quant(weight):
         # avoid circular dep
-
-        mapping_type = MappingType.SYMMETRIC
-        target_dtype = torch.float8_e4m3fn
-        eps = torch.finfo(torch.float32).eps
-        zero_point_dtype = torch.float32
         block_size = (1, weight.shape[1])
-        return to_affine_quantized_float8(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype)
+        return to_affine_quantized_floatx(input_float=weight, mapping_type=mapping_type, block_size=block_size, target_dtype=target_dtype,
+                eps=eps, zero_point_dtype=zero_point_dtype)
 
     return _get_linear_subclass_inserter(apply_float8wo_quant)
 
