@@ -304,7 +304,7 @@ def dequantize_affine(
                                e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
       scale (Tensor): quantization parameter for affine quantization
       zero_point (Tensor): quantization parameter for affine quantization
-      dtype (torch.dtype): requested dtype (e.g. torch.uint8) for output Tensor
+      input_dtype (torch.dtype): requested dtype (e.g. torch.uint8) for output Tensor
       quant_min (Optional[int]): minimum quantized value for input Tensor
       quant_max (Optional[int]): maximum quantized value for input Tensor
       output_dtype (torch.dtype): dtype for output Tensor, default is fp32
