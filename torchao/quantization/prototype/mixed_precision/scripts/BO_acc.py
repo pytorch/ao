@@ -16,7 +16,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from ax.service.ax_client import AxClient, ObjectiveProperties
 import torch.multiprocessing as mp
 from ax.modelbridge.cross_validation import cross_validate
-from utils import write_history_to_csv, cal_wikitext_ppl, cal_model_size, load_model
+from utils import write_history_to_csv, cal_wikitext_ppl, cal_model_size, load_model, quantize_by_fqn_to_config
 
 # return evaluation results to complete BO trials
 def eval(model, tokenizer, num_PPL_eval_samples, fqn_to_config):

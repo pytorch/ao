@@ -45,7 +45,7 @@ from torchao._models.llama.generate import (
     _load_model,
 )
 
-from utils import write_history_to_csv, cal_wikitext_ppl, load_model
+from utils import write_history_to_csv, cal_wikitext_ppl, load_model, quantize_by_fqn_to_config
 
 default_device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
