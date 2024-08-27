@@ -48,7 +48,7 @@ INT8 QT compile |  9.84            | 8700
 
 ## INT8 mixed-precision
 
-On NVIDIA GPUs, INT8 Tensor Cores can be up to 3x faster than their BF16/FP16 counterparts. In mixed-precision training, we can down-cast activations and weights dynamically to INT8 to leverage faster matmuls. However, since INT8 has very limited range [-128,127], we perform row-wise quantization, similar to how INT8 post-training quantization (PTQ) is done. Weight is still in original precision. This is inspired by prior works:
+On NVIDIA GPUs, INT8 Tensor Cores is approximately 2x faster than their BF16/FP16 counterparts. In mixed-precision training, we can down-cast activations and weights dynamically to INT8 to leverage faster matmuls. However, since INT8 has very limited range [-128,127], we perform row-wise quantization, similar to how INT8 post-training quantization (PTQ) is done. Weight is still in original precision. This is inspired by prior works:
 
 - AQT: [[related paper](https://arxiv.org/abs/2105.03536)] [[code](https://github.com/google/aqt)]
 - SwitchBack: [[paper](https://arxiv.org/abs/2304.13013)]
