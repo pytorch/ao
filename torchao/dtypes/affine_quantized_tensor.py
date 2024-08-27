@@ -45,7 +45,6 @@ def validate_float8_params(
     assert target_dtype in FP8_TYPES, "target_dtype must be one of the follwoing: {}".format(FP8_TYPES)
     assert quant_min is None, "quant_min must be None for float8"
     assert quant_max is None, "quant_max must be None for float8"
-    assert eps is None, "eps must be None for float8"
     assert scale_dtype is None, "scale_dtype must be None for float8"
     assert zero_point_dtype is None, "zero_point_dtype must be None for float8"
     assert preserve_zero is True, "preserve_zero must be True for float8"
