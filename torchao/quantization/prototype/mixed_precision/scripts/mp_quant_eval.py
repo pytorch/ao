@@ -77,7 +77,7 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, compi
 
 if __name__ == '__main__':
     import argparse
-    parser = argparse.ArgumentParser(description='Run HF Model Evaluation')
+    parser = argparse.ArgumentParser(description='Run evaluation for uniform or mixed-precision quantization.')
     parser.add_argument('--repo_id', type=str, default="checkpoints/meta-llama/Meta-Llama-3-8B", help='Repository ID to download from HF.')
     parser.add_argument('--tasks', nargs='+', type=str, default=["wikitext"], help='List of lm-eluther tasks to evaluate usage: --tasks task1 task2')
     parser.add_argument('--limit', type=int, default=None, help='Number of eval samples to evaluate')

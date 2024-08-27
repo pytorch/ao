@@ -95,7 +95,7 @@ def main(max_seqlen, checkpoint, nsamples, maxIter, num_layers):
 
 if __name__ == '__main__':
     import argparse
-    parser = argparse.ArgumentParser(description='Your CLI description.')
+    parser = argparse.ArgumentParser(description='Calculate layer-wised fish information matric trace.')
     parser.add_argument('--checkpoint', type=str, default="/home/hanxianhuang/ao/torchao/quantization/prototype/mixed_precision/checkpoints/meta-llama/Meta-Llama-3-8B", help='Path to load model')
     parser.add_argument('--max_seqlen', type=int, default=2048, help='Max sequence length')
     parser.add_argument('--maxIter', type=int, default=100, help='The number of iterations to calculate FIT')

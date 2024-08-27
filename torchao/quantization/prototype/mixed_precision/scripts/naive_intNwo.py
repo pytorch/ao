@@ -29,7 +29,7 @@ def intN_weight_only(group_size=32, n=8, symmetric=False):
         quant_max = 2**n-1
         eps = 1e-6
         preserve_zero = True
-        zero_point_dtype = torch.int32
+        zero_point_dtype = torch.int64
         zero_point_domain = ZeroPointDomain.INT
         return to_affine_quantized(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype)#, preserve_zero=preserve_zero,zero_point_domain=zero_point_domain)
 

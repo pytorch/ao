@@ -45,29 +45,9 @@ from torchao._models.llama.generate import (
     _load_model,
 )
 
+from utils import write_history_to_csv, cal_wikitext_ppl, load_model
+
 default_device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-# quantize a model based on a given quantization configuration
-def quantize_by_fqn_to_config(model, device, fqn_to_config):
-    it = iter(fqn_to_config.items())
-    while True:
-        try:
-            k1, v1 = next(it)
-            k2, v2 = next(it)
-            fqn = k1[8:]
-            bit_width, groupsize = v1, v2
-
-
-            def filter_fn_sen(child: torch.nn.Module, cur_fqn: str) -> bool:
-                return isinstance(child, torch.nn.Linear) and (fqn in cur_fqn)
-
-            quantize_(
-                model.to(device=device),
-                intN_weight_only(n=bit_width, group_size=groupsize),
-                filter_fn_sen,
-            )
-        except StopIteration:
-            break
 
 def decode_n_tokens(model: Transformer, cur_token: torch.Tensor, input_pos: torch.Tensor, num_new_tokens: int, callback=lambda _: _, **sampling_kwargs):
     new_tokens, new_probs = [], []
@@ -139,18 +119,6 @@ def generate(
 
     return seq
 
-# calculate perplexity on wikitext-document, need to support more tasks
-def cal_wikitext_ppl(model, tokenizer, limit=62):
-
-    with torch.no_grad():
-        result = evaluate(
-            HFLM(pretrained=model, tokenizer=tokenizer, batch_size=1),
-            get_task_dict("wikitext"),
-            limit=limit
-        )
-
-    return result["results"]["wikitext"]["word_perplexity,none"]
-
 def cal_throughput(
     model,
     tokenizer,
@@ -161,7 +129,7 @@ def cal_throughput(
     max_new_tokens: int = 100,
     top_k: int = 200,
     temperature: float = 0.8,
-    checkpoint_path: Path = Path("/home/hanxianhuang/ao/torchao/quantization/prototype/mixed_precision/checkpoints/meta-llama/Meta-Llama-3-8B/model.pth"),
+    checkpoint_path: Path = Path("/tmp/Meta-Llama-3-8B/model.pth"),
     quantization: Optional[str] = None,
     kv_cache_quantization: bool = False,
     save: bool = False,
@@ -270,9 +238,9 @@ def cal_throughput(
 
 
 # return evaluation results to complete BO trials
-def eval(model4ppl, model4tp, tokenizer, device, limit, fqn_to_config):
+def eval(model4ppl, model4tp, tokenizer, device, num_PPL_eval_samples, fqn_to_config):
     return {
-        "cal_PPL": (cal_wikitext_ppl(model4ppl, tokenizer, limit), 0.0),
+        "cal_PPL": (cal_wikitext_ppl(model4ppl, tokenizer, num_PPL_eval_samples), 0.0),
         "cal_throughput": (cal_throughput(model=model4tp, tokenizer=tokenizer, device=device), 0.0),
     }
 
@@ -358,12 +326,12 @@ def define_parameter_list():
     return parameters_list
 
 # add initial search points based on the sensitivity score, need to automate this part
-def get_initial_samples(num_initial=50):
+def get_initial_samples(num_BO_initial_samples=50):
     
     initial_points_set = []
 
     # auto sample the bit choices with random choice probability positive correlated to FIT score
-    for _ in range(num_initial):
+    for _ in range(num_BO_initial_samples):
         initial_points = {}
         for i in range(0, 3):
             initial_points["bitwidth." + str(i) + "."] = 8
@@ -393,7 +361,12 @@ def get_initial_samples(num_initial=50):
 
     return initial_points_set
 
-def run_sequential_BO(device, checkpoint_path, repo_id, limit, num_initial, num_trials, ppl_constraint, args):
+'''
+This function will run BO trials sequentially on a single GPU.
+Each time the BO gets one new trial, evaluates the trial on the GPU and return the evaluation results to update the BO.
+One trial, one BO update.
+'''
+def run_sequential_BO(device, checkpoint_path, repo_id, num_PPL_eval_samples, num_BO_initial_samples, num_trials, ppl_constraint, args):
     '''
     currently use the loader and benchmark code from torchao/_models/llama/generate, 
     and use lm_eval for ppl evaluation
@@ -410,7 +383,7 @@ def run_sequential_BO(device, checkpoint_path, repo_id, limit, num_initial, num_
     parameters_list = define_parameter_list()
     
     # sample initial points
-    initial_points_set = get_initial_samples(num_initial)
+    initial_points_set = get_initial_samples(num_BO_initial_samples)
 
     # initialize BO experiment
     constraint="cal_PPL <= "+str(ppl_constraint)
@@ -420,7 +393,7 @@ def run_sequential_BO(device, checkpoint_path, repo_id, limit, num_initial, num_
         name="test_quantize_BO",
         objectives={"cal_throughput": ObjectiveProperties(minimize=False)},
         choose_generation_strategy_kwargs={
-            "num_initialization_trials": num_initial # the number of trials to build generation strategy
+            "num_BO_initial_samplesization_trials": num_BO_initial_samples # the number of trials to build generation strategy
         },
         outcome_constraints=[constraint],
     )
@@ -429,7 +402,7 @@ def run_sequential_BO(device, checkpoint_path, repo_id, limit, num_initial, num_
     trial_id = 0
 
     # add initial points into the BO trials
-    for i in range(num_initial):
+    for i in range(num_BO_initial_samples):
 
         ax_client.attach_trial(parameters=initial_points_set[i])
         
@@ -443,7 +416,7 @@ def run_sequential_BO(device, checkpoint_path, repo_id, limit, num_initial, num_
         # evaluate ppl of quantized model
         model4ppl = load_model(repo_id, device)
         quantize_by_fqn_to_config(model = model4ppl, device=device, fqn_to_config = initial_points_set[i])
-        ppl=cal_wikitext_ppl(model4ppl, tokenizer4ppl, limit)
+        ppl=cal_wikitext_ppl(model4ppl, tokenizer4ppl, num_PPL_eval_samples)
         del model4ppl
         torch.cuda.empty_cache()
 
@@ -454,8 +427,8 @@ def run_sequential_BO(device, checkpoint_path, repo_id, limit, num_initial, num_
 
         history.append((eval_results, initial_points_set[i]))
         ax_client.complete_trial(
-            trial_index=trial_id,
-            raw_data=eval_results,
+            trial_index=trial_id, 
+            raw_data=eval_results, 
         )
         trial_id += 1
 
@@ -473,7 +446,7 @@ def run_sequential_BO(device, checkpoint_path, repo_id, limit, num_initial, num_
         # evaluate ppl of quantized model
         model4ppl = load_model(repo_id, device)
         quantize_by_fqn_to_config(model = model4ppl, device=device, fqn_to_config = initial_points_set[i])
-        ppl=cal_wikitext_ppl(model4ppl, tokenizer4ppl, limit)
+        ppl=cal_wikitext_ppl(model4ppl, tokenizer4ppl, num_PPL_eval_samples)
         del model4ppl
         torch.cuda.empty_cache()
 
@@ -485,40 +458,34 @@ def run_sequential_BO(device, checkpoint_path, repo_id, limit, num_initial, num_
         history.append((eval_results, parameters))
         
         ax_client.complete_trial(
-            trial_index=trial_idx,
-            raw_data=eval_results,
+            trial_index=trial_idx, 
+            raw_data=eval_results, 
         )
 
     print("------Finish BO------")
     for h in history:
         print(h)
-
-    stg_model = ax_client.generation_strategy.model
-    cv_results = cross_validate(stg_model)
-    print("----cv results----")
-    print(cv_results)
+        write_history_to_csv(history, args.output_file, ["cal_PPL", "cal_throughput", "quant_config"])
 
     print("------Best config------")
     best_parameters, values = ax_client.get_best_parameters()
     print(best_parameters, values)
 
-    print("------history------")
-    print(ax_client.generation_strategy.trials_as_df)
-
 if __name__ == '__main__':
 
     import argparse
-    parser = argparse.ArgumentParser(description='Your CLI description.')
+    parser = argparse.ArgumentParser(description='Bayesian optimization for mixed-precision quantization to optimize inference speed under model accuracy constraint.')
     
     parser.add_argument('--device', type=str, default="cuda", help='Device to use for evaluation')
-    parser.add_argument('--checkpoint_path', type=Path, default=Path("/home/hanxianhuang/ao/torchao/quantization/prototype/mixed_precision/checkpoints/meta-llama/Meta-Llama-3-8B/model.pth"), help='Model checkpoint path for model.pth.')
-    parser.add_argument('--repo_id', type=str, default=Path("/home/hanxianhuang/ao/torchao/quantization/prototype/mixed_precision/checkpoints/meta-llama/Meta-Llama-3-8B/"), help='Model repo id.')
-    parser.add_argument('--limit', type=int, default=None, help='Number of eval samples to evaluate')
-    parser.add_argument('--num_initial', type=int, default=50, help='Number of initial points sampled by sensitivity scores')
+    parser.add_argument('--checkpoint_path', type=Path, default=Path("/tmp/Meta-Llama-3-8B/model.pth"), help='Model checkpoint path for model.pth.')
+    parser.add_argument('--repo_id', type=str, default=Path("/tmp/Meta-Llama-3-8B"), help='Model repo id.')
+    parser.add_argument('--num_PPL_eval_samples', type=int, default=None, help='Number of samples to evaluate ppl')
+    parser.add_argument('--num_BO_initial_samples', type=int, default=50, help='Number of initial points sampled by sensitivity scores')
     parser.add_argument('--num_trials', type=int, default=150, help='Number of trials to run BO')
     parser.add_argument('--ppl_constraint', type=float, default=7.5, help='The ppl constraint for BO')
     parser.add_argument('--multi_gpus', action='store_true', help="Use multi-processing to run evaluation on multi-gpus")
     parser.add_argument('--gpu_list', type=str, default="", help="A list of gpus to run evaluation, separated by comma, e.g., --gpu_lists=0,1,2,3")
+    parser.add_argument('--output_path', type=str, default="BO_acc_speed_output.csv", help="The file path to save the BO search trials")
 
     args = parser.parse_args()
-    run_sequential_BO(device=args.device, checkpoint_path=args.checkpoint_path, repo_id=args.repo_id, limit=args.limit, num_initial=args.num_initial, num_trials=args.num_trials, ppl_constraint=args.ppl_constraint, args=args)
+    run_sequential_BO(device=args.device, checkpoint_path=args.checkpoint_path, repo_id=args.repo_id, num_PPL_eval_samples=args.num_PPL_eval_samples, num_BO_initial_samples=args.num_BO_initial_samples, num_trials=args.num_trials, ppl_constraint=args.ppl_constraint, args=args)
