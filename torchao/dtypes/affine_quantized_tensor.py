@@ -45,6 +45,22 @@ logger = logging.getLogger(__name__)
 from torchao.float8.inference import Float8MMConfig
 aten = torch.ops.aten
 
+def validate_float8_params(
+    input_float, mapping_type, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain, layout_type, use_hqq
+):
+    assert input_float.is_floating_point(), "input_float must be a floating point tensor"
+    assert mapping_type in [MappingType.SYMMETRIC], "Only symmetric mapping is supported for float8"
+    assert target_dtype in FP8_TYPES, "target_dtype must be one of the follwoing: {}".format(FP8_TYPES)
+    assert quant_min is None, "quant_min must be None for float8"
+    assert quant_max is None, "quant_max must be None for float8"
+    assert scale_dtype is None, "scale_dtype must be None for float8"
+    assert zero_point_dtype is None, "zero_point_dtype must be None for float8"
+    assert preserve_zero is True, "preserve_zero must be True for float8"
+    assert zero_point_domain == ZeroPointDomain.INT, "zero_point_domain must be ZeroPointDomain.INT for float8"
+    assert layout_type == PlainLayoutType(), "layout_type must be PlainLayoutType() for float8"
+    assert use_hqq is False, "use_hqq not yet supported for float8"
+
+
 ###############################
 # Base Layout Tensor Subclass #
 ###############################
