@@ -27,7 +27,14 @@ For inference, we have the option of
 2. Quantize the activations and weights and sparsify the weight
 
 ```python
-from torchao.quantization.quant_api import quantize_, int8_dynamic_activation_int4_weight, int8_dynamic_activation_int8_weight, int8_dynamic_activation_int8_semi_sparse_weight, int4_weight_only, int8_weight_only
+from torchao.quantization.quant_api import (
+    quantize_,
+    int8_dynamic_activation_int4_weight,
+    int8_dynamic_activation_int8_weight,
+    int8_dynamic_activation_int8_semi_sparse_weight,
+    int4_weight_only,
+    int8_weight_only
+)
 quantize_(m, int4_weight_only()) 
 ```
 
@@ -95,7 +102,7 @@ from torchao.prototype.low_bit_optim import AdamW8bit, AdamW4bit, AdamWFp8
 optim = AdamW8bit(model.parameters()) # replace with Adam4bit and AdamFp8 for the 4 / fp8 versions
 ```
 
-In practice, we are a tiny bit slower than expertly written kernels but the implementations for these optimizers were written in a **few hundred lines of PyTorch code ** and compiled so please use them or copy-paste them for your quantized optimizers. Benchmarks [here](https://github.com/pytorch/ao/tree/main/torchao/prototype/low_bit_optim) 
+In practice, we are a tiny bit slower than expertly written kernels but the implementations for these optimizers were written in a **few hundred lines of PyTorch code** and compiled so please use them or copy-paste them for your quantized optimizers. Benchmarks [here](https://github.com/pytorch/ao/tree/main/torchao/prototype/low_bit_optim) 
 
 We also have support for [single GPU CPU offloading](https://github.com/pytorch/ao/tree/main/torchao/prototype/low_bit_optim#optimizer-cpu-offload) where both the gradients (same size as weights) and the optimizers will be efficiently sent to the CPU. This alone can **reduce your VRAM requirements by 60%**
 
