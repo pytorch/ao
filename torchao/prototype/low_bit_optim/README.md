@@ -44,15 +44,15 @@ lpmm 4-bit (*)  |  7.74           | 26.6   | 94.25
 
 (*) means rank-1 normalization is used for 2nd optimizer state. Refer to [paper](https://arxiv.org/abs/2309.01507) for more details.
 
-Fine-tune [Llama3.1-8B-Instruct](https://huggingface.co/meta-llama/Meta-Llama-3-8B-Instruct) on [Alpaca](https://huggingface.co/datasets/tatsu-lab/alpaca) dataset. Full BF16, 1 epoch, A100, fixed random seed. Benchmark is done with [torchtune](https://github.com/pytorch/torchtune). See [#]() for more details.
+Fine-tune [Llama2-7B](https://huggingface.co/meta-llama/Llama-2-7b) on [Alpaca](https://huggingface.co/datasets/tatsu-lab/alpaca) dataset. Full BF16, 1 epoch, A100, fixed random seed. Benchmark is done with [torchtune](https://github.com/pytorch/torchtune). See [#746](https://github.com/pytorch/ao/pull/746) for more details.
 
-AdamW impl       | Max memory (GB) | toks/s | `truthfulqa_mc2` acc
------------------|-----------------|--------|---------------------
-Not fine-tuned   | -               | -      | 54.01
-PyTorch (fused)  | 74.24           | 3,792  | 46.26
-bnb 8-bit        | 59.00           | 3,315  | 45.36
-ao 8-bit         | 59.00           | 3,300  | 41.75
-ao 4-bit         | 51.80           | 2,845  | 43.68
+AdamW impl       | Max memory (GB) | toks/s | `truthfulqa_mc2` acc | Compile time
+-----------------|-----------------|--------|----------------------|-------------
+Not fine-tuned   | -               | -      | 38.95                | -
+PyTorch (fused)  | 52              | ~4500  | 42.12                | ~4 min
+bnb 8-bit        | 39              | ~4000  | 41.98                | ~4 min
+ao 8-bit         | 39              | ~4000  | 42.41                | ~12 min
+ao 4-bit         | 33              | ~3600  | 42.34                | ~4 min
 
 NOTE: lpmm's 4-bit AdamW does not support BF16 weights.
 
