@@ -281,8 +281,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 zero_point_dtype=None,
                 preserve_zero=True,
                 zero_point_domain=ZeroPointDomain.INT,
-                layout_type=LayoutType=PlainLayoutType(),
-                use_hqq=bool = False,
+                layout_type=PlainLayoutType(),
+                use_hqq=False,
             )
         else:
             raise NotImplementedError(f"Unsupported dtype {target_dtype} for from_float_to_floatx")
