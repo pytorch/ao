@@ -37,22 +37,6 @@ from torchao.utils import (
 
 aten = torch.ops.aten
 
-def validate_float8_params(
-    input_float, mapping_type, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain, layout_type, use_hqq
-):
-    assert input_float.is_floating_point(), "input_float must be a floating point tensor"
-    assert mapping_type in [MappingType.SYMMETRIC], "Only symmetric mapping is supported for float8"
-    assert target_dtype in FP8_TYPES, "target_dtype must be one of the follwoing: {}".format(FP8_TYPES)
-    assert quant_min is None, "quant_min must be None for float8"
-    assert quant_max is None, "quant_max must be None for float8"
-    assert scale_dtype is None, "scale_dtype must be None for float8"
-    assert zero_point_dtype is None, "zero_point_dtype must be None for float8"
-    assert preserve_zero is True, "preserve_zero must be True for float8"
-    assert zero_point_domain == ZeroPointDomain.INT, "zero_point_domain must be ZeroPointDomain.INT for float8"
-    assert layout_type == PlainLayoutType(), "layout_type must be PlainLayoutType() for float8"
-    assert use_hqq is False, "use_hqq not yet supported for float8"
-
-
 ###############################
 # Base Layout Tensor Subclass #
 ###############################
@@ -214,10 +198,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         layout_type: LayoutType = PlainLayoutType(),
         use_hqq: bool = False,
     ):
-        if target_dtype in FP8_TYPES:
-            validate_float8_params(
-                input_float, mapping_type, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain, layout_type, use_hqq
-            )
         original_shape = input_float.shape
         input_float = layout_type.pre_process(input_float)
 
@@ -279,6 +259,33 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             zero_point_domain,
             dtype=input_float.dtype,
         )
+
+    @classmethod
+    def from_float_to_floatx(
+        cls,
+        input_float: torch.Tensor,
+        block_size: Tuple[int, ...],
+        target_dtype: torch.dtype = torch.float8_e4m3fn,
+        layout_type: LayoutType = PlainLayoutType(),
+    ):
+        if target_dtype in FP8_TYPES:
+            cls.from_float(
+                input_float=input_float,
+                mapping_type=MappingType.SYMMETRIC,
+                block_size=block_size,
+                target_dtype=target_dtype,
+                quant_min=torch.finfo(target_dtype).min,
+                quant_max=torch.finfo(target_dtype).max,
+                eps=torch.finfo(torch.float32).eps,
+                scale_dtype=None,
+                zero_point_dtype=None,
+                preserve_zero=True,
+                zero_point_domain=ZeroPointDomain.INT,
+                layout_type=LayoutType=PlainLayoutType(),
+                use_hqq=bool = False,
+            )
+        else:
+            raise NotImplementedError(f"Unsupported dtype {target_dtype} for from_float_to_floatx")
 
     @property
     def layout_type(self) -> LayoutType:
@@ -994,6 +1001,7 @@ def _(func, types, args, kwargs):
 
 to_affine_quantized = AffineQuantizedTensor.from_float
 to_affine_quantized_static = AffineQuantizedTensor.from_float_static
+to_affine_quantized_floatx = AffineQuantizedTensor.from_float_to_floatx
 
 if TORCH_VERSION_AT_LEAST_2_5:
     # Allow a model with AffineQuantizedTensor weights to be loaded with `weights_only=True`
