@@ -493,6 +493,7 @@ def float8_weight_only(target_dtype: torch.dtype = torch.float8_e4m3fn):
     """
     Applies float8 weight-only symmetric per-channel quantization to linear layers.
     """
+    from torchao.dtypes import to_affine_quantized_floatx
     def apply_float8wo_quant(weight):
         # avoid circular dep
         block_size = (1, weight.shape[1])
