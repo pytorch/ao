@@ -85,8 +85,6 @@ class TestOptim(TestCase):
                 pytest.skip("FP8 CUDA requires PyTorch >= 2.4")
             if torch.cuda.get_device_capability() < (8, 9):
                 pytest.skip("FP8 requires compute capability >= 8.9")
-        if optim_name.endswith("4bit") and not TORCH_VERSION_AT_LEAST_2_5:
-            pytest.skip("4-bit Adam requires PyTorch >= 2.5")
 
         # reset cache to avoid hitting cache_size_limit, since the function will re-compile for each test
         torch._dynamo.reset_code_caches()
@@ -131,7 +129,6 @@ class TestOptim(TestCase):
 
     @pytest.mark.skipif(lpmm is None, reason="lpmm is not availablle")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="lpmm 4-bit Adam only works for CUDA")
-    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="requires PyTorch >= 2.5")
     @parametrize("optim_name", ["Adam4bit", "AdamW4bit"])
     def test_optim_4bit_correctness(self, optim_name):
         device = "cuda"
