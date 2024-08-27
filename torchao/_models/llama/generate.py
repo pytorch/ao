@@ -225,18 +225,17 @@ def main(
             from torchao.prototype.autoround.autoround_llm import quantize_model_with_autoround_
             from transformers import AutoTokenizer
             _tokenizer = AutoTokenizer.from_pretrained(checkpoint_path.parent)
-            # parse args from quantization string, autoround-<iters>-<groupsize>-<quant_lm_head>-<batch_size>-<seqlen>-<model_device>
-            quantization_args = quantization.split("-")
-            iters = int(quantization_args[1]) if len(quantization_args) > 1 else 20
-            groupsize = int(quantization_args[2]) if len(quantization_args) > 2 else 32
-            quant_lm_head = int(quantization_args[3]) == 1 if len(quantization_args) > 3 else False
-            batch_size = int(quantization_args[4]) if len(quantization_args) > 4 else 4
-            seqlen = int(quantization_args[5]) if len(quantization_args) > 5 else 2048
-            model_device_name = quantization_args[6] if len(quantization_args) > 6 else device
-            model_device = torch.device(model_device_name)
-            model = model.to(model_device)
+            # parse args from quantization string:
+            #   autoround-<model_device>-<iters>-<groupsize>-<quant_lm_head>-<batch_size>-<seqlen>
+            #   autoround-cpu-200-128-0-8-2048
+            _quant_args = quantization.split("-")
+            _default_quant_args = [200, 128, False, 8, 2048]
+            _model_devie = _quant_args[1] if len(_quant_args) >1 else device
+            _quant_args = _quant_args[2:]
+            iters, groupsize, quant_lm_head, batch_size, seqlen = [int(x) for x in _quant_args] + _default_quant_args[len(_quant_args):]
+            model = model.to(_model_devie)
             print(f"Quantizing model with autoround(iters={iters}, groupsize={groupsize}, quant_lm_head={quant_lm_head}, batch_size={batch_size}, seqlen={seqlen})")
-            with torch.device(model_device):
+            with torch.device(_model_devie):
                 model.setup_caches(max_batch_size=batch_size, max_seq_length=seqlen, training=True)
 
             if quant_lm_head:
@@ -395,7 +394,7 @@ if __name__ == '__main__':
     parser.add_argument('--top_k', type=int, default=200, help='Top-k for sampling.')
     parser.add_argument('--temperature', type=float, default=0.8, help='Temperature for sampling.')
     parser.add_argument('--checkpoint_path', type=Path, default=Path("../../../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
-    parser.add_argument('-q', '--quantization', type=str, help='Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, autoquant, autoround-<iters>-<groupsize>-<quant_lm_head>-<model_device>')
+    parser.add_argument('-q', '--quantization', type=str, help='Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, autoquant, autoround-<model_device>-<iters>-<groupsize>-<quant_lm_head>-<batch_size>-<seqlen>')
     parser.add_argument('--kv_cache_quantization', action='store_true', help='Whether to quantize the KV cache')
     parser.add_argument('--save', action='store_true', help='Whether to save the quantized model.')
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')

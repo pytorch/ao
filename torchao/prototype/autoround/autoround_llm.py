@@ -63,7 +63,7 @@ def quantize_model_with_autoround_(
     out = model(multi_t_input_ids)
 
     # Step 3. Apply the quantization
-    quantize_(model, apply_auto_round(), is_target_module)
+    quantize_(model, apply_auto_round(), is_target_module, device=device)
 
     num_quantized_weight = ar_utils.count_tensor_of_type(
         model, torchao.dtypes.AffineQuantizedTensor
