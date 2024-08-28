@@ -413,6 +413,7 @@ class AQWeightOnlyQuantizedLinearWeight3(AQWeightOnlyQuantizedLinearWeight, AQMi
     AutoQuantizable version of Int8WeightOnlyQuantizedLinearWeight that
     uses a different kernel
     """
+    @staticmethod
     def _quantized_linear_op(act_mat, w_qtensor, bias):
         orig_shape = act_mat.shape
         y = torch.mm(act_mat.reshape(-1, orig_shape[-1]), w_qtensor.layout_tensor.int_data.t()*w_qtensor.layout_tensor.scale)
