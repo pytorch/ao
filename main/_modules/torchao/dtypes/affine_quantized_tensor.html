@@ -392,6 +392,7 @@
     <span class="n">MappingType</span><span class="p">,</span>
     <span class="n">int_scaled_matmul</span><span class="p">,</span>
     <span class="n">quantize_affine_hqq</span><span class="p">,</span>
+    <span class="n">FP8_TYPES</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span> <span class="nn">torchao.quantization.utils</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">pack_tinygemm_scales_and_zeros</span><span class="p">,</span>
@@ -416,7 +417,6 @@
 <span class="p">)</span>
 
 <span class="n">aten</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span>
-
 
 <span class="c1">###############################</span>
 <span class="c1"># Base Layout Tensor Subclass #</span>
@@ -478,7 +478,7 @@
 <span class="sd">      shape (torch.Size): the shape for the Tensor</span>
 <span class="sd">      quant_min (Optional[int]): minimum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`</span>
 <span class="sd">      quant_max (Optional[int]): maximum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`</span>
-<span class="sd">      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be eitehr integer or float</span>
+<span class="sd">      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be either integer or float</span>
 <span class="sd">        if zero_point is in integer domain, zero point is added to the quantized integer value during</span>
 <span class="sd">        quantization</span>
 <span class="sd">        if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)</span>
@@ -645,6 +645,33 @@
             <span class="n">zero_point_domain</span><span class="p">,</span>
             <span class="n">dtype</span><span class="o">=</span><span class="n">input_float</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
         <span class="p">)</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">from_float_to_floatx</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span>
+        <span class="n">input_float</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+        <span class="n">target_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
+        <span class="n">layout_type</span><span class="p">:</span> <span class="n">LayoutType</span> <span class="o">=</span> <span class="n">PlainLayoutType</span><span class="p">(),</span>
+    <span class="p">):</span>
+        <span class="k">if</span> <span class="n">target_dtype</span> <span class="ow">in</span> <span class="n">FP8_TYPES</span><span class="p">:</span>
+            <span class="bp">cls</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span>
+                <span class="n">input_float</span><span class="o">=</span><span class="n">input_float</span><span class="p">,</span>
+                <span class="n">mapping_type</span><span class="o">=</span><span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span><span class="p">,</span>
+                <span class="n">block_size</span><span class="o">=</span><span class="n">block_size</span><span class="p">,</span>
+                <span class="n">target_dtype</span><span class="o">=</span><span class="n">target_dtype</span><span class="p">,</span>
+                <span class="n">quant_min</span><span class="o">=</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">target_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">min</span><span class="p">),</span>
+                <span class="n">quant_max</span><span class="o">=</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">target_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">max</span><span class="p">),</span>
+                <span class="n">eps</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span><span class="p">,</span>
+                <span class="n">scale_dtype</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                <span class="n">zero_point_dtype</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                <span class="n">preserve_zero</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">,</span>
+                <span class="n">layout_type</span><span class="o">=</span><span class="n">PlainLayoutType</span><span class="p">(),</span>
+                <span class="n">use_hqq</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unsupported dtype </span><span class="si">{</span><span class="n">target_dtype</span><span class="si">}</span><span class="s2"> for from_float_to_floatx&quot;</span><span class="p">)</span>
 
     <span class="nd">@property</span>
     <span class="k">def</span> <span class="nf">layout_type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LayoutType</span><span class="p">:</span>
@@ -1360,6 +1387,7 @@
 
 <span class="n">to_affine_quantized</span> <span class="o">=</span> <span class="n">AffineQuantizedTensor</span><span class="o">.</span><span class="n">from_float</span>
 <span class="n">to_affine_quantized_static</span> <span class="o">=</span> <span class="n">AffineQuantizedTensor</span><span class="o">.</span><span class="n">from_float_static</span>
+<span class="n">to_affine_quantized_floatx</span> <span class="o">=</span> <span class="n">AffineQuantizedTensor</span><span class="o">.</span><span class="n">from_float_to_floatx</span>
 
 <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
     <span class="c1"># Allow a model with AffineQuantizedTensor weights to be loaded with `weights_only=True`</span>
