@@ -8,7 +8,6 @@ from enum import Enum, auto
 from typing import List, Optional, Tuple, Dict, Callable, Union
 import torch, math
 
-
 from torchao.kernel.intmm import int_scaled_matmul
 from torchao.kernel.intmm import safe_int_mm
 from torchao.utils import (
@@ -58,6 +57,13 @@ class ZeroPointDomain(Enum):
 if TORCH_VERSION_AT_LEAST_2_5:
     torch.serialization.add_safe_globals([MappingType, ZeroPointDomain])
 
+FP8_TYPES = {
+    torch.float8_e4m3fn,
+    torch.float8_e5m2,
+    torch.float8_e4m3fnuz,
+    torch.float8_e5m2fnuz,
+}
+
 """
 Map from dtype to the bound value of integers
 TODO: maybe can replace this with call to torch.iinfo
@@ -95,9 +101,12 @@ def _get_and_check_qmin_qmax(dtype, quant_min, quant_max):
     verify that they are within the range of possible quant_min/quant_max
     for dtype
     """
-    if dtype not in _DTYPE_TO_QVALUE_BOUNDS:
+    if dtype in FP8_TYPES:
+        quant_min_lower_bound, quant_max_upper_bound = torch.finfo(dtype).min, torch.finfo(dtype).max
+    elif dtype not in _DTYPE_TO_QVALUE_BOUNDS:
         raise ValueError(f"Unsupported dtype: {dtype}")
-    quant_min_lower_bound, quant_max_upper_bound = _DTYPE_TO_QVALUE_BOUNDS[dtype]
+    else:
+        quant_min_lower_bound, quant_max_upper_bound = _DTYPE_TO_QVALUE_BOUNDS[dtype]
     if quant_min is None:
         quant_min = quant_min_lower_bound
     if quant_max is None:

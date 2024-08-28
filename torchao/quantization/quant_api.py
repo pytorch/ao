@@ -27,7 +27,8 @@ from torchao.dtypes import (
     TensorCoreTiledLayoutType, 
     PlainLayoutType,
     AffineQuantizedTensor,
-    SemiSparseLayoutType
+    SemiSparseLayoutType,
+    to_affine_quantized_floatx
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
@@ -57,7 +58,6 @@ from .utils import _get_per_token_block_size
 import logging
 from .autoquant import autoquant, AutoQuantizableLinearWeight
 
-
 __all__ = [
     "swap_conv2d_1x1_to_linear",
     "Quantizer",
@@ -72,6 +72,7 @@ __all__ = [
     "int8_dynamic_activation_int8_semi_sparse_weight",
     "int4_weight_only",
     "int8_weight_only",
+    "float8_weight_only",
 ]
 
 from .GPTQ import (
@@ -487,6 +488,18 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     quantization + 2:4 sparsity to linear layers.
     """
     return int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType())
+
+def float8_weight_only(target_dtype: torch.dtype = torch.float8_e4m3fn):
+    """
+    Applies float8 weight-only symmetric per-channel quantization to linear layers.
+    """
+    from torchao.dtypes import to_affine_quantized_floatx
+    def apply_float8wo_quant(weight):
+        # avoid circular dep
+        block_size = (1, weight.shape[1])
+        return to_affine_quantized_floatx(input_float=weight, block_size=block_size, target_dtype=target_dtype)
+
+    return _get_linear_subclass_inserter(apply_float8wo_quant)
 
 
 def uintx_weight_only(dtype, group_size=64, pack_dim=-1):

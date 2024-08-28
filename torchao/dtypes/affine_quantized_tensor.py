@@ -11,6 +11,7 @@ from torchao.quantization.quant_primitives import (
     MappingType,
     int_scaled_matmul,
     quantize_affine_hqq,
+    FP8_TYPES,
 )
 from torchao.quantization.utils import (
     pack_tinygemm_scales_and_zeros,
@@ -35,7 +36,6 @@ from torchao.utils import (
 )
 
 aten = torch.ops.aten
-
 
 ###############################
 # Base Layout Tensor Subclass #
@@ -97,7 +97,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
       shape (torch.Size): the shape for the Tensor
       quant_min (Optional[int]): minimum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`
       quant_max (Optional[int]): maximum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`
-      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be eitehr integer or float
+      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be either integer or float
         if zero_point is in integer domain, zero point is added to the quantized integer value during
         quantization
         if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
@@ -264,6 +264,33 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             zero_point_domain,
             dtype=input_float.dtype,
         )
+
+    @classmethod
+    def from_float_to_floatx(
+        cls,
+        input_float: torch.Tensor,
+        block_size: Tuple[int, ...],
+        target_dtype: torch.dtype = torch.float8_e4m3fn,
+        layout_type: LayoutType = PlainLayoutType(),
+    ):
+        if target_dtype in FP8_TYPES:
+            cls.from_float(
+                input_float=input_float,
+                mapping_type=MappingType.SYMMETRIC,
+                block_size=block_size,
+                target_dtype=target_dtype,
+                quant_min=math.ceil(torch.finfo(target_dtype).min),
+                quant_max=math.ceil(torch.finfo(target_dtype).max),
+                eps=torch.finfo(torch.float32).eps,
+                scale_dtype=None,
+                zero_point_dtype=None,
+                preserve_zero=True,
+                zero_point_domain=ZeroPointDomain.INT,
+                layout_type=PlainLayoutType(),
+                use_hqq=False,
+            )
+        else:
+            raise NotImplementedError(f"Unsupported dtype {target_dtype} for from_float_to_floatx")
 
     @property
     def layout_type(self) -> LayoutType:
@@ -979,6 +1006,7 @@ def _(func, types, args, kwargs):
 
 to_affine_quantized = AffineQuantizedTensor.from_float
 to_affine_quantized_static = AffineQuantizedTensor.from_float_static
+to_affine_quantized_floatx = AffineQuantizedTensor.from_float_to_floatx
 
 if TORCH_VERSION_AT_LEAST_2_5:
     # Allow a model with AffineQuantizedTensor weights to be loaded with `weights_only=True`
