@@ -123,6 +123,12 @@ def _(func, types, args, kwargs):
     return args[0]
 
 
+@implements([aten._fused_adam_.default, aten._fused_adamw_.default])
+def _(func, types, args, kwargs):
+    params = [x._data if isinstance(x, Int8MixedPrecisionLinearWeight) else x for x in args[0]]
+    func(params, *args[1:], **kwargs)
+
+
 # return normal tensor
 @implements(
     [
