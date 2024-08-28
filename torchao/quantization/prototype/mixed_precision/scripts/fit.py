@@ -89,7 +89,7 @@ def main(max_seqlen, checkpoint, nsamples, max_iter, num_layers):
 
     F_average, estimated_mean, estimated_history = cal_FIT(device=device, data=trainloader, nsamples=nsamples, model=model, max_iter=max_iter, max_seqlen=max_seqlen, criterion=criterion, num_layers=num_layers)
     print("Iteration Done")
-    print("avg_trace:", F_average)
+    print("FIT scores for",num_layers,"layers:\n", F_average)
     print("estimated_mean:", estimated_mean)
     print("estimated_history:", estimated_history)
 

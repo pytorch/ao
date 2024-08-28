@@ -148,7 +148,7 @@ def main(layer_id, checkpoint, max_seqlen, max_iter, nsamples):
             trace_history.append(trace)
 
         print("Iteration Done")
-        print("avg: trace,", np.mean(trace_history))
+        print("Avg Hessian trace for layer", layer_id, "is:" np.mean(trace_history))
         print("trace_history,", trace_history)
 
 
