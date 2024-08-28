@@ -1,7 +1,7 @@
 import torch
 from torchao.prototype.hqq.core import HQQQuantizer
 from torchao.dtypes.affine_quantized_tensor import (
-    to_affine_quantized,
+    to_affine_quantized_intx,
     ZeroPointDomain,
     PlainAQTLayout,
     PlainLayoutType,
@@ -38,7 +38,7 @@ layout_type       = PlainLayoutType()
 
 for nbits in list(range(2, 9))[::-1]:
     print('------------------------------------------------------------------------------')
-    q_tensor_default = to_affine_quantized(
+    q_tensor_default = to_affine_quantized_intx(
             input_float=W,
             mapping_type=mapping_type,
             block_size=block_size,
@@ -57,7 +57,7 @@ for nbits in list(range(2, 9))[::-1]:
     # nbits 4 | Default Dot product error 0.005926903802901506
 
 
-    q_tensor_hqq = to_affine_quantized(
+    q_tensor_hqq = to_affine_quantized_intx(
             input_float=W,
             mapping_type=mapping_type,
             block_size=block_size,
@@ -99,7 +99,7 @@ print("nbits", nbits, '| Default Dot product error', (y_ref - linear_layer_defau
 # nbits 4 | Default Dot product error 0.0015244047390297055
 
 
-q_tensor_hqq = to_affine_quantized(
+q_tensor_hqq = to_affine_quantized_intx(
         input_float=W,
         mapping_type=mapping_type,
         block_size=block_size,

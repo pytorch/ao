@@ -187,7 +187,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         )
 
     @classmethod
-    def from_float(
+    def __from_hp_to_lp(
         cls,
         input_float: torch.Tensor,
         mapping_type: MappingType,
@@ -234,7 +234,40 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         )
 
     @classmethod
-    def from_float_static(
+    def from_hp_to_intx(
+        cls,
+        input_float: torch.Tensor,
+        mapping_type: MappingType,
+        block_size: Tuple[int, ...],
+        target_dtype: torch.dtype,
+        quant_min: Optional[int] = None,
+        quant_max: Optional[int]  = None,
+        eps: Optional[float] = None,
+        scale_dtype: Optional[torch.dtype] = None,
+        zero_point_dtype: Optional[torch.dtype] = None,
+        preserve_zero: bool = True,
+        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+        layout_type: LayoutType = PlainLayoutType(),
+        use_hqq: bool = False,
+    ):
+        cls.__from_hp_to_lp(
+            input_float=input_float,
+            mapping_type=mapping_type,
+            block_size=block_size,
+            target_dtype=target_dtype,
+            quant_min=quant_min,
+            quant_max=quant_max,
+            eps=eps,
+            scale_dtype=scale_dtype,
+            zero_point_dtype=zero_point_dtype,
+            preserve_zero=preserve_zero,
+            zero_point_domain=zero_point_domain,
+            layout_type=layout_type,
+            use_hqq=use_hqq,
+        )
+
+    @classmethod
+    def from_hp_to_intx_static(
         cls,
         input_float: torch.Tensor,
         scale: torch.Tensor,
@@ -266,7 +299,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         )
 
     @classmethod
-    def from_float_to_floatx(
+    def from_hp_to_floatx(
         cls,
         input_float: torch.Tensor,
         block_size: Tuple[int, ...],
@@ -274,7 +307,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         layout_type: LayoutType = PlainLayoutType(),
     ):
         if target_dtype in FP8_TYPES:
-            cls.from_float(
+            cls.__from_hp_to_lp(
                 input_float=input_float,
                 mapping_type=MappingType.SYMMETRIC,
                 block_size=block_size,
@@ -1004,9 +1037,9 @@ def _(func, types, args, kwargs):
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
 
-to_affine_quantized = AffineQuantizedTensor.from_float
-to_affine_quantized_static = AffineQuantizedTensor.from_float_static
-to_affine_quantized_floatx = AffineQuantizedTensor.from_float_to_floatx
+to_affine_quantized_intx = AffineQuantizedTensor.from_hp_to_intx
+to_affine_quantized_intx_static = AffineQuantizedTensor.from_hp_to_intx_static
+to_affine_quantized_floatx = AffineQuantizedTensor.from_hp_to_floatx
 
 if TORCH_VERSION_AT_LEAST_2_5:
     # Allow a model with AffineQuantizedTensor weights to be loaded with `weights_only=True`
