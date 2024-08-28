@@ -61,7 +61,7 @@ def make_functional(mod, layer_id):
 
 
 
-def main(layer_id, checkpoint, max_seqlen, maxIter, nsamples):
+def main(layer_id, checkpoint, max_seqlen, max_iter, nsamples):
     
     # use the functional model to load the weights back
     def load_weights(mod, names, params, selected_params, selected_params_names):
@@ -113,7 +113,7 @@ def main(layer_id, checkpoint, max_seqlen, maxIter, nsamples):
         trace_history = []
         vhv_c_history=[]
 
-        for iteration in range(maxIter):
+        for iteration in range(max_iter):
 
             print("iteration: ",iteration)
 
@@ -148,17 +148,18 @@ def main(layer_id, checkpoint, max_seqlen, maxIter, nsamples):
             trace_history.append(trace)
 
         print("Iteration Done")
-        print("avg: trace,", np.mean(trace_history))
+        print("Avg Hessian trace for layer", layer_id, "is:" np.mean(trace_history))
         print("trace_history,", trace_history)
 
 
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description="Calculate layer-wised Hessian trace leveraging torch's vhp function.")
+    # TODO: make it a for loop for all the layer_ids to automatically calculate the Hessian trace for all the layers of a model
     parser.add_argument('--layer_id', type=int, default=0, help='Which layer to compute the Hessian trace')
-    parser.add_argument('--checkpoint', type=str, default="/home/hanxianhuang/ao/torchao/quantization/prototype/mixed_precision/checkpoints/meta-llama/Meta-Llama-3-8B", help='Path to load model')
+    parser.add_argument('--checkpoint', type=str, default="/tmp/Meta-Llama-3-8B", help='Path to load model')
     parser.add_argument('--max_seqlen', type=int, default=2048, help='Max sequence length')
-    parser.add_argument('--maxIter', type=int, default=100, help='The number of iterations to calculate Hessian trace')
+    parser.add_argument('--max_iter', type=int, default=100, help='The number of iterations to calculate Hessian trace')
     parser.add_argument('--nsamples', type=int, default=128, help='The number of samples in calibration dataset') 
     args = parser.parse_args()
-    main(args.layer_id, args.checkpoint, args.max_seqlen, args.maxIter, args.nsamples)
+    main(args.layer_id, args.checkpoint, args.max_seqlen, args.max_iter, args.nsamples)
