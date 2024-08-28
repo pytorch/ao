@@ -197,15 +197,17 @@ class Transformer(nn.Module):
 
         if input_pos is None: 
             mask = None
+            input_pos = torch.arange(0, idx.shape[1], device=idx.device)
             freqs_cis = self.freqs_cis[:idx.shape[1]]
-        elif not self.linear_causal_mask:
-            mask = self.causal_mask[None, None, input_pos]
-        elif len(input_pos)>1 and self.linear_causal_mask: # prefill for linear causal mask
-            mask = torch.tril(torch.ones(len(input_pos), self.max_seq_length, dtype=torch.bool, device=input_pos.device)).unsqueeze(0).unsqueeze(0)
-        else: # decode_one_token for linear causal mask
-            self.causal_mask[0,0,0,input_pos] = 1
-            mask = self.causal_mask
-        freqs_cis = self.freqs_cis[input_pos]
+        else:
+            if not self.linear_causal_mask:
+                mask = self.causal_mask[None, None, input_pos]
+            elif len(input_pos)>1 and self.linear_causal_mask: # prefill for linear causal mask
+                mask = torch.tril(torch.ones(len(input_pos), self.max_seq_length, dtype=torch.bool, device=input_pos.device)).unsqueeze(0).unsqueeze(0)
+            else: # decode_one_token for linear causal mask
+                self.causal_mask[0,0,0,input_pos] = 1
+                mask = self.causal_mask
+            freqs_cis = self.freqs_cis[input_pos]
 
         x = self.tok_embeddings(idx)
 
