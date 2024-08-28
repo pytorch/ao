@@ -307,10 +307,11 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         else:
             raise NotImplementedError(f"Unsupported dtype {target_dtype} for from_float_to_floatx")
 
+    @classmethod
     def from_float_fpx(
         cls,
         input_float: torch.Tensor,
-        layout_type: LayoutType = PlainLayoutType()
+        layout_type: LayoutType,
     ):
         from torchao.dtypes.fpx import FpxTensorCoreLayoutType
         assert isinstance(layout_type, FpxTensorCoreLayoutType), f"Only FpxTensorCoreLayoutType is supported for fpx, got {layout_type}"
@@ -755,7 +756,7 @@ def _aqt_is_uint4(aqt):
 implements = AffineQuantizedTensor.implements
 
 # following are a list of (dispatch_condition, implementation) functions that takes the following args:
-# input_tensor: dimension is (batch_size, in_features)
+# input_tensor: dimension is (M1, M2, ..., in_features)
 # weight_tensor: dimension is (out_features, in_features)
 # bias: dimension is (out_features,)
 # so that these can be shared by F.linear, aten.mm, aten.addmm dispatches
