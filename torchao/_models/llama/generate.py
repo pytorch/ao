@@ -223,19 +223,29 @@ def main(
         if "autoround" in quantization:
             from torchao.prototype.autoround.autoround_llm import quantize_model_with_autoround_
             from transformers import AutoTokenizer
+
             _tokenizer = AutoTokenizer.from_pretrained(checkpoint_path.parent)
             # parse args from quantization string:
-            #   autoround-<model_device>-<iters>-<groupsize>-<quant_lm_head>-<batch_size>-<seqlen>
-            #   autoround-cpu-200-128-0-8-2048
+            #   autoround-<model_device>-<iters>-<groupsize>-<quant_lm_head>-<batch_size>-<seqlen>-<nsamples>
+            #   autoround-cpu-200-128-0-8-2048-128
             _quant_args = quantization.split("-")
-            _default_quant_args = [200, 128, False, 8, 2048]
-            _model_devie = _quant_args[1] if len(_quant_args) >1 else device
+            _default_quant_args = [200, 128, True, 1, 2048, 128]
+            _model_devie = _quant_args[1] if len(_quant_args) > 1 else device
             _quant_args = _quant_args[2:]
-            iters, groupsize, quant_lm_head, batch_size, seqlen = [int(x) for x in _quant_args] + _default_quant_args[len(_quant_args):]
+            iters, groupsize, quant_lm_head, batch_size, seqlen, nsamples = [
+                int(x) for x in _quant_args
+            ] + _default_quant_args[len(_quant_args) :]
             model = model.to(_model_devie)
-            print(f"Quantizing model with autoround(iters={iters}, groupsize={groupsize}, quant_lm_head={quant_lm_head}, batch_size={batch_size}, seqlen={seqlen})")
+            print(
+                (
+                    f"Quantizing model with autoround(iters={iters}, groupsize={groupsize}, "
+                    f"quant_lm_head={quant_lm_head}, batch_size={batch_size}, seqlen={seqlen}, nsamples={nsamples})"
+                )
+            )
             with torch.device(_model_devie):
-                model.setup_caches(max_batch_size=batch_size, max_seq_length=seqlen, training=True)
+                model.setup_caches(
+                    max_batch_size=batch_size, max_seq_length=seqlen, training=True
+                )
 
             if quant_lm_head:
                 is_target_module = (
@@ -243,9 +253,19 @@ def main(
                 )
             else:
                 is_target_module = lambda mod, fqn: isinstance(mod, TransformerBlock)
-            quantize_model_with_autoround_(model=model, tokenizer=_tokenizer, is_target_module=is_target_module, bits=4, seqlen=seqlen, bs=batch_size, iters=iters)
+            quantize_model_with_autoround_(
+                model=model,
+                tokenizer=_tokenizer,
+                is_target_module=is_target_module,
+                bits=4,
+                seqlen=seqlen,
+                bs=batch_size,
+                iters=iters,
+                nsamples=nsamples,
+            )
             model.to(device)
             model.reset_caches()
+
         if "autoquant" == quantization:
             model = autoquant(model, manual=True)
 
@@ -412,7 +432,7 @@ if __name__ == '__main__':
     parser.add_argument('--top_k', type=int, default=200, help='Top-k for sampling.')
     parser.add_argument('--temperature', type=float, default=0.8, help='Temperature for sampling.')
     parser.add_argument('--checkpoint_path', type=Path, default=Path("../../../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
-    parser.add_argument('-q', '--quantization', type=str, help='Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, autoquant, autoround-<model_device>-<iters>-<groupsize>-<quant_lm_head>-<batch_size>-<seqlen>')
+    parser.add_argument('-q', '--quantization', type=str, help='Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, autoquant, autoround-<model_device>-<iters>-<groupsize>-<quant_lm_head>-<batch_size>-<seqlen>-<nsamples>')
     parser.add_argument('--kv_cache_quantization', action='store_true', help='Whether to quantize the KV cache')
     parser.add_argument('--cache_size', type=int, default=None, help='Force size of cache to be a certain number of tokens, if not set, will use max_new_tokens+prompt_size')
     parser.add_argument('--linear_causal_mask', action='store_true', help='Whether to use the memory efficient, but slightly less fast, linear causal mask (important for long context lengths)')
