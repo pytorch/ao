@@ -154,7 +154,7 @@ def main(layer_id, checkpoint, max_seqlen, maxIter, nsamples):
 
 if __name__ == '__main__':
     import argparse
-    parser = argparse.ArgumentParser(description='Your CLI description.')
+    parser = argparse.ArgumentParser(description="Calculate layer-wised Hessian trace leveraging torch's vhp function.")
     parser.add_argument('--layer_id', type=int, default=0, help='Which layer to compute the Hessian trace')
     parser.add_argument('--checkpoint', type=str, default="/home/hanxianhuang/ao/torchao/quantization/prototype/mixed_precision/checkpoints/meta-llama/Meta-Llama-3-8B", help='Path to load model')
     parser.add_argument('--max_seqlen', type=int, default=2048, help='Max sequence length')
