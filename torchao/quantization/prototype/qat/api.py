@@ -49,7 +49,7 @@ def int8_dynamic_activation_int4_weight_fake_quantize(group_size=32):
         quantize_(model, int8_dynamic_activation_int4_weight_fake_quantize(group_size=32))
     """
     # avoid circular dep
-    from torchao.dtypes import to_affine_quantized
+    from torchao.dtypes import to_affine_quantized_intx
 
     def _apply_weight_fake_quant(weight: torch.Tensor):
         mapping_type = MappingType.SYMMETRIC

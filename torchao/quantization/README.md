@@ -82,7 +82,7 @@ as an example:
 ```python
 import torch
 from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
-from torchao.dtypes import to_affine_quantized
+from torchao.dtypes import to_affine_quantized_intx
 import copy
 from torchao.quantization.quant_api import (
     quantize_,
@@ -142,9 +142,9 @@ speedup: 2.2715200981216173
 
 What we do underlying the APIs are roughly the following:
 ```
-from torchao.dtypes import to_affine_quantized
+from torchao.dtypes import to_affine_quantized_intx
 def int8wo_quant(weight):
-    return to_affine_quantized(weight, MappingType.SYMMETRIC, (1, weight.shape[1]), torch.int8, eps=torch.finfo(torch.float32).eps, zero_point_dtype=torch.int64)
+    return to_affine_quantized_intx(weight, MappingType.SYMMETRIC, (1, weight.shape[1]), torch.int8, eps=torch.finfo(torch.float32).eps, zero_point_dtype=torch.int64)
 
 for n, m in model.named_modules():
     if isinstance(m, torch.nn.Linear):
