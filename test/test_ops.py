@@ -11,7 +11,7 @@ from torch.testing._internal.common_utils import (
 )
 from torch.testing._internal.optests import opcheck
 from torchao.utils import is_fbcode, TORCH_VERSION_AT_LEAST_2_5, compute_max_diff
-from torchao.prototype.quant_llm import from_scaled_tc_fpx
+from torchao.dtypes.fpx import from_scaled_tc_fpx
 from torchao.sparsity.marlin import marlin_24_workspace, pack_to_marlin_24, inject_24
 import pytest
 
@@ -318,7 +318,7 @@ MARLIN_24_SUPPORTED_NUM_BITS = [4, 8]
 MARLIN_24_SUPPORTED_GROUP_SIZES = [-1, 128]
 
 MARLIN_TEST_PARAMS = list(itertools.product(
-    MARLIN_24_K_CHUNKS, MARLIN_24_N_CHUNKS, MARLIN_24_SUPPORTED_NUM_BITS, 
+    MARLIN_24_K_CHUNKS, MARLIN_24_N_CHUNKS, MARLIN_24_SUPPORTED_NUM_BITS,
     MARLIN_24_SUPPORTED_GROUP_SIZES, MNK_FACTORS
 ))
 
@@ -399,7 +399,7 @@ def test_marlin_24(k_chunk, n_chunk, num_bits, group_size, mnk_factors):
     workspace_24 = marlin_24_workspace(size_n)
 
     fn_inputs = (
-        a_input, marlin_24_q_w_comp, meta, marlin_24_scale, workspace_24, 
+        a_input, marlin_24_q_w_comp, meta, marlin_24_scale, workspace_24,
         num_bits, a_input.shape[0], b_weight.shape[1], a_input.shape[1],
     )
     output = torchao.ops.marlin_24_gemm(*fn_inputs)
