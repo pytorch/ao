@@ -20,7 +20,6 @@ from torchao.quantization import (
     int8_dynamic_activation_int8_weight,
     quantize_,
     autoquant,
-    fpx_weight_only,
 )
 from torchao.sparsity import (
     sparsify_,
@@ -60,8 +59,6 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, spars
     elif quantization == "int4wo":
         # note cannot quantize this model on cpu and run it on cuda at this time
         quantize_(model.to(device=device), int4_weight_only())
-    elif quantization == "fp6":
-        quantize_(model, fpx_weight_only(3, 2))
     elif quantization == "autoquant":
         model = autoquant(model.to(device=device))
 
@@ -82,7 +79,7 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, spars
             return False
         torch.sparse.semi_structured._FORCE_CUTLASS = False
         sparsify_(model, semi_sparse_weight(), filter_fn=all_linear)
-
+    
     if sparsity and compile:
         model = torch.compile(model, mode="max-autotune", fullgraph=True)
 
@@ -114,7 +111,7 @@ if __name__ == '__main__':
     parser.add_argument('--limit', type=int, default=None, help='Number of eval samples to evaluate')
     parser.add_argument('--precision', type=lambda x: getattr(torch, x.split(".")[-1]), default=torch.bfloat16, help='dtype precision to use')
     parser.add_argument('--device', type=str, default="cuda", help='Device to use for evaluation')
-    parser.add_argument('-q', '--quantization', default = "None", choices=["int8dq", "int8wo", "int4wo","autoquant", "fp6", "None"], help='Which quantization technique to apply')
+    parser.add_argument('-q', '--quantization', default = "None", choices=["int8dq", "int8wo", "int4wo","autoquant", "None"], help='Which quantization technique to apply')
     parser.add_argument('-s', '--sparsity', default = "None", choices=["semi_sparse", "semi_sparse_mlp_only", "None"], help='Which sparsity technique to apply')
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
     parser.add_argument('--save', action='store_true', help='Whether to save the model.')

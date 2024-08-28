@@ -1,16 +1,16 @@
 import torch
 import pandas as pd
 import torch.nn.functional as F
-# from torchao.prototype.quant_llm import QuantLlmLinearWeight
-from torchao.dtypes import to_affine_quantized_fpx
-from torchao.dtypes.fpx import FpxTensorCoreAQTLayout, FpxTensorCoreLayoutType
+from torchao.prototype.quant_llm import QuantLlmLinearWeight
 from torchao.utils import benchmark_torch_function_in_microseconds
 from tqdm import tqdm
 
 
 def benchmark(m: int, k: int, n: int):
-    float_data = torch.randn(n, k, dtype=torch.half, device="cuda")
-    fp6_weight = to_affine_quantized_fpx(float_data, FpxTensorCoreLayoutType(3, 2))
+    fp6_data = torch.randint(256, size=(n, k * 3 // 4), dtype=torch.uint8, device="cuda")
+    scale = torch.rand(n, dtype=torch.half, device="cuda") + 0.5
+    fp6_weight = QuantLlmLinearWeight(fp6_data, scale, 3, 2)
+
     fp16_weight = fp6_weight.dequantize(torch.half)
 
     fp16_act = torch.randn(m, k, dtype=torch.half, device="cuda")
