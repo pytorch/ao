@@ -9,7 +9,7 @@ import torch
 from torch.utils._python_dispatch import TorchDispatchMode
 import torch.nn.utils.parametrize as parametrize
 from torchao.utils import find_multiple
-from torchao.quantization.quant_primitives import (
+from .quant_primitives import (
     MappingType,
     ZeroPointDomain,
     choose_qparams_affine,

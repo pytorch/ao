@@ -207,10 +207,10 @@ def main(
             int8_weight_only,
             int8_dynamic_activation_int8_weight,
             int4_weight_only,
-            fpx_weight_only,
             autoquant,
             unwrap_tensor_subclass
-        )
+    )
+
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
@@ -219,8 +219,6 @@ def main(
             groupsize=int(quantization.split("-")[-1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
             quantize_(model, int4_weight_only(group_size=groupsize))
-        if "fp6" in quantization:
-            quantize_(model, fpx_weight_only(3, 2))
         if "autoquant" == quantization:
             model = autoquant(model, manual=True)
 
