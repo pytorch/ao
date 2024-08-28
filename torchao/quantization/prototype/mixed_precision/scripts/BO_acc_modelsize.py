@@ -16,7 +16,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from ax.service.ax_client import AxClient, ObjectiveProperties
 import torch.multiprocessing as mp
 from ax.modelbridge.cross_validation import cross_validate
-from utils import write_history_to_csv, cal_wikitext_ppl, cal_model_size, load_model, quantize_by_fqn_to_config
+from utils import write_history_to_csv, cal_wikitext_ppl, cal_model_size, load_model, quantize_by_fqn_to_config, load_parameters_from_json, load_initial_samples
 
 # return evaluation results to complete BO trials
 def eval(model, tokenizer, num_PPL_eval_samples, fqn_to_config):
@@ -25,85 +25,9 @@ def eval(model, tokenizer, num_PPL_eval_samples, fqn_to_config):
         "model_size": (cal_model_size(model, fqn_to_config), 0.0),
     }
 
-# TODO: make it into a yaml or json file to enable users specify their custom model formats
-def define_parameter_list():
-
-    # define the search space for all layers
-    parameters_list = []
-
-    for i in range(0, 3):  
-        parameters_list.append(
-            {
-                "name": f"bitwidth.{i}.",
-                "type": "fixed",
-                "value_type": "int",
-                "value": 5,
-                "is_ordered": True,
-                "sort_values": True,
-            }
-        )
-
-        parameters_list.append(
-            {
-                "name": f"groupsize.{i}.",
-                "type": "fixed",
-                "value_type": "int",
-                "value": 32,
-                "is_ordered": True,
-                "sort_values": True,
-            }
-        )
-
-    for i in range(3, 30):  
-        parameters_list.append(
-            {
-                "name": f"bitwidth.{i}.",
-                "type": "choice",
-                "value_type": "int",
-                "values": [2,3,4,5,6,8],
-                "is_ordered": True,
-                "sort_values": True,
-            }
-        )
-
-        parameters_list.append(
-            {
-                "name": f"groupsize.{i}.",
-                "type": "choice",
-                "value_type": "int",
-                "values": [32, 64, 128, 256],
-                "is_ordered": True,
-                "sort_values": True,
-            }
-        )
-
-    for i in range(30, 32):  
-        parameters_list.append(
-            {
-                "name": f"bitwidth.{i}.",
-                "type": "fixed",
-                "value_type": "int",
-                "value": 5,
-                "is_ordered": True,
-                "sort_values": True,
-            }
-        )
-        parameters_list.append(
-            {
-                "name": f"groupsize.{i}.",
-                "type": "fixed",
-                "value_type": "int",
-                "value": 32,
-                "is_ordered": True,
-                "sort_values": True,
-            }
-        )
-
-    return parameters_list
-
 # add initial search points based on the sensitivity score
-# TODO: automate the initial samples by better leverage the sensitivity scores
-def get_initial_samples(num_BO_initial_samples=50):
+# TODO: add random initial samples if no sensitivity prior
+def get_initial_samples(num_BO_initial_samples=10):
     initial_points_set = []
 
     # auto sample the bit choices with random choice probability positive correlated to FIT score
@@ -142,10 +66,11 @@ Each time the BO gets one new trial, evaluates the trial on the GPU and return t
 One trial, one BO update.
 TODO: refactor the sequential BO and parallel BO into a single function
 '''
-def run_sequential_BO(device, checkpoint, num_PPL_eval_samples, num_BO_initial_samples, num_trials, model_size_constraint, output_file):
+def run_sequential_BO(device, checkpoint, num_PPL_eval_samples, num_BO_initial_samples, num_trials, model_size_constraint, output_file, parameters_list, initial_samples):
 
-    parameters_list = define_parameter_list()
-    initial_points_set = get_initial_samples(num_BO_initial_samples)
+    # TODO: add default parameter list if not specified
+    parameters_list = load_parameters_from_json(parameters_list)
+    initial_points_set = load_initial_samples(initial_samples)
 
     #initialize ax_client
     constraint="model_size <= "+str(model_size_constraint)
@@ -240,11 +165,12 @@ This function will run BO trials in parallel on multiple GPUs.
 Each time the BO gets multiple new trials, evaluates the trials on the GPUs and return the evaluation results to update the BO.
 Multiple trials, one BO update.
 '''
-def run_parallel_BO(device, checkpoint, num_PPL_eval_samples, num_BO_initial_samples, num_trials, model_size_constraint, gpu_list):
+def run_parallel_BO(device, checkpoint, num_PPL_eval_samples, num_BO_initial_samples, num_trials, model_size_constraint, gpu_list, output_file, parameters_list, initial_samples):
 
+    # TODO: add default parameter list if not specified
     parameters_list = define_parameter_list()
-    initial_points_set = get_initial_samples(num_BO_initial_samples)
-
+    initial_points_set = load_initial_samples(initial_samples)
+    
     #initialize ax_client
     constraint="model_size <= "+str(model_size_constraint)
     ax_client = AxClient()
@@ -335,14 +261,17 @@ if __name__ == '__main__':
     parser.add_argument('--device', type=str, default="cuda", help='Device to use for evaluation')
     parser.add_argument('--checkpoint', type=str, default="/tmp/Meta-Llama-3-8B", help='Path to load model')
     parser.add_argument('--num_PPL_eval_samples', type=int, default=None, help='Number of samples to evaluate ppl')
-    parser.add_argument('--num_BO_initial_samples', type=int, default=50, help='Number of initial points sampled by sensitivity scores')
-    parser.add_argument('--num_trials', type=int, default=150, help='Number of trials to run BO')
+    parser.add_argument('--num_BO_initial_samples', type=int, default=10, help='Number of initial points sampled by sensitivity scores')
+    parser.add_argument('--num_trials', type=int, default=200, help='Number of trials to run BO')
     parser.add_argument('--model_size_constraint', type=float, default=6.0, help='The model size (GB) constraint for BO')
     parser.add_argument('--gpu_list', type=str, default="", help="A list of gpus to run evaluation, separated by comma, e.g., --gpu_lists=0,1,2,3")
-    parser.add_argument('--output_path', type=str, default="BO_acc_modelsize_output.csv", help="The file path to save the BO search trials")
+    parser.add_argument('--output_file', type=str, default="BO_acc_modelsize_output.csv", help="The csv file path to save the BO search trials")
+    parser.add_argument('--parameters_list', type=str, default="Llama3-8B_parameters.json", help="The json file path to save the parameters list for BO")
+    parser.add_argument('--initial_samples', type=str, default="Llama3-8B_initial_samples.json", help="The json file path to save the user-defined initial samples for BO")
+
     args = parser.parse_args()
 
-    if args.gpu_list != "":
-        run_sequential_BO(device=args.device, checkpoint=args.checkpoint, num_PPL_eval_samples=args.num_PPL_eval_samples, num_BO_initial_samples=args.num_BO_initial_samples, num_trials=args.num_trials, model_size_constraint=args.model_size_constraint, output_path=args.output_path)
+    if args.gpu_list == "":
+        run_sequential_BO(device=args.device, checkpoint=args.checkpoint, num_PPL_eval_samples=args.num_PPL_eval_samples, num_BO_initial_samples=args.num_BO_initial_samples, num_trials=args.num_trials, model_size_constraint=args.model_size_constraint, output_file=args.output_file, parameters_list=args.parameters_list, initial_samples=args.initial_samples)
     else:
-        run_parallel_BO(device=args.device, checkpoint=args.checkpoint, num_PPL_eval_samples=args.num_PPL_eval_samples, num_BO_initial_samples=args.num_BO_initial_samples, num_trials=args.num_trials, model_size_constraint=args.model_size_constraint, gpu_list=args.gpu_list, output_path=args.output_path)
+        run_parallel_BO(device=args.device, checkpoint=args.checkpoint, num_PPL_eval_samples=args.num_PPL_eval_samples, num_BO_initial_samples=args.num_BO_initial_samples, num_trials=args.num_trials, model_size_constraint=args.model_size_constraint, gpu_list=args.gpu_list, output_file=args.output_file, parameters_list=args.parameters_list, initial_samples=args.initial_samples)

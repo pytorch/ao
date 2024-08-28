@@ -45,7 +45,7 @@ from torchao._models.llama.generate import (
     _load_model,
 )
 
-from utils import write_history_to_csv, cal_wikitext_ppl, load_model, quantize_by_fqn_to_config
+from utils import write_history_to_csv, cal_wikitext_ppl, load_model, quantize_by_fqn_to_config, load_parameters_from_json
 
 default_device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -321,8 +321,8 @@ def define_parameter_list():
     return parameters_list
 
 # add initial search points based on the sensitivity score
-# TODO: automate the initial samples by better leverage the sensitivity scores
-def get_initial_samples(num_BO_initial_samples=50):
+# TODO: add default parameter list if not specified
+def get_initial_samples(num_BO_initial_samples=10):
     
     initial_points_set = []
 
@@ -376,11 +376,12 @@ def run_sequential_BO(device, checkpoint_path, repo_id, num_PPL_eval_samples, nu
     tokenizer4ppl = AutoTokenizer.from_pretrained(repo_id)
     
     # initialize parameters
-    parameters_list = define_parameter_list()
+    # TODO: add default parameter list if not specified
+    parameters_list = load_parameters_from_json(args.parameters_list)
     
     # sample initial points
-    initial_points_set = get_initial_samples(num_BO_initial_samples)
-
+    initial_points_set = load_initial_samples(initial_samples)
+    
     # initialize BO experiment
     constraint="cal_PPL <= "+str(ppl_constraint)
     ax_client = AxClient()
@@ -481,7 +482,9 @@ if __name__ == '__main__':
     parser.add_argument('--ppl_constraint', type=float, default=7.5, help='The ppl constraint for BO')
     parser.add_argument('--multi_gpus', action='store_true', help="Use multi-processing to run evaluation on multi-gpus")
     parser.add_argument('--gpu_list', type=str, default="", help="A list of gpus to run evaluation, separated by comma, e.g., --gpu_lists=0,1,2,3")
-    parser.add_argument('--output_path', type=str, default="BO_acc_speed_output.csv", help="The csv file path to save the BO search trials")
+    parser.add_argument('--output_file', type=str, default="BO_acc_speed_output.csv", help="The csv file path to save the BO search trials")
+    parser.add_argument('--parameters_list', type=str, default="Llama3-8B_parameters.json", help="The json file path to save the parameters list for BO")
+    parser.add_argument('--initial_samples', type=str, default="Llama3-8B_initial_samples.json", help="The json file path to save the user-defined initial samples for BO")
 
     args = parser.parse_args()
     run_sequential_BO(device=args.device, checkpoint_path=args.checkpoint_path, repo_id=args.repo_id, num_PPL_eval_samples=args.num_PPL_eval_samples, num_BO_initial_samples=args.num_BO_initial_samples, num_trials=args.num_trials, ppl_constraint=args.ppl_constraint, args=args)
