@@ -187,7 +187,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         )
 
     @classmethod
-    def __from_hp_to_lp(
+    def from_hp_to_intx(
         cls,
         input_float: torch.Tensor,
         mapping_type: MappingType,
@@ -234,39 +234,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         )
 
     @classmethod
-    def from_hp_to_intx(
-        cls,
-        input_float: torch.Tensor,
-        mapping_type: MappingType,
-        block_size: Tuple[int, ...],
-        target_dtype: torch.dtype,
-        quant_min: Optional[int] = None,
-        quant_max: Optional[int]  = None,
-        eps: Optional[float] = None,
-        scale_dtype: Optional[torch.dtype] = None,
-        zero_point_dtype: Optional[torch.dtype] = None,
-        preserve_zero: bool = True,
-        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
-        layout_type: LayoutType = PlainLayoutType(),
-        use_hqq: bool = False,
-    ):
-        return cls.__from_hp_to_lp(
-            input_float=input_float,
-            mapping_type=mapping_type,
-            block_size=block_size,
-            target_dtype=target_dtype,
-            quant_min=quant_min,
-            quant_max=quant_max,
-            eps=eps,
-            scale_dtype=scale_dtype,
-            zero_point_dtype=zero_point_dtype,
-            preserve_zero=preserve_zero,
-            zero_point_domain=zero_point_domain,
-            layout_type=layout_type,
-            use_hqq=use_hqq,
-        )
-
-    @classmethod
     def from_hp_to_intx_static(
         cls,
         input_float: torch.Tensor,
@@ -307,7 +274,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         layout_type: LayoutType = PlainLayoutType(),
     ):
         if target_dtype in FP8_TYPES:
-            return cls.__from_hp_to_lp(
+            return cls.from_hp_to_intx(
                 input_float=input_float,
                 mapping_type=MappingType.SYMMETRIC,
                 block_size=block_size,
