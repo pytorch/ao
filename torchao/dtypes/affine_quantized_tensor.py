@@ -12,12 +12,12 @@ from torchao.quantization.quant_primitives import (
     int_scaled_matmul,
     quantize_affine_hqq,
     FP8_TYPES,
-)
-from torchao.quantization.utils import (
-    pack_tinygemm_scales_and_zeros,
     choose_qparams_affine_fpx,
     quantize_affine_fpx,
     dequantize_affine_fpx,
+)
+from torchao.quantization.utils import (
+    pack_tinygemm_scales_and_zeros,
 )
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.dtypes.utils import (
