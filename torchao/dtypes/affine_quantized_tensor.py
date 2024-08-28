@@ -250,7 +250,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         layout_type: LayoutType = PlainLayoutType(),
         use_hqq: bool = False,
     ):
-        cls.__from_hp_to_lp(
+        return cls.__from_hp_to_lp(
             input_float=input_float,
             mapping_type=mapping_type,
             block_size=block_size,
@@ -307,7 +307,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         layout_type: LayoutType = PlainLayoutType(),
     ):
         if target_dtype in FP8_TYPES:
-            cls.__from_hp_to_lp(
+            return cls.__from_hp_to_lp(
                 input_float=input_float,
                 mapping_type=MappingType.SYMMETRIC,
                 block_size=block_size,
