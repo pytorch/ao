@@ -213,16 +213,16 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             group_size = max(block_size)
             compute_dtype = zero_point_dtype if (zero_point_dtype is not None) else input_float.dtype
             device = input_float.device
-            int_data, scale, zero_point, _ = quantize_affine_hqq(input_float, nbits=nbits, group_size=group_size, axis=axis, compute_dtype=compute_dtype, device=device, verbose=False, raw_output=False)
-            int_data = int_data.to(target_dtype)
+            data, scale, zero_point, _ = quantize_affine_hqq(input_float, nbits=nbits, group_size=group_size, axis=axis, compute_dtype=compute_dtype, device=device, verbose=False, raw_output=False)
+            data = data.to(target_dtype)
         else:
             scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain)
-            int_data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
+            data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
             # Note: output will be uint8 tensor for sub byte tensors for now
 
-        int_data = layout_type.post_process(int_data)
+        data = layout_type.post_process(data)
         layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
-        layout_tensor = layout_tensor_ctr(int_data, scale, zero_point, layout_type)
+        layout_tensor = layout_tensor_ctr(data, scale, zero_point, layout_type)
         return cls(
             layout_tensor,
             block_size,
