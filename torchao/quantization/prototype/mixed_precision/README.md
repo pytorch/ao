@@ -145,7 +145,7 @@ Support for ViT models is coming soon.
 
 
 ## Results
-We evaluated BO search for Llama3-8B and Mistral-7B-v0.1 under two settings: (1) optimizing model accuracy under model size constraint; (2) optimizing model inference throughput under model accuracy constraint.
+We evaluated BO search for Llama3-8B and Mistral-7B-v0.1 under two settings: (1) optimizing model accuracy under model size constraint; (2) optimizing model inference throughput under model accuracy constraint, and compared the BO results with bfloat-16, [int8 weight only](https://github.com/pytorch/ao/blob/983f5653f5516e91c9fb9df73d6f407fbd4b381f/torchao/quantization/quant_api.py#L432) uniform quantization and [int4 weight only](https://github.com/pytorch/ao/blob/983f5653f5516e91c9fb9df73d6f407fbd4b381f/torchao/quantization/quant_api.py#L396) uniform quantization.
 
 ### Results of BO for optimizing model accuracy under model size constraint
 
