@@ -404,7 +404,7 @@
 
 <span class="kn">from</span> <span class="nn">torchao.dtypes.uintx.Uintx</span> <span class="kn">import</span> <span class="n">UintxLayoutType</span>
 <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="p">(</span>
-    <span class="n">to_affine_quantized</span><span class="p">,</span> 
+    <span class="n">to_affine_quantized_intx</span><span class="p">,</span> 
     <span class="n">TensorCoreTiledLayoutType</span><span class="p">,</span> 
     <span class="n">PlainLayoutType</span><span class="p">,</span>
     <span class="n">AffineQuantizedTensor</span><span class="p">,</span>
@@ -704,11 +704,11 @@
 <span class="sd">        # You can also add your own apply_tensor_subclass by manually calling tensor subclass constructor</span>
 <span class="sd">        # on weight</span>
 
-<span class="sd">        from torchao.dtypes import to_affine_quantized</span>
+<span class="sd">        from torchao.dtypes import to_affine_quantized_intx</span>
 
 <span class="sd">        # weight only uint4 asymmetric groupwise quantization</span>
 <span class="sd">        groupsize = 32</span>
-<span class="sd">        apply_weight_quant = lambda x: to_affine_quantized(</span>
+<span class="sd">        apply_weight_quant = lambda x: to_affine_quantized_intx(</span>
 <span class="sd">          x, &quot;asymmetric&quot;, (1, groupsize), torch.int32, 0, 15, 1e-6,</span>
 <span class="sd">          zero_point_dtype=torch.bfloat16, preserve_zero=False, zero_point_domain=&quot;float&quot;)</span>
 
@@ -737,7 +737,7 @@
 <span class="k">def</span> <span class="nf">_int8_asymm_per_token_quant</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
     <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span>
     <span class="n">target_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span>
-    <span class="k">return</span> <span class="n">to_affine_quantized</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">target_dtype</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">target_dtype</span><span class="p">)</span>
 
 <span class="k">def</span> <span class="nf">apply_int8_dynamic_activation_int4_weight_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">group_size</span><span class="o">=</span><span class="mi">32</span><span class="p">):</span>
     <span class="k">if</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">%</span> <span class="n">group_size</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
@@ -754,7 +754,7 @@
     <span class="c1"># input settings</span>
     <span class="n">input_quant_func</span> <span class="o">=</span> <span class="n">_int8_asymm_per_token_quant</span>
 
-    <span class="n">weight</span> <span class="o">=</span> <span class="n">to_affine_quantized</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">,</span> <span class="n">eps</span><span class="p">)</span>
+    <span class="n">weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">,</span> <span class="n">eps</span><span class="p">)</span>
     <span class="n">weight</span> <span class="o">=</span> <span class="n">to_linear_activation_quantized</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">input_quant_func</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">weight</span>
 
@@ -805,7 +805,7 @@
         <span class="n">preserve_zero</span> <span class="o">=</span> <span class="kc">False</span>
         <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
         <span class="n">zero_point_domain</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span>
-        <span class="k">return</span> <span class="n">to_affine_quantized</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">,</span> <span class="n">eps</span><span class="p">,</span> <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span> <span class="n">preserve_zero</span><span class="o">=</span><span class="n">preserve_zero</span><span class="p">,</span> <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">zero_point_domain</span><span class="p">,</span> <span class="n">layout_type</span><span class="o">=</span><span class="n">layout_type</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">,</span> <span class="n">eps</span><span class="p">,</span> <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span> <span class="n">preserve_zero</span><span class="o">=</span><span class="n">preserve_zero</span><span class="p">,</span> <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">zero_point_domain</span><span class="p">,</span> <span class="n">layout_type</span><span class="o">=</span><span class="n">layout_type</span><span class="p">)</span>
 
     <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_int4_weight_only_quant</span><span class="p">)</span></div>
 
@@ -820,7 +820,7 @@
         <span class="n">eps</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="n">eps</span>
         <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int64</span>
         <span class="n">block_size</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
-        <span class="k">return</span> <span class="n">to_affine_quantized</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span> <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span> <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">)</span>
 
     <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_int8wo_quant</span><span class="p">)</span></div>
 
@@ -830,7 +830,7 @@
     <span class="n">eps</span> <span class="o">=</span> <span class="mf">1e-5</span>
     <span class="n">quant_min</span> <span class="o">=</span> <span class="o">-</span><span class="mi">127</span>
     <span class="n">quant_max</span> <span class="o">=</span> <span class="mi">127</span>
-    <span class="k">return</span> <span class="n">to_affine_quantized</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span> <span class="n">quant_min</span><span class="o">=</span><span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="o">=</span><span class="n">quant_max</span><span class="p">,</span> <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span> <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">float16</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">_get_per_token_block_size</span><span class="p">(</span><span class="n">x</span><span class="p">),</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span> <span class="n">quant_min</span><span class="o">=</span><span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="o">=</span><span class="n">quant_max</span><span class="p">,</span> <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span> <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">float16</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span>
 
 
 <div class="viewcode-block" id="int8_dynamic_activation_int8_weight"><a class="viewcode-back" href="../../../generated/torchao.quantization.int8_dynamic_activation_int8_weight.html#torchao.quantization.int8_dynamic_activation_int8_weight">[docs]</a><span class="k">def</span> <span class="nf">int8_dynamic_activation_int8_weight</span><span class="p">(</span><span class="n">layout_type</span><span class="o">=</span><span class="n">PlainLayoutType</span><span class="p">()):</span>
@@ -856,7 +856,7 @@
         <span class="n">input_quant_func</span> <span class="o">=</span> <span class="n">_int8_symm_per_token_reduced_range_quant</span>
 
         <span class="n">block_size</span> <span class="o">=</span> <span class="n">get_weight_block_size</span><span class="p">(</span><span class="n">weight</span><span class="p">)</span>
-        <span class="n">weight</span> <span class="o">=</span> <span class="n">to_affine_quantized</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span> <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span> <span class="n">layout_type</span><span class="o">=</span><span class="n">layout_type</span><span class="p">)</span>
+        <span class="n">weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">target_dtype</span><span class="p">,</span> <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span> <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span> <span class="n">layout_type</span><span class="o">=</span><span class="n">layout_type</span><span class="p">)</span>
         <span class="n">weight</span> <span class="o">=</span> <span class="n">to_linear_activation_quantized</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">input_quant_func</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">weight</span>
 
@@ -908,7 +908,7 @@
         <span class="n">zero_point_dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span>
         <span class="n">zero_point_domain</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span>
 
-        <span class="k">return</span> <span class="n">to_affine_quantized</span><span class="p">(</span>
+        <span class="k">return</span> <span class="n">to_affine_quantized_intx</span><span class="p">(</span>
             <span class="n">weight</span><span class="p">,</span> <span class="n">mapping_type</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">dtype</span><span class="p">,</span>
             <span class="n">eps</span><span class="o">=</span><span class="n">eps</span><span class="p">,</span> <span class="n">zero_point_dtype</span><span class="o">=</span><span class="n">zero_point_dtype</span><span class="p">,</span>
             <span class="n">zero_point_domain</span><span class="o">=</span><span class="n">zero_point_domain</span><span class="p">,</span>
