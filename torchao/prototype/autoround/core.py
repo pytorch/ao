@@ -241,7 +241,7 @@ def _apply_auto_round_optimization(
         raise ImportError(
             (
                 "This example requires the `auto-round` library."
-                "Please install it with `pip install https://github.com/intel/auto-round.git@patch-for-ao-2`"
+                "Please install it with `pip install git+https://github.com/intel/auto-round.git@patch-for-ao-2`"
             )
         )
     orig_device = next(block.parameters()).device
