@@ -23,8 +23,8 @@ from typing import Any, Callable, Union, Dict, Optional
 
 from torchao.dtypes.uintx.Uintx import UintxLayoutType
 from torchao.dtypes import (
-    to_affine_quantized_intx, 
-    TensorCoreTiledLayoutType, 
+    to_affine_quantized_intx,
+    TensorCoreTiledLayoutType,
     PlainLayoutType,
     AffineQuantizedTensor,
     SemiSparseLayoutType,
@@ -73,6 +73,8 @@ __all__ = [
     "int4_weight_only",
     "int8_weight_only",
     "float8_weight_only",
+    "uintx_weight_only",
+    "fpx_weight_only",
 ]
 
 from .GPTQ import (
@@ -513,12 +515,6 @@ def uintx_weight_only(dtype, group_size=64, pack_dim=-1):
          size is more fine grained, defaults to 64
         `pack_dim`: the dimension we use for packing, defaults to -1
     """
-    from torchao.quantization.quant_primitives import (
-        MappingType,
-        ZeroPointDomain,
-    )
-    from torchao.quantization.quant_api import _get_linear_subclass_inserter
-
     def apply_uintx_weight_only_quant(weight):
         layout_type = UintxLayoutType(dtype=dtype, pack_dim=pack_dim)
         mapping_type = MappingType.ASYMMETRIC
@@ -536,6 +532,30 @@ def uintx_weight_only(dtype, group_size=64, pack_dim=-1):
 
     return _get_linear_subclass_inserter(apply_uintx_weight_only_quant)
 
+def fpx_weight_only(ebits: int, mbits: int):
+    """Sub-byte floating point dtypes defined by `ebits`: exponent bits and `mbits`: mantissa bits
+    e.g. fp6_e3_m2, fp6_e2_m3, ...
+    The packing format and kernels are from the fp6-llm paper: https://arxiv.org/abs/2401.14112
+    github repo: https://github.com/usyd-fsalab/fp6_llm, now renamed to quant-llm
+    For more details for packing please see: :class:`~torchao.dtypes.fpx.FpxTensorCoreAQTLayout`
+
+    This is experimental, will be merged with `to_affine_quantized_floatx`
+    in the future
+    """
+
+    def apply_quant_llm(weight: torch.Tensor) -> torch.Tensor:
+        from torchao.dtypes.fpx import FpxTensorCoreLayoutType
+        from torchao.dtypes import to_affine_quantized_fpx
+
+        assert weight.dim() == 2, f"fpx only works for 2-d Tensor, got: {weight.dim()}"
+        out_dim, in_dim = weight.shape
+        if (in_dim % 64 != 0) or (out_dim % 256 != 0):
+            return weight
+
+        layout_type = FpxTensorCoreLayoutType(ebits, mbits)
+        print("layout type:", layout_type)
+        return to_affine_quantized_fpx(weight, layout_type)
+    return _get_linear_subclass_inserter(apply_quant_llm)
 
 if TORCH_VERSION_AT_LEAST_2_5:
     torch.serialization.add_safe_globals([_int8_asymm_per_token_quant, _int8_symm_per_token_reduced_range_quant])

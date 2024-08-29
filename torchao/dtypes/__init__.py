@@ -5,6 +5,8 @@ from .affine_quantized_tensor import (
     AffineQuantizedTensor,
     to_affine_quantized_intx,
     to_affine_quantized_intx_static,
+    # experimental, will be merged into floatx in the future
+    to_affine_quantized_fpx,
     to_affine_quantized_floatx,
     LayoutType,
     PlainLayoutType,
@@ -19,6 +21,7 @@ __all__ = [
     "AffineQuantizedTensor",
     "to_affine_quantized_intx",
     "to_affine_quantized_intx_static",
+    "to_affine_quantized_fpx",
     "to_affine_quantized_floatx",
     "LayoutType",
     "PlainLayoutType",
