@@ -165,7 +165,7 @@ def _get_reduction_params(block_size, input_size):
             cur_dim += 1
     return shape_for_reduction, reduction_dims
 
-
+@torch.no_grad()
 def quantize_affine(
     input: torch.Tensor,
     block_size: Tuple[int, ...],
@@ -174,7 +174,7 @@ def quantize_affine(
     output_dtype: torch.dtype,
     quant_min: Optional[Union[int, float]] = None,
     quant_max: Optional[Union[int, float]] = None,
-    zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+    zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
 ) -> torch.Tensor:
     """
     Args:
@@ -233,6 +233,13 @@ def _quantize_affine(
     zero_point_domain: Optional[str] = ZeroPointDomain.INT.name,
 ) -> torch.Tensor:
     """op definition that has compatible signatures with custom op library
+
+    Note:
+        zero_point_domain is optional specifies how we quantize the floating point to quantized data:
+        INT: quantized_val = (float_val / scale) (integer) + zero_point (integer)
+        FLOAT: quantized_val = (float_val - (zero_point (float) - scale * mid_point)) / scale
+        None: quantized_val = (float_val / scale) | this is primarily used for floatx quantization
+            Where we do not want to round values to nearest integer and instead scale and cast.
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(output_dtype, quant_min, quant_max)
     # workaround for uintx dtypes, since we don't have native Uintx dtype connected with
@@ -273,15 +280,14 @@ def _quantize_affine_no_dtype_cast(
     if zero_point is not None:
         zero_point = zero_point.view(shape_after_reduction)
 
-    if zero_point_domain is None:
-       quant = torch.clamp(input * scale.reciprocal(), quant_min, quant_max)
-       quant = quant.view(original_shape)
-       return quant
-
     if zero_point_domain == ZeroPointDomain.INT.name:
         quant = torch.clamp(
             torch.round(input * (1.0 / scale)) + zero_point, quant_min, quant_max
         )
+    elif zero_point_domain is None:
+        # This case handles quantization for float8 we expect no zero point and no zero point domain
+        assert zero_point is None, "zero_point should be None when zero_point_domain is None"
+        quant = torch.clamp(input * scale.reciprocal(), quant_min, quant_max)
     else:
         assert zero_point_domain == ZeroPointDomain.FLOAT.name
         mid_point = (quant_max + quant_min + 1) / 2
@@ -391,15 +397,7 @@ def _dequantize_affine_no_dtype_check(
     shape_after_reduction = shape_for_reduction
     for i in reduction_dims:
         shape_after_reduction[i] = 1
-    scale = scale.view(shape_after_reduction)   
-
-    # This case handles dequantization for float8
-    if zero_point_domain is None:
-        assert zero_point is None, "zero_point should be None when zero_point_domain is None"
-        assert _is_float8_type(input.dtype), f"dequantiztion with no zero point domain is only supported with FP8 types, got {input.dtype}"
-        dequant = input.to(output_dtype)
-        dequant = dequant * scale
-        return dequant.view(original_shape).to(output_dtype)
+    scale = scale.view(shape_after_reduction)
 
     if zero_point is not None:
         zero_point = zero_point.view(shape_after_reduction)
@@ -411,6 +409,12 @@ def _dequantize_affine_no_dtype_check(
         if zero_point is not None:
             dequant = dequant - zero_point.to(torch.int32)
         dequant = dequant.to(output_dtype)
+        dequant = dequant * scale
+    elif zero_point_domain is None:
+        # This case handles dequantization for float8 we expect no zero point and no zero point domain
+        assert zero_point is None, "zero_point should be None when zero_point_domain is None"
+        assert _is_float8_type(input.dtype), f"dequantiztion with no zero point domain is only supported with FP8 types, got {input.dtype}"
+        dequant = input.to(output_dtype)
         dequant = dequant * scale
     else:
         assert zero_point_domain == ZeroPointDomain.FLOAT.name, f"Unexpected zero point domain: {zero_point_domain}"
@@ -550,7 +554,7 @@ def _do_fake_quantize_affine(
     )
     return (q, dq)
 
-
+@torch.no_grad()
 def choose_qparams_affine(
    input: torch.Tensor,
    mapping_type: MappingType,

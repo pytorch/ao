@@ -222,12 +222,12 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         block_size: Tuple[int, ...],
         target_dtype: torch.dtype,
         quant_min: Optional[int] = None,
-        quant_max: Optional[int]  = None,
+        quant_max: Optional[int] = None,
         eps: Optional[float] = None,
         scale_dtype: Optional[torch.dtype] = None,
         zero_point_dtype: Optional[torch.dtype] = None,
         preserve_zero: bool = True,
-        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+        zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
         layout_type: LayoutType = PlainLayoutType(),
         use_hqq: bool = False,
     ):
@@ -245,6 +245,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             data = data.to(target_dtype)
         else:
             scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain)
+            # choose_qparams_affine is a custom op that does support returning optional Tensors. We thus set the zero_point to None if its domain is None
+            if zero_point_domain is None:
+                zero_point = None
             data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
             # Note: output will be uint8 tensor for sub byte tensors for now
 
@@ -270,7 +273,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         block_size: Tuple[int, ...],
         target_dtype: torch.dtype,
         quant_min: Optional[int] = None,
-        quant_max: Optional[int]  = None,
+        quant_max: Optional[int] = None,
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
         layout_type: LayoutType = PlainLayoutType(),
     ):
@@ -299,8 +302,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         input_float: torch.Tensor,
         block_size: Tuple[int, ...],
         target_dtype: torch.dtype,
-        scale_dtype: Optional[torch.dtype] = None,
-        layout_type: LayoutType = PlainLayoutType(),
+        scale_dtype: Optional[torch.dtype],
+        layout_type: LayoutType,
     ):
 
         if target_dtype in FP8_TYPES:
@@ -437,10 +440,8 @@ class TensorCoreTiledLayoutType(LayoutType):
 
 @dataclass(frozen=True)
 class Float8LayoutType(LayoutType):
-    mm_config: ScaledMMConfig
+    mm_config: Optional[ScaledMMConfig]
 
-    def pre_process(self, input: torch.Tensor) -> torch.Tensor:
-        return input
 
 @register_layout_cls(PlainLayoutType)
 class PlainAQTLayout(AQTLayout):
@@ -639,9 +640,18 @@ class Float8AQTLayout(AQTLayout):
         fn(self.scale)
         return self
     
+    def to(self, *args, **kwargs):
+        kwargs = self._get_to_kwargs(*args, **kwargs)
+        return self.__class__(
+            self.float8_data.to(kwargs["device"]),
+            self.scale.to(kwargs["device"]),
+            self.transposed,
+            self.layout_type,
+        )
+
     def __tensor_flatten__(self):
         return ["float8_data", "scale"], [self.transposed, self.layout_type]
-    
+
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
@@ -657,6 +667,10 @@ class Float8AQTLayout(AQTLayout):
         if func is aten.detach.default:
             return return_and_correct_aliasing(
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+            )
+        if func is aten.clone.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
             )
         if func is aten.t.default:
             """we don't need to repack the weight and just rely on external
@@ -687,6 +701,7 @@ class Float8AQTLayout(AQTLayout):
     ):
         """ Main entrypoint for constructing Float8Layout Tensor"""
         assert _is_float8_type(data.dtype), f"Float8 Layout must be constructed from float8 dtype but got {data.dtype}"
+        assert isinstance(layout_type, Float8LayoutType), f"Float8 Layout must be constructed from Float8LayoutType but got {layout_type}"
         return cls(data, scale, False, layout_type)
 
     def __repr__(self):
@@ -1116,14 +1131,14 @@ def _linear_f16_act_fpx_weight_impl(input_tensor, weight_tensor, bias):
     return out.view(*act.shape[:-1], out_dim).to(act.dtype)
 
 def _linear_fp_act_fp8_tensor_wise_weight_check(
-    input_tensor: torch.Tensor,
-    weight_tensor: AffineQuantizedTensor,
+    input_tensor: Union[torch.Tensor, AffineQuantizedTensor],
+    weight_tensor: Union[torch.Tensor, AffineQuantizedTensor],
     bias: Optional[torch.Tensor],
 ) -> bool:
-    def check_aqt_tensorwise(aqt: AffineQuantizedTensor) -> bool:
+    def check_aqt_tensorwise(aqt: Union[torch.Tensor, AffineQuantizedTensor]) -> bool:
         return (
             isinstance(aqt, AffineQuantizedTensor) and
-            isinstance(aqt.layout_tensor, Float8AQTLayout)
+            isinstance(aqt.layout_type, Float8LayoutType)
             and aqt.layout_tensor.dtype in [torch.float8_e4m3fn, torch.float8_e5m2]
             and aqt.shape == aqt.block_size
         )
@@ -1136,7 +1151,7 @@ def _linear_fp_act_fp8_weight_impl(
     bias: Optional[torch.Tensor],
 ):
     """Implements matmul between FP8 input and FP8 weight with compute using _scaled_mm"""
-    from torchao.float8.inference import cast_to_float8_e4m3_inference, preprocess_data
+    from torchao.float8.inference import preprocess_data
     from torchao.float8.float8_tensor import ScaledMMConfig
     from torchao.float8.float8_python_api import addmm_float8_unwrapped
 
@@ -1155,7 +1170,7 @@ def _linear_fp_act_fp8_weight_impl(
     # Handle case where input tensor is more than 2D
     inpt_data = inpt_data.reshape(-1, input_tensor.shape[-1])
     input_scale = input_tensor.layout_tensor.scale
-    if input_scale.dim() >= 2:
+    if input_scale.dim() > 2:
         input_scale = input_scale.reshape(-1, input_scale.shape[-1])
 
     inpt_data, w_data = preprocess_data(inpt_data, w_data.T, scaled_mm_config)

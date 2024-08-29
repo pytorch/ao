@@ -243,10 +243,14 @@ def quantize_to_float8(
         module_filter_fn=module_filter_fn,
     )
 
+
 from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
 
-def preprocess_data(a_data: torch.Tensor, b_data: torch.Tensor, scaled_mm_config: ScaledMMConfig) -> Tuple[torch.Tensor, torch.Tensor]:
-    """ Preprocess the inner fp8 data tensors for admmm
+
+def preprocess_data(
+    a_data: torch.Tensor, b_data: torch.Tensor, scaled_mm_config: ScaledMMConfig
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Preprocess the inner fp8 data tensors for admmm
     Args:
         a_data: Input tensor A.
         b_data: Input tensor B.

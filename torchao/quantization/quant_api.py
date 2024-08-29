@@ -495,12 +495,12 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     return int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType())
 
 
-def float8_weight_only(target_dtype: torch.dtype = torch.float8_e4m3fn):
+def float8_weight_only(weight_dtype: torch.dtype = torch.float8_e4m3fn):
     """
     Applies float8 weight-only symmetric per-channel quantization to linear layers.
     
     Args:
-        target_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.
+        weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.
 
     Note:
         The actual matmul will be computed in original precision of the weight tensor.
@@ -513,7 +513,8 @@ def float8_weight_only(target_dtype: torch.dtype = torch.float8_e4m3fn):
         return to_affine_quantized_floatx(
             input_float=weight,
             block_size=block_size,
-            target_dtype=target_dtype,
+            target_dtype=weight_dtype,
+            scale_dtype=None,
             layout_type=Float8LayoutType(mm_config=None),
         )
 
@@ -521,30 +522,32 @@ def float8_weight_only(target_dtype: torch.dtype = torch.float8_e4m3fn):
 
 
 def float8_dynamic_activation_float8_weight(
-    target_dtype: torch.dtype = torch.float8_e4m3fn,
     activation_dtype: torch.dtype = torch.float8_e4m3fn,
-    mm_config: ScaledMMConfig = ScaledMMConfig(use_fast_accum=True)
+    weight_dtype: torch.dtype = torch.float8_e4m3fn,
+    mm_config: Optional[ScaledMMConfig] = None
 ):
     """
     Applies float8 dynamic symmetric per-tensor quantization to both activations and weights of linear layers.
 
     Args:
-        target_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.
         activation_dtype (torch.dtype): The target data type for activation quantization. Default is torch.float8_e4m3fn.
+        weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.
         mm_config (ScaledMMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
 
     """
-
     from torchao.dtypes import to_affine_quantized_floatx
+
+    if mm_config is None:
+        mm_config = ScaledMMConfig(use_fast_accum=True)
 
     #TODO we are hardcoding TensorWise scaling, will follow up PR for Tensorwise scaling
     def apply_float8_dynamic_activation_quant(weight: torch.Tensor):
         quantized_weight = to_affine_quantized_floatx(
             input_float=weight,
             block_size=weight.shape,
-            target_dtype=target_dtype,
+            target_dtype=weight_dtype,
             scale_dtype=torch.float32,
-            layout_type=Float8LayoutType(mm_config=None),
+            layout_type=Float8LayoutType(mm_config=mm_config),
         )
 
         def input_quant_func(x: torch.Tensor):
@@ -553,7 +556,7 @@ def float8_dynamic_activation_float8_weight(
                 block_size=x.shape,
                 target_dtype=activation_dtype,
                 scale_dtype=torch.float32,
-                layout_type=Float8LayoutType(mm_config=None),
+                layout_type=Float8LayoutType(mm_config=None),  # Config is stored on weight
             )
             return activation
 

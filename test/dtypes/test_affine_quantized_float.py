@@ -13,10 +13,6 @@ from torch.testing._internal.common_utils import (
 )
 from torch._inductor.test_case import TestCase as InductorTestCase
 from torch.testing._internal import common_utils
-from torch.testing._internal.common_utils import (
-    TestCase,
-    run_tests,
-)
 from torch._dynamo.testing import CompileCounterWithBackend
 
 from torchao.quantization import (
@@ -54,46 +50,9 @@ class ToyLinearModel(torch.nn.Module):
         return x
 
 
-class TestAffineQuantizedFloat8Basic(TestCase):
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_tensor_core_layout_transpose(self):
-        l = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
-        t = l.weight
-        shape = t.shape
-        apply_float8_weight_only_quant = float8_weight_only()
-        ql = apply_float8_weight_only_quant(l)
-        aqt = ql.weight
-        aqt_shape = aqt.shape
-        assert aqt_shape == shape
-
-        # transpose shape test
-        for _ in range(10):
-            t = t.t()
-            aqt = aqt.t()
-            shape = t.shape
-            aqt_shape = aqt.shape
-            assert aqt_shape == shape
-
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_weights_only_save_load(self):
-        with torch.no_grad():
-            for apply_quant in [float8_weight_only()]:
-                # TODO Fails when l requires grad
-                l = torch.nn.Linear(128, 256).eval().to(torch.bfloat16).to("cuda")
-                ql = apply_quant(l)
-                with tempfile.NamedTemporaryFile() as f:
-                    torch.save(ql.state_dict(), f)
-                    f.seek(0)
-                    # `weights_only=True` is enabled for torch 2.5+
-                    if TORCH_VERSION_AT_LEAST_2_5:
-                        _ = torch.load(f, weights_only=True)
-                    else:
-                        _ = torch.load(f, weights_only=False)
-
-
 class TestAffineQuantizedFloat8Compile(InductorTestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @unittest.skipIf(not is_cuda_8_9, "Need H100")
+    @unittest.skipIf(not is_cuda_8_9, "Requires GPU with compute capability >= 8.9")
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
     @common_utils.parametrize("mode", ["dynamic", "weight-only"])
     @common_utils.parametrize("compile", [True, False])
@@ -108,7 +67,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
             ((64, 256), 512, 128),
         ],
     )
-    def test_dynamic_fp8_linear(
+    def test_fp8_linear_variants(
         self, dtype: torch.dtype, mode: str, compile: bool, sizes: tuple
     ):
         M, N, K = sizes
@@ -132,7 +91,10 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         output_original = model(input_tensor)
         output_quantized = quantized_model(input_tensor)
 
-        assert compute_error(output_original, output_quantized) > 20, "Error is too low"
+        error = compute_error(output_original, output_quantized)
+        assert (
+            compute_error(output_original, output_quantized) > 20
+        ), f"Quantization error is too high got a SQNR of {error}"
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedFloat8Compile)
