@@ -15,6 +15,7 @@ from typing import Callable, List, Optional
 import torch
 import torch.nn as nn
 from torchao.float8.float8_linear_utils import swap_linear_layers
+from torchao.float8.float8_ops import preprocess_data
 
 from torchao.float8.float8_tensor import (
     Float8Tensor,
@@ -24,7 +25,27 @@ from torchao.float8.float8_tensor import (
     ScaledMMConfig,
     tensor_already_casted_to_fp8,
 )
-from torchao.float8.float8_utils import e4m3_dtype, tensor_to_scale
+from torchao.float8.float8_utils import (
+    e4m3_dtype,
+    tensor_to_scale,
+    get_rowwise_tile_size,
+    flatten_input,
+    get_out_shape,
+)
+from torchao.float8.float8_python_api import addmm_float8_unwrapped
+
+
+class ScalingGranularity(Enum):
+    """Granularity of the scaling factor
+
+    GLOBAL: The same scale is used for all elements
+    PER_CHANNEL: A different scale is used for each channel
+    PER_TENSOR: A different scale is used for each tensor
+    """
+
+    TENSOR_WISE = "tensor_wise"
+    AXIS_WISE = "axis_wise"
+    BLOCK_WISE = "block_wise"
 
 
 class ActivationCasting(Enum):
@@ -52,6 +73,7 @@ class QuantConfig:
 
     activation_casting: ActivationCasting
     static_quantization_scale: Optional[torch.Tensor] = None
+    scaling_granularity: ScalingGranularity = ScalingGranularity.TENSOR_WISE
 
     # If True, then prior to performing the fp8 scaled mamtmul we will pad the
     # inner dimension of a (dim 1) and b (dim 2) with 0s. This is needed for matmuls
@@ -75,6 +97,11 @@ class Float8InferenceLinear(torch.nn.Linear):
         - FP8 inference with fp8 matmul and static weight casting
     """
 
+    linear_mm_config: LinearMMConfig
+    activation_casting: ActivationCasting
+    scaling_granularity: ScalingGranularity
+    static_quantization_scale: Optional[torch.Tensor]
+
     def __init__(
         self,
         # FP8 specific arguments
@@ -91,6 +118,7 @@ class Float8InferenceLinear(torch.nn.Linear):
         super().__init__(in_features, out_features, bias, device, dtype)
         self.linear_mm_config = linear_mm_config
         self.activation_casting = quant_config.activation_casting
+        self.scaling_granularity = quant_config.scaling_granularity
         if self.activation_casting == ActivationCasting.STATIC:
             self.register_buffer(
                 "static_quantization_scale", quant_config.static_quantization_scale
@@ -103,16 +131,41 @@ class Float8InferenceLinear(torch.nn.Linear):
             return torch.nn.functional.linear(
                 input, self.weight.to_original_precision()
             )
-
+        inpt_flat = flatten_input(input)
+        out_shape = get_out_shape(input, self.weight)
         x_fp8 = cast_to_float8_e4m3_inference(
-            input,
+            inpt_flat,
             self.linear_mm_config,
             static_quantization_scale=self.static_quantization_scale,
+            scaling_granularity=self.scaling_granularity,
         )
-        return torch.nn.functional.linear(x_fp8, self.weight, self.bias)
+
+        weight_scale = (
+            self.weight._scale
+            if self.weight._scale.dim() <= 1
+            else self.weight._scale.T
+        )
+
+        x_data, w_data = preprocess_data(
+            x_fp8._data, self.weight._data.T, self.linear_mm_config.output
+        )
+        out = addmm_float8_unwrapped(
+            x_data,
+            x_fp8._scale,
+            w_data,
+            weight_scale,
+            output_dtype=input.dtype,
+            bias=self.bias,
+            use_fast_accum=self.linear_mm_config.output.use_fast_accum,
+        )
+        return out.reshape(out_shape)
 
     # Builder functions for Float8LinearInference
-    def quantize_weight(self, dtype: torch.dtype = e4m3_dtype) -> None:
+    def quantize_weight(
+        self,
+        dtype: torch.dtype = e4m3_dtype,
+        scaling_granularity: ScalingGranularity = ScalingGranularity.TENSOR_WISE,
+    ) -> None:
         """This functions converts the weight to a Float8Tensor and sets its requires_grad to False.
 
         Args:
@@ -126,6 +179,15 @@ class Float8InferenceLinear(torch.nn.Linear):
         assert not isinstance(
             self.weight, Float8Tensor
         ), "Weight has already been quantized, cannot quantize again."
+        assert (
+            scaling_granularity
+            in {scaling_granularity.TENSOR_WISE, ScalingGranularity.AXIS_WISE}
+        ), "Only TENSOR_WISE and AXIS_WISE scaling granularities are currently supported for weight quantization."
+        tile_size = (
+            None
+            if scaling_granularity is scaling_granularity.TENSOR_WISE
+            else get_rowwise_tile_size(self.weight)
+        )  # 1 x K
         scale = tensor_to_scale(self.weight, dtype, tile_size=tile_size)
         quantized_weight = hp_tensor_and_scale_to_float8(
             self.weight,
@@ -169,7 +231,7 @@ class Float8InferenceLinear(torch.nn.Linear):
             device=torch.device("meta"),
         )
         linear.set_weight_and_bias(module.weight, module.bias)
-        linear.quantize_weight()
+        linear.quantize_weight(scaling_granularity=quant_config.scaling_granularity)
         return linear
 
 
@@ -178,6 +240,7 @@ def cast_to_float8_e4m3_inference(
     linear_mm_config: LinearMMConfig,
     reduce_amax: bool = False,
     static_quantization_scale: Optional[torch.Tensor] = None,
+    scaling_granularity: ScalingGranularity = ScalingGranularity.TENSOR_WISE,
 ) -> Float8Tensor:
     """Casts an input tensor to the Float8 (e4m3fn*)
 
@@ -195,6 +258,12 @@ def cast_to_float8_e4m3_inference(
     """
     if tensor_already_casted_to_fp8(input_tensor):
         return input_tensor
+
+    tile_size = (
+        None
+        if scaling_granularity is ScalingGranularity.TENSOR_WISE
+        else get_rowwise_tile_size(input_tensor)
+    )
     scale = (
         static_quantization_scale
         if static_quantization_scale is not None
