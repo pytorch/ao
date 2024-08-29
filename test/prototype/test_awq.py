@@ -4,6 +4,13 @@ import torch.nn.functional as F
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.quantization import quantize_, int4_weight_only, int8_weight_only
 from torchao.prototype.awq.api import ObservedLinear, insert_awq_observer, awq_quant
+import argparse
+import os
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from datasets import load_dataset
+from tqdm import tqdm
+import time
+
 
 def simple_test():
     class ToyLinearModel(torch.nn.Module):
@@ -24,7 +31,6 @@ def simple_test():
         
 
     device = ("cuda")
-    torch.manual_seed(34)
     dataset_size = 1000
     dtype = torch.bfloat16
     l1,l2,l3 = 512,256,128
@@ -62,27 +68,45 @@ def simple_test():
     print(f"Int4WO error: {int4wo_err}")
 
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from lm_eval.models.huggingface import HFLM
-from lm_eval.evaluator import evaluate
-from lm_eval.tasks import get_task_dict
-from datasets import load_dataset
-from tqdm import tqdm
-import time
 
 def create_batches_generator(data, batch_size):
     for i in range(0, len(data), batch_size):
         yield data[i:i + batch_size]
 
-def wikitext_eval(repo_id, quant, calibrate_size=100, eval_size=1000, device="cuda", precision=torch.bfloat16, max_length=2048, compile=False):
+def get_calib_dataset(tokenizer=None, n_samples=512, block_size=512, device="cuda"):
+    dataset = load_dataset("mit-han-lab/pile-val-backup", split="validation")
+    # dataset = dataset.shuffle(seed=42)
+    samples = []
+    n_run = 0
+    for data in dataset:
+        line = data["text"]
+        line = line.strip()
+        line_encoded = tokenizer.encode(line)
+        if len(line_encoded) > 512:
+            continue
+        sample = torch.tensor([line_encoded])
+        if sample.numel() == 0:
+            continue
+        samples.append(sample)
+        n_run += 1
+        if n_run == n_samples:
+            break
+    # now concatenate all samples and split according to block size
+    cat_samples = torch.cat(samples, dim=1)
+    n_split = cat_samples.shape[1] // block_size
+    print(f" * Split into {n_split} blocks")
+    return torch.cat([
+        cat_samples[:, i * block_size : (i + 1) * block_size] for i in range(n_split)
+    ], dim=0)
+
+def pile_eval(repo_id, quant, calibrate_size=100, eval_size=1000, device="cuda", precision=torch.bfloat16, max_length=2048, compile=False):
     print("Loading model ...")
+    torch.manual_seed(34)
     t0 = time.time()
     tokenizer = AutoTokenizer.from_pretrained(repo_id)
     model = AutoModelForCausalLM.from_pretrained(repo_id, torch_dtype=precision).to(device)
     print(f"Time to load model: {time.time() - t0:.02f} seconds")
     # print(model)
-    wikitext103 = load_dataset("wikitext", "wikitext-103-v1")
-    wikitext103_train  = wikitext103["train"]
 
     if quant.startswith("awq"):
         quant_dtype = quant.split("-")[1]
@@ -91,25 +115,16 @@ def wikitext_eval(repo_id, quant, calibrate_size=100, eval_size=1000, device="cu
         quant_dtype = quant.split("-")[1]
         group_size = 128 if quant_dtype == "int4" else -1
         insert_awq_observer(model, quant_dtype, group_size, precision, device)
-        wikitext103_calibration = wikitext103_train.select(range(calibrate_size))
-        calibration_input_ids = [tokenizer.encode(text, return_tensors="pt").to(device=device) for text in wikitext103_calibration["text"]]
+        calibration_data = get_calib_dataset(tokenizer=tokenizer, n_samples=calibrate_size)
 
-        for example in tqdm(wikitext103_calibration):
-            inputs = tokenizer(example["text"], return_tensors="pt", truncation=True, max_length=max_length)
-            input_ids = inputs.input_ids.to(device=device)
-            model(input_ids)
+        model(calibration_data.to(device))
 
         print(f"time for calibration: {time.time() - t0:.02f} seconds")
         is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
         t0 = time.time()
-        scales = []
-        quantize_(model, awq_quant(quant_dtype=quant_dtype, group_size = group_size, scale_list=scales), is_observed_linear)
-        print(f"time for quantization: {time.time() - t0:.02f} seconds")
-
-        # print("scale distributions:")
-        # for scale in scales:
-        #     print(f"min: {scale.min().item():.02f}, max: {scale.max().item():.02f}, avg: {scale.mean().item():.02f}")
         # print(model)
+        quantize_(model, awq_quant(quant_dtype=quant_dtype, group_size = group_size), is_observed_linear)
+        print(f"time for quantization: {time.time() - t0:.02f} seconds")
 
     elif quant=="int8":
         print("running int8 quantization")
@@ -123,29 +138,63 @@ def wikitext_eval(repo_id, quant, calibrate_size=100, eval_size=1000, device="cu
     if compile:
         model = torch.compile(model)
 
-    eval_data = wikitext103["train"].select(range(calibrate_size, min(calibrate_size+eval_size,len(wikitext103["train"]))))
-    total_loss = 0.0
-    total_tokens = 0
-    print("Evaluating...")
-    for example in tqdm(eval_data):
-        inputs = tokenizer(example["text"], return_tensors="pt", truncation=True, max_length=max_length)
-        input_ids = inputs.input_ids.to(device=device)
+    testenc = load_dataset("wikitext", "wikitext-2-raw-v1", split="test")
+    testenc = tokenizer("\n\n".join(testenc["text"]), return_tensors="pt")
+    testenc = testenc.input_ids.to(model.device)
+    nsamples = testenc.numel() // max_length
+    model = model.eval()
+    nlls = []
+    for i in tqdm(range(nsamples), desc="evaluating..."):
+        batch = testenc[:, (i * max_length) : ((i + 1) * max_length)].to(
+            model.device
+        )
         with torch.no_grad():
-            outputs = model(input_ids, labels=input_ids)
+            lm_logits = model(batch).logits
+        shift_logits = lm_logits[:, :-1, :].contiguous().float()
+        shift_labels = testenc[
+            :, (i * max_length) : ((i + 1) * max_length)
+        ][:, 1:]
+        loss_fct = torch.nn.CrossEntropyLoss()
+        loss = loss_fct(
+            shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
+        )
+        neg_log_likelihood = loss.float() * max_length
+        nlls.append(neg_log_likelihood)
 
-        loss = 0 if torch.isnan(outputs.loss) else outputs.loss.item()
-        total_loss += loss * input_ids.size(1)
-        total_tokens += input_ids.size(1)
-
-    ppl = torch.tensor(total_loss / total_tokens).exp().item()
-    print(f"Perplexity: {ppl:.5f}")
+    ppl = torch.exp(torch.stack(nlls).sum() / (nsamples * max_length))
+    print(f"Perplexity: {ppl.item():.5f}")
     return ppl
-    # int8 100,100: 5505.30371  
-    # awq int8 100,100: 5546.76807
-    # bf16 100,100: 5546.76807
+    # int4: 29.75957
+    # real-awq-int4: 28.9590
+    # awq-int4:
 
-awq = wikitext_eval("Xenova/llama2.c-stories15M","awq-int4", 100, 1000, compile=False)
-int8 = wikitext_eval("Xenova/llama2.c-stories15M","awq-int8", 100, 1000, compile=False)
-# print(f"wikitext perplexity on {10} sentences\nawq: {awq}\nint8wo: {int8}")
-# simple_test()
 
+parser = argparse.ArgumentParser(description="Evaluate a model with the specified parameters.")
+    
+# Positional arguments
+parser.add_argument("repo", type=str, help="Repository ID of the model.")
+parser.add_argument("quant", type=str, help="Quantization method or file path.")
+
+# Optional arguments with default values
+parser.add_argument("--calibrate_size", type=int, default=100, help="Calibration size. Default is 100.")
+parser.add_argument("--eval_size", type=int, default=1000, help="Evaluation size. Default is 1000.")
+parser.add_argument("--device", type=str, default="cuda", help="Device to run the evaluation on. Default is 'cuda'.")
+parser.add_argument("--precision", type=str, default="bfloat16", help="Precision type. Default is 'bfloat16'.")
+parser.add_argument("--max_length", type=int, default=2048, help="Maximum length for evaluation. Default is 2048.")
+parser.add_argument("--compile", action="store_true", help="Flag to indicate if compilation is required.")
+
+args = parser.parse_args()
+
+# Convert precision argument to torch dtype
+precision_dtype = getattr(torch, args.precision, torch.bfloat16)
+
+pile_eval(
+    repo_id=args.repo,
+    quant=args.quant,
+    calibrate_size=args.calibrate_size,
+    eval_size=args.eval_size,
+    device=args.device,
+    precision=precision_dtype,
+    max_length=args.max_length,
+    compile=args.compile
+)

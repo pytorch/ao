@@ -653,7 +653,7 @@ class TensorCoreTiledAQTLayout(AQTLayout):
 @dataclass(frozen=True)
 class AWQLayoutType(LayoutType):
     equalization_scale: torch.Tensor
-    
+
     def pre_process(self, input: torch.Tensor) -> torch.Tensor:
         return input * self.equalization_scale
 
@@ -661,6 +661,7 @@ class AWQLayoutType(LayoutType):
 class AWQ_INT4_LayoutType(LayoutType):
     equalization_scale: torch.Tensor
     inner_k_tiles: int = 8
+    
     def pre_process(self, input: torch.Tensor) -> torch.Tensor:
         input = input * self.equalization_scale
         orig_out_features, orig_in_features = input.shape
@@ -670,9 +671,11 @@ class AWQ_INT4_LayoutType(LayoutType):
             input,
             (0, in_features - orig_in_features, 0, out_features - orig_out_features),
         )
-        return input
+        return input   
+    
     def extra_repr(self):
-        return f"inner_k_tiles={self.inner_k_tiles}, equilization_scale={equalization_scale}"
+        return f"inner_k_tiles={self.inner_k_tiles}, equilization_scale={self.equalization_scale}"
+    
 
 @register_layout_cls(AWQ_INT4_LayoutType)
 class AWQ_INT4_Layout(TensorCoreTiledAQTLayout):
