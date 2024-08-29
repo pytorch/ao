@@ -305,10 +305,10 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 use_hqq=False,
             )
         else:
-            raise NotImplementedError(f"Unsupported dtype {target_dtype} for from_float_to_floatx")
+            raise NotImplementedError(f"Unsupported dtype {target_dtype} for from_hp_to_floatx")
 
     @classmethod
-    def from_float_fpx(
+    def from_hp_to_fpx(
         cls,
         input_float: torch.Tensor,
         layout_type: LayoutType,
@@ -1103,7 +1103,7 @@ to_affine_quantized_intx = AffineQuantizedTensor.from_hp_to_intx
 to_affine_quantized_intx_static = AffineQuantizedTensor.from_hp_to_intx_static
 to_affine_quantized_floatx = AffineQuantizedTensor.from_hp_to_floatx
 # experimental will be merged in to floatx
-to_affine_quantized_fpx = AffineQuantizedTensor.from_float_fpx
+to_affine_quantized_fpx = AffineQuantizedTensor.from_hp_to_fpx
 
 if TORCH_VERSION_AT_LEAST_2_5:
     # Allow a model with AffineQuantizedTensor weights to be loaded with `weights_only=True`
