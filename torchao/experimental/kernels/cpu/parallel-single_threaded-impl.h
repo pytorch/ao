@@ -6,19 +6,18 @@
 
 #pragma once
 
-namespace torchao {
-// F has  [&](int64_t begin, int64_t end)
 template <typename F>
-void parallel_for(
+void torchao::parallel_for(
     const int64_t begin,
     const int64_t end,
     const int64_t grain_size,
-    const F& f);
+    const F& f) {
+  for (int i = begin; i < end; i += grain_size) {
+    f(i, i + grain_size);
+  }
+}
 
-void set_num_threads(int num_threads);
-
-int get_num_threads();
-
-} // namespace torchao
-
-#include <torchao/experimental/kernels/cpu/parallel-impl.h>
+void torchao::set_num_threads(int num_threads) {}
+int torchao::get_num_threads() {
+  return 1;
+}
