@@ -1,7 +1,6 @@
 import torch
 import pandas as pd
 import torch.nn.functional as F
-# from torchao.prototype.quant_llm import QuantLlmLinearWeight
 from torchao.dtypes import to_affine_quantized_fpx
 from torchao.dtypes.fpx import FpxTensorCoreAQTLayout, FpxTensorCoreLayoutType
 from torchao.utils import benchmark_torch_function_in_microseconds
