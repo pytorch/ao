@@ -404,8 +404,8 @@
 
 <span class="kn">from</span> <span class="nn">torchao.dtypes.uintx.Uintx</span> <span class="kn">import</span> <span class="n">UintxLayoutType</span>
 <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="p">(</span>
-    <span class="n">to_affine_quantized_intx</span><span class="p">,</span> 
-    <span class="n">TensorCoreTiledLayoutType</span><span class="p">,</span> 
+    <span class="n">to_affine_quantized_intx</span><span class="p">,</span>
+    <span class="n">TensorCoreTiledLayoutType</span><span class="p">,</span>
     <span class="n">PlainLayoutType</span><span class="p">,</span>
     <span class="n">AffineQuantizedTensor</span><span class="p">,</span>
     <span class="n">SemiSparseLayoutType</span><span class="p">,</span>
@@ -454,6 +454,8 @@
     <span class="s2">&quot;int4_weight_only&quot;</span><span class="p">,</span>
     <span class="s2">&quot;int8_weight_only&quot;</span><span class="p">,</span>
     <span class="s2">&quot;float8_weight_only&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;uintx_weight_only&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;fpx_weight_only&quot;</span><span class="p">,</span>
 <span class="p">]</span>
 
 <span class="kn">from</span> <span class="nn">.GPTQ</span> <span class="kn">import</span> <span class="p">(</span>
@@ -894,12 +896,6 @@
 <span class="sd">         size is more fine grained, defaults to 64</span>
 <span class="sd">        `pack_dim`: the dimension we use for packing, defaults to -1</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="kn">from</span> <span class="nn">torchao.quantization.quant_primitives</span> <span class="kn">import</span> <span class="p">(</span>
-        <span class="n">MappingType</span><span class="p">,</span>
-        <span class="n">ZeroPointDomain</span><span class="p">,</span>
-    <span class="p">)</span>
-    <span class="kn">from</span> <span class="nn">torchao.quantization.quant_api</span> <span class="kn">import</span> <span class="n">_get_linear_subclass_inserter</span>
-
     <span class="k">def</span> <span class="nf">apply_uintx_weight_only_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">):</span>
         <span class="n">layout_type</span> <span class="o">=</span> <span class="n">UintxLayoutType</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">,</span> <span class="n">pack_dim</span><span class="o">=</span><span class="n">pack_dim</span><span class="p">)</span>
         <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">ASYMMETRIC</span>
@@ -917,6 +913,30 @@
 
     <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_uintx_weight_only_quant</span><span class="p">)</span>
 
+<span class="k">def</span> <span class="nf">fpx_weight_only</span><span class="p">(</span><span class="n">ebits</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">mbits</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Sub-byte floating point dtypes defined by `ebits`: exponent bits and `mbits`: mantissa bits</span>
+<span class="sd">    e.g. fp6_e3_m2, fp6_e2_m3, ...</span>
+<span class="sd">    The packing format and kernels are from the fp6-llm paper: https://arxiv.org/abs/2401.14112</span>
+<span class="sd">    github repo: https://github.com/usyd-fsalab/fp6_llm, now renamed to quant-llm</span>
+<span class="sd">    For more details for packing please see: :class:`~torchao.dtypes.fpx.FpxTensorCoreAQTLayout`</span>
+
+<span class="sd">    This is experimental, will be merged with `to_affine_quantized_floatx`</span>
+<span class="sd">    in the future</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">apply_quant_llm</span><span class="p">(</span><span class="n">weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="kn">from</span> <span class="nn">torchao.dtypes.fpx</span> <span class="kn">import</span> <span class="n">FpxTensorCoreLayoutType</span>
+        <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">to_affine_quantized_fpx</span>
+
+        <span class="k">assert</span> <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;fpx only works for 2-d Tensor, got: </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="n">out_dim</span><span class="p">,</span> <span class="n">in_dim</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">in_dim</span> <span class="o">%</span> <span class="mi">64</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span><span class="n">out_dim</span> <span class="o">%</span> <span class="mi">256</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">weight</span>
+
+        <span class="n">layout_type</span> <span class="o">=</span> <span class="n">FpxTensorCoreLayoutType</span><span class="p">(</span><span class="n">ebits</span><span class="p">,</span> <span class="n">mbits</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;layout type:&quot;</span><span class="p">,</span> <span class="n">layout_type</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">to_affine_quantized_fpx</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">layout_type</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_quant_llm</span><span class="p">)</span>
 
 <span class="k">if</span> <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">:</span>
     <span class="n">torch</span><span class="o">.</span><span class="n">serialization</span><span class="o">.</span><span class="n">add_safe_globals</span><span class="p">([</span><span class="n">_int8_asymm_per_token_quant</span><span class="p">,</span> <span class="n">_int8_symm_per_token_reduced_range_quant</span><span class="p">])</span>
