@@ -10,7 +10,7 @@ Defines an nn module designed to be used during inference
 from dataclasses import dataclass
 
 from enum import auto, Enum
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -242,3 +242,26 @@ def quantize_to_float8(
         lambda m: Float8InferenceLinear.from_float(m, quant_config, use_fast_accum),
         module_filter_fn=module_filter_fn,
     )
+
+from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
+
+def preprocess_data(a_data: torch.Tensor, b_data: torch.Tensor, scaled_mm_config: ScaledMMConfig) -> Tuple[torch.Tensor, torch.Tensor]:
+    """ Preprocess the inner fp8 data tensors for admmm
+    Args:
+        a_data: Input tensor A.
+        b_data: Input tensor B.
+        scaled_mm_config: Configuration for _scaled_mm.
+    Returns:
+        Preprocessed tensors A and B in the format for _scaled_mm.
+    """
+    if scaled_mm_config.pad_inner_dim:
+        assert a_data.size(1) == b_data.size(
+            0
+        ), f"Inner dims must match for mm, got {a_data.size(1)} and {b_data.size(0)}"
+        a_data = pad_tensor_for_matmul(a_data, dims=1)
+        b_data = pad_tensor_for_matmul(b_data, dims=0)
+    if not is_row_major(a_data.stride()):
+        a_data = a_data.contiguous()
+    if is_row_major(b_data.stride()):
+        b_data = b_data.t().contiguous().t()
+    return a_data, b_data
