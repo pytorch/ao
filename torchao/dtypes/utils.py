@@ -1,9 +1,6 @@
 import torch
-from typing import Dict, Callable, Union, Tuple, Optional
-from collections import defaultdict
-import functools
+from typing import Union, Tuple
 from dataclasses import dataclass
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 """
 Base class for different LayoutType, should not be instantiated directly
