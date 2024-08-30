@@ -119,6 +119,10 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
     Affine quantized tensor subclass. Affine quantization means we quantize the floating point tensor with an affine transformation:
        quantized_tensor = float_tensor / scale + zero_point
 
+    To see what happens during choose_qparams, quantization and dequantization for affine quantization,
+    please checkout https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py
+    and check the three quant primitive ops: choose_qparams_affine, quantize_affine qand dequantize_affine
+
     The shape and dtype of the tensor subclass represent how the tensor subclass looks externally,
     regardless of the internal representation's type or orientation.
 
