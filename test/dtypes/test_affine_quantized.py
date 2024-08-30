@@ -2,7 +2,7 @@ from torch.testing._internal.common_utils import (
     TestCase,
     run_tests,
 )
-from torchao.quantization.quant_api import (
+from torchao.quantization import (
     int4_weight_only,
     int8_weight_only,
     int8_dynamic_activation_int4_weight,
@@ -124,6 +124,11 @@ class TestAffineQuantized(TestCase):
 
         deregister_aqt_quantized_linear_dispatch(dispatch_condition)
 
+    @common_utils.parametrize("apply_quant", get_quantization_functions(True, True))
+    def test_print_quantized_module(self):
+        l = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
+        ql = apply_quant(l)
+        assert "AffineQuantizedTensor" in str(ql)
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantized)
