@@ -10,11 +10,12 @@ Defines an nn module designed to be used during inference
 from dataclasses import dataclass
 
 from enum import auto, Enum
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 import torch
 import torch.nn as nn
 from torchao.float8.float8_linear_utils import swap_linear_layers
+from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
 
 from torchao.float8.float8_tensor import (
     Float8Tensor,
@@ -242,9 +243,6 @@ def quantize_to_float8(
         lambda m: Float8InferenceLinear.from_float(m, quant_config, use_fast_accum),
         module_filter_fn=module_filter_fn,
     )
-
-
-from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
 
 
 def preprocess_data(
