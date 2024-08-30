@@ -89,7 +89,10 @@ class TestAffineQuantized(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_register_new_dispatch(self):
-        from torchao.dtypes.affine_quantized_tensor import _register_aqt_quantized_linear_dispatch
+        from torchao.dtypes.affine_quantized_tensor import (
+            _register_aqt_quantized_linear_dispatch,
+            _deregister_aqt_quantized_linear_dispatch,
+        )
         from torchao.dtypes import to_affine_quantized_intx
         from torchao.dtypes import AffineQuantizedTensor
         from torchao.quantization.quant_primitives import MappingType
@@ -118,6 +121,8 @@ class TestAffineQuantized(TestCase):
         example_input = torch.randn(1, 128, dtype=torch.bfloat16, device="cuda")
         with self.assertRaisesRegex(AssertionError, "dispatching to my impl for uint6 weight only quant"):
             l(example_input)
+
+        _deregister_aqt_quantized_linear_dispatch(dispatch_condition)
 
 
 

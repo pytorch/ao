@@ -39,6 +39,9 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     _is_float8_type
 )
+import logging
+
+logger = logging.getLogger(__name__)
 
 from torchao.float8.float8_tensor import ScaledMMConfig
 aten = torch.ops.aten
@@ -104,6 +107,12 @@ def _register_aqt_quantized_linear_dispatch(dispatch_condition, impl):
             quantized linear implementation
     """
     _AQT_QLINEAR_DISPATCH_TABLE[dispatch_condition] = impl
+
+def _deregister_aqt_quantized_linear_dispatch(dispatch_condition):
+    if dispatch_condition in _AQT_QLINEAR_DISPATCH_TABLE:
+        del _AQT_QLINEAR_DISPATCH_TABLE[dispatch_condition]
+    else:
+        logger.warn(f"Attempting to remove non-existant dispatch condition {dispatch_condition}")
 
 class AffineQuantizedTensor(TorchAOBaseTensor):
     """
