@@ -22,12 +22,14 @@ import torchao
 from torchao.dtypes import (
     AffineQuantizedTensor,
 )
+from torchao.quantization import (
+    LinearActivationQuantizedTensor,
+)
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
 )
 from torchao.quantization.subclass import (
-    LinearActQuantizedTensor,
     Int8WeightOnlyQuantizedLinearWeight,
     Int4WeightOnlyQuantizedLinearWeight,
 )
@@ -42,9 +44,9 @@ from torchao.quantization.quant_api import (
     int8_dynamic_activation_int8_weight,
 )
 from torchao.utils import (
-    TORCH_VERSION_AFTER_2_3,
-    TORCH_VERSION_AFTER_2_4,
-    TORCH_VERSION_AFTER_2_5,
+    TORCH_VERSION_AT_LEAST_2_3,
+    TORCH_VERSION_AT_LEAST_2_4,
+    TORCH_VERSION_AT_LEAST_2_5,
 )
 from pathlib import Path
 from torchao._models.llama.tokenizer import get_tokenizer
@@ -52,6 +54,7 @@ from torchao._models.llama.model import Transformer, prepare_inputs_for_model
 from torchao.utils import unwrap_tensor_subclass
 import copy
 import tempfile
+import gc
 from torch.testing._internal.common_utils import TestCase
 
 
@@ -189,7 +192,7 @@ class TestQuantFlow(TestCase):
         torch.testing.assert_close(quantized, compiled, atol=0, rtol=0)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "only works for torch 2.4+")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "only works for torch 2.4+")
     def test_int8_wo_quant_save_load(self):
         from torchao.quantization.quant_api import (
             change_linear_weights_to_int8_woqtensors,
@@ -218,7 +221,7 @@ class TestQuantFlow(TestCase):
 
         torch.testing.assert_close(ref, res.cpu())
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_3, "skipping when torch verion is 2.3 or lower")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "skipping when torch verion is 2.3 or lower")
     def test_8da4w_quantizer(self):
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
         from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
@@ -298,7 +301,7 @@ class TestQuantFlow(TestCase):
         )
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "skipping when torch verion is 2.4 or lower")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch verion is 2.4 or lower")
     def test_8da4w_quantizer_eval(self):
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
         from torchao._models._eval import TransformerEvalWrapper
@@ -496,7 +499,7 @@ class TestQuantFlow(TestCase):
         )
 
     # TODO: move to a separate test file
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     def test_quantized_tensor_subclass_8da4w(self):
         group_size = 32
         m = ToyLinearModel().eval()
@@ -504,8 +507,8 @@ class TestQuantFlow(TestCase):
         example_inputs = m.example_inputs()
         quantize_(m, int8_dynamic_activation_int4_weight(group_size=group_size))
 
-        assert isinstance(m.linear1.weight, LinearActQuantizedTensor)
-        assert isinstance(m.linear2.weight, LinearActQuantizedTensor)
+        assert isinstance(m.linear1.weight, LinearActivationQuantizedTensor)
+        assert isinstance(m.linear2.weight, LinearActivationQuantizedTensor)
         assert isinstance(m.linear1.weight.original_weight_tensor, AffineQuantizedTensor)
         assert isinstance(m.linear2.weight.original_weight_tensor, AffineQuantizedTensor)
 
@@ -522,8 +525,8 @@ class TestQuantFlow(TestCase):
         ref = m_copy(*example_inputs)
         self.assertTrue(torch.equal(res, ref))
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
-    @unittest.skipIf(TORCH_VERSION_AFTER_2_5, "Test currently doesn't work for 2.5+")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
+    # @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "Test currently doesn't work for 2.5+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantized_tensor_subclass_int4(self):
         # use 1024 so that we don't need padding
@@ -545,7 +548,7 @@ class TestQuantFlow(TestCase):
         self.assertTrue(torch.equal(res, ref))
 
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantized_tensor_subclass_int8_wo(self):
         m = ToyLinearModel().eval().to(torch.bfloat16)
@@ -567,7 +570,7 @@ class TestQuantFlow(TestCase):
         self.assertTrue(torch.equal(res, ref))
 
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantized_tensor_subclass_int8_dyn_quant(self):
         # use multiples of 1024 so that we don't need padding
@@ -577,8 +580,8 @@ class TestQuantFlow(TestCase):
         example_inputs = m.example_inputs(batch_size=20, dtype=torch.bfloat16, device="cuda")
         quantize_(m, int8_dynamic_activation_int8_weight())
 
-        assert isinstance(m.linear1.weight, LinearActQuantizedTensor)
-        assert isinstance(m.linear2.weight, LinearActQuantizedTensor)
+        assert isinstance(m.linear1.weight, LinearActivationQuantizedTensor)
+        assert isinstance(m.linear2.weight, LinearActivationQuantizedTensor)
         assert isinstance(m.linear1.weight.original_weight_tensor, AffineQuantizedTensor)
         assert isinstance(m.linear2.weight.original_weight_tensor, AffineQuantizedTensor)
 
@@ -602,7 +605,7 @@ class TestQuantFlow(TestCase):
         # make sure it compiles
         torch._export.aot_compile(m_unwrapped, example_inputs)
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantized_tensor_subclass_save_load(self):
         m = ToyLinearModel().eval().to(torch.bfloat16)
@@ -622,9 +625,9 @@ class TestQuantFlow(TestCase):
         self.assertEqual(res, ref)
 
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_quantized_model_to_device(self):
+    def test_int8wo_quantized_model_to_device(self):
         m = ToyLinearModel().eval().to(torch.bfloat16)
         m_copy = copy.deepcopy(m)
         example_inputs = m.example_inputs(dtype=torch.bfloat16, device="cpu")
@@ -637,7 +640,26 @@ class TestQuantFlow(TestCase):
         cuda_res = m(*example_inputs_cuda)
         self.assertEqual(cuda_res.cpu(), ref)
 
-    @unittest.skipIf(not TORCH_VERSION_AFTER_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, "Test currently doesn't work for 2.5+")
+    def test_int4wo_quantized_model_to_device(self):
+        # TODO: change initial model to "cpu"
+        devices = ["cuda", "cuda:0"]
+        for device in devices:
+            m = ToyLinearModel().eval().to(torch.bfloat16).to(device)
+            m_copy = copy.deepcopy(m)
+            example_inputs = m.example_inputs(dtype=torch.bfloat16, device=device)
+
+            quantize_(m, int4_weight_only())
+            ref = m(*example_inputs)
+
+            example_inputs_cuda = (example_inputs[0].to(device),)
+            m.to(device=device)
+            cuda_res = m(*example_inputs_cuda)
+            self.assertEqual(cuda_res.cpu(), ref)
+
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_quantized_tensor_subclass_save_load_map_location(self):
         m = ToyLinearModel().eval().to(dtype=torch.bfloat16, device="cuda")
@@ -658,6 +680,29 @@ class TestQuantFlow(TestCase):
 
         res = m_copy(*example_inputs)
         self.assertEqual(res, ref)
+
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_quantized_model_streaming(self):
+        def reset_memory():
+            gc.collect()
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats()
+
+        reset_memory()
+        m = ToyLinearModel()
+        quantize_(m.to(device="cuda"), int8_weight_only())
+        memory_baseline = torch.cuda.max_memory_allocated()
+
+        del m
+        reset_memory()
+        m = ToyLinearModel()
+        quantize_(m, int8_weight_only(), device="cuda")
+        memory_streaming = torch.cuda.max_memory_allocated()
+
+        for param in m.parameters():
+            assert param.is_cuda
+        self.assertLess(memory_streaming, memory_baseline)
 
 
 if __name__ == "__main__":
