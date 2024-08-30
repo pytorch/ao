@@ -88,9 +88,22 @@ class QuantizedLinearNotImplementedError(NotImplementedError):
     pass
 
 
-_QLINEAR_DISPATCH_TABLE = {}
-def _register_quantized_linear_dispatch(dispatch_condition, impl):
-    _QLINEAR_DISPATCH_TABLE[dispatch_condition] = impl
+_AQT_QLINEAR_DISPATCH_TABLE = {}
+def _register_aqt_quantized_linear_dispatch(dispatch_condition, impl):
+    """Register a dispatch for quantized linear op with dispatch_condition function and impl function
+    both takes three arguments:
+      input_tensor: dimension is (M1, M2, ..., in_features)
+      weight_tensor: dimension is (out_features, in_features)
+      bias: dimension is (out_features,)
+      so that these can be shared by F.linear, aten.mm, aten.addmm dispatches
+
+    Args:
+        `dispatch_condition` (Callable[[torch.Tensor, torch.Tensor, torch.Tensor], bool]: the dispatch
+            condition for a specialized quantized linear implementation, e.g. bfloat16 activation + uint4 weight
+        `impl` (Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]: the specialized
+            quantized linear implementation
+    """
+    _AQT_QLINEAR_DISPATCH_TABLE[dispatch_condition] = impl
 
 class AffineQuantizedTensor(TorchAOBaseTensor):
     """
@@ -189,7 +202,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
 
     @staticmethod
     def _quantized_linear_op(input_tensor, weight_tensor, bias):
-        for dispatch_condition, impl in _QLINEAR_DISPATCH_TABLE.items():
+        for dispatch_condition, impl in _AQT_QLINEAR_DISPATCH_TABLE.items():
             if dispatch_condition(input_tensor, weight_tensor, bias):
                 return impl(input_tensor, weight_tensor, bias)
         raise QuantizedLinearNotImplementedError("No specialized dispatch found for quantized linear op")
@@ -440,7 +453,7 @@ class TensorCoreTiledLayoutType(LayoutType):
 
 @dataclass(frozen=True)
 class Float8LayoutType(LayoutType):
-    mm_config: Optional[ScaledMMConfig]
+    mm_config: Optional[ScaledMMConfig] = None
 
 
 @register_layout_cls(PlainLayoutType)
@@ -598,13 +611,13 @@ class SemiSparseAQTLayout(PlainAQTLayout):
 
 @register_layout_cls(Float8LayoutType)
 class Float8AQTLayout(AQTLayout):
-    """ 
+    """
     Layout storage class for float8 layout for affine quantized tensor
     """
     float8_data: torch.Tensor
     scale: torch.Tensor
     transposed: bool
-    
+
     def __new__(
         cls,
         float8_data: torch.Tensor,
@@ -639,7 +652,7 @@ class Float8AQTLayout(AQTLayout):
         fn(self.float8_data)
         fn(self.scale)
         return self
-    
+
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
         return self.__class__(
@@ -976,21 +989,6 @@ def _linear_int8_act_int8_weight_semi_structured_sparse_impl(input_tensor, weigh
         y += bias
     return y
 
-# this is for the case when linear activation is quantized, but is not caught by the previous
-# conditions that expects a quantized activation, we just dequantize the activation so that
-# it can continue with the weight only quantization dispatches
-# NOTE: this is a fallback path that must be registered after all the implementations that expects
-# input tensor to be quantized
-def _linear_quantized_act_fallback_check(input_tensor, weight_tensor, bias):
-    return (
-        isinstance(input_tensor, AffineQuantizedTensor)
-    )
-
-def _linear_quantized_act_fallback_impl(input_tensor, weight_tensor, bias):
-    input_tensor = input_tensor.dequantize()
-    # dequantize activation and redispatch to F.linear
-    return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
-
 def _linear_bf16_act_uint4_weight_check(input_tensor, weight_tensor, bias):
     return (
         # input is native bfloat16 tensor
@@ -1187,19 +1185,18 @@ def _linear_fp_act_fp8_weight_impl(
     ).reshape(out_shape)
 
 
-def _register_quantized_linear_dispatches():
+def _register_aqt_quantized_linear_dispatches():
     for dispatch_condition, impl in [
         (_linear_int8_act_int8_weight_check, _linear_int8_act_int8_weight_impl),
         (_linear_int8_act_int8_weight_semi_structured_sparse_check, _linear_int8_act_int8_weight_semi_structured_sparse_impl),
         (_linear_fp_act_fp8_tensor_wise_weight_check, _linear_fp_act_fp8_weight_impl),
-        (_linear_quantized_act_fallback_check, _linear_quantized_act_fallback_impl),
         (_linear_bf16_act_uint4_weight_check, _linear_bf16_act_uint4_weight_impl),
         (_linear_fp_act_int8_weight_check, _linear_fp_act_int8_weight_impl),
         (_linear_f16_act_fpx_weight_check, _linear_f16_act_fpx_weight_impl),
     ]:
-        _register_quantized_linear_dispatch(dispatch_condition, impl)
+        _register_aqt_quantized_linear_dispatch(dispatch_condition, impl)
 
-_register_quantized_linear_dispatches()
+_register_aqt_quantized_linear_dispatches()
 
 @implements(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
@@ -1216,7 +1213,11 @@ def _(func, types, args, kwargs):
     # make the branches easier to understand in `_quantized_linear_op`
     try:
         return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
-    except QuantizedLinearNotImplementedError:
+    except QuantizedLinearNotImplementedError as e:
+        # fallback path is only called when user did not specify a specfiic quantized linear implementation
+        if isinstance(weight_tensor, AffineQuantizedTensor) and weight_tensor.layout_type.quantized_linear_impl is not None:
+            raise e
+
         if isinstance(input_tensor, AffineQuantizedTensor):
             input_tensor = input_tensor.dequantize()
         if isinstance(weight_tensor, AffineQuantizedTensor):
@@ -1239,7 +1240,11 @@ def _(func, types, args, kwargs):
     try:
         weight_tensor = weight_tensor.t()
         return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
-    except QuantizedLinearNotImplementedError:
+    except QuantizedLinearNotImplementedError as e:
+        # fallback path is only called when user did not specify a specfiic quantized linear implementation
+        if isinstance(weight_tensor, AffineQuantizedTensor) and weight_tensor.layout_type.quantized_linear_impl is not None:
+            raise e
+
         if isinstance(input_tensor, AffineQuantizedTensor):
             input_tensor = input_tensor.dequantize()
         if isinstance(weight_tensor, AffineQuantizedTensor):
@@ -1259,7 +1264,11 @@ def _(func, types, args, kwargs):
     try:
         weight_tensor = weight_tensor.t()
         return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
-    except QuantizedLinearNotImplementedError:
+    except QuantizedLinearNotImplementedError as e:
+        # fallback path is only called when user did not specify a specfiic quantized linear implementation
+        if isinstance(weight_tensor, AffineQuantizedTensor) and weight_tensor.layout_type.quantized_linear_impl is not None:
+            raise e
+
         if isinstance(input_tensor, AffineQuantizedTensor):
             input_tensor = input_tensor.dequantize()
         if isinstance(weight_tensor, AffineQuantizedTensor):
