@@ -125,8 +125,8 @@ class TestAffineQuantized(TestCase):
         deregister_aqt_quantized_linear_dispatch(dispatch_condition)
 
     @common_utils.parametrize("apply_quant", get_quantization_functions(True, True))
-    def test_print_quantized_module(self):
-        l = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
+    def test_print_quantized_module(self, apply_quant):
+        l = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
         ql = apply_quant(l)
         assert "AffineQuantizedTensor" in str(ql)
 
