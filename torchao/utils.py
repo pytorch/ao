@@ -388,7 +388,7 @@ def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
 
     raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run unimplemented operator/function: {func}")
 
-def _register_layout_cls(cls: Callable, layout_type_class: type(LayoutType)):
+def _register_layout_cls(cls: Callable, layout_type_class: Callable):
     """Helper function for layout registrations, this is used to implement
     register_layout_cls decorator for each tensor subclass, see aqt.py for example usage
 
@@ -414,7 +414,7 @@ def _register_layout_cls(cls: Callable, layout_type_class: type(LayoutType)):
         return layout_class
     return decorator
 
-def _get_layout_tensor_constructor(cls: Callable, layout_type_class: type(LayoutType)) -> Callable:
+def _get_layout_tensor_constructor(cls: Callable, layout_type_class: Callable) -> Callable:
     """Get Layout class constructor (LayoutClass.from_plain) for `cls` based on `layout_type_class`
     `layout_type_class` means the class type of subclass of `LayoutType`, e.g. `PlainLayoutType`
 
