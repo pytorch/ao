@@ -7,7 +7,7 @@ from torch.utils._pytree import tree_flatten, tree_unflatten
 
 import torchao.prototype.autoround.utils as ar_utils
 import torchao.quantization as ao_quant
-from torchao.dtypes import TensorCoreTiledLayoutType, to_affine_quantized_static
+from torchao.dtypes import TensorCoreTiledLayoutType, to_affine_quantized_intx_static
 from torchao.prototype.autoround.multi_tensor import (
     _multi_tensor_config,
     _MultiTensorConfig,
@@ -133,7 +133,7 @@ def apply_auto_round():
                 dtype = _BIT_WIDTH_TO_DTYPE[_auto_round_config.bits]
                 pack_dim = -1
                 layout_type = UintxLayoutType(dtype=dtype, pack_dim=pack_dim)
-                return to_affine_quantized_static(
+                return to_affine_quantized_intx_static(
                     input_float=input_float,
                     scale=scale.to(input_float.dtype),
                     zero_point=zero_point,
@@ -187,7 +187,7 @@ def apply_auto_round():
                         out_features - orig_out_features,
                     ),
                 )
-                return to_affine_quantized_static(
+                return to_affine_quantized_intx_static(
                     input_float=input_float,
                     scale=pad_scale.to(torch.bfloat16),
                     zero_point=pad_shifted_zero_point.to(torch.bfloat16),

@@ -29,17 +29,19 @@ def is_auto_round_available() -> bool:
     return _is_package_available("auto_round")
 
 
-if is_auto_round_available():
-    import auto_round
+def import_dataloader():
+    if is_auto_round_available():
+        import auto_round
 
-    get_dataloader = auto_round.calib_dataset.get_dataloader
-else:
-    raise ImportError(
-        (
-            "This example requires the `auto-round` library."
-            "Please install it with `pip install git+https://github.com/intel/auto-round.git@patch-for-ao-2`"
+        get_dataloader = auto_round.calib_dataset.get_dataloader
+        return get_dataloader
+    else:
+        raise ImportError(
+            (
+                "This example requires the `auto-round` library."
+                "Please install it with `pip install git+https://github.com/intel/auto-round.git@patch-for-ao-2`"
+            )
         )
-    )
 
 
 def singleton(cls):

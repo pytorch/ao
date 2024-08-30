@@ -43,7 +43,7 @@ def quantize_model_with_autoround_(
     )
 
     # Step 2. Caliration and optimization
-    dataloader = ar_utils.get_dataloader(
+    dataloader = ar_utils.import_dataloader()(
         tokenizer,
         seqlen=seqlen,
         dataset_name=dataset_name,
