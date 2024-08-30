@@ -3,14 +3,9 @@ from torchao.dtypes.uint4 import pack_uint4, unpack_uint4
 from torchao.dtypes import UInt4Tensor
 from typing import Dict, Any
 from torchao.dtypes.utils import _implements
-from torchao.dtypes.utils import _ATEN_OP_OR_TORCH_FN_TABLE
+from torchao.dtypes.utils import _dispatch__torch_function__, _dispatch__torch_dispatch__
 
 SYMMETRIC_WEIGHT_OPS_TABLE: Dict[Any, Any] = {}
-
-from torchao.dtypes.utils import _implements
-
-def implements(aten_ops_or_torch_fns):
-    return _implements(PerChannelSymmetricWeightUInt4Tensor, aten_ops_or_torch_fns)
 
 def _dynamically_quantize_per_channel_int4(x, quant_min, quant_max, target_dtype):
     # assumes symmetric quantization
@@ -60,6 +55,7 @@ class PerChannelSymmetricWeightUInt4Tensor(UInt4Tensor):
     def __new__(cls, elem, scales, **kwargs):
         return super().__new__(cls, elem, **kwargs)
 
+    implements = classmethod(_implements)
     def __init__(self, elem, scales, **kwargs):
         super().__init__(elem, **kwargs)
 
@@ -75,32 +71,13 @@ class PerChannelSymmetricWeightUInt4Tensor(UInt4Tensor):
         scales = flattened["scales"]
         return PerChannelSymmetricWeightUInt4Tensor(elem, scales)
 
-    @classmethod
-
-    #  inconsistently.
-
+    @classmethod    #  inconsistently.
     def from_unpacked(cls, unpacked, scales):
         return cls(pack_uint4(unpacked), scales)
 
-    @classmethod
-    def __torch_function__(cls, func, types, args=(), kwargs=None):
-        kwargs = {} if kwargs is None else kwargs
+    __torch_function__ = classmethod(_dispatch__torch_function__)
 
-        if func in _ATEN_OP_OR_TORCH_FN_TABLE[cls]:
-            return _ATEN_OP_OR_TORCH_FN_TABLE[cls][func](*args, **kwargs)
-
-        with torch._C.DisableTorchFunctionSubclass():
-            return func(*args, **kwargs)
-
-    @classmethod
-    def __torch_dispatch__(cls, func, types, args, kwargs):
-        if func in _ATEN_OP_OR_TORCH_FN_TABLE[cls]:
-            return _ATEN_OP_OR_TORCH_FN_TABLE[cls][func](func, *args, **kwargs)
-
-        raise NotImplementedError(
-            f"PerChannelSymmetricWeightUInt4Tensor dispatch: attempting to run {func}, this is not supported"
-        )
-
+    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
         
     @classmethod
     def from_float(cls, w_fp32):
