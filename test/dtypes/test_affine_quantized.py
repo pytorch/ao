@@ -8,15 +8,14 @@ from torchao.quantization.quant_api import (
     int8_dynamic_activation_int4_weight,
     int8_dynamic_activation_int8_weight,
     int8_dynamic_activation_int8_semi_sparse_weight,
-)
-from torchao.dtypes import (
-    to_affine_quantized,
+    float8_weight_only,
 )
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 import torch
 import unittest
 import tempfile
+
 
 class TestAffineQuantized(TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
@@ -40,7 +39,8 @@ class TestAffineQuantized(TestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_weights_only(self):
-        for apply_quant in [int4_weight_only(group_size=32), int8_weight_only(), int8_dynamic_activation_int4_weight(), int8_dynamic_activation_int8_weight(), int8_dynamic_activation_int8_semi_sparse_weight()]:
+        for apply_quant in [int4_weight_only(group_size=32), int8_weight_only(), int8_dynamic_activation_int4_weight(),
+                            int8_dynamic_activation_int8_weight(), int8_dynamic_activation_int8_semi_sparse_weight(), float8_weight_only()]:
             l = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
             ql = apply_quant(l)
             with tempfile.NamedTemporaryFile() as f:
@@ -67,7 +67,6 @@ class TestAffineQuantized(TestCase):
             l = torch.nn.Linear(128, 256, dtype=torch.bfloat16)
             ql = apply_quant(l)
             ql.cuda()
-
 
 
 if __name__ == "__main__":

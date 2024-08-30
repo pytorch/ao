@@ -11,16 +11,14 @@ namespace torchao::operators::cpu::linear::
     channelwise_8bit_activation_groupwise_lowbit_weight {
 
 struct UKernelConfig {
-  using activation_data_size_fn_type =
-      int (*)(int m, int k, int group_size);
+  using activation_data_size_fn_type = int (*)(int m, int k, int group_size);
   using prepare_activation_data_fn_type = void (*)(
       void* activation_data,
       int m,
       int k,
       int group_size,
       const float* activations);
-  using weight_data_size_fn_type =
-      int (*)(int n, int k, int group_size);
+  using weight_data_size_fn_type = int (*)(int n, int k, int group_size);
   using prepare_weight_data_fn_type = void (*)(
       void* weight_data,
       int n,
@@ -43,10 +41,18 @@ struct UKernelConfig {
       float clamp_max);
 
   activation_data_size_fn_type activation_data_size_fn{nullptr};
+  // activation_data_alignment is only a preferred alignment for
+  // performance reasons.  Integration surfaces are not required to
+  // respect this alignment, and the ukernel must behave correctly no matter
+  // how the prepared_activation_data byte-array is aligned
   int activation_data_alignment{0};
   prepare_activation_data_fn_type prepare_activation_data_fn{nullptr};
 
   weight_data_size_fn_type weight_data_size_fn{nullptr};
+  // weight_data_alignment is only a preferred alignment for
+  // performance reasons.  Integration surfaces are not required to
+  // respect this alignment, and the ukernel must behave correctly no matter
+  // how the prepared_weight_data byte-array is aligned
   int weight_data_alignment{0};
   prepare_weight_data_fn_type prepare_weight_data_fn{nullptr};
 

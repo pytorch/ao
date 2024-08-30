@@ -14,6 +14,7 @@ from lm_eval.models.huggingface import HFLM
 from lm_eval.tasks import get_task_dict
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
+import json
 
 def write_history_to_csv(history, output_file, keyword):
     #keyword example: ['cal_PPL', 'cal_throughput', 'config']
@@ -106,3 +107,54 @@ def load_model(repo_id, device):
         device=device
     )
     return model, tokenizer
+
+
+
+def load_parameters_from_json(json_path):
+    with open(json_path, "r") as f:
+        config = json.load(f)
+    
+    bitwidth_config = next(param for param in config["parameters"] if param["name"] == "bitwidth")
+    groupsize_config = next(param for param in config["parameters"] if param["name"] == "groupsize")
+    
+    parameters_list = []
+    
+    # Ensure that we are interleaving bitwidth and groupsize for each layer
+    for bw_layer, gs_layer in zip(bitwidth_config["layers"], groupsize_config["layers"]):
+        start, end = bw_layer["range"]
+        for i in range(start, end):
+            # Add bitwidth parameter
+            bitwidth_param = {
+                "name": bitwidth_config["name_format"].format(i=i),
+                "type": bw_layer["type"],
+                "value_type": "int",
+                "is_ordered": True,
+                "sort_values": True,
+            }
+            if bw_layer["type"] == "fixed":
+                bitwidth_param["value"] = bw_layer["value"]
+            elif bw_layer["type"] == "choice":
+                bitwidth_param["values"] = bw_layer["values"]
+            parameters_list.append(bitwidth_param)
+            
+            # Add groupsize parameter
+            groupsize_param = {
+                "name": groupsize_config["name_format"].format(i=i),
+                "type": gs_layer["type"],
+                "value_type": "int",
+                "is_ordered": True,
+                "sort_values": True,
+            }
+            if gs_layer["type"] == "fixed":
+                groupsize_param["value"] = gs_layer["value"]
+            elif gs_layer["type"] == "choice":
+                groupsize_param["values"] = gs_layer["values"]
+            parameters_list.append(groupsize_param)
+    
+    return parameters_list
+
+
+def load_initial_samples(json_path):
+    with open(json_path, "r") as f:
+        config = json.load(f)
+    return config["initial_samples"]

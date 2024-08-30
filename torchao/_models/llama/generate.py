@@ -207,10 +207,10 @@ def main(
             int8_weight_only,
             int8_dynamic_activation_int8_weight,
             int4_weight_only,
+            fpx_weight_only,
             autoquant,
             unwrap_tensor_subclass
-    )
-
+        )
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
@@ -266,6 +266,8 @@ def main(
             model.to(device)
             model.reset_caches()
 
+        if "fp6" in quantization:
+            quantize_(model, fpx_weight_only(3, 2))
         if "autoquant" == quantization:
             model = autoquant(model, manual=True)
 
