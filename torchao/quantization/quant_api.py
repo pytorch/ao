@@ -282,8 +282,20 @@ def swap_conv2d_1x1_to_linear(model, filter_fn=None):
         model, replace_conv2d_1x1, filter_fn=filter_fn
     )
 
+def _quantization_type(weight: torch.Tensor):
+    if isinstance(weight, AffineQuantizedTensor):
+        return f"{weight.__class__.__name__}({weight._quantization_type()})"
+
+    if isinstance(weight, LinearActivationQuantizedTensor):
+        return f"{weight.__class__.__name__}(activation={weight.input_quant_func}, weight={_quantization_type(weight.original_weight_tensor)})"
+
+    if type(weight) is torch.Tensor:
+        return "not quantized"
+
+    return "not recognized"
+
 def _linear_extra_repr(self):
-    return f"in_features={self.weight.shape[1]}, out_features={self.weight.shape[0]}, weight={str(self.weight)}, bias={str(self.bias)[:100]}..."
+    return f"in_features={self.weight.shape[1]}, out_features={self.weight.shape[0]}, weight={_quantization_type(self.weight)}"
 
 def _get_linear_subclass_inserter(constructor, **kwargs):
     """Helper function to apply the constructor that quantizes the weight Tensor (with additional kwargs)

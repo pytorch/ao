@@ -78,7 +78,7 @@ class AQTLayout(TorchAOBaseTensor):
     def __repr__(self):
         data, scale, zero_point = self.get_plain()
         layout_type = self.get_layout_type()
-        return f"{self.__class__.__name__}(data={str(data)[:100]}... , scale={str(scale)[:100]}... , zero_point={str(zero_point)[:100]}... , layout_type={layout_type})"
+        return f"{self.__class__.__name__}(data={str(data)}... , scale={str(scale)}... , zero_point={str(zero_point)}... , layout_type={layout_type})"
 
 
 ##############################
@@ -182,9 +182,12 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
 
     def __repr__(self):
         return (
-            f"{self.__class__.__name__}(data={str(self.dequantize())[:100]}..., shape={self.shape}, block_size={self.block_size}, "
-            f"device={self.device}, dtype={self.dtype}, requires_grad={self.requires_grad}, \nlayout_tensor={self.layout_tensor})"
+            f"{self.__class__.__name__}(data={str(self.dequantize())}..., shape={self.shape}, block_size={self.block_size}, "
+            f"device={self.device}, dtype={self.dtype}, requires_grad={self.requires_grad}, layout_tensor={self.layout_tensor})"
         )
+
+    def _quantization_type(self):
+        return f"shape={self.shape}, block_size={self.block_size}, device={self.device}, layout_type={self.layout_type}, layout_tensor_dtype={self.layout_tensor.dtype}, quant_min={self.quant_min}, quant_max={self.quant_max}"
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         if output_dtype is None:
