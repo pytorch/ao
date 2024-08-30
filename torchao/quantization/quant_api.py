@@ -28,7 +28,9 @@ from torchao.dtypes import (
     PlainLayoutType,
     AffineQuantizedTensor,
     SemiSparseLayoutType,
-    to_affine_quantized_floatx
+    to_affine_quantized_floatx,
+    Float8AQTLayout,
+    Float8LayoutType
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
@@ -57,6 +59,7 @@ from .GPTQ import (
 from .utils import _get_per_token_block_size
 import logging
 from .autoquant import autoquant, AutoQuantizableLinearWeight
+from torchao.float8.float8_tensor import ScaledMMConfig
 
 __all__ = [
     "swap_conv2d_1x1_to_linear",
@@ -75,6 +78,7 @@ __all__ = [
     "float8_weight_only",
     "uintx_weight_only",
     "fpx_weight_only",
+    "float8_dynamic_activation_float8_weight",
 ]
 
 from .GPTQ import (
@@ -156,7 +160,6 @@ def change_linear_weights_to_int4_woqtensors(model, groupsize=128, inner_k_tiles
     )
 
 ### TO BE DEPRECATED END
-
 
 
 def _replace_with_custom_fn_if_matches_filter(
@@ -491,17 +494,78 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     """
     return int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType())
 
-def float8_weight_only(target_dtype: torch.dtype = torch.float8_e4m3fn):
+
+def float8_weight_only(weight_dtype: torch.dtype = torch.float8_e4m3fn):
     """
     Applies float8 weight-only symmetric per-channel quantization to linear layers.
+    
+    Args:
+        weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.
+
+    Note:
+        The actual matmul will be computed in original precision of the weight tensor.
+
     """
     from torchao.dtypes import to_affine_quantized_floatx
+
     def apply_float8wo_quant(weight):
-        # avoid circular dep
         block_size = (1, weight.shape[1])
-        return to_affine_quantized_floatx(input_float=weight, block_size=block_size, target_dtype=target_dtype)
+        return to_affine_quantized_floatx(
+            input_float=weight,
+            block_size=block_size,
+            target_dtype=weight_dtype,
+            scale_dtype=None,
+            layout_type=Float8LayoutType(mm_config=None),
+        )
 
     return _get_linear_subclass_inserter(apply_float8wo_quant)
+
+
+def float8_dynamic_activation_float8_weight(
+    activation_dtype: torch.dtype = torch.float8_e4m3fn,
+    weight_dtype: torch.dtype = torch.float8_e4m3fn,
+    mm_config: Optional[ScaledMMConfig] = None
+):
+    """
+    Applies float8 dynamic symmetric per-tensor quantization to both activations and weights of linear layers.
+
+    Args:
+        activation_dtype (torch.dtype): The target data type for activation quantization. Default is torch.float8_e4m3fn.
+        weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.
+        mm_config (ScaledMMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
+
+    """
+    from torchao.dtypes import to_affine_quantized_floatx
+
+    if mm_config is None:
+        mm_config = ScaledMMConfig(use_fast_accum=True)
+
+    #TODO we are hardcoding TensorWise scaling, will follow up PR for Tensorwise scaling
+    def apply_float8_dynamic_activation_quant(weight: torch.Tensor):
+        quantized_weight = to_affine_quantized_floatx(
+            input_float=weight,
+            block_size=weight.shape,
+            target_dtype=weight_dtype,
+            scale_dtype=torch.float32,
+            layout_type=Float8LayoutType(mm_config=mm_config),
+        )
+
+        def input_quant_func(x: torch.Tensor):
+            activation = to_affine_quantized_floatx(
+                input_float=x,
+                block_size=x.shape,
+                target_dtype=activation_dtype,
+                scale_dtype=torch.float32,
+                layout_type=Float8LayoutType(mm_config=None),  # Config is stored on weight
+            )
+            return activation
+
+        quantized_weight = to_linear_activation_quantized(
+            quantized_weight, input_quant_func
+        )
+        return quantized_weight
+
+    return _get_linear_subclass_inserter(apply_float8_dynamic_activation_quant)
 
 
 def uintx_weight_only(dtype, group_size=64, pack_dim=-1):

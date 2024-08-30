@@ -43,4 +43,6 @@ __all__ = [
     "fpx_weight_only",
     "LinearActivationQuantizedTensor",
     "to_linear_activation_quantized",
+    "float8_weight_only",
+    "float8_dynamic_activation_float8_weight"
 ]
