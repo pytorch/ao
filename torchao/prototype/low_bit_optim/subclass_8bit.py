@@ -1,6 +1,6 @@
 import torch
 from torch import Tensor
-from torchao.dtypes.utils import _implements, _dispatch__torch_dispatch__
+from torchao.utils import TorchAOBaseTensor
 
 from .quant_utils import create_dynamic_map, scale_tensor, quantize_8bit_with_qmap, dequant_with_qmap
 
@@ -13,8 +13,7 @@ QMAP_SIGNED = create_dynamic_map(signed=True)
 QMAP_UNSIGNED = create_dynamic_map(signed=False)
 
 
-class OptimState8bit(Tensor):
-    implements = classmethod(_implements)
+class OptimState8bit(TorchAOBaseTensor):
     tensor_attrs = ["codes", "scale", "qmap"]
 
     @staticmethod
@@ -65,8 +64,6 @@ class OptimState8bit(Tensor):
             f"{self.__class__.__name__}(signed={self.signed}, block_size={self.block_size}, "
             f"shape={tuple(self.shape)}, device={self.device}, requires_grad={self.requires_grad})"
         )
-
-    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
 
 
 @OptimState8bit.implements(aten.copy_.default)
