@@ -326,6 +326,40 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             raise NotImplementedError(f"Unsupported dtype {target_dtype} for from_hp_to_floatx")
 
     @classmethod
+    def from_hp_to_floatx_static(
+        cls,
+        input_float: torch.Tensor,
+        scale: torch.Tensor,
+        block_size: Tuple[int, ...],
+        target_dtype: torch.dtype,
+        layout_type: LayoutType,
+    ):
+
+        if target_dtype in FP8_TYPES:
+            original_shape = input_float.shape
+            input_float = layout_type.pre_process(input=input_float)
+            quant_min, quant_max = math.ceil(torch.finfo(target_dtype).min), math.ceil(torch.finfo(target_dtype).max)
+            zero_point, zero_point_domain = None, None
+
+            int_data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
+
+            int_data = layout_type.post_process(int_data)
+
+            layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
+            layout_tensor = layout_tensor_ctr(int_data, scale, zero_point, layout_type)
+            return cls(
+                layout_tensor,
+                block_size,
+                original_shape,
+                quant_min,
+                quant_max,
+                zero_point_domain,
+                dtype=input_float.dtype,
+            )
+        else:
+            raise NotImplementedError(f"Unsupported dtype {target_dtype} for from_hp_to_floatx_static")
+
+    @classmethod
     def from_hp_to_fpx(
         cls,
         input_float: torch.Tensor,
@@ -1304,6 +1338,7 @@ def _(func, types, args, kwargs):
 to_affine_quantized_intx = AffineQuantizedTensor.from_hp_to_intx
 to_affine_quantized_intx_static = AffineQuantizedTensor.from_hp_to_intx_static
 to_affine_quantized_floatx = AffineQuantizedTensor.from_hp_to_floatx
+to_affine_quantized_floatx_static = AffineQuantizedTensor.from_hp_to_floatx_static
 # experimental will be merged in to floatx
 to_affine_quantized_fpx = AffineQuantizedTensor.from_hp_to_fpx
 
