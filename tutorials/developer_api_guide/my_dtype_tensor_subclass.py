@@ -140,7 +140,7 @@ class MyDTypeTensor(TorchAOBaseTensor):
         layout_type: LayoutType = PlainLayoutType(),
     ):
         mapping_type = MappingType.SYMMETRIC
-        block_size = input_float.shape
+        block_size = (1, input_float.shape[-1])
         dtype = torch.int16
         scale, _ = choose_qparams_affine(input_float, mapping_type, block_size, dtype)
         int_data = (input_float / scale).to(torch.int8)
@@ -265,8 +265,21 @@ class PlainMyDTypeLayout(MyDTypeLayout):
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
             )
 
+        elif func in [aten._to_copy.default, aten.clone.default]:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+            )
+        elif func is aten.split.Tensor:
+            int_data_list = func(args[0].int_data, *args[1:], **kwargs)
+            scale_list = func(args[0].scale, *args[1:], **kwargs)
+            out = [PlainMyDTypeLayout(int_data, scale, args[0].layout_type) for int_data, scale in zip(int_data_list, scale_list)]
+            return out
+        elif func is aten.empty_like.default:
+            int_data_empty_like = func(args[0].int_data, *args[1:], **kwargs)
+            return PlainMyDTypeLayout(int_data_empty_like, args[0].scale, args[0].layout_type)
+
         raise NotImplementedError(
-            f"MyDTypeLayout dispatch: attempting to run {func}, this is not supported"
+            f"PlainMyDTypeLayout dispatch: attempting to run {func}, this is not supported"
         )
 
 #####################################################
@@ -315,15 +328,6 @@ def _(func, types, args, kwargs):
         func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
     )
 
-
-class M(torch.nn.Module):
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self.linear = torch.nn.Linear(1024, 1024)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.linear(x)
-
 #####################
 # Factory functions #
 #####################
@@ -333,39 +337,38 @@ to_my_dtype = MyDTypeTensor.from_float
 ########
 # Test #
 ########
-
 def test():
     from torchao.utils import benchmark_model
-    
+
     m = M()
-    example_inputs = (100 * torch.randn(1024, 1024),)
+    example_inputs = (100 * torch.randn(512, 1024),)
     NUM_WARMUPS = 10
     NUM_RUNS = 100
-    
+
     for _ in range(NUM_WARMUPS):
         m(*example_inputs)
     print("before quantization:", benchmark_model(m, NUM_RUNS, example_inputs))
-    
+
     compiled = torch.compile(m, mode="max-autotune")
     for _ in range(NUM_WARMUPS):
         compiled(*example_inputs)
     print("after compile:", benchmark_model(compiled, NUM_RUNS, example_inputs))
-    
+
     # convert weights to quantized weights
     m.linear.weight = torch.nn.Parameter(
         to_my_dtype(m.linear.weight), requires_grad=False
     )
-    
+
     for _ in range(NUM_WARMUPS):
         m(*example_inputs)
-    
+
     print("after quantization:", benchmark_model(m, NUM_RUNS, example_inputs))
-    
+
     m = torch.compile(m, mode="max-autotune")
-    
+
     for _ in range(NUM_WARMUPS):
         m(*example_inputs)
-    
+
     # NOTE: currently there is no speedup because we just dequantize the weight in the _quantized_linear op
     # we plan to add custom op example in the future and that will help us to get speedup
     print("after quantization and compile:", benchmark_model(m, NUM_RUNS, example_inputs))
