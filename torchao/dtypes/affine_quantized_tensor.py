@@ -1203,7 +1203,7 @@ def _register_aqt_quantized_linear_dispatches():
         (_linear_fp_act_int8_weight_check, _linear_fp_act_int8_weight_impl),
         (_linear_f16_act_fpx_weight_check, _linear_f16_act_fpx_weight_impl),
     ]:
-        _register_aqt_quantized_linear_dispatch(dispatch_condition, impl)
+        register_aqt_quantized_linear_dispatch(dispatch_condition, impl)
 
 _register_aqt_quantized_linear_dispatches()
 
