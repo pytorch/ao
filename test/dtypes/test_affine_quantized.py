@@ -90,8 +90,8 @@ class TestAffineQuantized(TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_register_new_dispatch(self):
         from torchao.dtypes.affine_quantized_tensor import (
-            _register_aqt_quantized_linear_dispatch,
-            _deregister_aqt_quantized_linear_dispatch,
+            register_aqt_quantized_linear_dispatch,
+            deregister_aqt_quantized_linear_dispatch,
         )
         from torchao.dtypes import to_affine_quantized_intx
         from torchao.dtypes import AffineQuantizedTensor
@@ -109,7 +109,7 @@ class TestAffineQuantized(TestCase):
             # quantized linear operator here
             assert False, "dispatching to my impl for uint6 weight only quant"
 
-        _register_aqt_quantized_linear_dispatch(dispatch_condition, impl)
+        register_aqt_quantized_linear_dispatch(dispatch_condition, impl)
 
         def apply_uint6_weight_only_quant(linear):
             linear.weight = torch.nn.Parameter(to_affine_quantized_intx(linear.weight, MappingType.ASYMMETRIC, (1, linear.weight.shape[-1]), torch.uint8, 0, 2**6-1), requires_grad=False)
@@ -122,7 +122,7 @@ class TestAffineQuantized(TestCase):
         with self.assertRaisesRegex(AssertionError, "dispatching to my impl for uint6 weight only quant"):
             l(example_input)
 
-        _deregister_aqt_quantized_linear_dispatch(dispatch_condition)
+        deregister_aqt_quantized_linear_dispatch(dispatch_condition)
 
 
 

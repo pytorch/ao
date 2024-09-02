@@ -92,7 +92,7 @@ class QuantizedLinearNotImplementedError(NotImplementedError):
 
 
 _AQT_QLINEAR_DISPATCH_TABLE = {}
-def _register_aqt_quantized_linear_dispatch(dispatch_condition, impl):
+def register_aqt_quantized_linear_dispatch(dispatch_condition, impl):
     """Register a dispatch for quantized linear op with dispatch_condition function and impl function
     both takes three arguments:
       input_tensor: dimension is (M1, M2, ..., in_features)
@@ -108,7 +108,7 @@ def _register_aqt_quantized_linear_dispatch(dispatch_condition, impl):
     """
     _AQT_QLINEAR_DISPATCH_TABLE[dispatch_condition] = impl
 
-def _deregister_aqt_quantized_linear_dispatch(dispatch_condition):
+def deregister_aqt_quantized_linear_dispatch(dispatch_condition):
     if dispatch_condition in _AQT_QLINEAR_DISPATCH_TABLE:
         del _AQT_QLINEAR_DISPATCH_TABLE[dispatch_condition]
     else:
