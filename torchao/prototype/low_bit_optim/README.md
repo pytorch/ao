@@ -56,6 +56,15 @@ ao 4-bit         | 33              | ~3600  | 42.34                | ~4 min
 
 NOTE: lpmm's 4-bit AdamW does not support BF16 weights.
 
+### Note on compile times
+
+There are 2 approaches to compile optimizer step in low-bit optim:
+
+1. Compile optim step for single param i.e. `torch.compile(single_param_adam)`
+2. Compile optim step for all params i.e. `torch.compile(param_groups_adam)`
+
+Currently Adam8bit and AdamFp8 use approach (2) (with static shape) since it is faster (but compile much slower), while Adam4bit uses approach (1) (with dynamic shape) since there are excessive memory usage for "Adam4bit + approach (2)". Approach (1) requires dynamic shape to avoid hitting recompiles limit.
+
 ## Optimizer CPU offload
 
 This folder also implements optimizer CPU offload (i.e. ZeRO-Offload) for single GPU training. For multi-GPU training, you can use FSDP's built-in CPU offload.
