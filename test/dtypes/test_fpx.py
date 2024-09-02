@@ -37,6 +37,7 @@ class TestFpxTensorCoreAQTLayout(TestCase):
         actual = _pack_tc_fp6(x)
         torch.testing.assert_close(actual, expected)
 
+    @pytest.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="upstream breaking change in PyTorch nightlies, revert skip when fixed")
     @parametrize("ebits,mbits", _FPx_DTYPES)
     @parametrize("device", _DEVICES)
     def test_to_scaled_tc_fpx_compile(self, ebits, mbits, device):
