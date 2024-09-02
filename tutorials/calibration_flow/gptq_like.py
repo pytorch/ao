@@ -33,7 +33,7 @@ from torch.utils._pytree import tree_flatten, tree_unflatten
 import gc
 from typing import Tuple, Dict, Any
 from torchao.quantization.utils import compute_error
-from torchao.dtypes import to_affine_quantized_static
+from torchao.dtypes import to_affine_quantized_intx_static
 from torchao.quantization import quantize_
 from torchao.quantization import to_linear_activation_quantized
 from torchao.quantization import LinearActivationQuantizedTensor
@@ -229,7 +229,7 @@ def apply_activation_static_quant():
 
         # activation quantization
         act_scale, act_zero_point = observed_linear.input_scale, observed_linear.input_zp
-        input_quant_func = lambda x: to_affine_quantized_static(x, act_scale, act_zero_point, x.shape, target_dtype)
+        input_quant_func = lambda x: to_affine_quantized_intx_static(x, act_scale, act_zero_point, x.shape, target_dtype)
         observed_linear.weight = torch.nn.Parameter(to_linear_activation_quantized(observed_linear.weight, input_quant_func), requires_grad=False)
 
         del observed_linear.input_scale

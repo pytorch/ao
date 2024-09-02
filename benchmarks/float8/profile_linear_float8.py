@@ -263,13 +263,35 @@ def main(
     scaling_type_input = ScalingType(scaling_type_input)
     scaling_type_weight = ScalingType(scaling_type_weight)
     scaling_type_grad_output = ScalingType(scaling_type_grad_output)
+
+    if scaling_type_input is ScalingType.STATIC:
+        cast_config_input=CastConfig(
+            scaling_type=scaling_type_input,
+            static_scale=torch.tensor([1.0], device="cuda"),
+        )
+    else:
+        cast_config_input=CastConfig(scaling_type=scaling_type_input)
+    if scaling_type_weight is ScalingType.STATIC:
+        cast_config_weight=CastConfig(
+            scaling_type=scaling_type_weight,
+            static_scale=torch.tensor([1.0], device="cuda"),
+        )
+    else:
+        cast_config_weight=CastConfig(scaling_type=scaling_type_weight)
+    if scaling_type_grad_output is ScalingType.STATIC:
+        cast_config_grad_output=CastConfig(
+            scaling_type=scaling_type_grad_output,
+            static_scale=torch.tensor([1.0], device="cuda"),
+        )
+    else:
+        cast_config_grad_output=CastConfig(scaling_type=scaling_type_grad_output)
+
     config = Float8LinearConfig(
-        cast_config_input=CastConfig(scaling_type=scaling_type_input),
-        cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
-        cast_config_grad_output=CastConfig(scaling_type=scaling_type_grad_output),
-        enable_amax_init=False,
-        enable_pre_and_post_forward=False,
+        cast_config_input=cast_config_input,
+        cast_config_weight=cast_config_weight,
+        cast_config_grad_output=cast_config_grad_output,
     )
+
     scaling_repr = "_".join(
         [
             s.short_str()

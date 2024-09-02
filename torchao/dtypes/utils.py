@@ -1,5 +1,5 @@
 import torch
-from typing import Dict, Callable, Union
+from typing import Dict, Callable, Union, Tuple
 from collections import defaultdict
 import functools
 from dataclasses import dataclass
@@ -143,3 +143,15 @@ def _get_layout_tensor_constructor(cls: Callable, layout_type_class: type(Layout
 
 def is_device(target_device_str: str, device: Union[str, torch.device]):
     return torch.device(device).type == target_device_str
+
+def get_out_shape(input_shape: Tuple[int], weight_shape: Tuple[int]) -> Tuple[int, int]:
+    """Returns the unflattened shape of the input tensor.
+    Args:
+        input_shape: The input tensor shape possibly more than 2 dimensions
+        weight_shape: The weight tensor shape.
+    Returns:
+        The unflattened shape of the input tensor.
+    """
+    out_dim = weight_shape[0]
+    inpt_dims = input_shape[:-1]
+    return (*inpt_dims, out_dim)

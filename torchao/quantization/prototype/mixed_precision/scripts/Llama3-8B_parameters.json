@@ -1,0 +1,22 @@
+{
+  "parameters": [
+    {
+      "name": "bitwidth",
+      "name_format": "bitwidth.{i}.",
+      "layers": [
+        {"range": [0, 3], "type": "fixed", "value": 5},
+        {"range": [3, 30], "type": "choice", "values": [2, 3, 4, 5, 6, 8]},
+        {"range": [30, 32], "type": "fixed", "value": 5}
+      ]
+    },
+    {
+      "name": "groupsize",
+      "name_format": "groupsize.{i}.",
+      "layers": [
+        {"range": [0, 3], "type": "fixed", "value": 32},
+        {"range": [3, 30], "type": "choice", "values": [32, 64, 128, 256]},
+        {"range": [30, 32], "type": "fixed", "value": 32}
+      ]
+    }
+  ]
+}
