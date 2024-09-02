@@ -19,6 +19,8 @@ class Channelwise8BitActivationGroupwiseLowbitWeightLinearOperator {
   torchao::aligned_byte_ptr packed_weight_data_{
       nullptr,
       nullptr};
+  int packed_weight_data_size_{0};
+  int packed_weight_data_alignment_{0};
 
   torchao::aligned_byte_ptr activation_data_buffer_{
       nullptr,
@@ -112,6 +114,9 @@ class Channelwise8BitActivationGroupwiseLowbitWeightLinearOperator {
         get_packed_weight_data_size(ukernel_config_, n_, k_, group_size_);
     auto packed_weight_data_alignment =
         get_packed_weight_data_alignment(ukernel_config_);
+    
+    packed_weight_data_size_ = packed_weight_data_size;
+    packed_weight_data_alignment_ = packed_weight_data_alignment;
     packed_weight_data_ = torchao::make_aligned_byte_ptr(
         packed_weight_data_alignment, packed_weight_data_size);
 

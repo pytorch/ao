@@ -3,6 +3,7 @@
 
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
+import math
 from dataclasses import dataclass
 from typing import Optional
 
@@ -33,6 +34,7 @@ class ModelArgs:
     head_dim: int = 64
     rope_base: float = 10000
     norm_eps: float = 1e-5
+    use_scaled_rope: bool = False
 
     def __post_init__(self):
         if self.n_local_heads == -1:
@@ -69,7 +71,8 @@ transformer_configs = {
     "Mistral-7B": dict(n_layer=32, n_head=32, n_local_heads=8, dim=4096, intermediate_size=14336, vocab_size=32000),
     "stories15M": dict(n_layer=6, n_head=6, dim=288),
     "stories110M": dict(n_layer=12, n_head=12, dim=768),
-    "Llama-3-8B": dict(block_size=8192, n_layer=32, n_head=32, n_local_heads=8, dim=4096, intermediate_size=14336, vocab_size=128256),
+    "Llama-3-8B": dict(block_size=8192, n_layer=32, n_head=32, n_local_heads=8, dim=4096, intermediate_size=14336, vocab_size=128256, rope_base=500000),
+    "Llama-3.1-8B": dict(block_size=131072, n_layer=32, n_head=32, n_local_heads=8, dim=4096, intermediate_size=14336, vocab_size=128256, rope_base=500000, use_scaled_rope=True)
 }
 
 # this is a model specific variable that controls whether index_put is used for the kv_cache update, 
@@ -150,7 +153,7 @@ class Transformer(nn.Module):
         self.max_batch_size = -1
         self.max_seq_length = -1
 
-    def setup_caches(self, max_batch_size, max_seq_length, training: bool = False):
+    def setup_caches(self, max_batch_size, max_seq_length, training: bool=False, kv_cache_quantization=None, linear_causal_mask=False, prompt_length=None):
         if self.max_seq_length >= max_seq_length and self.max_batch_size >= max_batch_size:
             return
         head_dim = self.config.dim // self.config.n_head
@@ -163,21 +166,47 @@ class Transformer(nn.Module):
             dtype = self.output.scales.dtype
         elif hasattr(self.output, "scales_and_zeros"):
             dtype = self.output.scales_and_zeros.dtype
+
+        self.linear_causal_mask = linear_causal_mask
+        if not self.linear_causal_mask:
+            self.causal_mask = torch.tril(torch.ones(self.max_seq_length, self.max_seq_length, dtype=torch.bool))
+        else:
+            assert prompt_length is not None and prompt_length>1, "need to set prompt_length>1 to use non quadratic causal mask in setup_caches"
+            self.causal_mask = torch.zeros(1, 1, 1, self.max_seq_length, dtype=torch.bool)
+            self.causal_mask[:,:,:,:prompt_length]=1
+
         if not training:
             for b in self.layers:
-                b.attention.kv_cache = KVCache(max_batch_size, max_seq_length, self.config.n_local_heads, head_dim, dtype)
-
-        self.freqs_cis = precompute_freqs_cis(self.config.block_size, self.config.dim // self.config.n_head, self.config.rope_base, dtype)
-        self.causal_mask = torch.tril(torch.ones(self.max_seq_length, self.max_seq_length, dtype=torch.bool))
+                if kv_cache_quantization:
+                    with torch.device('meta'):
+                        b.attention.kv_cache = KVCache(max_batch_size, max_seq_length, self.config.n_local_heads, head_dim, dtype)
+                    b.attention.kv_cache = AffineQuantizedKVCache.from_float(b.attention.kv_cache)
+                else:
+                    b.attention.kv_cache = KVCache(max_batch_size, max_seq_length, self.config.n_local_heads, head_dim, dtype)
+        self.freqs_cis = precompute_freqs_cis(
+            self.config.block_size, 
+            self.config.dim // self.config.n_head, 
+            self.config.rope_base, 
+            dtype, 
+            use_scaled=self.config.use_scaled_rope
+        )
+        
 
     def forward(self, idx: Tensor, input_pos: Optional[Tensor] = None) -> Tensor:
         assert self.freqs_cis is not None, "Caches must be initialized first"
-        if input_pos is not None:
-            mask = self.causal_mask[None, None, input_pos]
-            freqs_cis = self.freqs_cis[input_pos]
-        else:
+
+        if input_pos is None: 
             mask = None
             freqs_cis = self.freqs_cis[:idx.shape[1]]
+        elif not self.linear_causal_mask:
+            mask = self.causal_mask[None, None, input_pos]
+        elif len(input_pos)>1 and self.linear_causal_mask: # prefill for linear causal mask
+            mask = torch.tril(torch.ones(len(input_pos), self.max_seq_length, dtype=torch.bool, device=input_pos.device)).unsqueeze(0).unsqueeze(0)
+        else: # decode_one_token for linear causal mask
+            self.causal_mask[0,0,0,input_pos] = 1
+            mask = self.causal_mask
+        freqs_cis = self.freqs_cis[input_pos]
+
         x = self.tok_embeddings(idx)
 
         for i, layer in enumerate(self.layers):
@@ -284,13 +313,41 @@ class RMSNorm(nn.Module):
         output = self._norm(x.float()).type_as(x)
         return output * self.weight
 
+def apply_scaling(freqs: torch.Tensor):
+    # Values obtained from grid search
+    scale_factor = 8
+    low_freq_factor = 1
+    high_freq_factor = 4
+    old_context_len = 8192  # original llama3 length
+
+    low_freq_wavelen = old_context_len / low_freq_factor
+    high_freq_wavelen = old_context_len / high_freq_factor
+    new_freqs = []
+    for freq in freqs:
+        wavelen = 2 * math.pi / freq
+        if wavelen < high_freq_wavelen:
+            new_freqs.append(freq)
+        elif wavelen > low_freq_wavelen:
+            new_freqs.append(freq / scale_factor)
+        else:
+            assert low_freq_wavelen != high_freq_wavelen
+            smooth = (old_context_len / wavelen - low_freq_factor) / (
+                high_freq_factor - low_freq_factor
+            )
+            new_freqs.append((1 - smooth) * freq / scale_factor + smooth * freq)
+    return torch.tensor(new_freqs, dtype=freqs.dtype, device=freqs.device)
 
 def precompute_freqs_cis(
-    seq_len: int, n_elem: int, base: int = 10000,
-    dtype: torch.dtype = torch.bfloat16
+    seq_len: int, 
+    n_elem: int, 
+    base: int = 10000,
+    dtype: torch.dtype = torch.bfloat16,
+    use_scaled: bool=False
 ) -> Tensor:
     freqs = 1.0 / (base ** (torch.arange(0, n_elem, 2)[: (n_elem // 2)].float() / n_elem))
     t = torch.arange(seq_len, device=freqs.device)
+    if use_scaled:
+        freqs = apply_scaling(freqs)
     freqs = torch.outer(t, freqs)
     freqs_cis = torch.polar(torch.ones_like(freqs), freqs)
     cache = torch.stack([freqs_cis.real, freqs_cis.imag], dim=-1)

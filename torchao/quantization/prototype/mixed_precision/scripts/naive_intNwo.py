@@ -21,7 +21,7 @@ def intN_weight_only(group_size=32, n=8, symmetric=False):
     # for asymmetric quantization
     def apply_intN_weight_only_quant_asym(weight):
         # avoid circular dependency
-        from torchao.dtypes import to_affine_quantized
+        from torchao.dtypes import to_affine_quantized_intx
         mapping_type = MappingType.ASYMMETRIC
         block_size = (1, group_size)
         target_dtype = torch.uint8
@@ -31,18 +31,20 @@ def intN_weight_only(group_size=32, n=8, symmetric=False):
         preserve_zero = True
         zero_point_dtype = torch.int64
         zero_point_domain = ZeroPointDomain.INT
-        return to_affine_quantized(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype)#, preserve_zero=preserve_zero,zero_point_domain=zero_point_domain)
+        return to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype)#, preserve_zero=preserve_zero,zero_point_domain=zero_point_domain)
 
     # for symmetric quantization
     def apply_intN_weight_only_quant_sym(weight):
         # avoid circular dependency
-        from torchao.dtypes import to_affine_quantized
+        from torchao.dtypes import to_affine_quantized_intx
         mapping_type = MappingType.SYMMETRIC
         block_size = (1, group_size)
         target_dtype = torch.int8
+        quant_min = -2**(n-1)
+        quant_max = 2**(n-1)-1
         eps = 1e-6
         zero_point_dtype = torch.int64
-        return to_affine_quantized(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype)
+        return to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps=eps, zero_point_dtype=zero_point_dtype)
 
     try:
         assert n in [8, 6, 5, 4, 3, 2], "n must be one of [8, 6, 5, 4, 3, 2]"
