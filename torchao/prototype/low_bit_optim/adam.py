@@ -198,7 +198,7 @@ class Adam4bit(_AdamBase):
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
-        return OptimState4bit.zeros(p.shape, signed, block_size, p.device)
+        return OptimState4bit.zeros(p.view(-1).shape, signed, block_size, p.device)
 
     @staticmethod
     def _unwrap_dtensor(p: Tensor):
@@ -216,6 +216,11 @@ class Adam4bit(_AdamBase):
         # NOTE: right now, torch.compile(param_groups_adam) will have excessive memory usage for 4-bit optim.
         # thus, as a workaround, we use torch.compile(single_param_adam) and call it for each param.
 
+        # NOTE: we have to create flattened optimizer states since torch.compile() will fail otherwise for
+        # PyTorch 2.3 and 2.4
+        # calling exp_avg.view(-1) will fail torch.compile(single_param_adam) even if we implement the op
+        # correctly for the tensor subclass.
+
         # unwrap DTensor since DTensor does not work well with dynamic compile
         # flatten p, grad, and optim state to avoid recompilation
         for group, lr, (beta1, beta2), weight_decay, eps in param_groups:
@@ -227,9 +232,9 @@ class Adam4bit(_AdamBase):
                     self._unwrap_dtensor(p).view(-1),
                     self._unwrap_dtensor(grad).view(-1),
                     step,
-                    self._unwrap_dtensor(exp_avg).view(-1),
-                    self._unwrap_dtensor(exp_avg_sq).view(-1),
-                    self._unwrap_dtensor(max_exp_avg_sq).view(-1) if max_exp_avg_sq is not None else None,
+                    self._unwrap_dtensor(exp_avg),
+                    self._unwrap_dtensor(exp_avg_sq),
+                    self._unwrap_dtensor(max_exp_avg_sq) if max_exp_avg_sq is not None else None,
                     lr,
                     beta1,
                     beta2,
@@ -296,7 +301,7 @@ class AdamW4bit(_AdamBase):
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
-        return OptimState4bit.zeros(p.shape, signed, block_size, p.device)
+        return OptimState4bit.zeros(p.view(-1).shape, signed, block_size, p.device)
 
     @staticmethod
     def _unwrap_dtensor(p: Tensor):
@@ -314,6 +319,11 @@ class AdamW4bit(_AdamBase):
         # NOTE: right now, torch.compile(param_groups_adam) will have excessive memory usage for 4-bit optim.
         # thus, as a workaround, we use torch.compile(single_param_adam) and call it for each param.
 
+        # NOTE: we have to create flattened optimizer states since torch.compile() will fail otherwise for
+        # PyTorch 2.3 and 2.4
+        # calling exp_avg.view(-1) will fail torch.compile(single_param_adam) even if we implement the op
+        # correctly for the tensor subclass.
+
         # unwrap DTensor since DTensor does not work well with dynamic compile
         # flatten p, grad, and optim state to avoid recompilation
         for group, lr, (beta1, beta2), weight_decay, eps in param_groups:
@@ -325,9 +335,9 @@ class AdamW4bit(_AdamBase):
                     self._unwrap_dtensor(p).view(-1),
                     self._unwrap_dtensor(grad).view(-1),
                     step,
-                    self._unwrap_dtensor(exp_avg).view(-1),
-                    self._unwrap_dtensor(exp_avg_sq).view(-1),
-                    self._unwrap_dtensor(max_exp_avg_sq).view(-1) if max_exp_avg_sq is not None else None,
+                    self._unwrap_dtensor(exp_avg),
+                    self._unwrap_dtensor(exp_avg_sq),
+                    self._unwrap_dtensor(max_exp_avg_sq) if max_exp_avg_sq is not None else None,
                     lr,
                     beta1,
                     beta2,
