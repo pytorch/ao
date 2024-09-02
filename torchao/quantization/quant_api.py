@@ -23,11 +23,14 @@ from typing import Any, Callable, Union, Dict, Optional
 
 from torchao.dtypes.uintx.Uintx import UintxLayoutType
 from torchao.dtypes import (
-    to_affine_quantized, 
-    TensorCoreTiledLayoutType, 
+    to_affine_quantized_intx,
+    TensorCoreTiledLayoutType,
     PlainLayoutType,
     AffineQuantizedTensor,
-    SemiSparseLayoutType
+    SemiSparseLayoutType,
+    to_affine_quantized_floatx,
+    Float8AQTLayout,
+    Float8LayoutType
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
@@ -56,7 +59,7 @@ from .GPTQ import (
 from .utils import _get_per_token_block_size
 import logging
 from .autoquant import autoquant, AutoQuantizableLinearWeight
-
+from torchao.float8.float8_tensor import ScaledMMConfig
 
 __all__ = [
     "swap_conv2d_1x1_to_linear",
@@ -72,6 +75,10 @@ __all__ = [
     "int8_dynamic_activation_int8_semi_sparse_weight",
     "int4_weight_only",
     "int8_weight_only",
+    "float8_weight_only",
+    "uintx_weight_only",
+    "fpx_weight_only",
+    "float8_dynamic_activation_float8_weight",
 ]
 
 from .GPTQ import (
@@ -153,7 +160,6 @@ def change_linear_weights_to_int4_woqtensors(model, groupsize=128, inner_k_tiles
     )
 
 ### TO BE DEPRECATED END
-
 
 
 def _replace_with_custom_fn_if_matches_filter(
@@ -322,11 +328,11 @@ def quantize_(
         # You can also add your own apply_tensor_subclass by manually calling tensor subclass constructor
         # on weight
 
-        from torchao.dtypes import to_affine_quantized
+        from torchao.dtypes import to_affine_quantized_intx
 
         # weight only uint4 asymmetric groupwise quantization
         groupsize = 32
-        apply_weight_quant = lambda x: to_affine_quantized(
+        apply_weight_quant = lambda x: to_affine_quantized_intx(
           x, "asymmetric", (1, groupsize), torch.int32, 0, 15, 1e-6,
           zero_point_dtype=torch.bfloat16, preserve_zero=False, zero_point_domain="float")
 
@@ -355,7 +361,7 @@ def quantize_(
 def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
     mapping_type = MappingType.ASYMMETRIC
     target_dtype = torch.int8
-    return to_affine_quantized(x, mapping_type, _get_per_token_block_size(x), target_dtype)
+    return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype)
 
 def apply_int8_dynamic_activation_int4_weight_quant(weight, group_size=32):
     if weight.shape[-1] % group_size != 0:
@@ -372,7 +378,7 @@ def apply_int8_dynamic_activation_int4_weight_quant(weight, group_size=32):
     # input settings
     input_quant_func = _int8_asymm_per_token_quant
 
-    weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps)
+    weight = to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps)
     weight = to_linear_activation_quantized(weight, input_quant_func)
     return weight
 
@@ -423,7 +429,7 @@ def int4_weight_only(group_size=128, layout_type=TensorCoreTiledLayoutType(inner
         preserve_zero = False
         zero_point_dtype = torch.bfloat16
         zero_point_domain = ZeroPointDomain.FLOAT
-        return to_affine_quantized(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, layout_type=layout_type)
+        return to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, layout_type=layout_type)
 
     return _get_linear_subclass_inserter(apply_int4_weight_only_quant)
 
@@ -438,7 +444,7 @@ def int8_weight_only():
         eps = torch.finfo(torch.float32).eps
         zero_point_dtype = torch.int64
         block_size = (1, weight.shape[1])
-        return to_affine_quantized(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype)
+        return to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype)
 
     return _get_linear_subclass_inserter(apply_int8wo_quant)
 
@@ -448,7 +454,7 @@ def _int8_symm_per_token_reduced_range_quant(x: torch.Tensor) -> torch.Tensor:
     eps = 1e-5
     quant_min = -127
     quant_max = 127
-    return to_affine_quantized(x, mapping_type, _get_per_token_block_size(x), target_dtype, eps=eps, quant_min=quant_min, quant_max=quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
+    return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype, eps=eps, quant_min=quant_min, quant_max=quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
 
 
 def int8_dynamic_activation_int8_weight(layout_type=PlainLayoutType()):
@@ -474,7 +480,7 @@ def int8_dynamic_activation_int8_weight(layout_type=PlainLayoutType()):
         input_quant_func = _int8_symm_per_token_reduced_range_quant
 
         block_size = get_weight_block_size(weight)
-        weight = to_affine_quantized(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, layout_type=layout_type)
+        weight = to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, layout_type=layout_type)
         weight = to_linear_activation_quantized(weight, input_quant_func)
         return weight
 
@@ -489,6 +495,79 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     return int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType())
 
 
+def float8_weight_only(weight_dtype: torch.dtype = torch.float8_e4m3fn):
+    """
+    Applies float8 weight-only symmetric per-channel quantization to linear layers.
+    
+    Args:
+        weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.
+
+    Note:
+        The actual matmul will be computed in original precision of the weight tensor.
+
+    """
+    from torchao.dtypes import to_affine_quantized_floatx
+
+    def apply_float8wo_quant(weight):
+        block_size = (1, weight.shape[1])
+        return to_affine_quantized_floatx(
+            input_float=weight,
+            block_size=block_size,
+            target_dtype=weight_dtype,
+            scale_dtype=None,
+            layout_type=Float8LayoutType(mm_config=None),
+        )
+
+    return _get_linear_subclass_inserter(apply_float8wo_quant)
+
+
+def float8_dynamic_activation_float8_weight(
+    activation_dtype: torch.dtype = torch.float8_e4m3fn,
+    weight_dtype: torch.dtype = torch.float8_e4m3fn,
+    mm_config: Optional[ScaledMMConfig] = None
+):
+    """
+    Applies float8 dynamic symmetric per-tensor quantization to both activations and weights of linear layers.
+
+    Args:
+        activation_dtype (torch.dtype): The target data type for activation quantization. Default is torch.float8_e4m3fn.
+        weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.
+        mm_config (ScaledMMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
+
+    """
+    from torchao.dtypes import to_affine_quantized_floatx
+
+    if mm_config is None:
+        mm_config = ScaledMMConfig(use_fast_accum=True)
+
+    #TODO we are hardcoding TensorWise scaling, will follow up PR for Tensorwise scaling
+    def apply_float8_dynamic_activation_quant(weight: torch.Tensor):
+        quantized_weight = to_affine_quantized_floatx(
+            input_float=weight,
+            block_size=weight.shape,
+            target_dtype=weight_dtype,
+            scale_dtype=torch.float32,
+            layout_type=Float8LayoutType(mm_config=mm_config),
+        )
+
+        def input_quant_func(x: torch.Tensor):
+            activation = to_affine_quantized_floatx(
+                input_float=x,
+                block_size=x.shape,
+                target_dtype=activation_dtype,
+                scale_dtype=torch.float32,
+                layout_type=Float8LayoutType(mm_config=None),  # Config is stored on weight
+            )
+            return activation
+
+        quantized_weight = to_linear_activation_quantized(
+            quantized_weight, input_quant_func
+        )
+        return quantized_weight
+
+    return _get_linear_subclass_inserter(apply_float8_dynamic_activation_quant)
+
+
 def uintx_weight_only(dtype, group_size=64, pack_dim=-1):
     """
     Applies uintx weight-only asymmetric per-group quantization to linear layers, using uintx quantization where
@@ -500,12 +579,6 @@ def uintx_weight_only(dtype, group_size=64, pack_dim=-1):
          size is more fine grained, defaults to 64
         `pack_dim`: the dimension we use for packing, defaults to -1
     """
-    from torchao.quantization.quant_primitives import (
-        MappingType,
-        ZeroPointDomain,
-    )
-    from torchao.quantization.quant_api import _get_linear_subclass_inserter
-
     def apply_uintx_weight_only_quant(weight):
         layout_type = UintxLayoutType(dtype=dtype, pack_dim=pack_dim)
         mapping_type = MappingType.ASYMMETRIC
@@ -514,7 +587,7 @@ def uintx_weight_only(dtype, group_size=64, pack_dim=-1):
         zero_point_dtype = torch.int32
         zero_point_domain = ZeroPointDomain.INT
 
-        return to_affine_quantized(
+        return to_affine_quantized_intx(
             weight, mapping_type, block_size, dtype,
             eps=eps, zero_point_dtype=zero_point_dtype,
             zero_point_domain=zero_point_domain,
@@ -523,6 +596,30 @@ def uintx_weight_only(dtype, group_size=64, pack_dim=-1):
 
     return _get_linear_subclass_inserter(apply_uintx_weight_only_quant)
 
+def fpx_weight_only(ebits: int, mbits: int):
+    """Sub-byte floating point dtypes defined by `ebits`: exponent bits and `mbits`: mantissa bits
+    e.g. fp6_e3_m2, fp6_e2_m3, ...
+    The packing format and kernels are from the fp6-llm paper: https://arxiv.org/abs/2401.14112
+    github repo: https://github.com/usyd-fsalab/fp6_llm, now renamed to quant-llm
+    For more details for packing please see: :class:`~torchao.dtypes.fpx.FpxTensorCoreAQTLayout`
+
+    This is experimental, will be merged with `to_affine_quantized_floatx`
+    in the future
+    """
+
+    def apply_quant_llm(weight: torch.Tensor) -> torch.Tensor:
+        from torchao.dtypes.fpx import FpxTensorCoreLayoutType
+        from torchao.dtypes import to_affine_quantized_fpx
+
+        assert weight.dim() == 2, f"fpx only works for 2-d Tensor, got: {weight.dim()}"
+        out_dim, in_dim = weight.shape
+        if (in_dim % 64 != 0) or (out_dim % 256 != 0):
+            return weight
+
+        layout_type = FpxTensorCoreLayoutType(ebits, mbits)
+        print("layout type:", layout_type)
+        return to_affine_quantized_fpx(weight, layout_type)
+    return _get_linear_subclass_inserter(apply_quant_llm)
 
 if TORCH_VERSION_AT_LEAST_2_5:
     torch.serialization.add_safe_globals([_int8_asymm_per_token_quant, _int8_symm_per_token_reduced_range_quant])

@@ -426,16 +426,25 @@ class TestFloat8MultiThread(FSDPTestMultiThread, TestFloat8Common):
         """
         choices = itertools.product(
             [False, True],
-            [ScalingType.DYNAMIC, ScalingType.DELAYED],
+            [ScalingType.DYNAMIC, ScalingType.DELAYED, ScalingType.STATIC],
         )
         for enable_fsdp_float8_all_gather, scaling_type_weight in choices:
+
+            if scaling_type_weight is ScalingType.STATIC:
+                cast_config_weight = CastConfig(
+                    scaling_type=scaling_type_weight,
+                    static_scale=torch.tensor([1.0], device="cuda"),
+                )
+            else:
+                cast_config_weight = CastConfig(scaling_type=scaling_type_weight)
+
             float8_linear_config1 = Float8LinearConfig(
                 enable_fsdp_float8_all_gather=False,
-                cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
+                cast_config_weight=cast_config_weight,
             )
             float8_linear_config2 = Float8LinearConfig(
                 enable_fsdp_float8_all_gather=enable_fsdp_float8_all_gather,
-                cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
+                cast_config_weight=cast_config_weight,
             )
             module_fp32 = self.init_single_module()
             ref_module = copy.deepcopy(module_fp32)

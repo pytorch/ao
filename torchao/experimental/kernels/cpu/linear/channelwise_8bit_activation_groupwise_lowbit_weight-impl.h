@@ -18,7 +18,8 @@ PackWeightDataTilingParams get_default_pack_weight_data_tiling_params(
     int n,
     int target_panels_per_thread) {
   TORCHAO_CHECK(n >= 1, "n must be >= 1");
-  TORCHAO_CHECK(target_panels_per_thread >= 1, "target_panels_per_thread must be >= 1");
+  TORCHAO_CHECK(
+      target_panels_per_thread >= 1, "target_panels_per_thread must be >= 1");
 
   PackWeightDataTilingParams tiling_params;
   int nr = ukernel_config.nr;
@@ -57,6 +58,10 @@ void pack_weight_data_operator(
   int num_nc_panels = (n + nc - 1) / nc;
 
   torchao::parallel_for(0, num_nc_panels, 1, [&](int64_t begin, int64_t end) {
+    // TODO(T200106949): decide how to handle at::parallel_for not respecting
+    // user-supplied grain_size
+    assert(end == begin + 1);
+
     int nc_tile_idx = begin;
     int n_idx = nc_tile_idx * nc;
     int nc_tile_size = std::min(nc, n - n_idx);
@@ -85,7 +90,8 @@ LinearTilingParams get_default_linear_tiling_params(
     int target_tiles_per_thread) {
   TORCHAO_CHECK(m >= 1, "m must be >= 1");
   TORCHAO_CHECK(n >= 1, "n must be >= 1");
-  TORCHAO_CHECK(target_tiles_per_thread >= 1, "target_tiles_per_thread must be >= 1");
+  TORCHAO_CHECK(
+      target_tiles_per_thread >= 1, "target_tiles_per_thread must be >= 1");
 
   LinearTilingParams tiling_params;
   auto num_threads = torchao::get_num_threads();
@@ -159,6 +165,7 @@ void linear_operator_with_tile_schedule_policy_single_mc_parallel_nc(
   int nc = std::min(n, tiling_params.nc_by_nr * ukernel_config.nr);
   int num_mc_panels = (m + mc - 1) / mc;
   int num_nc_panels = (n + nc - 1) / nc;
+  int weight_data_size = ukernel_config.weight_data_size_fn(nr, k, group_size);
 
   for (int mc_tile_idx = 0; mc_tile_idx < num_mc_panels; mc_tile_idx++) {
     int m_idx = mc_tile_idx * mc;
@@ -172,13 +179,16 @@ void linear_operator_with_tile_schedule_policy_single_mc_parallel_nc(
         activations + activations_offset);
 
     torchao::parallel_for(0, num_nc_panels, 1, [&](int64_t begin, int64_t end) {
+      // TODO(T200106949): decide how to handle at::parallel_for not respecting
+      // user-supplied grain_size
+      assert(end == begin + 1);
+
       int nc_tile_idx = begin;
       int n_idx = nc_tile_idx * nc;
       int nc_tile_size = std::min(nc, n - n_idx);
 
       int output_offset = m_idx * n + n_idx;
-      int weight_data_offset =
-          (n_idx / nr) * ukernel_config.weight_data_size_fn(nr, k, group_size);
+      int weight_data_offset = (n_idx / nr) * weight_data_size;
       int bias_offset = m_idx;
 
       ukernel_config.kernel_fn(
@@ -220,13 +230,16 @@ void linear_operator_with_tile_schedule_policy_parallel_mc_parallel_nc(
   int num_mc_panels = (m + mc - 1) / mc;
   int num_nc_panels = (n + nc - 1) / nc;
 
+  int weight_data_size = ukernel_config.weight_data_size_fn(nr, k, group_size);
+  int activation_data_size =
+      ukernel_config.activation_data_size_fn(mr, k, group_size);
+
   torchao::parallel_for(0, num_mc_panels, 1, [&](int64_t begin, int64_t end) {
     int mc_tile_idx = begin;
     int m_idx = mc_tile_idx * mc;
     int mc_tile_size = std::min(mc, m - m_idx);
     int activations_offset = m_idx * k;
-    int activation_data_offset = (m_idx / mr) *
-        ukernel_config.activation_data_size_fn(mr, k, group_size);
+    int activation_data_offset = (m_idx / mr) * activation_data_size;
 
     ukernel_config.prepare_activation_data_fn(
         activation_data_buffer + activation_data_offset,
@@ -246,11 +259,9 @@ void linear_operator_with_tile_schedule_policy_parallel_mc_parallel_nc(
         int n_idx = nc_tile_idx * nc;
         int nc_tile_size = std::min(nc, n - n_idx);
 
-        int activation_data_offset = (m_idx / mr) *
-            ukernel_config.activation_data_size_fn(mr, k, group_size);
+        int activation_data_offset = (m_idx / mr) * activation_data_size;
         int output_offset = m_idx * n + n_idx;
-        int weight_data_offset = (n_idx / nr) *
-            ukernel_config.weight_data_size_fn(nr, k, group_size);
+        int weight_data_offset = (n_idx / nr) * weight_data_size;
         int bias_offset = m_idx;
 
         ukernel_config.kernel_fn(
@@ -283,7 +294,6 @@ void linear_operator(
     int group_size,
     const void* weight_data,
     const float* activations,
-    // const void* activation_data,
     // Not applied if nullptr
     const float* bias,
     // Ignored if has_clamp = false
@@ -371,12 +381,12 @@ UKernelConfig get_ukernel_config() {
   config.nr = 8;
   config.activation_data_size_fn =
       &ukernel::activation_data_size<has_weight_zeros>;
-  config.activation_data_alignment = alignof(char*);
+  config.activation_data_alignment = 16; // size of neon register
   config.prepare_activation_data_fn =
       &ukernel::prepare_activation_data<has_weight_zeros>;
   config.weight_data_size_fn =
       &ukernel::weight_data_size<weight_nbit, has_weight_zeros>;
-  config.weight_data_alignment = alignof(char*);
+  config.weight_data_alignment = 16; // size of neon register
   config.prepare_weight_data_fn =
       &ukernel::prepare_weight_data<weight_nbit, has_weight_zeros>;
   config.kernel_fn =
