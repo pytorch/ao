@@ -193,6 +193,18 @@ class Transformer(nn.Module):
         
 
     def forward(self, idx: Tensor, input_pos: Optional[Tensor] = None) -> Tensor:
+        """Forward pass of the model.
+
+        Args:
+            idx  (`torch.LongTensor` of shape `(batch_size, seq_length)`): 
+                Indices of input sequence tokens in the vocabulary.
+            input_pos (`torch.LongTensor` of shape `(batch_size, seq_length)`, *optional*):
+                Indices of positions of each input sequence tokens in the position embeddings.
+                This is *required* for inference mode(model.setup_caches(training=False)).
+
+        Returns:
+            Tensor: The output logits tensor.
+        """
         assert self.freqs_cis is not None, "Caches must be initialized first"
 
         if input_pos is None: 
