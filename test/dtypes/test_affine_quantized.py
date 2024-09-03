@@ -87,6 +87,44 @@ class TestAffineQuantized(TestCase):
         ql = apply_quant(l)
         ql.cuda()
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_register_new_dispatch(self):
+        from torchao.dtypes.affine_quantized_tensor import (
+            register_aqt_quantized_linear_dispatch,
+            deregister_aqt_quantized_linear_dispatch,
+        )
+        from torchao.dtypes import to_affine_quantized_intx
+        from torchao.dtypes import AffineQuantizedTensor
+        from torchao.quantization.quant_primitives import MappingType
+
+        def dispatch_condition(input_tensor, weight_tensor, bias):
+            return (
+                isinstance(weight_tensor, AffineQuantizedTensor) and
+                weight_tensor.quant_min == 0 and
+                weight_tensor.quant_max == 2**6-1
+            )
+
+        def impl(input_tensor, weight_tensor, bias):
+            # this is just for testing, normally people will call into uint6 weight only
+            # quantized linear operator here
+            assert False, "dispatching to my impl for uint6 weight only quant"
+
+        register_aqt_quantized_linear_dispatch(dispatch_condition, impl)
+
+        def apply_uint6_weight_only_quant(linear):
+            linear.weight = torch.nn.Parameter(to_affine_quantized_intx(linear.weight, MappingType.ASYMMETRIC, (1, linear.weight.shape[-1]), torch.uint8, 0, 2**6-1), requires_grad=False)
+            return linear
+
+        l = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")
+        apply_uint6_weight_only_quant(l)
+
+        example_input = torch.randn(1, 128, dtype=torch.bfloat16, device="cuda")
+        with self.assertRaisesRegex(AssertionError, "dispatching to my impl for uint6 weight only quant"):
+            l(example_input)
+
+        deregister_aqt_quantized_linear_dispatch(dispatch_condition)
+
+
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantized)
 
