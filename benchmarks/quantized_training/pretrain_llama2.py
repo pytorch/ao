@@ -122,11 +122,13 @@ if __name__ == "__main__":
         for layer in model.layers:
             enable_activation_checkpointing(layer)
 
+    # don't apply int8_mixed_precision to LM head, since it can cause convergence issue.
+    # TODO: might want to do the same for int8_weight_only to standardize.
     if args.quantize == "int8_weight_only":
         quantize_(model, int8_weight_only_quantized_training(), set_inductor_config=False)
     elif args.quantize == "int8_mixed_precision":
         cfg = Int8MixedPrecisionConfig(True, True, True)
-        quantize_(model, int8_mixed_precision_training(cfg), set_inductor_config=False)
+        quantize_(model.layers, int8_mixed_precision_training(cfg), set_inductor_config=False)
     elif args.quantize is not None:
         raise ValueError(f"Unsupported quantize={args.quantize}")
 
