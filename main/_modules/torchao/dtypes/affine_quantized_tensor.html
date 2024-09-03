@@ -402,11 +402,6 @@
 <span class="p">)</span>
 <span class="kn">from</span> <span class="nn">torch.utils._python_dispatch</span> <span class="kn">import</span> <span class="n">return_and_correct_aliasing</span>
 <span class="kn">from</span> <span class="nn">torchao.dtypes.utils</span> <span class="kn">import</span> <span class="p">(</span>
-    <span class="n">_implements</span><span class="p">,</span>
-    <span class="n">_dispatch__torch_function__</span><span class="p">,</span>
-    <span class="n">_dispatch__torch_dispatch__</span><span class="p">,</span>
-    <span class="n">_register_layout_cls</span><span class="p">,</span>
-    <span class="n">_get_layout_tensor_constructor</span><span class="p">,</span>
     <span class="n">LayoutType</span><span class="p">,</span>
     <span class="n">PlainLayoutType</span><span class="p">,</span>
     <span class="n">is_device</span><span class="p">,</span>
@@ -784,9 +779,10 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">zero_point_domain</span><span class="p">,</span>
             <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
             <span class="n">strides</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">stride</span><span class="p">(),</span>
-        <span class="p">)</span>
+        <span class="p">)</span></div>
 
-    <span class="n">implements</span> <span class="o">=</span> <span class="nb">classmethod</span><span class="p">(</span><span class="n">_implements</span><span class="p">)</span>
+    <span class="c1"># following are the comments for __torch_function__/__torch_dispatch__, we can clean this up</span>
+    <span class="c1"># a bit later</span>
     <span class="c1"># Note: we only added cpu path here for 8da4w, this is for executorch, in the future</span>
     <span class="c1"># 1. we&#39;ll add cpu/cuda version (int4mm etc.)</span>
     <span class="c1"># 2. we&#39;ll need to hide the 8da4w executorch version under things like layouts (we also have multiple impl for cpu kernel as Michael mentioned), so it will be something like</span>
@@ -798,19 +794,13 @@
     <span class="c1"># 1 - when tensor is on CUDA: we&#39;ll add this later, we&#39;ll also enable dispatching to optimized</span>
     <span class="c1">#     kernels in CPU as well, see the note above</span>
     <span class="c1"># 2 - we&#39;re given non-floats - quantizing long to int8 is crazy</span>
-    <span class="n">__torch_dispatch__</span> <span class="o">=</span> <span class="nb">classmethod</span><span class="p">(</span><span class="n">_dispatch__torch_dispatch__</span><span class="p">)</span>
-    <span class="n">__torch_function__</span> <span class="o">=</span> <span class="nb">classmethod</span><span class="p">(</span><span class="n">_dispatch__torch_function__</span><span class="p">)</span></div>
 
 
 <span class="c1">######################################################</span>
 <span class="c1"># LayoutType and Layout Tensor Subclass Registration #</span>
 <span class="c1">######################################################</span>
-
-<span class="k">def</span> <span class="nf">register_layout_cls</span><span class="p">(</span><span class="n">layout_type_class</span><span class="p">:</span> <span class="nb">type</span><span class="p">(</span><span class="n">LayoutType</span><span class="p">)):</span>
-    <span class="k">return</span> <span class="n">_register_layout_cls</span><span class="p">(</span><span class="n">AffineQuantizedTensor</span><span class="p">,</span> <span class="n">layout_type_class</span><span class="p">)</span>
-
-<span class="k">def</span> <span class="nf">get_layout_tensor_constructor</span><span class="p">(</span><span class="n">layout_type_class</span><span class="p">:</span> <span class="nb">type</span><span class="p">(</span><span class="n">LayoutType</span><span class="p">)):</span>
-    <span class="k">return</span> <span class="n">_get_layout_tensor_constructor</span><span class="p">(</span><span class="n">AffineQuantizedTensor</span><span class="p">,</span> <span class="n">layout_type_class</span><span class="p">)</span>
+<span class="n">register_layout_cls</span> <span class="o">=</span> <span class="n">AffineQuantizedTensor</span><span class="o">.</span><span class="n">register_layout_cls</span>
+<span class="n">get_layout_tensor_constructor</span> <span class="o">=</span> <span class="n">AffineQuantizedTensor</span><span class="o">.</span><span class="n">get_layout_tensor_constructor</span>
 
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span> <span class="nc">SemiSparseLayoutType</span><span class="p">(</span><span class="n">LayoutType</span><span class="p">):</span>
