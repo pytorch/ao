@@ -21,11 +21,6 @@ from torchao.quantization.utils import (
 )
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.dtypes.utils import (
-    _implements,
-    _dispatch__torch_function__,
-    _dispatch__torch_dispatch__,
-    _register_layout_cls,
-    _get_layout_tensor_constructor,
     LayoutType,
     PlainLayoutType,
     is_device,
@@ -405,7 +400,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             strides=self.stride(),
         )
 
-    implements = classmethod(_implements)
+    # following are the comments for __torch_function__/__torch_dispatch__, we can clean this up
+    # a bit later
     # Note: we only added cpu path here for 8da4w, this is for executorch, in the future
     # 1. we'll add cpu/cuda version (int4mm etc.)
     # 2. we'll need to hide the 8da4w executorch version under things like layouts (we also have multiple impl for cpu kernel as Michael mentioned), so it will be something like
@@ -417,19 +413,13 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
     # 1 - when tensor is on CUDA: we'll add this later, we'll also enable dispatching to optimized
     #     kernels in CPU as well, see the note above
     # 2 - we're given non-floats - quantizing long to int8 is crazy
-    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
-    __torch_function__ = classmethod(_dispatch__torch_function__)
 
 
 ######################################################
 # LayoutType and Layout Tensor Subclass Registration #
 ######################################################
-
-def register_layout_cls(layout_type_class: type(LayoutType)):
-    return _register_layout_cls(AffineQuantizedTensor, layout_type_class)
-
-def get_layout_tensor_constructor(layout_type_class: type(LayoutType)):
-    return _get_layout_tensor_constructor(AffineQuantizedTensor, layout_type_class)
+register_layout_cls = AffineQuantizedTensor.register_layout_cls
+get_layout_tensor_constructor = AffineQuantizedTensor.get_layout_tensor_constructor
 
 @dataclass(frozen=True)
 class SemiSparseLayoutType(LayoutType):

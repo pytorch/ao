@@ -1,6 +1,6 @@
 import torch
 from torch import Tensor
-from torchao.dtypes.utils import _implements, _dispatch__torch_dispatch__
+from torchao.utils import TorchAOBaseTensor
 
 
 aten = torch.ops.aten
@@ -21,8 +21,7 @@ def quantize_fp8(input: Tensor, block_size: int):
 
 # NOTE: FP8 sign bit is redundant for unsigned optim state.
 # we may investigate how to use it to increase range/precision for unsigned optim state.
-class OptimStateFp8(Tensor):
-    implements = classmethod(_implements)
+class OptimStateFp8(TorchAOBaseTensor):
     tensor_attrs = ["codes", "scale"]
 
     @staticmethod
@@ -71,8 +70,6 @@ class OptimStateFp8(Tensor):
             f"{self.__class__.__name__}(block_size={self.block_size}, "
             f"shape={tuple(self.shape)}, device={self.device}, requires_grad={self.requires_grad})"
         )
-
-    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
 
 
 @OptimStateFp8.implements(aten.copy_.default)
