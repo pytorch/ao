@@ -39,6 +39,8 @@ __all__ = [
     "int8_dynamic_activation_int8_semi_sparse_weight",
     "int4_weight_only",
     "int8_weight_only",
+    "uintx_weight_only",
+    "fpx_weight_only",
     "LinearActivationQuantizedTensor",
     "to_linear_activation_quantized",
 ]

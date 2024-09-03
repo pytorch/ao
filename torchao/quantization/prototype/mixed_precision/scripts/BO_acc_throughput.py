@@ -45,7 +45,7 @@ from torchao._models.llama.generate import (
     _load_model,
 )
 
-from utils import write_history_to_csv, cal_wikitext_ppl, load_model, quantize_by_fqn_to_config
+from utils import write_history_to_csv, cal_wikitext_ppl, load_model, quantize_by_fqn_to_config, load_parameters_from_json
 
 default_device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -321,8 +321,8 @@ def define_parameter_list():
     return parameters_list
 
 # add initial search points based on the sensitivity score
-# TODO: automate the initial samples by better leverage the sensitivity scores
-def get_initial_samples(num_BO_initial_samples=50):
+# TODO: add default parameter list if not specified
+def get_initial_samples(num_BO_initial_samples=10):
     
     initial_points_set = []
 
@@ -362,7 +362,7 @@ This function will run BO trials sequentially on a single GPU.
 Each time the BO gets one new trial, evaluates the trial on the GPU and return the evaluation results to update the BO.
 One trial, one BO update.
 '''
-def run_sequential_BO(device, checkpoint_path, repo_id, num_PPL_eval_samples, num_BO_initial_samples, num_trials, ppl_constraint, args):
+def run_sequential_BO(device, checkpoint_path, repo_id, num_PPL_eval_samples, num_trials, ppl_constraint, args):
     '''
     currently use the loader and benchmark code from torchao/_models/llama/generate, 
     and use lm_eval for ppl evaluation
@@ -376,10 +376,12 @@ def run_sequential_BO(device, checkpoint_path, repo_id, num_PPL_eval_samples, nu
     tokenizer4ppl = AutoTokenizer.from_pretrained(repo_id)
     
     # initialize parameters
-    parameters_list = define_parameter_list()
+    # TODO: add default parameter list if not specified
+    parameters_list = load_parameters_from_json(args.parameters_list)
     
     # sample initial points
-    initial_points_set = get_initial_samples(num_BO_initial_samples)
+    initial_points_set = load_initial_samples(initial_samples)
+    num_BO_initial_samples = len(initial_points_set)
 
     # initialize BO experiment
     constraint="cal_PPL <= "+str(ppl_constraint)
@@ -458,14 +460,12 @@ def run_sequential_BO(device, checkpoint_path, repo_id, num_PPL_eval_samples, nu
             raw_data=eval_results, 
         )
 
-    print("------Finish BO------")
-    for h in history:
-        print(h)
-        write_history_to_csv(history, args.output_file, ["cal_PPL", "cal_throughput", "quant_config"])
+    #write BO search trial history to csv file
+    write_history_to_csv(history, args.history_output, ["cal_PPL", "cal_throughput", "quant_config"])
 
     print("------Best config------")
     best_parameters, values = ax_client.get_best_parameters()
-    print(best_parameters, values)
+    print(values, best_parameters)
 
 if __name__ == '__main__':
 
@@ -476,12 +476,13 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint_path', type=Path, default=Path("/tmp/Meta-Llama-3-8B/model.pth"), help='Model checkpoint path for model.pth.')
     parser.add_argument('--repo_id', type=str, default=Path("/tmp/Meta-Llama-3-8B"), help='Model repo id.')
     parser.add_argument('--num_PPL_eval_samples', type=int, default=None, help='Number of samples to evaluate ppl')
-    parser.add_argument('--num_BO_initial_samples', type=int, default=50, help='Number of initial points sampled by sensitivity scores')
     parser.add_argument('--num_trials', type=int, default=150, help='Number of trials to run BO')
     parser.add_argument('--ppl_constraint', type=float, default=7.5, help='The ppl constraint for BO')
     parser.add_argument('--multi_gpus', action='store_true', help="Use multi-processing to run evaluation on multi-gpus")
     parser.add_argument('--gpu_list', type=str, default="", help="A list of gpus to run evaluation, separated by comma, e.g., --gpu_lists=0,1,2,3")
-    parser.add_argument('--output_path', type=str, default="BO_acc_speed_output.csv", help="The csv file path to save the BO search trials")
+    parser.add_argument('--history_output', type=str, default="BO_acc_speed_output.csv", help="The csv file path to save the BO search trials")
+    parser.add_argument('--parameters_list', type=str, default="Llama3-8B_parameters.json", help="The json file path to save the parameters list for BO")
+    parser.add_argument('--initial_samples', type=str, default="Llama3-8B_initial_samples.json", help="The json file path to save the user-defined initial samples for BO")
 
     args = parser.parse_args()
-    run_sequential_BO(device=args.device, checkpoint_path=args.checkpoint_path, repo_id=args.repo_id, num_PPL_eval_samples=args.num_PPL_eval_samples, num_BO_initial_samples=args.num_BO_initial_samples, num_trials=args.num_trials, ppl_constraint=args.ppl_constraint, args=args)
+    run_sequential_BO(device=args.device, checkpoint_path=args.checkpoint_path, repo_id=args.repo_id, num_PPL_eval_samples=args.num_PPL_eval_samples, num_trials=args.num_trials, ppl_constraint=args.ppl_constraint, args=args)

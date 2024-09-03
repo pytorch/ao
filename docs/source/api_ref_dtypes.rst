@@ -11,7 +11,9 @@ torchao.dtypes
     :nosignatures:
 
     to_nf4
-    to_affine_quantized
+    to_affine_quantized_intx
+    to_affine_quantized_floatx
+    to_affine_quantized_intx_static
     AffineQuantizedTensor
 
 ..

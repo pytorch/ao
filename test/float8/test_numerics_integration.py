@@ -79,14 +79,16 @@ class FeedForward(nn.Module):
 
 class TestFloat8NumericsIntegrationTest:
     @pytest.mark.parametrize(
-        "scaling_type_input", [ScalingType.DELAYED, ScalingType.DYNAMIC]
+        "scaling_type_input", 
+        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
     )
     @pytest.mark.parametrize(
-        "scaling_type_weight", [ScalingType.DELAYED, ScalingType.DYNAMIC]
+        "scaling_type_weight", 
+        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
     )
     @pytest.mark.parametrize(
         "scaling_type_grad_output",
-        [ScalingType.DELAYED, ScalingType.DYNAMIC],
+        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
     )
     @pytest.mark.skipif(not is_cuda_8_9, reason="requires SM89 compatible machine")
     @pytest.mark.skipif(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
@@ -113,11 +115,35 @@ class TestFloat8NumericsIntegrationTest:
 
         # for now just test the encoder to simplify things
         model_fp8 = copy.deepcopy(model_ref)
+
+        if scaling_type_input is ScalingType.STATIC:
+            cast_config_input = CastConfig(
+                scaling_type=scaling_type_input,
+                static_scale=torch.tensor([1.0], device="cuda"),
+            )
+        else:
+            cast_config_input = CastConfig(scaling_type=scaling_type_input)
+        if scaling_type_weight is ScalingType.STATIC:
+            cast_config_weight = CastConfig(
+                scaling_type=scaling_type_weight,
+                static_scale=torch.tensor([1.0], device="cuda"),
+            )
+        else:
+            cast_config_weight = CastConfig(scaling_type=scaling_type_weight)
+        if scaling_type_grad_output is ScalingType.STATIC:
+            cast_config_grad_output = CastConfig(
+                scaling_type=scaling_type_grad_output,
+                static_scale=torch.tensor([1.0], device="cuda"),
+            )
+        else:
+            cast_config_grad_output = CastConfig(scaling_type=scaling_type_grad_output)
+
         config = Float8LinearConfig(
-            cast_config_input=CastConfig(scaling_type=scaling_type_input),
-            cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
-            cast_config_grad_output=CastConfig(scaling_type=scaling_type_grad_output),
+            cast_config_input=cast_config_input,
+            cast_config_weight=cast_config_weight,
+            cast_config_grad_output=cast_config_grad_output,
         )
+
         convert_to_float8_training(
             model_fp8,
             config=config,
@@ -154,13 +180,24 @@ class TestFloat8NumericsIntegrationTest:
         model_fp8_out.sum().backward()
 
         out_sqnr = compute_error(model_ref_out, model_fp8_out)
-        assert out_sqnr > 20.0
+        any_static_scaling = (
+            scaling_type_input is ScalingType.STATIC
+            or scaling_type_weight is ScalingType.STATIC
+            or scaling_type_grad_output is ScalingType.STATIC
+        )
+        if any_static_scaling:
+            assert out_sqnr > 10.0
+        else:
+            assert out_sqnr > 20.0
 
         ref_name_to_grad = {
             name: param.grad for name, param in model_ref.named_parameters()
         }
 
-        grad_sqnr_threshold = 20.0
+        if any_static_scaling:
+            grad_sqnr_threshold = 10.0
+        else:
+            grad_sqnr_threshold = 20.0
 
         for name, param in model_fp8.named_parameters():
             ref_grad = ref_name_to_grad[name]

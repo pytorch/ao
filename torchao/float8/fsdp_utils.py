@@ -430,3 +430,123 @@ class WeightWithDelayedFloat8CastTensor(torch.Tensor):
             self._linear_mm_config,
             gemm_input_role=GemmInputRole.WEIGHT,
         ), (data,)
+
+
+class WeightWithStaticFloat8CastTensor(torch.Tensor):
+    @staticmethod
+    def __new__(
+        cls,
+        tensor: torch.Tensor,
+        static_scale: torch.Tensor,
+        linear_mm_config: LinearMMConfig,
+    ):
+        return torch.Tensor._make_wrapper_subclass(
+            cls,
+            tensor.size(),
+            strides=tensor.stride(),
+            storage_offset=tensor.storage_offset(),
+            memory_format=suggest_memory_format(tensor),
+            dtype=tensor.dtype,
+            layout=tensor.layout,
+            device=tensor.device,
+            pin_memory=tensor.is_pinned(),
+            requires_grad=tensor.requires_grad,
+        )
+
+    def __init__(
+        self,
+        tensor: torch.Tensor,
+        static_scale: torch.Tensor,
+        linear_mm_config: LinearMMConfig,
+    ):
+        self._tensor = tensor
+        self._static_scale = static_scale
+        self._linear_mm_config = linear_mm_config
+
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs=None):
+        if func == torch.ops.aten.detach.default:
+            return WeightWithStaticFloat8CastTensor(
+                args[0]._tensor, args[0]._static_scale, args[0]._linear_mm_config
+            )
+        static_scale: Optional[torch.Tensor] = None
+        mm_config: Optional[LinearMMConfig] = None
+
+        def unwrap(t):
+            nonlocal static_scale
+            if static_scale is None:
+                static_scale = t._static_scale
+            nonlocal mm_config
+            if mm_config is None:
+                mm_config = t._linear_mm_config
+            else:
+                assert t._linear_mm_config == mm_config
+            return t._tensor
+
+        args, kwargs = pytree.tree_map_only(
+            WeightWithStaticFloat8CastTensor, unwrap, (args, kwargs or {})
+        )
+        out = func(*args, **kwargs)
+        if func not in _ops_to_preserve_subclass:
+            return out
+        return pytree.tree_map_only(
+            torch.Tensor, 
+            lambda x: WeightWithStaticFloat8CastTensor(x, static_scale, mm_config), 
+            out,
+        )
+
+    def __tensor_flatten__(self):
+        return ["_tensor", "_static_scale"], self._linear_mm_config
+
+    @staticmethod
+    def __tensor_unflatten__(inner_tensors, flatten_spec, outer_size, outer_stride):
+        mm_config = flatten_spec
+        return WeightWithStaticFloat8CastTensor(
+            inner_tensors["_tensor"],
+            inner_tensors["_static_scale"],
+            mm_config,
+        )
+
+    def __repr__(self):
+        return f"WeightWithStaticFloat8CastTensor(tensor={self._tensor}, static_scale={self._static_scale}, linear_mm_config={self._linear_mm_config})"
+
+    def fsdp_pre_all_gather(self, mesh):
+        float8_tensor = hp_tensor_and_scale_to_float8(
+            self._tensor,
+            self._static_scale,
+            torch.float8_e4m3fn,
+            self._linear_mm_config,
+            GemmInputRole.WEIGHT,
+        )
+        return (float8_tensor._data,), (float8_tensor._scale,)
+
+    def fsdp_post_all_gather(
+        self,
+        all_gather_outputs: Tuple[torch.Tensor, ...],
+        metadata: Any,
+        param_dtype: torch.dtype,
+        *,
+        out: Optional[torch.Tensor] = None,
+    ):
+        (data,) = all_gather_outputs
+        (scale,) = metadata
+        if out is not None:
+            from torch.distributed._tensor import DTensor
+            if isinstance(out, Float8Tensor):
+                out._scale = scale
+            elif isinstance(out, DTensor) and isinstance(
+                out._local_tensor, Float8Tensor
+            ):
+                out._local_tensor._scale = scale
+            else:
+                raise RuntimeError(
+                    f"out must be a Float8Tensor or DTensor(_local_tensor=Float8Tensor), but got {out}"
+                )
+            return
+        return Float8Tensor(
+            data,
+            scale,
+            param_dtype,
+            self._linear_mm_config,
+            gemm_input_role=GemmInputRole.WEIGHT,
+        ), (data,)
