@@ -1,5 +1,5 @@
 import functools
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 from typing import Dict, Tuple
 import math
@@ -376,7 +376,7 @@ def nf4_pin_memory(aten_op, args, kwargs=None):
     return NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
 
 
-@dataclass
+@dataclass(frozen=True)
 class SubclassTensorArgs:
     original_shape: torch.Size
 
@@ -837,8 +837,14 @@ class NF4Tensor(torch.Tensor):
         (quantized_scalers, quantization_factor, quantized_data) = all_gather_outputs
         (tensor_meta, block_size, n_blocks, scaler_block_size, scaler_mean, nf4, pg_size) = metadata
         if len(tensor_meta.original_shape) != 2:
-            raise NotImplementedError(f"only support 2D shape but got dim={len(tensor_meta.original_shape)}")
-        tensor_meta.original_shape = torch.Size((tensor_meta.original_shape[0] * pg_size, tensor_meta.original_shape[1]))
+            raise NotImplementedError(
+                f"only support 2D shape but got dim={len(tensor_meta.original_shape)}"
+            )
+
+        new_shape = torch.Size(
+            (tensor_meta.original_shape[0] * pg_size, tensor_meta.original_shape[1])
+        )
+        new_tensor_meta = replace(tensor_meta, original_shape=new_shape)
         if out is not None:
             # TODO: add param dtype for mixed precision
             assert isinstance(out, NF4Tensor), f"{type(out)}"
@@ -853,7 +859,7 @@ class NF4Tensor(torch.Tensor):
             return
 
         return nf4_constructor(
-            tensor_meta,
+            new_tensor_meta,
             block_size,
             n_blocks,
             scaler_block_size,
@@ -863,7 +869,6 @@ class NF4Tensor(torch.Tensor):
             quantized_data,
             nf4,
         ), (quantized_scalers, quantization_factor, quantized_data)
-
 
 class LinearNF4(torch.autograd.Function):
     @staticmethod
