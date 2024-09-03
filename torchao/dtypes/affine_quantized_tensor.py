@@ -650,68 +650,6 @@ class TensorCoreTiledAQTLayout(AQTLayout):
         return self.layout_type
 
 
-@dataclass(frozen=True)
-class AWQLayoutType(LayoutType):
-    equalization_scale: torch.Tensor
-
-    def pre_process(self, input: torch.Tensor) -> torch.Tensor:
-        return input * self.equalization_scale
-
-@dataclass(frozen=True)
-class AWQ_INT4_LayoutType(LayoutType):
-    equalization_scale: torch.Tensor
-    inner_k_tiles: int = 8
-    
-    def pre_process(self, input: torch.Tensor) -> torch.Tensor:
-        input = input * self.equalization_scale
-        orig_out_features, orig_in_features = input.shape
-        in_features = find_multiple(orig_in_features, 1024)
-        out_features = find_multiple(orig_out_features, 8)
-        input = torch.nn.functional.pad(
-            input,
-            (0, in_features - orig_in_features, 0, out_features - orig_out_features),
-        )
-        return input   
-    
-    def extra_repr(self):
-        return f"inner_k_tiles={self.inner_k_tiles}, equilization_scale={self.equalization_scale}"
-    
-
-@register_layout_cls(AWQ_INT4_LayoutType)
-class AWQ_INT4_Layout(TensorCoreTiledAQTLayout):
-    @classmethod
-    def from_plain(
-        cls,
-        int_data: torch.Tensor,
-        scale: torch.Tensor,
-        zero_point: torch.Tensor,
-        layout_type: LayoutType,
-    ):
-        assert isinstance(layout_type, AWQ_INT4_LayoutType)
-        if TORCH_VERSION_AT_LEAST_2_5:
-            int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
-            assert int_data.dtype == torch.uint8, "torch.ops.aten._convert_weight_to_int4pack in torch 2.5 expects `uint8` dtype"
-        else:
-            assert int_data.dtype == torch.int32, "torch.ops.aten._convert_weight_to_int4pack in torch 2.4 expects `int32` dtype"
-        packed_weight = torch.ops.aten._convert_weight_to_int4pack(int_data, layout_type.inner_k_tiles)
-        scale = scale.reshape(int_data.shape[0], -1)
-        zero_point = zero_point.reshape(int_data.shape[0], -1)
-        scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point)
-        return cls(packed_weight, scale_and_zero, False, layout_type)
-    
-@register_layout_cls(AWQLayoutType)
-class AWQ_AQTLayout(PlainAQTLayout):
-    @classmethod
-    def from_plain(
-        cls,
-        int_data: torch.Tensor,
-        scale: torch.Tensor,
-        zero_point: torch.Tensor,
-        layout_type: LayoutType,
-    ):
-        assert isinstance(layout_type, AWQLayoutType)
-        return cls(int_data, scale, zero_point, layout_type)
-
 #####################################################
 # torch functional and aten operator implementation #
 #####################################################
@@ -857,8 +795,6 @@ def _linear_bf16_act_uint4_weight_impl(input_tensor, weight_tensor, bias):
         f"need input_tensor shape: {input_tensor.shape} final"
         f"dim to match weight_tensor shape: {weight_tensor.shape} second dim "
     )
-    if isinstance(weight_tensor.layout_type, AWQ_INT4_LayoutType):
-        input_tensor /= weight_tensor.layout_tensor.layout_type.equalization_scale
     # TODO: check groupsize quantization
     # avoid circular dep, TODO: move this to a common util.py
     act_mat = input_tensor
@@ -924,12 +860,6 @@ def _linear_fp_act_int8_weight_impl(input_tensor, weight_tensor, bias):
         y += bias.to(m.dtype)
     return y
 
-def _linear_awq_check(input_tensor, weight_tensor, bias):
-    return isinstance(weight_tensor.layout_tensor, AWQ_AQTLayout)
-
-def _linear_awq_impl(input_tensor, weight_tensor, bias):
-    return _linear_fp_act_int8_weight_impl(input_tensor / weight_tensor.layout_tensor.layout_type.equalization_scale, weight_tensor, bias)
-
 def _register_quantized_linear_dispatches():
     for dispatch_condition, impl in [
         (_linear_int8_act_int8_weight_check, _linear_int8_act_int8_weight_impl),
@@ -937,7 +867,6 @@ def _register_quantized_linear_dispatches():
         (_linear_quantized_act_fallback_check, _linear_quantized_act_fallback_impl),
         (_linear_bf16_act_uint4_weight_check, _linear_bf16_act_uint4_weight_impl),
         (_linear_fp_act_int8_weight_check, _linear_fp_act_int8_weight_impl),
-        (_linear_awq_check, _linear_awq_impl),
     ]:
         _register_quantized_linear_dispatch(dispatch_condition, impl)
 
