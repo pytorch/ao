@@ -380,16 +380,14 @@
               
   <h1>Source code for torchao.dtypes.nf4tensor</h1><div class="highlight"><pre>
 <span></span><span class="kn">import</span> <span class="nn">functools</span>
-<span class="kn">from</span> <span class="nn">dataclasses</span> <span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span> <span class="nn">dataclasses</span> <span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">replace</span>
 <span class="kn">import</span> <span class="nn">math</span>
-<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Tuple</span>
-<span class="kn">import</span> <span class="nn">math</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Union</span>
 <span class="kn">import</span> <span class="nn">sys</span>
 <span class="kn">from</span> <span class="nn">enum</span> <span class="kn">import</span> <span class="n">Enum</span><span class="p">,</span> <span class="n">auto</span>
 
 <span class="kn">import</span> <span class="nn">torch</span>
 <span class="kn">import</span> <span class="nn">torch.nn.functional</span> <span class="k">as</span> <span class="nn">F</span>
-<span class="kn">from</span> <span class="nn">torch</span> <span class="kn">import</span> <span class="n">Tensor</span>
 <span class="kn">from</span> <span class="nn">torch.distributed.device_mesh</span> <span class="kn">import</span> <span class="n">DeviceMesh</span>
 <span class="kn">from</span> <span class="nn">torch._prims_common</span> <span class="kn">import</span> <span class="n">make_contiguous_strides_for</span>
 
@@ -398,12 +396,15 @@
 
 <span class="n">c10d_functional</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">c10d_functional</span>
 
-<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span><span class="p">,</span> <span class="n">List</span>
 
 <span class="n">NF4_OPS_TABLE</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">Any</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
 
 
-<span class="n">_INNER_TENSOR_NAMES_FOR_SHARDING</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;quantized_scalers&quot;</span><span class="p">,</span> <span class="s2">&quot;quantization_factor&quot;</span><span class="p">,</span> <span class="s2">&quot;quantized_data&quot;</span><span class="p">]</span>
+<span class="n">_INNER_TENSOR_NAMES_FOR_SHARDING</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;quantized_scalers&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;quantization_factor&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;quantized_data&quot;</span><span class="p">,</span>
+<span class="p">]</span>
 
 <span class="c1"># Note: Quantize in Chunks</span>
 <span class="c1"># During quantization to NF4, one of the steps to convert from the original float number</span>
@@ -466,6 +467,7 @@
         <span class="n">attr_to_tensor</span><span class="p">[</span><span class="n">attr</span><span class="p">]</span> <span class="o">=</span> <span class="n">aten_op</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">attr</span><span class="p">),</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">attr_to_tensor</span>
 
+
 <span class="c1"># __torch_function__ utils: call tensor ops from inner tensors</span>
 <span class="k">def</span> <span class="nf">call_from_inner_tensors</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">:</span> <span class="s2">&quot;NF4Tensor&quot;</span><span class="p">,</span> <span class="n">method_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
     <span class="n">attr_to_tensor</span> <span class="o">=</span> <span class="p">{}</span>
@@ -475,9 +477,11 @@
         <span class="n">attr_to_tensor</span><span class="p">[</span><span class="n">attr</span><span class="p">]</span> <span class="o">=</span> <span class="n">func</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">attr_to_tensor</span>
 
+
 <span class="k">class</span> <span class="nc">CompareOp</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
     <span class="n">EQ</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
     <span class="n">LT</span> <span class="o">=</span> <span class="n">auto</span><span class="p">()</span>
+
 
 <span class="k">def</span> <span class="nf">expect_num_of_args</span><span class="p">(</span><span class="n">op</span><span class="p">:</span> <span class="n">CompareOp</span><span class="p">,</span> <span class="n">num</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
     <span class="k">def</span> <span class="nf">decorator</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
@@ -486,8 +490,11 @@
             <span class="k">if</span> <span class="n">op</span> <span class="o">==</span> <span class="n">CompareOp</span><span class="o">.</span><span class="n">LT</span> <span class="ow">and</span> <span class="ow">not</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">num</span><span class="p">):</span>
                 <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
             <span class="k">return</span> <span class="n">func</span><span class="p">(</span><span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">)</span>
+
         <span class="k">return</span> <span class="n">wrapper</span>
+
     <span class="k">return</span> <span class="n">decorator</span>
+
 
 <span class="k">def</span> <span class="nf">expect_arg_value_at_k</span><span class="p">(</span><span class="n">k</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">op</span><span class="p">:</span> <span class="n">CompareOp</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
     <span class="k">def</span> <span class="nf">decorator</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
@@ -496,8 +503,11 @@
             <span class="k">if</span> <span class="n">op</span> <span class="o">==</span> <span class="n">CompareOp</span><span class="o">.</span><span class="n">EQ</span> <span class="ow">and</span> <span class="ow">not</span> <span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">==</span> <span class="n">value</span><span class="p">):</span>
                 <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="n">msg</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="n">k</span><span class="p">]))</span>
             <span class="k">return</span> <span class="n">func</span><span class="p">(</span><span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">)</span>
+
         <span class="k">return</span> <span class="n">wrapper</span>
+
     <span class="k">return</span> <span class="n">decorator</span>
+
 
 <span class="k">def</span> <span class="nf">expect_args_len_at_k</span><span class="p">(</span><span class="n">k</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">op</span><span class="p">:</span> <span class="n">CompareOp</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
     <span class="k">def</span> <span class="nf">decorator</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
@@ -508,7 +518,9 @@
             <span class="k">elif</span> <span class="n">op</span> <span class="o">==</span> <span class="n">CompareOp</span><span class="o">.</span><span class="n">EQ</span> <span class="ow">and</span> <span class="ow">not</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="n">k</span><span class="p">])</span> <span class="o">==</span> <span class="n">value</span><span class="p">):</span>
                 <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="n">msg</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="n">k</span><span class="p">])))</span>
             <span class="k">return</span> <span class="n">func</span><span class="p">(</span><span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">)</span>
+
         <span class="k">return</span> <span class="n">wrapper</span>
+
     <span class="k">return</span> <span class="n">decorator</span>
 
 
@@ -516,9 +528,11 @@
 <span class="k">def</span> <span class="nf">noop_detach</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
 
+
 <span class="nd">@implements</span><span class="p">([</span><span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span><span class="o">.</span><span class="n">clone</span><span class="o">.</span><span class="n">default</span><span class="p">])</span>
 <span class="k">def</span> <span class="nf">clone</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">to_nf4</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">get_original_weight</span><span class="p">())</span>
+
 
 <span class="nd">@implements</span><span class="p">(</span>
     <span class="p">[</span>
@@ -545,28 +559,31 @@
     <span class="n">attr_to_chunks</span> <span class="o">=</span> <span class="p">{}</span>
     <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="n">_INNER_TENSOR_NAMES_FOR_SHARDING</span><span class="p">:</span>
         <span class="n">inner_tensor</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span>
-        <span class="k">assert</span> <span class="n">inner_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">num_chunks</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">attr</span><span class="si">}</span><span class="s2">.numel() not divisible by </span><span class="si">{</span><span class="n">num_chunks</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="p">(</span>
+            <span class="n">inner_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">num_chunks</span> <span class="o">==</span> <span class="mi">0</span>
+        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">attr</span><span class="si">}</span><span class="s2">.numel() not divisible by </span><span class="si">{</span><span class="n">num_chunks</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="n">chunks</span> <span class="o">=</span> <span class="n">aten_op</span><span class="p">(</span><span class="n">inner_tensor</span><span class="p">,</span> <span class="n">inner_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">//</span> <span class="n">num_chunks</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
         <span class="n">attr_to_chunks</span><span class="p">[</span><span class="n">attr</span><span class="p">]</span> <span class="o">=</span> <span class="n">chunks</span>
 
     <span class="n">orig_dim</span> <span class="o">=</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span>
     <span class="k">if</span> <span class="n">orig_dim</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
-        <span class="n">chunked_size</span> <span class="o">=</span> <span class="p">(</span><span class="n">nf4tensor</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">//</span> <span class="n">num_chunks</span><span class="p">,</span> <span class="p">)</span>
+        <span class="n">chunked_size</span> <span class="o">=</span> <span class="p">(</span><span class="n">nf4tensor</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">//</span> <span class="n">num_chunks</span><span class="p">,)</span>
     <span class="k">elif</span> <span class="n">orig_dim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
         <span class="n">chunked_size</span> <span class="o">=</span> <span class="p">(</span><span class="n">nf4tensor</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">//</span> <span class="n">num_chunks</span><span class="p">,</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="n">chunked_size</span> <span class="o">=</span> <span class="p">()</span>
-        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;aten.split(NF4Tensor) wherer NF4Tensor.dim() = </span><span class="si">{</span><span class="n">orig_dim</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;aten.split(NF4Tensor) wherer NF4Tensor.dim() = </span><span class="si">{</span><span class="n">orig_dim</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
 
     <span class="n">nf4_chunks</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_chunks</span><span class="p">):</span>
-        <span class="n">updated_attrs</span> <span class="o">=</span> <span class="p">{</span>
-            <span class="s2">&quot;size&quot;</span><span class="p">:</span> <span class="n">chunked_size</span>
-        <span class="p">}</span>
+        <span class="n">updated_attrs</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;size&quot;</span><span class="p">:</span> <span class="n">chunked_size</span><span class="p">}</span>
         <span class="k">for</span> <span class="n">attr</span><span class="p">,</span> <span class="n">chunks</span> <span class="ow">in</span> <span class="n">attr_to_chunks</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
             <span class="n">updated_attrs</span><span class="p">[</span><span class="n">attr</span><span class="p">]</span> <span class="o">=</span> <span class="n">chunks</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
         <span class="n">nf4_chunks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">NF4Tensor</span><span class="p">(</span><span class="o">*</span><span class="n">construct_nf4_args</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">updated_attrs</span><span class="p">)))</span>
     <span class="k">return</span> <span class="n">nf4_chunks</span>
+
 
 <span class="nd">@implements</span><span class="p">(</span>
     <span class="p">[</span>
@@ -577,7 +594,7 @@
 <span class="k">def</span> <span class="nf">nf4_new_zeros</span><span class="p">(</span><span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
     <span class="n">nf4tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
     <span class="n">new_size</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
-    <span class="n">new_size_dim</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">new_size</span><span class="p">)</span>
+
     <span class="k">if</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">math</span><span class="o">.</span><span class="n">prod</span><span class="p">(</span><span class="n">new_size</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;aten.new_zeros(NF4Tensor) with new size </span><span class="si">{</span><span class="n">new_size</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="n">ratio</span> <span class="o">=</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">//</span> <span class="n">math</span><span class="o">.</span><span class="n">prod</span><span class="p">(</span><span class="n">new_size</span><span class="p">)</span>
@@ -585,12 +602,15 @@
     <span class="n">updated_attrs</span> <span class="o">=</span> <span class="p">{}</span>
     <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="n">_INNER_TENSOR_NAMES_FOR_SHARDING</span><span class="p">:</span>
         <span class="n">inner_tensor</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span>
-        <span class="k">assert</span> <span class="n">inner_tensor</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">%</span> <span class="n">ratio</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">attr</span><span class="si">}</span><span class="s2">.numel() must be divisible by </span><span class="si">{</span><span class="n">ratio</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="p">(</span>
+            <span class="n">inner_tensor</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">%</span> <span class="n">ratio</span> <span class="o">==</span> <span class="mi">0</span>
+        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">attr</span><span class="si">}</span><span class="s2">.numel() must be divisible by </span><span class="si">{</span><span class="n">ratio</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="n">inner_tensor</span> <span class="o">=</span> <span class="n">aten_op</span><span class="p">(</span><span class="n">inner_tensor</span><span class="p">,</span> <span class="p">[</span><span class="n">inner_tensor</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">//</span> <span class="n">ratio</span><span class="p">],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
         <span class="n">updated_attrs</span><span class="p">[</span><span class="n">attr</span><span class="p">]</span> <span class="o">=</span> <span class="n">inner_tensor</span>
     <span class="n">updated_attrs</span><span class="p">[</span><span class="s2">&quot;size&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_size</span>
 
     <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span><span class="o">*</span><span class="n">construct_nf4_args</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">updated_attrs</span><span class="p">))</span>
+
 
 <span class="nd">@implements</span><span class="p">(</span>
     <span class="p">[</span>
@@ -604,9 +624,10 @@
     <span class="n">nf4tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
     <span class="c1"># for tensor 512 x 512, tensor[:, :512] dispatch to</span>
     <span class="c1"># aten.slice(dim = 0, end=sys.maxsize)</span>
-    <span class="k">if</span> <span class="ow">not</span> <span class="n">args</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="ow">in</span> <span class="p">[</span><span class="n">nf4tensor</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">sys</span><span class="o">.</span><span class="n">maxsize</span><span class="p">]:</span>
+    <span class="k">if</span> <span class="n">args</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="n">nf4tensor</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">sys</span><span class="o">.</span><span class="n">maxsize</span><span class="p">]:</span>
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;aten.slice(NF4Tensor) with end=</span><span class="si">{</span><span class="n">args</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span><span class="o">*</span><span class="n">construct_nf4_args</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">))</span>
+
 
 <span class="nd">@implements</span><span class="p">(</span>
     <span class="p">[</span>
@@ -620,29 +641,40 @@
     <span class="k">if</span> <span class="n">size</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;aten.view(NF4Tensor) with size=</span><span class="si">{</span><span class="n">size</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
     <span class="n">updated_attrs</span> <span class="o">=</span> <span class="n">apply_to_inner_tensors</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">kwargs</span><span class="p">)</span>
-    <span class="n">updated_attrs</span><span class="o">.</span><span class="n">update</span><span class="p">({</span>
-        <span class="s2">&quot;size&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">nf4tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()],</span>
-        <span class="s2">&quot;stride&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="p">),</span>
-    <span class="p">})</span>
+    <span class="n">updated_attrs</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
+        <span class="p">{</span>
+            <span class="s2">&quot;size&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">nf4tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()],</span>
+            <span class="s2">&quot;stride&quot;</span><span class="p">:</span> <span class="p">(</span><span class="mi">1</span><span class="p">,),</span>
+        <span class="p">}</span>
+    <span class="p">)</span>
     <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span><span class="o">*</span><span class="n">construct_nf4_args</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">updated_attrs</span><span class="p">))</span>
+
 
 <span class="nd">@implements</span><span class="p">(</span>
     <span class="p">[</span>
         <span class="n">aten</span><span class="o">.</span><span class="n">as_strided</span><span class="o">.</span><span class="n">default</span><span class="p">,</span>
     <span class="p">]</span>
 <span class="p">)</span>
-<span class="nd">@expect_args_len_at_k</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">CompareOp</span><span class="o">.</span><span class="n">LT</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="s2">&quot;aten.as_strided(NF4Tensor) only support dim &lt;= 2 but got dim=&quot;</span><span class="p">)</span>
+<span class="nd">@expect_args_len_at_k</span><span class="p">(</span>
+    <span class="mi">1</span><span class="p">,</span> <span class="n">CompareOp</span><span class="o">.</span><span class="n">LT</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="s2">&quot;aten.as_strided(NF4Tensor) only support dim &lt;= 2 but got dim=&quot;</span>
+<span class="p">)</span>
 <span class="k">def</span> <span class="nf">nf4_as_strided</span><span class="p">(</span><span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
     <span class="n">nf4tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
     <span class="n">size</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
     <span class="n">stride</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
     <span class="n">storage_offset</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span>
     <span class="k">if</span> <span class="n">math</span><span class="o">.</span><span class="n">prod</span><span class="p">(</span><span class="n">size</span><span class="p">)</span> <span class="o">!=</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">():</span>
-        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;aten.as_strided(NF4Tensor) different numel=</span><span class="si">{</span><span class="n">nf4tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and size=</span><span class="si">{</span><span class="n">size</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;aten.as_strided(NF4Tensor) different numel=</span><span class="si">{</span><span class="n">nf4tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and size=</span><span class="si">{</span><span class="n">size</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
     <span class="k">if</span> <span class="n">stride</span> <span class="o">!=</span> <span class="n">make_contiguous_strides_for</span><span class="p">(</span><span class="n">size</span><span class="p">):</span>
-        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;aten.as_strided(NF4Tensor) only support continuous stride=</span><span class="si">{</span><span class="n">make_contiguous_strides_for</span><span class="p">(</span><span class="n">size</span><span class="p">)</span><span class="si">}</span><span class="s2"> but got stride=</span><span class="si">{</span><span class="n">stride</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;aten.as_strided(NF4Tensor) only support continuous stride=</span><span class="si">{</span><span class="n">make_contiguous_strides_for</span><span class="p">(</span><span class="n">size</span><span class="p">)</span><span class="si">}</span><span class="s2"> but got stride=</span><span class="si">{</span><span class="n">stride</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
     <span class="k">if</span> <span class="n">nf4tensor</span><span class="o">.</span><span class="n">storage_offset</span><span class="p">()</span> <span class="o">!=</span> <span class="n">storage_offset</span><span class="p">:</span>
-        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;aten.as_strided(NF4Tensor) only support original storage offset </span><span class="si">{</span><span class="n">nf4tensor</span><span class="o">.</span><span class="n">storage_offset</span><span class="p">()</span><span class="si">}</span><span class="s2"> but got </span><span class="si">{</span><span class="n">storage_offset</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;aten.as_strided(NF4Tensor) only support original storage offset </span><span class="si">{</span><span class="n">nf4tensor</span><span class="o">.</span><span class="n">storage_offset</span><span class="p">()</span><span class="si">}</span><span class="s2"> but got </span><span class="si">{</span><span class="n">storage_offset</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
     <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{</span>
         <span class="s2">&quot;size&quot;</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span><span class="p">(</span><span class="n">size</span><span class="p">),</span>
         <span class="s2">&quot;stride&quot;</span><span class="p">:</span> <span class="n">stride</span><span class="p">,</span>
@@ -757,7 +789,7 @@
     <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span><span class="o">*</span><span class="n">construct_nf4_args</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">updated_attrs</span><span class="p">))</span>
 
 
-<span class="nd">@dataclass</span>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span> <span class="nc">SubclassTensorArgs</span><span class="p">:</span>
     <span class="n">original_shape</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span>
 
@@ -779,8 +811,8 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">assert</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;Input tensor must be flattened&quot;</span>
     <span class="k">assert</span> <span class="p">(</span>
-        <span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">block_size</span>
-    <span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Input tensor must be divisible by block size, got </span><span class="si">{</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">block_size</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">block_size</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span>
+    <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Input tensor must be divisible by block size, got </span><span class="si">{</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">block_size</span><span class="si">}</span><span class="s2">&quot;</span>
 
     <span class="n">n_blocks</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">//</span> <span class="n">block_size</span>
     <span class="n">blocks</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">n_blocks</span><span class="p">,</span> <span class="n">block_size</span><span class="p">)</span>
@@ -863,7 +895,9 @@
         <span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
         <span class="n">scaler_block_size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
     <span class="p">):</span>
-        <span class="k">assert</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">&lt;=</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;expect input tensor dim &lt;= 2 but got dim = </span><span class="si">{</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="p">(</span>
+            <span class="n">input_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">&lt;=</span> <span class="mi">2</span>
+        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;expect input tensor dim &lt;= 2 but got dim = </span><span class="si">{</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="k">assert</span> <span class="p">(</span>
             <span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">block_size</span> <span class="o">==</span> <span class="mi">0</span>
         <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Input tensor must be divisible by block size, got </span><span class="si">{</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">block_size</span><span class="si">}</span><span class="s2">&quot;</span>
@@ -948,8 +982,8 @@
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">assert</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;Input tensor must be flattened&quot;</span>
         <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">scaler_block_size</span>
-        <span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Input tensor must be divisible by block size, got </span><span class="si">{</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">scaler_block_size</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">scaler_block_size</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span>
+        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Input tensor must be divisible by block size, got </span><span class="si">{</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">scaler_block_size</span><span class="si">}</span><span class="s2">&quot;</span>
 
         <span class="c1"># First round of quantization</span>
         <span class="c1"># Produces: A tensor of size (n_blocks) of input_tensor.dtype</span>
@@ -1003,8 +1037,8 @@
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">assert</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;Input tensor must be flattened&quot;</span>
         <span class="k">assert</span> <span class="p">(</span>
-            <span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">scaler_block_size</span>
-        <span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;Input tensor must be divisible by block size, got </span><span class="si">{</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">scaler_block_size</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">%</span> <span class="n">scaler_block_size</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span>
+        <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Input tensor must be divisible by block size, got </span><span class="si">{</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span><span class="si">}</span><span class="s2"> and </span><span class="si">{</span><span class="n">scaler_block_size</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="n">n_scaler_blocks</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">numel</span><span class="p">()</span> <span class="o">//</span> <span class="n">scaler_block_size</span>
         <span class="n">input_tensor</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">n_scaler_blocks</span><span class="p">,</span> <span class="n">scaler_block_size</span><span class="p">)</span>
         <span class="n">dequantized</span> <span class="o">=</span> <span class="p">(</span><span class="n">input_tensor</span> <span class="o">/</span> <span class="n">quantization_factor</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span>
@@ -1033,12 +1067,16 @@
 
         <span class="c1"># Returns a flattened tensor with each element quantized to nf4 index</span>
         <span class="c1"># See Note: Quantize in Chunks</span>
-        <span class="n">quantized_blocks</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">numel</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+        <span class="n">quantized_blocks</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span>
+            <span class="n">numel</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">device</span>
+        <span class="p">)</span>
         <span class="n">flattened</span> <span class="o">=</span> <span class="n">scaled_blocks</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
         <span class="k">for</span> <span class="n">chunk_num</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">numel</span> <span class="o">/</span> <span class="n">CHUNK_SIZE</span><span class="p">)):</span>
             <span class="n">start</span> <span class="o">=</span> <span class="n">chunk_num</span> <span class="o">*</span> <span class="n">CHUNK_SIZE</span>
             <span class="n">end</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">start</span> <span class="o">+</span> <span class="n">CHUNK_SIZE</span><span class="p">,</span> <span class="n">numel</span><span class="p">)</span>
-            <span class="n">quantized_blocks</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">end</span><span class="p">]</span> <span class="o">=</span> <span class="n">NF4Tensor</span><span class="o">.</span><span class="n">quantize_tensor_nearest</span><span class="p">(</span><span class="n">flattened</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">end</span><span class="p">],</span> <span class="n">nf4</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
+            <span class="n">quantized_blocks</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">end</span><span class="p">]</span> <span class="o">=</span> <span class="n">NF4Tensor</span><span class="o">.</span><span class="n">quantize_tensor_nearest</span><span class="p">(</span>
+                <span class="n">flattened</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">end</span><span class="p">],</span> <span class="n">nf4</span>
+            <span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
 
         <span class="c1"># Combine the quantized elements into uint8 values</span>
         <span class="c1"># This lays out two consecutive elements in the same byte</span>
@@ -1077,9 +1115,7 @@
         <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">scaled_first</span><span class="p">,</span> <span class="n">scaled_second</span><span class="p">],</span> <span class="n">dim</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
 
     <span class="nd">@staticmethod</span>
-    <span class="k">def</span> <span class="nf">quantize_tensor_nearest</span><span class="p">(</span>
-        <span class="n">value</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">nf4</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
-    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">quantize_tensor_nearest</span><span class="p">(</span><span class="n">value</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">nf4</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Quantize a float16 tensor to nf4 format to nearest and not rounded up&quot;&quot;&quot;</span>
         <span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>  <span class="c1"># (numel, 1)</span>
         <span class="c1"># Compare the value tensor with the nf4 tensor element-wise</span>
@@ -1137,9 +1173,6 @@
             <span class="n">inner_tensors</span><span class="p">[</span><span class="s2">&quot;nf4&quot;</span><span class="p">],</span>
         <span class="p">)</span>
 
-    <span class="k">def</span> <span class="fm">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">)</span><span class="o">.</span><span class="fm">__str__</span><span class="p">()</span>
-
     <span class="nd">@classmethod</span>
     <span class="nd">@torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">disable</span>
     <span class="k">def</span> <span class="nf">__torch_dispatch__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
@@ -1184,8 +1217,9 @@
         <span class="k">with</span> <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">DisableTorchFunctionSubclass</span><span class="p">():</span>
             <span class="k">return</span> <span class="n">func</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 
-
-    <span class="k">def</span> <span class="nf">fsdp_pre_all_gather</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">mesh</span><span class="p">:</span> <span class="n">DeviceMesh</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="n">Any</span><span class="p">]:</span>
+    <span class="k">def</span> <span class="nf">fsdp_pre_all_gather</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">mesh</span><span class="p">:</span> <span class="n">DeviceMesh</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="n">Any</span><span class="p">]:</span>
         <span class="k">return</span> <span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">quantized_scalers</span><span class="p">,</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">quantization_factor</span><span class="p">,</span>
@@ -1216,25 +1250,39 @@
         <span class="n">out</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Union</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="o">...</span><span class="p">]],</span> <span class="kc">None</span><span class="p">]:</span>
         <span class="p">(</span><span class="n">quantized_scalers</span><span class="p">,</span> <span class="n">quantization_factor</span><span class="p">,</span> <span class="n">quantized_data</span><span class="p">)</span> <span class="o">=</span> <span class="n">all_gather_outputs</span>
-        <span class="p">(</span><span class="n">tensor_meta</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">n_blocks</span><span class="p">,</span> <span class="n">scaler_block_size</span><span class="p">,</span> <span class="n">scaler_mean</span><span class="p">,</span> <span class="n">nf4</span><span class="p">,</span> <span class="n">pg_size</span><span class="p">)</span> <span class="o">=</span> <span class="n">metadata</span>
+        <span class="p">(</span>
+            <span class="n">tensor_meta</span><span class="p">,</span>
+            <span class="n">block_size</span><span class="p">,</span>
+            <span class="n">n_blocks</span><span class="p">,</span>
+            <span class="n">scaler_block_size</span><span class="p">,</span>
+            <span class="n">scaler_mean</span><span class="p">,</span>
+            <span class="n">nf4</span><span class="p">,</span>
+            <span class="n">pg_size</span><span class="p">,</span>
+        <span class="p">)</span> <span class="o">=</span> <span class="n">metadata</span>
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">tensor_meta</span><span class="o">.</span><span class="n">original_shape</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">:</span>
-            <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;only support 2D shape but got dim=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">tensor_meta</span><span class="o">.</span><span class="n">original_shape</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="n">tensor_meta</span><span class="o">.</span><span class="n">original_shape</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span><span class="p">((</span><span class="n">tensor_meta</span><span class="o">.</span><span class="n">original_shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="n">pg_size</span><span class="p">,</span> <span class="n">tensor_meta</span><span class="o">.</span><span class="n">original_shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
+            <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;only support 2D shape but got dim=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">tensor_meta</span><span class="o">.</span><span class="n">original_shape</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+
+        <span class="n">new_shape</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span><span class="p">(</span>
+            <span class="p">(</span><span class="n">tensor_meta</span><span class="o">.</span><span class="n">original_shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="n">pg_size</span><span class="p">,</span> <span class="n">tensor_meta</span><span class="o">.</span><span class="n">original_shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+        <span class="p">)</span>
+        <span class="n">new_tensor_meta</span> <span class="o">=</span> <span class="n">replace</span><span class="p">(</span><span class="n">tensor_meta</span><span class="p">,</span> <span class="n">original_shape</span><span class="o">=</span><span class="n">new_shape</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">out</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="c1"># TODO: add param dtype for mixed precision</span>
             <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">NF4Tensor</span><span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">out</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
             <span class="k">assert</span> <span class="p">(</span>
                 <span class="n">quantized_scalers</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span>
-                <span class="o">==</span> <span class="n">out</span><span class="o">.</span><span class="n">quantized_scalers</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span> <span class="ow">and</span>
-                <span class="n">quantization_factor</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span>
-                <span class="o">==</span> <span class="n">out</span><span class="o">.</span><span class="n">quantization_factor</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span> <span class="ow">and</span>
-                <span class="n">quantized_data</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span>
+                <span class="o">==</span> <span class="n">out</span><span class="o">.</span><span class="n">quantized_scalers</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span>
+                <span class="ow">and</span> <span class="n">quantization_factor</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span>
+                <span class="o">==</span> <span class="n">out</span><span class="o">.</span><span class="n">quantization_factor</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span>
+                <span class="ow">and</span> <span class="n">quantized_data</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span>
                 <span class="o">==</span> <span class="n">out</span><span class="o">.</span><span class="n">quantized_data</span><span class="o">.</span><span class="n">untyped_storage</span><span class="p">()</span><span class="o">.</span><span class="n">data_ptr</span><span class="p">()</span>
-            <span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Expects out&#39;s data to be the all-gather output&quot;</span>
+            <span class="p">),</span> <span class="s2">&quot;Expects out&#39;s data to be the all-gather output&quot;</span>
             <span class="k">return</span>
 
         <span class="k">return</span> <span class="n">nf4_constructor</span><span class="p">(</span>
-            <span class="n">tensor_meta</span><span class="p">,</span>
+            <span class="n">new_tensor_meta</span><span class="p">,</span>
             <span class="n">block_size</span><span class="p">,</span>
             <span class="n">n_blocks</span><span class="p">,</span>
             <span class="n">scaler_block_size</span><span class="p">,</span>
@@ -1293,10 +1341,10 @@
         <span class="c1"># Tensor.to(dtype, non_blocking, copy, memory_format)</span>
         <span class="k">return</span> <span class="n">tensor</span><span class="o">.</span><span class="n">get_original_weight</span><span class="p">()</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
     <span class="k">elif</span> <span class="p">(</span>
-        <span class="nb">isinstance</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span>
-            <span class="nb">isinstance</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="p">(</span>
-                <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;cpu&quot;</span> <span class="ow">or</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span><span class="p">)</span>
-            <span class="p">)</span>
+        <span class="nb">isinstance</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">torch</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+        <span class="ow">or</span> <span class="p">(</span>
+            <span class="nb">isinstance</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="nb">str</span><span class="p">)</span>
+            <span class="ow">and</span> <span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;cpu&quot;</span> <span class="ow">or</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span><span class="p">))</span>
         <span class="p">)</span>
     <span class="p">)</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
         <span class="c1"># Tensor.to(device, non_blocking)</span>
@@ -1318,6 +1366,7 @@
     <span class="n">updated_attrs</span> <span class="o">=</span> <span class="n">call_from_inner_tensors</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="s2">&quot;cpu&quot;</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">kwargs</span><span class="p">)</span>
     <span class="n">updated_attrs</span><span class="p">[</span><span class="s2">&quot;device&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;cpu&quot;</span>
     <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span><span class="o">*</span><span class="n">construct_nf4_args</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">updated_attrs</span><span class="p">))</span>
+
 
 <span class="nd">@torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">allow_in_graph</span>
 <span class="k">def</span> <span class="nf">nf4_constructor</span><span class="p">(</span>
