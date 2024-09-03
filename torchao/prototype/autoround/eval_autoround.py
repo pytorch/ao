@@ -1,13 +1,15 @@
 import argparse
 
-import torch
-
-import torchao
 import torchao.prototype.autoround.utils as ar_utils
-import torchao.quantization
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 ar_utils.freeze_random(42)
+import torch
+
+torch.use_deterministic_algorithms(True, warn_only=True)
+import torchao
+
+import torchao.quantization
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
 @ar_utils.dump_elapsed_time()
@@ -118,6 +120,7 @@ def main(args):
                     seqlen=args.seqlen,
                     bs=args.train_bs,
                     nsamples=args.nsamples,
+                    use_optimized_layer_output=args.use_optimized_layer_output,
                 )
             quantized_layer_cnt = ar_utils.count_tensor_of_type(
                 model, torchao.dtypes.AffineQuantizedTensor
@@ -174,6 +177,12 @@ if __name__ == "__main__" and TORCH_VERSION_AT_LEAST_2_5 and torch.cuda.is_avail
         default=False,
         action="store_true",
         help="Quantize the `lm_head` or not",
+    )
+    parser.add_argument(
+        "--use_optimized_layer_output",
+        default=False,
+        action="store_true",
+        help="Use the optimized layer output for next layer or not",
     )
     parser.add_argument(
         "-d",

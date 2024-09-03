@@ -1,4 +1,5 @@
 import argparse
+import logging
 
 import torch
 
@@ -27,6 +28,7 @@ def quantize_model_with_autoround_(
     dataset_name: str = "NeelNanda/pile-10k",
     bs: int = 8,
     nsamples: int = 128,
+    use_optimized_layer_output: bool = False,
 ):
     # Step 1. Prepare the model for applying auto-round
 
@@ -39,6 +41,7 @@ def quantize_model_with_autoround_(
         bits,
         group_size,
         iters,
+        use_optimized_layer_output,
         device=device,
     )
 
@@ -79,7 +82,7 @@ def main(args):
     model, tokenizer, decoder_cls = ar_utils.get_float_model_info(
         model_name_or_path, torch_dtype=torch.bfloat16
     )
-    # Disable the `use_cache` for calibration process, which cause the OOM.
+    # Disable the `use_cache` for calibration stage.
     model.config.use_cache = False
     ar_utils.gen_text(model, tokenizer, "Float model", max_length=50)
 
@@ -103,8 +106,9 @@ def main(args):
         dataset_name=args.dataset_name,
         bs=args.train_bs,
         nsamples=args.nsamples,
+        use_optimized_layer_output=args.use_optimized_layer_output,
     )
-    # Revert the `use_cache`
+    # Revert the `use_cache` for generation stage.
     model.config.use_cache = True
 
     # Generate text using the quantized model
@@ -157,6 +161,12 @@ if __name__ == "__main__":
         default=False,
         action="store_true",
         help="Quantize the `lm_head` or not",
+    )
+    parser.add_argument(
+        "--use_optimized_layer_output",
+        default=False,
+        action="store_true",
+        help="Use the optimized layer output for next layer or not",
     )
     parser.add_argument(
         "-d",

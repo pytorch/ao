@@ -8,11 +8,7 @@ from torch.utils._pytree import tree_flatten, tree_unflatten
 import torchao.prototype.autoround.utils as ar_utils
 import torchao.quantization as ao_quant
 from torchao.dtypes import TensorCoreTiledLayoutType, to_affine_quantized_intx_static
-from torchao.prototype.autoround.multi_tensor import (
-    _multi_tensor_config,
-    _MultiTensorConfig,
-    MultiTensor,
-)
+from torchao.prototype.autoround.multi_tensor import _multi_tensor_config, MultiTensor
 from torchao.quantization.quant_primitives import ZeroPointDomain
 from torchao.utils import find_multiple
 
@@ -23,7 +19,7 @@ class _AutoRoundConfig:
     bits: int = 4
     group_size: int = 128
     iters: int = 200
-    use_optimized_layer_output: bool = True
+    use_optimized_layer_output: bool = False
 
 
 _auto_round_config = _AutoRoundConfig()
@@ -43,6 +39,41 @@ class _OptimizationTracker:
 _optimization_tracker = _OptimizationTracker()
 
 
+def _replace_model_buffers_and_params(model, replacement_fn):
+    model = replacement_fn(model)
+    for name, child in model.named_children():
+        new_child = _replace_model_buffers_and_params(child, replacement_fn)
+        if new_child is not child:
+            setattr(model, name, new_child)
+    return model
+
+
+def _tensor_to_multi_tensor(model):
+    for name, buf in model.named_buffers(recurse=False):
+        setattr(model, name, MultiTensor([buf]))
+    for name, param in model.named_parameters(recurse=False):
+        setattr(model, name, torch.nn.Parameter(MultiTensor([param]), False))
+    return model
+
+
+def _multi_tensor_to_tensor(model):
+    for name, buf in model.named_buffers(recurse=False):
+        if isinstance(buf, MultiTensor):
+            assert (
+                len(buf.values) == 1
+            ), f"The buffer should only have one tensor, but got {buf.count}."
+            model.register_buffer(name, buf.values[0])
+    for name, param in model.named_parameters(recurse=False):
+        if isinstance(param, MultiTensor):
+            assert (
+                len(param.values) == 1
+            ), f"The parameter should only have one tensor, but got {param.count}."
+            setattr(
+                model, name, torch.nn.Parameter(param.values[0], requires_grad=False)
+            )
+    return model
+
+
 @torch.no_grad()
 def prepare_model_for_applying_auto_round_(
     model: torch.nn.Module,
@@ -50,7 +81,7 @@ def prepare_model_for_applying_auto_round_(
     bits: int = 4,
     group_size: int = 128,
     iters: int = 200,
-    use_optimized_layer_output: bool = True,
+    use_optimized_layer_output: bool = False,
     device: Optional[torch.types.Device] = None,
 ):
     """Prepares the model for applying auto round optimization.
@@ -62,7 +93,7 @@ def prepare_model_for_applying_auto_round_(
         bits (int, optional): The number of bits for quantization. Defaults to 4, options are 1 to 8.
         group_size (int, optional): The group size for quantization. Defaults to 128.
         iters (int, optional): The number of iterations for optimization. Defaults to 200.
-        use_optimized_layer_output (bool, optional): Whether to use optimized layer output. Defaults to True.
+        use_optimized_layer_output (bool, optional): Whether to use optimized layer output. Defaults to False.
         device (Optional[torch.types.Device], optional): The device to use for accelrating optimization and calibration.
             Defaults to None.
     """
@@ -75,7 +106,27 @@ def prepare_model_for_applying_auto_round_(
     _auto_round_config.iters = iters
     _auto_round_config.use_optimized_layer_output = use_optimized_layer_output
 
-    def forward_hook(
+    logging.warning(f"config {_auto_round_config}")
+
+    # Wrap the model buffers and parameters with `MultiTensor`
+    model = _replace_model_buffers_and_params(model, _tensor_to_multi_tensor)
+
+    def _revert_buffers_and_params_fn(
+        module,
+        input: Tuple[MultiTensor],
+        output: Tuple[MultiTensor],
+    ):
+        module._forward_hook_handle_for_revert_buffers_and_params.remove()
+        _replace_model_buffers_and_params(module, _multi_tensor_to_tensor)
+        return output
+
+    # Register forward hook for reverting the replacement of buffers and parameters
+    model._forward_hook_handle_for_revert_buffers_and_params = (
+        model.register_forward_hook(_revert_buffers_and_params_fn)
+    )
+
+    # Register forward hook for applying auto-round optimization
+    def auto_round_optimization_hook(
         module,
         args: Tuple[MultiTensor],
         kwargs: Dict[str, MultiTensor],
@@ -88,7 +139,7 @@ def prepare_model_for_applying_auto_round_(
 
     def _register_forward_hook(module: torch.nn.Module):
         forward_hook_handle = module.register_forward_hook(
-            forward_hook, with_kwargs=True
+            auto_round_optimization_hook, with_kwargs=True
         )
         module._forward_hook_handle_for_auto_round = forward_hook_handle
         _optimization_tracker.num_layers += 1
@@ -286,6 +337,8 @@ def apply_auto_round_optimization(
 ):
     # Remove the hook to avoid recursive calls
     module._forward_hook_handle_for_auto_round.remove()
+    # Revert the model to the original state for applying auto-round optimization
+    module = _replace_model_buffers_and_params(module, _multi_tensor_to_tensor)
 
     block_inputs = MultiTensor.revert_to_tensor_pairs(args, kwargs)
     block_outputs = MultiTensor.revert_to_tensor_pairs(output)
@@ -293,5 +346,7 @@ def apply_auto_round_optimization(
     _apply_auto_round_optimization(module, block_inputs, block_outputs, config)
     # Get the new output of the optimized model
     if config.use_optimized_layer_output:
+        # Re-replace the model buffers and parameters with `MultiTensor`
+        _replace_model_buffers_and_params(module, _tensor_to_multi_tensor)
         output = module(*args, **kwargs)
     return output

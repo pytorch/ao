@@ -57,11 +57,13 @@ class MultiTensor(torch.Tensor):
             self.values.append(input)
         return self
 
-    def pad_to_length(self, length):
-        if self.count > length:
-            return self
-        self.add_tensors([self.values[-1]] * (length - self.count))
-        return self
+    def get_value(self, i):
+        # Instead of copy the last tensor to pad the MultiTensor, we use this function to do fake padding
+        # to avoid introducing extra memory usage.
+        if i + 1 <= self.count:
+            return self.values[i]
+        else:
+            return self.values[-1]
 
     @classmethod
     def flat_to_grouped(cls, flat):
@@ -69,19 +71,16 @@ class MultiTensor(torch.Tensor):
         multi_tensor_size = max(
             [x.count if isinstance(x, MultiTensor) else 1 for x in flat]
         )
-        # convert [A, MultiTensor(b1,b2,b3), MultiTensor(c1,c2,c3)] => [[A,b1,c1], [A,b2,c2] [A,b3,c3]]
-        grouped = list(
-            zip(
-                *[
-                    (
-                        x.pad_to_length(multi_tensor_size).values
-                        if isinstance(x, MultiTensor)
-                        else [x] * multi_tensor_size
-                    )
-                    for x in flat
-                ]
-            )
-        )
+
+        grouped = []
+        for i in range(multi_tensor_size):
+            sub_group = []
+            for x in flat:
+                if isinstance(x, MultiTensor):
+                    sub_group.append(x.get_value(i))
+                else:
+                    sub_group.append(x)
+            grouped.append(sub_group)
         return grouped
 
     @classmethod

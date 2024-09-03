@@ -61,9 +61,15 @@ def freeze_random(seed=0):
     random.seed(seed)
 
     torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
 
     np.random.seed(seed)
+
+    g = torch.Generator()
+    g.manual_seed(seed)
+
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
 
 
 def count_tensor_of_type(mod, cls):
