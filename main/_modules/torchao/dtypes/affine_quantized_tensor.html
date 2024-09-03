@@ -420,6 +420,9 @@
     <span class="n">TORCH_VERSION_AT_LEAST_2_5</span><span class="p">,</span>
     <span class="n">_is_float8_type</span>
 <span class="p">)</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
 
 <span class="kn">from</span> <span class="nn">torchao.float8.float8_tensor</span> <span class="kn">import</span> <span class="n">ScaledMMConfig</span>
 <span class="n">aten</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span>
@@ -469,9 +472,28 @@
     <span class="k">pass</span>
 
 
-<span class="n">_QLINEAR_DISPATCH_TABLE</span> <span class="o">=</span> <span class="p">{}</span>
-<span class="k">def</span> <span class="nf">_register_quantized_linear_dispatch</span><span class="p">(</span><span class="n">dispatch_condition</span><span class="p">,</span> <span class="n">impl</span><span class="p">):</span>
-    <span class="n">_QLINEAR_DISPATCH_TABLE</span><span class="p">[</span><span class="n">dispatch_condition</span><span class="p">]</span> <span class="o">=</span> <span class="n">impl</span>
+<span class="n">_AQT_QLINEAR_DISPATCH_TABLE</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="k">def</span> <span class="nf">register_aqt_quantized_linear_dispatch</span><span class="p">(</span><span class="n">dispatch_condition</span><span class="p">,</span> <span class="n">impl</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Register a dispatch for quantized linear op with dispatch_condition function and impl function</span>
+<span class="sd">    both takes three arguments:</span>
+<span class="sd">      input_tensor: dimension is (M1, M2, ..., in_features)</span>
+<span class="sd">      weight_tensor: dimension is (out_features, in_features)</span>
+<span class="sd">      bias: dimension is (out_features,)</span>
+<span class="sd">      so that these can be shared by F.linear, aten.mm, aten.addmm dispatches</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        `dispatch_condition` (Callable[[torch.Tensor, torch.Tensor, torch.Tensor], bool]: the dispatch</span>
+<span class="sd">            condition for a specialized quantized linear implementation, e.g. bfloat16 activation + uint4 weight</span>
+<span class="sd">        `impl` (Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]: the specialized</span>
+<span class="sd">            quantized linear implementation</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">_AQT_QLINEAR_DISPATCH_TABLE</span><span class="p">[</span><span class="n">dispatch_condition</span><span class="p">]</span> <span class="o">=</span> <span class="n">impl</span>
+
+<span class="k">def</span> <span class="nf">deregister_aqt_quantized_linear_dispatch</span><span class="p">(</span><span class="n">dispatch_condition</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">dispatch_condition</span> <span class="ow">in</span> <span class="n">_AQT_QLINEAR_DISPATCH_TABLE</span><span class="p">:</span>
+        <span class="k">del</span> <span class="n">_AQT_QLINEAR_DISPATCH_TABLE</span><span class="p">[</span><span class="n">dispatch_condition</span><span class="p">]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Attempting to remove non-existant dispatch condition </span><span class="si">{</span><span class="n">dispatch_condition</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 
 <div class="viewcode-block" id="AffineQuantizedTensor"><a class="viewcode-back" href="../../../generated/torchao.dtypes.AffineQuantizedTensor.html#torchao.dtypes.AffineQuantizedTensor">[docs]</a><span class="k">class</span> <span class="nc">AffineQuantizedTensor</span><span class="p">(</span><span class="n">TorchAOBaseTensor</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
@@ -570,7 +592,7 @@
 
     <span class="nd">@staticmethod</span>
     <span class="k">def</span> <span class="nf">_quantized_linear_op</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
-        <span class="k">for</span> <span class="n">dispatch_condition</span><span class="p">,</span> <span class="n">impl</span> <span class="ow">in</span> <span class="n">_QLINEAR_DISPATCH_TABLE</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="k">for</span> <span class="n">dispatch_condition</span><span class="p">,</span> <span class="n">impl</span> <span class="ow">in</span> <span class="n">_AQT_QLINEAR_DISPATCH_TABLE</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
             <span class="k">if</span> <span class="n">dispatch_condition</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
                 <span class="k">return</span> <span class="n">impl</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">)</span>
         <span class="k">raise</span> <span class="n">QuantizedLinearNotImplementedError</span><span class="p">(</span><span class="s2">&quot;No specialized dispatch found for quantized linear op&quot;</span><span class="p">)</span>
@@ -821,7 +843,7 @@
 
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span> <span class="nc">Float8LayoutType</span><span class="p">(</span><span class="n">LayoutType</span><span class="p">):</span>
-    <span class="n">mm_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ScaledMMConfig</span><span class="p">]</span>
+    <span class="n">mm_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ScaledMMConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 
 
 <span class="nd">@register_layout_cls</span><span class="p">(</span><span class="n">PlainLayoutType</span><span class="p">)</span>
@@ -979,13 +1001,13 @@
 
 <span class="nd">@register_layout_cls</span><span class="p">(</span><span class="n">Float8LayoutType</span><span class="p">)</span>
 <span class="k">class</span> <span class="nc">Float8AQTLayout</span><span class="p">(</span><span class="n">AQTLayout</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot; </span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Layout storage class for float8 layout for affine quantized tensor</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">float8_data</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
     <span class="n">transposed</span><span class="p">:</span> <span class="nb">bool</span>
-    
+
     <span class="k">def</span> <span class="fm">__new__</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span>
         <span class="n">float8_data</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
@@ -1020,7 +1042,7 @@
         <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">float8_data</span><span class="p">)</span>
         <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span>
-    
+
     <span class="k">def</span> <span class="nf">to</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="n">kwargs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_to_kwargs</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span>
@@ -1357,21 +1379,6 @@
         <span class="n">y</span> <span class="o">+=</span> <span class="n">bias</span>
     <span class="k">return</span> <span class="n">y</span>
 
-<span class="c1"># this is for the case when linear activation is quantized, but is not caught by the previous</span>
-<span class="c1"># conditions that expects a quantized activation, we just dequantize the activation so that</span>
-<span class="c1"># it can continue with the weight only quantization dispatches</span>
-<span class="c1"># NOTE: this is a fallback path that must be registered after all the implementations that expects</span>
-<span class="c1"># input tensor to be quantized</span>
-<span class="k">def</span> <span class="nf">_linear_quantized_act_fallback_check</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
-    <span class="k">return</span> <span class="p">(</span>
-        <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">)</span>
-    <span class="p">)</span>
-
-<span class="k">def</span> <span class="nf">_linear_quantized_act_fallback_impl</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
-    <span class="n">input_tensor</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dequantize</span><span class="p">()</span>
-    <span class="c1"># dequantize activation and redispatch to F.linear</span>
-    <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">)</span>
-
 <span class="k">def</span> <span class="nf">_linear_bf16_act_uint4_weight_check</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
     <span class="k">return</span> <span class="p">(</span>
         <span class="c1"># input is native bfloat16 tensor</span>
@@ -1568,19 +1575,18 @@
     <span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">out_shape</span><span class="p">)</span>
 
 
-<span class="k">def</span> <span class="nf">_register_quantized_linear_dispatches</span><span class="p">():</span>
+<span class="k">def</span> <span class="nf">_register_aqt_quantized_linear_dispatches</span><span class="p">():</span>
     <span class="k">for</span> <span class="n">dispatch_condition</span><span class="p">,</span> <span class="n">impl</span> <span class="ow">in</span> <span class="p">[</span>
         <span class="p">(</span><span class="n">_linear_int8_act_int8_weight_check</span><span class="p">,</span> <span class="n">_linear_int8_act_int8_weight_impl</span><span class="p">),</span>
         <span class="p">(</span><span class="n">_linear_int8_act_int8_weight_semi_structured_sparse_check</span><span class="p">,</span> <span class="n">_linear_int8_act_int8_weight_semi_structured_sparse_impl</span><span class="p">),</span>
         <span class="p">(</span><span class="n">_linear_fp_act_fp8_tensor_wise_weight_check</span><span class="p">,</span> <span class="n">_linear_fp_act_fp8_weight_impl</span><span class="p">),</span>
-        <span class="p">(</span><span class="n">_linear_quantized_act_fallback_check</span><span class="p">,</span> <span class="n">_linear_quantized_act_fallback_impl</span><span class="p">),</span>
         <span class="p">(</span><span class="n">_linear_bf16_act_uint4_weight_check</span><span class="p">,</span> <span class="n">_linear_bf16_act_uint4_weight_impl</span><span class="p">),</span>
         <span class="p">(</span><span class="n">_linear_fp_act_int8_weight_check</span><span class="p">,</span> <span class="n">_linear_fp_act_int8_weight_impl</span><span class="p">),</span>
         <span class="p">(</span><span class="n">_linear_f16_act_fpx_weight_check</span><span class="p">,</span> <span class="n">_linear_f16_act_fpx_weight_impl</span><span class="p">),</span>
     <span class="p">]:</span>
-        <span class="n">_register_quantized_linear_dispatch</span><span class="p">(</span><span class="n">dispatch_condition</span><span class="p">,</span> <span class="n">impl</span><span class="p">)</span>
+        <span class="n">register_aqt_quantized_linear_dispatch</span><span class="p">(</span><span class="n">dispatch_condition</span><span class="p">,</span> <span class="n">impl</span><span class="p">)</span>
 
-<span class="n">_register_quantized_linear_dispatches</span><span class="p">()</span>
+<span class="n">_register_aqt_quantized_linear_dispatches</span><span class="p">()</span>
 
 <span class="nd">@implements</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">functional</span><span class="o">.</span><span class="n">linear</span><span class="p">)</span>
 <span class="k">def</span> <span class="nf">_</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
@@ -1597,7 +1603,11 @@
     <span class="c1"># make the branches easier to understand in `_quantized_linear_op`</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">_quantized_linear_op</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">)</span>
-    <span class="k">except</span> <span class="n">QuantizedLinearNotImplementedError</span><span class="p">:</span>
+    <span class="k">except</span> <span class="n">QuantizedLinearNotImplementedError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="c1"># fallback path is only called when user did not specify a specfic quantized linear implementation with `layout_type.quantized_linear_impl`</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_type</span><span class="p">,</span> <span class="s2">&quot;quantized_linear_impl&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_type</span><span class="o">.</span><span class="n">quantized_linear_impl</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">e</span>
+
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">):</span>
             <span class="n">input_tensor</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dequantize</span><span class="p">()</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">):</span>
@@ -1620,7 +1630,11 @@
     <span class="k">try</span><span class="p">:</span>
         <span class="n">weight_tensor</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">t</span><span class="p">()</span>
         <span class="k">return</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">_quantized_linear_op</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">)</span>
-    <span class="k">except</span> <span class="n">QuantizedLinearNotImplementedError</span><span class="p">:</span>
+    <span class="k">except</span> <span class="n">QuantizedLinearNotImplementedError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="c1"># fallback path is only called when user did not specify a specfic quantized linear implementation with `layout_type.quantized_linear_impl`</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_type</span><span class="p">,</span> <span class="s2">&quot;quantized_linear_impl&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_type</span><span class="o">.</span><span class="n">quantized_linear_impl</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">e</span>
+
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">):</span>
             <span class="n">input_tensor</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dequantize</span><span class="p">()</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">):</span>
@@ -1640,7 +1654,11 @@
     <span class="k">try</span><span class="p">:</span>
         <span class="n">weight_tensor</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">t</span><span class="p">()</span>
         <span class="k">return</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">_quantized_linear_op</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">)</span>
-    <span class="k">except</span> <span class="n">QuantizedLinearNotImplementedError</span><span class="p">:</span>
+    <span class="k">except</span> <span class="n">QuantizedLinearNotImplementedError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="c1"># fallback path is only called when user did not specify a specfic quantized linear implementation with `layout_type.quantized_linear_impl`</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_type</span><span class="p">,</span> <span class="s2">&quot;quantized_linear_impl&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_type</span><span class="o">.</span><span class="n">quantized_linear_impl</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">e</span>
+
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">):</span>
             <span class="n">input_tensor</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dequantize</span><span class="p">()</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">):</span>
