@@ -200,7 +200,8 @@ class Transformer(nn.Module):
                 Indices of input sequence tokens in the vocabulary.
             input_pos (`torch.LongTensor` of shape `(batch_size, seq_length)`, *optional*):
                 Indices of positions of each input sequence tokens in the position embeddings.
-                This is *required* for inference mode(model.setup_caches(training=False)).
+                This argument is optional for training mode but required for
+                inference mode(when model.setup_caches(training=False) is used).
 
         Returns:
             Tensor: The output logits tensor.
