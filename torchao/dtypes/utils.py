@@ -1,5 +1,5 @@
 import torch
-from typing import Dict, Callable, Union, Tuple
+from typing import Dict, Callable, Union, Tuple, Optional
 from collections import defaultdict
 import functools
 from dataclasses import dataclass
@@ -73,6 +73,12 @@ def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
 
 """
 Base class for different LayoutType, should not be instantiated directly
+used to allow users to pass around configurations for the layout tensor, e.g. inner_k_tiles
+for int4 tensor core tiled layout
+
+Note: layout is an abstraction not only for custom data representation, it is also used for how the
+layout interacts with different operators, e.g. the same data representation can have different
+behaviors when running the same operator, e.g. transpose, quantized_linear.
 """
 @dataclass(frozen=True)
 class LayoutType:

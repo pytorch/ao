@@ -498,7 +498,7 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
 def float8_weight_only(weight_dtype: torch.dtype = torch.float8_e4m3fn):
     """
     Applies float8 weight-only symmetric per-channel quantization to linear layers.
-    
+
     Args:
         weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.
 
