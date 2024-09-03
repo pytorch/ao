@@ -1,13 +1,12 @@
 import torch
 import torch.nn.functional as F
-from torchao.dtypes.affine_quantized_tensor import AWQLayoutType
-from torchao.prototype.awq.core import AWQObserver, ObservedLinear
+from torchao.prototype.awq.core import AWQObserver, ObservedLinear, AWQLayoutType
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
 )
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
-from torchao.dtypes import to_affine_quantized
+from torchao.dtypes import to_affine_quantized_intx
 from torchao.dtypes.uintx.Uintx import to_uintx
 from typing import Optional, Tuple
 
@@ -26,7 +25,6 @@ def insert_awq_observer(model: torch.nn.Module, quant_dtype: torch.dtype, group_
         preserve_zero = True
         zero_point_dtype = torch.int64
         zero_point_domain = ZeroPointDomain.INT
-        print("##########################\ninsert-uint4\n##########################\n")
 
     elif quant_dtype == torch.int8:
         mapping_type = MappingType.SYMMETRIC
@@ -38,7 +36,7 @@ def insert_awq_observer(model: torch.nn.Module, quant_dtype: torch.dtype, group_
         block_size = (1, -1)
         quant_min = None
         quant_max = None
-        print("##########################\ninsert-int8\n##########################\n")
+        
     else:
         raise NotImplementedError(f"{quant_dtype} not supported. Use either torch.uint4 or torch.int8")
 
@@ -99,10 +97,9 @@ def awq_quant(quant_dtype = torch.uint4, group_size = 128):
             layout_type = AWQLayoutType(equalization_scale, quant_dtype)
 
         else:
-            print(quant_dtype)
             raise("AWQ supports only uint4 and int8 quantization for now")
         
-        return to_affine_quantized(
+        return to_affine_quantized_intx(
             observed_linear.weight,
             mapping_type, block_size, 
             target_dtype, quant_min, 

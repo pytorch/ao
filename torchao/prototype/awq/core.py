@@ -6,10 +6,11 @@ import torch.nn.functional as F
 
 from torchao.dtypes.uintx.Uintx import to_uintx
 from torchao.dtypes.affine_quantized_tensor import (
-    to_affine_quantized,
+    to_affine_quantized_intx,
     LayoutType,
     register_layout_cls,
-    PlainAQTLayout
+    PlainAQTLayout,
+    register_aqt_quantized_linear_dispatch
 
 ) 
 from torchao.quantization.quant_primitives import (
@@ -69,7 +70,7 @@ class AWQObserver(AffineQuantizedObserverBase):
             scales = scales / (scales.max() * scales.min()).sqrt()
             layout = AWQLayoutType(scales, self.target_dtype)
             tensor_dtype = torch.int8 if self.target_dtype == torch.int8 else torch.uint8
-            w = to_affine_quantized(
+            w = to_affine_quantized_intx(
                 self.weight.data,
                 self.mapping_type,
                 self.block_size,
@@ -81,7 +82,7 @@ class AWQObserver(AffineQuantizedObserverBase):
                 zero_point_dtype = self.zero_point_dtype,
                 preserve_zero = self.preserve_zero,
                 zero_point_domain = self.zero_point_domain,
-                # layout_type = layout
+                layout_type = layout
             )
             q_out = F.linear(input/scales, w, self.bias)
             scaleopts.append(q_out.mean().item())
@@ -123,20 +124,21 @@ class AWQLayoutType(LayoutType):
     def post_process(self, input: torch.Tensor) -> torch.Tensor:
         
         return to_uintx(input, self.dtype)
-
+    
+    def _quantized_linear_impl(input_tensor, weight_tensor, bias):
+        return F.linear(input_tensor / weight_tensor.layout_tensor.layout_type.equalization_scale, weight_tensor.dequantize(), bias)
+    
     def _linear_awq_check(input_tensor, weight_tensor, bias):
         return isinstance(weight_tensor.layout_tensor, AWQ_AQTLayout)
 
-    def _linear_awq_impl(input_tensor, weight_tensor, bias):
-        return F.linear(input_tensor / weight_tensor.layout_tensor.layout_type.equalization_scale, weight_tensor, bias)
-    
-    
+register_aqt_quantized_linear_dispatch(AWQLayoutType._linear_awq_check, AWQLayoutType._quantized_linear_impl)
+
 @register_layout_cls(AWQLayoutType)
 class AWQ_AQTLayout(PlainAQTLayout):
-    @classmethod
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         return self.int_data.get_plain(), self.scale, self.zero_point
     
+    @classmethod
     def from_plain(
         cls,
         int_data: torch.Tensor,
@@ -144,5 +146,4 @@ class AWQ_AQTLayout(PlainAQTLayout):
         zero_point: torch.Tensor,
         layout_type: LayoutType,
     ):
-        assert isinstance(layout_type, AWQLayoutType)
         return cls(int_data, scale, zero_point, layout_type)
