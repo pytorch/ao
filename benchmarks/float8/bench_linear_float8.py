@@ -91,6 +91,8 @@ class Experiment:
         return self.float8_tops_sec / dtype_to_peak_tops[torch.float8_e4m3fn]
 
 
+# TODO(future PR): add option to measure GPU kernel time, as in other
+# scripts in this folder
 def main(
     sweep_path: Optional[Path] = None,
     compile: bool = True,
@@ -112,10 +114,33 @@ def main(
     scaling_type_input = ScalingType(scaling_type_input)
     scaling_type_weight = ScalingType(scaling_type_weight)
     scaling_type_grad_output = ScalingType(scaling_type_grad_output)
+
+    if scaling_type_input is ScalingType.STATIC:
+        cast_config_input=CastConfig(
+            scaling_type=scaling_type_input,
+            static_scale=torch.tensor([1.0], device="cuda"),
+        )
+    else:
+        cast_config_input=CastConfig(scaling_type=scaling_type_input)
+    if scaling_type_weight is ScalingType.STATIC:
+        cast_config_weight=CastConfig(
+            scaling_type=scaling_type_weight,
+            static_scale=torch.tensor([1.0], device="cuda"),
+        )
+    else:
+        cast_config_weight=CastConfig(scaling_type=scaling_type_weight)
+    if scaling_type_grad_output is ScalingType.STATIC:
+        cast_config_grad_output=CastConfig(
+            scaling_type=scaling_type_grad_output,
+            static_scale=torch.tensor([1.0], device="cuda"),
+        )
+    else:
+        cast_config_grad_output=CastConfig(scaling_type=scaling_type_grad_output)
+
     config = Float8LinearConfig(
-        cast_config_input=CastConfig(scaling_type=scaling_type_input),
-        cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
-        cast_config_grad_output=CastConfig(scaling_type=scaling_type_grad_output),
+        cast_config_input=cast_config_input,
+        cast_config_weight=cast_config_weight,
+        cast_config_grad_output=cast_config_grad_output,
     )
 
     name_to_shapes = get_name_to_shapes_iter(shape_gen_name, M, K, N)

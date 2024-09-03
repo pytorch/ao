@@ -1,5 +1,5 @@
 import torch
-from typing import Dict, Callable, Union
+from typing import Dict, Callable, Union, Tuple, Optional
 from collections import defaultdict
 import functools
 from dataclasses import dataclass
@@ -73,6 +73,12 @@ def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
 
 """
 Base class for different LayoutType, should not be instantiated directly
+used to allow users to pass around configurations for the layout tensor, e.g. inner_k_tiles
+for int4 tensor core tiled layout
+
+Note: layout is an abstraction not only for custom data representation, it is also used for how the
+layout interacts with different operators, e.g. the same data representation can have different
+behaviors when running the same operator, e.g. transpose, quantized_linear.
 """
 @dataclass(frozen=True)
 class LayoutType:
@@ -143,3 +149,15 @@ def _get_layout_tensor_constructor(cls: Callable, layout_type_class: type(Layout
 
 def is_device(target_device_str: str, device: Union[str, torch.device]):
     return torch.device(device).type == target_device_str
+
+def get_out_shape(input_shape: Tuple[int], weight_shape: Tuple[int]) -> Tuple[int, int]:
+    """Returns the unflattened shape of the input tensor.
+    Args:
+        input_shape: The input tensor shape possibly more than 2 dimensions
+        weight_shape: The weight tensor shape.
+    Returns:
+        The unflattened shape of the input tensor.
+    """
+    out_dim = weight_shape[0]
+    inpt_dims = input_shape[:-1]
+    return (*inpt_dims, out_dim)

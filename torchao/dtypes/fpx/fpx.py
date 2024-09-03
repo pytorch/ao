@@ -1,13 +1,21 @@
 from functools import reduce
-from typing import Tuple
+from typing import Tuple, Optional
 
 import torch
 from torch import Tensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32, _n_ones
 from torchao.ops import quant_llm_linear
-from torchao.dtypes.utils import _implements, _dispatch__torch_function__, _dispatch__torch_dispatch__
+from torchao.dtypes.utils import (
+    LayoutType,
+    _implements,
+    _dispatch__torch_function__,
+    _dispatch__torch_dispatch__,
+)
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
+from dataclasses import dataclass
+from torchao.dtypes.affine_quantized_tensor import AQTLayout, register_layout_cls
+from torchao.utils import TorchAOBaseTensor
 
 
 aten = torch.ops.aten
@@ -347,119 +355,143 @@ _SPLIT_K_MAP = [
 ]
 
 
-class QuantLlmLinearWeight(Tensor):
-    implements = classmethod(_implements)
-    __torch_function__ = classmethod(_dispatch__torch_function__)
-    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
+# quantization api integrations
 
-    @staticmethod
-    def __new__(cls, fpx_data: Tensor, scale: Tensor, ebits: int, mbits: int):
-        assert fpx_data.ndim == 2
-        assert fpx_data.dtype == torch.uint8
-        shape = (fpx_data.shape[0], fpx_data.shape[1] // (1 + ebits + mbits) * 8)
+@dataclass(frozen=True)
+class FpxTensorCoreLayoutType(LayoutType):
+    """Layout type for FpxTensorCoreAQTLayout
+    """
+    ebits: int
+    mbits: int
 
-        return Tensor._make_wrapper_subclass(
-            cls,
-            shape,
-            device=fpx_data.device,
-            requires_grad=False,
+@register_layout_cls(FpxTensorCoreLayoutType)
+class FpxTensorCoreAQTLayout(AQTLayout):
+    """FpxTensorCoreAQTLayout represents a Tensor with dtype fpx(ebits=a, mbits=b),
+    it has a internal tensor field of "packed_fpx_data", which is packed from the
+    uint8 unpacked data (the output of `quantize_affine_fpx` operator)
+
+    The packing is optimized for TensorCore, from the fp6-llm paper: https://arxiv.org/abs/2401.14112
+    github repo: https://github.com/usyd-fsalab/fp6_llm, now renamed to quant-llm
+
+    At a high level packing is done by grouping bits into 1 bit fragments (shards), 2 bit fragments and
+    4 bit fragments each fragments are packed separately and concatenated together.
+    For example for 6 bit dtype, we can extract the first 4 bits for all elements and pack them together
+    in a fragment, and extract the last 2 bits for all elements and pack them into fragment, in the end
+    we concatenate the fragments together.
+
+    If original Tensor shape is (M, N), and the data is in nbit, the shape of the packed data will be
+    (M, N // 8 * nbit)
+
+    FpxTensorCoreAQTLayout.from_plain takes an unpacked uint8 fpx Tensor of shape (M, N), with format of
+    (zero padding bits + sign bit + exponent bits + mantissa bits), e.g. 00SEEEMM for fp6_e3_m2
+    it will then pack the weight and instantiate the FpxTensorCoreAQTLayout tensor
+    FpxTensorCoreAQTLayout.__init__() takes a packed fpx Tensor of shape (M, N // 8 * nbit)
+    """
+    def __new__(
+        cls,
+        packed_fpx_data: torch.Tensor,
+        scale: torch.Tensor,
+        layout_type: LayoutType,
+    ):
+        assert packed_fpx_data.ndim == 2
+        assert packed_fpx_data.dtype == torch.uint8
+        shape = (packed_fpx_data.shape[0], packed_fpx_data.shape[1] // (1 + layout_type.ebits + layout_type.mbits) * 8)
+        kwargs = {}
+        kwargs["device"] = packed_fpx_data.device
+        kwargs["layout"] = (
+            kwargs.get("layout") if kwargs.get("layout", False) else packed_fpx_data.layout
         )
+        kwargs["dtype"] = packed_fpx_data.dtype
+        kwargs["requires_grad"] = False
+        return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
-    def __init__(self, fpx_data: Tensor, scale: Tensor, ebits: int, mbits: int):
-        self.fpx_data = fpx_data
+    def __init__(
+        self,
+        packed_fpx_data: torch.Tensor,
+        scale: torch.Tensor,
+        layout_type: LayoutType,
+    ):
+        self.packed_fpx_data = packed_fpx_data
         self.scale = scale
-        self.ebits = ebits
-        self.mbits = mbits
+        self.layout_type = layout_type
 
     def __tensor_flatten__(self):
-        return ["fpx_data", "scale"], [self.ebits, self.mbits]
+        return ["packed_fpx_data", "scale"], [self.layout_type]
 
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
-        return cls(tensor_data_dict["fpx_data"], tensor_data_dict["scale"], *tensor_attributes)
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
+    ):
+        packed_fpx_data, scale = tensor_data_dict["packed_fpx_data"], tensor_data_dict["scale"]
+        layout_type, = tensor_attributes
+        return cls(packed_fpx_data, scale, layout_type)
+
+    def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        unpacked_fpx_data = unpack_tc_fpx(self.packed_fpx_data, 1 + self.layout_type.ebits + self.layout_type.mbits)
+        return unpacked_fpx_data, self.scale
 
     @classmethod
-    def from_float(cls, input_float: Tensor, ebits: int, mbits: int):
-        fpx_data, scale = to_scaled_tc_fpx(input_float, ebits, mbits)
-        return cls(fpx_data, scale, ebits, mbits)
+    def from_plain(
+        cls,
+        unpacked_fpx_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: Optional[torch.Tensor],
+        layout_type: LayoutType,
+    ):
+        """
+        Format for `unpacked_fpx_data` will be:
+        zero padding bits | sign bit | exponent bits | mantissa bits
 
-    def dequantize(self, output_dtype=None):
-        output_dtype = output_dtype or torch.get_default_dtype()
-        return from_scaled_tc_fpx(self.fpx_data, self.ebits, self.mbits, self.scale).to(output_dtype)
+        For example for fp6_e3_m2, the format will be: `00SEEEMM`, where S is sign bit, E is exponent
+        bit, M is mantissa bit
+        """
+        assert isinstance(layout_type, FpxTensorCoreLayoutType)
+        packed_fpx_data = pack_tc_fpx(unpacked_fpx_data, 1 + layout_type.ebits + layout_type.mbits)
+        return cls(packed_fpx_data, scale, layout_type)
 
     def __repr__(self):
-        dtype = f"fp{1 + self.ebits + self.mbits}_e{self.ebits}m{self.mbits}"
-        return (
-            f"{self.__class__.__name__}(dtype={dtype}, shape={self.shape}, "
-            f"device={self.device}, requires_grad={self.requires_grad})"
-        )
+        unpacked_fpx_data, scale = self.get_plain()
+        layout_type = self.get_layout_type()
+        return f"{self.__class__.__name__}(unpacked_fpx_data={unpacked_fpx_data}, scale={scale}, layout_type={layout_type})"
 
     def _apply_fn_to_data(self, fn):
         return self.__class__(
-            fn(self.fpx_data),
+            fn(self.packed_fpx_data),
             fn(self.scale),
-            self.ebits,
-            self.mbits,
+            self.layout_type,
         )
 
-@QuantLlmLinearWeight.implements(torch.nn.functional.linear)
-def _(func, types, args, kwargs):
-    act = args[0]
-    weight = args[1]
-    bias = args[2] if len(args) >= 3 else None
-    assert isinstance(weight, QuantLlmLinearWeight)
+    def to(self, *args, **kwargs):
+        kwargs = self._get_to_kwargs(*args, **kwargs)
+        device = kwargs.pop("device")
+        return self.__class__(
+            self.packed_fpx_data.to(device),
+            self.scale.to(device),
+            self.layout_type,
+        )
 
-    out_dim, in_dim = weight.shape
-    act_reshaped = act.view(-1, in_dim).half()
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs):
+        kwargs = {} if kwargs is None else kwargs
 
-    # https://github.com/microsoft/DeepSpeed/blob/3a3a6db3332e339cc9fd94efd4982f6d60635a3d/deepspeed/inference/v2/kernels/core_ops/cuda_linear/cuda_linear.py
-    bsize = act_reshaped.shape[0]
-    splitK = _SPLIT_K_MAP[(bsize - 1) // 64].get(out_dim, 1) if bsize <= 768 else 1
+        if func is aten.detach.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+            )
+        elif func is aten.clone.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+            )
+        elif func is aten._to_copy.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(lambda x: x.to(device=kwargs.pop("device", None))),
+            )
 
-    out = quant_llm_linear(
-        weight.ebits,
-        weight.mbits,
-        act_reshaped,
-        weight.fpx_data,
-        weight.scale,
-        splitK=splitK,
-    )
+        raise NotImplementedError(
+            f"FpxTensorCoreAQTLayout dispatch: attempting to run {func}, this is not supported"
+        )
 
-    if bias is not None:
-        out += bias
+    __torch_function__ = torch._C._disabled_torch_function_impl
 
-    return out.view(*act.shape[:-1], out_dim).to(act.dtype)
-
-
-@QuantLlmLinearWeight.implements(aten.detach.default)
-def _(func, types, args, kwargs):
-    return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.detach))
-
-
-@QuantLlmLinearWeight.implements(aten.clone.default)
-def _(func, types, args, kwargs):
-    return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.clone))
-
-
-@QuantLlmLinearWeight.implements(aten._to_copy.default)
-def _(func, types, args, kwargs):
-    # only support device kwargs, ignore the rest
-    return return_and_correct_aliasing(
-        func,
-        args,
-        kwargs,
-        args[0]._apply_fn_to_data(lambda x: x.to(device=kwargs.pop("device", None))),
-    )
-
-
-def quant_llm_fpx_weight_only(ebits: int, mbits: int):
-    def apply_quant_llm(weight: Tensor) -> Tensor:
-        out_dim, in_dim = weight.shape
-        if (in_dim % 64 != 0) or (out_dim % 256 != 0):
-            return weight
-        return QuantLlmLinearWeight.from_float(weight, ebits, mbits)
-    return _get_linear_subclass_inserter(apply_quant_llm)
-
-
-def fp6_llm_weight_only():
-    return quant_llm_fpx_weight_only(3, 2)
+    def get_layout_type(self) -> LayoutType:
+        return self.layout_type

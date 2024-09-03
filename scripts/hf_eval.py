@@ -20,6 +20,7 @@ from torchao.quantization import (
     int8_dynamic_activation_int8_weight,
     quantize_,
     autoquant,
+    fpx_weight_only,
 )
 from torchao.sparsity import (
     sparsify_,
@@ -59,6 +60,8 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, spars
     elif quantization == "int4wo":
         # note cannot quantize this model on cpu and run it on cuda at this time
         quantize_(model.to(device=device), int4_weight_only())
+    elif quantization == "fp6":
+        quantize_(model, fpx_weight_only(3, 2))
     elif quantization == "autoquant":
         model = autoquant(model.to(device=device))
     elif quantization == "awq":
@@ -99,7 +102,7 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, spars
             return False
         torch.sparse.semi_structured._FORCE_CUTLASS = False
         sparsify_(model, semi_sparse_weight(), filter_fn=all_linear)
-    
+
     if sparsity and compile:
         model = torch.compile(model, mode="max-autotune", fullgraph=True)
 

@@ -75,15 +75,16 @@ class TestQuantize(TestCase):
 
 
 class TestOptim(TestCase):
-    @pytest.mark.xfail(not TORCH_VERSION_AT_LEAST_2_3, reason="torch.compile() fails for PyTorch < 2.3")
+    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_3, reason="requires PyTorch >= 2.3")
     @parametrize("optim_name", ["Adam8bit", "AdamW8bit", "Adam4bit", "AdamW4bit", "AdamFp8", "AdamWFp8"])
     @parametrize("dtype", [torch.float32, torch.bfloat16])
     @parametrize("device", _DEVICES)
     def test_optim_smoke(self, optim_name, dtype, device):
-        if optim_name.endswith("Fp8") and device == "cuda" and torch.cuda.get_device_capability() < (8, 9):
-            pytest.skip("FP8 requires compute capability >= 8.9")
-        if optim_name.endswith("4bit") and not TORCH_VERSION_AT_LEAST_2_5:
-            pytest.skip("4-bit Adam requires PyTorch > 2.4")
+        if optim_name.endswith("Fp8") and device == "cuda":
+            if not TORCH_VERSION_AT_LEAST_2_4:
+                pytest.skip("FP8 CUDA requires PyTorch >= 2.4")
+            if torch.cuda.get_device_capability() < (8, 9):
+                pytest.skip("FP8 requires compute capability >= 8.9")
 
         # reset cache to avoid hitting cache_size_limit, since the function will re-compile for each test
         torch._dynamo.reset_code_caches()
@@ -100,7 +101,7 @@ class TestOptim(TestCase):
 
     @pytest.mark.skipif(bnb is None, reason="bitsandbytes is not availablle")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="bitsandbytes 8-bit Adam only works for CUDA")
-    @pytest.mark.xfail(not TORCH_VERSION_AT_LEAST_2_3, reason="torch.compile() fails for PyTorch < 2.3")
+    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_3, reason="requires PyTorch >= 2.3")
     @parametrize("optim_name", ["Adam8bit", "AdamW8bit"])
     def test_optim_8bit_correctness(self, optim_name):
         device = "cuda"
@@ -126,9 +127,10 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model1.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1, rtol=1e-5, atol=1e-5)
 
+    # this will not run in CI because we can't install lpmm
     @pytest.mark.skipif(lpmm is None, reason="lpmm is not availablle")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="lpmm 4-bit Adam only works for CUDA")
-    @pytest.mark.xfail(not TORCH_VERSION_AT_LEAST_2_3, reason="torch.compile() fails for PyTorch < 2.3")
+    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_3, reason="requires PyTorch >= 2.3")
     @parametrize("optim_name", ["Adam4bit", "AdamW4bit"])
     def test_optim_4bit_correctness(self, optim_name):
         device = "cuda"

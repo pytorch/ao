@@ -74,12 +74,12 @@ def dataloader_hv_product(layerid, params, device, v, data, nsamples, model, max
     THv = [THv1 / float(nsamples) for THv1 in THv]
     return THv
 
-def cal_trace(layerid, params, device, data, nsamples, model, maxIter, max_seqlen, criterion):
+def cal_trace(layerid, params, device, data, nsamples, model, max_iter, max_seqlen, criterion):
     vhv_c_history = []
     trace_history = []
     trace = 0.
 
-    for i in range(maxIter):
+    for i in range(max_iter):
         print("iteration: ",i)
 
         # generate Rademacher random variables
@@ -110,7 +110,7 @@ def cal_trace(layerid, params, device, data, nsamples, model, maxIter, max_seqle
     return np.mean(trace_history)
 
 
-def main(layer_id, checkpoint, max_seqlen, maxIter, nsamples):
+def main(layer_id, checkpoint, max_seqlen, max_iter, nsamples):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # to avoid aten::_scaled_dot_product_flash_attention_backward not implemented error
@@ -136,16 +136,16 @@ def main(layer_id, checkpoint, max_seqlen, maxIter, nsamples):
         for param in layer_.mlp.parameters():
             params.append(param)
 
-        trace = cal_trace(layerid=layer_id, params=params, device=device, data=trainloader, nsamples=nsamples, model=model, maxIter=maxIter, max_seqlen=max_seqlen, criterion=criterion)
+        trace = cal_trace(layerid=layer_id, params=params, device=device, data=trainloader, nsamples=nsamples, model=model, max_iter=max_iter, max_seqlen=max_seqlen, criterion=criterion)
         print("The trace of layer " + str(layer_id) + " is", trace)
 
 if __name__ == '__main__':
     import argparse
-    parser = argparse.ArgumentParser(description='Your CLI description.')
+    parser = argparse.ArgumentParser(description='Calculate layer-wised Hessian trace leveraging autograd.')
     parser.add_argument('--layer_id', type=int, default=0, help='Which layer to compute the trace and hessian')
-    parser.add_argument('--checkpoint', type=str, default="/home/hanxianhuang/ao/torchao/quantization/prototype/mixed_precision/checkpoints/meta-llama/Meta-Llama-3-8B", help='Path to load model')
+    parser.add_argument('--checkpoint', type=str, default="/tmp/Meta-Llama-3-8B", help='Path to load model')
     parser.add_argument('--max_seqlen', type=int, default=2048, help='Max sequence length')
-    parser.add_argument('--maxIter', type=int, default=100, help='The number of iterations to calculate Hessian trace')
+    parser.add_argument('--max_iter', type=int, default=100, help='The number of iterations to calculate Hessian trace')
     parser.add_argument('--nsamples', type=int, default=128, help='The number of samples in calibration dataset') 
     args = parser.parse_args()
-    main(args.layer_id, args.checkpoint, args.max_seqlen, args.maxIter, args.nsamples)
+    main(args.layer_id, args.checkpoint, args.max_seqlen, args.max_iter, args.nsamples)

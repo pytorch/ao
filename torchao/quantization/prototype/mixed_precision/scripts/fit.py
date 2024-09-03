@@ -25,7 +25,7 @@ def get_wikitext2(nsamples, seed, seqlen, tokenizer):
         trainloader.append((inp, tar))
     return trainloader, testenc
 
-def cal_FIT(device, data, nsamples, model, maxIter, max_seqlen, criterion, num_layers):
+def cal_FIT(device, data, nsamples, model, max_iter, max_seqlen, criterion, num_layers):
     
     # store the history of trace for each layer
     estimated_history=[]
@@ -35,7 +35,7 @@ def cal_FIT(device, data, nsamples, model, maxIter, max_seqlen, criterion, num_l
     trace = [0.] * num_layers
 
 
-    for iteration in range(maxIter):
+    for iteration in range(max_iter):
         print("iteration: ",iteration)
         trace_tmp = [0.] * num_layers
 
@@ -72,7 +72,7 @@ def cal_FIT(device, data, nsamples, model, maxIter, max_seqlen, criterion, num_l
     F_average = np.array([np.mean(i) for i in estimated_mean])
     return F_average, estimated_mean, estimated_history
 
-def main(max_seqlen, checkpoint, nsamples, maxIter, num_layers):
+def main(max_seqlen, checkpoint, nsamples, max_iter, num_layers):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
     # have been tested models Llama-3-8B, Llama-2-7B, Mistral-7B, and stories110M
@@ -87,19 +87,19 @@ def main(max_seqlen, checkpoint, nsamples, maxIter, num_layers):
     seed = 0
     trainloader, testloader = get_wikitext2(nsamples, seed, max_seqlen, tokenizer)
 
-    F_average, estimated_mean, estimated_history = cal_FIT(device=device, data=trainloader, nsamples=nsamples, model=model, maxIter=maxIter, max_seqlen=max_seqlen, criterion=criterion, num_layers=num_layers)
+    F_average, estimated_mean, estimated_history = cal_FIT(device=device, data=trainloader, nsamples=nsamples, model=model, max_iter=max_iter, max_seqlen=max_seqlen, criterion=criterion, num_layers=num_layers)
     print("Iteration Done")
-    print("avg_trace:", F_average)
+    print("FIT scores for",num_layers,"layers:\n", F_average)
     print("estimated_mean:", estimated_mean)
     print("estimated_history:", estimated_history)
 
 if __name__ == '__main__':
     import argparse
-    parser = argparse.ArgumentParser(description='Your CLI description.')
-    parser.add_argument('--checkpoint', type=str, default="/home/hanxianhuang/ao/torchao/quantization/prototype/mixed_precision/checkpoints/meta-llama/Meta-Llama-3-8B", help='Path to load model')
+    parser = argparse.ArgumentParser(description='Calculate layer-wised fish information matrix trace.')
+    parser.add_argument('--checkpoint', type=str, default="/tmp/Meta-Llama-3-8B", help='Path to load model')
     parser.add_argument('--max_seqlen', type=int, default=2048, help='Max sequence length')
-    parser.add_argument('--maxIter', type=int, default=100, help='The number of iterations to calculate FIT')
+    parser.add_argument('--max_iter', type=int, default=100, help='The number of iterations to calculate FIT')
     parser.add_argument('--num_layers', type=int, default=32, help='The number of layers to calculate FIT.')
     parser.add_argument('--nsamples', type=int, default=128, help='The number of samples in calibration dataset') 
     args = parser.parse_args()
-    main(args.max_seqlen, args.checkpoint, args.nsamples, args.maxIter, args.num_layers)
+    main(args.max_seqlen, args.checkpoint, args.nsamples, args.max_iter, args.num_layers)
