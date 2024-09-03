@@ -9,6 +9,7 @@ from torchao.dtypes.utils import (
     _dispatch__torch_dispatch__,
 )
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
+from torch.sparse._triton_ops import bsr_dense_addmm, bsr_dense_mm
 
 aten = torch.ops.aten
 
@@ -16,7 +17,12 @@ aten = torch.ops.aten
 @torch.library.custom_op("blocksparse::linear", mutates_args=())
 def blocksparse_linear(A: torch.Tensor, crow_indices: torch.Tensor, col_indices: torch.Tensor, values: torch.Tensor, M: int, K: int, bias: torch.Tensor) -> torch.Tensor:
     weight_bsr = torch.sparse_bsr_tensor(crow_indices, col_indices, values, size=(M, K))
-    return torch.nn.functional.linear(A, weight_bsr, bias)
+    # return torch.nn.functional.linear(A, weight_bsr, bias)
+    A_shape = A.shape
+    A_2d = A.reshape(-1, A.shape[-1])
+    out = bsr_dense_mm(weight_bsr, A_2d.t())
+    return out.reshape(A_shape[:-1] + (bias.shape[0],))
+
 
 @torch.library.register_fake("blocksparse::linear")
 def blocksparse_linear_abstract(A: torch.Tensor, crow_indices: torch.Tensor, col_indices: torch.Tensor, values: torch.Tensor, M: int, K:int , bias: torch.Tensor) -> torch.Tensor:

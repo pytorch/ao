@@ -456,6 +456,8 @@ def int8_dynamic_activation_int8_weight(layout_type=PlainLayoutType()):
     Applies int8 dynamic symmetric per-token activation and int8 per-channel weight
     quantization to linear layers
     """
+    quant_min = -127
+    quant_max = 127
     def apply_int8_dynamic_activation_int8_weight_quant(weight):
         in_features = weight.shape[1]
         # int8 dynamic quantization only has benefit when in_feature > 16

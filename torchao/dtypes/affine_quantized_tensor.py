@@ -324,6 +324,12 @@ class SemiSparseLayoutType(LayoutType):
         temp.view(-1, 4).scatter_(1, pruning_inds, value=0)
         return temp
 
+@dataclass(frozen=True)
+class BlockSparseLayoutType(LayoutType):
+
+    def pre_process(self, input: torch.Tensor) -> torch.Tensor:
+        return input
+
 
 @dataclass(frozen=True)
 class TensorCoreTiledLayoutType(LayoutType):
@@ -495,6 +501,145 @@ class SemiSparseAQTLayout(PlainAQTLayout):
         int_data_compressed = torch._cslt_compress(int_data)
         return cls(int_data_compressed, scale, zero_point, layout_type)
 
+@register_layout_cls(BlockSparseLayoutType)
+class BlockSparseAQTLayout(PlainAQTLayout):
+    bsr_crow_indices: Optional[torch.Tensor]
+    bsr_col_indices: Optional[torch.Tensor]
+    bsr_values: Optional[torch.Tensor]
+    scale: Optional[torch.Tensor]
+    zero_point: Optional[torch.Tensor]
+
+    __slots__ = ["bsr_crow_indices", "bsr_col_indices", "bsr_values", "scale", "zero_point"] 
+
+    implements = classmethod(_implements)
+    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
+    __torch_function__ = classmethod(_dispatch__torch_function__)
+
+    @staticmethod
+    def __new__(  # noqa: PYI034
+        cls,
+        shape: torch.Size,
+        bsr_crow_indices: Optional[torch.Tensor],
+        bsr_col_indices: Optional[torch.Tensor],
+        bsr_values: Optional[torch.Tensor],
+        scale: Optional[torch.Tensor], 
+        zero_point: Optional[torch.Tensor],
+        layout_type: LayoutType,
+        requires_grad: bool = False,
+    ):
+        if bsr_values is None:
+            raise ValueError("bsr values must be provided!")
+        else:
+            previous_tensor = bsr_values
+
+        kwargs = {
+            "device": previous_tensor.device,
+            "dtype": previous_tensor.dtype,
+            "layout": previous_tensor.layout,
+            "requires_grad": requires_grad,
+        }
+        return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
+    
+    def __init__(  # noqa: PYI034
+        self,
+        shape: torch.Size,
+        bsr_crow_indices: Optional[torch.Tensor],
+        bsr_col_indices: Optional[torch.Tensor],
+        bsr_values: Optional[torch.Tensor],
+        scale: Optional[torch.Tensor], 
+        zero_point: Optional[torch.Tensor],
+        layout_type: LayoutType,
+        requires_grad: bool = False,
+    ):
+        self.bsr_crow_indices = bsr_crow_indices
+        self.bsr_col_indices = bsr_col_indices
+        self.bsr_values = bsr_values
+        self.scale = scale
+        self.zero_point = zero_point
+        self.layout_type = layout_type
+
+    def __repr__(self) -> str:  # type: ignore[override]
+        assert hasattr(self, "shape")
+        return f"{self.__class__.__name__}(shape={self.shape})"
+
+    def __tensor_flatten__(self): 
+        inner_tensors = list(
+            filter(lambda x: getattr(self, x) is not None, self.__slots__)
+        )
+        tensor_meta = (self.shape, self.layout_type, self.requires_grad)
+        return inner_tensors, tensor_meta
+
+    @classmethod
+    def __tensor_unflatten__(
+        cls,
+        inner_tensors,
+        tensor_meta: Tuple[torch.Size, bool],
+        outer_size,
+        outer_stride,
+    ) -> torch.Tensor:
+        shape, layout_type, requires_grad = tensor_meta
+        return cls(
+            shape=shape,
+            bsr_crow_indices=inner_tensors.get("bsr_crow_indices", None),
+            bsr_col_indices=inner_tensors.get("bsr_col_indices", None),
+            bsr_values=inner_tensors.get("bsr_values", None),
+            scale=inner_tensors.get("scale", None),
+            zero_point=inner_tensors.get("zero_point", None),
+            layout_type=layout_type,
+            requires_grad=requires_grad,
+        )
+
+    @classmethod
+    def from_plain(cls, int_data, scale, zero_point, layout_type):
+        bsr_tensor = int_data.to_sparse_bsr(64)
+        return cls(
+            shape=int_data.shape,
+            bsr_crow_indices=bsr_tensor.crow_indices(),
+            bsr_col_indices=bsr_tensor.col_indices(),
+            bsr_values=bsr_tensor.values(),
+            scale=scale, 
+            zero_point=zero_point,
+            layout_type = layout_type,
+            requires_grad=False,
+        )
+
+    def get_plain(self):
+        int_data_bsr = torch.sparse_bsr_tensor(self.crow_indices(), self.col_indices(), self.values(), size=(self.shape[0], self.shape[1]))
+        print(int_data_bsr) 
+        asdf = torch.eye(self.shape[1]).to(self.device)
+        return torch.mm(int_data_bsr, asdf), self.scale, self.zero_point
+
+    def apply_fn_to_shard(self, func):
+        return self.__class__(
+            shape = self.shape,
+            bsr_crow_indices=func(self.bsr_crow_indices),
+            bsr_col_indices=func(self.bsr_col_indices),
+            bsr_values=func(self.bsr_values),
+            scale=self.scale,
+            zero_point=self.zero_point,
+            layout_type=self.layout_type,
+            requires_grad=self.requires_grad,
+        )
+
+@BlockSparseAQTLayout.implements([aten.detach.default])
+def block_sparse_detach(func, types, args, kwargs):
+    return return_and_correct_aliasing(func, args, kwargs, args[0].apply_fn_to_shard(torch.detach))
+
+@BlockSparseAQTLayout.implements([aten.values.default])
+def block_sparse_values(func, types, args, kwargs):
+    return args[0].bsr_values.detach()
+
+@BlockSparseAQTLayout.implements(aten.crow_indices.default)
+def block_sparse_crow_indices(func, types, args, kwargs):
+    return args[0].bsr_crow_indices.detach()
+
+@BlockSparseAQTLayout.implements(aten.col_indices.default)
+def block_sparse_col_indices(func, types, args, kwargs):
+    return args[0].bsr_col_indices.detach()
+
+@BlockSparseAQTLayout.implements(aten._nnz.default)
+def block_sparse__nnz(func, types, args, kwargs):
+    return args[0].bsr_values.shape[0]
 
 @register_layout_cls(TensorCoreTiledLayoutType)
 class TensorCoreTiledAQTLayout(AQTLayout):
@@ -756,6 +901,38 @@ def _linear_int8_act_int8_weight_semi_structured_sparse_impl(input_tensor, weigh
         y += bias
     return y
 
+
+def _linear_int8_act_int8_weight_block_sparse_check(input_tensor, weight_tensor, bias):
+    return (
+        isinstance(input_tensor, AffineQuantizedTensor) and
+        _aqt_is_int8_reduced_range(input_tensor) and
+        isinstance(weight_tensor, AffineQuantizedTensor) and
+        weight_tensor.is_cuda and
+        input_tensor.dtype == weight_tensor.dtype and
+        isinstance(input_tensor.layout_type, PlainLayoutType) and
+        isinstance(weight_tensor.layout_type, BlockSparseLayoutType)
+    )
+
+def _linear_int8_act_int8_weight_block_sparse_impl(input_tensor, weight_tensor, bias):
+    x_vals_int8 = input_tensor.layout_tensor.int_data
+    x_scales = input_tensor.layout_tensor.scale
+    w_vals = weight_tensor.layout_tensor
+    w_scales = weight_tensor.layout_tensor.scale
+    tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
+    y_dot_scaled = torch.ops.blocksparse.linear(x_vals_int8, w_vals.crow_indices(), w_vals.col_indices(), w_vals.values(), w_vals.shape[0], w_vals.shape[1], None)
+    # y_dot_scaled = int_scaled_matmul(tmp, w_vals_int8_t, x_scales.reshape(-1, 1))
+
+    y = (y_dot_scaled * w_scales).reshape(
+        *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]
+    )
+
+    # can downcast only at the very end
+    output_dtype = input_tensor.dtype
+    y = y.to(output_dtype)
+    if bias is not None:
+        y += bias
+    return y
+
 # this is for the case when linear activation is quantized, but is not caught by the previous
 # conditions that expects a quantized activation, we just dequantize the activation so that
 # it can continue with the weight only quantization dispatches
@@ -863,6 +1040,7 @@ def _register_quantized_linear_dispatches():
     for dispatch_condition, impl in [
         (_linear_int8_act_int8_weight_check, _linear_int8_act_int8_weight_impl),
         (_linear_int8_act_int8_weight_semi_structured_sparse_check, _linear_int8_act_int8_weight_semi_structured_sparse_impl),
+        (_linear_int8_act_int8_weight_block_sparse_check, _linear_int8_act_int8_weight_block_sparse_impl),
         (_linear_quantized_act_fallback_check, _linear_quantized_act_fallback_impl),
         (_linear_bf16_act_uint4_weight_check, _linear_bf16_act_uint4_weight_impl),
         (_linear_fp_act_int8_weight_check, _linear_fp_act_int8_weight_impl),
