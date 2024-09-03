@@ -5,4 +5,6 @@
 include = [
     "torchao/float8/inference.py",
     "torchao/float8/float8_utils.py",
+    "torchao/dtypes/nf4tensor.py",
+    "test/dtypes/test_nf4.py",
 ]
