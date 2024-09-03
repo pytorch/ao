@@ -197,7 +197,6 @@ class Transformer(nn.Module):
 
         if input_pos is None: 
             mask = None
-            input_pos = torch.arange(0, idx.shape[1], device=idx.device)
             freqs_cis = self.freqs_cis[:idx.shape[1]]
         else:
             if not self.linear_causal_mask:
