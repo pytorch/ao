@@ -130,6 +130,7 @@ def _(A: Tensor, B: Tensor, A_scale_rowwise: Tensor, B_scale_colwise: Tensor):
 @torch.library.impl(lib, "int8_mm_dequant", "CUDA")
 def int8_mm_dequant_cuda(A: Tensor, B: Tensor, A_scale_rowwise: Tensor, B_scale_colwise: Tensor):
     assert A.dtype is torch.int8 and B.dtype is torch.int8
+    assert A_scale_rowwise.dtype is B_scale_colwise.dtype
     assert A.shape[1] == B.shape[0]
     M, K = A.shape
     _, N = B.shape
