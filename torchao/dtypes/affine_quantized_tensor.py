@@ -38,7 +38,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from torchao.float8.float8_tensor import ScaledMMConfig
+from torchao.float8.inference import Float8MMConfig
 aten = torch.ops.aten
 
 ###############################
@@ -458,7 +458,7 @@ class TensorCoreTiledLayoutType(LayoutType):
 
 @dataclass(frozen=True)
 class Float8LayoutType(LayoutType):
-    mm_config: Optional[ScaledMMConfig] = None
+    mm_config: Optional[Float8MMConfig] = None
 
 
 @register_layout_cls(PlainLayoutType)
@@ -1154,12 +1154,14 @@ def _linear_fp_act_fp8_weight_impl(
     bias: Optional[torch.Tensor],
 ):
     """Implements matmul between FP8 input and FP8 weight with compute using _scaled_mm"""
-    from torchao.float8.inference import preprocess_data
-    from torchao.float8.float8_tensor import ScaledMMConfig
-    from torchao.float8.float8_python_api import addmm_float8_unwrapped
+    from torchao.float8.inference import (
+        preprocess_data,
+        Float8MMConfig,
+        addmm_float8_unwrapped_inference,
+    )
 
     scaled_mm_config = weight_tensor.layout_type.mm_config
-    scaled_mm_config = scaled_mm_config if scaled_mm_config is not None else ScaledMMConfig()
+    scaled_mm_config = scaled_mm_config if scaled_mm_config is not None else Float8MMConfig()
 
     w_layout = weight_tensor.layout_tensor
     w_data = weight_tensor.layout_tensor.float8_data
@@ -1178,7 +1180,7 @@ def _linear_fp_act_fp8_weight_impl(
 
     inpt_data, w_data = preprocess_data(inpt_data, w_data.T, scaled_mm_config)
 
-    return addmm_float8_unwrapped(
+    return addmm_float8_unwrapped_inference(
         inpt_data,
         input_scale,
         w_data,
@@ -1186,7 +1188,6 @@ def _linear_fp_act_fp8_weight_impl(
         output_dtype=input_tensor.dtype,
         bias=bias,
         use_fast_accum=scaled_mm_config.use_fast_accum,
-        inverse_scale=False
     ).reshape(out_shape)
 
 

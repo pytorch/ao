@@ -45,11 +45,6 @@ from torchao.float8.float8_utils import (
     FP8_TYPES,
     tensor_to_scale,
 )
-from torchao.float8.inference import (
-    ActivationCasting,
-    QuantConfig,
-    quantize_to_float8,
-)
 
 random.seed(0)
 torch.manual_seed(0)
@@ -134,21 +129,6 @@ class TestFloat8Tensor(unittest.TestCase):
         fp8_b.copy_(fp8_a)
         torch.testing.assert_close(fp8_a._data, fp8_b._data)
 
-    @pytest.mark.skip("broken")
-    def test_weights_only_load(self):
-        module = nn.Linear(16, 16)
-        # Save model state dict
-        buffer = io.BytesIO()
-        fp8_module = quantize_to_float8(
-            module,
-            QuantConfig(
-                ActivationCasting.DYNAMIC,
-            ),
-        )
-
-        torch.save(fp8_module.state_dict(), buffer)
-        buffer.seek(0)
-        _ = torch.load(buffer, weights_only=True)
 
 
 class TestFloat8Linear:
