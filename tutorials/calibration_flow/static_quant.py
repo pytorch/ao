@@ -22,6 +22,7 @@ from torchao.quantization.observer import (
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
+    FP8_TYPES, 
 )
 
 
@@ -55,99 +56,81 @@ def insert_observers_(model, act_obs, weight_obs):
 
 # converting observed linear module to linear module with quantzied weights (and quantized activations)
 # with tensor subclasses
-def apply_intx_static_quant(observed_linear):
-    target_dtype = torch.uint8
+def apply_static_quant(target_dtype: torch.dtype):
+    # target_dtype = torch.uint8
+    def _apply_static_quant_to_linear(observed_linear):
+        # weight quantization
+        weight_scale, weight_zero_point = observed_linear.weight_obs.calculate_qparams()
+        def weight_quant_func(weight):
+            block_size = (1, weight.shape[1])
+            if target_dtype == torch.uint8:
+                return to_affine_quantized_intx_static(weight, weight_scale, weight_zero_point, block_size, target_dtype)
+            elif target_dtype == torch.float8_e4m3fn:
+                return to_affine_quantized_floatx_static(weight, weight_scale, block_size, target_dtype, Float8LayoutType(mm_config=None))
+            else:
+                raise ValueError(f"Unsupported target dtype {target_dtype}")
+        linear = torch.nn.Linear(observed_linear.in_features, observed_linear.out_features, False, device=observed_linear.weight.device, dtype=observed_linear.weight.dtype)
+        linear.weight = observed_linear.weight
+        linear.bias = observed_linear.bias
 
-    # weight quantization
-    weight_scale, weight_zero_point = observed_linear.weight_obs.calculate_qparams()
-    def weight_quant_func(weight):
-        block_size = (1, weight.shape[1])
-        return to_affine_quantized_intx_static(weight, weight_scale, weight_zero_point, block_size, target_dtype)
-    linear = torch.nn.Linear(observed_linear.in_features, observed_linear.out_features, False, device=observed_linear.weight.device, dtype=observed_linear.weight.dtype)
-    linear.weight = observed_linear.weight
-    linear.bias = observed_linear.bias
+        linear.weight = torch.nn.Parameter(weight_quant_func(linear.weight), requires_grad=False)
 
-    linear.weight = torch.nn.Parameter(weight_quant_func(linear.weight), requires_grad=False)
+        # activation quantization
+        act_scale, act_zero_point = observed_linear.act_obs.calculate_qparams()
+        if target_dtype == torch.uint8:
+            input_quant_func = lambda x: to_affine_quantized_intx_static(x, act_scale, act_zero_point, x.shape, target_dtype)
+        elif target_dtype == torch.float8_e4m3fn:
+            input_quant_func = lambda x: to_affine_quantized_floatx_static(x, act_scale, x.shape, target_dtype, Float8LayoutType(mm_config=None))
+        else:
+            raise ValueError(f"Unsupported target dtype {target_dtype}")
+        linear.weight = torch.nn.Parameter(to_linear_activation_quantized(linear.weight, input_quant_func), requires_grad=False)
 
-    # activation quantization
-    act_scale, act_zero_point = observed_linear.act_obs.calculate_qparams()
-    input_quant_func = lambda x: to_affine_quantized_intx_static(x, act_scale, act_zero_point, x.shape, target_dtype)
-    linear.weight = torch.nn.Parameter(to_linear_activation_quantized(linear.weight, input_quant_func), requires_grad=False)
-
-    return linear
-
-def apply_floatx_static_quant(observed_linear):
-    target_dtype = torch.float8_e4m3fn
-
-    # weight quantization
-    weight_scale, weight_zero_point = observed_linear.weight_obs.calculate_qparams()
-    def weight_quant_func(weight):
-        block_size = (1, weight.shape[1])
-        return to_affine_quantized_floatx_static(
-            input_float=weight, scale=weight_scale, block_size=block_size, target_dtype=target_dtype, layout_type=Float8LayoutType(mm_config=None))
-    linear = torch.nn.Linear(observed_linear.in_features, observed_linear.out_features, False, device=observed_linear.weight.device, dtype=observed_linear.weight.dtype)
-    linear.weight = observed_linear.weight
-    linear.bias = observed_linear.bias
-
-    linear.weight = torch.nn.Parameter(weight_quant_func(linear.weight), requires_grad=False)
-
-    # activation quantization
-    act_scale, act_zero_point = observed_linear.act_obs.calculate_qparams()
-    input_quant_func = lambda x: to_affine_quantized_floatx_static(x, act_scale, x.shape, target_dtype, Float8LayoutType(mm_config=None))
-    linear.weight = torch.nn.Parameter(to_linear_activation_quantized(linear.weight, input_quant_func), requires_grad=False)
-
-    return linear
+        return linear
+    
+    return _apply_static_quant_to_linear
 
 # alternative for converting observed linear module to quantized linear module
-class QuantizedLinearIntX(torch.nn.Module):
-    def __init__(self, in_features: int, out_features: int, act_obs: torch.nn.Module, weight_obs: torch.nn.Module, weight: torch.Tensor, bias: torch.Tensor):
+class QuantizedLinear(torch.nn.Module):
+    def __init__(self, in_features: int, out_features: int, act_obs: torch.nn.Module, weight_obs: torch.nn.Module, weight: torch.Tensor, bias: torch.Tensor, target_dtype: torch.dtype):
         super().__init__()
         self.act_scale, self.act_zero_point = act_obs.calculate_qparams()
         weight_scale, weight_zero_point = weight_obs.calculate_qparams()
         assert weight.dim() == 2
         block_size = (1, weight.shape[1])
-        target_dtype = torch.uint8
-        self.qweight = to_affine_quantized_intx_static(weight, weight_scale, weight_zero_point, block_size, target_dtype)
+        self.target_dtype = target_dtype
         self.bias = bias
+        if self.target_dtype == torch.uint8:
+            self.qweight = to_affine_quantized_intx_static(weight, weight_scale, weight_zero_point, block_size, self.target_dtype)
+        elif self.target_dtype == torch.float8_e4m3fn:
+            self.qweight = to_affine_quantized_floatx_static(weight, weight_scale, block_size, target_dtype, Float8LayoutType(mm_config=None))
+        else:
+            raise ValueError(f"Unsupported target dtype {self.target_dtype}")
 
     def forward(self, input: Tensor):
         block_size = input.shape
-        target_dtype = torch.uint8
-        qinput = to_affine_quantized_intx_static(input, self.act_scale, self.act_zero_point, block_size, target_dtype)
+        if self.target_dtype == torch.uint8:
+            qinput = to_affine_quantized_intx_static(input, self.act_scale, self.act_zero_point, block_size, self.target_dtype)
+        elif self.target_dtype == torch.float8_e4m3fn:
+            qinput = to_affine_quantized_floatx_static(input, self.act_scale, block_size, self.target_dtype, Float8LayoutType(mm_config=None))
+        else:
+            raise ValueError(f"Unsupported target dtype {self.target_dtype}")
         return F.linear(qinput, self.qweight, self.bias)
 
     @classmethod
-    def from_observed(cls, observed_linear):
-        quantized_linear = cls(observed_linear.in_features, observed_linear.out_features, observed_linear.act_obs, observed_linear.weight_obs, observed_linear.weight, observed_linear.bias)
+    def from_observed(cls, observed_linear, target_dtype):
+        quantized_linear = cls(observed_linear.in_features,
+                               observed_linear.out_features,
+                               observed_linear.act_obs,
+                               observed_linear.weight_obs,
+                               observed_linear.weight,
+                               observed_linear.bias,
+                               target_dtype)
         return quantized_linear
 
-class QuantizedLinearFloatX(torch.nn.Module):
-    def __init__(self, in_features: int, out_features: int, act_obs: torch.nn.Module, weight_obs: torch.nn.Module, weight: torch.Tensor, bias: torch.Tensor):
-        super().__init__()
-        self.act_scale, self.act_zero_point = act_obs.calculate_qparams()
-        weight_scale, weight_zero_point = weight_obs.calculate_qparams()
-        assert weight.dim() == 2
-        block_size = (1, weight.shape[1])
-        target_dtype = torch.float8_e4m3fn
-        self.qweight = to_affine_quantized_floatx_static(weight, weight_scale, block_size, target_dtype, Float8LayoutType(mm_config=None))
-        self.bias = bias
-
-    def forward(self, input: Tensor):
-        block_size = input.shape
-        target_dtype = torch.float8_e4m3fn
-        qinput = to_affine_quantized_floatx_static(input, self.act_scale, block_size, target_dtype, Float8LayoutType(mm_config=None))
-        return F.linear(qinput, self.qweight, self.bias)
-
-    @classmethod
-    def from_observed(cls, observed_linear):
-        quantized_linear = cls(observed_linear.in_features, observed_linear.out_features, observed_linear.act_obs, observed_linear.weight_obs, observed_linear.weight, observed_linear.bias)
-        return quantized_linear
-
-def apply_intx_static_quant2(observed_linear):
-    return QuantizedLinearIntX.from_observed(observed_linear)
-
-def apply_floatx_static_quant2(observed_linear):
-    return QuantizedLinearFloatX.from_observed(observed_linear)
+def apply_static_quant2(target_dtype: torch.dtype):
+    def _apply_static_quant2(observed_linear):
+        return QuantizedLinear.from_observed(observed_linear, target_dtype)
+    return _apply_static_quant2
 
 class ToyLinearModel(torch.nn.Module):
     def __init__(self, m=64, n=32, k=64):
@@ -196,14 +179,14 @@ def test_intx():
 
     # quantized linear represented as an nn.Linear with modified tensor subclass weights
     # for both activation and weight quantization
-    quantize_(m, apply_intx_static_quant, is_observed_linear)
+    quantize_(m, apply_static_quant(target_dtype=torch.uint8), is_observed_linear)
     print("quantized model (applying tensor subclass to weight):", m)
     after_quant = m(*example_inputs)
     assert compute_error(before_quant, after_quant) > 30
     print("test passed")
 
     # quantized linear as a standalone module
-    quantize_(m2, apply_intx_static_quant2, is_observed_linear)
+    quantize_(m2, apply_static_quant2(target_dtype=torch.uint8), is_observed_linear)
     print("quantized model (quantized module):", m2)
     after_quant = m2(*example_inputs)
     assert compute_error(before_quant, after_quant) > 30
@@ -242,14 +225,14 @@ def test_floatx():
 
     # quantized linear represented as an nn.Linear with modified tensor subclass weights
     # for both activation and weight quantization
-    quantize_(m, apply_floatx_static_quant, is_observed_linear)
+    quantize_(m, apply_static_quant(torch.float8_e4m3fn), is_observed_linear)
     print("quantized model (applying tensor subclass to weight):", m)
     after_quant = m(*example_inputs)
     assert compute_error(before_quant, after_quant) > 25
     print("test passed")
 
     # quantized linear as a standalone module
-    quantize_(m2, apply_floatx_static_quant2, is_observed_linear)
+    quantize_(m2, apply_static_quant2(torch.float8_e4m3fn), is_observed_linear)
     print("quantized model (quantized module):", m2)
     after_quant = m2(*example_inputs)
     assert compute_error(before_quant, after_quant) > 25
@@ -257,5 +240,5 @@ def test_floatx():
 
 
 if __name__ == "__main__":
-    test_floatx()
     test_intx()
+    test_floatx()
