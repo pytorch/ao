@@ -3,6 +3,7 @@
 #
 # BF16 baseline: python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --n_steps 10_000 --compile
 # INT8 QT:       python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --n_steps 10_000 --compile --quantize int8_weight_only
+# INT8 MP:       python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --n_steps 10_000 --compile --quantize int8_mixed_precision
 
 import os
 
@@ -19,7 +20,7 @@ import wandb
 from torch.utils.checkpoint import checkpoint
 from tqdm import tqdm
 
-from torchao._models.llama.model import ModelArgs, Transformer
+from torchao._models.llama.model import ModelArgs, Transformer, transformer_configs
 from torchao.prototype import low_bit_optim
 from torchao.prototype.quantized_training import (
     Int8MixedPrecisionConfig,
@@ -27,6 +28,15 @@ from torchao.prototype.quantized_training import (
     int8_weight_only_quantized_training,
 )
 from torchao.quantization.quant_api import quantize_
+
+
+# not official models
+transformer_configs.update(
+    (
+        ("470M", dict(n_layer=24, n_head=16, dim=1024, intermediate_size=4096)),
+        ("1B", dict(n_layer=24, n_head=24, dim=1536, intermediate_size=6144)),
+    )
+)
 
 
 # hack from fairseq
@@ -82,12 +92,7 @@ def get_tinystories():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # default config is 470M
-    parser.add_argument("--d_model", type=int, default=1024)
-    parser.add_argument("--depth", type=int, default=24)
-    parser.add_argument("--ffn_size", type=int, default=4096)
-    parser.add_argument("--head_dim", type=int, default=64)
-
+    parser.add_argument("--model", default="470M", choices=transformer_configs.keys())
     parser.add_argument("--quantize")
     parser.add_argument("--activation_checkpointing", action="store_true")
     parser.add_argument("--compile", action="store_true")
@@ -108,13 +113,8 @@ if __name__ == "__main__":
     if args.seed is not None:
         torch.manual_seed(args.seed)
 
-    config = ModelArgs(
-        block_size=args.seq_len,
-        n_layer=args.depth,
-        n_head=args.d_model // args.head_dim,
-        dim=args.d_model,
-        intermediate_size=args.ffn_size,
-    )
+    config = ModelArgs.from_name(args.model)
+    config.block_size = args.seq_len
     model = Transformer(config).bfloat16().cuda()
     with torch.device("cuda"):
         model.setup_caches(args.batch_size, args.seq_len, training=True)
@@ -164,6 +164,7 @@ if __name__ == "__main__":
                 loss=loss.item(),
                 lr=optim.param_groups[0]["lr"],
                 max_memory_allocated=torch.cuda.max_memory_allocated() / 1e9,
+                max_memory_reserved=torch.cuda.max_memory_reserved() / 1e9,
             )
             if step > 0:
                 time1 = time.time()
