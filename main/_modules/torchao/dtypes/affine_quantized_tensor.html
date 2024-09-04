@@ -454,7 +454,7 @@
     <span class="k">def</span> <span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_plain</span><span class="p">()</span>
         <span class="n">layout_type</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_layout_type</span><span class="p">()</span>
-        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">(data=</span><span class="si">{</span><span class="n">data</span><span class="si">}</span><span class="s2">, scale=</span><span class="si">{</span><span class="n">scale</span><span class="si">}</span><span class="s2">, zero_point=</span><span class="si">{</span><span class="n">zero_point</span><span class="si">}</span><span class="s2">, layout_type=</span><span class="si">{</span><span class="n">layout_type</span><span class="si">}</span><span class="s2">)&quot;</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">(data=</span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">data</span><span class="p">)</span><span class="si">}</span><span class="s2">... , scale=</span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">scale</span><span class="p">)</span><span class="si">}</span><span class="s2">... , zero_point=</span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">zero_point</span><span class="p">)</span><span class="si">}</span><span class="s2">... , layout_type=</span><span class="si">{</span><span class="n">layout_type</span><span class="si">}</span><span class="s2">)&quot;</span>
 
 
 <span class="c1">##############################</span>
@@ -495,6 +495,10 @@
 <span class="sd">    Affine quantized tensor subclass. Affine quantization means we quantize the floating point tensor with an affine transformation:</span>
 <span class="sd">       quantized_tensor = float_tensor / scale + zero_point</span>
 
+<span class="sd">    To see what happens during choose_qparams, quantization and dequantization for affine quantization,</span>
+<span class="sd">    please checkout https://github.com/pytorch/ao/blob/main/torchao/quantization/quant_primitives.py</span>
+<span class="sd">    and check the three quant primitive ops: choose_qparams_affine, quantize_affine qand dequantize_affine</span>
+
 <span class="sd">    The shape and dtype of the tensor subclass represent how the tensor subclass looks externally,</span>
 <span class="sd">    regardless of the internal representation&#39;s type or orientation.</span>
 
@@ -504,7 +508,7 @@
 <span class="sd">         and operator/kernel</span>
 <span class="sd">      block_size (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that&#39;s sharing the same qparam</span>
 <span class="sd">         e.g. when size is the same as the input tensor dimension, we are using per tensor quantization</span>
-<span class="sd">      shape (torch.Size): the shape for the Tensor</span>
+<span class="sd">      shape (torch.Size): the shape for the original high precision Tensor</span>
 <span class="sd">      quant_min (Optional[int]): minimum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`</span>
 <span class="sd">      quant_max (Optional[int]): maximum quantized value for the Tensor, if not specified, it will be derived from dtype of `int_data`</span>
 <span class="sd">      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be either integer or float</span>
@@ -513,8 +517,7 @@
 <span class="sd">        if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)</span>
 <span class="sd">        value during quantization</span>
 <span class="sd">        default is ZeroPointDomain.INT</span>
-<span class="sd">      input_quant_func (Optional[Callable]): function for quantizing the input float Tensor to a quantized tensor subclass object, that takes float Tensor as input and outputs an AffineQuantizedTensor object</span>
-<span class="sd">      dtype: dtype for external representation of the tensor, e.g. torch.float32</span>
+<span class="sd">      dtype: dtype for original high precision tensor, e.g. torch.float32</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="nd">@staticmethod</span>
@@ -559,9 +562,12 @@
 
     <span class="k">def</span> <span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">return</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">(data=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">dequantize</span><span class="p">()</span><span class="si">}</span><span class="s2">, shape=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, &quot;</span>
-            <span class="sa">f</span><span class="s2">&quot;device=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="si">}</span><span class="s2">, dtype=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2">, requires_grad=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">requires_grad</span><span class="si">}</span><span class="s2">)&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">(data=</span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dequantize</span><span class="p">())</span><span class="si">}</span><span class="s2">..., shape=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, block_size=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="si">}</span><span class="s2">, &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;device=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="si">}</span><span class="s2">, dtype=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2">, requires_grad=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">requires_grad</span><span class="si">}</span><span class="s2">, layout_tensor=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">layout_tensor</span><span class="si">}</span><span class="s2">)&quot;</span>
         <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_quantization_type</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;shape=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, block_size=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="si">}</span><span class="s2">, device=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="si">}</span><span class="s2">, layout_type=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">layout_type</span><span class="si">}</span><span class="s2">, layout_tensor_dtype=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2">, quant_min=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span><span class="si">}</span><span class="s2">, quant_max=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">quant_max</span><span class="si">}</span><span class="s2">&quot;</span>
 
 <div class="viewcode-block" id="AffineQuantizedTensor.dequantize"><a class="viewcode-back" href="../../../generated/torchao.dtypes.AffineQuantizedTensor.html#torchao.dtypes.AffineQuantizedTensor.dequantize">[docs]</a>    <span class="k">def</span> <span class="nf">dequantize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">output_dtype</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">output_dtype</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
