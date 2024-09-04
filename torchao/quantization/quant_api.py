@@ -60,7 +60,7 @@ from .GPTQ import (
 from .utils import _get_per_token_block_size
 import logging
 from .autoquant import autoquant, AutoQuantizableLinearWeight
-from torchao.float8.float8_tensor import ScaledMMConfig
+from torchao.float8.inference import Float8MMConfig
 
 logger = logging.getLogger(__name__)
 
@@ -551,7 +551,7 @@ def float8_weight_only(weight_dtype: torch.dtype = torch.float8_e4m3fn):
 def float8_dynamic_activation_float8_weight(
     activation_dtype: torch.dtype = torch.float8_e4m3fn,
     weight_dtype: torch.dtype = torch.float8_e4m3fn,
-    mm_config: Optional[ScaledMMConfig] = None
+    mm_config: Optional[Float8MMConfig] = None
 ):
     """
     Applies float8 dynamic symmetric per-tensor quantization to both activations and weights of linear layers.
@@ -559,13 +559,13 @@ def float8_dynamic_activation_float8_weight(
     Args:
         activation_dtype (torch.dtype): The target data type for activation quantization. Default is torch.float8_e4m3fn.
         weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.
-        mm_config (ScaledMMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
+        mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
 
     """
     from torchao.dtypes import to_affine_quantized_floatx
 
     if mm_config is None:
-        mm_config = ScaledMMConfig(use_fast_accum=True)
+        mm_config = Float8MMConfig(use_fast_accum=True)
 
     #TODO we are hardcoding TensorWise scaling, will follow up PR for Tensorwise scaling
     def apply_float8_dynamic_activation_quant(weight: torch.Tensor):
