@@ -119,6 +119,11 @@ lib.define("int8_mm_dequant(Tensor A, Tensor B, Tensor A_scale, Tensor B_scale) 
 
 
 def int8_mm_dequant(A: Tensor, B: Tensor, A_scale_rowwise: Tensor, B_scale_colwise: Tensor) -> Tensor:
+    assert A.dtype is torch.int8 and B.dtype is torch.int8
+    assert A_scale_rowwise.dtype is B_scale_colwise.dtype
+    assert A.shape[1] == B.shape[0]
+    assert A_scale_rowwise.squeeze().shape == A.shape[0]
+    assert B_scale_colwise.squeeze().shape == B.shape[0]
     return torch.ops.torchao.int8_mm_dequant(A, B, A_scale_rowwise, B_scale_colwise)
 
 
@@ -129,13 +134,8 @@ def _(A: Tensor, B: Tensor, A_scale_rowwise: Tensor, B_scale_colwise: Tensor):
 
 @torch.library.impl(lib, "int8_mm_dequant", "CUDA")
 def int8_mm_dequant_cuda(A: Tensor, B: Tensor, A_scale_rowwise: Tensor, B_scale_colwise: Tensor):
-    assert A.dtype is torch.int8 and B.dtype is torch.int8
-    assert A_scale_rowwise.dtype is B_scale_colwise.dtype
-    assert A.shape[1] == B.shape[0]
     M, K = A.shape
     _, N = B.shape
-    assert A_scale_rowwise.squeeze().shape == (M,)
-    assert B_scale_colwise.squeeze().shape == (N,)
     C = torch.empty(M, N, device=A.device, dtype=A_scale_rowwise.dtype)
     grid = lambda meta: (triton.cdiv(meta["M"], meta["BLOCK_M"]) * triton.cdiv(meta["N"], meta["BLOCK_N"]),)
     _int8_mm_dequant_kernel[grid](
