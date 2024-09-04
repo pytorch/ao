@@ -122,8 +122,8 @@ def int8_mm_dequant(A: Tensor, B: Tensor, A_scale_rowwise: Tensor, B_scale_colwi
     assert A.dtype is torch.int8 and B.dtype is torch.int8
     assert A_scale_rowwise.dtype is B_scale_colwise.dtype
     assert A.shape[1] == B.shape[0]
-    assert A_scale_rowwise.squeeze().shape == A.shape[0]
-    assert B_scale_colwise.squeeze().shape == B.shape[0]
+    assert A_scale_rowwise.squeeze().shape == (A.shape[0],)
+    assert B_scale_colwise.squeeze().shape == (B.shape[1],)
     return torch.ops.torchao.int8_mm_dequant(A, B, A_scale_rowwise, B_scale_colwise)
 
 
