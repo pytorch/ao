@@ -17,6 +17,9 @@ from torchao.quantization import int4_weight_only, quantize_
 from torchao.dtypes import MarlinSparseLayoutType
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false" # silence warnings when compiling
+model_name = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
+warmup = 5
+num_runs = 25
 
 torch.set_float32_matmul_precision('high')
 
@@ -30,8 +33,8 @@ def is_mlp_up_or_mlp_gate(mod, name):
 def run_benchmark(compression_config="baseline", dtype=torch.float16):
     print (f"\n Running: {compression_config} benchmark with dtype={dtype}\n")
 
-    model = AutoModelForCausalLM.from_pretrained("nm-testing/SparseLlama-3-8B-pruned_50.2of4", torch_dtype=dtype).cuda()
-    tokenizer = AutoTokenizer.from_pretrained("nm-testing/SparseLlama-3-8B-pruned_50.2of4")
+    model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=dtype).cuda()
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
     prompt = "Why dogs are so cute?"
     inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
 
@@ -63,9 +66,9 @@ def run_benchmark(compression_config="baseline", dtype=torch.float16):
     model.forward = torch.compile(model.forward, mode="reduce-overhead", fullgraph=True)
 
     # WARMUP
-    benchmark_model(lambda: model.generate(**inputs), 5, device_type="cuda")
+    benchmark_model(lambda: model.generate(**inputs), warmup, device_type="cuda")
     # res is in ms so multiply by 1000 to get tok/s
-    res = benchmark_model(lambda: model.generate(**inputs), 25, device_type="cuda")
+    res = benchmark_model(lambda: model.generate(**inputs), num_runs, device_type="cuda")
     tokens_per_second = 1000 * (121 / res)
     print(f"Average time: {res:.3f}ms | Tokens/second: {tokens_per_second:.3f}")
 
@@ -80,10 +83,10 @@ def run_benchmark(compression_config="baseline", dtype=torch.float16):
 # run_benchmark(compression_config="baseline", dtype=torch.bfloat16)
 
 # # ## int4_wo
-run_benchmark(compression_config="int4_wo", dtype=torch.bfloat16)
+# run_benchmark(compression_config="int4_wo", dtype=torch.bfloat16)
 
 # ## sparse marlin
-# run_benchmark(compression_config="sparse_marlin", dtype=torch.float16)
+run_benchmark(compression_config="sparse_marlin", dtype=torch.float16)
 
 ## sparse 
 # run_benchmark(compression_config="24_sparse", dtype=torch.bfloat16)

@@ -37,7 +37,6 @@ class SparseMarlin24(TestCase):
             .cuda()
         )
 
-        # Baseline
         apply_fake_sparsity(model)
         model_copy = copy.deepcopy(model)
 
@@ -53,23 +52,22 @@ class SparseMarlin24(TestCase):
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     def test_quant_sparse_marlin_layout_compile(self):
+        torch.manual_seed(0)
+
         input = torch.randn((32, 16, 4096), dtype=torch.float16, device="cuda")
         model = (
             nn.Sequential(
-                nn.Linear(4096, 11008),  # Llama2 shapes
-                # nn.Linear(11008, 4096),
-                # nn.ReLU(),
-                # nn.Linear(4096, 11008),
-                # nn.Linear(11008, 4096),
+                nn.Linear(4096, 21504),
+                nn.Linear(21504, 4096),
+                nn.ReLU(),
+                nn.Linear(4096, 21504),
+                nn.Linear(21504, 4096),
             )
             .half()
             .cuda()
         )
 
-        # Baseline
         apply_fake_sparsity(model)
-        ref_result = model(input)
-
         model_copy = copy.deepcopy(model)
 
         # Quantized
@@ -82,31 +80,42 @@ class SparseMarlin24(TestCase):
         model.forward = torch.compile(model.forward, fullgraph=True)
         sparse_result = model(input)
 
-        print(dense_result)
-        print(sparse_result)
-        torch.allclose(sparse_result, dense_result)
-
-        error_dense = torch.mean(torch.abs(ref_result - dense_result) ** 2)
-        error_sparse = torch.mean(torch.abs(ref_result - sparse_result) ** 2)
-        assert torch.allclose(error_dense, error_sparse, atol=1e-2), "Mean error is not close"
+        assert torch.allclose(dense_result, sparse_result, atol=3e-1), "Results are not close"
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     def test_pack_unpack_equivalence(self):
         num_bits = 4
         group_size = 128
         shape = (11008, 4096)
+        max_q_val = 2**num_bits - 1
+        half_q_val = (max_q_val + 1) // 2
+
         w = torch.rand(shape, dtype=torch.float16, device="cuda")
+        size_k, size_n = w.shape
 
         # Inject 2:4 sparsity mask
         w_24, _ = inject_24(w, *w.shape)
 
         # Quantize weights 
-        scales, zeros = get_group_qparams_symmetric(w_24, n_bit=4, groupsize=group_size)
-        w_q_24 = groupwise_affine_quantize_tensor_from_qparams(
-            w_24, scales, zeros, n_bit=4, groupsize=group_size
-        )
+        w_24 = w_24.reshape((-1, group_size, size_n))
+        w_24 = w_24.permute(1, 0, 2)
+        w_24 = w_24.reshape((group_size, -1))
 
-        scales = scales.reshape(-1, w_q_24.shape[1])
+        # Compute scale for each group
+        scales = torch.max(torch.abs(w_24), 0, keepdim=True)[0]
+        scales *= 2 / max_q_val  # 2 => symmetric
+
+        # Quantize
+        w_q_24 = torch.round(w_24 / scales).int()
+        w_q_24 += half_q_val
+        w_q_24 = torch.clamp(w_q_24, 0, max_q_val)
+
+        # Shape back to original shape
+        w_q_24 = w_q_24.reshape((group_size, -1, size_n))
+        w_q_24 = w_q_24.permute(1, 0, 2)
+        w_q_24 = w_q_24.reshape((size_k, size_n)).contiguous()
+        scales = scales.reshape((-1, size_n)).contiguous()
+
         # Test pack/unpack equivalence
         q_w_comp, packed_scales, meta = pack_to_marlin_24(
             w_q_24, scales, num_bits, group_size

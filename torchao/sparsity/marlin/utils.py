@@ -93,7 +93,6 @@ def reverse_marlin_permute_weights(
     return q_w_comp
 
 
-
 def get_perms_24(num_bits: int) -> Tuple[torch.Tensor, List[int], List[int]]:
     """Precompute permutations for Marlin24 weight and scale shuffling
     
@@ -143,6 +142,24 @@ def get_perms_24(num_bits: int) -> Tuple[torch.Tensor, List[int], List[int]]:
     scale_perm_single: List[int] = []
     for i in range(8):
         scale_perm_single.extend([8 * i + j for j in [0, 1, 2, 3, 4, 5, 6, 7]])
+    return perm, scale_perm, scale_perm_single
+
+
+def get_reverse_perms_24(num_bits: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Reverse permutation for Marlin24 weight and scale shuffling from `get_perms_24`.
+    
+    Args:
+        num_bits (int): Number of bits to pack.
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: The reversed weight permutation tensor, scale permutation list and 
+        scale permutation list for single group.
+    """
+    perm_24, scale_perm_24, scale_perm_single_24 = get_perms_24(num_bits)
+
+    perm = perm_24.argsort()
+    scale_perm = torch.tensor(scale_perm_24).argsort()
+    scale_perm_single = torch.tensor(scale_perm_single_24).argsort()
+
     return perm, scale_perm, scale_perm_single
 
 

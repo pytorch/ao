@@ -71,7 +71,6 @@ class AQTLayout(TorchAOBaseTensor):
         """ Construct a Layout from data, scale, zero_point and the layout_type"""
         pass
 
-    @torch._dynamo.disable
     def __repr__(self):
         data, scale, zero_point = self.get_plain()
         layout_type = self.get_layout_type()
@@ -181,7 +180,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         self.quant_max = quant_max
         self.zero_point_domain = zero_point_domain
 
-    @torch._dynamo.disable
     def __repr__(self):
         return (
             f"{self.__class__.__name__}(data={str(self.dequantize())}..., shape={self.shape}, block_size={self.block_size}, "
@@ -690,7 +688,6 @@ class MarlinSparseAQTLayout(AQTLayout):
     __torch_function__ = classmethod(_dispatch__torch_function__)
 
     @staticmethod
-    @torch._dynamo.disable
     def __new__(
         cls,
         int_data: torch.Tensor,
@@ -712,7 +709,6 @@ class MarlinSparseAQTLayout(AQTLayout):
         shape = int_data.shape
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
-    @torch._dynamo.disable
     def __init__(
         self,
         int_data: torch.Tensor,
@@ -747,10 +743,8 @@ class MarlinSparseAQTLayout(AQTLayout):
         layout_type, original_shape, group_size, num_bits = tensor_attributes
         return cls(int_data, scale, zero_point, meta, layout_type, original_shape, group_size, num_bits)
 
-    @torch._dynamo.disable
     def get_plain(self):
         from torchao.sparsity.marlin import unpack_from_marlin_24  # avoid circular import
-        unpack_from_marlin_24 = torch._dynamo.disable(unpack_from_marlin_24) 
         int_data_expanded, scales_expanded = unpack_from_marlin_24(
             self.int_data, 
             self.scale, 
@@ -764,7 +758,6 @@ class MarlinSparseAQTLayout(AQTLayout):
         return int_data_expanded_t, scales_expanded_t, self.zero_point
 
     @classmethod
-    @torch._dynamo.disable
     def from_plain(
         cls,
         int_data: torch.Tensor,
@@ -778,7 +771,7 @@ class MarlinSparseAQTLayout(AQTLayout):
         # Linear layers are (in_features, out_features) but the int_data that is reaching this point
         # is (out_features, in_features). We need to transpose it to match the expected shape in the marlin code.
         q_w_24 = int_data.t()
-        scale = scale.t()
+        scale_t = scale.t()
 
         if not torch.cuda.get_device_capability()[0] >= 8:
             raise ValueError(
@@ -803,7 +796,7 @@ class MarlinSparseAQTLayout(AQTLayout):
                 f"Only {[4]} bits are supported, got {num_bits}."
             )
 
-        group_size = in_features // scale.shape[0]
+        group_size = in_features // scale_t.shape[0]
         if group_size == 0:
             group_size = in_features
         assert group_size <= in_features, "Group size must be less than or equal to in_features."
@@ -814,7 +807,7 @@ class MarlinSparseAQTLayout(AQTLayout):
             )
 
         # Compress quantized weight to marlin 2:4 format
-        marlin_24_q_w_comp, marlin_24_s, meta = pack_to_marlin_24(q_w_24, scale, num_bits, group_size)
+        marlin_24_q_w_comp, marlin_24_s, meta = pack_to_marlin_24(q_w_24, scale_t, num_bits, group_size)
 
         return cls(
             marlin_24_q_w_comp, marlin_24_s, zero_point, 
