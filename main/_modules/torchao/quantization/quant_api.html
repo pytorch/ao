@@ -441,7 +441,7 @@
 <span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="n">_get_per_token_block_size</span>
 <span class="kn">import</span> <span class="nn">logging</span>
 <span class="kn">from</span> <span class="nn">.autoquant</span> <span class="kn">import</span> <span class="n">autoquant</span><span class="p">,</span> <span class="n">AutoQuantizableLinearWeight</span>
-<span class="kn">from</span> <span class="nn">torchao.float8.float8_tensor</span> <span class="kn">import</span> <span class="n">ScaledMMConfig</span>
+<span class="kn">from</span> <span class="nn">torchao.float8.inference</span> <span class="kn">import</span> <span class="n">Float8MMConfig</span>
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
 
@@ -932,7 +932,7 @@
 <span class="k">def</span> <span class="nf">float8_dynamic_activation_float8_weight</span><span class="p">(</span>
     <span class="n">activation_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
     <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
-    <span class="n">mm_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ScaledMMConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">mm_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float8MMConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Applies float8 dynamic symmetric per-tensor quantization to both activations and weights of linear layers.</span>
@@ -940,13 +940,13 @@
 <span class="sd">    Args:</span>
 <span class="sd">        activation_dtype (torch.dtype): The target data type for activation quantization. Default is torch.float8_e4m3fn.</span>
 <span class="sd">        weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.</span>
-<span class="sd">        mm_config (ScaledMMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.</span>
+<span class="sd">        mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.</span>
 
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">to_affine_quantized_floatx</span>
 
     <span class="k">if</span> <span class="n">mm_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">mm_config</span> <span class="o">=</span> <span class="n">ScaledMMConfig</span><span class="p">(</span><span class="n">use_fast_accum</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">mm_config</span> <span class="o">=</span> <span class="n">Float8MMConfig</span><span class="p">(</span><span class="n">use_fast_accum</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
     <span class="c1">#TODO we are hardcoding TensorWise scaling, will follow up PR for Tensorwise scaling</span>
     <span class="k">def</span> <span class="nf">apply_float8_dynamic_activation_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
