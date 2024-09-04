@@ -216,10 +216,14 @@ def main(
         if "int8dq" in quantization:
             quantize_(model, int8_dynamic_activation_int8_weight())
         if "int4wo" in quantization:
+            if "hqq" in quantization:
+                use_hqq=True
+                quantization = quantization[:-4]
+            else:
+                use_hqq=False
             groupsize=int(quantization.split("-")[-1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
             quantize_(model, int4_weight_only(group_size=groupsize))
-
         if "autoround" in quantization:
             from torchao.prototype.autoround.autoround_llm import quantize_model_with_autoround_
             from transformers import AutoTokenizer
@@ -265,11 +269,13 @@ def main(
             )
             model.to(device)
             model.reset_caches()
-
         if "fp6" in quantization:
             quantize_(model, fpx_weight_only(3, 2))
-        if "autoquant" == quantization:
-            model = autoquant(model, manual=True)
+        if "autoquant" in quantization:
+            if "autoquant-int4" == quantization:
+                model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
+            else:
+                model = autoquant(model, manual=True)
 
             generate(
                 model,
@@ -434,7 +440,11 @@ if __name__ == '__main__':
     parser.add_argument('--top_k', type=int, default=200, help='Top-k for sampling.')
     parser.add_argument('--temperature', type=float, default=0.8, help='Temperature for sampling.')
     parser.add_argument('--checkpoint_path', type=Path, default=Path("../../../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
+<<<<<<< HEAD
     parser.add_argument('-q', '--quantization', type=str, help='Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, autoquant, autoround-<model_device>-<quant_lm_head>-<iters>-<groupsize>-<batch_size>-<seqlen>-<nsamples>')
+=======
+    parser.add_argument('-q', '--quantization', type=str, help='Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, autoquant, autoquant-int4, int4wo-<groupsize>-hqq')
+>>>>>>> 2ac728d7 (int4 fixes and improvements)
     parser.add_argument('--kv_cache_quantization', action='store_true', help='Whether to quantize the KV cache')
     parser.add_argument('--cache_size', type=int, default=None, help='Force size of cache to be a certain number of tokens, if not set, will use max_new_tokens+prompt_size')
     parser.add_argument('--linear_causal_mask', action='store_true', help='Whether to use the memory efficient, but slightly less fast, linear causal mask (important for long context lengths)')

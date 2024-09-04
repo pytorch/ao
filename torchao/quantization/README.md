@@ -7,17 +7,21 @@ Using the lm_eval. The models used were meta-llama/Llama-2-7b-chat-hf and meta-l
 
 | Model       | Technique          | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
 | ----------- | ------------------ | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
-| Llama-2-7B  | Base (bfloat16)    | 12.212              |  105.14       | 1389.35                 | 13.88            | 13.21           |
-|             | int8dq             | 12.262              |    9.20       |   60.93                 |  8.33            |  6.62           |
-|             | int8wo             | 12.204              |  150.18       |  994.40                 |  8.95            |  6.62           |
-|             | int4wo-64          | 12.843              |  199.86       |  746.66                 |  4.50            |  3.74           |
-|             | int4wo-64-GPTQ     | 12.489              |  199.86       |  746.66                 |  4.50            |  3.74           |
-|             | autoquant          | 12.204              |  159.22       | 1069.87                 |  8.91            |  6.72           |
-| Llama-3-8B  | Base (bfloat16)    | N/A                 |   94.97       | 1425.55                 | 16.43            | 15.01           |
-|             | int8dq             | N/A                 |    8.44       |   63.45                 |  8.98            |  7.52           |
-|             | int8wo             | N/A                 |  139.76       | 1051.02                 | 10.42            |  7.52           |
-|             | int4wo-64          | N/A                 |  179.44       |  757.60                 |  6.62            |  4.22           |
-|             | autoquant          | N/A                 |  137.71       | 1037.74                 | 11.08            |  7.54           |
+| Llama-2-7B  | Base (bfloat16)    | 12.212              |  107.38       | 1418.93                 | 13.88            | 13.21           |
+|             | int8dq             | 12.262              |    9.61       |   63.67                 |  8.61            |  6.62           |
+|             | int8wo             | 12.204              |  170.83       | 1131.18                 |  8.95            |  6.62           |
+|             | int4wo-64          | 12.843              |  201.14       |  751.42                 |  4.87            |  3.74           |
+|             | int4wo-64-GPTQ     | 12.489              |  201.14       |  751.42                 |  4.87            |  3.74           |
+|             | autoquant          | 12.204              |  177.45       | 1194.35                 |  8.64            |  6.72           |
+|             | autoquant-int4hqq  | 12.825              |  209.19       |  804.32                 |  4.89            |  6.72           |
+
+| Llama-3-8B  | Base (bfloat16)    | 7.441               |   95.64       | 1435.54                 | 16.43            | 15.01           |
+|             | int8dq             | 7.581               |    8.61       |   64.75                 |  9.24            |  7.52           |
+|             | int8wo             | 7.447               |  153.03       | 1150.80                 | 10.42            |  7.52           |
+|             | int4wo-64          | 8.316               |  180.80       |  763.33                 |  6.88            |  4.22           |
+|             | int4wo-64-GPTQ     | N/A                 |  180.80       |  763.33                 |  6.88            |  4.22           |
+|             | autoquant          | 7.447               |  158.10       | 1193.24                 | 10.04            |  7.55           |
+|             | autoquant-int4hqq  | 8.110               |  188.41       |  800.58                 |  7.14            |  4.25           |
 
 note: Int8 dynamic quantization works best on compute bound models like [SAM](https://github.com/pytorch-labs/segment-anything-fast) whereas Llama with batchsize=1 tends to be memory bound, thus the rather low performance.
 
@@ -28,7 +32,7 @@ And a quick crash course on inference quantization to help parse the above table
 ## Autoquantization
 
 The `autoquant` api can be used to quickly and accurately quantize your model. When used as in the example below, the api first identifies the shapes
-of the activations that the different linear layers see, it then benchmarks these shapes across different types of quantized and non-quantized layers in order to pick the fastest one, attempting to take into account fusions where possible. Finally once the best class is found for each layer, it swaps the linear. Currently this api chooses between no quantization, int8 dynamic quantization and int8 weight only quantization for each layer.
+of the activations that the different linear layers see, it then benchmarks these shapes across different types of quantized and non-quantized layers in order to pick the fastest one, attempting to take into account fusions where possible. Finally once the best class is found for each layer, it swaps the linear. Currently this api chooses between no quantization, int8 dynamic quantization and int8 weight only quantization for each layer by default.
 
 ```python
 import torch
@@ -43,6 +47,14 @@ model = torchao.autoquant(torch.compile(model, mode='max-autotune'))
 
 # pass in an input which is used in order to pick fastest quantization operations
 # and apply torch compilation.
+model(input)
+```
+
+There is also an option to add int4 weight only quantization as an `autoquant` option for maximum performance or if applying int4 quantization without `autoquant` causes a perf regression. In such cases, `autoquant` will avoid quantizing the layers that are causing the perf regression.
+
+```python
+from torchao.quantization import  DEFAULT_INT4_AUTOQUANT_CLASS_LIST
+model = torchao.autoquant(torch.compile(model, mode='max-autotune'), qtensor_class_list=torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
 model(input)
 ```
 
