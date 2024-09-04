@@ -13,7 +13,7 @@ from torchao.float8.config import Float8LinearConfig, ScalingType
 from torchao.float8.float8_linear import Float8Linear
 
 from torchao.float8.float8_utils import (
-    amax_history_to_scale_stack,
+    amax_history_to_scale,
     e4m3_dtype,
     e5m2_dtype,
 )
@@ -302,14 +302,14 @@ def sync_float8_amax_and_scale_history(model: torch.nn.Module, fp8_layers=None) 
         )
 
         # Calculate the new scales from the updated history stacks
-        new_input_scales = amax_history_to_scale_stack(
-            fp8_input_amax_history_stack, e4m3_dtype, x_dtype, scale_fn_recipe
+        new_input_scales = amax_history_to_scale(
+            fp8_input_amax_history_stack, e4m3_dtype, x_dtype, scale_fn_recipe, stack=True
         )
-        new_weight_scales = amax_history_to_scale_stack(
-            fp8_weight_amax_history_stack, e4m3_dtype, x_dtype, scale_fn_recipe
+        new_weight_scales = amax_history_to_scale(
+            fp8_weight_amax_history_stack, e4m3_dtype, x_dtype, scale_fn_recipe, stack=True
         )
-        new_grad_output_scales = amax_history_to_scale_stack(
-            fp8_grad_output_amax_history_stack, e5m2_dtype, x_dtype, scale_fn_recipe
+        new_grad_output_scales = amax_history_to_scale(
+            fp8_grad_output_amax_history_stack, e5m2_dtype, x_dtype, scale_fn_recipe, stack=True
         )
 
         # Iterate through the layers and update the scales

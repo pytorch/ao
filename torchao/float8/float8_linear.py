@@ -278,6 +278,7 @@ class Float8Linear(torch.nn.Linear):
                 e4m3_dtype,
                 is_amax_initialized,
                 reduce_amax=True,
+                tile_size=None,
             )
             input_fp8 = hp_tensor_to_float8_delayed(
                 input,
@@ -286,6 +287,7 @@ class Float8Linear(torch.nn.Linear):
                 self.fp8_amax_input,
                 linear_mm_config=self.linear_mm_config,
                 gemm_input_role=GemmInputRole.INPUT,
+                tile_size=None,
             )
         elif self.scaling_type_input is ScalingType.DYNAMIC:
             input_fp8 = hp_tensor_to_float8_dynamic(
@@ -316,6 +318,7 @@ class Float8Linear(torch.nn.Linear):
                     e4m3_dtype,
                     is_amax_initialized,
                     reduce_amax=False,
+                    tile_size=None,
                 )
 
                 weight_fp8 = hp_tensor_to_float8_delayed(
@@ -325,6 +328,7 @@ class Float8Linear(torch.nn.Linear):
                     self.fp8_amax_weight,
                     linear_mm_config=self.linear_mm_config,
                     gemm_input_role=GemmInputRole.WEIGHT,
+                    tile_size=None,
                 )
         elif self.scaling_type_weight is ScalingType.DYNAMIC:
             if isinstance(self.weight, Float8Tensor):  # cast by FSDP
