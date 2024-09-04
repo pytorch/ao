@@ -39,10 +39,8 @@ quantize_(m, int4_weight_only())
 ```
 
 For gpt-fast `int4_weight_only()` is the best option at bs=1 as it **2x the tok/s and reduces the VRAM requirements by about 65%** over a torch.compiled baseline.
-Note: For models that are less memory bound, the int4 weight only quantization kernel can be slower than other kernels, if you are seeing slowdowns, using [autoquant](./torchao/quantization/README.md#autoquantization) with int4 quantization
-can solve the issue. See the [quantization readme](./torchao/quantization/README.md#autoquantization) for details.
 
-If you're unsure which option to use, you can also run [autoquant](./torchao/quantization/README.md#autoquantization) which will automatically profile layers for you and skip quantizing layers where overhead is too large.
+If you see slowdowns with any of these techniques or you're unsure which option to use, consider using [autoquant](./torchao/quantization/README.md#autoquantization) which will automatically profile layers and pick the best way to quantize each layer.
 
 ```python
 model = torchao.autoquant(torch.compile(model, mode='max-autotune'))

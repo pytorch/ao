@@ -30,29 +30,27 @@ And a quick crash course on inference quantization to help parse the above table
 ## Autoquantization
 
 The `autoquant` api can be used to quickly and accurately quantize your model. When used as in the example below, the api first identifies the shapes
-of the activations that the different linear layers see, it then benchmarks these shapes across different types of quantized and non-quantized layers in order to pick the fastest one, attempting to take into account fusions where possible. Finally once the best class is found for each layer, it swaps the linear. Currently this api chooses between no quantization, int8 dynamic quantization and int8 weight only quantization for each layer by default.
+of the activations that the different linear layers see, it then benchmarks these shapes across different types of quantized and non-quantized layers in order to pick the fastest one, attempting to take into account fusions where possible. Finally once the best class is found for each layer, it swaps the linear. By default the api only uses int8 techniques, i.e. it chooses between no quantization, int8 dynamic quantization and int8 weight only quantization for each layer, though there is also an option add int4 quantization which can be used for maximum performance or to avoid perf regressions from `int4_weight_only()`.
 
 ```python
 import torch
 import torchao
+from torchao.quantization import  DEFAULT_INT4_AUTOQUANT_CLASS_LIST
 
 # Plug in your model and example input
 model = torch.nn.Sequential(torch.nn.Linear(32, 64)).cuda().to(torch.bfloat16)
 input = torch.randn(32,32, dtype=torch.bfloat16, device='cuda')
+use_autoquant_default = True
 
-# perform autoquantization and torch.compile
-model = torchao.autoquant(torch.compile(model, mode='max-autotune'))
+if use_autoquant_default:
+    # perform autoquantization and torch.compile with default settings
+    model = torchao.autoquant(torch.compile(model, mode='max-autotune'))
+elif not use_autoquant_default:
+    # perform autoquantization and torch.compile with int4 support
+    model = torchao.autoquant(torch.compile(model, mode='max-autotune'), qtensor_class_list=DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
 
 # pass in an input which is used in order to pick fastest quantization operations
 # and apply torch compilation.
-model(input)
-```
-
-There is also an option to add int4 weight only quantization as an `autoquant` option for maximum performance or if applying int4 quantization without `autoquant` causes a perf regression. In such cases, `autoquant` will avoid quantizing the layers that are causing the perf regression.
-
-```python
-from torchao.quantization import  DEFAULT_INT4_AUTOQUANT_CLASS_LIST
-model = torchao.autoquant(torch.compile(model, mode='max-autotune'), qtensor_class_list=torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
 model(input)
 ```
 
