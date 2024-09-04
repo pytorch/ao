@@ -190,7 +190,16 @@ class Transformer(nn.Module):
             dtype, 
             use_scaled=self.config.use_scaled_rope
         )
+
+    def reset_caches(self):
+        """Reset caches.
         
+        The caches used by training stage and inference stage may be different, reset them before switching.
+        """
+        self.max_batch_size = -1
+        self.max_seq_length = -1
+        self.freqs_cis: Optional[Tensor] = None
+        self.mask_cache: Optional[Tensor] = None
 
     def forward(self, idx: Tensor, input_pos: Optional[Tensor] = None) -> Tensor:
         """Forward pass of the model.
