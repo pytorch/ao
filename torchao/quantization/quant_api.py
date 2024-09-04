@@ -20,6 +20,7 @@ import torchao
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Any, Callable, Union, Dict, Optional
+import types
 
 from torchao.dtypes.uintx.Uintx import UintxLayoutType
 from torchao.dtypes import (
@@ -60,6 +61,8 @@ from .utils import _get_per_token_block_size
 import logging
 from .autoquant import autoquant, AutoQuantizableLinearWeight
 from torchao.float8.float8_tensor import ScaledMMConfig
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "swap_conv2d_1x1_to_linear",
@@ -279,10 +282,28 @@ def swap_conv2d_1x1_to_linear(model, filter_fn=None):
         model, replace_conv2d_1x1, filter_fn=filter_fn
     )
 
+def _quantization_type(weight: torch.Tensor):
+    if isinstance(weight, AffineQuantizedTensor):
+        return f"{weight.__class__.__name__}({weight._quantization_type()})"
 
-def _get_linear_subclass_inserter(constructor):
+    if isinstance(weight, LinearActivationQuantizedTensor):
+        return f"{weight.__class__.__name__}(activation={weight.input_quant_func}, weight={_quantization_type(weight.original_weight_tensor)})"
+
+    if type(weight) is torch.Tensor:
+        return "not quantized"
+
+    return "not recognized"
+
+def _linear_extra_repr(self):
+    return f"in_features={self.weight.shape[1]}, out_features={self.weight.shape[0]}, weight={_quantization_type(self.weight)}"
+
+def _get_linear_subclass_inserter(constructor, **kwargs):
+    """Helper function to apply the constructor that quantizes the weight Tensor (with additional kwargs)
+    to the weight of linear module
+    """
     def insert_subclass(lin):
-        lin.weight = torch.nn.Parameter(constructor(lin.weight), requires_grad=False)
+        lin.weight = torch.nn.Parameter(constructor(lin.weight, **kwargs), requires_grad=False)
+        lin.extra_repr = types.MethodType(_linear_extra_repr, lin)
         return lin
 
     return insert_subclass
@@ -359,11 +380,15 @@ def quantize_(
     )
 
 def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
+    """This is defined here instead of local function to support serialization
+    """
     mapping_type = MappingType.ASYMMETRIC
     target_dtype = torch.int8
     return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype)
 
 def apply_int8_dynamic_activation_int4_weight_quant(weight, group_size=32):
+    """This is defined here instead of local function to support serialization
+    """
     if weight.shape[-1] % group_size != 0:
         return weight
 
@@ -391,11 +416,7 @@ def int8_dynamic_activation_int4_weight(group_size=32):
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained
     """
-    def insert_subclass(lin):
-        lin.weight = torch.nn.Parameter(apply_int8_dynamic_activation_int4_weight_quant(lin.weight, group_size), requires_grad=False)
-        return lin
-
-    return insert_subclass
+    return _get_linear_subclass_inserter(apply_int8_dynamic_activation_int4_weight_quant, group_size=group_size)
 
 
 def int4_weight_only(group_size=128, layout_type=TensorCoreTiledLayoutType(inner_k_tiles=8)):
@@ -418,6 +439,9 @@ def int4_weight_only(group_size=128, layout_type=TensorCoreTiledLayoutType(inner
     """
     def apply_int4_weight_only_quant(weight, use_hqq=False):
         if weight.shape[-1] % group_size != 0:
+            logger.info(
+                f"Skipping quantizing weight with int4 weight only quantization because the shape of weight {weight.shape} is not compatible with group_size {group_size}"
+            )
             return weight
 
         mapping_type = MappingType.ASYMMETRIC
@@ -466,6 +490,9 @@ def int8_dynamic_activation_int8_weight(layout_type=PlainLayoutType()):
         in_features = weight.shape[1]
         # int8 dynamic quantization only has benefit when in_feature > 16
         if in_features <= 16:
+            logger.info(
+                f"Skipping applying int8_dynamic_activation_int8_weight to weight of shape {weight.shape}"
+                f" because `in_feature` is <= 16: {in_features}")
             return weight
 
         # weight settings
@@ -614,10 +641,13 @@ def fpx_weight_only(ebits: int, mbits: int):
         assert weight.dim() == 2, f"fpx only works for 2-d Tensor, got: {weight.dim()}"
         out_dim, in_dim = weight.shape
         if (in_dim % 64 != 0) or (out_dim % 256 != 0):
+            logger.info(
+                f"Skipping floatx quantization float{ebits + mbits + 1}_{ebits}_{mbits} because "
+                f"the shape is not compatible with the kernel: in_dim={in_dim}, out_dim={out_dim} "
+                "expected in_dim % 64 == 0 and out_dim % 256 == 0")
             return weight
 
         layout_type = FpxTensorCoreLayoutType(ebits, mbits)
-        print("layout type:", layout_type)
         return to_affine_quantized_fpx(weight, layout_type)
     return _get_linear_subclass_inserter(apply_quant_llm)
 
