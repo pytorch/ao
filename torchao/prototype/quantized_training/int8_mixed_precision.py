@@ -193,9 +193,12 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
 
         if ctx.needs_input_grad[1]:
             if ctx.config.grad_weight:
+                # TODO: check if transpose+quantize are fused
                 grad_output_i8_t, grad_output_scale = quantize_int8_rowwise(grad_output.T)
                 input_i8_t, input_scale = quantize_int8_rowwise(input.T)
-                grad_weight = int8_mm_dequant(grad_output_i8_t, input_i8_t.T, grad_output_scale, input_scale)
+                # grad_weight = int8_mm_dequant(grad_output_i8_t, input_i8_t.T, grad_output_scale, input_scale)
+                # this is slightly faster
+                grad_weight = int8_mm_dequant(input_i8_t, grad_output_i8_t.T, input_scale, grad_output_scale).T
             else:
                 grad_weight = grad_output.T @ input
 
