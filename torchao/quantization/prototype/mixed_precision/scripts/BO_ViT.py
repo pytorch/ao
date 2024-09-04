@@ -4,8 +4,7 @@ import torch
 import torch.nn as nn
 from torchao.quantization import quantize_
 import random
-sys.path.append("/home/hanxianhuang/ao/torchao/quantization/prototype/mixed_precision")
-from my_naive_intNwo import intN_weight_only
+from naive_intNwo import intN_weight_only
 
 from lm_eval.evaluator import evaluate
 from lm_eval.models.huggingface import HFLM
@@ -13,8 +12,6 @@ from lm_eval.tasks import get_task_dict
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from ax.service.ax_client import AxClient, ObjectiveProperties
-import torch.multiprocessing as mp
-from ax.modelbridge.cross_validation import cross_validate
 
 import os
 import warnings
@@ -25,130 +22,6 @@ import utils
 
 from torchvision.transforms.functional import InterpolationMode
 from torchvision import models
-
-def define_parameter_list():
-    # define the search space for all layers
-    parameters_list = []
-
-    parameters_list.append(
-        {
-            "name": f"bitwidthlayer_{0}.",
-            "type": "fixed",
-            "value_type": "int",
-            "value": 8,
-            "is_ordered": True,
-            "sort_values": True,
-        }
-    )
-    parameters_list.append(
-        {
-            "name": f"groupsizelayer_{0}.",
-            "type": "fixed",
-            "value_type": "int",
-            "value": 32,
-            "is_ordered": True,
-            "sort_values": True,
-        }
-    )
-
-    for i in range(1, 10):  
-        if i==2 or i==3:
-            parameters_list.append(
-                {
-                    "name": f"bitwidthlayer_{i}.",
-                    "type": "choice",
-                    "value_type": "int",
-                    "values": [5,6,8],
-                    "is_ordered": True,
-                    "sort_values": True,
-                }
-            )
-
-            parameters_list.append(
-                {
-                    "name": f"groupsizelayer_{i}.",
-                    "type": "choice",
-                    "value_type": "int",
-                    "values": [32, 64],
-                    "is_ordered": True,
-                    "sort_values": True,
-                }
-            )
-        else:
-            parameters_list.append(
-                {
-                    "name": f"bitwidthlayer_{i}.",
-                    "type": "choice",
-                    "value_type": "int",
-                    "values": [2,3,4,5,6,8],
-                    "is_ordered": True,
-                    "sort_values": True,
-                }
-            )
-
-            parameters_list.append(
-                {
-                    "name": f"groupsizelayer_{i}.",
-                    "type": "choice",
-                    "value_type": "int",
-                    "values": [32, 64, 128, 256],
-                    "is_ordered": True,
-                    "sort_values": True,
-                }
-            )
-
-    for i in range(10, 12):  
-        parameters_list.append(
-            {
-                "name": f"bitwidthlayer_{i}.",
-                "type": "choice",
-                "value_type": "int",
-                "values": [5,6,8],
-                "is_ordered": True,
-                "sort_values": True,
-            }
-        )
-
-        parameters_list.append(
-            {
-                "name": f"groupsizelayer_{i}.",
-                "type": "choice",
-                "value_type": "int",
-                "values": [32, 64],
-                "is_ordered": True,
-                "sort_values": True,
-            }
-        )
-
-    return parameters_list
-
-# add initial search points based on the sensitivity score, need to automate this part
-def get_initial_samples(num_initial=50):
-    
-    initial_points_set = []
-    
-    # auto sample the bit choices with random choice probability positive correlated to FIT score
-    for _ in range(num_initial):
-        initial_points = {}
-        initial_points["bitwidthlayer_" + str(0) + "."] = 8
-        initial_points["groupsizelayer_" + str(0) + "."] = 32
-
-        for i in range(1, 10):
-            if i in [2,3]:
-                initial_points["bitwidthlayer_" + str(i) + "."] = random.choices([5, 6], [80, 20])[0]
-                initial_points["groupsizelayer_" + str(i) + "."] = random.choices([32, 64], [50, 50])[0]
-            else:
-                initial_points["bitwidthlayer_" + str(i) + "."] = random.choices([6, 5, 4], [30, 40, 30])[0]
-                initial_points["groupsizelayer_" + str(i) + "."] = random.choices([32, 64, 128], [40, 40, 20])[0]
-
-        for i in range(10, 12):
-            initial_points["bitwidthlayer_" + str(i) + "."] = 8
-            initial_points["groupsizelayer_" + str(i) + "."] = 32
-
-        initial_points_set.append(initial_points)
-    for i in initial_points_set:
-        print(i)
-    return initial_points_set
 
 # return evaluation results to complete BO trials
 def eval(model, limit, fqn_to_config, criterion, data_loader, device, args):
@@ -285,14 +158,14 @@ def get_args_parser(add_help=True):
     parser.add_argument('--multi_gpus', action='store_true', help="Use multi-processing to run evaluation on multi-gpus")
     parser.add_argument('--gpu_list', type=str, default="", help="A list of gpus to run evaluation, separated by comma, e.g., --gpu_lists=0,1,2,3")
     parser.add_argument('--limit', type=int, default=2000, help='Number of samples to evaluate the model')
-    parser.add_argument('--valdir', type=str, default="/home/andrewor/local/datasets/imagenet/val_blurred", help='The path to the validation dataset')
+    parser.add_argument('--valdir', type=str, default="/tmp/datasets/imagenet/val_blurred", help='The path to the validation dataset')
     parser.add_argument('--history_output', type=str, default="BO_acc_modelsize_output_ViT_b_16.csv", help="The csv file path to save the BO search trials")
     parser.add_argument('--parameters_list', type=str, default="./parameter_json/ViT_b_16_parameters.json", help="The json file path to save the parameters list for BO")
     parser.add_argument('--initial_samples', type=str, default="./initial_samples_json/ViT_b_16_initial_samples.json", help="The json file path to save the user-defined initial samples for BO")
 
     return parser
 
-#TODO: merge this with BO_acc_modelsize.py
+#TODO: refactor and merge this code with BO_acc_modelsize.py
 if __name__ == "__main__":
     args = get_args_parser().parse_args()
     run_sequential_BO(args)
