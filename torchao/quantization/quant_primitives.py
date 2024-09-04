@@ -730,8 +730,10 @@ def _choose_qparams_affine(
         max_val_pos = max_val
 
     if mapping_type == MappingType.SYMMETRIC.name:
-        max_val_pos = torch.max(-min_val_neg, max_val_pos)
-        scale = max_val_pos / (float(quant_max - quant_min) / 2)
+        smin = min_val_neg / float(quant_min)
+        smax = max_val_pos / float(quant_max)
+        mask = smin > smax
+        scale = torch.where(mask, smin, smax)
         if not preserve_zero:
             raise ValueError("preserve_zero == False is not supported for symmetric quantization")
         if zero_point_domain is not None and zero_point_domain != ZeroPointDomain.INT.name:
