@@ -7,43 +7,45 @@ import copy
 HANDLED_FUNCTIONS = {}
 
 
-class PagedTensor(object):
+class PagedTensor(torch.Tensor):
+    @staticmethod
+    def __new__(cls, size, cache, block_table, *args, **kwargs):
+        return torch.Tensor._make_wrapper_subclass(cls, size, dtype=cache.dtype, *args, **kwargs)
+    
     def __init__(
         self,
-        cache: torch.Tensor, #The cache tensor from the PagedAttentionCache object, which is shared accross iterations.
+        size: Tuple[int, int, int, int],#The size of the cached tensor[bs, num_key_value_heads, seq_lens, head_dim].
+        cache: torch.Tensor, #The cache tensor from the PagedAttentionCache object, which is shared accross iterations.  
         block_tables: torch.Tensor,#The block tables for each sequence in the batch which is used to mapping logical block to physical blocks.
-        context_lens: torch.Tensor,#The context lens for each sequence in the batch.
     ):
         self.block_tables = block_tables
-        self.cache = cache
-        self.context_lens = context_lens
+        self.cache = cache        
 
     def __repr__(self):
-        return f"PagedTensor({self.cache.shape})"
+        return f"PagedTensor(buffer shape: {self.cache.shape}, k/v cache shape:{self.shape}"
 
+    @staticmethod
+    def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+        return NotImplemented
+    
     @classmethod
-    def __torch_function__(cls, func, types, args=(), kwargs=None):
-        if kwargs is None:
-            kwargs = {}
+    def __torch_function__(cls, func, types, args, kwargs=None):
         if func not in HANDLED_FUNCTIONS or not all(
-            issubclass(t, (torch.Tensor, PagedTensor)) for t in types
+            issubclass(t, (torch.Tensor, PagedTensor))
+            for t in types
         ):
-            return NotImplementedError(
-                "{} is not supported by PagedTensor".format(func)
-            )
+             if kwargs is None:
+                kwargs = {}
+             return super().__torch_function__(func, types, args, kwargs)
         return HANDLED_FUNCTIONS[func](*args, **kwargs)
 
-
 def implements(torch_function):
-    """Register a torch function override for PagedTensor"""
-
+    """Register a torch function override for ScalarTensor"""
     def decorator(func):
         functools.update_wrapper(func, torch_function)
         HANDLED_FUNCTIONS[torch_function] = func
         return func
-
     return decorator
-
 
 @implements(torch.nn.functional.scaled_dot_product_attention)
 def scaled_dot_product_attention(
@@ -53,7 +55,7 @@ def scaled_dot_product_attention(
     key_cache = key_tensor.cache
     value_cache = value_tensor.cache
     block_tables = key_tensor.block_tables
-    context_lens = key_tensor.context_lens
+    context_lens = torch.tensor([key_tensor.shape[2] for _ in range(key_tensor.shape[0])], dtype=torch.int32)
     output = torch.empty_like(query)
     torch.ops.torchao.paged_attention(
         output,
@@ -382,8 +384,8 @@ class PagedAttentionCache(object):
                 block_tables_t, dtype=torch.int32, device=self.device
             )
             return PagedTensor(
-                self.key_caches[layer_idx], block_tables_t, context_lens
-            ), PagedTensor(self.value_caches[layer_idx], block_tables_t, context_lens)
+                (batch_size, self.num_key_value_heads, context_lens[0].item(), self.head_dim), self.key_caches[layer_idx], block_tables_t,
+            ), PagedTensor((batch_size, self.num_key_value_heads, context_lens[0].item(), self.head_dim), self.value_caches[layer_idx], block_tables_t)
 
     def reorder_cache(self, beam_idx: torch.Tensor) -> None:
         """

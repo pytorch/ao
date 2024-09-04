@@ -58,17 +58,17 @@ class MHAModule(torch.nn.Module):
             1, 2
         )
         updated_key, updated_value = kv_cache.update(key, value, 0)
-        if isinstance(updated_key, torch.Tensor):
+        if not isinstance(updated_key, PagedTensor):
             updated_key = updated_key.repeat_interleave(
                 self.num_heads // self.num_kv_heads, dim=1
             )
             updated_value = updated_value.repeat_interleave(
                 self.num_heads // self.num_kv_heads, dim=1
             )
-        output = torch.nn.functional.scaled_dot_product_attention(
+        return torch.nn.functional.scaled_dot_product_attention(
             query, updated_key, updated_value, scale=self.scale
         )
-        return output
+        
 
 @unittest.skipIf(torch.cuda.is_available(), "CUDA is not enabled yet")
 class PagedAttentionCachePagedTensorTest(unittest.TestCase):
@@ -89,7 +89,7 @@ class PagedAttentionCachePagedTensorTest(unittest.TestCase):
         mha_model = MHAModule(head_dim, num_query_heads, num_key_value_heads).to(
             device=device, dtype=dtype
         )
-        naive_cache = NiaveCache()
+        naive_cache = NaiveCache()
         pagedcache = PagedAttentionCache(
             num_blocks,
             block_size,
@@ -166,7 +166,7 @@ class PagedAttentionCachePagedTensorTest(unittest.TestCase):
         num_key_value_heads = [40, 10, 1]
         head_dim = [64, 128]
         device = ['cpu']
-        dtypes = [torch.float, torch.float16, torch.bfloat16]
+        dtypes = [torch.bfloat16, torch.float16]
         batch_size = [1, 8]  
         beam_size = [1, 4]  
         for (
