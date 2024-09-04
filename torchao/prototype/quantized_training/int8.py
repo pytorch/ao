@@ -110,7 +110,7 @@ class Int8QTLinearWeight(TorchAOBaseTensor):
         out: Optional[Tensor] = None,
     ):
         int_data, scale = all_gather_outputs
-        return Int8QTLinearWeight(int_data, scale), all_gather_outputs
+        return Int8QTLinearWeight(int_data, scale.to(param_dtype)), all_gather_outputs
 
 
 class _Int8WeightOnlyLinear(torch.autograd.Function):
