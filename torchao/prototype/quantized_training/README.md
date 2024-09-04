@@ -60,6 +60,7 @@ from torchao.prototype.quantized_training import int8_mixed_precision_training, 
 from torchao.quantization import quantize_
 
 model = ...
+# by default, apply INT8 matmul to all 3 matmuls
 config = Int8MixedPrecisionConfig(
     output=True,
     grad_input=True,
