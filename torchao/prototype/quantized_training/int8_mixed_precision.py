@@ -93,6 +93,7 @@ def _(func, types, args, kwargs):
         aten.detach.default,
         aten.clone.default,
         aten._to_copy.default,
+        aten.empty_like.default,
         # FSDP ops
         aten.slice.Tensor,
         aten.new_zeros.default,
@@ -115,6 +116,10 @@ def _(func, types, args, kwargs):
         aten.addcdiv_.default,
         aten.add_.Tensor,
         aten.mul_.Tensor,
+        # param init functions
+        aten.uniform_.default,
+        aten.erfinv_.default,
+        aten.clamp_.default,
     ]
 )
 def _(func, types, args, kwargs):
