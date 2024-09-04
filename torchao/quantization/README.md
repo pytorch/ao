@@ -12,16 +12,14 @@ Using the lm_eval. The models used were meta-llama/Llama-2-7b-chat-hf and meta-l
 |             | int8wo             | 12.204              |  170.83       | 1131.18                 |  8.95            |  6.62           |
 |             | int4wo-64          | 12.843              |  201.14       |  751.42                 |  4.87            |  3.74           |
 |             | int4wo-64-GPTQ     | 12.527              |  201.14       |  751.42                 |  4.87            |  3.74           |
-|             | autoquant          | 12.204              |  177.45       | 1194.35                 |  8.64            |  6.72           |
-|             | autoquant-int4hqq  | 12.825              |  209.19       |  804.32                 |  4.89            |  6.72           |
+|             | autoquant-int4hqq  | 12.825              |  209.19       |  804.32                 |  4.89            |  3.84           |
 
-| Llama-3-8B  | Base (bfloat16)    | 7.441               |   95.64       | 1435.54                 | 16.43            | 15.01           |
-|             | int8dq             | 7.581               |    8.61       |   64.75                 |  9.24            |  7.52           |
-|             | int8wo             | 7.447               |  153.03       | 1150.80                 | 10.42            |  7.52           |
-|             | int4wo-64          | 8.316               |  180.80       |  763.33                 |  6.88            |  4.22           |
-|             | int4wo-64-GPTQ     | 7.921               |  180.80       |  763.33                 |  6.88            |  4.22           |
-|             | autoquant          | 7.447               |  158.10       | 1193.24                 | 10.04            |  7.55           |
-|             | autoquant-int4hqq  | 8.110               |  188.41       |  800.58                 |  7.14            |  4.25           |
+| Llama-3-8B  | Base (bfloat16)    |  7.441              |   95.64       | 1435.54                 | 16.43            | 15.01           |
+|             | int8dq             |  7.581              |    8.61       |   64.75                 |  9.24            |  7.52           |
+|             | int8wo             |  7.447              |  153.03       | 1150.80                 | 10.42            |  7.52           |
+|             | int4wo-64          |  8.316              |  180.80       |  763.33                 |  6.88            |  4.22           |
+|             | int4wo-64-GPTQ     |  7.921              |  180.80       |  763.33                 |  6.88            |  4.22           |
+|             | autoquant-int4hqq  |  8.110              |  188.41       |  800.58                 |  7.14            |  4.25           |
 
 note: Int8 dynamic quantization works best on compute bound models like [SAM](https://github.com/pytorch-labs/segment-anything-fast) whereas Llama with batchsize=1 tends to be memory bound, thus the rather low performance.
 
