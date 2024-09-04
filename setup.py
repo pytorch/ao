@@ -6,10 +6,18 @@
 import os
 import glob
 from datetime import datetime
+import subprocess
 
 from setuptools import find_packages, setup
 
-current_date = datetime.now().strftime("%Y.%m.%d")
+current_date = datetime.now().strftime("%Y%m%d")
+
+
+def get_git_commit_id():
+    try:
+        return subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('ascii').strip()
+    except Exception:
+        return ""
 
 def read_requirements(file_path):
     with open(file_path, "r") as file:
@@ -19,14 +27,17 @@ def read_version(file_path="version.txt"):
     with open(file_path, "r") as file:
         return file.readline().strip()
 
-# Determine the package name based on the presence of an environment variable
-package_name = "torchao-nightly" if os.environ.get("TORCHAO_NIGHTLY") else "torchao"
-version_suffix = os.getenv("VERSION_SUFFIX", "")
+
+# Use Git commit ID if VERSION_SUFFIX is not set
+version_suffix = os.getenv("VERSION_SUFFIX")
+if version_suffix is None:
+    version_suffix = f"+git{get_git_commit_id()}"
+
 use_cpp = os.getenv('USE_CPP')
 
-
-# Version is year.month.date if using nightlies
-version = current_date if package_name == "torchao-nightly" else read_version()
+version_prefix = read_version()
+# Version is version.dev year month date if using nightlies and version if not
+version = f"{version_prefix}.dev{current_date}" if os.environ.get("TORCHAO_NIGHTLY") else version_prefix
 
 import torch
 
@@ -110,17 +121,8 @@ def get_extensions():
 
     return ext_modules
 
-# Mimic code from torchvision https://github.com/pytorch/vision/blob/143d078b28f00471156a4e562dd3836370acc9ee/setup.py#L58
-pytorch_dep = "torch"
-if os.getenv("PYTORCH_VERSION"):
-    pytorch_dep += "==" + os.getenv("PYTORCH_VERSION")
-
-requirements = [
-    pytorch_dep,
-]
-
 setup(
-    name=package_name,
+    name="torchao",
     version=version+version_suffix,
     packages=find_packages(),
     include_package_data=True,
@@ -128,7 +130,6 @@ setup(
         "torchao.kernel.configs": ["*.pkl"],
     },
     ext_modules=get_extensions() if use_cpp != "0" else None,
-    install_requires=requirements,
     extras_require={"dev": read_requirements("dev-requirements.txt")},
     description="Package for applying ao techniques to GPU models",
     long_description=open("README.md").read(),

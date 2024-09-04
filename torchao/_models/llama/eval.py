@@ -13,8 +13,12 @@ from generate import (
 
 )
 from torchao.quantization.quant_api import (
-    quantize, int4_weight_only, int8_weight_only, int8_dynamic_activation_int8_weight, unwrap_tensor_subclass
-
+    quantize_,
+    int4_weight_only,
+    int8_weight_only,
+    int8_dynamic_activation_int8_weight,
+    fpx_weight_only,
+    unwrap_tensor_subclass,
 )
 from torchao._models._eval import TransformerEvalWrapper, InputRecorder
 
@@ -22,9 +26,7 @@ from tokenizer import get_tokenizer
 import time
 from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
 from torchao._models.llama.model import prepare_inputs_for_model
-
-torch._inductor.config.fx_graph_cache = True
-torch._inductor.config.force_fuse_int_mm_with_mul = True
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 def run_evaluation(
     checkpoint_path: Path,
@@ -41,6 +43,9 @@ def run_evaluation(
     pad_calibration_inputs: Optional[bool] = False,
 ):
     """Runs the evaluation of a model using LM Eval."""
+
+    torchao.quantization.utils.recommended_inductor_config_setter()
+
     assert checkpoint_path.is_file(), checkpoint_path
     tokenizer_path = checkpoint_path.parent / "tokenizer.model"
     assert tokenizer_path.is_file(), str(tokenizer_path)
@@ -60,13 +65,15 @@ def run_evaluation(
 
     if quantization:
         if "int8wo" in quantization:
-            quantize(model, int8_weight_only())
+            quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
-            quantize(model, int8_dynamic_activation_int8_weight())
+            quantize_(model, int8_dynamic_activation_int8_weight())
         if "int4wo" in quantization and not "gptq" in quantization:
             groupsize=int(quantization.split("-")[-1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
-            quantize(model.to(device), int4_weight_only(group_size=groupsize))
+            quantize_(model.to(device), int4_weight_only(group_size=groupsize))
+        if "fp6" in quantization:
+            quantize_(model, fpx_weight_only(3, 2))
         if "int4wo" in quantization and "gptq" in quantization:
             groupsize=int(quantization.split("-")[-2])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
@@ -88,14 +95,15 @@ def run_evaluation(
             model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
             model = quantizer.quantize(model, inputs).to(device)
         else:
-            unwrap_tensor_subclass(model)
+            if not TORCH_VERSION_AT_LEAST_2_5:
+                unwrap_tensor_subclass(model)
 
     if compile:
         model = torch.compile(model, mode="max-autotune", fullgraph=True)
     with torch.no_grad():
         TransformerEvalWrapper(
-            model=model.to(device), 
-            tokenizer=tokenizer, 
+            model=model.to(device),
+            tokenizer=tokenizer,
             max_seq_length=max_length,
             input_prep_func=prepare_inputs_for_model,
             device=device,
@@ -122,16 +130,16 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     run_evaluation(
-        args.checkpoint_path, 
-        args.tasks, 
-        args.limit, 
-        args.device, 
-        args.precision, 
-        args.quantization, 
-        args.compile, 
-        args.max_length, 
-        args.calibration_tasks, 
-        args.calibration_limit, 
-        args.calibration_seq_length, 
-        args.pad_calibration_inputs, 
+        args.checkpoint_path,
+        args.tasks,
+        args.limit,
+        args.device,
+        args.precision,
+        args.quantization,
+        args.compile,
+        args.max_length,
+        args.calibration_tasks,
+        args.calibration_limit,
+        args.calibration_seq_length,
+        args.pad_calibration_inputs,
     )

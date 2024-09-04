@@ -30,7 +30,7 @@ if not _IS_FBCODE:
 
 from torchao.quantization import (
     autoquant,
-    quantize,
+    quantize_,
 )
 from . import dtypes
 
@@ -40,5 +40,8 @@ __all__ = [
     "autoquant",
     "PagedAttentionCache",
     "PagedTensor"
-    "quantize",
+    "quantize_",
 ]
+
+# test-pytorchbot
+# test-codev

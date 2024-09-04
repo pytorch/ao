@@ -9,7 +9,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-from typing import Optional, List, Type
+from typing import Optional, Callable, List, Type
 
 import torch
 
@@ -26,7 +26,7 @@ from .utils import (
 from torchao.utils import (
     find_multiple,
 )
-from torchao.utils import TORCH_VERSION_AFTER_2_3
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
 from typing import Any, Dict, Optional
 from .unified import Quantizer
 
@@ -44,7 +44,7 @@ if not _lm_eval_available:
 
 add_ons = []
 
-if TORCH_VERSION_AFTER_2_3:
+if TORCH_VERSION_AT_LEAST_2_3:
     add_ons += ["Int8DynActInt4WeightQuantizer", "Int8DynActInt4WeightGPTQQuantizer"]
 
 
@@ -525,14 +525,22 @@ def _check_linear_int4_k(k, groupsize = 1, inner_k_tiles = None):
         return k_divisible_by_groupsize and k_divisible_by_16_times_inner_k_tiles
     return k_divisible_by_groupsize
 
-def linear_forward_int4(x, weight_int4pack, scales_and_zeros, out_features, groupsize):
+def linear_forward_int4(
+    x: torch.Tensor,
+    weight_int4pack: torch.Tensor,
+    scales_and_zeros: torch.Tensor,
+    out_features: int,
+    groupsize: int,
+    precision: torch.dtype = torch.bfloat16,
+    scales_precision: torch.dtype = torch.bfloat16,
+):
     origin_x_size = x.size()
     x = x.reshape(-1, origin_x_size[-1])
     c = torch.ops.aten._weight_int4pack_mm(
-        x.to(torch.bfloat16),
+        x.to(precision),
         weight_int4pack,
         groupsize,
-        scales_and_zeros.to(torch.bfloat16)
+        scales_and_zeros.to(scales_precision)
     ).to(dtype=x.dtype)
     new_shape = origin_x_size[:-1] + (out_features,)
     c = c.reshape(new_shape)
@@ -546,52 +554,110 @@ class WeightOnlyInt4Linear(torch.nn.Module):
 
     def __init__(
         self, in_features: int, out_features: int,
+        # TODO: remove dtype field, not used
         bias=False, device=None, dtype=None, groupsize: int = 128, inner_k_tiles: int = 8,
+        precision: torch.dtype = torch.bfloat16, scales_precision: torch.dtype = torch.bfloat16,
     ) -> None:
         super().__init__()
         self.padding = not _check_linear_int4_k(in_features, groupsize, inner_k_tiles)
         if self.padding:
-            from model import find_multiple
+            from .utils import find_multiple
             self.origin_in_features = in_features
             in_features = find_multiple(in_features, 1024)
 
         self.in_features = in_features
         self.out_features = out_features
         assert not bias, "require bias=False"
+        self.device = device
         self.groupsize = groupsize
         self.inner_k_tiles = inner_k_tiles
+        self.precision = precision
+        self.scales_precision = scales_precision
+
+        if dtype is not None:
+            raise ValueError("Please specify 'precision' instead of 'dtype'")
 
         assert out_features % 8 == 0, "require out_features % 8 == 0"
         assert in_features % (inner_k_tiles * 16) == 0, "require in_features % (innerKTiles * 16) == 0"
         self.register_buffer(
             "weight",
-            torch.empty((out_features // 8, in_features // (inner_k_tiles * 16), 32, inner_k_tiles // 2), dtype=torch.int32)
+            torch.empty((out_features // 8, in_features // (inner_k_tiles * 16), 32, inner_k_tiles // 2), dtype=torch.int32, device=device)
         )
+        self.dtype = dtype
         self.register_buffer(
             "scales_and_zeros",
-            torch.empty((in_features // groupsize, out_features, 2), dtype=torch.bfloat16)
+            torch.empty((in_features // groupsize, out_features, 2), dtype=self.scales_precision, device=device)
         )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         if self.padding:
-            import torch.nn.functional as F
             input = F.pad(input, pad=(0, self.in_features - self.origin_in_features))
         return linear_forward_int4(
             input,
-            self.weight, self.scales_and_zeros, self.out_features, self.groupsize
+            self.weight,
+            self.scales_and_zeros,
+            self.out_features,
+            self.groupsize,
+            self.precision,
+            self.scales_precision,
         )
 
-def replace_linear_int4(module, groupsize, inner_k_tiles, padding_allowed, skip_layer_func = None):
 
+def _replace_linear_int4(
+    module: torch.nn.Module,
+    groupsize: int,
+    inner_k_tiles: Optional[int],
+    padding_allowed: bool,
+    skip_layer_func: Optional[Callable] = None,
+    precision: torch.dtype = torch.bfloat16,
+    scales_precision: torch.dtype = torch.bfloat16,
+    linear_class: Type[torch.nn.Module] = WeightOnlyInt4Linear,
+    copy_weights: bool = False,
+):
     for name, child in module.named_children():
         if isinstance(child, nn.Linear) and (skip_layer_func is None or not skip_layer_func(child.weight)):
             if _check_linear_int4_k(child.in_features, groupsize, inner_k_tiles) or padding_allowed:
-                setattr(module, name, WeightOnlyInt4Linear(
-                    child.in_features, child.out_features, bias=False,
-                    groupsize=groupsize, inner_k_tiles=inner_k_tiles,
-                ))
+                new_linear = linear_class(
+                    child.in_features,
+                    child.out_features,
+                    bias=False,
+                    device=child.weight.device,
+                    groupsize=groupsize,
+                    inner_k_tiles=inner_k_tiles,
+                    precision=precision,
+                    scales_precision=scales_precision,
+                )
+                # TODO: merge with 8da4w?
+                # In distributed training, the model may be instantiated
+                # on the meta device, in which case there is no need to
+                # copy the weights, and doing so will result in an error
+                if copy_weights and child.weight.device != torch.device("meta"):
+                    new_linear.weight = child.weight
+                setattr(module, name, new_linear)
         else:
-            replace_linear_int4(child, groupsize, inner_k_tiles, padding_allowed, skip_layer_func)
+            _replace_linear_int4(
+                child,
+                groupsize,
+                inner_k_tiles,
+                padding_allowed,
+                skip_layer_func,
+                precision,
+                scales_precision,
+                linear_class,
+                copy_weights,
+            )
+
+
+def replace_linear_int4(module, groupsize, inner_k_tiles, padding_allowed, skip_layer_func = None):
+    _replace_linear_int4(
+        module,
+        groupsize,
+        inner_k_tiles,
+        padding_allowed,
+        skip_layer_func,
+        linear_class=WeightOnlyInt4Linear,
+    )
+
 
 class Int4WeightOnlyQuantizer(Quantizer):
     def __init__(
@@ -600,6 +666,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
         padding_allowed: bool = True,
         inner_k_tiles: Optional[int] = 8,
         device: torch.device = torch.device("cuda"),
+        precision: torch.dtype = torch.bfloat16,
     ) -> None:
         super().__init__()
         assert inner_k_tiles in [2, 4, 8]
@@ -609,6 +676,8 @@ class Int4WeightOnlyQuantizer(Quantizer):
         self.groupsize: int = groupsize
         self.padding_allowed: bool = padding_allowed
         self.device: torch.device = device
+        # precision and dtype are being used interchangeably here
+        self.precision: torch.dtype = precision
 
     @torch.no_grad()
     def _create_quantized_state_dict(
@@ -621,7 +690,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
                 out_features = mod.out_features
                 in_features = mod.in_features
                 # assert out_features % 8 == 0, "require out_features % 8 == 0"
-                print(f"linear: {fqn}, in={in_features}, out={out_features}")
+                logging.info(f"linear: {fqn}, in={in_features}, out={out_features}")
 
                 assert (
                     in_features % self.groupsize == 0
@@ -634,11 +703,11 @@ class Int4WeightOnlyQuantizer(Quantizer):
                     if self.padding_allowed:
                         from .utils import find_multiple
                         import torch.nn.functional as F
-                        print(f"warning: {fqn} is padded to satisfy in_features % 1024 == 0")
+                        logging.warn(f"warning: {fqn} is padded to satisfy in_features % 1024 == 0")
                         padded_in_features = find_multiple(in_features, 1024)
                         weight = F.pad(weight, pad=(0, padded_in_features - in_features))
                     else:
-                        print(f"warning: {fqn} is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, " +
+                        logging.warn(f"warning: {fqn} is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, " +
                                 "and that groupsize and inner_k_tiles*16 evenly divide into it")
                         continue
                 (
@@ -648,18 +717,23 @@ class Int4WeightOnlyQuantizer(Quantizer):
                     weight,
                     4,  # n_bit
                     self.groupsize,
+                    self.precision, # dtype for scales_and_zeros
                 )
+                # TODO: just get the device from mod.weight.device?
                 weight_int4pack = torch.ops.aten._convert_weight_to_int4pack(w_int4x8.to(self.device), self.inner_k_tiles)
                 cur_state_dict[f"{fqn}.weight"] = weight_int4pack.to(self.device)
                 cur_state_dict[f"{fqn}.scales_and_zeros"] = scales_and_zeros.to(self.device)
         return cur_state_dict
 
     def _convert_for_runtime(self, model: torch.nn.Module) -> torch.nn.Module:
-        replace_linear_int4(
+        _replace_linear_int4(
             model,
             self.groupsize,
             self.inner_k_tiles,
             self.padding_allowed,
+            skip_layer_func=None,
+            precision=self.precision,
+            scales_precision=self.precision,
         )
         return model
 
@@ -671,6 +745,7 @@ class Int4WeightOnlyQuantizer(Quantizer):
         # TODO: make it strict
         model.load_state_dict(state_dict, strict=False)
         return model
+
 
 class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
         def __init__(
@@ -826,6 +901,7 @@ class Int8DynActInt4WeightLinear(torch.nn.Module):
         out_features: int,
         bias=True,
         device=None,
+        # TODO: remove this field, not used
         dtype=None,
         groupsize: int = 256,
         precision: torch.dtype = torch.float32,
@@ -849,6 +925,9 @@ class Int8DynActInt4WeightLinear(torch.nn.Module):
         # output precision of the dynamically quantized linear layer
         # that his module represents.
         self.precision = precision
+
+        if dtype is not None:
+            raise ValueError("Please specify 'precision' instead of 'dtype'")
 
         # currently storing unpacked int8 weights
         self.register_buffer(
@@ -893,10 +972,15 @@ def _replace_linear_8da4w(
     linear_class: Type[torch.nn.Module],
     copy_weights: bool = False,
 ):
-    for name, child in module.named_children():
-        if isinstance(child, nn.Linear):
-            if _check_linear_int4_k(child.in_features, groupsize) or padding_allowed:
-                new_linear = linear_class(
+    
+    #import the util function here to avoid circular dependency
+    from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
+
+    def filter_fn(child: torch.nn.Module, cur_fqn:str) -> bool:
+        return isinstance(child, nn.Linear) and (_check_linear_int4_k(child.in_features, groupsize) or padding_allowed)
+
+    def replacement_fn(child: torch.nn.Module) -> torch.nn.Module:
+        new_linear = linear_class(
                     child.in_features,
                     child.out_features,
                     bias=False,
@@ -905,22 +989,14 @@ def _replace_linear_8da4w(
                     precision=precision,
                     scales_precision=scales_precision,
                 )
-                # In distributed training, the model may be instantiated
-                # on the meta device, in which case there is no need to
-                # copy the weights, and doing so will result in an error
-                if copy_weights and child.weight.device != torch.device("meta"):
-                    new_linear.weight = child.weight
-                setattr(module, name, new_linear)
-        else:
-            _replace_linear_8da4w(
-                child,
-                groupsize,
-                padding_allowed,
-                precision,
-                scales_precision,
-                linear_class,
-                copy_weights,
-            )
+        # In distributed training, the model may be instantiated
+        # on the meta device, in which case there is no need to
+        # copy the weights, and doing so will result in an error
+        if copy_weights and child.weight.device != torch.device("meta"):
+            new_linear.weight = child.weight
+        return new_linear
+
+    _replace_with_custom_fn_if_matches_filter(module, replacement_fn, filter_fn)
 
 def replace_linear_8da4w(
     module: torch.nn.Module,
@@ -945,12 +1021,14 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
         padding_allowed: bool = False,
         precision: torch.dtype = torch.float32,
         scales_precision: torch.dtype = torch.float32,
+        device: torch.device = torch.device("cpu"),
     ) -> None:
         super().__init__()
         self.groupsize: int = groupsize
         self.padding_allowed: bool = padding_allowed
         self.precision: torch.dtype = precision
         self.scales_precision: torch.dtype = scales_precision
+        self.device: torch.device = device
 
     @torch.no_grad()
     def _create_quantized_state_dict(
@@ -963,7 +1041,7 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
                 out_features = mod.out_features
                 in_features = mod.in_features
                 # assert out_features % 8 == 0, "require out_features % 8 == 0"
-                print(f"linear: {fqn}, in={in_features}, out={out_features}")
+                logging.info(f"linear: {fqn}, in={in_features}, out={out_features}")
 
                 assert (
                     in_features % self.groupsize == 0
@@ -974,11 +1052,11 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
                     if self.padding_allowed:
                         from .utils import find_multiple
                         import torch.nn.functional as F
-                        print(f"warning: {fqn} is padded to satisfy in_features % 1024 == 0")
+                        logging.warn(f"warning: {fqn} is padded to satisfy in_features % 1024 == 0")
                         padded_in_features = find_multiple(in_features, 1024)
                         weight = F.pad(weight, pad=(0, padded_in_features - in_features))
                     else:
-                        print(f"warning: {fqn} is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, " +
+                        logging.warn(f"warning: {fqn} is skipped, int4 requires that in_features is 32, 64, or is divisible by 1024, " +
                               "and that groupsize and inner_k_tiles*16 evenly divide into it")
                         continue
                 (
@@ -991,9 +1069,9 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
                     self.groupsize,
                     self.scales_precision,
                 )
-                cur_state_dict[f"{fqn}.weight"] = weight_int8.to("cpu")
-                cur_state_dict[f"{fqn}.scales"] = scales.to("cpu")
-                cur_state_dict[f"{fqn}.zeros"] = zeros.to("cpu")
+                cur_state_dict[f"{fqn}.weight"] = weight_int8.to(self.device)
+                cur_state_dict[f"{fqn}.scales"] = scales.to(self.device)
+                cur_state_dict[f"{fqn}.zeros"] = zeros.to(self.device)
                 # TODO: support bias?
 
         return cur_state_dict
@@ -1004,6 +1082,7 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
             self.groupsize,
             self.padding_allowed,
             self.precision,
+            # TODO: this should be self.scales_precision?
             self.precision,
         )
         return model
@@ -1089,6 +1168,7 @@ class Int8DynActInt4WeightGPTQQuantizer(GPTQQuantizer):
             self.groupsize,
             self.padding_allowed,
             self.precision,
+            # TODO: this should be self.scales_precision?
             self.precision,
         )
         return model
