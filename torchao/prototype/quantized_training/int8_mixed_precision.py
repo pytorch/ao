@@ -5,7 +5,7 @@ from torch import Tensor, nn
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torch.utils._triton import has_triton
 
-from torchao.dtypes.utils import _dispatch__torch_dispatch__, _dispatch__torch_function__, _implements
+from torchao.utils import TorchAOBaseTensor
 
 from .int8 import quantize_int8_rowwise
 
@@ -31,11 +31,7 @@ class Int8MixedPrecisionConfig(NamedTuple):
     grad_weight: bool = True
 
 
-class Int8MixedPrecisionLinearWeight(Tensor):
-    implements = classmethod(_implements)
-    __torch_function__ = classmethod(_dispatch__torch_function__)
-    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
-
+class Int8MixedPrecisionLinearWeight(TorchAOBaseTensor):
     @staticmethod
     @torch._dynamo.disable
     def __new__(cls, data: Tensor, config: Int8MixedPrecisionConfig):
