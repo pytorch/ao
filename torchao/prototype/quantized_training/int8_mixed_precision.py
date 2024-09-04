@@ -61,6 +61,8 @@ class Int8MixedPrecisionLinearWeight(TorchAOBaseTensor):
         return self._data.clone()
 
     def fsdp_pre_all_gather(self, mesh):
+        # TODO: pre-quantize weight here -> reduce comm bandwidth.
+        # we will need another tensor subclass to hold the quantized weight.
         return (self._data,), (self.config,)
 
     def fsdp_post_all_gather(
@@ -73,7 +75,7 @@ class Int8MixedPrecisionLinearWeight(TorchAOBaseTensor):
     ):
         (data,) = all_gather_outputs
         (config,) = metadata
-        return Int8MixedPrecisionLinearWeight(data, config), all_gather_outputs
+        return Int8MixedPrecisionLinearWeight(data.to(param_dtype), config), all_gather_outputs
 
 
 implements = Int8MixedPrecisionLinearWeight.implements
