@@ -5,7 +5,6 @@ import torch
 from torch import Tensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32, _n_ones
-# from torchao.ops import quant_llm_linear
 from torchao.dtypes.utils import (
     LayoutType,
 )
