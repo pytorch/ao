@@ -98,7 +98,7 @@ class GenericGPTQRunner(fx.Interpreter):
         self.groupsize = groupsize
         self.inputs = inputs
         self.gptq_done = False
-        self.debug = True
+        self.debug = False
 
     def configure_quantization_mode(
         self,
@@ -790,14 +790,14 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
 
             # TODO: this is the gpt-fast version, merge with the main version later
             def make_names_and_values_dict_func(q, qparams):
-                k = q.shape[1]
+                k = q.shape[1]*2
                 if not _check_linear_int4_k(k, groupsize):
                     new_k = find_multiple(k, 1024)
                 else:
                     new_k = k
                 # how much we need to pad the weight
-                delta_k = new_k - q.shape[1]
-                q = q.to(torch.int32).to(self.device)
+                delta_k = int((new_k - k)/2)
+                q = q.to(self.device)
                 final_q = torch.ops.aten._convert_weight_to_int4pack(F.pad(q, pad=(0, delta_k)), inner_k_tiles)
                 scales = qparams[0].to(torch.bfloat16).to(self.device)
                 zeros = qparams[1].to(torch.bfloat16).to(self.device)

@@ -68,12 +68,17 @@ def run_evaluation(
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
             quantize_(model, int8_dynamic_activation_int8_weight())
-        if "int4wo" in quantization and not "gptq" in quantization:
-            groupsize=int(quantization.split("-")[-1])
-            assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
-            quantize_(model.to(device), int4_weight_only(group_size=groupsize))
         if "fp6" in quantization:
             quantize_(model, fpx_weight_only(3, 2))
+        if "int4wo" in quantization and not "gptq" in quantization:
+            if "hqq" in quantization:
+                quantization = quantization[:-4]
+                use_hqq = True
+            else:
+                use_hqq = False
+            groupsize=int(quantization.split("-")[-1])
+            assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
+            quantize_(model.to(device), int4_weight_only(group_size=groupsize, use_hqq=use_hqq))
         if "int4wo" in quantization and "gptq" in quantization:
             groupsize=int(quantization.split("-")[-2])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
@@ -120,7 +125,7 @@ if __name__ == '__main__':
     parser.add_argument('--limit', type=int, default=None, help='Number of eval samples to evaluate')
     parser.add_argument('--precision', type=lambda x: getattr(torch, x.split(".")[-1]), default=torch.bfloat16, help='dtype precision to use')
     parser.add_argument('--device', type=str, default="cuda", help='Device to use for evaluation')
-    parser.add_argument("-q", "--quantization", type=str, help="Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, int4wo-<groupsize>-gptq")
+    parser.add_argument("-q", "--quantization", type=str, help="Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, int4wo-<groupsize>-gptq, int4wo-<groupsize>-hqq")
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
     parser.add_argument('--max_length', type=int, default=None, help='Length of text to process at one time')
     parser.add_argument('--calibration_tasks', type=str, nargs='+', default=['wikitext'], help='tasks to do gptq calibration on, if doing gptq')
