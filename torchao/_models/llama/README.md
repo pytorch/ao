@@ -8,5 +8,22 @@ and follow the steps to gain access.
 Then from the torchao root directory use `huggingface-cli login` and follow the steps to login, then `sh ./scripts/prepare.sh` to
 download and convert the model weights
 
-once done you can execute benchmarks from the torchao/_models/llama dir with `sh benchmarks.sh`. You can perform and benchmarking
-directly using `generate.py`.
+once done you can execute benchmarks from the torchao/_models/llama dir with `sh benchmarks.sh`. You can perform and benchmarking or evaluation
+directly using `generate.py` or `eval.py`.
+
+## KV Cache Quantization - Memory Efficient Inference
+We've added some features to `model.py` compared to the original gpt-fast implementation in order to enable long context length (and necessarily memory efficient) inference. Specifically we've added kv_cache quantization and a linear_causal_mask implementation which are **able to reduce memory usage by 50-60%** at long context lengths.
+
+In practice these features alongside int4 weight only quantization allow us to do Llama3.1-8B inference with a **130k context length with only 18.9 GB of peak memory.**
+
+You can check it out yourself with `generate.py`, these features exist as a proof of concept and technical demonstration of the techniques though we're working to figure out a way to release them in a general way. Until then feel free to copy these features into your own models. The details and a full explanation can be found in this [PR](https://github.com/pytorch/ao/pull/738)
+
+To see how these techniques scale generally we've run `generate.py` with subsets of these features for different context lengths on an A100 GPU. You can find commands to reproduce these numbers in `benchmarks.sh`
+
+| context length (tokens) | normal peak (GB) | kv_quant peak (GB) | kv quant+linear_causal_mask peak (GB) |
+|-------------------------|------------------|--------------------|---------------------------------------|
+|                    8192 |            17.86 |              17.52 |                                 17.47 |
+|                   16384 |            19.81 |              18.75 |                                 18.48 |
+|                   32768 |            23.83 |              21.72 |                                 20.64 |
+|                   65536 |             33.5 |              29.54 |                                 25.24 |
+|                  131072 |            59.27 |              52.62 |                                 34.18 |
