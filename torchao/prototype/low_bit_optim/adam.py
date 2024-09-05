@@ -52,52 +52,6 @@ class _AdamBase(Optimizer):
             out = torch.zeros_like(p)
         return out
 
-    def _prepare_param_groups(self):
-        param_groups = []
-
-        for group in self.param_groups:
-            _group = []
-
-            for p in group["params"]:
-                if p.grad is None:
-                    continue
-
-                grad = p.grad
-                if grad.is_sparse:
-                    raise RuntimeError("Sparse gradient is not supported")
-
-                state = self.state[p]
-
-                # State initialization
-                if len(state) == 0:
-                    state["step"] = torch.tensor(0.0)
-                    state["exp_avg"] = self._new_buffer(p, True)
-                    state["exp_avg_sq"] = self._new_buffer(p, False)
-                    if group["amsgrad"]:
-                        state["max_exp_avg_sq"] = self._new_buffer(p, False)
-
-                state["step"] += 1
-
-                if not isinstance(group["lr"], Tensor):
-                    raise RuntimeError(
-                        "lr was changed to a non-Tensor object. If you want to update lr, please use "
-                        "optim.param_groups[0]['lr'].fill_(new_lr)"
-                    )
-
-                p_grad_state = (
-                    p,
-                    grad,
-                    state["step"],
-                    state["exp_avg"],
-                    state["exp_avg_sq"],
-                    state.get("max_exp_avg_sq", None),
-                )
-                _group.append(p_grad_state)
-
-            param_groups.append((_group, group["lr"], group["betas"], group["weight_decay"], group["eps"]))
-
-        return param_groups
-
     @torch.no_grad()
     def step(self, closure=None):
         loss = None
@@ -105,26 +59,48 @@ class _AdamBase(Optimizer):
             with torch.enable_grad():
                 loss = closure()
 
-        param_groups = self._prepare_param_groups()
-
         # for a given model, the number of different argument combinations to single_param_adam() is fixed.
         # thus, it is safe to disable cache limit without the risk of always re-compiling.
-        # TODO: remove self._prepare_param_groups()
         with torch._dynamo.utils.disable_cache_limit():
-            for group, lr, (beta1, beta2), weight_decay, eps in param_groups:
-                for p, grad, step, exp_avg, exp_avg_sq, max_exp_avg_sq in group:
+            for group in self.param_groups:
+                for p in group["params"]:
+                    if p.grad is None:
+                        continue
+
+                    grad = p.grad
+                    if grad.is_sparse:
+                        raise RuntimeError("Sparse gradient is not supported")
+
+                    state = self.state[p]
+
+                    # State initialization
+                    if len(state) == 0:
+                        state["step"] = torch.tensor(0.0)
+                        state["exp_avg"] = self._new_buffer(p, True)
+                        state["exp_avg_sq"] = self._new_buffer(p, False)
+                        if group["amsgrad"]:
+                            state["max_exp_avg_sq"] = self._new_buffer(p, False)
+
+                    state["step"] += 1
+
+                    if not isinstance(group["lr"], Tensor):
+                        raise RuntimeError(
+                            "lr was changed to a non-Tensor object. If you want to update lr, please use "
+                            "optim.param_groups[0]['lr'].fill_(new_lr)"
+                        )
+
                     torch.compile(single_param_adam, fullgraph=True, dynamic=False)(
                         p,
                         grad,
-                        step,
-                        exp_avg,
-                        exp_avg_sq,
-                        max_exp_avg_sq,
-                        lr,
-                        beta1,
-                        beta2,
-                        weight_decay,
-                        eps,
+                        state["step"],
+                        state["exp_avg"],
+                        state["exp_avg_sq"],
+                        state.get("max_exp_avg_sq", None),
+                        group["lr"],
+                        group["betas"][0],
+                        group["betas"][1],
+                        group["weight_decay"],
+                        group["eps"],
                         self.is_adamw,
                     )
 
