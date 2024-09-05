@@ -40,6 +40,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from torchao.float8.inference import Float8MMConfig
+aten = torch.ops.aten
 
 
 ###############################
@@ -682,11 +683,6 @@ class MarlinSparseAQTLayout(AQTLayout):
         group_size (int): the group size used to pack the tensor
         num_bits (int): the number of bits used to quantize the tensor
     """
-
-    implements = classmethod(_implements)
-    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
-    __torch_function__ = classmethod(_dispatch__torch_function__)
-
     @staticmethod
     def __new__(
         cls,
@@ -728,6 +724,19 @@ class MarlinSparseAQTLayout(AQTLayout):
         self.original_shape = original_shape
         self.group_size = group_size
         self.num_bits = num_bits
+
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs):
+        kwargs = {} if kwargs is None else kwargs
+
+        if func is aten.detach.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+            )
+
+        raise NotImplementedError(
+            f"MarlinSparseAQTLayout dispatch: attempting to run {func}, this is not supported"
+        )
 
     def __tensor_flatten__(self):
         return ["int_data", "scale", "zero_point", "meta"], [self.layout_type, self.original_shape, self.group_size, self.num_bits]
@@ -824,12 +833,6 @@ class MarlinSparseAQTLayout(AQTLayout):
         self.zero_point = fn(self.zero_point)
         self.meta = fn(self.meta)
         return self
-
-
-# Marlin Sparse op dispatch registration 
-@MarlinSparseAQTLayout.implements(aten.detach.default)
-def _(func, types, args, kwargs):
-    return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.detach))
 
 
 @register_layout_cls(Float8LayoutType)

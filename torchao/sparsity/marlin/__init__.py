@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 from typing import Tuple, Dict, List
 
 import torchao.sparsity.marlin.utils as utils

@@ -454,7 +454,9 @@ def int4_weight_only(group_size=128, layout_type=TensorCoreTiledLayoutType(inner
         zero_point_dtype = torch.bfloat16
         zero_point_domain = ZeroPointDomain.FLOAT
 
-        # Sparse Marlin only supports symmetric quantization
+        # Sparse Marlin only supports symmetric quantization.
+        # NOTE: If we start having lots of layouts that require different configurations, 
+        # we should consider moving this logic somewhere else.
         if isinstance(layout_type, MarlinSparseLayoutType):
             mapping_type = MappingType.SYMMETRIC
             preserve_zero = True
