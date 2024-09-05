@@ -27,7 +27,6 @@ NOTE:
 - The low-bit optimizers require PyTorch >= 2.3
 - For FP8 optimizers on CUDA, PyTorch >= 2.4 and CUDA compute capability >= 8.9 are required.
 - For 4-bit optimizers, we don't implement rank-1 normalization for quantizing 2nd moment as originally done in the paper.
-- The first training step is expected to be slow since the optimizer needs to be compiled.
 
 ## Benchmarks
 
@@ -45,15 +44,15 @@ lpmm 4-bit (*)  |  7.74                      | 26.7   | 94.10
 
 (*) means rank-1 normalization is used for 2nd optimizer state. Refer to [paper](https://arxiv.org/abs/2309.01507) for more details.
 
-Fine-tune [Llama2-7B](https://huggingface.co/meta-llama/Llama-2-7b) on [Alpaca](https://huggingface.co/datasets/tatsu-lab/alpaca) dataset. PyTorch 2.4, full BF16, 1 epoch, A100, fixed random seed. Benchmark is done with [torchtune 52d1b838](https://github.com/pytorch/torchtune/tree/52d1b838c1c35b5e75fddf8776be400adc36dff5).
+Fine-tune [Llama2-7B](https://huggingface.co/meta-llama/Llama-2-7b) on [Alpaca](https://huggingface.co/datasets/tatsu-lab/alpaca) dataset. PyTorch 2.4, full BF16, 1 epoch, A100, fixed random seed. Benchmark is done with [torchtune 52d1b838](https://github.com/pytorch/torchtune/tree/52d1b838c1c35b5e75fddf8776be400adc36dff5). See [#812](https://github.com/pytorch/ao/pull/812) for more details.
 
-AdamW impl       | Peak memory allocated (GB) | toks/s | `truthfulqa_mc2` acc | Compile time
------------------|----------------------------|--------|----------------------|-------------
-Not fine-tuned   | -                          | -      | 38.95                | -
-PyTorch (fused)  | 51.6                       | 3200   | 42.61                | -
-bnb 8-bit        | 39.3                       | 3000   | 42.75                | -
-ao 8-bit         | 
-ao 4-bit         | 
+AdamW impl       | Peak memory allocated (GB) | toks/s | `truthfulqa_mc2` acc
+-----------------|----------------------------|--------|----------------------
+Not fine-tuned   | -                          | -      | 38.95
+PyTorch (fused)  | 51.6                       | 3200   | 42.61
+bnb 8-bit        | 39.3                       | 3000   | 42.75
+ao 8-bit         | 39.1                       | 2900   | 41.50
+ao 4-bit         | 33.2                       | 2900   | 42.27
 
 NOTE: lpmm's 4-bit AdamW does not support BF16 weights.
 
