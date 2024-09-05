@@ -12,11 +12,11 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.utils.benchmark as benchmark
-from torch.profiler import profile, ProfilerActivity, record_function
 
 from utils import (
     get_name_to_shapes_iter, 
     profiler_output_to_filtered_time_by_kernel_name,
+    get_gpu_kernel_gemm_time_s,
 )
 
 # estimating TOPs for matmuls in fp32, fp16, fp8
@@ -47,24 +47,6 @@ def benchmark_fn_in_sec(f, *args, **kwargs):
     return measurement.mean
 
 
-def get_gpu_kernel_gemm_time(f, *args, **kwargs):
-    # warmup
-    f(*args, **kwargs)
-    n_iter = 5
-    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
-        for idx in range(n_iter):
-            f(*args, **kwargs) 
-    data = profiler_output_to_filtered_time_by_kernel_name(prof, n_iter, num_leaf_tensors=0) 
-    # there is only 1 key, aten::mm or aten::_scaled_mm, with unit nanoseconds
-    assert len(data) == 1
-    if "aten::mm" in data:
-        return data["aten::mm"] / 1e6 / n_iter
-    elif "aten::_scaled_mm" in data:
-        return data["aten::_scaled_mm"] / 1e6 / n_iter
-    else:
-        raise AssertionError("unexpected format of data")
-
-
 def do_benchmarks(
     tops, 
     peak_tops, 
@@ -75,7 +57,7 @@ def do_benchmarks(
 ):
     if use_gpu_kernel_time:
         # just the gemm GPU kernel
-        time_sec = get_gpu_kernel_gemm_time(f, *args, **kwargs)
+        time_sec = get_gpu_kernel_gemm_time_s(f, *args, **kwargs)
     else:
         # e2e time including kernel launch overhead
         time_sec = benchmark_fn_in_sec(f, *args, **kwargs)

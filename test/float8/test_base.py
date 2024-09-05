@@ -45,11 +45,6 @@ from torchao.float8.float8_utils import (
     FP8_TYPES,
     tensor_to_scale,
 )
-from torchao.float8.inference import (
-    ActivationCasting,
-    QuantConfig,
-    quantize_to_float8,
-)
 
 random.seed(0)
 torch.manual_seed(0)
@@ -134,20 +129,6 @@ class TestFloat8Tensor(unittest.TestCase):
         fp8_b.copy_(fp8_a)
         torch.testing.assert_close(fp8_a._data, fp8_b._data)
 
-    def test_weights_only_load(self):
-        module = nn.Linear(16, 16)
-        # Save model state dict
-        buffer = io.BytesIO()
-        fp8_module = quantize_to_float8(
-            module,
-            QuantConfig(
-                ActivationCasting.DYNAMIC,
-            ),
-        )
-
-        torch.save(fp8_module.state_dict(), buffer)
-        buffer.seek(0)
-        _ = torch.load(buffer, weights_only=True)
 
 
 class TestFloat8Linear:
@@ -226,14 +207,16 @@ class TestFloat8Linear:
     @pytest.mark.parametrize("emulate", [True, False] if is_cuda_8_9 else [True])
     @pytest.mark.parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
     @pytest.mark.parametrize(
-        "scaling_type_input", [ScalingType.DELAYED, ScalingType.DYNAMIC]
+        "scaling_type_input", 
+        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
     )
     @pytest.mark.parametrize(
-        "scaling_type_weight", [ScalingType.DELAYED, ScalingType.DYNAMIC]
+        "scaling_type_weight", 
+        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
     )
     @pytest.mark.parametrize(
         "scaling_type_grad_output",
-        [ScalingType.DELAYED, ScalingType.DYNAMIC],
+        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
     )
     @pytest.mark.parametrize("linear_dtype", [torch.bfloat16, torch.float32])
     @pytest.mark.parametrize("linear_bias", [False, True])
@@ -259,10 +242,33 @@ class TestFloat8Linear:
                 pytest.skip()
         x = torch.randn(*x_shape, device="cuda", dtype=linear_dtype)
         m_ref = nn.Linear(16, 32, bias=linear_bias, device="cuda", dtype=linear_dtype)
+
+        if scaling_type_input is ScalingType.STATIC:
+            cast_config_input = CastConfig(
+                scaling_type=scaling_type_input,
+                static_scale=torch.tensor([1.0], device="cuda"),
+            )
+        else:
+            cast_config_input = CastConfig(scaling_type=scaling_type_input)
+        if scaling_type_weight is ScalingType.STATIC:
+            cast_config_weight = CastConfig(
+                scaling_type=scaling_type_weight,
+                static_scale=torch.tensor([1.0], device="cuda"),
+            )
+        else:
+            cast_config_weight = CastConfig(scaling_type=scaling_type_weight)
+        if scaling_type_grad_output is ScalingType.STATIC:
+            cast_config_grad_output = CastConfig(
+                scaling_type=scaling_type_grad_output,
+                static_scale=torch.tensor([1.0], device="cuda"),
+            )
+        else:
+            cast_config_grad_output = CastConfig(scaling_type=scaling_type_grad_output)
+
         config = Float8LinearConfig(
-            cast_config_input=CastConfig(scaling_type=scaling_type_input),
-            cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
-            cast_config_grad_output=CastConfig(scaling_type=scaling_type_grad_output),
+            cast_config_input=cast_config_input,
+            cast_config_weight=cast_config_weight,
+            cast_config_grad_output=cast_config_grad_output,
             emulate=emulate,
         )
         self._test_linear_impl(

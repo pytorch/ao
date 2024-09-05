@@ -2,7 +2,7 @@ import math
 
 import torch
 from torch import Tensor
-from torchao.dtypes.utils import _implements, _dispatch__torch_dispatch__
+from torchao.utils import TorchAOBaseTensor
 
 from .quant_utils import create_dynamic_map, scale_tensor, quantize_4bit_with_qmap, dequant_with_qmap
 
@@ -18,18 +18,12 @@ QMAP_SIGNED = create_dynamic_map(True, 3, 4)
 QMAP_UNSIGNED = torch.linspace(0, 1, 17)[1:].tolist()  # no zero
 
 
-class OptimState4bit(Tensor):
-    implements = classmethod(_implements)
+class OptimState4bit(TorchAOBaseTensor):
     tensor_attrs = ["codes", "scale", "qmap"]
 
     @staticmethod
     def __new__(cls, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool, shape):
-        return Tensor._make_wrapper_subclass(
-            cls,
-            shape,
-            device=codes.device,
-            requires_grad=False,
-        )
+        return Tensor._make_wrapper_subclass(cls, shape, device=codes.device)
 
     def __init__(self, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool, shape):
         """Create quantized 4-bit optimizer state as proposed in https://arxiv.org/abs/2309.01507
@@ -84,8 +78,6 @@ class OptimState4bit(Tensor):
             f"{self.__class__.__name__}(signed={self.signed}, block_size={self.block_size}, "
             f"shape={tuple(self.shape)}, device={self.device}, requires_grad={self.requires_grad})"
         )
-
-    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
 
 
 @OptimState4bit.implements(aten.copy_.default)

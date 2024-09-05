@@ -9,7 +9,7 @@ import torch
 from torch.utils._python_dispatch import TorchDispatchMode
 import torch.nn.utils.parametrize as parametrize
 from torchao.utils import find_multiple
-from .quant_primitives import (
+from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
     choose_qparams_affine,
@@ -357,7 +357,7 @@ def groupwise_affine_quantize_tensor_from_qparams(
     quant_max = 2 ** n_bit - 1
 
     int_data = quantize_affine(w, block_size, scales, zeros, output_dtype, quant_min, quant_max, zero_point_domain = ZeroPointDomain.FLOAT)
-    if TORCH_VERSION_AT_LEAST_2_5:
+    if TORCH_VERSION_AT_LEAST_2_5 and w.shape[-1] > 1:
         int_data_device_type = int_data.device.type
         # Move to cpu, until issue with MPS memory management of temporary tensors is resolved
         if int_data_device_type == 'mps':
@@ -376,7 +376,8 @@ def groupwise_affine_dequantize_tensor_from_qparams(
 ):
     assert groupsize > 1
     assert w_int4x8.dim() == 2
-    if TORCH_VERSION_AT_LEAST_2_5:
+    # need to handle single column case so check for dtype/size from groupwise_affine_quantize_tensor_from_qparams path
+    if TORCH_VERSION_AT_LEAST_2_5 and (w_int4x8.dtype == torch.uint8 or w_int4x8.shape[-1]>1):
         data = w_int4x8.to(torch.int32)
         high_bits = data >> 4
         low_bits = data & 0x0F

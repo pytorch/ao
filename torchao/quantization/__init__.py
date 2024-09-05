@@ -21,6 +21,8 @@ __all__ = [
     "swap_conv2d_1x1_to_linear"
     "safe_int_mm",
     "autoquant",
+    "DEFAULT_AUTOQUANT_CLASS_LIST",
+    "DEFAULT_INT4_AUTOQUANT_CLASS_LIST",
     "get_scale",
     "SmoothFakeDynQuantMixin",
     "SmoothFakeDynamicallyQuantizedLinear",
@@ -39,6 +41,11 @@ __all__ = [
     "int8_dynamic_activation_int8_semi_sparse_weight",
     "int4_weight_only",
     "int8_weight_only",
+    "uintx_weight_only",
+    "float8_weight_only",
+    "fpx_weight_only",
     "LinearActivationQuantizedTensor",
     "to_linear_activation_quantized",
+    "float8_weight_only",
+    "float8_dynamic_activation_float8_weight"
 ]

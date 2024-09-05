@@ -7,35 +7,46 @@ Using the lm_eval. The models used were meta-llama/Llama-2-7b-chat-hf and meta-l
 
 | Model       | Technique          | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
 | ----------- | ------------------ | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
-| Llama-2-7B  | Base (bfloat16)    | 12.212              |  105.14       | 1389.35                 | 13.88            | 13.21           |
-|             | int8dq             | 12.262              |    9.20       |   60.93                 |  8.33            |  6.62           |
-|             | int8wo             | 12.204              |  150.18       |  994.40                 |  8.95            |  6.62           |
-|             | int4wo-64          | 12.843              |  199.86       |  746.66                 |  4.50            |  3.74           |
-|             | int4wo-64-GPTQ     | 12.489              |  199.86       |  746.66                 |  4.50            |  3.74           |
-|             | autoquant          | 12.204              |  159.22       | 1069.87                 |  8.91            |  6.72           |
-| Llama-3-8B  | Base (bfloat16)    | N/A                 |   94.97       | 1425.55                 | 16.43            | 15.01           |
-|             | int8dq             | N/A                 |    8.44       |   63.45                 |  8.98            |  7.52           |
-|             | int8wo             | N/A                 |  139.76       | 1051.02                 | 10.42            |  7.52           |
-|             | int4wo-64          | N/A                 |  179.44       |  757.60                 |  6.62            |  4.22           |
-|             | autoquant          | N/A                 |  137.71       | 1037.74                 | 11.08            |  7.54           |
+| Llama-2-7B  | Base (bfloat16)    | 12.212              |  107.38       | 1418.93                 | 13.88            | 13.21           |
+|             | int8dq             | 12.262              |    9.61       |   63.67                 |  8.61            |  6.62           |
+|             | int8wo             | 12.204              |  170.83       | 1131.18                 |  8.95            |  6.62           |
+|             | int4wo-64          | 12.843              |  201.14       |  751.42                 |  4.87            |  3.74           |
+|             | int4wo-64-GPTQ     | 12.527              |  201.14       |  751.42                 |  4.87            |  3.74           |
+|             | autoquant-int4hqq  | 12.825              |  209.19       |  804.32                 |  4.89            |  3.84           |
+| Llama-3-8B  | Base (bfloat16)    |  7.441              |   95.64       | 1435.54                 | 16.43            | 15.01           |
+|             | int8dq             |  7.581              |    8.61       |   64.75                 |  9.24            |  7.52           |
+|             | int8wo             |  7.447              |  153.03       | 1150.80                 | 10.42            |  7.52           |
+|             | int4wo-64          |  8.316              |  180.80       |  763.33                 |  6.88            |  4.22           |
+|             | int4wo-64-GPTQ     |  7.921              |  180.80       |  763.33                 |  6.88            |  4.22           |
+|             | autoquant-int4hqq  |  8.110              |  188.41       |  800.58                 |  7.14            |  4.25           |
 
 note: Int8 dynamic quantization works best on compute bound models like [SAM](https://github.com/pytorch-labs/segment-anything-fast) whereas Llama with batchsize=1 tends to be memory bound, thus the rather low performance.
+
+For int4 we make heavy use of [tinygemm](https://github.com/pytorch/ao/blob/cb3bd8c674f2123af232a0231b5e38ddafa756a8/torchao/dtypes/aqt.py#L526) of `torch.ops.aten._weight_int4pack_mm` to bitpack into a layout optimized for tensor cores
+
+And a quick crash course on inference quantization to help parse the above table. Int4 quantization is an ambiguous term because there's the dtype in which a layer is represented and then the dtype in which the computation is done. For example, if you're using Weight-Only (wo) int4 quantization that means that the layer will be upcasted to a larger dtype like fp16 so an int4 matrix multiplication is defined as `F.linear(input, weight.to(input.dtype))`. Dynamic quantization (DQ) primarily targets activations, enabling on-the-fly quantization from higher precision formats like bf16 to lower precision formats such as int8. This process, when supported by hardware, allows for direct computation, such as performing `F.linear(input, weight)`. Naive quantization algorithms are also notoriously sensitive to outliers so we also typically set a group size that applies a scale factor per group of 64 elements in the case of `int4wo-64`.
 
 ## Autoquantization
 
 The `autoquant` api can be used to quickly and accurately quantize your model. When used as in the example below, the api first identifies the shapes
-of the activations that the different linear layers see, it then benchmarks these shapes across different types of quantized and non-quantized layers in order to pick the fastest one, attempting to take into account fusions where possible. Finally once the best class is found for each layer, it swaps the linear. Currently this api chooses between no quantization, int8 dynamic quantization and int8 weight only quantization for each layer.
+of the activations that the different linear layers see, it then benchmarks these shapes across different types of quantized and non-quantized layers in order to pick the fastest one, attempting to take into account fusions where possible. Finally once the best class is found for each layer, it swaps the linear. By default the api only uses int8 techniques, i.e. it chooses between no quantization, int8 dynamic quantization and int8 weight only quantization for each layer, though there is also an option add int4 quantization which can be used for maximum performance or to avoid perf regressions from `int4_weight_only()`.
 
 ```python
 import torch
 import torchao
+from torchao.quantization import  DEFAULT_INT4_AUTOQUANT_CLASS_LIST
 
 # Plug in your model and example input
 model = torch.nn.Sequential(torch.nn.Linear(32, 64)).cuda().to(torch.bfloat16)
 input = torch.randn(32,32, dtype=torch.bfloat16, device='cuda')
+use_autoquant_default = True
 
-# perform autoquantization and torch.compile
-model = torchao.autoquant(torch.compile(model, mode='max-autotune'))
+if use_autoquant_default:
+    # perform autoquantization and torch.compile with default settings
+    model = torchao.autoquant(torch.compile(model, mode='max-autotune'))
+elif not use_autoquant_default:
+    # perform autoquantization and torch.compile with int4 support
+    model = torchao.autoquant(torch.compile(model, mode='max-autotune'), qtensor_class_list=DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
 
 # pass in an input which is used in order to pick fastest quantization operations
 # and apply torch compilation.
@@ -59,7 +70,7 @@ with open("quantization-cache.pkl", "rb") as f:
     AUTOQUANT_CACHE.update(pickle.load(f))
 ```
 ## Affine Quantization
-Affine quantization refers to the type of quantization that maps from floating point numbers to quantized numbers (typically integer) with an affine transformation, i.e.: `quantized_val = float_val / scale + zero_point` where `scale` and `zero_point` are quantization parameters for some granularity and based on some data.
+Affine quantization refers to the type of quantization that maps from high precision floating point numbers to quantized numbers (low precision integer or floating point dtypes) with an affine transformation, i.e.: `quantized_val = high_preicsion_float_val / scale + zero_point` where `scale` and `zero_point` are quantization parameters for some granularity and based on some data (also some dtypes may not require a `zero_point`)
 
 ### Quantization Primitives
 We used to have different quantize and dequantize operators for quantization with different granularities. But in the end these can all be expressed with a `block_size` argument with different settings, so we unified existing quant primitives to `choose_qparams_affine`, `quantize_affine` and `dequantize_affine` that can represent symmetric/asymmetric per tensor/channel/token/channel_group quantization, this can be used to implement the unified quantized tensor subclass.
@@ -78,7 +89,7 @@ as an example:
 ```python
 import torch
 from torchao.quantization.quant_primitives import MappingType, ZeroPointDomain
-from torchao.dtypes import to_affine_quantized
+from torchao.dtypes import to_affine_quantized_intx
 import copy
 from torchao.quantization.quant_api import (
     quantize_,
@@ -138,9 +149,9 @@ speedup: 2.2715200981216173
 
 What we do underlying the APIs are roughly the following:
 ```
-from torchao.dtypes import to_affine_quantized
+from torchao.dtypes import to_affine_quantized_intx
 def int8wo_quant(weight):
-    return to_affine_quantized(weight, MappingType.SYMMETRIC, (1, weight.shape[1]), torch.int8, eps=torch.finfo(torch.float32).eps, zero_point_dtype=torch.int64)
+    return to_affine_quantized_intx(weight, MappingType.SYMMETRIC, (1, weight.shape[1]), torch.int8, eps=torch.finfo(torch.float32).eps, zero_point_dtype=torch.int64)
 
 for n, m in model.named_modules():
     if isinstance(m, torch.nn.Linear):
@@ -220,6 +231,12 @@ change_linear_weights_to_int4_woqtensors(model)
 ```
 
 Note: The quantization error incurred by applying int4 quantization to your model can be fairly significant, so using external techniques like GPTQ may be necessary to obtain a usable model.
+
+### KV Cache Quantization
+
+We've added kv cache quantization and other features in order to enable long context length (and necessarily memory efficient) inference.
+
+In practice these features alongside int4 weight only quantization allow us to **reduce peak memory by ~55%**, meaning we can Llama3.1-8B inference with a **130k context length with only 18.9 GB of peak memory.** More details can be found [here](torchao/_models/llama/README.md)
 
 ## (To be moved to prototype) A16W4 WeightOnly Quantization with GPTQ
 

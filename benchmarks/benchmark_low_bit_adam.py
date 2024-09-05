@@ -18,18 +18,18 @@
 # To enable cosine learning rate scheduler, set --cosine_lr_scheduler
 
 import argparse
-import datetime
 import json
 import math
+import time
 from contextlib import nullcontext
 from functools import partial
-from pathlib import Path
 
 import bitsandbytes as bnb
 import datasets
 import timm
 import torch
 import torch.nn.functional as F
+import wandb
 from torch.utils.data import DataLoader
 from torchvision.transforms import v2
 from tqdm import tqdm
@@ -70,22 +70,6 @@ class CosineSchedule:
             progress = (step - self.warmup_steps) / (self.total_steps - self.warmup_steps)
             return self.final_lr + 0.5 * (self.lr - self.final_lr) * (1 + math.cos(progress * math.pi))
         return self.final_lr
-
-
-class WandbLogger:
-    def __init__(self, args):
-        if args.project is not None and not args.profile:
-            import wandb
-
-            Path("wandb_logs").mkdir(exist_ok=True)
-            self.run = wandb.init(project=args.project, name=args.run_name, config=args, dir="wandb_logs")
-
-        else:
-            self.run = None
-
-    def log(self, *args, **kwargs):
-        if self.run is not None:
-            self.run.log(*args, **kwargs)
 
 
 def get_parser():
@@ -190,7 +174,13 @@ if __name__ == "__main__":
         print(f"{k}: {v}")
 
     # wandb is only enabled when args.project is set and args.profile is False
-    logger = WandbLogger(args)
+    logger = wandb.init(
+        project=args.project,
+        name=args.run_name,
+        config=args,
+        dir="/tmp",
+        mode="disabled" if args.project is None else None,
+    )
     dloader = get_dloader(args, True)
     print(f"Train dataset: {len(dloader.dataset):,} images")
 
@@ -239,13 +229,13 @@ if __name__ == "__main__":
 
     lr_schedule = CosineSchedule(args.lr, len(dloader) * args.n_epochs)
     grad_scaler = torch.amp.GradScaler("cuda", enabled=args.amp == "fp16")
+    log_interval = 10
+    t0 = time.perf_counter()
 
     step = 0
     for epoch_idx in range(args.n_epochs):
         model.train()
         pbar = tqdm(dloader, dynamic_ncols=True, desc=f"Epoch {epoch_idx + 1}/{args.n_epochs}")
-
-        start_time = datetime.datetime.now()
 
         with torch.profiler.profile() if args.profile else nullcontext() as prof:
             for batch in pbar:
@@ -265,13 +255,18 @@ if __name__ == "__main__":
                 if args.cosine_lr_scheduler:
                     lr = lr_schedule.get_lr(step)
                     for param_group in optim.param_groups:
-                        param_group["lr"] = lr
+                        if isinstance(param_group["lr"], torch.Tensor):
+                            param_group["lr"].fill_(lr)
+                        else:
+                            param_group["lr"] = lr
 
-                if step % 100 == 0:
-                    logger.log(
-                        dict(loss=loss.item(), lr=optim.param_groups[0]["lr"]),
-                        step=step,
-                    )
+                if step % log_interval == 0:
+                    log_dict = dict(loss=loss.item(), lr=optim.param_groups[0]["lr"])
+                    if step > 0:
+                        t1 = time.perf_counter()
+                        log_dict["imgs_per_second"] = args.batch_size * log_interval / (t1 - t0)
+                        t0 = t1
+                    logger.log(log_dict, step=step)
 
                 if args.optim_cpu_offload == "deepspeed":
                     model.step()
@@ -289,10 +284,10 @@ if __name__ == "__main__":
             prof.export_chrome_trace("trace.json")
 
         else:
-            print(f"Time taken for epoch {epoch_idx + 1}: {(datetime.datetime.now() - start_time)}")
-
             val_acc = evaluate_model(model, args)
             print(f"Epoch {epoch_idx + 1}/{args.n_epochs}: val_acc={val_acc.item() * 100:.2f}")
             logger.log(dict(val_acc=val_acc), step=step)
 
-    print(f"Max memory used: {torch.cuda.max_memory_allocated() / 1e9:.02f} GB")
+    peak_mem = torch.cuda.max_memory_allocated() / 1e9
+    print(f"Max memory used: {peak_mem:.02f} GB")
+    logger.log(dict(max_memory_allocated=peak_mem))

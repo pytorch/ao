@@ -38,6 +38,7 @@ def addmm_float8_unwrapped(
     """
     a_inverse_scale = a_scale.reciprocal()
     b_inverse_scale = b_scale.reciprocal()
+
     if output_dtype == torch.float32 and bias is not None:
         # Bias is not supported by _scaled_mm when output is fp32
         output = torch._scaled_mm(

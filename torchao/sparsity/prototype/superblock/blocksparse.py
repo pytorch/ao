@@ -3,11 +3,7 @@ from functools import partial
 import torch
 from typing import Optional, Tuple, List, Dict, Any, Callable
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from torchao.dtypes.utils import (
-    _implements,
-    _dispatch__torch_function__,
-    _dispatch__torch_dispatch__,
-)
+from torchao.utils import TorchAOBaseTensor
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
 
 aten = torch.ops.aten
@@ -24,16 +20,12 @@ def blocksparse_linear_abstract(A: torch.Tensor, crow_indices: torch.Tensor, col
     return torch.empty(new_shape, dtype=A.dtype, device=A.device)
 
 # Subclass definition
-class BlockSparseTensor(torch.Tensor):
+class BlockSparseTensor(TorchAOBaseTensor):
     bsr_crow_indices: Optional[torch.Tensor]
     bsr_col_indices: Optional[torch.Tensor]
     bsr_values: Optional[torch.Tensor]
 
-    __slots__ = ["bsr_crow_indices", "bsr_col_indices", "bsr_values"] 
-
-    implements = classmethod(_implements)
-    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
-    __torch_function__ = classmethod(_dispatch__torch_function__)
+    __slots__ = ["bsr_crow_indices", "bsr_col_indices", "bsr_values"]
 
     @staticmethod
     def __new__(  # noqa: PYI034
@@ -109,7 +101,7 @@ class BlockSparseTensor(torch.Tensor):
             requires_grad=self.requires_grad,
         )
 
-# Subclass op dispatch registration 
+# Subclass op dispatch registration
 implements = BlockSparseTensor.implements
 
 @implements(aten.detach.default)

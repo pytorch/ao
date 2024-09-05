@@ -1,6 +1,6 @@
 import torch
 from torch import Tensor
-from torchao.dtypes.utils import _implements, _dispatch__torch_dispatch__
+from torchao.utils import TorchAOBaseTensor
 
 from .quant_utils import create_dynamic_map, scale_tensor, quantize_8bit_with_qmap, dequant_with_qmap
 
@@ -13,18 +13,12 @@ QMAP_SIGNED = create_dynamic_map(signed=True)
 QMAP_UNSIGNED = create_dynamic_map(signed=False)
 
 
-class OptimState8bit(Tensor):
-    implements = classmethod(_implements)
+class OptimState8bit(TorchAOBaseTensor):
     tensor_attrs = ["codes", "scale", "qmap"]
 
     @staticmethod
     def __new__(cls, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool):
-        return Tensor._make_wrapper_subclass(
-            cls,
-            codes.shape,
-            device=codes.device,
-            requires_grad=False,
-        )
+        return Tensor._make_wrapper_subclass(cls, codes.shape, device=codes.device)
 
     def __init__(self, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool):
         """Create quantized 8-bit optimizer state as proposed in https://arxiv.org/abs/2110.02861
@@ -70,8 +64,6 @@ class OptimState8bit(Tensor):
             f"{self.__class__.__name__}(signed={self.signed}, block_size={self.block_size}, "
             f"shape={tuple(self.shape)}, device={self.device}, requires_grad={self.requires_grad})"
         )
-
-    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
 
 
 @OptimState8bit.implements(aten.copy_.default)

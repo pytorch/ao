@@ -45,7 +45,7 @@ def set_attr(obj, names, val):
         set_attr(getattr(obj, names[0]), names[1:], val)
 
 def make_functional(mod, layer_id):
-    orig_params = tuple(mod.parameters())        
+    orig_params = tuple(mod.parameters())
     # remove all the parameters in the model
     selected_params=[]
     selected_params_names=[]
@@ -61,8 +61,8 @@ def make_functional(mod, layer_id):
 
 
 
-def main(layer_id, checkpoint, max_seqlen, maxIter, nsamples):
-    
+def main(layer_id, checkpoint, max_seqlen, max_iter, nsamples):
+
     # use the functional model to load the weights back
     def load_weights(mod, names, params, selected_params, selected_params_names):
         for name, p in zip(names, params):
@@ -103,17 +103,17 @@ def main(layer_id, checkpoint, max_seqlen, maxIter, nsamples):
 
         # make the model functional
         params, names, selected_params, selected_params_names = make_functional(model, layer_id)
-        
+
         # make params regular Tensors instead of nn.Parameter
         params = tuple(p.detach() for p in params)
-        
+
         # set requires_grad to True for the selected parameters
         selected_params_tuple = tuple(p.detach().requires_grad_() for p in selected_params)
 
         trace_history = []
         vhv_c_history=[]
 
-        for iteration in range(maxIter):
+        for iteration in range(max_iter):
 
             print("iteration: ",iteration)
 
@@ -121,7 +121,7 @@ def main(layer_id, checkpoint, max_seqlen, maxIter, nsamples):
             v = [torch.randint_like(p, high=2) for p in selected_params_tuple]
             for v_i in v:
                 v_i[v_i == 0] = -1
-                
+
             for i in tqdm(range(nsamples)):
                 inputs, labels = trainloader[i]
                 inputs = inputs.to(device)
@@ -134,10 +134,10 @@ def main(layer_id, checkpoint, max_seqlen, maxIter, nsamples):
                 _, vH = vhp(f, selected_params_tuple, tuple(v))
 
                 if i==0:
-                    TvH = [torch.zeros(p.size()).to(device) for p in selected_params_tuple] 
+                    TvH = [torch.zeros(p.size()).to(device) for p in selected_params_tuple]
                 TvH = [TvH1 + vH1 + 0.0 for TvH1, vH1 in zip(TvH, vH)]
 
-            
+
             TvH = [TvH1 / float(nsamples) for TvH1 in TvH]
             # get vHv
             vHv = group_product(TvH, v)
@@ -148,17 +148,18 @@ def main(layer_id, checkpoint, max_seqlen, maxIter, nsamples):
             trace_history.append(trace)
 
         print("Iteration Done")
-        print("avg: trace,", np.mean(trace_history))
+        print("Avg Hessian trace for layer", layer_id, "is:", np.mean(trace_history))
         print("trace_history,", trace_history)
 
 
 if __name__ == '__main__':
     import argparse
-    parser = argparse.ArgumentParser(description='Your CLI description.')
+    parser = argparse.ArgumentParser(description="Calculate layer-wised Hessian trace leveraging torch's vhp function.")
+    # TODO: make it a for loop for all the layer_ids to automatically calculate the Hessian trace for all the layers of a model
     parser.add_argument('--layer_id', type=int, default=0, help='Which layer to compute the Hessian trace')
-    parser.add_argument('--checkpoint', type=str, default="/home/hanxianhuang/ao/torchao/quantization/prototype/mixed_precision/checkpoints/meta-llama/Meta-Llama-3-8B", help='Path to load model')
+    parser.add_argument('--checkpoint', type=str, default="/tmp/Meta-Llama-3-8B", help='Path to load model')
     parser.add_argument('--max_seqlen', type=int, default=2048, help='Max sequence length')
-    parser.add_argument('--maxIter', type=int, default=100, help='The number of iterations to calculate Hessian trace')
-    parser.add_argument('--nsamples', type=int, default=128, help='The number of samples in calibration dataset') 
+    parser.add_argument('--max_iter', type=int, default=100, help='The number of iterations to calculate Hessian trace')
+    parser.add_argument('--nsamples', type=int, default=128, help='The number of samples in calibration dataset')
     args = parser.parse_args()
-    main(args.layer_id, args.checkpoint, args.max_seqlen, args.maxIter, args.nsamples)
+    main(args.layer_id, args.checkpoint, args.max_seqlen, args.max_iter, args.nsamples)

@@ -24,27 +24,47 @@ To use 4-bit Adam, replace the above with `Adam4bit`. Similarly for `AdamFp8`. Y
 **Other optimizers**: AdamW is also available as `AdamW8bit`, `AdamW4bit`, and `AdamWFp8`. Other optimizers can be added based on demand.
 
 NOTE:
-- The low-bit optimizers require PyTorch >= 2.3. FP8 optimizers require CUDA compute capability >= 8.9.
+- The low-bit optimizers require PyTorch >= 2.3
+- For FP8 optimizers on CUDA, PyTorch >= 2.4 and CUDA compute capability >= 8.9 are required.
 - For 4-bit optimizers, we don't implement rank-1 normalization for quantizing 2nd moment as originally done in the paper.
-- **Known issue**: When learning rate is updated every step (e.g. using cosine learning rate scheduler), training speed is slower. This is because we have to convert learning rate to a CUDA tensor (which incurs expensive memory transfer cost), since torch.compile() will treat a Python float as a constant and trigger recompile whenever the value is changed.
+- The first training step is expected to be slow since the optimizer needs to be compiled.
 
 ## Benchmarks
 
-Benchmark script for fine-tuning a [timm](https://github.com/huggingface/pytorch-image-models) model on [resisc45](https://huggingface.co/datasets/timm/resisc45) dataset is available at [benchmarks/benchmark_low_bit_adam.py](../../../benchmarks/benchmark_low_bit_adam.py).
+Fine-tune [timm](https://github.com/huggingface/pytorch-image-models)'s ViT-H (630M params) on [resisc45](https://huggingface.co/datasets/timm/resisc45) dataset. BF16 AMP, 1 epoch, batch size 8, cosine LR scheduler, 4070Ti SUPER, fixed random seed. Benchmark script is available at [benchmarks/benchmark_low_bit_adam.py](../../../benchmarks/benchmark_low_bit_adam.py).
 
-Results for fine-tuning ViT-H (630M params) with BF16 AMP for 2 epochs, batch size 8, on 4070Ti SUPER, with fixed random seed:
-
-Adam impl      | max memory (GB) | time taken for 2nd epoch | accuracy
----------------|-----------------|--------------------------|----------
-PyTorch        | 12.94           |  8m 18s                  | 91.14
-bnb 8-bit      |  8.31           |  6m 50s                  | 90.67
-ao 8-bit       |  8.31           |  6m 44s                  | 90.63
-ao FP8 E4M3    |  8.32           |  6m 35s                  | 90.98
-lpmm 4-bit     |  7.72           |  5m 59s                  | 89.97
-ao 4-bit       |  7.72           |  7m 13s                  | 90.05
-lpmm 4-bit (*) |  7.73           | 11m 10s                  | 89.71
+AdamW impl      | Max memory (GB) | imgs/s | accuracy
+----------------|-----------------|--------|----------
+PyTorch (fused) | 12.23           | 41.8   | 94.38
+bnb 8-bit       |  8.32           | 43.6   | 94.18
+ao 8-bit        |  8.33           | 42.6   | 94.25
+ao FP8 E4M3     |  9.27           | 44.1   | 94.40
+lpmm 4-bit      |  7.72           | 46.0   | 94.29
+ao 4-bit        |  7.72           | 40.0   | 94.03
+lpmm 4-bit (*)  |  7.74           | 26.6   | 94.25
 
 (*) means rank-1 normalization is used for 2nd optimizer state. Refer to [paper](https://arxiv.org/abs/2309.01507) for more details.
+
+Fine-tune [Llama2-7B](https://huggingface.co/meta-llama/Llama-2-7b) on [Alpaca](https://huggingface.co/datasets/tatsu-lab/alpaca) dataset. Full BF16, 1 epoch, A100, fixed random seed. Benchmark is done with [torchtune](https://github.com/pytorch/torchtune). See [#746](https://github.com/pytorch/ao/pull/746) for more details.
+
+AdamW impl       | Max memory (GB) | toks/s | `truthfulqa_mc2` acc | Compile time
+-----------------|-----------------|--------|----------------------|-------------
+Not fine-tuned   | -               | -      | 38.95                | -
+PyTorch (fused)  | 52              | ~4500  | 42.12                | ~4 min
+bnb 8-bit        | 39              | ~4000  | 41.98                | ~4 min
+ao 8-bit         | 39              | ~4000  | 42.41                | ~12 min
+ao 4-bit         | 33              | ~3600  | 42.34                | ~4 min
+
+NOTE: lpmm's 4-bit AdamW does not support BF16 weights.
+
+### Note on compile times
+
+There are 2 approaches to compile optimizer step in low-bit optim:
+
+1. Compile optim step for single param i.e. `torch.compile(single_param_adam)`
+2. Compile optim step for all params i.e. `torch.compile(param_groups_adam)`
+
+Currently Adam8bit and AdamFp8 use approach (2) (with static shape) since it is faster (but compile much slower), while Adam4bit uses approach (1) (with dynamic shape) since there are excessive memory usage for "Adam4bit + approach (2)". Approach (1) requires dynamic shape to avoid hitting recompiles limit.
 
 ## Optimizer CPU offload
 

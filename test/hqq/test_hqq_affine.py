@@ -1,7 +1,7 @@
 import unittest
 import torch
 from torchao.dtypes.affine_quantized_tensor import (
-    to_affine_quantized,
+    to_affine_quantized_intx,
     ZeroPointDomain,
     PlainAQTLayout,
     PlainLayoutType,
@@ -49,7 +49,7 @@ def _eval_hqq(nbits, layout_type):
     if isinstance(layout_type, TensorCoreTiledLayoutType):
     	target_dtype = torch.uint8 if TORCH_VERSION_AT_LEAST_2_5 else torch.int32
     	    	
-    q_tensor_hqq = to_affine_quantized(
+    q_tensor_hqq = to_affine_quantized_intx(
             input_float=W,
             mapping_type=mapping_type,
             block_size=block_size,

@@ -6,6 +6,7 @@ __all__ = [
     "create_block_sparse_tensor",
     "create_semi_structured_tensor",
     "PerChannelNormObserver",
+    "mask_creator",
 ]
 
 def create_block_sparse_tensor(M, N, blocksize, sparsity, dtype):
@@ -86,3 +87,37 @@ class PerChannelNormObserver(UniformQuantizationObserverBase):
         raise NotImplementedError(
             "PerChannelNormObserver is designed to store activations only. "
         )
+
+
+def mask_creator(
+        tensor: torch.Tensor,
+        N: int = 2,
+        M: int = 4,
+    ) -> torch.Tensor:
+    """
+    Class for creating N:M sparsity masks.
+    Masks will be created using the N:M ratio, where for every block of 
+    M weights, N will be pruned based on ranked weight value. Each mask 
+    will correspond to the given tensor.
+    :param tensor: The input tensor to create a mask for
+    :param N: The number of weights in a group to keep
+    :param M: The size of a weight group
+    :return: A mask tensor with the same shape as the input tensor
+    """
+    mask = None
+    # for i, tensor in enumerate(tensors):
+    if tensor.numel() % M != 0:
+        raise ValueError(
+            f"Tensor of size {tensor.shape} can't be evenly divided into "
+            f"{M} groups")
+
+    num_groups = tensor.numel() // M
+
+    # N:M sparsity for linear layers
+    tensor_temp = tensor.detach().abs().reshape(num_groups, M)
+    index = torch.argsort(tensor_temp, dim=1)[:, :int(M - N)]
+
+    w_b = torch.ones(tensor_temp.shape, device=tensor_temp.device)
+    mask = w_b.scatter_(dim=1, index=index, value=0).reshape(tensor.shape)
+
+    return mask
