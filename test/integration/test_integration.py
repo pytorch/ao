@@ -68,9 +68,9 @@ from torchao.quantization.utils import (
 )
 from torchao.quantization.autoquant import (
     AQInt8DynamicallyQuantizedLinearWeight,
-    AQWeightOnlyQuantizedLinearWeight,
-    AQWeightOnlyQuantizedLinearWeight2,
-    AQWeightOnlyQuantizedLinearWeight3,
+    AQInt8WeightOnlyQuantizedLinearWeight,
+    AQInt8WeightOnlyQuantizedLinearWeight2,
+    AQInt8WeightOnlyQuantizedLinearWeight3,
     AutoQuantizableLinearWeight,
 
 )
@@ -727,21 +727,21 @@ class TestSubclass(unittest.TestCase):
     )
     def test_aq_int8_weight_only_quant_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
-            AQWeightOnlyQuantizedLinearWeight.from_float, device, 35, test_dtype=dtype
+            AQInt8WeightOnlyQuantizedLinearWeight.from_float, device, 35, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant+aqt needs newer pytorch")
     def test_aq_int8_weight_only_quant_2_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
-            AQWeightOnlyQuantizedLinearWeight2.from_float, device, 35, test_dtype=dtype
+            AQInt8WeightOnlyQuantizedLinearWeight2.from_float, device, 35, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant+aqt needs newer pytorch")
     def test_aq_int8_weight_only_quant_3_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
-            AQWeightOnlyQuantizedLinearWeight3.from_float, device, 35, test_dtype=dtype
+            AQInt8WeightOnlyQuantizedLinearWeight3.from_float, device, 35, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
@@ -1498,10 +1498,10 @@ class TestUtils(unittest.TestCase):
         size = torchao.utils.get_model_size_in_bytes(model)
 
         from torchao.quantization.autoquant import (
-            AQWeightOnlyQuantizedLinearWeight2,
+            AQInt8WeightOnlyQuantizedLinearWeight2,
         )
         qtensor_class_list = (
-            AQWeightOnlyQuantizedLinearWeight2,
+            AQInt8WeightOnlyQuantizedLinearWeight2,
         )
         mod = torchao.autoquant(torch.compile(model), qtensor_class_list = qtensor_class_list, set_inductor_config=False)
         mod(example_input)
