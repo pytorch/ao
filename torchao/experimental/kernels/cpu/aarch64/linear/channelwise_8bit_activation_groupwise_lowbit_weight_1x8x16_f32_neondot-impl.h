@@ -294,34 +294,8 @@ void kernel_impl(
         res_0123 = vec_clamp(res_0123, vec_min, vec_max);
         res_4567 = vec_clamp(res_4567, vec_min, vec_max);
       }
-
-      // Store result
-      int remaining = n - n_idx;
-      float* store_loc = output + m_idx * output_m_stride + n_idx;
-      if (remaining >= 8) {
-        vst1q_f32(store_loc, res_0123);
-        vst1q_f32(store_loc + 4, res_4567);
-      } else if (remaining >= 7) {
-        vst1q_f32(store_loc, res_0123);
-        vst1_f32(store_loc + 4, vget_low_f32(res_4567));
-        *(store_loc + 6) = res_4567[2];
-      } else if (remaining >= 6) {
-        vst1q_f32(store_loc, res_0123);
-        vst1_f32(store_loc + 4, vget_low_f32(res_4567));
-      } else if (remaining >= 5) {
-        vst1q_f32(store_loc, res_0123);
-        *(store_loc + 4) = res_4567[0];
-      } else if (remaining >= 4) {
-        vst1q_f32(store_loc, res_0123);
-      } else if (remaining >= 3) {
-        vst1_f32(store_loc, vget_low_f32(res_0123));
-        *(store_loc + 2) = res_0123[2];
-      } else if (remaining >= 2) {
-        vst1_f32(store_loc, vget_low_f32(res_0123));
-      } else {
-        *store_loc = res_0123[0];
-      }
-
+      vst1q_f32(output + m_idx * output_m_stride + n_idx, res_0123);
+      vst1q_f32(output + m_idx * output_m_stride + n_idx + 4, res_4567);
     } // n_idx
     activation_data_byte_ptr += (activation_ptr - activation_data_byte_ptr);
   } // m_idx
