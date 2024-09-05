@@ -673,14 +673,17 @@
         <span class="bp">cls</span><span class="p">,</span>
         <span class="n">input_float</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
-        <span class="n">zero_point</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">zero_point</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
         <span class="n">block_size</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
         <span class="n">target_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
         <span class="n">quant_min</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">quant_max</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-        <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">ZeroPointDomain</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">,</span>
+        <span class="n">zero_point_domain</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ZeroPointDomain</span><span class="p">]</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">INT</span><span class="p">,</span>
         <span class="n">layout_type</span><span class="p">:</span> <span class="n">LayoutType</span> <span class="o">=</span> <span class="n">PlainLayoutType</span><span class="p">(),</span>
     <span class="p">):</span>
+        <span class="k">if</span> <span class="n">target_dtype</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">FP8_TYPES</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="n">zero_point_domain</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;zero_point_domain must be specified for non-fp8 types&quot;</span>
+            <span class="k">assert</span> <span class="n">zero_point</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="s2">&quot;zero_point must be specified for non-fp8 types&quot;</span>
         <span class="n">original_shape</span> <span class="o">=</span> <span class="n">input_float</span><span class="o">.</span><span class="n">shape</span>
         <span class="n">input_float</span> <span class="o">=</span> <span class="n">layout_type</span><span class="o">.</span><span class="n">pre_process</span><span class="p">(</span><span class="n">input_float</span><span class="p">)</span>
 
@@ -728,6 +731,31 @@
             <span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unsupported dtype </span><span class="si">{</span><span class="n">target_dtype</span><span class="si">}</span><span class="s2"> for from_hp_to_floatx&quot;</span><span class="p">)</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">from_hp_to_floatx_static</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span>
+        <span class="n">input_float</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
+        <span class="n">target_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+        <span class="n">layout_type</span><span class="p">:</span> <span class="n">LayoutType</span><span class="p">,</span>
+    <span class="p">):</span>
+
+        <span class="k">if</span> <span class="n">target_dtype</span> <span class="ow">in</span> <span class="n">FP8_TYPES</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">cls</span><span class="o">.</span><span class="n">from_hp_to_intx_static</span><span class="p">(</span>
+                <span class="n">input_float</span><span class="o">=</span><span class="n">input_float</span><span class="p">,</span>
+                <span class="n">scale</span><span class="o">=</span><span class="n">scale</span><span class="p">,</span>
+                <span class="n">zero_point</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                <span class="n">block_size</span><span class="o">=</span><span class="n">block_size</span><span class="p">,</span>
+                <span class="n">target_dtype</span><span class="o">=</span><span class="n">target_dtype</span><span class="p">,</span>
+                <span class="n">quant_min</span><span class="o">=</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">target_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">min</span><span class="p">),</span>
+                <span class="n">quant_max</span><span class="o">=</span><span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">finfo</span><span class="p">(</span><span class="n">target_dtype</span><span class="p">)</span><span class="o">.</span><span class="n">max</span><span class="p">),</span>
+                <span class="n">zero_point_domain</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                <span class="n">layout_type</span><span class="o">=</span><span class="n">layout_type</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unsupported dtype </span><span class="si">{</span><span class="n">target_dtype</span><span class="si">}</span><span class="s2"> for from_hp_to_floatx_static&quot;</span><span class="p">)</span>
 
     <span class="nd">@classmethod</span>
     <span class="k">def</span> <span class="nf">from_hp_to_fpx</span><span class="p">(</span>
@@ -1700,6 +1728,7 @@
 <span class="n">to_affine_quantized_intx</span> <span class="o">=</span> <span class="n">AffineQuantizedTensor</span><span class="o">.</span><span class="n">from_hp_to_intx</span>
 <span class="n">to_affine_quantized_intx_static</span> <span class="o">=</span> <span class="n">AffineQuantizedTensor</span><span class="o">.</span><span class="n">from_hp_to_intx_static</span>
 <span class="n">to_affine_quantized_floatx</span> <span class="o">=</span> <span class="n">AffineQuantizedTensor</span><span class="o">.</span><span class="n">from_hp_to_floatx</span>
+<span class="n">to_affine_quantized_floatx_static</span> <span class="o">=</span> <span class="n">AffineQuantizedTensor</span><span class="o">.</span><span class="n">from_hp_to_floatx_static</span>
 <span class="c1"># experimental will be merged in to floatx</span>
 <span class="n">to_affine_quantized_fpx</span> <span class="o">=</span> <span class="n">AffineQuantizedTensor</span><span class="o">.</span><span class="n">from_hp_to_fpx</span>
 
