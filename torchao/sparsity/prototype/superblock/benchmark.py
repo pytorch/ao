@@ -73,7 +73,7 @@ def main(args):
     if args.profile:
         return profiler_runner("test.json.gz", benchmark_model, model, 10, (image,)) 
     else:
-        return benchmark_model(model, 100, args=(image,)) 
+        return benchmark_model(model, 100, args=(image,), memory=True) 
 
 
 
@@ -113,6 +113,7 @@ def get_args_parser(add_help=True):
 
 if __name__ == "__main__":
     args = get_args_parser().parse_args()
-    result = main(args)
+    result, memory = main(args)
     print(f"{result:.3f} ms", file=sys.stderr)
     print(f"{1000/result:.3f} img/s")
+    print(f"Memory: {memory}")

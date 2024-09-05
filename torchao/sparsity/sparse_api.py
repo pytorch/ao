@@ -30,6 +30,25 @@ def apply_fake_sparsity(model, **kwargs):
     sparsifier.step()
     sparsifier.squash_mask()
 
+def apply_fake_block_sparsity(model, **kwargs):
+    """
+    This function simulates 2:4 sparsity on all linear layers in a model.
+    It uses the torch.ao.pruning flow.
+    """
+    filter_fn = kwargs.pop("filter_fn", _is_linear)
+    # torch.ao.pruning flow
+    sparse_config = []
+    for name, mod in model.named_modules():
+        if filter_fn(mod, name):
+            sparse_config.append({"tensor_fqn": f"{name}.weight"})
+
+    sparsifier = WeightNormSparsifier(
+        sparsity_level=0.9, sparse_block_shape=(64, 64)
+    )
+    sparsifier.prepare(model, sparse_config)
+    sparsifier.step()
+    sparsifier.squash_mask()
+
 def semi_sparse_weight():
     """
     Convert the weight of linear moduels to semi-structured (2:4) sparsity

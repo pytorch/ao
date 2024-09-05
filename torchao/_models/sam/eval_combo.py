@@ -320,7 +320,11 @@ def run(
                   mlp_lin2_only)
         if not TORCH_VERSION_AT_LEAST_2_5:
             predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
-
+    elif compress == "int8_dynamic_quant_block_sparse":
+        def mlp_only(mod, name):
+            return isinstance(mod, torch.nn.Linear) and 'mlp' in name
+        from torchao.dtypes.affine_quantized_tensor import BlockSparseLayoutType
+        quantize_(predictor.model.image_encoder, int8_dynamic_activation_int8_weight(layout_type=BlockSparseLayoutType()), mlp_only)
     else:
         assert compress is None, f"Unsupported compress mode {compress}"
 

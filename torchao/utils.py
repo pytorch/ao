@@ -52,7 +52,7 @@ def _assert_and_get_unique_device(module: torch.nn.Module) -> Any:
     return device
 
 
-def benchmark_model(model, num_runs, args=(), kwargs=None, device_type=None):
+def benchmark_model(model, num_runs, args=(), kwargs=None, device_type=None, memory=False):
     """Benchmark model runs with `args` and `kwargs` both are optional
     """
     if kwargs is None:
@@ -75,7 +75,17 @@ def benchmark_model(model, num_runs, args=(), kwargs=None, device_type=None):
 
         end_event.record()
         torch.cuda.synchronize()
-        return start_event.elapsed_time(end_event) / num_runs
+
+        average_time_per_run = start_event.elapsed_time(end_event) / num_runs
+        if memory:
+            max_memory_allocated_bytes = torch.cuda.max_memory_allocated()
+            _, total_memory = torch.cuda.mem_get_info()
+            max_memory_allocated_percentage = int(100 * (max_memory_allocated_bytes / total_memory))
+            max_memory_allocated_bytes = max_memory_allocated_bytes >> 20
+            return average_time_per_run, max_memory_allocated_bytes
+        else:
+            return average_time_per_run
+
 
     elif device_type == "mps":
         torch.mps.synchronize()

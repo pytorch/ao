@@ -16,6 +16,7 @@ from torchao.sparsity import sparsify_, semi_sparse_weight
 from torchao.sparsity.prototype.superblock.supermask import SupermaskLinear, apply_supermask
 from torchao.sparsity.prototype.superblock.blocksparse import block_sparse_weight
 from torchao.sparsity.prototype.sparsifier.weight_norm_sparsifier import WeightNormSparsifier
+from torchao.quantization.quant_api import (quantize_, int8_dynamic_activation_int8_weight)
 
 ### Custom sparsification utils
 def apply_sparsity(model):
@@ -59,8 +60,12 @@ def accelerate_with_sparsity(model, args):
     if args.sparsity == "bsr":
         apply_sparsity(model)
         verify_sparsity(model)
-        assert args.bsr is not None, "BSR requires a block size"
-        sparsify_(model, block_sparse_weight(blocksize=args.bsr), superblock_only)
+        if args.quantization:
+            from torchao.dtypes.affine_quantized_tensor import BlockSparseLayoutType
+            quantize_(model, int8_dynamic_activation_int8_weight(layout_type=BlockSparseLayoutType()), superblock_only)
+        else:
+            assert args.bsr is not None, "BSR requires a block size"
+            sparsify_(model, block_sparse_weight(blocksize=args.bsr), superblock_only)
 
     elif args.sparsity == "semi_structured":
         if args.quantization:
@@ -74,6 +79,9 @@ def accelerate_with_sparsity(model, args):
             sparsify_(model,
                     semi_sparse_weight(),
                     mlp_only)
+    else:
+        if args.quantization:
+            quantize_(model, int8_dynamic_activation_int8_weight(), mlp_only)
 
 def simulate_sparsity(model, args):
     if args.sparsity == "bsr":
