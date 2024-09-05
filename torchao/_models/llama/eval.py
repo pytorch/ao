@@ -18,6 +18,7 @@ from torchao.quantization.quant_api import (
     int8_weight_only,
     int8_dynamic_activation_int8_weight,
     fpx_weight_only,
+    uintx_weight_only,
     unwrap_tensor_subclass,
 )
 from torchao._models._eval import TransformerEvalWrapper, InputRecorder
@@ -53,8 +54,7 @@ def run_evaluation(
 
     print("Loading model ...")
     t0 = time.time()
-    model = _load_model(checkpoint_path, "cpu", precision).to(device)
-    print(model)
+    model = _load_model(checkpoint_path, "cpu", precision)
 
     if max_length is None:
         max_length = model.config.block_size
@@ -69,12 +69,26 @@ def run_evaluation(
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
             quantize_(model, int8_dynamic_activation_int8_weight())
-        if "int4wo" in quantization and not "gptq" in quantization:
-            groupsize=int(quantization.split("-")[-1])
-            assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
-            quantize_(model.to(device), int4_weight_only(group_size=groupsize))
         if "fp6" in quantization:
             quantize_(model, fpx_weight_only(3, 2))
+        if "int4wo" in quantization and not "gptq" in quantization:
+            if "hqq" in quantization:
+                quantization = quantization[:-4]
+                use_hqq = True
+            else:
+                use_hqq = False
+            groupsize=int(quantization.split("-")[-1])
+            assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
+            quantize_(model.to(device), int4_weight_only(group_size=groupsize, use_hqq=use_hqq))
+        if "uintx" in quantization:
+            # uintx-nbits-group_size
+            # "uintx-2-64"
+            _quant_args = quantization.split("-")
+            nbits = int(_quant_args[1])
+            _NBITS_TO_DTYPE = {1: torch.uint1, 2: torch.uint2, 3: torch.uint3, 4: torch.uint4, 5: torch.uint5, 6: torch.uint6, 7: torch.uint7, 8: torch.uint8}
+            dtype = _NBITS_TO_DTYPE[nbits]
+            group_size = int(_quant_args[2])
+            quantize_(model, uintx_weight_only(dtype, group_size))
         if "int4wo" in quantization and "gptq" in quantization:
             groupsize=int(quantization.split("-")[-2])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
@@ -82,7 +96,6 @@ def run_evaluation(
             assert "cuda" in device, "int4 gptq quantization only works on cuda"
             inputs = InputRecorder(
                 tokenizer,
-                model,
                 calibration_seq_length,
                 prepare_inputs_for_model,
                 pad_calibration_inputs,
@@ -96,23 +109,6 @@ def run_evaluation(
             quantizer = Int4WeightOnlyGPTQQuantizer(groupsize=groupsize, device=device)
             model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
             model = quantizer.quantize(model, inputs).to(device)
-        elif "awq" in quantization:
-            from torchao.prototype.awq.api import ObservedLinear, insert_awq_observer, awq_quant 
-            insert_awq_observer(model, precision, device)
-            InputRecorder(
-                tokenizer,
-                model,
-                calibration_seq_length,
-                prepare_inputs_for_model,
-                pad_calibration_inputs,
-                model.config.vocab_size,
-                device=device
-            ).record_inputs(
-                calibration_tasks,
-                calibration_limit,
-            ).get_inputs()
-            is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
-            quantize_(model, awq_quant, is_observed_linear)
         else:
             if not TORCH_VERSION_AT_LEAST_2_5:
                 unwrap_tensor_subclass(model)
@@ -139,7 +135,7 @@ if __name__ == '__main__':
     parser.add_argument('--limit', type=int, default=None, help='Number of eval samples to evaluate')
     parser.add_argument('--precision', type=lambda x: getattr(torch, x.split(".")[-1]), default=torch.bfloat16, help='dtype precision to use')
     parser.add_argument('--device', type=str, default="cuda", help='Device to use for evaluation')
-    parser.add_argument("-q", "--quantization", type=str, help="Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, int4wo-<groupsize>-gptq")
+    parser.add_argument("-q", "--quantization", type=str, help="Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, int4wo-<groupsize>-gptq, int4wo-<groupsize>-hqq, uintx-<nbits>-<group_size>")
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
     parser.add_argument('--max_length', type=int, default=None, help='Length of text to process at one time')
     parser.add_argument('--calibration_tasks', type=str, nargs='+', default=['wikitext'], help='tasks to do gptq calibration on, if doing gptq')

@@ -1009,7 +1009,8 @@ def _linear_bf16_act_uint4_weight_check(input_tensor, weight_tensor, bias):
         _aqt_is_uint4(weight_tensor) and
         weight_tensor.dtype == torch.bfloat16 and
         len(weight_tensor.shape) == 2 and
-        weight_tensor.zero_point_domain == ZeroPointDomain.FLOAT
+        weight_tensor.zero_point_domain == ZeroPointDomain.FLOAT and
+        isinstance(weight_tensor.layout_type, TensorCoreTiledLayoutType)
     )
 
 

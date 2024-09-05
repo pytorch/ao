@@ -27,10 +27,8 @@ class AWQObserver(AffineQuantizedObserverBase):
         weight: torch.Tensor,
         bias: torch.Tensor,
         block_size: Tuple,
-        input_dtype: torch.dtype,
         mapping_type: MappingType,
         target_dtype: torch.dtype,
-        device: str,
         scale_search_space_size: int = 20,
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
@@ -40,6 +38,26 @@ class AWQObserver(AffineQuantizedObserverBase):
         preserve_zero: Optional[bool] = True,
         zero_point_domain = ZeroPointDomain.INT,
     ):
+        """
+        A custom observer for Activation aware Weight Quantization (AWQ)
+
+        Args:
+            weight: The weight tensor to be observed.
+            bias: The bias tensor to be observed.
+            block_size: The granularity of the quantization.
+            input_dtype: The data type of the input tensor.
+            mapping_type: Always set to asymmetric 
+            target_dtype: The target data type of the quantized tensor
+            scale_search_space_size: The number of scales to search for.
+            quant_min: The minimum quantized value
+            quant_max: The maximum quantized value
+            eps: The minimum scale.
+            scale_dtype: The data type of the scale tensor.
+            zero_point_dtype: The data type of the zero point tensor.
+            preserve_zero: A flag to indicate whether we need zero to be exactly
+                representable or not.
+            zero_point_domain: The domain of the zero point.
+        """
         super().__init__(
             mapping_type,
             target_dtype,
@@ -56,8 +74,9 @@ class AWQObserver(AffineQuantizedObserverBase):
         self.bias = bias
         self.scale_options = scale_search_space_size
         self.scales = None
-        self.device = device
-
+        self.device = self.weight.device
+        if self.bias is not None:
+            self.bias.to(self.device)
     @torch.no_grad()
     def forward(self, input: torch.Tensor, output: torch.Tensor):
         average = input.abs().view(-1,input.shape[-1]).mean(0)
@@ -68,8 +87,9 @@ class AWQObserver(AffineQuantizedObserverBase):
             ratio = i * 1 / self.scale_options
             scales = average.pow(ratio)
             scales = scales / (scales.max() * scales.min()).sqrt()
-            layout = AWQLayoutType(scales, self.target_dtype)
-            tensor_dtype = torch.int8 if self.target_dtype == torch.int8 else torch.uint8
+            layout = AwqLayoutType(scales, self.target_dtype)
+            # regardless of weight dtype, we have to store as packed uint8 tensors
+            tensor_dtype = torch.uint8
             w = to_affine_quantized_intx(
                 self.weight.data,
                 self.mapping_type,
@@ -114,7 +134,7 @@ class ObservedLinear(torch.nn.Linear):
     
 
 @dataclass(frozen=True)
-class AWQLayoutType(LayoutType):
+class AwqLayoutType(LayoutType):
     equalization_scale: torch.Tensor
     dtype: torch.dtype
 
@@ -122,21 +142,26 @@ class AWQLayoutType(LayoutType):
         return input * self.equalization_scale
 
     def post_process(self, input: torch.Tensor) -> torch.Tensor:
-        
-        return to_uintx(input, self.dtype)
+        # pack weights for sub dtype bit size
+        if self.dtype != torch.uint8:
+            return to_uintx(input, self.dtype)
+        return input
     
     def _quantized_linear_impl(input_tensor, weight_tensor, bias):
+        # divide activations by awq scales
         return F.linear(input_tensor / weight_tensor.layout_tensor.layout_type.equalization_scale, weight_tensor.dequantize(), bias)
     
     def _linear_awq_check(input_tensor, weight_tensor, bias):
-        return isinstance(weight_tensor.layout_tensor, AWQ_AQTLayout)
+        return isinstance(weight_tensor.layout_tensor, AwqAQTLayout)
 
-register_aqt_quantized_linear_dispatch(AWQLayoutType._linear_awq_check, AWQLayoutType._quantized_linear_impl)
+register_aqt_quantized_linear_dispatch(AwqLayoutType._linear_awq_check, AwqLayoutType._quantized_linear_impl)
 
-@register_layout_cls(AWQLayoutType)
-class AWQ_AQTLayout(PlainAQTLayout):
+@register_layout_cls(AwqLayoutType)
+class AwqAQTLayout(PlainAQTLayout):
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        return self.int_data.get_plain(), self.scale, self.zero_point
+        # unpack if needed
+        w = self.int_data if self.layout_type.dtype == torch.uint8 else self.int_data.get_plain()
+        return w, self.scale, self.zero_point
     
     @classmethod
     def from_plain(
@@ -146,4 +171,5 @@ class AWQ_AQTLayout(PlainAQTLayout):
         zero_point: torch.Tensor,
         layout_type: LayoutType,
     ):
+        assert isinstance(layout_type, AwqLayoutType)
         return cls(int_data, scale, zero_point, layout_type)

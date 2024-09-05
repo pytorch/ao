@@ -1,6 +1,5 @@
 """
 This file produces a file named pytorch_model.bin.index.json based on the downloaded model weights. 
-It was primarily used to create run evals on llama2.c-stories15M model.
 """
 import json
 import torch
