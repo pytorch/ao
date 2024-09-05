@@ -696,6 +696,8 @@ def _choose_qparams_affine(
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
     assert mapping_type in [MappingType.SYMMETRIC.name, MappingType.ASYMMETRIC.name], f"Unsupported mapping type: {mapping_type}"
+    if target_dtype in FP8_TYPES:
+        assert mapping_type == MappingType.SYMMETRIC.name, f"Only symmetric quantization is supported for FP8 types, got {mapping_type}"
 
     if input is not None:
         if scale_dtype is None:
