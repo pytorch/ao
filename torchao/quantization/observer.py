@@ -53,6 +53,16 @@ class PerAxis(GranularityType):
     """
     axis: int
 
+@dataclass(frozen=True)
+class PerRow(GranularityType):
+    """
+    Represents row-wise granularity in quantization.
+
+    This is a special case of per-axis quantization and is unique to Float8 matmuls
+    where the input is quantized with a block_size of (1, ..., input.shape[-1]). And the weight
+    is quantized with a block_size of (1, weight.shape[1]).
+    """
+    pass
 
 # borrowed from torch.ao.quantization.observer
 class _PartialWrapper:
@@ -104,6 +114,8 @@ def get_block_size(
         block_size = list(input_shape)
         block_size[granularity_type.axis] = 1
         return tuple(block_size)
+    elif isinstance(granularity_type, PerRow):
+        return (1,) * (len(input_shape) - 1) + (input_shape[-1],)
     raise ValueError(f"Unsupported GranularityType: {granularity_type}")
 
 
