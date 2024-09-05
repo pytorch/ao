@@ -79,7 +79,7 @@ model = qat_quantizer.convert(model)
 
 [torchao.float8](torchao/float8) implements training recipes with the scaled float8 dtypes, as laid out in https://arxiv.org/abs/2209.05433.
 
-With ``torch.compile`` on, initial results show throughput speedups of up to **1.2x on small scale (8 GPUs) LLaMa pretraining jobs**. And you can validate the benchmarks [here](./torchao/float8/README.md#benchmarking)
+With ``torch.compile`` on, current results show throughput speedups of up to **1.5x on 128 H100 GPU LLaMa 3 70B pretraining jobs** ([details](https://dev-discuss.pytorch.org/t/enabling-float8-all-gather-in-fsdp2/2359))
 
 ```python
 from torchao.float8 import convert_to_float8_training
