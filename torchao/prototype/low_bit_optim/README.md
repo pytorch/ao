@@ -50,7 +50,7 @@ Fine-tune [Llama2-7B](https://huggingface.co/meta-llama/Llama-2-7b) on [Alpaca](
 AdamW impl       | Peak memory allocated (GB) | toks/s | `truthfulqa_mc2` acc | Compile time
 -----------------|----------------------------|--------|----------------------|-------------
 Not fine-tuned   | -                          | -      | 38.95                | -
-PyTorch (fused)  | 
+PyTorch (fused)  | 51.6                       | 3200   | 42.61                | -
 bnb 8-bit        | 
 ao 8-bit         | 
 ao 4-bit         | 
