@@ -176,7 +176,13 @@ class Int8MixedPrecisionLinear(nn.Linear):
             module.config = config
             return
         for child in module.children():
-            cls.convert_linear(child)
+            cls.convert_linear(child, config)
+
+
+def _dynamic_int8_linear(input: Tensor, weight: Tensor) -> Tensor:
+    input_i8, input_scale = quantize_int8_rowwise(input)
+    weight_i8, weight_scale = quantize_int8_rowwise(weight)
+    return int8_mm_dequant(input_i8, weight_i8.T, input_scale, weight_scale)
 
 
 class _Int8MixedPrecisionLinear(torch.autograd.Function):
@@ -189,9 +195,7 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
         if ctx.config.output:
             batch_dims = input.shape[:-1]
             input = input.view(-1, weight.shape[1])
-            input_i8, input_scale = quantize_int8_rowwise(input)
-            weight_i8, weight_scale = quantize_int8_rowwise(weight)
-            out = int8_mm_dequant(input_i8, weight_i8.T, input_scale, weight_scale)
+            out = _dynamic_int8_linear(input, weight)
             out = out.view(*batch_dims, weight.shape[0])
         else:
             out = input @ weight.T
@@ -210,9 +214,7 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
 
         if ctx.needs_input_grad[0]:
             if ctx.config.grad_input:
-                grad_output_i8, grad_output_scale = quantize_int8_rowwise(grad_output)
-                weight_i8_t, weight_scale = quantize_int8_rowwise(weight.T)
-                grad_input = int8_mm_dequant(grad_output_i8, weight_i8_t.T, grad_output_scale, weight_scale)
+                grad_input = _dynamic_int8_linear(grad_output, weight.T)
             else:
                 grad_input = grad_output @ weight
             grad_input = grad_input.view(*batch_dims, weight.shape[1])
@@ -220,11 +222,8 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
         if ctx.needs_input_grad[1]:
             if ctx.config.grad_weight:
                 # TODO: check if transpose+quantize are fused
-                grad_output_i8_t, grad_output_scale = quantize_int8_rowwise(grad_output.T)
-                input_i8_t, input_scale = quantize_int8_rowwise(input.T)
-                # grad_weight = int8_mm_dequant(grad_output_i8_t, input_i8_t.T, grad_output_scale, input_scale)
-                # this is slightly faster
-                grad_weight = int8_mm_dequant(input_i8_t, grad_output_i8_t.T, input_scale, grad_output_scale).T
+                # grad_weight = _dynamic_int8_linear(grad_output.T, input.T)
+                grad_weight = _dynamic_int8_linear(input.T, grad_output.T).T  # this is slightly faster
             else:
                 grad_weight = grad_output.T @ input
 

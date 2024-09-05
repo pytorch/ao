@@ -52,7 +52,6 @@ configs = [
 @triton.autotune(configs=configs, key=["M", "N", "K", "stride_ak", "stride_bk"])
 @triton.jit
 def _int8_mm_dequant_kernel(
-    # fmt: off
     A_ptr, B_ptr, C_ptr,
     A_scale_rowwise_ptr,
     B_scale_colwise_ptr,
@@ -65,7 +64,6 @@ def _int8_mm_dequant_kernel(
     BLOCK_K: tl.constexpr,
     GROUP_M: tl.constexpr = 8,
     EVEN_K: tl.constexpr = True,
-    # fmt: on
 ):
     # based on triton.ops.matmul
     pid = tl.program_id(0)
@@ -124,6 +122,9 @@ def int8_mm_dequant(A: Tensor, B: Tensor, A_scale_rowwise: Tensor, B_scale_colwi
     assert A.shape[1] == B.shape[0]
     assert A_scale_rowwise.squeeze().shape == (A.shape[0],)
     assert B_scale_colwise.squeeze().shape == (B.shape[1],)
+    # TODO: handle this inside triton kernel
+    A_scale_rowwise = A_scale_rowwise.contiguous()
+    B_scale_colwise = B_scale_colwise.contiguous()
     return torch.ops.torchao.int8_mm_dequant(A, B, A_scale_rowwise, B_scale_colwise)
 
 
