@@ -146,8 +146,54 @@ class ToyLinearModel(torch.nn.Module):
         x = self.linear2(x)
         return x
 
-def test_intx():
-    print("Testing intx static quantization:")
+# def test_intx():
+#     print("Testing intx static quantization:")
+#     torch.manual_seed(0)
+
+#     dtype = torch.bfloat16
+#     m = ToyLinearModel().eval().to(dtype).to("cuda")
+
+#     m_for_test = copy.deepcopy(m)
+
+#     m_bf16 = copy.deepcopy(m)
+#     example_inputs = m.example_inputs(dtype=dtype, device="cuda")
+#     print("example inputs shape:", example_inputs[0].shape)
+
+#     m_bf16 = torch.compile(m_bf16, mode='max-autotune')
+
+#     act_obs = AffineQuantizedMinMaxObserver(MappingType.ASYMMETRIC, torch.uint8, granularity_type=PerTensor(), eps=torch.finfo(torch.float32).eps, scale_dtype=torch.float32, zero_point_dtype=torch.int32)
+#     weight_obs = AffineQuantizedMinMaxObserver(MappingType.ASYMMETRIC, torch.uint8, granularity_type=PerAxis(axis=0), eps=torch.finfo(torch.float32).eps, scale_dtype=torch.float32, zero_point_dtype=torch.int32)
+
+#     before_quant = m(*example_inputs)
+
+#     insert_observers_(m, act_obs, weight_obs)
+#     # calibrating / training
+#     for _ in range(10):
+#         m(*example_inputs)
+
+#     after_obs = m(*example_inputs)
+
+#     m2 = copy.deepcopy(m)
+
+#     is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
+
+#     # quantized linear represented as an nn.Linear with modified tensor subclass weights
+#     # for both activation and weight quantization
+#     quantize_(m, apply_static_quant(target_dtype=torch.uint8), is_observed_linear)
+#     print("quantized model (applying tensor subclass to weight):", m)
+#     after_quant = m(*example_inputs)
+#     assert compute_error(before_quant, after_quant) > 30
+#     print("test passed")
+
+#     # quantized linear as a standalone module
+#     quantize_(m2, apply_static_quant2(target_dtype=torch.uint8), is_observed_linear)
+#     print("quantized model (quantized module):", m2)
+#     after_quant = m2(*example_inputs)
+#     assert compute_error(before_quant, after_quant) > 30
+#     print("test passed")
+
+def test_static_quant(target_dtype: torch.dtype, mapping_type: MappingType):
+    print(f"Testing {target_dtype} static quantization:")
     torch.manual_seed(0)
 
     dtype = torch.bfloat16
@@ -161,8 +207,8 @@ def test_intx():
 
     m_bf16 = torch.compile(m_bf16, mode='max-autotune')
 
-    act_obs = AffineQuantizedMinMaxObserver(MappingType.ASYMMETRIC, torch.uint8, granularity_type=PerTensor(), eps=torch.finfo(torch.float32).eps, scale_dtype=torch.float32, zero_point_dtype=torch.int32)
-    weight_obs = AffineQuantizedMinMaxObserver(MappingType.ASYMMETRIC, torch.uint8, granularity_type=PerAxis(axis=0), eps=torch.finfo(torch.float32).eps, scale_dtype=torch.float32, zero_point_dtype=torch.int32)
+    act_obs = AffineQuantizedMinMaxObserver(mapping_type, target_dtype, granularity_type=PerTensor(), eps=torch.finfo(torch.float32).eps, scale_dtype=torch.float32, zero_point_dtype=torch.float32)
+    weight_obs = AffineQuantizedMinMaxObserver(mapping_type, target_dtype, granularity_type=PerAxis(axis=0), eps=torch.finfo(torch.float32).eps, scale_dtype=torch.float32, zero_point_dtype=torch.float32)
 
     before_quant = m(*example_inputs)
 
@@ -179,60 +225,14 @@ def test_intx():
 
     # quantized linear represented as an nn.Linear with modified tensor subclass weights
     # for both activation and weight quantization
-    quantize_(m, apply_static_quant(target_dtype=torch.uint8), is_observed_linear)
-    print("quantized model (applying tensor subclass to weight):", m)
-    after_quant = m(*example_inputs)
-    assert compute_error(before_quant, after_quant) > 30
-    print("test passed")
-
-    # quantized linear as a standalone module
-    quantize_(m2, apply_static_quant2(target_dtype=torch.uint8), is_observed_linear)
-    print("quantized model (quantized module):", m2)
-    after_quant = m2(*example_inputs)
-    assert compute_error(before_quant, after_quant) > 30
-    print("test passed")
-
-def test_floatx():
-    print("Testing floatx static quantization:")
-    torch.manual_seed(0)
-
-    dtype = torch.bfloat16
-    m = ToyLinearModel().eval().to(dtype).to("cuda")
-
-    m_for_test = copy.deepcopy(m)
-
-    m_bf16 = copy.deepcopy(m)
-    example_inputs = m.example_inputs(dtype=dtype, device="cuda")
-    print("example inputs shape:", example_inputs[0].shape)
-
-    m_bf16 = torch.compile(m_bf16, mode='max-autotune')
-
-    act_obs = AffineQuantizedMinMaxObserver(MappingType.SYMMETRIC, torch.float8_e4m3fn, granularity_type=PerTensor(), eps=torch.finfo(torch.float32).eps, scale_dtype=torch.float32, zero_point_dtype=torch.float32)
-    weight_obs = AffineQuantizedMinMaxObserver(MappingType.SYMMETRIC, torch.float8_e4m3fn, granularity_type=PerAxis(axis=0), eps=torch.finfo(torch.float32).eps, scale_dtype=torch.float32, zero_point_dtype=torch.float32)
-
-    before_quant = m(*example_inputs)
-
-    insert_observers_(m, act_obs, weight_obs)
-    # calibrating / training
-    for _ in range(10):
-        m(*example_inputs)
-
-    after_obs = m(*example_inputs)
-
-    m2 = copy.deepcopy(m)
-
-    is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
-
-    # quantized linear represented as an nn.Linear with modified tensor subclass weights
-    # for both activation and weight quantization
-    quantize_(m, apply_static_quant(torch.float8_e4m3fn), is_observed_linear)
+    quantize_(m, apply_static_quant(target_dtype), is_observed_linear)
     print("quantized model (applying tensor subclass to weight):", m)
     after_quant = m(*example_inputs)
     assert compute_error(before_quant, after_quant) > 25
     print("test passed")
 
     # quantized linear as a standalone module
-    quantize_(m2, apply_static_quant2(torch.float8_e4m3fn), is_observed_linear)
+    quantize_(m2, apply_static_quant2(target_dtype), is_observed_linear)
     print("quantized model (quantized module):", m2)
     after_quant = m2(*example_inputs)
     assert compute_error(before_quant, after_quant) > 25
@@ -240,5 +240,5 @@ def test_floatx():
 
 
 if __name__ == "__main__":
-    test_intx()
-    test_floatx()
+    test_static_quant(torch.uint8, MappingType.ASYMMETRIC)
+    test_static_quant(torch.float8_e4m3fn, MappingType.SYMMETRIC)
