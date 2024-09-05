@@ -31,40 +31,31 @@ NOTE:
 
 ## Benchmarks
 
-Fine-tune [timm](https://github.com/huggingface/pytorch-image-models)'s ViT-H (630M params) on [resisc45](https://huggingface.co/datasets/timm/resisc45) dataset. BF16 AMP, 1 epoch, batch size 8, cosine LR scheduler, 4070Ti SUPER, fixed random seed. Benchmark script is available at [benchmarks/benchmark_low_bit_adam.py](../../../benchmarks/benchmark_low_bit_adam.py).
+Fine-tune [timm](https://github.com/huggingface/pytorch-image-models)'s [ViT-H](https://huggingface.co/timm/vit_huge_patch14_224.orig_in21k) (630M params) on [resisc45](https://huggingface.co/datasets/timm/resisc45) dataset. PyTorch 2.4, BF16 AMP, compiled model, 1 epoch, batch size 8, cosine LR scheduler, 4070Ti SUPER, fixed random seed. Benchmark script is available at [benchmarks/benchmark_low_bit_adam.py](../../../benchmarks/benchmark_low_bit_adam.py).
 
-AdamW impl      | Max memory (GB) | imgs/s | accuracy
-----------------|-----------------|--------|----------
-PyTorch (fused) | 12.23           | 41.8   | 94.38
-bnb 8-bit       |  8.32           | 43.6   | 94.18
-ao 8-bit        |  8.33           | 42.6   | 94.25
-ao FP8 E4M3     |  9.27           | 44.1   | 94.40
-lpmm 4-bit      |  7.72           | 46.0   | 94.29
-ao 4-bit        |  7.72           | 40.0   | 94.03
-lpmm 4-bit (*)  |  7.74           | 26.6   | 94.25
+AdamW impl      | Peak memory allocated (GB) | imgs/s | accuracy
+----------------|----------------------------|--------|----------
+PyTorch (fused) | 12.23                      | 41.9   | 94.52
+bnb 8-bit       |  8.32                      | 43.6   | 94.54
+ao 8-bit        |  8.33                      | 42.5   | 94.30
+ao FP8 E4M3     |  8.33                      | 43.2   | 94.13
+lpmm 4-bit      |  7.72                      | 46.1   | 94.40
+ao 4-bit        |  7.72                      | 42.4   | 94.13
+lpmm 4-bit (*)  |  7.74                      | 26.7   | 94.10
 
 (*) means rank-1 normalization is used for 2nd optimizer state. Refer to [paper](https://arxiv.org/abs/2309.01507) for more details.
 
-Fine-tune [Llama2-7B](https://huggingface.co/meta-llama/Llama-2-7b) on [Alpaca](https://huggingface.co/datasets/tatsu-lab/alpaca) dataset. Full BF16, 1 epoch, A100, fixed random seed. Benchmark is done with [torchtune](https://github.com/pytorch/torchtune). See [#746](https://github.com/pytorch/ao/pull/746) for more details.
+Fine-tune [Llama2-7B](https://huggingface.co/meta-llama/Llama-2-7b) on [Alpaca](https://huggingface.co/datasets/tatsu-lab/alpaca) dataset. PyTorch 2.4, full BF16, 1 epoch, A100, fixed random seed. Benchmark is done with [torchtune 52d1b838](https://github.com/pytorch/torchtune/tree/52d1b838c1c35b5e75fddf8776be400adc36dff5).
 
-AdamW impl       | Max memory (GB) | toks/s | `truthfulqa_mc2` acc | Compile time
------------------|-----------------|--------|----------------------|-------------
-Not fine-tuned   | -               | -      | 38.95                | -
-PyTorch (fused)  | 52              | ~4500  | 42.12                | ~4 min
-bnb 8-bit        | 39              | ~4000  | 41.98                | ~4 min
-ao 8-bit         | 39              | ~4000  | 42.41                | ~12 min
-ao 4-bit         | 33              | ~3600  | 42.34                | ~4 min
+AdamW impl       | Peak memory allocated (GB) | toks/s | `truthfulqa_mc2` acc | Compile time
+-----------------|----------------------------|--------|----------------------|-------------
+Not fine-tuned   | -                          | -      | 38.95                | -
+PyTorch (fused)  | 
+bnb 8-bit        | 
+ao 8-bit         | 
+ao 4-bit         | 
 
 NOTE: lpmm's 4-bit AdamW does not support BF16 weights.
-
-### Note on compile times
-
-There are 2 approaches to compile optimizer step in low-bit optim:
-
-1. Compile optim step for single param i.e. `torch.compile(single_param_adam)`
-2. Compile optim step for all params i.e. `torch.compile(param_groups_adam)`
-
-Currently Adam8bit and AdamFp8 use approach (2) (with static shape) since it is faster (but compile much slower), while Adam4bit uses approach (1) (with dynamic shape) since there are excessive memory usage for "Adam4bit + approach (2)". Approach (1) requires dynamic shape to avoid hitting recompiles limit.
 
 ## Optimizer CPU offload
 
