@@ -6,7 +6,6 @@ from torchao.prototype.awq.api import ObservedLinear, insert_awq_observer_, awq_
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
 
 
-
 class ToyLinearModel(torch.nn.Module):
     def __init__(self, m=512, n=256, k=128):
         super().__init__()

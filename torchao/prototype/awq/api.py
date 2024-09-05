@@ -12,9 +12,6 @@ from typing import Optional, Tuple
 
 assert len(_DTYPE_TO_BIT_WIDTH) > 0, "Error importing low bit torch.uint dtypes. Please upgrade to torch 2.3+"
 
-    
-
-    
 def insert_awq_observer_(model: torch.nn.Module, quant_dtype: torch.dtype = torch.uint4, scale_search_space_size: int = 20, group_size: int = 128):
     """
     Inserts AWQObserver into Linear layers of a given model.

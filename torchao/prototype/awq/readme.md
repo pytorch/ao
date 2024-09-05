@@ -1,13 +1,11 @@
 # AWQ Quantization
-Ported from https://github.com/mit-han-lab/llm-awq
+Adapted from https://github.com/mit-han-lab/llm-awq
 
 ## Benchmarks
-Benchmarks are run on a machine with a single A100 GPU using the script in _models/llama which generates text in a latency optimized way (batchsize=1), evaluation was done
-Using the lm_eval. The models used were meta-llama/Llama-2-7b-chat-hf
+Benchmarks are run on a machine with a single RTX 3090 GPU using the script in awq/example.py which calculates perplexity by concatenating wikitex2 test examples with newlines and dividing by context length. The model used was openai-community/gpt2 with a context length of 1024. Group size of 64 was used for both int4wo and awq-uint4.
 
-| Model       | Technique          | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
-| ----------- | ------------------ | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
-| Llama-2-7B  | Base (bfloat16)    | 12.212              |  105.14       | 1389.35                 | 13.88            | 13.21           |
-|             | int4wo-64          | 12.843              |  199.86       |  746.66                 |  4.50            |  3.74           |
-|             | int4wo-64-GPTQ     | 12.489              |  199.86       |  746.66                 |  4.50            |  3.74           |
-|             | awq                | 12.204              |  159.22       | 1069.87                 |  8.91            |  6.72           |
+| Quantization                | wikitext2-perplexity |
+| ------------------------    |  ------------------- | 
+| Base (bfloat16)             | 30.1904              |
+| int4wo (tinygemm kernel)    | 519.73108            |
+| awq-uint4                   | 485.54907            |
