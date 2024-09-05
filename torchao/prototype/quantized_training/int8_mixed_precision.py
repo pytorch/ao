@@ -31,6 +31,9 @@ class Int8MixedPrecisionConfig(NamedTuple):
     grad_weight: bool = True
 
 
+_DEFAULT_CONFIG = Int8MixedPrecisionConfig()
+
+
 class Int8MixedPrecisionLinearWeight(TorchAOBaseTensor):
     @staticmethod
     @torch._dynamo.disable
@@ -83,7 +86,9 @@ implements = Int8MixedPrecisionLinearWeight.implements
 
 @implements(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
-    return _Int8MixedPrecisionLinear.apply(*args, **kwargs)
+    act, weight = args[:2]
+    bias = args[2] if len(args) > 2 else None
+    return _Int8MixedPrecisionLinear.apply(act, weight._data, bias, weight.config)
 
 
 @implements(
@@ -152,11 +157,32 @@ def _(func, types, args, kwargs):
     return [Int8MixedPrecisionLinearWeight(x, args[0].config) for x in data_list]
 
 
+# alternative UX
+class Int8MixedPrecisionLinear(nn.Linear):
+    def __init__(self, *args, config: Int8MixedPrecisionConfig, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.config = config
+
+    def forward(self, input: Tensor) -> Tensor:
+        return _Int8MixedPrecisionLinear.apply(input, self.weight, self.bias, self.config)
+
+    def extra_repr(self):
+        return f"{super().extra_repr()}, config={self.config}"
+
+    @classmethod
+    def convert_linear(cls, module: nn.Module, config: Int8MixedPrecisionConfig = _DEFAULT_CONFIG):
+        if module.__class__ is nn.Linear:  # exact match, don't swap nn.Linear subclasses
+            module.__class__ = cls
+            module.config = config
+            return
+        for child in module.children():
+            cls.convert_linear(child)
+
+
 class _Int8MixedPrecisionLinear(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input: Tensor, weight: Int8MixedPrecisionLinearWeight, bias: Optional[Tensor] = None):
-        ctx.config = weight.config
-        weight = weight._data
+    def forward(ctx, input: Tensor, weight: Tensor, bias: Optional[Tensor], config: Int8MixedPrecisionConfig):
+        ctx.config = config
         ctx.save_for_backward(input, weight)
         ctx.bias = bias is not None
 
@@ -176,7 +202,7 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         input, weight = ctx.saved_tensors
-        grad_input = grad_weight = grad_bias = None
+        grad_input = grad_weight = grad_bias = grad_config = None
 
         batch_dims = grad_output.shape[:-1]
         grad_output = grad_output.view(-1, weight.shape[0])
@@ -205,10 +231,10 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
         if ctx.needs_input_grad[2] and ctx.bias:
             grad_bias = grad_output.sum(0)
 
-        return grad_input, grad_weight, grad_bias
+        return grad_input, grad_weight, grad_bias, grad_config
 
 
-def int8_mixed_precision_training(config: Int8MixedPrecisionConfig = Int8MixedPrecisionConfig()):
+def int8_mixed_precision_training(config: Int8MixedPrecisionConfig = _DEFAULT_CONFIG):
     # TODO: right now `_get_linear_subclass_inserter()` will always set `requires_grad=False`
     # when we have this out of prototype (or there are stable trainable tensor subclasses),
     # update `_get_linear_subclass_inserter()` to allow `requires_grad=True`.
