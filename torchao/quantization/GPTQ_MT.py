@@ -144,16 +144,6 @@ class MultiTensor(torch.Tensor):
                 else:
                     out = func(*cur_args, **cur_kwargs)
                     outputs.append(out.cpu() if isinstance(out, torch.Tensor) else out)
-                    grouped_outputs = [tree_flatten(x)[0] for x in outputs]
-                    out_spec = tree_flatten(outputs[0])[1]
-                    # convert [[A,b1,c1], [A,b2,c2] [A,b3,c3]] => [A, MultiTensor(b1,b2,b3), MultiTensor(c1,c2,c3)]
-                    flat_outputs, non_tensors_equal = grouped_to_flat(grouped_outputs)
-                    assert non_tensors_equal, (
-                        f"ERR: found a function in model: {func} which "
-                        +"caused an error in GPTQ MultiTensor, the function dispatch only works for functions"
-                        +" with Tensor outputs or that have the same non-Tensor output value for all across all inputs"
-                    )
-                    return tree_unflatten(flat_outputs, out_spec)
 
             if quantize_linear:
                 weight_tensor = cur_args[1]
@@ -169,6 +159,18 @@ class MultiTensor(torch.Tensor):
                 state_dict_manager.update_param(original_param_name, Q)
                 # Run the function again with updated weights and skip_gptq=True
                 return cls.__torch_function__(func, types, cur_args, kwargs, skip_gptq=True)
+            else:
+                grouped_outputs = [tree_flatten(x)[0] for x in outputs]
+                out_spec = tree_flatten(outputs[0])[1]
+                # convert [[A,b1,c1], [A,b2,c2] [A,b3,c3]] => [A, MultiTensor(b1,b2,b3), MultiTensor(c1,c2,c3)]
+                flat_outputs, non_tensors_equal = grouped_to_flat(grouped_outputs)
+                assert non_tensors_equal, (
+                    f"ERR: found a function in model: {func} which "
+                    +"caused an error in GPTQ MultiTensor, the function dispatch only works for functions"
+                    +" with Tensor outputs or that have the same non-Tensor output value for all across all inputs"
+                )
+                return tree_unflatten(flat_outputs, out_spec)
+
                 
     @classmethod
     def faster_quant(cls, H, W):
@@ -294,14 +296,7 @@ class StateDictManager:
             raise KeyError(f"Parameter {name} not found in state_dict")
 
     def get_state_dict(self):
-        state_dict = self.state_dict
-        regular_state_dict = defaultdict(torch.tensor)
-        for key, value in state_dict.items():
-            if isinstance(value, MultiTensor):
-                regular_state_dict[key] = value.values[0]  
-            else:
-                regular_state_dict[key] = value
-        return regular_state_dict
+        return self.state_dict
 
 class GPTQQuantizer(Quantizer):
     def __init__(self):
@@ -326,6 +321,13 @@ class GPTQQuantizer(Quantizer):
     def _replace_parameters_with_multitensor(self, model):
         for name, param in model.named_parameters():
             setattr(model, name.split('.')[-1], MultiTensor(param))
+    
+    def covert_multi_tensors_to_tensors(self, state_dict):
+        for key, value in state_dict.items():
+            if isinstance(value, MultiTensor):
+                state_dict[key] = value.values[0]
+        return state_dict
+        
     
     @torch.no_grad()
     def _create_quantized_state_dict(
@@ -363,6 +365,12 @@ class GPTQQuantizer(Quantizer):
         with torch.no_grad():
             out = model(*inputs)
         state_dict = self.state_dict_manager.get_state_dict()
+        del_list = []
+        for param_fqn in state_dict:
+            if "kv_cache" in param_fqn:
+                del_list.append(param_fqn)
+        for param_fqn in del_list:
+            state_dict.pop(param_fqn)
         return state_dict
 
 class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
@@ -420,6 +428,9 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
         )
 
         model.load_state_dict(state_dict, strict=False)
+        
+        
+        
         return model
 
 def replace_buffers_and_params(model: nn.Module) -> nn.Module:
