@@ -84,7 +84,7 @@ def wikitext2_ppl(repo_id: str, quant: str, calibrate_size: int =100, group_size
         model(calibration_data.to(device))
         print(f"time for calibration: {time.time() - t0:.02f} seconds")
 
-        # use awq_quant() to apply awq quantization
+        # use awq_uintx() to apply awq quantization
         is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
         t0 = time.time()
         quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size), is_observed_linear)
