@@ -51,7 +51,7 @@ AdamW impl       | Peak memory allocated (GB) | toks/s | `truthfulqa_mc2` acc | 
 -----------------|----------------------------|--------|----------------------|-------------
 Not fine-tuned   | -                          | -      | 38.95                | -
 PyTorch (fused)  | 51.6                       | 3200   | 42.61                | -
-bnb 8-bit        | 
+bnb 8-bit        | 39.3                       | 3000   | 42.75                | -
 ao 8-bit         | 
 ao 4-bit         | 
 
