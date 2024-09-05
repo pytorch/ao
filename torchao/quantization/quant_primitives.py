@@ -664,7 +664,7 @@ def choose_qparams_affine_with_min_max(
         scale_dtype,
         zero_point_dtype,
         preserve_zero,
-        zero_point_domain.name,
+        zero_point_domain.name if zero_point_domain is not None else None,
         min_val,
         max_val,
     )
