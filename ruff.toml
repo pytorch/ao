@@ -10,4 +10,5 @@ include = [
     "torchao/float8/float8_tensor.py",
     "torchao/quantization/linear_activation_weight_observer.py",
     "test/quantization/test_observer.py",
+    "test/dtypes/test_affine_quantized_float.py",
 ]
