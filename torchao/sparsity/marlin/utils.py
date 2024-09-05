@@ -96,7 +96,11 @@ def get_perms_24(num_bits: int) -> Tuple[torch.Tensor, List[int], List[int]]:
     """Precompute permutations for Marlin24 weight and scale shuffling
     
     Marlin works on [16*2,64] tiles. The goal of the permutations is to reorder the weight data so that it is compatible
-    with the tensor-core format.
+    with the tensor-core format that is described here:
+    https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#matrix-fragments-for-mma-m16n8k16-with-floating-point-type
+    
+    As a result of this reordering, the vector loads inside the kernel will get the data as it is needed for tensor-core
+    (without the need to use ldmatrix instructions)
     
     Args:
         num_bits (int): Number of bits to pack.
