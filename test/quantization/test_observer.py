@@ -1,3 +1,4 @@
+import re
 import torch
 from torch.testing._internal.common_utils import TestCase
 from torchao.quantization.observer import (
@@ -33,6 +34,79 @@ class TestQuantFlow(TestCase):
         obs = AffineQuantizedMinMaxObserver(MappingType.ASYMMETRIC, torch.uint8, granularity_type=PerAxis(axis=0), eps=torch.finfo(torch.float32).eps, scale_dtype=torch.float, zero_point_dtype=torch.int)
         ref_obs = PerChannelMinMaxObserver(dtype=torch.uint8, qscheme=torch.per_channel_affine)
         self._test_obs_helper(obs, ref_obs)
+
+    def test_block_size_calc_success(self):
+        obs = AffineQuantizedMinMaxObserver(
+            MappingType.SYMMETRIC,
+            torch.float8_e4m3fn,
+            granularity_type=PerTensor(),
+            eps=torch.finfo(torch.float32).eps,
+            scale_dtype=torch.float,
+            zero_point_dtype=torch.int,
+            zero_point_domain=None,
+        )
+        example_inputs = [
+            torch.randn(10, 2048),
+            torch.randn(9, 2048),
+            torch.randn(7, 2048),
+        ]
+        for example_input in example_inputs:
+            obs(example_input)
+
+        obs.calculate_qparams()
+
+        obs = AffineQuantizedMinMaxObserver(
+            MappingType.SYMMETRIC,
+            torch.float8_e4m3fn,
+            granularity_type=PerAxis(1),
+            eps=torch.finfo(torch.float32).eps,
+            scale_dtype=torch.float,
+            zero_point_dtype=torch.int,
+            zero_point_domain=None,
+        )
+        for example_input in example_inputs:
+            obs(example_input)
+
+        obs.calculate_qparams()
+
+    def test_block_size_row_errors(self):
+        obs = AffineQuantizedMinMaxObserver(
+            MappingType.SYMMETRIC,
+            torch.float8_e4m3fn,
+            granularity_type=PerAxis(0),
+            eps=torch.finfo(torch.float32).eps,
+            scale_dtype=torch.float,
+            zero_point_dtype=torch.int,
+            zero_point_domain=None,
+        )
+        example_inputs = [
+            torch.randn(10, 2048),
+            torch.randn(9, 2048),
+        ]
+        expected_error_msg = "Can't update existing min_val - shape mismatch, self.min_val:torch.Size([10]) != min_val:torch.Size([9])"
+        escaped_error_msg = re.escape(expected_error_msg)
+        with self.assertRaisesRegex(AssertionError, escaped_error_msg):
+            for example_input in example_inputs:
+                obs(example_input)
+
+        obs = AffineQuantizedMinMaxObserver(
+            MappingType.SYMMETRIC,
+            torch.float8_e4m3fn,
+            granularity_type=PerAxis(1),
+            eps=torch.finfo(torch.float32).eps,
+            scale_dtype=torch.float,
+            zero_point_dtype=torch.int,
+            zero_point_domain=None,
+        )
+        example_inputs = [
+            torch.randn(10, 2048),
+            torch.randn(9, 2047),
+        ]
+        expected_error_msg = "Can't update existing min_val - shape mismatch, self.min_val:torch.Size([2048]) != min_val:torch.Size([2047])"
+        escaped_error_msg = re.escape(expected_error_msg)
+        with self.assertRaisesRegex(AssertionError, escaped_error_msg):
+            for example_input in example_inputs:
+                obs(example_input)
 
 
 if __name__ == "__main__":
