@@ -13,7 +13,6 @@ Using the lm_eval. The models used were meta-llama/Llama-2-7b-chat-hf and meta-l
 |             | int4wo-64          | 12.843              |  201.14       |  751.42                 |  4.87            |  3.74           |
 |             | int4wo-64-GPTQ     | 12.527              |  201.14       |  751.42                 |  4.87            |  3.74           |
 |             | autoquant-int4hqq  | 12.825              |  209.19       |  804.32                 |  4.89            |  3.84           |
-
 | Llama-3-8B  | Base (bfloat16)    |  7.441              |   95.64       | 1435.54                 | 16.43            | 15.01           |
 |             | int8dq             |  7.581              |    8.61       |   64.75                 |  9.24            |  7.52           |
 |             | int8wo             |  7.447              |  153.03       | 1150.80                 | 10.42            |  7.52           |
