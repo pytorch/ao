@@ -89,15 +89,8 @@ def wikitext2_ppl(repo_id: str, quant: str, calibrate_size: int =100, group_size
         t0 = time.time()
         quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size), is_observed_linear)
         print(f"time for quantization: {time.time() - t0:.02f} seconds")
-    elif quant=="gptq":
-        calibration_data = get_calib_dataset(tokenizer=tokenizer, n_samples=calibrate_size)
-        quantizer = Int4WeightOnlyGPTQQuantizer()
-        model = quantizer.quantize(model, calibration_data).to(device)
-    elif quant=="int8":
-        print("running int8 quantization")
-        quantize_(model, int8_weight_only())
 
-    elif quant=="uint4":
+    elif quant=="int4":
         print("running int4 quantization")
         quantize_(model, int4_weight_only(group_size=64))
 
@@ -112,7 +105,7 @@ parser = argparse.ArgumentParser(description="Evaluate a model with the specifie
 
 # Optional arguments with default values
 parser.add_argument("repo", type=str, help="Repository ID of the model.")
-parser.add_argument("quant", type=str, help="Quantization method or file path.",choices=["uint4", "int8","gptq"])
+parser.add_argument("quant", type=str, help="Quantization method. Options are either int4 or awq-uintx where x is [1..8]")
 parser.add_argument("--calibration_size", type=int, default=100, help="Calibration size. Default is 100.")
 parser.add_argument("--group_size", type=int, default=128, help="Group size to use for weights. Default is '128'")
 parser.add_argument("--device", type=str, default="cuda", help="Device to run the evaluation on. Default is 'cuda'.")
@@ -125,18 +118,7 @@ args = parser.parse_args()
 # Convert precision argument to torch dtype
 precision_dtype = getattr(torch, args.precision, torch.bfloat16)
 
-# awq = wikitext2_ppl(
-#     repo_id=args.repo,
-#     quant="awq-"+args.quant,
-#     calibrate_size=args.calibration_size,
-#     group_size= args.group_size,
-#     device=args.device,
-#     precision=precision_dtype,
-#     max_length=args.max_length,
-#     compile=args.compile
-# )
-
-aqt = wikitext2_ppl(
+ppl = wikitext2_ppl(
     repo_id=args.repo,
     quant=args.quant,
     calibrate_size=args.calibration_size,
@@ -146,5 +128,5 @@ aqt = wikitext2_ppl(
     max_length=args.max_length,
     compile=args.compile
 )
-# print(f"AWQ Perplexity: {awq.item():.5f}")
-print(f"Affine quantized Perplexity: {aqt.item():.5f}")
+
+print(f"{args.quant} Perplexity: {ppl.item():.5f}")

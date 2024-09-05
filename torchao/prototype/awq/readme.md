@@ -9,3 +9,4 @@ Benchmarks are run on a machine with a single RTX 3090 GPU using the script in a
 | Base (bfloat16)             | 30.1904              |
 | int4wo (tinygemm kernel)    | 519.73108            |
 | awq-uint4                   | 485.54907            |
+| awq-uint6                   | 37.32335             |
