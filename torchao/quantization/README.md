@@ -228,7 +228,12 @@ This technique works best when the torch._inductor.config.use_mixed_mm option is
 ```python
 # for torch 2.4+
 from torchao.quantization import quantize_, int4_weight_only
-quantize_(model, int4_weight_only())
+group_size = 32
+
+# you can enable [hqq](https://github.com/mobiusml/hqq/tree/master) quantization which is expected to improves accuracy through
+# use_hqq flag for `int4_weight_only` quantization
+use_hqq = False
+quantize_(model, int4_weight_only(group_size=group_size, use_hqq=use_hqq))
 
 # for torch 2.2.2 and 2.3
 from torchao.quantization.quant_api import change_linear_weights_to_int4_woqtensors
