@@ -108,6 +108,7 @@ if __name__ == "__main__":
     parser.add_argument("--project", default="int8_quantized_training")
     parser.add_argument("--run_name")
     parser.add_argument("--seed", type=int)
+    parser.add_argument("--log_interval", type=int, default=10)
     args = parser.parse_args()
 
     if args.seed is not None:
@@ -146,7 +147,6 @@ if __name__ == "__main__":
     run = wandb.init(dir="/tmp", config=args, project=args.project, name=args.run_name)
 
     step = 0
-    log_interval = 50
     pbar = tqdm(total=args.n_steps, dynamic_ncols=True)
     model.train()
     _get_loss = torch.compile(get_loss) if args.compile else get_loss
@@ -160,7 +160,7 @@ if __name__ == "__main__":
         loss = _get_loss(model, batch)
         loss.backward()
 
-        if step % log_interval == 0:
+        if step % args.log_interval == 0:
             log_dict = dict(
                 loss=loss.item(),
                 lr=optim.param_groups[0]["lr"],
@@ -169,7 +169,7 @@ if __name__ == "__main__":
             )
             if step > 0:
                 time1 = time.time()
-                log_dict["tokens_per_second"] = (log_interval * args.batch_size * args.seq_len) / (time1 - time0)
+                log_dict["tokens_per_second"] = (args.log_interval * args.batch_size * args.seq_len) / (time1 - time0)
                 time0 = time1
             run.log(log_dict, step=step)
             pbar.set_postfix(loss=log_dict["loss"])
