@@ -11,8 +11,6 @@ Note: layout is an abstraction not only for custom data representation, it is al
 layout interacts with different operators, e.g. the same data representation can have different
 behaviors when running the same operator, e.g. transpose, quantized_linear.
 """
-
-
 @dataclass(frozen=True)
 class LayoutType:
     def pre_process(self, input: torch.Tensor) -> torch.Tensor:
@@ -27,20 +25,15 @@ class LayoutType:
     def extra_repr(self) -> str:
         return ""
 
-
 """
 Plain LayoutType, the most basic LayoutType, also has no extra metadata, will typically be the default
 """
-
-
 @dataclass(frozen=True)
 class PlainLayoutType(LayoutType):
     pass
 
-
 def is_device(target_device_str: str, device: Union[str, torch.device]):
     return torch.device(device).type == target_device_str
-
 
 def get_out_shape(input_shape: Tuple[int], weight_shape: Tuple[int]) -> Tuple[int, int]:
     """Returns the unflattened shape of the input tensor.
