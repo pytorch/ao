@@ -27,12 +27,7 @@ class OptimStateFp8(Tensor):
 
     @staticmethod
     def __new__(cls, codes: Tensor, scale: Tensor):
-        return Tensor._make_wrapper_subclass(
-            cls,
-            codes.shape,
-            device=codes.device,
-            requires_grad=False,
-        )
+        return Tensor._make_wrapper_subclass(cls, codes.shape, device=codes.device)
 
     def __init__(self, codes: Tensor, scale: Tensor):
         """Create quantized FP8 optimizer state.
@@ -81,7 +76,7 @@ class OptimStateFp8(Tensor):
 
 
 @OptimStateFp8.implements(aten.copy_.default)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     dst = args[0]
     src = args[1]
 
@@ -102,14 +97,14 @@ def _(func, types, *args, **kwargs):
 
 
 @OptimStateFp8.implements(aten.lerp.Scalar)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     args = [x.dequantize() if isinstance(x, OptimStateFp8) else x for x in args]
     return func(*args, **kwargs)
 
 
 # this is needed for DTensor.from_local()
 @OptimStateFp8.implements(aten.view.default)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     x, shape = args
     return OptimStateFp8(x.codes.view(shape), x.scale)
 
@@ -121,7 +116,7 @@ def _(func, types, *args, **kwargs):
     c10d_functional.wait_tensor.default,
     _c10d_functional.wait_tensor.default,
 ])
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     x = args[0]
     if not isinstance(x, OptimStateFp8):
         raise ValueError(f"expecting a OptimStateFp8 but found {type(x)}")

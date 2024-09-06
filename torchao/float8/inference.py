@@ -10,11 +10,12 @@ Defines an nn module designed to be used during inference
 from dataclasses import dataclass
 
 from enum import auto, Enum
-from typing import Callable, List, Optional
+from typing import Callable, Optional, Tuple
 
 import torch
 import torch.nn as nn
 from torchao.float8.float8_linear_utils import swap_linear_layers
+from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
 
 from torchao.float8.float8_tensor import (
     Float8Tensor,
@@ -151,7 +152,7 @@ class Float8InferenceLinear(torch.nn.Linear):
         Create an nn.Linear with fp8 compute from another nn.Linear
 
         Args:
-            mod (torch.nn.Linear): nn.Linear to convert
+            module (torch.nn.Linear): nn.Linear to convert
             quant_config (QuantConfig): Configuration for the weight and activation casting
         """
         forward_config = ScaledMMConfig(
@@ -174,7 +175,7 @@ class Float8InferenceLinear(torch.nn.Linear):
 
 
 def cast_to_float8_e4m3_inference(
-    inpt_tensor: torch.Tensor,
+    input_tensor: torch.Tensor,
     linear_mm_config: LinearMMConfig,
     reduce_amax: bool = False,
     static_quantization_scale: Optional[torch.Tensor] = None,
@@ -182,7 +183,7 @@ def cast_to_float8_e4m3_inference(
     """Casts an input tensor to the Float8 (e4m3fn*)
 
     Args:
-        inpt_tensor: The input tensor to be cast.
+        input_tensor: The input tensor to be cast.
         linear_mm_config: Configuration settings for the matrix multiplication
         reduce_amax: Whether to reduce the amax (absolute maximum) among the local distributed group.
         static_quantization_scale: Optional tensor specifying the scale for activation. Default is None.
@@ -193,15 +194,15 @@ def cast_to_float8_e4m3_inference(
     Note:
         If the input tensor is already in Float8 format, it is returned as is without re-casting.
     """
-    if tensor_already_casted_to_fp8(inpt_tensor):
-        return inpt_tensor
+    if tensor_already_casted_to_fp8(input_tensor):
+        return input_tensor
     scale = (
         static_quantization_scale
         if static_quantization_scale is not None
-        else tensor_to_scale(inpt_tensor, e4m3_dtype, reduce_amax)
+        else tensor_to_scale(input_tensor, e4m3_dtype, reduce_amax)
     )
     return hp_tensor_and_scale_to_float8(
-        inpt_tensor,
+        input_tensor,
         scale,
         e4m3_dtype,
         linear_mm_config,
@@ -242,3 +243,27 @@ def quantize_to_float8(
         lambda m: Float8InferenceLinear.from_float(m, quant_config, use_fast_accum),
         module_filter_fn=module_filter_fn,
     )
+
+
+def preprocess_data(
+    a_data: torch.Tensor, b_data: torch.Tensor, scaled_mm_config: ScaledMMConfig
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Preprocess the inner fp8 data tensors for admmm
+    Args:
+        a_data: Input tensor A.
+        b_data: Input tensor B.
+        scaled_mm_config: Configuration for _scaled_mm.
+    Returns:
+        Preprocessed tensors A and B in the format for _scaled_mm.
+    """
+    if scaled_mm_config.pad_inner_dim:
+        assert a_data.size(1) == b_data.size(
+            0
+        ), f"Inner dims must match for mm, got {a_data.size(1)} and {b_data.size(0)}"
+        a_data = pad_tensor_for_matmul(a_data, dims=1)
+        b_data = pad_tensor_for_matmul(b_data, dims=0)
+    if not is_row_major(a_data.stride()):
+        a_data = a_data.contiguous()
+    if is_row_major(b_data.stride()):
+        b_data = b_data.t().contiguous().t()
+    return a_data, b_data

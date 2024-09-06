@@ -1,3 +1,5 @@
+#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800  // at least Ampere
+
 #include <ATen/ATen.h>
 #include <ATen/core/Tensor.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -310,3 +312,5 @@ TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
   m.impl("torchao::dequantize_tensor_core_tiled_layout", &_dequantize_tensor_core_tiled_layout);
 
 }
+
+#endif

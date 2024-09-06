@@ -6,19 +6,24 @@
 
 import enum
 from dataclasses import dataclass
+from typing import Optional
+
+import torch
 
 
-# TODO(future): consider renaming to ScalingType
 class ScalingType(enum.Enum):
     DELAYED = "delayed"
     DYNAMIC = "dynamic"
+    STATIC = "static"
 
     def short_str(self):
         if self is ScalingType.DELAYED:
             return "del"
-        else:
-            assert self is ScalingType.DYNAMIC
+        elif self is ScalingType.DYNAMIC:
             return "dyn"
+        else:
+            assert self is ScalingType.STATIC
+            return "sta"
 
 
 @dataclass(frozen=True)
@@ -28,7 +33,12 @@ class CastConfig:
     """
 
     scaling_type: ScalingType = ScalingType.DYNAMIC
+    static_scale: Optional[torch.Tensor] = None
 
+    def __post_init__(self):
+        if self.scaling_type is ScalingType.STATIC:
+            assert self.static_scale is not None, \
+                "static_scale must be specified for static scaling"
 
 @dataclass(frozen=True)
 class DelayedScalingConfig:
