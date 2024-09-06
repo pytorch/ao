@@ -338,7 +338,7 @@ class TestQuantFlow(TestCase):
             f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
         )
 
-    @unittest.skip("skipping until we get checkpoints for gpt-fast")
+    # @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_gptq_quantizer_int4_weight_only(self):
         from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
         from torchao._models._eval import InputRecorder, TransformerEvalWrapper

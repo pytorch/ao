@@ -248,7 +248,7 @@ class GenericGPTQRunner(fx.Interpreter):
             mod_fqn = ".".join(self.id_to_name[id(args[1])].split(".")[:-1])
 
             W = args[1].to(H.device)
-
+            breakpoint()
             Q, DQ, qparams = self.faster_quant(H, W.detach())
             print(mod_fqn)
 
@@ -329,8 +329,8 @@ class GenericGPTQRunner(fx.Interpreter):
         device = W.device
 
         if groupsize == -1:
-
             cur_qparams = self.get_qparams_func(W)
+
         dead = torch.diag(H) == 0
         H[dead, dead] = 1
         W[:, dead] = 0
