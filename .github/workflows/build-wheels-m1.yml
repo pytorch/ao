@@ -28,6 +28,7 @@ jobs:
     name: pytorch/ao
     uses: pytorch/test-infra/.github/workflows/build_wheels_macos.yml@main
     with:
+      repository: pytorch/ao
       ref: ${{ github.head_ref || github.ref_name }}
       build-matrix: ${{ needs.generate-matrix.outputs.matrix }}
       pre-script: packaging/pre_build_script.sh
