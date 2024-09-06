@@ -644,7 +644,7 @@ def float8_weight_only(weight_dtype: torch.dtype = torch.float8_e4m3fn):
     return _get_linear_subclass_inserter(apply_float8wo_quant)
 
 
-_fp8_granularities = Literal[PerTensor, PerRow]
+_fp8_granularities = Union[PerTensor, PerRow]
 
 
 # Validate and process granularity input
@@ -670,6 +670,35 @@ def _normalize_granularity(
         return granularity
     else:
         raise ValueError(f"Invalid granularity specification: {granularity}, only PerTensor or PerRow are supported.")
+
+def _get_block_size(x: torch.Tensor, granularity: _fp8_granularities):
+    if isinstance(granularity, PerTensor):
+        return x.shape
+    elif isinstance(granularity, PerRow):
+        return (1,) * (x.dim() - 1) + (x.shape[-1],)
+    else:
+        raise ValueError(f"Unsupported granularity: {granularity}")
+
+
+def _input_quant_func_dyanmic_fp8(
+    x: torch.Tensor,
+    activation_granularity: _fp8_granularities,
+    activation_dtype: torch.dtype,
+):
+    if isinstance(activation_granularity, PerRow):
+        assert (
+            x.dtype == torch.bfloat16
+        ), "PerRow quantization only works for bfloat16 precision input activation"
+
+    block_size = _get_block_size(x, activation_granularity)
+    activation = to_affine_quantized_floatx(
+        input_float=x,
+        block_size=block_size,
+        target_dtype=activation_dtype,
+        scale_dtype=torch.float32,
+        layout_type=Float8LayoutType(mm_config=None),  # Config is stored on weight
+    )
+    return activation
 
 
 def _input_quant_func_dyanmic_fp8(
