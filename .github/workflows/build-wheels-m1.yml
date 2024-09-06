@@ -27,26 +27,13 @@ jobs:
       test-infra-ref: main
   build:
     needs: generate-matrix
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - repository: pytorch/ao
-            pre-script: packaging/pre_build_script.sh
-            # post-script: packaging/post_build_script.sh
-            smoke-test-script: test/smoke_test.py
-            package-name: torchao
-    name: ${{ matrix.repository }}
+    name: pytorch/ao
     uses: pytorch/test-infra/.github/workflows/build_wheels_macos.yml@main
     with:
-      repository: ${{ matrix.repository }}
-      ref: ""
-      test-infra-repository: pytorch/test-infra
-      test-infra-ref: main
       build-matrix: ${{ needs.generate-matrix.outputs.matrix }}
-      pre-script: ${{ matrix.pre-script }}
-      # post-script: ${{ matrix.post-script }}
-      package-name: ${{ matrix.package-name }}
+      pre-script: packaging/pre_build_script.sh
+      # post-script: packaging/post_build_script.sh
+      package-name: torchao
       runner-type: macos-m1-stable
-      smoke-test-script: ${{ matrix.smoke-test-script }}
+      smoke-test-script: test/smoke_test.py
       trigger-event: ${{ github.event_name }}
