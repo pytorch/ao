@@ -160,7 +160,7 @@ def unpack_cpu(data: List[torch.Tensor],
             output_narrow = output.narrow(dim, j * group_size, group_size)
             group = data[i] & unpack_mask[bit_size][j]
             shift_amt = j * bit_size - rel_pos
-            output_narrow.copy_(torch.bitwise_or(output_narrow, abs_rsh(group, j * bit_size - rel_pos)))
+            output_narrow.copy_(torch.bitwise_or(output_narrow, abs_rsh(group, shift_amt)))
     return output
 
 # these are faster on the GPU
@@ -193,7 +193,7 @@ def _unpack(data, element_size, scale, dim):
 
     for i in range(scale):
         shift_amt = element_size * i
-        chunk = unpacked_data.narrow(dim, unpacked_data.shape[dim]*i//scale, unpacked_data.shape[dim] // scale).copy_((data >> shift_amt) & nbits)
+        unpacked_data.narrow(dim, unpacked_data.shape[dim]*i//scale, unpacked_data.shape[dim] // scale).copy_((data >> shift_amt) & nbits)
 
     return unpacked_data
 

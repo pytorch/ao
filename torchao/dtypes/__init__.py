@@ -21,7 +21,7 @@ from .affine_quantized_tensor import (
 __all__ = [
     "NF4Tensor",
     "to_nf4",
-    "UInt4Tensor"
+    "UInt4Tensor",
     "AffineQuantizedTensor",
     "to_affine_quantized_intx",
     "to_affine_quantized_intx_static",

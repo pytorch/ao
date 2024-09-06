@@ -1,8 +1,6 @@
 import torch
 from typing import Tuple, Optional, Union
 import torchao.ops
-from collections import defaultdict
-import functools
 import math
 from torchao.quantization.quant_primitives import (
     choose_qparams_affine,
@@ -36,10 +34,10 @@ from torchao.utils import (
     _is_float8_type
 )
 import logging
+from torchao.float8.inference import Float8MMConfig
 
 logger = logging.getLogger(__name__)
 
-from torchao.float8.inference import Float8MMConfig
 aten = torch.ops.aten
 
 
@@ -1024,7 +1022,6 @@ class TensorCoreTiledAQTLayout(AQTLayout):
         packed_weight = torch.ops.aten._convert_weight_to_int4pack(int_data, layout_type.inner_k_tiles)
         scale = scale.reshape(int_data.shape[0], -1)
         zero_point = zero_point.reshape(int_data.shape[0], -1)
-        from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
         scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point)
         return cls(packed_weight, scale_and_zero, False, layout_type)
 
@@ -1232,7 +1229,7 @@ def _linear_bf16_act_uint4_weight_check(input_tensor, weight_tensor, bias):
 
 
 def _linear_bf16_act_uint4_weight_impl(input_tensor, weight_tensor, bias):
-    assert weight_tensor.block_size[0] == 1, f"Requires groupwise quantization, got block_size: {block_size}"
+    assert weight_tensor.block_size[0] == 1, f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
     assert input_tensor.shape[-1] == weight_tensor.shape[1], (
         f"need input_tensor shape: {input_tensor.shape} final"
         f"dim to match weight_tensor shape: {weight_tensor.shape} second dim "
@@ -1292,7 +1289,6 @@ def _linear_fp_act_int8_weight_impl(input_tensor, weight_tensor, bias):
     # per channel int8 weight only quantizated mm
     w_vals_int8_t = weight_tensor.layout_tensor.int_data.t()
     scale = weight_tensor.layout_tensor.scale
-    orig_dtype = input_tensor.dtype
     m = torch.mm(
         input_tensor.reshape(-1, input_tensor.shape[-1]),
         w_vals_int8_t.to(input_tensor.dtype),
@@ -1424,7 +1420,7 @@ def _linear_fp_act_int4_weight_sparse_marlin_check(input_tensor, weight_tensor, 
     )
 
 def _linear_fp_act_int4_weight_sparse_marlin_impl(input_tensor, weight_tensor, bias):
-    from torchao.sparsity.marlin import marlin_24_workspace, const
+    from torchao.sparsity.marlin import marlin_24_workspace
     assert isinstance(weight_tensor, AffineQuantizedTensor)
 
     sparse_w_int4 = weight_tensor.layout_tensor.int_data

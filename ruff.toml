@@ -2,6 +2,8 @@
 # We plan to add files in chunks using the 'include' list below.
 # To add a new path: Simply add it to the 'include' list.
 # Example: To lint all files in every subfolder of 'test', add "test/**/*"
+# To exclude a file type: Simply add it to the 'include' list.
+# Example: To lint all files in every subfolder of 'test', add "test/**/*"
 include = [
     "torchao/float8/inference.py",
     "torchao/float8/float8_utils.py",
@@ -10,4 +12,9 @@ include = [
     "torchao/float8/float8_tensor.py",
     "torchao/quantization/linear_activation_weight_observer.py",
     "test/quantization/test_observer.py",
+    "torchao/dtypes/*"
+]
+
+exclude = [
+    "**/*.md"
 ]
