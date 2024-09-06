@@ -52,52 +52,6 @@ class _AdamBase(Optimizer):
             out = torch.zeros_like(p)
         return out
 
-    def _prepare_param_groups(self):
-        param_groups = []
-
-        for group in self.param_groups:
-            _group = []
-
-            for p in group["params"]:
-                if p.grad is None:
-                    continue
-
-                grad = p.grad
-                if grad.is_sparse:
-                    raise RuntimeError("Sparse gradient is not supported")
-
-                state = self.state[p]
-
-                # State initialization
-                if len(state) == 0:
-                    state["step"] = torch.tensor(0.0)
-                    state["exp_avg"] = self._new_buffer(p, True)
-                    state["exp_avg_sq"] = self._new_buffer(p, False)
-                    if group["amsgrad"]:
-                        state["max_exp_avg_sq"] = self._new_buffer(p, False)
-
-                state["step"] += 1
-
-                if not isinstance(group["lr"], Tensor):
-                    raise RuntimeError(
-                        "lr was changed to a non-Tensor object. If you want to update lr, please use "
-                        "optim.param_groups[0]['lr'].fill_(new_lr)"
-                    )
-
-                p_grad_state = (
-                    p,
-                    grad,
-                    state["step"],
-                    state["exp_avg"],
-                    state["exp_avg_sq"],
-                    state.get("max_exp_avg_sq", None),
-                )
-                _group.append(p_grad_state)
-
-            param_groups.append((_group, group["lr"], group["betas"], group["weight_decay"], group["eps"]))
-
-        return param_groups
-
     @torch.no_grad()
     def step(self, closure=None):
         loss = None
@@ -105,22 +59,56 @@ class _AdamBase(Optimizer):
             with torch.enable_grad():
                 loss = closure()
 
-        param_groups = self._prepare_param_groups()
+        # for a given model, the number of different argument combinations to single_param_adam() is fixed.
+        # thus, it is safe to disable cache limit without the risk of always re-compiling.
+        with torch._dynamo.utils.disable_cache_limit():
+            for group in self.param_groups:
+                for p in group["params"]:
+                    if p.grad is None:
+                        continue
 
-        # static compile optim step for all params in a single graph
-        torch.compile(param_groups_adam, fullgraph=True)(param_groups, self.is_adamw)
+                    grad = p.grad
+                    if grad.is_sparse:
+                        raise RuntimeError("Sparse gradient is not supported")
+
+                    state = self.state[p]
+
+                    # State initialization
+                    if len(state) == 0:
+                        state["step"] = torch.tensor(0.0)
+                        state["exp_avg"] = self._new_buffer(p, True)
+                        state["exp_avg_sq"] = self._new_buffer(p, False)
+                        if group["amsgrad"]:
+                            state["max_exp_avg_sq"] = self._new_buffer(p, False)
+
+                    state["step"] += 1
+
+                    if not isinstance(group["lr"], Tensor):
+                        raise RuntimeError(
+                            "lr was changed to a non-Tensor object. If you want to update lr, please use "
+                            "optim.param_groups[0]['lr'].fill_(new_lr)"
+                        )
+
+                    torch.compile(single_param_adam, fullgraph=True, dynamic=False)(
+                        p,
+                        grad,
+                        state["step"],
+                        state["exp_avg"],
+                        state["exp_avg_sq"],
+                        state.get("max_exp_avg_sq", None),
+                        group["lr"],
+                        group["betas"][0],
+                        group["betas"][1],
+                        group["weight_decay"],
+                        group["eps"],
+                        self.is_adamw,
+                    )
+
         return loss
 
 
-def param_groups_adam(param_groups, is_adamw):
-    for group, lr, (beta1, beta2), weight_decay, eps in param_groups:
-        for p, grad, step, exp_avg, exp_avg_sq, max_exp_avg_sq in group:
-            single_param_adam(
-                p, grad, step, exp_avg, exp_avg_sq, max_exp_avg_sq, lr, beta1, beta2, weight_decay, eps, is_adamw
-            )
-
-
 # this will work with any optim state tensor subclass that implements aten.lerp.Scalar and aten.copy_.default
+# and param tensor subclass that implements aten.add_.Tensor, and aten.addcdiv_.default
 def single_param_adam(
     p: Tensor,
     grad: Tensor,
@@ -198,53 +186,7 @@ class Adam4bit(_AdamBase):
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
-        return OptimState4bit.zeros(p.view(-1).shape, signed, block_size, p.device)
-
-    @staticmethod
-    def _unwrap_dtensor(p: Tensor):
-        return p._local_tensor if isinstance(p, DTensor) else p
-
-    @torch.no_grad()
-    def step(self, closure=None):
-        loss = None
-        if closure is not None:
-            with torch.enable_grad():
-                loss = closure()
-
-        param_groups = self._prepare_param_groups()
-
-        # NOTE: right now, torch.compile(param_groups_adam) will have excessive memory usage for 4-bit optim.
-        # thus, as a workaround, we use torch.compile(single_param_adam) and call it for each param.
-
-        # NOTE: we have to create flattened optimizer states since torch.compile() will fail otherwise for
-        # PyTorch 2.3 and 2.4
-        # calling exp_avg.view(-1) will fail torch.compile(single_param_adam) even if we implement the op
-        # correctly for the tensor subclass.
-
-        # unwrap DTensor since DTensor does not work well with dynamic compile
-        # flatten p, grad, and optim state to avoid recompilation
-        for group, lr, (beta1, beta2), weight_decay, eps in param_groups:
-            for p, grad, step, exp_avg, exp_avg_sq, max_exp_avg_sq in group:
-                # DTensor._local_tensor has .requires_grad = False
-                # to avoid recompilation, set p.requires_grad = False and restore it after optim step
-                p.requires_grad_(False)
-                torch.compile(single_param_adam, fullgraph=True, dynamic=True)(
-                    self._unwrap_dtensor(p).view(-1),
-                    self._unwrap_dtensor(grad).view(-1),
-                    step,
-                    self._unwrap_dtensor(exp_avg),
-                    self._unwrap_dtensor(exp_avg_sq),
-                    self._unwrap_dtensor(max_exp_avg_sq) if max_exp_avg_sq is not None else None,
-                    lr,
-                    beta1,
-                    beta2,
-                    weight_decay,
-                    eps,
-                    self.is_adamw,
-                )
-                p.requires_grad_(True)
-
-        return loss
+        return OptimState4bit.zeros(p.shape, signed, block_size, p.device)
 
 
 class AdamFp8(_AdamBase):
@@ -301,53 +243,7 @@ class AdamW4bit(_AdamBase):
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
-        return OptimState4bit.zeros(p.view(-1).shape, signed, block_size, p.device)
-
-    @staticmethod
-    def _unwrap_dtensor(p: Tensor):
-        return p._local_tensor if isinstance(p, DTensor) else p
-
-    @torch.no_grad()
-    def step(self, closure=None):
-        loss = None
-        if closure is not None:
-            with torch.enable_grad():
-                loss = closure()
-
-        param_groups = self._prepare_param_groups()
-
-        # NOTE: right now, torch.compile(param_groups_adam) will have excessive memory usage for 4-bit optim.
-        # thus, as a workaround, we use torch.compile(single_param_adam) and call it for each param.
-
-        # NOTE: we have to create flattened optimizer states since torch.compile() will fail otherwise for
-        # PyTorch 2.3 and 2.4
-        # calling exp_avg.view(-1) will fail torch.compile(single_param_adam) even if we implement the op
-        # correctly for the tensor subclass.
-
-        # unwrap DTensor since DTensor does not work well with dynamic compile
-        # flatten p, grad, and optim state to avoid recompilation
-        for group, lr, (beta1, beta2), weight_decay, eps in param_groups:
-            for p, grad, step, exp_avg, exp_avg_sq, max_exp_avg_sq in group:
-                # DTensor._local_tensor has .requires_grad = False
-                # to avoid recompilation, set p.requires_grad = False and restore it after optim step
-                p.requires_grad_(False)
-                torch.compile(single_param_adam, fullgraph=True, dynamic=True)(
-                    self._unwrap_dtensor(p).view(-1),
-                    self._unwrap_dtensor(grad).view(-1),
-                    step,
-                    self._unwrap_dtensor(exp_avg),
-                    self._unwrap_dtensor(exp_avg_sq),
-                    self._unwrap_dtensor(max_exp_avg_sq) if max_exp_avg_sq is not None else None,
-                    lr,
-                    beta1,
-                    beta2,
-                    weight_decay,
-                    eps,
-                    self.is_adamw,
-                )
-                p.requires_grad_(True)
-
-        return loss
+        return OptimState4bit.zeros(p.shape, signed, block_size, p.device)
 
 
 class AdamWFp8(_AdamBase):

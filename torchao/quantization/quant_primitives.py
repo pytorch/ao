@@ -580,7 +580,7 @@ def choose_qparams_affine(
    scale_dtype: Optional[torch.dtype] = None,
    zero_point_dtype: Optional[torch.dtype] = None,
    preserve_zero: bool = True,
-   zero_point_domain = ZeroPointDomain.INT,
+   zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Args:
@@ -641,7 +641,7 @@ def choose_qparams_affine_with_min_max(
    scale_dtype: Optional[torch.dtype] = None,
    zero_point_dtype: Optional[torch.dtype] = None,
    preserve_zero: bool = True,
-   zero_point_domain = ZeroPointDomain.INT,
+   zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """A variant of :func:`~torchao.quantization.quant_primitives.choose_qparams_affine`
     operator that pass in min_val and max_val directly instead of deriving these from a single input.
@@ -664,7 +664,7 @@ def choose_qparams_affine_with_min_max(
         scale_dtype,
         zero_point_dtype,
         preserve_zero,
-        zero_point_domain.name,
+        zero_point_domain.name if zero_point_domain is not None else None,
         min_val,
         max_val,
     )
@@ -696,6 +696,8 @@ def _choose_qparams_affine(
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
     assert mapping_type in [MappingType.SYMMETRIC.name, MappingType.ASYMMETRIC.name], f"Unsupported mapping type: {mapping_type}"
+    if target_dtype in FP8_TYPES:
+        assert mapping_type == MappingType.SYMMETRIC.name, f"Only symmetric quantization is supported for FP8 types, got {mapping_type}"
 
     if input is not None:
         if scale_dtype is None:
