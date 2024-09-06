@@ -15,6 +15,7 @@ come along with it and because that is how we access the intended quantized
 and mixed GEMM kernels
 """
 from functools import partial
+import warnings
 import torch
 import torchao
 import torch.nn as nn
@@ -612,6 +613,11 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight
     quantization + 2:4 sparsity to linear layers.
     """
+    warnings.warn("""int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout_type kwarg in int8_dynamic_activation_int8_weight instead.
+
+    from torchao.dtypes import SemiSparseLayoutType
+    int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType()""")
+
     return int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType())
 
 
