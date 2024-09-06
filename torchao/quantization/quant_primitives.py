@@ -30,7 +30,7 @@ __all__ = [
     "dequantize_affine_fpx",
     "fake_quantize_affine",
     "fake_quantize_affine_cachemask",
-    "quantize_affine_hqq",
+    "choose_qparams_and_quantize_affine_hqq",
 ]
 
 class MappingType(Enum):
@@ -842,7 +842,7 @@ def _convert_to_affinequantized_format(W_q: torch.Tensor, scale: torch.Tensor, z
     return W_q_ao, scale_ao, zero_ao
 
 # Main hqq quantizer function
-def quantize_affine_hqq(
+def choose_qparams_and_quantize_affine_hqq(
     tensor: torch.Tensor,
     nbits: float = 4,
     group_size: int = 64,

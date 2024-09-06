@@ -15,6 +15,7 @@ come along with it and because that is how we access the intended quantized
 and mixed GEMM kernels
 """
 from functools import partial
+import warnings
 import torch
 import torchao
 import torch.nn as nn
@@ -612,6 +613,11 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight
     quantization + 2:4 sparsity to linear layers.
     """
+    warnings.warn("""int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout_type kwarg in int8_dynamic_activation_int8_weight instead.
+
+    from torchao.dtypes import SemiSparseLayoutType
+    int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType()""")
+
     return int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType())
 
 
@@ -688,7 +694,7 @@ def float8_dynamic_activation_float8_weight(
     return _get_linear_subclass_inserter(apply_float8_dynamic_activation_quant)
 
 
-def uintx_weight_only(dtype, group_size=64, pack_dim=-1):
+def uintx_weight_only(dtype, group_size=64, pack_dim=-1, use_hqq=False):
     """
     Applies uintx weight-only asymmetric per-group quantization to linear layers, using uintx quantization where
     x is the number of bits specified by `dtype`
@@ -698,23 +704,46 @@ def uintx_weight_only(dtype, group_size=64, pack_dim=-1):
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained, defaults to 64
         `pack_dim`: the dimension we use for packing, defaults to -1
+        `use_hqq`: whether to use hqq algorithm or the default algorithm to quantize the weight
     """
-    def apply_uintx_weight_only_quant(weight):
-        layout_type = UintxLayoutType(dtype=dtype, pack_dim=pack_dim)
+    from torchao.quantization.quant_primitives import _DTYPE_TO_QVALUE_BOUNDS
+
+    SUPPORTED_DTYPES = {torch.uint1, torch.uint2, torch.uint3, torch.uint4, torch.uint5, torch.uint6, torch.uint7, torch.uint8}
+    assert dtype in SUPPORTED_DTYPES, f"Unsupported dtype for hqq: {dtype}"
+
+    def apply_uintx_weight_only_quant(weight, dtype):
         mapping_type = MappingType.ASYMMETRIC
         block_size = (1, group_size)
-        eps = torch.finfo(torch.float32).eps
-        zero_point_dtype = torch.int32
-        zero_point_domain = ZeroPointDomain.INT
+
+        if use_hqq:
+            if dtype == torch.uint4:
+                logger.warn(f"Recommended to use `int4_weight_only(group_size, use_hqq=True)` for the best performance")
+            quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[dtype]
+            dtype = torch.uint8
+            eps = None
+            zero_point_dtype = None
+            zero_point_domain = ZeroPointDomain.FLOAT
+            preserve_zero = False
+            layout_type = PlainLayoutType()
+        else:
+            quant_min, quant_max = None, None
+            eps = torch.finfo(torch.float32).eps
+            zero_point_dtype = torch.int32
+            zero_point_domain = ZeroPointDomain.INT
+            preserve_zero = True
+            layout_type = UintxLayoutType(dtype=dtype, pack_dim=pack_dim)
 
         return to_affine_quantized_intx(
             weight, mapping_type, block_size, dtype,
+            quant_min=quant_min, quant_max=quant_max,
             eps=eps, zero_point_dtype=zero_point_dtype,
             zero_point_domain=zero_point_domain,
+            preserve_zero=preserve_zero,
             layout_type=layout_type,
+            use_hqq=use_hqq,
         )
 
-    return _get_linear_subclass_inserter(apply_uintx_weight_only_quant)
+    return _get_linear_subclass_inserter(apply_uintx_weight_only_quant, dtype=dtype)
 
 def fpx_weight_only(ebits: int, mbits: int):
     """Sub-byte floating point dtypes defined by `ebits`: exponent bits and `mbits`: mantissa bits
@@ -743,6 +772,7 @@ def fpx_weight_only(ebits: int, mbits: int):
         layout_type = FpxTensorCoreLayoutType(ebits, mbits)
         return to_affine_quantized_fpx(weight, layout_type)
     return _get_linear_subclass_inserter(apply_quant_llm)
+
 
 if TORCH_VERSION_AT_LEAST_2_5:
     torch.serialization.add_safe_globals([_int8_asymm_per_token_quant, _int8_symm_per_token_reduced_range_quant])

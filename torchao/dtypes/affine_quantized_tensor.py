@@ -1,6 +1,5 @@
 import torch
 from typing import Tuple, Optional, Union
-import torchao.ops
 from collections import defaultdict
 import functools
 import math
@@ -11,7 +10,7 @@ from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
     MappingType,
     int_scaled_matmul,
-    quantize_affine_hqq,
+    choose_qparams_and_quantize_affine_hqq,
     FP8_TYPES,
     choose_qparams_affine_fpx,
     quantize_affine_fpx,
@@ -266,7 +265,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             group_size = max(block_size)
             compute_dtype = zero_point_dtype if (zero_point_dtype is not None) else input_float.dtype
             device = input_float.device
-            data, scale, zero_point, _ = quantize_affine_hqq(input_float, nbits=nbits, group_size=group_size, axis=axis, compute_dtype=compute_dtype, device=device, verbose=False, raw_output=False)
+            data, scale, zero_point, _ = choose_qparams_and_quantize_affine_hqq(input_float, nbits=nbits, group_size=group_size, axis=axis, compute_dtype=compute_dtype, device=device, verbose=False, raw_output=False)
             data = data.to(target_dtype)
         else:
             scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain)
@@ -1425,6 +1424,8 @@ def _linear_fp_act_int4_weight_sparse_marlin_check(input_tensor, weight_tensor, 
 
 def _linear_fp_act_int4_weight_sparse_marlin_impl(input_tensor, weight_tensor, bias):
     from torchao.sparsity.marlin import marlin_24_workspace, const
+    from torchao.ops import marlin_24_gemm
+
     assert isinstance(weight_tensor, AffineQuantizedTensor)
 
     sparse_w_int4 = weight_tensor.layout_tensor.int_data
@@ -1441,7 +1442,7 @@ def _linear_fp_act_int4_weight_sparse_marlin_impl(input_tensor, weight_tensor, b
     size_k = input_2d.shape[1]
     workspace_24 = marlin_24_workspace(original_shape[1])
 
-    out = torchao.ops.marlin_24_gemm(
+    out = marlin_24_gemm(
         input_2d, sparse_w_int4, meta, scale, 
         workspace_24, num_bits, size_m, size_n, size_k
     )

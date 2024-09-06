@@ -26,7 +26,7 @@ Avg Hessian trace for layer 0 is: 20135.83
 Calculating Hessian trace is both memory-intensive and computationally expensive, the current tool takes 4 days with 4 A100 GPUs with 80GB GPU memory on a calibration dataset of 512 samples for Llama3-8B.
 
 #### FIT:
-FIT quantifies the total amount of information in the data about the parameter. It has been theoretically and empirically proved to be very close to Hession but with higher efficiency ([FIT paper])(https://arxiv.org/pdf/2210.08502). The tool support calculate the FIT score for all the layers at once. To calculate the FIT of the whole model on a calibration dataset (wikitext):
+FIT quantifies the total amount of information in the data about the parameter. It has been theoretically and empirically proved to be very close to Hession but with higher efficiency [(FIT paper)](https://arxiv.org/pdf/2210.08502). The tool support calculate the FIT score for all the layers at once. To calculate the FIT of the whole model on a calibration dataset (wikitext):
 ```
 python scripts/fit.py --num_layers=32 --checkpoint=/tmp/Meta-Llama-3-8B --max_seqlen=2048 --max_iter=100 --nsamples=128
 ```
@@ -45,7 +45,7 @@ FIT scores for 32 layers:
 ```
 where the arguments checkpoint, max_seqlen, nsamples, max_iter are similar to the usage of running Hession. The only difference is that we replacing --layer_id with --num_layers to identify the total numbers of layers to calculate FIT scores for.
 
-Calculating FIT takes 3.3h with 1 A100 GPU with 80GB GPU memory. on a calibration dataset of 512 samples for Llama3-8B.
+Calculating FIT takes 3.3h with 1 A100 GPU with 80GB GPU memory on a calibration dataset of 512 samples from wikitext for Llama3-8B.
 
 ### Usage of BO search
 
@@ -171,11 +171,11 @@ For Mistral-7B-v0.1, BO search quantization saves 30.6% model size with only 1.7
 
 
 ### Results of BO for optimizing model inference throughput under model accuracy constraint
-For Llama3-8B, the BO search quantization improves 15.2% throughput with only 2.85% ppl degradation compared to int8wo uniform quantization baseline.
+For Llama3-8B, the BO search quantization improves 15.2% throughput with only 3.21% ppl degradation compared to int8wo uniform quantization baseline.
 
 |    Llama3-8B     |ppl | throughput|
 | ---------------- | ------ | ------ |
 | bf16 baseline  | 7.260 | 94.97 |
 | int8wo uniform quantization  | 7.263 | 139.76 |
 | int4wo uniform quantization  | 7.900 | 179.44 |
-| BO mixed-precision quantization  | 7.470 | 160.96 |
+| BO mixed-precision quantization  | 7.496 | 160.96 |
