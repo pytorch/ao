@@ -58,6 +58,10 @@ from .GPTQ import (
 from .utils import _get_per_token_block_size
 import logging
 from .autoquant import autoquant, AutoQuantizableLinearWeight
+from torchao.quantization.observer import AffineQuantizedObserverBase
+from torchao.quantization.linear_activation_weight_observer import (
+    LinearActivationWeightObservedTensor,
+)
 from torchao.float8.inference import Float8MMConfig
 
 logger = logging.getLogger(__name__)
@@ -279,6 +283,86 @@ def swap_conv2d_1x1_to_linear(model, filter_fn=None):
     _replace_with_custom_fn_if_matches_filter(
         model, replace_conv2d_1x1, filter_fn=filter_fn
     )
+def insert_observers_(
+    model: nn.Module,
+    input_observer: Optional[AffineQuantizedObserverBase],
+    weight_observer: Optional[AffineQuantizedObserverBase],
+    *,
+    filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = None,
+):
+    """
+    Converts the weight of a linear module to a LinearActivationWeightObservedTensor.
+
+    This function wraps the weight of the given linear module with a LinearActivationWeightObservedTensor,
+    which enables observation of both input and weight tensors during forward passes.
+    The wrapped weight is then re-wrapped as a nn.Parameter to maintain compatibility
+    with PyTorch's module system.
+
+    Example::
+
+    ```
+        import torch
+        import torch.nn as nn
+        from torchao.quantization.linear_observer_tensor import insert_observers_
+        from torchao.quantization.observer import (
+            AffineQuantizedMinMaxObserver,
+            PerTensor,
+            MappingType
+        )
+
+        # Create observers
+        input_observer = AffineQuantizedMinMaxObserver(
+            MappingType.SYMMETRIC,
+            torch.float8_e4m3fn,
+            granularity_type=PerTensor(),
+            eps=torch.finfo(torch.float32).eps,
+            scale_dtype=torch.float,
+            zero_point_dtype=torch.int,
+            zero_point_domain=None,
+        )
+
+        # Create a linear module
+        linear_module = nn.Linear(10, 20)
+
+        # Convert the linear module's weight to an observed tensor
+        insert_observers_(linear_module, input_observer, weight_observer=None)
+
+        # The linear_module can now be used as usual, with observers calculating statistics
+        output = linear_module(torch.randn(10, 10))
+
+        # Get the scale and zero point of the input observer
+        scale, zero_point = linear_module.weight.input_observer.calculate_qparams()
+    ```
+
+    Args:
+        model (nn.Module): The nn.Module to convert.
+        input_observer (Optional[AffineQuantizedObserverBase]): Observer for input tensor.
+        weight_observer (Optional[AffineQuantizedObserverBase]): Observer for weight tensor.
+        filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): Filter function to select which modules to convert.
+            If not provided, all linear modules will be converted. This function should take a module and its fully qualified name.
+
+    Returns:
+        nn.Linear: The modified linear module with its weight wrapped in a LinearActivationWeightObservedTensor.
+    """
+
+    def convert_to_linear_observer(linear_module: nn.Linear):
+        # Wrap the weight with LinearActivationWeightObservedTensor and then with nn.Parameter
+        linear_module.weight = nn.Parameter(
+            LinearActivationWeightObservedTensor.from_float(
+                linear_module.weight,
+                input_observer=input_observer,
+                weight_observer=weight_observer,
+            ),
+            requires_grad=linear_module.weight.requires_grad,
+        )
+        return linear_module
+
+    _replace_with_custom_fn_if_matches_filter(
+        model,
+        convert_to_linear_observer,
+        _is_linear if filter_fn is None else filter_fn,
+    )
+
 
 def _quantization_type(weight: torch.Tensor):
     if isinstance(weight, AffineQuantizedTensor):
