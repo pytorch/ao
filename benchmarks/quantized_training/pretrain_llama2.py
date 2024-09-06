@@ -23,7 +23,6 @@ from tqdm import tqdm
 from torchao._models.llama.model import ModelArgs, Transformer, transformer_configs
 from torchao.prototype import low_bit_optim
 from torchao.prototype.quantized_training import (
-    Int8MixedPrecisionConfig,
     int8_mixed_precision_training,
     int8_weight_only_quantized_training,
 )
@@ -128,8 +127,7 @@ if __name__ == "__main__":
     if args.quantize == "int8_weight_only":
         quantize_(model, int8_weight_only_quantized_training(), set_inductor_config=False)
     elif args.quantize == "int8_mixed_precision":
-        cfg = Int8MixedPrecisionConfig(True, True, True)
-        quantize_(model.layers, int8_mixed_precision_training(cfg), set_inductor_config=False)
+        quantize_(model.layers, int8_mixed_precision_training(), set_inductor_config=False)
     elif args.quantize is not None:
         raise ValueError(f"Unsupported quantize={args.quantize}")
 

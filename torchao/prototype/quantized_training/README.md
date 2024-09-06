@@ -56,15 +56,19 @@ On NVIDIA GPUs, INT8 Tensor Cores is approximately 2x faster than their BF16/FP1
 Usage
 
 ```python
-from torchao.prototype.quantized_training import int8_mixed_precision_training, Int8MixedPrecisionConfig
+from torchao.prototype.quantized_training import int8_mixed_precision_training, Int8MixedPrecisionTrainingConfig
 from torchao.quantization import quantize_
 
 model = ...
-# by default, apply INT8 matmul to all 3 matmuls
-config = Int8MixedPrecisionConfig(
+
+# apply INT8 matmul to all 3 matmuls
+quantize_(model, int8_mixed_precision_training())
+
+# customize which matmul is left in original precision.
+config = Int8MixedPrecisionTrainingConfig(
     output=True,
     grad_input=True,
-    grad_weight=True,
+    grad_weight=False,
 )
 quantize_(model, int8_mixed_precision_training(config))
 
@@ -77,10 +81,10 @@ During training, there are 3 matmuls involved in each `nn.Linear` layer:
   - `grad_input = grad_output @ weight`
   - `grad_weight = grad_output.T @ input`
 
-You can configure which matmul to be applied with INT8 mixed-precision using `Int8MixedPrecisionConfig` shown above. If convergence is an issue, we recommend leaving `grad_weight` in original matmul precision, and also `grad_input` if the issue still persists.
+You can configure which matmul to be applied with INT8 mixed-precision (shown above). If convergence is an issue, we recommend leaving `grad_weight` in original matmul precision, and also `grad_input` if the issue still persists.
 
 Note:
-- When we only apply INT8 mixed-precision in the forward pass, this can be considered QAT.
+- When we only apply INT8 mixed-precision in the forward pass, this can be considered QAT for INT8 dynamic activations + INT8 weight quantization (A8W8).
 - When we only apply INT8 mixed-precision to `output` and `grad_input`, this is similar to SwitchBack. However, SwitchBack uses tensor-wise scaling for weight. For simplicity, we only support row-wise scaling.
 
 Pre-train Llama2-1B on C4 realnewslike subset. bs=32, seq_len=2048 -> 65k tok/batch. Train for 20k steps (1.3B tokens). Using 4090. INT8 mixed precision is not applied to LM head.

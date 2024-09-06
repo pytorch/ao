@@ -40,7 +40,7 @@ def quantize_int8_rowwise(tensor: Tensor, stochastic_rounding: bool = False):
     return tensor, scale
 
 
-class Int8QTLinearWeight(TorchAOBaseTensor):
+class Int8QuantizedTrainingLinearWeight(TorchAOBaseTensor):
     """INT8 symmetric quantization weight, with absmax scaling [-127, 127]. The main difference
     of this tensor subclass from AffineQuantizedTensor:
     1. `F.linear` is differentiable i.e. backward is defined.
@@ -110,12 +110,12 @@ class Int8QTLinearWeight(TorchAOBaseTensor):
         out: Optional[Tensor] = None,
     ):
         int_data, scale = all_gather_outputs
-        return Int8QTLinearWeight(int_data, scale.to(param_dtype)), all_gather_outputs
+        return Int8QuantizedTrainingLinearWeight(int_data, scale.to(param_dtype)), all_gather_outputs
 
 
 class _Int8WeightOnlyLinear(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input: Tensor, weight: Int8QTLinearWeight, bias: Optional[Tensor] = None):
+    def forward(ctx, input: Tensor, weight: Int8QuantizedTrainingLinearWeight, bias: Optional[Tensor] = None):
         ctx.save_for_backward(input, weight)
         ctx.bias = bias is not None
 
@@ -134,12 +134,15 @@ class _Int8WeightOnlyLinear(torch.autograd.Function):
         return grad_input, grad_weight, grad_bias
 
 
-@Int8QTLinearWeight.implements(torch.nn.functional.linear)
+implements = Int8QuantizedTrainingLinearWeight.implements
+
+
+@implements(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
     return _Int8WeightOnlyLinear.apply(*args, **kwargs)
 
 
-@Int8QTLinearWeight.implements(
+@implements(
     [
         aten.detach.default,
         aten.clone.default,
@@ -153,20 +156,20 @@ def _(func, types, args, kwargs):
 )
 def _(func, types, args, kwargs):
     # will error out if try to slice 2nd dim
-    out = Int8QTLinearWeight(
+    out = Int8QuantizedTrainingLinearWeight(
         func(args[0].int_data, *args[1:], **kwargs),
         func(args[0].scale, *args[1:], **kwargs),
     )
     return return_and_correct_aliasing(func, args, kwargs, out)
 
 
-@Int8QTLinearWeight.implements(aten._to_copy.default)
+@implements(aten._to_copy.default)
 def _(func, types, args, kwargs):
     # only perform dtype casting on scale, which determines the appearance dtype
     # TODO: handle non_blocking kwarg?
     device = kwargs.get("device", None)
     dtype = kwargs.get("dtype", None)
-    out = Int8QTLinearWeight(
+    out = Int8QuantizedTrainingLinearWeight(
         args[0].int_data.to(device=device),
         args[0].scale.to(device=device, dtype=dtype),
     )
@@ -174,7 +177,7 @@ def _(func, types, args, kwargs):
 
 
 # to make training work with existing PyTorch optimizers, we return a normal tensor
-@Int8QTLinearWeight.implements(aten.zeros_like.default)
+@implements(aten.zeros_like.default)
 def _(func, types, args, kwargs):
     dtype = kwargs.get("dtype", args[0].dtype)
     device = kwargs.get("device", args[0].device)
@@ -182,19 +185,19 @@ def _(func, types, args, kwargs):
 
 
 # out-of-place math ops always return plain tensor
-@Int8QTLinearWeight.implements([aten.sub.Tensor, aten.mul.Tensor])
+@implements([aten.sub.Tensor, aten.mul.Tensor])
 def _(func, types, args, kwargs):
-    args = [x.dequantize() if isinstance(x, Int8QTLinearWeight) else x for x in args]
+    args = [x.dequantize() if isinstance(x, Int8QuantizedTrainingLinearWeight) else x for x in args]
     return func(*args, **kwargs)
 
 
-@Int8QTLinearWeight.implements(aten.copy_.default)
+@implements(aten.copy_.default)
 def _(func, types, args, kwargs):
-    if isinstance(args[0], Int8QTLinearWeight) and isinstance(args[1], Int8QTLinearWeight):
+    if isinstance(args[0], Int8QuantizedTrainingLinearWeight) and isinstance(args[1], Int8QuantizedTrainingLinearWeight):
         args[0].int_data.copy_(args[1].int_data, **kwargs)
         args[0].scale.copy_(args[1].scale, **kwargs)
 
-    elif isinstance(args[0], Int8QTLinearWeight):
+    elif isinstance(args[0], Int8QuantizedTrainingLinearWeight):
         int_data, scale = quantize_int8_rowwise(args[1], stochastic_rounding=True)
         args[0].int_data.copy_(int_data, **kwargs)
         args[0].scale.copy_(scale, **kwargs)
@@ -205,7 +208,7 @@ def _(func, types, args, kwargs):
     return args[0]
 
 
-@Int8QTLinearWeight.implements([aten.addcdiv_.default, aten.add_.Tensor])
+@implements([aten.addcdiv_.default, aten.add_.Tensor])
 def _(func, types, args, kwargs):
     original = args[0]
     out = func(args[0].dequantize(), *args[1:], **kwargs)
@@ -213,20 +216,20 @@ def _(func, types, args, kwargs):
 
 
 # FSDP ops
-@Int8QTLinearWeight.implements(aten.split.Tensor)
+@implements(aten.split.Tensor)
 def _(func, types, args, kwargs):
     if len(args) == 3 and args[2] != 0:
         raise NotImplementedError("Int8QTLinearWeight only supports split at dim=0")
 
-    int8_weight: Int8QTLinearWeight = args[0]
+    int8_weight: Int8QuantizedTrainingLinearWeight = args[0]
     int_data_list = func(int8_weight.int_data, *args[1:], **kwargs)
     scale_list = func(int8_weight.scale, *args[1:], **kwargs)
 
-    out = [Int8QTLinearWeight(int_data, scale) for int_data, scale in zip(int_data_list, scale_list)]
+    out = [Int8QuantizedTrainingLinearWeight(int_data, scale) for int_data, scale in zip(int_data_list, scale_list)]
     return out
 
 
-@Int8QTLinearWeight.implements(aten.new_zeros.default)
+@implements(aten.new_zeros.default)
 def _(func, types, args, kwargs):
     size = args[1]
     if len(size) != 2:
@@ -237,7 +240,7 @@ def _(func, types, args, kwargs):
     dtype = kwargs.get("dtype", args[0].dtype)
     int_data = torch.zeros(size, device=device, dtype=torch.int8)
     scale = torch.zeros(size[0], device=device, dtype=dtype)
-    return Int8QTLinearWeight(int_data, scale)
+    return Int8QuantizedTrainingLinearWeight(int_data, scale)
 
 
 # FSDP2 will call these two ops, expecting a view, not a copy. It doesn't make sense to
@@ -245,9 +248,9 @@ def _(func, types, args, kwargs):
 # since this is channel-wise quantization.
 # Thus, this is a workaround for FSDP2. Users SHOULD NOT call these ops directly, since
 # they will produce unexpected or wrong results.
-@Int8QTLinearWeight.implements([aten.view.default, aten.as_strided.default])
+@implements([aten.view.default, aten.as_strided.default])
 def _(func, types, args, kwargs):
-    out = Int8QTLinearWeight(args[0].int_data, args[0].scale)
+    out = Int8QuantizedTrainingLinearWeight(args[0].int_data, args[0].scale)
     return return_and_correct_aliasing(func, args, kwargs, out)
 
 
@@ -257,7 +260,7 @@ def int8_weight_only_quantized_training():
     # update `_get_linear_subclass_inserter()` to allow `requires_grad=True`.
     def apply_int8_linear_weight(linear: nn.Linear):
         linear.weight = nn.Parameter(
-            Int8QTLinearWeight.from_float(linear.weight),
+            Int8QuantizedTrainingLinearWeight.from_float(linear.weight),
             requires_grad=linear.weight.requires_grad,
         )
         return linear

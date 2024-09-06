@@ -18,13 +18,13 @@ else:
         return A_scaled @ B_scaled
 
 
-class Int8MixedPrecisionConfig(NamedTuple):
+class Int8MixedPrecisionTrainingConfig(NamedTuple):
     output: bool = True
     grad_input: bool = True
     grad_weight: bool = True
 
 
-_DEFAULT_CONFIG = Int8MixedPrecisionConfig()
+_DEFAULT_CONFIG = Int8MixedPrecisionTrainingConfig()
 
 
 # adapated from FP8 implementation of WeightWithDynamicFloat8CastTensor
@@ -44,10 +44,10 @@ _ops_to_preserve_subclass = {
 }
 
 
-class Int8MixedPrecisionLinearWeight(Tensor):
+class Int8MixedPrecisionTrainingLinearWeight(Tensor):
     @staticmethod
     @torch._dynamo.disable
-    def __new__(cls, data: Tensor, config: Int8MixedPrecisionConfig):
+    def __new__(cls, data: Tensor, config: Int8MixedPrecisionTrainingConfig):
         return Tensor._make_wrapper_subclass(
             cls,
             data.shape,
@@ -59,7 +59,7 @@ class Int8MixedPrecisionLinearWeight(Tensor):
         )
 
     @torch._dynamo.disable
-    def __init__(self, data: Tensor, config: Int8MixedPrecisionConfig):
+    def __init__(self, data: Tensor, config: Int8MixedPrecisionTrainingConfig):
         self._data = data
         self.config = config
 
@@ -125,15 +125,15 @@ class Int8MixedPrecisionLinearWeight(Tensor):
         (data,) = all_gather_outputs
         (config,) = metadata
         if out is not None:
-            assert isinstance(out, Int8MixedPrecisionLinearWeight)
+            assert isinstance(out, Int8MixedPrecisionTrainingLinearWeight)
             assert out.config == config
             return
-        return Int8MixedPrecisionLinearWeight(data.to(param_dtype), config), all_gather_outputs
+        return Int8MixedPrecisionTrainingLinearWeight(data.to(param_dtype), config), all_gather_outputs
 
 
-# alternative UX
+# alternative UX. to be deleted
 class Int8MixedPrecisionLinear(nn.Linear):
-    def __init__(self, *args, config: Int8MixedPrecisionConfig, **kwargs) -> None:
+    def __init__(self, *args, config: Int8MixedPrecisionTrainingConfig, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.config = config
 
@@ -144,7 +144,7 @@ class Int8MixedPrecisionLinear(nn.Linear):
         return f"{super().extra_repr()}, config={self.config}"
 
     @classmethod
-    def convert_linear(cls, module: nn.Module, config: Int8MixedPrecisionConfig = _DEFAULT_CONFIG):
+    def convert_linear(cls, module: nn.Module, config: Int8MixedPrecisionTrainingConfig = _DEFAULT_CONFIG):
         if module.__class__ is nn.Linear:  # exact match, don't swap nn.Linear subclasses
             module.__class__ = cls
             module.config = config
@@ -175,7 +175,7 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor) -> Tensor:
 
 class _Int8MixedPrecisionLinear(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input: Tensor, weight: Tensor, bias: Optional[Tensor], config: Int8MixedPrecisionConfig):
+    def forward(ctx, input: Tensor, weight: Tensor, bias: Optional[Tensor], config: Int8MixedPrecisionTrainingConfig):
         ctx.config = config
         ctx.save_for_backward(input, weight)
         ctx.bias = bias is not None
@@ -220,13 +220,13 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
         return grad_input, grad_weight, grad_bias, grad_config
 
 
-def int8_mixed_precision_training(config: Int8MixedPrecisionConfig = _DEFAULT_CONFIG):
+def int8_mixed_precision_training(config: Int8MixedPrecisionTrainingConfig = _DEFAULT_CONFIG):
     # TODO: right now `_get_linear_subclass_inserter()` will always set `requires_grad=False`
     # when we have this out of prototype (or there are stable trainable tensor subclasses),
     # update `_get_linear_subclass_inserter()` to allow `requires_grad=True`.
     def apply_int8_linear_weight(linear: nn.Linear):
         linear.weight = nn.Parameter(
-            Int8MixedPrecisionLinearWeight(linear.weight.detach(), config),
+            Int8MixedPrecisionTrainingLinearWeight(linear.weight.detach(), config),
             requires_grad=linear.weight.requires_grad,
         )
         return linear
