@@ -23,8 +23,6 @@ jobs:
     with:
       package-type: wheel
       os: macos-arm64
-      test-infra-repository: pytorch/test-infra
-      test-infra-ref: main
   build:
     needs: generate-matrix
     name: pytorch/ao
