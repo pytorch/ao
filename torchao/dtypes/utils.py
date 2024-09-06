@@ -1,8 +1,9 @@
 import torch
-from typing import Dict, Callable, Union
+from typing import Dict, Callable, Union, Tuple, Optional
 from collections import defaultdict
 import functools
 from dataclasses import dataclass
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 """
 Helper function for implementing aten op or torch function dispatch
@@ -32,8 +33,8 @@ def _implements(cls, aten_ops_or_torch_fns):
     def decorator(func):
         for op in aten_ops_or_torch_fns:
             @functools.wraps(op)
-            def wrapper(*args, **kwargs):
-                return func(*args, **kwargs)
+            def wrapper(f, types, args, kwargs):
+                return func(f, types, args, kwargs)
 
             cls._ATEN_OP_OR_TORCH_FN_TABLE[op] = wrapper
         return func
@@ -50,7 +51,7 @@ def _dispatch__torch_function__(cls, func, types, args=(), kwargs=None):
     kwargs = {} if kwargs is None else kwargs
     if hasattr(cls, "_ATEN_OP_OR_TORCH_FN_TABLE") and \
        func in cls._ATEN_OP_OR_TORCH_FN_TABLE:
-        return cls._ATEN_OP_OR_TORCH_FN_TABLE[func](func, types, *args, **kwargs)
+        return cls._ATEN_OP_OR_TORCH_FN_TABLE[func](func, types, args, kwargs)
 
     with torch._C.DisableTorchFunctionSubclass():
         return func(*args, **kwargs)
@@ -65,13 +66,19 @@ def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
     """
     if hasattr(cls, "_ATEN_OP_OR_TORCH_FN_TABLE") and \
        func in cls._ATEN_OP_OR_TORCH_FN_TABLE:
-        return cls._ATEN_OP_OR_TORCH_FN_TABLE[func](func, types, *args, **kwargs)
+        return cls._ATEN_OP_OR_TORCH_FN_TABLE[func](func, types, args, kwargs)
 
     raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run unimplemented operator/function: {func}")
 
 
 """
 Base class for different LayoutType, should not be instantiated directly
+used to allow users to pass around configurations for the layout tensor, e.g. inner_k_tiles
+for int4 tensor core tiled layout
+
+Note: layout is an abstraction not only for custom data representation, it is also used for how the
+layout interacts with different operators, e.g. the same data representation can have different
+behaviors when running the same operator, e.g. transpose, quantized_linear.
 """
 @dataclass(frozen=True)
 class LayoutType:
@@ -86,6 +93,13 @@ class LayoutType:
 
     def extra_repr(self) -> str:
         return ""
+
+"""
+Plain LayoutType, the most basic LayoutType, also has no extra metadata, will typically be the default
+"""
+@dataclass(frozen=True)
+class PlainLayoutType(LayoutType):
+    pass
 
 """
 layout tensor constructor registration for different tensor subclassesa
@@ -109,6 +123,9 @@ def _register_layout_cls(cls: Callable, layout_type_class: type(LayoutType)):
     """
     def decorator(layout_cls):
         _LAYOUT_CONSTRUCTOR_TABLE[cls][layout_type_class] = layout_cls.from_plain
+        if TORCH_VERSION_AT_LEAST_2_5:
+            # Allow serialization to work for models uses this layout tensor subclass
+            torch.serialization.add_safe_globals([layout_type_class, layout_cls])
         return layout_cls
     return decorator
 
@@ -132,3 +149,15 @@ def _get_layout_tensor_constructor(cls: Callable, layout_type_class: type(Layout
 
 def is_device(target_device_str: str, device: Union[str, torch.device]):
     return torch.device(device).type == target_device_str
+
+def get_out_shape(input_shape: Tuple[int], weight_shape: Tuple[int]) -> Tuple[int, int]:
+    """Returns the unflattened shape of the input tensor.
+    Args:
+        input_shape: The input tensor shape possibly more than 2 dimensions
+        weight_shape: The weight tensor shape.
+    Returns:
+        The unflattened shape of the input tensor.
+    """
+    out_dim = weight_shape[0]
+    inpt_dims = input_shape[:-1]
+    return (*inpt_dims, out_dim)

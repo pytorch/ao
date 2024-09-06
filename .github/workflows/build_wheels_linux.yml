@@ -6,6 +6,7 @@ on:
     paths:
       - build/packaging/**
       - .github/workflows/build_wheels_linux.yml
+      - setup.py
   push:
     branches:
       - nightly

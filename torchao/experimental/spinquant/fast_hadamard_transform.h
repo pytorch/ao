@@ -12,9 +12,9 @@ namespace detail {
 
 // Square root of 1 << log2_n.
 template <typename T>
-T fast_sqrt(int log2_n) {
+T fast_sqrt_of_power_of_2(int log2_n) {
   // The square root of 2**N is, by definition, 2**(N/2), which is
-  // trivial to compute for even N.
+  // trivial to compute for even N using a left shift.
   //
   // For odd N, 2**(N/2) = 2**(floor(N/2) + 1/2)
   //                     = 2**(floor(N/2)) * (2 ** (1/2))
@@ -27,7 +27,7 @@ template <typename T>
 void normalize_after_fht(
     T* out,
     int log2_vec_size) {
-  const T inv_sqrt = T(1) / fast_sqrt<T>(log2_vec_size);
+  const T inv_sqrt = T(1) / fast_sqrt_of_power_of_2<T>(log2_vec_size);
   const int vec_size = 1 << log2_vec_size;
   for (int ii = 0; ii < vec_size; ++ii) {
     out[ii] *= inv_sqrt;

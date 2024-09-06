@@ -9,7 +9,7 @@ import torch
 from torch.utils._python_dispatch import TorchDispatchMode
 import torch.nn.utils.parametrize as parametrize
 from torchao.utils import find_multiple
-from .quant_primitives import (
+from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
     choose_qparams_affine,
@@ -17,7 +17,7 @@ from .quant_primitives import (
     dequantize_affine,
     int_scaled_matmul,
 )
-from torchao.utils import TORCH_VERSION_AFTER_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 __all__ = [
     "compute_error",
@@ -128,6 +128,13 @@ def guard_dtype_size(tensor_arg, arg_name, dtype=None, size=None):
         raise ValueError(f"Expected Tensor argument {arg_name} to have dtype {dtype}, but got {tensor_arg.dtype} instead.")
     if size is not None and tensor_arg.size() != size:
         raise ValueError(f"Expected Tensor argument {arg_name} to have size {size}, but got {tensor_arg.size()} instead.")
+
+def _get_per_token_block_size(x: torch.Tensor) -> List[int]:
+    block_size = []
+    for _ in range(len(x.shape)-1):
+        block_size.append(1)
+    block_size.append(x.shape[-1])
+    return block_size
 
 # taken from
 # https://github.com/mit-han-lab/smoothquant/blob/2f87951dacfb9238d8d657f52ae83a82a3c9ba0c/smoothquant/fake_quant.py#L26
@@ -350,7 +357,7 @@ def groupwise_affine_quantize_tensor_from_qparams(
     quant_max = 2 ** n_bit - 1
 
     int_data = quantize_affine(w, block_size, scales, zeros, output_dtype, quant_min, quant_max, zero_point_domain = ZeroPointDomain.FLOAT)
-    if TORCH_VERSION_AFTER_2_5:
+    if TORCH_VERSION_AT_LEAST_2_5:
         int_data_device_type = int_data.device.type
         # Move to cpu, until issue with MPS memory management of temporary tensors is resolved
         if int_data_device_type == 'mps':
@@ -369,7 +376,7 @@ def groupwise_affine_dequantize_tensor_from_qparams(
 ):
     assert groupsize > 1
     assert w_int4x8.dim() == 2
-    if TORCH_VERSION_AFTER_2_5:
+    if TORCH_VERSION_AT_LEAST_2_5:
         data = w_int4x8.to(torch.int32)
         high_bits = data >> 4
         low_bits = data & 0x0F
@@ -492,10 +499,3 @@ def recommended_inductor_config_setter():
     torch._inductor.config.fx_graph_cache = True
     torch._inductor.config.triton.unique_kernel_names = True
     torch.set_float32_matmul_precision("high")
-
-def _get_per_token_block_size(x: torch.Tensor) -> List[int]:
-    block_size = []
-    for i in range(len(x.shape)-1):
-        block_size.append(1)
-    block_size.append(x.shape[-1])
-    return block_size
