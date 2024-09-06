@@ -27,21 +27,7 @@ class Int8MixedPrecisionTrainingConfig(NamedTuple):
 _DEFAULT_CONFIG = Int8MixedPrecisionTrainingConfig()
 
 
-# adapated from FP8 implementation of WeightWithDynamicFloat8CastTensor
 aten = torch.ops.aten
-_ops_to_preserve_subclass = {
-    aten.detach.default,
-    aten.empty_like.default,
-    aten.new_zeros.default,
-    aten.slice.Tensor,
-    aten.copy_.default,
-    aten.view.default,
-    aten.as_strided.default,
-    aten._to_copy.default,
-    aten._pin_memory.default,
-    aten.split.Tensor,
-    aten.clone.default,
-}
 
 
 class Int8MixedPrecisionTrainingLinearWeight(Tensor):
@@ -51,11 +37,10 @@ class Int8MixedPrecisionTrainingLinearWeight(Tensor):
         return Tensor._make_wrapper_subclass(
             cls,
             data.shape,
+            data.stride(),
+            data.storage_offset(),
             dtype=data.dtype,
             device=data.device,
-            strides=data.stride(),
-            storage_offset=data.storage_offset(),
-            # pin_memory=data.is_pinned(),  # this will fail compile on 2.4
         )
 
     @torch._dynamo.disable
@@ -85,11 +70,12 @@ class Int8MixedPrecisionTrainingLinearWeight(Tensor):
             act = args[0]
             weight: cls = args[1]
             bias = args[2] if len(args) > 2 else None
-            return _Int8MixedPrecisionLinear.apply(act, weight._data, bias, weight.config)
+            return _Int8MixedPrecisionTrainingLinear.apply(act, weight._data, bias, weight.config)
 
         with torch._C.DisableTorchFunctionSubclass():
             return func(*args, **kwargs)
 
+    # adapated from FP8 implementation of WeightWithDynamicFloat8CastTensor
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
         config = None
@@ -104,10 +90,28 @@ class Int8MixedPrecisionTrainingLinearWeight(Tensor):
 
         args, kwargs = pytree.tree_map_only(cls, unwrap, (args, kwargs))
         out = func(*args, **kwargs)
-        if func not in _ops_to_preserve_subclass:
-            return out
-        else:
+
+        if func in {
+            aten.copy_.default,
+            aten.add_.Tensor,
+        }:
+            return args[0]
+        elif func in {
+            aten.t.default,
+            aten.detach.default,
+            aten.empty_like.default,
+            aten.new_zeros.default,
+            aten.slice.Tensor,
+            aten.view.default,
+            aten.as_strided.default,
+            aten._to_copy.default,
+            aten._pin_memory.default,
+            aten.split.Tensor,
+            aten.clone.default,
+        }:
             return pytree.tree_map_only(Tensor, lambda x: cls(x, config), out)
+        else:
+            return out
 
     def fsdp_pre_all_gather(self, mesh):
         # TODO: pre-quantize weight here -> reduce comm bandwidth.
@@ -138,7 +142,7 @@ class Int8MixedPrecisionLinear(nn.Linear):
         self.config = config
 
     def forward(self, input: Tensor) -> Tensor:
-        return _Int8MixedPrecisionLinear.apply(input, self.weight, self.bias, self.config)
+        return _Int8MixedPrecisionTrainingLinear.apply(input, self.weight, self.bias, self.config)
 
     def extra_repr(self):
         return f"{super().extra_repr()}, config={self.config}"
@@ -157,8 +161,7 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor) -> Tensor:
     # INT8 matmul is the most performant when A is row-major and B is column-major.
     # thus, we transpose B before quantization.
 
-    # A and B (before quantization) might not be contiguous, especially in backward.
-    # it's also not guaranteed that A_i8 and B_t_i8 (after quantization) are contiguous,
+    # it's not guaranteed that A_i8 and B_t_i8 (after quantization) are contiguous,
     # thus we have to call .contiguous() on them.
     # hope that the .contiguous() calls will be fused into quantize op by torch.compile()
     # TODO: investigate if calling .contiguous() before quantization is better.
@@ -173,14 +176,10 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor) -> Tensor:
     )
 
 
-class _Int8MixedPrecisionLinear(torch.autograd.Function):
+class _Int8MixedPrecisionTrainingLinear(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input: Tensor, weight: Tensor, bias: Optional[Tensor], config: Int8MixedPrecisionTrainingConfig):
-        ctx.config = config
-        ctx.save_for_backward(input, weight)
-        ctx.bias = bias is not None
-
-        if ctx.config.output:
+    def forward(input: Tensor, weight: Tensor, bias: Optional[Tensor], config: Int8MixedPrecisionTrainingConfig):
+        if config.output:
             batch_dims = input.shape[:-1]
             input = input.view(-1, weight.shape[1])
             out = _dynamic_int8_mm(input, weight.T)
@@ -190,6 +189,13 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
 
         out = out + bias if bias is not None else out
         return out
+
+    @staticmethod
+    def setup_context(ctx, inputs, output):
+        input, weight, bias, config = inputs
+        ctx.config = config
+        ctx.save_for_backward(input, weight)
+        ctx.bias = bias is not None
 
     @staticmethod
     def backward(ctx, grad_output):
