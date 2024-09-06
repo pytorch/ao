@@ -4,11 +4,14 @@ from typing import Tuple, Optional
 import torch
 from torch import Tensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32, _n_ones
+from torchao.prototype.custom_fp_utils import (
+    _f32_to_fpx_unpacked,
+    _fpx_unpacked_to_f32,
+    _n_ones,
+)
 from torchao.dtypes.utils import (
     LayoutType,
 )
-from torchao.quantization.quant_api import _get_linear_subclass_inserter
 from dataclasses import dataclass
 from torchao.dtypes.affine_quantized_tensor import AQTLayout, register_layout_cls
 
@@ -18,11 +21,23 @@ _ONES_TABLE = [_n_ones(i) for i in range(8)]
 
 
 def _pack(x: Tensor, n_bits: int) -> Tensor:
-    return reduce(torch.bitwise_or, [x[..., i::(8 // n_bits)] << (8 - (i + 1) * n_bits) for i in range(8 // n_bits)])
+    return reduce(
+        torch.bitwise_or,
+        [
+            x[..., i :: (8 // n_bits)] << (8 - (i + 1) * n_bits)
+            for i in range(8 // n_bits)
+        ],
+    )
 
 
 def _unpack(x: Tensor, n_bits: int) -> Tensor:
-    return torch.stack([(x >> (8 - (i + 1) * n_bits)) & ((1 << n_bits) - 1) for i in range(8 // n_bits)], dim=-1).flatten(-2)
+    return torch.stack(
+        [
+            (x >> (8 - (i + 1) * n_bits)) & ((1 << n_bits) - 1)
+            for i in range(8 // n_bits)
+        ],
+        dim=-1,
+    ).flatten(-2)
 
 
 # https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/fp6_llm/csrc/utils/weight_prepacking.h#L87-L116
@@ -36,8 +51,40 @@ def _bit_interleave(x: Tensor, n_bits: int, undo: bool = False) -> Tensor:
 
     if not undo:
         bit_order = {
-            1: [1, 5, 9, 13, 17, 21, 25, 29, 3, 7, 11, 15, 19, 23, 27, 31,
-                0, 4, 8, 12, 16, 20, 24, 28, 2, 6, 10, 14, 18, 22, 26, 30],
+            1: [
+                1,
+                5,
+                9,
+                13,
+                17,
+                21,
+                25,
+                29,
+                3,
+                7,
+                11,
+                15,
+                19,
+                23,
+                27,
+                31,
+                0,
+                4,
+                8,
+                12,
+                16,
+                20,
+                24,
+                28,
+                2,
+                6,
+                10,
+                14,
+                18,
+                22,
+                26,
+                30,
+            ],
             2: [1, 5, 9, 13, 3, 7, 11, 15, 0, 4, 8, 12, 2, 6, 10, 14],
             4: [1, 5, 3, 7, 0, 4, 2, 6],
         }[n_bits]
@@ -46,8 +93,40 @@ def _bit_interleave(x: Tensor, n_bits: int, undo: bool = False) -> Tensor:
         # this is inverse of the above, obtained by running
         # [v.index(i) for i in range(len(v))]
         bit_order = {
-            1: [16, 0, 24, 8, 17, 1, 25, 9, 18, 2, 26, 10, 19, 3, 27, 11,
-                20, 4, 28, 12, 21, 5, 29, 13, 22, 6, 30, 14, 23, 7, 31, 15],
+            1: [
+                16,
+                0,
+                24,
+                8,
+                17,
+                1,
+                25,
+                9,
+                18,
+                2,
+                26,
+                10,
+                19,
+                3,
+                27,
+                11,
+                20,
+                4,
+                28,
+                12,
+                21,
+                5,
+                29,
+                13,
+                22,
+                6,
+                30,
+                14,
+                23,
+                7,
+                31,
+                15,
+            ],
             2: [8, 0, 12, 4, 9, 1, 13, 5, 10, 2, 14, 6, 11, 3, 15, 7],
             4: [4, 0, 6, 2, 5, 1, 7, 3],
         }[n_bits]
@@ -83,8 +162,12 @@ def _pack_tc_fpx(tensor: Tensor, nbits: int) -> Tensor:
             tensor_ybit = (tensor >> (nbits - used_bits - y)) & mask
             tensor_ybit = _pack(tensor_ybit, y)
 
-            tensor_ybit = tensor_ybit.view(32, -1, 4).permute(1, 0, 2).flip(2)  # Pass 2 from original code
-            tensor_ybit = _bit_interleave(tensor_ybit.flatten(), y)             # Pass 3 from original code
+            tensor_ybit = (
+                tensor_ybit.view(32, -1, 4).permute(1, 0, 2).flip(2)
+            )  # Pass 2 from original code
+            tensor_ybit = _bit_interleave(
+                tensor_ybit.flatten(), y
+            )  # Pass 3 from original code
             fragments.append(tensor_ybit)
             used_bits += y
 
@@ -126,7 +209,9 @@ def to_scaled_tc_fpx(tensor: Tensor, ebits: int, mbits: int) -> Tuple[Tensor, Te
 
     # workaround: global lookup table
     exp_bias = _ONES_TABLE[ebits - 1]
-    max_normal = 2 ** (_ONES_TABLE[ebits] - exp_bias) * (_ONES_TABLE[mbits + 1] / (2 ** mbits))
+    max_normal = 2 ** (_ONES_TABLE[ebits] - exp_bias) * (
+        _ONES_TABLE[mbits + 1] / (2**mbits)
+    )
 
     tensor = tensor.float()
     scale = tensor.abs().amax(1).clamp(min=1e-12) / max_normal
@@ -152,8 +237,10 @@ def _unpack_tc_fpx(tensor: Tensor, nbits: int) -> Tensor:
             tensor_ybit = tensor[offset : offset + size_ybit]
             offset += size_ybit
 
-            tensor_ybit = _bit_interleave(tensor_ybit, y, undo=True)            # undo Pass 3
-            tensor_ybit = tensor_ybit.view(-1, 32, 4).flip(2).permute(1, 0, 2)  # undo Pass 2
+            tensor_ybit = _bit_interleave(tensor_ybit, y, undo=True)  # undo Pass 3
+            tensor_ybit = (
+                tensor_ybit.view(-1, 32, 4).flip(2).permute(1, 0, 2)
+            )  # undo Pass 2
 
             tensor_ybit = _unpack(tensor_ybit.flatten(), y)
             tensor_ybit = tensor_ybit << (nbits - used_bits - y)
@@ -224,7 +311,7 @@ _SPLIT_K_MAP = [
         10240: 5,
         14336: 7,
         28672: 7,
-        57344: 7
+        57344: 7,
     },
     {  # tokens: [65:128]
         3072: 9,
@@ -235,7 +322,7 @@ _SPLIT_K_MAP = [
         10240: 5,
         14336: 7,
         28672: 7,
-        57344: 6
+        57344: 6,
     },
     {  # tokens: [129:192]
         3072: 6,
@@ -246,7 +333,7 @@ _SPLIT_K_MAP = [
         10240: 5,
         14336: 5,
         28672: 5,
-        57344: 4
+        57344: 4,
     },
     {  # tokens: [193:256]
         3072: 9,
@@ -257,7 +344,7 @@ _SPLIT_K_MAP = [
         10240: 4,
         14336: 8,
         28672: 6,
-        57344: 4
+        57344: 4,
     },
     {  # tokens: [257:320]
         3072: 7,
@@ -268,7 +355,7 @@ _SPLIT_K_MAP = [
         10240: 1,
         14336: 3,
         28672: 3,
-        57344: 4
+        57344: 4,
     },
     {  # tokens: [321:384]
         3072: 3,
@@ -279,7 +366,7 @@ _SPLIT_K_MAP = [
         10240: 8,
         14336: 3,
         28672: 4,
-        57344: 3
+        57344: 3,
     },
     {  # tokens: [385:448]
         3072: 5,
@@ -290,7 +377,7 @@ _SPLIT_K_MAP = [
         10240: 3,
         14336: 1,
         28672: 1,
-        57344: 3
+        57344: 3,
     },
     {  # tokens: [449:512]
         3072: 2,
@@ -301,7 +388,7 @@ _SPLIT_K_MAP = [
         10240: 2,
         14336: 6,
         28672: 4,
-        57344: 1
+        57344: 1,
     },
     {  # tokens: [513:576]
         3072: 2,
@@ -312,7 +399,7 @@ _SPLIT_K_MAP = [
         10240: 3,
         14336: 3,
         28672: 1,
-        57344: 1
+        57344: 1,
     },
     {  # tokens: [577:640]
         3072: 5,
@@ -323,7 +410,7 @@ _SPLIT_K_MAP = [
         10240: 1,
         14336: 1,
         28672: 1,
-        57344: 1
+        57344: 1,
     },
     {  # tokens: [641:704]
         3072: 3,
@@ -334,7 +421,7 @@ _SPLIT_K_MAP = [
         10240: 2,
         14336: 1,
         28672: 1,
-        57344: 1
+        57344: 1,
     },
     {  # tokens: [705:768]
         3072: 3,
@@ -345,19 +432,21 @@ _SPLIT_K_MAP = [
         10240: 1,
         14336: 1,
         28672: 1,
-        57344: 1
-    }
+        57344: 1,
+    },
 ]
 
 
 # quantization api integrations
 
+
 @dataclass(frozen=True)
 class FpxTensorCoreLayoutType(LayoutType):
-    """Layout type for FpxTensorCoreAQTLayout
-    """
+    """Layout type for FpxTensorCoreAQTLayout"""
+
     ebits: int
     mbits: int
+
 
 @register_layout_cls(FpxTensorCoreLayoutType)
 class FpxTensorCoreAQTLayout(AQTLayout):
@@ -382,6 +471,7 @@ class FpxTensorCoreAQTLayout(AQTLayout):
     it will then pack the weight and instantiate the FpxTensorCoreAQTLayout tensor
     FpxTensorCoreAQTLayout.__init__() takes a packed fpx Tensor of shape (M, N // 8 * nbit)
     """
+
     def __new__(
         cls,
         packed_fpx_data: torch.Tensor,
@@ -390,11 +480,16 @@ class FpxTensorCoreAQTLayout(AQTLayout):
     ):
         assert packed_fpx_data.ndim == 2
         assert packed_fpx_data.dtype == torch.uint8
-        shape = (packed_fpx_data.shape[0], packed_fpx_data.shape[1] // (1 + layout_type.ebits + layout_type.mbits) * 8)
+        shape = (
+            packed_fpx_data.shape[0],
+            packed_fpx_data.shape[1] // (1 + layout_type.ebits + layout_type.mbits) * 8,
+        )
         kwargs = {}
         kwargs["device"] = packed_fpx_data.device
         kwargs["layout"] = (
-            kwargs.get("layout") if kwargs.get("layout", False) else packed_fpx_data.layout
+            kwargs.get("layout")
+            if kwargs.get("layout", False)
+            else packed_fpx_data.layout
         )
         kwargs["dtype"] = packed_fpx_data.dtype
         kwargs["requires_grad"] = False
@@ -417,12 +512,17 @@ class FpxTensorCoreAQTLayout(AQTLayout):
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
-        packed_fpx_data, scale = tensor_data_dict["packed_fpx_data"], tensor_data_dict["scale"]
-        layout_type, = tensor_attributes
+        packed_fpx_data, scale = (
+            tensor_data_dict["packed_fpx_data"],
+            tensor_data_dict["scale"],
+        )
+        (layout_type,) = tensor_attributes
         return cls(packed_fpx_data, scale, layout_type)
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        unpacked_fpx_data = unpack_tc_fpx(self.packed_fpx_data, 1 + self.layout_type.ebits + self.layout_type.mbits)
+        unpacked_fpx_data = unpack_tc_fpx(
+            self.packed_fpx_data, 1 + self.layout_type.ebits + self.layout_type.mbits
+        )
         return unpacked_fpx_data, self.scale
 
     @classmethod
@@ -441,7 +541,9 @@ class FpxTensorCoreAQTLayout(AQTLayout):
         bit, M is mantissa bit
         """
         assert isinstance(layout_type, FpxTensorCoreLayoutType)
-        packed_fpx_data = pack_tc_fpx(unpacked_fpx_data, 1 + layout_type.ebits + layout_type.mbits)
+        packed_fpx_data = pack_tc_fpx(
+            unpacked_fpx_data, 1 + layout_type.ebits + layout_type.mbits
+        )
         return cls(packed_fpx_data, scale, layout_type)
 
     def __repr__(self):
@@ -479,7 +581,12 @@ class FpxTensorCoreAQTLayout(AQTLayout):
             )
         elif func is aten._to_copy.default:
             return return_and_correct_aliasing(
-                func, args, kwargs, args[0]._apply_fn_to_data(lambda x: x.to(device=kwargs.pop("device", None))),
+                func,
+                args,
+                kwargs,
+                args[0]._apply_fn_to_data(
+                    lambda x: x.to(device=kwargs.pop("device", None))
+                ),
             )
 
         raise NotImplementedError(
