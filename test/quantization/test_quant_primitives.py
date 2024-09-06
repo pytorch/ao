@@ -186,10 +186,10 @@ class TestQuantPrimitives(unittest.TestCase):
 
     def test_choose_qparams_group_sym_pos_neg(self):
         """
-        Test the added MappingType.SYMMETRIC_MAX_POS_NEG
+        Test the added MappingType.SYMMETRIC_NO_CLIPPING_ERR
         """
         input = torch.randn(10, 10)
-        mapping_type = MappingType.SYMMETRIC_MAX_POS_NEG
+        mapping_type = MappingType.SYMMETRIC_NO_CLIPPING_ERR
         dtype = torch.int8
         block_size = (1, 2)
         eps = torch.finfo(torch.float32).eps

@@ -31,6 +31,7 @@ from torchao.quantization.quant_api import (
 )
 from torchao.quantization.quant_primitives import (
     fake_quantize_affine,
+    MappingType,
     ZeroPointDomain,
 )
 from torchao.quantization.utils import (
@@ -212,7 +213,7 @@ class TestQAT(unittest.TestCase):
         m = M()
         m2 = copy.deepcopy(m)
         qat_quantizer = Int8DynActInt4WeightQATQuantizer(groupsize=group_size)
-        ptq_quantizer = Int8DynActInt4WeightQuantizer(groupsize=group_size)
+        ptq_quantizer = Int8DynActInt4WeightQuantizer(groupsize=group_size, mapping_type=MappingType.SYMMETRIC)
         qat_model = qat_quantizer.prepare(m)
         ptq_model = ptq_quantizer.quantize(m2)
 
