@@ -12,9 +12,9 @@ namespace detail {
 
 // Square root of 1 << log2_n.
 template <typename T>
-T fast_sqrt(int log2_n) {
+T fast_sqrt_of_power_of_2(int log2_n) {
   // The square root of 2**N is, by definition, 2**(N/2), which is
-  // trivial to compute for even N.
+  // trivial to compute for even N using a left shift.
   //
   // For odd N, 2**(N/2) = 2**(floor(N/2) + 1/2)
   //                     = 2**(floor(N/2)) * (2 ** (1/2))
@@ -27,7 +27,7 @@ template <typename T>
 void normalize_after_fht(
     T* out,
     int log2_vec_size) {
-  const T inv_sqrt = T(1) / fast_sqrt<T>(log2_vec_size);
+  const T inv_sqrt = T(1) / fast_sqrt_of_power_of_2<T>(log2_vec_size);
   const int vec_size = 1 << log2_vec_size;
   for (int ii = 0; ii < vec_size; ++ii) {
     out[ii] *= inv_sqrt;
@@ -108,6 +108,14 @@ void fast_hadamard_transform(T* vec, int log2_vec_size) {
 
 // Compute a quantized fast Walsh-Hadamard transform of vec, which
 // must be of length (1 << log2_vec_size) and symmetrically quantized.
+//
+// Note that we do not need to know the quantization scale, because
+// the Fast Hadamard transform is a series of additions and
+// subtractions with a final multiplication step, and we have the
+// following trivial identities:
+//
+// scale * a + scale * b = scale * (a + b)  (addition doesn't need the scale)
+// alpha * (scale * a) = scale * (alpha * a) (multiplication doesn't need the scale)
 void fast_hadamard_transform_symmetric_quantized_s16(int16_t* vec, int log2_vec_size) {
   if (log2_vec_size == 0) {
     return;
@@ -122,14 +130,9 @@ void fast_hadamard_transform_symmetric_quantized_s16(int16_t* vec, int log2_vec_
   auto tmp = std::make_unique<int32_t[]>(vec_size);
   std::copy(vec, vec + vec_size, tmp.get());
 
-  // Symmetric quantization represents real_x as quant_x * scale.
-  // real_sum(x, y) = scale * quant_x + scale * quant_y
-  //                = scale * (quant_x + quant_y)
-  //
-  // so we can just perform addition of quantized values directly, and
-  // similarly for subtraction. Therefore we just delegate to the
-  // usual unnormalized implementation.
-
+  // Per the function-level comment above, we can ignore the
+  // quantization scale, so we just delegate to the usual unnormalized
+  // implementation.
   // NOTE: if we need this to be fast on CPU, we can use FFHT to
   // generate fht_uint32 similar to fht_float.
   detail::fast_hadamard_transform_unnormalized_simple_impl(tmp.get(), log2_vec_size);
@@ -154,6 +157,9 @@ void fast_hadamard_transform_28N(T* vec, int log2_vec_size) {
   }
 }
 
+// We don't need the quantization scale; see the function-level
+// comment on fast_hadamard_transform_symmetric_quantized_s16 for
+// details.
 void fast_hadamard_transform_symmetric_quantized_s16_28N(int16_t* vec, int log2_vec_size) {
   if (log2_vec_size == 0) {
     return;

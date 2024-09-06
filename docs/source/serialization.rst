@@ -11,6 +11,7 @@ Here is the serialization and deserialization flow::
   import copy
   import tempfile
   import torch
+  from torchao.utils import get_model_size_in_bytes
   from torchao.quantization.quant_api import (
       quantize_,
       int4_weight_only,

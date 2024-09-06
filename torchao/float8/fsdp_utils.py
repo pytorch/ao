@@ -59,7 +59,7 @@ def precompute_float8_dynamic_scale_for_fsdp(module: nn.Module) -> None:
         return
 
     # inf-norm is equivalent to max(abs(w))
-    max_weights = torch._foreach_norm(weights, ord=math.inf)  # Partial
+    max_weights = torch._foreach_norm(weights, ord=math.inf, dtype=torch.float32)  # Partial
     amax_tensor = torch.stack(max_weights)  # Partial
     # clamp is dispatched through DTensor
     # it will issue a single all-reduce
@@ -84,8 +84,43 @@ _ops_to_preserve_subclass = {
     torch.ops.aten.as_strided.default,
     torch.ops.aten._to_copy.default,
     torch.ops.aten._pin_memory.default,
+    torch.ops.aten.split.Tensor,
+    torch.ops.aten.clone.default,
 }
 
+# How Tensor Parallel (TP) and FSDP2 work
+
+# Initialization: apply TP first then FSDP2
+# nn.Linear(weight=torch.Tensor)
+#      |
+#      | apply float8 linear, `convert_to_float8_training`
+#      |
+# Float8Linear(weight=WeightWithDynamicFloat8CastTensor)
+#      |
+#      | apply tensor parallel, `parallelize_module` shards rowwise/colwise
+#      |
+# Float8Linear(weight=DTensor(local_tensor=WeightWithDynamicFloat8CastTensor,
+#                             device_mesh=DeviceMesh([0, 1], mesh_dim_names=('tp',)),
+#                             placements=(Shard(dim=0),)))
+#      |
+#      | apply FSDP2, `fully_shard` shards rowwise (dim=0)
+#      |
+# Float8Linear(weight=DTensor(local_tensor=WeightWithDynamicFloat8CastTensor,
+#                             device_mesh=DeviceMesh([[0, 1], [2, 3]], mesh_dim_names=('dp', 'tp')),
+#                             placements=(Shard(dim=0), Shard(dim=0))))
+
+# Forward and backward: FSDP runs first then TP
+# Float8Linear(weight=DTensor(local_tensor=WeightWithDynamicFloat8CastTensor,
+#                             device_mesh=DeviceMesh([[0, 1], [2, 3]], mesh_dim_names=('dp', 'tp')),
+#                             placements=(Shard(dim=0), Shard(dim=0))))
+#      |
+#      |   FSDP unshards parameters within dp mesh
+#      |
+# Float8Linear(weight=DTensor(local_tensor=WeightWithDynamicFloat8CastTensor,
+#                             device_mesh=DeviceMesh([0, 1], mesh_dim_names=('tp',)),
+#                             placements=(Shard(dim=0),)))
+#      |
+#      |   TP compute with torch.mm(input, weight)
 
 class WeightWithDynamicFloat8CastTensor(torch.Tensor):
     @staticmethod
@@ -195,8 +230,17 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
         (data,) = all_gather_outputs
         (scale,) = metadata
         if out is not None:
-            assert isinstance(out, Float8Tensor), f"{type(out)}"
-            out._scale = scale
+            from torch.distributed._tensor import DTensor
+            if isinstance(out, Float8Tensor):
+                out._scale = scale
+            elif isinstance(out, DTensor) and isinstance(
+                out._local_tensor, Float8Tensor
+            ):
+                out._local_tensor._scale = scale
+            else:
+                raise RuntimeError(
+                    f"out must be a Float8Tensor or DTensor(_local_tensor=Float8Tensor), but got {out}"
+                )
             return
         return Float8Tensor(
             data,
@@ -378,6 +422,126 @@ class WeightWithDelayedFloat8CastTensor(torch.Tensor):
         if out is not None:
             assert isinstance(out, Float8Tensor), f"{type(out)}"
             out._scale = scale
+            return
+        return Float8Tensor(
+            data,
+            scale,
+            param_dtype,
+            self._linear_mm_config,
+            gemm_input_role=GemmInputRole.WEIGHT,
+        ), (data,)
+
+
+class WeightWithStaticFloat8CastTensor(torch.Tensor):
+    @staticmethod
+    def __new__(
+        cls,
+        tensor: torch.Tensor,
+        static_scale: torch.Tensor,
+        linear_mm_config: LinearMMConfig,
+    ):
+        return torch.Tensor._make_wrapper_subclass(
+            cls,
+            tensor.size(),
+            strides=tensor.stride(),
+            storage_offset=tensor.storage_offset(),
+            memory_format=suggest_memory_format(tensor),
+            dtype=tensor.dtype,
+            layout=tensor.layout,
+            device=tensor.device,
+            pin_memory=tensor.is_pinned(),
+            requires_grad=tensor.requires_grad,
+        )
+
+    def __init__(
+        self,
+        tensor: torch.Tensor,
+        static_scale: torch.Tensor,
+        linear_mm_config: LinearMMConfig,
+    ):
+        self._tensor = tensor
+        self._static_scale = static_scale
+        self._linear_mm_config = linear_mm_config
+
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs=None):
+        if func == torch.ops.aten.detach.default:
+            return WeightWithStaticFloat8CastTensor(
+                args[0]._tensor, args[0]._static_scale, args[0]._linear_mm_config
+            )
+        static_scale: Optional[torch.Tensor] = None
+        mm_config: Optional[LinearMMConfig] = None
+
+        def unwrap(t):
+            nonlocal static_scale
+            if static_scale is None:
+                static_scale = t._static_scale
+            nonlocal mm_config
+            if mm_config is None:
+                mm_config = t._linear_mm_config
+            else:
+                assert t._linear_mm_config == mm_config
+            return t._tensor
+
+        args, kwargs = pytree.tree_map_only(
+            WeightWithStaticFloat8CastTensor, unwrap, (args, kwargs or {})
+        )
+        out = func(*args, **kwargs)
+        if func not in _ops_to_preserve_subclass:
+            return out
+        return pytree.tree_map_only(
+            torch.Tensor, 
+            lambda x: WeightWithStaticFloat8CastTensor(x, static_scale, mm_config), 
+            out,
+        )
+
+    def __tensor_flatten__(self):
+        return ["_tensor", "_static_scale"], self._linear_mm_config
+
+    @staticmethod
+    def __tensor_unflatten__(inner_tensors, flatten_spec, outer_size, outer_stride):
+        mm_config = flatten_spec
+        return WeightWithStaticFloat8CastTensor(
+            inner_tensors["_tensor"],
+            inner_tensors["_static_scale"],
+            mm_config,
+        )
+
+    def __repr__(self):
+        return f"WeightWithStaticFloat8CastTensor(tensor={self._tensor}, static_scale={self._static_scale}, linear_mm_config={self._linear_mm_config})"
+
+    def fsdp_pre_all_gather(self, mesh):
+        float8_tensor = hp_tensor_and_scale_to_float8(
+            self._tensor,
+            self._static_scale,
+            torch.float8_e4m3fn,
+            self._linear_mm_config,
+            GemmInputRole.WEIGHT,
+        )
+        return (float8_tensor._data,), (float8_tensor._scale,)
+
+    def fsdp_post_all_gather(
+        self,
+        all_gather_outputs: Tuple[torch.Tensor, ...],
+        metadata: Any,
+        param_dtype: torch.dtype,
+        *,
+        out: Optional[torch.Tensor] = None,
+    ):
+        (data,) = all_gather_outputs
+        (scale,) = metadata
+        if out is not None:
+            from torch.distributed._tensor import DTensor
+            if isinstance(out, Float8Tensor):
+                out._scale = scale
+            elif isinstance(out, DTensor) and isinstance(
+                out._local_tensor, Float8Tensor
+            ):
+                out._local_tensor._scale = scale
+            else:
+                raise RuntimeError(
+                    f"out must be a Float8Tensor or DTensor(_local_tensor=Float8Tensor), but got {out}"
+                )
             return
         return Float8Tensor(
             data,

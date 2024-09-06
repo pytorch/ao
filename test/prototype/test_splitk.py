@@ -7,7 +7,7 @@ from torch.testing._internal.common_utils import (
     parametrize,
     run_tests,
 )
-from torchao.utils import TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
 
 try:
     from torchao.prototype.splitk import gemm_split_k, to_float8

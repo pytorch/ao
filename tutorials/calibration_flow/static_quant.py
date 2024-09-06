@@ -4,16 +4,21 @@ Demo for static quantization flow
 import torch
 import copy
 
-# TODO: use the generalized observer for affine qunatization in the future
-from torch.ao.quantization.observer import MinMaxObserver, PerChannelMinMaxObserver
 import torch.nn.functional as F
 from torch import Tensor
-from torchao.dtypes import to_affine_quantized_static
+from torchao.dtypes import to_affine_quantized_intx_static
 from torchao.quantization.utils import compute_error
 from torchao.quantization import quantize_
 from torchao.quantization import to_linear_activation_quantized
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
-
+from torchao.quantization.observer import (
+    AffineQuantizedMinMaxObserver,
+    PerTensor,
+    PerAxis,
+)
+from torchao.quantization.quant_primitives import (
+    MappingType,
+)
 
 
 class ObservedLinear(torch.nn.Linear):
@@ -36,9 +41,12 @@ class ObservedLinear(torch.nn.Linear):
 
 def insert_observers_(model, act_obs, weight_obs):
     _is_linear = lambda m, fqn: isinstance(m, torch.nn.Linear)
-    replacement_fn = lambda m: ObservedLinear.from_float(m, act_obs, weight_obs)
-    act_obs = copy.deepcopy(act_obs)
-    weight_obs = copy.deepcopy(weight_obs)
+
+    def replacement_fn(m):
+        copied_act_obs = copy.deepcopy(act_obs)
+        copied_weight_obs = copy.deepcopy(weight_obs)
+        return ObservedLinear.from_float(m, copied_act_obs, copied_weight_obs)
+
     _replace_with_custom_fn_if_matches_filter(model, replacement_fn, _is_linear)
 
 # converting observed linear module to linear module with quantzied weights (and quantized activations)
@@ -50,7 +58,7 @@ def apply_static_quant(observed_linear):
     weight_scale, weight_zero_point = observed_linear.weight_obs.calculate_qparams()
     def weight_quant_func(weight):
         block_size = (1, weight.shape[1])
-        return to_affine_quantized_static(weight, weight_scale, weight_zero_point, block_size, target_dtype)
+        return to_affine_quantized_intx_static(weight, weight_scale, weight_zero_point, block_size, target_dtype)
     linear = torch.nn.Linear(observed_linear.in_features, observed_linear.out_features, False, device=observed_linear.weight.device, dtype=observed_linear.weight.dtype)
     linear.weight = observed_linear.weight
     linear.bias = observed_linear.bias
@@ -59,7 +67,7 @@ def apply_static_quant(observed_linear):
 
     # activation quantization
     act_scale, act_zero_point = observed_linear.act_obs.calculate_qparams()
-    input_quant_func = lambda x: to_affine_quantized_static(x, act_scale, act_zero_point, x.shape, target_dtype)
+    input_quant_func = lambda x: to_affine_quantized_intx_static(x, act_scale, act_zero_point, x.shape, target_dtype)
     linear.weight = torch.nn.Parameter(to_linear_activation_quantized(linear.weight, input_quant_func), requires_grad=False)
 
     return linear
@@ -74,13 +82,13 @@ class QuantizedLinear(torch.nn.Module):
         assert weight.dim() == 2
         block_size = (1, weight.shape[1])
         target_dtype = torch.uint8
-        self.qweight = to_affine_quantized_static(weight, weight_scale, weight_zero_point, block_size, target_dtype)
+        self.qweight = to_affine_quantized_intx_static(weight, weight_scale, weight_zero_point, block_size, target_dtype)
         self.bias = bias
 
     def forward(self, input: Tensor):
         block_size = input.shape
         target_dtype = torch.uint8
-        qinput = to_affine_quantized_static(input, self.act_scale, self.act_zero_point, block_size, target_dtype)
+        qinput = to_affine_quantized_intx_static(input, self.act_scale, self.act_zero_point, block_size, target_dtype)
         return F.linear(qinput, self.qweight, self.bias)
 
     @classmethod
@@ -94,8 +102,8 @@ def apply_static_quant2(observed_linear):
 class ToyLinearModel(torch.nn.Module):
     def __init__(self, m=64, n=32, k=64):
         super().__init__()
-        self.linear1 = torch.nn.Linear(m, n, bias=False)
-        self.linear2 = torch.nn.Linear(n, k, bias=False)
+        self.linear1 = torch.nn.Linear(m, k, bias=False)
+        self.linear2 = torch.nn.Linear(k, n, bias=False)
 
     def example_inputs(self, batch_size=1, dtype=torch.float32, device="cpu"):
         return (torch.randn(batch_size, self.linear1.in_features, dtype=dtype, device=device),)
@@ -105,16 +113,21 @@ class ToyLinearModel(torch.nn.Module):
         x = self.linear2(x)
         return x
 
+torch.manual_seed(0)
+
 dtype = torch.bfloat16
-m = ToyLinearModel(1024, 1024, 1024).eval().to(dtype).to("cuda")
+m = ToyLinearModel().eval().to(dtype).to("cuda")
+
+m_for_test = copy.deepcopy(m)
+
 m_bf16 = copy.deepcopy(m)
 example_inputs = m.example_inputs(dtype=dtype, device="cuda")
+print("example inputs shape:", example_inputs[0].shape)
 
 m_bf16 = torch.compile(m_bf16, mode='max-autotune')
 
-# TODO: use the generalized observer for affine qunatization in the future
-act_obs = MinMaxObserver(dtype=torch.uint8, qscheme=torch.per_tensor_affine).to("cuda")
-weight_obs = PerChannelMinMaxObserver(dtype=torch.uint8, qscheme=torch.per_channel_affine).to("cuda")
+act_obs = AffineQuantizedMinMaxObserver(MappingType.ASYMMETRIC, torch.uint8, granularity_type=PerTensor(), eps=torch.finfo(torch.float32).eps, scale_dtype=torch.float32, zero_point_dtype=torch.int32)
+weight_obs = AffineQuantizedMinMaxObserver(MappingType.ASYMMETRIC, torch.uint8, granularity_type=PerAxis(axis=0), eps=torch.finfo(torch.float32).eps, scale_dtype=torch.float32, zero_point_dtype=torch.int32)
 
 before_quant = m(*example_inputs)
 

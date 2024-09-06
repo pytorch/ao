@@ -96,6 +96,38 @@ def hp_tensor_to_float8_delayed(
     )
 
 
+def hp_tensor_to_float8_static(
+    hp_tensor: torch.Tensor,
+    scale: torch.Tensor,
+    float8_dtype: torch.dtype,
+    linear_mm_config: LinearMMConfig,
+    gemm_input_role: GemmInputRole = GemmInputRole.INPUT,
+) -> Float8Tensor:
+    """
+    Given a high precision tensor `hp_tensor` and a scale,
+    scales `hp_tensor` returns a `Float8Tensor` of the result.
+
+    Args:
+        hp_tensor: the tensor to convert
+        scale: the scale to use
+        float8_dtype: the float8 dtype to use
+        linear_mm_config: Defines the configuration for the scaled_mm for
+          the 3 fwd/bwd gemms of linear
+        gemm_input_role: Defines the role of this tensor (input, weight or grad_output) in
+          the 3 fwd/bwd gemms of linear
+    """
+    if tensor_already_casted_to_fp8(hp_tensor):
+        return hp_tensor
+
+    return hp_tensor_and_scale_to_float8(
+        hp_tensor,
+        scale,
+        float8_dtype,
+        linear_mm_config,
+        gemm_input_role,
+    )
+
+
 def _maybe_initialize_amaxes_scales_for_float8_cast(
     x,
     cur_amax,
@@ -214,3 +246,36 @@ class NoopFwToFloat8E5M2BwDynamic(torch.autograd.Function):
             GemmInputRole.GRAD_OUTPUT,
         )
         return fp8_tensor, None
+
+
+@torch._dynamo.allow_in_graph
+class NoopFwToFloat8E5M2BwStatic(torch.autograd.Function):
+    """
+    Forward: no-op
+    Backward: convert to float8_e5m2 with static scaling
+    """
+
+    @staticmethod
+    def forward(
+        ctx,
+        tensor,
+        scale,
+        linear_mm_config: LinearMMConfig,
+    ):
+        ctx.save_for_backward(scale)
+        ctx.linear_mm_config = linear_mm_config
+        return tensor
+
+    @staticmethod
+    def backward(ctx, gradY):
+        if tensor_already_casted_to_fp8(gradY):
+            return gradY, None
+        gradY_scale, = ctx.saved_tensors
+        fp8_tensor = hp_tensor_and_scale_to_float8(
+            gradY,
+            gradY_scale,
+            e5m2_dtype,
+            ctx.linear_mm_config,
+            GemmInputRole.GRAD_OUTPUT,
+        )
+        return fp8_tensor, None, None
