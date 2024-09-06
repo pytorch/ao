@@ -292,14 +292,17 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         cls,
         input_float: torch.Tensor,
         scale: torch.Tensor,
-        zero_point: torch.Tensor,
+        zero_point: Optional[torch.Tensor],
         block_size: Tuple[int, ...],
         target_dtype: torch.dtype,
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
-        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+        zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
         layout_type: LayoutType = PlainLayoutType(),
     ):
+        if target_dtype not in FP8_TYPES:
+            assert zero_point_domain is not None, "zero_point_domain must be specified for non-fp8 types"
+            assert zero_point is not None, "zero_point must be specified for non-fp8 types"
         original_shape = input_float.shape
         input_float = layout_type.pre_process(input_float)
 
@@ -347,6 +350,31 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             )
         else:
             raise NotImplementedError(f"Unsupported dtype {target_dtype} for from_hp_to_floatx")
+
+    @classmethod
+    def from_hp_to_floatx_static(
+        cls,
+        input_float: torch.Tensor,
+        scale: torch.Tensor,
+        block_size: Tuple[int, ...],
+        target_dtype: torch.dtype,
+        layout_type: LayoutType,
+    ):
+
+        if target_dtype in FP8_TYPES:
+            return cls.from_hp_to_intx_static(
+                input_float=input_float,
+                scale=scale,
+                zero_point=None,
+                block_size=block_size,
+                target_dtype=target_dtype,
+                quant_min=math.ceil(torch.finfo(target_dtype).min),
+                quant_max=math.ceil(torch.finfo(target_dtype).max),
+                zero_point_domain=None,
+                layout_type=layout_type,
+            )
+        else:
+            raise NotImplementedError(f"Unsupported dtype {target_dtype} for from_hp_to_floatx_static")
 
     @classmethod
     def from_hp_to_fpx(
@@ -1319,6 +1347,7 @@ def _(func, types, args, kwargs):
 to_affine_quantized_intx = AffineQuantizedTensor.from_hp_to_intx
 to_affine_quantized_intx_static = AffineQuantizedTensor.from_hp_to_intx_static
 to_affine_quantized_floatx = AffineQuantizedTensor.from_hp_to_floatx
+to_affine_quantized_floatx_static = AffineQuantizedTensor.from_hp_to_floatx_static
 # experimental will be merged in to floatx
 to_affine_quantized_fpx = AffineQuantizedTensor.from_hp_to_fpx
 

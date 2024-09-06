@@ -16,14 +16,40 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class GranularityType:
+    """
+    Base class for representing the granularity of quantization.
+
+    This class serves as a parent for specific granularity types used in 
+    quantization operations, such as per-tensor or per-axis quantization.
+    """
     pass
 
 @dataclass(frozen=True)
 class PerTensor(GranularityType):
+    """
+    Represents per-tensor granularity in quantization.
+
+    This granularity type calcualtes the quantization parameters
+    based off the entire tensor.
+    """
     pass
 
 @dataclass(frozen=True)
 class PerAxis(GranularityType):
+    """
+    Represents per-axis granularity in quantization.
+
+    This granularity type calcualtes different quantization parameters
+    along a specified axis of the tensor.
+
+    For example if the input tensor is shape [8, 16] and axis=0, then
+    the quantization parameters are calculated for each row of the tensor.
+    Giving a total of 8 quantization parameters.
+
+
+    Attributes:
+        axis (int): The axis along which reduction is performed.
+    """
     axis: int
 
 # borrowed from torch.ao.quantization.observer
@@ -59,7 +85,16 @@ def _with_args(cls_or_self, *args, **kwargs):
     r = _PartialWrapper(partial(cls_or_self, *args, **kwargs))
     return r
 
-def get_block_size(input_shape: Tuple[int, ...], granularity_type: GranularityType) -> Tuple[int, ...]:
+
+def get_block_size(
+    input_shape: Tuple[int, ...], granularity_type: GranularityType
+) -> Tuple[int, ...]:
+    """Get the block size based on the input shape and granularity type.
+
+    Args:
+        input_shape: The input tensor shape possibly more than 2 dimensions
+        granularity_type: The granularity type of the quantization
+    """
     if isinstance(granularity_type, PerTensor):
         return input_shape
     elif isinstance(granularity_type, PerAxis):
@@ -84,8 +119,7 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
     def __init__(self,
         mapping_type: MappingType,
         target_dtype: torch.dtype,
-        block_size: Optional[Tuple[int, ...]] = None,
-        granularity_type: Optional[GranularityType] = None,
+        granularity_type: GranularityType,
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
         eps: Optional[float] = None,
@@ -95,12 +129,10 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
         zero_point_domain = ZeroPointDomain.INT,
     ):
         super().__init__()
-        assert block_size is not None or granularity_type is not None, "Must specify either block_size or granularity_type"
-        if block_size is not None and granularity_type is not None:
-            logger.warning("Both block_size and granularity_type are specified, ignoring granularity_type. block_size: {block_size}, granularity_type: {granularity_type}")
+        assert granularity_type is not None, "granularity_type is None"
+
         self.mapping_type = mapping_type
         self.target_dtype = target_dtype
-        self.block_size = block_size
         self.granularity_type = granularity_type
         self.quant_min = quant_min
         self.quant_max = quant_max
@@ -130,10 +162,12 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
             return input
 
         input_detached = input.detach()
-        if self.block_size is None:
-            self.block_size = get_block_size(input_detached.shape, self.granularity_type)
+        assert self.granularity_type is not None, "granularity_type is None"
+        block_size = get_block_size(input_detached.shape, self.granularity_type)
 
-        shape_for_reduction, reduction_dims = _get_reduction_params(self.block_size, input_detached.size())
+        shape_for_reduction, reduction_dims = _get_reduction_params(
+            block_size, input_detached.size()
+        )
         input_detached = input_detached.view(shape_for_reduction)
         min_val = torch.amin(input_detached, dim=reduction_dims, keepdim=False)
         max_val = torch.amax(input_detached, dim=reduction_dims, keepdim=False)
@@ -141,6 +175,8 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
             self.min_val = min_val
             self.max_val = max_val
         else:
+            assert self.min_val.shape == min_val.shape, f"Can't update existing min_val - shape mismatch, self.min_val:{self.min_val.shape} != min_val:{min_val.shape}"
+            assert self.max_val.shape == max_val.shape, f"Can't update existing max_val - shape mismatch, self.max_val {self.max_val.shape} != max_val:{max_val.shape}"
             min_val = torch.min(self.min_val, min_val)
             max_val = torch.max(self.max_val, max_val)
             self.min_val.copy_(min_val)
@@ -149,12 +185,14 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
         return input
 
     def calculate_qparams(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        assert hasattr(self, "min_val") and hasattr(self, "max_val"), "Expecting the observer has min_val and max_val, please run the observer before calling calculate_qparams"
+        assert (
+            hasattr(self, "min_val") and hasattr(self, "max_val")
+        ), "Expecting the observer has min_val and max_val, please run the observer before calling calculate_qparams"
         return choose_qparams_affine_with_min_max(
             self.min_val,
             self.max_val,
             self.mapping_type,
-            self.block_size,
+            [], # BlockSize is not needed because the min/max are already reduced
             self.target_dtype,
             self.quant_min,
             self.quant_max,
