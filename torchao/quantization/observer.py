@@ -8,9 +8,10 @@ from .quant_primitives import (
 
 from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass
-from typing import Callable, List, Tuple, Optional, Any
+from typing import Tuple, Optional, Any
 from functools import partial
 import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -52,6 +53,7 @@ class PerAxis(GranularityType):
     """
     axis: int
 
+
 # borrowed from torch.ao.quantization.observer
 class _PartialWrapper:
     def __init__(self, p):
@@ -65,6 +67,7 @@ class _PartialWrapper:
 
     def with_args(self, *args, **kwargs):
         return _with_args(self, *args, **kwargs)
+
 
 def _with_args(cls_or_self, *args, **kwargs):
     r"""Wrapper that allows creation of class factories.
@@ -103,7 +106,9 @@ def get_block_size(
         return tuple(block_size)
     raise ValueError(f"Unsupported GranularityType: {granularity_type}")
 
+
 ABC: Any = ABCMeta("ABC", (object,), {})  # compatible with Python 2 *and* 3:
+
 
 class AffineQuantizedObserverBase(ABC, torch.nn.Module):
     """Observer module for affine quantization (https://github.com/pytorch/ao/tree/main/torchao/quantization#affine-quantization)
@@ -114,9 +119,11 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
         Current supported granularity type are `PerTensor` and `PerAxis`
       other args: please see `:class:torchao.dtypes.AffineQuantizedTensor`
     """
+
     with_args = classmethod(_with_args)
 
-    def __init__(self,
+    def __init__(
+        self,
         mapping_type: MappingType,
         target_dtype: torch.dtype,
         granularity_type: GranularityType,
@@ -126,7 +133,7 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
         scale_dtype: Optional[torch.dtype] = None,
         zero_point_dtype: Optional[torch.dtype] = None,
         preserve_zero: bool = True,
-        zero_point_domain = ZeroPointDomain.INT,
+        zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
     ):
         super().__init__()
         assert granularity_type is not None, "granularity_type is None"
@@ -144,7 +151,7 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
 
     @abstractmethod
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        """ forward function should take the input tensor
+        """forward function should take the input tensor
         and updates internal stats and return the original input Tensor
         """
         pass
@@ -155,6 +162,7 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
         and returns a tuple of scale and zero_point Tensor
         """
         pass
+
 
 class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
     def forward(self, input: torch.Tensor):
@@ -200,5 +208,5 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
             self.scale_dtype,
             self.zero_point_dtype,
             self.preserve_zero,
-            self.zero_point_domain
+            self.zero_point_domain,
         )
