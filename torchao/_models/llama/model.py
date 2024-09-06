@@ -190,22 +190,45 @@ class Transformer(nn.Module):
             dtype, 
             use_scaled=self.config.use_scaled_rope
         )
+
+    def reset_caches(self):
+        """Reset caches.
         
+        The caches used by training stage and inference stage may be different, reset them before switching.
+        """
+        self.max_batch_size = -1
+        self.max_seq_length = -1
+        self.freqs_cis: Optional[Tensor] = None
+        self.mask_cache: Optional[Tensor] = None
 
     def forward(self, idx: Tensor, input_pos: Optional[Tensor] = None) -> Tensor:
+        """Forward pass of the model.
+
+        Args:
+            idx  (`torch.LongTensor` of shape `(batch_size, seq_length)`): 
+                Indices of input sequence tokens in the vocabulary.
+            input_pos (`torch.LongTensor` of shape `(batch_size, seq_length)`, *optional*):
+                Indices of positions of each input sequence tokens in the position embeddings.
+                This argument is optional for training mode but required for
+                inference mode(when model.setup_caches(training=False) is used).
+
+        Returns:
+            Tensor: The output logits tensor.
+        """
         assert self.freqs_cis is not None, "Caches must be initialized first"
 
         if input_pos is None: 
             mask = None
             freqs_cis = self.freqs_cis[:idx.shape[1]]
-        elif not self.linear_causal_mask:
-            mask = self.causal_mask[None, None, input_pos]
-        elif len(input_pos)>1 and self.linear_causal_mask: # prefill for linear causal mask
-            mask = torch.tril(torch.ones(len(input_pos), self.max_seq_length, dtype=torch.bool, device=input_pos.device)).unsqueeze(0).unsqueeze(0)
-        else: # decode_one_token for linear causal mask
-            self.causal_mask[0,0,0,input_pos] = 1
-            mask = self.causal_mask
-        freqs_cis = self.freqs_cis[input_pos]
+        else:
+            if not self.linear_causal_mask:
+                mask = self.causal_mask[None, None, input_pos]
+            elif len(input_pos)>1 and self.linear_causal_mask: # prefill for linear causal mask
+                mask = torch.tril(torch.ones(len(input_pos), self.max_seq_length, dtype=torch.bool, device=input_pos.device)).unsqueeze(0).unsqueeze(0)
+            else: # decode_one_token for linear causal mask
+                self.causal_mask[0,0,0,input_pos] = 1
+                mask = self.causal_mask
+            freqs_cis = self.freqs_cis[input_pos]
 
         x = self.tok_embeddings(idx)
 

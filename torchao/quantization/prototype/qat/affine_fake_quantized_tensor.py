@@ -9,11 +9,7 @@ from torchao.quantization.quant_primitives import (
     MappingType,
 )
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from torchao.dtypes.utils import (
-    _implements,
-    _dispatch__torch_function__,
-    _dispatch__torch_dispatch__,
-)
+from torchao.utils import TorchAOBaseTensor
 from .utils import (
     _GenericFakeQuantize,
     _UnwrapAffineFakeQuantizedTensor,
@@ -80,7 +76,7 @@ class _ToAffineFakeQuantized(torch.autograd.Function):
         return gy, None, None, None, None, None, None, None, None, None, None
 
 
-class AffineFakeQuantizedTensor(torch.Tensor):
+class AffineFakeQuantizedTensor(TorchAOBaseTensor):
     """
     Affine fake quantized tensor subclass. Affine quantization means we quantize the floating point tensor
     with an affine transformation:
@@ -179,15 +175,15 @@ class AffineFakeQuantizedTensor(torch.Tensor):
         device, dtype, _, memory_format = torch._C._nn._parse_to(*args, **kwargs)
         device = self.device if device is None else device
         dtype = self.dtype if dtype is None else dtype
-        memory_format = ( 
+        memory_format = (
             memory_format if memory_format is not None else torch.preserve_format
-        )   
-        kwargs = { 
+        )
+        kwargs = {
             "device": device,
             "dtype": dtype,
             "memory_format": memory_format,
             "requires_grad": self.requires_grad,
-        }   
+        }
         return kwargs
 
     def to(self, *args, **kwargs):
@@ -226,10 +222,6 @@ class AffineFakeQuantizedTensor(torch.Tensor):
             self.fake_quant_enabled,
             requires_grad=False,
         )
-
-    implements = classmethod(_implements)
-    __torch_function__ = classmethod(_dispatch__torch_function__)
-    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
 
 implements = AffineFakeQuantizedTensor.implements
 

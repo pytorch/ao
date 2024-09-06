@@ -6,10 +6,8 @@ from torch.utils._python_dispatch import return_and_correct_aliasing
 from .bitpacking import pack, unpack
 from torchao.dtypes.utils import (
     LayoutType,
-    _implements,
-    _dispatch__torch_function__,
-    _dispatch__torch_dispatch__,
 )
+from torchao.utils import TorchAOBaseTensor
 from torchao.dtypes.affine_quantized_tensor import PlainAQTLayout, register_layout_cls
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
 
@@ -35,7 +33,7 @@ else:
     print("uintx feature requires torch 2.3+, please upgrade pytorch")
 
 
-class UintxTensor(torch.Tensor):
+class UintxTensor(TorchAOBaseTensor):
     """
     Splits int data into packed shards based on bit size
     fields:
@@ -98,10 +96,6 @@ class UintxTensor(torch.Tensor):
         shards =  list(tensor_data_dict.values())
         packed_shape, bit_width, pack_dim = tensor_attributes
         return cls(shards, packed_shape, bit_width, pack_dim)
-
-    implements = classmethod(_implements)
-    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
-    __torch_function__ = classmethod(_dispatch__torch_function__)
 
     def get_plain(self):
         return unpack(self.get_shards(), self.bit_width, dim = self.pack_dim)

@@ -30,7 +30,7 @@ __all__ = [
     "dequantize_affine_fpx",
     "fake_quantize_affine",
     "fake_quantize_affine_cachemask",
-    "quantize_affine_hqq",
+    "choose_qparams_and_quantize_affine_hqq",
 ]
 
 class MappingType(Enum):
@@ -266,6 +266,13 @@ def _quantize_affine_no_dtype_cast(
     quant_max: Union[int, float],
     zero_point_domain: Optional[str] = ZeroPointDomain.INT.name,
 ) -> torch.Tensor:
+    """
+    The op does the following:
+    1. figure out the dimension for reduction based on block_size, also reshape the input to align with
+       the shape after reduction
+    2. quantize the input based on the quantization parameters scale and zero_point and args like zero_point_domain
+    3. reshape the quantized result to origianl shape
+    """
     # TODO: validations
     # TODO: validate scale/zero_point dimensions are compatible with block_size
     assert input.dtype in [torch.float32, torch.float16, torch.bfloat16], f"Unsupported input dtype: {input.dtype}"
@@ -389,7 +396,14 @@ def _dequantize_affine_no_dtype_check(
     zero_point_domain: Optional[str] = ZeroPointDomain.INT.name,
     output_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
-    """ This function converts AQT tensors to their high precision floating point representation"""
+    """ This function converts AQT tensors to their high precision floating point representation
+
+    The op does the following:
+    1. figure out the dimension for reduction based on block_size, also reshape the input to align with
+       the shape after reduction
+    2. dequantize the input based on the quantization parameters scale and zero_point and args like zero_point_domain
+    3. reshape the quantized result to origianl shape and change dtype to the output_dtype
+    """
     assert len(block_size) == input.dim(), f"Got input dim:{input.dim()}, block_size: {block_size}"
     shape_for_reduction, reduction_dims = _get_reduction_params(block_size, input.size())
     original_shape = input.shape
@@ -566,7 +580,7 @@ def choose_qparams_affine(
    scale_dtype: Optional[torch.dtype] = None,
    zero_point_dtype: Optional[torch.dtype] = None,
    preserve_zero: bool = True,
-   zero_point_domain = ZeroPointDomain.INT,
+   zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Args:
@@ -627,7 +641,7 @@ def choose_qparams_affine_with_min_max(
    scale_dtype: Optional[torch.dtype] = None,
    zero_point_dtype: Optional[torch.dtype] = None,
    preserve_zero: bool = True,
-   zero_point_domain = ZeroPointDomain.INT,
+   zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """A variant of :func:`~torchao.quantization.quant_primitives.choose_qparams_affine`
     operator that pass in min_val and max_val directly instead of deriving these from a single input.
@@ -650,7 +664,7 @@ def choose_qparams_affine_with_min_max(
         scale_dtype,
         zero_point_dtype,
         preserve_zero,
-        zero_point_domain.name,
+        zero_point_domain.name if zero_point_domain is not None else None,
         min_val,
         max_val,
     )
@@ -673,9 +687,17 @@ def _choose_qparams_affine(
    max_val: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """op definition that has compatible signatures with custom op library
+
+    The op does the following:
+    1. figure out the dimension for reduction based on block_size
+    2. find min_val/max_val based on the dimension for reduction
+    3. calculate quantization parameters based on min_val/max_val based on args like `preserve_zero`
+       and `zero_point_domain`
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
     assert mapping_type in [MappingType.SYMMETRIC.name, MappingType.ASYMMETRIC.name], f"Unsupported mapping type: {mapping_type}"
+    if target_dtype in FP8_TYPES:
+        assert mapping_type == MappingType.SYMMETRIC.name, f"Only symmetric quantization is supported for FP8 types, got {mapping_type}"
 
     if input is not None:
         if scale_dtype is None:
@@ -820,7 +842,7 @@ def _convert_to_affinequantized_format(W_q: torch.Tensor, scale: torch.Tensor, z
     return W_q_ao, scale_ao, zero_ao
 
 # Main hqq quantizer function
-def quantize_affine_hqq(
+def choose_qparams_and_quantize_affine_hqq(
     tensor: torch.Tensor,
     nbits: float = 4,
     group_size: int = 64,

@@ -4,7 +4,7 @@ import torch
 from torch import Tensor, nn
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.dtypes.utils import _dispatch__torch_dispatch__, _dispatch__torch_function__, _implements
+from torchao.utils import TorchAOBaseTensor
 
 
 aten = torch.ops.aten
@@ -12,7 +12,7 @@ c10d_functional = torch.ops.c10d_functional
 _c10d_functional = torch.ops._c10d_functional
 
 
-class Int8QTLinearWeight(Tensor):
+class Int8QTLinearWeight(TorchAOBaseTensor):
     """INT8 symmetric quantization weight, with absmax scaling [-127, 127]. The main difference
     of this tensor subclass from AffineQuantizedTensor:
     1. `F.linear` is differentiable i.e. backward is defined.
@@ -21,10 +21,6 @@ class Int8QTLinearWeight(Tensor):
     3. The numerics for quantization is slightly different. See `Int8QTLinearWeight.quantize()`
         for more details.
     """
-
-    implements = classmethod(_implements)
-    __torch_function__ = classmethod(_dispatch__torch_function__)
-    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
 
     @staticmethod
     @torch._dynamo.disable

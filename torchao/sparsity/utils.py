@@ -37,7 +37,6 @@ def create_semi_structured_tensor(
     sparse_weight = torch.rand(r, c).to(dtype).cuda() * mask
     return sparse_weight
 
-
 # Observers
 class PerChannelNormObserver(UniformQuantizationObserverBase):
     """
