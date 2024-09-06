@@ -69,7 +69,7 @@ We support composing int8 dynaic quantization with 2:4 sparsity. We fuse one of 
 from torchao.quantization.quant_api import quantize_, int8_dynamic_activation_int8_weight
 from torchao.dtypes import SemiSparseLayoutType
 
-model = model.cuda().half()
+model = model.cuda()
 quantize_(model, int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType()))
 ```
 
@@ -79,7 +79,7 @@ quantize_(model, int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayou
 from torchao.sparsity.sparse_api import sparsify_, semi_sparse_weight
 from torchao.dtypes import SemiSparseLayoutType
 
-model = model.cuda().half()
+model = model.cuda()
 sparsify_(model, semi_sparse_weight())
 ```
 
@@ -90,7 +90,7 @@ We offer prototype support for accelerating block sparsity with our triton kerne
 from torchao.sparsity.sparse_api import sparsify_
 from torchao.sparsity.prototype.superblock.blocksparse import block_sparse_weight
 
-model = model.cuda().half()
+model = model.cuda()
 sparsify_(model, block_sparse_weight())
 ```
 
