@@ -10,8 +10,9 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 from torch.testing._internal.optests import opcheck
-from torchao.utils import is_fbcode, TORCH_VERSION_AFTER_2_5
-from torchao.prototype.quant_llm import from_scaled_tc_fpx
+from torchao.utils import is_fbcode, TORCH_VERSION_AT_LEAST_2_5, compute_max_diff
+from torchao.dtypes.fpx import from_scaled_tc_fpx
+from torchao.sparsity.marlin import marlin_24_workspace, pack_to_marlin_24, inject_24
 import pytest
 
 if is_fbcode():
@@ -95,24 +96,24 @@ TEST_CONFIGS_UNPACK = list(itertools.product(SHAPES, INNERKTILES))
 TEST_CONFIGS_DEQUANT = list(itertools.product(SHAPES, INNERKTILES, QGROUP_SIZES))
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-# @pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="weight packing is updated in 2.5+")
+# @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles", TEST_CONFIGS_UNPACK, ids=str)
 def test_unpack_tensor_core_tiled_layout_correctness(shape, inner_k_tiles):
     N, K = shape
     assert K % (inner_k_tiles * kTileSizeK) == 0 and N % kTileSizeN == 0
 
     t = torch.randint(0, 16, dtype=torch.int, size=shape, device="cuda")
-    if TORCH_VERSION_AFTER_2_5:
+    if TORCH_VERSION_AT_LEAST_2_5:
         t = (t[::, ::2] << 4 | t[::, 1::2]).to(torch.uint8)
     packed_w = torch.ops.aten._convert_weight_to_int4pack(t, inner_k_tiles)
     unpacked = torchao.ops.unpack_tensor_core_tiled_layout(packed_w, inner_k_tiles)
-    if TORCH_VERSION_AFTER_2_5:
+    if TORCH_VERSION_AT_LEAST_2_5:
         unpacked = (unpacked[::, ::2] << 4 | unpacked[::, 1::2]).to(torch.uint8)
     assert torch.equal(t, unpacked)
 
 # TODO: Fix "test_aot_dispatch_dynamic" test failure
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-# @pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="weight packing is updated in 2.5+")
+# @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles", TEST_CONFIGS_UNPACK , ids=str)
 def test_unpack_tensor_core_tiled_layout_op(shape, inner_k_tiles):
     test_utils = [
@@ -122,11 +123,11 @@ def test_unpack_tensor_core_tiled_layout_op(shape, inner_k_tiles):
     ]
 
     # TODO: Figure out why test fails unless torch >= 2.5
-    if TORCH_VERSION_AFTER_2_5:
+    if TORCH_VERSION_AT_LEAST_2_5:
         test_utils.append("test_aot_dispatch_dynamic")
 
     t = torch.randint(0, 16, dtype=torch.int, size=shape, device="cuda")
-    if TORCH_VERSION_AFTER_2_5:
+    if TORCH_VERSION_AT_LEAST_2_5:
         t = (t[::, ::2] << 4 | t[::, 1::2]).to(torch.uint8)
     packed_w = torch.ops.aten._convert_weight_to_int4pack(t, inner_k_tiles)
 
@@ -157,7 +158,7 @@ def dequant_ref(q, scales, zeros, group_size, nbits=4, dtype=torch.bfloat16):
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-# @pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="weight packing is updated in 2.5+")
+# @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
 def test_dequantize_tensor_core_tiled_layout_correctness_quant_dequant(shape, inner_k_tiles, group_size):
     n, k = shape
@@ -216,7 +217,7 @@ def test_dequantize_tensor_core_tiled_layout_correctness_quant_dequant(shape, in
 
 # This test differs from one above in that it uses `unpack_tensor_core_tiled_layout` to unpack then dequantize
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-# @pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="weight packing is updated in 2.5+")
+# @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
 def test_dequantize_tensor_core_tiled_layout_correctness_unpack_and_dequant(shape, inner_k_tiles, group_size):
     n, k = shape
@@ -235,7 +236,7 @@ def test_dequantize_tensor_core_tiled_layout_correctness_unpack_and_dequant(shap
 
     # Unpack and dequantize
     unpacked = torchao.ops.unpack_tensor_core_tiled_layout(packed, inner_k_tiles)
-    if TORCH_VERSION_AFTER_2_5:
+    if TORCH_VERSION_AT_LEAST_2_5:
         unpacked = (unpacked[::, ::2] << 4 | unpacked[::, 1::2]).to(torch.uint8)
 
     dq_ao = groupwise_affine_dequantize_tensor_from_qparams(
@@ -273,14 +274,14 @@ def test_dequantize_tensor_core_tiled_layout_correctness_unpack_and_dequant(shap
     assert diff_op_ao < 1e-1
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-# @pytest.mark.skipif(TORCH_VERSION_AFTER_2_5, reason="weight packing is updated in 2.5+")
+# @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
 def test_dequantize_tensor_core_tiled_layout_op(shape, inner_k_tiles, group_size):
     n, k = shape
     device = "cuda"
 
     q = torch.randint(0, 16, shape, dtype=torch.int, device=device)
-    if TORCH_VERSION_AFTER_2_5:
+    if TORCH_VERSION_AT_LEAST_2_5:
         q = (q[::, ::2] << 4 | q[::, 1::2]).to(torch.uint8)
     packed_w = torch._convert_weight_to_int4pack(q, inner_k_tiles)
     q_groups = k // group_size
@@ -294,13 +295,127 @@ def test_dequantize_tensor_core_tiled_layout_op(shape, inner_k_tiles, group_size
     "test_faketensor",
     ]
     # TODO: Figure out why test fails unless torch >= 2.5
-    if TORCH_VERSION_AFTER_2_5:
+    if TORCH_VERSION_AT_LEAST_2_5:
         test_utils.append("test_aot_dispatch_dynamic")
     opcheck(
         torch.ops.torchao.dequantize_tensor_core_tiled_layout,
         (packed_w, scales_and_zeros, group_size, inner_k_tiles),
         test_utils=test_utils,
     )
+
+
+MARLIN_24_K_CHUNKS = [128]
+MARLIN_24_N_CHUNKS = [512]
+MNK_FACTORS = [
+    (1, 1, 1),
+    (1, 4, 8),
+    (1, 7, 5),
+    (13, 17, 67),
+    (26, 37, 13),
+    (67, 13, 11),
+]
+MARLIN_24_SUPPORTED_NUM_BITS = [4, 8]
+MARLIN_24_SUPPORTED_GROUP_SIZES = [-1, 128]
+
+MARLIN_TEST_PARAMS = list(itertools.product(
+    MARLIN_24_K_CHUNKS, MARLIN_24_N_CHUNKS, MARLIN_24_SUPPORTED_NUM_BITS,
+    MARLIN_24_SUPPORTED_GROUP_SIZES, MNK_FACTORS
+))
+
+def _symmetric_quantize_with_ref(w: torch.Tensor, num_bits: int, group_size: int):
+    orig_device = w.device
+    size_k, size_n = w.shape
+
+    assert w.is_floating_point(), "w must be float"
+
+    if group_size == -1:
+        group_size = size_k
+    assert group_size <= size_k
+
+    max_q_val = 2**num_bits - 1
+    half_q_val = (max_q_val + 1) // 2
+
+    # Reshape to [groupsize, -1]
+    if group_size < size_k:
+        w = w.reshape((-1, group_size, size_n))
+        w = w.permute(1, 0, 2)
+        w = w.reshape((group_size, -1))
+
+    # Compute scale for each group
+    s = torch.max(torch.abs(w), 0, keepdim=True)[0]
+    s *= 2 / max_q_val  # 2 => symmetric
+
+    # Quantize
+    q_w = torch.round(w / s).int()
+    q_w += half_q_val
+    q_w = torch.clamp(q_w, 0, max_q_val)
+
+    # Compute ref (dequantized)
+    w_ref = (q_w - half_q_val).half() * s
+
+    # Restore original shapes
+    if group_size < size_k:
+
+        def reshape_w(w):
+            w = w.reshape((group_size, -1, size_n))
+            w = w.permute(1, 0, 2)
+            w = w.reshape((size_k, size_n)).contiguous()
+            return w
+
+        q_w = reshape_w(q_w)
+        w_ref = reshape_w(w_ref)
+
+    s = s.reshape((-1, size_n)).contiguous()
+
+    return (
+        w_ref.to(device=orig_device),
+        q_w.to(device=orig_device),
+        s.to(device=orig_device),
+    )
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@pytest.mark.parametrize("k_chunk, n_chunk, num_bits, group_size, mnk_factors", MARLIN_TEST_PARAMS, ids=str)
+def test_marlin_24(k_chunk, n_chunk, num_bits, group_size, mnk_factors):
+    m_factor, n_factor, k_factor = mnk_factors
+
+    size_m = m_factor
+    size_k = k_chunk * k_factor
+    size_n = n_chunk * n_factor
+
+    a_input = torch.randn((size_m, size_k), dtype=torch.float16, device="cuda")
+    b_weight = torch.rand((size_k, size_n), dtype=torch.float16, device="cuda")
+
+    # Inject 2:4 sparsity
+    w_24, _ = inject_24(b_weight, size_k, size_n)
+
+    # Symmetric quantize
+    w_24_ref, q_w_24, scale = _symmetric_quantize_with_ref(w_24, num_bits, group_size)
+
+    # Obtains reference output
+    output_ref = torch.matmul(a_input, w_24_ref)
+
+    # Packs to marlin 2:4
+    marlin_24_q_w_comp, marlin_24_scale, meta = pack_to_marlin_24(q_w_24, scale, num_bits, group_size)
+    workspace_24 = marlin_24_workspace(size_n)
+
+    fn_inputs = (
+        a_input, marlin_24_q_w_comp, meta, marlin_24_scale, workspace_24,
+        num_bits, a_input.shape[0], b_weight.shape[1], a_input.shape[1],
+    )
+    output = torchao.ops.marlin_24_gemm(*fn_inputs)
+    torch.cuda.synchronize()
+
+    max_diff = compute_max_diff(output, output_ref)
+    assert max_diff < 0.04
+
+    # Performs opcheck
+    test_utils = ["test_schema", "test_autograd_registration", "test_faketensor"]
+    opcheck(
+        torch.ops.torchao.marlin_24_gemm,
+        fn_inputs,
+        test_utils=test_utils,
+    )
+
 
 if __name__ == "__main__":
     run_tests()

@@ -6,6 +6,10 @@ from torchao.dtypes.utils import (
 )
 from typing import Callable
 from torch.utils._python_dispatch import return_and_correct_aliasing
+from torchao.utils import (
+    TorchAOBaseTensor,
+    TORCH_VERSION_AT_LEAST_2_5,
+)
 
 __all__ = [
     "LinearActivationQuantizedTensor",
@@ -14,9 +18,19 @@ __all__ = [
 
 aten = torch.ops.aten
 
-class LinearActivationQuantizedTensor(torch.Tensor):
+class LinearActivationQuantizedTensor(TorchAOBaseTensor):
     """
-    Applies activation quantization for linear operator
+    Applies activation quantization for linear operator, this is used to support
+    dynamic quantization or static quantization, user can pass in a `input_quant_func`
+    that is used to quantize the activation
+
+    Args:
+      `original_weight_tensor`: the weight tensor, if weight need to be quantized as well, we'd need
+        to apply quantization to weight first, e.g. for int8 dynamic activation int8 weight quantization
+        we will first apply int8 quantization to weight and then apply LinearActivationQuantizedTensor
+        on top of it
+      `input_quant_func` (Callable[[torch.Tensor], torch.Tensor]): a function that takes a high precision floating point tensor and returns
+        a quantized tensor, this is used to quantize input
     """
     def __new__(
         cls,
@@ -34,10 +48,13 @@ class LinearActivationQuantizedTensor(torch.Tensor):
     def __init__(
         self,
         original_weight_tensor: torch.Tensor,
-        input_quant_func: Callable,
+        input_quant_func: Callable[[torch.Tensor], torch.Tensor],
     ):
         self.original_weight_tensor = original_weight_tensor
         self.input_quant_func = input_quant_func
+
+    def __repr__(self):
+        return f"LinearActivationQuantizedTensor({self.original_weight_tensor}, {self.input_quant_func})"
 
     def __tensor_flatten__(self):
         return ["original_weight_tensor"], [self.input_quant_func]
@@ -53,6 +70,13 @@ class LinearActivationQuantizedTensor(torch.Tensor):
             input_quant_func,
         )
 
+    @staticmethod
+    def _quantized_linear_op(input_tensor, weight_tensor, bias):
+        input_quant_func = weight_tensor.input_quant_func
+        original_weight_tensor = weight_tensor.original_weight_tensor
+        aqt = input_quant_func(input_tensor)
+        return torch.nn.functional.linear(aqt, original_weight_tensor, bias)
+
     @classmethod
     def from_float(cls, input_float, input_quant_func):
         return cls(input_float, input_quant_func)
@@ -62,20 +86,6 @@ class LinearActivationQuantizedTensor(torch.Tensor):
             fn(self.original_weight_tensor),
             self.input_quant_func,
         )
-
-    def _get_to_kwargs(self, *args, **kwargs):
-        device, dtype, _, memory_format = torch._C._nn._parse_to(*args, **kwargs)
-        device = self.device if device is None else device
-        dtype = self.dtype if dtype is None else dtype
-        memory_format = (
-            memory_format if memory_format is not None else torch.preserve_format
-        )
-        kwargs = {
-            "device": device,
-            "dtype": dtype,
-            "memory_format": memory_format,
-        }
-        return kwargs
 
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
@@ -91,22 +101,19 @@ class LinearActivationQuantizedTensor(torch.Tensor):
 implements = LinearActivationQuantizedTensor.implements
 
 @implements(torch.nn.functional.linear)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
         args[1],
         args[2] if len(args) > 2 else None,
     )
     if isinstance(weight_tensor, LinearActivationQuantizedTensor):
-        input_quant_func = weight_tensor.input_quant_func
-        original_weight_tensor = weight_tensor.original_weight_tensor
-        aqt = input_quant_func(input_tensor)
-        return torch.nn.functional.linear(aqt, original_weight_tensor, bias)
+        return weight_tensor._quantized_linear_op(input_tensor, weight_tensor, bias)
 
     raise NotImplementedError("LinearActivationQuantizedTensor: No specialized dispatch found for linear op")
 
 @implements([aten.mm.default, aten.addmm.default])
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     if not args[0].is_floating_point():
         raise NotImplementedError(f"LinearActivationQuantizedTensor: expecting a floating point input")
 
@@ -141,19 +148,19 @@ def _(func, types, *args, **kwargs):
 
 
 @implements(aten.detach.default)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
     )
 
 @implements(aten.clone.default)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
     )
 
 @implements(aten._to_copy.default)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func,
         args,
@@ -162,9 +169,13 @@ def _(func, types, *args, **kwargs):
     )
 
 @implements(aten.t.default)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.t)
     )
 
 to_linear_activation_quantized = LinearActivationQuantizedTensor.from_float
+
+if TORCH_VERSION_AT_LEAST_2_5:
+    # Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`
+    torch.serialization.add_safe_globals([LinearActivationQuantizedTensor])

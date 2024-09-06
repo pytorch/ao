@@ -3,11 +3,11 @@ import itertools
 import pytest
 import threading
 import unittest
-from typing import Any, List
+from typing import Any, List, Optional
 
-from torchao.utils import TORCH_VERSION_AFTER_2_4
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
-if not TORCH_VERSION_AFTER_2_4:
+if not TORCH_VERSION_AT_LEAST_2_5:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
@@ -36,8 +36,8 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
     TransformerBlock,
 )
 
-is_H100 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
-if not is_H100:
+is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
+if not is_cuda_8_9:
     pytest.skip("Unsupported CUDA device capability version", allow_module_level=True)
 
 class TestFloat8Common:
@@ -59,7 +59,7 @@ class TestFloat8Common:
         self.broadcast_module(module)
         return module
 
-    def init_transformer(self, weight_tying: bool) -> nn.Module:
+    def init_transformer(self, weight_tying: bool, dtype: Optional[torch.dtype] = None) -> nn.Module:
         torch.manual_seed(42)
         args = ModelArgs(
             n_layers=3,
@@ -70,6 +70,8 @@ class TestFloat8Common:
             vocab_size=32,
         )
         module = Transformer(args).cuda()
+        if dtype is not None:
+            module = module.to(dtype=dtype)
         self.broadcast_module(module)
         return module
 
@@ -96,6 +98,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
                     ScalingType.DELAYED,
                 ],
                 "compile_transformer_block": [False, True],
+                "dtype": [torch.float32, torch.bfloat16],
             },
             self._test_transformer_parity,
         )
@@ -106,6 +109,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         precompute: bool,
         scaling_type_weight: ScalingType,
         compile_transformer_block: bool,
+        dtype: Optional[torch.dtype] = None,
     ):
         if not enable_fsdp_float8_all_gather and precompute:
             return
@@ -117,7 +121,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         # latter uses fp8 compute. With fp8 all-gather, FSDP would pre-cast to
         # fp8 for that tied weight, incorrectly using fp8 for the embedding.
         weight_tying = not enable_fsdp_float8_all_gather
-        module = self.init_transformer(weight_tying=weight_tying).cuda()
+        module = self.init_transformer(weight_tying=weight_tying, dtype=dtype)
         ref_module = copy.deepcopy(module)
         float8_linear_config1 = Float8LinearConfig(
             cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
@@ -422,16 +426,25 @@ class TestFloat8MultiThread(FSDPTestMultiThread, TestFloat8Common):
         """
         choices = itertools.product(
             [False, True],
-            [ScalingType.DYNAMIC, ScalingType.DELAYED],
+            [ScalingType.DYNAMIC, ScalingType.DELAYED, ScalingType.STATIC],
         )
         for enable_fsdp_float8_all_gather, scaling_type_weight in choices:
+
+            if scaling_type_weight is ScalingType.STATIC:
+                cast_config_weight = CastConfig(
+                    scaling_type=scaling_type_weight,
+                    static_scale=torch.tensor([1.0], device="cuda"),
+                )
+            else:
+                cast_config_weight = CastConfig(scaling_type=scaling_type_weight)
+
             float8_linear_config1 = Float8LinearConfig(
                 enable_fsdp_float8_all_gather=False,
-                cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
+                cast_config_weight=cast_config_weight,
             )
             float8_linear_config2 = Float8LinearConfig(
                 enable_fsdp_float8_all_gather=enable_fsdp_float8_all_gather,
-                cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
+                cast_config_weight=cast_config_weight,
             )
             module_fp32 = self.init_single_module()
             ref_module = copy.deepcopy(module_fp32)

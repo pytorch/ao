@@ -24,12 +24,7 @@ class OptimState4bit(Tensor):
 
     @staticmethod
     def __new__(cls, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool, shape):
-        return Tensor._make_wrapper_subclass(
-            cls,
-            shape,
-            device=codes.device,
-            requires_grad=False,
-        )
+        return Tensor._make_wrapper_subclass(cls, shape, device=codes.device)
 
     def __init__(self, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool, shape):
         """Create quantized 4-bit optimizer state as proposed in https://arxiv.org/abs/2309.01507
@@ -89,7 +84,7 @@ class OptimState4bit(Tensor):
 
 
 @OptimState4bit.implements(aten.copy_.default)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     dst = args[0]
     src = args[1]
 
@@ -116,14 +111,14 @@ def _(func, types, *args, **kwargs):
 
 
 @OptimState4bit.implements(aten.lerp.Scalar)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     args = [x.dequantize() if isinstance(x, OptimState4bit) else x for x in args]
     return func(*args, **kwargs)
 
 
 # this is needed for DTensor.from_local() and for flattening tensor
 @OptimState4bit.implements(aten.view.default)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     x, shape = args
 
     if tuple(x.shape) == tuple(shape):
@@ -142,7 +137,7 @@ def _(func, types, *args, **kwargs):
     c10d_functional.wait_tensor.default,
     _c10d_functional.wait_tensor.default,
 ])
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     x = args[0]
     if not isinstance(x, OptimState4bit):
         raise ValueError(f"expecting a OptimState4bit but found {type(x)}")

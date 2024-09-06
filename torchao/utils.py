@@ -7,6 +7,8 @@ import torch.nn.utils.parametrize as parametrize
 import itertools
 import time
 import warnings
+import re
+
 
 __all__ = [
     "benchmark_model",
@@ -18,6 +20,13 @@ __all__ = [
     "_register_custom_op",
     "get_model_size_in_bytes",
     "unwrap_tensor_subclass",
+    "TorchAOBaseTensor",
+    "TORCH_VERSION_AT_LEAST_2_2",
+    "TORCH_VERSION_AT_LEAST_2_3",
+    "TORCH_VERSION_AT_LEAST_2_4",
+    "TORCH_VERSION_AT_LEAST_2_5",
+
+    # Needs to be deprecated in the future
     "TORCH_VERSION_AFTER_2_2",
     "TORCH_VERSION_AFTER_2_3",
     "TORCH_VERSION_AFTER_2_4",
@@ -42,8 +51,16 @@ def _assert_and_get_unique_device(module: torch.nn.Module) -> Any:
     return device
 
 
-def benchmark_model(model, num_runs, input_tensor):
-    device_type = _assert_and_get_unique_device(model).type
+def benchmark_model(model, num_runs, args=(), kwargs=None, device_type=None):
+    """Benchmark model runs with `args` and `kwargs` both are optional
+    """
+    if kwargs is None:
+        kwargs = {}
+
+    if device_type is None:
+        assert isinstance(model, torch.nn.Module), "Expecting `model` to be torch.nn.Module if device_type is not provided"
+        device_type = _assert_and_get_unique_device(model).type
+
     if device_type == "cuda":
         torch.cuda.synchronize()
         start_event = torch.cuda.Event(enable_timing=True)
@@ -53,7 +70,7 @@ def benchmark_model(model, num_runs, input_tensor):
         # benchmark
         for _ in range(num_runs):
             with torch.autograd.profiler.record_function("timed region"):
-                model(input_tensor)
+                model(*args, **kwargs)
 
         end_event.record()
         torch.cuda.synchronize()
@@ -68,7 +85,7 @@ def benchmark_model(model, num_runs, input_tensor):
         # benchmark
         for _ in range(num_runs):
             with torch.autograd.profiler.record_function("timed region"):
-                model(input_tensor)
+                model(*args, **kwargs)
 
         end_event.record()
         torch.mps.synchronize()
@@ -81,7 +98,7 @@ def benchmark_model(model, num_runs, input_tensor):
         # benchmark
         for _ in range(num_runs):
             with torch.autograd.profiler.record_function("timed region"):
-                model(input_tensor)
+                model(*args, **kwargs)
 
         end_time = time.time()
         torch.cpu.synchronize()
@@ -114,6 +131,9 @@ def skip_if_compute_capability_less_than(min_capability):
         return wrapper
     return decorator
 
+def compute_max_diff(output: torch.Tensor, output_ref: torch.Tensor) -> torch.Tensor:
+    return torch.mean(torch.abs(output - output_ref)) / torch.mean(
+        torch.abs(output_ref))
 
 def benchmark_torch_function_in_microseconds(f, *args, **kwargs):
     import torch.utils.benchmark as benchmark # this avoids importing numpy when torchao module is loaded
@@ -164,7 +184,7 @@ def _register_custom_op(lib):
     from torch._inductor.decomposition import register_decomposition
 
     def decorator(fn):
-        if TORCH_VERSION_AFTER_2_5:
+        if TORCH_VERSION_AT_LEAST_2_5:
             from torch._library.infer_schema import infer_schema
 
             # expecting fn.__name__ starts with `_` and we want to take the rest
@@ -264,18 +284,72 @@ def unwrap_tensor_subclass(model, filter_fn=None):
             parametrize.register_parametrization(child, "weight", UnwrapTensorSubclass())
         unwrap_tensor_subclass(child)
     return model
-	
+
+class TorchAOBaseTensor(torch.Tensor):
+    """A util tensor subclass that provides commonly used functions
+    """
+    def _get_to_kwargs(self, *args, **kwargs):
+        # `torch._C._nn._parse_to` can't handle `layout` argument
+        for arg in args:
+            if isinstance(arg, torch.layout):
+                args.remove(arg)
+        if "layout" in kwargs:
+            kwargs.pop("layout")
+        # ignoring `non_blocking` and `memory_format` args since these are not
+        # very useful for most of the tensor subclasses
+        # if in the future there are use cases that need these, we'd recommend
+        # to override `_get_to_kwargs` and return these args
+        device, dtype, _, _ = torch._C._nn._parse_to(*args, **kwargs)
+        device = self.device if device is None else device
+        dtype = self.dtype if dtype is None else dtype
+        kwargs = {
+            "device": device,
+            "dtype": dtype,
+        }
+        return kwargs
+
+
+def _is_float8_type(dtype: torch.dtype) -> bool:
+    fp8_types = {
+        torch.float8_e4m3fn,
+        torch.float8_e4m3fnuz,
+        torch.float8_e5m2,
+        torch.float8_e5m2fnuz,
+    }
+    return dtype in fp8_types
+
+
+def parse_version(version_string):
+    # Extract just the X.Y.Z part from the version string
+    match = re.match(r'(\d+\.\d+\.\d+)', version_string)
+    if match:
+        version = match.group(1)
+        return [int(x) for x in version.split('.')]
+    else:
+        raise ValueError(f"Invalid version string format: {version_string}")
+
+def compare_versions(v1, v2):
+    v1_parts = parse_version(v1)
+    v2_parts = parse_version(v2)
+    return (v1_parts > v2_parts) - (v1_parts < v2_parts)
+
 def is_fbcode():
     return not hasattr(torch.version, "git_version")
-
 
 def torch_version_at_least(min_version):
+    return is_fbcode() or compare_versions(torch.__version__, min_version) >= 0
+
+TORCH_VERSION_AT_LEAST_2_5 = torch_version_at_least("2.5.0")
+TORCH_VERSION_AT_LEAST_2_4 = torch_version_at_least("2.4.0")
+TORCH_VERSION_AT_LEAST_2_3 = torch_version_at_least("2.3.0")
+TORCH_VERSION_AT_LEAST_2_2 = torch_version_at_least("2.2.0")
+
+
+## Deprecated, will be deleted in the future
+def _torch_version_at_least(min_version):
     return is_fbcode() or version("torch") >= min_version
 
-TORCH_VERSION_AFTER_2_5 = torch_version_at_least("2.5.0.dev")
-TORCH_VERSION_AFTER_2_4 = torch_version_at_least("2.4.0.dev")
-TORCH_VERSION_AFTER_2_3 = torch_version_at_least("2.3.0.dev")
-TORCH_VERSION_AFTER_2_2 = torch_version_at_least("2.2.0.dev")
-
-def is_fbcode():
-    return not hasattr(torch.version, "git_version")
+TORCH_VERSION_AFTER_2_5 = _torch_version_at_least("2.5.0.dev")
+TORCH_VERSION_AFTER_2_4 = _torch_version_at_least("2.4.0.dev")
+TORCH_VERSION_AFTER_2_3 = _torch_version_at_least("2.3.0.dev")
+TORCH_VERSION_AFTER_2_2 = _torch_version_at_least("2.2.0.dev")
