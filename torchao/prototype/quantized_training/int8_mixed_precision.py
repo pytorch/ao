@@ -123,6 +123,10 @@ class Int8MixedPrecisionLinearWeight(Tensor):
     ):
         (data,) = all_gather_outputs
         (config,) = metadata
+        if out is not None:
+            assert isinstance(out, Int8MixedPrecisionLinearWeight)
+            assert out.config == config
+            return
         return Int8MixedPrecisionLinearWeight(data.to(param_dtype), config), all_gather_outputs
 
 

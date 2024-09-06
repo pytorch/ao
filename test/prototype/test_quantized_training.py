@@ -13,7 +13,6 @@ from torchao.prototype.quantized_training import (
     int8_weight_only_quantized_training,
     int8_mixed_precision_training,
     quantize_int8_rowwise,
-    Int8MixedPrecisionConfig,
 )
 from torchao.quantization.quant_api import quantize_
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
@@ -151,7 +150,6 @@ class TestQuantizedTraining(TestCase):
         bsize = 4
         embed_dim = 32
         device = "cuda"
-        config = Int8MixedPrecisionConfig(True, True, True)
 
         # only use 1 matmul shape to reduce triton autotune time
         model_ref = nn.Sequential(
@@ -160,7 +158,7 @@ class TestQuantizedTraining(TestCase):
             nn.Linear(embed_dim, embed_dim),
         ).to(device)
         model_int8mp = copy.deepcopy(model_ref)
-        quantize_(model_int8mp, int8_mixed_precision_training(config), set_inductor_config=False)
+        quantize_(model_int8mp, int8_mixed_precision_training(), set_inductor_config=False)
 
         if compile:
             model_ref.compile()
@@ -202,11 +200,10 @@ class TestFSDP2(FSDPTest):
             tolerance=0.05,
         )
 
-        # triton autotune takes too long. apply INT8 matmul to forward pass only.
         self.run_subtests(
             dict(),
             self._test_fsdp2,
-            quantize_fn=int8_mixed_precision_training(Int8MixedPrecisionConfig(True, False, False)),
+            quantize_fn=int8_mixed_precision_training(),
             tolerance=1e-6,
         )
 
@@ -219,6 +216,8 @@ class TestFSDP2(FSDPTest):
         batch_size = 3
         vocab_size = 32
         seq_len = 64
+
+        # NOTE: if weight_tying=True and we also quantize LM head, INT8 mixed-precision will fail.
         model_args = ModelArgs(
             n_layers=2,
             n_heads=2,
@@ -226,11 +225,10 @@ class TestFSDP2(FSDPTest):
             vocab_size=vocab_size,
             max_seq_len=seq_len,
             dropout_p=0,
-            weight_tying=False,  # INT8 mixed-precision will fail if weight_tying=True
         )
         torch.manual_seed(42)
         base_model = Transformer(model_args).cuda()
-        quantize_(base_model, quantize_fn, set_inductor_config=False)
+        quantize_(base_model.layers, quantize_fn, set_inductor_config=False)
         fsdp_model = copy.deepcopy(base_model)
 
         for layer in fsdp_model.layers:
