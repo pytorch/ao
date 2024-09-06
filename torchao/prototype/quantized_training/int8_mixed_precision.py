@@ -2,8 +2,10 @@ from typing import Any, NamedTuple, Optional, Tuple
 
 import torch
 import torch.utils._pytree as pytree
-from torch import Tensor, nn
+from torch import Tensor
 from torch.utils._triton import has_triton
+
+from torchao.quantization.quant_api import _get_linear_subclass_inserter
 
 from .int8 import quantize_int8_rowwise
 
@@ -31,6 +33,11 @@ aten = torch.ops.aten
 
 
 class Int8MixedPrecisionTrainingLinearWeight(Tensor):
+    """Linear weight for INT8 mixed-precision training. The weight is in original precision (e.g. FP32 or BF16).
+    During training, weight and activation are dynamically quantized and cast to INT8 to utilize INT8 Tensor Cores,
+    and then scaled back to original precision. This is also applied to backward pass.
+    """
+
     @staticmethod
     @torch._dynamo.disable
     def __new__(cls, data: Tensor, config: Int8MixedPrecisionTrainingConfig):
@@ -135,13 +142,23 @@ class Int8MixedPrecisionTrainingLinearWeight(Tensor):
 
 
 def _dynamic_int8_mm(A: Tensor, B: Tensor) -> Tensor:
-    # INT8 matmul is the most performant when A is row-major and B is column-major.
-    # thus, we transpose B before quantization.
+    """Dynamically quantize A and B to perform INT8 matmul, then scale the results back to original precision.
+    To fuse scaling to matmul output, we use row-wise scaling for A and column-wise scaling for B.
 
-    # it's not guaranteed that outputs after quantization are contiguous,
-    # thus we have to call .contiguous() on them.
-    # hope that the .contiguous() calls will be fused into quantize op by torch.compile()
-    # TODO: check if transpose+quantize are fused.
+    We transpose B before quantization for 2 reasons:
+      - INT8 matmul is the most performant when A is row-major and B is column-major.
+      - Row-wise scaling for B.T is column-wise scaling for B -> we only need to implement row-wise scaling.
+
+    Note that inputs and outputs of `quantize_int8_rowwise()` are not guaranteed to be contiguous. We call
+    `.contiguous()` to outputs of the quantize op to make sure:
+      - Performant layout for INT8 matmul inputs (see above).
+      - Scales are contiguous (this is a limitation of our triton kernel).
+
+    We hope that the `.contiguous()` calls, as well as possible layout transpose before quantization, are
+    fused into quantize op by torch compiler.
+
+    TODO: check if transpose+quantize are actually fused.
+    """
     A_i8, A_scale_rowwise = quantize_int8_rowwise(A)
     B_t_i8, B_scale_colwise = quantize_int8_rowwise(B.T)
     return int8_mm_dequant(
@@ -203,14 +220,8 @@ class _Int8MixedPrecisionTrainingLinear(torch.autograd.Function):
 
 
 def int8_mixed_precision_training(config: Int8MixedPrecisionTrainingConfig = _DEFAULT_CONFIG):
-    # TODO: right now `_get_linear_subclass_inserter()` will always set `requires_grad=False`
-    # when we have this out of prototype (or there are stable trainable tensor subclasses),
-    # update `_get_linear_subclass_inserter()` to allow `requires_grad=True`.
-    def apply_int8_linear_weight(linear: nn.Linear):
-        linear.weight = nn.Parameter(
-            Int8MixedPrecisionTrainingLinearWeight(linear.weight.detach(), config),
-            requires_grad=linear.weight.requires_grad,
-        )
-        return linear
-
-    return apply_int8_linear_weight
+    return _get_linear_subclass_inserter(
+        Int8MixedPrecisionTrainingLinearWeight,
+        config=config,
+        allow_requires_grad=True,
+    )

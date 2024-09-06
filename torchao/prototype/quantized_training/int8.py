@@ -1,10 +1,11 @@
 from typing import Any, Optional, Tuple
 
 import torch
-from torch import Tensor, nn
+from torch import Tensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.utils import TorchAOBaseTensor
+from torchao.quantization.quant_api import _get_linear_subclass_inserter
 
 
 aten = torch.ops.aten
@@ -255,14 +256,4 @@ def _(func, types, args, kwargs):
 
 
 def int8_weight_only_quantized_training():
-    # TODO: right now `_get_linear_subclass_inserter()` will always set `requires_grad=False`
-    # when we have this out of prototype (or there are stable trainable tensor subclasses),
-    # update `_get_linear_subclass_inserter()` to allow `requires_grad=True`.
-    def apply_int8_linear_weight(linear: nn.Linear):
-        linear.weight = nn.Parameter(
-            Int8QuantizedTrainingLinearWeight.from_float(linear.weight),
-            requires_grad=linear.weight.requires_grad,
-        )
-        return linear
-
-    return apply_int8_linear_weight
+    return _get_linear_subclass_inserter(Int8QuantizedTrainingLinearWeight.from_float, allow_requires_grad=True)
