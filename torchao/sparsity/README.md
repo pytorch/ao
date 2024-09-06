@@ -58,6 +58,23 @@ For more information about accelerting BERT with semi-sturcutred sparsity, pleas
 | F1 (%) | 86.93 | 86.49 | -0.44 |
 | Time (bs=16) | 19.35 | 15.74 | 1.23x |
 
+# Implemented APIs
+
+## Quantization + Sparsity
+
+### Sparse Marlin 2:4
+
+Sparse-Marlin 2:4 is an optimized GPU kernel that extends the Mixed Auto-Regressive Linear (Marlin) dense kernel to support 4-bit quantized weights and 2:4 sparsity, improving performance in matrix multiplication and accumulation. Full documentation can be found [here](https://github.com/IST-DASLab/Sparse-Marlin).
+
+```py
+from torchao.quantization.quant_api import quantize_, int4_weight_only
+from torchao.dtypes import MarlinSparseLayoutType
+
+# Your FP16 model
+model = model.cuda().half()
+
+quantize_(model, int4_weight_only(layout_type=MarlinSparseLayoutType()))
+```
 
 # Design
 
