@@ -142,6 +142,7 @@ if __name__ == "__main__":
     optim = getattr(low_bit_optim, args.optim)(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
     data = get_tinystories().cuda()
+    args.torch_version = torch.__version__
     run = wandb.init(dir="/tmp", config=args, project=args.project, name=args.run_name)
 
     step = 0
