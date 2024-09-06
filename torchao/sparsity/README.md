@@ -61,7 +61,7 @@ quantize_(model, int4_weight_only(layout_type=MarlinSparseLayoutType()))
 
 ### int8 dynamic quant + 2:4 sparasity
 
-We support composing int8 dynaic quantization with 2:4 sparsity, using cuSPARSELt.
+We support composing int8 dynaic quantization with 2:4 sparsity. We fuse one of the scalar dequant multiplications into our cuSPARSELt sparse mm in order to remain performant.
 
 ```py
 from torchao.quantization.quant_api import quantize_, int8_dynamic_activation_int8_weight
