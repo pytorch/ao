@@ -20,6 +20,7 @@ from torchao.quantization.quant_api import (
     fpx_weight_only,
     uintx_weight_only,
     unwrap_tensor_subclass,
+    float8_weight_only,
 )
 from torchao._models._eval import TransformerEvalWrapper, InputRecorder
 
@@ -80,6 +81,8 @@ def run_evaluation(
             groupsize=int(quantization.split("-")[-1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
             quantize_(model.to(device), int4_weight_only(group_size=groupsize, use_hqq=use_hqq))
+        if "float8wo" in quantization:
+            quantize_(model, float8_weight_only(torch.float8_e4m3fn))
         if "uintx" in quantization:
             # uintx-nbits-group_size
             # "uintx-2-64"
@@ -135,7 +138,7 @@ if __name__ == '__main__':
     parser.add_argument('--limit', type=int, default=None, help='Number of eval samples to evaluate')
     parser.add_argument('--precision', type=lambda x: getattr(torch, x.split(".")[-1]), default=torch.bfloat16, help='dtype precision to use')
     parser.add_argument('--device', type=str, default="cuda", help='Device to use for evaluation')
-    parser.add_argument("-q", "--quantization", type=str, help="Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, int4wo-<groupsize>-gptq, int4wo-<groupsize>-hqq, uintx-<nbits>-<group_size>")
+    parser.add_argument("-q", "--quantization", type=str, help="Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, int4wo-<groupsize>-gptq, int4wo-<groupsize>-hqq, uintx-<nbits>-<group_size>, float8wo")
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
     parser.add_argument('--max_length', type=int, default=None, help='Length of text to process at one time')
     parser.add_argument('--calibration_tasks', type=str, nargs='+', default=['wikitext'], help='tasks to do gptq calibration on, if doing gptq')
