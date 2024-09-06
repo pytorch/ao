@@ -80,7 +80,7 @@ class Int8MixedPrecisionLinearWeight(Tensor):
     def __torch_function__(cls, func, types, args=(), kwargs=None):
         if kwargs is None:
             kwargs = dict()
-        
+
         if func is torch.nn.functional.linear:
             act, weight = args[:2]
             bias = args[2] if len(args) > 2 else None
@@ -148,11 +148,24 @@ class Int8MixedPrecisionLinear(nn.Linear):
             cls.convert_linear(child, config)
 
 
-def _dynamic_int8_linear(input: Tensor, weight: Tensor) -> Tensor:
-    # TODO: check if we need to enforce .contiguous() for input_i8 and weight_i8
-    input_i8, input_scale = quantize_int8_rowwise(input)
-    weight_i8, weight_scale = quantize_int8_rowwise(weight)
-    return int8_mm_dequant(input_i8, weight_i8.T, input_scale, weight_scale)
+def _dynamic_int8_mm(A: Tensor, B: Tensor) -> Tensor:
+    # INT8 matmul is the most performant when A is row-major and B is column-major.
+    # thus, we transpose B before quantization.
+
+    # A and B (before quantization) might not be contiguous, especially in backward.
+    # it's also not guaranteed that A_i8 and B_t_i8 (after quantization) are contiguous,
+    # thus we have to call .contiguous() on them.
+    # hope that the .contiguous() calls will be fused into quantize op by torch.compile()
+    # TODO: investigate if calling .contiguous() before quantization is better.
+    # TODO: check if transpose+quantize are fused.
+    A_i8, A_scale_rowwise = quantize_int8_rowwise(A)
+    B_t_i8, B_scale_colwise = quantize_int8_rowwise(B.T)
+    return int8_mm_dequant(
+        A_i8.contiguous(),
+        B_t_i8.contiguous().T,
+        A_scale_rowwise,
+        B_scale_colwise,
+    )
 
 
 class _Int8MixedPrecisionLinear(torch.autograd.Function):
@@ -165,7 +178,7 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
         if ctx.config.output:
             batch_dims = input.shape[:-1]
             input = input.view(-1, weight.shape[1])
-            out = _dynamic_int8_linear(input, weight)
+            out = _dynamic_int8_mm(input, weight.T)
             out = out.view(*batch_dims, weight.shape[0])
         else:
             out = input @ weight.T
@@ -184,16 +197,15 @@ class _Int8MixedPrecisionLinear(torch.autograd.Function):
 
         if ctx.needs_input_grad[0]:
             if ctx.config.grad_input:
-                grad_input = _dynamic_int8_linear(grad_output, weight.T)
+                grad_input = _dynamic_int8_mm(grad_output, weight)
             else:
                 grad_input = grad_output @ weight
             grad_input = grad_input.view(*batch_dims, weight.shape[1])
 
         if ctx.needs_input_grad[1]:
             if ctx.config.grad_weight:
-                # TODO: check if transpose+quantize are fused
-                # grad_weight = _dynamic_int8_linear(grad_output.T, input.T)
-                grad_weight = _dynamic_int8_linear(input.T, grad_output.T).T  # this is slightly faster
+                # grad_weight = _dynamic_int8_mm(grad_output.T, input)
+                grad_weight = _dynamic_int8_mm(input.T, grad_output).T  # this is slightly faster
             else:
                 grad_weight = grad_output.T @ input
 
