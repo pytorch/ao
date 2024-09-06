@@ -42,6 +42,8 @@ On Meta LLama3, we observe a 25% tok/s increase (180 -> 226) compared to our exi
 |             | int4wo-64               |  180.80       |  763.33                 |  6.88            |  4.22           |
 |             | int4wo-64-sparse-marlin |  226.02       |  689.20                 |  5.32            |  3.05           |
 
+These benchmarks were also ran on a NVIDIA-A100-80GB.
+
 ## Supported APIs
 
 ![support_matrix](/docs/static/supported_sparsity_patterns.png)
