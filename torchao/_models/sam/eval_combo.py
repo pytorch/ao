@@ -10,7 +10,8 @@ import time
 import resource
 
 from torchao.quantization import quantize_, int8_dynamic_activation_int8_weight, int4_weight_only
-from torchao.sparsity import sparsify_, apply_fake_sparsity, int8_dynamic_activation_int8_semi_sparse_weight, semi_sparse_weight
+from torchao.sparsity import sparsify_, apply_fake_sparsity, semi_sparse_weight
+from torchao.dtypes import SemiSparseLayoutType, MarlinSparseLayoutType
 from torchao.utils import unwrap_tensor_subclass
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
@@ -314,7 +315,7 @@ def run(
                   int8_dynamic_activation_int8_weight(),
                   attn_only)
         quantize_(predictor.model.image_encoder,
-                  int8_dynamic_activation_int8_semi_sparse_weight(),
+                  int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType()),
                   mlp_lin1_only)
         sparsify_(predictor.model.image_encoder,
                   semi_sparse_weight(),

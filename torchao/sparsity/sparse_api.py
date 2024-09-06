@@ -42,9 +42,10 @@ def sparsify_(model: torch.nn.Module,
     """Convert the weight of linear modules in the model with `apply_tensor_subclass`
     This function is essentially the same as quantize, put for sparsity subclasses.
 
-    Currently, we support two options for sparsity:
+    Currently, we support three options for sparsity:
         - semi-structured (2:4) sparsity with `semi_sparse_weight`
-        - int8 dynamic quantization + 2:4 sparsity with `int8_dynamic_activation_int8_semi_sparse_weight`, which is also available via the quantize API
+        - int8 dynamic quantization + 2:4 sparsity with `layout_type=SemiSparseLayoutType`
+        - int4 weight-only quantization + 2:4 sparsity with `layout_type=SparseMarlinLayoutType`
 
     Args:
         model (torch.nn.Module): input model
@@ -67,8 +68,8 @@ def sparsify_(model: torch.nn.Module,
         m = sparsify_(m, semi_sparse_weight(), filter_fn)
 
         # for int8 dynamic quantization + 2:4 sparsity
-        from torchao.sparsity.prototype import int8_dynamic_activation_int8_semi_sparse_weight
-        m = sparsify_(m, int8_dynamic_activation_int8_semi_sparse_weight(), filter_fn)
+        from torchao.dtypes import SemiSparseLayoutType
+        m = quantize_(m, int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType), filter_fn)
     """
     _replace_with_custom_fn_if_matches_filter(
         model,

@@ -8,10 +8,9 @@ from torch import nn
 from torchao.sparsity import (
     apply_fake_sparsity,
     sparsify_,
-    int8_dynamic_activation_int8_semi_sparse_weight,
     semi_sparse_weight,
 )
-from torchao.dtypes import MarlinSparseLayoutType
+from torchao.dtypes import MarlinSparseLayoutType, SemiSparseLayoutType
 from torchao.quantization.quant_api import (
     int8_dynamic_activation_int8_weight,
     quantize_,
@@ -67,7 +66,7 @@ class TestQuantSemiSparse(TestCase):
         quantize_(model_copy, int8_dynamic_activation_int8_weight())
         dense_result = model_copy(input)
 
-        quantize_(model, int8_dynamic_activation_int8_semi_sparse_weight())
+        quantize_(model, int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType()))
         sparse_result = model(input)
 
         assert torch.allclose(dense_result, sparse_result, rtol=1e-2, atol=1e-2)
