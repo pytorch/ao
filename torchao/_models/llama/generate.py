@@ -212,6 +212,7 @@ def main(
             autoquant,
             unwrap_tensor_subclass,
             float8_weight_only,
+            float8_dynamic_activation_float8_weight
         )
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
@@ -293,6 +294,8 @@ def main(
             quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
         if "float8wo" in quantization:
             quantize_(model, float8_weight_only(torch.float8_e4m3fn))
+        if "float8dq" in quantization:
+            quantize_(model, float8_dynamic_activation_float8_weight())
         if "autoquant" in quantization:
             if "autoquant-int4" == quantization:
                 model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
