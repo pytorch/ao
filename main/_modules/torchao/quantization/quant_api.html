@@ -396,6 +396,7 @@
 <span class="sd">and mixed GEMM kernels</span>
 <span class="sd">&quot;&quot;&quot;</span>
 <span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">partial</span>
+<span class="kn">import</span> <span class="nn">warnings</span>
 <span class="kn">import</span> <span class="nn">torch</span>
 <span class="kn">import</span> <span class="nn">torchao</span>
 <span class="kn">import</span> <span class="nn">torch.nn</span> <span class="k">as</span> <span class="nn">nn</span>
@@ -993,6 +994,11 @@
 <span class="sd">    Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight</span>
 <span class="sd">    quantization + 2:4 sparsity to linear layers.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="s2">&quot;&quot;&quot;int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout_type kwarg in int8_dynamic_activation_int8_weight instead.</span>
+
+<span class="s2">    from torchao.dtypes import SemiSparseLayoutType</span>
+<span class="s2">    int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType()&quot;&quot;&quot;</span><span class="p">)</span>
+
     <span class="k">return</span> <span class="n">int8_dynamic_activation_int8_weight</span><span class="p">(</span><span class="n">layout_type</span><span class="o">=</span><span class="n">SemiSparseLayoutType</span><span class="p">())</span>
 
 

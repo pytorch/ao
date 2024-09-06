@@ -423,9 +423,10 @@
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert the weight of linear modules in the model with `apply_tensor_subclass`</span>
 <span class="sd">    This function is essentially the same as quantize, put for sparsity subclasses.</span>
 
-<span class="sd">    Currently, we support two options for sparsity:</span>
+<span class="sd">    Currently, we support three options for sparsity:</span>
 <span class="sd">        - semi-structured (2:4) sparsity with `semi_sparse_weight`</span>
-<span class="sd">        - int8 dynamic quantization + 2:4 sparsity with `int8_dynamic_activation_int8_semi_sparse_weight`, which is also available via the quantize API</span>
+<span class="sd">        - int8 dynamic quantization + 2:4 sparsity with `layout_type=SemiSparseLayoutType`</span>
+<span class="sd">        - int4 weight-only quantization + 2:4 sparsity with `layout_type=SparseMarlinLayoutType`</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        model (torch.nn.Module): input model</span>
@@ -448,8 +449,8 @@
 <span class="sd">        m = sparsify_(m, semi_sparse_weight(), filter_fn)</span>
 
 <span class="sd">        # for int8 dynamic quantization + 2:4 sparsity</span>
-<span class="sd">        from torchao.sparsity.prototype import int8_dynamic_activation_int8_semi_sparse_weight</span>
-<span class="sd">        m = sparsify_(m, int8_dynamic_activation_int8_semi_sparse_weight(), filter_fn)</span>
+<span class="sd">        from torchao.dtypes import SemiSparseLayoutType</span>
+<span class="sd">        m = quantize_(m, int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType), filter_fn)</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
         <span class="n">model</span><span class="p">,</span>
