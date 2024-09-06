@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 from typing import List, Tuple
 from dataclasses import dataclass, field
 
@@ -93,7 +92,6 @@ def reverse_marlin_permute_weights(
     return q_w_comp
 
 
-
 def get_perms_24(num_bits: int) -> Tuple[torch.Tensor, List[int], List[int]]:
     """Precompute permutations for Marlin24 weight and scale shuffling
     
@@ -107,8 +105,8 @@ def get_perms_24(num_bits: int) -> Tuple[torch.Tensor, List[int], List[int]]:
     Args:
         num_bits (int): Number of bits to pack.
     Returns:
-        Tuple[torch.Tensor, List[int], List[int]]: The weight permutation tensor, scale permutation list and 
-        scale permutation list for single group.
+        Tuple[torch.Tensor, List[int], List[int]]: The weight permutation tensor, scale permutation list, and 
+        scale permutation list for a single group.
     """
     perm_list: List[int] = []
     for i in range(32):
@@ -126,23 +124,46 @@ def get_perms_24(num_bits: int) -> Tuple[torch.Tensor, List[int], List[int]]:
                              4 * block)
         for j in range(4):
             perm_list.extend([p + 1 * j for p in perm1])
-    perm = np.array(perm_list)
+    
+    # Convert to torch tensor
+    perm = torch.tensor(perm_list, dtype=torch.int32)
 
     if num_bits == 4:
-        interleave = np.array([0, 2, 4, 6, 1, 3, 5, 7])
+        interleave = torch.tensor([0, 2, 4, 6, 1, 3, 5, 7], dtype=torch.int32)
     elif num_bits == 8:
-        interleave = np.array([0, 2, 1, 3])
+        interleave = torch.tensor([0, 2, 1, 3], dtype=torch.int32)
     else:
         raise ValueError("num_bits must be 4 or 8, got {}".format(num_bits))
 
-    perm = perm.reshape((-1, len(interleave)))[:, interleave].ravel()
-    perm = torch.from_numpy(perm)
+    # Reshape and apply interleave
+    perm = perm.view(-1, len(interleave))[:, interleave].reshape(-1)
+
     scale_perm: List[int] = []
     for i in range(8):
         scale_perm.extend([i * 8 + j for j in [0, 4, 1, 5, 2, 6, 3, 7]])
+
     scale_perm_single: List[int] = []
     for i in range(8):
         scale_perm_single.extend([8 * i + j for j in [0, 1, 2, 3, 4, 5, 6, 7]])
+
+    return perm, scale_perm, scale_perm_single
+
+
+def get_reverse_perms_24(num_bits: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Reverse permutation for Marlin24 weight and scale shuffling from `get_perms_24`.
+    
+    Args:
+        num_bits (int): Number of bits to pack.
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: The reversed weight permutation tensor, scale permutation list and 
+        scale permutation list for single group.
+    """
+    perm_24, scale_perm_24, scale_perm_single_24 = get_perms_24(num_bits)
+
+    perm = perm_24.argsort()
+    scale_perm = torch.tensor(scale_perm_24).argsort()
+    scale_perm_single = torch.tensor(scale_perm_single_24).argsort()
+
     return perm, scale_perm, scale_perm_single
 
 

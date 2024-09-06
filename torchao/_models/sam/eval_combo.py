@@ -283,6 +283,16 @@ def run(
     for block in predictor.model.image_encoder.blocks:
         block.attn.use_rel_pos = use_rel_pos
 
+    # Helper filter functions
+    def attn_only(mod, name):
+        return isinstance(mod, torch.nn.Linear) and 'attn' in name
+    def mlp_lin1_only(mod, name):
+        return isinstance(mod, torch.nn.Linear) and 'lin1' in name
+    def mlp_lin2_only(mod, name):
+        return isinstance(mod, torch.nn.Linear) and 'lin2' in name
+    def mlp_only(mod, name):
+        return isinstance(mod, torch.nn.Linear) and 'mlp' in name
+
     if compress == "int8_dynamic_quant":
         quantize_(predictor.model.image_encoder, int8_dynamic_activation_int8_weight())
         if not TORCH_VERSION_AT_LEAST_2_5:
@@ -296,15 +306,6 @@ def run(
         apply_fake_sparsity(predictor.model.image_encoder)
         sparsify_(predictor.model.image_encoder, semi_sparse_weight())
     elif compress == "int8_dynamic_quant_sparse":
-        def attn_only(mod, name):
-            return isinstance(mod, torch.nn.Linear) and 'attn' in name
-        def mlp_lin1_only(mod, name):
-            return isinstance(mod, torch.nn.Linear) and 'lin1' in name
-        def mlp_lin2_only(mod, name):
-            return isinstance(mod, torch.nn.Linear) and 'lin2' in name
-        def mlp_only(mod, name):
-            return isinstance(mod, torch.nn.Linear) and 'mlp' in name
-
         # apply sparsify first to set qparams
         apply_fake_sparsity(predictor.model.image_encoder,
                             filter_fn=mlp_only)
@@ -320,7 +321,20 @@ def run(
                   mlp_lin2_only)
         if not TORCH_VERSION_AT_LEAST_2_5:
             predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
-
+    elif compress == "int4_weight_only_sparse":
+        # apply sparsify first to set qparams
+        apply_fake_sparsity(predictor.model.image_encoder,
+                            filter_fn=mlp_only)
+        from torchao.dtypes import MarlinSparseLayoutType
+        quantize_(predictor.model.image_encoder,
+                  int8_dynamic_activation_int8_weight(),
+                  attn_only)
+        quantize_(predictor.model.image_encoder, int4_weight_only(layout_type=MarlinSparseLayoutType()), mlp_lin1_only)
+        sparsify_(predictor.model.image_encoder
+                  semi_sparse_weight(),
+                  mlp_lin2_only)
+        if not TORCH_VERSION_AT_LEAST_2_5:
+            predictor.model.image_encoder = unwrap_tensor_subclass(predictor.model.image_encoder)
     else:
         assert compress is None, f"Unsupported compress mode {compress}"
 
