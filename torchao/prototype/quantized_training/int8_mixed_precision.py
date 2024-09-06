@@ -6,6 +6,7 @@ from torch import Tensor
 from torch.utils._triton import has_triton
 
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
+from torchao.utils import TorchAOBaseTensor
 
 from .int8 import quantize_int8_rowwise
 
@@ -32,7 +33,7 @@ _DEFAULT_CONFIG = Int8MixedPrecisionTrainingConfig()
 aten = torch.ops.aten
 
 
-class Int8MixedPrecisionTrainingLinearWeight(Tensor):
+class Int8MixedPrecisionTrainingLinearWeight(TorchAOBaseTensor):
     """Linear weight for INT8 mixed-precision training. The weight is in original precision (e.g. FP32 or BF16).
     During training, weight and activation are dynamically quantized and cast to INT8 to utilize INT8 Tensor Cores,
     and then scaled back to original precision. This is also applied to backward pass.
@@ -67,17 +68,6 @@ class Int8MixedPrecisionTrainingLinearWeight(Tensor):
 
     def to_original(self):
         return self._data.clone()
-
-    @classmethod
-    def __torch_function__(cls, func, types, args=(), kwargs=None):
-        if kwargs is None:
-            kwargs = dict()
-
-        if func is torch.nn.functional.linear:
-            return _Int8MixedPrecisionTrainingLinear.apply(*args)
-
-        with torch._C.DisableTorchFunctionSubclass():
-            return func(*args, **kwargs)
 
     # adapated from FP8 implementation of WeightWithDynamicFloat8CastTensor
     @classmethod
@@ -139,6 +129,11 @@ class Int8MixedPrecisionTrainingLinearWeight(Tensor):
             assert out.config == config
             return
         return Int8MixedPrecisionTrainingLinearWeight(data.to(param_dtype), config), all_gather_outputs
+
+
+@Int8MixedPrecisionTrainingLinearWeight.implements(torch.nn.functional.linear)
+def _(func, types, args, kwargs):
+    return _Int8MixedPrecisionTrainingLinear.apply(*args, **kwargs)
 
 
 def _dynamic_int8_mm(A: Tensor, B: Tensor) -> Tensor:
