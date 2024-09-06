@@ -11,12 +11,11 @@ from torchao.sparsity import (
     int8_dynamic_activation_int8_semi_sparse_weight,
     semi_sparse_weight,
 )
+from torchao.dtypes import MarlinSparseLayoutType
 from torchao.quantization.quant_api import (
-    _replace_with_custom_fn_if_matches_filter,
-    _get_subclass_inserter,
-    _is_linear,
     int8_dynamic_activation_int8_weight,
     quantize_,
+    int4_weight_only,
 )
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
 from torch.testing._internal.common_utils import TestCase
@@ -72,6 +71,31 @@ class TestQuantSemiSparse(TestCase):
         sparse_result = model(input)
 
         assert torch.allclose(dense_result, sparse_result, rtol=1e-2, atol=1e-2)
+
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_sparse_marlin(self):
+        input = torch.rand((256, 256)).half().cuda()
+        model = (
+            nn.Sequential(
+                nn.Linear(256, 1024),
+                nn.Linear(1024, 256),
+            )
+            .half()
+            .cuda()
+        )
+
+        apply_fake_sparsity(model)
+        model_copy = copy.deepcopy(model)
+
+        # Quantized
+        quantize_(model_copy.bfloat16(), int4_weight_only())
+        dense_result = model_copy(input.bfloat16()).half()
+
+        # Sparse + quantized
+        quantize_(model, int4_weight_only(layout_type=MarlinSparseLayoutType()))
+        sparse_result = model(input)
+
+        assert torch.allclose(dense_result, sparse_result, atol=3e-1), "Results are not close"
 
 if __name__ == "__main__":
     unittest.main()
