@@ -6,6 +6,7 @@
 #include <cstdint>
 
 #include "fast_hadamard_transform_special.h"
+#include "FFHT/fht.h"
 
 namespace torchao {
 namespace detail {
@@ -33,7 +34,6 @@ void normalize_after_fht(
     out[ii] *= inv_sqrt;
   }
 }
-
 
 // Normalization step: divide by sqrt(1 << log2_vec_size). Similar
 // to fast_sqrt above, if N is even, then the maximum-precision way
@@ -65,10 +65,24 @@ void quantized_normalize_after_fht(const int32_t* tmp, int16_t* out, int log2_ve
   }
 }
 
+void fast_hadamard_transform_ffht_impl(
+    float* vec,
+    int log2_vec_size) {
+  if (log2_vec_size <= 0) {
+    return;
+  }
+
+  fht_float(vec, log2_vec_size);
+  normalize_after_fht(vec, log2_vec_size);
+}
+
 template <typename T>
 void fast_hadamard_transform_unnormalized_simple_impl(
     T* vec,
     int log2_vec_size) {
+  // NOTE: If you're here because you're profiling a model and this is
+  // slow, consider updating FFHT to generate efficient assembly for
+  // your data type!
   if (log2_vec_size == 0) {
     return;
   }
@@ -103,7 +117,11 @@ void fast_hadamard_transform_simple_impl(
 // of vec, which must be of length (1 << log2_vec_size).
 template <typename T>
 void fast_hadamard_transform(T* vec, int log2_vec_size) {
+  if constexpr (std::is_same_v<T, float>) {
+    detail::fast_hadamard_transform_ffht_impl(vec, log2_vec_size);
+  } else {
     detail::fast_hadamard_transform_simple_impl(vec, log2_vec_size);
+  }
 }
 
 // Compute a quantized fast Walsh-Hadamard transform of vec, which
@@ -166,7 +184,7 @@ void fast_hadamard_transform_symmetric_quantized_s16_28N(int16_t* vec, int log2_
   }
   const int vec_size = (1 << log2_vec_size);
 
-  auto tmp = std::make_unique<int32_t[]>(vec_size);
+  auto tmp = std::make_unique<int32_t[]>(vec_size * 28);
   std::copy(vec, vec + vec_size * 28, tmp.get());
 
   for (int ii = 0; ii < 28; ++ii) {
