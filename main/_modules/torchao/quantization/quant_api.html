@@ -439,6 +439,10 @@
 <span class="kn">from</span> <span class="nn">.utils</span> <span class="kn">import</span> <span class="n">_get_per_token_block_size</span>
 <span class="kn">import</span> <span class="nn">logging</span>
 <span class="kn">from</span> <span class="nn">.autoquant</span> <span class="kn">import</span> <span class="n">autoquant</span><span class="p">,</span> <span class="n">AutoQuantizableLinearWeight</span>
+<span class="kn">from</span> <span class="nn">torchao.quantization.observer</span> <span class="kn">import</span> <span class="n">AffineQuantizedObserverBase</span>
+<span class="kn">from</span> <span class="nn">torchao.quantization.linear_activation_weight_observer</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">LinearActivationWeightObservedTensor</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="kn">from</span> <span class="nn">torchao.float8.inference</span> <span class="kn">import</span> <span class="n">Float8MMConfig</span>
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
@@ -660,6 +664,86 @@
     <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
         <span class="n">model</span><span class="p">,</span> <span class="n">replace_conv2d_1x1</span><span class="p">,</span> <span class="n">filter_fn</span><span class="o">=</span><span class="n">filter_fn</span>
     <span class="p">)</span>
+<span class="k">def</span> <span class="nf">insert_observers_</span><span class="p">(</span>
+    <span class="n">model</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
+    <span class="n">input_observer</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">AffineQuantizedObserverBase</span><span class="p">],</span>
+    <span class="n">weight_observer</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">AffineQuantizedObserverBase</span><span class="p">],</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">filter_fn</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Callable</span><span class="p">[[</span><span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="nb">bool</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Converts the weight of a linear module to a LinearActivationWeightObservedTensor.</span>
+
+<span class="sd">    This function wraps the weight of the given linear module with a LinearActivationWeightObservedTensor,</span>
+<span class="sd">    which enables observation of both input and weight tensors during forward passes.</span>
+<span class="sd">    The wrapped weight is then re-wrapped as a nn.Parameter to maintain compatibility</span>
+<span class="sd">    with PyTorch&#39;s module system.</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">    ```</span>
+<span class="sd">        import torch</span>
+<span class="sd">        import torch.nn as nn</span>
+<span class="sd">        from torchao.quantization.linear_observer_tensor import insert_observers_</span>
+<span class="sd">        from torchao.quantization.observer import (</span>
+<span class="sd">            AffineQuantizedMinMaxObserver,</span>
+<span class="sd">            PerTensor,</span>
+<span class="sd">            MappingType</span>
+<span class="sd">        )</span>
+
+<span class="sd">        # Create observers</span>
+<span class="sd">        input_observer = AffineQuantizedMinMaxObserver(</span>
+<span class="sd">            MappingType.SYMMETRIC,</span>
+<span class="sd">            torch.float8_e4m3fn,</span>
+<span class="sd">            granularity_type=PerTensor(),</span>
+<span class="sd">            eps=torch.finfo(torch.float32).eps,</span>
+<span class="sd">            scale_dtype=torch.float,</span>
+<span class="sd">            zero_point_dtype=torch.int,</span>
+<span class="sd">            zero_point_domain=None,</span>
+<span class="sd">        )</span>
+
+<span class="sd">        # Create a linear module</span>
+<span class="sd">        linear_module = nn.Linear(10, 20)</span>
+
+<span class="sd">        # Convert the linear module&#39;s weight to an observed tensor</span>
+<span class="sd">        insert_observers_(linear_module, input_observer, weight_observer=None)</span>
+
+<span class="sd">        # The linear_module can now be used as usual, with observers calculating statistics</span>
+<span class="sd">        output = linear_module(torch.randn(10, 10))</span>
+
+<span class="sd">        # Get the scale and zero point of the input observer</span>
+<span class="sd">        scale, zero_point = linear_module.weight.input_observer.calculate_qparams()</span>
+<span class="sd">    ```</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        model (nn.Module): The nn.Module to convert.</span>
+<span class="sd">        input_observer (Optional[AffineQuantizedObserverBase]): Observer for input tensor.</span>
+<span class="sd">        weight_observer (Optional[AffineQuantizedObserverBase]): Observer for weight tensor.</span>
+<span class="sd">        filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): Filter function to select which modules to convert.</span>
+<span class="sd">            If not provided, all linear modules will be converted. This function should take a module and its fully qualified name.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        nn.Linear: The modified linear module with its weight wrapped in a LinearActivationWeightObservedTensor.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">convert_to_linear_observer</span><span class="p">(</span><span class="n">linear_module</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">):</span>
+        <span class="c1"># Wrap the weight with LinearActivationWeightObservedTensor and then with nn.Parameter</span>
+        <span class="n">linear_module</span><span class="o">.</span><span class="n">weight</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Parameter</span><span class="p">(</span>
+            <span class="n">LinearActivationWeightObservedTensor</span><span class="o">.</span><span class="n">from_float</span><span class="p">(</span>
+                <span class="n">linear_module</span><span class="o">.</span><span class="n">weight</span><span class="p">,</span>
+                <span class="n">input_observer</span><span class="o">=</span><span class="n">input_observer</span><span class="p">,</span>
+                <span class="n">weight_observer</span><span class="o">=</span><span class="n">weight_observer</span><span class="p">,</span>
+            <span class="p">),</span>
+            <span class="n">requires_grad</span><span class="o">=</span><span class="n">linear_module</span><span class="o">.</span><span class="n">weight</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">linear_module</span>
+
+    <span class="n">_replace_with_custom_fn_if_matches_filter</span><span class="p">(</span>
+        <span class="n">model</span><span class="p">,</span>
+        <span class="n">convert_to_linear_observer</span><span class="p">,</span>
+        <span class="n">_is_linear</span> <span class="k">if</span> <span class="n">filter_fn</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">filter_fn</span><span class="p">,</span>
+    <span class="p">)</span>
+
 
 <span class="k">def</span> <span class="nf">_quantization_type</span><span class="p">(</span><span class="n">weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">):</span>
