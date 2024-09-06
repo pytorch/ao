@@ -5,7 +5,6 @@ from .int8 import (
 )
 from .int8_mixed_precision import (
     Int8MixedPrecisionTrainingConfig,
-    Int8MixedPrecisionLinear,
     Int8MixedPrecisionTrainingLinearWeight,
     int8_mixed_precision_training,
 )

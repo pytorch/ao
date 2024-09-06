@@ -67,10 +67,7 @@ class Int8MixedPrecisionTrainingLinearWeight(Tensor):
             kwargs = dict()
 
         if func is torch.nn.functional.linear:
-            act = args[0]
-            weight: cls = args[1]
-            bias = args[2] if len(args) > 2 else None
-            return _Int8MixedPrecisionTrainingLinear.apply(act, weight._data, bias, weight.config)
+            return _Int8MixedPrecisionTrainingLinear.apply(*args)
 
         with torch._C.DisableTorchFunctionSubclass():
             return func(*args, **kwargs)
@@ -88,13 +85,13 @@ class Int8MixedPrecisionTrainingLinearWeight(Tensor):
                 assert x.config == config
             return x._data
 
-        args, kwargs = pytree.tree_map_only(cls, unwrap, (args, kwargs))
-        out = func(*args, **kwargs)
+        out = func(
+            *pytree.tree_map_only(cls, unwrap, args),
+            **pytree.tree_map_only(cls, unwrap, kwargs),
+        )
 
-        if func in {
-            aten.copy_.default,
-            aten.add_.Tensor,
-        }:
+        if func is aten.copy_.default:
+            # return original object
             return args[0]
         elif func in {
             aten.t.default,
@@ -109,8 +106,10 @@ class Int8MixedPrecisionTrainingLinearWeight(Tensor):
             aten.split.Tensor,
             aten.clone.default,
         }:
+            # return new wrapped object
             return pytree.tree_map_only(Tensor, lambda x: cls(x, config), out)
         else:
+            # return new unwrapped object
             return out
 
     def fsdp_pre_all_gather(self, mesh):
@@ -135,54 +134,31 @@ class Int8MixedPrecisionTrainingLinearWeight(Tensor):
         return Int8MixedPrecisionTrainingLinearWeight(data.to(param_dtype), config), all_gather_outputs
 
 
-# alternative UX. to be deleted
-class Int8MixedPrecisionLinear(nn.Linear):
-    def __init__(self, *args, config: Int8MixedPrecisionTrainingConfig, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self.config = config
-
-    def forward(self, input: Tensor) -> Tensor:
-        return _Int8MixedPrecisionTrainingLinear.apply(input, self.weight, self.bias, self.config)
-
-    def extra_repr(self):
-        return f"{super().extra_repr()}, config={self.config}"
-
-    @classmethod
-    def convert_linear(cls, module: nn.Module, config: Int8MixedPrecisionTrainingConfig = _DEFAULT_CONFIG):
-        if module.__class__ is nn.Linear:  # exact match, don't swap nn.Linear subclasses
-            module.__class__ = cls
-            module.config = config
-            return
-        for child in module.children():
-            cls.convert_linear(child, config)
-
-
 def _dynamic_int8_mm(A: Tensor, B: Tensor) -> Tensor:
     # INT8 matmul is the most performant when A is row-major and B is column-major.
     # thus, we transpose B before quantization.
 
-    # it's not guaranteed that A_i8 and B_t_i8 (after quantization) are contiguous,
+    # it's not guaranteed that outputs after quantization are contiguous,
     # thus we have to call .contiguous() on them.
     # hope that the .contiguous() calls will be fused into quantize op by torch.compile()
-    # TODO: investigate if calling .contiguous() before quantization is better.
     # TODO: check if transpose+quantize are fused.
     A_i8, A_scale_rowwise = quantize_int8_rowwise(A)
     B_t_i8, B_scale_colwise = quantize_int8_rowwise(B.T)
     return int8_mm_dequant(
         A_i8.contiguous(),
         B_t_i8.contiguous().T,
-        A_scale_rowwise,
-        B_scale_colwise,
+        A_scale_rowwise.contiguous(),
+        B_scale_colwise.contiguous(),
     )
 
 
 class _Int8MixedPrecisionTrainingLinear(torch.autograd.Function):
     @staticmethod
-    def forward(input: Tensor, weight: Tensor, bias: Optional[Tensor], config: Int8MixedPrecisionTrainingConfig):
-        if config.output:
+    def forward(input: Tensor, weight: Int8MixedPrecisionTrainingLinearWeight, bias: Optional[Tensor]):
+        if weight.config.output:
             batch_dims = input.shape[:-1]
             input = input.view(-1, weight.shape[1])
-            out = _dynamic_int8_mm(input, weight.T)
+            out = _dynamic_int8_mm(input, weight._data.T)
             out = out.view(*batch_dims, weight.shape[0])
         else:
             out = input @ weight.T
@@ -192,15 +168,15 @@ class _Int8MixedPrecisionTrainingLinear(torch.autograd.Function):
 
     @staticmethod
     def setup_context(ctx, inputs, output):
-        input, weight, bias, config = inputs
-        ctx.config = config
-        ctx.save_for_backward(input, weight)
+        input, weight, bias = inputs
+        ctx.config = weight.config
+        ctx.save_for_backward(input, weight._data)
         ctx.bias = bias is not None
 
     @staticmethod
     def backward(ctx, grad_output):
         input, weight = ctx.saved_tensors
-        grad_input = grad_weight = grad_bias = grad_config = None
+        grad_input = grad_weight = grad_bias = None
 
         batch_dims = grad_output.shape[:-1]
         grad_output = grad_output.view(-1, weight.shape[0])
@@ -223,7 +199,7 @@ class _Int8MixedPrecisionTrainingLinear(torch.autograd.Function):
         if ctx.needs_input_grad[2] and ctx.bias:
             grad_bias = grad_output.sum(0)
 
-        return grad_input, grad_weight, grad_bias, grad_config
+        return grad_input, grad_weight, grad_bias
 
 
 def int8_mixed_precision_training(config: Int8MixedPrecisionTrainingConfig = _DEFAULT_CONFIG):

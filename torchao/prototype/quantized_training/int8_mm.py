@@ -122,10 +122,8 @@ def int8_mm_dequant(A: Tensor, B: Tensor, A_scale_rowwise: Tensor, B_scale_colwi
     assert A.shape[1] == B.shape[0]
     assert A_scale_rowwise.squeeze().shape == (A.shape[0],)
     assert B_scale_colwise.squeeze().shape == (B.shape[1],)
-    # TODO: (low priority) investigate if handling strided scales inside triton kernel or
-    # simply calling .contiguous() like here (which hopefully is fused with prior ops) is faster.
-    A_scale_rowwise = A_scale_rowwise.contiguous()
-    B_scale_colwise = B_scale_colwise.contiguous()
+    assert A_scale_rowwise.is_contiguous()
+    assert B_scale_colwise.is_contiguous()
     return torch.ops.torchao.int8_mm_dequant(A, B, A_scale_rowwise, B_scale_colwise)
 
 

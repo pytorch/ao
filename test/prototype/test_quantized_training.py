@@ -174,13 +174,15 @@ class TestQuantizedTraining(TestCase):
             loss_int8mp = F.cross_entropy(model_int8mp(inputs), labels)
 
             rel_error = abs(loss_int8mp.item() - loss_ref.item()) / abs(loss_ref.item())
-            assert rel_error < 3e-2, (i, rel_error)
+            assert rel_error < 3e-3, (i, rel_error)
 
             loss_ref.backward()
             optim_ref.step()
             optim_ref.zero_grad()
 
             loss_int8mp.backward()
+            for p in model_int8mp.parameters():
+                assert p.grad is not None
             optim_int8mp.step()
             optim_int8mp.zero_grad()
 
