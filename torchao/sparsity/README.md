@@ -5,9 +5,7 @@ Sparsity is the technique of removing parameters from a neural network in order 
 
 ## Benchmarks
 
-#### segment-anything-fast
-We applied 2:4 sparsity to accelerate segment-anything, as part of [segment-anything-fast](https://github.com/pytorch-labs/segment-anything-fast).
-
+### segment-anything-fast
 We were able to provide a **1.16x (22.7 -> 26.5 img/s) speedup over our dense baseline, while maintaining 97.5% (0.581 -> 0.567) of the evaluation accuracy (mIOU)**.
 
 Overall, we found that accelerating the MLP linear layers provied the most speedups (`lin1`, `lin2`), while mitigating accuracy loss.
@@ -32,18 +30,19 @@ The following benchmarks we ran for sam ViT-h on an NVIDIA-A100-80GB, with batch
 
 To reproduce our benchmarks please follow these [instructions](/torchao/_models/sam/README.md).
 
-#### LLama3
+### LLama3
 
-We were able to accelerate BERT 1.23x on an A100 with a negligible accuracy drop on SQuAD.
-For more information about accelerting BERT with semi-sturcutred sparsity, please see our [tutorial](https://pytorch.org/tutorials/advanced/semi_structured_sparse.html?highlight=beta).
+On Meta LLama3, we observe a 25% tok/s increase (180 -> 226) compared to our existing int4-wo implementation when using the sparse marlin kernel @Diogo-V added.
 
-| Metrics | fp16 | 2:4 sparse | delta / speedup |
-| --- | --- | --- | --- |
-| Exact Match (%) | 78.53 | 78.44 | -0.09 |
-| F1 (%) | 86.93 | 86.49 | -0.44 |
-| Time (bs=16) | 19.35 | 15.74 | 1.23x |
+| Model       | Technique               | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
+| ----------- | ----------------------- | ------------- | ----------------------- | ---------------- | --------------- |
+| Llama-3-8B  | Base (bfloat16)         |   95.64       | 1435.54                 | 16.43            | 15.01           |
+|             | int8dq                  |    8.61       |   64.75                 |  9.24            |  7.52           |
+|             | int8wo                  |  153.03       | 1150.80                 | 10.42            |  7.52           |
+|             | int4wo-64               |  180.80       |  763.33                 |  6.88            |  4.22           |
+|             | int4wo-64-sparse-marlin |  226.02       |  689.20                 |  5.32            |  3.05           |
 
-# APIs
+## Supported APIs
 
 ![support_matrix](/docs/static/supported_sparsity_patterns.png)
 
