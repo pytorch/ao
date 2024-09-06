@@ -4,7 +4,7 @@ import pytest
 
 from torch import nn
 from torch.testing._internal.common_utils import TestCase, run_tests
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, unwrap_tensor_subclass
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 from torchao.dtypes import MarlinSparseLayoutType
 from torchao.sparsity.sparse_api import apply_fake_sparsity
 from torchao.quantization.quant_api import int4_weight_only, quantize_
@@ -55,6 +55,7 @@ class SparseMarlin24(TestCase):
 
         assert torch.allclose(dense_result, sparse_result, atol=3e-1), "Results are not close"
 
+    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="Needs PyTorch 2.5+")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="Need CUDA available")
     def test_quant_sparse_marlin_layout_compile(self):
         apply_fake_sparsity(self.model)
@@ -67,9 +68,6 @@ class SparseMarlin24(TestCase):
 
         # Sparse + quantized
         quantize_(self.model, int4_weight_only(layout_type=MarlinSparseLayoutType()))
-        if not TORCH_VERSION_AT_LEAST_2_5:
-            unwrap_tensor_subclass(self.model)
-
         self.model.forward = torch.compile(self.model.forward, fullgraph=True)
         sparse_result = self.model(self.input)
 
