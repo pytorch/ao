@@ -5,20 +5,24 @@
 # LICENSE file in the root directory of this source tree.
 import copy
 import io
+import os
 import random
 import unittest
 
 import pytest
+from unittest.mock import patch
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
+    unwrap_tensor_subclass,
+)
 
-from torchao.utils import TORCH_VERSION_AFTER_2_4
-
-if not TORCH_VERSION_AFTER_2_4:
+if not TORCH_VERSION_AT_LEAST_2_5:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchao.float8.config import ScalingType
+from torch.export._trace import _export as _export_private
 from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.float8.float8_tensor import Float8Tensor
 from torchao.float8.float8_utils import compute_error
@@ -34,7 +38,7 @@ random.seed(0)
 torch.manual_seed(0)
 
 is_H100 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
-
+is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
 
 class FeedForward(nn.Module):
     def __init__(self) -> None:
@@ -53,6 +57,11 @@ class FeedForward(nn.Module):
 
 
 class TestHPTrainToFP8LinearInference:
+    @pytest.fixture(autouse=True)
+    def setup_mock(self):
+        with patch("torch._dynamo.config.cache_size_limit", 20):
+            yield
+
     def base_test_mlp_transform(self, base_mlp, quantized_mlp, input_tensor):
         with torch.no_grad():
             base_output = base_mlp(input_tensor)
@@ -65,8 +74,8 @@ class TestHPTrainToFP8LinearInference:
     @pytest.mark.parametrize("compile_backend", ["eager", "inductor"])
     @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
     @unittest.skipIf(
-        not torch.cuda.is_available() or not is_H100,
-        "CUDA not available or on non H100 machine",
+        not torch.cuda.is_available() or not is_cuda_8_9,
+        "CUDA not available or machine does not support SM89",
     )
     def test_dynamic_fp8_mlp(self, compile_backend, dtype):
         original_mlp = FeedForward().to("cuda", dtype=dtype)
@@ -100,8 +109,8 @@ class TestHPTrainToFP8LinearInference:
     @pytest.mark.parametrize("compile_backend", ["eager", "inductor"])
     @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
     @unittest.skipIf(
-        not torch.cuda.is_available() or not is_H100,
-        "CUDA not available or on non H100 machine",
+        not torch.cuda.is_available() or not is_cuda_8_9,
+        "CUDA not available or machine does not support SM89",
     )
     def test_static_fp8_mlp(self, compile_backend, dtype):
         original_mlp = FeedForward().to("cuda", dtype=dtype)
@@ -126,7 +135,9 @@ class TestHPTrainToFP8LinearInference:
 
         # Compile the models
         compiled_original_mlp = torch.compile(
-            original_mlp, backend=compile_backend, fullgraph=True
+            original_mlp,
+            backend=compile_backend,
+            fullgraph=True,
         )
         compiled_static_fp8_mlp = torch.compile(
             static_fp8_mlp, backend=compile_backend, fullgraph=True
@@ -139,8 +150,8 @@ class TestHPTrainToFP8LinearInference:
     @pytest.mark.parametrize("compile_backend", ["eager", "inductor"])
     @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
     @unittest.skipIf(
-        not torch.cuda.is_available() or not is_H100,
-        "CUDA not available or on non H100 machine",
+        not torch.cuda.is_available() or not is_cuda_8_9,
+        "CUDA not available or machine does not support SM89",
     )
     def test_weight_only_fp8_mlp(self, compile_backend, dtype):
         original_mlp = FeedForward().to("cuda", dtype=dtype)
@@ -172,6 +183,11 @@ class TestHPTrainToFP8LinearInference:
 
 
 class TestFP8TrainToFP8LinearInference:
+    @pytest.fixture(autouse=True)
+    def setup_mock(self):
+        with patch("torch._dynamo.config.cache_size_limit", 20):
+            yield
+
     def train(self, model: nn.Module, dtype: torch.dtype):
         model.train()
         optimizer = torch.optim.SGD(model.parameters(), lr=0.001)
@@ -189,8 +205,8 @@ class TestFP8TrainToFP8LinearInference:
 
     @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
     @unittest.skipIf(
-        not torch.cuda.is_available() or not is_H100,
-        "CUDA not available or on non H100 machine",
+        not torch.cuda.is_available() or not is_cuda_8_9,
+        "CUDA not available or machine does not support SM89",
     )
     def test_fp8_save_and_load(self, dtype: torch.dtype):
         # Initialize FP8 model
@@ -239,6 +255,64 @@ class TestFP8TrainToFP8LinearInference:
 
         # Assert exact equality
         assert torch.all(og_out == new_out).item()
+
+
+class TestFP8Export:
+    @pytest.fixture(autouse=True)
+    def setup_mock(self):
+        with patch("torch._dynamo.config.cache_size_limit", 20):
+            yield
+
+    @unittest.skipIf(
+        not torch.cuda.is_available() or not is_H100,
+        "CUDA not available or on non H100 machine",
+    )
+    @unittest.skip("Pytorch needs a fix to ensure codegen maintains stride order")
+    def test_fp8_export(self):
+        export_model = FeedForward().to("cuda")
+        quant_config = QuantConfig(ActivationCasting.DYNAMIC)
+        quantize_to_float8(export_model, quant_config)
+        batch_size = 4
+        num_tokens = 1024
+        embedding_dim = 4096
+
+        inp = torch.randn(
+            batch_size, num_tokens, embedding_dim, device="cuda", dtype=torch.float32
+        )
+        example_args = (inp,)
+
+        fp8_compile_model = copy.deepcopy(export_model)
+        fp8_compile_model = torch.compile(fp8_compile_model)
+        fp8_compile_out = fp8_compile_model(*example_args)
+
+        # Export model with subclass weights
+
+        export_model = unwrap_tensor_subclass(export_model)
+
+        # Export the model
+        exported_model = _export_private(
+            export_model,
+            example_args,
+            strict=False,
+            pre_dispatch=False,
+        )
+
+        so_path = None
+        try:
+            # Compile the exported program to a .so using AOTInductor
+            with torch.no_grad():
+                so_path = torch._inductor.aot_compile(
+                    exported_model.module(), example_args
+                )
+
+            # Load and run the .so file in Python
+            res = torch._export.aot_load(so_path, device="cuda")(example_args)
+            torch.testing.assert_close(fp8_compile_out, res)
+
+        finally:
+            # Cleanup: remove the .so file
+            if so_path and os.path.exists(so_path):
+                os.remove(so_path)
 
 
 if __name__ == "__main__":

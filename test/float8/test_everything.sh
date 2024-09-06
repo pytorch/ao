@@ -15,7 +15,7 @@ then
 ./test/float8/test_fsdp.sh
 ./test/float8/test_fsdp_compile.sh
 ./test/float8/test_dtensor.sh
-pytest test/float8/test_fsdp2/test_fsdp2.py
+python test/float8/test_fsdp2/test_fsdp2.py
 fi
 
 echo "all tests successful"
