@@ -55,7 +55,7 @@ class Int8MixedPrecisionLinearWeight(Tensor):
             device=data.device,
             strides=data.stride(),
             storage_offset=data.storage_offset(),
-            pin_memory=data.is_pinned(),
+            # pin_memory=data.is_pinned(),  # this will fail compile on 2.4
         )
 
     @torch._dynamo.disable
@@ -82,7 +82,8 @@ class Int8MixedPrecisionLinearWeight(Tensor):
             kwargs = dict()
 
         if func is torch.nn.functional.linear:
-            act, weight = args[:2]
+            act = args[0]
+            weight: cls = args[1]
             bias = args[2] if len(args) > 2 else None
             return _Int8MixedPrecisionLinear.apply(act, weight._data, bias, weight.config)
 
