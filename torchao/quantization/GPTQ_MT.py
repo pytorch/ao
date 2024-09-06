@@ -65,6 +65,12 @@ class MultiTensor(torch.Tensor):
         self.add_tensors([self.values[-1]]*(length-self.count))
         return self
 
+    def get_padded_list(self, length: int) -> "MultiTensor":
+        if self.count > length:
+            return self.values[:length]
+        return [self.values]+[self.values[-1]*(length-self.count)]
+
+
     @classmethod
     def configure_quantization_mode(
         cls,
@@ -101,7 +107,8 @@ class MultiTensor(torch.Tensor):
     ) -> Any:
         def flat_to_grouped(flat: List[Any]) -> List[Tuple[Any, ...]]:
             multi_tensor_size = max([x.count if isinstance(x, MultiTensor) else 1 for x in flat])
-            grouped = list(zip(*[x.pad_to_length(multi_tensor_size).values if isinstance(x, MultiTensor) else [x] * multi_tensor_size for x in flat]))
+            grouped = list(zip(*[x.get_padded_list(multi_tensor_size) if isinstance(x, MultiTensor) else [x] * multi_tensor_size for x in flat]))
+            breakpoint()
             return grouped
 
         def grouped_to_flat(grouped: List[Tuple[Any, ...]]) -> Tuple[List[Any], bool]:
@@ -110,23 +117,39 @@ class MultiTensor(torch.Tensor):
             non_tensors_equal = all(all(x == tup[0] for x in tup) for tup in flat_tups if not isinstance(tup[0], torch.Tensor))
             return flattened, non_tensors_equal
 
-        kwargs = {} if kwargs is None else kwargs
-        
-        flat_args, spec = tree_flatten((args, kwargs))
-        grouped_args = flat_to_grouped(flat_args)
-        
-        quantize_linear = (
-            not skip_gptq
-            and cls.is_linear_layer(func)
-        )
+        def tensors_to_cuda(args):
+            new_args = []
+            for x in args:
+                new_args.append(x.cuda() if isinstance(x, torch.Tensor) else x)
+            return new_args
 
-        if quantize_linear:
-            H = 0
-            total_batches = 0
-            
-        outputs = []
         with torch._C.DisableTorchFunctionSubclass():
+        
+            quantize_linear = (
+                not skip_gptq
+                and cls.is_linear_layer(func)
+            )
+
+            if quantize_linear:
+                state_dict_manager = StateDictManager.get_instance()
+                breakpoint()
+                original_param_name = state_dict_manager.get_name_for_param(args[1])
+                breakpoint()
+
+            kwargs = {} if kwargs is None else kwargs
+            flat_args, spec = tree_flatten((args, kwargs))
+            flat_args = tensors_to_cuda(flat_args)
+            grouped_args = flat_to_grouped(flat_args)
+            
+            if quantize_linear:
+                breakpoint()
+                H = 0
+                total_batches = 0
+                
+            outputs = []
+        
             for inp in grouped_args:
+                inp = tensors_to_cuda(inp)
                 cur_args, cur_kwargs = tree_unflatten(inp, spec)
                 # Check if we're in a linear layer
                 if quantize_linear:
@@ -146,19 +169,20 @@ class MultiTensor(torch.Tensor):
                     outputs.append(out.cpu() if isinstance(out, torch.Tensor) else out)
 
             if quantize_linear:
-                weight_tensor = cur_args[1]
+                weight_tensor = args[1]
                 if isinstance(weight_tensor, MultiTensor):
                     weight_tensor = weight_tensor.values[0]
-                weight_tensor.to("cuda")
+                weight_tensor=weight_tensor.to(H.device)
                 # Get the original parameter name
-                state_dict_manager = StateDictManager.get_instance()
-                original_param_name = state_dict_manager.get_name_for_param(weight_tensor)
-                Q, DQ, all_qparams = cls.faster_quant(H, weight_tensor)
+                
+                print("start faster quant", original_param_name)
+                Q, DQ, all_qparams = cls.faster_quant(H, weight_tensor.detach())
+                print("done faster quant")
                 # Replace the original weight with the quantized weight
                 
                 state_dict_manager.update_param(original_param_name, Q)
                 # Run the function again with updated weights and skip_gptq=True
-                return cls.__torch_function__(func, types, cur_args, kwargs, skip_gptq=True)
+                return cls.__torch_function__(func, types, (args[0][:2], args[1], *args[2:]), kwargs, skip_gptq=True)
             else:
                 grouped_outputs = [tree_flatten(x)[0] for x in outputs]
                 out_spec = tree_flatten(outputs[0])[1]
@@ -214,6 +238,7 @@ class MultiTensor(torch.Tensor):
                 d = Hinv1[i, i]
 
                 if groupsize != -1 and (i1 + i) % groupsize == 0:  # start of new group
+                    print("fasterquant",i1/columns, i1, columns, blocksize)
                     cur_qparams = cls.get_qparams_func(
                         W[:, (i1 + i) : (i1 + i + groupsize)]
                     )
