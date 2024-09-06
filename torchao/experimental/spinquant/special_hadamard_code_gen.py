@@ -1,7 +1,7 @@
 # Portions (c) Meta Platforms, Inc. and affiliates.
 # This file is adapted from
-# https://github.com/Dao-AILab/fast-hadamard-transform/blob/master/csrc/code_gen.py,
-# which has the following required copyright notice:
+# https://github.com/Dao-AILab/fast-hadamard-transform/blob/master/csrc/code_gen.py .
+
 # BSD 3-Clause License
 
 # Copyright (c) 2022, the respective contributors, as shown by the AUTHORS file.

@@ -19,12 +19,7 @@ class OptimState8bit(Tensor):
 
     @staticmethod
     def __new__(cls, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool):
-        return Tensor._make_wrapper_subclass(
-            cls,
-            codes.shape,
-            device=codes.device,
-            requires_grad=False,
-        )
+        return Tensor._make_wrapper_subclass(cls, codes.shape, device=codes.device)
 
     def __init__(self, codes: Tensor, scale: Tensor, qmap: Tensor, signed: bool):
         """Create quantized 8-bit optimizer state as proposed in https://arxiv.org/abs/2110.02861
@@ -75,7 +70,7 @@ class OptimState8bit(Tensor):
 
 
 @OptimState8bit.implements(aten.copy_.default)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     dst = args[0]
     src = args[1]
 
@@ -98,14 +93,14 @@ def _(func, types, *args, **kwargs):
 
 
 @OptimState8bit.implements(aten.lerp.Scalar)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     args = [x.dequantize() if isinstance(x, OptimState8bit) else x for x in args]
     return func(*args, **kwargs)
 
 
 # this is needed for DTensor.from_local()
 @OptimState8bit.implements(aten.view.default)
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     x, shape = args
     return OptimState8bit(x.codes.view(shape), x.scale, x.qmap, x.signed)
 
@@ -117,7 +112,7 @@ def _(func, types, *args, **kwargs):
     c10d_functional.wait_tensor.default,
     _c10d_functional.wait_tensor.default,
 ])
-def _(func, types, *args, **kwargs):
+def _(func, types, args, kwargs):
     x = args[0]
     if not isinstance(x, OptimState8bit):
         raise ValueError(f"expecting a OptimState8bit but found {type(x)}")
