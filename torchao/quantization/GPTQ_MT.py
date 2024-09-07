@@ -68,7 +68,10 @@ class MultiTensor(torch.Tensor):
     def get_padded_list(self, length: int) -> "MultiTensor":
         if self.count > length:
             return self.values[:length]
-        return [self.values]+[self.values[-1]*(length-self.count)]
+        return self.values+[self.values[-1]]*(length-self.count)
+
+    def cuda(self):
+        return self.__class__([x.cuda() for x in self.values])
 
 
     @classmethod
@@ -108,7 +111,6 @@ class MultiTensor(torch.Tensor):
         def flat_to_grouped(flat: List[Any]) -> List[Tuple[Any, ...]]:
             multi_tensor_size = max([x.count if isinstance(x, MultiTensor) else 1 for x in flat])
             grouped = list(zip(*[x.get_padded_list(multi_tensor_size) if isinstance(x, MultiTensor) else [x] * multi_tensor_size for x in flat]))
-            breakpoint()
             return grouped
 
         def grouped_to_flat(grouped: List[Tuple[Any, ...]]) -> Tuple[List[Any], bool]:
@@ -120,34 +122,43 @@ class MultiTensor(torch.Tensor):
         def tensors_to_cuda(args):
             new_args = []
             for x in args:
-                new_args.append(x.cuda() if isinstance(x, torch.Tensor) else x)
+                if isinstance(x, MultiTensor) and x.count==1:
+                    new_args.append(x.cuda())
+                elif isinstance(x, MultiTensor):
+                    new_args.append(x)
+                else:
+                    new_args.append(x.cuda() if isinstance(x, torch.Tensor) else x)
             return new_args
 
-        with torch._C.DisableTorchFunctionSubclass():
+
         
-            quantize_linear = (
-                not skip_gptq
-                and cls.is_linear_layer(func)
-            )
+        quantize_linear = (
+            not skip_gptq
+            and cls.is_linear_layer(func)
+        )
+        # p self.state_dict_manager.id_to_name[model.layers[0].attention.wqkv.weight.data_ptr()]
+        if quantize_linear:
+            state_dict_manager = StateDictManager.get_instance()
+            # if isinstance(args[1], MultiTensor):
+            #     original_param_name = state_dict_manager.get_name_for_param(args[1].values[0])
+            # else:
+            original_param_name = state_dict_manager.get_name_for_param(args[1])
+            # just to speed it up
+            if "2" in original_param_name or "3" in original_param_name:
+                print("skip", original_param_name)
+                quantize_linear=False
 
-            if quantize_linear:
-                state_dict_manager = StateDictManager.get_instance()
-                breakpoint()
-                original_param_name = state_dict_manager.get_name_for_param(args[1])
-                breakpoint()
-
-            kwargs = {} if kwargs is None else kwargs
-            flat_args, spec = tree_flatten((args, kwargs))
-            flat_args = tensors_to_cuda(flat_args)
-            grouped_args = flat_to_grouped(flat_args)
+        kwargs = {} if kwargs is None else kwargs
+        flat_args, spec = tree_flatten((args, kwargs))
+        flat_args = tensors_to_cuda(flat_args)
+        grouped_args = flat_to_grouped(flat_args)
             
+        with torch._C.DisableTorchFunctionSubclass():
             if quantize_linear:
-                breakpoint()
                 H = 0
                 total_batches = 0
-                
+
             outputs = []
-        
             for inp in grouped_args:
                 inp = tensors_to_cuda(inp)
                 cur_args, cur_kwargs = tree_unflatten(inp, spec)
@@ -165,7 +176,10 @@ class MultiTensor(torch.Tensor):
                     ).t().float()
                     H += x.matmul(x.t())    
                 else:
-                    out = func(*cur_args, **cur_kwargs)
+                    try:
+                        out = func(*cur_args, **cur_kwargs)
+                    except:
+                        breakpoint()
                     outputs.append(out.cpu() if isinstance(out, torch.Tensor) else out)
 
             if quantize_linear:
@@ -175,14 +189,13 @@ class MultiTensor(torch.Tensor):
                 weight_tensor=weight_tensor.to(H.device)
                 # Get the original parameter name
                 
-                print("start faster quant", original_param_name)
+                print("quantized", original_param_name)
                 Q, DQ, all_qparams = cls.faster_quant(H, weight_tensor.detach())
-                print("done faster quant")
                 # Replace the original weight with the quantized weight
                 
                 state_dict_manager.update_param(original_param_name, Q)
                 # Run the function again with updated weights and skip_gptq=True
-                return cls.__torch_function__(func, types, (args[0][:2], args[1], *args[2:]), kwargs, skip_gptq=True)
+                return cls.__torch_function__(func, types, (args[0], args[1], *args[2:]), kwargs, skip_gptq=True)
             else:
                 grouped_outputs = [tree_flatten(x)[0] for x in outputs]
                 out_spec = tree_flatten(outputs[0])[1]
@@ -238,7 +251,6 @@ class MultiTensor(torch.Tensor):
                 d = Hinv1[i, i]
 
                 if groupsize != -1 and (i1 + i) % groupsize == 0:  # start of new group
-                    print("fasterquant",i1/columns, i1, columns, blocksize)
                     cur_qparams = cls.get_qparams_func(
                         W[:, (i1 + i) : (i1 + i + groupsize)]
                     )
@@ -302,14 +314,17 @@ class StateDictManager:
 
     def __init__(self):
         self.state_dict = {}
-        self.param_ptr_to_name = {}
+        self.id_to_name = {}
 
     def set_state_dict(self, model):
         self.state_dict = model.state_dict()
-        self.param_ptr_to_name = {v.data_ptr(): k for k, v in model.named_parameters()}
+        self.id_to_name = {id(v): k for k, v in model.named_parameters()}
+
+    def update_id_to_name(self, model):
+        self.id_to_name = {id(v): k for k, v in model.named_parameters()}
 
     def get_name_for_param(self, param):
-        return self.param_ptr_to_name.get(param.data_ptr(), None)
+        return self.id_to_name.get(id(param), None)
 
     def update_param(self, name, new_value):
         if name in self.state_dict:
@@ -343,6 +358,7 @@ class GPTQQuantizer(Quantizer):
         assert self.make_names_and_values_dict_func is not None, "make_names_and_values_dict_func must be set"
         assert self.skip_layer_func is not None, "skip_layer_func must be set"
 
+    # this doesn't work
     def _replace_parameters_with_multitensor(self, model):
         for name, param in model.named_parameters():
             setattr(model, name.split('.')[-1], MultiTensor(param))
@@ -378,7 +394,7 @@ class GPTQQuantizer(Quantizer):
         # Set the state dict for the original model
         self.state_dict_manager.set_state_dict(model)
         # Replace parameters with MultiTensor
-        self._replace_parameters_with_multitensor(model)
+        # self._replace_parameters_with_multitensor(model)
         # Replace buffers and parameters with MultiTensor
         with torch.no_grad():
             _replace_with_custom_fn_if_matches_filter(
@@ -386,6 +402,7 @@ class GPTQQuantizer(Quantizer):
                 replacement_fn=replace_buffers_and_params,
                 filter_fn=lambda x, y: True
             )
+        self.state_dict_manager.update_id_to_name(model)
          # Run the model
         with torch.no_grad():
             out = model(*inputs)
