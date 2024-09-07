@@ -213,7 +213,7 @@ class TestQAT(unittest.TestCase):
         m = M()
         m2 = copy.deepcopy(m)
         qat_quantizer = Int8DynActInt4WeightQATQuantizer(groupsize=group_size)
-        ptq_quantizer = Int8DynActInt4WeightQuantizer(groupsize=group_size, mapping_type=MappingType.SYMMETRIC)
+        ptq_quantizer = Int8DynActInt4WeightQuantizer(groupsize=group_size)
         qat_model = qat_quantizer.prepare(m)
         ptq_model = ptq_quantizer.quantize(m2)
 
