@@ -516,7 +516,7 @@ class TestQuantFlow(TestCase):
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
         from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
 
-        quantizer = Int8DynActInt4WeightQuantizer(groupsize=group_size, mapping_type=MappingType.SYMMETRIC)
+        quantizer = Int8DynActInt4WeightQuantizer(groupsize=group_size)
         m_copy = quantizer.quantize(m_copy)
         assert isinstance(m_copy.linear1, Int8DynActInt4WeightLinear)
         assert isinstance(m_copy.linear2, Int8DynActInt4WeightLinear)
