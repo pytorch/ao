@@ -41,12 +41,18 @@ class MappingType(Enum):
     we'll use (-10.2, 10.2) as the range for floating point and map that to (-8, 7)
     e.g. scale = (10.2 - (-10.2)) / (7 - (-8))
 
+    SYMMETRIC_NO_CLIPPING_ERR is a variant of symmetric mapping, where the scale is the max of smin
+    and smax, where smin = min_val_neg / quant_min, and smax = max_val_pos / quant_max. By calculating
+    smin and smax individually, there can be less round error on negative values, and no out-of-range
+    of all floating point values.
+
     asymmetric mapping means we just directly map the floating point range to integer range,
     for the above example, we will map (-3.5, 10.2) to (-8, 7) and calculate quantization parameter
     based on this mapping
     e.g. scale = (10.2 - (-3.5)) / (7 - (-8))
     """
     SYMMETRIC = auto()
+    SYMMETRIC_NO_CLIPPING_ERR = auto()
     ASYMMETRIC = auto()
 
 class ZeroPointDomain(Enum):
@@ -695,7 +701,7 @@ def _choose_qparams_affine(
        and `zero_point_domain`
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
-    assert mapping_type in [MappingType.SYMMETRIC.name, MappingType.ASYMMETRIC.name], f"Unsupported mapping type: {mapping_type}"
+    assert mapping_type in [MappingType.SYMMETRIC.name, MappingType.SYMMETRIC_NO_CLIPPING_ERR.name, MappingType.ASYMMETRIC.name], f"Unsupported mapping type: {mapping_type}"
     if target_dtype in FP8_TYPES:
         assert mapping_type == MappingType.SYMMETRIC.name, f"Only symmetric quantization is supported for FP8 types, got {mapping_type}"
 
@@ -731,9 +737,25 @@ def _choose_qparams_affine(
         min_val_neg = min_val
         max_val_pos = max_val
 
-    if mapping_type == MappingType.SYMMETRIC.name:
-        max_val_pos = torch.max(-min_val_neg, max_val_pos)
-        scale = max_val_pos / (float(quant_max - quant_min) / 2)
+    if mapping_type == MappingType.SYMMETRIC.name or mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR.name:
+        # scales
+        if mapping_type == MappingType.SYMMETRIC.name:
+            max_val_pos = torch.max(-min_val_neg, max_val_pos)
+            scale = max_val_pos / (float(quant_max - quant_min) / 2)
+        else:
+            assert mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR.name
+            # calculate smin and smax individually and choose the larger one. For example, if quant_min = -8 and
+            # quant_max = 7.
+            # - If smin is bigger: There would be coverage on negative values down to -8, and less rounding
+            # error than the existing SYMMETRIC case.
+            # - If smax is bigger: it covers the positive values up to 7. The round
+            # error may be bigger than the existing SYMMETRIC case. Either way, there's no out-of-range fp values after
+            # quantization.
+            smin = min_val_neg / float(quant_min)
+            smax = max_val_pos / float(quant_max)
+            mask = smin > smax
+            scale = torch.where(mask, smin, smax)
+        # zeros
         if not preserve_zero:
             raise ValueError("preserve_zero == False is not supported for symmetric quantization")
         if zero_point_domain is not None and zero_point_domain != ZeroPointDomain.INT.name:
