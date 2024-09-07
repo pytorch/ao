@@ -401,12 +401,13 @@
 <span class="kn">import</span> <span class="nn">torchao</span>
 <span class="kn">import</span> <span class="nn">torch.nn</span> <span class="k">as</span> <span class="nn">nn</span>
 <span class="kn">import</span> <span class="nn">torch.nn.functional</span> <span class="k">as</span> <span class="nn">F</span>
-<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Union</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Optional</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Union</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Literal</span><span class="p">,</span> <span class="n">Tuple</span>
 <span class="kn">import</span> <span class="nn">types</span>
 
 <span class="kn">from</span> <span class="nn">torchao.dtypes.uintx.Uintx</span> <span class="kn">import</span> <span class="n">UintxLayoutType</span>
 <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">to_affine_quantized_intx</span><span class="p">,</span>
+    <span class="n">to_affine_quantized_floatx</span><span class="p">,</span>
     <span class="n">TensorCoreTiledLayoutType</span><span class="p">,</span>
     <span class="n">PlainLayoutType</span><span class="p">,</span>
     <span class="n">AffineQuantizedTensor</span><span class="p">,</span>
@@ -446,6 +447,8 @@
     <span class="n">LinearActivationWeightObservedTensor</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span> <span class="nn">torchao.float8.inference</span> <span class="kn">import</span> <span class="n">Float8MMConfig</span>
+
+<span class="kn">from</span> <span class="nn">torchao.quantization.observer</span> <span class="kn">import</span> <span class="n">PerTensor</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">,</span> <span class="n">get_block_size</span>
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
 
@@ -1028,44 +1031,102 @@
     <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_float8wo_quant</span><span class="p">)</span>
 
 
+<span class="n">_fp8_granularities</span> <span class="o">=</span> <span class="n">Union</span><span class="p">[</span><span class="n">PerTensor</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">]</span>
+
+
+<span class="c1"># Validate and process granularity input</span>
+<span class="k">def</span> <span class="nf">_normalize_granularity</span><span class="p">(</span>
+    <span class="n">granularity</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span>
+        <span class="n">Union</span><span class="p">[</span><span class="n">_fp8_granularities</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">_fp8_granularities</span><span class="p">,</span> <span class="n">_fp8_granularities</span><span class="p">]]</span>
+    <span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">_fp8_granularities</span><span class="p">,</span> <span class="n">_fp8_granularities</span><span class="p">]:</span>
+    <span class="k">if</span> <span class="n">granularity</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">PerTensor</span><span class="p">(),</span> <span class="n">PerTensor</span><span class="p">())</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">granularity</span><span class="p">,</span> <span class="p">(</span><span class="n">PerTensor</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">)):</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">granularity</span><span class="p">,</span> <span class="n">granularity</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">granularity</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">granularity</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span>
+            <span class="nb">isinstance</span><span class="p">(</span><span class="n">granularity</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">(</span><span class="n">PerTensor</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">))</span>
+            <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">granularity</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="p">(</span><span class="n">PerTensor</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">))</span>
+        <span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid granularity types: </span><span class="si">{</span><span class="n">granularity</span><span class="si">}</span><span class="s2">, only PerTensor or PerRow are supported.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">granularity</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="nb">type</span><span class="p">(</span><span class="n">granularity</span><span class="p">[</span><span class="mi">1</span><span class="p">])):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Different granularities for activation and weight are not supported: </span><span class="si">{</span><span class="n">granularity</span><span class="si">}</span><span class="s2">, only PerTensor or PerRow are supported.&quot;</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="n">granularity</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Invalid granularity specification: </span><span class="si">{</span><span class="n">granularity</span><span class="si">}</span><span class="s2">, only PerTensor or PerRow are supported.&quot;</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">_input_quant_func_dyanmic_fp8</span><span class="p">(</span>
+    <span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
+    <span class="n">activation_granularity</span><span class="p">:</span> <span class="n">_fp8_granularities</span><span class="p">,</span>
+    <span class="n">activation_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+<span class="p">):</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">activation_granularity</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="p">(</span>
+            <span class="n">x</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
+        <span class="p">),</span> <span class="s2">&quot;PerRow quantization only works for bfloat16 precision input activation&quot;</span>
+
+    <span class="n">block_size</span> <span class="o">=</span> <span class="n">get_block_size</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">activation_granularity</span><span class="p">)</span>
+    <span class="n">activation</span> <span class="o">=</span> <span class="n">to_affine_quantized_floatx</span><span class="p">(</span>
+        <span class="n">input_float</span><span class="o">=</span><span class="n">x</span><span class="p">,</span>
+        <span class="n">block_size</span><span class="o">=</span><span class="n">block_size</span><span class="p">,</span>
+        <span class="n">target_dtype</span><span class="o">=</span><span class="n">activation_dtype</span><span class="p">,</span>
+        <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
+        <span class="n">layout_type</span><span class="o">=</span><span class="n">Float8LayoutType</span><span class="p">(</span><span class="n">mm_config</span><span class="o">=</span><span class="kc">None</span><span class="p">),</span>  <span class="c1"># Config is stored on weight</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">activation</span>
+
+
 <span class="k">def</span> <span class="nf">float8_dynamic_activation_float8_weight</span><span class="p">(</span>
     <span class="n">activation_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
     <span class="n">weight_dtype</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span>
-    <span class="n">mm_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float8MMConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">granularity</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span>
+        <span class="n">Union</span><span class="p">[</span><span class="n">_fp8_granularities</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">_fp8_granularities</span><span class="p">,</span> <span class="n">_fp8_granularities</span><span class="p">]]</span>
+    <span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">mm_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float8MMConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Applies float8 dynamic symmetric per-tensor quantization to both activations and weights of linear layers.</span>
+<span class="sd">    Applies float8 dynamic symmetric quantization to both activations and weights of linear layers.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        activation_dtype (torch.dtype): The target data type for activation quantization. Default is torch.float8_e4m3fn.</span>
 <span class="sd">        weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.</span>
+<span class="sd">        granularity:</span>
+<span class="sd">            The granularity for quantization. Can be either a single granularity (applied to both</span>
+<span class="sd">            activations and weights) or a tuple of two granularities (one for activations, one for weights).</span>
+<span class="sd">            If None, defaults to PerTensor for both. Currently both quantizations need to be the same type. And </span>
+<span class="sd">            only PerTensor and PerRow are supported.</span>
 <span class="sd">        mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.</span>
 
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">to_affine_quantized_floatx</span>
-
     <span class="k">if</span> <span class="n">mm_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
         <span class="n">mm_config</span> <span class="o">=</span> <span class="n">Float8MMConfig</span><span class="p">(</span><span class="n">use_fast_accum</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
-    <span class="c1">#TODO we are hardcoding TensorWise scaling, will follow up PR for Tensorwise scaling</span>
+    <span class="n">activation_granularity</span><span class="p">,</span> <span class="n">weight_granularity</span> <span class="o">=</span> <span class="n">_normalize_granularity</span><span class="p">(</span><span class="n">granularity</span><span class="p">)</span>
+
     <span class="k">def</span> <span class="nf">apply_float8_dynamic_activation_quant</span><span class="p">(</span><span class="n">weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_granularity</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">):</span>
+            <span class="k">assert</span> <span class="p">(</span>
+                <span class="n">weight</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span>
+            <span class="p">),</span> <span class="s2">&quot;PerRow quantization only works for bfloat16 precision input weight&quot;</span>
+
+        <span class="n">block_size</span> <span class="o">=</span> <span class="n">get_block_size</span><span class="p">(</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">weight_granularity</span><span class="p">)</span>
         <span class="n">quantized_weight</span> <span class="o">=</span> <span class="n">to_affine_quantized_floatx</span><span class="p">(</span>
             <span class="n">input_float</span><span class="o">=</span><span class="n">weight</span><span class="p">,</span>
-            <span class="n">block_size</span><span class="o">=</span><span class="n">weight</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
+            <span class="n">block_size</span><span class="o">=</span><span class="n">block_size</span><span class="p">,</span>
             <span class="n">target_dtype</span><span class="o">=</span><span class="n">weight_dtype</span><span class="p">,</span>
             <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
             <span class="n">layout_type</span><span class="o">=</span><span class="n">Float8LayoutType</span><span class="p">(</span><span class="n">mm_config</span><span class="o">=</span><span class="n">mm_config</span><span class="p">),</span>
         <span class="p">)</span>
 
-        <span class="k">def</span> <span class="nf">input_quant_func</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
-            <span class="n">activation</span> <span class="o">=</span> <span class="n">to_affine_quantized_floatx</span><span class="p">(</span>
-                <span class="n">input_float</span><span class="o">=</span><span class="n">x</span><span class="p">,</span>
-                <span class="n">block_size</span><span class="o">=</span><span class="n">x</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
-                <span class="n">target_dtype</span><span class="o">=</span><span class="n">activation_dtype</span><span class="p">,</span>
-                <span class="n">scale_dtype</span><span class="o">=</span><span class="n">torch</span><span class="o">.</span><span class="n">float32</span><span class="p">,</span>
-                <span class="n">layout_type</span><span class="o">=</span><span class="n">Float8LayoutType</span><span class="p">(</span><span class="n">mm_config</span><span class="o">=</span><span class="kc">None</span><span class="p">),</span>  <span class="c1"># Config is stored on weight</span>
-            <span class="p">)</span>
-            <span class="k">return</span> <span class="n">activation</span>
+        <span class="n">input_quant_func</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span>
+            <span class="n">_input_quant_func_dyanmic_fp8</span><span class="p">,</span>
+            <span class="n">activation_granularity</span><span class="o">=</span><span class="n">activation_granularity</span><span class="p">,</span>
+            <span class="n">activation_dtype</span><span class="o">=</span><span class="n">activation_dtype</span><span class="p">,</span>
+        <span class="p">)</span>
 
         <span class="n">quantized_weight</span> <span class="o">=</span> <span class="n">to_linear_activation_quantized</span><span class="p">(</span>
             <span class="n">quantized_weight</span><span class="p">,</span> <span class="n">input_quant_func</span>
