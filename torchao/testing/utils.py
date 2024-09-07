@@ -22,8 +22,9 @@ from torch.testing._internal import common_utils
 
 # change arguments
 class MyTestCase(TorchAOBasicTestCase):
+    TENSOR_SUBCLASS = MyDTypeTensor
     FACTOR_FN = to_my_dtype
-    kwargs = {...}
+    kwargs = {"target_dtype": torch.uint8}
     LINEAR_MIN_SQNR = 30
 
 # copy the instantiated tests
