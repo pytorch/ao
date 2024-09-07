@@ -31,6 +31,7 @@ from torchao.quantization.quant_api import (
 )
 from torchao.quantization.quant_primitives import (
     fake_quantize_affine,
+    MappingType,
     ZeroPointDomain,
 )
 from torchao.quantization.utils import (

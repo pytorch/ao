@@ -20,12 +20,13 @@ import torch
 import torchao
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Any, Callable, Union, Dict, Optional
+from typing import Any, Callable, Union, Dict, Optional, Literal, Tuple
 import types
 
 from torchao.dtypes.uintx.Uintx import UintxLayoutType
 from torchao.dtypes import (
     to_affine_quantized_intx,
+    to_affine_quantized_floatx,
     TensorCoreTiledLayoutType,
     PlainLayoutType,
     AffineQuantizedTensor,
@@ -65,6 +66,8 @@ from torchao.quantization.linear_activation_weight_observer import (
     LinearActivationWeightObservedTensor,
 )
 from torchao.float8.inference import Float8MMConfig
+
+from torchao.quantization.observer import PerTensor, PerRow, get_block_size
 
 logger = logging.getLogger(__name__)
 
@@ -648,44 +651,102 @@ def float8_weight_only(weight_dtype: torch.dtype = torch.float8_e4m3fn):
     return _get_linear_subclass_inserter(apply_float8wo_quant)
 
 
+_fp8_granularities = Union[PerTensor, PerRow]
+
+
+# Validate and process granularity input
+def _normalize_granularity(
+    granularity: Optional[
+        Union[_fp8_granularities, Tuple[_fp8_granularities, _fp8_granularities]]
+    ]
+) -> Tuple[_fp8_granularities, _fp8_granularities]:
+    if granularity is None:
+        return (PerTensor(), PerTensor())
+    elif isinstance(granularity, (PerTensor, PerRow)):
+        return (granularity, granularity)
+    elif isinstance(granularity, tuple) and len(granularity) == 2:
+        if not (
+            isinstance(granularity[0], (PerTensor, PerRow))
+            and isinstance(granularity[1], (PerTensor, PerRow))
+        ):
+            raise ValueError(f"Invalid granularity types: {granularity}, only PerTensor or PerRow are supported.")
+        if not isinstance(granularity[0], type(granularity[1])):
+            raise ValueError(
+                f"Different granularities for activation and weight are not supported: {granularity}, only PerTensor or PerRow are supported."
+            )
+        return granularity
+    else:
+        raise ValueError(f"Invalid granularity specification: {granularity}, only PerTensor or PerRow are supported.")
+
+
+def _input_quant_func_dyanmic_fp8(
+    x: torch.Tensor,
+    activation_granularity: _fp8_granularities,
+    activation_dtype: torch.dtype,
+):
+    if isinstance(activation_granularity, PerRow):
+        assert (
+            x.dtype == torch.bfloat16
+        ), "PerRow quantization only works for bfloat16 precision input activation"
+
+    block_size = get_block_size(x.shape, activation_granularity)
+    activation = to_affine_quantized_floatx(
+        input_float=x,
+        block_size=block_size,
+        target_dtype=activation_dtype,
+        scale_dtype=torch.float32,
+        layout_type=Float8LayoutType(mm_config=None),  # Config is stored on weight
+    )
+    return activation
+
+
 def float8_dynamic_activation_float8_weight(
     activation_dtype: torch.dtype = torch.float8_e4m3fn,
     weight_dtype: torch.dtype = torch.float8_e4m3fn,
-    mm_config: Optional[Float8MMConfig] = None
+    granularity: Optional[
+        Union[_fp8_granularities, Tuple[_fp8_granularities, _fp8_granularities]]
+    ] = None,
+    mm_config: Optional[Float8MMConfig] = None,
 ):
     """
-    Applies float8 dynamic symmetric per-tensor quantization to both activations and weights of linear layers.
+    Applies float8 dynamic symmetric quantization to both activations and weights of linear layers.
 
     Args:
         activation_dtype (torch.dtype): The target data type for activation quantization. Default is torch.float8_e4m3fn.
         weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.
+        granularity:
+            The granularity for quantization. Can be either a single granularity (applied to both
+            activations and weights) or a tuple of two granularities (one for activations, one for weights).
+            If None, defaults to PerTensor for both. Currently both quantizations need to be the same type. And 
+            only PerTensor and PerRow are supported.
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
 
     """
-    from torchao.dtypes import to_affine_quantized_floatx
-
     if mm_config is None:
         mm_config = Float8MMConfig(use_fast_accum=True)
 
-    #TODO we are hardcoding TensorWise scaling, will follow up PR for Tensorwise scaling
+    activation_granularity, weight_granularity = _normalize_granularity(granularity)
+
     def apply_float8_dynamic_activation_quant(weight: torch.Tensor):
+        if isinstance(weight_granularity, PerRow):
+            assert (
+                weight.dtype == torch.bfloat16
+            ), "PerRow quantization only works for bfloat16 precision input weight"
+
+        block_size = get_block_size(weight.shape, weight_granularity)
         quantized_weight = to_affine_quantized_floatx(
             input_float=weight,
-            block_size=weight.shape,
+            block_size=block_size,
             target_dtype=weight_dtype,
             scale_dtype=torch.float32,
             layout_type=Float8LayoutType(mm_config=mm_config),
         )
 
-        def input_quant_func(x: torch.Tensor):
-            activation = to_affine_quantized_floatx(
-                input_float=x,
-                block_size=x.shape,
-                target_dtype=activation_dtype,
-                scale_dtype=torch.float32,
-                layout_type=Float8LayoutType(mm_config=None),  # Config is stored on weight
-            )
-            return activation
+        input_quant_func = partial(
+            _input_quant_func_dyanmic_fp8,
+            activation_granularity=activation_granularity,
+            activation_dtype=activation_dtype,
+        )
 
         quantized_weight = to_linear_activation_quantized(
             quantized_weight, input_quant_func

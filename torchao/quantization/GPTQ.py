@@ -39,6 +39,8 @@ from .utils import (
 )
 aten = torch.ops.aten
 
+from .quant_primitives import MappingType
+
 if not _lm_eval_available:
     logging.info("lm_eval is not installed, GPTQ may not be usable")
 
@@ -1022,6 +1024,7 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
         precision: torch.dtype = torch.float32,
         scales_precision: torch.dtype = torch.float32,
         device: torch.device = torch.device("cpu"),
+        mapping_type: MappingType = MappingType.SYMMETRIC
     ) -> None:
         super().__init__()
         self.groupsize: int = groupsize
@@ -1029,6 +1032,7 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
         self.precision: torch.dtype = precision
         self.scales_precision: torch.dtype = scales_precision
         self.device: torch.device = device
+        self.mapping_type: MappingType = mapping_type
 
     @torch.no_grad()
     def _create_quantized_state_dict(
@@ -1068,6 +1072,7 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
                     4,  # n_bit
                     self.groupsize,
                     self.scales_precision,
+                    mapping_type=self.mapping_type
                 )
                 cur_state_dict[f"{fqn}.weight"] = weight_int8.to(self.device)
                 cur_state_dict[f"{fqn}.scales"] = scales.to(self.device)
