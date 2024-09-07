@@ -164,7 +164,7 @@ class TestQuantPrimitives(unittest.TestCase):
         scale_obs = scale_obs.reshape(weight.shape[0], -1)
 
         # assert that scales are identical
-        (scale_ao, _) = get_group_qparams_symmetric(weight, n_bit, groupsize, precision=torch.float16, mapping_type=MappingType.SYMMETRIC)
+        (scale_ao, _) = get_group_qparams_symmetric(weight, n_bit, groupsize, precision=torch.float16)
         torch.testing.assert_close(scale_obs, scale_ao, rtol=0, atol=0)
 
     def test_choose_qparams_group_sym(self):
@@ -184,7 +184,7 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(scale, scale_ref))
         self.assertTrue(torch.equal(zero_point, zp_ref))
 
-    def test_choose_qparams_group_sym_pos_neg(self):
+    def test_choose_qparams_group_sym_no_clipping_err(self):
         """
         Test the added MappingType.SYMMETRIC_NO_CLIPPING_ERR
         """
