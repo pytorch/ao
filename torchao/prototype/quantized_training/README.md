@@ -60,7 +60,7 @@ INT8 QT compile |  9.84            | 8700
 
 On NVIDIA GPUs, INT8 Tensor Cores is approximately 2x faster than their BF16/FP16 counterparts. In mixed-precision training, we can down-cast activations and weights dynamically to INT8 to leverage faster matmuls. However, since INT8 has very limited range [-128,127], we perform row-wise quantization, similar to how INT8 post-training quantization (PTQ) is done. Weight is still in original precision.
 
-Usage
+### Basic usage
 
 ```python
 from torchao.prototype.quantized_training import int8_mixed_precision_training, Int8MixedPrecisionTrainingConfig
@@ -103,6 +103,32 @@ BF16 (baseline)      | ~17k  | 19.47         | 2.97
 INT8 mixed-precision | ~29k  | 19.47         | 2.90
 
 See [#748](https://github.com/pytorch/ao/pull/748) for more results.
+
+### FSDP support
+
+Out of the box, this INT8 mixed-precision training is not compatible with FSDP2 `MixedPrecisionPolicy(param_dtype=param_dtype)`, where `param_dtype` != model dtype. As a workaround, you will need to manually specify the FSDP2's `param_dtype` in `Int8MixedPrecisionTrainingConfig`
+
+```python
+from torch.distributed._composable.fsdp import fully_shard, MixedPrecisionPolicy
+from torchao.prototype.quantized_training import int8_mixed_precision_training, Int8MixedPrecisionTrainingConfig
+from torchao.quantization import quantize_
+
+model = ...  # FP32 model
+
+# setup configs
+mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16)
+int8mp_config = Int8MixedPrecisionTrainingConfig(fsdp_param_dtype=mp_policy.param_dtype)
+
+# exclude LM head
+quantize_(model.layers, int8_mixed_precision_training(int8mp_config))
+
+# shard the model w/ FSDP2
+for layer in model.layers:
+    fully_shard(layer, mp_policy=mp_policy)
+fully_shard(model, mp_policy=mp_policy)
+
+# train model as usual
+```
 
 ## Future ideas
 
