@@ -143,6 +143,9 @@ class Int8MixedPrecisionTrainingLinearWeight(TorchAOBaseTensor):
 
 @Int8MixedPrecisionTrainingLinearWeight.implements(torch.nn.functional.linear)
 def _(func, types, args, kwargs):
+    if torch.is_autocast_enabled("cuda"):
+        dtype = torch.get_autocast_gpu_dtype()
+        args = tuple(x.to(dtype) if x is not None else x for x in args)
     return _Int8MixedPrecisionTrainingLinear.apply(*args, **kwargs)
 
 

@@ -149,8 +149,17 @@ class TestQuantizedTraining(TestCase):
             optim_int8.zero_grad()
 
     @parametrize("compile", [False, True])
+    @parametrize(
+        "config",
+        [
+            Int8MixedPrecisionTrainingConfig(),
+            Int8MixedPrecisionTrainingConfig(output=False),
+            Int8MixedPrecisionTrainingConfig(grad_input=False),
+            Int8MixedPrecisionTrainingConfig(grad_weight=False),
+        ],
+    )
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-    def test_int8_mixed_precision_training(self, compile):
+    def test_int8_mixed_precision_training(self, compile, config):
         _reset()
         bsize = 4
         embed_dim = 32
@@ -163,7 +172,7 @@ class TestQuantizedTraining(TestCase):
             nn.Linear(embed_dim, embed_dim),
         ).to(device)
         model_int8mp = copy.deepcopy(model_ref)
-        quantize_(model_int8mp, int8_mixed_precision_training(), set_inductor_config=False)
+        quantize_(model_int8mp, int8_mixed_precision_training(config), set_inductor_config=False)
 
         if compile:
             model_ref.compile()
@@ -202,11 +211,36 @@ class TestFSDP2(FSDPTest):
 
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
     def test_fsdp2_correctness(self):
-        # due to stochastic rounding, use a pretty large tolerance here
-        self._test_fsdp2(int8_weight_only_quantized_training(), tolerance=0.05)
-        self._test_fsdp2(int8_mixed_precision_training(), tolerance=1e-6)
+        test_args = [
+            (
+                int8_weight_only_quantized_training(),  # quantize_fn for base model
+                int8_weight_only_quantized_training(),  # quantize_fn for FSDP model
+                MixedPrecisionPolicy(),
+                0.05,  # tolerance. due to stochastic rounding, use a pretty large tolerance here
+            ),
+            (
+                int8_mixed_precision_training(),
+                int8_mixed_precision_training(),
+                MixedPrecisionPolicy(),
+                1e-6,
+            ),
+            (
+                # It's complicated (though possible) to simulate FSDP BF16 mixed-precision for base_model.
+                # We would need to cast all params to BF16 in forward and backward pass, while keeping
+                # the params in FP32 for optim step.
+                # torch.autocast() will only do this for F.linear() layer (and its backward).
+                # To keep it simple, we just use a larger tolerance here.
+                int8_mixed_precision_training(),
+                int8_mixed_precision_training(Int8MixedPrecisionTrainingConfig(fsdp_param_dtype=torch.bfloat16)),
+                MixedPrecisionPolicy(param_dtype=torch.bfloat16),
+                1e-2,
+            ),
+        ]
+        self.run_subtests({"args": test_args}, self._run_subtest)
 
-    def _test_fsdp2(self, quantize_fn, tolerance):
+    def _run_subtest(self, args):
+        base_quantize_fn, fsdp_quantize_fn, mp_policy, tolerance = args
+
         batch_size = 3
         vocab_size = 32
         seq_len = 64
@@ -222,18 +256,21 @@ class TestFSDP2(FSDPTest):
         )
         torch.manual_seed(42)
         base_model = Transformer(model_args).cuda()
-        quantize_(base_model.layers, quantize_fn, set_inductor_config=False)
         fsdp_model = copy.deepcopy(base_model)
 
-        for layer in fsdp_model.layers:
-            fully_shard(layer)
-        fully_shard(fsdp_model)
+        quantize_(base_model.layers, base_quantize_fn, set_inductor_config=False)
+        quantize_(fsdp_model.layers, fsdp_quantize_fn, set_inductor_config=False)
 
+        for layer in fsdp_model.layers:
+            fully_shard(layer, mp_policy=mp_policy)
+        fully_shard(fsdp_model, mp_policy=mp_policy)
+
+        # start testing
         base_optim = torch.optim.Adam(base_model.parameters(), lr=1e-2, foreach=False, fused=False)
         fsdp_optim = torch.optim.Adam(fsdp_model.parameters(), lr=1e-2, foreach=False, fused=False)
 
         torch.manual_seed(42 + self.rank + 1)
-        for iter_idx in range(5):
+        for iter_idx in range(10):
             inp = torch.randint(0, vocab_size, (batch_size, seq_len), device="cuda")
             fsdp_optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
             fsdp_loss = fsdp_model(inp).sum()
@@ -251,61 +288,6 @@ class TestFSDP2(FSDPTest):
             base_optim.step()
 
             rel_error = (fsdp_loss - base_loss).abs() / base_loss.abs()
-            assert rel_error < tolerance, (iter_idx, rel_error)
-
-    @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
-    def test_int8_mixed_precision_fsdp2_mixed_precision(self):
-        batch_size = 3
-        vocab_size = 32
-        seq_len = 64
-        tolerance = 1e-6
-
-        # NOTE: if weight_tying=True and we also quantize LM head, INT8 mixed-precision will fail.
-        model_args = ModelArgs(
-            n_layers=2,
-            n_heads=2,
-            dim=128,
-            vocab_size=vocab_size,
-            max_seq_len=seq_len,
-            dropout_p=0,
-        )
-        torch.manual_seed(42)
-        base_model = Transformer(model_args).cuda()
-        mp_model = copy.deepcopy(base_model)
-
-        quantize_(base_model.layers, int8_mixed_precision_training(), set_inductor_config=False)
-        for layer in base_model.layers:
-            fully_shard(layer)
-        fully_shard(base_model)
-
-        mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16)
-        config = Int8MixedPrecisionTrainingConfig(fsdp_param_dtype=mp_policy.param_dtype)
-        quantize_(mp_model.layers, int8_mixed_precision_training(config), set_inductor_config=False)
-        for layer in mp_model.layers:
-            fully_shard(layer)
-        fully_shard(mp_model)
-
-        base_optim = torch.optim.AdamW(base_model.parameters(), lr=1e-2)
-        mp_optim = torch.optim.AdamW(mp_model.parameters(), lr=1e-2)
-
-        torch.manual_seed(42 + self.rank + 1)
-        for iter_idx in range(5):
-            inp = torch.randint(0, vocab_size, (batch_size, seq_len), device="cuda")
-            mp_optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
-            mp_loss = mp_model(inp).sum()
-            mp_loss.backward()
-            for param in mp_model.parameters():
-                assert param.grad is not None
-            mp_optim.step()
-
-            base_optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
-            base_loss = base_model(inp).sum()
-            base_loss.backward()
-            for param in base_model.parameters():
-                assert param.grad is not None
-            base_optim.step()
-
-            rel_error = (mp_loss - base_loss).abs() / base_loss.abs()
             assert rel_error < tolerance, (iter_idx, rel_error)
 
 
