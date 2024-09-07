@@ -26,6 +26,12 @@ from torchao.dtypes.utils import (
     is_device,
     get_out_shape,
 )
+from torchao.float8.inference import (
+    preprocess_data,
+    Float8MMConfig,
+    addmm_float8_unwrapped_inference,
+    _is_rowwise_scaled
+)
 from torch.utils._python_dispatch import is_traceable_wrapper_subclass
 from dataclasses import dataclass
 from torchao.utils import (
@@ -1354,20 +1360,29 @@ def _linear_f16_act_fpx_weight_impl(input_tensor, weight_tensor, bias):
 
     return out.view(*act.shape[:-1], out_dim).to(act.dtype)
 
-def _linear_fp_act_fp8_tensor_wise_weight_check(
+def _linear_fp_act_fp8_weight_check(
     input_tensor: Union[torch.Tensor, AffineQuantizedTensor],
     weight_tensor: Union[torch.Tensor, AffineQuantizedTensor],
     bias: Optional[torch.Tensor],
 ) -> bool:
-    def check_aqt_tensorwise(aqt: Union[torch.Tensor, AffineQuantizedTensor]) -> bool:
+    def check_aqt(aqt: Union[torch.Tensor, AffineQuantizedTensor]) -> bool:
         return (
             isinstance(aqt, AffineQuantizedTensor) and
             isinstance(aqt.layout_type, Float8LayoutType)
             and aqt.layout_tensor.dtype in [torch.float8_e4m3fn, torch.float8_e5m2]
-            and aqt.shape == aqt.block_size
+            and (aqt.shape == aqt.block_size or _is_rowwise_scaled(aqt))
         )
-    return check_aqt_tensorwise(input_tensor) and check_aqt_tensorwise(weight_tensor)
+    return check_aqt(input_tensor) and check_aqt(weight_tensor)
 
+
+def preprocess_scale(input_scale: torch.Tensor, input_shape: Tuple[int]):
+    """ Ensures input tensor is correctly formated for _scaled_mm """
+    input_scale = input_scale.unsqueeze(-1)
+    
+    if input_scale.dim() > 2:
+        input_scale = input_scale.reshape(-1, input_scale.shape[-1])
+    
+    return input_scale
 
 def _linear_fp_act_fp8_weight_impl(
     input_tensor: AffineQuantizedTensor,
@@ -1375,32 +1390,31 @@ def _linear_fp_act_fp8_weight_impl(
     bias: Optional[torch.Tensor],
 ):
     """Implements matmul between FP8 input and FP8 weight with compute using _scaled_mm"""
-    from torchao.float8.inference import (
-        preprocess_data,
-        Float8MMConfig,
-        addmm_float8_unwrapped_inference,
-    )
-
     scaled_mm_config = weight_tensor.layout_type.mm_config
-    scaled_mm_config = scaled_mm_config if scaled_mm_config is not None else Float8MMConfig()
-
-    w_layout = weight_tensor.layout_tensor
-    w_data = weight_tensor.layout_tensor.float8_data
-    w_data = w_data.T if w_layout.transposed else w_data
-    w_scale = w_layout.scale
-    w_scale = w_scale if w_layout.transposed else w_scale
-
     out_shape = get_out_shape(input_tensor.shape, weight_tensor.shape)
 
-    inpt_data = input_tensor.layout_tensor.float8_data
-    # Handle case where input tensor is more than 2D
-    inpt_data = inpt_data.reshape(-1, input_tensor.shape[-1])
-    input_scale = input_tensor.layout_tensor.scale
-    if input_scale.dim() > 2:
-        input_scale = input_scale.reshape(-1, input_scale.shape[-1])
+    # Weight tensor preprocessing
+    w_layout = weight_tensor.layout_tensor
+    assert not w_layout.transposed, "Weight tensor must be contiguous"
+    w_data = w_layout.float8_data
+    w_scale = w_layout.scale
 
+    # Input tensor preprocessing
+    inpt_data = input_tensor.layout_tensor.float8_data
+    input_scale = input_tensor.layout_tensor.scale
+    # Handle case where input tensor is more than 2D
+    inpt_data = inpt_data.reshape(-1, inpt_data.shape[-1])
+
+    # Handle rowwise case
+    if _is_rowwise_scaled(weight_tensor):
+        assert _is_rowwise_scaled(input_tensor), "Input tensor must be rowwise block size"
+        w_scale = w_scale.unsqueeze(-1).T
+        input_scale = preprocess_scale(input_scale, input_tensor.shape)
+
+    # Preprocess data
     inpt_data, w_data = preprocess_data(inpt_data, w_data.T, scaled_mm_config)
 
+    # Perform the computation
     return addmm_float8_unwrapped_inference(
         inpt_data,
         input_scale,
@@ -1459,7 +1473,7 @@ def _register_aqt_quantized_linear_dispatches():
     for dispatch_condition, impl in [
         (_linear_int8_act_int8_weight_check, _linear_int8_act_int8_weight_impl),
         (_linear_int8_act_int8_weight_semi_structured_sparse_check, _linear_int8_act_int8_weight_semi_structured_sparse_impl),
-        (_linear_fp_act_fp8_tensor_wise_weight_check, _linear_fp_act_fp8_weight_impl),
+        (_linear_fp_act_fp8_weight_check, _linear_fp_act_fp8_weight_impl),
         (_linear_bf16_act_uint4_weight_check, _linear_bf16_act_uint4_weight_impl),
         (_linear_fp_act_int8_weight_check, _linear_fp_act_int8_weight_impl),
         (_linear_f16_act_fpx_weight_check, _linear_f16_act_fpx_weight_impl),
