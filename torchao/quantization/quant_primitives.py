@@ -30,7 +30,7 @@ __all__ = [
     "dequantize_affine_fpx",
     "fake_quantize_affine",
     "fake_quantize_affine_cachemask",
-    "quantize_affine_hqq",
+    "choose_qparams_and_quantize_affine_hqq",
 ]
 
 class MappingType(Enum):
@@ -580,7 +580,7 @@ def choose_qparams_affine(
    scale_dtype: Optional[torch.dtype] = None,
    zero_point_dtype: Optional[torch.dtype] = None,
    preserve_zero: bool = True,
-   zero_point_domain = ZeroPointDomain.INT,
+   zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Args:
@@ -641,7 +641,7 @@ def choose_qparams_affine_with_min_max(
    scale_dtype: Optional[torch.dtype] = None,
    zero_point_dtype: Optional[torch.dtype] = None,
    preserve_zero: bool = True,
-   zero_point_domain = ZeroPointDomain.INT,
+   zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """A variant of :func:`~torchao.quantization.quant_primitives.choose_qparams_affine`
     operator that pass in min_val and max_val directly instead of deriving these from a single input.
@@ -842,7 +842,7 @@ def _convert_to_affinequantized_format(W_q: torch.Tensor, scale: torch.Tensor, z
     return W_q_ao, scale_ao, zero_ao
 
 # Main hqq quantizer function
-def quantize_affine_hqq(
+def choose_qparams_and_quantize_affine_hqq(
     tensor: torch.Tensor,
     nbits: float = 4,
     group_size: int = 64,
