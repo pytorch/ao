@@ -70,8 +70,11 @@ class MultiTensor(torch.Tensor):
             return self.values[:length]
         return self.values+[self.values[-1]]*(length-self.count)
 
-    def cuda(self):
-        return self.__class__([x.cuda() for x in self.values])
+    def cuda(self, device=None):
+        if device is None:
+            return self.__class__([x.cuda() for x in self.values])
+        else:
+            return self.__class__([x.cuda(device) for x in self.values])
 
 
     @classmethod
