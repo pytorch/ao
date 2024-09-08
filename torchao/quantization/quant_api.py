@@ -15,23 +15,24 @@ come along with it and because that is how we access the intended quantized
 and mixed GEMM kernels
 """
 from functools import partial
+import warnings
 import torch
 import torchao
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Any, Callable, Union, Dict, Optional
+from typing import Any, Callable, Union, Dict, Optional, Literal, Tuple
 import types
 
 from torchao.dtypes.uintx.Uintx import UintxLayoutType
 from torchao.dtypes import (
     to_affine_quantized_intx,
+    to_affine_quantized_floatx,
     TensorCoreTiledLayoutType,
     PlainLayoutType,
     AffineQuantizedTensor,
     SemiSparseLayoutType,
-    to_affine_quantized_floatx,
-    Float8AQTLayout,
-    Float8LayoutType
+    Float8LayoutType,
+    MarlinSparseLayoutType,
 )
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
@@ -60,7 +61,13 @@ from .GPTQ import (
 from .utils import _get_per_token_block_size
 import logging
 from .autoquant import autoquant, AutoQuantizableLinearWeight
+from torchao.quantization.observer import AffineQuantizedObserverBase
+from torchao.quantization.linear_activation_weight_observer import (
+    LinearActivationWeightObservedTensor,
+)
 from torchao.float8.inference import Float8MMConfig
+
+from torchao.quantization.observer import PerTensor, PerRow, get_block_size
 
 logger = logging.getLogger(__name__)
 
@@ -281,6 +288,86 @@ def swap_conv2d_1x1_to_linear(model, filter_fn=None):
     _replace_with_custom_fn_if_matches_filter(
         model, replace_conv2d_1x1, filter_fn=filter_fn
     )
+def insert_observers_(
+    model: nn.Module,
+    input_observer: Optional[AffineQuantizedObserverBase],
+    weight_observer: Optional[AffineQuantizedObserverBase],
+    *,
+    filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = None,
+):
+    """
+    Converts the weight of a linear module to a LinearActivationWeightObservedTensor.
+
+    This function wraps the weight of the given linear module with a LinearActivationWeightObservedTensor,
+    which enables observation of both input and weight tensors during forward passes.
+    The wrapped weight is then re-wrapped as a nn.Parameter to maintain compatibility
+    with PyTorch's module system.
+
+    Example::
+
+    ```
+        import torch
+        import torch.nn as nn
+        from torchao.quantization.linear_observer_tensor import insert_observers_
+        from torchao.quantization.observer import (
+            AffineQuantizedMinMaxObserver,
+            PerTensor,
+            MappingType
+        )
+
+        # Create observers
+        input_observer = AffineQuantizedMinMaxObserver(
+            MappingType.SYMMETRIC,
+            torch.float8_e4m3fn,
+            granularity_type=PerTensor(),
+            eps=torch.finfo(torch.float32).eps,
+            scale_dtype=torch.float,
+            zero_point_dtype=torch.int,
+            zero_point_domain=None,
+        )
+
+        # Create a linear module
+        linear_module = nn.Linear(10, 20)
+
+        # Convert the linear module's weight to an observed tensor
+        insert_observers_(linear_module, input_observer, weight_observer=None)
+
+        # The linear_module can now be used as usual, with observers calculating statistics
+        output = linear_module(torch.randn(10, 10))
+
+        # Get the scale and zero point of the input observer
+        scale, zero_point = linear_module.weight.input_observer.calculate_qparams()
+    ```
+
+    Args:
+        model (nn.Module): The nn.Module to convert.
+        input_observer (Optional[AffineQuantizedObserverBase]): Observer for input tensor.
+        weight_observer (Optional[AffineQuantizedObserverBase]): Observer for weight tensor.
+        filter_fn (Optional[Callable[[torch.nn.Module, str], bool]]): Filter function to select which modules to convert.
+            If not provided, all linear modules will be converted. This function should take a module and its fully qualified name.
+
+    Returns:
+        nn.Linear: The modified linear module with its weight wrapped in a LinearActivationWeightObservedTensor.
+    """
+
+    def convert_to_linear_observer(linear_module: nn.Linear):
+        # Wrap the weight with LinearActivationWeightObservedTensor and then with nn.Parameter
+        linear_module.weight = nn.Parameter(
+            LinearActivationWeightObservedTensor.from_float(
+                linear_module.weight,
+                input_observer=input_observer,
+                weight_observer=weight_observer,
+            ),
+            requires_grad=linear_module.weight.requires_grad,
+        )
+        return linear_module
+
+    _replace_with_custom_fn_if_matches_filter(
+        model,
+        convert_to_linear_observer,
+        _is_linear if filter_fn is None else filter_fn,
+    )
+
 
 def _quantization_type(weight: torch.Tensor):
     if isinstance(weight, AffineQuantizedTensor):
@@ -454,6 +541,15 @@ def int4_weight_only(group_size=128, layout_type=TensorCoreTiledLayoutType(inner
         preserve_zero = False
         zero_point_dtype = torch.bfloat16
         zero_point_domain = ZeroPointDomain.FLOAT
+
+        # Sparse Marlin only supports symmetric quantization.
+        # NOTE: If we start having lots of layouts that require different configurations, 
+        # we should consider moving this logic somewhere else.
+        if isinstance(layout_type, MarlinSparseLayoutType):
+            mapping_type = MappingType.SYMMETRIC
+            preserve_zero = True
+            zero_point_domain = ZeroPointDomain.INT
+
         return to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, layout_type=layout_type, use_hqq=use_hqq)
 
     return _get_linear_subclass_inserter(apply_int4_weight_only_quant)
@@ -520,6 +616,11 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight
     quantization + 2:4 sparsity to linear layers.
     """
+    warnings.warn("""int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout_type kwarg in int8_dynamic_activation_int8_weight instead.
+
+    from torchao.dtypes import SemiSparseLayoutType
+    int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType()""")
+
     return int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType())
 
 
@@ -549,44 +650,102 @@ def float8_weight_only(weight_dtype: torch.dtype = torch.float8_e4m3fn):
     return _get_linear_subclass_inserter(apply_float8wo_quant)
 
 
+_fp8_granularities = Union[PerTensor, PerRow]
+
+
+# Validate and process granularity input
+def _normalize_granularity(
+    granularity: Optional[
+        Union[_fp8_granularities, Tuple[_fp8_granularities, _fp8_granularities]]
+    ]
+) -> Tuple[_fp8_granularities, _fp8_granularities]:
+    if granularity is None:
+        return (PerTensor(), PerTensor())
+    elif isinstance(granularity, (PerTensor, PerRow)):
+        return (granularity, granularity)
+    elif isinstance(granularity, tuple) and len(granularity) == 2:
+        if not (
+            isinstance(granularity[0], (PerTensor, PerRow))
+            and isinstance(granularity[1], (PerTensor, PerRow))
+        ):
+            raise ValueError(f"Invalid granularity types: {granularity}, only PerTensor or PerRow are supported.")
+        if not isinstance(granularity[0], type(granularity[1])):
+            raise ValueError(
+                f"Different granularities for activation and weight are not supported: {granularity}, only PerTensor or PerRow are supported."
+            )
+        return granularity
+    else:
+        raise ValueError(f"Invalid granularity specification: {granularity}, only PerTensor or PerRow are supported.")
+
+
+def _input_quant_func_dyanmic_fp8(
+    x: torch.Tensor,
+    activation_granularity: _fp8_granularities,
+    activation_dtype: torch.dtype,
+):
+    if isinstance(activation_granularity, PerRow):
+        assert (
+            x.dtype == torch.bfloat16
+        ), "PerRow quantization only works for bfloat16 precision input activation"
+
+    block_size = get_block_size(x.shape, activation_granularity)
+    activation = to_affine_quantized_floatx(
+        input_float=x,
+        block_size=block_size,
+        target_dtype=activation_dtype,
+        scale_dtype=torch.float32,
+        layout_type=Float8LayoutType(mm_config=None),  # Config is stored on weight
+    )
+    return activation
+
+
 def float8_dynamic_activation_float8_weight(
     activation_dtype: torch.dtype = torch.float8_e4m3fn,
     weight_dtype: torch.dtype = torch.float8_e4m3fn,
-    mm_config: Optional[Float8MMConfig] = None
+    granularity: Optional[
+        Union[_fp8_granularities, Tuple[_fp8_granularities, _fp8_granularities]]
+    ] = None,
+    mm_config: Optional[Float8MMConfig] = None,
 ):
     """
-    Applies float8 dynamic symmetric per-tensor quantization to both activations and weights of linear layers.
+    Applies float8 dynamic symmetric quantization to both activations and weights of linear layers.
 
     Args:
         activation_dtype (torch.dtype): The target data type for activation quantization. Default is torch.float8_e4m3fn.
         weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.
+        granularity:
+            The granularity for quantization. Can be either a single granularity (applied to both
+            activations and weights) or a tuple of two granularities (one for activations, one for weights).
+            If None, defaults to PerTensor for both. Currently both quantizations need to be the same type. And 
+            only PerTensor and PerRow are supported.
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
 
     """
-    from torchao.dtypes import to_affine_quantized_floatx
-
     if mm_config is None:
         mm_config = Float8MMConfig(use_fast_accum=True)
 
-    #TODO we are hardcoding TensorWise scaling, will follow up PR for Tensorwise scaling
+    activation_granularity, weight_granularity = _normalize_granularity(granularity)
+
     def apply_float8_dynamic_activation_quant(weight: torch.Tensor):
+        if isinstance(weight_granularity, PerRow):
+            assert (
+                weight.dtype == torch.bfloat16
+            ), "PerRow quantization only works for bfloat16 precision input weight"
+
+        block_size = get_block_size(weight.shape, weight_granularity)
         quantized_weight = to_affine_quantized_floatx(
             input_float=weight,
-            block_size=weight.shape,
+            block_size=block_size,
             target_dtype=weight_dtype,
             scale_dtype=torch.float32,
             layout_type=Float8LayoutType(mm_config=mm_config),
         )
 
-        def input_quant_func(x: torch.Tensor):
-            activation = to_affine_quantized_floatx(
-                input_float=x,
-                block_size=x.shape,
-                target_dtype=activation_dtype,
-                scale_dtype=torch.float32,
-                layout_type=Float8LayoutType(mm_config=None),  # Config is stored on weight
-            )
-            return activation
+        input_quant_func = partial(
+            _input_quant_func_dyanmic_fp8,
+            activation_granularity=activation_granularity,
+            activation_dtype=activation_dtype,
+        )
 
         quantized_weight = to_linear_activation_quantized(
             quantized_weight, input_quant_func
@@ -596,7 +755,7 @@ def float8_dynamic_activation_float8_weight(
     return _get_linear_subclass_inserter(apply_float8_dynamic_activation_quant)
 
 
-def uintx_weight_only(dtype, group_size=64, pack_dim=-1):
+def uintx_weight_only(dtype, group_size=64, pack_dim=-1, use_hqq=False):
     """
     Applies uintx weight-only asymmetric per-group quantization to linear layers, using uintx quantization where
     x is the number of bits specified by `dtype`
@@ -606,23 +765,46 @@ def uintx_weight_only(dtype, group_size=64, pack_dim=-1):
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained, defaults to 64
         `pack_dim`: the dimension we use for packing, defaults to -1
+        `use_hqq`: whether to use hqq algorithm or the default algorithm to quantize the weight
     """
-    def apply_uintx_weight_only_quant(weight):
-        layout_type = UintxLayoutType(dtype=dtype, pack_dim=pack_dim)
+    from torchao.quantization.quant_primitives import _DTYPE_TO_QVALUE_BOUNDS
+
+    SUPPORTED_DTYPES = {torch.uint1, torch.uint2, torch.uint3, torch.uint4, torch.uint5, torch.uint6, torch.uint7, torch.uint8}
+    assert dtype in SUPPORTED_DTYPES, f"Unsupported dtype for hqq: {dtype}"
+
+    def apply_uintx_weight_only_quant(weight, dtype):
         mapping_type = MappingType.ASYMMETRIC
         block_size = (1, group_size)
-        eps = torch.finfo(torch.float32).eps
-        zero_point_dtype = torch.int32
-        zero_point_domain = ZeroPointDomain.INT
+
+        if use_hqq:
+            if dtype == torch.uint4:
+                logger.warn(f"Recommended to use `int4_weight_only(group_size, use_hqq=True)` for the best performance")
+            quant_min, quant_max = _DTYPE_TO_QVALUE_BOUNDS[dtype]
+            dtype = torch.uint8
+            eps = None
+            zero_point_dtype = None
+            zero_point_domain = ZeroPointDomain.FLOAT
+            preserve_zero = False
+            layout_type = PlainLayoutType()
+        else:
+            quant_min, quant_max = None, None
+            eps = torch.finfo(torch.float32).eps
+            zero_point_dtype = torch.int32
+            zero_point_domain = ZeroPointDomain.INT
+            preserve_zero = True
+            layout_type = UintxLayoutType(dtype=dtype, pack_dim=pack_dim)
 
         return to_affine_quantized_intx(
             weight, mapping_type, block_size, dtype,
+            quant_min=quant_min, quant_max=quant_max,
             eps=eps, zero_point_dtype=zero_point_dtype,
             zero_point_domain=zero_point_domain,
+            preserve_zero=preserve_zero,
             layout_type=layout_type,
+            use_hqq=use_hqq,
         )
 
-    return _get_linear_subclass_inserter(apply_uintx_weight_only_quant)
+    return _get_linear_subclass_inserter(apply_uintx_weight_only_quant, dtype=dtype)
 
 def fpx_weight_only(ebits: int, mbits: int):
     """Sub-byte floating point dtypes defined by `ebits`: exponent bits and `mbits`: mantissa bits
@@ -651,6 +833,7 @@ def fpx_weight_only(ebits: int, mbits: int):
         layout_type = FpxTensorCoreLayoutType(ebits, mbits)
         return to_affine_quantized_fpx(weight, layout_type)
     return _get_linear_subclass_inserter(apply_quant_llm)
+
 
 if TORCH_VERSION_AT_LEAST_2_5:
     torch.serialization.add_safe_globals([_int8_asymm_per_token_quant, _int8_symm_per_token_reduced_range_quant])

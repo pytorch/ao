@@ -225,6 +225,9 @@ def main(
             groupsize=int(quantization.split("-")[-1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
             quantize_(model, int4_weight_only(group_size=groupsize))
+        if "marlin" in quantization:
+            from torchao.dtypes import MarlinSparseLayoutType
+            quantize_(model, int4_weight_only(layout_type=MarlinSparseLayoutType()))
         if "autoround" in quantization:
             from torchao.prototype.autoround.autoround_llm import quantize_model_with_autoround_
             from transformers import AutoTokenizer
@@ -273,15 +276,20 @@ def main(
         if "fp6" in quantization:
             quantize_(model, fpx_weight_only(3, 2))
         if "uintx" in quantization:
-            # uintx-nbits-group_size
-            # "uintx-2-64"
+            # uintx-nbits-groupsize, e.g. "uintx-2-64"
+            if "hqq" in quantization:
+                # uintx-nbits-groupsize-hqq
+                quantization = quantization[:-4]
+                use_hqq = True
+            else:
+                use_hqq = False
             _quant_args = quantization.split("-")
-            nbits = int(_quant_args[1])
+            nbits = int(_quant_args[0])
             assert nbits >= 1 and nbits <= 8, "nbits must be 1 to 8"
             _NBITS_TO_DTYPE = {1: torch.uint1, 2: torch.uint2, 3: torch.uint3, 4: torch.uint4, 5: torch.uint5, 6: torch.uint6, 7: torch.uint7, 8: torch.uint8}
             dtype = _NBITS_TO_DTYPE[nbits]
-            group_size = int(_quant_args[2])
-            quantize_(model, uintx_weight_only(dtype, group_size))
+            group_size = int(_quant_args[1])
+            quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
         if "autoquant" in quantization:
             if "autoquant-int4" == quantization:
                 model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
@@ -451,7 +459,7 @@ if __name__ == '__main__':
     parser.add_argument('--top_k', type=int, default=200, help='Top-k for sampling.')
     parser.add_argument('--temperature', type=float, default=0.8, help='Temperature for sampling.')
     parser.add_argument('--checkpoint_path', type=Path, default=Path("../../../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
-    parser.add_argument('-q', '--quantization', type=str, help='Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, autoquant, autoquant-int4, int4wo-<groupsize>-hqq, autoround-<model_device>-<quant_lm_head>-<iters>-<groupsize>-<batch_size>-<seqlen>-<nsamples>, uintx-<nbits>-<group_size>')
+    parser.add_argument('-q', '--quantization', type=str, help='Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, autoquant, autoquant-int4, int4wo-<groupsize>-hqq, autoround-<model_device>-<quant_lm_head>-<iters>-<groupsize>-<batch_size>-<seqlen>-<nsamples>, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq')
     parser.add_argument('--kv_cache_quantization', action='store_true', help='Whether to quantize the KV cache')
     parser.add_argument('--cache_size', type=int, default=None, help='Force size of cache to be a certain number of tokens, if not set, will use max_new_tokens+prompt_size')
     parser.add_argument('--linear_causal_mask', action='store_true', help='Whether to use the memory efficient, but slightly less fast, linear causal mask (important for long context lengths)')

@@ -179,11 +179,27 @@ class TestQuantPrimitives(unittest.TestCase):
         precision = torch.float32
         scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, eps=eps, scale_dtype=precision, zero_point_dtype=precision)
 
-        scale_ref, zp_ref = get_group_qparams_symmetric(input, n_bit=8, groupsize=2, precision=precision)
+        scale_ref, zp_ref = get_group_qparams_symmetric(input, n_bit=8, groupsize=2, precision=precision, mapping_type=mapping_type)
 
         self.assertTrue(torch.equal(scale, scale_ref))
         self.assertTrue(torch.equal(zero_point, zp_ref))
 
+    def test_choose_qparams_group_sym_no_clipping_err(self):
+        """
+        Test the added MappingType.SYMMETRIC_NO_CLIPPING_ERR
+        """
+        input = torch.randn(10, 10)
+        mapping_type = MappingType.SYMMETRIC_NO_CLIPPING_ERR
+        dtype = torch.int8
+        block_size = (1, 2)
+        eps = torch.finfo(torch.float32).eps
+        precision = torch.float32
+        scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, eps=eps, scale_dtype=precision, zero_point_dtype=precision)
+
+        scale_ref, zp_ref = get_group_qparams_symmetric(input, n_bit=8, groupsize=2, precision=precision, mapping_type=mapping_type)
+
+        self.assertTrue(torch.equal(scale, scale_ref))
+        self.assertTrue(torch.equal(zero_point, zp_ref))
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "skipping when torch version is 2.3 or lower")
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_choose_qparams_token_asym(self):
