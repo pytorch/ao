@@ -8,16 +8,18 @@ from torchao.quantization.quant_primitives import (
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.dtypes import to_affine_quantized_intx
 from torchao.dtypes.uintx.Uintx import _DTYPE_TO_BIT_WIDTH
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 assert len(_DTYPE_TO_BIT_WIDTH) > 0, "Error importing low bit torch.uint dtypes. Please upgrade to torch 2.3+"
 
-def insert_awq_observer_(model: torch.nn.Module, quant_dtype: torch.dtype = torch.uint4, scale_search_space_size: int = 20, group_size: int = 128):
+def insert_awq_observer_(model: torch.nn.Module, n_validation_examples: int, validation_sequence_len: int,  quant_dtype: torch.dtype = torch.uint4,   scale_search_space_size: int = 20, group_size: int = 128):
     """
     Inserts AWQObserver into Linear layers of a given model.
 
     Args:
         model: The model to be modified (in place). Ensure model is on the desired device for calibration
+        validation_sequence_len: Number of tokens in each validation example
+        n_validation_examples: Number of examples used to validate scale options
         quant_dtype: The data type of the quantized weights. Currently only torch.uint4 is intended to be used but can be used with torch.uint1 -> torch.uint8
         scale search space size: how many different scale options to try. Original AWQ implementation uses 20. A larger size can lead to better results but takes longer to calibrate
         group_size: Quantization granularity. Use -1 for channel wise quantization
@@ -43,6 +45,8 @@ def insert_awq_observer_(model: torch.nn.Module, quant_dtype: torch.dtype = torc
             block_size, 
             mapping_type,
             quant_dtype, 
+            n_validation_examples,
+            validation_sequence_len,
             scale_search_space_size,
             preserve_zero = preserve_zero,
             zero_point_domain = zero_point_domain,
@@ -69,7 +73,7 @@ def _observed_linear_subclass_inserter(constructor):
 
     return insert_subclass
 
-def awq_uintx(quant_dtype: torch.dtype = torch.uint4, group_size: int = 128):
+def awq_uintx(n_calibration_tokens:int, quant_dtype: torch.dtype = torch.uint4, group_size: int = 128):
     """
     Quantizes linear layers when passed into quantize_()
 
@@ -81,7 +85,7 @@ def awq_uintx(quant_dtype: torch.dtype = torch.uint4, group_size: int = 128):
     assert quant_dtype in _DTYPE_TO_BIT_WIDTH or quant_dtype == torch.uint8, "Invalid quant_dtype. Please use torch.uint1 .. torch.uint8"
     def weight_quant_func(observed_linear):
         # weight quantization
-        equalization_scale = observed_linear.act_obs.calculate_qparams()
+        equalization_scale = observed_linear.act_obs.calculate_qparams(n_calibration_tokens)
         # AQT config
         target_dtype = torch.uint8
         mapping_type = MappingType.ASYMMETRIC

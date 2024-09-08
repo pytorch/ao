@@ -53,6 +53,24 @@ class PerAxis(GranularityType):
     """
     axis: int
 
+@dataclass(frozen=True)
+class PerGroup(GranularityType):
+    """
+    Represents per-channel group granularity in quantization.
+
+    This granularity type calcualtes different quantization parameters
+    for each group of <group_size> elements.
+
+    For example if the input tensor is shape [8, 16], and the group size is 4, then
+    the input tensor is reshaped to [64, 4]
+    quantization parameters are calculated for each group of 4 elements,
+    giving a total of 64 quantization parameters.
+
+    Attributes:
+        group_size (int): The size of each quantization group
+
+    """
+    group_size: int
 
 # borrowed from torch.ao.quantization.observer
 class _PartialWrapper:

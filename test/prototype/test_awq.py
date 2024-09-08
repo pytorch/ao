@@ -2,9 +2,10 @@ from copy import deepcopy
 import pytest
 import torch
 from torchao.quantization import quantize_
-from torchao.prototype.awq.api import ObservedLinear, insert_awq_observer_, awq_uintx
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
 
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
+if TORCH_VERSION_AT_LEAST_2_3:
+    from torchao.prototype.awq import insert_awq_observer_, awq_uintx, ObservedLinear
 
 class ToyLinearModel(torch.nn.Module):
     def __init__(self, m=512, n=256, k=128):

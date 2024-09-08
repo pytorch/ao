@@ -18,7 +18,7 @@ from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
 )
 from torchao.quantization.observer import (
-    AffineQuantizedObserverBase,
+    AffineQuantizedObserverBase, PerGroup
 )
 
 
@@ -29,6 +29,8 @@ class AWQObserver(AffineQuantizedObserverBase):
         block_size: Tuple,
         mapping_type: MappingType,
         target_dtype: torch.dtype,
+        n_validation_examples: int,
+        validation_sequence_len: int,
         scale_search_space_size: int = 20,
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
@@ -44,10 +46,12 @@ class AWQObserver(AffineQuantizedObserverBase):
         Args:
             weight: The weight tensor to be observed.
             bias: The bias tensor to be observed.
-            block_size: The granularity of the quantization.
+            block_size: The weight tensor shape after being reshaped to support per group quantization
             input_dtype: The data type of the input tensor.
             mapping_type: Always set to asymmetric 
             target_dtype: The target data type of the quantized tensor
+            n_validation_examples: Number of examples used to calibrate observer
+            validation_sequence_len: Number of tokens in each example
             scale_search_space_size: The number of scales to search for.
             quant_min: The minimum quantized value
             quant_max: The maximum quantized value
@@ -61,7 +65,7 @@ class AWQObserver(AffineQuantizedObserverBase):
         super().__init__(
             mapping_type,
             target_dtype,
-            block_size = block_size, 
+            PerGroup(block_size[-1]), 
             quant_min = quant_min,
             quant_max = quant_max,
             eps = eps,
@@ -70,22 +74,43 @@ class AWQObserver(AffineQuantizedObserverBase):
             preserve_zero = preserve_zero,
             zero_point_domain = zero_point_domain,
         )
+        self.block_size = block_size
         self.weight = weight
         self.bias = bias
+        self.n_validation_examples = n_validation_examples
+        self.validation_sequence_len = validation_sequence_len
+        self.inputs = []
+        self.outputs = []
         self.scale_options = scale_search_space_size
-        self.scales = None
         self.device = self.weight.device
+        self.average =  torch.zeros((1,weight.shape[1]), device= self.device)
         if self.bias is not None:
             self.bias.to(self.device)
     @torch.no_grad()
     def forward(self, input: torch.Tensor, output: torch.Tensor):
-        average = input.abs().view(-1,input.shape[-1]).mean(0)
+        # import pdb
+        # pdb.set_trace()
+        # print(input.shape, input.abs().sum(1).shape, self.average.shape)
+        if len(self.inputs) < self.n_validation_examples:
+            self.inputs.append(input.to("cpu"))
+            self.outputs.append(output.to("cpu"))
+        self.average += input.abs().sum(-2)
         
+
+    def calculate_qparams(self, n_calibration_tokens):
+        # import pdb
+        # pdb.set_trace()
+        assert self.outputs != None, "calibrate observer first by running model on exemplar data"
+        self.average /= (n_calibration_tokens)
+        for i in range(self.n_validation_examples):
+            self.inputs[i] = self.inputs[i].to(self.device)
+            self.outputs[i] = self.outputs[i].to(self.device)
+
         best_loss = float('inf')
-        scaleopts = []
+        best_scales = None
         for i in range(self.scale_options):
             ratio = i * 1 / self.scale_options
-            scales = average.pow(ratio)
+            scales = self.average.pow(ratio)
             scales = scales / (scales.max() * scales.min()).sqrt()
             layout = AwqLayoutType(scales, self.target_dtype)
             # regardless of weight dtype, we have to store as packed uint8 tensors
@@ -104,16 +129,17 @@ class AWQObserver(AffineQuantizedObserverBase):
                 zero_point_domain = self.zero_point_domain,
                 layout_type = layout
             )
-            q_out = F.linear(input/scales, w, self.bias)
-            scaleopts.append(q_out.mean().item())
-            loss = (output - q_out).pow(2).mean().item()
+            loss = 0
+            for i in range(self.n_validation_examples):
+                q_out = F.linear(self.inputs[i]/scales, w, self.bias)
+                loss += (self.outputs[i] - q_out).pow(2).mean().item()
             if loss < best_loss:
-                self.scales = scales
+                best_scales = scales
                 best_loss = loss
-
-    def calculate_qparams(self):
-        return self.scales.detach()
-
+            for i in range(self.n_validation_examples):
+                self.inputs[i].to("cpu")
+                self.outputs[i].to("cpu")
+        return best_scales.detach()
 
 class ObservedLinear(torch.nn.Linear):
     def __init__(self, in_features: int, out_features: int, act_obs: torch.nn.Module, bias: bool = True, device=None, dtype=None):
@@ -149,6 +175,7 @@ class AwqLayoutType(LayoutType):
     
     def _quantized_linear_impl(input_tensor, weight_tensor, bias):
         # divide activations by awq scales
+        # print(input_tensor.dtype, weight_tensor.layout_tensor.layout_type.equalization_scale.dtype, weight_tensor.dequantize().dtype, bias.dtype)
         return F.linear(input_tensor / weight_tensor.layout_tensor.layout_type.equalization_scale, weight_tensor.dequantize(), bias)
     
     def _linear_awq_check(input_tensor, weight_tensor, bias):
