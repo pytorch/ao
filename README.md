@@ -9,7 +9,7 @@
 torchao: PyTorch library for custom data types & optimizations. Quantize and sparsify weights, gradients, optimizers & activations for inference and training.
 
 From the team that brought you the fast series
-* 8x speedups for Image segmentation models with [sam-fast](https://pytorch.org/blog/accelerating-generative-ai) (9.5x with int8 dynamic quantization + 2:4 sparsity)
+* 9.5x speedups for Image segmentation models with [sam-fast](https://pytorch.org/blog/accelerating-generative-ai)
 * 10x speedups for Language models with [gpt-fast](https://pytorch.org/blog/accelerating-generative-ai-2)
 * 3x speedup for Diffusion models with [sd-fast](https://pytorch.org/blog/accelerating-generative-ai-3)
 
