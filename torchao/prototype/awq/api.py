@@ -73,7 +73,7 @@ def _observed_linear_subclass_inserter(constructor):
 
     return insert_subclass
 
-def awq_uintx(n_calibration_tokens:int, quant_dtype: torch.dtype = torch.uint4, group_size: int = 128):
+def awq_uintx(quant_dtype: torch.dtype = torch.uint4, group_size: int = 128):
     """
     Quantizes linear layers when passed into quantize_()
 
@@ -85,7 +85,7 @@ def awq_uintx(n_calibration_tokens:int, quant_dtype: torch.dtype = torch.uint4, 
     assert quant_dtype in _DTYPE_TO_BIT_WIDTH or quant_dtype == torch.uint8, "Invalid quant_dtype. Please use torch.uint1 .. torch.uint8"
     def weight_quant_func(observed_linear):
         # weight quantization
-        equalization_scale = observed_linear.act_obs.calculate_qparams(n_calibration_tokens)
+        equalization_scale = observed_linear.act_obs.calculate_qparams()
         # AQT config
         target_dtype = torch.uint8
         mapping_type = MappingType.ASYMMETRIC

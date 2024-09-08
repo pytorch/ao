@@ -78,7 +78,6 @@ def wikitext2_ppl(repo_id: str, quant: str, calibration_size: int =100, validati
         # insert observers to find average magnitude and calculate scales
         insert_awq_observer_(model,validation_size, sequence_length, quant_dtype=quant_dtype, group_size=group_size)
         calibration_data = get_calib_dataset(tokenizer=tokenizer, n_samples=calibration_size, block_size=sequence_length)
-        print(calibration_data[0].size(), calibration_data[0].dtype)
         for batch in calibration_data:
             model(batch.to(device))
             batch.to("cpu")
@@ -87,8 +86,7 @@ def wikitext2_ppl(repo_id: str, quant: str, calibration_size: int =100, validati
         # use awq_uintx() to apply awq quantization
         is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
         t0 = time.time()
-        n_calibration_tokens = calibration_size * sequence_length
-        quantize_(model, awq_uintx(n_calibration_tokens, quant_dtype=quant_dtype, group_size = group_size), is_observed_linear)
+        quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size), is_observed_linear)
         print(f"time for quantization: {time.time() - t0:.02f} seconds")
 
     elif quant=="int4":
@@ -119,7 +117,6 @@ args = parser.parse_args()
 
 # Convert precision argument to torch dtype
 precision_dtype = getattr(torch, args.precision, torch.bfloat16)
-print('hall0o')
 ppl = wikitext2_ppl(
     repo_id=args.repo,
     quant=args.quant,

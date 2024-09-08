@@ -79,6 +79,7 @@ class AWQObserver(AffineQuantizedObserverBase):
         self.bias = bias
         self.n_validation_examples = n_validation_examples
         self.validation_sequence_len = validation_sequence_len
+        self.calibration_token_count = 0
         self.inputs = []
         self.outputs = []
         self.scale_options = scale_search_space_size
@@ -94,14 +95,16 @@ class AWQObserver(AffineQuantizedObserverBase):
         if len(self.inputs) < self.n_validation_examples:
             self.inputs.append(input.to("cpu"))
             self.outputs.append(output.to("cpu"))
+        self.calibration_token_count += input.shape[-2]
         self.average += input.abs().sum(-2)
         
+        
 
-    def calculate_qparams(self, n_calibration_tokens):
+    def calculate_qparams(self):
         # import pdb
         # pdb.set_trace()
         assert self.outputs != None, "calibrate observer first by running model on exemplar data"
-        self.average /= (n_calibration_tokens)
+        self.average /= (self.calibration_token_count)
         for i in range(self.n_validation_examples):
             self.inputs[i] = self.inputs[i].to(self.device)
             self.outputs[i] = self.outputs[i].to(self.device)
