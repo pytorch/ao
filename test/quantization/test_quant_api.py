@@ -56,6 +56,7 @@ import copy
 import tempfile
 import gc
 from torch.testing._internal.common_utils import TestCase
+from torch.testing._internal import common_utils
 
 
 def dynamic_quant(model, example_inputs):
@@ -500,12 +501,13 @@ class TestQuantFlow(TestCase):
 
     # TODO: move to a separate test file
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
-    def test_quantized_tensor_subclass_8da4w(self):
+    @common_utils.parametrize("mapping_type", [MappingType.SYMMETRIC, MappingType.SYMMETRIC_NO_CLIPPING_ERR])
+    def test_quantized_tensor_subclass_8da4w(self, mapping_type):
         group_size = 32
         m = ToyLinearModel().eval()
         m_copy = copy.deepcopy(m)
         example_inputs = m.example_inputs()
-        quantize_(m, int8_dynamic_activation_int4_weight(group_size=group_size))
+        quantize_(m, int8_dynamic_activation_int4_weight(group_size=group_size, mapping_type=mapping_type))
 
         assert isinstance(m.linear1.weight, LinearActivationQuantizedTensor)
         assert isinstance(m.linear2.weight, LinearActivationQuantizedTensor)
@@ -516,7 +518,7 @@ class TestQuantFlow(TestCase):
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
         from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
 
-        quantizer = Int8DynActInt4WeightQuantizer(groupsize=group_size)
+        quantizer = Int8DynActInt4WeightQuantizer(groupsize=group_size, mapping_type=mapping_type)
         m_copy = quantizer.quantize(m_copy)
         assert isinstance(m_copy.linear1, Int8DynActInt4WeightLinear)
         assert isinstance(m_copy.linear2, Int8DynActInt4WeightLinear)
@@ -703,6 +705,8 @@ class TestQuantFlow(TestCase):
         for param in m.parameters():
             assert param.is_cuda
         self.assertLess(memory_streaming, memory_baseline)
+
+common_utils.instantiate_parametrized_tests(TestQuantFlow)
 
 
 if __name__ == "__main__":
