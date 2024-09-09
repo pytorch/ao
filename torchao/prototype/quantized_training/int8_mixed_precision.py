@@ -168,27 +168,25 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor) -> Tensor:
 
     TODO: check if transpose+quantize are actually fused.
     """
-    A_i8, A_scale_rowwise = quantize_int8_rowwise(A)
+    # A may have more than 2 dims, while B must be exactly 2-dim
+    A_i8, A_scale_rowwise = quantize_int8_rowwise(A.view(-1, A.shape[-1]))
     B_t_i8, B_scale_colwise = quantize_int8_rowwise(B.T)
-    return int8_mm_dequant(
+    out = int8_mm_dequant(
         A_i8.contiguous(),
         B_t_i8.contiguous().T,
         A_scale_rowwise.contiguous(),
         B_scale_colwise.contiguous(),
     )
+    return out.view(*A.shape[:-1], out.shape[-1])
 
 
 class _Int8MixedPrecisionTrainingLinear(torch.autograd.Function):
     @staticmethod
     def forward(input: Tensor, weight: Int8MixedPrecisionTrainingLinearWeight, bias: Optional[Tensor]):
         if weight.config.output:
-            batch_dims = input.shape[:-1]
-            input = input.view(-1, weight.shape[1])
             out = _dynamic_int8_mm(input, weight._data.T)
-            out = out.view(*batch_dims, weight.shape[0])
         else:
-            out = input @ weight.T
-
+            out = input @ weight._data.T
         out = out + bias if bias is not None else out
         return out
 
@@ -204,18 +202,15 @@ class _Int8MixedPrecisionTrainingLinear(torch.autograd.Function):
         input, weight = ctx.saved_tensors
         grad_input = grad_weight = grad_bias = None
 
-        batch_dims = grad_output.shape[:-1]
-        grad_output = grad_output.view(-1, weight.shape[0])
-        input = input.view(-1, weight.shape[1])
-
         if ctx.needs_input_grad[0]:
             if ctx.config.grad_input:
                 grad_input = _dynamic_int8_mm(grad_output, weight)
             else:
                 grad_input = grad_output @ weight
-            grad_input = grad_input.view(*batch_dims, weight.shape[1])
 
         if ctx.needs_input_grad[1]:
+            grad_output = grad_output.view(-1, weight.shape[0])
+            input = input.view(-1, weight.shape[1])
             if ctx.config.grad_weight:
                 # grad_weight = _dynamic_int8_mm(grad_output.T, input)
                 grad_weight = _dynamic_int8_mm(input.T, grad_output).T  # this is slightly faster
