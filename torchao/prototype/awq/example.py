@@ -98,35 +98,35 @@ def wikitext2_ppl(repo_id: str, quant: str, calibration_size: int =100, validati
 
     return wiki2_eval(model, tokenizer, sequence_length)
 
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Evaluate a model with the specified parameters.")
+        
 
-parser = argparse.ArgumentParser(description="Evaluate a model with the specified parameters.")
-    
+    # Optional arguments with default values
+    parser.add_argument("repo", type=str, help="Repository ID of the model.")
+    parser.add_argument("quant", type=str, help="Quantization method. Options are either int4 or awq-uintx where x is [1..8]")
+    parser.add_argument("--calibration_size", type=int, default=100, help="Calibration size. Default is 100.")
+    parser.add_argument("--validation_size", type=int, default=100, help="Validation size. Default is 100.")
+    parser.add_argument("--group_size", type=int, default=128, help="Group size to use for weights. Default is '128'")
+    parser.add_argument("--device", type=str, default="cuda", help="Device to run the evaluation on. Default is 'cuda'.")
+    parser.add_argument("--precision", type=str, default="bfloat16", help="Precision type. Default is 'bfloat16'.")
+    parser.add_argument("--sequence_length", type=int, default=512, help="Length of examples to calibrate/evaluate model on. Default 512")
+    parser.add_argument("--compile", action="store_true", help="Flag to indicate if compilation is required.")
 
-# Optional arguments with default values
-parser.add_argument("repo", type=str, help="Repository ID of the model.")
-parser.add_argument("quant", type=str, help="Quantization method. Options are either int4 or awq-uintx where x is [1..8]")
-parser.add_argument("--calibration_size", type=int, default=100, help="Calibration size. Default is 100.")
-parser.add_argument("--validation_size", type=int, default=100, help="Validation size. Default is 100.")
-parser.add_argument("--group_size", type=int, default=128, help="Group size to use for weights. Default is '128'")
-parser.add_argument("--device", type=str, default="cuda", help="Device to run the evaluation on. Default is 'cuda'.")
-parser.add_argument("--precision", type=str, default="bfloat16", help="Precision type. Default is 'bfloat16'.")
-parser.add_argument("--sequence_length", type=int, default=512, help="Length of examples to calibrate/evaluate model on. Default 512")
-parser.add_argument("--compile", action="store_true", help="Flag to indicate if compilation is required.")
+    args = parser.parse_args()
 
-args = parser.parse_args()
+    # Convert precision argument to torch dtype
+    precision_dtype = getattr(torch, args.precision, torch.bfloat16)
+    ppl = wikitext2_ppl(
+        repo_id=args.repo,
+        quant=args.quant,
+        calibration_size=args.calibration_size,
+        validation_size=args.validation_size,
+        group_size= args.group_size,
+        device=args.device,
+        precision=precision_dtype,
+        sequence_length=args.sequence_length,
+        compile=args.compile
+    )
 
-# Convert precision argument to torch dtype
-precision_dtype = getattr(torch, args.precision, torch.bfloat16)
-ppl = wikitext2_ppl(
-    repo_id=args.repo,
-    quant=args.quant,
-    calibration_size=args.calibration_size,
-    validation_size=args.validation_size,
-    group_size= args.group_size,
-    device=args.device,
-    precision=precision_dtype,
-    sequence_length=args.sequence_length,
-    compile=args.compile
-)
-
-print(f"{args.quant} Perplexity: {ppl.item():.5f}")
+    print(f"{args.quant} Perplexity: {ppl.item():.5f}")

@@ -1,14 +1,21 @@
 import torch
 import torch.nn.functional as F
-from torchao.prototype.awq.core import AWQObserver, ObservedLinear, AwqLayoutType
+
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
+     _DTYPE_TO_QVALUE_BOUNDS,
 )
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.dtypes import to_affine_quantized_intx
 from torchao.dtypes.uintx.Uintx import _DTYPE_TO_BIT_WIDTH
-from typing import List, Optional, Tuple
+from torchao.prototype.awq.core import(
+    AWQObserver, 
+    ObservedLinear, 
+    AwqLayoutType
+) 
+
+
 
 assert len(_DTYPE_TO_BIT_WIDTH) > 0, "Error importing low bit torch.uint dtypes. Please upgrade to torch 2.3+"
 
@@ -91,7 +98,7 @@ def awq_uintx(quant_dtype: torch.dtype = torch.uint4, group_size: int = 128):
         mapping_type = MappingType.ASYMMETRIC
         block_size = (1, group_size)
         quant_min = 0
-        quant_max = 255 if quant_dtype == torch.uint8 else 2 ** _DTYPE_TO_BIT_WIDTH[quant_dtype] - 1 
+        quant_max = _DTYPE_TO_QVALUE_BOUNDS[quant_dtype] 
         eps = torch.finfo(torch.float32).eps
         preserve_zero = True
         zero_point_dtype = torch.int64
