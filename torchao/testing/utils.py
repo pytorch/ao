@@ -4,7 +4,6 @@ import copy
 import torch
 import torchao
 
-from torch._inductor.test_case import TestCase
 from torch.testing._internal import common_utils
 from torchao.dtypes import AffineQuantizedTensor
 from torchao.dtypes import to_affine_quantized_intx
@@ -69,7 +68,7 @@ def copy_tests(
 
 
 
-class TorchAOBasicTestCase(TestCase):
+class TorchAOBasicTestCase(common_utils.TestCase):
     """Basic test case for tensor subclasses
     """
     COMMON_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
@@ -141,6 +140,19 @@ class TorchAOBasicTestCase(TestCase):
         hp_act_tensor = torch.randn(32, 128, device=device, dtype=dtype)
         hp_res = torch.nn.functional.linear(hp_act_tensor, hp_tensor)
         lp_res = torch.nn.functional.linear(hp_act_tensor, lp_tensor)
+        self.assertGreater(torchao.quantization.utils.compute_error(hp_res, lp_res), self.LINEAR_MIN_SQNR)
+
+    @common_utils.parametrize("device", COMMON_DEVICES)
+    @common_utils.parametrize("dtype", COMMON_DTYPES)
+    def test_linear_compile(self, device, dtype):
+        hp_tensor = torch.randn(4, 128, device=device, dtype=dtype)
+        lp_tensor = self.FACTORY_FN(hp_tensor, **self.kwargs)
+
+        hp_act_tensor = torch.randn(32, 128, device=device, dtype=dtype)
+        hp_res = torch.nn.functional.linear(hp_act_tensor, hp_tensor)
+        l = torch.nn.Linear(128, 4, bias=False, device=device, dtype=dtype)
+        l.weight = torch.nn.Parameter(lp_tensor)
+        lp_res = torch.compile(l)(hp_act_tensor)
         self.assertGreater(torchao.quantization.utils.compute_error(hp_res, lp_res), self.LINEAR_MIN_SQNR)
 
 common_utils.instantiate_parametrized_tests(TorchAOBasicTestCase)
