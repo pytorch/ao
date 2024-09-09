@@ -2,10 +2,6 @@ name: Build M1 Wheels
 
 on:
   pull_request:
-    paths:
-      - build/packaging/**
-      - .github/workflows/build_wheels_m1.yml
-      - setup.py
   push:
     branches:
       - nightly
@@ -15,8 +11,6 @@ on:
         # NOTE: Binary build pipelines should only get triggered on release candidate builds
         # Release candidate tags look like: v1.11.0-rc1
         - v[0-9]+.[0-9]+.[0-9]+-rc[0-9]+
-  schedule:
-    - cron: '0 0 * * *'  # Runs at midnight UTC every day
   workflow_dispatch:
 
 permissions:
@@ -31,6 +25,7 @@ jobs:
       os: macos-arm64
   build:
     needs: generate-matrix
+    if: github.repository_owner == 'pytorch'
     name: pytorch/ao
     uses: pytorch/test-infra/.github/workflows/build_wheels_macos.yml@main
     with:
