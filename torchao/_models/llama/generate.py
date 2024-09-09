@@ -208,6 +208,7 @@ def main(
             quantize_,
             int8_weight_only,
             int8_dynamic_activation_int8_weight,
+            int8_dynamic_activation_int4_weight_cutlass,
             int4_weight_only,
             fpx_weight_only,
             uintx_weight_only,
@@ -221,6 +222,8 @@ def main(
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
             quantize_(model, int8_dynamic_activation_int8_weight())
+        if "w4a8-cutlass" in quantization:
+            quantize_(model, int8_dynamic_activation_int4_weight_cutlass())
         if "int4wo" in quantization:
             if "hqq" in quantization:
                 use_hqq=True
@@ -459,7 +462,7 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint_path', type=Path, default=Path("../../../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
     parser.add_argument('-q', '--quantization', type=str, 
         help=(
-            'Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, '
+            'Which quantization techniques to apply: int8dq, w4a8-cutlass, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, '
             +'autoquant-int4, autoquant-float8, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin'
         )
     )
