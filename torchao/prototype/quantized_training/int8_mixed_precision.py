@@ -15,10 +15,11 @@ if has_triton():
 
 else:
 
+    # This is less performant than the explicit hand-written Triton kernel, though things might
+    # change in the future.
+    # Multiplying B_scale first is faster than the other way round.
     def int8_mm_dequant(A: Tensor, B: Tensor, A_scale_rowwise: Tensor, B_scale_colwise: Tensor) -> Tensor:
-        A_scaled = A * A_scale_rowwise.view(-1, 1)
-        B_scaled = B * B_scale_colwise.view(1, -1)
-        return A_scaled @ B_scaled
+        return torch._int_mm(A, B) * B_scale_colwise * A_scale_rowwise.view(-1, 1)
 
 
 class Int8MixedPrecisionTrainingConfig(NamedTuple):
