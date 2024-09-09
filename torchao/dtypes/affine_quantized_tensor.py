@@ -472,6 +472,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
 register_layout = AffineQuantizedTensor.register_layout
 get_tensor_impl_constructor = AffineQuantizedTensor.get_tensor_impl_constructor
 
+
 to_affine_quantized_intx = AffineQuantizedTensor.from_hp_to_intx
 to_affine_quantized_intx_static = AffineQuantizedTensor.from_hp_to_intx_static
 to_affine_quantized_floatx = AffineQuantizedTensor.from_hp_to_floatx
