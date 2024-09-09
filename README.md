@@ -29,7 +29,6 @@ For inference, we have the option of
 ```python
 from torchao.quantization.quant_api import (
     quantize_,
-    int8_dynamic_activation_int4_weight,
     int8_dynamic_activation_int8_weight,
     int4_weight_only,
     int8_weight_only
