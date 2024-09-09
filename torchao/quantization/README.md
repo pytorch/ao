@@ -12,18 +12,18 @@ Using the lm_eval. The models used were meta-llama/Llama-2-7b-chat-hf and meta-l
 |             | int8wo                  | 12.204              |  170.83       | 1131.18                 |  8.95            |  6.62           |
 |             | int4wo-64               | 12.843              |  201.14       |  751.42                 |  4.87            |  3.74           |
 |             | int4wo-64-GPTQ          | 12.527              |  201.14       |  751.42                 |  4.87            |  3.74           |
-|             | uintx-4-64              | 12.891              |  48.25        |  189.32                 |  6.29            |  3.92           |
-|             | uintx-2-8               | 28.766              |  36.11        |  238.58                 |  9.26            |  6.61           |
 |             | autoquant-int4hqq       | 12.825              |  209.19       |  804.32                 |  4.89            |  3.84           |
+|             | uintx-4-64 (prototype)  | 12.891              |  48.25        |  189.32                 |  6.29            |  3.92           |
+|             | uintx-2-8 (prototype)   | 28.766              |  36.11        |  238.58                 |  9.26            |  6.61           |
 | Llama-3-8B  | Base (bfloat16)         |  7.441              |   95.64       | 1435.54                 | 16.43            | 15.01           |
 |             | int8dq                  |  7.581              |    8.61       |   64.75                 |  9.24            |  7.52           |
 |             | int8wo                  |  7.447              |  153.03       | 1150.80                 | 10.42            |  7.52           |
 |             | int4wo-64               |  8.316              |  180.80       |  763.33                 |  6.88            |  4.22           |
 |             | int4wo-64-GPTQ          |  7.921              |  180.80       |  763.33                 |  6.88            |  4.22           |
 |             | int4wo-64-sparse-marlin |  N/A                |  226.02       |  689.20                 |  5.32            |  3.05           |
-|             | uintx-4-64              |  8.113              |  47.77        |  212.90                 |  11.85           |  4.46           |
-|             | uintx-2-8               |  39.368             |  33.21        |  249.22                 |  15.04           |  7.51           |
 |             | autoquant-int4hqq       |  8.110              |  188.41       |  800.58                 |  7.14            |  4.25           |
+|             | uintx-4-64 (prototype)  |  8.113              |  47.77        |  212.90                 |  11.85           |  4.46           |
+|             | uintx-2-8 (prototype)   |  39.368             |  33.21        |  249.22                 |  15.04           |  7.51           
 
 note: Int8 dynamic quantization works best on compute bound models like [SAM](https://github.com/pytorch-labs/segment-anything-fast) whereas Llama with batchsize=1 tends to be memory bound, thus the rather low performance.
 
