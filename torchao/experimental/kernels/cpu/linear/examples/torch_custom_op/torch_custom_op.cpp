@@ -50,8 +50,6 @@ at::Tensor pack_weights_without_zeros_cpu(
   auto pack_weight_tiling_params = get_default_pack_weight_data_tiling_params(
       ukernel_config, n, /*target_panels_per_thread=*/1);
 
-  torchao::set_num_threads(torch::get_num_threads());
-
   auto packed_weight_data_size =
       get_packed_weight_data_size(ukernel_config, n, k, group_size);
   at::Tensor packed_weights =
@@ -116,8 +114,6 @@ at::Tensor pack_weights_with_zeros_cpu(
       false /*has_clamp*/>();
   auto pack_weight_tiling_params = get_default_pack_weight_data_tiling_params(
       ukernel_config, n, /*target_panels_per_thread=*/1);
-
-  torchao::set_num_threads(torch::get_num_threads());
 
   auto packed_weight_data_size =
       get_packed_weight_data_size(ukernel_config, n, k, group_size);
@@ -226,8 +222,6 @@ at::Tensor linear_cpu(
       /*target_tiles_per_thread=*/5);
   auto linear_scheduling_policy =
       LinearTileSchedulingPolicy::single_mc_parallel_nc;
-
-  torchao::set_num_threads(torch::get_num_threads());
 
   auto activation_data_buffer_size = get_activation_data_buffer_size(
       ukernel_config,

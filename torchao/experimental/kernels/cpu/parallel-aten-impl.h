@@ -4,20 +4,25 @@
 // This source code is licensed under the license found in the
 // LICENSE file in the root directory of this source tree.
 
-namespace torchao::parallel::internal {
-static int num_threads_test_dummy_{1};
-}
+#pragma once
+#include <torch/library.h>
+#include <torch/torch.h>
+#include <Aten/Parallel.h>
 
+// F has signature [&](int64_t idx)
 template <typename F>
 void torchao::parallel_1d(const int64_t begin, const int64_t end, const F& f) {
-  for (int i = begin; i < end; i += 1) {
-    f(i);
-  }
+  at::parallel_for(begin, end, 1, [&](int64_t begin, int64_t end) {
+    for (int64_t idx = begin; idx < end; idx++) {
+      f(idx);
+    }
+  });
 }
 
 void torchao::set_num_threads(int num_threads) {
-  torchao::parallel::internal::num_threads_test_dummy_ = num_threads;
+  torch::set_num_threads(num_threads);
 }
+
 int torchao::get_num_threads() {
-  return torchao::parallel::internal::num_threads_test_dummy_;
+  return torch::get_num_threads();
 }
