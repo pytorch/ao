@@ -97,8 +97,8 @@ def awq_uintx(quant_dtype: torch.dtype = torch.uint4, group_size: int = 128):
         target_dtype = torch.uint8
         mapping_type = MappingType.ASYMMETRIC
         block_size = (1, group_size)
-        quant_min = 0
-        quant_max = _DTYPE_TO_QVALUE_BOUNDS[quant_dtype] 
+        quant_min = _DTYPE_TO_QVALUE_BOUNDS[quant_dtype][0]
+        quant_max = _DTYPE_TO_QVALUE_BOUNDS[quant_dtype][1] 
         eps = torch.finfo(torch.float32).eps
         preserve_zero = True
         zero_point_dtype = torch.int64

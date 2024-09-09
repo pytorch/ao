@@ -60,7 +60,16 @@ def wiki2_eval(model, tokenizer, sequence_length):
     
     return ppl
 
-def wikitext2_ppl(repo_id: str, quant: str, calibration_size: int =100, validation_size:int=100, group_size: int = 128, device="cuda", precision=torch.bfloat16, sequence_length=2048, compile=False):
+def wikitext2_ppl(
+        repo_id: str,
+        quant: str, 
+        calibration_size: int =100, 
+        validation_size:int=100, 
+        group_size: int = 128, 
+        device="cuda", 
+        precision=torch.bfloat16, 
+        sequence_length=2048, 
+        compile=False):
     print(f"Loading model on {device}...")
     torch.manual_seed(34)
     t0 = time.time()
@@ -105,8 +114,8 @@ if __name__ == "__main__":
     # Optional arguments with default values
     parser.add_argument("repo", type=str, help="Repository ID of the model.")
     parser.add_argument("quant", type=str, help="Quantization method. Options are either int4 or awq-uintx where x is [1..8]")
-    parser.add_argument("--calibration_size", type=int, default=100, help="Calibration size. Default is 100.")
-    parser.add_argument("--validation_size", type=int, default=100, help="Validation size. Default is 100.")
+    parser.add_argument("--calibration_size", type=int, default=10, help="Calibration size. Default is 10.")
+    parser.add_argument("--validation_size", type=int, default=10, help="Validation size. Default is 10.")
     parser.add_argument("--group_size", type=int, default=128, help="Group size to use for weights. Default is '128'")
     parser.add_argument("--device", type=str, default="cuda", help="Device to run the evaluation on. Default is 'cuda'.")
     parser.add_argument("--precision", type=str, default="bfloat16", help="Precision type. Default is 'bfloat16'.")
