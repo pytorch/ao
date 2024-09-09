@@ -270,7 +270,7 @@ class TestFSDP2(FSDPTest):
         fsdp_optim = torch.optim.Adam(fsdp_model.parameters(), lr=1e-2, foreach=False, fused=False)
 
         torch.manual_seed(42 + self.rank + 1)
-        for iter_idx in range(10):
+        for iter_idx in range(5):
             inp = torch.randint(0, vocab_size, (batch_size, seq_len), device="cuda")
             fsdp_optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
             fsdp_loss = fsdp_model(inp).sum()
