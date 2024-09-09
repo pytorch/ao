@@ -27,6 +27,7 @@ import torch.nn.utils.parametrize as parametrize
 import torchao
 from torchao.dtypes import (
     AffineQuantizedTensor,
+    CutlassInt4PackedLayout,
     Float8Layout,
     Int4CPULayout,
     MarlinQQQLayout,
@@ -599,7 +600,12 @@ def apply_int8_dynamic_activation_int4_weight_quant(
     if act_mapping_type == MappingType.ASYMMETRIC:
         input_quant_func = _int8_asymm_per_token_quant
     elif act_mapping_type == MappingType.SYMMETRIC:
-        input_quant_func = _int8_symm_per_token_quant
+        if isinstance(layout, MarlinQQQLayout):
+            input_quant_func = _int8_symm_per_token_quant
+        elif isinstance(layout, CutlassInt4PackedLayout):
+            input_quant_func = _int8_symm_per_token_reduced_range_quant_cutlass
+        else:
+            input_quant_func = _int8_symm_per_token_quant
     else:
         assert False, f"Unsupported activation mapping type: {act_mapping_type}"
 
@@ -635,7 +641,7 @@ def int8_dynamic_activation_int4_weight(
     Args:
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained
-        `layout`: layout type for quantized weight tensor, only supports `PlainLayout()` and `MarlinQQQLayout()` for now
+        `layout`: layout type for quantized weight tensor, only supports `MarlinQQQLayout()` and `CutlassInt4PackedLayout()` for now
         `mapping_type`: quantization type for weight, controls the weight quantization is symmetric or asymmetric
         `act_mapping_type`: quantization type for activation, controls the activation quantization is symmetric or asymmetric
     """
@@ -824,6 +830,27 @@ def _int8_symm_per_token_reduced_range_quant_noop_decode(
             quant_max=quant_max,
             scale_dtype=torch.float32 if x.dtype == torch.float16 else None,
         )
+
+
+def _int8_symm_per_token_reduced_range_quant_cutlass(
+    x: torch.Tensor,
+) -> torch.Tensor:
+    mapping_type = MappingType.SYMMETRIC
+    target_dtype = torch.int8
+    eps = 1e-5
+    quant_min = -127
+    quant_max = 127
+    return to_affine_quantized_intx(
+        x,
+        mapping_type,
+        _get_per_token_block_size(x),
+        target_dtype,
+        eps=eps,
+        zero_point_domain=ZeroPointDomain.NONE,
+        quant_min=quant_min,
+        quant_max=quant_max,
+        scale_dtype=torch.float16 if x.dtype == torch.float16 else None,
+    )
 
 
 def int8_dynamic_activation_int8_weight(
@@ -1264,6 +1291,7 @@ if TORCH_VERSION_AT_LEAST_2_5:
         [
             _int8_asymm_per_token_quant,
             _int8_symm_per_token_reduced_range_quant,
+            _int8_symm_per_token_reduced_range_quant_cutlass,
             _input_activation_quant_func_fp8,
         ]
     )
