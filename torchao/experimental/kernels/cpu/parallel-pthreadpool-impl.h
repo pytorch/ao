@@ -45,14 +45,14 @@ class Threadpool {
 template <typename F>
 struct Context {
   const F& f;
-  int grain_size;
-  Context(const F& f, int grain_size) : f{f}, grain_size{grain_size} {}
+  int64_t begin;
+  Context(const F& f, int begin) : f{f}, begin{begin} {}
 };
 
 template <typename F>
-static void task(Context<F>* context, size_t grain_idx) {
-  int i = grain_idx * context->grain_size;
-  context->f(i, i + context->grain_size);
+static void task(Context<F>* context, size_t i) {
+  int64_t idx = context->begin + i;
+  context->f(idx);
 }
 
 static Threadpool threadpool;
@@ -67,17 +67,12 @@ void torchao::set_num_threads(int num_threads) {
 }
 
 template <typename F>
-void torchao::parallel_for(
-    const int64_t begin,
-    const int64_t end,
-    const int64_t grain_size,
-    const F& f) {
-  int grain_idx_end = end / grain_size;
-  auto context = torchao::parallel::internal::Context<F>(f, grain_size);
+void torchao::parallel_1d(const int64_t begin, const int64_t end, const F& f) {
+  auto context = torchao::parallel::internal::Context<F>(f, begin);
   pthreadpool_parallelize_1d(
       torchao::parallel::internal::threadpool.get(),
       (pthreadpool_task_1d_t)torchao::parallel::internal::task<F>,
       (void**)&context,
-      grain_idx_end,
-      0 /* flags */);
+      /*range=*/end - begin,
+      /*flags=*/0);
 }

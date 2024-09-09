@@ -13,6 +13,7 @@ echo "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}"
 export CMAKE_OUT=/tmp/cmake-out/torch_ao/examples/torch_custom_op
 cmake -DTORCHAO_LIBRARIES=${TORCHAO_LIBRARIES} \
     -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH} \
+    -DTORCHAO_PARALLEL_BACKEND="aten_openmp" \
     -S ${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/linear/examples/torch_custom_op \
     -B ${CMAKE_OUT}
 cmake --build  ${CMAKE_OUT}
