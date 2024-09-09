@@ -14,6 +14,7 @@ torchao.dtypes
     to_affine_quantized_intx
     to_affine_quantized_floatx
     to_affine_quantized_intx_static
+    to_affine_quantized_floatx_static
     AffineQuantizedTensor
 
 ..

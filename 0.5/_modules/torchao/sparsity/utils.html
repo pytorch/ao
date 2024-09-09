@@ -417,7 +417,6 @@
     <span class="n">sparse_weight</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">c</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">dtype</span><span class="p">)</span><span class="o">.</span><span class="n">cuda</span><span class="p">()</span> <span class="o">*</span> <span class="n">mask</span>
     <span class="k">return</span> <span class="n">sparse_weight</span>
 
-
 <span class="c1"># Observers</span>
 <div class="viewcode-block" id="PerChannelNormObserver"><a class="viewcode-back" href="../../../generated/torchao.sparsity.PerChannelNormObserver.html#torchao.sparsity.PerChannelNormObserver">[docs]</a><span class="k">class</span> <span class="nc">PerChannelNormObserver</span><span class="p">(</span><span class="n">UniformQuantizationObserverBase</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
