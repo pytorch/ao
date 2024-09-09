@@ -39,6 +39,7 @@ from torchao.quantization.quant_api import (
     Quantizer,
     TwoStepQuantizer,
     int8_dynamic_activation_int4_weight,
+    int8_dynamic_activation_int4_weight_cutlass,
     int4_weight_only,
     int8_weight_only,
     int8_dynamic_activation_int8_weight,

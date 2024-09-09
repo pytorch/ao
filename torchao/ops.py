@@ -275,3 +275,36 @@ def _(
     torch._check(workspace.numel() >= min_workspace_size, lambda: f"workspace.numel = {workspace.numel()} is below min_workspace_size = {min_workspace_size}")
 
     return torch.empty((x.size(0), s.size(1)), dtype=x.dtype, device=x.device)
+
+
+def s8s4_linear_cutlass(
+    input: Tensor,
+    input_scale: Tensor,
+    weight: Tensor,
+    weight_scale: Tensor,
+    bias: Tensor,
+) -> Tensor:
+    # FIXME: write docs!!!
+    """
+    """
+
+    return torch.ops.torchao.s8s4_linear_cutlass.default(
+        input, input_scale, weight, weight_scale, bias
+    )
+
+
+@register_custom_op(f"torchao::s8s4_linear_cutlass")
+def _(
+    input: Tensor,
+    input_scale: Tensor,
+    weight: Tensor,
+    weight_scale: Tensor,
+    bias: Tensor,
+) -> Tensor:
+    # FIXME: implement all checks from s8s4_linear_cutlass() here!!!
+
+    return torch.empty(
+        (*input.shape[:-1], weight.size(0)),
+        dtype=input_scale.dtype,
+        device=input.device
+    )

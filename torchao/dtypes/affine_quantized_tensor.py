@@ -1332,6 +1332,14 @@ def _aqt_is_tensor_core_tile_uint4(aqt):
         aqt.quant_max == 15
     )
 
+def _aqt_is_tensor_core_tile_int4(aqt):
+    """Check if an AffineQuantizedTensor is int4 quantized Tensor"""
+    # TODO: use torch.int4
+    return (
+        aqt.layout_tensor.dtype == torch.int8 and
+        aqt.quant_min == -8 and
+        aqt.quant_max == 7
+    )
 
 implements = AffineQuantizedTensor.implements
 
@@ -1346,6 +1354,7 @@ def _linear_int8_act_int8_weight_check(input_tensor, weight_tensor, bias):
         isinstance(input_tensor, AffineQuantizedTensor) and
         _aqt_is_int8_reduced_range(input_tensor) and
         isinstance(weight_tensor, AffineQuantizedTensor) and
+        _aqt_is_int8(weight_tensor) and
         weight_tensor.is_cuda and
         input_tensor.dtype == weight_tensor.dtype and
         isinstance(input_tensor.layout_type, PlainLayoutType) and
@@ -1721,6 +1730,57 @@ def _linear_fp_act_int4_weight_sparse_marlin_impl(input_tensor, weight_tensor, b
     return out
 
 
+def _linear_int8_act_int4_weight_cutlass_check(input_tensor, weight_tensor, bias):
+    # FIXME: refine these checks!!!
+    return (
+        isinstance(input_tensor, AffineQuantizedTensor) and
+        _aqt_is_int8_reduced_range(input_tensor) and
+        input_tensor.dtype in (torch.float16, torch.bfloat16) and
+        len(input_tensor.shape) >= 2 and
+        isinstance(weight_tensor, AffineQuantizedTensor) and
+        _aqt_is_tensor_core_tile_int4(weight_tensor) and
+        weight_tensor.dtype == input_tensor.dtype and
+        len(weight_tensor.shape) == 2 and
+        (bias is None or bias.dtype == input_tensor.dtype) and
+        (bias is None or len(bias.shape) == 1)
+    )
+
+def _linear_int8_act_int4_weight_cutlass_impl(input_tensor, weight_tensor, bias):
+    from torchao.ops import s8s4_linear_cutlass
+
+    assert isinstance(input_tensor, AffineQuantizedTensor)
+    assert isinstance(weight_tensor, AffineQuantizedTensor)
+
+    input = input_tensor.layout_tensor.int_data
+    input_scale = input_tensor.layout_tensor.scale
+
+    weight = weight_tensor.layout_tensor.int_data
+    weight_scale = weight_tensor.layout_tensor.scale
+
+    out = s8s4_linear_cutlass(
+        input, input_scale, weight, weight_scale, bias
+    )
+
+    # FIXME: remove this!
+    """
+    input_shape = input.shape
+    input_2d = input.view(-1, input.shape[-1])
+    input_scale_1d = input_scale.view(-1)
+    m, k = input_2d.shape
+    n, _ = weight.shape
+    weight_orig = torch.stack(((weight << 4) >> 4, weight >> 4), dim=2).view(n, k)
+    # This is the calculation (well, not completely exact - as the matrix
+    # multiplication is actually over integers there) that
+    # s8s4_linear_cutlass() is performing.
+    out = (input_2d.to(input_scale.dtype) @ weight_orig.to(input_scale.dtype).T) * input_scale_1d.view(m, 1).expand(m, n) * weight_scale.expand(m, n)
+    if bias is not None:
+        out += bias
+    out = out.view(*input_shape[:-1], n)
+    """
+
+    return out
+
+
 def _register_aqt_quantized_linear_dispatches():
     for dispatch_condition, impl in [
         (_linear_int8_act_int8_weight_check, _linear_int8_act_int8_weight_impl),
@@ -1732,6 +1792,7 @@ def _register_aqt_quantized_linear_dispatches():
         (_linear_fp_act_int8_weight_check, _linear_fp_act_int8_weight_impl),
         (_linear_f16_act_floatx_weight_check, _linear_f16_act_floatx_weight_impl),
         (_linear_fp_act_int4_weight_sparse_marlin_check, _linear_fp_act_int4_weight_sparse_marlin_impl),
+        (_linear_int8_act_int4_weight_cutlass_check, _linear_int8_act_int4_weight_cutlass_impl),
     ]:
         register_aqt_quantized_linear_dispatch(dispatch_condition, impl)
 

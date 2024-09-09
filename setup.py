@@ -65,6 +65,12 @@ def get_extensions():
     extension = CUDAExtension if use_cuda else CppExtension
 
     if not IS_WINDOWS:
+        import cutlass_library
+        cutlass_library_dir = os.path.dirname(cutlass_library.__file__)
+        cutlass_include_dir = os.path.join(cutlass_library_dir, "source", "include")
+        # FIXME: remove this once CUTLASS package updated to include int4/int8 MM
+        cutlass_include_dir = "/data/quansight/scratch/cutlass/include"
+
         extra_link_args = []
         extra_compile_args = {
             "cxx": [
@@ -74,6 +80,7 @@ def get_extensions():
             "nvcc": [
                 "-O3" if not debug_mode else "-O0",
                 "-t=0",
+                "-I" + cutlass_include_dir,
             ]
         }
 

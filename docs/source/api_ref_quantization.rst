@@ -18,6 +18,7 @@ torchao.quantization
     Int4WeightOnlyQuantizer
     quantize_
     int8_dynamic_activation_int4_weight
+    int8_dynamic_activation_int4_weight_cutlass
     int8_dynamic_activation_int8_weight
     int4_weight_only
     int8_weight_only

@@ -85,6 +85,7 @@ __all__ = [
     "_get_subclass_inserter",
     "quantize_",
     "int8_dynamic_activation_int4_weight",
+    "int8_dynamic_activation_int4_weight_cutlass",
     "int8_dynamic_activation_int8_weight",
     "int8_dynamic_activation_int8_semi_sparse_weight",
     "int4_weight_only",
@@ -430,6 +431,7 @@ def quantize_(
         # also customizable with arguments
         # currently options are
         # int8_dynamic_activation_int4_weight (for executorch)
+        # int8_dynamic_activation_int4_weight_cutlass (for correspodning W4A8 CUTLASS-based kernel)
         # int8_dynamic_activation_int8_weight (optimized with int8 mm op and torch.compile)
         # int4_weight_only (optimized with int4 tinygemm kernel and torch.compile)
         # int8_weight_only (optimized with int8 mm op and torch.compile
@@ -511,6 +513,41 @@ def int8_dynamic_activation_int4_weight(group_size=32, mapping_type=MappingType.
     return _get_linear_subclass_inserter(apply_int8_dynamic_activation_int4_weight_quant, group_size=group_size, mapping_type=mapping_type)
 
 
+def apply_int8_dynamic_activation_int4_weight_quant_cutlass(weight):
+    """This is defined here instead of local function to support serialization
+    """
+    # weight settings
+    mapping_type = MappingType.SYMMETRIC
+    block_size = (1, weight.shape[-1])
+    target_dtype = torch.int8
+    eps = torch.finfo(torch.float32).eps
+    quant_min = -8
+    quant_max = 7
+
+    # input settings
+    input_quant_func = _int8_symm_per_token_reduced_range_quant_cutlass
+
+    weight = to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps)
+    weight = to_linear_activation_quantized(weight, input_quant_func)
+
+    # FIXME: this should be done by to_affine_quantized_intx, also the
+    # dtype of quantized tensor maybe should be set to quint4x2, and
+    # then corresponding changes made in
+    # _linear_int8_act_int4_weight_cutlass_check and for the check in
+    # the CUTLASS kernel!!!
+    weight.original_weight_tensor.layout_tensor.int_data = (
+        (weight.original_weight_tensor.layout_tensor.int_data[:, 1::2] & 0xF) << 4
+    ) | (weight.original_weight_tensor.layout_tensor.int_data[:, 0::2] & 0xF)
+
+    return weight
+
+def int8_dynamic_activation_int4_weight_cutlass():
+    """Applies int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear
+    This is used to produce a model for CUTLASS-based W4A8 kernel
+    """
+    return _get_linear_subclass_inserter(apply_int8_dynamic_activation_int4_weight_quant_cutlass)
+
+
 def int4_weight_only(group_size=128, layout_type=TensorCoreTiledLayoutType(inner_k_tiles=8), use_hqq=False):
     """
     Applies uint4 weight-only asymmetric per-group quantization to linear layers, using
@@ -580,7 +617,17 @@ def _int8_symm_per_token_reduced_range_quant(x: torch.Tensor) -> torch.Tensor:
     eps = 1e-5
     quant_min = -127
     quant_max = 127
+
     return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype, eps=eps, quant_min=quant_min, quant_max=quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
+
+def _int8_symm_per_token_reduced_range_quant_cutlass(x: torch.Tensor) -> torch.Tensor:
+    mapping_type = MappingType.SYMMETRIC
+    target_dtype = torch.int8
+    eps = 1e-5
+    quant_min = -127
+    quant_max = 127
+
+    return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype, eps=eps, quant_min=quant_min, quant_max=quant_max, scale_dtype=torch.float16 if x.dtype == torch.float16 else None)
 
 
 def int8_dynamic_activation_int8_weight(layout_type=PlainLayoutType()):
