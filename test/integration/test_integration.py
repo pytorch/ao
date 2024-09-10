@@ -828,7 +828,7 @@ class TestSubclass(unittest.TestCase):
     def test_int8_weight_only_quant_with_freeze(self, device, dtype):
         if TORCH_VERSION_AT_LEAST_2_5 and device == "cpu":
             self.skipTest("Regression introduced in PT nightlies")
-            
+
         self._test_lin_weight_subclass_api_impl(
             _int8wo_api, device, 40, test_dtype=dtype
         )
@@ -1042,7 +1042,7 @@ class TestSaveLoadMeta(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
-    def test_save_load_int8woqtensors(self, device, dtype):        
+    def test_save_load_int8woqtensors(self, device, dtype):      
         if TORCH_VERSION_AT_LEAST_2_5 and device == "cpu":
             self.skipTest(f"Regression introduced in PT nightlies")
 
