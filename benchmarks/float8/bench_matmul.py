@@ -113,6 +113,8 @@ def run(
         scale_b = torch.tensor([1.0], device=device)
 
         def do_matmul(A, B):
+            nonlocal scale_a
+            nonlocal scale_b
             return torch._scaled_mm(
                 A, B, scale_a, scale_b, out_dtype=d3, use_fast_accum=fast_accum
             )

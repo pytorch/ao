@@ -1237,7 +1237,7 @@ def _linear_bf16_act_uint4_weight_check(input_tensor, weight_tensor, bias):
 
 
 def _linear_bf16_act_uint4_weight_impl(input_tensor, weight_tensor, bias):
-    assert weight_tensor.block_size[0] == 1, f"Requires groupwise quantization, got block_size: {block_size}"
+    assert weight_tensor.block_size[0] == 1, f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
     assert input_tensor.shape[-1] == weight_tensor.shape[1], (
         f"need input_tensor shape: {input_tensor.shape} final"
         f"dim to match weight_tensor shape: {weight_tensor.shape} second dim "

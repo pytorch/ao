@@ -12,6 +12,7 @@ from typing import List, Optional, Tuple
 import torch
 import torch.distributed as dist
 
+from torchao.quantization import quantize_, int8_dynamic_activation_int8_semi_sparse_weight
 from torchao.sparsity import sparsify_, semi_sparse_weight
 from torchao.sparsity.prototype.superblock.supermask import SupermaskLinear, apply_supermask
 from torchao.sparsity.prototype.superblock.blocksparse import block_sparse_weight

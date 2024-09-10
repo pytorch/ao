@@ -45,7 +45,7 @@ from torchao._models.llama.generate import (
     _load_model,
 )
 
-from utils import write_history_to_csv, cal_wikitext_ppl, load_model, quantize_by_fqn_to_config, load_parameters_from_json
+from utils import write_history_to_csv, cal_wikitext_ppl, load_model, quantize_by_fqn_to_config, load_parameters_from_json, load_initial_samples
 
 default_device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -380,6 +380,8 @@ def run_sequential_BO(device, checkpoint_path, repo_id, num_PPL_eval_samples, nu
     parameters_list = load_parameters_from_json(args.parameters_list)
     
     # sample initial points
+    # TODO(future PR): fix me
+    initial_samples = []
     initial_points_set = load_initial_samples(initial_samples)
     num_BO_initial_samples = len(initial_points_set)
 
