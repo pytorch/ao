@@ -89,7 +89,7 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, spars
     with torch.no_grad():
         result = evaluate(
             HFLM(
-                pretrained=model,
+                pretrained=model.to(device),
                 tokenizer=tokenizer,
                 batch_size=batch_size,
                 max_length=max_length),
