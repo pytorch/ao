@@ -5,7 +5,7 @@ from datasets import load_dataset
 from tqdm import tqdm
 import time
 from torchao.prototype.awq.api import insert_awq_observer_, ObservedLinear, awq_uintx
-from torchao.quantization import quantize_, int4_weight_only
+from torchao.quantization import quantize_, int4_weight_only, uintx_weight_only
 
 
 # adapted from: https://github.com/mit-han-lab/llm-awq
@@ -35,19 +35,20 @@ def wiki2_eval(model, tokenizer, sequence_length):
     testenc = load_dataset("wikitext", "wikitext-2-raw-v1", split="test")
     testenc = tokenizer("\n\n".join(testenc["text"]), return_tensors="pt")
     testenc = testenc.input_ids.to(model.device)
-    nsamples = testenc.numel() // sequence_length
+    nsamples = 100
     model = model.eval()
+    model(testenc[:, :sequence_length].to(model.device))
     # calculate perplexity
     nlls = []
     for i in tqdm(range(nsamples), desc="evaluating..."):
-        batch = testenc[:, (i * sequence_length) : ((i + 1) * sequence_length)].to(
+        batch = testenc[:, i : i + sequence_length].to(
             model.device
         )
         with torch.no_grad():
             lm_logits = model(batch).logits
         shift_logits = lm_logits[:, :-1, :].contiguous().float()
         shift_labels = testenc[
-            :, (i * sequence_length) : ((i + 1) * sequence_length)
+            :, i : i + sequence_length
         ][:, 1:]
         loss_fct = torch.nn.CrossEntropyLoss()
         loss = loss_fct(
@@ -100,12 +101,13 @@ def wikitext2_ppl(
 
     elif quant=="int4":
         print("running int4 quantization")
-        quantize_(model, int4_weight_only(group_size=64))
+        # quantize_(model, uintx_weight_only(torch.uint4, group_size=64))
+        quantize_(model, int4_weight_only(group_size=group_size))
 
     if compile:
         model = torch.compile(model)
 
-    return wiki2_eval(model, tokenizer, sequence_length)
+    return wiki2_eval(model, tokenizer, 1024)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate a model with the specified parameters.")

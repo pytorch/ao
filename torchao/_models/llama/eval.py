@@ -89,10 +89,10 @@ def run_evaluation(
             else:
                 use_hqq = False
             _quant_args = quantization.split("-")
-            nbits = int(_quant_args[0])
+            nbits = int(_quant_args[1])
             _NBITS_TO_DTYPE = {1: torch.uint1, 2: torch.uint2, 3: torch.uint3, 4: torch.uint4, 5: torch.uint5, 6: torch.uint6, 7: torch.uint7, 8: torch.uint8}
             dtype = _NBITS_TO_DTYPE[nbits]
-            group_size = int(_quant_args[1])
+            group_size = int(_quant_args[2])
             quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
         if "int4wo" in quantization and "gptq" in quantization:
             groupsize=int(quantization.split("-")[-2])
@@ -107,7 +107,7 @@ def run_evaluation(
                 model.config.vocab_size,
                 device="cpu"
             ).record_inputs(
-                calibration_tasks,
+                ["pile_hackernews"],
                 calibration_limit,
             ).get_inputs()
 
@@ -122,28 +122,25 @@ def run_evaluation(
                 exit()
             from torchao.prototype.awq import insert_awq_observer_, awq_uintx, ObservedLinear
             quant_dtype = quantization.split("-")[1]
-            group_size = quantization.split("-")[2]
+            group_size = int(quantization.split("-")[2])
             quant_dtype = getattr(torch, quant_dtype, torch.uint8)
-
+            model=model.to(device)
             # get calibration data
-            inputs = InputRecorder(
-                tokenizer,
-                calibration_seq_length,
-                prepare_inputs_for_model,
-                pad_calibration_inputs,
-                model.config.vocab_size,
-                device="cpu"
-            ).record_inputs(
-                calibration_tasks,
-                calibration_limit,
-            ).get_inputs()
             insert_awq_observer_(model,calibration_limit, calibration_seq_length, quant_dtype=quant_dtype, group_size=group_size)
-            model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
-            for batch in inputs:
-                model(batch.to(device))
-                batch.to("cpu")
+            with torch.no_grad():
+                TransformerEvalWrapper(
+                    model=model,
+                    tokenizer=tokenizer,
+                    max_seq_length=calibration_seq_length,
+                    input_prep_func=prepare_inputs_for_model,
+                    device=device,
+                ).run_eval(
+                    tasks=calibration_tasks,
+                    limit=calibration_limit,
+                )
             is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
             quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size), is_observed_linear)
+            pass
         else:
             if not TORCH_VERSION_AT_LEAST_2_5:
                 unwrap_tensor_subclass(model)
