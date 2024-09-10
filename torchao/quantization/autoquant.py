@@ -9,7 +9,7 @@ from .subclass import ( # noqa
     Int8WeightOnlyQuantizedLinearWeight,
     QuantizedLinearWeightBase,
 )
-from torchao.dtypes import AffineQuantizedTensor, PlainLayoutType, TensorCoreTiledLayoutType
+from torchao.dtypes import AffineQuantizedTensor, PlainLayoutType, TensorCoreTiledLayoutType, Float8LayoutType
 from torchao.quantization.linear_activation_quantized_tensor import LinearActivationQuantizedTensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from .quant_primitives import (
@@ -476,6 +476,15 @@ class AQFloatLinearWeight(torch.Tensor, AQMixin):
     @classmethod
     def from_float(cls, weight):
         return weight
+
+class AQFloat8WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
+    """
+    AutoQuantizable version of Int8WeightOnlyQuantizedLinearWeight
+    """
+    @classmethod
+    def from_float(cls, weight):
+        block_size = (1, weight.shape[1])
+        return super(AQInt8WeightOnlyQuantizedLinearWeight, cls).from_hp_to_floatx(weight, block_size, target_dtype=torch.float8_e4m3fn, layout_type=Float8LayoutType())
 
 # here we don't include int4 quantization in since int8 tends to be a better apples to apples comparison
 DEFAULT_AUTOQUANT_CLASS_LIST = [
