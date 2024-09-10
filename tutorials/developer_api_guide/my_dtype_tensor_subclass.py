@@ -191,6 +191,9 @@ class MyDTypeTensor(TorchAOBaseTensor):
 # LayoutType and Layout Tensor Subclass Registration #
 ######################################################
 
+register_layout_cls = MyDTypeTensor.register_layout_cls
+get_layout_tensor_constructor = MyDTypeTensor.get_layout_tensor_constructor
+
 @register_layout_cls(PlainLayoutType)
 class PlainMyDTypeLayout(MyDTypeLayout):
     def __new__(
