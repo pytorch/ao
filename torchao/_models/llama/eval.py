@@ -20,6 +20,8 @@ from torchao.quantization.quant_api import (
     fpx_weight_only,
     uintx_weight_only,
     unwrap_tensor_subclass,
+    float8_weight_only,
+    float8_dynamic_activation_float8_weight,
 )
 from torchao._models._eval import TransformerEvalWrapper, InputRecorder
 
@@ -28,6 +30,7 @@ import time
 from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
 from torchao._models.llama.model import prepare_inputs_for_model
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.quantization.observer import PerTensor, PerRow
 
 def run_evaluation(
     checkpoint_path: Path,
@@ -117,7 +120,19 @@ def run_evaluation(
         else:
             if not TORCH_VERSION_AT_LEAST_2_5:
                 unwrap_tensor_subclass(model)
-
+        if "float8wo" in quantization:
+            quantize_(model, float8_weight_only())
+        if "float8dq" in quantization:
+            granularity = int(quantization.split("-")[-2])
+            if granularity is None:
+                granularity = PerTensor
+            if granularity=="tensor":
+                granularity = PerTensor
+            elif granularity=="row":
+                granularity = PerRow
+            else:
+                raise ValueError(f"float8dq granularity needs to be either tensor or row but got {granularity}")
+            quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
     if compile:
         model = torch.compile(model, mode="max-autotune", fullgraph=True)
     with torch.no_grad():
@@ -140,7 +155,7 @@ if __name__ == '__main__':
     parser.add_argument('--limit', type=int, default=None, help='Number of eval samples to evaluate')
     parser.add_argument('--precision', type=lambda x: getattr(torch, x.split(".")[-1]), default=torch.bfloat16, help='dtype precision to use')
     parser.add_argument('--device', type=str, default="cuda", help='Device to use for evaluation')
-    parser.add_argument("-q", "--quantization", type=str, help="Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, int4wo-<groupsize>-gptq, int4wo-<groupsize>-hqq, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq")
+    parser.add_argument("-q", "--quantization", type=str, help="Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, int4wo-<groupsize>-gptq, int4wo-<groupsize>-hqq, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, float8wo, float8dq-<granularity>")
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
     parser.add_argument('--max_length', type=int, default=None, help='Length of text to process at one time')
     parser.add_argument('--calibration_tasks', type=str, nargs='+', default=['wikitext'], help='tasks to do gptq calibration on, if doing gptq')
