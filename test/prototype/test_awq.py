@@ -43,19 +43,21 @@ def test(device, qdtype, idtype):
     original_dtype = idtype
     quant_dtype = qdtype
     group_size = 128
+    n_calibration_examples = 10
+    n_validation_examples = 10
+    sequence_length = 5
 
     m = ToyLinearModel(l1,l2,l3).eval().to(original_dtype).to(device)
     m_bf16 = deepcopy(m)
 
-    dataset = m.example_inputs(dataset_size,  dtype=original_dtype, device=device)
-    calibration_data = dataset[:50]
+    dataset = m.example_inputs(dataset_size, sequence_length=sequence_length,  dtype=original_dtype, device=device)
+    calibration_data = dataset[:n_calibration_examples]
     bf16_out = torch.cat([m_bf16(i.squeeze(0)) for i in dataset], dim=0)
 
     # calibrate
-    insert_awq_observer_(m, quant_dtype=quant_dtype, group_size=group_size)
+    insert_awq_observer_(m, n_validation_examples,sequence_length, quant_dtype=quant_dtype, group_size=group_size)
     for example in calibration_data:
         m(example.to(device))
-    # print('calibrated')
 
     # quantize
     is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)

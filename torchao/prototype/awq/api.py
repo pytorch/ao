@@ -25,8 +25,8 @@ def insert_awq_observer_(model: torch.nn.Module, n_validation_examples: int, val
 
     Args:
         model: The model to be modified (in place). Ensure model is on the desired device for calibration
-        validation_sequence_len: Number of tokens in each validation example
         n_validation_examples: Number of examples used to validate scale options
+        validation_sequence_len: Number of tokens in each validation example
         quant_dtype: The data type of the quantized weights. Currently only torch.uint4 is intended to be used but can be used with torch.uint1 -> torch.uint8
         scale search space size: how many different scale options to try. Original AWQ implementation uses 20. A larger size can lead to better results but takes longer to calibrate
         group_size: Quantization granularity. Use -1 for channel wise quantization
