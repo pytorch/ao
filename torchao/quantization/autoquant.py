@@ -479,12 +479,19 @@ class AQFloatLinearWeight(torch.Tensor, AQMixin):
 
 class AQFloat8WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
     """
-    AutoQuantizable version of Float8WeightOnlyQuantizedLinearWeight
+    AutoQuantizable version of Float8WeightOnlyQuantizedLinearWeight for target_dtype=torch.float8_e4m3fn
     """
+    target_dtype: torch.dtype = torch.float8_e4m3fn
+
+    @staticmethod
+    def _quantized_linear_op(act_mat, w_qtensor, bias):
+        return torch.nn.functional.linear(act_mat, w_qtensor.dequantize(), bias)
+
     @classmethod
     def from_float(cls, weight):
         block_size = (1, weight.shape[1])
-        return super(AQFloat8WeightOnlyQuantizedLinearWeight, cls).from_hp_to_floatx(weight, block_size, target_dtype=torch.float8_e4m3fn, layout_type=Float8LayoutType())
+        return super(AQFloat8WeightOnlyQuantizedLinearWeight, cls).from_hp_to_floatx(weight, block_size, target_dtype=cls.target_dtype, layout_type=Float8LayoutType())
+
 
 # here we don't include int4 quantization in since int8 tends to be a better apples to apples comparison
 DEFAULT_AUTOQUANT_CLASS_LIST = [
@@ -500,7 +507,7 @@ DEFAULT_AUTOQUANT_CLASS_LIST = [
 DEFAULT_INT4_AUTOQUANT_CLASS_LIST = [
     AQFloatLinearWeight,
     AQInt8DynamicallyQuantizedLinearWeight,
-    AQInt4G64WeightOnlyQuantizedLinearWeight,
+    AQInt4G64WeightOnlyQuantizedLinearWeight
 ]
 
 def _change_linears_to_autoquantizable(model, **kwargs):
