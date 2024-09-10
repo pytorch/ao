@@ -20,7 +20,7 @@ from torchao.dtypes.utils import (
     LayoutType,
     PlainLayoutType,
 )
-from torchao.utils import TorchAOBaseTensor
+from torchao.utils import TorchAOBaseTensor, _register_layout_cls, _get_layout_tensor_constructor
 
 aten = torch.ops.aten
 
