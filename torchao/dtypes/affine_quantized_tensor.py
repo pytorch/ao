@@ -335,8 +335,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         input_float: torch.Tensor,
         block_size: Tuple[int, ...],
         target_dtype: torch.dtype,
-        scale_dtype: Optional[torch.dtype],
         layout_type: LayoutType,
+        scale_dtype: Optional[torch.dtype] = None,
     ):
 
         if target_dtype in FP8_TYPES:
