@@ -6,7 +6,7 @@ cuda_driver = pytest.importorskip(
 import itertools
 
 import torch
-from utils import patch_device
+from .utils import patch_device
 
 from torchao.profiler.device_spec import (
     _AVAILABLE_GPU_SPECS,

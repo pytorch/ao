@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 import torch
 from parameterized import parameterized_class
-from utils import (
+from .utils import (
     PerfCounterManagerTestConfig,
     PerfCounterResult,
     PerfCounterTestConfig,
