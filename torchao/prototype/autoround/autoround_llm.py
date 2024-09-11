@@ -29,6 +29,7 @@ def quantize_model_with_autoround_(
     bs: int = 8,
     nsamples: int = 128,
     use_optimized_layer_output: bool = False,
+    gradient_accumulate_steps: Optional[int] = 1,
     compile_optimization_process:  Optional[bool] = False,
 ):
     # Step 1. Prepare the model for applying auto-round
@@ -43,6 +44,7 @@ def quantize_model_with_autoround_(
         group_size,
         iters,
         use_optimized_layer_output,
+        gradient_accumulate_steps,
         compile_optimization_process,
         device=device,
     )
@@ -109,6 +111,7 @@ def main(args):
         bs=args.train_bs,
         nsamples=args.nsamples,
         use_optimized_layer_output=args.use_optimized_layer_output,
+        gradient_accumulate_steps=args.gradient_accumulate_steps,
         compile_optimization_process=args.compile_optimization_process,
     )
     # Revert the `use_cache` for generation stage.
@@ -158,6 +161,12 @@ if __name__ == "__main__":
         default=2048,
         type=int,
         help="Sequence length for calibration process",
+    )
+    parser.add_argument(
+        "--gradient_accumulate_steps",
+        default=1,
+        type=int,
+        help="Number of gradient accumulation steps",
     )
     parser.add_argument(
         "--quant_lm_head",
