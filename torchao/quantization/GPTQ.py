@@ -39,6 +39,8 @@ from .utils import (
 )
 aten = torch.ops.aten
 
+from .quant_primitives import MappingType
+
 if not _lm_eval_available:
     logging.info("lm_eval is not installed, GPTQ may not be usable")
 
@@ -98,7 +100,7 @@ class GenericGPTQRunner(fx.Interpreter):
         self.groupsize = groupsize
         self.inputs = inputs
         self.gptq_done = False
-        self.debug = True
+        self.debug = False
 
     def configure_quantization_mode(
         self,
@@ -790,14 +792,14 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
 
             # TODO: this is the gpt-fast version, merge with the main version later
             def make_names_and_values_dict_func(q, qparams):
-                k = q.shape[1]
+                k = q.shape[1]*2
                 if not _check_linear_int4_k(k, groupsize):
                     new_k = find_multiple(k, 1024)
                 else:
                     new_k = k
                 # how much we need to pad the weight
-                delta_k = new_k - q.shape[1]
-                q = q.to(torch.int32).to(self.device)
+                delta_k = int((new_k - k)/2)
+                q = q.to(self.device)
                 final_q = torch.ops.aten._convert_weight_to_int4pack(F.pad(q, pad=(0, delta_k)), inner_k_tiles)
                 scales = qparams[0].to(torch.bfloat16).to(self.device)
                 zeros = qparams[1].to(torch.bfloat16).to(self.device)
@@ -1022,6 +1024,7 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
         precision: torch.dtype = torch.float32,
         scales_precision: torch.dtype = torch.float32,
         device: torch.device = torch.device("cpu"),
+        mapping_type: MappingType = MappingType.SYMMETRIC
     ) -> None:
         super().__init__()
         self.groupsize: int = groupsize
@@ -1029,6 +1032,7 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
         self.precision: torch.dtype = precision
         self.scales_precision: torch.dtype = scales_precision
         self.device: torch.device = device
+        self.mapping_type: MappingType = mapping_type
 
     @torch.no_grad()
     def _create_quantized_state_dict(
@@ -1068,6 +1072,7 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
                     4,  # n_bit
                     self.groupsize,
                     self.scales_precision,
+                    mapping_type=self.mapping_type
                 )
                 cur_state_dict[f"{fqn}.weight"] = weight_int8.to(self.device)
                 cur_state_dict[f"{fqn}.scales"] = scales.to(self.device)

@@ -9,7 +9,7 @@ from .subclass import ( # noqa
     Int8WeightOnlyQuantizedLinearWeight,
     QuantizedLinearWeightBase,
 )
-from torchao.dtypes import AffineQuantizedTensor, PlainLayoutType
+from torchao.dtypes import AffineQuantizedTensor, PlainLayoutType, TensorCoreTiledLayoutType
 from torchao.quantization.linear_activation_quantized_tensor import LinearActivationQuantizedTensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from .quant_primitives import (
@@ -23,6 +23,8 @@ import torch.nn.functional as F
 __all__ = [
     "AutoQuantizableLinearWeight",
     "autoquant",
+    "DEFAULT_AUTOQUANT_CLASS_LIST",
+    "DEFAULT_INT4_AUTOQUANT_CLASS_LIST",
 ]
 
 
@@ -360,7 +362,7 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
         print(f">>time: {res_f:0.3f}ms for {cls} interpolated, breakeven constant: {max_int_const_win:0.2f}")
         return res_f
 
-class AQWeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
+class AQInt8WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
     """
     AutoQuantizable version of Int8WeightOnlyQuantizedLinearWeight
     """
@@ -371,10 +373,10 @@ class AQWeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
         eps = torch.finfo(torch.float32).eps
         zero_point_dtype = torch.int64
         block_size = (1, weight.shape[1])
-        return super(AQWeightOnlyQuantizedLinearWeight, cls).from_hp_to_intx(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype)
+        return super(AQInt8WeightOnlyQuantizedLinearWeight, cls).from_hp_to_intx(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype)
 
 
-class AQWeightOnlyQuantizedLinearWeight2(AQWeightOnlyQuantizedLinearWeight, AQMixin):
+class AQInt8WeightOnlyQuantizedLinearWeight2(AQInt8WeightOnlyQuantizedLinearWeight, AQMixin):
     """
     AutoQuantizable version of Int8WeightOnlyQuantizedLinearWeight that
     uses a different kernel
@@ -408,7 +410,7 @@ class AQWeightOnlyQuantizedLinearWeight2(AQWeightOnlyQuantizedLinearWeight, AQMi
             return torch.inf
         return super()._autoquant_test(act_mat, *args)
 
-class AQWeightOnlyQuantizedLinearWeight3(AQWeightOnlyQuantizedLinearWeight, AQMixin):
+class AQInt8WeightOnlyQuantizedLinearWeight3(AQInt8WeightOnlyQuantizedLinearWeight, AQMixin):
     """
     AutoQuantizable version of Int8WeightOnlyQuantizedLinearWeight that
     uses a different kernel
@@ -421,6 +423,40 @@ class AQWeightOnlyQuantizedLinearWeight3(AQWeightOnlyQuantizedLinearWeight, AQMi
         if bias is not None:
             y += bias
         return y
+
+
+class AQInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
+    """
+    AutoQuantizable version of Int4WeightOnlyQuantizedLinearWeight
+    """
+    group_size: int = 32
+    @classmethod
+    def from_float(cls, weight):
+        group_size = cls.group_size
+        layout_type = TensorCoreTiledLayoutType(inner_k_tiles=8)
+
+        if weight.shape[-1] % group_size != 0:
+            return weight
+        use_hqq = True
+        mapping_type = MappingType.ASYMMETRIC
+        block_size = (1, group_size)
+        target_dtype = torch.int32
+        quant_min = 0
+        quant_max = 15
+        eps = 1e-6
+        preserve_zero = False
+        zero_point_dtype = torch.bfloat16
+        zero_point_domain = ZeroPointDomain.FLOAT
+        return super(AQInt4G32WeightOnlyQuantizedLinearWeight, cls).from_hp_to_intx(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, layout_type=layout_type, use_hqq=use_hqq)
+
+class AQInt4G64WeightOnlyQuantizedLinearWeight(AQInt4G32WeightOnlyQuantizedLinearWeight):
+    group_size: int = 64
+
+class AQInt4G128WeightOnlyQuantizedLinearWeight(AQInt4G32WeightOnlyQuantizedLinearWeight):
+    group_size: int = 128
+
+class AQInt4G256WeightOnlyQuantizedLinearWeight(AQInt4G32WeightOnlyQuantizedLinearWeight):
+    group_size: int = 256
 
 class AQFloatLinearWeight(torch.Tensor, AQMixin):
     """
@@ -441,13 +477,20 @@ class AQFloatLinearWeight(torch.Tensor, AQMixin):
     def from_float(cls, weight):
         return weight
 
-DEFAULT_CLASS_LIST = [
+# here we don't include int4 quantization in since int8 tends to be a better apples to apples comparison
+DEFAULT_AUTOQUANT_CLASS_LIST = [
     AQFloatLinearWeight,
-    AQWeightOnlyQuantizedLinearWeight,
-    AQWeightOnlyQuantizedLinearWeight2,
-    # AQWeightOnlyQuantizedLinearWeight3,
+    AQInt8WeightOnlyQuantizedLinearWeight,
+    AQInt8WeightOnlyQuantizedLinearWeight2,
+    # AQInt8WeightOnlyQuantizedLinearWeight3,
     # TODO this gets picked in places where it makes perf worse, why?
     AQInt8DynamicallyQuantizedLinearWeight,
+]
+
+DEFAULT_INT4_AUTOQUANT_CLASS_LIST = [
+    AQFloatLinearWeight,
+    AQInt8DynamicallyQuantizedLinearWeight,
+    AQInt4G64WeightOnlyQuantizedLinearWeight
 ]
 
 def _change_linears_to_autoquantizable(model, **kwargs):
@@ -459,7 +502,7 @@ def _change_linears_to_autoquantizable(model, **kwargs):
     from torchao.quantization.quant_api import _is_linear
     filter_fn = kwargs.pop("filter_fn", _is_linear)
     _ = kwargs.pop("error_on_unseen", True) # same kwargs used for this and to_quantized
-    kwargs["qtensor_class_list"] = kwargs.get("qtensor_class_list", DEFAULT_CLASS_LIST)
+    kwargs["qtensor_class_list"] = kwargs.get("qtensor_class_list", DEFAULT_AUTOQUANT_CLASS_LIST)
     kwargs["mode"] = kwargs.get("mode", ["relu", None])
     from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
     from torchao.quantization.quant_api import _get_subclass_inserter
@@ -515,7 +558,7 @@ def _change_autoquantizable_to_quantized(model, supress_autoquant_errors=True, *
 def autoquant(
     model, 
     example_input=None, 
-    qtensor_class_list=DEFAULT_CLASS_LIST, 
+    qtensor_class_list=DEFAULT_AUTOQUANT_CLASS_LIST, 
     filter_fn=None, 
     mode=["interpolate", .85], 
     manual=False, 
@@ -547,7 +590,7 @@ def autoquant(
         model (torch.nn.Module): The model to be autoquantized.
         example_input (Any, optional): An example input for the model. If provided, the function performs a forward pass
                                        on this input (which fully autoquantizes the model unless manual=True). Defaults to None.
-        qtensor_class_list (list, optional): A list of tensor classes to be used for quantization. Defaults to DEFAULT_CLASS_LIST.
+        qtensor_class_list (list, optional): A list of tensor classes to be used for quantization. Defaults to DEFAULT_AUTOQUANT_CLASS_LIST.
         filter_fn (callable, optional): A filter function to apply to the model parameters. Defaults to None.
         mode (list, optional): A list containing mode settings for quantization. The first element is the mode type (e.g., "interpolate"),
                                and the second element is the mode value (e.g., 0.85). Defaults to ["interpolate", .85].

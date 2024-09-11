@@ -68,9 +68,9 @@ from torchao.quantization.utils import (
 )
 from torchao.quantization.autoquant import (
     AQInt8DynamicallyQuantizedLinearWeight,
-    AQWeightOnlyQuantizedLinearWeight,
-    AQWeightOnlyQuantizedLinearWeight2,
-    AQWeightOnlyQuantizedLinearWeight3,
+    AQInt8WeightOnlyQuantizedLinearWeight,
+    AQInt8WeightOnlyQuantizedLinearWeight2,
+    AQInt8WeightOnlyQuantizedLinearWeight3,
     AutoQuantizableLinearWeight,
 
 )
@@ -727,21 +727,21 @@ class TestSubclass(unittest.TestCase):
     )
     def test_aq_int8_weight_only_quant_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
-            AQWeightOnlyQuantizedLinearWeight.from_float, device, 35, test_dtype=dtype
+            AQInt8WeightOnlyQuantizedLinearWeight.from_float, device, 35, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant+aqt needs newer pytorch")
     def test_aq_int8_weight_only_quant_2_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
-            AQWeightOnlyQuantizedLinearWeight2.from_float, device, 35, test_dtype=dtype
+            AQInt8WeightOnlyQuantizedLinearWeight2.from_float, device, 35, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant+aqt needs newer pytorch")
     def test_aq_int8_weight_only_quant_3_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
-            AQWeightOnlyQuantizedLinearWeight3.from_float, device, 35, test_dtype=dtype
+            AQInt8WeightOnlyQuantizedLinearWeight3.from_float, device, 35, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
@@ -817,6 +817,9 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_int8_weight_only_quant_subclass_api(self, device, dtype):
+        if TORCH_VERSION_AT_LEAST_2_5 and device == "cpu":
+            self.skipTest("Regression introduced in PT nightlies")
+
         undo_recommended_configs()
         self._test_lin_weight_subclass_api_impl(
             _int8wo_api, device, 40, test_dtype=dtype
@@ -826,6 +829,9 @@ class TestSubclass(unittest.TestCase):
     @torch._inductor.config.patch({"freezing": True})
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "freeze requires torch 2.4 and after.")
     def test_int8_weight_only_quant_with_freeze(self, device, dtype):
+        if TORCH_VERSION_AT_LEAST_2_5 and device == "cpu":
+            self.skipTest("Regression introduced in PT nightlies")
+
         self._test_lin_weight_subclass_api_impl(
             _int8wo_api, device, 40, test_dtype=dtype
         )
@@ -1039,7 +1045,10 @@ class TestSaveLoadMeta(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
-    def test_save_load_int8woqtensors(self, device, dtype):
+    def test_save_load_int8woqtensors(self, device, dtype):      
+        if TORCH_VERSION_AT_LEAST_2_5 and device == "cpu":
+            self.skipTest(f"Regression introduced in PT nightlies")
+
         undo_recommended_configs()
         self._test_handle_save_load_meta_impl(_int8wo_api, device, test_dtype=dtype)
 
@@ -1498,10 +1507,10 @@ class TestUtils(unittest.TestCase):
         size = torchao.utils.get_model_size_in_bytes(model)
 
         from torchao.quantization.autoquant import (
-            AQWeightOnlyQuantizedLinearWeight2,
+            AQInt8WeightOnlyQuantizedLinearWeight2,
         )
         qtensor_class_list = (
-            AQWeightOnlyQuantizedLinearWeight2,
+            AQInt8WeightOnlyQuantizedLinearWeight2,
         )
         mod = torchao.autoquant(torch.compile(model), qtensor_class_list = qtensor_class_list, set_inductor_config=False)
         mod(example_input)

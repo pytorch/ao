@@ -2,27 +2,10 @@
 
 Sparsity is the technique of removing parameters from a neural network in order to reduce its memory overhead or latency. By carefully choosing how the elements are pruned, one can achieve significant reduction in memory overhead and latency, while paying a reasonably low or no price in terms of model quality (accuracy / f1).
 
-## Goal
 
-We feel that the main problem current sparsity researchers / users face is fragmentation. Researchers rightfully aim to show end-to-end results, but this means a lot of time is spent figuring out how to integrate with PyTorch and implementation questions like:
-- *When should I mask?*
-- *When/how should I store the compressed representation?*
-- *Do I want in-place or out-of-place mask updates?*
-- *How can I call sparse matmul instead of dense?*
+## Benchmarks
 
-We feel like the above problems can be solved once by `torchao`, letting researchers focus on what really matters - pushing sparse kernel performance or more accurate pruning algorithms.
-
-More concretely, we hope to provide tutorials and APIs for both sparse kernels (tensor subclassing) and pruning algorithms (torch.ao.pruning.Sparsifier) that users can extend. We aim to provide modular building blocks, that can be used to accelerate not only inference but training as well, and that compose nicely with `torchao` quantization workflows.
-
-1. Train sparse models from scratch with hardware acceleration, with minimal accuracy loss.
-2. Recover accuracy loss of pruned model with custom pruning algorthim.
-3. Accelerate masked/pruned models on sparsity-supported hardware to realize performance improvements.
-
-## Success Stories
-
-#### segment-anything-fast
-We applied 2:4 sparsity to accelerate segment-anything, as part of [segment-anything-fast](https://github.com/pytorch-labs/segment-anything-fast).
-
+### segment-anything-fast
 We were able to provide a **1.16x (22.7 -> 26.5 img/s) speedup over our dense baseline, while maintaining 97.5% (0.581 -> 0.567) of the evaluation accuracy (mIOU)**.
 
 Overall, we found that accelerating the MLP linear layers provied the most speedups (`lin1`, `lin2`), while mitigating accuracy loss.
@@ -47,19 +30,89 @@ The following benchmarks we ran for sam ViT-h on an NVIDIA-A100-80GB, with batch
 
 To reproduce our benchmarks please follow these [instructions](/torchao/_models/sam/README.md).
 
-#### BERT
+### LLama3
 
-We were able to accelerate BERT 1.23x on an A100 with a negligible accuracy drop on SQuAD.
-For more information about accelerting BERT with semi-sturcutred sparsity, please see our [tutorial](https://pytorch.org/tutorials/advanced/semi_structured_sparse.html?highlight=beta).
+On Meta LLama3, we observe a 25% tok/s increase (180 -> 226) compared to our existing int4-wo implementation when using the sparse marlin kernel @Diogo-V added.
 
-| Metrics | fp16 | 2:4 sparse | delta / speedup |
-| --- | --- | --- | --- |
-| Exact Match (%) | 78.53 | 78.44 | -0.09 |
-| F1 (%) | 86.93 | 86.49 | -0.44 |
-| Time (bs=16) | 19.35 | 15.74 | 1.23x |
+| Model       | Technique               | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
+| ----------- | ----------------------- | ------------- | ----------------------- | ---------------- | --------------- |
+| Llama-3-8B  | Base (bfloat16)         |   95.64       | 1435.54                 | 16.43            | 15.01           |
+|             | int8wo                  |  153.03       | 1150.80                 | 10.42            |  7.52           |
+|             | int4wo-64               |  180.80       |  763.33                 |  6.88            |  4.22           |
+|             | int4wo-64-sparse-marlin |  226.02       |  689.20                 |  5.32            |  3.05           |
 
+These benchmarks were also ran on a NVIDIA-A100-80GB.
 
-# Design
+## Supported APIs
+
+![support_matrix](/docs/static/supported_sparsity_patterns.png)
+
+### Sparse Marlin 2:4
+
+Sparse-Marlin 2:4 is an optimized GPU kernel that extends the Mixed Auto-Regressive Linear (Marlin) dense kernel to support 4-bit quantized weights and 2:4 sparsity, improving performance in matrix multiplication and accumulation. Full documentation can be found [here](https://github.com/IST-DASLab/Sparse-Marlin).
+
+```py
+from torchao.quantization.quant_api import quantize_, int4_weight_only
+from torchao.dtypes import MarlinSparseLayoutType
+
+# Your FP16 model
+model = model.cuda().half()
+quantize_(model, int4_weight_only(layout_type=MarlinSparseLayoutType()))
+```
+
+Note the existing API results in an extremely high accuracy degredation and is intended to be used in concert with an already sparsified+finetuned checkpoint where possible until we develop
+the necessary supporting flows in torchao.
+
+### int8 dynamic quant + 2:4 sparasity
+
+We support composing int8 dynaic quantization with 2:4 sparsity. We fuse one of the scalar dequant multiplications into our cuSPARSELt sparse mm in order to remain performant.
+
+```py
+from torchao.quantization.quant_api import quantize_, int8_dynamic_activation_int8_weight
+from torchao.dtypes import SemiSparseLayoutType
+
+model = model.cuda()
+quantize_(model, int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType()))
+```
+
+### 2:4 sparsity
+
+```py
+from torchao.sparsity.sparse_api import sparsify_, semi_sparse_weight
+from torchao.dtypes import SemiSparseLayoutType
+
+model = model.cuda()
+sparsify_(model, semi_sparse_weight())
+```
+
+### Block sparsity (prototype)
+We offer prototype support for accelerating block sparsity with our triton kernels for bfloat16/float16 workloads.
+
+```py
+from torchao.sparsity.sparse_api import sparsify_
+from torchao.sparsity.prototype.superblock.blocksparse import block_sparse_weight
+
+model = model.cuda()
+sparsify_(model, block_sparse_weight())
+```
+
+# Goal
+
+We feel that the main problem current sparsity researchers / users face is fragmentation. Researchers rightfully aim to show end-to-end results, but this means a lot of time is spent figuring out how to integrate with PyTorch and implementation questions like:
+- *When should I mask?*
+- *When/how should I store the compressed representation?*
+- *Do I want in-place or out-of-place mask updates?*
+- *How can I call sparse matmul instead of dense?*
+
+We feel like the above problems can be solved once by `torchao`, letting researchers focus on what really matters - pushing sparse kernel performance or more accurate pruning algorithms.
+
+More concretely, we hope to provide tutorials and APIs for both sparse kernels (tensor subclassing) and pruning algorithms (torch.ao.pruning.Sparsifier) that users can extend. We aim to provide modular building blocks, that can be used to accelerate not only inference but training as well, and that compose nicely with `torchao` quantization workflows.
+
+1. Train sparse models from scratch with hardware acceleration, with minimal accuracy loss.
+2. Recover accuracy loss of pruned model with custom pruning algorthim.
+3. Accelerate masked/pruned models on sparsity-supported hardware to realize performance improvements.
+
+## Design
 
 Sparsity, like quantization, is an accuracy/performance trade-off, where we care not only about the speedup but also on the accuracy degradation of our architecture optimization technique.
 

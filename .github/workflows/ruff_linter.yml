@@ -25,6 +25,9 @@ jobs:
     - name: Analyzing the code with ruff
       run: |
         ruff check .
+    - name: Check all Python files for syntax errors (E999) and undefined vars (F821)
+      run: |
+        ruff check --isolated --select E999,F821
     - name: Check well formatted code
       run: |
         ruff format --check

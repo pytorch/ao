@@ -30,19 +30,15 @@ def addmm_float8_unwrapped(
     output_scale: Optional[torch.Tensor] = None,
     bias: Optional[torch.Tensor] = None,
     use_fast_accum: bool = False,
-    inverse_scale: bool = True
 ) -> torch.Tensor:
     """
     This is the unwrapped version of addmm_float8, which does not take in Float8Tensors
     as inputs. This is used to standardize the logic between subclassed and non subclassed
     versions of the linear module.
     """
-    if inverse_scale:
-        a_inverse_scale = a_scale.reciprocal()
-        b_inverse_scale = b_scale.reciprocal()
-    else:
-        a_inverse_scale = a_scale
-        b_inverse_scale = b_scale
+    a_inverse_scale = a_scale.reciprocal()
+    b_inverse_scale = b_scale.reciprocal()
+
     if output_dtype == torch.float32 and bias is not None:
         # Bias is not supported by _scaled_mm when output is fp32
         output = torch._scaled_mm(

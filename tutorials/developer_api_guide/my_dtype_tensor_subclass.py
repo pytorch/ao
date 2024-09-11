@@ -17,14 +17,10 @@ import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.quantization.quant_primitives import choose_qparams_affine, MappingType
 from torchao.dtypes.utils import (
-    _implements,
-    _dispatch__torch_function__,
-    _dispatch__torch_dispatch__,
-    _register_layout_cls,
-    _get_layout_tensor_constructor,
     LayoutType,
     PlainLayoutType,
 )
+from torchao.utils import TorchAOBaseTensor, _register_layout_cls, _get_layout_tensor_constructor
 
 aten = torch.ops.aten
 
@@ -65,7 +61,11 @@ class MyDTypeLayout(torch.Tensor):
 # Tensor Subclass Definition #
 ##############################
 
-class MyDTypeTensor(torch.Tensor):
+class MyDTypeTensor(TorchAOBaseTensor):
+    """Inheriting from `TorchAOBaseTensor` gives us some helper functions, please see docs
+    for :class:`~torchao.utils.TorchAOBaseTensor` for more details
+    """
+
     """We need to define __new__ for constructing a new tensor subclass instance and __init__ for initialize
     the instance. There is no requirement on what the argument list should look like here, only requirement is
     that `__new__` must return a Tensor instance with `torch.Tensor._make_wrapper_subclass(cls, shape, ...)` call
@@ -176,8 +176,6 @@ class MyDTypeTensor(torch.Tensor):
             self.dtype,
         )
 
-    implements = classmethod(_implements)
-
     """There are two entry points that we can modify the behavior of a pytorch op: torch_function and torch_dispatch:
 
     __torch_function__: will be called whenever a torch level function is called on the Tensor object, for example: torch.nn.functional.linear,
@@ -188,8 +186,6 @@ class MyDTypeTensor(torch.Tensor):
 
     We have some helper functions that can dispatch to the functions registered with MyDTypeTensor.implements, but if the default implementation does not work for your use case, please feel free to customize it
     """
-    __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
-    __torch_function__ = classmethod(_dispatch__torch_function__)
 
 ######################################################
 # LayoutType and Layout Tensor Subclass Registration #

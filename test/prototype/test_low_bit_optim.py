@@ -84,10 +84,7 @@ class TestOptim(TestCase):
             if not TORCH_VERSION_AT_LEAST_2_4:
                 pytest.skip("FP8 CUDA requires PyTorch >= 2.4")
             if torch.cuda.get_device_capability() < (8, 9):
-                pytest.skip("FP8 requires compute capability >= 8.9")
-
-        # reset cache to avoid hitting cache_size_limit, since the function will re-compile for each test
-        torch._dynamo.reset_code_caches()
+                pytest.skip("FP8 CUDA requires compute capability >= 8.9")
 
         model = nn.Sequential(nn.Linear(32, 256), nn.ReLU(), nn.Linear(256, 32))
         model.to(device=device, dtype=dtype)
@@ -232,12 +229,11 @@ class TestFSDP2(FSDPTest):
         return 2
 
     @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="OptimState8bit dispatch: attempting to run unimplemented operator/function: aten.as_strided.default")
-    @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="https://github.com/pytorch/ao/issues/652")
     @skip_if_lt_x_gpu(2)
     def test_fsdp2(self):
-        optim_classes = [low_bit_optim.Adam8bit, low_bit_optim.Adam4bit]
+        optim_classes = [low_bit_optim.AdamW8bit, low_bit_optim.AdamW4bit]
         if torch.cuda.get_device_capability() >= (8, 9):
-            optim_classes.append(low_bit_optim.AdamFp8)
+            optim_classes.append(low_bit_optim.AdamWFp8)
 
         self.run_subtests(
             {"optim_cls": optim_classes},
@@ -251,9 +247,6 @@ class TestFSDP2(FSDPTest):
             Transformer,
             TransformerBlock,
         )
-
-        # seems like cache_size_limit is shared between FSDP processes?
-        torch._dynamo.config.cache_size_limit = 8 * self.world_size
 
         batch_size = 3
         vocab_size = 1024

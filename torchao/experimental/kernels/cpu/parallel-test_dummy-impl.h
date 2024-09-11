@@ -9,13 +9,9 @@ static int num_threads_test_dummy_{1};
 }
 
 template <typename F>
-void torchao::parallel_for(
-    const int64_t begin,
-    const int64_t end,
-    const int64_t grain_size,
-    const F& f) {
-  for (int i = begin; i < end; i += grain_size) {
-    f(i, i + grain_size);
+void torchao::parallel_1d(const int64_t begin, const int64_t end, const F& f) {
+  for (int i = begin; i < end; i += 1) {
+    f(i);
   }
 }
 

@@ -8,12 +8,14 @@ from .affine_quantized_tensor import (
     # experimental, will be merged into floatx in the future
     to_affine_quantized_fpx,
     to_affine_quantized_floatx,
+    to_affine_quantized_floatx_static,
     LayoutType,
     PlainLayoutType,
     SemiSparseLayoutType,
     TensorCoreTiledLayoutType,
     Float8LayoutType,
     Float8AQTLayout,
+    MarlinSparseLayoutType,
 )
 
 __all__ = [
@@ -25,10 +27,12 @@ __all__ = [
     "to_affine_quantized_intx_static",
     "to_affine_quantized_fpx",
     "to_affine_quantized_floatx",
+    "to_affine_quantized_floatx_static",
     "LayoutType",
     "PlainLayoutType",
     "SemiSparseLayoutType",
     "TensorCoreTiledLayoutType",
     "Float8LayoutType",
     "Float8AQTLayout",
+    "MarlinSparseLayoutType",
 ]
