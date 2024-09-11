@@ -8,6 +8,6 @@ python eval.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --quanti
 
 export MODEL_REPO=meta-llama/Meta-Llama-3-8B
 # auto-round w/o quant_lm_head
-python eval.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --quantizatio autoround
+python eval.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --quantizatio autoround-cpu
 # auto-round w/ quant_lm_head
 python eval.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --quantization autoround-cpu-1
