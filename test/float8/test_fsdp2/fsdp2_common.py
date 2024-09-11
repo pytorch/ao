@@ -37,6 +37,20 @@ def check_parity_no_mp(
                     dist.all_reduce(param.grad)
                     param.grad.div_(dist.get_world_size())
 
+        if compile_transformer_block:
+            test_cls.assertEqual(losses[0], losses[1])
+        else:
+            test_cls.assertEqual(losses[0], losses[1])
+
+        for param_name, ref_param in ref_model.named_parameters():
+            param = fsdp_model.get_parameter(param_name)
+            grad = param.grad
+            ref_grad = ref_param.grad
+            test_cls.assertEqual(grad.full_tensor(), ref_grad, f"{param_name=} grads differs at {iter_idx=}")
+            test_cls.assertEqual(param.full_tensor(), ref_param, f"{param_name=} differs at {iter_idx=}")
+
+
+        for model, optim in ((ref_model, ref_optim), (fsdp_model, fsdp_optim)):
             if linear_requires_sync(config):
                 sync_float8_amax_and_scale_history(model)
 
@@ -48,10 +62,14 @@ def check_parity_no_mp(
             ):
                 precompute_float8_dynamic_scale_for_fsdp(model)
 
-        if compile_transformer_block:
-            test_cls.assertEqual(losses[0], losses[1], atol=1e-4, rtol=1e-4)
-        else:
-            test_cls.assertEqual(losses[0], losses[1])
+        for param_name, ref_param in ref_model.named_parameters():
+            param = fsdp_model.get_parameter(param_name)
+            grad = param.grad
+            ref_grad = ref_param.grad
+            test_cls.assertEqual(grad.full_tensor(), ref_grad, f"{param_name=} grads differs at {iter_idx=}")
+            test_cls.assertEqual(param.full_tensor(), ref_param, f"{param_name=} differs at {iter_idx=}")
+
+
 
 
 def check_parity_bf16_mp(
