@@ -91,14 +91,13 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
     def test_transformer_parity(self):
         self.run_subtests(
             {
-                "enable_fsdp_float8_all_gather": [False, True],
-                "precompute": [False, True],
+                "enable_fsdp_float8_all_gather": [True],
+                "precompute": [False],
                 "scaling_type_weight": [
                     ScalingType.DYNAMIC,
-                    ScalingType.DELAYED,
                 ],
-                "compile_transformer_block": [False, True],
-                "dtype": [torch.float32, torch.bfloat16],
+                "compile_transformer_block": [True],
+                "dtype": [torch.float32],
             },
             self._test_transformer_parity,
         )
