@@ -44,7 +44,11 @@ def run_evaluation(
     pad_calibration_inputs: Optional[bool] = False,
 ):
     """Runs the evaluation of a model using LM Eval."""
-
+    print(
+        f"\nEvaluating model {checkpoint_path} on tasks: {tasks}, limit: {limit}, device: {device}, precision: {precision}, "
+        +f"quantization: {quantization}, compile: {compile}, max_length: {max_length}, calibration_tasks: {calibration_tasks}, "
+        +f"calibration_seq_length: {calibration_seq_length}, pad_calibration_inputs: {pad_calibration_inputs}\n"
+    )
     torchao.quantization.utils.recommended_inductor_config_setter()
 
     assert checkpoint_path.is_file(), checkpoint_path
@@ -73,11 +77,10 @@ def run_evaluation(
             quantize_(model, fpx_weight_only(3, 2))
         if "int4wo" in quantization and not "gptq" in quantization:
             if "hqq" in quantization:
-                quantization = quantization[:-4]
                 use_hqq = True
             else:
                 use_hqq = False
-            groupsize=int(quantization.split("-")[-1])
+            groupsize=int(quantization.split("-")[1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
             quantize_(model.to(device), int4_weight_only(group_size=groupsize, use_hqq=use_hqq))
         if "uintx" in quantization:
@@ -85,15 +88,17 @@ def run_evaluation(
             # "uintx-2-64"
             if "hqq" in quantization:
                 use_hqq = True
-                quantization = quantization[:-4]
             else:
                 use_hqq = False
             _quant_args = quantization.split("-")
-            nbits = int(_quant_args[0])
+            nbits = int(_quant_args[1])
             _NBITS_TO_DTYPE = {1: torch.uint1, 2: torch.uint2, 3: torch.uint3, 4: torch.uint4, 5: torch.uint5, 6: torch.uint6, 7: torch.uint7, 8: torch.uint8}
             dtype = _NBITS_TO_DTYPE[nbits]
-            group_size = int(_quant_args[1])
+            group_size = int(_quant_args[2])
             quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
+        if "marlin" in quantization:
+            from torchao.dtypes import MarlinSparseLayoutType
+            quantize_(model, int4_weight_only(layout_type=MarlinSparseLayoutType()))
         if "int4wo" in quantization and "gptq" in quantization:
             groupsize=int(quantization.split("-")[-2])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
@@ -140,7 +145,12 @@ if __name__ == '__main__':
     parser.add_argument('--limit', type=int, default=None, help='Number of eval samples to evaluate')
     parser.add_argument('--precision', type=lambda x: getattr(torch, x.split(".")[-1]), default=torch.bfloat16, help='dtype precision to use')
     parser.add_argument('--device', type=str, default="cuda", help='Device to use for evaluation')
-    parser.add_argument("-q", "--quantization", type=str, help="Which quantization techniques to apply: int8dq, int8wo, int4wo-<groupsize>, int4wo-<groupsize>-gptq, int4wo-<groupsize>-hqq, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq")
+    parser.add_argument('-q', '--quantization', type=str, 
+        help=(
+            'Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-gptq, autoquant, autoquant-int4, '+
+            'int4wo-<groupsize>-hqq, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin'
+        )
+    )
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
     parser.add_argument('--max_length', type=int, default=None, help='Length of text to process at one time')
     parser.add_argument('--calibration_tasks', type=str, nargs='+', default=['wikitext'], help='tasks to do gptq calibration on, if doing gptq')
