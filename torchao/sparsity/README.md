@@ -37,7 +37,6 @@ On Meta LLama3, we observe a 25% tok/s increase (180 -> 226) compared to our exi
 | Model       | Technique               | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
 | ----------- | ----------------------- | ------------- | ----------------------- | ---------------- | --------------- |
 | Llama-3-8B  | Base (bfloat16)         |   95.64       | 1435.54                 | 16.43            | 15.01           |
-|             | int8dq                  |    8.61       |   64.75                 |  9.24            |  7.52           |
 |             | int8wo                  |  153.03       | 1150.80                 | 10.42            |  7.52           |
 |             | int4wo-64               |  180.80       |  763.33                 |  6.88            |  4.22           |
 |             | int4wo-64-sparse-marlin |  226.02       |  689.20                 |  5.32            |  3.05           |
@@ -60,6 +59,9 @@ from torchao.dtypes import MarlinSparseLayoutType
 model = model.cuda().half()
 quantize_(model, int4_weight_only(layout_type=MarlinSparseLayoutType()))
 ```
+
+Note the existing API results in an extremely high accuracy degredation and is intended to be used in concert with an already sparsified+finetuned checkpoint where possible until we develop
+the necessary supporting flows in torchao.
 
 ### int8 dynamic quant + 2:4 sparasity
 
