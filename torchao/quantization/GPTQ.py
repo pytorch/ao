@@ -1095,7 +1095,73 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
     def quantize(
         self, model: torch.nn.Module, *args: Any, **kwargs: Any
     ) -> torch.nn.Module:
-        state_dict = self._create_quantized_state_dict(model)
+        if hasattr(model, "int_state_dict"):
+            logging.info("Found `int_state_dict`, bypass creating quantized state_dict")
+            state_dict = model.int_state_dict
+            del model.int_state_dict
+
+            # concat wqkv and w13
+            for i in range(len(model.layers)):
+                wq_weight = state_dict.pop(f"layers.{i}.attention.wq.weight")
+                wk_weight = state_dict.pop(f"layers.{i}.attention.wk.weight")
+                wv_weight = state_dict.pop(f"layers.{i}.attention.wv.weight")
+                state_dict[f"layers.{i}.attention.wqkv.weight"] = torch.cat(
+                    [wq_weight, wk_weight, wv_weight], dim=0
+                )
+                wq_scales = state_dict.pop(f"layers.{i}.attention.wq.scales")
+                wk_scales = state_dict.pop(f"layers.{i}.attention.wk.scales")
+                wv_scales = state_dict.pop(f"layers.{i}.attention.wv.scales")
+                state_dict[f"layers.{i}.attention.wqkv.scales"] = torch.cat(
+                    [wq_scales, wk_scales, wv_scales], dim=0
+                )
+                w1_weight = state_dict.pop(f"layers.{i}.feed_forward.w1.weight")
+                w3_weight = state_dict.pop(f"layers.{i}.feed_forward.w3.weight")
+                state_dict[f"layers.{i}.feed_forward.w13.weight"] = torch.cat(
+                    [w1_weight, w3_weight], dim=0
+                )
+                w1_scales = state_dict.pop(f"layers.{i}.feed_forward.w1.scales")
+                w3_scales = state_dict.pop(f"layers.{i}.feed_forward.w3.scales")
+                state_dict[f"layers.{i}.feed_forward.w13.scales"] = torch.cat(
+                    [w1_scales, w3_scales], dim=0
+                )
+
+            # convert scales to grouped, add zeros
+            scales_keys = [key for key in state_dict if key.endswith(".scales")]
+            for key in scales_keys:
+                # sanity check groupsize
+                first_group = state_dict[key][:, :self.groupsize]
+                assert (first_group == first_group[:, 0:1]).all(dim=1).all()
+                state_dict[key] = state_dict[key][:, ::self.groupsize]
+                prefix = key[: -len(".scales")]
+                zeros = state_dict[key] * 0
+                state_dict[f"{prefix}.zeros"] = zeros
+
+        else:
+            state_dict = self._create_quantized_state_dict(model)
+
+
+        # check the weights are quantized correctly
+        for name in state_dict:
+            if not name.endswith(".scales"):
+                continue
+            prefix = name[: -len(".scales")]
+            logging.info(f"checking quantization correctness for: {name}")
+
+            # this check is a bit slow on CPU
+            device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+            weight_fp = model.state_dict()[f"{prefix}.weight"].to(device)
+            weight_int = state_dict[f"{prefix}.weight"].to(device)
+            scales = state_dict[f"{prefix}.scales"].to(device)
+
+            groupsize = weight_fp.shape[1] / scales.shape[1]
+            assert groupsize == int(groupsize), (weight_fp.shape, scales.shape[1])
+            groupsize = int(groupsize)
+            for i in range(scales.shape[1]):
+                weight_int_i = weight_int[:, i * groupsize : (i + 1) * groupsize]
+                weight_fp_i = weight_fp[:, i * groupsize : (i + 1) * groupsize]
+                scales_i = scales[:, i:i+1]
+                assert (weight_fp_i / scales_i - weight_int_i).abs().max() < 0.05
+
         model = self._convert_for_runtime(model)
         # TODO: make it strict
         model.load_state_dict(state_dict, strict=False)
