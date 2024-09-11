@@ -10,6 +10,30 @@ implements = MyDTypeTensorTP.implements
 
 aten = torch.ops.aten
 
+def fill_defaults(args, n, defaults_tail):
+    """
+    __torch_dispatch__ doesn't guarantee the number of arguments you are
+    passed (e.g., defaulted arguments are not passed); but usually it is
+    convenient to pad out the arguments list with defaults.  This function
+    helps you do that.
+    Args:
+        args: the list of positional arguments passed to __torch_dispatch__
+        n: the number of arguments you are expecting to get
+        defaults_tail: default values for the arguments, starting from the
+            end of the list
+    Example:
+        >>> fill_defaults([1, 2, 3], 5, [3, 4, 5])
+        [1, 2, 3, 4, 5]
+        >>> fill_defaults([1, 2, 3], 5, [None, None, None])
+        [1, 2, 3, None, None]]
+    """
+    if n - len(defaults_tail) > len(args):
+        raise RuntimeError("not enough defaults to fill arguments")
+    r = list(args)
+    for i in range(len(args), n):
+        r.append(defaults_tail[i - n + len(defaults_tail)])
+    return r
+
 @implements([aten._to_copy.default, aten.clone.default])
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
@@ -26,6 +50,16 @@ def _(func, types, args, kwargs):
 def _(func, types, args, kwargs):
     empty_like_layout_tensor = func(args[0].layout_tensor, *args[1:], **kwargs)
     return MyDTypeTensorTP(empty_like_layout_tensor, empty_like_layout_tensor.shape)
+
+@implements([aten.slice.Tensor])
+def _(func, types, args, kwargs):
+    self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
+    print("slice:", dim, start, end, step)
+    if dim == 0:
+        assert step == 1
+        return self.__class__(aten.slice.Tensor(self.layout_tensor), (end - start + 1,) + self.shape[1:], self.dtype)
+    return
+
 
 class M(torch.nn.Module):
     def __init__(self, *args, **kwargs) -> None:
@@ -84,4 +118,3 @@ if __name__ == "__main__":
     print("input dtensor:", input_dtensor)
 
     m(input_dtensor)
-
