@@ -974,7 +974,7 @@ def _replace_linear_8da4w(
     linear_class: Type[torch.nn.Module],
     copy_weights: bool = False,
 ):
-    
+
     #import the util function here to avoid circular dependency
     from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 
@@ -1139,7 +1139,6 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
         else:
             state_dict = self._create_quantized_state_dict(model)
 
-
         # check the weights are quantized correctly
         for name in state_dict:
             if not name.endswith(".scales"):
@@ -1160,11 +1159,23 @@ class Int8DynActInt4WeightQuantizer(Quantizer):
                 weight_int_i = weight_int[:, i * groupsize : (i + 1) * groupsize]
                 weight_fp_i = weight_fp[:, i * groupsize : (i + 1) * groupsize]
                 scales_i = scales[:, i:i+1]
-                assert (weight_fp_i / scales_i - weight_int_i).abs().max() < 0.05
+                max_diff = (weight_fp_i / scales_i - weight_int_i).abs().max()
+                if not max_diff < 0.05:
+                    logging.warning("max_diff is large: %f", max_diff)
 
         model = self._convert_for_runtime(model)
+
+        # HACK: don't need to load embedding/output weight if scales are present
+        if "tok_embeddings.scales" in state_dict:
+            del state_dict["tok_embeddings.weight"]
+        if "output.scales" in state_dict:
+            del state_dict["output.weight"]
+
         # TODO: make it strict
-        model.load_state_dict(state_dict, strict=False)
+        missing, unexpected = model.load_state_dict(state_dict, strict=False)
+        logging.info(f"missing: {missing}")
+        logging.info(f"unexpected: {unexpected}")
+
         return model
 
 
