@@ -15,7 +15,12 @@ from typing import Any, Callable, Dict, Optional, Tuple
 import torch
 
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from torchao.quantization.quant_primitives import choose_qparams_affine, MappingType
+from torchao.quantization.quant_primitives import (
+    choose_qparams_affine,
+    MappingType,
+    quantize_affine,
+    dequantize_affine,
+)
 from torchao.dtypes.utils import (
     LayoutType,
     PlainLayoutType,
@@ -168,8 +173,10 @@ class MyDTypeTensor(TorchAOBaseTensor):
         mapping_type = MappingType.SYMMETRIC
         block_size = (1, input_float.shape[-1])
         dtype = torch.int16
-        scale, _ = choose_qparams_affine(input_float, mapping_type, block_size, dtype)
-        int_data = (input_float / scale).to(torch.int8)
+        scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, dtype)
+        int_data = quantize_affine(input_float, block_size, scale, zero_point, dtype)
+        # int_data = (input_float / scale).to(torch.int8)
+        print("initial:", scale.shape, " int data:", int_data.shape)
         layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
         layout_tensor = layout_tensor_ctr(int_data, scale, layout_type)
         return cls(layout_tensor, input_float.shape)
@@ -186,7 +193,14 @@ class MyDTypeTensor(TorchAOBaseTensor):
         if output_dtype is None:
             output_dtype = torch.get_default_dtype()
         int_data, scale = self.layout_tensor.get_plain()
-        return int_data.to(output_dtype) * scale
+        transposed = False
+        block_size = (1, int_data.shape[-1])
+        if hasattr(self.layout_tensor, "transposed") and self.layout_tensor.transposed:
+            transposed = True
+        res = dequantize_affine(int_data, block_size, scale, None, int_data.dtype)
+        if transposed:
+            res = res.t()
+        return res
 
     def __repr__(self):
         return (

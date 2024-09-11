@@ -64,10 +64,7 @@ def _(func, types, args, kwargs):
         args[2],
         args[0],
     )
-    transposed = weight_tensor.layout_tensor.transposed
     weight_tensor = weight_tensor.dequantize()
-    if transposed:
-        weight_tensor = weight_tensor.t()
     return aten.addmm(input_tensor, weight_tensor, bias)
 
 @implements(aten.mm.default)
@@ -77,17 +74,14 @@ def _(func, types, args, kwargs):
         args[1],
         None
     )
-    transposed = weight_tensor.layout_tensor.transposed
     weight_tensor = weight_tensor.dequantize()
-    if transposed:
-        weight_tensor = weight_tensor.t()
     return aten.mm(input_tensor, weight_tensor)
 
 
 class M(torch.nn.Module):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.linear = torch.nn.Linear(1024, 1024, bias=False, device="cuda")
+        self.linear = torch.nn.Linear(1024, 512, bias=False, device="cuda")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.linear(x)
@@ -141,3 +135,10 @@ if __name__ == "__main__":
     print("input dtensor:", input_dtensor)
 
     print("result:", m(input_dtensor))
+
+    # doesn't work
+    # [rank0]: torch._dynamo.exc.TorchRuntimeError: Failed running call_function <built-in function linear>(*(DTensor(local_tensor=FakeTensor(..., device='cuda:0', size=(128, 1024)), device_mesh=DeviceMesh('cuda', [0, 1,
+    # 2, 3]), placements=(Replicate(),)), DTensor(local_tensor=MyDTypeTensorTP(data=FakeTensor(..., device='cuda:0', size=(128, 1024)), shape=torch.Size([1024, 1024]), device=cuda:0, dtype=torch.float32, requires_grad=False), device_mesh=DeviceMesh('cuda', [0, 1, 2, 3]), placements=(Shard(dim=0),)), None), **{}):
+    # [rank0]: a and b must have same reduction dim, but got [128, 1024] X [128, 1024].
+    # m = torch.compile(m)
+    # print("compiled result:", m(input_dtensor))
