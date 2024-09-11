@@ -20,7 +20,7 @@ from torchao.dtypes.utils import (
     LayoutType,
     PlainLayoutType,
 )
-from torchao.utils import TorchAOBaseTensor, _register_layout_cls, _get_layout_tensor_constructor
+from torchao.utils import TorchAOBaseTensor
 
 aten = torch.ops.aten
 
@@ -191,12 +191,8 @@ class MyDTypeTensor(TorchAOBaseTensor):
 # LayoutType and Layout Tensor Subclass Registration #
 ######################################################
 
-def register_layout_cls(layout_type_class: type(LayoutType)):
-    return _register_layout_cls(MyDTypeTensor, layout_type_class)
-
-def get_layout_tensor_constructor(layout_type_class: type(LayoutType)):
-    return _get_layout_tensor_constructor(MyDTypeTensor, layout_type_class)
-
+register_layout_cls = MyDTypeTensor.register_layout_cls
+get_layout_tensor_constructor = MyDTypeTensor.get_layout_tensor_constructor
 
 @register_layout_cls(PlainLayoutType)
 class PlainMyDTypeLayout(MyDTypeLayout):
@@ -343,12 +339,12 @@ NUM_RUNS = 100
 
 for _ in range(NUM_WARMUPS):
     m(*example_inputs)
-print("before quantization:", benchmark_model(m, NUM_RUNS, example_inputs[0]))
+print("before quantization:", benchmark_model(m, NUM_RUNS, example_inputs))
 
 compiled = torch.compile(m, mode="max-autotune")
 for _ in range(NUM_WARMUPS):
     compiled(*example_inputs)
-print("after compile:", benchmark_model(compiled, NUM_RUNS, example_inputs[0]))
+print("after compile:", benchmark_model(compiled, NUM_RUNS, example_inputs))
 
 # convert weights to quantized weights
 m.linear.weight = torch.nn.Parameter(
@@ -358,7 +354,7 @@ m.linear.weight = torch.nn.Parameter(
 for _ in range(NUM_WARMUPS):
     m(*example_inputs)
 
-print("after quantization:", benchmark_model(m, NUM_RUNS, example_inputs[0]))
+print("after quantization:", benchmark_model(m, NUM_RUNS, example_inputs))
 
 m = torch.compile(m, mode="max-autotune")
 
@@ -367,4 +363,4 @@ for _ in range(NUM_WARMUPS):
 
 # NOTE: currently there is no speedup because we just dequantize the weight in the _quantized_linear op
 # we plan to add custom op example in the future and that will help us to get speedup
-print("after quantization and compile:", benchmark_model(m, NUM_RUNS, example_inputs[0]))
+print("after quantization and compile:", benchmark_model(m, NUM_RUNS, example_inputs))
