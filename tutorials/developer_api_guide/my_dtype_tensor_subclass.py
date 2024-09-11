@@ -24,6 +24,32 @@ from torchao.utils import TorchAOBaseTensor
 
 aten = torch.ops.aten
 
+# TODO: move to torchao/utils.py
+def fill_defaults(args, n, defaults_tail):
+    """
+    __torch_dispatch__ doesn't guarantee the number of arguments you are
+    passed (e.g., defaulted arguments are not passed); but usually it is
+    convenient to pad out the arguments list with defaults.  This function
+    helps you do that.
+    Args:
+        args: the list of positional arguments passed to __torch_dispatch__
+        n: the number of arguments you are expecting to get
+        defaults_tail: default values for the arguments, starting from the
+            end of the list
+    Example:
+        >>> fill_defaults([1, 2, 3], 5, [3, 4, 5])
+        [1, 2, 3, 4, 5]
+        >>> fill_defaults([1, 2, 3], 5, [None, None, None])
+        [1, 2, 3, None, None]]
+    """
+    if n - len(defaults_tail) > len(args):
+        raise RuntimeError("not enough defaults to fill arguments")
+    r = list(args)
+    for i in range(len(args), n):
+        r.append(defaults_tail[i - n + len(defaults_tail)])
+    return r
+
+
 ###############################
 # Base Layout Tensor Subclass #
 ###############################
@@ -203,6 +229,7 @@ class PlainMyDTypeLayout(MyDTypeLayout):
         cls,
         int_data: torch.Tensor,
         scale: torch.Tensor,
+        transposed: bool,
         layout_type: LayoutType,
     ):
         kwargs = {}
@@ -219,22 +246,24 @@ class PlainMyDTypeLayout(MyDTypeLayout):
         self,
         int_data: torch.Tensor,
         scale: torch.Tensor,
+        transposed: bool,
         layout_type: LayoutType,
     ):
         self.int_data = int_data
         self.scale = scale
+        self.transposed = transposed
         self.layout_type = layout_type
 
     def __tensor_flatten__(self):
-        return ["int_data", "scale"], [self.layout_type]
+        return ["int_data", "scale"], [self.transposed, self.layout_type]
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
         int_data, scale = tensor_data_dict["int_data"], tensor_data_dict["scale"]
-        layout_type, = tensor_attributes
-        return cls(int_data, scale, layout_type)
+        transposed, layout_type, = tensor_attributes
+        return cls(int_data, scale, transposed, layout_type)
 
     @classmethod
     def from_plain(
@@ -247,12 +276,13 @@ class PlainMyDTypeLayout(MyDTypeLayout):
         extra metadata for packing etc.
         """
         assert isinstance(layout_type, PlainLayoutType)
-        return cls(int_data, scale, layout_type)
+        return cls(int_data, scale, False, layout_type)
 
     def _apply_fn_to_data(self, fn):
         return self.__class__(
             fn(self.int_data),
             fn(self.scale),
+            self.transposed,
             self.layout_type,
         )
 
@@ -272,11 +302,22 @@ class PlainMyDTypeLayout(MyDTypeLayout):
         elif func is aten.split.Tensor:
             int_data_list = func(args[0].int_data, *args[1:], **kwargs)
             scale_list = func(args[0].scale, *args[1:], **kwargs)
-            out = [PlainMyDTypeLayout(int_data, scale, args[0].layout_type) for int_data, scale in zip(int_data_list, scale_list)]
+            out = [PlainMyDTypeLayout(int_data, scale, args[0].transposed, args[0].layout_type) for int_data, scale in zip(int_data_list, scale_list)]
             return out
         elif func is aten.empty_like.default:
             int_data_empty_like = func(args[0].int_data, *args[1:], **kwargs)
-            return PlainMyDTypeLayout(int_data_empty_like, args[0].scale, args[0].layout_type)
+            return PlainMyDTypeLayout(int_data_empty_like, args[0].scale, args[0].transposed, args[0].layout_type)
+        elif func is aten.slice.Tensor:
+            self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
+            if dim == 0:
+                return return_and_correct_aliasing(
+                    func, args, kwargs, args[0]._apply_fn_to_data(lambda x: aten.slice.Tensor(x, dim, start, end, step))
+                )
+            elif dim == 1:
+                return PlainMyDTypeLayout(aten.slice.Tensor(self.int_data, dim, start, end, step), self.scale.view(-1, 1), self.transposed, self.layout_type)
+        elif func is aten.t.default:
+            args[0].transposed = not args[0].transposed
+            return return_and_correct_aliasing(func, args, kwargs, args[0])
 
         raise NotImplementedError(
             f"PlainMyDTypeLayout dispatch: attempting to run {func}, this is not supported"
