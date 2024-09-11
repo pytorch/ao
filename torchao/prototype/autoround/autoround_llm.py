@@ -5,7 +5,7 @@ import torch
 
 import torchao
 import torchao.prototype.autoround.utils as ar_utils
-
+from typing import Optional
 from torchao.prototype.autoround.core import (
     apply_auto_round,
     prepare_model_for_applying_auto_round_,
@@ -29,6 +29,7 @@ def quantize_model_with_autoround_(
     bs: int = 8,
     nsamples: int = 128,
     use_optimized_layer_output: bool = False,
+    compile_optimization_process:  Optional[bool] = False,
 ):
     # Step 1. Prepare the model for applying auto-round
 
@@ -42,6 +43,7 @@ def quantize_model_with_autoround_(
         group_size,
         iters,
         use_optimized_layer_output,
+        compile_optimization_process,
         device=device,
     )
 
@@ -107,6 +109,7 @@ def main(args):
         bs=args.train_bs,
         nsamples=args.nsamples,
         use_optimized_layer_output=args.use_optimized_layer_output,
+        compile_optimization_process=args.compile_optimization_process,
     )
     # Revert the `use_cache` for generation stage.
     model.config.use_cache = True
@@ -167,6 +170,13 @@ if __name__ == "__main__":
         default=False,
         action="store_true",
         help="Use the optimized layer output for next layer or not",
+    )
+    parser.add_argument(
+        "-c",
+        "--compile_optimization_process",
+        default=False,
+        action="store_true",
+        help="Whether to compile the optimization process",
     )
     parser.add_argument(
         "-d",
