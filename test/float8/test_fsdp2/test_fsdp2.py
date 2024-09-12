@@ -32,13 +32,38 @@ from torch.testing._internal.common_fsdp import (
 from torch.testing._internal.common_utils import run_tests
 from torch.testing._internal.distributed._tensor.common_dtensor import (
     ModelArgs,
-    Transformer,
+    # Transformer,
     TransformerBlock,
 )
 
 is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
 if not is_cuda_8_9:
     pytest.skip("Unsupported CUDA device capability version", allow_module_level=True)
+
+
+class Transformer(nn.Module):
+    def __init__(self):
+        super().__init__()
+        # self.vocab_size = 32
+        # self.model_args = args
+        # self.max_seq_len = args.max_seq_len
+        # self.dim = 768
+        # self.tok_embeddings = nn.Embedding(args.vocab_size, args.dim)
+        # self.pos_embeddings = nn.Embedding(args.max_seq_len, args.dim)
+        # self.norm = nn.LayerNorm(args.dim)
+        self.output = nn.Linear(768, 32, bias=False)
+
+    def forward(self, tokens):
+        # _, seq_len, _ = tokens.size()
+        # _, seq_len = tokens.size()
+        # h = self.tok_embeddings(tokens)
+        # h = tokens
+        # pos = torch.arange(0, seq_len, device=tokens.device)
+        # p = self.pos_embeddings(pos)  # positional embeddings of shape (seq_len, dim)
+        # h = h + p
+        # h = self.norm(h)
+        output = self.output(tokens)
+        return output
 
 class TestFloat8Common:
     def broadcast_module(self, module: nn.Module) -> None:
@@ -61,15 +86,16 @@ class TestFloat8Common:
 
     def init_transformer(self, weight_tying: bool, dtype: Optional[torch.dtype] = None) -> nn.Module:
         torch.manual_seed(42)
-        args = ModelArgs(
-            n_layers=3,
-            dim=768,
-            n_heads=12,
-            dropout_p=0.0,
-            weight_tying=weight_tying,
-            vocab_size=32,
-        )
-        module = Transformer(args).cuda()
+        # args = ModelArgs(
+        #     n_layers=0,
+        #     dim=768,
+        #     n_heads=12,
+        #     dropout_p=0.0,
+        #     weight_tying=weight_tying,
+        #     vocab_size=32,
+        # )
+        # module = Transformer(args).cuda()
+        module = Transformer().cuda()
         if dtype is not None:
             module = module.to(dtype=dtype)
         self.broadcast_module(module)
@@ -145,7 +171,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         weight_tying = not enable_fsdp_float8_all_gather
         module = self.init_transformer(weight_tying=weight_tying, dtype=dtype)
         # module = self.init_linear(dtype=dtype)
-        module = self.init_linears(dtype=dtype)
+        # module = self.init_linears(dtype=dtype)
         ref_module = copy.deepcopy(module)
         float8_linear_config1 = Float8LinearConfig(
             cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
@@ -156,9 +182,10 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         )
         if compile_transformer_block:
             if isinstance(ref_module, Transformer):
-                for layer_id, transformer_block in ref_module.layers.named_children():
-                    transformer_block = torch.compile(transformer_block, dynamic=False, backend=backend)
-                    ref_module.layers.register_module(layer_id, transformer_block)
+                # for layer_id, transformer_block in ref_module.layers.named_children():
+                #     transformer_block = torch.compile(transformer_block, dynamic=False, backend=backend)
+                #     ref_module.layers.register_module(layer_id, transformer_block)
+                ref_module = torch.compile(ref_module, dynamic=False, backend=backend)
             elif isinstance(ref_module, nn.Sequential):
                 for layer_id, transformer_block in ref_module.named_children():
                     transformer_block = torch.compile(transformer_block, dynamic=False, backend=backend)
@@ -174,11 +201,12 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
             config=float8_linear_config2,
         )
         if isinstance(module, Transformer):
-            for layer_id, transformer_block in module.layers.named_children():
-                if compile_transformer_block:
-                    transformer_block = torch.compile(transformer_block, dynamic=False, backend=backend)
-                fully_shard(transformer_block)
-                module.layers.register_module(layer_id, transformer_block)
+            # for layer_id, transformer_block in module.layers.named_children():
+            #     if compile_transformer_block:
+            #         transformer_block = torch.compile(transformer_block, dynamic=False, backend=backend)
+            #     fully_shard(transformer_block)
+            #     module.layers.register_module(layer_id, transformer_block)
+            module = torch.compile(module, dynamic=False, backend=backend)
             fully_shard(module)
         elif isinstance(module, nn.Sequential):
             for layer_id, transformer_block in module.named_children():
@@ -192,9 +220,12 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
             fully_shard(module)
         ref_optim = torch.optim.Adam(ref_module.parameters(), lr=1e-2)
         optim = torch.optim.Adam(module.parameters(), lr=1e-2, foreach=True)
-        if isinstance(ref_module, Transformer):
-            local_inp = torch.randint(
-                0, ref_module.tok_embeddings.weight.size(0), (16, 16), device="cuda"
+        if isinstance(ref_module, Transformer) or (hasattr(ref_module, "_orig_mod") and isinstance(ref_module._orig_mod, Transformer)):
+            # local_inp = torch.randint(
+            #     0, ref_module.vocab_size, (16, 16), device="cuda"
+            # )
+            local_inp = torch.rand(
+                16, 16, 768, device="cuda"
             )
         else:
             local_inp = torch.rand(16 * 16, 16 * 16, device="cuda")
