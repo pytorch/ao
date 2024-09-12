@@ -404,7 +404,7 @@
 <span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Union</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Literal</span><span class="p">,</span> <span class="n">Tuple</span>
 <span class="kn">import</span> <span class="nn">types</span>
 
-<span class="kn">from</span> <span class="nn">torchao.dtypes.uintx.Uintx</span> <span class="kn">import</span> <span class="n">UintxLayoutType</span>
+<span class="kn">from</span> <span class="nn">torchao.dtypes.uintx.uintx</span> <span class="kn">import</span> <span class="n">UintxLayoutType</span>
 <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">to_affine_quantized_intx</span><span class="p">,</span>
     <span class="n">to_affine_quantized_floatx</span><span class="p">,</span>
@@ -924,7 +924,7 @@
         <span class="n">zero_point_domain</span> <span class="o">=</span> <span class="n">ZeroPointDomain</span><span class="o">.</span><span class="n">FLOAT</span>
 
         <span class="c1"># Sparse Marlin only supports symmetric quantization.</span>
-        <span class="c1"># NOTE: If we start having lots of layouts that require different configurations, </span>
+        <span class="c1"># NOTE: If we start having lots of layouts that require different configurations,</span>
         <span class="c1"># we should consider moving this logic somewhere else.</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout_type</span><span class="p">,</span> <span class="n">MarlinSparseLayoutType</span><span class="p">):</span>
             <span class="n">mapping_type</span> <span class="o">=</span> <span class="n">MappingType</span><span class="o">.</span><span class="n">SYMMETRIC</span>
@@ -1097,7 +1097,7 @@
 <span class="sd">        granularity:</span>
 <span class="sd">            The granularity for quantization. Can be either a single granularity (applied to both</span>
 <span class="sd">            activations and weights) or a tuple of two granularities (one for activations, one for weights).</span>
-<span class="sd">            If None, defaults to PerTensor for both. Currently both quantizations need to be the same type. And </span>
+<span class="sd">            If None, defaults to PerTensor for both. Currently both quantizations need to be the same type. And</span>
 <span class="sd">            only PerTensor and PerRow are supported.</span>
 <span class="sd">        mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.</span>
 
@@ -1199,10 +1199,10 @@
 <span class="sd">    &quot;&quot;&quot;</span>
 
     <span class="k">def</span> <span class="nf">apply_quant_llm</span><span class="p">(</span><span class="n">weight</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
-        <span class="kn">from</span> <span class="nn">torchao.dtypes.fpx</span> <span class="kn">import</span> <span class="n">FpxTensorCoreLayoutType</span>
+        <span class="kn">from</span> <span class="nn">torchao.dtypes.floatx</span> <span class="kn">import</span> <span class="n">FloatxTensorCoreLayoutType</span>
         <span class="kn">from</span> <span class="nn">torchao.dtypes</span> <span class="kn">import</span> <span class="n">to_affine_quantized_fpx</span>
 
-        <span class="k">assert</span> <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;fpx only works for 2-d Tensor, got: </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;floatx only works for 2-d Tensor, got: </span><span class="si">{</span><span class="n">weight</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="n">out_dim</span><span class="p">,</span> <span class="n">in_dim</span> <span class="o">=</span> <span class="n">weight</span><span class="o">.</span><span class="n">shape</span>
         <span class="k">if</span> <span class="p">(</span><span class="n">in_dim</span> <span class="o">%</span> <span class="mi">64</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span><span class="n">out_dim</span> <span class="o">%</span> <span class="mi">256</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">):</span>
             <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
@@ -1211,7 +1211,7 @@
                 <span class="s2">&quot;expected in_dim % 64 == 0 and out_dim % 256 == 0&quot;</span><span class="p">)</span>
             <span class="k">return</span> <span class="n">weight</span>
 
-        <span class="n">layout_type</span> <span class="o">=</span> <span class="n">FpxTensorCoreLayoutType</span><span class="p">(</span><span class="n">ebits</span><span class="p">,</span> <span class="n">mbits</span><span class="p">)</span>
+        <span class="n">layout_type</span> <span class="o">=</span> <span class="n">FloatxTensorCoreLayoutType</span><span class="p">(</span><span class="n">ebits</span><span class="p">,</span> <span class="n">mbits</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">to_affine_quantized_fpx</span><span class="p">(</span><span class="n">weight</span><span class="p">,</span> <span class="n">layout_type</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">apply_quant_llm</span><span class="p">)</span>
 
