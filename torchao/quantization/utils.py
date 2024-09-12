@@ -218,6 +218,7 @@ def quant_int8_per_token_matmul(
     # 2. rescale the output
     tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
     y = int_scaled_matmul(tmp, w_vals_int8_t, x_scales.reshape(-1, 1), w_scales.reshape(1, -1))
+    y = y.reshape(*x_vals_int8.shape[:-1], y.shape[-1])
     y = y.to(output_dtype)
     return y
 
