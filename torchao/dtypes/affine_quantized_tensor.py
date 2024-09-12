@@ -1166,25 +1166,12 @@ def _linear_int8_act_int8_weight_impl(input_tensor, weight_tensor, bias):
     #
     # 2. rescale the output
     #
-    # in cases with large matrices, y_dot_int32 can grow sufficiently
-    # large that y_dot_int32 * a float16 scale is greater than the maximum
-    # value of a float 16, (which results in a value of inf even if multiplying
-    # by the other scale would bring it within the expected range)
-
     x_vals_int8 = input_tensor.layout_tensor.int_data
     x_scales = input_tensor.layout_tensor.scale
     w_vals_int8_t = weight_tensor.layout_tensor.int_data.contiguous().t()
     w_scales = weight_tensor.layout_tensor.scale
     tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
-    y_dot_scaled = int_scaled_matmul(tmp, w_vals_int8_t, x_scales.reshape(-1, 1))
-
-    y = (y_dot_scaled * w_scales).reshape(
-        *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]
-    )
-
-    # can downcast only at the very end
-    output_dtype = input_tensor.dtype
-    y = y.to(output_dtype)
+    y = int_scaled_matmul(tmp, w_vals_int8_t, x_scales.reshape(-1, 1), w_scales.reshape(1, -1))
     if bias is not None:
         y += bias
     return y

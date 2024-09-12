@@ -135,5 +135,7 @@ def int_scaled_matmul(
     if intmm_triton is not None and AUTOTUNER_ENABLE:
         return torch.ops.torchao.int_scaled_matmul(a, b, row_scales, col_scales)
 
+    # perform multiplication in FP32 to prevent overflow
     c = safe_int_mm(a, b)
-    return c * row_scales * col_scales
+    c = c.float() * row_scales * col_scales
+    return c.to(row_scales.dtype)
