@@ -34,10 +34,9 @@ def get_calib_dataset(tokenizer=None, n_samples=100, block_size=512):
 def wiki2_eval(model, tokenizer, sequence_length):
     testenc = load_dataset("wikitext", "wikitext-2-raw-v1", split="test")
     testenc = tokenizer("\n\n".join(testenc["text"]), return_tensors="pt")
-    testenc = testenc.input_ids.to(model.device)
+    testenc = testenc.input_ids
     nsamples = 100
     model = model.eval()
-    model(testenc[:, :sequence_length].to(model.device))
     # calculate perplexity
     nlls = []
     for i in tqdm(range(nsamples), desc="evaluating..."):
@@ -46,10 +45,10 @@ def wiki2_eval(model, tokenizer, sequence_length):
         )
         with torch.no_grad():
             lm_logits = model(batch).logits
+        batch = batch.to("cpu")
+        lm_logits = lm_logits.to("cpu")
         shift_logits = lm_logits[:, :-1, :].contiguous().float()
-        shift_labels = testenc[
-            :, i : i + sequence_length
-        ][:, 1:]
+        shift_labels = testenc[:, i : i + sequence_length][:, 1:].to("cpu")
         loss_fct = torch.nn.CrossEntropyLoss()
         loss = loss_fct(
             shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
@@ -116,12 +115,12 @@ if __name__ == "__main__":
     # Optional arguments with default values
     parser.add_argument("repo", type=str, help="Repository ID of the model.")
     parser.add_argument("quant", type=str, help="Quantization method. Options are either int4 or awq-uintx where x is [1..8]")
-    parser.add_argument("--calibration_size", type=int, default=10, help="Calibration size. Default is 10.")
-    parser.add_argument("--validation_size", type=int, default=10, help="Validation size. Default is 10.")
+    parser.add_argument("--calibration_samples", type=int, default=10, help="Number of samples to use for calibration. Default is 10.")
+    parser.add_argument("--validation_size", type=int, default=1, help="Validation size. Default is 1.")
     parser.add_argument("--group_size", type=int, default=128, help="Group size to use for weights. Default is '128'")
     parser.add_argument("--device", type=str, default="cuda", help="Device to run the evaluation on. Default is 'cuda'.")
     parser.add_argument("--precision", type=str, default="bfloat16", help="Precision type. Default is 'bfloat16'.")
-    parser.add_argument("--sequence_length", type=int, default=512, help="Length of examples to calibrate/evaluate model on. Default 512")
+    parser.add_argument("--seq_len", type=int, default=512, help="Length of examples to calibrate/evaluate model on. Default 512")
     parser.add_argument("--compile", action="store_true", help="Flag to indicate if compilation is required.")
 
     args = parser.parse_args()
@@ -131,12 +130,12 @@ if __name__ == "__main__":
     ppl = wikitext2_ppl(
         repo_id=args.repo,
         quant=args.quant,
-        calibration_size=args.calibration_size,
+        calibration_size=args.calibration_samples,
         validation_size=args.validation_size,
         group_size= args.group_size,
         device=args.device,
         precision=precision_dtype,
-        sequence_length=args.sequence_length,
+        sequence_length=args.seq_len,
         compile=args.compile
     )
 
