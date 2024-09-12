@@ -128,9 +128,9 @@ def int_scaled_matmul(
     assert a.shape[1] == b.shape[0], "Incompatible dimensions"
     M, K = a.shape
     K, N = b.shape
-    assert row_scales.shape == (M, 1)
+    assert row_scales.shape == (M, 1), row_scales.shape
     assert row_scales.is_contiguous()
-    assert col_scales.shape == (1, N)
+    assert col_scales.squeeze().shape == (N,), col_scales.shape
     assert col_scales.is_contiguous()
 
     if intmm_triton is not None and AUTOTUNER_ENABLE:
