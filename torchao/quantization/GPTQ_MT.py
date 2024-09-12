@@ -10,6 +10,7 @@ from torchao.quantization.utils import (
     groupwise_affine_quantize_tensor_from_qparams,
     groupwise_affine_dequantize_tensor_from_qparams
 )
+from torchao.quantization.utils import compute_error as SQNR
 
 from torchao.dtypes import (
     to_affine_quantized_intx,
@@ -68,22 +69,22 @@ class MultiTensor(torch.Tensor):
             self.values.append(input)
         return self
 
-    def pad_to_length(self, length: int) -> "MultiTensor":
-        if self.count > length:
-            return self
-        self.add_tensors([self.values[-1]]*(length-self.count))
+    def pad_to_length(self, length):
+        if self.count < length:
+            for _ in range(length-self.count):
+                # we need to handle in place ops where we do want the model's value to stay changed.
+                # e.g. if someone does z[1,:]=x, if z were a size 1 multiTensor and x were size 3,
+                # we want z to become a multi tensor of size 3. Thus we pad the MultiTensor to the correct
+                # size by adding new tensor instances (and not just instances of the pointers to the same original tensor)
+                self.add_tensors(self.values[-1].detach())
         return self
 
-    def get_padded_list(self, length: int) -> "MultiTensor":
-        if self.count > length:
-            return self.values[:length]
-        return self.values+[self.values[-1]]*(length-self.count)
-
-    def cuda(self, device=None):
-        if device is None:
-            return self.__class__([x.cuda() for x in self.values])
+    def unpad(self):
+        if min([(self.values[0] == x).min() for x in self.values]):
+            self.values = [self.values[0]]
+            self.count = 1
         else:
-            return self.__class__([x.cuda(device) for x in self.values])
+            return self     
 
 
     @classmethod
@@ -120,49 +121,49 @@ class MultiTensor(torch.Tensor):
         kwargs: Optional[Dict[str, Any]]=None, 
         skip_gptq:bool=False
     ) -> Any:
+    
         def flat_to_grouped(flat: List[Any]) -> List[Tuple[Any, ...]]:
+            # convert [A, MultiTensor(b1,b2,b3), MultiTensor(c1,c2,c3)] => [[A,b1,c1], [A,b2,c2] [A,b3,c3]]
             multi_tensor_size = max([x.count if isinstance(x, MultiTensor) else 1 for x in flat])
-            grouped = list(zip(*[x.get_padded_list(multi_tensor_size) if isinstance(x, MultiTensor) else [x] * multi_tensor_size for x in flat]))
+            grouped = list(zip(*[x.pad_to_length(multi_tensor_size).values if isinstance(x, MultiTensor) else [x] * multi_tensor_size for x in flat]))
             return grouped
 
         def grouped_to_flat(grouped: List[Tuple[Any, ...]]) -> Tuple[List[Any], bool]:
+            # convert [[A,b1,c1], [A,b2,c2] [A,b3,c3]] => [(A,A,A), (b1,b2,b3), (c1,c2,c3)]
             flat_tups = list(zip(*grouped))
+            # convert [(A,A,A), (b1,b2,b3), (c1,c2,c3)] => [A, MultiTensor(b1,b2,b3), MultiTensor(c1,c2,c3)]
             flattened = [cls(tup).cpu() if isinstance(tup[0], torch.Tensor) else tup[0] for tup in flat_tups]
             non_tensors_equal = all(all(x == tup[0] for x in tup) for tup in flat_tups if not isinstance(tup[0], torch.Tensor))
             return flattened, non_tensors_equal
-
+        
         def tensors_to_cuda(args):
+            # this is needed because we want to execute the actual ops in cuda so they don't take forever
             new_args = []
             for x in args:
-                if isinstance(x, MultiTensor) and x.count==1:
-                    new_args.append(x.cuda())
-                elif isinstance(x, MultiTensor):
-                    new_args.append(x)
-                else:
-                    new_args.append(x.cuda() if isinstance(x, torch.Tensor) else x)
+                new_args.append(x.cuda() if isinstance(x, torch.Tensor) and not isinstance(x, MultiTensor) else x)
             return new_args
 
+        def copy_new_values(orig_inp, new_inp):
+            for x, new_inp in zip(orig_inp, new_inp):
+                if isinstance(x, torch.Tensor):
+                    new_inp = new_inp.to(x.device)
+                    if (x != new_inp).max():
+                        x.copy_(new_inp)
 
-        
+        def unpad(args):
+            for arg in args:
+                if isinstance(arg, MultiTensor):
+                    arg.unpad()
+
         quantize_linear = (
             not skip_gptq
             and cls.is_linear_layer(func)
         )
-        # p self.state_dict_manager.id_to_name[model.layers[0].attention.wqkv.weight.data_ptr()]
-        if quantize_linear:
-            state_dict_manager = StateDictManager.get_instance()
-            # if isinstance(args[1], MultiTensor):
-            #     original_param_name = state_dict_manager.get_name_for_param(args[1].values[0])
-            # else:
-            original_param_name = state_dict_manager.get_name_for_param(args[1])
-            # just to speed it up
-            if "2" in original_param_name or "3" in original_param_name or "4" in original_param_name or "5" in original_param_name:
-                print("skip (debug)", original_param_name)
-                quantize_linear=False
 
         kwargs = {} if kwargs is None else kwargs
+        # combine args and kwargs and remove lists and tuples
         flat_args, spec = tree_flatten((args, kwargs))
-        flat_args = tensors_to_cuda(flat_args)
+        # convert [A, MultiTensor(b1,b2,b3), MultiTensor(c1,c2,c3)] => [[A,b1,c1], [A,b2,c2] [A,b3,c3]]
         grouped_args = flat_to_grouped(flat_args)
             
         with torch._C.DisableTorchFunctionSubclass():
@@ -172,9 +173,9 @@ class MultiTensor(torch.Tensor):
 
             outputs = []
             for inp in grouped_args:
-                inp = tensors_to_cuda(inp)
-                cur_args, cur_kwargs = tree_unflatten(inp, spec)
-                # Check if we're in a linear layer
+                cuda_inp = tensors_to_cuda(inp)
+                cur_args, cur_kwargs = tree_unflatten(cuda_inp, spec)
+
                 if quantize_linear:
                     #Construct Hessian matrix for quantization
                     x = cur_args[0].float()
@@ -192,22 +193,67 @@ class MultiTensor(torch.Tensor):
                         out = func(*cur_args, **cur_kwargs)
                     except:
                         breakpoint()
+
                     outputs.append(out.cpu() if isinstance(out, torch.Tensor) else out)
 
+                    # handling for in place ops: since we did that actual function in
+                    # cuda, any in place operations changed the value of the cuda tensor
+                    # not the original tensor passed into the function. So we check
+                    # if anything changed and if so, copy the new value into the 
+                    # original tensor
+                    # TODO detect non in-place ops and skip this
+                    copy_new_values(inp, cuda_inp)
+                    
+
+
             if quantize_linear:
-                weight_tensor = args[1]
-                if isinstance(weight_tensor, MultiTensor):
-                    weight_tensor = weight_tensor.values[0]
-                weight_tensor=weight_tensor.to(H.device)
-                # Get the original parameter name
+
+                W = args[1]
+                if isinstance(W, MultiTensor):
+                    W = W.values[0]
+                W=W.to(H.device)
                 
-                print("quantized", original_param_name)
-                Q, DQ, all_qparams = cls.faster_quant(H, weight_tensor.detach())
-                # Replace the original weight with the quantized weight
+                
+                
+                Q, DQ, all_qparams = cls.faster_quant(H, W.detach())
+
+                # Replace the original weight with the quantized tensor subclass
                 qtensor  = cls.make_qtensor(Q, all_qparams)
+
+                # Get the original parameter name
+                state_dict_manager = StateDictManager.get_instance()
+                original_param_name = state_dict_manager.get_name_for_param(args[1])
                 state_dict_manager.update_param(original_param_name, qtensor)
+                print(original_param_name)
+                
                 # Run the function again with updated weights and skip_gptq=True
-                return cls.__torch_function__(func, types, (args[0], args[1], *args[2:]), kwargs, skip_gptq=True)
+                new_out = cls.__torch_function__(func, types, (args[0], DQ.cpu(), *args[2:]), kwargs, skip_gptq=True)
+
+                if args[0].debug:
+                    old_out = cls.__torch_function__(func, types, args, kwargs, skip_gptq=True)
+
+                    DQ_after = cls.dequantize_func(Q, all_qparams).to(W.dtype)
+
+                    print(
+                        "SQNR for QDQ (this should be inf)", SQNR(DQ, DQ_after)
+                    )  # matches
+                    print(
+                        "SQNR for weight (can be low)", SQNR(W, DQ.cuda())
+                    )  # fine to not match
+                    print(
+                        "SQNR for output with GPTQ (hopefully 35+)",
+                        SQNR(old_out.values[0], new_out.values[0])
+                    )
+
+                    qparams2 = cls.get_qparams_func(W)
+                    Q2 = cls.quantize_func(W, qparams2)
+                    DQ2 = cls.dequantize_func(Q2, qparams2).to(W.dtype)
+                    old_q_out = cls.__torch_function__(func, types, (args[0], DQ2, *args[2:]), kwargs, skip_gptq=True)
+                    print(
+                        "SQNR for output without GPTQ (should be less than above)",
+                        SQNR(old_out.values[0], old_q_out.values[0])
+                    )
+                return new_out
             else:
                 grouped_outputs = [tree_flatten(x)[0] for x in outputs]
                 out_spec = tree_flatten(outputs[0])[1]
@@ -218,6 +264,12 @@ class MultiTensor(torch.Tensor):
                     +"caused an error in GPTQ MultiTensor, the function dispatch only works for functions"
                     +" with Tensor outputs or that have the same non-Tensor output value for all across all inputs"
                 )
+
+                # we padded each of the MultiTensors to match the largest multitensor so that if we had in place ops, we would be able
+                # to store the many changed value and have those updates be reflected in the model. However if there are no in place ops, then
+                # we just increased the size of all parameters/buffers by n times for no reason. To avoid issues, go back and unpad
+                # everything where possible. i.e. all the multi tensor values are the same.
+                unpad(flat_args)
                 return tree_unflatten(flat_outputs, out_spec)
 
                 
@@ -506,13 +558,6 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
             self.percdamp,
             self.group_size,
         )
-        for key, val in state_dict.items():
-            if isinstance(val, MultiTensor):
-                print(key, type(val))
-                breakpoint()
-            elif "Affine" in str(type(val)):
-                print(key, type(val))
-        
         # this is hacky and potentially wrong, better to just make the flow return a state dict and let user
         # do with it what they will
         _replace_with_custom_fn_if_matches_filter(
