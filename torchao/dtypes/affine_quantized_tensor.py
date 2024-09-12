@@ -1160,8 +1160,17 @@ def _linear_int8_act_int8_weight_check(input_tensor, weight_tensor, bias):
     )
 
 def _linear_int8_act_int8_weight_impl(input_tensor, weight_tensor, bias):
+    #
     # 1. do the matrix form of dot(X_i, W_j)
+    #
+    #
     # 2. rescale the output
+    #
+    # in cases with large matrices, y_dot_int32 can grow sufficiently
+    # large that y_dot_int32 * a float16 scale is greater than the maximum
+    # value of a float 16, (which results in a value of inf even if multiplying
+    # by the other scale would bring it within the expected range)
+
     x_vals_int8 = input_tensor.layout_tensor.int_data
     x_scales = input_tensor.layout_tensor.scale
     w_vals_int8_t = weight_tensor.layout_tensor.int_data.contiguous().t()
