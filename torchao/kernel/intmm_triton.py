@@ -167,7 +167,8 @@ def scaled_matmul_kernel_with_block_pointers(
     a_ptr,
     b_ptr,
     c_ptr,
-    s1_ptr,
+    row_scales_ptr,
+    col_scales_ptr,
     # Matrix dimensions
     M,
     N,
@@ -181,8 +182,6 @@ def scaled_matmul_kernel_with_block_pointers(
     stride_bn,
     stride_cm,
     stride_cn,
-    stride_s1m,
-    stride_s1n,
     # Meta-parameters
     BLOCK_M: tl.constexpr,
     BLOCK_N: tl.constexpr,
@@ -219,7 +218,7 @@ def scaled_matmul_kernel_with_block_pointers(
         else:
             a = tl.load(A, mask=rk[None, :] < k, other=0.0)
             b = tl.load(B, mask=rk[:, None] < k, other=0.0)
-        acc += tl.dot(a, b)  # , allow_tf32=ALLOW_TF32)
+        acc += tl.dot(a, b)
         A += BLOCK_K * stride_ak
         B += BLOCK_K * stride_bk
 
@@ -230,14 +229,13 @@ def scaled_matmul_kernel_with_block_pointers(
     idx_n = rn[None, :]
     mask = (idx_m < M) & (idx_n < N)
 
+    row_scale = tl.load(row_scales_ptr + idx_m, mask=idx_m < M).to(tl.float32)
+    col_scale = tl.load(col_scales_ptr + idx_n, mask=idx_n < N).to(tl.float32)
+    acc = acc.to(tl.float32) * row_scale * col_scale
+
     # inductor generates a suffix
-    xindex = idx_n + (N * idx_m)
-    tmp0 = tl.load(
-        s1_ptr + (tl.broadcast_to(idx_m, mask.shape)),
-        mask,
-        eviction_policy="evict_last",
-    )
-    tl.store(c_ptr + (tl.broadcast_to(xindex, mask.shape)), acc * tmp0, mask)
+    xindex = idx_m * stride_cm + idx_n * stride_cn
+    tl.store(c_ptr + (tl.broadcast_to(xindex, mask.shape)), acc, mask)
 
 
 def int_matmul_kernel(a, b, c, config):
@@ -267,13 +265,9 @@ def int_matmul_kernel(a, b, c, config):
     return c
 
 
-def int_scaled_matmul_kernel(a, b, scales1, c, config):
+def int_scaled_matmul_kernel(a, b, row_scales, col_scales, c, config):
     M, K = a.shape
     K, N = b.shape
-    # print("a.sizes(): ", a.size(), "a.strides(): ", a.stride(), "a.dtype: ", a.dtype)
-    # print("b.sizes(): ", b.size(), "b.strides(): ", b.stride(), "b.dtype: ", b.dtype)
-    # print("c.sizes(): ", c.size(), "c.strides(): ", c.stride(), "c.dtype: ", c.dtype)
-    # print("scales1.sizes(): ", scales1.size(), "scales1.strides(): ", scales1.stride(), "scales1.dtype", scales1.dtype)
     grid = lambda META: (
         triton.cdiv(M, META["BLOCK_M"]) * triton.cdiv(N, META["BLOCK_N"]),
     )
@@ -281,18 +275,17 @@ def int_scaled_matmul_kernel(a, b, scales1, c, config):
         a,
         b,
         c,
-        scales1,
+        row_scales,
+        col_scales,
         M,
         N,
-        K,  #
+        K,
         a.stride(0),
-        a.stride(1),  #
+        a.stride(1),
         b.stride(0),
-        b.stride(1),  #
+        b.stride(1),
         c.stride(0),
         c.stride(1),
-        scales1.stride(0),
-        scales1.stride(1),
         num_warps=config.num_warps,
         num_stages=config.num_stages,
         num_ctas=config.num_ctas,
@@ -304,7 +297,7 @@ def int_scaled_matmul_kernel(a, b, scales1, c, config):
 
 lib = torch.library.Library("torchao", "FRAGMENT")
 lib.define("int_matmul(Tensor a, Tensor b) -> Tensor")
-lib.define("int_scaled_matmul(Tensor a, Tensor b, Tensor scales1) -> Tensor")
+lib.define("int_scaled_matmul(Tensor a, Tensor b, Tensor row_scales, Tensor col_scales) -> Tensor")
 
 
 @torch.library.impl(lib, "int_matmul", "Meta")
@@ -335,30 +328,26 @@ def int_matmul_cuda(a, b):
 
 
 @torch.library.impl(lib, "int_scaled_matmul", "Meta")
-def int_scaled_matmul_meta(a, b, scales1):
+def int_scaled_matmul_meta(a, b, row_scales, col_scales):
     M, K = a.shape
     K, N = b.shape
-    return torch.empty((M, N), device=a.device, dtype=scales1.dtype)
+    return torch.empty((M, N), device=a.device, dtype=row_scales.dtype)
 
 
 @torch.library.impl(lib, "int_scaled_matmul", "CUDA")
-def int_scaled_matmul_cuda(a, b, scales1):
-    # Check constraints.
-    assert a.shape[1] == b.shape[0], "Incompatible dimensions"
-    # assert a.is_contiguous(), "Matrix A must be contiguous"
-    # assert b.is_contiguous(), "Matrix B must be contiguous"
+def int_scaled_matmul_cuda(a, b, row_scales, col_scales):
     # Allocates output.
     M, K = a.shape
     K, N = b.shape
-    c = torch.empty((M, N), device=a.device, dtype=scales1.dtype)
+    c = torch.empty((M, N), device=a.device, dtype=row_scales.dtype)
     # 1D launch kernel where each block gets its own program.
     best_config = get_best_config_fn(
-        int_scaled_matmul_kernel, [a, b, scales1, c], int8_mm_kernel_configs
+        int_scaled_matmul_kernel, [a, b, row_scales, col_scales, c], int8_mm_kernel_configs
     )
-    return int_scaled_matmul_kernel(a, b, scales1, c, best_config)
+    return int_scaled_matmul_kernel(a, b, row_scales, col_scales, c, best_config)
 
 
 @torch.library.impl(lib, "int_scaled_matmul", "CPU")
-def int_scaled_matmul_cpu(a, b, scales1):
+def int_scaled_matmul_cpu(a, b, row_scales, col_scales):
     c = torch._int_mm(a, b)
-    return c.to(scales1.dtype) * scales1
+    return c.to(row_scales.dtype) * row_scales * col_scales

@@ -104,14 +104,17 @@ def int_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return safe_int_mm(a, b)
 
 
-def int_scaled_matmul(a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor) -> torch.Tensor:
+def int_scaled_matmul(
+    a: torch.Tensor, b: torch.Tensor, row_scales: torch.Tensor, col_scales: torch.Tensor
+) -> torch.Tensor:
     """
     Performs scaled integer matrix multiplication.
 
     Args:
         a (torch.Tensor): The first matrix to multiply.
         b (torch.Tensor): The second matrix to multiply.
-        scales1 (torch.Tensor): The scaling factors for the rows of the result.
+        row_scales (torch.Tensor): The scaling factors for the rows of the result.
+        col_scales (torch.Tensor): The scaling factors for the columns of the result.
 
     Returns:
         torch.Tensor: The result of the scaled matrix multiplication.
@@ -119,15 +122,18 @@ def int_scaled_matmul(a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor) -
     Raises:
         AssertionError: If the dimensions of the input tensors do not match the expected shapes.
     """
+    assert a.dtype is torch.int8 and b.dtype is torch.int8
+    assert row_scales.dtype is col_scales.dtype
+    assert a.shape[1] == b.shape[0], "Incompatible dimensions"
     M, K = a.shape
     K, N = b.shape
-    assert M == scales1.size(0)
-    assert 1 == scales1.size(1)
-    assert scales1.is_contiguous()
-    scales1 = scales1.expand((M, N))
-    assert scales1.dim() == 2
+    assert row_scales.shape == (M, 1)
+    assert row_scales.is_contiguous()
+    assert col_scales.shape == (1, N)
+    assert col_scales.is_contiguous()
+
     if intmm_triton is not None and AUTOTUNER_ENABLE:
-        return torch.ops.torchao.int_scaled_matmul(a, b, scales1)
+        return torch.ops.torchao.int_scaled_matmul(a, b, row_scales, col_scales)
 
     c = safe_int_mm(a, b)
-    return c * scales1
+    return c * row_scales * col_scales
