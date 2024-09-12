@@ -42,15 +42,17 @@ def check_parity_no_mp(
             param = fsdp_model.get_parameter(param_name)
             grad = param.grad
             ref_grad = ref_param.grad
-            test_cls.assertEqual(param.full_tensor(), ref_param, f"{param_name=} differs at {iter_idx=}")
-            test_cls.assertEqual(grad.full_tensor(), ref_grad, f"{param_name=} grads differs at {iter_idx=}")
+            assert torch.equal(param.full_tensor(), ref_param), f"{param_name=} differs at {iter_idx=}"
+            assert torch.equal(grad.full_tensor(), ref_grad), f"{param_name=} grads differs at {iter_idx=}"
+            # test_cls.assertEqual(param.full_tensor(), ref_param, f"{param_name=} differs at {iter_idx=}")
+            # test_cls.assertEqual(grad.full_tensor(), ref_grad, f"{param_name=} grads differs at {iter_idx=}")
             # try:
                 # test_cls.assertEqual(grad.full_tensor(), ref_grad, f"{param_name=} grads differs at {iter_idx=}")
             # except:
                 # mismatched_grads.append(param_name)
         # assert len(mismatched_grads) == 0, f"mismatched params grads: {mismatched_grads}"
 
-        test_cls.assertEqual(losses[0], losses[1], f"loss differs at {iter_idx=}")
+        assert torch.equal(losses[0], losses[1]), f"loss mismatch at {iter_idx=}, {losses[0]=}, {losses[1]=}"
 
         for model, optim in ((ref_model, ref_optim), (fsdp_model, fsdp_optim)):
             if linear_requires_sync(config):
@@ -68,8 +70,8 @@ def check_parity_no_mp(
             param = fsdp_model.get_parameter(param_name)
             grad = param.grad
             ref_grad = ref_param.grad
-            test_cls.assertEqual(grad.full_tensor(), ref_grad, f"{param_name=} grads differs at {iter_idx=}")
-            test_cls.assertEqual(param.full_tensor(), ref_param, f"{param_name=} differs at {iter_idx=}")
+            assert torch.equal(grad.full_tensor(), ref_grad), f"{param_name=} grads differs at {iter_idx=}"
+            assert torch.equal(param.full_tensor(), ref_param), f"{param_name=} differs at {iter_idx=}"
 
 
 
