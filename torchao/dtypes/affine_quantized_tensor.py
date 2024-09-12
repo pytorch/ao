@@ -12,9 +12,9 @@ from torchao.quantization.quant_primitives import (
     int_scaled_matmul,
     choose_qparams_and_quantize_affine_hqq,
     FP8_TYPES,
-    choose_qparams_affine_fpx,
-    quantize_affine_fpx,
-    dequantize_affine_fpx,
+    choose_qparams_affine_floatx,
+    quantize_affine_floatx,
+    dequantize_affine_floatx,
 )
 from torchao.quantization.utils import (
     pack_tinygemm_scales_and_zeros,
@@ -201,10 +201,10 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         if output_dtype is None:
             output_dtype = self.dtype
 
-        from torchao.dtypes.fpx import FpxTensorCoreLayoutType
-        if isinstance(self.layout_type, FpxTensorCoreLayoutType):
+        from torchao.dtypes.floatx import FloatxTensorCoreLayoutType
+        if isinstance(self.layout_type, FloatxTensorCoreLayoutType):
             int_data, scale = self.layout_tensor.get_plain()
-            return dequantize_affine_fpx(int_data, scale, self.layout_type.ebits, self.layout_type.mbits, output_dtype=output_dtype)
+            return dequantize_affine_floatx(int_data, scale, self.layout_type.ebits, self.layout_type.mbits, output_dtype=output_dtype)
         else:
             data, scale, zero_point = self.layout_tensor.get_plain()
             return dequantize_affine(
@@ -391,8 +391,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         input_float: torch.Tensor,
         layout_type: LayoutType,
     ):
-        from torchao.dtypes.fpx import FpxTensorCoreLayoutType
-        assert isinstance(layout_type, FpxTensorCoreLayoutType), f"Only FpxTensorCoreLayoutType is supported for fpx, got {layout_type}"
+        from torchao.dtypes.floatx import FloatxTensorCoreLayoutType
+        assert isinstance(layout_type, FloatxTensorCoreLayoutType), f"Only FloatxTensorCoreLayoutType is supported for floatx, got {layout_type}"
         original_shape = input_float.shape
         input_float = layout_type.pre_process(input_float)
         # per axis quantization, where axis = 1
@@ -401,12 +401,12 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
 
         ebits, mbits = layout_type.ebits, layout_type.mbits
         # Note: these ops are hardcoded to have per axis quantization (axis=1) right now
-        scale = choose_qparams_affine_fpx(input_float, ebits, mbits)
-        fpx_unpacked = quantize_affine_fpx(input_float, scale, ebits, mbits)
-        fpx_packed = layout_type.post_process(fpx_unpacked)
+        scale = choose_qparams_affine_floatx(input_float, ebits, mbits)
+        floatx_unpacked = quantize_affine_floatx(input_float, scale, ebits, mbits)
+        floatx_packed = layout_type.post_process(floatx_unpacked)
 
         layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
-        layout_tensor = layout_tensor_ctr(fpx_packed, scale, None, layout_type)
+        layout_tensor = layout_tensor_ctr(floatx_packed, scale, None, layout_type)
         return cls(
             layout_tensor,
             block_size,
@@ -504,7 +504,7 @@ class MarlinSparseLayoutType(LayoutType):
     def pre_process(self, input: torch.Tensor) -> torch.Tensor:
         """Preprocess the input tensor to be in the correct format for the Marlin sparse kernel.
             - 1º: the input tensor is transposed since the linear layer keeps the weights in a transposed format
-            - 2º: tensor is injected with 2:4 sparsity 
+            - 2º: tensor is injected with 2:4 sparsity
             - 3º: transposes it again because the quantization process will compute the scales for dim=-1
 
         Args:
@@ -675,8 +675,8 @@ class SemiSparseAQTLayout(PlainAQTLayout):
 @register_layout_cls(MarlinSparseLayoutType)
 class MarlinSparseAQTLayout(AQTLayout):
     """
-    Layout storage class for sparse_marlin_24 layout for affine quantized tensor. 
-    
+    Layout storage class for sparse_marlin_24 layout for affine quantized tensor.
+
     Can be used with 4 bits and 8 bits quantization.
 
     Original marlin documentation and information:
@@ -762,9 +762,9 @@ class MarlinSparseAQTLayout(AQTLayout):
     def get_plain(self):
         from torchao.sparsity.marlin import unpack_from_marlin_24  # avoid circular import
         int_data_expanded, scales_expanded = unpack_from_marlin_24(
-            self.int_data, 
-            self.scale, 
-            self.meta, 
+            self.int_data,
+            self.scale,
+            self.meta,
             self.original_shape,
             self.group_size,
             self.num_bits,
@@ -796,7 +796,7 @@ class MarlinSparseAQTLayout(AQTLayout):
 
         if q_w_24.dtype != torch.int32:
             raise ValueError("Only `torch.int32` weights are supported.")
-        
+
         in_features, out_features = q_w_24.shape
         if in_features % 128 != 0 or out_features != 256 == 0:
             raise ValueError(
@@ -826,11 +826,11 @@ class MarlinSparseAQTLayout(AQTLayout):
         marlin_24_q_w_comp, marlin_24_s, meta = pack_to_marlin_24(q_w_24, scale_t, num_bits, group_size)
 
         return cls(
-            marlin_24_q_w_comp, marlin_24_s, zero_point, 
+            marlin_24_q_w_comp, marlin_24_s, zero_point,
             meta, layout_type, q_w_24.shape,
             group_size, num_bits
         )
-    
+
     def get_layout_type(self) -> LayoutType:
         return self.layout_type
 
@@ -958,7 +958,7 @@ class Float8AQTLayout(AQTLayout):
                 f"scale={scale},\n"
                 f"transposed={self.transposed}, "
                 f"layout_type={layout_type})")
-    
+
 
 @register_layout_cls(TensorCoreTiledLayoutType)
 class TensorCoreTiledAQTLayout(AQTLayout):
@@ -1309,16 +1309,16 @@ def _linear_fp_act_int8_weight_impl(input_tensor, weight_tensor, bias):
         y += bias.to(m.dtype)
     return y
 
-def _linear_f16_act_fpx_weight_check(input_tensor, weight_tensor, bias):
-    from torchao.dtypes.fpx import FpxTensorCoreLayoutType
+def _linear_f16_act_floatx_weight_check(input_tensor, weight_tensor, bias):
+    from torchao.dtypes.floatx import FloatxTensorCoreLayoutType
     return (
         # input is native float32 tensor
         not is_traceable_wrapper_subclass(input_tensor) and
         input_tensor.is_floating_point() and
         input_tensor.dtype == torch.float16 and
-        # weight is fpx Tensor
+        # weight is floatx Tensor
         isinstance(weight_tensor, AffineQuantizedTensor) and
-        isinstance(weight_tensor.layout_type, FpxTensorCoreLayoutType) and
+        isinstance(weight_tensor.layout_type, FloatxTensorCoreLayoutType) and
         (
             # weight is using fp6 quantization
             (weight_tensor.layout_type.ebits == 3 and
@@ -1333,8 +1333,8 @@ def _linear_f16_act_fpx_weight_check(input_tensor, weight_tensor, bias):
         )
     )
 
-def _linear_f16_act_fpx_weight_impl(input_tensor, weight_tensor, bias):
-    from torchao.dtypes.fpx import _SPLIT_K_MAP
+def _linear_f16_act_floatx_weight_impl(input_tensor, weight_tensor, bias):
+    from torchao.dtypes.floatx import _SPLIT_K_MAP
     from torchao.ops import quant_llm_linear
 
     act = input_tensor
@@ -1351,7 +1351,7 @@ def _linear_f16_act_fpx_weight_impl(input_tensor, weight_tensor, bias):
         weight.layout_type.ebits,
         weight.layout_type.mbits,
         act_reshaped,
-        weight.layout_tensor.packed_fpx_data,
+        weight.layout_tensor.packed_floatx_data,
         weight.layout_tensor.scale,
         splitK=splitK,
     )
@@ -1379,10 +1379,10 @@ def _linear_fp_act_fp8_weight_check(
 def preprocess_scale(input_scale: torch.Tensor, input_shape: Tuple[int]):
     """ Ensures input tensor is correctly formated for _scaled_mm """
     input_scale = input_scale.unsqueeze(-1)
-    
+
     if input_scale.dim() > 2:
         input_scale = input_scale.reshape(-1, input_scale.shape[-1])
-    
+
     return input_scale
 
 def _linear_fp_act_fp8_weight_impl(
@@ -1458,7 +1458,7 @@ def _linear_fp_act_int4_weight_sparse_marlin_impl(input_tensor, weight_tensor, b
     workspace_24 = marlin_24_workspace(original_shape[1])
 
     out = marlin_24_gemm(
-        input_2d, sparse_w_int4, meta, scale, 
+        input_2d, sparse_w_int4, meta, scale,
         workspace_24, num_bits, size_m, size_n, size_k
     )
 
@@ -1477,7 +1477,7 @@ def _register_aqt_quantized_linear_dispatches():
         (_linear_fp_act_fp8_weight_check, _linear_fp_act_fp8_weight_impl),
         (_linear_bf16_act_uint4_weight_check, _linear_bf16_act_uint4_weight_impl),
         (_linear_fp_act_int8_weight_check, _linear_fp_act_int8_weight_impl),
-        (_linear_f16_act_fpx_weight_check, _linear_f16_act_fpx_weight_impl),
+        (_linear_f16_act_floatx_weight_check, _linear_f16_act_floatx_weight_impl),
         (_linear_fp_act_int4_weight_sparse_marlin_check, _linear_fp_act_int4_weight_sparse_marlin_impl),
     ]:
         register_aqt_quantized_linear_dispatch(dispatch_condition, impl)

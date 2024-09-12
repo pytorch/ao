@@ -15,7 +15,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
 )
 from torchao.utils import _register_custom_op, _is_float8_type
-from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32, _n_ones
+from torchao.prototype.custom_fp_utils import _f32_to_floatx_unpacked, _floatx_unpacked_to_f32, _n_ones
 
 
 __all__ = [
@@ -23,11 +23,11 @@ __all__ = [
     "int_scaled_matmul",
     "choose_qparams_affine",
     "choose_qparams_affine_with_min_max",
-    "choose_qparams_affine_fpx",
+    "choose_qparams_affine_floatx",
     "quantize_affine",
     "dequantize_affine",
-    "quantize_affine_fpx",
-    "dequantize_affine_fpx",
+    "quantize_affine_floatx",
+    "dequantize_affine_floatx",
     "fake_quantize_affine",
     "fake_quantize_affine_cachemask",
     "choose_qparams_and_quantize_affine_hqq",
@@ -946,7 +946,7 @@ def choose_qparams_and_quantize_affine_hqq(
     return W_q, scale, zero, shape
 
 
-def choose_qparams_affine_fpx(tensor: torch.Tensor, ebits: int, mbits: int) -> torch.Tensor:
+def choose_qparams_affine_floatx(tensor: torch.Tensor, ebits: int, mbits: int) -> torch.Tensor:
     # _n_ones() is not compatible with torch.compile() due to << operator
     # https://github.com/pytorch/pytorch/issues/119152
     # exp_bias = _n_ones(ebits - 1)
@@ -960,16 +960,16 @@ def choose_qparams_affine_fpx(tensor: torch.Tensor, ebits: int, mbits: int) -> t
     scale = tensor.abs().amax(1).clamp(min=1e-12) / max_normal
     return scale.half()
 
-def quantize_affine_fpx(tensor: torch.Tensor, scale: torch.Tensor, ebits: int, mbits: int) -> torch.Tensor:
+def quantize_affine_floatx(tensor: torch.Tensor, scale: torch.Tensor, ebits: int, mbits: int) -> torch.Tensor:
     """Quantizes the float32 high precision floating point tensor to low precision floating point number and
     converts the result to unpacked floating point format with the format of 00SEEEMM (for fp6_e3m2) where S means sign bit, e means exponent bit and m means mantissa bit
     """
     tensor = tensor.float()
-    tensor_fpx = _f32_to_fpx_unpacked(tensor / scale.view(-1, 1), ebits, mbits)
-    return tensor_fpx
+    tensor_floatx = _f32_to_floatx_unpacked(tensor / scale.view(-1, 1), ebits, mbits)
+    return tensor_floatx
 
-def dequantize_affine_fpx(tensor: torch.Tensor, scale: torch.Tensor, ebits: int, mbits: int, output_dtype: torch.dtype = torch.float32) -> torch.Tensor:
-    tensor = _fpx_unpacked_to_f32(tensor, ebits, mbits)
+def dequantize_affine_floatx(tensor: torch.Tensor, scale: torch.Tensor, ebits: int, mbits: int, output_dtype: torch.dtype = torch.float32) -> torch.Tensor:
+    tensor = _floatx_unpacked_to_f32(tensor, ebits, mbits)
     tensor = tensor * scale.float().view(-1, 1)
     tensor = tensor.to(dtype=output_dtype)
     return tensor
