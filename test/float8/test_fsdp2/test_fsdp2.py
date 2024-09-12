@@ -89,7 +89,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
     
     @skip_if_lt_x_gpu(2)
     def test_float8_linear_parity(self):
-        enable_fsdp_float8_all_gather = True,
+        enable_fsdp_float8_all_gather = True
         scaling_type_weight = ScalingType.DYNAMIC
         compile_transformer_block = True
         dtype = torch.float32
@@ -109,6 +109,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         )
         if compile_transformer_block:
             ref_module = torch.compile(ref_module, dynamic=False, backend=backend)
+        fully_shard(ref_module)
         
         # fsdp module
         float8_linear_config2 = Float8LinearConfig(
@@ -130,10 +131,6 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
                 optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
                 losses.append(model(local_inp).sum())
                 losses[-1].backward()
-                if model is ref_module:
-                    for param in model.parameters():
-                        dist.all_reduce(param.grad)
-                        param.grad.div_(dist.get_world_size())
                 optim.step()
             assert torch.equal(losses[0], losses[1]), f"loss mismatch at {iter_idx=}, {losses[0]=}, {losses[1]=}"
 
