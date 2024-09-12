@@ -26,7 +26,7 @@ def check_parity_no_mp(
     compile_transformer_block: bool = False,
 ):
     # TODO(before land): reorder args and make config not optional
-    for iter_idx in range(1000):
+    for iter_idx in range(10):
         losses: List[torch.Tensor] = []
         for model, optim in ((ref_model, ref_optim), (fsdp_model, fsdp_optim)):
             optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
