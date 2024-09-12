@@ -472,8 +472,6 @@ class Float8Linear(torch.nn.Linear):
                     )
                 )
             else:
-                if config.cast_config_weight.scaling_type is not ScalingType.STATIC:
-                    torch.distributed.breakpoint()
                 assert config.cast_config_weight.scaling_type is ScalingType.STATIC
                 new_mod.weight = torch.nn.Parameter(
                     WeightWithStaticFloat8CastTensor(

@@ -32,14 +32,13 @@ from torch.testing._internal.common_fsdp import (
 from torch.testing._internal.common_utils import run_tests
 from torch.testing._internal.distributed._tensor.common_dtensor import (
     ModelArgs,
-    # Transformer,
+    Transformer,
     TransformerBlock,
 )
 
 is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
 if not is_cuda_8_9:
     pytest.skip("Unsupported CUDA device capability version", allow_module_level=True)
-
 
 class TestFloat8Common:
     def broadcast_module(self, module: nn.Module) -> None:
@@ -63,7 +62,7 @@ class TestFloat8Common:
     def init_transformer(self, weight_tying: bool, dtype: Optional[torch.dtype] = None) -> nn.Module:
         torch.manual_seed(42)
         args = ModelArgs(
-            n_layers=0,
+            n_layers=3,
             dim=768,
             n_heads=12,
             dropout_p=0.0,
@@ -177,7 +176,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         float8_linear_config1 = Float8LinearConfig(
             cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
         )
-        ref_module = convert_to_float8_training(
+        convert_to_float8_training(
             ref_module,
             config=float8_linear_config1,
         )
@@ -189,7 +188,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
             enable_fsdp_float8_all_gather=enable_fsdp_float8_all_gather,
             cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
         )
-        module = convert_to_float8_training(
+        convert_to_float8_training(
             module,
             config=float8_linear_config2,
         )
