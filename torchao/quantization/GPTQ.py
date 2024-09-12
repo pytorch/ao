@@ -329,8 +329,8 @@ class GenericGPTQRunner(fx.Interpreter):
         device = W.device
 
         if groupsize == -1:
-            cur_qparams = self.get_qparams_func(W)
 
+            cur_qparams = self.get_qparams_func(W)
         dead = torch.diag(H) == 0
         H[dead, dead] = 1
         W[:, dead] = 0

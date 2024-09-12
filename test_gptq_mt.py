@@ -284,7 +284,7 @@ blocksize = 128
 percdamp = 0.01
 groupsize = 64
 calibration_tasks = ["wikitext"]
-calibration_limit = 1
+calibration_limit = None
 calibration_seq_length = 100
 input_prep_func = prepare_inputs_for_model
 pad_calibration_inputs = False
@@ -339,6 +339,5 @@ result = TransformerEvalWrapper(
         prepare_inputs_for_model,
     ).run_eval(
         ["wikitext"],
-        1,
+        None,
     )
-print(result)
