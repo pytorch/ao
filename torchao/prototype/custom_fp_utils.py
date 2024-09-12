@@ -7,9 +7,9 @@
 # This script was initially developed for sub-byte MX dtypes (FP4 E2M1, FP6 E3M2, and FP6 E2M3).
 # It has been refactored to support any sub-byte FP dtypes. However, some behaviors of MX dtypes remain:
 #   1. No encodings are reserved for special values (+/-inf, NaN).
-#   2. When downcasting from FP32 to FPx,
+#   2. When downcasting from FP32 to Floatx,
 #      - Rounding mode is round to nearest, ties to even.
-#      - Values outside the representable range of FPx after rounding are clamped to the maximum FPx
+#      - Values outside the representable range of Floatx after rounding are clamped to the maximum Floatx
 #      magnitude (sign is preserved).
 
 import torch
@@ -24,7 +24,7 @@ EBITS_F32, MBITS_F32 = 8, 23
 F32_EXP_BIAS = _n_ones(EBITS_F32 - 1)
 
 
-def _f32_to_fpx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
+def _f32_to_floatx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
     """Convert FP32 numbers to sub-byte floating point numbers with the given
     number of exponent and mantissa bits.
 
@@ -35,8 +35,8 @@ def _f32_to_fpx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
       fp6: bits 0-1 empty and bits 2-7 in fp6_e2m3 or fp6_e3m2 encoding
 
     Note: there are no special values (NaN, inf) support in this code. Values
-    outside the representable range of FPx after rounding are clamped to the
-    maximum FPx magnitude (sign is preserved).
+    outside the representable range of Floatx after rounding are clamped to the
+    maximum Floatx magnitude (sign is preserved).
 
     Code below is an adaptation of https://fburl.com/code/ciwofcg4
 
@@ -142,7 +142,7 @@ def _f32_to_fpx_unpacked(x: Tensor, ebits: int, mbits: int) -> Tensor:
 
 # TODO(future): check if LUT for everything is faster than bit shifting,
 # especially for fp4 (only 2^4=16 unique values).
-def _fpx_unpacked_to_f32(x: Tensor, ebits: int, mbits: int) -> Tensor:
+def _floatx_unpacked_to_f32(x: Tensor, ebits: int, mbits: int) -> Tensor:
     """Convert sub-byte floating point numbers with the given number of exponent
     and mantissa bits to FP32.
 
