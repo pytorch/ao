@@ -1,6 +1,6 @@
 # Quant-LLM
 
-This is a FP16 x FPx mixed matmul kernel optimized for io bound workloads per [FP6-LLM](https://arxiv.org/abs/2401.14112). The actual CUDA kernel is located under [csrc/cuda/fp6_llm/](../../csrc/cuda/fp6_llm/). This module provides helper functions to quantize FP32/FP16/BF16 weights to FPx and integration with torchao API.
+This is a FP16 x Floatx mixed matmul kernel optimized for io bound workloads per [FP6-LLM](https://arxiv.org/abs/2401.14112). The actual CUDA kernel is located under [csrc/cuda/fp6_llm/](../../csrc/cuda/fp6_llm/). This module provides helper functions to quantize FP32/FP16/BF16 weights to Floatx and integration with torchao API.
 
 ## Usage
 
@@ -13,7 +13,7 @@ from torchao.quantization import (
 model = ...
 model.half()  # not necessary, but recommeneded to maintain accuracy
 
-# for generic FPx EyMz where x = 1 + y + z
+# for generic Floatx EyMz where x = 1 + y + z
 # fp6 with ebits = 3 and mbits = 2
 quantize_(model, fpx_weight_only(3, 2))
 
@@ -25,7 +25,7 @@ It's also possible to pre-process the weight and call the kernel directly.
 
 ```python
 import torch
-from torchao.dtypes.fpx import to_scaled_tc_fpx
+from torchao.dtypes.floatx import to_scaled_tc_floatx
 from torchao.ops import quant_llm_linear
 
 fp32_weight = torch.randn(1024, 512).cuda()
@@ -33,7 +33,7 @@ ebits, mbits = 3, 2
 
 # pre-process the weight. this will quantize the weight to FP6 and pack it in a special
 # layout for tensor cores. refer to paper for more details.
-fp6_weight, scales = to_scaled_tc_fpx(fp32_weight, ebits, mbits)
+fp6_weight, scales = to_scaled_tc_floatx(fp32_weight, ebits, mbits)
 
 fp16_act = torch.randn(1, 512).cuda().half()
 outputs = quant_llm_linear(ebits, mbits, fp16_act, fp6_weight, scales)  # shape (1, 1024)
@@ -48,7 +48,7 @@ outputs = quant_llm_linear(ebits, mbits, fp16_act, fp6_weight, scales)  # shape 
 
 Benchmarks are run on a machine with a single 4070Ti SUPER GPU using the scripts in [_models/llama](../../_models/llama). tokens/s is measured using [generate.py](../../_models/llama/generate.py) which generates text in a latency optimized way (batchsize=1). wikitext perplexity is measured using [eval.py](../../_models/llama/eval.py) which uses [lm_eval](https://github.com/EleutherAI/lm-evaluation-harness). The model used is [meta-llama/Llama-2-7b-chat-hf](https://huggingface.co/meta-llama/Llama-2-7b-chat-hf).
 
-FPx quantization is run with `--precision float16`. The rest uses the default precision of `bfloat16`.
+Floatx quantization is run with `--precision float16`. The rest uses the default precision of `bfloat16`.
 
 Quantization        | wikitext perplexity | tokens/s
 --------------------|---------------------|----------

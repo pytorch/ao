@@ -8,14 +8,14 @@ from torch.testing._internal.common_utils import (
     parametrize,
     run_tests,
 )
-from torchao.dtypes.fpx import (
-    FpxTensorCoreAQTLayout,
-    FpxTensorCoreLayoutType,
-    to_scaled_tc_fpx,
-    from_scaled_tc_fpx,
+from torchao.dtypes.floatx import (
+    FloatxTensorCoreAQTLayout,
+    FloatxTensorCoreLayoutType,
+    to_scaled_tc_floatx,
+    from_scaled_tc_floatx,
 )
-from torchao.dtypes.fpx.fpx import _pack_tc_fpx, _pack_tc_fp6
-from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32
+from torchao.dtypes.floatx.floatx import _pack_tc_floatx, _pack_tc_fp6
+from torchao.prototype.custom_fp_utils import _f32_to_floatx_unpacked, _floatx_unpacked_to_f32
 from torchao.quantization import (
     quantize_,
     fpx_weight_only,
@@ -25,71 +25,71 @@ from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
-_FPx_DTYPES = [(3, 2), (2, 2)]
+_Floatx_DTYPES = [(3, 2), (2, 2)]
 
 
-class TestFpxTensorCoreAQTLayout(TestCase):
+class TestFloatxTensorCoreAQTLayout(TestCase):
     @parametrize("device", _DEVICES)
     def test_pack_tc_fp6_correctness(self, device):
         x = torch.randint(256, size=(256, 64), dtype=torch.uint8, device=device)
 
-        expected = _pack_tc_fpx(x, 6)
+        expected = _pack_tc_floatx(x, 6)
         actual = _pack_tc_fp6(x)
         torch.testing.assert_close(actual, expected)
 
-    @parametrize("ebits,mbits", _FPx_DTYPES)
+    @parametrize("ebits,mbits", _Floatx_DTYPES)
     @parametrize("device", _DEVICES)
-    def test_to_scaled_tc_fpx_compile(self, ebits, mbits, device):
+    def test_to_scaled_tc_floatx_compile(self, ebits, mbits, device):
         x = torch.randn(256, 64, device=device)
 
-        expected = to_scaled_tc_fpx(x, ebits, mbits)
-        actual = torch.compile(to_scaled_tc_fpx, fullgraph=True)(x, ebits, mbits)
+        expected = to_scaled_tc_floatx(x, ebits, mbits)
+        actual = torch.compile(to_scaled_tc_floatx, fullgraph=True)(x, ebits, mbits)
         torch.testing.assert_close(actual, expected)
 
-    @parametrize("ebits,mbits", _FPx_DTYPES)
+    @parametrize("ebits,mbits", _Floatx_DTYPES)
     @parametrize("device", _DEVICES)
-    def test_from_tc_fpx_correctness(self, ebits, mbits, device):
+    def test_from_tc_floatx_correctness(self, ebits, mbits, device):
         x = torch.randn(256, 64, device=device) * 100
 
-        # quantize and dequantize so that the values are exactly representable in FPx
-        x = _fpx_unpacked_to_f32(_f32_to_fpx_unpacked(x, ebits, mbits), ebits, mbits)
+        # quantize and dequantize so that the values are exactly representable in Floatx
+        x = _floatx_unpacked_to_f32(_f32_to_floatx_unpacked(x, ebits, mbits), ebits, mbits)
 
-        tc_fpx, scale = to_scaled_tc_fpx(x, ebits, mbits)
-        actual = from_scaled_tc_fpx(tc_fpx, ebits, mbits, scale=scale)
+        tc_floatx, scale = to_scaled_tc_floatx(x, ebits, mbits)
+        actual = from_scaled_tc_floatx(tc_floatx, ebits, mbits, scale=scale)
         torch.testing.assert_close(actual, x)
 
-    @parametrize("ebits,mbits", _FPx_DTYPES)
+    @parametrize("ebits,mbits", _Floatx_DTYPES)
     @parametrize("device", _DEVICES)
-    def test_from_scaled_tc_fpx_compile(self, ebits, mbits, device):
+    def test_from_scaled_tc_floatx_compile(self, ebits, mbits, device):
         M, N = 256, 64
         nbits = 1 + ebits + mbits
         x = torch.randint(256, size=(M, N // 8 * nbits), dtype=torch.uint8, device=device)
         scale = torch.randn(M, device=device)
 
-        expected = from_scaled_tc_fpx(x, ebits, mbits, scale)
-        actual = torch.compile(from_scaled_tc_fpx, fullgraph=True)(x, ebits, mbits, scale)
+        expected = from_scaled_tc_floatx(x, ebits, mbits, scale)
+        actual = torch.compile(from_scaled_tc_floatx, fullgraph=True)(x, ebits, mbits, scale)
         torch.testing.assert_close(actual, expected)
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-    @parametrize("ebits,mbits", _FPx_DTYPES)
+    @parametrize("ebits,mbits", _Floatx_DTYPES)
     def test_to_copy_device(self, ebits, mbits):
         from torchao.quantization.quant_primitives import (
-            choose_qparams_affine_fpx,
-            quantize_affine_fpx,
+            choose_qparams_affine_floatx,
+            quantize_affine_floatx,
         )
 
         x = torch.randn(256, 64)
-        scale = choose_qparams_affine_fpx(x, ebits, mbits)
-        x = quantize_affine_fpx(x, scale, ebits, mbits)
-        layout_type = FpxTensorCoreLayoutType(ebits, mbits)
-        fpx_layout_tensor = FpxTensorCoreAQTLayout.from_plain(x, scale, None, layout_type).cuda()
-        assert fpx_layout_tensor.device.type == "cuda"
-        fpx_layout_tensor = fpx_layout_tensor.cpu()
-        assert fpx_layout_tensor.device.type == "cpu"
+        scale = choose_qparams_affine_floatx(x, ebits, mbits)
+        x = quantize_affine_floatx(x, scale, ebits, mbits)
+        layout_type = FloatxTensorCoreLayoutType(ebits, mbits)
+        floatx_layout_tensor = FloatxTensorCoreAQTLayout.from_plain(x, scale, None, layout_type).cuda()
+        assert floatx_layout_tensor.device.type == "cuda"
+        floatx_layout_tensor = floatx_layout_tensor.cpu()
+        assert floatx_layout_tensor.device.type == "cpu"
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="quantization only works with torch.compile for 2.5+")
-    @parametrize("ebits,mbits", _FPx_DTYPES)
+    @parametrize("ebits,mbits", _Floatx_DTYPES)
     @parametrize("bias", [False, True])
     def test_fpx_weight_only(self, ebits, mbits, bias):
         N, OC, IC = 4, 256, 64
@@ -106,7 +106,7 @@ class TestFpxTensorCoreAQTLayout(TestCase):
         torch.testing.assert_close(actual, expected)
 
 
-instantiate_parametrized_tests(TestFpxTensorCoreAQTLayout)
+instantiate_parametrized_tests(TestFloatxTensorCoreAQTLayout)
 
 
 if __name__ == "__main__":

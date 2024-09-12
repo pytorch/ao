@@ -4,7 +4,7 @@ from typing import Tuple, Optional
 import torch
 from torch import Tensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32, _n_ones
+from torchao.prototype.custom_fp_utils import _f32_to_floatx_unpacked, _floatx_unpacked_to_f32, _n_ones
 from torchao.dtypes.utils import (
     LayoutType,
 )
@@ -62,7 +62,7 @@ def _bit_interleave(x: Tensor, n_bits: int, undo: bool = False) -> Tensor:
 
 # this is a literal adaptation of FP6-LLM ahead-of-time bit-level pre-packing
 # https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/fp6_llm/csrc/utils/weight_prepacking.h
-def _pack_tc_fpx(tensor: Tensor, nbits: int) -> Tensor:
+def _pack_tc_floatx(tensor: Tensor, nbits: int) -> Tensor:
     assert tensor.ndim == 2, tensor.dtype == torch.uint8
     M, N = tensor.shape
     assert (M % 64 == 0) and (N % 64 == 0)
@@ -91,7 +91,7 @@ def _pack_tc_fpx(tensor: Tensor, nbits: int) -> Tensor:
     return torch.cat(fragments, dim=0).view(M, -1)
 
 
-# more optimized version of _pack_tc_fpx() for FP6 by merging ops
+# more optimized version of _pack_tc_floatx() for FP6 by merging ops
 def _pack_tc_fp6(tensor: Tensor) -> Tensor:
     assert tensor.ndim == 2, tensor.dtype == torch.uint8
     M, N = tensor.shape
@@ -112,13 +112,13 @@ def _pack_tc_fp6(tensor: Tensor) -> Tensor:
 
 
 # currently only optimize for TC-FP6 packing
-def pack_tc_fpx(tensor: Tensor, nbits: int) -> Tensor:
+def pack_tc_floatx(tensor: Tensor, nbits: int) -> Tensor:
     if nbits == 6:
         return _pack_tc_fp6(tensor)
-    return _pack_tc_fpx(tensor, nbits)
+    return _pack_tc_floatx(tensor, nbits)
 
 
-def to_scaled_tc_fpx(tensor: Tensor, ebits: int, mbits: int) -> Tuple[Tensor, Tensor]:
+def to_scaled_tc_floatx(tensor: Tensor, ebits: int, mbits: int) -> Tuple[Tensor, Tensor]:
     # _n_ones() is not compatible with torch.compile() due to << operator
     # https://github.com/pytorch/pytorch/issues/119152
     # exp_bias = _n_ones(ebits - 1)
@@ -130,13 +130,13 @@ def to_scaled_tc_fpx(tensor: Tensor, ebits: int, mbits: int) -> Tuple[Tensor, Te
 
     tensor = tensor.float()
     scale = tensor.abs().amax(1).clamp(min=1e-12) / max_normal
-    tensor_fpx = _f32_to_fpx_unpacked(tensor / scale.view(-1, 1), ebits, mbits)
-    tensor_tc_fpx = pack_tc_fpx(tensor_fpx, 1 + ebits + mbits)
-    return tensor_tc_fpx, scale.half()
+    tensor_floatx = _f32_to_floatx_unpacked(tensor / scale.view(-1, 1), ebits, mbits)
+    tensor_tc_floatx = pack_tc_floatx(tensor_floatx, 1 + ebits + mbits)
+    return tensor_tc_floatx, scale.half()
 
 
-# inverse of _pack_tc_fpx()
-def _unpack_tc_fpx(tensor: Tensor, nbits: int) -> Tensor:
+# inverse of _pack_tc_floatx()
+def _unpack_tc_floatx(tensor: Tensor, nbits: int) -> Tensor:
     assert tensor.ndim == 2 and tensor.dtype == torch.uint8
     M = tensor.shape[0]
     size = tensor.numel()
@@ -144,7 +144,7 @@ def _unpack_tc_fpx(tensor: Tensor, nbits: int) -> Tensor:
     offset = 0
     used_bits = 0
 
-    tensor_fpx = None
+    tensor_floatx = None
 
     for y in [1, 2, 4]:
         if nbits & y:
@@ -159,20 +159,20 @@ def _unpack_tc_fpx(tensor: Tensor, nbits: int) -> Tensor:
             tensor_ybit = tensor_ybit << (nbits - used_bits - y)
             used_bits += y
 
-            if tensor_fpx is None:
-                tensor_fpx = tensor_ybit
+            if tensor_floatx is None:
+                tensor_floatx = tensor_ybit
             else:
-                tensor_fpx |= tensor_ybit
+                tensor_floatx |= tensor_ybit
 
     # undo Pass 1
-    tensor_fpx = tensor_fpx.view(32, -1, 2).permute(1, 0, 2)
-    tensor_fpx = tensor_fpx.reshape(M // 64, -1, 4, 2, 2, 8, 8)
-    tensor_fpx = tensor_fpx.permute(0, 2, 4, 5, 1, 3, 6)
-    tensor_fpx = tensor_fpx.reshape(M, -1)
-    return tensor_fpx
+    tensor_floatx = tensor_floatx.view(32, -1, 2).permute(1, 0, 2)
+    tensor_floatx = tensor_floatx.reshape(M // 64, -1, 4, 2, 2, 8, 8)
+    tensor_floatx = tensor_floatx.permute(0, 2, 4, 5, 1, 3, 6)
+    tensor_floatx = tensor_floatx.reshape(M, -1)
+    return tensor_floatx
 
 
-# more optimized version of _unpack_tc_fpx() for FP6 by merging ops
+# more optimized version of _unpack_tc_floatx() for FP6 by merging ops
 # inverse of _unpack_tc_fp6()
 def _unpack_tc_fp6(tensor: Tensor) -> Tensor:
     assert tensor.ndim == 2 and tensor.dtype == torch.uint8
@@ -199,15 +199,15 @@ def _unpack_tc_fp6(tensor: Tensor) -> Tensor:
     return tensor_fp6
 
 
-def unpack_tc_fpx(tensor: Tensor, nbits: int) -> Tensor:
+def unpack_tc_floatx(tensor: Tensor, nbits: int) -> Tensor:
     if nbits == 6:
         return _unpack_tc_fp6(tensor)
-    return _unpack_tc_fpx(tensor, nbits)
+    return _unpack_tc_floatx(tensor, nbits)
 
 
-def from_scaled_tc_fpx(tensor: Tensor, ebits: int, mbits: int, scale=None) -> Tensor:
-    fpx_unpacked = unpack_tc_fpx(tensor, 1 + ebits + mbits)
-    tensor = _fpx_unpacked_to_f32(fpx_unpacked, ebits, mbits)
+def from_scaled_tc_floatx(tensor: Tensor, ebits: int, mbits: int, scale=None) -> Tensor:
+    floatx_unpacked = unpack_tc_floatx(tensor, 1 + ebits + mbits)
+    tensor = _floatx_unpacked_to_f32(floatx_unpacked, ebits, mbits)
     if scale is not None:
         tensor = tensor * scale.float().view(-1, 1)
     return tensor
@@ -353,17 +353,17 @@ _SPLIT_K_MAP = [
 # quantization api integrations
 
 @dataclass(frozen=True)
-class FpxTensorCoreLayoutType(LayoutType):
-    """Layout type for FpxTensorCoreAQTLayout
+class FloatxTensorCoreLayoutType(LayoutType):
+    """Layout type for FloatxTensorCoreAQTLayout
     """
     ebits: int
     mbits: int
 
-@register_layout_cls(FpxTensorCoreLayoutType)
-class FpxTensorCoreAQTLayout(AQTLayout):
-    """FpxTensorCoreAQTLayout represents a Tensor with dtype fpx(ebits=a, mbits=b),
-    it has a internal tensor field of "packed_fpx_data", which is packed from the
-    uint8 unpacked data (the output of `quantize_affine_fpx` operator)
+@register_layout_cls(FloatxTensorCoreLayoutType)
+class FloatxTensorCoreAQTLayout(AQTLayout):
+    """FloatxTensorCoreAQTLayout represents a Tensor with dtype floatx(ebits=a, mbits=b),
+    it has a internal tensor field of "packed_floatx_data", which is packed from the
+    uint8 unpacked data (the output of `quantize_affine_floatx` operator)
 
     The packing is optimized for TensorCore, from the fp6-llm paper: https://arxiv.org/abs/2401.14112
     github repo: https://github.com/usyd-fsalab/fp6_llm, now renamed to quant-llm
@@ -377,81 +377,81 @@ class FpxTensorCoreAQTLayout(AQTLayout):
     If original Tensor shape is (M, N), and the data is in nbit, the shape of the packed data will be
     (M, N // 8 * nbit)
 
-    FpxTensorCoreAQTLayout.from_plain takes an unpacked uint8 fpx Tensor of shape (M, N), with format of
+    FloatxTensorCoreAQTLayout.from_plain takes an unpacked uint8 floatx Tensor of shape (M, N), with format of
     (zero padding bits + sign bit + exponent bits + mantissa bits), e.g. 00SEEEMM for fp6_e3_m2
-    it will then pack the weight and instantiate the FpxTensorCoreAQTLayout tensor
-    FpxTensorCoreAQTLayout.__init__() takes a packed fpx Tensor of shape (M, N // 8 * nbit)
+    it will then pack the weight and instantiate the FloatxTensorCoreAQTLayout tensor
+    FloatxTensorCoreAQTLayout.__init__() takes a packed floatx Tensor of shape (M, N // 8 * nbit)
     """
     def __new__(
         cls,
-        packed_fpx_data: torch.Tensor,
+        packed_floatx_data: torch.Tensor,
         scale: torch.Tensor,
         layout_type: LayoutType,
     ):
-        assert packed_fpx_data.ndim == 2
-        assert packed_fpx_data.dtype == torch.uint8
-        shape = (packed_fpx_data.shape[0], packed_fpx_data.shape[1] // (1 + layout_type.ebits + layout_type.mbits) * 8)
+        assert packed_floatx_data.ndim == 2
+        assert packed_floatx_data.dtype == torch.uint8
+        shape = (packed_floatx_data.shape[0], packed_floatx_data.shape[1] // (1 + layout_type.ebits + layout_type.mbits) * 8)
         kwargs = {}
-        kwargs["device"] = packed_fpx_data.device
+        kwargs["device"] = packed_floatx_data.device
         kwargs["layout"] = (
-            kwargs.get("layout") if kwargs.get("layout", False) else packed_fpx_data.layout
+            kwargs.get("layout") if kwargs.get("layout", False) else packed_floatx_data.layout
         )
-        kwargs["dtype"] = packed_fpx_data.dtype
+        kwargs["dtype"] = packed_floatx_data.dtype
         kwargs["requires_grad"] = False
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
     def __init__(
         self,
-        packed_fpx_data: torch.Tensor,
+        packed_floatx_data: torch.Tensor,
         scale: torch.Tensor,
         layout_type: LayoutType,
     ):
-        self.packed_fpx_data = packed_fpx_data
+        self.packed_floatx_data = packed_floatx_data
         self.scale = scale
         self.layout_type = layout_type
 
     def __tensor_flatten__(self):
-        return ["packed_fpx_data", "scale"], [self.layout_type]
+        return ["packed_floatx_data", "scale"], [self.layout_type]
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
-        packed_fpx_data, scale = tensor_data_dict["packed_fpx_data"], tensor_data_dict["scale"]
+        packed_floatx_data, scale = tensor_data_dict["packed_floatx_data"], tensor_data_dict["scale"]
         layout_type, = tensor_attributes
-        return cls(packed_fpx_data, scale, layout_type)
+        return cls(packed_floatx_data, scale, layout_type)
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        unpacked_fpx_data = unpack_tc_fpx(self.packed_fpx_data, 1 + self.layout_type.ebits + self.layout_type.mbits)
-        return unpacked_fpx_data, self.scale
+        unpacked_floatx_data = unpack_tc_floatx(self.packed_floatx_data, 1 + self.layout_type.ebits + self.layout_type.mbits)
+        return unpacked_floatx_data, self.scale
 
     @classmethod
     def from_plain(
         cls,
-        unpacked_fpx_data: torch.Tensor,
+        unpacked_floatx_data: torch.Tensor,
         scale: torch.Tensor,
         zero_point: Optional[torch.Tensor],
         layout_type: LayoutType,
     ):
         """
-        Format for `unpacked_fpx_data` will be:
+        Format for `unpacked_floatx_data` will be:
         zero padding bits | sign bit | exponent bits | mantissa bits
 
         For example for fp6_e3_m2, the format will be: `00SEEEMM`, where S is sign bit, E is exponent
         bit, M is mantissa bit
         """
-        assert isinstance(layout_type, FpxTensorCoreLayoutType)
-        packed_fpx_data = pack_tc_fpx(unpacked_fpx_data, 1 + layout_type.ebits + layout_type.mbits)
-        return cls(packed_fpx_data, scale, layout_type)
+        assert isinstance(layout_type, FloatxTensorCoreLayoutType)
+        packed_floatx_data = pack_tc_floatx(unpacked_floatx_data, 1 + layout_type.ebits + layout_type.mbits)
+        return cls(packed_floatx_data, scale, layout_type)
 
     def __repr__(self):
-        unpacked_fpx_data, scale = self.get_plain()
+        unpacked_floatx_data, scale = self.get_plain()
         layout_type = self.get_layout_type()
-        return f"{self.__class__.__name__}(unpacked_fpx_data={unpacked_fpx_data}, scale={scale}, layout_type={layout_type})"
+        return f"{self.__class__.__name__}(unpacked_floatx_data={unpacked_floatx_data}, scale={scale}, layout_type={layout_type})"
 
     def _apply_fn_to_data(self, fn):
         return self.__class__(
-            fn(self.packed_fpx_data),
+            fn(self.packed_floatx_data),
             fn(self.scale),
             self.layout_type,
         )
@@ -460,7 +460,7 @@ class FpxTensorCoreAQTLayout(AQTLayout):
         kwargs = self._get_to_kwargs(*args, **kwargs)
         device = kwargs.pop("device")
         return self.__class__(
-            self.packed_fpx_data.to(device),
+            self.packed_floatx_data.to(device),
             self.scale.to(device),
             self.layout_type,
         )
@@ -483,7 +483,7 @@ class FpxTensorCoreAQTLayout(AQTLayout):
             )
 
         raise NotImplementedError(
-            f"FpxTensorCoreAQTLayout dispatch: attempting to run {func}, this is not supported"
+            f"FloatxTensorCoreAQTLayout dispatch: attempting to run {func}, this is not supported"
         )
 
     __torch_function__ = torch._C._disabled_torch_function_impl
