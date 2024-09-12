@@ -217,8 +217,10 @@ def quant_int8_per_token_matmul(
     # 1. do the matrix form of dot(X_i, W_j)
     # 2. rescale the output
     tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
-    y = int_scaled_matmul(tmp, w_vals_int8_t, x_scales.reshape(-1, 1), w_scales.to(x_scales.dtype).reshape(1, -1))
+    y = int_scaled_matmul(tmp, w_vals_int8_t, x_scales.reshape(-1, 1), w_scales)
     y = y.reshape(*x_vals_int8.shape[:-1], y.shape[-1])
+
+    # can downcast only at the very end
     y = y.to(output_dtype)
     return y
 

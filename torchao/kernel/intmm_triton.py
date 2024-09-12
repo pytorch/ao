@@ -229,7 +229,6 @@ def scaled_matmul_kernel_with_block_pointers(
     idx_n = rn[None, :]
     mask = (idx_m < M) & (idx_n < N)
 
-    # perform multiplication in FP32 to prevent overflow
     row_scale = tl.load(row_scales_ptr + idx_m, mask=idx_m < M).to(tl.float32)
     col_scale = tl.load(col_scales_ptr + idx_n, mask=idx_n < N).to(tl.float32)
     acc = acc.to(tl.float32) * row_scale * col_scale
@@ -352,5 +351,4 @@ def int_scaled_matmul_cuda(a, b, row_scales, col_scales):
 def int_scaled_matmul_cpu(a, b, row_scales, col_scales):
     # perform multiplication in FP32 to prevent overflow
     c = torch._int_mm(a, b)
-    c = c.float() * row_scales * col_scales
-    return c.to(row_scales.dtype)
+    return c.to(row_scales.dtype) * row_scales * col_scales

@@ -125,7 +125,6 @@ def int_scaled_matmul(
         AssertionError: If the dimensions of the input tensors do not match the expected shapes.
     """
     assert a.dtype is torch.int8 and b.dtype is torch.int8
-    assert row_scales.dtype is col_scales.dtype
     assert a.shape[1] == b.shape[0], "Incompatible dimensions"
     M, K = a.shape
     K, N = b.shape
@@ -139,5 +138,4 @@ def int_scaled_matmul(
 
     # perform multiplication in FP32 to prevent overflow
     c = safe_int_mm(a, b)
-    c = c.float() * row_scales * col_scales
-    return c.to(row_scales.dtype)
+    return c * row_scales * col_scales
