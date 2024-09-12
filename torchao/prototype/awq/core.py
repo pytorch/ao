@@ -4,7 +4,7 @@ from typing import Tuple, Optional
 import torch
 import torch.nn.functional as F
 
-from torchao.dtypes.uintx.Uintx import to_uintx
+from torchao.dtypes.uintx.uintx import to_uintx
 from torchao.dtypes.affine_quantized_tensor import (
     to_affine_quantized_intx,
     LayoutType,
