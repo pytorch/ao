@@ -309,9 +309,8 @@ quantizer = Int4WeightOnlyGPTQQuantizer(
     
 model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
 multi = [
-    # code to speed up debugging TODO REMOVE
-    MultiTensor([ inp for inp, _ in inputs][:2]),
-    MultiTensor([ inds for _, inds in inputs][:2])
+    MultiTensor([ inp for inp, _ in inputs]),
+    MultiTensor([ inds for _, inds in inputs])
     ]
 print("Quantizing model")
 model = quantizer.quantize(model, multi).cuda()
