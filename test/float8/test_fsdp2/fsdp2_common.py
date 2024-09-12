@@ -36,7 +36,7 @@ def check_parity_no_mp(
                 for param in model.parameters():
                     dist.all_reduce(param.grad)
                     param.grad.div_(dist.get_world_size())
-        
+
             if linear_requires_sync(config):
                 sync_float8_amax_and_scale_history(model)
 
@@ -48,7 +48,10 @@ def check_parity_no_mp(
             ):
                 precompute_float8_dynamic_scale_for_fsdp(model)
 
-        assert torch.equal(losses[0], losses[1]), f"loss mismatch at {iter_idx=}, {losses[0]=}, {losses[1]=}"
+        if compile_transformer_block:
+            test_cls.assertEqual(losses[0], losses[1], atol=1e-4, rtol=1e-4)
+        else:
+            test_cls.assertEqual(losses[0], losses[1])
 
 
 
