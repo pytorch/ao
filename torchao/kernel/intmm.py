@@ -114,10 +114,12 @@ def int_scaled_matmul(
         a (torch.Tensor): The first matrix to multiply.
         b (torch.Tensor): The second matrix to multiply.
         row_scales (torch.Tensor): The scaling factors for the rows of the result.
+            This can be calculated from row-wise scales of a.
         col_scales (torch.Tensor): The scaling factors for the columns of the result.
+            This can be calculated from column-wise scales of b.
 
     Returns:
-        torch.Tensor: The result of the scaled matrix multiplication.
+        torch.Tensor: The result of the scaled matrix multiplication, with dtype of row_scales.
 
     Raises:
         AssertionError: If the dimensions of the input tensors do not match the expected shapes.

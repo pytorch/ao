@@ -214,25 +214,10 @@ def quant_int8_per_token_matmul(
         torch.bfloat16,
     ], f"x_scales needs to be a torch.float32 or torch.bfloat16 but got {x_scales.dtype}"
 
-    #
     # 1. do the matrix form of dot(X_i, W_j)
-    #
-    #
     # 2. rescale the output
-    #
-    # in cases with large matrices, y_dot_int32 can grow sufficiently
-    # large that y_dot_int32 * a float16 scale is greater than the maximum
-    # value of a float 16, (which results in a value of inf even if multiplying
-    # by the other scale would bring it within the expected range)
-
     tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
-    y_dot_scaled = int_scaled_matmul(tmp, w_vals_int8_t, x_scales.reshape(-1, 1))
-
-    y = (y_dot_scaled * w_scales).reshape(
-        *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]
-    )
-
-    # can downcast only at the very end
+    y = int_scaled_matmul(tmp, w_vals_int8_t, x_scales.reshape(-1, 1), w_scales.reshape(1, -1))
     y = y.to(output_dtype)
     return y
 

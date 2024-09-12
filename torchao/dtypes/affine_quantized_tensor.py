@@ -1160,12 +1160,8 @@ def _linear_int8_act_int8_weight_check(input_tensor, weight_tensor, bias):
     )
 
 def _linear_int8_act_int8_weight_impl(input_tensor, weight_tensor, bias):
-    #
     # 1. do the matrix form of dot(X_i, W_j)
-    #
-    #
     # 2. rescale the output
-    #
     x_vals_int8 = input_tensor.layout_tensor.int_data
     x_scales = input_tensor.layout_tensor.scale
     w_vals_int8_t = weight_tensor.layout_tensor.int_data.contiguous().t()
