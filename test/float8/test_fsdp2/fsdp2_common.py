@@ -54,7 +54,6 @@ def check_parity_no_mp(
             test_cls.assertEqual(losses[0], losses[1])
 
 
-
 def check_parity_bf16_mp(
     test_cls,
     ref_model: nn.Module,
