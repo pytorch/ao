@@ -23,7 +23,7 @@ import torch.nn.functional as F
 from typing import Any, Callable, Union, Dict, Optional, Literal, Tuple
 import types
 
-from torchao.dtypes.uintx.Uintx import UintxLayoutType
+from torchao.dtypes.uintx.uintx import UintxLayoutType
 from torchao.dtypes import (
     to_affine_quantized_intx,
     to_affine_quantized_floatx,
@@ -543,7 +543,7 @@ def int4_weight_only(group_size=128, layout_type=TensorCoreTiledLayoutType(inner
         zero_point_domain = ZeroPointDomain.FLOAT
 
         # Sparse Marlin only supports symmetric quantization.
-        # NOTE: If we start having lots of layouts that require different configurations, 
+        # NOTE: If we start having lots of layouts that require different configurations,
         # we should consider moving this logic somewhere else.
         if isinstance(layout_type, MarlinSparseLayoutType):
             mapping_type = MappingType.SYMMETRIC
@@ -716,7 +716,7 @@ def float8_dynamic_activation_float8_weight(
         granularity:
             The granularity for quantization. Can be either a single granularity (applied to both
             activations and weights) or a tuple of two granularities (one for activations, one for weights).
-            If None, defaults to PerTensor for both. Currently both quantizations need to be the same type. And 
+            If None, defaults to PerTensor for both. Currently both quantizations need to be the same type. And
             only PerTensor and PerRow are supported.
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
 
@@ -818,10 +818,10 @@ def fpx_weight_only(ebits: int, mbits: int):
     """
 
     def apply_quant_llm(weight: torch.Tensor) -> torch.Tensor:
-        from torchao.dtypes.fpx import FpxTensorCoreLayoutType
+        from torchao.dtypes.floatx import FloatxTensorCoreLayoutType
         from torchao.dtypes import to_affine_quantized_fpx
 
-        assert weight.dim() == 2, f"fpx only works for 2-d Tensor, got: {weight.dim()}"
+        assert weight.dim() == 2, f"floatx only works for 2-d Tensor, got: {weight.dim()}"
         out_dim, in_dim = weight.shape
         if (in_dim % 64 != 0) or (out_dim % 256 != 0):
             logger.info(
@@ -830,7 +830,7 @@ def fpx_weight_only(ebits: int, mbits: int):
                 "expected in_dim % 64 == 0 and out_dim % 256 == 0")
             return weight
 
-        layout_type = FpxTensorCoreLayoutType(ebits, mbits)
+        layout_type = FloatxTensorCoreLayoutType(ebits, mbits)
         return to_affine_quantized_fpx(weight, layout_type)
     return _get_linear_subclass_inserter(apply_quant_llm)
 

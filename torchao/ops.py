@@ -28,7 +28,7 @@ def quant_llm_linear(
         EXPONENT: number of exponent bits
         MANTISSA: number of mantissa bits
         _in_feats: input activations in FP16
-        _weights: packed FPx weights
+        _weights: packed Floatx weights
         _scales: scale
         splitK: split K
 
@@ -74,7 +74,7 @@ def unpack_tensor_core_tiled_layout(packed_w: Tensor, inner_k_tiles: int) -> Ten
     return torch.ops.torchao.unpack_tensor_core_tiled_layout.default(
         packed_w=packed_w, inner_k_tiles=inner_k_tiles
     )
-    
+
 
 @register_custom_op(f"torchao::unpack_tensor_core_tiled_layout")
 def _(packed_w: Tensor, inner_k_tiles: int) -> Tensor:
@@ -111,7 +111,7 @@ def dequantize_tensor_core_tiled_layout(packed_w: Tensor, scales_and_zeros: Tens
     - packed weights were generated with `torch.ops.aten._convert_weight_to_int4pack` with `inner_k_tiles = 2 | 4 | 8`"
     - packed scales_and_zeros were generated with `torchao.quantization.utils.pack_tinygemm_scales_and_zeros`
     - qGroupSize is 32 | 64 | 128 | 256
-    
+
     Args:
         packed_w: torch.tensor: 4D tensor with shape `(N / 8) x (K / (inner_k_tiles * 16)) x 32 x inner_k_tiles / 2`, dtype is torch.int32
         scales_and_zeros: torch.tensor: 3D tensor with shape `numQGroups x N x 2`, dtype is torch.bfloat16 where numQGroups is K / qGroupSize
@@ -125,7 +125,7 @@ def dequantize_tensor_core_tiled_layout(packed_w: Tensor, scales_and_zeros: Tens
     return torch.ops.torchao.dequantize_tensor_core_tiled_layout.default(
         packed_w, scales_and_zeros, group_size, inner_k_tiles
     )
-    
+
 
 @register_custom_op(f"torchao::dequantize_tensor_core_tiled_layout")
 def _(packed_w: Tensor, scales_and_zeros: Tensor, group_size: int, inner_k_tiles: int) -> Tensor:
@@ -157,7 +157,7 @@ def _(packed_w: Tensor, scales_and_zeros: Tensor, group_size: int, inner_k_tiles
     torch._check(scales_and_zeros.size(0) == K // group_size, lambda: "scales_and_zeros must have K // qGroupSize at dim 0")
     torch._check(scales_and_zeros.size(1) == N, lambda: "scales_and_zeros must have N at dim 1")
     torch._check(scales_and_zeros.size(2) == 2, lambda: "scales_and_zeros must have 2 at dim 2")
-    
+
     return torch.empty((N, K), dtype=torch.bfloat16, device=packed_w.device)
 
 
