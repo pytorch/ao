@@ -113,8 +113,8 @@ quantize_(model, apply_auto_round(), is_target_module)
 | autoround-4bit*  | 0.6338 | 0.4566 | 0.7661 | 0.6646     | 0.5688    | 0.7130         |
 
 > [!NOTE]
-> - `torchao-int4wo` represents `int4_weight_only(group_size=128)` and `quant_lm_head=False`.  <br>
-> - `auto-round-4bit` uses the deafult configuration from quick start. <br>
+> - `torchao-int4wo` quantizes the model to 4 bits with a group size of 128 (`int4_weight_only(group_size=128)`) while leaving the `lm-head` unquantized. <br>
+> - `auto-round-4bit` uses the deafult configuration from [quick start](#quick-start). <br>
 > - `auto-round-4bit*` follows the same settings as `auto-round-4bit`, but with `gradient_accumulate_steps=2` and `train_bs=4`, which accumulating two batches(4 samples per batch) before performing the backward pass. <br>
 > - To reproduce results, run `eval_autoround.py` with `AO_USE_DETERMINISTIC_ALGORITHMS=1`.
 
