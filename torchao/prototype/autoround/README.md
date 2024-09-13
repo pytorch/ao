@@ -10,6 +10,23 @@ Auto-Round is an advanced quantization algorithm designed for low-bit LLM infere
 python autoround_llm.py -m /model/name/or/path
 ```
 
+This script allows you to apply `Auto-Round` on a given model directly, more configurations options are list below:
+
+| Argument                           |Default                     | Description                                                       |
+|------------------------------------|----------------------------|-------------------------------------------------------------------|
+| `model_name_or_path`               |`"facebook/opt-125m"`       | Pretrained model name or path                                     |
+| `dataset_name`                     | `"NeelNanda/pile-10k"`     | Dataset name for calibration                                      |
+| `iters`                            | 200                        | Number of steps for optimizing each block                         |
+| `bits`                             | 4                          | Number of bits for quantization                                   |
+| `train_bs`                         | 8                          | Batch size for calibration                                        |
+| `nsamples`                         | 128                        | Number of samples for calibration process                         |
+| `seqlen`                           | 2048                       | Sequence length for each samples                                  |
+| `gradient_accumulate_steps`        | 1                          | Number of gradient accumulation steps per block optimization      |
+| `quant_lm_head`                    | `False`                    | Whether to quantize the `lm_head`                                 |
+| `use_optimized_layer_output`       | `False`                    | Whether to use optimized layer output as input for the next layer |
+| `compile_optimization_process`     | `False`                    | Whether to compile the optimization process                       |
+| `model_device`                     | `"cuda"`                   | Device for loading the float model (choices: `cpu`, `cuda`)       |
+
 
 > [!NOTE]
 > Before running, ensure you have installed the `auto-round` with `pip install -r requirements.txt`.
@@ -96,10 +113,9 @@ quantize_(model, apply_auto_round(), is_target_module)
 | autoround-4bit*  | 0.6338 | 0.4566 | 0.7661 | 0.6646     | 0.5688    | 0.7130         |
 
 > [!NOTE]
-> - `torchao-int4wo` represents `int4_weight_only(group_size=128)` and `quant_lm_head=False`.
-> - `auto-round-4bit` represents the following configuration: `bits=4`, `iters=200`, `seqlen=2048`, `train_bs=8`, `group_size=128`, and `quant_lm_head=False`. <br>
-> - `auto-round-4bit*` represents the following configuration: `bits=4`, `iters=200`, `seqlen=2048`, `train_bs=4`,  `gradient_accumulate_steps=2`, `group_size=128`, and `quant_lm_head=False`. <br>
-> - Compared to `auto-round-4bit`(train_bs=8), the `auto-round-4bit*` accumulates two batches(4 samples per batch) before performing the backward pass. <br>
+> - `torchao-int4wo` represents `int4_weight_only(group_size=128)` and `quant_lm_head=False`.  <br>
+> - `auto-round-4bit` uses the deafult configuration from quick start. <br>
+> - `auto-round-4bit*` follows the same settings as `auto-round-4bit`, but with `gradient_accumulate_steps=2` and `train_bs=4`, which accumulating two batches(4 samples per batch) before performing the backward pass. <br>
 > - To reproduce results, run `eval_autoround.py` with `AO_USE_DETERMINISTIC_ALGORITHMS=1`.
 
 

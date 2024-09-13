@@ -111,8 +111,10 @@ def see_memory_usage(message: str = "", force=True):
 
 @torch.no_grad()
 def gen_text(
-    model, tokenizer, msg="", device="cuda", prompt="What's AI?", max_length=20
+    model, tokenizer, msg="", device=None, prompt="What's AI?", max_length=20
 ):
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
     inputs = tokenizer(prompt, return_tensors="pt")
     model = model.to(device)
     new_tokens = model.generate(**inputs.to(device), max_length=max_length)
