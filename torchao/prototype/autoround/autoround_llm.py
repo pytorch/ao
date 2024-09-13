@@ -1,11 +1,11 @@
 import argparse
 import logging
+from typing import Optional
 
 import torch
 
 import torchao
 import torchao.prototype.autoround.utils as ar_utils
-from typing import Optional
 from torchao.prototype.autoround.core import (
     apply_auto_round,
     prepare_model_for_applying_auto_round_,
@@ -30,7 +30,7 @@ def quantize_model_with_autoround_(
     nsamples: int = 128,
     use_optimized_layer_output: bool = False,
     gradient_accumulate_steps: Optional[int] = 1,
-    compile_optimization_process:  Optional[bool] = False,
+    compile_optimization_process: Optional[bool] = False,
 ):
     # Step 1. Prepare the model for applying auto-round
 
@@ -130,7 +130,7 @@ if __name__ == "__main__":
         "--model_name_or_path",
         type=str,
         default="facebook/opt-125m",
-        help="Model name or path",
+        help="Pretrained model name or path",
     )
     parser.add_argument(
         "--dataset_name",
@@ -142,13 +142,13 @@ if __name__ == "__main__":
         "--iters",
         default=200,
         type=int,
-        help="Number of iterations for auto-round optimization",
+        help="Number of steps for optimizing each block",
     )
     parser.add_argument(
         "--bits", default=4, type=int, help="Number of bits for quantization"
     )
     parser.add_argument(
-        "--train_bs", default=8, type=int, help="Batch size for auto-round optimization"
+        "--train_bs", default=8, type=int, help="Batch size for calibration"
     )
     parser.add_argument(
         "--nsamples",
@@ -157,28 +157,37 @@ if __name__ == "__main__":
         help="Number of samples for calibration process",
     )
     parser.add_argument(
+        "--group_size",
+        default=128,
+        type=int,
+        help="Group size for quantization",
+    )
+    parser.add_argument(
         "--seqlen",
         default=2048,
         type=int,
-        help="Sequence length for calibration process",
+        help="Sequence length for each samples",
     )
     parser.add_argument(
         "--gradient_accumulate_steps",
         default=1,
         type=int,
-        help="Number of gradient accumulation steps",
+        help=(
+            "Number of steps for accumulating gradients before performing"
+            "the backward pass when optimizing each target module"
+        ),
     )
     parser.add_argument(
         "--quant_lm_head",
         default=False,
         action="store_true",
-        help="Quantize the `lm_head` or not",
+        help="Whether to quantize the `lm_head`",
     )
     parser.add_argument(
         "--use_optimized_layer_output",
         default=False,
         action="store_true",
-        help="Use the optimized layer output for next layer or not",
+        help="Whether to use optimized layer output as input for the next layer",
     )
     parser.add_argument(
         "-c",

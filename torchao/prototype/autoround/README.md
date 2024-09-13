@@ -21,7 +21,8 @@ This script allows you to apply `Auto-Round` on a given model directly, more con
 | `train_bs`                         | 8                          | Batch size for calibration                                        |
 | `nsamples`                         | 128                        | Number of samples for calibration process                         |
 | `seqlen`                           | 2048                       | Sequence length for each samples                                  |
-| `gradient_accumulate_steps`        | 1                          | Number of gradient accumulation steps per block optimization      |
+| `group_size`                       | 128                        | Group size for quantization                                       |
+| `gradient_accumulate_steps`        | 1                          | Number of steps for accumulating gradients <br> before performing the backward pass |
 | `quant_lm_head`                    | `False`                    | Whether to quantize the `lm_head`                                 |
 | `use_optimized_layer_output`       | `False`                    | Whether to use optimized layer output as input for the next layer |
 | `compile_optimization_process`     | `False`                    | Whether to compile the optimization process                       |

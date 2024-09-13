@@ -1,12 +1,12 @@
 # ==------------------------------------------------------------------------------------------==
 # Utils for the auto-round
 # ==------------------------------------------------------------------------------------------==
+import collections
 import logging
 import random
 
 import numpy as np
 import torch
-import collections
 
 
 def _is_package_available(pkg_name, metadata_name=None):
@@ -110,9 +110,7 @@ def see_memory_usage(message: str = "", force=True):
 
 
 @torch.no_grad()
-def gen_text(
-    model, tokenizer, msg="", device=None, prompt="What's AI?", max_length=20
-):
+def gen_text(model, tokenizer, msg="", device=None, prompt="What's AI?", max_length=20):
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
     inputs = tokenizer(prompt, return_tensors="pt")
@@ -152,7 +150,10 @@ def get_float_model_info(model_name_or_path, torch_dtype=torch.float32):
         )
     return model, tokenizer, decoder_cls
 
+
 execution_records = collections.defaultdict(list)
+
+
 def dump_elapsed_time(customized_msg="", record=False):
     """Get the elapsed time for decorated functions.
 
@@ -178,7 +179,9 @@ def dump_elapsed_time(customized_msg="", record=False):
                 )
             )
             if record:
-                avg_time = sum(execution_records[func.__qualname__])/len(execution_records[func.__qualname__])
+                avg_time = sum(execution_records[func.__qualname__]) / len(
+                    execution_records[func.__qualname__]
+                )
                 std_time = np.std(execution_records[func.__qualname__])
                 logging.warning(
                     f"For {func.__qualname__}, the average elapsed time: {avg_time: .2f} ms, the std: {std_time: .2f} ms"

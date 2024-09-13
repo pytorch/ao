@@ -169,19 +169,25 @@ if __name__ == "__main__" and TORCH_VERSION_AT_LEAST_2_5 and torch.cuda.is_avail
         "--model_name_or_path",
         type=str,
         default="facebook/opt-125m",
-        help="Model name or path",
+        help="Pretrained model name or path",
+    )
+    parser.add_argument(
+        "--dataset_name",
+        type=str,
+        default="NeelNanda/pile-10k",
+        help="Dataset name for calibration",
     )
     parser.add_argument(
         "--iters",
         default=200,
         type=int,
-        help="Number of iterations for auto-round optimization",
+        help="Number of steps for optimizing each block",
     )
     parser.add_argument(
         "--bits", default=4, type=int, help="Number of bits for quantization"
     )
     parser.add_argument(
-        "--train_bs", default=8, type=int, help="Batch size for auto-round optimization"
+        "--train_bs", default=8, type=int, help="Batch size for calibration"
     )
     parser.add_argument(
         "--nsamples",
@@ -199,25 +205,28 @@ if __name__ == "__main__" and TORCH_VERSION_AT_LEAST_2_5 and torch.cuda.is_avail
         "--seqlen",
         default=2048,
         type=int,
-        help="Sequence length for calibration process",
+        help="Sequence length for each samples",
     )
     parser.add_argument(
         "--gradient_accumulate_steps",
         default=1,
         type=int,
-        help="Number of gradient accumulation steps",
+        help=(
+            "Number of steps for accumulating gradients before performing"
+            "the backward pass when optimizing each target module"
+        ),
     )
     parser.add_argument(
         "--quant_lm_head",
         default=False,
         action="store_true",
-        help="Quantize the `lm_head` or not",
+        help="Whether to quantize the `lm_head`",
     )
     parser.add_argument(
         "--use_optimized_layer_output",
         default=False,
         action="store_true",
-        help="Use the optimized layer output for next layer or not",
+        help="Whether to use optimized layer output as input for the next layer",
     )
     parser.add_argument(
         "-c",
