@@ -102,7 +102,9 @@ COMMON_DEVICE_DTYPE = list(itertools.product(COMMON_DEVICES, COMMON_DTYPES)).cop
 def _int8wo_api(mod):
     if TORCH_VERSION_AT_LEAST_2_4:
         quantize_(mod, int8_weight_only(), set_inductor_config=False)
-        if not TORCH_VERSION_AT_LEAST_2_5:
+        if (
+            not TORCH_VERSION_AT_LEAST_2_5
+        ) or torch._inductor.config.freezing:
             unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int8_woqtensors(mod)
@@ -817,9 +819,6 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_int8_weight_only_quant_subclass_api(self, device, dtype):
-        if TORCH_VERSION_AT_LEAST_2_5 and device == "cpu":
-            self.skipTest("Regression introduced in PT nightlies")
-
         undo_recommended_configs()
         self._test_lin_weight_subclass_api_impl(
             _int8wo_api, device, 40, test_dtype=dtype
@@ -829,9 +828,6 @@ class TestSubclass(unittest.TestCase):
     @torch._inductor.config.patch({"freezing": True})
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "freeze requires torch 2.4 and after.")
     def test_int8_weight_only_quant_with_freeze(self, device, dtype):
-        if TORCH_VERSION_AT_LEAST_2_5 and device == "cpu":
-            self.skipTest("Regression introduced in PT nightlies")
-
         self._test_lin_weight_subclass_api_impl(
             _int8wo_api, device, 40, test_dtype=dtype
         )
