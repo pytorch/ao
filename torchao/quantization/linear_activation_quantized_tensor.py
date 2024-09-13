@@ -91,7 +91,7 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
 
 implements = LinearActivationQuantizedTensor.implements
 
-@implements(torch.nn.functional.linear)
+@implements([torch.nn.functional.linear, aten.linear.default])
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
