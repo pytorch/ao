@@ -1483,7 +1483,7 @@ def _register_aqt_quantized_linear_dispatches():
 
 _register_aqt_quantized_linear_dispatches()
 
-@implements(torch.nn.functional.linear)
+@implements([torch.nn.functional.linear, aten.linear.default])
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
