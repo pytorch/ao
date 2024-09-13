@@ -62,9 +62,7 @@ class TestFloat8Common:
         self.broadcast_module(module)
         return module
 
-    def init_transformer(
-        self, weight_tying: bool, dtype: Optional[torch.dtype] = None
-    ) -> nn.Module:
+    def init_transformer(self, weight_tying: bool, dtype: Optional[torch.dtype] = None) -> nn.Module:
         torch.manual_seed(42)
         args = ModelArgs(
             n_layers=3,
