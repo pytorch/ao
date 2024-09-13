@@ -10,7 +10,10 @@ from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 if not TORCH_VERSION_AT_LEAST_2_5:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
-
+from torchao.float8.float8_linear_utils import (
+    linear_requires_sync,
+    sync_float8_amax_and_scale_history,
+)
 import torch
 import torch._dynamo.testing
 import torch.distributed as dist
@@ -59,7 +62,9 @@ class TestFloat8Common:
         self.broadcast_module(module)
         return module
 
-    def init_transformer(self, weight_tying: bool, dtype: Optional[torch.dtype] = None) -> nn.Module:
+    def init_transformer(
+        self, weight_tying: bool, dtype: Optional[torch.dtype] = None
+    ) -> nn.Module:
         torch.manual_seed(42)
         args = ModelArgs(
             n_layers=3,
@@ -86,15 +91,14 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
     @property
     def world_size(self) -> int:
         return min(torch.cuda.device_count(), 2)
-    
+
     @skip_if_lt_x_gpu(2)
     def test_float8_linear_parity(self):
         enable_fsdp_float8_all_gather = True
-        scaling_type_weight = ScalingType.DYNAMIC
+        scaling_type_weight = ScalingType.DELAYED
         compile_transformer_block = True
         dtype = torch.float32
-        backend = "inductor"
-        weight_tying = False
+        backend = "eager"
         torch.manual_seed(42)
         module = nn.Linear(768, 32, bias=False).cuda().to(dtype)
 
@@ -110,7 +114,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         if compile_transformer_block:
             ref_module = torch.compile(ref_module, dynamic=False, backend=backend)
         fully_shard(ref_module)
-        
+
         # fsdp module
         float8_linear_config2 = Float8LinearConfig(
             enable_fsdp_float8_all_gather=enable_fsdp_float8_all_gather,
@@ -121,18 +125,30 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
             config=float8_linear_config2,
         )
         fsdp_module = torch.compile(module, dynamic=False, backend=backend)
-        fully_shard(module)
+        fully_shard(fsdp_module)
         ref_optim = torch.optim.Adam(ref_module.parameters(), lr=1e-2)
         fsdp_optim = torch.optim.Adam(fsdp_module.parameters(), lr=1e-2)
         local_inp = torch.rand(16, 16, 768, device="cuda")
-        for iter_idx in range(10):
+        for iter_idx in range(1000):
             losses: List[torch.Tensor] = []
             for model, optim in ((ref_module, ref_optim), (fsdp_module, fsdp_optim)):
                 optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
                 losses.append(model(local_inp).sum())
                 losses[-1].backward()
+
+                config = float8_linear_config1 if model is ref_module else float8_linear_config2
+                if linear_requires_sync(config):
+                    sync_float8_amax_and_scale_history(model)
+                if linear_requires_sync(config):
+                    sync_float8_amax_and_scale_history(model)
+            assert torch.equal(
+                losses[0], losses[1]
+            ), f"loss mismatch before opt.step at {iter_idx=}, {losses[0]=}, {losses[1]=}"
+            for model, optim in ((ref_module, ref_optim), (fsdp_module, fsdp_optim)):
                 optim.step()
-            assert torch.equal(losses[0], losses[1]), f"loss mismatch at {iter_idx=}, {losses[0]=}, {losses[1]=}"
+            assert torch.equal(
+                losses[0], losses[1]
+            ), f"loss mismatch before opt.step at {iter_idx=}, {losses[0]=}, {losses[1]=}"
 
     @skip_if_lt_x_gpu(2)
     def test_transformer_parity(self):
