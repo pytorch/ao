@@ -186,30 +186,30 @@ if _lm_eval_available:
             )
 
         def _model_call(self, inps):
-            print("Entering _model_call")
-            print(f"Input shape: {inps.shape}")
+            # print("Entering _model_call")
+            # print(f"Input shape: {inps.shape}")
             
             input = self.input_prep_func(inps)
-            print(f"Processed input shapes: {[x.shape for x in input]}")
+            # print(f"Processed input shapes: {[x.shape for x in input]}")
             
             input = [x.to(self._device) for x in input]
-            print(f"Inputs moved to device: {self._device}")
+            # print(f"Inputs moved to device: {self._device}")
             
             max_seq_length = min(max(inps.size()), self.max_length)
-            print(f"Max sequence length: {max_seq_length}")
+            # print(f"Max sequence length: {max_seq_length}")
             
-            print("Setting up caches")
+            # print("Setting up caches")
             with torch.device(self._device):
-                print(f"Device: {self._device}")
-                print(f"Batch size: {self.batch_size}")
-                print(f"Max sequence length: {max_seq_length}")
+                # print(f"Device: {self._device}")
+                # print(f"Batch size: {self.batch_size}")
+                # print(f"Max sequence length: {max_seq_length}")
                 self._model.setup_caches(self.batch_size, max_seq_length)
-            print("Caches set up")
+            # print("Caches set up")
             
-            print("Running model")
-            torch.save(input, "input.pt")
+            # print("Running model")
+            # torch.save(input, "input.pt")
             logits = self._model(*input)
-            print(f"Model run complete. Logits shape: {logits.shape}")
+            # print(f"Model run complete. Logits shape: {logits.shape}")
             return logits
     
 
@@ -284,7 +284,7 @@ blocksize = 128
 percdamp = 0.01
 groupsize = 64
 calibration_tasks = ["wikitext"]
-calibration_limit = None
+calibration_limit = 5
 calibration_seq_length = 100
 input_prep_func = prepare_inputs_for_model
 pad_calibration_inputs = False
@@ -308,10 +308,7 @@ quantizer = Int4WeightOnlyGPTQQuantizer(
     )
     
 model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
-multi = [
-    MultiTensor([ inp for inp, _ in inputs]),
-    MultiTensor([ inds for _, inds in inputs])
-    ]
+multi = [MultiTensor([ inp for inp, _ in inputs]),MultiTensor([ inds for _, inds in inputs])]
 print("Quantizing model")
 model = quantizer.quantize(model, multi).cuda()
 print("Model quantized")

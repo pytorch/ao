@@ -100,7 +100,7 @@ class GenericGPTQRunner(fx.Interpreter):
         self.groupsize = groupsize
         self.inputs = inputs
         self.gptq_done = False
-        self.debug = False
+        self.debug = True
 
     def configure_quantization_mode(
         self,
@@ -305,7 +305,6 @@ class GenericGPTQRunner(fx.Interpreter):
                 old_q_out = self.call_function(
                     target, (args[0][:2], DQ2, *args[2:]), kwargs, already_quantized=True
                 )
-
                 print(
                     "SQNR for output without GPTQ (should be less than above)",
                     torch.cat(
