@@ -89,7 +89,7 @@ class MultiTensor(torch.Tensor):
     def unpad(self, count=1, force=False):
         count = min(count, self.count)
         if force or min([(self.values[0] == x).min() for x in self.values]):
-            self.values = [self.values[:count]]
+            self.values = self.values[:count]
             self.count = count
         else:
             return self     
@@ -163,7 +163,7 @@ class MultiTensor(torch.Tensor):
         def unpad(args, orig_counts, force=False):
             for arg, count in zip(args, orig_counts):
                 if isinstance(arg, MultiTensor) and arg.count > count:
-                    arg.unpad(force, count)
+                    arg.unpad(count, force)
 
         # The way MultiTensor handles various functions is as follows. Normally when you apply a function on a MultiTensor that has n Tensors inside, we want
         # the function handling here to run that function once for each of the MultiTensor inputs. We also want it to happen in the same way as if you ran the function
