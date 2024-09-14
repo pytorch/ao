@@ -1,6 +1,10 @@
+import os
 import torch
-from my_dtype_tensor_subclass import MyDTypeTensor, fill_defaults
+import torch.distributed as dist
+from torch.distributed import DeviceMesh
+from torch.distributed._tensor import DTensor, Replicate, Shard
 from torch.utils._python_dispatch import return_and_correct_aliasing
+from my_dtype_tensor_subclass import MyDTypeTensor, fill_defaults
 
 # a tensor subclass that supports tensor parallelism with DTensor
 class MyDTypeTensorTP(MyDTypeTensor):
@@ -79,14 +83,63 @@ def _(func, types, args, kwargs):
 
 
 class M(torch.nn.Module):
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self.linear = torch.nn.Linear(1024, 512, bias=False, device="cuda")
+    def __init__(self, in_features, out_features, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.linear = torch.nn.Linear(in_features, out_features, bias=False, device="cuda")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.linear(x)
 
 to_my_dtype_tp = MyDTypeTensorTP.from_float
+
+def quantize(m: torch.nn.Module) -> torch.nn.Module:
+    """
+    Quantize the model
+    """
+    m.linear.weight = torch.nn.Parameter(
+        to_my_dtype_tp(m.linear.weight), requires_grad=False
+    )
+    return m
+
+def colwise_shard(m: torch.nn.Module, mesh: DeviceMesh) -> torch.nn.Module:
+    """
+    Shard linear layer of the model in column-wise fashion
+    """
+    # Column-wise is wrt to A^T, so for A it is row-wise.
+    # Number of rows per rank
+    orig_weight = m.linear.weight
+    n_local_rows = orig_weight.size(0) // mesh.size()
+    rank = mesh.get_local_rank()
+    local_shard = orig_weight[rank * n_local_rows : (rank + 1) * n_local_rows, :]
+    # Construct DTensor from local shard
+    dtensor = DTensor.from_local(local_shard, mesh, [Shard(0)])
+    # Replace parameter in module
+    m.linear.weight = torch.nn.Parameter(
+        dtensor, requires_grad=False
+    )
+    return m
+
+def rowwise_shard(m: torch.nn.Module, mesh: DeviceMesh) -> torch.nn.Module:
+    """
+    Shard linear layer of the model in row-wise fashion
+    """
+    # Row-wise is wrt to A^T, so for A it is column-wise.
+    # Number of rows per rank
+    orig_weight = m.linear.weight
+    print("rowwise original:", orig_weight.shape)
+    n_local_cols = orig_weight.size(1) // mesh.size()
+    rank = mesh.get_local_rank()
+    print("rowwise n_local_cols:", n_local_cols)
+    local_shard = orig_weight[:, rank * n_local_cols : (rank + 1) * n_local_cols]
+    # BUG: `local_shard` has the same shape as the original tensor
+    print("rowwise local shard:", local_shard.shape)
+    # Construct DTensor from local shard
+    dtensor = DTensor.from_local(local_shard, mesh, [Shard(1)])
+    # Replace parameter in module
+    m.linear.weight = torch.nn.Parameter(
+        dtensor, requires_grad=False
+    )
+    return m
 
 ########
 # Test #
@@ -95,46 +148,38 @@ if __name__ == "__main__":
     # To make sure different ranks create the same module
     torch.manual_seed(5)
 
-    m = M()
+    # Original model
+    proj_up = M(1024, 2048)
+    proj_dn = M(2048, 1024)
     example_input = 100 * torch.randn(128, 1024, device="cuda")
-    m(example_input)
+    y = proj_dn(proj_up(example_input))
 
+    # Quantize the model
+    q_up = quantize(proj_up)
+    q_dn = quantize(proj_dn)
+    y_q = q_dn(q_up(example_input))
+    print("Quantization works!")
 
-    import os
-    from torch.distributed._tensor import DTensor, Replicate, Shard
-    import torch.distributed as dist
-
-    # initialize a fake process group
+    # Create a device mesh
     world_size = int(os.environ["WORLD_SIZE"])
     rank = int(os.environ["RANK"])
     dist.init_process_group(backend="nccl")
     mesh = dist.init_device_mesh("cuda", (world_size,))
 
-    # Shard this tensor over the mesh by sharding `big_tensor`'s 0th dimension over the 0th dimension of `mesh`.
-    orig_weight = m.linear.weight
-    quantized_weight = to_my_dtype_tp(orig_weight)
-    print("quantized weight:", quantized_weight)
-    # Number of rows per rank
-    n_local_rows = orig_weight.size(0) // world_size
-    # TODO: add support for aten.slice.Tensor
-    quantized_shard = quantized_weight[rank * n_local_rows : (rank + 1) * n_local_rows, :]
-    print("quantized shard:", quantized_shard)
-    # Construct DTensor from local shard
-    quantized_dtensor = DTensor.from_local(quantized_shard, mesh, [Shard(0)])
-    print("quantized dtensor:", quantized_dtensor)
-
-    # Replace parameter in module
-    m.linear.weight = torch.nn.Parameter(
-        quantized_dtensor, requires_grad=False
-    )
+    # Shard the models
+    d_up = colwise_shard(q_up, mesh)
+    d_dn = rowwise_shard(q_dn, mesh)
 
     # We need to turn inputs into DTensor form as well -- just a format change
     input_dtensor = DTensor.from_local(
         example_input, mesh, [Replicate()]
     )
-    print("input dtensor:", input_dtensor)
 
-    print("result:", m(input_dtensor))
+    y_colwise = d_up(input_dtensor)
+    print("y_colwise:", y_colwise.shape)
+    # doesn't work, see BUG in rowwise_shard()
+    # print("result:", d_dn(y_colwise))
+    # print("Distributed works!")
 
     # doesn't work
     # [rank0]: torch._dynamo.exc.TorchRuntimeError: Failed running call_function <built-in function linear>(*(DTensor(local_tensor=FakeTensor(..., device='cuda:0', size=(128, 1024)), device_mesh=DeviceMesh('cuda', [0, 1,
@@ -142,3 +187,6 @@ if __name__ == "__main__":
     # [rank0]: a and b must have same reduction dim, but got [128, 1024] X [128, 1024].
     # m = torch.compile(m)
     # print("compiled result:", m(input_dtensor))
+    # print("torch.compile works!")
+
+    dist.destroy_process_group()
