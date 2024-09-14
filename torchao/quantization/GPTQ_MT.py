@@ -86,10 +86,11 @@ class MultiTensor(torch.Tensor):
         return self
         
 
-    def unpad(self, force=False):
+    def unpad(self, count=1, force=False):
+        count = min(count, self.count)
         if force or min([(self.values[0] == x).min() for x in self.values]):
-            self.values = [self.values[0]]
-            self.count = 1
+            self.values = [self.values[:count]]
+            self.count = count
         else:
             return self     
 
@@ -159,10 +160,10 @@ class MultiTensor(torch.Tensor):
                         if func is not None and not isinstance(NON_IN_PLACE_OPS[func], bool):
                             print("THIS OP IS IN PLACE", func)
                             NON_IN_PLACE_OPS[func] = False
-        def unpad(args, force=False):
-            for arg in args:
-                if isinstance(arg, MultiTensor):
-                    arg.unpad(force)
+        def unpad(args, orig_counts, force=False):
+            for arg, count in zip(args, orig_counts):
+                if isinstance(arg, MultiTensor) and arg.count > count:
+                    arg.unpad(force, count)
 
         # The way MultiTensor handles various functions is as follows. Normally when you apply a function on a MultiTensor that has n Tensors inside, we want
         # the function handling here to run that function once for each of the MultiTensor inputs. We also want it to happen in the same way as if you ran the function
@@ -205,6 +206,8 @@ class MultiTensor(torch.Tensor):
         # combine args and kwargs into a single tuple
         # flat_args holds all the actual inputs, spec stores the original structure
         flat_args, spec = tree_flatten((args, kwargs))
+
+        orig_counts = [x.count if isinstance(x, MultiTensor) else 1 for x in flat_args]
         
         # if we're not doing an in place op, move singular tensors to cuda now
         if not is_in_place:
@@ -282,7 +285,6 @@ class MultiTensor(torch.Tensor):
                     old_out = cls.__torch_function__(func, types, (act, args[1].values[0], bias), kwargs, skip_gptq=True).values[0].cpu()
 
                     DQ_after = cls.dequantize_func(Q, all_qparams).to(W.dtype)
-
                     print(
                         "SQNR for QDQ (this should be inf)", SQNR(DQ, DQ_after)
                     )  # matches
@@ -307,13 +309,16 @@ class MultiTensor(torch.Tensor):
                         "SQNR for output without GPTQ (should be less than above)",
                         SQNR(old_out, old_q_out)
                     )
+                unpad(flat_args, orig_counts=orig_counts, force=True)
                 return out
             else:
                 # we padded each of the MultiTensors to match the largest multitensor so that if we had in place ops, we would be able
                 # to store the many changed value and have those updates be reflected in the model. However if there are no in place ops, then
                 # we just increased the size of all parameters/buffers by n times for no reason. To avoid issues, go back and unpad
-                # everything where possible. i.e. all the multi tensor values are the same.
-                unpad(flat_args, force=(not is_in_place))
+                # everything where possible. i.e. all the multi tensor values are the same. We already checked for mutations and 
+                # if we detected them, we updated NON_IN_PLACE_OPS to be False, so we can just check that see if we need
+                # to be careful during unpadding.
+                unpad(flat_args, orig_counts=orig_counts, force=(not isinstance(NON_IN_PLACE_OPS[func], bool)))
 
                 grouped_outputs = [tree_flatten(x)[0] for x in outputs]
                 out_spec = tree_flatten(outputs[0])[1]
@@ -624,7 +629,6 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
             filter_fn=lambda x, y: True
         )
         model.load_state_dict(state_dict, assign=True, strict=False)
-        print("in place ops found are", NON_IN_PLACE_OPS)
         return model
 
 # this should probably be a multitensor method that can be applied and we just traverse
