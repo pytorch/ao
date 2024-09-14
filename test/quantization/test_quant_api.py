@@ -360,7 +360,7 @@ class TestQuantFlow(TestCase):
         percdamp = 0.01
         groupsize = 64
         calibration_tasks = ["wikitext"]
-        calibration_limit = 5
+        calibration_limit = None
         calibration_seq_length = 100
         input_prep_func = prepare_inputs_for_model
         pad_calibration_inputs = False
@@ -393,7 +393,7 @@ class TestQuantFlow(TestCase):
             device,
         ).run_eval(
             ["wikitext"],
-            1,
+            None,
         )
         assert result['results']['wikitext']['word_perplexity,none'] < 7.77, (
             f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
