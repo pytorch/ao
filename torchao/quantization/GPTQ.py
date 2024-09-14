@@ -248,7 +248,7 @@ class GenericGPTQRunner(fx.Interpreter):
             mod_fqn = ".".join(self.id_to_name[id(args[1])].split(".")[:-1])
 
             W = args[1].to(H.device)
-            breakpoint()
+
             Q, DQ, qparams = self.faster_quant(H, W.detach())
             print(mod_fqn)
 
