@@ -30,7 +30,7 @@ default_device = 'cuda' if torch.cuda.is_available() else 'cpu'
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 
-from torchao._models.llama.model import Transformer, prepare_inputs_for_model, TransformerBlock
+from torchao._models.llama.model import Transformer, prepare_inputs_for_model
 from torchao._models.llama.tokenizer import get_tokenizer
 
 def multinomial_sample_one_no_sync(probs_sort): # Does multinomial sampling without a cuda synchronization
@@ -227,53 +227,7 @@ def main(
         if "marlin" in quantization:
             from torchao.dtypes import MarlinSparseLayoutType
             quantize_(model, int4_weight_only(layout_type=MarlinSparseLayoutType()))
-        if "autoround" in quantization:
-            from torchao.prototype.autoround.autoround_llm import quantize_model_with_autoround_
-            from transformers import AutoTokenizer
-
-            _tokenizer = AutoTokenizer.from_pretrained(checkpoint_path.parent)
-            # parse args from quantization string:
-            #   autoround-<model_device>-<quant_lm_head>-<iters>-<groupsize>-<batch_size>-<seqlen>-<nsamples>
-            #   A lightweight configuration for generation benchmarking.
-            _quant_args = quantization.split("-")
-            _default_quant_args = [True, 1, 128, 1, 512, 32]
-            _model_devie = _quant_args[1] if len(_quant_args) > 1 else device
-            _quant_args = _quant_args[2:]
-            quant_lm_head, iters, groupsize, batch_size, seqlen, nsamples = [
-                int(x) for x in _quant_args
-            ] + _default_quant_args[len(_quant_args) :]
-            model = model.to(_model_devie)
-            print(
-                (
-                    f"Quantizing model with autoround(iters={iters}, groupsize={groupsize}, "
-                    f"quant_lm_head={quant_lm_head}, batch_size={batch_size}, seqlen={seqlen}, nsamples={nsamples})"
-                )
-            )
-            with torch.device(_model_devie):
-                model.setup_caches(
-                    max_batch_size=batch_size, max_seq_length=seqlen, training=True
-                )
-
-            if quant_lm_head:
-                is_target_module = (
-                    lambda mod, fqn: isinstance(mod, TransformerBlock) or "output" in fqn
-                )
-            else:
-                is_target_module = lambda mod, fqn: isinstance(mod, TransformerBlock)
-            quantize_model_with_autoround_(
-                model=model,
-                tokenizer=_tokenizer,
-                is_target_module=is_target_module,
-                bits=4,
-                seqlen=seqlen,
-                bs=batch_size,
-                iters=iters,
-                nsamples=nsamples,
-            )
-            model.to(device)
-            model.reset_caches()
-        # TODO this needs to be expanded to all of fpx so they can 
-        if "fp6" in quantization: 
+        if "fp6" in quantization:
             quantize_(model, fpx_weight_only(3, 2))
         if "uintx" in quantization:
             # uintx-nbits-groupsize, e.g. "uintx-2-64"
@@ -461,8 +415,7 @@ if __name__ == '__main__':
     parser.add_argument('-q', '--quantization', type=str, 
         help=(
             'Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, '
-            +'autoquant-int4, autoround-<model_device>-<quant_lm_head>-<iters>-<groupsize>-<batch_size>-<seqlen>-<nsamples>, '
-            +'uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin'
+            +'autoquant-int4, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin'
         )
     )
     parser.add_argument('--kv_cache_quantization', action='store_true', help='Whether to quantize the KV cache')
