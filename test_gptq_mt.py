@@ -256,7 +256,7 @@ if _lm_eval_available:
 
             logger.info("Evaluation results:")
             for task, res in result["results"].items():
-                logger.info(f"{task}: {res}")
+                print(f"{task}: {res}")
             
             return result
 
@@ -332,7 +332,7 @@ model.load_state_dict(regular_state_dict, assign=True)
 torch.save(model.state_dict(), 'model.pth')
 print("Running evaluation")
 result = TransformerEvalWrapper(
-        model, #.to(device), # quantized model needs to run on cuda
+        model.to(device), # quantized model needs to run on cuda
         tokenizer,
         model.config.block_size,
         prepare_inputs_for_model,
