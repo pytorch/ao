@@ -102,9 +102,7 @@ COMMON_DEVICE_DTYPE = list(itertools.product(COMMON_DEVICES, COMMON_DTYPES)).cop
 def _int8wo_api(mod):
     if TORCH_VERSION_AT_LEAST_2_4:
         quantize_(mod, int8_weight_only(), set_inductor_config=False)
-        if (
-            not TORCH_VERSION_AT_LEAST_2_5
-        ) or torch._inductor.config.freezing:
+        if not TORCH_VERSION_AT_LEAST_2_5:
             unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int8_woqtensors(mod)
@@ -1041,10 +1039,7 @@ class TestSaveLoadMeta(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
-    def test_save_load_int8woqtensors(self, device, dtype):      
-        if TORCH_VERSION_AT_LEAST_2_5 and device == "cpu":
-            self.skipTest(f"Regression introduced in PT nightlies")
-
+    def test_save_load_int8woqtensors(self, device, dtype):
         undo_recommended_configs()
         self._test_handle_save_load_meta_impl(_int8wo_api, device, test_dtype=dtype)
 
