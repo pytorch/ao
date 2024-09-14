@@ -483,8 +483,8 @@ if __name__ == '__main__':
     parser.add_argument('--multi_gpus', action='store_true', help="Use multi-processing to run evaluation on multi-gpus")
     parser.add_argument('--gpu_list', type=str, default="", help="A list of gpus to run evaluation, separated by comma, e.g., --gpu_lists=0,1,2,3")
     parser.add_argument('--history_output', type=str, default="BO_acc_speed_output.csv", help="The csv file path to save the BO search trials")
-    parser.add_argument('--parameters_list', type=str, default="Llama3-8B_parameters.json", help="The json file path to save the parameters list for BO")
-    parser.add_argument('--initial_samples', type=str, default="Llama3-8B_initial_samples.json", help="The json file path to save the user-defined initial samples for BO")
+    parser.add_argument('--parameters_list', type=str, default="./parameter_json/Llama3-8B_parameters.json", help="The json file path to save the parameters list for BO")
+    parser.add_argument('--initial_samples', type=str, default="./initial_samples_json/Llama3-8B_initial_samples.json", help="The json file path to save the user-defined initial samples for BO")
 
     args = parser.parse_args()
     run_sequential_BO(device=args.device, checkpoint_path=args.checkpoint_path, repo_id=args.repo_id, num_PPL_eval_samples=args.num_PPL_eval_samples, num_trials=args.num_trials, ppl_constraint=args.ppl_constraint, args=args)

@@ -263,8 +263,8 @@ if __name__ == '__main__':
     parser.add_argument('--model_size_constraint', type=float, default=6.0, help='The model size (GB) constraint for BO')
     parser.add_argument('--gpu_list', type=str, default="", help="A list of gpus to run evaluation, separated by comma, e.g., --gpu_lists=0,1,2,3")
     parser.add_argument('--history_output', type=str, default="BO_acc_modelsize_output.csv", help="The csv file path to save the BO search trials")
-    parser.add_argument('--parameters_list', type=str, default="Llama3-8B_parameters.json", help="The json file path to save the parameters list for BO")
-    parser.add_argument('--initial_samples', type=str, default="Llama3-8B_initial_samples.json", help="The json file path to save the user-defined initial samples for BO")
+    parser.add_argument('--parameters_list', type=str, default="./parameter_json/Llama3-8B_parameters.json", help="The json file path to save the parameters list for BO")
+    parser.add_argument('--initial_samples', type=str, default="./initial_samples_json/Llama3-8B_initial_samples.json", help="The json file path to save the user-defined initial samples for BO")
 
     args = parser.parse_args()
 
