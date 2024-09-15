@@ -14,7 +14,7 @@ from torchao.float8.float8_linear_utils import (
 from torchao.float8.fsdp_utils import precompute_float8_dynamic_scale_for_fsdp
 
 
-def check_parity_no_mp(
+def check_parity_compile(
     test_cls,
     ref_model: nn.Module,
     ref_optim: torch.optim.Optimizer,
@@ -23,7 +23,51 @@ def check_parity_no_mp(
     local_inp: torch.Tensor,
     precompute: bool = False,
     config: Optional[Float8LinearConfig] = None,
-    compile_transformer_block: bool = False,
+):
+    ref_losses: List[torch.Tensor] = []
+    ref_param_sums: List[torch.Tensor] = []
+    ref_grad_sums: List[torch.Tensor] = []
+    for model, optim in ((ref_model, ref_optim), (fsdp_model, fsdp_optim)):
+        torch._dynamo.reset()
+        seed = 0
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+        for iter_idx in range(1000):
+            optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
+            loss = model(local_inp).sum()
+            loss.backward()
+
+            if linear_requires_sync(config):
+                sync_float8_amax_and_scale_history(model)
+            
+            param_sum = torch.stack([param.sum() for param in model.parameters()]).sum()
+            grad_sum = torch.stack([param.grad.sum() for param in model.parameters()]).sum()
+            if model is ref_model:
+                ref_losses.append(loss)
+                ref_param_sums.append(param_sum)
+                ref_grad_sums.append(grad_sum)
+            else:
+                assert torch.equal(loss, ref_losses[iter_idx]), f"loss different at {iter_idx}: {loss} vs {ref_losses[iter_idx]}"
+                assert torch.equal(param_sum, ref_param_sums[iter_idx]), f"param_sum different at {iter_idx}: {param_sum} vs {ref_param_sums[iter_idx]}"
+                assert torch.equal(grad_sum, ref_grad_sums[iter_idx]), f"grad_sum different at {iter_idx}: {grad_sum} vs {ref_grad_sums[iter_idx]}"
+            optim.step()
+            if (
+                model is fsdp_model
+                and precompute
+                and config.cast_config_weight.scaling_type is ScalingType.DYNAMIC
+            ):
+                precompute_float8_dynamic_scale_for_fsdp(model)
+
+
+def check_parity_eager_ddp_no_mp(
+    test_cls,
+    ref_model: nn.Module,
+    ref_optim: torch.optim.Optimizer,
+    fsdp_model: nn.Module,
+    fsdp_optim: torch.optim.Optimizer,
+    local_inp: torch.Tensor,
+    precompute: bool = False,
+    config: Optional[Float8LinearConfig] = None,
 ):
     # TODO(before land): reorder args and make config not optional
     for iter_idx in range(10):
@@ -48,13 +92,10 @@ def check_parity_no_mp(
             ):
                 precompute_float8_dynamic_scale_for_fsdp(model)
 
-        if compile_transformer_block:
-            test_cls.assertEqual(losses[0], losses[1], atol=1e-4, rtol=1e-4)
-        else:
-            test_cls.assertEqual(losses[0], losses[1])
+        assert torch.equal(losses[0], losses[1]), f"loss different at {iter_idx}: {losses[0]} vs {losses[1]}"
 
 
-def check_parity_bf16_mp(
+def check_parity_eager_ddp_bf16_mp(
     test_cls,
     ref_model: nn.Module,
     ref_model_bf16: nn.Module,
