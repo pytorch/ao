@@ -317,7 +317,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
             # fully_shard(transformer_block)
             # ref_module.layers.register_module(layer_id, transformer_block)
         ref_module = torch.compile(ref_module, dynamic=False, backend=backend)
-        # fully_shard(ref_module)
+        fully_shard(ref_module)
         float8_linear_config2 = Float8LinearConfig(
             enable_fsdp_float8_all_gather=enable_fsdp_float8_all_gather,
             cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
@@ -332,7 +332,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
             # fully_shard(transformer_block)
             # module.layers.register_module(layer_id, transformer_block)
         module = torch.compile(module, dynamic=False, backend=backend)
-        # fully_shard(module)
+        fully_shard(module)
         ref_optim = torch.optim.Adam(ref_module.parameters(), lr=1e-2, foreach=False)
         optim = torch.optim.Adam(module.parameters(), lr=1e-2, foreach=False)
         # local_inp = torch.rand(16, 16, 768, device="cuda", dtype=dtype)
@@ -340,7 +340,6 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
             0, ref_module.tok_embeddings.weight.size(0), (16, 16), device="cuda"
         )
         if compile_transformer_block:
-            # torch.distributed.breakpoint()
             check_parity_compile(
                 self,
                 ref_module,
