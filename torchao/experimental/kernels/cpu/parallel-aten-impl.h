@@ -5,9 +5,9 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
+#include <Aten/Parallel.h>
 #include <torch/library.h>
 #include <torch/torch.h>
-#include <Aten/Parallel.h>
 
 // F has signature [&](int64_t idx)
 template <typename F>
@@ -19,10 +19,10 @@ void torchao::parallel_1d(const int64_t begin, const int64_t end, const F& f) {
   });
 }
 
-void torchao::set_num_threads(int num_threads) {
+inline void torchao::set_num_threads(int num_threads) {
   torch::set_num_threads(num_threads);
 }
 
-int torchao::get_num_threads() {
+inline int torchao::get_num_threads() {
   return torch::get_num_threads();
 }

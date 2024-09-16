@@ -5,15 +5,17 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
+#include <stdint.h>
 #include <torchao/experimental/kernels/cpu/macro.h>
 #include <torchao/experimental/kernels/cpu/parallel.h>
+#include <algorithm>
 #include <cassert>
 #include <cstdlib>
 
 namespace torchao::operators::cpu::linear::
     channelwise_8bit_activation_groupwise_lowbit_weight {
 
-PackWeightDataTilingParams get_default_pack_weight_data_tiling_params(
+inline PackWeightDataTilingParams get_default_pack_weight_data_tiling_params(
     const UKernelConfig& ukernel_config,
     int n,
     int target_panels_per_thread) {
@@ -38,7 +40,7 @@ PackWeightDataTilingParams get_default_pack_weight_data_tiling_params(
   return tiling_params;
 }
 
-void pack_weight_data_operator(
+inline void pack_weight_data_operator(
     const UKernelConfig& ukernel_config,
     const PackWeightDataTilingParams& tiling_params,
     // Outputs
@@ -79,7 +81,7 @@ void pack_weight_data_operator(
 }
 
 // This default mimics XNNPACK behavior if target_tiles_per_thread = 5
-LinearTilingParams get_default_linear_tiling_params(
+inline LinearTilingParams get_default_linear_tiling_params(
     const UKernelConfig& ukernel_config,
     int m,
     int n,
@@ -137,12 +139,12 @@ get_activation_data_buffer_size_with_tile_schedule_policy_parallel_mc_parallel_n
   return ukernel_config.activation_data_size_fn(m, k, group_size);
 }
 
-void linear_operator_with_tile_schedule_policy_single_mc_parallel_nc(
+inline void linear_operator_with_tile_schedule_policy_single_mc_parallel_nc(
     const UKernelConfig& ukernel_config,
     const LinearTilingParams& tiling_params,
     char* activation_data_buffer,
     // Outputs
-    float32_t* output,
+    float* output,
     // Inputs
     int m,
     int n,
@@ -199,12 +201,12 @@ void linear_operator_with_tile_schedule_policy_single_mc_parallel_nc(
   }
 }
 
-void linear_operator_with_tile_schedule_policy_parallel_mc_parallel_nc(
+inline void linear_operator_with_tile_schedule_policy_parallel_mc_parallel_nc(
     const UKernelConfig& ukernel_config,
     const LinearTilingParams& tiling_params,
     char* activation_data_buffer,
     // Outputs
-    float32_t* output,
+    float* output,
     // Inputs
     int m,
     int n,
@@ -271,7 +273,7 @@ void linear_operator_with_tile_schedule_policy_parallel_mc_parallel_nc(
 }
 } // namespace internal
 
-void linear_operator(
+inline void linear_operator(
     const UKernelConfig& ukernel_config,
     const LinearTilingParams& tiling_params,
     LinearTileSchedulingPolicy scheduling_policy,
@@ -363,7 +365,7 @@ namespace torchao::operators::cpu::linear::
     channelwise_8bit_activation_groupwise_lowbit_weight {
 template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
 
-UKernelConfig get_ukernel_config() {
+inline UKernelConfig get_ukernel_config() {
   UKernelConfig config;
 
   namespace ukernel = torchao::kernels::cpu::aarch64::linear::
