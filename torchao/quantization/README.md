@@ -97,7 +97,7 @@ change_linear_weights_to_int4_woqtensors(model)
 
 Note: The quantization error incurred by applying int4 quantization to your model can be fairly significant, so using external techniques like GPTQ may be necessary to obtain a usable model.
 
-#### A16W8 WeightOnly Quantization
+#### A16W8 Int8 WeightOnly Quantization
 
 ```python
 # for torch 2.4+
@@ -109,7 +109,7 @@ from torchao.quantization.quant_api import change_linear_weights_to_int8_woqtens
 change_linear_weights_to_int8_woqtensors(model)
 ```
 
-#### A8W8 Dynamic Quantization
+#### A8W8 Int8 Dynamic Quantization
 
 ```python
 # for torch 2.4+
@@ -119,6 +119,22 @@ quantize_(model, int8_dynamic_activation_int8_weight())
 # for torch 2.2.2 and 2.3
 from torchao.quantization.quant_api import change_linear_weights_to_int8_dqtensors
 change_linear_weights_to_int8_dqtensors(model)
+```
+
+#### A16W8 Float8 WeightOnly Quantization
+
+```python
+# for torch 2.5+
+from torchao.quantization import quantize_, float8_weight_only
+quantize_(model, float8_weight_only())
+```
+
+#### A16W8 Float8 Dynamic Quantization with Rowwise Scaling
+
+```python
+# for torch 2.5+
+from torchao.quantization.quant_api import quantize_, PerRow, float8_dynamic_activation_float8_weight
+quantize_(model, float8_dynamic_activation_float8_weight(granularity=PerRow()))
 ```
 
 #### A16W6 Floating Point WeightOnly Quantization
