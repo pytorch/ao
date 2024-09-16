@@ -263,7 +263,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         self.run_subtests(
             {
                 "enable_fsdp_float8_all_gather": [True],
-                "precompute": [False],
+                "precompute": [False, True],
                 "scaling_type_weight": [
                     ScalingType.DYNAMIC,
                     # ScalingType.DELAYED,
@@ -338,36 +338,9 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         fsdp_module = torch.compile(fsdp_module, dynamic=False, backend=backend)
         fully_shard(fsdp_module)
         fsdp_optim = torch.optim.Adam(fsdp_module.parameters(), lr=1e-2, foreach=False)
-        # local_inp = torch.randint(
-        #     0, ref_module.tok_embeddings.weight.size(0), (16, 16), device="cuda"
-        # )
-
         losses, param_sums, grad_sums = run_training_loop(
-            self, fsdp_module, fsdp_optim, local_inp, steps, float8_linear_config2)
+            self, fsdp_module, fsdp_optim, local_inp, steps, float8_linear_config2, precompute)
         compare_numerics(self, losses, param_sums, grad_sums, ref_losses, ref_param_sums, ref_grad_sums)
-
-        # if compile_transformer_block:
-        #     check_parity_compile(
-        #         self,
-        #         ref_module,
-        #         ref_optim,
-        #         module,
-        #         optim,
-        #         local_inp,
-        #         precompute,
-        #         config=float8_linear_config2,
-        #     )
-        # else:
-        #     check_parity_eager_ddp_no_mp(
-        #         self,
-        #         ref_module,
-        #         ref_optim,
-        #         module,
-        #         optim,
-        #         local_inp,
-        #         precompute,
-        #         config=float8_linear_config2,
-        #     )
         
 
     @skip_if_lt_x_gpu(2)
