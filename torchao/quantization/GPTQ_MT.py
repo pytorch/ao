@@ -79,7 +79,7 @@ class MultiTensor(torch.Tensor):
                     # we want z to become a multi tensor of size 3. Thus we pad the MultiTensor to the correct
                     # size by adding new tensor instances (and not just instances of the pointers to the same original tensor..
                     # otherwise changes to one would change all of them)
-                    self.add_tensors(self.values[-1].detach())
+                    self.add_tensors(self.values[-1].clone())
             else:
                 # for non in place ops, no need to bloat memory, can just pad with same tensor instance
                 return self.__class__(self.values).add_tensors([self.values[-1]]*(length-self.count))
@@ -151,15 +151,15 @@ class MultiTensor(torch.Tensor):
                 else:
                     new_args.append(x.cuda() if isinstance(x, torch.Tensor) and not isinstance(x, MultiTensor) else x)
             return new_args
-        def copy_new_values(orig_inp, new_inp, func=None):
+        def maybe_copy_new_values(orig_inp, new_inp):
+            detected_difference = False
             for x, new_x in zip(orig_inp, new_inp):
                 if isinstance(x, torch.Tensor):
                     new_x = new_x.to(x.device)
                     if (x != new_x).max():
                         x.copy_(new_x)
-                        if func is not None and not isinstance(NON_IN_PLACE_OPS[func], bool):
-                            print("THIS OP IS IN PLACE", func)
-                            NON_IN_PLACE_OPS[func] = False
+                        detected_difference = True
+            return detected_difference
         def unpad(args, orig_counts, force=False):
             for arg, count in zip(args, orig_counts):
                 if isinstance(arg, MultiTensor) and arg.count > count:
@@ -187,6 +187,7 @@ class MultiTensor(torch.Tensor):
         # we have a dict that contains all the funcs we see NON_IN_PLACE_OPS, we initially treat ops as in place and see if any of the inputs got modified if they do then it gets
         # set to always be handled as an in place op. If nothing changes then once we've seen the op enough times that we're confident its not an in place op (cls.in_place_threshold)
         # then we can do the fast thing.
+    
 
         quantize_linear = (
             not skip_gptq
@@ -252,9 +253,14 @@ class MultiTensor(torch.Tensor):
                     outputs.append(out.cpu() if isinstance(out, torch.Tensor) else out)
 
                     # if we're doing an in place op, here is where we copy modifications
-                    # back to the original tensors
+                    # back to the original tensors, if we saw any differences, immediately 
+                    # categortize func as in place, otherwise we can treat as not in
+                    # place (especially for the upcoming unpad step)
                     if is_in_place:
-                        copy_new_values(inp, cuda_inp, func)
+                        detected_difference = maybe_copy_new_values(inp, cuda_inp)
+                        if detected_difference and not isinstance(NON_IN_PLACE_OPS[func], bool):
+                            print("THIS OP IS IN PLACE", func)
+                            NON_IN_PLACE_OPS[func] = False
 
             if quantize_linear:
                 # turn weight MultiTensor into single cuda tensor
@@ -305,6 +311,7 @@ class MultiTensor(torch.Tensor):
                     Q2 = cls.quantize_func(W, qparams2)
                     DQ2 = cls.dequantize_func(Q2, qparams2).to(W.dtype)
                     old_q_out = cls.__torch_function__(func, types, (act, DQ2, bias), kwargs, skip_gptq=True).values[0].cpu()
+                    
                     print(
                         "SQNR for output without GPTQ (should be less than above)",
                         SQNR(old_out, old_q_out)
