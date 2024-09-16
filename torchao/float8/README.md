@@ -11,6 +11,8 @@ throughput speedups of up to 1.5x on 128 GPU LLaMa 3 70B pretraining jobs.
 
 :warning: <em>The codebase is stable, but backwards compatibility is not yet guaranteed.</em>
 
+:warning: <em>These APIs are training-only and float8-only, and we plan to [unify them with the rest of torchao](https://github.com/pytorch/ao/issues/894) in the future.</em>
+
 # Single GPU User API
 
 We provide three per-tensor scaling strategies: dynamic, delayed and static.  See https://arxiv.org/pdf/2209.05433.pdf, Section 4.3 for more details. These strategies are configurable separately for activations (`input`), weights (`weight`) and gradients (`grad_output`).
