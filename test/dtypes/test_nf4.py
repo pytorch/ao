@@ -271,10 +271,11 @@ class TestNF4Linear(TestCase):
 
         torch.testing.assert_close(nf4_patched.quantized_data, nf4_base.quantized_data)
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @parametrize("input_size", [(512 * 512,), (512, 512)])
     def test_empty_like(self, input_size: Union[Tuple[int], int]):
-        nf4_tensor = to_nf4(torch.rand(input_size))
-        new_tensor = torch.empty_like(nf4_tensor, device=torch.device("cpu"))
+        nf4_tensor = to_nf4(torch.rand(input_size, device="cuda"))
+        new_tensor = torch.empty_like(nf4_tensor, device="cpu")
         self.assertTrue(isinstance(new_tensor, NF4Tensor))
         self.assertEqual(new_tensor.get_device(), -1)  # that it's on CPU
         self.assertEqual(new_tensor.size(), nf4_tensor.size())
