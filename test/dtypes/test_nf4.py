@@ -270,7 +270,7 @@ class TestNF4Linear(TestCase):
         nf4_base = to_nf4(a, 16, 2)
 
         torch.testing.assert_close(nf4_patched.quantized_data, nf4_base.quantized_data)
-    
+
     @parametrize("input_size", [(512 * 512,), (512, 512)])
     def test_empty_like(self, input_size: Union[Tuple[int], int]):
         nf4_tensor = to_nf4(torch.rand(input_size))
