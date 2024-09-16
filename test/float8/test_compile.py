@@ -40,14 +40,25 @@ def _test_compile_base(
     fullgraph: bool,
     config: Float8LinearConfig,
     dtype: torch.dtype,
+    pad_dimensions: bool,
 ):
     random.seed(0)
     torch.manual_seed(0)
-    x_shape = (16, 16)
+
+    if pad_dimensions:
+        x_shape = (17, 17)
+    else:
+        x_shape = (16, 16)
+
     linear_dtype = torch.bfloat16
 
     x = torch.randn(*x_shape, device="cuda", dtype=linear_dtype)
-    m_ref = nn.Linear(16, 32, bias=True, device="cuda", dtype=linear_dtype)
+
+    if pad_dimensions:
+        m_ref = nn.Linear(17, 35, bias=True, device="cuda", dtype=linear_dtype)
+    else:
+        m_ref = nn.Linear(16, 16, bias=True, device="cuda", dtype=linear_dtype)
+
 
     m_fp8 = Float8Linear.from_float(
         copy.deepcopy(m_ref),
@@ -71,6 +82,7 @@ def _get_config(
     scaling_type_weight, 
     scaling_type_grad_output, 
     emulate,
+    pad_dimensions,
 ):
     if scaling_type_input is ScalingType.STATIC:
         cast_config_input = CastConfig(
@@ -99,11 +111,13 @@ def _get_config(
         cast_config_weight=cast_config_weight,
         cast_config_grad_output=cast_config_grad_output,
         emulate=emulate,
+        pad_dimensions=pad_dimensions,
     )
     return config
 
 
 @pytest.mark.parametrize("fullgraph", [True])
+@pytest.mark.parametrize("emulate", [False, True] if is_cuda_8_9 else [True])
 @pytest.mark.parametrize(
     "scaling_type_input", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
@@ -113,7 +127,9 @@ def _get_config(
 @pytest.mark.parametrize(
     "scaling_type_grad_output", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
-@pytest.mark.parametrize("emulate", [False, True] if is_cuda_8_9 else [True])
+@pytest.mark.parametrize(
+    "pad_dimensions", [False, True]
+)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
 @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
 def test_eager_only(
@@ -122,17 +138,19 @@ def test_eager_only(
     scaling_type_input: ScalingType,
     scaling_type_weight: ScalingType,
     scaling_type_grad_output: ScalingType,
+    pad_dimensions: bool,
     dtype: torch.dtype,
 ):
     torch._dynamo.reset()
     config = _get_config(
-        scaling_type_input, scaling_type_weight, scaling_type_grad_output, emulate,
+        scaling_type_input, scaling_type_weight, scaling_type_grad_output, emulate, pad_dimensions,
     )
     _test_compile_base(
         "eager",
         fullgraph,
         config,
         dtype,
+        pad_dimensions,
     )
 
 
@@ -146,6 +164,9 @@ def test_eager_only(
 )
 @pytest.mark.parametrize(
     "scaling_type_grad_output", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
+)
+@pytest.mark.parametrize(
+    "pad_dimensions", [False, True]
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
 @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
@@ -155,17 +176,19 @@ def test_aot_eager(
     scaling_type_input: ScalingType,
     scaling_type_weight: ScalingType,
     scaling_type_grad_output: ScalingType,
+    pad_dimensions: bool,
     dtype: torch.dtype,
 ):
     torch._dynamo.reset()
     config = _get_config(
-        scaling_type_input, scaling_type_weight, scaling_type_grad_output, emulate,
+        scaling_type_input, scaling_type_weight, scaling_type_grad_output, emulate, pad_dimensions,
     )
     _test_compile_base(
         "aot_eager",
         fullgraph,
         config,
         dtype,
+        pad_dimensions,
     )
 
 
@@ -180,6 +203,9 @@ def test_aot_eager(
 @pytest.mark.parametrize(
     "scaling_type_grad_output", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
+@pytest.mark.parametrize(
+    "pad_dimensions", [True, False]
+)
 @unittest.skipIf(not torch.cuda.is_available() or not is_cuda_8_9, "CUDA with float8 support not available")
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
 def test_inductor(
@@ -188,17 +214,19 @@ def test_inductor(
     scaling_type_input: ScalingType,
     scaling_type_weight: ScalingType,
     scaling_type_grad_output: ScalingType,
+    pad_dimensions: bool,
     dtype: torch.dtype,
 ):
     torch._dynamo.reset()
     config = _get_config(
-        scaling_type_input, scaling_type_weight, scaling_type_grad_output, emulate,
+        scaling_type_input, scaling_type_weight, scaling_type_grad_output, emulate, pad_dimensions,
     )
     _test_compile_base(
         "inductor",
         fullgraph,
         config,
         dtype,
+        pad_dimensions,
     )
 
 

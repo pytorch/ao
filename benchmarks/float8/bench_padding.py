@@ -50,10 +50,10 @@ def do_fp8_matmul(A, B, fp8_dtype, out_dtype):
     scale_b = torch.tensor([1], device="cuda", dtype=torch.float32)
 
     a_config = ScaledMMConfig(
-        emulate=False, use_fast_accum=True, fp8_output=True, pad_inner_dim=True
+        emulate=False, use_fast_accum=True, fp8_output=True, pad_dimensions=True
     )
     b_config = ScaledMMConfig(
-        emulate=False, use_fast_accum=True, fp8_output=True, pad_inner_dim=True
+        emulate=False, use_fast_accum=True, fp8_output=True, pad_dimensions=True
     )
     a_config = LinearMMConfig(a_config, a_config, a_config)
     b_config = LinearMMConfig(b_config, b_config, b_config)

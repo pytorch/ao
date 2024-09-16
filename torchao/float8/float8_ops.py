@@ -134,6 +134,8 @@ def preprocess_addmm(a: Float8Tensor, b: Float8Tensor):
     a_scale = a._scale
     b_data = b._data
 
+    out_shape = (a._data.size(0), b._data.size(1))
+
     scaled_mm_config = choose_scaled_mm_config(
         a._gemm_input_role,
         a._linear_mm_config,
@@ -141,20 +143,25 @@ def preprocess_addmm(a: Float8Tensor, b: Float8Tensor):
         b._linear_mm_config,
     )
 
-    if scaled_mm_config.pad_inner_dim:
+    if scaled_mm_config.pad_dimensions:
         assert a._data.size(1) == b._data.size(
             0
         ), f"Inner dims must match for mm, got {a._data.size(1)} and {b._data.size(0)}"
         a_data = pad_tensor_for_matmul(a_data, dims=1)
-        b_data = pad_tensor_for_matmul(b_data, dims=0)
+        b_data = pad_tensor_for_matmul(b_data, dims=[0,1])
 
     if not is_row_major(a_data.stride()):
         a_data = a_data.contiguous()
     if is_row_major(b_data.stride()):
         b_data = b_data.t().contiguous().t()
     b_scale = b._scale
-    return a_data, a_scale, b_data, b_scale
 
+    return a_data, a_scale, b_data, b_scale, out_shape
+
+def postprocess_addmm(out: torch.Tensor, scaled_mm_config, out_shape):
+    if scaled_mm_config.pad_dimensions:
+        out = out[:, :out_shape[1]]
+    return out
 
 @implements([aten.mm.default, aten.matmul.default])
 def float8_mm(aten_op, args, kwargs=None):
@@ -166,7 +173,7 @@ def float8_mm(aten_op, args, kwargs=None):
     ), "Expecting  both Float8Tensor for mm inputs but found {} and {}".format(
         type(a), type(b)
     )
-    a_data, a_scale, b_data, b_scale = preprocess_addmm(a, b)
+    a_data, a_scale, b_data, b_scale, out_shape = preprocess_addmm(a, b)
     output_dtype = a._orig_dtype
     scaled_mm_config = choose_scaled_mm_config(
         a._gemm_input_role,
@@ -188,6 +195,7 @@ def float8_mm(aten_op, args, kwargs=None):
         bias=None,
         use_fast_accum=scaled_mm_config.use_fast_accum,
     )
+    tensor_out = postprocess_addmm(out=tensor_out, scaled_mm_config=scaled_mm_config, out_shape=out_shape)
     return tensor_out
 
 
@@ -201,7 +209,7 @@ def float8_addmm(aten_op, args, kwargs=None):
     bias = args[0]
     a = args[1]
     b = args[2]
-    a_data, a_scale, b_data, b_scale = preprocess_addmm(a, b)
+    a_data, a_scale, b_data, b_scale, out_shape = preprocess_addmm(a, b)
     output_dtype = a._orig_dtype
     assert bias.dtype == output_dtype, "bias dtype must match output dtype"
     scaled_mm_config = choose_scaled_mm_config(
@@ -225,6 +233,7 @@ def float8_addmm(aten_op, args, kwargs=None):
         bias=bias,
         use_fast_accum=scaled_mm_config.use_fast_accum,
     )
+    tensor_out = postprocess_addmm(out=tensor_out, scaled_mm_config=scaled_mm_config, out_shape=out_shape)
     return tensor_out
 
 

@@ -22,13 +22,13 @@ class Float8MMConfig(NamedTuple):
     Attributes:
         emulate (bool): Whether to emulate the matmuls in fp32.
         use_fast_accum (bool): Whether to use the fast-accumulation option for scaled_mm.
-        pad_inner_dim (bool): Whether to pad the inner dimension of a and b with 0s.
+        pad_dimensions (bool): Whether to pad the inner dimension of a and b with 0s.
                               This is needed for matmuls not aligned to 16.
     """
 
     emulate: bool = False
     use_fast_accum: bool = False
-    pad_inner_dim: bool = False
+    pad_dimensions: bool = False
 
 
 def preprocess_data(
@@ -44,7 +44,7 @@ def preprocess_data(
     Returns:
         Preprocessed tensors A and B in the format for _scaled_mm.
     """
-    if scaled_mm_config.pad_inner_dim:
+    if scaled_mm_config.pad_dimensions:
         assert a_data.size(1) == b_data.size(
             0
         ), f"Inner dims must match for mm, got {a_data.size(1)} and {b_data.size(0)}"

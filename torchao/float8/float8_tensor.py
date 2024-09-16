@@ -53,14 +53,14 @@ class ScaledMMConfig(NamedTuple):
         emulate (bool): Whether to emulate the matmuls in fp32.
         use_fast_accum (bool): Whether to use the fast-accumulation option for scaled_mm.
         fp8_output (bool): Whether to output the result of the scaled_mm in fp8.
-        pad_inner_dim (bool): Whether to pad the inner dimension of a and b with 0s.
+        pad_dimensions (bool): Whether to pad the inner dimension of a and b with 0s.
                               This is needed for matmuls not aligned to 16.
     """
 
     emulate: bool = False
     use_fast_accum: bool = False
     fp8_output: bool = False
-    pad_inner_dim: bool = False
+    pad_dimensions: bool = False
 
 
 class LinearMMConfig(NamedTuple):
