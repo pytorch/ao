@@ -78,8 +78,9 @@ def profiler_output_to_filtered_time_by_kernel_name(
             assert e.count == num_iter, f'unexpected number of iter for {e.key}'
             continue
         elif e.key == 'aten::copy_':
-            # copying 1.0 from grad_out of `sum` to grad_out of next op
-            assert e.count == num_iter, f'unexpected number of iter for {e.key}'
+            # num_iter: copying 1.0 from grad_out of `sum` to grad_out of next op
+            # num_iter * 3: additional copies if activation checkpointing is on
+            assert e.count in (num_iter, num_iter * 3), f'unexpected number of iter for {e.key}'
             continue
         elif e.key == 'aten::add_':
             # accumulating gradients into leaf tensors
