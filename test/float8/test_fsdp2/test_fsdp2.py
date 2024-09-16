@@ -217,7 +217,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         steps = 1000
         scaling_type_weight = ScalingType.DYNAMIC
         compile_transformer_block = True
-        dtype = torch.float32
+        dtype = torch.bfloat16
         backend = "inductor"
         torch.manual_seed(42)
         module = nn.Linear(768, 32, bias=False).cuda().to(dtype)
@@ -269,7 +269,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
                     # ScalingType.DELAYED,
                 ],
                 "compile_transformer_block": [True],
-                "dtype": [torch.float32],
+                "dtype": [torch.float32, torch.bfloat16],
                 "backend": [
                     # "aot_eager", 
                     "inductor",
