@@ -1179,7 +1179,7 @@ def _linear_int8_act_int8_weight_block_sparse_impl(input_tensor, weight_tensor, 
     w_vals = weight_tensor.layout_tensor
     w_scales = weight_tensor.layout_tensor.scale
     tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
-    tmp_t = tmp.t().contiguous()
+    tmp_t = tmp.t()
 
     # # Need to put this into custom op
     # weight_bsr = torch.sparse_bsr_tensor(w_vals.crow_indices(),
@@ -1197,21 +1197,15 @@ def _linear_int8_act_int8_weight_block_sparse_impl(input_tensor, weight_tensor, 
     # input = torch.zeros(M, N, dtype=torch.int32, device=dense.device)
     # y = _int_bsr_dense_addmm(input, weight_bsr, tmp_t).t().contiguous()
 
-    y = torch.ops.blocksparse.int_mm(w_vals.crow_indices(),
-                                          w_vals.col_indices(),
-                                          w_vals.values(),
-                                          w_vals.shape[0],
-                                          w_vals.shape[1],
-                                          tmp_t)
 
-    # breakpoint()
-
-
-    y = x_scales.reshape(-1, 1) * y
-
-    y = (y * w_scales).reshape(
-        *x_vals_int8.shape[:-1], y.shape[-1]
-    )
+    y = torch.ops.blocksparse.int_addmm(w_vals.crow_indices(),
+                                        w_vals.col_indices(),
+                                        w_vals.values(),
+                                        tmp_t,
+                                        w_scales,
+                                        x_scales.reshape(-1))
+    y_shape = (*x_vals_int8.shape[:-1], w_scales.shape[-1])
+    y = y.reshape(*y_shape)
 
     # can downcast only at the very end
     output_dtype = input_tensor.dtype

@@ -13,6 +13,7 @@ import torch.utils.data
 import utils
 from torch import nn
 from torch.sparse._triton_ops_meta import optimize_bsr_dense_addmm
+from torch.sparse._triton_ops_meta import dump as store_tuned_kernel_params
 from torchao.sparsity.prototype.superblock.utils import accelerate_with_sparsity, simulate_sparsity
 from torchao.utils import benchmark_model, profiler_runner
 
@@ -34,15 +35,30 @@ def main(args):
     # BSR kernel tuning
     if args.bsr and args.tune_kernel_params:
         print("Tuning kernel params")
+        kwargs = dict(
+            dtype=torch.int8 if args.quantization else dtype,
+            sparsity=args.sparsity_linear, verbose=True,
+            # per blocksparse_int_addmm:
+            alpha=1, beta=0, use_left_alpha=True, use_right_alpha=True,
+            # force tuning because existing tuning parameters are
+            # computed for use_left/right_alpha=False, however, it
+            # turns out that re-tuning for use_left/right_alpha=False
+            # leads to the same set of tuning parametes:
+            # force=True
+        )
         if args.model == "vit_b_16":
-            optimize_bsr_dense_addmm(3072, 768, 50432, args.bsr, args.bsr, dtype=dtype, sparsity=args.sparsity_linear, verbose=True)
-            optimize_bsr_dense_addmm(768, 3072, 50432, args.bsr, args.bsr, dtype=dtype, sparsity=args.sparsity_linear, verbose=True)
+            optimize_bsr_dense_addmm(3072, 768, 50432, args.bsr, args.bsr, **kwargs)
+            optimize_bsr_dense_addmm(768, 3072, 50432, args.bsr, args.bsr, **kwargs)
         elif args.model == "vit_h_14":
-            optimize_bsr_dense_addmm(5120, 1280, 65792, args.bsr, args.bsr, dtype=dtype, sparsity=args.sparsity_linear, verbose=True)
-            optimize_bsr_dense_addmm(1280, 5120, 65792, args.bsr, args.bsr, dtype=dtype, sparsity=args.sparsity_linear, verbose=True)
+            optimize_bsr_dense_addmm(5120, 1280, 65792, args.bsr, args.bsr, **kwargs)
+            optimize_bsr_dense_addmm(1280, 5120, 65792, args.bsr, args.bsr, **kwargs)
         else:
             raise NotImplementedError("Tuning kernel params for this model is not supported yet.")
-
+        # Warning: the following call will overwrite the source code
+        # of torch.sparse._triton_ops_meta (hence it is commented out
+        # by default) but when used, it'll enables reusing the tuned
+        # parameters in subsequent runs of this script:
+        # store_tuned_kernel_params()
     print("Creating model")
     model = torchvision.models.get_model(args.model, weights=args.weights, num_classes=num_classes)
 
