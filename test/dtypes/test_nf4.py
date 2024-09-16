@@ -20,6 +20,7 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 from torchao.dtypes.nf4tensor import (
+    NF4Tensor,
     linear_nf4,
     to_nf4,
     _INNER_TENSOR_NAMES_FOR_SHARDING,
@@ -269,6 +270,14 @@ class TestNF4Linear(TestCase):
         nf4_base = to_nf4(a, 16, 2)
 
         torch.testing.assert_close(nf4_patched.quantized_data, nf4_base.quantized_data)
+    
+    @parametrize("input_size", [(512 * 512,), (512, 512)])
+    def test_empty_like(self, input_size: Union[Tuple[int], int]):
+        nf4_tensor = to_nf4(torch.rand(input_size))
+        new_tensor = torch.empty_like(nf4_tensor, device=torch.device("cpu"))
+        self.assertTrue(isinstance(new_tensor, NF4Tensor))
+        self.assertEqual(new_tensor.get_device(), -1)  # that it's on CPU
+        self.assertEqual(new_tensor.size(), nf4_tensor.size())
 
 
 class TestFSDPOps(TestCase):
