@@ -15,9 +15,9 @@ void torchao::parallel_1d(const int64_t begin, const int64_t end, const F& f) {
   }
 }
 
-void torchao::set_num_threads(int num_threads) {
+inline void torchao::set_num_threads(int num_threads) {
   torchao::parallel::internal::num_threads_test_dummy_ = num_threads;
 }
-int torchao::get_num_threads() {
+inline int torchao::get_num_threads() {
   return torchao::parallel::internal::num_threads_test_dummy_;
 }

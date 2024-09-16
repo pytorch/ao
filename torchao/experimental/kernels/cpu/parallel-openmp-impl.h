@@ -18,10 +18,10 @@ void torchao::parallel_1d(const int64_t begin, const int64_t end, const F& f) {
   }
 }
 
-void torchao::set_num_threads(int num_threads) {
+inline void torchao::set_num_threads(int num_threads) {
   omp_set_num_threads(num_threads);
 }
-int torchao::get_num_threads() {
+inline int torchao::get_num_threads() {
   // omp_get_num_threads returns the number of threads
   // in the current code section, which will be 1 in the routines
   // that select tiling params

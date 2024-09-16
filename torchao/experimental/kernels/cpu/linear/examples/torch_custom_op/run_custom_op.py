@@ -16,8 +16,8 @@ group_size = 256
 m = 1
 n = 4096
 k = 4096
-nbit = 5
-has_weight_zeros = True
+nbit = 4
+has_weight_zeros = False
 n_layers = 5
 
 print("Creating random model")

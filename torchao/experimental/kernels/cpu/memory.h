@@ -15,7 +15,7 @@ namespace torchao {
 
 using aligned_byte_ptr = std::unique_ptr<char[], void (*)(void*)>;
 
-aligned_byte_ptr make_aligned_byte_ptr(size_t alignment, size_t size) {
+inline aligned_byte_ptr make_aligned_byte_ptr(size_t alignment, size_t size) {
   // Adjust size to next multiple of alignment >= size
   size_t adjusted_size = ((size + alignment - 1) / alignment) * alignment;
 

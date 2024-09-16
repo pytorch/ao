@@ -58,11 +58,11 @@ static void task(Context<F>* context, size_t i) {
 static Threadpool threadpool;
 } // namespace torchao::parallel::internal
 
-int torchao::get_num_threads() {
+inline int torchao::get_num_threads() {
   return torchao::parallel::internal::threadpool.get_num_threads();
 }
 
-void torchao::set_num_threads(int num_threads) {
+inline void torchao::set_num_threads(int num_threads) {
   torchao::parallel::internal::threadpool.set_num_threads(num_threads);
 }
 
