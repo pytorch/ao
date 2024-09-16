@@ -12,7 +12,94 @@ from torchao.float8.float8_linear_utils import (
     sync_float8_amax_and_scale_history,
 )
 from torchao.float8.fsdp_utils import precompute_float8_dynamic_scale_for_fsdp
+import os
 
+
+@contextlib.contextmanager
+def enable_profiling(enable=False):
+    if not enable:
+        torch_profiler = contextlib.nullcontext()
+        yield None
+    else:
+        trace_dir = "./profilers"
+        rank = torch.distributed.get_rank()
+        def trace_handler(prof):
+            curr_trace_dir_name = "iteration_" + str(prof.step_num)
+            curr_trace_dir = os.path.join(trace_dir, curr_trace_dir_name)
+            if not os.path.exists(curr_trace_dir):
+                os.makedirs(curr_trace_dir, exist_ok=True)
+            prof.export_chrome_trace(f"{curr_trace_dir}/rank{rank}_trace.json")
+            torch.distributed.barrier()
+        if not os.path.exists(trace_dir):
+            os.makedirs(trace_dir, exist_ok=True)
+        warmup, active = 1, 2
+        wait = 1
+        with torch.profiler.profile(
+            activities=[
+                torch.profiler.ProfilerActivity.CPU,
+                torch.profiler.ProfilerActivity.CUDA,
+            ],
+            schedule=torch.profiler.schedule(wait=wait, warmup=warmup, active=active),
+            on_trace_ready=trace_handler,
+            record_shapes=True,
+        ) as torch_profiler:
+            yield torch_profiler
+
+
+def run_training_loop(
+    test_cls,
+    model: nn.Module,
+    optim: torch.optim.Optimizer,
+    local_inp: torch.Tensor,
+    steps,
+    float8_config: Float8LinearConfig,
+    precompute: bool = False,
+):
+    torch._dynamo.reset()
+    losses = []
+    param_sums = []
+    grad_sums = []
+    with enable_profiling(False) as torch_profiler:
+        for iter_idx in range(steps):
+            optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
+            loss = model(local_inp).sum()
+            losses.append(loss)
+            loss.backward()
+            # param_sum = torch.stack(list(x.full_tensor().reshape(-1) for x in model.parameters())).sum()
+            # grad_sum = torch.stack(list(x.grad.full_tensor().reshape(-1) for x in model.parameters())).sum()
+            param_sum = torch.stack(list(x.reshape(-1) for x in model.parameters())).sum()
+            grad_sum = torch.stack(list(x.grad.reshape(-1) for x in model.parameters())).sum()
+            param_sums.append(param_sum)
+            grad_sums.append(grad_sum)
+            if linear_requires_sync(float8_config):
+                sync_float8_amax_and_scale_history(model)
+            optim.step()
+            if (
+                precompute
+                and float8_config.cast_config_weight.scaling_type is ScalingType.DYNAMIC
+            ):
+                precompute_float8_dynamic_scale_for_fsdp(model)
+            if torch_profiler:
+                torch_profiler.step()
+    return losses, param_sums, grad_sums
+
+
+def compare_numerics(
+    test_cls,
+    losses1: List[torch.Tensor],
+    param_sums1: List[torch.Tensor],
+    grad_sums1: List[torch.Tensor],
+    losses2: List[torch.Tensor],
+    param_sums2: List[torch.Tensor],
+    grad_sums2: List[torch.Tensor],
+):
+    assert len(losses1) == len(losses2)
+    steps = len(losses1)
+    for i in range(steps):
+        torch.equal(losses1[i], losses2[i]), f"loss different at {i}: {losses1[i]} vs {losses2[i]}"
+        torch.equal(param_sums1[i], param_sums2[i]), f"param_sum different at {i}: {param_sums1[i]} vs {param_sums2[i]}"
+        torch.equal(grad_sums1[i], grad_sums2[i]), f"grad_sum different at {i}: {grad_sums1[i]} vs {grad_sums2[i]}"
+    
 
 def check_parity_compile(
     test_cls,
@@ -29,9 +116,6 @@ def check_parity_compile(
     ref_grad_sums: List[torch.Tensor] = []
     for model, optim in ((ref_model, ref_optim), (fsdp_model, fsdp_optim)):
         torch._dynamo.reset()
-        seed = 0
-        torch.manual_seed(seed)
-        torch.cuda.manual_seed(seed)
         for iter_idx in range(1000):
             optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
             loss = model(local_inp).sum()

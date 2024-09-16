@@ -251,6 +251,116 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
         ), (data,)
 
 
+# class WeightWithDynamicFloat8CastTensor(torch.Tensor):
+#     @staticmethod
+#     def __new__(
+#         cls,
+#         tensor: torch.Tensor,
+#         linear_mm_config: LinearMMConfig,
+#     ):
+#         return torch.Tensor._make_wrapper_subclass(
+#             cls,
+#             tensor.size(),
+#             strides=tensor.stride(),
+#             storage_offset=tensor.storage_offset(),
+#             memory_format=suggest_memory_format(tensor),
+#             dtype=tensor.dtype,
+#             layout=tensor.layout,
+#             device=tensor.device,
+#             pin_memory=tensor.is_pinned(),
+#             requires_grad=tensor.requires_grad,
+#         )
+
+#     def __init__(
+#         self,
+#         tensor: torch.Tensor,
+#         linear_mm_config: LinearMMConfig,
+#     ):
+#         self._tensor = tensor
+#         self._linear_mm_config = linear_mm_config
+
+#     @classmethod
+#     def __torch_dispatch__(cls, func, types, args, kwargs=None):
+#         if func == torch.ops.aten.detach.default:
+#             return WeightWithDynamicFloat8CastTensor(
+#                 args[0]._tensor, args[0]._linear_mm_config
+#             )
+#         mm_config: Optional[LinearMMConfig] = None
+
+#         def unwrap(t):
+#             nonlocal mm_config
+#             if mm_config is None:
+#                 mm_config = t._linear_mm_config
+#             else:
+#                 assert t._linear_mm_config == mm_config
+#             return t._tensor
+
+#         args, kwargs = pytree.tree_map_only(
+#             WeightWithDynamicFloat8CastTensor, unwrap, (args, kwargs or {})
+#         )
+#         out = func(*args, **kwargs)
+#         if func not in _ops_to_preserve_subclass:
+#             return out
+#         return pytree.tree_map_only(
+#             torch.Tensor, lambda x: WeightWithDynamicFloat8CastTensor(x, mm_config), out
+#         )
+
+#     def __tensor_flatten__(self):
+#         return ["_tensor"], self._linear_mm_config
+
+#     @staticmethod
+#     def __tensor_unflatten__(inner_tensors, flatten_spec, outer_size, outer_stride):
+#         mm_config = flatten_spec
+#         return WeightWithDynamicFloat8CastTensor(
+#             inner_tensors["_tensor"],
+#             mm_config,
+#         )
+
+#     def __repr__(self):
+#         return f"WeightWithDynamicFloat8CastTensor(tensor={self._tensor}, linear_mm_config={self._linear_mm_config})"
+
+#     def fsdp_pre_all_gather(self, mesh):
+#         float8_tensor = hp_tensor_to_float8_dynamic(
+#             self._tensor,
+#             e4m3_dtype,
+#             self._linear_mm_config,
+#             reduce_amax=True,
+#             gemm_input_role=GemmInputRole.WEIGHT,
+#         )
+#         return (float8_tensor._data,), (float8_tensor._scale,)
+
+#     def fsdp_post_all_gather(
+#         self,
+#         all_gather_outputs: Tuple[torch.Tensor, ...],
+#         metadata: Any,
+#         param_dtype: torch.dtype,
+#         *,
+#         out: Optional[torch.Tensor] = None,
+#     ):
+#         (data,) = all_gather_outputs
+#         (scale,) = metadata
+#         if out is not None:
+#             from torch.distributed._tensor import DTensor
+#             if isinstance(out, Float8Tensor):
+#                 out._scale = scale
+#             elif isinstance(out, DTensor) and isinstance(
+#                 out._local_tensor, Float8Tensor
+#             ):
+#                 out._local_tensor._scale = scale
+#             else:
+#                 raise RuntimeError(
+#                     f"out must be a Float8Tensor or DTensor(_local_tensor=Float8Tensor), but got {out}"
+#                 )
+#             return
+#         return Float8Tensor(
+#             data,
+#             scale,
+#             param_dtype,
+#             self._linear_mm_config,
+#             gemm_input_role=GemmInputRole.WEIGHT,
+#         ), (data,)
+
+
 class WeightWithDelayedFloat8CastTensor(torch.Tensor):
     @staticmethod
     def __new__(

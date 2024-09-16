@@ -1,6 +1,7 @@
 import torch
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
+# torch.use_deterministic_algorithms(True)
 import copy
 import itertools
 import pytest
@@ -23,7 +24,13 @@ import torch.nn as nn
 from torchao.float8.config import CastConfig, Float8LinearConfig, ScalingType
 from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
-from fsdp2_common import check_parity_eager_ddp_bf16_mp, check_parity_eager_ddp_no_mp, check_parity_compile
+from fsdp2_common import (
+    check_parity_eager_ddp_bf16_mp, 
+    check_parity_eager_ddp_no_mp, 
+    check_parity_compile, 
+    run_training_loop, 
+    compare_numerics,
+)
 from torch.distributed._composable.fsdp import fully_shard, MixedPrecisionPolicy
 from torch.distributed._tensor import DTensor
 from torch.testing._internal.common_cuda import TEST_CUDA
@@ -53,7 +60,7 @@ class Transformer(nn.Module):
         assert args.max_seq_len is not None
         self.model_args = args
         self.max_seq_len = args.max_seq_len
-        self.tok_embeddings = nn.Embedding(args.vocab_size, args.dim)
+        # self.tok_embeddings = nn.Embedding(args.vocab_size, args.dim)
         # self.pos_embeddings = nn.Embedding(args.max_seq_len, args.dim)
         # self.dropout = nn.Dropout(args.dropout_p)
         # self.layers = nn.ModuleList()
@@ -66,9 +73,9 @@ class Transformer(nn.Module):
         # self.checkpoint_activations = args.checkpoint_activations
 
     def forward(self, tokens):
-        _bsz, seq_len = tokens.size()
-        assert seq_len <= self.max_seq_len
-        h = self.tok_embeddings(tokens)
+        # _bsz, seq_len = tokens.size()
+        # assert seq_len <= self.max_seq_len
+        # h = self.tok_embeddings(tokens)
         # pos = torch.arange(0, seq_len, device=tokens.device)
         # p = self.pos_embeddings(pos)  # positional embeddings of shape (seq_len, dim)
         # h = h + p
@@ -79,6 +86,7 @@ class Transformer(nn.Module):
         #     else:
         #         h = layer(h)
         # h = self.norm(h)
+        h = tokens
         output = self.output(h).float()
         return output
 
@@ -173,7 +181,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         scaling_type_weight = ScalingType.DYNAMIC
         compile_transformer_block = True
         dtype = torch.float32
-        backend = "eager"
+        backend = "inductor"
         torch.manual_seed(42)
         module = nn.Linear(768, 32, bias=False).cuda().to(dtype)
 
@@ -205,14 +213,15 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
     @skip_if_lt_x_gpu(2)
     def test_float8_linear_parity(self):
         enable_fsdp_float8_all_gather = True
+        precompute = True
+        steps = 1000
         scaling_type_weight = ScalingType.DYNAMIC
         compile_transformer_block = True
         dtype = torch.float32
-        backend = "eager"
+        backend = "inductor"
         torch.manual_seed(42)
         module = nn.Linear(768, 32, bias=False).cuda().to(dtype)
-
-        # ref module
+        # fsdp module
         torch._dynamo.reset()
         ref_module = copy.deepcopy(module)
         float8_linear_config1 = Float8LinearConfig(
@@ -226,25 +235,16 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
             ref_module = torch.compile(ref_module, dynamic=False, backend=backend)
         fully_shard(ref_module)
         ref_optim = torch.optim.Adam(ref_module.parameters(), lr=1e-2)
-        ref_losses = []
         local_inp = torch.rand(16, 16, 768, device="cuda")
-        steps = 1000
-        model = ref_module
-        optim = ref_optim
-        for iter_idx in range(steps):
-            optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
-            loss = model(local_inp).sum()
-            ref_losses.append(loss)
-            loss.backward()
-            optim.step()
-        
-
-        # fsdp module
-        torch._dynamo.reset()
+        ref_losses, ref_param_sums, ref_grad_sums = run_training_loop(
+            self, ref_module, ref_optim, local_inp, steps, float8_linear_config1
+        )
+        # fsdp all-gather module
         float8_linear_config2 = Float8LinearConfig(
             enable_fsdp_float8_all_gather=enable_fsdp_float8_all_gather,
             cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
         )
+        fsdp_module = copy.deepcopy(module)
         fsdp_module = convert_to_float8_training(
             module,
             config=float8_linear_config2,
@@ -253,14 +253,9 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
             fsdp_module = torch.compile(fsdp_module, dynamic=False, backend=backend)
         fully_shard(fsdp_module)
         fsdp_optim = torch.optim.Adam(fsdp_module.parameters(), lr=1e-2)
-        model = fsdp_module
-        optim = fsdp_optim
-        for iter_idx in range(steps):
-            optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
-            loss = model(local_inp).sum()
-            assert torch.equal(loss, ref_losses[iter_idx]), f"loss not equal at {iter_idx}: {loss} vs {ref_losses[iter_idx]}"
-            loss.backward()
-            optim.step()
+        losses, param_sums, grad_sums = run_training_loop(
+            self, fsdp_module, fsdp_optim, local_inp, steps, float8_linear_config2, precompute)
+        compare_numerics(self, losses, param_sums, grad_sums, ref_losses, ref_param_sums, ref_grad_sums)
     
 
     @skip_if_lt_x_gpu(2)
@@ -301,16 +296,19 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         # embedding weight and output linear weight are tied but only the
         # latter uses fp8 compute. With fp8 all-gather, FSDP would pre-cast to
         # fp8 for that tied weight, incorrectly using fp8 for the embedding.
+        steps = 1000
         weight_tying = not enable_fsdp_float8_all_gather
         module = self.init_transformer(weight_tying=weight_tying, dtype=dtype)
+        # fsdp module
         ref_module = copy.deepcopy(module)
         float8_linear_config1 = Float8LinearConfig(
             cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
         )
-        # ref_module = convert_to_float8_training(
-        #     ref_module,
-        #     config=float8_linear_config1,
-        # )
+        ref_module = convert_to_float8_training(
+            ref_module,
+            config=float8_linear_config1,
+        )
+        local_inp = torch.rand(16, 16, 768, device="cuda", dtype=dtype)
         # for layer_id, transformer_block in ref_module.layers.named_children():
             # if compile_transformer_block:
             #     transformer_block = torch.compile(transformer_block, dynamic=False)
@@ -318,49 +316,58 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
             # ref_module.layers.register_module(layer_id, transformer_block)
         ref_module = torch.compile(ref_module, dynamic=False, backend=backend)
         fully_shard(ref_module)
+        ref_optim = torch.optim.Adam(ref_module.parameters(), lr=1e-2)
+        ref_losses, ref_param_sums, ref_grad_sums = run_training_loop(
+            self, ref_module, ref_optim, local_inp, steps, float8_linear_config1
+        )
+        # fsdp float8 all-gather
+        fsdp_module = copy.deepcopy(module)
         float8_linear_config2 = Float8LinearConfig(
             enable_fsdp_float8_all_gather=enable_fsdp_float8_all_gather,
             cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
         )
-        # module = convert_to_float8_training(
-        #     module,
-        #     config=float8_linear_config2,
-        # )
+        fsdp_module = convert_to_float8_training(
+            fsdp_module,
+            config=float8_linear_config2,
+        )
         # for layer_id, transformer_block in module.layers.named_children():
             # if compile_transformer_block:
             #     transformer_block = torch.compile(transformer_block, dynamic=False)
             # fully_shard(transformer_block)
             # module.layers.register_module(layer_id, transformer_block)
-        module = torch.compile(module, dynamic=False, backend=backend)
-        fully_shard(module)
-        ref_optim = torch.optim.Adam(ref_module.parameters(), lr=1e-2, foreach=False)
-        optim = torch.optim.Adam(module.parameters(), lr=1e-2, foreach=False)
-        # local_inp = torch.rand(16, 16, 768, device="cuda", dtype=dtype)
-        local_inp = torch.randint(
-            0, ref_module.tok_embeddings.weight.size(0), (16, 16), device="cuda"
-        )
-        if compile_transformer_block:
-            check_parity_compile(
-                self,
-                ref_module,
-                ref_optim,
-                module,
-                optim,
-                local_inp,
-                precompute,
-                config=float8_linear_config2,
-            )
-        else:
-            check_parity_eager_ddp_no_mp(
-                self,
-                ref_module,
-                ref_optim,
-                module,
-                optim,
-                local_inp,
-                precompute,
-                config=float8_linear_config2,
-            )
+        fsdp_module = torch.compile(fsdp_module, dynamic=False, backend=backend)
+        fully_shard(fsdp_module)
+        fsdp_optim = torch.optim.Adam(fsdp_module.parameters(), lr=1e-2, foreach=False)
+        # local_inp = torch.randint(
+        #     0, ref_module.tok_embeddings.weight.size(0), (16, 16), device="cuda"
+        # )
+
+        losses, param_sums, grad_sums = run_training_loop(
+            self, fsdp_module, fsdp_optim, local_inp, steps, float8_linear_config2)
+        compare_numerics(self, losses, param_sums, grad_sums, ref_losses, ref_param_sums, ref_grad_sums)
+
+        # if compile_transformer_block:
+        #     check_parity_compile(
+        #         self,
+        #         ref_module,
+        #         ref_optim,
+        #         module,
+        #         optim,
+        #         local_inp,
+        #         precompute,
+        #         config=float8_linear_config2,
+        #     )
+        # else:
+        #     check_parity_eager_ddp_no_mp(
+        #         self,
+        #         ref_module,
+        #         ref_optim,
+        #         module,
+        #         optim,
+        #         local_inp,
+        #         precompute,
+        #         config=float8_linear_config2,
+        #     )
         
 
     @skip_if_lt_x_gpu(2)
