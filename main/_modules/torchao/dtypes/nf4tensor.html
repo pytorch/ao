@@ -547,6 +547,20 @@
 
 <span class="nd">@implements</span><span class="p">(</span>
     <span class="p">[</span>
+        <span class="n">aten</span><span class="o">.</span><span class="n">empty_like</span><span class="o">.</span><span class="n">default</span><span class="p">,</span>
+    <span class="p">]</span>
+<span class="p">)</span>
+<span class="k">def</span> <span class="nf">nf4_empty_like</span><span class="p">(</span><span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="n">nf4tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">updated_attrs</span> <span class="o">=</span> <span class="n">apply_to_inner_tensors</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">aten_op</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">kwargs</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">kwargs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">updated_attrs</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+    <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span><span class="o">*</span><span class="n">construct_nf4_args</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">updated_attrs</span><span class="p">))</span>
+
+
+<span class="nd">@implements</span><span class="p">(</span>
+    <span class="p">[</span>
         <span class="n">aten</span><span class="o">.</span><span class="n">split</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
     <span class="p">]</span>
 <span class="p">)</span>
