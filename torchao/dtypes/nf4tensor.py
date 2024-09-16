@@ -163,6 +163,7 @@ def nf4_detach(aten_op, args, kwargs=None):
     updated_attrs = apply_to_inner_tensors(nf4tensor, aten_op, args[1:], kwargs)
     return NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
 
+
 @implements(
     [
         aten.empty_like.default,
