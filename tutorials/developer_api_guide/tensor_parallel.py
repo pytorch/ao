@@ -37,9 +37,9 @@ def _(func, types, args, kwargs):
     assert step == 1
     if end >= self.shape[dim]:
         end = self.shape[dim]
-    print("dim:", dim, "start:", start, " end:", end, " shape:", end - start)
-    print("manual shape:", (end - start,) + self.shape[1:])
-    return self.__class__(aten.slice.Tensor(self.layout_tensor, dim, start, end, step), (end - start,) + self.shape[1:], self.dtype)
+    shape = list(self.shape)
+    shape[dim] = end - start
+    return self.__class__(aten.slice.Tensor(self.layout_tensor, dim, start, end, step), shape, self.dtype)
 
 # this is needed for DTensor.from_local() and for flattening tensor
 @implements(aten.view.default)
@@ -178,15 +178,16 @@ if __name__ == "__main__":
     y_colwise = d_up(input_dtensor)
     print("y_colwise:", y_colwise.shape)
     # doesn't work, see BUG in rowwise_shard()
-    # print("result:", d_dn(y_colwise))
-    # print("Distributed works!")
+    print("result:", d_dn(y_colwise))
+    print("Distributed works!")
 
     # doesn't work
     # [rank0]: torch._dynamo.exc.TorchRuntimeError: Failed running call_function <built-in function linear>(*(DTensor(local_tensor=FakeTensor(..., device='cuda:0', size=(128, 1024)), device_mesh=DeviceMesh('cuda', [0, 1,
     # 2, 3]), placements=(Replicate(),)), DTensor(local_tensor=MyDTypeTensorTP(data=FakeTensor(..., device='cuda:0', size=(128, 1024)), shape=torch.Size([1024, 1024]), device=cuda:0, dtype=torch.float32, requires_grad=False), device_mesh=DeviceMesh('cuda', [0, 1, 2, 3]), placements=(Shard(dim=0),)), None), **{}):
     # [rank0]: a and b must have same reduction dim, but got [128, 1024] X [128, 1024].
-    # m = torch.compile(m)
-    # print("compiled result:", m(input_dtensor))
-    # print("torch.compile works!")
+    c_up = torch.compile(d_up)
+    c_dn = torch.compile(d_dn)
+    print("compiled result:", c_dn(c_up(input_dtensor)))
+    print("torch.compile works!")
 
     dist.destroy_process_group()
