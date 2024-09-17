@@ -128,19 +128,28 @@ def run_evaluation(
 
             _tokenizer = AutoTokenizer.from_pretrained(checkpoint_path.parent)
             # parse args from quantization string:
-            #   autoround-<model_device>-<quant_lm_head>-<iters>-<groupsize>-<batch_size>-<seqlen>-<nsamples>
+            #   autoround-<model_device>-<quant_lm_head>-<iters>-<groupsize>-<batch_size>-<seqlen>-<nsamples>-<grad_acc_steps>-<c>
             _quant_args = quantization.split("-")
-            _default_quant_args = [False, 200, 128, 8, 2048, 128]
+            _default_quant_args = [False, 200, 128, 8, 2048, 128, 0, 1]
             _model_devie = _quant_args[1] if len(_quant_args) > 1 else device
             _quant_args = _quant_args[2:]
-            quant_lm_head, iters, groupsize, batch_size, seqlen, nsamples = [
-                int(x) for x in _quant_args
-            ] + _default_quant_args[len(_quant_args) :]
+            (
+                quant_lm_head,
+                iters,
+                groupsize,
+                batch_size,
+                seqlen,
+                nsamples,
+                grad_acc_steps,
+                compile_optimization_process,
+            ) = [int(x) for x in _quant_args] + _default_quant_args[len(_quant_args) :]
             model = model.to(_model_devie)
             print(
                 (
                     f"Quantizing model with autoround(iters={iters}, groupsize={groupsize}, "
-                    f"quant_lm_head={quant_lm_head}, batch_size={batch_size}, seqlen={seqlen}, nsamples={nsamples})"
+                    f"quant_lm_head={quant_lm_head}, batch_size={batch_size}, seqlen={seqlen}, nsamples={nsamples}, "
+                    f"gradient_accumulate_steps={grad_acc_steps}, "
+                    f"compile_optimization_process={compile_optimization_process})"
                 )
             )
             with torch.device(_model_devie):
@@ -161,9 +170,11 @@ def run_evaluation(
                 is_target_module=is_target_module,
                 bits=4,
                 seqlen=seqlen,
-                bs=batch_size,
+                batch_size=batch_size,
                 iters=iters,
                 nsamples=nsamples,
+                gradient_accumulate_steps=grad_acc_steps,
+                compile_optimization_process=compile_optimization_process == 1,
             )
             model.to(device)
             model.reset_caches()
@@ -195,9 +206,10 @@ if __name__ == '__main__':
         "--quantization",
         type=str,
         help=(
-            "Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-gptq, "
-            "autoquant, autoquant-int4, int4wo-<groupsize>-hqq, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, "
-            "sparse-marlin, autoround-<model_device>-<quant_lm_head>-<iters>-<groupsize>-<batch_size>-<seqlen>-<nsamples>"
+            "Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, "
+            "int4wo-<groupsize>-gptq, autoquant, autoquant-int4, int4wo-<groupsize>-hqq, "
+            "uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, "
+            "autoround-<model_device>-<quant_lm_head>-<iters>-<groupsize>-<batch_size>-<seqlen>-<nsamples>-<grad_acc_steps>-<c>"
         ),
     )
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
