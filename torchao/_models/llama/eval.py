@@ -130,7 +130,7 @@ def run_evaluation(
             # parse args from quantization string:
             #   autoround-<model_device>-<quant_lm_head>-<iters>-<groupsize>-<batch_size>-<seqlen>-<nsamples>-<grad_acc_steps>-<c>
             _quant_args = quantization.split("-")
-            _default_quant_args = [False, 200, 128, 8, 2048, 128, 0, 1]
+            _default_quant_args = [False, 200, 128, 8, 2048, 128, 1, 0]
             _model_devie = _quant_args[1] if len(_quant_args) > 1 else device
             _quant_args = _quant_args[2:]
             (
