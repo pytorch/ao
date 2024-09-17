@@ -295,7 +295,7 @@ from torchao.quantization import quantize_, float8_weight_only
 quantize_(model, float8_weight_only())
 ```
 
-This API works today but has not been extensively tested and benchmarked yet.
+This API works today but has not been extensively tested and benchmarked yet. Hardware with CUDA compute capability 8.9 or greater is required.
 
 ### (prototype) A16W8 Float8 Dynamic Quantization with Rowwise Scaling
 
@@ -305,7 +305,7 @@ from torchao.quantization.quant_api import quantize_, PerRow, float8_dynamic_act
 quantize_(model, float8_dynamic_activation_float8_weight(granularity=PerRow()))
 ```
 
-This API works today but has not been extensively tested and benchmarked yet.
+This API works today but has not been extensively tested and benchmarked yet. Hardware with CUDA compute capability 8.9 or greater is required.
 
 ## (To be moved to prototype) A16W4 WeightOnly Quantization with GPTQ
 
