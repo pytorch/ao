@@ -65,10 +65,10 @@ def run_training_loop(
             loss = model(local_inp).sum()
             losses.append(loss)
             loss.backward()
-            # param_sum = torch.stack(list(x.full_tensor().reshape(-1) for x in model.parameters())).sum()
-            # grad_sum = torch.stack(list(x.grad.full_tensor().reshape(-1) for x in model.parameters())).sum()
-            param_sum = torch.stack(list(x.reshape(-1) for x in model.parameters())).sum()
-            grad_sum = torch.stack(list(x.grad.reshape(-1) for x in model.parameters())).sum()
+            param_sum = torch.concat(list(x.full_tensor().reshape(-1) for x in model.parameters())).sum()
+            grad_sum = torch.concat(list(x.grad.full_tensor().reshape(-1) for x in model.parameters())).sum()
+            # param_sum = torch.stack(list(x.reshape(-1) for x in model.parameters())).sum()
+            # grad_sum = torch.stack(list(x.grad.reshape(-1) for x in model.parameters())).sum()
             param_sums.append(param_sum)
             grad_sums.append(grad_sum)
             if linear_requires_sync(float8_config):
@@ -96,9 +96,10 @@ def compare_numerics(
     assert len(losses1) == len(losses2)
     steps = len(losses1)
     for i in range(steps):
-        torch.equal(losses1[i], losses2[i]), f"loss different at {i}: {losses1[i]} vs {losses2[i]}"
-        torch.equal(param_sums1[i], param_sums2[i]), f"param_sum different at {i}: {param_sums1[i]} vs {param_sums2[i]}"
-        torch.equal(grad_sums1[i], grad_sums2[i]), f"grad_sum different at {i}: {grad_sums1[i]} vs {grad_sums2[i]}"
+        # test_cls.assertEqual(losses1[i], losses2[i]) 
+        assert torch.equal(losses1[i], losses2[i]), f"loss different at {i}: {losses1[i]} vs {losses2[i]}"
+        assert torch.equal(param_sums1[i], param_sums2[i]), f"param_sum different at {i}: {param_sums1[i]} vs {param_sums2[i]}"
+        assert torch.equal(grad_sums1[i], grad_sums2[i]), f"grad_sum different at {i}: {grad_sums1[i]} vs {grad_sums2[i]}"
     
 
 def check_parity_compile(
