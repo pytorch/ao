@@ -26,7 +26,7 @@ def quantize_model_with_autoround_(
     iters: int = 200,
     seqlen: int = 2048,
     dataset_name: str = "NeelNanda/pile-10k",
-    bs: int = 8,
+    batch_size: int = 8,
     nsamples: int = 128,
     use_optimized_layer_output: bool = False,
     gradient_accumulate_steps: Optional[int] = 1,
@@ -54,7 +54,7 @@ def quantize_model_with_autoround_(
         tokenizer,
         seqlen=seqlen,
         dataset_name=dataset_name,
-        bs=bs,
+        bs=batch_size,
         nsamples=nsamples,
     )
     input_ids_lst = []
@@ -108,7 +108,7 @@ def main(args):
         iters=args.iters,
         seqlen=args.seqlen,
         dataset_name=args.dataset_name,
-        bs=args.train_bs,
+        batch_size=args.batch_size,
         nsamples=args.nsamples,
         use_optimized_layer_output=args.use_optimized_layer_output,
         gradient_accumulate_steps=args.gradient_accumulate_steps,
@@ -148,7 +148,7 @@ if __name__ == "__main__":
         "--bits", default=4, type=int, help="Number of bits for quantization"
     )
     parser.add_argument(
-        "--train_bs", default=8, type=int, help="Batch size for calibration"
+        "--batch_size", default=8, type=int, help="Batch size for calibration"
     )
     parser.add_argument(
         "--nsamples",

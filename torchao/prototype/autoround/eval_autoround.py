@@ -107,7 +107,7 @@ def main(args):
                 )
             elif args.uintx:
                 msg += f" (uintx {args.bits} bits)"
-                from torchao.dtypes.uintx.Uintx import _BIT_WIDTH_TO_DTYPE
+                from torchao.dtypes.uintx.uintx import _BIT_WIDTH_TO_DTYPE
                 from torchao.quantization.quant_api import quantize_, uintx_weight_only
 
                 bits = args.bits
@@ -144,7 +144,7 @@ def main(args):
                     group_size=args.group_size,
                     iters=args.iters,
                     seqlen=args.seqlen,
-                    bs=args.train_bs,
+                    batch_size=args.batch_size,
                     nsamples=args.nsamples,
                     use_optimized_layer_output=args.use_optimized_layer_output,
                     gradient_accumulate_steps=args.gradient_accumulate_steps,
@@ -187,7 +187,7 @@ if __name__ == "__main__" and TORCH_VERSION_AT_LEAST_2_5 and torch.cuda.is_avail
         "--bits", default=4, type=int, help="Number of bits for quantization"
     )
     parser.add_argument(
-        "--train_bs", default=8, type=int, help="Batch size for calibration"
+        "--batch_size", default=8, type=int, help="Batch size for calibration"
     )
     parser.add_argument(
         "--nsamples",
