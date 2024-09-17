@@ -5,6 +5,7 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
+#include <stdint.h>
 
 // TODO: maybe move to operator directory
 namespace torchao::operators::cpu::linear::

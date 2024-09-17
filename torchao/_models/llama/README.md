@@ -27,3 +27,7 @@ To see how these techniques scale generally we've run `generate.py` with subsets
 |                   32768 |            23.83 |              21.72 |                                 20.64 |
 |                   65536 |             33.5 |              29.54 |                                 25.24 |
 |                  131072 |            59.27 |              52.62 |                                 34.18 |
+
+## Adding Benchmarks For New Techniques
+
+If you want to add benchmarks that you think should be kept up to date, please try to keep the format consistent. For performance focused techniques (e.g. if they require fine-tuning or something else) add an option to run them in generate.py and an execution command in benchmarks.sh in the relevant section. If its a technique that's still in development, add it in the section for `OTHER BENCHMARKS` if there's a finalized api and you want those numbers in the main quantization README, add them in the `README BENCHMARKS` section. For accuracy focused techniques, add them in eval.py and evaluations.sh in a similar vein. Ideally techniques in the main readme will have both benchmarks and evaluations set up here so they can be monitored and reproduced easily.

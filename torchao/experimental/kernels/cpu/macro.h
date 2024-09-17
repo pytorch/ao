@@ -5,6 +5,7 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
+#include <stdexcept>
 
 #define TORCHAO_CHECK(cond, message)   \
   if (!(cond)) {                       \
