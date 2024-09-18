@@ -44,8 +44,10 @@ from torch.testing._internal.common_fsdp import (
 from torch.testing._internal.common_utils import run_tests
 from torch.testing._internal.distributed._tensor.common_dtensor import (
     ModelArgs,
-    # Transformer,
+    Transformer,
     TransformerBlock,
+    # Attention,
+    # FeedForward
 )
 
 is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
@@ -53,42 +55,60 @@ if not is_cuda_8_9:
     pytest.skip("Unsupported CUDA device capability version", allow_module_level=True)
 
 
-class Transformer(nn.Module):
-    def __init__(self, args: ModelArgs):
-        super().__init__()
-        assert args.vocab_size is not None
-        assert args.max_seq_len is not None
-        self.model_args = args
-        self.max_seq_len = args.max_seq_len
-        self.tok_embeddings = nn.Embedding(args.vocab_size, args.dim)
-        self.pos_embeddings = nn.Embedding(args.max_seq_len, args.dim)
-        # self.dropout = nn.Dropout(args.dropout_p)
-        # self.layers = nn.ModuleList()
-        # for _ in range(args.n_layers):
-            # self.layers.append(TransformerBlock(args))
-        # self.norm = nn.LayerNorm(args.dim)
-        self.output = nn.Linear(args.dim, args.vocab_size, bias=False)
-        # if args.weight_tying:
-        #     self.output.weight = self.tok_embeddings.weight
-        # self.checkpoint_activations = args.checkpoint_activations
 
-    def forward(self, tokens):
-        _bsz, seq_len = tokens.size()
-        assert seq_len <= self.max_seq_len
-        h = self.tok_embeddings(tokens)
-        pos = torch.arange(0, seq_len, device=tokens.device)
-        p = self.pos_embeddings(pos)  # positional embeddings of shape (seq_len, dim)
-        h = h + p
-        # h = self.dropout(h)
-        # for layer in self.layers:
-        #     if self.checkpoint_activations:
-        #         h = torch.utils.checkpoint.checkpoint(layer, h, use_reentrant=False)
-        #     else:
-        #         h = layer(h)
-        # h = self.norm(h)
-        # h = tokens
-        output = self.output(h).float()
-        return output
+# class TransformerBlock(nn.Module):
+#     def __init__(self, args: ModelArgs):
+#         super().__init__()
+#         self.attention_norm = nn.LayerNorm(args.dim)
+#         self.attention = Attention(args)
+#         self.ffn_norm = nn.LayerNorm(args.dim)
+#         self.feed_forward = FeedForward(
+#             args.dim, hidden_dim=4 * args.dim, dropout_p=args.dropout_p
+#         )
+
+#     def forward(self, x):
+#         h = x + self.attention(self.attention_norm(x))
+#         out = h + self.feed_forward(self.ffn_norm(h))
+#         return out
+
+
+# class Transformer(nn.Module):
+#     def __init__(self, args: ModelArgs):
+#         super().__init__()
+#         assert args.vocab_size is not None
+#         assert args.max_seq_len is not None
+#         self.model_args = args
+#         self.max_seq_len = args.max_seq_len
+#         self.tok_embeddings = nn.Embedding(args.vocab_size, args.dim)
+#         self.pos_embeddings = nn.Embedding(args.max_seq_len, args.dim)
+#         self.dropout = nn.Dropout(args.dropout_p)
+#         self.layers = nn.ModuleList()
+#         for _ in range(args.n_layers):
+#             self.layers.append(TransformerBlock(args))
+#         # self.norm = nn.LayerNorm(args.dim)
+#         self.output = nn.Linear(args.dim, args.vocab_size, bias=False)
+#         # if args.weight_tying:
+#         #     self.output.weight = self.tok_embeddings.weight
+#         self.checkpoint_activations = args.checkpoint_activations
+
+#     def forward(self, tokens):
+#         _bsz, seq_len = tokens.size()
+#         assert seq_len <= self.max_seq_len
+#         h = self.tok_embeddings(tokens)
+#         pos = torch.arange(0, seq_len, device=tokens.device)
+#         p = self.pos_embeddings(pos)  # positional embeddings of shape (seq_len, dim)
+#         h = h + p
+#         h = self.dropout(h)
+#         # h = tokens
+#         for layer in self.layers:
+#             if self.checkpoint_activations:
+#                 h = torch.utils.checkpoint.checkpoint(layer, h, use_reentrant=False)
+#             else:
+#                 h = layer(h)
+#         # h = self.norm(h)
+#         output = self.output(h).float()
+#         return output
+
 
 class TestFloat8Common:
     def broadcast_module(self, module: nn.Module) -> None:
@@ -112,7 +132,7 @@ class TestFloat8Common:
     def init_transformer(self, weight_tying: bool, dtype: Optional[torch.dtype] = None) -> nn.Module:
         torch.manual_seed(42)
         args = ModelArgs(
-            n_layers=0,
+            n_layers=1,
             dim=768,
             n_heads=12,
             dropout_p=0.0,
@@ -139,16 +159,38 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
 
     @skip_if_lt_x_gpu(2)
     def test_float8_linear_parity(self):
-        from torch._inductor import config
-        config.emulate_precision_casts = True
-        enable_fsdp_float8_all_gather = True
-        precompute = True
+        self.run_subtests(
+            {
+                "enable_fsdp_float8_all_gather": [True],
+                "precompute": [False],
+                # "precompute": [False, True],
+                "scaling_type_weight": [
+                    ScalingType.DYNAMIC,
+                ],
+                "compile_transformer_block": [True],
+                "dtype": [torch.float32, torch.bfloat16],
+                "backend": [
+                    "inductor",
+                ]
+            },
+            self._test_float8_linear_parity,
+        )
+
+    @skip_if_lt_x_gpu(2)
+    def _test_float8_linear_parity(
+        self,
+        enable_fsdp_float8_all_gather: bool,
+        precompute: bool,
+        scaling_type_weight: ScalingType,
+        compile_transformer_block: bool,
+        dtype: Optional[torch.dtype] = None,
+        backend: str = "inductor"
+    ):
+        # from torch._inductor import config
+        # config.emulate_precision_casts = True
         steps = 1000
-        scaling_type_weight = ScalingType.DYNAMIC
-        compile_transformer_block = True
-        dtype = torch.bfloat16
-        backend = "inductor"
-        torch.manual_seed(42)
+        seed = 42
+        torch.manual_seed(seed)
         module = nn.Linear(768, 32, bias=False).cuda().to(dtype)
         # fsdp module
         torch._dynamo.reset()
@@ -164,10 +206,10 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
             ref_module = torch.compile(ref_module, dynamic=False, backend=backend)
         fully_shard(ref_module)
         ref_optim = torch.optim.Adam(ref_module.parameters(), lr=1e-2)
-        # ref_optim = torch.optim.SGD(ref_module.parameters(), lr=1)
+        # ref_optim = torch.optim.SGD(ref_module.parameters(), lr=1e-2)
         local_inp = torch.rand(16, 16, 768, device="cuda", dtype=dtype)
         ref_losses, ref_param_sums, ref_grad_sums = run_training_loop(
-            self, ref_module, ref_optim, local_inp, steps, float8_linear_config1
+            self, ref_module, ref_optim, local_inp, steps, float8_linear_config1, dtype, seed
         )
         # fsdp all-gather module
         float8_linear_config2 = Float8LinearConfig(
@@ -183,9 +225,9 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
             fsdp_module = torch.compile(fsdp_module, dynamic=False, backend=backend)
         fully_shard(fsdp_module)
         fsdp_optim = torch.optim.Adam(fsdp_module.parameters(), lr=1e-2)
-        # fsdp_optim = torch.optim.SGD(fsdp_module.parameters(), lr=1)
+        # fsdp_optim = torch.optim.SGD(fsdp_module.parameters(), lr=1e-2)
         losses, param_sums, grad_sums = run_training_loop(
-            self, fsdp_module, fsdp_optim, local_inp, steps, float8_linear_config2, precompute)
+            self, fsdp_module, fsdp_optim, local_inp, steps, float8_linear_config2, dtype, seed, precompute)
         compare_numerics(self, losses, param_sums, grad_sums, ref_losses, ref_param_sums, ref_grad_sums)
     
 
@@ -200,7 +242,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
                     # ScalingType.DELAYED,
                 ],
                 "compile_transformer_block": [True],
-                "dtype": [torch.bfloat16],
+                "dtype": [torch.float32],
                 "backend": [
                     # "aot_eager", 
                     "inductor",
@@ -223,15 +265,16 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         elif scaling_type_weight is ScalingType.DELAYED and precompute:
             return
         
-        from torch._inductor import config
-        config.emulate_precision_casts = True
+        # from torch._inductor import config
+        # config.emulate_precision_casts = True
 
         # NOTE: Weight-tying does not compose with fp8 all-gather because the
         # embedding weight and output linear weight are tied but only the
         # latter uses fp8 compute. With fp8 all-gather, FSDP would pre-cast to
         # fp8 for that tied weight, incorrectly using fp8 for the embedding.
         steps = 1000
-        weight_tying = not enable_fsdp_float8_all_gather
+        weight_tying = False
+        seed = 42
         module = self.init_transformer(weight_tying=weight_tying, dtype=dtype)
         # fsdp module
         ref_module = copy.deepcopy(module)
@@ -246,18 +289,18 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         local_inp = torch.randint(
             0, ref_module.tok_embeddings.weight.size(0), (16, 16), device="cuda"
         )
-        # for layer_id, transformer_block in ref_module.layers.named_children():
-            # if compile_transformer_block:
-            #     transformer_block = torch.compile(transformer_block, dynamic=False)
-            # fully_shard(transformer_block)
-            # ref_module.layers.register_module(layer_id, transformer_block)
-        if compile_transformer_block:
-            ref_module = torch.compile(ref_module, dynamic=False, backend=backend)
+        for layer_id, transformer_block in ref_module.layers.named_children():
+            if compile_transformer_block:
+                transformer_block = torch.compile(transformer_block, dynamic=False, backend=backend)
+            fully_shard(transformer_block)
+            ref_module.layers.register_module(layer_id, transformer_block)
+        # if compile_transformer_block:
+        #     ref_module = torch.compile(ref_module, dynamic=False, backend=backend)
         fully_shard(ref_module)
         ref_optim = torch.optim.Adam(ref_module.parameters(), lr=1e-2)
-        # ref_optim = torch.optim.SGD(ref_module.parameters(), lr=1e-1)
+        # ref_optim = torch.optim.SGD(ref_module.parameters(), lr=1e-2)
         ref_losses, ref_param_sums, ref_grad_sums = run_training_loop(
-            self, ref_module, ref_optim, local_inp, steps, float8_linear_config1
+            self, ref_module, ref_optim, local_inp, steps, float8_linear_config1, dtype, seed
         )
         # fsdp float8 all-gather
         fsdp_module = copy.deepcopy(module)
@@ -269,18 +312,18 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
             fsdp_module,
             config=float8_linear_config2,
         )
-        # for layer_id, transformer_block in module.layers.named_children():
-            # if compile_transformer_block:
-            #     transformer_block = torch.compile(transformer_block, dynamic=False)
-            # fully_shard(transformer_block)
-            # module.layers.register_module(layer_id, transformer_block)
-        if compile_transformer_block:
-            fsdp_module = torch.compile(fsdp_module, dynamic=False, backend=backend)
+        for layer_id, transformer_block in fsdp_module.layers.named_children():
+            if compile_transformer_block:
+                transformer_block = torch.compile(transformer_block, dynamic=False, backend=backend)
+            fully_shard(transformer_block)
+            fsdp_module.layers.register_module(layer_id, transformer_block)
+        # if compile_transformer_block:
+        #     fsdp_module = torch.compile(fsdp_module, dynamic=False, backend=backend)
         fully_shard(fsdp_module)
         fsdp_optim = torch.optim.Adam(fsdp_module.parameters(), lr=1e-2)
-        # fsdp_optim = torch.optim.SGD(fsdp_module.parameters(), lr=1e-1)
+        # fsdp_optim = torch.optim.SGD(fsdp_module.parameters(), lr=1e-2)
         losses, param_sums, grad_sums = run_training_loop(
-            self, fsdp_module, fsdp_optim, local_inp, steps, float8_linear_config2, precompute)
+            self, fsdp_module, fsdp_optim, local_inp, steps, float8_linear_config2, dtype, seed, precompute)
         compare_numerics(self, losses, param_sums, grad_sums, ref_losses, ref_param_sums, ref_grad_sums)
         
 

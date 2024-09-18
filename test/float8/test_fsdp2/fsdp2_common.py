@@ -53,14 +53,18 @@ def run_training_loop(
     local_inp: torch.Tensor,
     steps,
     float8_config: Float8LinearConfig,
+    dtype: torch.dtype,
+    seed: int,
     precompute: bool = False,
 ):
     torch._dynamo.reset()
     losses = []
     param_sums = []
     grad_sums = []
+    torch.manual_seed(seed)
     with enable_profiling(False) as torch_profiler:
         for iter_idx in range(steps):
+            # local_inp = torch.rand(16, 16, 768, device="cuda", dtype=dtype)
             optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
             loss = model(local_inp).sum()
             losses.append(loss)
@@ -96,9 +100,11 @@ def compare_numerics(
     assert len(losses1) == len(losses2)
     steps = len(losses1)
     for i in range(steps):
-        # test_cls.assertEqual(losses1[i], losses2[i]) 
-        assert torch.equal(losses1[i], losses2[i]), f"loss different at {i}: {losses1[i]} vs {losses2[i]}"
+        # test_cls.assertEqual(losses1[i], losses2[i], f"loss different at {i}: {losses1[i]} vs {losses2[i]}") 
+        # test_cls.assertEqual(param_sums1[i], param_sums2[i], f"param_sum different at {i}: {param_sums1[i]} vs {param_sums2[i]}")
+        # test_cls.assertEqual(grad_sums1[i], grad_sums2[i], f"grad_sum different at {i}: {grad_sums1[i]} vs {grad_sums2[i]}")
         assert torch.equal(param_sums1[i], param_sums2[i]), f"param_sum different at {i}: {param_sums1[i]} vs {param_sums2[i]}"
+        assert torch.equal(losses1[i], losses2[i]), f"loss different at {i}: {losses1[i]} vs {losses2[i]}"
         assert torch.equal(grad_sums1[i], grad_sums2[i]), f"grad_sum different at {i}: {grad_sums1[i]} vs {grad_sums2[i]}"
     
 
