@@ -20,6 +20,8 @@ class _AutoRoundConfig:
     group_size: int = 128
     iters: int = 200
     use_optimized_layer_output: bool = False
+    gradient_accumulate_steps: int = 1
+    compile_optimization_process: bool = False
 
 
 _auto_round_config = _AutoRoundConfig()
@@ -82,6 +84,8 @@ def prepare_model_for_applying_auto_round_(
     group_size: int = 128,
     iters: int = 200,
     use_optimized_layer_output: bool = False,
+    gradient_accumulate_steps: Optional[int] = 1,
+    compile_optimization_process: Optional[bool] = False,
     device: Optional[torch.types.Device] = None,
 ):
     """Prepares the model for applying auto round optimization.
@@ -94,7 +98,10 @@ def prepare_model_for_applying_auto_round_(
         group_size (int, optional): The group size for quantization. Defaults to 128.
         iters (int, optional): The number of iterations for optimization. Defaults to 200.
         use_optimized_layer_output (bool, optional): Whether to use optimized layer output. Defaults to False.
-        device (Optional[torch.types.Device], optional): The device to use for accelrating optimization and calibration.
+        gradient_accumulate_steps (Optional[int]): Number of steps for accumulating gradients before
+            performing the backward pass when optimizing each target module. Defaults to 1.
+        compile_optimization_process (Optional[bool]): Whether to compile the optimization process. Defaults to False.
+        device (Optional[torch.types.Device]): The device to use for accelrating optimization and calibration.
             Defaults to None.
     """
     _multi_tensor_config.device = device
@@ -105,6 +112,8 @@ def prepare_model_for_applying_auto_round_(
     _auto_round_config.group_size = group_size
     _auto_round_config.iters = iters
     _auto_round_config.use_optimized_layer_output = use_optimized_layer_output
+    _auto_round_config.gradient_accumulate_steps = gradient_accumulate_steps
+    _auto_round_config.compile_optimization_process = compile_optimization_process
 
     logging.warning(f"config {_auto_round_config}")
 
@@ -172,7 +181,7 @@ def apply_auto_round():
                 quant_min = 0
                 quant_max = _auto_round_config.bits**2 - 1
                 block_size = (1, observed_linear.group_size)
-                from torchao.dtypes.uintx.Uintx import (
+                from torchao.dtypes.uintx.uintx import (
                     _BIT_WIDTH_TO_DTYPE,
                     UintxLayoutType,
                 )
@@ -312,9 +321,12 @@ def _apply_auto_round_optimization(
         bits=config.bits,
         iters=config.iters,
         group_size=config.group_size,
+        gradient_accumulate_steps=config.gradient_accumulate_steps,
         amp=True,
         model_dtype=next(block.parameters()).dtype,
     )
+    if config.compile_optimization_process:
+        rounder.quant_block_v2_ = torch.compile(rounder.quant_block_v2_)
 
     with torch.enable_grad():
         rounder.quant_block_v2_(
@@ -326,7 +338,7 @@ def _apply_auto_round_optimization(
     block.to(orig_device)
 
 
-@ar_utils.dump_elapsed_time()
+@ar_utils.dump_elapsed_time(record=True)
 @torch.no_grad()
 def apply_auto_round_optimization(
     module: torch.nn.Module,
