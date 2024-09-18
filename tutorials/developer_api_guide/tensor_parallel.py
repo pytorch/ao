@@ -57,8 +57,10 @@ def _(func, types, args, kwargs):
 @implements(aten.t.default)
 def _(func, types, args, kwargs):
     tensor = args[0]
+    print("before transpose, ", tensor.shape)
     shape = tensor.shape[::-1]
     new = tensor.__class__(tensor.layout_tensor.t(), shape, tensor.dtype)
+    print("after transpose:", new.shape)
     return return_and_correct_aliasing(func, args, kwargs, new)
 
 @implements(aten.addmm.default)
@@ -78,6 +80,8 @@ def _(func, types, args, kwargs):
         args[1],
         None
     )
+    print("input tensor shape:", input_tensor.shape)
+    print("weight tensor shape:", weight_tensor.shape)
     weight_tensor = weight_tensor.dequantize()
     return aten.mm(input_tensor, weight_tensor)
 
@@ -184,9 +188,13 @@ if __name__ == "__main__":
     # [rank0]: torch._dynamo.exc.TorchRuntimeError: Failed running call_function <built-in function linear>(*(DTensor(local_tensor=FakeTensor(..., device='cuda:0', size=(128, 1024)), device_mesh=DeviceMesh('cuda', [0, 1,
     # 2, 3]), placements=(Replicate(),)), DTensor(local_tensor=MyDTypeTensorTP(data=FakeTensor(..., device='cuda:0', size=(128, 1024)), shape=torch.Size([1024, 1024]), device=cuda:0, dtype=torch.float32, requires_grad=False), device_mesh=DeviceMesh('cuda', [0, 1, 2, 3]), placements=(Shard(dim=0),)), None), **{}):
     # [rank0]: a and b must have same reduction dim, but got [128, 1024] X [128, 1024].
-    # c_up = torch.compile(d_up)
-    # c_dn = torch.compile(d_dn)
-    # print("compiled result:", c_dn(c_up(input_dtensor)))
-    # print("torch.compile works!")
+    c_up = torch.compile(d_up)
+    y_up = c_up(input_dtensor)
+    print("y_up:", y_up.shape)
+    c_dn = torch.compile(d_dn)
+    y_dn = c_dn(y_up)
+    print("y_dn:", y_dn.shape)
+    print("compiled result:", y_dn)
+    print("torch.compile works!")
 
     dist.destroy_process_group()
