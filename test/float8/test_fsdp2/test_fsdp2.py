@@ -79,35 +79,36 @@ if not is_cuda_8_9:
 #         assert args.max_seq_len is not None
 #         self.model_args = args
 #         self.max_seq_len = args.max_seq_len
-#         self.tok_embeddings = nn.Embedding(args.vocab_size, args.dim)
-#         self.pos_embeddings = nn.Embedding(args.max_seq_len, args.dim)
-#         self.dropout = nn.Dropout(args.dropout_p)
+#         # self.tok_embeddings = nn.Embedding(args.vocab_size, args.dim)
+#         # self.pos_embeddings = nn.Embedding(args.max_seq_len, args.dim)
+#         # self.dropout = nn.Dropout(args.dropout_p)
 #         self.layers = nn.ModuleList()
 #         for _ in range(args.n_layers):
 #             self.layers.append(TransformerBlock(args))
 #         # self.norm = nn.LayerNorm(args.dim)
-#         self.output = nn.Linear(args.dim, args.vocab_size, bias=False)
+#         # self.output = nn.Linear(args.dim, args.vocab_size, bias=False)
 #         # if args.weight_tying:
 #         #     self.output.weight = self.tok_embeddings.weight
 #         self.checkpoint_activations = args.checkpoint_activations
 
 #     def forward(self, tokens):
-#         _bsz, seq_len = tokens.size()
-#         assert seq_len <= self.max_seq_len
-#         h = self.tok_embeddings(tokens)
-#         pos = torch.arange(0, seq_len, device=tokens.device)
-#         p = self.pos_embeddings(pos)  # positional embeddings of shape (seq_len, dim)
-#         h = h + p
-#         h = self.dropout(h)
-#         # h = tokens
+#         # _bsz, seq_len = tokens.size()
+#         # assert seq_len <= self.max_seq_len
+#         # h = self.tok_embeddings(tokens)
+#         # pos = torch.arange(0, seq_len, device=tokens.device)
+#         # p = self.pos_embeddings(pos)  # positional embeddings of shape (seq_len, dim)
+#         # h = h + p
+#         # h = self.dropout(h)
+#         h = tokens
 #         for layer in self.layers:
 #             if self.checkpoint_activations:
 #                 h = torch.utils.checkpoint.checkpoint(layer, h, use_reentrant=False)
 #             else:
 #                 h = layer(h)
+#         return h
 #         # h = self.norm(h)
-#         output = self.output(h).float()
-#         return output
+#         # output = self.output(h).float()
+#         # return output
 
 
 class TestFloat8Common:
@@ -242,7 +243,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
                     # ScalingType.DELAYED,
                 ],
                 "compile_transformer_block": [True],
-                "dtype": [torch.float32],
+                "dtype": [torch.float32, torch.bfloat16],
                 "backend": [
                     # "aot_eager", 
                     "inductor",
@@ -294,6 +295,8 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
                 transformer_block = torch.compile(transformer_block, dynamic=False, backend=backend)
             fully_shard(transformer_block)
             ref_module.layers.register_module(layer_id, transformer_block)
+        if compile_transformer_block:
+            ref_module.output = torch.compile(ref_module.output, dynamic=False, backend=backend)
         # if compile_transformer_block:
         #     ref_module = torch.compile(ref_module, dynamic=False, backend=backend)
         fully_shard(ref_module)
@@ -317,6 +320,8 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
                 transformer_block = torch.compile(transformer_block, dynamic=False, backend=backend)
             fully_shard(transformer_block)
             fsdp_module.layers.register_module(layer_id, transformer_block)
+        if compile_transformer_block:
+            fsdp_module.output = torch.compile(fsdp_module.output, dynamic=False, backend=backend)
         # if compile_transformer_block:
         #     fsdp_module = torch.compile(fsdp_module, dynamic=False, backend=backend)
         fully_shard(fsdp_module)
