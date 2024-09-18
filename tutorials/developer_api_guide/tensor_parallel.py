@@ -80,8 +80,8 @@ def _(func, types, args, kwargs):
         args[1],
         None
     )
-    print("input tensor shape:", input_tensor.shape)
-    print("weight tensor shape:", weight_tensor.shape)
+    print("mm input tensor shape:", input_tensor.shape)
+    print("mm weight tensor shape:", weight_tensor.shape)
     weight_tensor = weight_tensor.dequantize()
     return aten.mm(input_tensor, weight_tensor)
 
@@ -188,10 +188,10 @@ if __name__ == "__main__":
     # [rank0]: torch._dynamo.exc.TorchRuntimeError: Failed running call_function <built-in function linear>(*(DTensor(local_tensor=FakeTensor(..., device='cuda:0', size=(128, 1024)), device_mesh=DeviceMesh('cuda', [0, 1,
     # 2, 3]), placements=(Replicate(),)), DTensor(local_tensor=MyDTypeTensorTP(data=FakeTensor(..., device='cuda:0', size=(128, 1024)), shape=torch.Size([1024, 1024]), device=cuda:0, dtype=torch.float32, requires_grad=False), device_mesh=DeviceMesh('cuda', [0, 1, 2, 3]), placements=(Shard(dim=0),)), None), **{}):
     # [rank0]: a and b must have same reduction dim, but got [128, 1024] X [128, 1024].
-    c_up = torch.compile(d_up)
+    c_up = torch.compile(d_up, backend="eager")
     y_up = c_up(input_dtensor)
     print("y_up:", y_up.shape)
-    c_dn = torch.compile(d_dn)
+    c_dn = torch.compile(d_dn, backend="eager")
     y_dn = c_dn(y_up)
     print("y_dn:", y_dn.shape)
     print("compiled result:", y_dn)
