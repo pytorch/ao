@@ -340,22 +340,24 @@ class TestQuantFlow(TestCase):
 
     # @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_gptq_quantizer_int4_weight_only(self):
-        from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
-        from torchao._models._eval import InputRecorder, TransformerEvalWrapper
+        from torchao.quantization.GPTQ_MT import Int4WeightOnlyGPTQQuantizer
+        from torchao._models._eval import MultiTensorInputRecorder, TransformerEvalWrapper
         precision = torch.bfloat16
         device = "cuda"
-        checkpoint_path = Path("checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        checkpoint_path = Path("/teamspace/studios/this_studio/ao/checkpoints/meta-llama/llama-2-7b-chat-hf/model.pth")#Path("checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
         model = Transformer.from_name(checkpoint_path.parent.name)
         checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
         model.load_state_dict(checkpoint, assign=True)
         model = model.to(dtype=precision, device="cpu")
         model.eval()
+
         tokenizer_path = checkpoint_path.parent / "tokenizer.model"
         assert tokenizer_path.is_file(), tokenizer_path
         tokenizer = get_tokenizer(  # pyre-ignore[28]
             tokenizer_path,
             "Llama-2-7b-chat-hf",
         )
+
         blocksize = 128
         percdamp = 0.01
         groupsize = 64
@@ -364,8 +366,7 @@ class TestQuantFlow(TestCase):
         calibration_seq_length = 100
         input_prep_func = prepare_inputs_for_model
         pad_calibration_inputs = False
-
-        inputs = InputRecorder(
+        inputs = MultiTensorInputRecorder(
             tokenizer,
             calibration_seq_length,
             input_prep_func,
@@ -377,14 +378,15 @@ class TestQuantFlow(TestCase):
             calibration_limit,
         ).get_inputs()
 
+
         quantizer = Int4WeightOnlyGPTQQuantizer(
             blocksize,
             percdamp,
             groupsize,
         )
         model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
-
         model = quantizer.quantize(model, inputs).cuda()
+
         result = TransformerEvalWrapper(
             model.cuda(),
             tokenizer,
@@ -705,6 +707,39 @@ class TestQuantFlow(TestCase):
         for param in m.parameters():
             assert param.is_cuda
         self.assertLess(memory_streaming, memory_baseline)
+
+class TestMultiTensorFlow(TestCase):
+    from torchao.quantization.GPTQ_MT import Int4WeightOnlyGPTQQuantizer
+
+    def test_multitensor_add_tensors(self):
+        tensor1 = torch.randn(3, 3)
+        tensor2 = torch.randn(3, 3)
+        mt = MultiTensor(tensor1)
+        mt.add_tensors(tensor2)
+        self.assertEqual(mt.count, 2)
+        self.assertTrue(torch.equal(mt.values[0], tensor1))
+        self.assertTrue(torch.equal(mt.values[1], tensor2))
+
+    def test_multitensor_pad_unpad(self):
+        tensor1 = torch.randn(3, 3)
+        mt = MultiTensor(tensor1)
+        mt.pad_to_length(3)
+        self.assertEqual(mt.count, 3)
+        mt.unpad()
+        self.assertEqual(mt.count, 1)
+
+    def test_multitensor_inplace_operation(self):
+        tensor1 = torch.ones(3, 3)
+        mt = MultiTensor(tensor1)
+        mt += 1  # In-place addition
+        self.assertTrue(torch.equal(mt.values[0], torch.full((3, 3), 2)))
+
+ 
+
+common_utils.instantiate_parametrized_tests(TestQuantFlow)
+
+if __name__ == "__main__":
+    unittest.main()
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
 

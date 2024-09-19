@@ -39,7 +39,7 @@ class MultiTensor(torch.Tensor):
     percdamp = 0.01
     blocksize = 128
     group_size = -1
-    in_place_threshold = 5
+    in_place_threshold = 5 # Number of times to see a function before assuming it's not in-place
 
     @staticmethod
     def __new__(cls, input: Union[torch.Tensor, Sequence[torch.Tensor]], **kwargs: Any) -> "MultiTensor":
@@ -88,7 +88,7 @@ class MultiTensor(torch.Tensor):
 
     def unpad(self, count=1, force=False):
         count = min(count, self.count)
-        if force or min([(self.values[0] == x).min() for x in self.values]):
+        if force or all((self.values[0] == x).all().item() for x in self.values):
             self.values = self.values[:count]
             self.count = count
         else:
@@ -156,7 +156,7 @@ class MultiTensor(torch.Tensor):
             for x, new_x in zip(orig_inp, new_inp):
                 if isinstance(x, torch.Tensor):
                     new_x = new_x.to(x.device)
-                    if (x != new_x).max():
+                    if (x != new_x).any():
                         x.copy_(new_x)
                         detected_difference = True
             return detected_difference
@@ -193,13 +193,18 @@ class MultiTensor(torch.Tensor):
             not skip_gptq
             and cls.is_linear_layer(func)
         )
+        # Determine if function is in-place
 
-        if not isinstance(NON_IN_PLACE_OPS.get(func, 0), bool):
-            NON_IN_PLACE_OPS[func] = NON_IN_PLACE_OPS.get(func, 0)+1
+        #initialize function tracking
+        if func not in NON_IN_PLACE_OPS:
+            NON_IN_PLACE_OPS[func] = {'count': 0, 'is_in_place': None}
+        NON_IN_PLACE_OPS[func]['count'] += 1
 
-        # if we're doing quantize_linear, its not an in place op
-        if NON_IN_PLACE_OPS[func]>=cls.in_place_threshold or quantize_linear:
-            is_in_place = False
+        
+        if NON_IN_PLACE_OPS[func]['is_in_place'] is not None:
+            is_in_place = NON_IN_PLACE_OPS[func]['is_in_place']
+        elif NON_IN_PLACE_OPS[func]['count'] >= cls.in_place_threshold or quantize_linear:
+            is_in_place = False  # Assume not in-place after threshold
         else:
             is_in_place = True
 
@@ -240,9 +245,12 @@ class MultiTensor(torch.Tensor):
                     n = 1 if len(shape) == 2 else shape[0]
                     H *= total_batches / (total_batches + n)
                     total_batches += n
+
                     x = ((2 / total_batches) ** (1 / 2)) * x.reshape(
                         -1, shape[-1]
                     ).t().float()
+
+
                     H += x.matmul(x.t())
                 else:
                     try:
@@ -258,9 +266,16 @@ class MultiTensor(torch.Tensor):
                     # place (especially for the upcoming unpad step)
                     if is_in_place:
                         detected_difference = maybe_copy_new_values(inp, cuda_inp)
-                        if detected_difference and not isinstance(NON_IN_PLACE_OPS[func], bool):
-                            print("THIS OP IS IN PLACE", func)
-                            NON_IN_PLACE_OPS[func] = False
+                        #if detected_difference and not isinstance(NON_IN_PLACE_OPS[func], bool):
+                            #print("THIS OP IS IN PLACE", func)
+                            #NON_IN_PLACE_OPS[func] = False
+                        if detected_difference:
+                            NON_IN_PLACE_OPS[func]['is_in_place'] = True
+                            print(f"Function {func} is in-place")
+
+                        elif NON_IN_PLACE_OPS[func]['count'] >= cls.in_place_threshold:
+                            NON_IN_PLACE_OPS[func]['is_in_place'] = False
+
 
             if quantize_linear:
                 # turn weight MultiTensor into single cuda tensor
@@ -282,7 +297,7 @@ class MultiTensor(torch.Tensor):
                 
                 # Run the function again with updated weights and skip_gptq=True
                 out = cls.__torch_function__(func, types, (args[0], DQ.cpu(), *args[2:]), kwargs, skip_gptq=True)
-
+                print(args[0].debug)
                 if args[0].debug:
                     act = args[0].values[0].to("cuda")
                     bias = args[2].values[0].to("cuda") if args[2] is not None else args[2]
@@ -413,6 +428,8 @@ class MultiTensor(torch.Tensor):
         Q = cls.quantize_func(DQ, all_qparams)
         return Q, DQ.to(orig_dtype), all_qparams
 
+
+
     @classmethod
     def __torch_dispatch__(cls, func: Callable, types: Tuple[type, ...], args: Tuple[Any, ...]=(), kwargs: Dict[str, Any]={}, skip_gptq: bool=False) -> Any:
         pass
@@ -511,6 +528,7 @@ class GPTQQuantizer(Quantizer):
         group_size=64,
         #  `typing.Dict[<key type>, <value type>]` to avoid runtime subscripting errors.
     ) -> Dict:
+
         MultiTensor.configure_quantization_mode(
             get_qparams_func=self.get_qparams_func,
             quantize_func=self.quantize_func,
@@ -538,12 +556,6 @@ class GPTQQuantizer(Quantizer):
         with torch.no_grad():
             out = model(*inputs)
         state_dict = self.state_dict_manager.get_state_dict()
-        del_list = []
-        for param_fqn in state_dict:
-            if "kv_cache" in param_fqn:
-                del_list.append(param_fqn)
-        for param_fqn in del_list:
-            state_dict.pop(param_fqn)
         return state_dict
 
 class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
@@ -628,14 +640,21 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
             self.percdamp,
             self.group_size,
         )
+
         # this is hacky and potentially wrong, better to just make the flow return a state dict and let user
         # do with it what they will
-        _replace_with_custom_fn_if_matches_filter(
+
+        model = _replace_with_custom_fn_if_matches_filter(
             model=model,
             replacement_fn=remove_multitensors_from_buffers_and_params,
             filter_fn=lambda x, y: True
         )
+        remove = [k for k in state_dict if "kv_cache" in k]
+        for k in remove:
+            del state_dict[k]
+
         model.load_state_dict(state_dict, assign=True, strict=False)
+
         return model
 
 # this should probably be a multitensor method that can be applied and we just traverse
@@ -671,3 +690,4 @@ def _replace_with_custom_fn_if_matches_filter(
         if new_child is not child:
             setattr(model, name, new_child)
     return model
+
