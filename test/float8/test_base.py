@@ -608,6 +608,10 @@ class TestNumerics:
         scale = tensor_to_scale(x, float8_dtype)
         assert not torch.any(torch.isinf(scale))
     
+    @unittest.skipIf(
+        not is_cuda_8_9,
+        "CUDA not available",
+    )
     @pytest.mark.parametrize(
         "dtype",
         [
