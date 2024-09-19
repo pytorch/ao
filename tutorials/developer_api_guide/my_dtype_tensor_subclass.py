@@ -197,7 +197,7 @@ class MyDTypeTensor(TorchAOBaseTensor):
         block_size = (1, int_data.shape[-1])
         if hasattr(self.layout_tensor, "transposed") and self.layout_tensor.transposed:
             transposed = True
-        res = dequantize_affine(int_data, block_size, scale, None, int_data.dtype)
+        res = dequantize_affine(int_data, block_size, scale, None, int_data.dtype, output_dtype=output_dtype)
         if transposed:
             res = res.t()
         return res
@@ -330,8 +330,7 @@ class PlainMyDTypeLayout(MyDTypeLayout):
             elif dim == 1:
                 return PlainMyDTypeLayout(aten.slice.Tensor(self.int_data, dim, start, end, step), self.scale.view(-1, 1), self.transposed, self.layout_type)
         elif func is aten.t.default:
-            args[0].transposed = not args[0].transposed
-            return return_and_correct_aliasing(func, args, kwargs, args[0])
+            return return_and_correct_aliasing(func, args, kwargs, PlainMyDTypeLayout(args[0].int_data, args[0].scale, not args[0].transposed, args[0].layout_type))
 
         raise NotImplementedError(
             f"PlainMyDTypeLayout dispatch: attempting to run {func}, this is not supported"
