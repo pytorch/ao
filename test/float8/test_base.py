@@ -15,6 +15,9 @@ import pytest
 
 import torch
 import torch.nn as nn
+from torchao.float8.float8_scaling_utils import (
+    hp_tensor_to_float8_dynamic,
+)
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
@@ -53,7 +56,7 @@ torch.manual_seed(0)
 is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
 
 def bitwise_identical(a: Float8Tensor, b: Float8Tensor) -> bool:
-    assert torch.all(a._data == b._data).item(), "scales are not identical"
+    assert torch.all(a._scale == b._scale).item(), "scales are not identical"
     assert torch.all(a._data == b._data).item(), "data is not identical"
     return True
 
@@ -604,6 +607,40 @@ class TestNumerics:
         x = torch.tensor([target_amax], dtype=torch.float16, device="cuda")
         scale = tensor_to_scale(x, float8_dtype)
         assert not torch.any(torch.isinf(scale))
+    
+
+    @pytest.mark.parametrize(
+        "dtype",
+        [
+            torch.float32,
+            torch.bfloat16,
+            torch.float16,
+        ],
+    )
+    def test_dynamic_scale_parity(self, dtype: torch.dtype):
+        scaling_type_weight = ScalingType.DYNAMIC
+        torch.manual_seed(42)
+        hp_tensor = torch.randn(768, 32, device="cuda", dtype=dtype)
+        float8_config = Float8LinearConfig(
+            cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
+        )
+        float8_eager = hp_tensor_to_float8_dynamic(
+            hp_tensor,
+            torch.float8_e4m3fn,
+            float8_config,
+            gemm_input_role=GemmInputRole.WEIGHT,
+        )
+        float8_compile = torch.compile(hp_tensor_to_float8_dynamic)(
+            hp_tensor,
+            torch.float8_e4m3fn,
+            float8_config,
+            gemm_input_role=GemmInputRole.WEIGHT,
+        )
+        try:
+            assert bitwise_identical(float8_eager, float8_compile)
+            # torch.equal(float8_eager._scale, float8_compile._scale)
+        except:
+            breakpoint()
 
 
 class TestFloat8LinearUtils(unittest.TestCase):

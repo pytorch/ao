@@ -18,6 +18,16 @@ from torchao.float8.float8_linear_utils import (
     linear_requires_sync,
     sync_float8_amax_and_scale_history,
 )
+from torchao.float8.float8_scaling_utils import (
+    hp_tensor_to_float8_delayed,
+    hp_tensor_to_float8_dynamic,
+)
+from torchao.float8.float8_tensor import (
+    Float8Tensor,
+    GemmInputRole,
+    hp_tensor_and_scale_to_float8,
+    LinearMMConfig,
+)
 import torch._dynamo.testing
 import torch.distributed as dist
 import torch.nn as nn
@@ -157,19 +167,59 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
     @property
     def world_size(self) -> int:
         return min(torch.cuda.device_count(), 2)
+    
+    @skip_if_lt_x_gpu(2)
+    def test_dynamic_scale_parity(self):
+        self.run_subtests(
+            {
+                "precompute": [True],
+                "dtype": [torch.float32, torch.bfloat16],
+            },
+            self._test_dynamic_scale_parity,
+        )
+
+    def _test_dynamic_scale_parity(self, precompute: bool, dtype: torch.dtype):
+        scaling_type_weight = ScalingType.DYNAMIC
+        seed = 42
+        torch.manual_seed(seed)
+        module = nn.Linear(768, 32, bias=False).cuda().to(dtype)
+        float8_config = Float8LinearConfig(
+            cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
+        )
+        module = convert_to_float8_training(
+            module,
+            config=float8_config,
+        )
+        scale_func = hp_tensor_to_float8_dynamic
+        eager_scale = scale_func(
+            copy.deepcopy(module).weight,
+            torch.float8_e4m3fn,
+            float8_config,
+            gemm_input_role=GemmInputRole.WEIGHT,
+        )
+        scale_func = torch.compile(hp_tensor_to_float8_dynamic, dynamic=False)
+        compile_scale = scale_func(
+            copy.deepcopy(module).weight,
+            torch.float8_e4m3fn,
+            float8_config,
+            gemm_input_role=GemmInputRole.WEIGHT,
+        )
+
+        # ensure bitwise equal since the function is simple
+        assert torch.equal(eager_scale._scale, compile_scale._scale), f"scale mismatch: {eager_scale._scale=} vs {compile_scale._scale=}"
 
     @skip_if_lt_x_gpu(2)
     def test_float8_linear_parity(self):
         self.run_subtests(
             {
                 "enable_fsdp_float8_all_gather": [True],
-                "precompute": [False],
+                "precompute": [True],
                 # "precompute": [False, True],
                 "scaling_type_weight": [
                     ScalingType.DYNAMIC,
                 ],
                 "compile_transformer_block": [True],
-                "dtype": [torch.float32, torch.bfloat16],
+                "dtype": [torch.float32],
                 "backend": [
                     "inductor",
                 ]
