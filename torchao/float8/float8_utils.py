@@ -42,6 +42,9 @@ def amax_to_scale(
         float8_dtype: The float8 dtype.
         orig_dtype: The original dtype of the tensor.
     """
+    # Preserve precision in amax-to-scale conversion
+    # and ensure on-par numerics with torch.compile
+    amax = amax.to(torch.float64)
     if float8_dtype in FP8_TYPES:
         res = torch.finfo(float8_dtype).max / torch.clamp(amax, min=EPS)
     else:
@@ -99,7 +102,7 @@ def amax_history_to_scale_stack(
 
 @torch.no_grad()
 def tensor_to_amax(x: torch.Tensor, reduce_amax: bool = False) -> torch.Tensor:
-    amax = torch.max(torch.abs(x))
+    amax = torch.linalg.vector_norm(x, ord=float("inf"))
 
     # If the user asked for distributed reduction, do it.
     # If the user did not ask for it, assume that it will
