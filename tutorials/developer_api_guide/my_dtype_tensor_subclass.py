@@ -329,6 +329,8 @@ class PlainMyDTypeLayout(MyDTypeLayout):
                 )
             elif dim == 1:
                 return PlainMyDTypeLayout(aten.slice.Tensor(self.int_data, dim, start, end, step), self.scale.view(-1, 1), self.transposed, self.layout_type)
+            else:
+                raise NotImplementedError(f"PlainMyDTypeLayout dispatch: attempting to run {func}, with dim={dim}, that is not supported")
         elif func is aten.t.default:
             return return_and_correct_aliasing(func, args, kwargs, PlainMyDTypeLayout(args[0].int_data, args[0].scale, not args[0].transposed, args[0].layout_type))
 
