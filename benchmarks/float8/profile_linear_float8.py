@@ -22,6 +22,7 @@ os.environ['TORCHINDUCTOR_FORCE_DISABLE_CACHES'] = '1'
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 from torchao.float8.config import CastConfig, Float8LinearConfig, ScalingType
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
@@ -256,6 +257,7 @@ def main(
     dtype_filter: str = "both",
     add_inductor_metadata_to_trace: bool = True,
     enable_sync_amax_history: bool = True,
+    enable_activation_checkpointing: bool = False,
 ):
     assert model_type in ("linear", "ln_linear", "norm_ffn_norm", "norm_ffn_norm_small"), "unsupported"
     assert dtype_filter in ("both", "float8", "bfloat16")
@@ -346,11 +348,17 @@ def main(
     convert_to_float8_training(m_float8, config=config)
 
     def ref_forw_backward(x):
-        out = m_ref(x)
+        if enable_activation_checkpointing:
+            out = checkpoint(m_ref, x, use_reentrant=False)
+        else:
+            out = m_ref(x)
         out.sum().backward()
 
     def float8_forw(x):
-        out = m_float8(x)
+        if enable_activation_checkpointing:
+            out = checkpoint(m_float8, x, use_reentrant=False)
+        else:
+            out = m_float8(x)
         return out
 
     sync_amax_history = sync_float8_amax_and_scale_history
