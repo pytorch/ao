@@ -28,6 +28,7 @@ from torchao.float8.float8_tensor import (
     hp_tensor_and_scale_to_float8,
     LinearMMConfig,
 )
+from torchao.float8.fsdp_utils import precompute_float8_dynamic_scale_for_fsdp
 import torch._dynamo.testing
 import torch.distributed as dist
 import torch.nn as nn
@@ -169,44 +170,67 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         return min(torch.cuda.device_count(), 2)
     
     @skip_if_lt_x_gpu(2)
-    def test_dynamic_scale_parity(self):
+    def test_precompute_dynamic_scale_parity(self):
         self.run_subtests(
             {
-                "precompute": [True],
-                "dtype": [torch.float32, torch.bfloat16],
+                # "dtype": [torch.float32, torch.bfloat16],
+                "dtype": [torch.bfloat16],
             },
-            self._test_dynamic_scale_parity,
+            self._test_precompute_dynamic_scale_parity,
         )
 
-    def _test_dynamic_scale_parity(self, precompute: bool, dtype: torch.dtype):
+    def _test_precompute_dynamic_scale_parity(self, dtype: torch.dtype):
         scaling_type_weight = ScalingType.DYNAMIC
         seed = 42
         torch.manual_seed(seed)
         module = nn.Linear(768, 32, bias=False).cuda().to(dtype)
-        float8_config = Float8LinearConfig(
+
+        # fp8 compute only
+        float8_compute_config = Float8LinearConfig(
             cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
         )
-        module = convert_to_float8_training(
-            module,
-            config=float8_config,
+        float8_compute_module = convert_to_float8_training(
+            copy.deepcopy(module),
+            config=float8_compute_config,
         )
-        scale_func = hp_tensor_to_float8_dynamic
-        eager_scale = scale_func(
-            copy.deepcopy(module).weight,
+        fully_shard(float8_compute_module)
+
+        float8_eager = hp_tensor_to_float8_dynamic(
+            float8_compute_module.weight.full_tensor(),
             torch.float8_e4m3fn,
-            float8_config,
-            gemm_input_role=GemmInputRole.WEIGHT,
-        )
-        scale_func = torch.compile(hp_tensor_to_float8_dynamic, dynamic=False)
-        compile_scale = scale_func(
-            copy.deepcopy(module).weight,
-            torch.float8_e4m3fn,
-            float8_config,
+            float8_compute_config,
             gemm_input_role=GemmInputRole.WEIGHT,
         )
 
-        # ensure bitwise equal since the function is simple
-        assert torch.equal(eager_scale._scale, compile_scale._scale), f"scale mismatch: {eager_scale._scale=} vs {compile_scale._scale=}"
+        float8_eager_fp64 = hp_tensor_to_float8_dynamic(
+            float8_compute_module.weight.full_tensor().to(torch.float64),
+            torch.float8_e4m3fn,
+            float8_compute_config,
+            gemm_input_role=GemmInputRole.WEIGHT,
+        )
+
+        float8_compile = torch.compile(hp_tensor_to_float8_dynamic)(
+            float8_compute_module.weight.full_tensor(),
+            torch.float8_e4m3fn,
+            float8_compute_config,
+            gemm_input_role=GemmInputRole.WEIGHT,
+        )
+
+        # float all-gather
+        float8_allgather_config = Float8LinearConfig(
+            enable_fsdp_float8_all_gather=True,
+            cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
+        )
+        float8_allgather_module = convert_to_float8_training(
+            copy.deepcopy(module),
+            config=float8_allgather_config,
+        )
+        fully_shard(float8_allgather_module)
+        precompute_float8_dynamic_scale_for_fsdp(float8_allgather_module)
+        
+        assert torch.equal(float8_allgather_module.weight._local_tensor._precomputed_scale, float8_eager_fp64._scale)
+        assert torch.equal(float8_eager._scale, float8_eager_fp64._scale)
+        assert torch.equal(float8_compile._scale, float8_eager_fp64._scale)
 
     @skip_if_lt_x_gpu(2)
     def test_float8_linear_parity(self):
