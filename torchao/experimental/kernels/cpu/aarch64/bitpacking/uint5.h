@@ -19,7 +19,7 @@ namespace internal {
 TORCHAO_ALWAYS_INLINE inline void pack_8_uint5_values(
     uint8_t* packed,
     const uint8_t* unpacked) {
-  // Given 8 unpacked uint3 values: 0abcd, 1efgh, 2ijkl, 3mnop, 4qrst, 5uvwx,
+  // Given 8 unpacked uint5 values: 0abcd, 1efgh, 2ijkl, 3mnop, 4qrst, 5uvwx,
   // 6yzAB, 7CDEF, this function packs them as:
   //    b4: 7|6|5|4|3|2|1|0 (upper bits for all values)
   //    b3210_0: efgh|abcd (lower 4 bits for first 2 values)
