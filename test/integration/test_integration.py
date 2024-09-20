@@ -72,7 +72,7 @@ from torchao.quantization.autoquant import (
     AQInt8WeightOnlyQuantizedLinearWeight2,
     AQInt8WeightOnlyQuantizedLinearWeight3,
     AutoQuantizableLinearWeight,
-
+    AQFloat8WeightOnlyQuantizedLinearWeight,
 )
 from torch.ao.quantization.quantize_fx import convert_to_reference_fx, prepare_fx
 import os
@@ -98,6 +98,7 @@ COMMON_DEVICES = ["cpu", "cuda"]
 COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 
 COMMON_DEVICE_DTYPE = list(itertools.product(COMMON_DEVICES, COMMON_DTYPES)).copy()
+is_H100 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
 
 def _int8wo_api(mod):
     if TORCH_VERSION_AT_LEAST_2_4:
@@ -742,6 +743,14 @@ class TestSubclass(unittest.TestCase):
     def test_aq_int8_weight_only_quant_3_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             AQInt8WeightOnlyQuantizedLinearWeight3.from_float, device, 35, test_dtype=dtype
+        )
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant+aqt needs newer pytorch")
+    @unittest.skipIf(not is_H100, "Need H100 to run")
+    def test_aq_float8_weight_only_quant_subclass(self, device, dtype):
+        self._test_lin_weight_subclass_impl(
+            AQFloat8WeightOnlyQuantizedLinearWeight.from_float, device, 30, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
