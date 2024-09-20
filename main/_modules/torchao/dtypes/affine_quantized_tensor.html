@@ -1741,7 +1741,7 @@
 
     <span class="k">return</span> <span class="n">out</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">*</span><span class="n">act</span><span class="o">.</span><span class="n">shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">out_dim</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">act</span><span class="o">.</span><span class="n">dtype</span><span class="p">)</span>
 
-<span class="k">def</span> <span class="nf">_linear_fp_act_fp8_weight_check</span><span class="p">(</span>
+<span class="k">def</span> <span class="nf">_linear_fp8_act_fp8_weight_check</span><span class="p">(</span>
     <span class="n">input_tensor</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">],</span>
     <span class="n">weight_tensor</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">],</span>
     <span class="n">bias</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
@@ -1765,7 +1765,7 @@
 
     <span class="k">return</span> <span class="n">input_scale</span>
 
-<span class="k">def</span> <span class="nf">_linear_fp_act_fp8_weight_impl</span><span class="p">(</span>
+<span class="k">def</span> <span class="nf">_linear_fp8_act_fp8_weight_impl</span><span class="p">(</span>
     <span class="n">input_tensor</span><span class="p">:</span> <span class="n">AffineQuantizedTensor</span><span class="p">,</span>
     <span class="n">weight_tensor</span><span class="p">:</span> <span class="n">AffineQuantizedTensor</span><span class="p">,</span>
     <span class="n">bias</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
@@ -1854,7 +1854,7 @@
     <span class="k">for</span> <span class="n">dispatch_condition</span><span class="p">,</span> <span class="n">impl</span> <span class="ow">in</span> <span class="p">[</span>
         <span class="p">(</span><span class="n">_linear_int8_act_int8_weight_check</span><span class="p">,</span> <span class="n">_linear_int8_act_int8_weight_impl</span><span class="p">),</span>
         <span class="p">(</span><span class="n">_linear_int8_act_int8_weight_semi_structured_sparse_check</span><span class="p">,</span> <span class="n">_linear_int8_act_int8_weight_semi_structured_sparse_impl</span><span class="p">),</span>
-        <span class="p">(</span><span class="n">_linear_fp_act_fp8_weight_check</span><span class="p">,</span> <span class="n">_linear_fp_act_fp8_weight_impl</span><span class="p">),</span>
+        <span class="p">(</span><span class="n">_linear_fp8_act_fp8_weight_check</span><span class="p">,</span> <span class="n">_linear_fp8_act_fp8_weight_impl</span><span class="p">),</span>
         <span class="p">(</span><span class="n">_linear_bf16_act_uint4_weight_check</span><span class="p">,</span> <span class="n">_linear_bf16_act_uint4_weight_impl</span><span class="p">),</span>
         <span class="p">(</span><span class="n">_linear_fp_act_int8_weight_check</span><span class="p">,</span> <span class="n">_linear_fp_act_int8_weight_impl</span><span class="p">),</span>
         <span class="p">(</span><span class="n">_linear_f16_act_floatx_weight_check</span><span class="p">,</span> <span class="n">_linear_f16_act_floatx_weight_impl</span><span class="p">),</span>
