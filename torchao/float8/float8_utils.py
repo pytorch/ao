@@ -99,7 +99,7 @@ def amax_history_to_scale_stack(
 
 @torch.no_grad()
 def tensor_to_amax(x: torch.Tensor, reduce_amax: bool = False) -> torch.Tensor:
-    amax = torch.max(torch.abs(x))
+    amax = torch.linalg.vector_norm(x, ord=float("inf"))
 
     # If the user asked for distributed reduction, do it.
     # If the user did not ask for it, assume that it will
