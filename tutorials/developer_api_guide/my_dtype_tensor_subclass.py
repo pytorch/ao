@@ -175,8 +175,6 @@ class MyDTypeTensor(TorchAOBaseTensor):
         dtype = torch.int16
         scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, dtype)
         int_data = quantize_affine(input_float, block_size, scale, zero_point, dtype)
-        # int_data = (input_float / scale).to(torch.int8)
-        print("initial:", scale.shape, " int data:", int_data.shape)
         layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
         layout_tensor = layout_tensor_ctr(int_data, scale, layout_type)
         return cls(layout_tensor, input_float.shape)
@@ -309,6 +307,7 @@ class PlainMyDTypeLayout(MyDTypeLayout):
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
             )
 
+        # Tensor parallel support START
         elif func in [aten._to_copy.default, aten.clone.default]:
             return return_and_correct_aliasing(
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
@@ -333,6 +332,8 @@ class PlainMyDTypeLayout(MyDTypeLayout):
                 raise NotImplementedError(f"PlainMyDTypeLayout dispatch: attempting to run {func}, with dim={dim}, that is not supported")
         elif func is aten.t.default:
             return return_and_correct_aliasing(func, args, kwargs, PlainMyDTypeLayout(args[0].int_data, args[0].scale, not args[0].transposed, args[0].layout_type))
+
+        # Tensor parallel support END
 
         raise NotImplementedError(
             f"PlainMyDTypeLayout dispatch: attempting to run {func}, this is not supported"
