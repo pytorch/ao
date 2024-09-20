@@ -182,10 +182,6 @@ if __name__ == "__main__":
     print("result:", d_dn(y_colwise))
     print("Distributed works!")
 
-    # doesn't work
-    # [rank0]: torch._dynamo.exc.TorchRuntimeError: Failed running call_function <built-in function linear>(*(DTensor(local_tensor=FakeTensor(..., device='cuda:0', size=(128, 1024)), device_mesh=DeviceMesh('cuda', [0, 1,
-    # 2, 3]), placements=(Replicate(),)), DTensor(local_tensor=MyDTypeTensorTP(data=FakeTensor(..., device='cuda:0', size=(128, 1024)), shape=torch.Size([1024, 1024]), device=cuda:0, dtype=torch.float32, requires_grad=False), device_mesh=DeviceMesh('cuda', [0, 1, 2, 3]), placements=(Shard(dim=0),)), None), **{}):
-    # [rank0]: a and b must have same reduction dim, but got [128, 1024] X [128, 1024].
     c_up = torch.compile(d_up)
     y_up = c_up(input_dtensor)
     print("y_up:", y_up.shape)
