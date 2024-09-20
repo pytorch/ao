@@ -69,7 +69,10 @@ if TORCH_VERSION_AT_LEAST_2_2:
             input = (
                 input.contiguous()
             )  # (it seems the transpose makes cublas check the above j constraint on i)
-        return out_dtype(torch.ops.aten.mm.default, torch.int32, input, mat2)
+        try:
+            return out_dtype(torch.ops.aten.mm.default, torch.int32, input, mat2)
+        except:
+            return torch.matmul(input.to(torch.float32), mat2.to(torch.float32)).to(torch.int32)
 else:
     def safe_int_mm(input: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
         """
