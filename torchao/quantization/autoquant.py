@@ -501,7 +501,6 @@ DEFAULT_AUTOQUANT_CLASS_LIST = [
     # AQInt8WeightOnlyQuantizedLinearWeight3,
     # TODO this gets picked in places where it makes perf worse, why?
     AQInt8DynamicallyQuantizedLinearWeight,
-    AQFloat8WeightOnlyQuantizedLinearWeight,
 ]
 
 DEFAULT_INT4_AUTOQUANT_CLASS_LIST = [
@@ -509,6 +508,11 @@ DEFAULT_INT4_AUTOQUANT_CLASS_LIST = [
     AQInt8DynamicallyQuantizedLinearWeight,
     AQInt4G64WeightOnlyQuantizedLinearWeight
 ]
+
+OTHER_AUTOQUANT_CLASS_LIST = [
+    AQFloat8WeightOnlyQuantizedLinearWeight,
+]
+
 
 def _change_linears_to_autoquantizable(model, **kwargs):
     """
@@ -634,6 +638,8 @@ def autoquant(
     if set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
+    if qtensor_class_list in OTHER_AUTOQUANT_CLASS_LIST:
+        assert torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9), "float8 requires CUDA arch >= 8.9"
 
     # perform initial swap from linear weights
     # to AutoQuantizableLinearWeight
