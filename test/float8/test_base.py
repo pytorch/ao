@@ -610,28 +610,35 @@ class TestNumerics:
         scale = tensor_to_scale(x, float8_dtype)
         assert not torch.any(torch.isinf(scale))
     
-
     @pytest.mark.parametrize(
         "dtype",
         [
-            # torch.float32,
+            torch.float32,
             torch.bfloat16,
-            # torch.float16,
+            torch.float16,
         ],
     )
-    def test_dynamic_scale_parity(self, dtype: torch.dtype):
-        torch.manual_seed(42)
-        hp_tensor = torch.empty((32, 768), device="cuda", dtype=dtype)
-        nn.init.kaiming_uniform_(hp_tensor, a=math.sqrt(5))
-        eager_amax, eager_scale = hp_tensor_to_float8_dynamic_debug(
-            hp_tensor
+    def test_float8_data_parity(self, dtype: torch.dtype):
+        dtype = torch.bfloat16
+        scaling_type_weight = ScalingType.DYNAMIC
+        torch.manual_seed(0)
+        hp_tensor = torch.randn(24, 2, device="cuda", dtype=dtype)
+        float8_config = Float8LinearConfig(
+            cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
         )
-        compile_amax, compile_scale = torch.compile(hp_tensor_to_float8_dynamic_debug)(
-            hp_tensor
+        float8_eager = hp_tensor_to_float8_dynamic(
+            hp_tensor,
+            torch.float8_e4m3fn,
+            float8_config,
+            gemm_input_role=GemmInputRole.WEIGHT,
         )
-        # torch.testing.assert_close(eager_amax, compile_amax)
-        # assert torch.equal(eager_amax, compile_amax), f"{eager_amax=} vs {compile_amax=}"
-        # assert torch.equal(eager_scale, compile_scale), f"{eager_scale=} vs {compile_scale=}"
+        float8_compile = torch.compile(hp_tensor_to_float8_dynamic)(
+            hp_tensor,
+            torch.float8_e4m3fn,
+            float8_config,
+            gemm_input_role=GemmInputRole.WEIGHT,
+        )
+        torch.equal(float8_eager._data, float8_compile._data)
 
 
 class TestFloat8LinearUtils(unittest.TestCase):
