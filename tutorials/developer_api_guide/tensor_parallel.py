@@ -145,7 +145,7 @@ def rowwise_shard(m: torch.nn.Module, mesh: DeviceMesh) -> torch.nn.Module:
 ########
 # Test #
 ########
-if __name__ == "__main__":
+def main():
     # To make sure different ranks create the same module
     torch.manual_seed(5)
 
@@ -192,3 +192,6 @@ if __name__ == "__main__":
     print("torch.compile works!")
 
     dist.destroy_process_group()
+
+if __name__ == "__main__":
+    main()

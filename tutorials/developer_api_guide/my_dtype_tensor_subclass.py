@@ -394,8 +394,16 @@ to_my_dtype = MyDTypeTensor.from_float
 ########
 # Test #
 ########
-def test():
+def main():
     from torchao.utils import benchmark_model
+
+    class M(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.linear = torch.nn.Linear(1024, 128)
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return self.linear(x)
 
     m = M()
     example_inputs = (100 * torch.randn(512, 1024),)
@@ -431,4 +439,4 @@ def test():
     print("after quantization and compile:", benchmark_model(m, NUM_RUNS, example_inputs))
 
 if __name__ == "__main__":
-    test()
+    main()
