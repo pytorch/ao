@@ -42,8 +42,7 @@ def amax_to_scale(
         float8_dtype: The float8 dtype.
         orig_dtype: The original dtype of the tensor.
     """
-    # Preserve precision in amax-to-scale conversion
-    # and ensure on-par numerics with torch.compile
+    # _scaled_mm requires float32 scale
     amax = amax.to(torch.float32)
     if float8_dtype in FP8_TYPES:
         res = torch.finfo(float8_dtype).max / torch.clamp(amax, min=EPS)
