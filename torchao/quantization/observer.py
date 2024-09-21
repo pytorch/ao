@@ -5,6 +5,7 @@ from .quant_primitives import (
     MappingType,
     ZeroPointDomain,
 )
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass
@@ -241,3 +242,7 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
             self.preserve_zero,
             self.zero_point_domain,
         )
+
+if TORCH_VERSION_AT_LEAST_2_5:
+    # Allow a model with LinearActivationQuantizedTensor weights to be loaded with `weights_only=True`
+    torch.serialization.add_safe_globals([PerRow, PerTensor])

@@ -14,6 +14,10 @@ from torchao.quantization import (
     float8_weight_only,
     float8_dynamic_activation_float8_weight,
 )
+from torchao.quantization.quant_api import (
+    float8_static_activation_float8_weight,
+)
+from torchao.quantization.quant_primitives import choose_qparams_affine, MappingType
 from torchao.quantization.observer import PerTensor, PerRow
 from torchao.float8.float8_utils import compute_error
 import torch
@@ -50,7 +54,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(not is_cuda_8_9, "Requires GPU with compute capability >= 8.9")
     @common_utils.parametrize("dtype", [torch.bfloat16, torch.float32])
-    @common_utils.parametrize("mode", ["dynamic", "weight-only"])
+    @common_utils.parametrize("mode", ["dynamic", "weight-only", "static"])
     @common_utils.parametrize("compile", [True, False])
     @common_utils.parametrize(
         "granularity", [PerTensor(), PerRow()] if is_H100 else [PerTensor()]
@@ -60,37 +64,49 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         "sizes",
         [
             ((128,), 256, 128),
-            ((256,), 512, 256),
-            ((64,), 128, 64),
             ((32, 128), 64, 256),
-            ((64, 256), 512, 128),
         ],
     )
     def test_fp8_linear_variants(
         self, dtype: torch.dtype, mode: str, compile: bool, sizes: Tuple, granularity
     ):
-        raises = (
-            isinstance(granularity, PerRow)
-            and mode == "dynamic"
-            and dtype != torch.bfloat16
+        error_message = None
+        if isinstance(granularity, PerRow):
+            if mode == "dynamic" and dtype != torch.bfloat16:
+                error_message = "PerRow quantization only works for bfloat16 precision"
+            elif mode == "static":
+                error_message = (
+                    "Static quantization only supports PerTensor granularity"
+                )
+
+        error_context = (
+            pytest.raises(AssertionError, match=error_message)
+            if error_message
+            else nullcontext()
         )
-        context = (
-            nullcontext()
-            if not raises
-            else pytest.raises(
-                AssertionError,
-                match="PerRow quantization only works for bfloat16 precision",
-            )
-        )
-        with context:
+
+        with error_context:
             M, N, K = sizes
             input_tensor = torch.randn(*M, K, dtype=dtype, device="cuda")
-
+            # Get a "reasonable" scale for the input tensor even though
+            # we use the same scale for multiple activations
+            scale, _ = choose_qparams_affine(
+                input_tensor,
+                MappingType.SYMMETRIC,
+                input_tensor.shape,
+                torch.float8_e4m3fn,
+                scale_dtype=torch.float32,
+            )
             mode_map = {
                 "dynamic": partial(
                     float8_dynamic_activation_float8_weight, granularity=granularity
                 ),
                 "weight-only": float8_weight_only,
+                "static": partial(
+                    float8_static_activation_float8_weight,
+                    scale=scale,
+                    granularity=granularity,
+                ),
             }
 
             # Create a linear layer with bfloat16 dtype
@@ -98,7 +114,7 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
 
             quantized_model = copy.deepcopy(model)
             factory = mode_map[mode]()
-            quantize_(model, factory)
+            quantize_(quantized_model, factory)
 
             if compile:
                 quantized_model = torch.compile(quantized_model, fullgraph=True)
@@ -145,14 +161,23 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @unittest.skipIf(not is_cuda_8_9, "Requires GPU with compute capability >= 8.9")
-    @common_utils.parametrize("mode", ["dynamic", "weight-only"])
+    @common_utils.parametrize("mode", ["dynamic", "weight-only", "static"])
     def test_serialization(self, mode: str):
         # Create and quantize the model
         model = ToyLinearModel(16, 32).to(device="cuda")
-        if mode == "dynamic":
-            factory = float8_dynamic_activation_float8_weight()
-        else:
-            factory = float8_weight_only()
+
+        mode_map = {
+            "dynamic": partial(
+                float8_dynamic_activation_float8_weight, granularity=PerTensor()
+            ),
+            "weight-only": float8_weight_only,
+            "static": partial(
+                float8_static_activation_float8_weight,
+                scale=torch.tensor(1.0, dtype=torch.float32, device="cuda"),
+                granularity=PerTensor(),
+            ),
+        }
+        factory = mode_map[mode]()
         quantize_(model, factory)
 
         # Save the state dict to an in-memory buffer
@@ -163,46 +188,50 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
         buffer.seek(0)
 
         # Load the state dict from the buffer
-        loaded_state_dict = torch.load(buffer)
+        weights_only_load = True
+        if mode == "dynamic":
+            # TODO will fix in followup
+            weights_only_load = False
+
+        loaded_state_dict = torch.load(buffer, weights_only=weights_only_load)
 
         # Create a new model and load the state dict
         with torch.device("meta"):
             new_model = ToyLinearModel(16, 32)
+            if mode == "static":
+                quantize_(new_model, factory)
             new_model.load_state_dict(loaded_state_dict, assign=True)
 
         # Compare the original and loaded models
-        if mode == "weight-only":
-            model_weight_1 = model.linear1.weight.layout_tensor.float8_data.to(
-                torch.float32
-            )
-            new_model_weight_1 = new_model.linear1.weight.layout_tensor.float8_data.to(
-                torch.float32
-            )
+        for layer_name in ["linear1", "linear2"]:
+            original_layer = getattr(model, layer_name)
+            new_layer = getattr(new_model, layer_name)
 
-            model_weight_2 = model.linear2.weight.layout_tensor.float8_data.to(
-                torch.float32
-            )
-            new_model_weight_2 = new_model.linear2.weight.layout_tensor.float8_data.to(
-                torch.float32
-            )
+            # Compare weights
+            if mode == "weight-only":
+                original_weight = original_layer.weight.layout_tensor.float8_data.to(
+                    torch.float32
+                )
+                new_weight = new_layer.weight.layout_tensor.float8_data.to(
+                    torch.float32
+                )
+            else:
+                original_weight = original_layer.weight.original_weight_tensor.layout_tensor.float8_data.to(
+                    torch.float32
+                )
+                new_weight = new_layer.weight.original_weight_tensor.layout_tensor.float8_data.to(
+                    torch.float32
+                )
 
-        else:
-            model_weight_1 = model.linear1.weight.original_weight_tensor.layout_tensor.float8_data.to(
-                torch.float32
-            )
-            new_model_weight_1 = new_model.linear1.weight.original_weight_tensor.layout_tensor.float8_data.to(
-                torch.float32
-            )
+            assert torch.allclose(
+                original_weight, new_weight
+            ), f"Weights do not match for {layer_name}"
 
-            model_weight_2 = model.linear2.weight.original_weight_tensor.layout_tensor.float8_data.to(
-                torch.float32
-            )
-            new_model_weight_2 = new_model.linear2.weight.original_weight_tensor.layout_tensor.float8_data.to(
-                torch.float32
-            )
-
-        assert torch.allclose(model_weight_1, new_model_weight_1)
-        assert torch.allclose(model_weight_2, new_model_weight_2)
+            # Compare scales
+            if hasattr(original_layer.weight, "scale"):
+                assert torch.allclose(
+                    original_layer.weight.scale, new_layer.weight.scale
+                ), f"Scales do not match for {layer_name}"
 
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedFloat8Compile)

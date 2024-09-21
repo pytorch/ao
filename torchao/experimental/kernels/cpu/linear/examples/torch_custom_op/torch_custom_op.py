@@ -9,10 +9,10 @@ from typing import Optional
 import torch
 import torch.nn as nn
 
-torch.ops.load_library(
-    "/tmp/cmake-out/torch_ao/examples/torch_custom_op/libtorch_custom_op.dylib"
-)
-
+import glob
+libs = glob.glob("/tmp/cmake-out/torch_ao/examples/torch_custom_op/libtorch_custom_op.*")
+libs = list(filter(lambda l:(l.endswith("so") or l.endswith("dylib")), libs))
+torch.ops.load_library(libs[0])
 
 def quantize(vals: torch.Tensor, group_size: int, nbit: int, scale_only: bool):
     assert nbit >= 2 and nbit <= 8

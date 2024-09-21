@@ -1121,24 +1121,24 @@ def _aqt_is_int8(aqt):
     """Check if an AffineQuantizedTensor is int8 quantized Tensor"""
     return (
         aqt.layout_tensor.dtype == torch.int8 and
-        aqt.quant_min is None or aqt.quant_min == -128 and
-        aqt.quant_max is None or aqt.quant_max == 127
+        (aqt.quant_min is None or aqt.quant_min == -128) and
+        (aqt.quant_max is None or aqt.quant_max == 127)
     )
 
 def _aqt_is_int8_reduced_range(aqt):
     return (
         aqt.layout_tensor.dtype == torch.int8 and
         aqt.quant_min == -127 and
-        aqt.quant_max is None or aqt.quant_max == 127
+        (aqt.quant_max is None or aqt.quant_max == 127)
     )
 
-def _aqt_is_uint4(aqt):
+def _aqt_is_tensor_core_tile_uint4(aqt):
     """Check if an AffineQuantizedTensor is uint4 quantized Tensor"""
     # TODO: use torch.uint4
     return (
         aqt.layout_tensor.dtype == torch.int32 and
-        aqt.quant_min is None or aqt.quant_min == 0 and
-        aqt.quant_max is None or aqt.quant_max == 15
+        aqt.quant_min == 0 and
+        aqt.quant_max == 15
     )
 
 
@@ -1230,7 +1230,7 @@ def _linear_bf16_act_uint4_weight_check(input_tensor, weight_tensor, bias):
         input_tensor.dtype == torch.bfloat16 and
         # weight is uint4, group quantized tensor_core_tiled layout affine quantized tensor
         isinstance(weight_tensor, AffineQuantizedTensor) and
-        _aqt_is_uint4(weight_tensor) and
+        _aqt_is_tensor_core_tile_uint4(weight_tensor) and
         weight_tensor.dtype == torch.bfloat16 and
         len(weight_tensor.shape) == 2 and
         weight_tensor.zero_point_domain == ZeroPointDomain.FLOAT and
@@ -1361,7 +1361,7 @@ def _linear_f16_act_floatx_weight_impl(input_tensor, weight_tensor, bias):
 
     return out.view(*act.shape[:-1], out_dim).to(act.dtype)
 
-def _linear_fp_act_fp8_weight_check(
+def _linear_fp8_act_fp8_weight_check(
     input_tensor: Union[torch.Tensor, AffineQuantizedTensor],
     weight_tensor: Union[torch.Tensor, AffineQuantizedTensor],
     bias: Optional[torch.Tensor],
@@ -1385,7 +1385,7 @@ def preprocess_scale(input_scale: torch.Tensor, input_shape: Tuple[int]):
 
     return input_scale
 
-def _linear_fp_act_fp8_weight_impl(
+def _linear_fp8_act_fp8_weight_impl(
     input_tensor: AffineQuantizedTensor,
     weight_tensor: AffineQuantizedTensor,
     bias: Optional[torch.Tensor],
@@ -1430,7 +1430,7 @@ def _linear_fp_act_fp8_weight_impl(
 def _linear_fp_act_int4_weight_sparse_marlin_check(input_tensor, weight_tensor, bias):
     return (
         isinstance(weight_tensor, AffineQuantizedTensor) and
-        _aqt_is_uint4(weight_tensor) and
+        _aqt_is_tensor_core_tile_uint4(weight_tensor) and
         input_tensor.dtype == torch.float16 and
         len(weight_tensor.shape) == 2 and
         weight_tensor.zero_point_domain == ZeroPointDomain.INT and
@@ -1474,7 +1474,7 @@ def _register_aqt_quantized_linear_dispatches():
     for dispatch_condition, impl in [
         (_linear_int8_act_int8_weight_check, _linear_int8_act_int8_weight_impl),
         (_linear_int8_act_int8_weight_semi_structured_sparse_check, _linear_int8_act_int8_weight_semi_structured_sparse_impl),
-        (_linear_fp_act_fp8_weight_check, _linear_fp_act_fp8_weight_impl),
+        (_linear_fp8_act_fp8_weight_check, _linear_fp8_act_fp8_weight_impl),
         (_linear_bf16_act_uint4_weight_check, _linear_bf16_act_uint4_weight_impl),
         (_linear_fp_act_int8_weight_check, _linear_fp_act_int8_weight_impl),
         (_linear_f16_act_floatx_weight_check, _linear_f16_act_floatx_weight_impl),
@@ -1484,7 +1484,7 @@ def _register_aqt_quantized_linear_dispatches():
 
 _register_aqt_quantized_linear_dispatches()
 
-@implements(torch.nn.functional.linear)
+@implements([torch.nn.functional.linear, aten.linear.default])
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (
         args[0],
