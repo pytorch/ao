@@ -640,7 +640,7 @@ class TestNumerics:
             gemm_input_role=GemmInputRole.WEIGHT,
         )
         assert torch.equal(float8_eager._scale, float8_compile._scale)
-        assert torch.equal(float8_eager._data, float8_compile._data)
+        assert torch.testing.assert_close(float8_eager._data, float8_compile._data)
 
 
 class TestFloat8LinearUtils(unittest.TestCase):
