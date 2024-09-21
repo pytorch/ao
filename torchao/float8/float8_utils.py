@@ -44,7 +44,7 @@ def amax_to_scale(
     """
     # Preserve precision in amax-to-scale conversion
     # and ensure on-par numerics with torch.compile
-    amax = amax.to(torch.float64)
+    amax = amax.to(torch.float32)
     if float8_dtype in FP8_TYPES:
         res = torch.finfo(float8_dtype).max / torch.clamp(amax, min=EPS)
     else:
@@ -55,7 +55,7 @@ def amax_to_scale(
     # to care about this for float32/bfloat16.
     if orig_dtype is torch.float16:
         res = torch.clamp(res, max=torch.finfo(torch.float16).max)
-    return res.to(torch.float32)
+    return res
 
 
 @torch.no_grad()
