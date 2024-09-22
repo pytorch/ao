@@ -21,12 +21,33 @@ Step 2: a == tensor([0.8447, 0.3062, 0.2333, 0.2270])
               ^^^ Notice these are different lol ^^^
 '''
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # Up next: match TorchAO's FP8 quantization
 
 # `python setup.py develop` is giving me errors (ssh-ing Lambdalabs)
 # so just copy-pasting instead of importing
 
-# from torchao/prototype/low_bit_optim/subclass_fp8.py
+# from torchao/prototype/low_bit_optim/subclass_fp8.pygi
 # https://github.com/pytorch/ao/blob/0bdde92114b470823aa24725bf3b0811e980c8ce/torchao/prototype/low_bit_optim/subclass_fp8.py#L13C1-L19C36
 def quantize_fp8(input: Tensor, block_size: int):
     shape = input.shape
