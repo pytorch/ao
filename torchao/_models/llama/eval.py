@@ -145,7 +145,6 @@ def run_evaluation(
                 )
             is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
             quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size), is_observed_linear)
-            pass
         else:
             if not TORCH_VERSION_AT_LEAST_2_5:
                 unwrap_tensor_subclass(model)

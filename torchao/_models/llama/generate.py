@@ -229,6 +229,32 @@ def main(
             quantize_(model, int4_weight_only(layout_type=MarlinSparseLayoutType()))
         if "fp6" in quantization:
             quantize_(model, fpx_weight_only(3, 2))
+        if quantization.startswith("awq"):
+            from torchao._models._eval import TransformerEvalWrapper
+            from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
+            if not TORCH_VERSION_AT_LEAST_2_3:
+                print("Awq requires torch2.3+")
+                exit()
+            from torchao.prototype.awq import insert_awq_observer_, awq_uintx, ObservedLinear
+            quant_dtype = quantization.split("-")[1]
+            group_size = int(quantization.split("-")[2])
+            quant_dtype = getattr(torch, quant_dtype, torch.uint8)
+            model=model.to(device)
+            # get calibration data
+            insert_awq_observer_(model,calibration_limit, calibration_seq_length, quant_dtype=quant_dtype, group_size=group_size)
+            with torch.no_grad():
+                TransformerEvalWrapper(
+                    model=model,
+                    tokenizer=tokenizer,
+                    max_seq_length=calibration_seq_length,
+                    input_prep_func=prepare_inputs_for_model,
+                    device=device,
+                ).run_eval(
+                    tasks=calibration_tasks,
+                    limit=calibration_limit,
+                )
+            is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
+            quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size), is_observed_linear)
         if "uintx" in quantization:
             # uintx-nbits-groupsize, e.g. "uintx-2-64"
             if "hqq" in quantization:
