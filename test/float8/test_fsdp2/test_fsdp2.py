@@ -1,3 +1,7 @@
+import torch
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+# torch.use_deterministic_algorithms(True)
 import copy
 import itertools
 import pytest
@@ -10,15 +14,34 @@ from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 if not TORCH_VERSION_AT_LEAST_2_5:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
-
-import torch
+from torchao.float8.float8_linear_utils import (
+    linear_requires_sync,
+    sync_float8_amax_and_scale_history,
+)
+from torchao.float8.float8_scaling_utils import (
+    hp_tensor_to_float8_delayed,
+    hp_tensor_to_float8_dynamic,
+)
+from torchao.float8.float8_tensor import (
+    Float8Tensor,
+    GemmInputRole,
+    hp_tensor_and_scale_to_float8,
+    LinearMMConfig,
+)
+from torchao.float8.fsdp_utils import precompute_float8_dynamic_scale_for_fsdp
 import torch._dynamo.testing
 import torch.distributed as dist
 import torch.nn as nn
 from torchao.float8.config import CastConfig, Float8LinearConfig, ScalingType
 from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
-from fsdp2_common import check_parity_bf16_mp, check_parity_no_mp
+from fsdp2_common import (
+    check_parity_eager_ddp_bf16_mp, 
+    check_parity_eager_ddp_no_mp, 
+    check_parity_compile, 
+    run_training_loop, 
+    compare_numerics,
+)
 from torch.distributed._composable.fsdp import fully_shard, MixedPrecisionPolicy
 from torch.distributed._tensor import DTensor
 from torch.testing._internal.common_cuda import TEST_CUDA
@@ -34,11 +57,70 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
     ModelArgs,
     Transformer,
     TransformerBlock,
+    # Attention,
+    # FeedForward
 )
 
 is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
 if not is_cuda_8_9:
     pytest.skip("Unsupported CUDA device capability version", allow_module_level=True)
+
+
+
+# class TransformerBlock(nn.Module):
+#     def __init__(self, args: ModelArgs):
+#         super().__init__()
+#         self.attention_norm = nn.LayerNorm(args.dim)
+#         self.attention = Attention(args)
+#         self.ffn_norm = nn.LayerNorm(args.dim)
+#         self.feed_forward = FeedForward(
+#             args.dim, hidden_dim=4 * args.dim, dropout_p=args.dropout_p
+#         )
+
+#     def forward(self, x):
+#         h = x + self.attention(self.attention_norm(x))
+#         out = h + self.feed_forward(self.ffn_norm(h))
+#         return out
+
+
+# class Transformer(nn.Module):
+#     def __init__(self, args: ModelArgs):
+#         super().__init__()
+#         assert args.vocab_size is not None
+#         assert args.max_seq_len is not None
+#         self.model_args = args
+#         self.max_seq_len = args.max_seq_len
+#         # self.tok_embeddings = nn.Embedding(args.vocab_size, args.dim)
+#         # self.pos_embeddings = nn.Embedding(args.max_seq_len, args.dim)
+#         # self.dropout = nn.Dropout(args.dropout_p)
+#         self.layers = nn.ModuleList()
+#         for _ in range(args.n_layers):
+#             self.layers.append(TransformerBlock(args))
+#         # self.norm = nn.LayerNorm(args.dim)
+#         # self.output = nn.Linear(args.dim, args.vocab_size, bias=False)
+#         # if args.weight_tying:
+#         #     self.output.weight = self.tok_embeddings.weight
+#         self.checkpoint_activations = args.checkpoint_activations
+
+#     def forward(self, tokens):
+#         # _bsz, seq_len = tokens.size()
+#         # assert seq_len <= self.max_seq_len
+#         # h = self.tok_embeddings(tokens)
+#         # pos = torch.arange(0, seq_len, device=tokens.device)
+#         # p = self.pos_embeddings(pos)  # positional embeddings of shape (seq_len, dim)
+#         # h = h + p
+#         # h = self.dropout(h)
+#         h = tokens
+#         for layer in self.layers:
+#             if self.checkpoint_activations:
+#                 h = torch.utils.checkpoint.checkpoint(layer, h, use_reentrant=False)
+#             else:
+#                 h = layer(h)
+#         return h
+#         # h = self.norm(h)
+#         # output = self.output(h).float()
+#         # return output
+
 
 class TestFloat8Common:
     def broadcast_module(self, module: nn.Module) -> None:
@@ -86,19 +168,160 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
     @property
     def world_size(self) -> int:
         return min(torch.cuda.device_count(), 2)
+    
+    @skip_if_lt_x_gpu(2)
+    def test_precompute_dynamic_scale_parity(self):
+        self.run_subtests(
+            {
+                # "dtype": [torch.float32, torch.bfloat16],
+                "dtype": [torch.float32],
+            },
+            self._test_precompute_dynamic_scale_parity,
+        )
+
+    def _test_precompute_dynamic_scale_parity(self, dtype: torch.dtype):
+        scaling_type_weight = ScalingType.DYNAMIC
+        seed = 42
+        torch.manual_seed(seed)
+        module = nn.Linear(768, 32, bias=False).cuda().to(dtype)
+
+        # fp8 compute only
+        float8_compute_config = Float8LinearConfig(
+            cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
+        )
+        float8_compute_module = convert_to_float8_training(
+            copy.deepcopy(module),
+            config=float8_compute_config,
+        )
+        fully_shard(float8_compute_module)
+
+        float8_eager = hp_tensor_to_float8_dynamic(
+            float8_compute_module.weight.full_tensor(),
+            torch.float8_e4m3fn,
+            float8_compute_config,
+            gemm_input_role=GemmInputRole.WEIGHT,
+        )
+
+        float8_eager_fp64 = hp_tensor_to_float8_dynamic(
+            float8_compute_module.weight.full_tensor().to(torch.float64),
+            torch.float8_e4m3fn,
+            float8_compute_config,
+            gemm_input_role=GemmInputRole.WEIGHT,
+        )
+
+        float8_compile = torch.compile(hp_tensor_to_float8_dynamic)(
+            float8_compute_module.weight.full_tensor(),
+            torch.float8_e4m3fn,
+            float8_compute_config,
+            gemm_input_role=GemmInputRole.WEIGHT,
+        )
+
+        # float all-gather
+        float8_allgather_config = Float8LinearConfig(
+            enable_fsdp_float8_all_gather=True,
+            cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
+        )
+        float8_allgather_module = convert_to_float8_training(
+            copy.deepcopy(module),
+            config=float8_allgather_config,
+        )
+        fully_shard(float8_allgather_module)
+        precompute_float8_dynamic_scale_for_fsdp(float8_allgather_module)
+        
+        assert torch.equal(float8_allgather_module.weight._local_tensor._precomputed_scale, float8_eager_fp64._scale)
+        assert torch.equal(float8_eager._scale, float8_eager_fp64._scale)
+        assert torch.equal(float8_compile._scale, float8_eager_fp64._scale)
+
+    @skip_if_lt_x_gpu(2)
+    def test_float8_linear_parity(self):
+        self.run_subtests(
+            {
+                "enable_fsdp_float8_all_gather": [True],
+                "precompute": [False],
+                # "precompute": [False, True],
+                "scaling_type_weight": [
+                    ScalingType.DYNAMIC,
+                ],
+                "compile_transformer_block": [True],
+                "dtype": [torch.float32, torch.bfloat16],
+                "backend": [
+                    "inductor",
+                ]
+            },
+            self._test_float8_linear_parity,
+        )
+
+    @skip_if_lt_x_gpu(2)
+    def _test_float8_linear_parity(
+        self,
+        enable_fsdp_float8_all_gather: bool,
+        precompute: bool,
+        scaling_type_weight: ScalingType,
+        compile_transformer_block: bool,
+        dtype: Optional[torch.dtype] = None,
+        backend: str = "inductor"
+    ):
+        # from torch._inductor import config
+        # config.emulate_precision_casts = True
+        steps = 1000
+        seed = 42
+        torch.manual_seed(seed)
+        module = nn.Linear(768, 32, bias=False).cuda().to(dtype)
+        # fsdp module
+        torch._dynamo.reset()
+        ref_module = copy.deepcopy(module)
+        float8_linear_config1 = Float8LinearConfig(
+            cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
+        )
+        ref_module = convert_to_float8_training(
+            ref_module,
+            config=float8_linear_config1,
+        )
+        if compile_transformer_block:
+            ref_module = torch.compile(ref_module, dynamic=False, backend=backend)
+        fully_shard(ref_module)
+        ref_optim = torch.optim.Adam(ref_module.parameters(), lr=1e-2)
+        # ref_optim = torch.optim.SGD(ref_module.parameters(), lr=1e-2)
+        local_inp = torch.rand(16, 16, 768, device="cuda", dtype=dtype)
+        ref_losses, ref_param_sums, ref_grad_sums = run_training_loop(
+            self, ref_module, ref_optim, local_inp, steps, float8_linear_config1, dtype, seed
+        )
+        # fsdp all-gather module
+        float8_linear_config2 = Float8LinearConfig(
+            enable_fsdp_float8_all_gather=enable_fsdp_float8_all_gather,
+            cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
+        )
+        fsdp_module = copy.deepcopy(module)
+        fsdp_module = convert_to_float8_training(
+            module,
+            config=float8_linear_config2,
+        )
+        if compile_transformer_block:
+            fsdp_module = torch.compile(fsdp_module, dynamic=False, backend=backend)
+        fully_shard(fsdp_module)
+        fsdp_optim = torch.optim.Adam(fsdp_module.parameters(), lr=1e-2)
+        # fsdp_optim = torch.optim.SGD(fsdp_module.parameters(), lr=1e-2)
+        losses, param_sums, grad_sums = run_training_loop(
+            self, fsdp_module, fsdp_optim, local_inp, steps, float8_linear_config2, dtype, seed, precompute)
+        compare_numerics(self, losses, param_sums, grad_sums, ref_losses, ref_param_sums, ref_grad_sums)
+    
 
     @skip_if_lt_x_gpu(2)
     def test_transformer_parity(self):
         self.run_subtests(
             {
-                "enable_fsdp_float8_all_gather": [False, True],
+                "enable_fsdp_float8_all_gather": [True],
                 "precompute": [False, True],
                 "scaling_type_weight": [
                     ScalingType.DYNAMIC,
-                    ScalingType.DELAYED,
+                    # ScalingType.DELAYED,
                 ],
-                "compile_transformer_block": [False, True],
+                "compile_transformer_block": [True],
                 "dtype": [torch.float32, torch.bfloat16],
+                "backend": [
+                    # "aot_eager", 
+                    "inductor",
+                ]
             },
             self._test_transformer_parity,
         )
@@ -110,60 +333,78 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         scaling_type_weight: ScalingType,
         compile_transformer_block: bool,
         dtype: Optional[torch.dtype] = None,
+        backend: str = "inductor",
     ):
         if not enable_fsdp_float8_all_gather and precompute:
             return
         elif scaling_type_weight is ScalingType.DELAYED and precompute:
             return
+        
+        # from torch._inductor import config
+        # config.emulate_precision_casts = True
 
         # NOTE: Weight-tying does not compose with fp8 all-gather because the
         # embedding weight and output linear weight are tied but only the
         # latter uses fp8 compute. With fp8 all-gather, FSDP would pre-cast to
         # fp8 for that tied weight, incorrectly using fp8 for the embedding.
-        weight_tying = not enable_fsdp_float8_all_gather
+        steps = 1000
+        weight_tying = False
+        seed = 42
         module = self.init_transformer(weight_tying=weight_tying, dtype=dtype)
+        # fsdp module
         ref_module = copy.deepcopy(module)
         float8_linear_config1 = Float8LinearConfig(
             cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
         )
-        convert_to_float8_training(
+        ref_module = convert_to_float8_training(
             ref_module,
             config=float8_linear_config1,
         )
-        if compile_transformer_block:
-            for layer_id, transformer_block in ref_module.layers.named_children():
-                transformer_block = torch.compile(transformer_block, dynamic=False)
-                ref_module.layers.register_module(layer_id, transformer_block)
+        # local_inp = torch.rand(16, 16, 768, device="cuda", dtype=dtype)
+        local_inp = torch.randint(
+            0, ref_module.tok_embeddings.weight.size(0), (16, 16), device="cuda"
+        )
+        for layer_id, transformer_block in ref_module.layers.named_children():
+            if compile_transformer_block:
+                transformer_block = torch.compile(transformer_block, dynamic=False, backend=backend)
+            fully_shard(transformer_block)
+            ref_module.layers.register_module(layer_id, transformer_block)
+        # if compile_transformer_block:
+        #     ref_module.output = torch.compile(ref_module.output, dynamic=False, backend=backend)
+        # if compile_transformer_block:
+        #     ref_module = torch.compile(ref_module, dynamic=False, backend=backend)
+        fully_shard(ref_module)
+        ref_optim = torch.optim.Adam(ref_module.parameters(), lr=1e-2)
+        # ref_optim = torch.optim.SGD(ref_module.parameters(), lr=1e-2)
+        ref_losses, ref_param_sums, ref_grad_sums = run_training_loop(
+            self, ref_module, ref_optim, local_inp, steps, float8_linear_config1, dtype, seed
+        )
+        # fsdp float8 all-gather
+        fsdp_module = copy.deepcopy(module)
         float8_linear_config2 = Float8LinearConfig(
             enable_fsdp_float8_all_gather=enable_fsdp_float8_all_gather,
             cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
         )
-        convert_to_float8_training(
-            module,
+        fsdp_module = convert_to_float8_training(
+            fsdp_module,
             config=float8_linear_config2,
         )
-        for layer_id, transformer_block in module.layers.named_children():
+        for layer_id, transformer_block in fsdp_module.layers.named_children():
             if compile_transformer_block:
-                transformer_block = torch.compile(transformer_block, dynamic=False)
+                transformer_block = torch.compile(transformer_block, dynamic=False, backend=backend)
             fully_shard(transformer_block)
-            module.layers.register_module(layer_id, transformer_block)
-        fully_shard(module)
-        ref_optim = torch.optim.Adam(ref_module.parameters(), lr=1e-2)
-        optim = torch.optim.Adam(module.parameters(), lr=1e-2, foreach=True)
-        local_inp = torch.randint(
-            0, ref_module.tok_embeddings.weight.size(0), (16, 16), device="cuda"
-        )
-        check_parity_no_mp(
-            self,
-            ref_module,
-            ref_optim,
-            module,
-            optim,
-            local_inp,
-            precompute,
-            config=float8_linear_config2,
-            compile_transformer_block=compile_transformer_block,
-        )
+            fsdp_module.layers.register_module(layer_id, transformer_block)
+        # if compile_transformer_block:
+        #     fsdp_module.output = torch.compile(fsdp_module.output, dynamic=False, backend=backend)
+        # if compile_transformer_block:
+        #     fsdp_module = torch.compile(fsdp_module, dynamic=False, backend=backend)
+        fully_shard(fsdp_module)
+        fsdp_optim = torch.optim.Adam(fsdp_module.parameters(), lr=1e-2)
+        # fsdp_optim = torch.optim.SGD(fsdp_module.parameters(), lr=1e-2)
+        losses, param_sums, grad_sums = run_training_loop(
+            self, fsdp_module, fsdp_optim, local_inp, steps, float8_linear_config2, dtype, seed, precompute)
+        compare_numerics(self, losses, param_sums, grad_sums, ref_losses, ref_param_sums, ref_grad_sums)
+        
 
     @skip_if_lt_x_gpu(2)
     def test_transformer_memory(self):

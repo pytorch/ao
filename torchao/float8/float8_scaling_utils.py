@@ -28,6 +28,7 @@ from torchao.float8.float8_utils import (
     tensor_to_amax,
     tensor_to_scale,
 )
+EPS = 1e-12
 
 
 def hp_tensor_to_float8_dynamic(
@@ -60,6 +61,30 @@ def hp_tensor_to_float8_dynamic(
         linear_mm_config,
         gemm_input_role,
     )
+
+@torch.no_grad()
+def tensor_to_amax_debug(x: torch.Tensor) -> torch.Tensor:
+    amax = torch.max(torch.abs(x))
+    return amax
+
+@torch.no_grad()
+def tensor_to_scale_debug(
+    amax: torch.Tensor, float8_dtype: torch.dtype, cast_to_fp32: bool
+) -> torch.Tensor:
+    if cast_to_fp32:
+        amax = amax.to(torch.float32)
+    res = torch.finfo(float8_dtype).max / torch.clamp(amax, min=EPS)
+    return res
+
+
+def hp_tensor_to_float8_dynamic_debug(
+    hp_tensor: torch.Tensor,
+    float8_dtype: torch.dtype,
+    cast_to_fp32: bool = True
+) -> Float8Tensor:
+    amax = tensor_to_amax_debug(hp_tensor)
+    scale = tensor_to_scale_debug(amax, float8_dtype, cast_to_fp32)
+    return scale
 
 
 def hp_tensor_to_float8_delayed(
