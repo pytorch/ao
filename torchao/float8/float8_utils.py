@@ -43,7 +43,7 @@ def amax_to_scale(
         orig_dtype: The original dtype of the tensor.
     """
     # _scaled_mm requires float32 scale
-    amax = amax.to(torch.float32)
+    amax = amax.to(torch.float64)
     if float8_dtype in FP8_TYPES:
         res = torch.finfo(float8_dtype).max / torch.clamp(amax, min=EPS)
     else:
@@ -54,7 +54,7 @@ def amax_to_scale(
     # to care about this for float32/bfloat16.
     if orig_dtype is torch.float16:
         res = torch.clamp(res, max=torch.finfo(torch.float16).max)
-    return res
+    return res.to(torch.float32)
 
 
 @torch.no_grad()
