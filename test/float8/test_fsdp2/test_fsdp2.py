@@ -144,7 +144,7 @@ class TestFloat8Common:
     def init_transformer(self, weight_tying: bool, dtype: Optional[torch.dtype] = None) -> nn.Module:
         torch.manual_seed(42)
         args = ModelArgs(
-            n_layers=1,
+            n_layers=3,
             dim=768,
             n_heads=12,
             dropout_p=0.0,
@@ -174,7 +174,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         self.run_subtests(
             {
                 # "dtype": [torch.float32, torch.bfloat16],
-                "dtype": [torch.bfloat16],
+                "dtype": [torch.float32],
             },
             self._test_precompute_dynamic_scale_parity,
         )
@@ -237,13 +237,13 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         self.run_subtests(
             {
                 "enable_fsdp_float8_all_gather": [True],
-                "precompute": [True],
+                "precompute": [False],
                 # "precompute": [False, True],
                 "scaling_type_weight": [
                     ScalingType.DYNAMIC,
                 ],
                 "compile_transformer_block": [True],
-                "dtype": [torch.float32],
+                "dtype": [torch.float32, torch.bfloat16],
                 "backend": [
                     "inductor",
                 ]
@@ -311,7 +311,7 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
         self.run_subtests(
             {
                 "enable_fsdp_float8_all_gather": [True],
-                "precompute": [False],
+                "precompute": [False, True],
                 "scaling_type_weight": [
                     ScalingType.DYNAMIC,
                     # ScalingType.DELAYED,
@@ -369,8 +369,8 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
                 transformer_block = torch.compile(transformer_block, dynamic=False, backend=backend)
             fully_shard(transformer_block)
             ref_module.layers.register_module(layer_id, transformer_block)
-        if compile_transformer_block:
-            ref_module.output = torch.compile(ref_module.output, dynamic=False, backend=backend)
+        # if compile_transformer_block:
+        #     ref_module.output = torch.compile(ref_module.output, dynamic=False, backend=backend)
         # if compile_transformer_block:
         #     ref_module = torch.compile(ref_module, dynamic=False, backend=backend)
         fully_shard(ref_module)
@@ -394,8 +394,8 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
                 transformer_block = torch.compile(transformer_block, dynamic=False, backend=backend)
             fully_shard(transformer_block)
             fsdp_module.layers.register_module(layer_id, transformer_block)
-        if compile_transformer_block:
-            fsdp_module.output = torch.compile(fsdp_module.output, dynamic=False, backend=backend)
+        # if compile_transformer_block:
+        #     fsdp_module.output = torch.compile(fsdp_module.output, dynamic=False, backend=backend)
         # if compile_transformer_block:
         #     fsdp_module = torch.compile(fsdp_module, dynamic=False, backend=backend)
         fully_shard(fsdp_module)

@@ -44,7 +44,7 @@ def amax_to_scale(
     """
     # Preserve precision in amax-to-scale calculation
     # Otherwise torch.compile have better numerics than eager
-    amax = amax.to(torch.float32)
+    amax = amax.to(torch.float64)
     if float8_dtype in FP8_TYPES:
         res = torch.finfo(float8_dtype).max / torch.clamp(amax, min=EPS)
     else:

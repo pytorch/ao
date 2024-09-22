@@ -59,7 +59,7 @@ def precompute_float8_dynamic_scale_for_fsdp(module: nn.Module) -> None:
         return
 
     # inf-norm is equivalent to max(abs(w))
-    max_weights = torch._foreach_norm(weights, ord=math.inf, dtype=torch.float32)  # Partial
+    max_weights = torch._foreach_norm(weights, ord=math.inf, dtype=torch.float64)  # Partial
     amax_tensor = torch.stack(max_weights)  # Partial
     # clamp is dispatched through DTensor
     # it will issue a single all-reduce
@@ -67,7 +67,7 @@ def precompute_float8_dynamic_scale_for_fsdp(module: nn.Module) -> None:
     scale_tensor = torch.finfo(torch.float8_e4m3fn).max / amax_tensor  # Replicate
     if amax_tensor.dtype is torch.float16:
         scale_tensor = torch.clamp(scale_tensor, max=torch.finfo(torch.float16).max)
-    local_scale_tensor = scale_tensor.to_local()
+    local_scale_tensor = scale_tensor.to_local().to(torch.float32)
     for i, float8_linear in enumerate(float8_linears):
         float8_linear.weight._local_tensor._precomputed_scale = local_scale_tensor[i]
 
@@ -203,7 +203,7 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
     def fsdp_pre_all_gather(self, mesh):
         if self._precomputed_scale is not None:
             # float8_tensor = hp_tensor_and_scale_to_float8(
-            float8_tensor = torch.compile(hp_tensor_and_scale_to_float8)(
+            float8_tensor = hp_tensor_and_scale_to_float8(
                 self._tensor,
                 self._precomputed_scale,
                 torch.float8_e4m3fn,
@@ -211,8 +211,8 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
                 GemmInputRole.WEIGHT,
             )
         else:
-            # float8_tensor = hp_tensor_to_float8_dynamic(
-            float8_tensor = torch.compile(hp_tensor_to_float8_dynamic)(
+            float8_tensor = hp_tensor_to_float8_dynamic(
+            # float8_tensor = torch.compile(hp_tensor_to_float8_dynamic)(
                 self._tensor,
                 e4m3_dtype,
                 self._linear_mm_config,
