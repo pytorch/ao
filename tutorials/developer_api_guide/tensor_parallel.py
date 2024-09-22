@@ -78,7 +78,6 @@ def _(func, types, args, kwargs):
         args[1],
         None
     )
-    print("mm weight transposed:", weight_tensor.layout_tensor.transposed)
     weight_tensor = weight_tensor.dequantize()
     return aten.mm(input_tensor, weight_tensor)
 
@@ -127,13 +126,9 @@ def rowwise_shard(m: torch.nn.Module, mesh: DeviceMesh) -> torch.nn.Module:
     # Row-wise is wrt to A^T, so for A it is column-wise.
     # Number of rows per rank
     orig_weight = m.linear.weight
-    print("rowwise original:", orig_weight.shape)
     n_local_cols = orig_weight.size(1) // mesh.size()
     rank = mesh.get_local_rank()
-    print("rowwise n_local_cols:", n_local_cols)
     local_shard = orig_weight[:, rank * n_local_cols : (rank + 1) * n_local_cols]
-    # BUG: `local_shard` has the same shape as the original tensor
-    print("rowwise local shard:", local_shard.shape)
     # Construct DTensor from local shard
     dtensor = DTensor.from_local(local_shard, mesh, [Shard(1)])
     # Replace parameter in module
@@ -156,9 +151,9 @@ def main():
     y = proj_dn(proj_up(example_input))
 
     # Quantize the model
-    q_up = quantize(proj_up)
-    q_dn = quantize(proj_dn)
-    y_q = q_dn(q_up(example_input))
+    up_quant = quantize(proj_up)
+    dn_quant = quantize(proj_dn)
+    y_q = dn_quant(up_quant(example_input))
     print("Quantization works!")
 
     # Create a device mesh
@@ -168,26 +163,22 @@ def main():
     mesh = dist.init_device_mesh("cuda", (world_size,))
 
     # Shard the models
-    d_up = colwise_shard(q_up, mesh)
-    print("d_up weight shape:", d_up.linear.weight.shape)
-    d_dn = rowwise_shard(q_dn, mesh)
+    up_dist = colwise_shard(up_quant, mesh)
+    dn_dist = rowwise_shard(dn_quant, mesh)
 
     # We need to turn inputs into DTensor form as well -- just a format change
     input_dtensor = DTensor.from_local(
         example_input, mesh, [Replicate()]
     )
 
-    y_colwise = d_up(input_dtensor)
-    print("y_colwise:", y_colwise.shape)
-    print("result:", d_dn(y_colwise))
+    y_d = dn_dist(up_dist(input_dtensor))
+    print("Distributed result:", y_d)
     print("Distributed works!")
 
-    c_up = torch.compile(d_up)
-    y_up = c_up(input_dtensor)
-    print("y_up:", y_up.shape)
-    c_dn = torch.compile(d_dn)
-    y_dn = c_dn(y_up)
-    print("y_dn:", y_dn.shape)
+    up_compiled = torch.compile(up_dist)
+    y_up = up_compiled(input_dtensor)
+    dn_compiled = torch.compile(dn_dist)
+    y_dn = dn_compiled(y_up)
     print("compiled result:", y_dn)
     print("torch.compile works!")
 
