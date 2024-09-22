@@ -13,11 +13,15 @@ import torch
 import torch.nn as nn
 import torch.utils.benchmark as benchmark
 
+from torch.sparse import SparseSemiStructuredTensor
+
 from utils import (
-    get_name_to_shapes_iter, 
-    profiler_output_to_filtered_time_by_kernel_name,
     get_gpu_kernel_gemm_time_s,
+    get_name_to_shapes_iter,
+    profiler_output_to_filtered_time_by_kernel_name,
 )
+
+SparseSemiStructuredTensor._FORCE_CUTLASS = False
 
 # estimating TOPs for matmuls in fp32, fp16, fp8
 # assuming A * B = C, with A being M * K, B being K * N, C being M * N
@@ -48,11 +52,11 @@ def benchmark_fn_in_sec(f, *args, **kwargs):
 
 
 def do_benchmarks(
-    tops, 
-    peak_tops, 
-    use_gpu_kernel_time, 
-    f, 
-    *args, 
+    tops,
+    peak_tops,
+    use_gpu_kernel_time,
+    f,
+    *args,
     **kwargs,
 ):
     if use_gpu_kernel_time:
@@ -69,7 +73,7 @@ def do_benchmarks(
 @torch.inference_mode()
 def run(
     n_limit: Optional[int] = None,
-    shape_gen_name: str = 'llama',
+    shape_gen_name: str = "llama",
     out_filename: Optional[str] = None,
     M: Optional[int] = None,
     K: Optional[int] = None,
@@ -78,14 +82,28 @@ def run(
 ):
     device = "cuda"
 
-    headers = ("fast_accum", "name", "M", "K", "N", "ref_time_s", "fp8_time_s", "fp8_speedup")
+    headers = (
+        "fast_accum",
+        "name",
+        "M",
+        "K",
+        "N",
+        "ref_time_s",
+        "fp8_time_s",
+        "fp8_speedup",
+        "fp8_24_time_s",
+        "fp8_24_speedup (ref)",
+        "fp8_24_speedup (fp8)",
+    )
     results = []
 
     dtype = torch.bfloat16
     name_to_shapes = get_name_to_shapes_iter(shape_gen_name, M, K, N)
     fast_accum_vals = [True, False]
 
-    for idx, (fast_accum, (name, (M, K, N))) in enumerate(itertools.product(fast_accum_vals, name_to_shapes)):
+    for idx, (fast_accum, (name, (M, K, N))) in enumerate(
+        itertools.product(fast_accum_vals, name_to_shapes)
+    ):
         if n_limit is not None and idx >= n_limit:
             break
 
@@ -119,11 +137,44 @@ def run(
                 A, B, scale_a, scale_b, out_dtype=d3, use_fast_accum=fast_accum
             )
 
+        cslt_alg_id = 0
+        alpha = scale_a * scale_b
+
+        def do_sparse_matmul(A, B):
+            nonlocal cslt_alg_id
+            nonlocal alpha
+            return torch._cslt_sparse_mm(
+                A, B, out_dtype=d3, alg_id=cslt_alg_id, alpha=alpha
+            )
+
         fp8_time_sec, fp8_tops_sec, fp8_pct_top_peak = do_benchmarks(
             tops, dtype_to_peak_tops[d1], use_gpu_kernel_time, do_matmul, A, B
         )
         print(
             f"fp8 time_sec {fp8_time_sec:.2E}, tops/sec {fp8_tops_sec:.2E}, pct_peak {fp8_pct_top_peak:.3f}"
+        )
+
+        from torch.sparse import to_sparse_semi_structured
+
+        A_sparse = torch._cslt_compress(A)
+
+        cslt_alg_id = torch._cslt_sparse_mm_search(
+            A_sparse, B, out_dtype=d3, alpha=alpha
+        )
+        print(f"cslt_alg_id: {cslt_alg_id}")
+
+        fp8_24sparse_time_sec, fp8_24sparse_tops_sec, fp8_24sparse_pct_top_peak = (
+            do_benchmarks(
+                tops,
+                dtype_to_peak_tops[d1],
+                use_gpu_kernel_time,
+                do_sparse_matmul,
+                A_sparse,
+                B,
+            )
+        )
+        print(
+            f"fp8+24 sparse time_sec {fp8_24sparse_time_sec:.2E}, tops/sec {fp8_24sparse_tops_sec:.2E}, pct_peak {fp8_24sparse_pct_top_peak:.3f}"
         )
 
         del A, B, scale_a, scale_b
@@ -138,6 +189,9 @@ def run(
                 ref_time_sec,
                 fp8_time_sec,
                 ref_time_sec / fp8_time_sec,
+                fp8_24sparse_time_sec,
+                ref_time_sec / fp8_24sparse_time_sec,
+                fp8_time_sec / fp8_24sparse_time_sec,
             ]
         )
 
@@ -146,6 +200,7 @@ def run(
 
     if out_filename is not None:
         data_df.to_csv(out_filename)
+
 
 def main() -> None:
     fire.Fire(run)
