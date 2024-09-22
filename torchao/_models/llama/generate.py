@@ -248,7 +248,7 @@ def main(
                 TransformerEvalWrapper(
                     model=model,
                     tokenizer=tokenizer,
-                    max_seq_length=args.calibration_seq_length,
+                    max_seq_length=calibration_seq_length,
                     input_prep_func=prepare_inputs_for_model,
                     device=device,
                 ).run_eval(
@@ -447,7 +447,7 @@ if __name__ == '__main__':
         )
     )
     parser.add_argument("--calibration_limit", type=int, default=10, help="Number of calibration examples")
-    parser.add_argument("--calibration_sequence_length", type=int, default=256, help="Sequence length for calibration")
+    parser.add_argument("--calibration_seq_length", type=int, default=256, help="Sequence length for calibration")
     parser.add_argument('--kv_cache_quantization', action='store_true', help='Whether to quantize the KV cache')
     parser.add_argument('--cache_size', type=int, default=None, help='Force size of cache to be a certain number of tokens, if not set, will use max_new_tokens+prompt_size')
     parser.add_argument('--linear_causal_mask', action='store_true', help='Whether to use the memory efficient, but slightly less fast, linear causal mask (important for long context lengths)')
@@ -463,5 +463,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     main(
         args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.top_k,
-        args.temperature, args.checkpoint_path, args.quantization, args.calibration_limit, args.calibration_sequence_length, args.kv_cache_quantization, args.cache_size, args.linear_causal_mask, args.save, args.compile, args.compile_prefill, args.profile, args.memory_profile, args.device, args.precision, args.write_result
+        args.temperature, args.checkpoint_path, args.quantization, args.calibration_limit, args.calibration_seq_length, args.kv_cache_quantization, args.cache_size, args.linear_causal_mask, args.save, args.compile, args.compile_prefill, args.profile, args.memory_profile, args.device, args.precision, args.write_result
     )
