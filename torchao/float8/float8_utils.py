@@ -100,7 +100,7 @@ def amax_history_to_scale_stack(
 
 @torch.no_grad()
 def tensor_to_amax(
-    x: torch.Tensor, 
+    x: torch.Tensor,
     reduce_amax: bool = False,
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE,
     axiswise_dim: Optional[int] = None,
@@ -110,7 +110,7 @@ def tensor_to_amax(
     else:
         assert scaling_granularity is ScalingGranularity.AXISWISE, "unsupported"
         assert axiswise_dim is not None, "unsupported"
-        amax = torch.amax(torch.abs(x), dim=axiswise_dim, keepdim=True) 
+        amax = torch.amax(torch.abs(x), dim=axiswise_dim, keepdim=True)
 
     # If the user asked for distributed reduction, do it.
     # If the user did not ask for it, assume that it will
@@ -123,8 +123,8 @@ def tensor_to_amax(
 
 @torch.no_grad()
 def tensor_to_scale(
-    x: torch.Tensor, 
-    float8_dtype: torch.dtype, 
+    x: torch.Tensor,
+    float8_dtype: torch.dtype,
     reduce_amax: bool = False,
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE,
     axiswise_dim: Optional[int] = None,
