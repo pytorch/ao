@@ -25,7 +25,6 @@ __all__ = [
     "autoquant",
     "DEFAULT_AUTOQUANT_CLASS_LIST",
     "DEFAULT_INT4_AUTOQUANT_CLASS_LIST",
-    "OTHER_AUTOQUANT_CLASS_LIST",
 ]
 
 
@@ -493,105 +492,6 @@ class AQFloat8WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
         block_size = (1, weight.shape[1])
         return super(AQFloat8WeightOnlyQuantizedLinearWeight, cls).from_hp_to_floatx(weight, block_size, target_dtype=cls.target_dtype, layout_type=Float8LayoutType())
 
-class AQFloat8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedTensor):
-    """
-    AutoQuantizable version of Float8DynamicallyQuantizedLinearWeight
-    """
-    @classmethod
-    def from_float(cls, weight):
-        # TODO test if this is valid
-        # in_features = weight.shape[1]
-        # int8 dynamic quantization only has benefit when in_feature > 16
-        # if in_features <= 16:
-            # return weight
-
-        # avoid circular dep
-        from torchao.dtypes import to_affine_quantized_floatx
-        # weight settings
-        mapping_type = MappingType.SYMMETRIC
-        def get_weight_block_size(x):
-            return (1, x.shape[1])
-        target_dtype = torch.float8_e4m3fn
-        eps = torch.finfo(torch.float32).eps
-        zero_point_dtype = torch.float32
-
-        # input settings
-        def get_per_token_block_size(x):
-            block_size = list(x.shape)
-            for i in range(len(block_size)-1):
-                block_size[i] = 1
-            return block_size
-
-        input_mapping_type = MappingType.SYMMETRIC
-        input_target_dtype = torch.float8_e4m3fn
-        input_eps = 1e-5
-        input_quant_min = torch.finfo(input_target_dtype).min
-        input_quant_max = torch.finfo(input_target_dtype).max
-        layout_type = Float8LayoutType()
-        input_quant_func = to_affine_quantized_floatx(
-                            input_float=x,
-                            block_size=get_per_token_block_size(x),
-                            target_dtype=input_target_dtype,
-                            layout_type=layout_type
-        )
-
-        block_size = get_weight_block_size(weight)
-        weight = to_affine_quantized_floatx(
-                    input_float=weight,
-                    block_size=block_size,
-                    target_dtype=target_dtype,
-                    layout_type=layout_type
-        )
-        weight = super(AQFloat8DynamicallyQuantizedLinearWeight, cls).from_float(weight, input_quant_func)
-        return weight
-
-    # @classmethod
-    # def _autoquant_test(cls, act_mat, weight, bias, best_time, mode=["relu", None]):
-    #     """
-    #     Tests and benchmarks the autoquantization process with special handling for interpolate mode.
-
-    #     Args:
-    #         act_mat (torch.Tensor): The activation matrix.
-    #         weight (torch.Tensor): The weight tensor.
-    #         bias (torch.Tensor or None): The bias tensor.
-    #         best_time (float): The best time to beat for the quantization process.
-    #         mode (list, optional): A list containing mode settings for quantization. The first element is the mode type
-    #                                (e.g., "relu"), and the second element is the mode value (e.g., None). Defaults to ["relu", None].
-
-    #     Returns:
-    #         float: The benchmarked time for the autoquantization process.
-    #     """
-    #     if not _is_interpolate_mode(mode):
-    #         return super()._autoquant_test(act_mat, weight, bias, best_time, mode)
-
-    #     # SAM best is between .8 and 1, SDXL also performs best in this range
-    #     INTERPOLATION_CONSTANT = mode[1]
-    #     w_qtensor = cls.from_float(weight)
-    #     x_vals_int8, x_scales = quantize_activation_per_token_absmax(
-    #         act_mat.reshape(-1, act_mat.shape[-1])
-    #     )
-    #     quantized_matmul = (
-    #         lambda x_vals_int8, x_scales, w_vals_int8:
-    #             safe_int_mm(x_vals_int8, w_vals_int8) * x_scales
-    #     )
-    #     q_c_matmul=torch.compile(quantized_matmul, mode="max-autotune-no-cudagraphs")
-    #     with torch.no_grad():
-    #         w_vals_int8 = w_qtensor.original_weight_tensor.layout_tensor.int_data.contiguous().t()
-    #         res_matmul = do_autoquant_bench(q_c_matmul, x_vals_int8, x_scales.reshape(-1,1), w_vals_int8)
-    #     print(f">>time: {res_matmul:0.3f}ms for {cls} matmul, to_beat: {best_time:0.3f}ms")
-
-    #     # if the (much faster) matmul kernel is already beat, don't bother benchmarking full op
-    #     if res_matmul>=best_time:
-    #         return res_matmul
-
-    #     # calculate what time full op needs to beat for dynamic quant to be best given INTERPOLATION_CONSTANT
-    #     to_beat = best_time + INTERPOLATION_CONSTANT/(1-INTERPOLATION_CONSTANT)*(best_time-res_matmul)
-    #     res = super()._autoquant_test(act_mat, weight, bias, to_beat)
-    #     max_int_const_win = (best_time-res_matmul)/(res-res_matmul)
-    #     res_f = INTERPOLATION_CONSTANT*res+(1-INTERPOLATION_CONSTANT)*res_matmul
-    #     print(f">>time: {res_f:0.3f}ms for {cls} interpolated, breakeven constant: {max_int_const_win:0.2f}")
-    #     return res_f
-
 
 # here we don't include int4 quantization in since int8 tends to be a better apples to apples comparison
 DEFAULT_AUTOQUANT_CLASS_LIST = [
@@ -611,7 +511,6 @@ DEFAULT_INT4_AUTOQUANT_CLASS_LIST = [
 
 OTHER_AUTOQUANT_CLASS_LIST = [
     AQFloat8WeightOnlyQuantizedLinearWeight,
-    AQFloat8DynamicallyQuantizedLinearWeight,
 ]
 
 

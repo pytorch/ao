@@ -42,7 +42,6 @@ def run_evaluation(
     calibration_limit: Optional[int] = None,
     calibration_seq_length: Optional[int] = None,
     pad_calibration_inputs: Optional[bool] = False,
-    eval_difficulty: Optional[str] = "easy",
 ):
     """Runs the evaluation of a model using LM Eval."""
     print(
@@ -219,7 +218,7 @@ if __name__ == '__main__':
     parser.add_argument('--calibration_limit', type=int, default=1000, help='number of samples to use for gptq calibration')
     parser.add_argument('--calibration_seq_length', type=int, default=100, help='length of sequences to use for gptq calibration')
     parser.add_argument('--pad_calibration_inputs', type=bool, default=False, help='pads sequences shorter than calibration_seq_length to that length, yielding more calibration inputs but running much slower')
-    parser.add_argument('--eval_difficulty', type=str, default="easy", help='difficulty of eval tasks, one of [easy, medium, hard]')
+
     args = parser.parse_args()
     run_evaluation(
         args.checkpoint_path,
@@ -234,5 +233,4 @@ if __name__ == '__main__':
         args.calibration_limit,
         args.calibration_seq_length,
         args.pad_calibration_inputs,
-        args.eval_difficulty,
     )
