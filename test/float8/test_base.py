@@ -57,6 +57,7 @@ torch.manual_seed(0)
 
 
 is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
+is_cuda_9_0 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
 
 def bitwise_identical(a: Float8Tensor, b: Float8Tensor) -> bool:
     assert torch.all(a._data == b._data).item(), "scales are not identical"
@@ -210,6 +211,8 @@ class TestFloat8Tensor:
             a_fp8_d2_r2 = a_fp8_d2.reshape(3, -1)
 
     @pytest.mark.parametrize("a_shape", [(16, 32), (2, 16, 32), (1, 2, 16, 32)])
+    @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
+    @unittest.skipIf(not is_cuda_9_0, "Requires CUDA capability >= 9.0")
     def test_axiswise_gemm(self, a_shape):
         a = torch.randn(*a_shape, dtype=torch.bfloat16, device="cuda")
         b = torch.randn(64, 32, dtype=torch.bfloat16, device="cuda")
