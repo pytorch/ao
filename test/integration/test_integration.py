@@ -829,9 +829,6 @@ class TestSubclass(unittest.TestCase):
     @torch._inductor.config.patch({"freezing": True})
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "freeze requires torch 2.4 and after.")
     def test_int8_weight_only_quant_with_freeze(self, device, dtype):
-        if TORCH_VERSION_AT_LEAST_2_5 and device == "cpu":
-            self.skipTest("Regression introduced in PT nightlies")
-
         self._test_lin_weight_subclass_api_impl(
             _int8wo_api, device, 40, test_dtype=dtype
         )
