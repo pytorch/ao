@@ -137,7 +137,7 @@ def is_supported(
             scaling_type_weight != ScalingType.DYNAMIC or
             scaling_type_grad_output != ScalingType.DYNAMIC or
             dtype != torch.bfloat16 or
-            (not IS_H100)
+            (not is_H100)
         ):
             return False
     return True
