@@ -73,6 +73,7 @@ from torchao.quantization.autoquant import (
     AQInt8WeightOnlyQuantizedLinearWeight3,
     AutoQuantizableLinearWeight,
     AQFloat8WeightOnlyQuantizedLinearWeight,
+    AQFloat8DynamicallyQuantizedLinearWeight,
 )
 from torch.ao.quantization.quantize_fx import convert_to_reference_fx, prepare_fx
 import os
@@ -751,6 +752,13 @@ class TestSubclass(unittest.TestCase):
     def test_aq_float8_weight_only_quant_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             AQFloat8WeightOnlyQuantizedLinearWeight.from_float, device, 30, test_dtype=dtype
+        )
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant+aqt needs newer pytorch")
+    def test_aq_float8_dynamic_quant_subclass(self, device, dtype):
+        self._test_lin_weight_subclass_impl(
+            AQFloat8DynamicallyQuantizedLinearWeight.from_float, device, 30, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
