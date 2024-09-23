@@ -26,6 +26,18 @@ class ScalingType(enum.Enum):
             return "sta"
 
 
+class ScalingGranularity(enum.Enum):
+    """
+    Defines the granularity of scaling strategies for casting to float8
+    """
+
+    # A single scaling factor for the entire tensor
+    TENSORWISE = "tensorwise"
+    # Scaling factors computed along one axis of the tensor, reducing it to
+    # size 1.
+    AXISWISE = "axiswise"
+
+
 @dataclass(frozen=True)
 class CastConfig:
     """
