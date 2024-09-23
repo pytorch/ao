@@ -61,7 +61,7 @@ class MyTrainableDTypeTensor(MyDTypeTensor):
         return _ToMyTrainableDTypeTensor.apply(input_float, layout_type)
 
 class _ToMyTrainableDTypeTensor(torch.autograd.Function):
-    """ 
+    """
     Differentiable constructor for `MyTrainableDTypeTensor`.
     """
 
@@ -163,8 +163,8 @@ def _(func, types, args, kwargs):
 ########
 
 class M(torch.nn.Module):
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self) -> None:
+        super().__init__()
         self.linear = torch.nn.Linear(512, 1024, bias=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
