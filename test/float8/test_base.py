@@ -231,15 +231,6 @@ class TestFloat8Linear:
         linear_dtype: torch.dtype,
         linear_bias: bool,
     ):
-        if not emulate:
-            if not torch.cuda.is_available():
-                warnings.warn("CUDA not available")
-                pytest.skip()
-            elif torch.cuda.get_device_capability() < (9, 0):
-                warnings.warn(
-                    f"CUDA capability {torch.cuda.get_device_capability()} < (9.0)"
-                )
-                pytest.skip()
         x = torch.randn(*x_shape, device="cuda", dtype=linear_dtype)
         m_ref = nn.Linear(16, 32, bias=linear_bias, device="cuda", dtype=linear_dtype)
 
@@ -287,16 +278,6 @@ class TestFloat8Linear:
         emulate: bool,
         linear_dtype: torch.dtype,
     ):
-        if not emulate:
-            if not torch.cuda.is_available():
-                warnings.warn("CUDA not available")
-                pytest.skip()
-            elif torch.cuda.get_device_capability() < (9, 0):
-                warnings.warn(
-                    f"CUDA capability {torch.cuda.get_device_capability()} < (9.0)"
-                )
-                pytest.skip()
-
         m_ref = nn.Linear(32, 16, device="cuda", dtype=linear_dtype)
         config = Float8LinearConfig(
             cast_config_input=CastConfig(scaling_type=ScalingType.DELAYED),
@@ -334,10 +315,6 @@ class TestFloat8Linear:
     @pytest.mark.parametrize("emulate", [True, False] if is_cuda_8_9 else [True])
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_type_cast(self, linear_dtype: torch.dtype, emulate: bool):
-        emulate = (
-            not torch.cuda.is_available() or torch.cuda.get_device_capability() < (9, 0)
-        )
-
         m = nn.Linear(32, 16, device="cuda", dtype=linear_dtype)
         config = Float8LinearConfig(emulate=emulate)
         m = Float8Linear.from_float(copy.deepcopy(m), config)
