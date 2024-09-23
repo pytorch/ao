@@ -37,6 +37,7 @@ from torchao.float8.float8_utils import e4m3_dtype
 from torch._dynamo.test_case import TestCase as DynamoTestCase
 from torch._dynamo.testing import CompileCounterWithBackend
 
+# TODO(future PR): standardize IS_H100 with the rest of the codebase
 is_H100 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
 is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
 
@@ -135,7 +136,8 @@ def is_supported(
             scaling_type_input != ScalingType.DYNAMIC or
             scaling_type_weight != ScalingType.DYNAMIC or
             scaling_type_grad_output != ScalingType.DYNAMIC or
-            dtype != torch.bfloat16
+            dtype != torch.bfloat16 or
+            (not IS_H100)
         ):
             return False
     return True

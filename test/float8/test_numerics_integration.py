@@ -33,6 +33,7 @@ from torchao.float8.float8_linear_utils import (
 from torchao.float8.float8_utils import compute_error, IS_ROCM
 
 is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
+is_cuda_9_0 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
 
 torch.manual_seed(0)
 
@@ -116,7 +117,8 @@ class TestFloat8NumericsIntegrationTest:
                 scaling_type_input != ScalingType.DYNAMIC or
                 scaling_type_weight != ScalingType.DYNAMIC or
                 scaling_type_grad_output != ScalingType.DYNAMIC or
-                data_dtype != torch.bfloat16
+                data_dtype != torch.bfloat16 or
+                (not is_cuda_9_0)
             ):
                 pytest.skip()
 
