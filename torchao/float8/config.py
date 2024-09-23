@@ -37,6 +37,13 @@ class ScalingGranularity(enum.Enum):
     # size 1.
     AXISWISE = "axiswise"
 
+    def short_str(self):
+        if self is ScalingGranularity.TENSORWISE:
+            return "ten"
+        else:
+            assert self is ScalingGranularity.AXISWISE
+            return "axs"
+
 
 @dataclass(frozen=True)
 class CastConfig:
@@ -45,12 +52,16 @@ class CastConfig:
     """
 
     scaling_type: ScalingType = ScalingType.DYNAMIC
+    scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE
     static_scale: Optional[torch.Tensor] = None
 
     def __post_init__(self):
         if self.scaling_type is ScalingType.STATIC:
             assert self.static_scale is not None, \
                 "static_scale must be specified for static scaling"
+        if self.scaling_granularity is ScalingGranularity.AXISWISE:
+            assert self.scaling_type is ScalingType.DYNAMIC, \
+                "only dynamic scaling type is supported for axiswise scaling granularity"
 
 @dataclass(frozen=True)
 class DelayedScalingConfig:
@@ -144,6 +155,27 @@ class Float8LinearConfig:
     # configuration, this field may move to per-tensor configs.
     delayed_scaling_config: DelayedScalingConfig = DelayedScalingConfig()
 
+    def __post_init__(self):
+        # float8 all-gather only supports tensorwise, in the future may support blockwise
+        if self.cast_config_weight.scaling_granularity != ScalingGranularity.TENSORWISE:
+            assert not self.enable_fsdp_float8_all_gather, \
+                f"enable_fsdp_float8_all_gather only supports tensorwise scaling granularity, got {self.cast_config_weight.scaling_granularity}"
+
+        # for now, axiswise granularity is all-or-nothing
+        # TODO(future PR): enable more granular setting per-gemm-input
+        has_any_axiswise_scaling = (
+            self.cast_config_input.scaling_granularity is ScalingGranularity.AXISWISE or
+            self.cast_config_weight.scaling_granularity is ScalingGranularity.AXISWISE or
+            self.cast_config_grad_output.scaling_granularity is ScalingGranularity.AXISWISE
+        )
+        has_all_axiswise_scaling = (
+            self.cast_config_input.scaling_granularity is ScalingGranularity.AXISWISE and
+            self.cast_config_weight.scaling_granularity is ScalingGranularity.AXISWISE and
+            self.cast_config_grad_output.scaling_granularity is ScalingGranularity.AXISWISE
+        )
+        if has_any_axiswise_scaling:
+            assert has_all_axiswise_scaling, \
+                "for now, axiswise scaling must be enabled for either all casts or none of the casts"
 
 # If True, use 'fnuz' float8 types for calculations.
 # Currently, ROCm only supports fnuz variants.
