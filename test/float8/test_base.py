@@ -159,7 +159,7 @@ class TestFloat8Tensor:
         assert sqnr >= 25.0
 
     def test_axiswise_reshape(self):
-        a = torch.randn(3, 5, 7, dtype=torch.bfloat16, device="cuda")
+        a = torch.randn(3, 5, 7, dtype=torch.bfloat16)
         linear_mm_config = LinearMMConfig()
 
         # if we scale across dim0, we can only reshape to [3, -1]
