@@ -36,7 +36,7 @@ def hp_tensor_to_float8_dynamic(
     linear_mm_config: LinearMMConfig,
     reduce_amax: bool = False,
     gemm_input_role: GemmInputRole = GemmInputRole.INPUT,
-    device_mesh: "torch.distributed.DeviceMesh" = None,
+    device_mesh = None,
 ) -> Float8Tensor:
     """
     Given a high precision tensor `hp_tensor`,
