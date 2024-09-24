@@ -709,7 +709,7 @@ class TestQuantFlow(TestCase):
         self.assertLess(memory_streaming, memory_baseline)
 
 class TestMultiTensorFlow(TestCase):
-    from torchao.quantization.GPTQ_MT import Int4WeightOnlyGPTQQuantizer
+    from torchao.quantization.GPTQ_MT import MultiTensor
 
     def test_multitensor_add_tensors(self):
         tensor1 = torch.randn(3, 3)
