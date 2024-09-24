@@ -132,7 +132,7 @@ def quantize_bitnet_weight(w: Tensor, eps: float = 1e-5, all_reduce: bool = Fals
 
 class _BitNetTrainingLinear(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input: Tensor, weight: BitNetTrainingLinearWeight, bias: Tensor | None = None):
+    def forward(ctx, input: Tensor, weight: BitNetTrainingLinearWeight, bias: Optional[Tensor] = None):
         batch_dims = input.shape[:-1]
         input = input.view(-1, weight.shape[1])
 
@@ -261,7 +261,7 @@ def _(func, types, args, kwargs):
 
 class _BitNetPacked2bitLinear(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input: Tensor, weight: BitNetPacked2bitLinearWeight, bias: Tensor | None = None):
+    def forward(ctx, input: Tensor, weight: BitNetPacked2bitLinearWeight, bias: Optional[Tensor] = None):
         batch_dims = input.shape[:-1]
         input = input.view(-1, weight.shape[1])
 
