@@ -53,7 +53,7 @@ class OptimState8bit(TorchAOBaseTensor):
         return dequant_with_qmap(self.codes, self.qmap, self.scale).to(dtype)
 
     @classmethod
-    def zeros(cls, shape, signed: bool = True, block_size: int = 2048, device=None):
+    def zeros(cls, shape, signed: bool = True, block_size: int = 256, device=None):
         codes = torch.zeros(shape, dtype=torch.uint8, device=device)
         scale = torch.zeros(codes.numel() // block_size, device=device)
         qmap = torch.tensor(QMAP_SIGNED if signed else QMAP_UNSIGNED, device=device)
