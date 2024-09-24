@@ -35,7 +35,7 @@ Usage
 ```python
 from torchao.prototype.quantized_training import int8_weight_only_quantized_training
 from torchao.prototype.low_bit_optim import _AdamW
-from torchao.quantization import quantize_
+from torchao import quantize_
 
 model = ...
 quantize_(model, int8_weight_only_quantized_training())
@@ -64,7 +64,7 @@ On NVIDIA GPUs, INT8 Tensor Cores is approximately 2x faster than their BF16/FP1
 
 ```python
 from torchao.prototype.quantized_training import int8_mixed_precision_training, Int8MixedPrecisionTrainingConfig
-from torchao.quantization import quantize_
+from torchao import quantize_
 
 model = ...
 
@@ -111,7 +111,7 @@ Out of the box, this INT8 mixed-precision training is not compatible with FSDP2 
 ```python
 from torch.distributed._composable.fsdp import fully_shard, MixedPrecisionPolicy
 from torchao.prototype.quantized_training import int8_mixed_precision_training, Int8MixedPrecisionTrainingConfig
-from torchao.quantization import quantize_
+from torchao import quantize_
 
 model = ...  # FP32 model
 
@@ -129,6 +129,24 @@ fully_shard(model, mp_policy=mp_policy)
 
 # train model as usual
 ```
+
+## BitNet b1.58
+
+[BitNet b1.58](https://arxiv.org/abs/2402.17764) uses ternary weights: each parameter can only take on 3 distinct values {-1, 0, +1}, thus making a BitNet model very compact. BitNet uses tensor-wise abs-mean scaling for weights (quantize to ternary) and row-wise abs-max scaling for activations (quantize to INT8).
+
+BitNet is originally trained with QAT: the weights and activations are fake-quantized, and straight-through estimator (STE) is used to calculate gradients with respect to floating point weights. This process adds extra overhead over standard straining. Our implementation utilizes INT8 Tensor Cores to make up for this loss in speed. In fact, our implementation is faster than BF16 training in most cases.
+
+Usage
+
+```python
+from torchao.prototype.quantized_training import bitnet_training
+from torchao import quantize_
+
+model = ...
+quantize_(model, bitnet_training())
+```
+
+Note: following the [BitNet Training Tips, Code and FAQ](https://github.com/microsoft/unilm/blob/master/bitnet/The-Era-of-1-bit-LLMs__Training_Tips_Code_FAQ.pdf), user should insert extra RMSNorm before each `nn.Linear` layers and also remove the original RMSNorm before attention and MLP modules. Calling `quantize_(model, bitnet_training())` will NOT perform this for you.
 
 ## Future ideas
 

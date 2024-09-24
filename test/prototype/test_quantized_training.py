@@ -11,7 +11,7 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from torch import nn
-from torch.distributed._composable.fsdp import fully_shard, MixedPrecisionPolicy
+from torch.distributed._composable.fsdp import MixedPrecisionPolicy, fully_shard
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torch.testing._internal.common_utils import TestCase, instantiate_parametrized_tests, parametrize, run_tests
@@ -20,6 +20,7 @@ from torch.testing._internal.distributed._tensor.common_dtensor import ModelArgs
 from torchao.prototype.low_bit_optim import _AdamW
 from torchao.prototype.quantized_training import (
     Int8MixedPrecisionTrainingConfig,
+    bitnet_training,
     int8_mixed_precision_training,
     int8_weight_only_quantized_training,
     quantize_int8_rowwise,
@@ -199,6 +200,69 @@ class TestQuantizedTraining(TestCase):
                 assert p.grad is not None
             optim_int8mp.step()
             optim_int8mp.zero_grad()
+
+    @parametrize("compile", [False, True])
+    def test_bitnet_training(self, compile):
+        # reference implementation
+        # https://github.com/microsoft/unilm/blob/master/bitnet/The-Era-of-1-bit-LLMs__Training_Tips_Code_FAQ.pdf
+        # Figure 3
+        class BitLinear(nn.Linear):
+            def activation_quant(self, x):
+                scale = 127.0 / x.abs().max(dim=-1, keepdim=True).values.clamp_(min=1e-5)
+                return (x * scale).round().clamp_(-128, 127) / scale
+
+            def weight_quant(self, x):
+                scale = 1.0 / x.abs().mean().clamp_(min=1e-5)
+                return (x * scale).round().clamp_(-1, 1) / scale
+
+            def forward(self, x):
+                w = self.weight
+                x = x + (self.activation_quant(x) - x).detach()
+                w = w + (self.weight_quant(w) - w).detach()
+                return F.linear(x, w, self.bias)
+
+        _reset()
+        bsize = 4
+        embed_dim = 32
+        device = "cuda"
+
+        # only use 1 matmul shape to reduce triton autotune time
+        model_ref = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim, bias=False),
+            nn.GELU(),
+            nn.Linear(embed_dim, embed_dim),
+        ).to(device)
+        model = copy.deepcopy(model_ref)
+        quantize_(model, bitnet_training(), set_inductor_config=False)
+
+        # change model_ref to use BitLinear
+        model_ref[0].__class__ = BitLinear
+        model_ref[2].__class__ = BitLinear
+
+        if compile:
+            model_ref.compile()
+            model.compile()
+
+        optim_ref = torch.optim.AdamW(model_ref.parameters())
+        optim = torch.optim.AdamW(model.parameters())
+
+        for i in range(5):
+            inputs = torch.randn(bsize, embed_dim, device=device)
+            labels = torch.randint(embed_dim, size=(bsize,), device=device)
+            loss_ref = F.cross_entropy(model_ref(inputs), labels)
+            loss = F.cross_entropy(model(inputs), labels)
+
+            torch.testing.assert_close(loss, loss_ref)
+
+            loss_ref.backward()
+            optim_ref.step()
+            optim_ref.zero_grad()
+
+            loss.backward()
+            for p in model.parameters():
+                assert p.grad is not None
+            optim.step()
+            optim.zero_grad()
 
 
 _FSDP_WORLD_SIZE = 2

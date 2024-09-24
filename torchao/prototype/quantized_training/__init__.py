@@ -1,3 +1,4 @@
+from .bitnet import BitNetTrainingLinearWeight, bitnet_training
 from .int8 import (
     Int8QuantizedTrainingLinearWeight,
     int8_weight_only_quantized_training,

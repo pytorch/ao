@@ -14,7 +14,7 @@ _c10d_functional = torch.ops._c10d_functional
 
 
 @torch.no_grad()
-def quantize_int8_rowwise(tensor: Tensor, stochastic_rounding: bool = False):
+def quantize_int8_rowwise(tensor: Tensor, stochastic_rounding: bool = False, eps: float = 1e-12):
     """Normal rounding will always round down small changes in weight update. To tackle this problem,
     stochastic rounding can be used, which has a low chance, but not zero, of rounding up. The
     probability of rounding up is equal to x - ⌊x⌋, which indicates how close the value is to the next
@@ -29,7 +29,7 @@ def quantize_int8_rowwise(tensor: Tensor, stochastic_rounding: bool = False):
     """
     # absmax symmetric quantization
     scale = tensor.abs().amax(1) / 127  # same dtype as tensor
-    inv_scale = 1.0 / scale.float().clip(1e-12)
+    inv_scale = 1.0 / scale.float().clip(eps)
     tensor = tensor.float() * inv_scale.view(-1, 1)  # slightly faster than divide directly
 
     if stochastic_rounding:

@@ -11,15 +11,15 @@ from torchao.utils import TorchAOBaseTensor
 from .int8 import quantize_int8_rowwise
 
 if has_triton():
-    from .int8_mm import int8_mm_dequant
+    from .int8_mm import scaled_int8_mm
 
 else:
 
     # This is less performant than the explicit hand-written Triton kernel, though things might
     # change in the future.
-    # Multiplying B_scale first is faster than the other way round.
-    def int8_mm_dequant(A: Tensor, B: Tensor, A_scale_rowwise: Tensor, B_scale_colwise: Tensor) -> Tensor:
-        return torch._int_mm(A, B) * B_scale_colwise * A_scale_rowwise.view(-1, 1)
+    # Multiplying col_scale first is faster than the other way round.
+    def scaled_int8_mm(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor) -> Tensor:
+        return torch._int_mm(A, B) * col_scale * row_scale.view(-1, 1)
 
 
 class Int8MixedPrecisionTrainingConfig(NamedTuple):
@@ -171,7 +171,7 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor) -> Tensor:
     # A may have more than 2 dims, while B must be exactly 2-dim
     A_i8, A_scale_rowwise = quantize_int8_rowwise(A.view(-1, A.shape[-1]))
     B_t_i8, B_scale_colwise = quantize_int8_rowwise(B.T)
-    out = int8_mm_dequant(
+    out = scaled_int8_mm(
         A_i8.contiguous(),
         B_t_i8.contiguous().T,
         A_scale_rowwise.contiguous(),
