@@ -312,7 +312,7 @@ class Test2DParallelMultiThread(FSDPTestMultiThread, TestFloat8Common):
 
         if self.rank in [0, 1]:
             # rank 0 and 1 are the 1st stage in the pipeline
-            # rank 2 and 4 are doing thing but waiting for the 1st stage
+            # rank 2 and 4 are doing nothing but waiting for the 1st stage
             float8_tensor = hp_tensor_to_float8_dynamic(
                 hp_tensor,
                 torch.float8_e4m3fn,
