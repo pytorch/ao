@@ -4,6 +4,7 @@
 # BF16 baseline: python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --n_steps 10_000 --compile
 # INT8 QT:       python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --n_steps 10_000 --compile --quantize int8_weight_only
 # INT8 MP:       python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --n_steps 10_000 --compile --quantize int8_mixed_precision
+# BitNet:        python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --n_steps 10_000 --compile --quantize bitnet
 
 import os
 
@@ -20,14 +21,14 @@ import wandb
 from torch.utils.checkpoint import checkpoint
 from tqdm import tqdm
 
-from torchao._models.llama.model import ModelArgs, Transformer, transformer_configs
+from torchao import quantize_
+from torchao._models.llama.model import ModelArgs, Transformer, transformer_configs, RMSNorm
 from torchao.prototype import low_bit_optim
 from torchao.prototype.quantized_training import (
+    bitnet_training,
     int8_mixed_precision_training,
     int8_weight_only_quantized_training,
 )
-from torchao.quantization.quant_api import quantize_
-
 
 # not official models
 transformer_configs.update(
@@ -104,7 +105,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--weight_decay", type=float, default=1e-2)
 
-    parser.add_argument("--project", default="int8_quantized_training")
+    parser.add_argument("--project", default="quantized_training")
     parser.add_argument("--run_name")
     parser.add_argument("--seed", type=int)
     parser.add_argument("--log_interval", type=int, default=10)
@@ -126,8 +127,30 @@ if __name__ == "__main__":
     # TODO: might want to do the same for int8_weight_only to standardize.
     if args.quantize == "int8_weight_only":
         quantize_(model, int8_weight_only_quantized_training(), set_inductor_config=False)
+
     elif args.quantize == "int8_mixed_precision":
         quantize_(model.layers, int8_mixed_precision_training(), set_inductor_config=False)
+
+    elif args.quantize == "bitnet":
+        quantize_(model.layers, bitnet_training(), set_inductor_config=False)
+
+        # remove old RMSNorm
+        for layer in model.layers:
+            layer.attention_norm = torch.nn.Identity()
+            layer.ffn_norm = torch.nn.Identity()
+        
+        # insert new RMSNorm
+        def insert_rmsnorm(module: torch.nn.Module):
+            for name, child in module.named_children():
+                if isinstance(child, torch.nn.Linear):
+                    w = child.weight
+                    norm = RMSNorm(child.in_features).to(device=w.device, dtype=w.dtype)
+                    setattr(module, name, torch.nn.Sequential(norm, child))
+                else:
+                    insert_rmsnorm(child)
+        
+        insert_rmsnorm(model.layers)
+
     elif args.quantize is not None:
         raise ValueError(f"Unsupported quantize={args.quantize}")
 

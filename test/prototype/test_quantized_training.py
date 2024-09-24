@@ -202,6 +202,7 @@ class TestQuantizedTraining(TestCase):
             optim_int8mp.zero_grad()
 
     @parametrize("compile", [False, True])
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_bitnet_training(self, compile):
         # reference implementation
         # https://github.com/microsoft/unilm/blob/master/bitnet/The-Era-of-1-bit-LLMs__Training_Tips_Code_FAQ.pdf
