@@ -161,7 +161,7 @@ class Adam8bit(_AdamBase):
         weight_decay=0,
         amsgrad=False,
         *,
-        block_size=2048,
+        block_size=256,
     ) -> None:
         super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size, is_adamw=False)
 
@@ -199,7 +199,7 @@ class AdamFp8(_AdamBase):
         weight_decay=0,
         amsgrad=False,
         *,
-        block_size=2048,
+        block_size=256,
     ) -> None:
         super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size, is_adamw=False)
 
@@ -218,7 +218,7 @@ class AdamW8bit(_AdamBase):
         weight_decay=1e-2,
         amsgrad=False,
         *,
-        block_size=2048,
+        block_size=256,
     ) -> None:
         super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size, is_adamw=True)
 
@@ -256,7 +256,7 @@ class AdamWFp8(_AdamBase):
         weight_decay=1e-2,
         amsgrad=False,
         *,
-        block_size=2048,
+        block_size=256,
     ) -> None:
         super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size, is_adamw=True)
 
