@@ -107,6 +107,13 @@ def shard(
     device_mesh: DeviceMesh,
     placements: Sequence[Placement],
 ) -> DTensor:
+    """
+    Add a shard function to simplify both colwise_shard and rowwise_shard.  The
+    shard function accepts a full tensor, and returns a DTensor based on
+    indicated placements.  Goal is to move the shard function as a static method
+    of DTensor, e.g.
+        dtensor = DTensor.shard(full_tensor, device_mesh, placement)
+    """
     from torch.distributed.tensor._utils import compute_local_shape_and_global_offset
 
     shape, offset = compute_local_shape_and_global_offset(
