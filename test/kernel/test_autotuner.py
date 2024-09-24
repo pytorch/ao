@@ -56,7 +56,7 @@ class TestQuantFlow(unittest.TestCase):
             ("cuda", torch.float16),
         ]
     )
-    @unittest.skipIf(not is_H100, "Need H100")
+    @unittest.skipIf(not is_H100, "Needs H100")
     def test_int_mm_float8(self, device, dtype):
         from torchao.kernel import intmm
 
