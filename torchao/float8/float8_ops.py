@@ -251,6 +251,17 @@ def preprocess_addmm(a: Float8Tensor, b: Float8Tensor):
     if is_row_major(b_data.stride()):
         b_data = b_data.t().contiguous().t()
     b_scale = b._scale
+
+    # Today, torch._scaled_mm only supports both operands using the
+    # same granularity. The code below checks for cases where one
+    # operand is scaled axiswise and one tensorwise. If this case is found,
+    # we reshape the tensorwise scale to be repeat along the needed axis,
+    # so that torch._scaled_mm can call the axiswise-axiswise kernel.
+    if len(a_scale.shape) == 0 and len(b_scale.shape) > 0:
+        a_scale = a_scale.repeat(a_data.shape[0]).reshape(-1, 1)
+    elif len(a_scale.shape) > 0 and len(b_scale.shape) == 0:
+        b_scale = b_scale.repeat(b_data.shape[1]).reshape(1, -1)
+
     return a_data, a_scale, b_data, b_scale
 
 

@@ -48,12 +48,16 @@ class ScalingGranularity(enum.Enum):
 @dataclass(frozen=True)
 class CastConfig:
     """
-    Configuration for casting a single tensor to float8
+    Configuration for maybe casting a single tensor to float8
     """
 
     scaling_type: ScalingType = ScalingType.DYNAMIC
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE
     static_scale: Optional[torch.Tensor] = None
+    # If True, this tensor is not scaled to float8 and left in its original
+    # precision.
+    # TODO(ideally before this PR lands): a better name for this
+    keep_in_original_precision: bool = False
 
     def __post_init__(self):
         if self.scaling_type is ScalingType.STATIC:
@@ -98,7 +102,7 @@ class Float8GemmConfig:
     use_fast_accum: bool = False
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class Float8LinearConfig:
     """
     Configuration for converting a `torch.nn.Linear` module to float8
@@ -111,6 +115,18 @@ class Float8LinearConfig:
     cast_config_input: CastConfig = CastConfig()
     cast_config_weight: CastConfig = CastConfig()
     cast_config_grad_output: CastConfig = CastConfig()
+
+    #
+    # Optional per-tensor configuration for `input`, `weight`, `grad_output` to
+    # calculate `grad_weight`, `grad_input`, and `grad_weight` respectively.
+    # If not specified, then the configuration from the  is reused.
+    # TODO(future PR): maybe rename `cast_config_input` to 
+    # `cast_config_input_for_output`, etc, to make the names consistent, 
+    # will be BC-breaking.
+    #
+    cast_config_input_for_grad_weight: Optional[CastConfig] = None
+    cast_config_weight_for_grad_input: Optional[CastConfig] = None
+    cast_config_grad_output_for_grad_weight: Optional[CastConfig] = None
 
     #
     # Per-gemm configuration for gemms calculating `output`, `grad_input` and
@@ -156,26 +172,46 @@ class Float8LinearConfig:
     delayed_scaling_config: DelayedScalingConfig = DelayedScalingConfig()
 
     def __post_init__(self):
+        # populate the additional cast overrides, if the user did not specify them
+        if self.cast_config_input_for_grad_weight is None:
+            self.cast_config_input_for_grad_weight = self.cast_config_input
+        if self.cast_config_weight_for_grad_input is None:
+            self.cast_config_weight_for_grad_input = self.cast_config_weight
+        if self.cast_config_grad_output_for_grad_weight is None:
+            self.cast_config_grad_output_for_grad_weight = self.cast_config_grad_output
+
         # float8 all-gather only supports tensorwise, in the future may support blockwise
         if self.cast_config_weight.scaling_granularity != ScalingGranularity.TENSORWISE:
             assert not self.enable_fsdp_float8_all_gather, \
                 f"enable_fsdp_float8_all_gather only supports tensorwise scaling granularity, got {self.cast_config_weight.scaling_granularity}"
 
-        # for now, axiswise granularity is all-or-nothing
-        # TODO(future PR): enable more granular setting per-gemm-input
-        has_any_axiswise_scaling = (
-            self.cast_config_input.scaling_granularity is ScalingGranularity.AXISWISE or
-            self.cast_config_weight.scaling_granularity is ScalingGranularity.AXISWISE or
-            self.cast_config_grad_output.scaling_granularity is ScalingGranularity.AXISWISE
-        )
-        has_all_axiswise_scaling = (
-            self.cast_config_input.scaling_granularity is ScalingGranularity.AXISWISE and
-            self.cast_config_weight.scaling_granularity is ScalingGranularity.AXISWISE and
-            self.cast_config_grad_output.scaling_granularity is ScalingGranularity.AXISWISE
-        )
-        if has_any_axiswise_scaling:
-            assert has_all_axiswise_scaling, \
-                "for now, axiswise scaling must be enabled for either all casts or none of the casts"
+        # save some characters in the compatibility checks below
+        cc_i = self.cast_config_input
+        cc_w = self.cast_config_weight
+        cc_go = self.cast_config_grad_output
+        cc_i2 = self.cast_config_input_for_grad_weight
+        cc_w2 = self.cast_config_weight_for_grad_input
+        cc_go2 = self.cast_config_grad_output_for_grad_weight
+
+        # for now, we only have gemm kernels where both operands are scaled with the same
+        # granularity. In the future this may be relaxed.
+        assert cc_i.scaling_granularity == cc_w.scaling_granularity, \
+            "incompatible scaling granularity for output"
+        # assert cc_go.scaling_granularity == cc_w2.scaling_granularity, \
+        #     "incompatible scaling granularity for grad_input"
+        assert cc_i2.scaling_granularity == cc_go2.scaling_granularity, \
+            "incompatible scaling granularity for grad_weight"
+
+        # for now, we only have gemm kernels where both operands are either both
+        # in high precision, or both in float8. In the future, this may be relaxed.
+        # TODO(future): make the float8 check more precise with the specific dtypes.
+        assert cc_i.keep_in_original_precision == cc_w.keep_in_original_precision, \
+            "incompatible operand precision for output"
+        assert cc_go.keep_in_original_precision == cc_w2.keep_in_original_precision, \
+            "incompatible operand precision for grad_input"
+        assert cc_i2.keep_in_original_precision == cc_go2.keep_in_original_precision, \
+            "incompatible operand precision for grad_weight"
+
 
 # If True, use 'fnuz' float8 types for calculations.
 # Currently, ROCm only supports fnuz variants.
