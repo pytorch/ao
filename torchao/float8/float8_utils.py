@@ -98,7 +98,9 @@ def amax_history_to_scale_stack(
 
 
 @torch.no_grad()
-def tensor_to_amax(x: torch.Tensor, reduce_amax: bool = False, device_mesh: dist.DeviceMesh = None) -> torch.Tensor:
+def tensor_to_amax(
+    x: torch.Tensor, reduce_amax: bool = False, device_mesh: dist.DeviceMesh = None
+) -> torch.Tensor:
     amax = torch.max(torch.abs(x))
 
     # If the user asked for distributed reduction, do it.
