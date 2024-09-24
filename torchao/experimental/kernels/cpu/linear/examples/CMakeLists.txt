@@ -16,38 +16,23 @@ include(CMakePrintHelpers)
 message("TORCHAO_LIBRARIES: ${TORCHAO_LIBRARIES}")
 include_directories(${TORCHAO_LIBRARIES})
 
-add_library(
-  torchao_dep
-  ${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64/reduction/find_min_and_max.cpp
-  ${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64/reduction/compute_sum.cpp
-  ${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64/quantization/quantize.cpp
-  ${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64/valpacking/interleave.cpp
-)
-
+add_subdirectory(${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64 ${CMAKE_CURRENT_BINARY_DIR}/kernel_aarch64)
 
 add_executable(separate_function_wrappers separate_function_wrappers.cpp)
 target_link_libraries(
   separate_function_wrappers
     PRIVATE
-    torchao_dep
+    kernel_aarch64
 )
 
 add_executable(stateful_class_wrapper stateful_class_wrapper.cpp)
 target_link_libraries(
   stateful_class_wrapper
     PRIVATE
-    torchao_dep
+    kernel_aarch64
 )
 
+include(${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/Utils.cmake)
 
-find_package(OpenMP)
-if(OpenMP_CXX_FOUND)
-  target_link_libraries(separate_function_wrappers PUBLIC OpenMP::OpenMP_CXX)
-  target_compile_definitions(separate_function_wrappers PRIVATE TORCHAO_PARALLEL_OMP=1)
-
-  target_link_libraries(stateful_class_wrapper PUBLIC OpenMP::OpenMP_CXX)
-  target_compile_definitions(stateful_class_wrapper PRIVATE TORCHAO_PARALLEL_OMP=1)
-else()
-  target_compile_definitions(separate_function_wrappers PRIVATE TORCHAO_PARALLEL_SINGLE_THREADED=1)
-  target_compile_definitions(stateful_class_wrapper PRIVATE TORCHAO_PARALLEL_SINGLE_THREADED=1)
-endif()
+target_link_torchao_parallel_backend(stateful_class_wrapper "openmp")
+target_link_torchao_parallel_backend(separate_function_wrappers "openmp")

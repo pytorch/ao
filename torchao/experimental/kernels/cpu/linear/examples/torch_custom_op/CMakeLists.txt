@@ -4,7 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-project(examples)
+project(torch_custom_op)
 
 cmake_minimum_required(VERSION 3.19)
 set(CMAKE_CXX_STANDARD 17)
@@ -16,27 +16,43 @@ include(CMakePrintHelpers)
 message("TORCHAO_LIBRARIES: ${TORCHAO_LIBRARIES}")
 include_directories(${TORCHAO_LIBRARIES})
 
-add_library(
-  torchao_dep
-  ${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64/reduction/find_min_and_max.cpp
-  ${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64/reduction/compute_sum.cpp
-  ${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64/quantization/quantize.cpp
-  ${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64/valpacking/interleave.cpp
-)
+add_subdirectory(${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64 ${CMAKE_CURRENT_BINARY_DIR}/kernel_aarch64)
 
-include(FetchContent)
-FetchContent_Declare(pthreadpool
-        GIT_REPOSITORY https://github.com/Maratyszcza/pthreadpool.git
-        GIT_TAG master)
-FetchContent_MakeAvailable(
-  pthreadpool)
+include(${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/Utils.cmake)
+
+set(PLATFORM "ATEN" CACHE STRING "Choose platform surface: ATEN, EXECUTORCH")
+string(TOUPPER ${PLATFORM} PLATFORM_TO_UPPER)
+
+if(PLATFORM_TO_UPPER STREQUAL "ATEN")
+message(STATUS "Building with PLATFORM=ATEN")
 
 find_package(Torch REQUIRED)
-message("TORCH_INCLUDE_DIRS: ${TORCH_INCLUDE_DIRS}")
-include_directories("${TORCH_INCLUDE_DIRS}")
+add_library(lowbit_op_aten SHARED lowbit_op_aten.cpp)
+target_link_libraries(lowbit_op_aten PRIVATE kernel_aarch64)
+target_include_directories(lowbit_op_aten PRIVATE "${TORCH_INCLUDE_DIRS}")
+target_link_libraries(lowbit_op_aten PRIVATE "${TORCH_LIBRARIES}")
+target_compile_definitions(lowbit_op_aten PRIVATE USE_ATEN=1)
+target_link_torchao_parallel_backend(lowbit_op_aten "ATEN_OPENMP")
 
-add_library(torch_custom_op SHARED torch_custom_op.cpp)
-target_link_libraries(torch_custom_op PRIVATE "${TORCH_LIBRARIES}")
-target_link_libraries(torch_custom_op PRIVATE torchao_dep)
-target_compile_definitions(torch_custom_op PRIVATE TORCHAO_PARALLEL_PTHREADPOOL=1)
-target_link_libraries(torch_custom_op PRIVATE pthreadpool)
+elseif(PLATFORM_TO_UPPER STREQUAL "EXECUTORCH")
+message(STATUS "Building with PLATFORM=EXECUTORCH")
+
+add_library(lowbit_op_executorch SHARED
+    lowbit_op_executorch/w2s.cpp
+    lowbit_op_executorch/w2sz.cpp
+    lowbit_op_executorch/w3s.cpp
+    lowbit_op_executorch/w3sz.cpp
+    lowbit_op_executorch/w4s.cpp
+    lowbit_op_executorch/w4sz.cpp
+    lowbit_op_executorch/w5s.cpp
+    lowbit_op_executorch/w5sz.cpp
+)
+target_include_directories(lowbit_op_executorch PRIVATE ${EXECUTORCH_INCLUDE_DIRS})
+target_compile_definitions(lowbit_op_executorch PRIVATE USE_EXECUTORCH=1)
+target_link_torchao_parallel_backend(lowbit_op_executorch "SINGLE_THREADED")
+target_link_libraries(lowbit_op_executorch PRIVATE ${EXECUTORCH_LIBRARIES})
+target_link_libraries(lowbit_op_executorch PRIVATE kernel_aarch64)
+
+else()
+message(FATAL_ERROR "Unknown PLATFORM: ${PLATFORM}. Please choose one of: ATEN, EXECUTORCH.")
+endif()

@@ -16,7 +16,7 @@ from torchvision.transforms.functional import InterpolationMode
 
 from torchao.sparsity import sparsify_, semi_sparse_weight
 from torchao.sparsity.prototype.superblock.supermask import apply_supermask
-from torchao.sparsity.prototype.superblock.utils import apply_sparsity, verify_sparsity, mlp_only_with_args
+from torchao.sparsity.prototype.superblock.utils import apply_sparsity, verify_sparsity, mlp_only_with_args, simulate_sparsity, accelerate_with_sparsity
 from torchao.sparsity.prototype.superblock.train import evaluate, _get_cache_path, load_data
 from torchao.sparsity.prototype.sparsifier.weight_norm_sparsifier import WeightNormSparsifier
 
@@ -56,7 +56,7 @@ def main(args):
     model.to(device).bfloat16()
 
     if sparsifier_or_none is not None:
-        sparsifier.squash_mask()
+        sparsifier_or_none.squash_mask()
     accelerate_with_sparsity(model, args)
             
     criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)

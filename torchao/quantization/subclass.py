@@ -231,7 +231,7 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
     @staticmethod
     def __new__(cls, int_data, q_scales, transposed, shape, dtype=None, **kwargs):
         if dtype is None:
-            dtype = qscales.dtype
+            dtype = q_scales.dtype
         kwargs["dtype"] = dtype
         return super().__new__(cls, int_data, transposed, shape, **kwargs)  # type: ignore[attr-defined]
 

@@ -15,7 +15,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
 )
 from torchao.utils import _register_custom_op, _is_float8_type
-from torchao.prototype.custom_fp_utils import _f32_to_fpx_unpacked, _fpx_unpacked_to_f32, _n_ones
+from torchao.prototype.custom_fp_utils import _f32_to_floatx_unpacked, _floatx_unpacked_to_f32, _n_ones
 
 
 __all__ = [
@@ -23,11 +23,11 @@ __all__ = [
     "int_scaled_matmul",
     "choose_qparams_affine",
     "choose_qparams_affine_with_min_max",
-    "choose_qparams_affine_fpx",
+    "choose_qparams_affine_floatx",
     "quantize_affine",
     "dequantize_affine",
-    "quantize_affine_fpx",
-    "dequantize_affine_fpx",
+    "quantize_affine_floatx",
+    "dequantize_affine_floatx",
     "fake_quantize_affine",
     "fake_quantize_affine_cachemask",
     "choose_qparams_and_quantize_affine_hqq",
@@ -41,12 +41,18 @@ class MappingType(Enum):
     we'll use (-10.2, 10.2) as the range for floating point and map that to (-8, 7)
     e.g. scale = (10.2 - (-10.2)) / (7 - (-8))
 
+    SYMMETRIC_NO_CLIPPING_ERR is a variant of symmetric mapping, where the scale is the max of smin
+    and smax, where smin = min_val_neg / quant_min, and smax = max_val_pos / quant_max. By calculating
+    smin and smax individually, there can be less round error on negative values, and no out-of-range
+    of all floating point values.
+
     asymmetric mapping means we just directly map the floating point range to integer range,
     for the above example, we will map (-3.5, 10.2) to (-8, 7) and calculate quantization parameter
     based on this mapping
     e.g. scale = (10.2 - (-3.5)) / (7 - (-8))
     """
     SYMMETRIC = auto()
+    SYMMETRIC_NO_CLIPPING_ERR = auto()
     ASYMMETRIC = auto()
 
 class ZeroPointDomain(Enum):
@@ -695,7 +701,7 @@ def _choose_qparams_affine(
        and `zero_point_domain`
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
-    assert mapping_type in [MappingType.SYMMETRIC.name, MappingType.ASYMMETRIC.name], f"Unsupported mapping type: {mapping_type}"
+    assert mapping_type in [MappingType.SYMMETRIC.name, MappingType.SYMMETRIC_NO_CLIPPING_ERR.name, MappingType.ASYMMETRIC.name], f"Unsupported mapping type: {mapping_type}"
     if target_dtype in FP8_TYPES:
         assert mapping_type == MappingType.SYMMETRIC.name, f"Only symmetric quantization is supported for FP8 types, got {mapping_type}"
 
@@ -731,9 +737,25 @@ def _choose_qparams_affine(
         min_val_neg = min_val
         max_val_pos = max_val
 
-    if mapping_type == MappingType.SYMMETRIC.name:
-        max_val_pos = torch.max(-min_val_neg, max_val_pos)
-        scale = max_val_pos / (float(quant_max - quant_min) / 2)
+    if mapping_type == MappingType.SYMMETRIC.name or mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR.name:
+        # scales
+        if mapping_type == MappingType.SYMMETRIC.name:
+            max_val_pos = torch.max(-min_val_neg, max_val_pos)
+            scale = max_val_pos / (float(quant_max - quant_min) / 2)
+        else:
+            assert mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR.name
+            # calculate smin and smax individually and choose the larger one. For example, if quant_min = -8 and
+            # quant_max = 7.
+            # - If smin is bigger: There would be coverage on negative values down to -8, and less rounding
+            # error than the existing SYMMETRIC case.
+            # - If smax is bigger: it covers the positive values up to 7. The round
+            # error may be bigger than the existing SYMMETRIC case. Either way, there's no out-of-range fp values after
+            # quantization.
+            smin = min_val_neg / float(quant_min)
+            smax = max_val_pos / float(quant_max)
+            mask = smin > smax
+            scale = torch.where(mask, smin, smax)
+        # zeros
         if not preserve_zero:
             raise ValueError("preserve_zero == False is not supported for symmetric quantization")
         if zero_point_domain is not None and zero_point_domain != ZeroPointDomain.INT.name:
@@ -924,7 +946,7 @@ def choose_qparams_and_quantize_affine_hqq(
     return W_q, scale, zero, shape
 
 
-def choose_qparams_affine_fpx(tensor: torch.Tensor, ebits: int, mbits: int) -> torch.Tensor:
+def choose_qparams_affine_floatx(tensor: torch.Tensor, ebits: int, mbits: int) -> torch.Tensor:
     # _n_ones() is not compatible with torch.compile() due to << operator
     # https://github.com/pytorch/pytorch/issues/119152
     # exp_bias = _n_ones(ebits - 1)
@@ -938,16 +960,16 @@ def choose_qparams_affine_fpx(tensor: torch.Tensor, ebits: int, mbits: int) -> t
     scale = tensor.abs().amax(1).clamp(min=1e-12) / max_normal
     return scale.half()
 
-def quantize_affine_fpx(tensor: torch.Tensor, scale: torch.Tensor, ebits: int, mbits: int) -> torch.Tensor:
+def quantize_affine_floatx(tensor: torch.Tensor, scale: torch.Tensor, ebits: int, mbits: int) -> torch.Tensor:
     """Quantizes the float32 high precision floating point tensor to low precision floating point number and
     converts the result to unpacked floating point format with the format of 00SEEEMM (for fp6_e3m2) where S means sign bit, e means exponent bit and m means mantissa bit
     """
     tensor = tensor.float()
-    tensor_fpx = _f32_to_fpx_unpacked(tensor / scale.view(-1, 1), ebits, mbits)
-    return tensor_fpx
+    tensor_floatx = _f32_to_floatx_unpacked(tensor / scale.view(-1, 1), ebits, mbits)
+    return tensor_floatx
 
-def dequantize_affine_fpx(tensor: torch.Tensor, scale: torch.Tensor, ebits: int, mbits: int, output_dtype: torch.dtype = torch.float32) -> torch.Tensor:
-    tensor = _fpx_unpacked_to_f32(tensor, ebits, mbits)
+def dequantize_affine_floatx(tensor: torch.Tensor, scale: torch.Tensor, ebits: int, mbits: int, output_dtype: torch.dtype = torch.float32) -> torch.Tensor:
+    tensor = _floatx_unpacked_to_f32(tensor, ebits, mbits)
     tensor = tensor * scale.float().view(-1, 1)
     tensor = tensor.to(dtype=output_dtype)
     return tensor

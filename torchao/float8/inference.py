@@ -97,3 +97,11 @@ def addmm_float8_unwrapped_inference(
         use_fast_accum=use_fast_accum,
     )
     return output
+
+
+def _is_rowwise_scaled(x) -> bool:
+    """Checks if an AQT tensor is rowwise scaled
+    Args:
+        x: AffineQuantizedTensor tensor
+    """
+    return x.block_size == (1,) * (x.dim() - 1) + (x.shape[-1],)

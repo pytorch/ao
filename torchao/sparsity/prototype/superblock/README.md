@@ -47,9 +47,8 @@ At least one GPU:
 Baseline:
 ```
 python benchmark.py \
-  --model vit_b_16 \
+  --model vit_h_14 \
   --batch-size 256 \
-  > /dev/null
 ```
 Result:
 ```
@@ -59,17 +58,25 @@ Result:
 
 80% sparsity, block size 64 (random weights):
 ```
-python benchmark.py --model vit_b_16 \
+python benchmark.py \
+  --model vit_h_14 \
   --batch-size 256 \
   --sparsity-linear 0.8 \
   --sp-linear-tile-size 64 \
-  --sparsify-weights \
   --bsr 64 \
-  > /dev/null
+  --sparsity bsr
 ```
 Result:
 ```
 393.864453125 ms
+```
+
+Semi-structured sparsity
+```
+python benchmark.py \
+  --model vit_h_14 \
+  --batch-size 256 \
+  --sparsity semi_structured
 ```
 
 
@@ -102,11 +109,11 @@ To apply supermask, we have the following arguments at our disposal,
 For example, if you would like to train a `vit_b_16` from scratch using Supermask, you can use the respective torchvision command found in [TRAINING.md](TRAINING.md) and append the supermask arguments:
 ```
 torchrun --nproc_per_node=8 train.py\
-    --model vit_b_16 --epochs 300 --batch-size 512 --opt adamw --lr 0.003 --wd 0.3\
+    --model vit_h_14 --epochs 3 --batch-size 64 --opt adamw --lr 0.003 --wd 0.3\
     --lr-scheduler cosineannealinglr --lr-warmup-method linear --lr-warmup-epochs 30\
-    --lr-warmup-decay 0.033 --amp --label-smoothing 0.11 --mixup-alpha 0.2 --auto-augment ra\
-    --clip-grad-norm 1 --ra-sampler --cutmix-alpha 1.0 --model-ema\
-    --sparsity-linear 0.9 --sp-linear-tile-size 32
+    --lr-warmup-decay 0.033 --amp --label-smoothing 0.11 --mixup-alpha 0.2 \
+    --clip-grad-norm 1 --cutmix-alpha 1.0 --model-ema\
+    --sparsity semi_structured --data-path $IMAGENET_PATH
 ```
 Through this command, we are training a `vit_b_16` with 90% sparsity to linear layers using 32x32 tiles.
 
@@ -133,6 +140,11 @@ NGPUS=1 # put number of available GPUS here
   torchrun --nproc_per_node=${NGPUS} evaluate.py --model vit_b_16 --batch-size 256 --sparsity-linear 0.9 --sp-linear-tile-size 32 --weights-path ${MODEL_PATH} --data-path ${IMAGENET_PATH}
   ```
   This is similar to the previous command, but it does not apply offline sparsification or BSR conversion. Instead, the sparsity is applied on-the-fly during evaluation.
+
+*  Semi-structured sparsity
+  ```
+  python evaluate.py  --model vit_b_16 --batch-size 256 --data-path $IMAGENET_PATH --weights-path checkpoints/2x4_sparse_ft_1_epoch.pth --sparsity semi_structured --skip-last-layer-sparsity
+  ```
 
 Please run `python evaluate.py --help` for a full list of available arguments.
 

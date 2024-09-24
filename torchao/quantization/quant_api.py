@@ -20,12 +20,14 @@ import torch
 import torchao
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Any, Callable, Union, Dict, Optional
+from typing import Any, Callable, Union, Dict, Optional, Literal, Tuple
 import types
 
-from torchao.dtypes.uintx.Uintx import UintxLayoutType
+from torchao.dtypes.uintx.uintx import UintxLayoutType
 from torchao.dtypes import (
     to_affine_quantized_intx,
+    to_affine_quantized_floatx,
+    to_affine_quantized_floatx_static,
     TensorCoreTiledLayoutType,
     PlainLayoutType,
     AffineQuantizedTensor,
@@ -46,6 +48,9 @@ from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
     to_linear_activation_quantized,
 )
+from torchao.quantization.weight_tensor_linear_activation_quantization import (
+    to_weight_tensor_with_linear_activation_quantization_metadata,
+)
 
 from .quant_primitives import (
     MappingType,
@@ -65,6 +70,8 @@ from torchao.quantization.linear_activation_weight_observer import (
     LinearActivationWeightObservedTensor,
 )
 from torchao.float8.inference import Float8MMConfig
+
+from torchao.quantization.observer import PerTensor, PerRow, get_block_size
 
 logger = logging.getLogger(__name__)
 
@@ -381,12 +388,13 @@ def _quantization_type(weight: torch.Tensor):
 def _linear_extra_repr(self):
     return f"in_features={self.weight.shape[1]}, out_features={self.weight.shape[0]}, weight={_quantization_type(self.weight)}"
 
-def _get_linear_subclass_inserter(constructor, **kwargs):
+def _get_linear_subclass_inserter(constructor, *, allow_requires_grad=False, **kwargs):
     """Helper function to apply the constructor that quantizes the weight Tensor (with additional kwargs)
     to the weight of linear module
     """
     def insert_subclass(lin):
-        lin.weight = torch.nn.Parameter(constructor(lin.weight, **kwargs), requires_grad=False)
+        requires_grad = allow_requires_grad and lin.weight.requires_grad
+        lin.weight = torch.nn.Parameter(constructor(lin.weight, **kwargs), requires_grad=requires_grad)
         lin.extra_repr = types.MethodType(_linear_extra_repr, lin)
         return lin
 
@@ -470,14 +478,13 @@ def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
     target_dtype = torch.int8
     return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype)
 
-def apply_int8_dynamic_activation_int4_weight_quant(weight, group_size=32):
+def apply_int8_dynamic_activation_int4_weight_quant(weight, group_size=32, mapping_type=MappingType.SYMMETRIC):
     """This is defined here instead of local function to support serialization
     """
     if weight.shape[-1] % group_size != 0:
         return weight
 
     # weight settings
-    mapping_type = MappingType.SYMMETRIC
     block_size = (1, group_size)
     target_dtype = torch.int8
     eps = torch.finfo(torch.float32).eps
@@ -491,7 +498,7 @@ def apply_int8_dynamic_activation_int4_weight_quant(weight, group_size=32):
     weight = to_linear_activation_quantized(weight, input_quant_func)
     return weight
 
-def int8_dynamic_activation_int4_weight(group_size=32):
+def int8_dynamic_activation_int4_weight(group_size=32, mapping_type=MappingType.SYMMETRIC):
     """Applies int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear
     This is used to produce a model for executorch backend, but currently executorch did not
     support lowering for the quantized model from this flow yet
@@ -500,7 +507,7 @@ def int8_dynamic_activation_int4_weight(group_size=32):
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained
     """
-    return _get_linear_subclass_inserter(apply_int8_dynamic_activation_int4_weight_quant, group_size=group_size)
+    return _get_linear_subclass_inserter(apply_int8_dynamic_activation_int4_weight_quant, group_size=group_size, mapping_type=mapping_type)
 
 
 def int4_weight_only(group_size=128, layout_type=TensorCoreTiledLayoutType(inner_k_tiles=8), use_hqq=False):
@@ -540,7 +547,7 @@ def int4_weight_only(group_size=128, layout_type=TensorCoreTiledLayoutType(inner
         zero_point_domain = ZeroPointDomain.FLOAT
 
         # Sparse Marlin only supports symmetric quantization.
-        # NOTE: If we start having lots of layouts that require different configurations, 
+        # NOTE: If we start having lots of layouts that require different configurations,
         # we should consider moving this logic somewhere else.
         if isinstance(layout_type, MarlinSparseLayoutType):
             mapping_type = MappingType.SYMMETRIC
@@ -647,44 +654,118 @@ def float8_weight_only(weight_dtype: torch.dtype = torch.float8_e4m3fn):
     return _get_linear_subclass_inserter(apply_float8wo_quant)
 
 
+_fp8_granularities = Union[PerTensor, PerRow]
+
+
+# Validate and process granularity input
+def _normalize_granularity(
+    granularity: Optional[
+        Union[_fp8_granularities, Tuple[_fp8_granularities, _fp8_granularities]]
+    ]
+) -> Tuple[_fp8_granularities, _fp8_granularities]:
+    if granularity is None:
+        return (PerTensor(), PerTensor())
+    elif isinstance(granularity, (PerTensor, PerRow)):
+        return (granularity, granularity)
+    elif isinstance(granularity, tuple) and len(granularity) == 2:
+        if not (
+            isinstance(granularity[0], (PerTensor, PerRow))
+            and isinstance(granularity[1], (PerTensor, PerRow))
+        ):
+            raise ValueError(f"Invalid granularity types: {granularity}, only PerTensor or PerRow are supported.")
+        if not isinstance(granularity[0], type(granularity[1])):
+            raise ValueError(
+                f"Different granularities for activation and weight are not supported: {granularity}, only PerTensor or PerRow are supported."
+            )
+        return granularity
+    else:
+        raise ValueError(f"Invalid granularity specification: {granularity}, only PerTensor or PerRow are supported.")
+
+
+def _input_activation_quant_func_fp8(
+    x: torch.Tensor,
+    activation_granularity: _fp8_granularities,
+    activation_dtype: torch.dtype,
+    scale: Optional[torch.Tensor] = None,
+    zero_point: Optional[torch.Tensor] = None,
+):
+    """This function is used to quantize the input activation tensor for an aqt_float variant. If scale
+    is not provided it will be dynamically calculate the scales otherwise it will use the provided scale.
+    """
+    assert zero_point is None, "Zero point is not supported for dynamic FP8 quantization"
+    if isinstance(activation_granularity, PerRow):
+        assert (
+            x.dtype == torch.bfloat16
+        ), "PerRow quantization only works for bfloat16 precision input activation"
+
+    block_size = get_block_size(x.shape, activation_granularity)
+    if scale is None:
+        activation = to_affine_quantized_floatx(
+            input_float=x,
+            block_size=block_size,
+            target_dtype=activation_dtype,
+            scale_dtype=torch.float32,
+            layout_type=Float8LayoutType(mm_config=None),  # Config is stored on weight
+        )
+    else:
+        assert isinstance(activation_granularity, PerTensor), "Static quantization only supports PerTensor granularity"
+        activation = to_affine_quantized_floatx_static(
+            input_float=x,
+            block_size=block_size,
+            scale=scale,
+            target_dtype=activation_dtype,
+            layout_type=Float8LayoutType(mm_config=None),  # Config is stored on weight
+        )
+    return activation
+
+
 def float8_dynamic_activation_float8_weight(
     activation_dtype: torch.dtype = torch.float8_e4m3fn,
     weight_dtype: torch.dtype = torch.float8_e4m3fn,
-    mm_config: Optional[Float8MMConfig] = None
+    granularity: Optional[
+        Union[_fp8_granularities, Tuple[_fp8_granularities, _fp8_granularities]]
+    ] = None,
+    mm_config: Optional[Float8MMConfig] = None,
 ):
     """
-    Applies float8 dynamic symmetric per-tensor quantization to both activations and weights of linear layers.
+    Applies float8 dynamic symmetric quantization to both activations and weights of linear layers.
 
     Args:
         activation_dtype (torch.dtype): The target data type for activation quantization. Default is torch.float8_e4m3fn.
         weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m3fn.
+        granularity:
+            The granularity for quantization. Can be either a single granularity (applied to both
+            activations and weights) or a tuple of two granularities (one for activations, one for weights).
+            If None, defaults to PerTensor for both. Currently both quantizations need to be the same type. And
+            only PerTensor and PerRow are supported.
         mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
 
     """
-    from torchao.dtypes import to_affine_quantized_floatx
-
     if mm_config is None:
         mm_config = Float8MMConfig(use_fast_accum=True)
 
-    #TODO we are hardcoding TensorWise scaling, will follow up PR for Tensorwise scaling
+    activation_granularity, weight_granularity = _normalize_granularity(granularity)
+
     def apply_float8_dynamic_activation_quant(weight: torch.Tensor):
+        if isinstance(weight_granularity, PerRow):
+            assert (
+                weight.dtype == torch.bfloat16
+            ), "PerRow quantization only works for bfloat16 precision input weight"
+
+        block_size = get_block_size(weight.shape, weight_granularity)
         quantized_weight = to_affine_quantized_floatx(
             input_float=weight,
-            block_size=weight.shape,
+            block_size=block_size,
             target_dtype=weight_dtype,
             scale_dtype=torch.float32,
             layout_type=Float8LayoutType(mm_config=mm_config),
         )
 
-        def input_quant_func(x: torch.Tensor):
-            activation = to_affine_quantized_floatx(
-                input_float=x,
-                block_size=x.shape,
-                target_dtype=activation_dtype,
-                scale_dtype=torch.float32,
-                layout_type=Float8LayoutType(mm_config=None),  # Config is stored on weight
-            )
-            return activation
+        input_quant_func = partial(
+            _input_activation_quant_func_fp8,
+            activation_granularity=activation_granularity,
+            activation_dtype=activation_dtype,
+        )
 
         quantized_weight = to_linear_activation_quantized(
             quantized_weight, input_quant_func
@@ -692,6 +773,60 @@ def float8_dynamic_activation_float8_weight(
         return quantized_weight
 
     return _get_linear_subclass_inserter(apply_float8_dynamic_activation_quant)
+
+
+def float8_static_activation_float8_weight(
+    scale: torch.Tensor,
+    activation_dtype: torch.dtype = torch.float8_e4m3fn,
+    weight_dtype: torch.dtype = torch.float8_e4m3fn,
+    granularity: Optional[
+        Union[_fp8_granularities, Tuple[_fp8_granularities, _fp8_granularities]]
+    ] = None,
+    mm_config: Optional[Float8MMConfig] = None,
+):
+    """
+    Applies float8 static symmetric quantization to
+
+    Args:
+        scale (torch.Tensor): The scale tensor for activation quantization.
+        activation_dtype (torch.dtype): The target data type for activation quantization. Default is torch.float8_e4m
+        weight_dtype (torch.dtype): The target data type for weight quantization. Default is torch.float8_e4m
+        mm_config (Float8MMConfig): Configuration for the matrix multiplication. Default uses fast accumulation.
+    """
+    if mm_config is None:
+        mm_config = Float8MMConfig(use_fast_accum=True)
+
+    activation_granularity, weight_granularity = _normalize_granularity(granularity)
+    assert isinstance(
+        activation_granularity, PerTensor
+    ), "Static quantization only supports PerTensor granularity"
+
+    def apply_float8_static_activation_quant(weight: torch.Tensor):
+        block_size = get_block_size(weight.shape, weight_granularity)
+        quantized_weight = to_affine_quantized_floatx(
+            input_float=weight,
+            block_size=block_size,
+            target_dtype=weight_dtype,
+            scale_dtype=torch.float32,
+            layout_type=Float8LayoutType(mm_config=mm_config),
+        )
+
+        input_quant_func = _input_activation_quant_func_fp8
+        input_quant_kwargs = {
+            "activation_granularity": activation_granularity,
+            "activation_dtype": activation_dtype,
+        }
+
+        quantized_weight = to_weight_tensor_with_linear_activation_quantization_metadata(
+            quantized_weight,
+            input_quant_func,
+            scale=scale,
+            zero_point=None,
+            quant_kwargs=input_quant_kwargs
+        )
+        return quantized_weight
+
+    return _get_linear_subclass_inserter(apply_float8_static_activation_quant)
 
 
 def uintx_weight_only(dtype, group_size=64, pack_dim=-1, use_hqq=False):
@@ -757,10 +892,10 @@ def fpx_weight_only(ebits: int, mbits: int):
     """
 
     def apply_quant_llm(weight: torch.Tensor) -> torch.Tensor:
-        from torchao.dtypes.fpx import FpxTensorCoreLayoutType
+        from torchao.dtypes.floatx import FloatxTensorCoreLayoutType
         from torchao.dtypes import to_affine_quantized_fpx
 
-        assert weight.dim() == 2, f"fpx only works for 2-d Tensor, got: {weight.dim()}"
+        assert weight.dim() == 2, f"floatx only works for 2-d Tensor, got: {weight.dim()}"
         out_dim, in_dim = weight.shape
         if (in_dim % 64 != 0) or (out_dim % 256 != 0):
             logger.info(
@@ -769,10 +904,16 @@ def fpx_weight_only(ebits: int, mbits: int):
                 "expected in_dim % 64 == 0 and out_dim % 256 == 0")
             return weight
 
-        layout_type = FpxTensorCoreLayoutType(ebits, mbits)
+        layout_type = FloatxTensorCoreLayoutType(ebits, mbits)
         return to_affine_quantized_fpx(weight, layout_type)
     return _get_linear_subclass_inserter(apply_quant_llm)
 
 
 if TORCH_VERSION_AT_LEAST_2_5:
-    torch.serialization.add_safe_globals([_int8_asymm_per_token_quant, _int8_symm_per_token_reduced_range_quant])
+    torch.serialization.add_safe_globals(
+        [
+            _int8_asymm_per_token_quant,
+            _int8_symm_per_token_reduced_range_quant,
+            _input_activation_quant_func_fp8,
+        ]
+    )

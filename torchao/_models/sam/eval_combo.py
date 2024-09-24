@@ -331,7 +331,7 @@ def run(
                   int8_dynamic_activation_int8_weight(),
                   attn_only)
         quantize_(predictor.model.image_encoder, int4_weight_only(layout_type=MarlinSparseLayoutType()), mlp_lin1_only)
-        sparsify_(predictor.model.image_encoder
+        sparsify_(predictor.model.image_encoder,
                   semi_sparse_weight(),
                   mlp_lin2_only)
         if not TORCH_VERSION_AT_LEAST_2_5:

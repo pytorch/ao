@@ -8,24 +8,20 @@
 #include <omp.h>
 
 template <typename F>
-void torchao::parallel_for(
-    const int64_t begin,
-    const int64_t end,
-    const int64_t grain_size,
-    const F& f) {
+void torchao::parallel_1d(const int64_t begin, const int64_t end, const F& f) {
 #pragma omp parallel
   {
 #pragma omp for
-    for (int i = begin; i < end; i += grain_size) {
-      f(i, i + grain_size);
+    for (int i = begin; i < end; i += 1) {
+      f(i);
     }
   }
 }
 
-void torchao::set_num_threads(int num_threads) {
+inline void torchao::set_num_threads(int num_threads) {
   omp_set_num_threads(num_threads);
 }
-int torchao::get_num_threads() {
+inline int torchao::get_num_threads() {
   // omp_get_num_threads returns the number of threads
   // in the current code section, which will be 1 in the routines
   // that select tiling params

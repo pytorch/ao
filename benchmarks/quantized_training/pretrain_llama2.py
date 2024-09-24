@@ -3,12 +3,14 @@
 #
 # BF16 baseline: python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --n_steps 10_000 --compile
 # INT8 QT:       python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --n_steps 10_000 --compile --quantize int8_weight_only
+# INT8 MP:       python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --n_steps 10_000 --compile --quantize int8_mixed_precision
 
 import os
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 import argparse
+import time
 from functools import partial
 from pathlib import Path
 
@@ -18,10 +20,22 @@ import wandb
 from torch.utils.checkpoint import checkpoint
 from tqdm import tqdm
 
-from torchao._models.llama.model import ModelArgs, Transformer
+from torchao._models.llama.model import ModelArgs, Transformer, transformer_configs
 from torchao.prototype import low_bit_optim
-from torchao.prototype.quantized_training import int8_weight_only_quantized_training
+from torchao.prototype.quantized_training import (
+    int8_mixed_precision_training,
+    int8_weight_only_quantized_training,
+)
 from torchao.quantization.quant_api import quantize_
+
+
+# not official models
+transformer_configs.update(
+    (
+        ("470M", dict(n_layer=24, n_head=16, dim=1024, intermediate_size=4096)),
+        ("1B", dict(n_layer=24, n_head=24, dim=1536, intermediate_size=6144)),
+    )
+)
 
 
 # hack from fairseq
@@ -29,11 +43,11 @@ from torchao.quantization.quant_api import quantize_
 def enable_activation_checkpointing(m: torch.nn.Module):
     assert not hasattr(m, "_forward")
     m._forward = m.forward
-    m.forward = partial(checkpoint, m.forward)
+    m.forward = partial(checkpoint, m.forward, use_reentrant=False)
 
 
 def get_loss(model: Transformer, batch: torch.Tensor):
-    logits = model(batch)[:, :-1].flatten(0, 1)
+    logits = model(batch)[:, :-1].float().flatten(0, 1)
     labels = batch[:, 1:].flatten()
     return torch.nn.functional.cross_entropy(logits, labels)
 
@@ -77,12 +91,7 @@ def get_tinystories():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # default config is 470M
-    parser.add_argument("--d_model", type=int, default=1024)
-    parser.add_argument("--depth", type=int, default=24)
-    parser.add_argument("--ffn_size", type=int, default=4096)
-    parser.add_argument("--head_dim", type=int, default=64)
-
+    parser.add_argument("--model", default="470M", choices=transformer_configs.keys())
     parser.add_argument("--quantize")
     parser.add_argument("--activation_checkpointing", action="store_true")
     parser.add_argument("--compile", action="store_true")
@@ -98,30 +107,33 @@ if __name__ == "__main__":
     parser.add_argument("--project", default="int8_quantized_training")
     parser.add_argument("--run_name")
     parser.add_argument("--seed", type=int)
+    parser.add_argument("--log_interval", type=int, default=10)
     args = parser.parse_args()
 
     if args.seed is not None:
         torch.manual_seed(args.seed)
 
-    config = ModelArgs(
-        block_size=args.seq_len,
-        n_layer=args.depth,
-        n_head=args.d_model // args.head_dim,
-        dim=args.d_model,
-        intermediate_size=args.ffn_size,
-    )
+    config = ModelArgs.from_name(args.model)
+    config.block_size = args.seq_len
     model = Transformer(config).bfloat16().cuda()
     with torch.device("cuda"):
         model.setup_caches(args.batch_size, args.seq_len, training=True)
     if args.activation_checkpointing:
         for layer in model.layers:
             enable_activation_checkpointing(layer)
+
+    # don't apply int8_mixed_precision to LM head, since it can cause convergence issue.
+    # TODO: might want to do the same for int8_weight_only to standardize.
     if args.quantize == "int8_weight_only":
         quantize_(model, int8_weight_only_quantized_training(), set_inductor_config=False)
+    elif args.quantize == "int8_mixed_precision":
+        quantize_(model.layers, int8_mixed_precision_training(), set_inductor_config=False)
     elif args.quantize is not None:
         raise ValueError(f"Unsupported quantize={args.quantize}")
+
     print(f"No. of params: {sum(p.numel() for p in model.parameters()):,}")
     print(f"No. of buffers: {sum(p.numel() for p in model.buffers()):,}")
+    torch.cuda.reset_peak_memory_stats()  # don't count memory occupied by unquantized weights
 
     # only use optimizers from torchao.prototype.low_bit_optim to support quantized training
     if args.optim == "AdamW":
@@ -129,13 +141,14 @@ if __name__ == "__main__":
     optim = getattr(low_bit_optim, args.optim)(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
     data = get_tinystories().cuda()
+    args.torch_version = torch.__version__
     run = wandb.init(dir="/tmp", config=args, project=args.project, name=args.run_name)
 
     step = 0
-    log_interval = 50
     pbar = tqdm(total=args.n_steps, dynamic_ncols=True)
     model.train()
     _get_loss = torch.compile(get_loss) if args.compile else get_loss
+    time0 = time.time()
 
     while step < args.n_steps:
         # randomly select a continuous chunk, then reshape it
@@ -145,13 +158,17 @@ if __name__ == "__main__":
         loss = _get_loss(model, batch)
         loss.backward()
 
-        if step % log_interval == 0:
+        if step % args.log_interval == 0:
             log_dict = dict(
                 loss=loss.item(),
                 lr=optim.param_groups[0]["lr"],
                 max_memory_allocated=torch.cuda.max_memory_allocated() / 1e9,
-                max_memory_active=torch.cuda.memory_stats().get("active_bytes.all.peak", 0) / 1e9,
+                max_memory_reserved=torch.cuda.max_memory_reserved() / 1e9,
             )
+            if step > 0:
+                time1 = time.time()
+                log_dict["tokens_per_second"] = (args.log_interval * args.batch_size * args.seq_len) / (time1 - time0)
+                time0 = time1
             run.log(log_dict, step=step)
             pbar.set_postfix(loss=log_dict["loss"])
 
