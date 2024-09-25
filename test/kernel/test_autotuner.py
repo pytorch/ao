@@ -16,6 +16,7 @@ from parameterized import parameterized
 
 logging.basicConfig(level=logging.INFO)
 
+is_H100 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
 
 class TestQuantFlow(unittest.TestCase):
 
@@ -48,6 +49,25 @@ class TestQuantFlow(unittest.TestCase):
         out32_2 = intmm.int_matmul(x_int, w_int)
         assert out32_2.dtype == out32_1.dtype
         torch.testing.assert_allclose(out32_1, out32_2)
+
+    @parameterized.expand(
+        [
+            ("cuda", torch.bfloat16),
+            ("cuda", torch.float16),
+        ]
+    )
+    @unittest.skipIf(not is_H100, "Needs H100")
+    def test_int_mm_float8(self, device, dtype):
+        from torchao.kernel import intmm
+
+        dtype = torch.bfloat16
+        m, k, n = (128, 64, 16)
+        x = torch.randn(m, k, dtype=dtype, device=device)
+        w = torch.randn(n, k, dtype=dtype, device=device).t()
+        x_float8 = x.to(dtype=torch.float8_e4m3fn)
+        w_float8 = w.to(dtype=torch.float8_e4m3fn)
+        out32_1 = intmm.safe_int_mm(x_float8, w_float8)
+        assert out32_1.dtype == torch.int32
 
     @parameterized.expand(
         [

@@ -36,6 +36,9 @@ from torchao.utils import unwrap_tensor_subclass
 if not TORCH_VERSION_AT_LEAST_2_5:
     unwrap_tensor_subclass(model)
 
+# temporary workaround to recover the perf with quantized model under torch.compile
+torch.backends.mha.set_fastpath_enabled(False)
+
 model = torch.compile(model, mode='max-autotune')
 
 # Must run with no_grad when optimizing for inference
