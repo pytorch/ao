@@ -126,7 +126,7 @@ class TestBlockSparseWeight(TestCase):
         model[1].weight.data = create_block_sparse_tensor(M, N, 64, 0.5, torch.float16)
         dense_result = model(input)
 
-
+        from torchao.sparsity.prototype.superblock.blocksparse import block_sparse_weight
         sparsify_(model, block_sparse_weight())
         sparse_result = model(input)
 

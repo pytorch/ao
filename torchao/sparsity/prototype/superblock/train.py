@@ -274,11 +274,11 @@ def main(args):
     mixup_transforms = []
     if args.mixup_alpha > 0.0:
         mixup_transforms.append(
-            transforms.RandomMixup(num_classes, p=1.0, alpha=args.mixup_alpha)
+            utils.RandomMixup(num_classes, p=1.0, alpha=args.mixup_alpha)
         )
     if args.cutmix_alpha > 0.0:
         mixup_transforms.append(
-            transforms.RandomCutmix(num_classes, p=1.0, alpha=args.cutmix_alpha)
+            utils.RandomCutmix(num_classes, p=1.0, alpha=args.cutmix_alpha)
         )
     if mixup_transforms:
         mixupcutmix = torchvision.transforms.RandomChoice(mixup_transforms)
