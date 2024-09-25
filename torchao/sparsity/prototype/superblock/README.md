@@ -40,14 +40,14 @@ At least one GPU:
   ```
   pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu121
   ```
-  We ran our experiments with torch==2.6.0.dev20240924+cu124
+  We ran our experiments with torch==2.6.0.dev20240924+cu121
 
 
 ## Benchmarking
 
 For all our benchmarking results, you can run `benchmark.sh`. This will run benchmarks with random weights, only testing speedup.
 
-These benchmarks were run on a NVIDIA-A10080GB:
+These benchmarks were run on a NVIDIA-A10080GB, with cuSPARSELt v0.5.2.
 
 
 
