@@ -773,16 +773,9 @@ class BlockSparseAQTLayout(PlainAQTLayout):
             requires_grad=False,
         )
 
-    @torch._dynamo.disable
     def get_plain(self):
-        # asdf = torch.eye(self.shape[1]).to(self.device)
-        # self_bsr = torch.sparse_bsr_tensor(
-        #             self.crow_indices().to(self.device),
-        #             self.col_indices().to(self.device),
-        #             self.values().to(self.device),
-        #             size=(self.shape[0], self.shape[1])).to(self.dtype)
-        # int_data_bsr = bsr_dense_mm(self_bsr, asdf)
-        return torch.zeros(self.shape, device=self.device).to(self.dtype), self.scale, self.zero_point
+        int_data_expanded = torch.ops.blocksparse.bsr_to_dense(self.crow_indices(), self.col_indices(), self.values(), self.shape[0], self.shape[1])
+        return int_data_expanded, self.scale, self.zero_point
 
     def _apply_fn_to_data(self, func):
         return self.__class__(

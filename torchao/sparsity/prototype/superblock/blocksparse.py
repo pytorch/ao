@@ -9,7 +9,32 @@ from torchao.utils import TorchAOBaseTensor
 
 aten = torch.ops.aten
 
+
 # quantization support
+@torch.library.custom_op("blocksparse::bsr_to_dense", mutates_args=())
+def bsr_to_dense(
+    crow_indices: torch.Tensor,
+    col_indices: torch.Tensor,
+    values: torch.Tensor,
+    M: int,
+    K: int,
+) -> torch.Tensor:
+    return torch.sparse_bsr_tensor(
+        crow_indices=crow_indices, col_indices=col_indices, values=values, size=(M, K)
+    ).to_dense()
+
+
+@torch.library.register_fake("blocksparse::bsr_to_dense")
+def bsr_to_dense_abstract(
+    crow_indices: torch.Tensor,
+    col_indices: torch.Tensor,
+    values: torch.Tensor,
+    M: int,
+    K: int,
+) -> torch.Tensor:
+    return torch.empty((M, K), dtype=values.dtype, device=values.device)
+
+
 @torch.library.custom_op("blocksparse::int_addmm", mutates_args=())
 def blocksparse_int_addmm(
     crow_indices: torch.Tensor,
