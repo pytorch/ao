@@ -15,6 +15,9 @@ from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noq
 from torchao.dtypes import (
     TensorCoreTiledLayoutType,
 )
+from torchao.quantization.prototype.qat.api import (
+    ComposableQATQuantizer,
+)
 from torchao.quantization.prototype.qat.affine_fake_quantized_tensor import (
     AffineFakeQuantizedTensor,
 )
@@ -33,6 +36,9 @@ from torchao.quantization.quant_primitives import (
     fake_quantize_affine,
     MappingType,
     ZeroPointDomain,
+)
+from torchao.quantization.unified import (
+    TwoStepQuantizer,
 )
 from torchao.quantization.utils import (
     get_group_qparams_symmetric,
@@ -626,6 +632,42 @@ class TestQAT(unittest.TestCase):
         module_swap_out = module_swap_model(*x2)
         torch.testing.assert_close(subclass_out, module_swap_out, atol=0, rtol=0)
 
+    class _MyQATQuantizer(TwoStepQuantizer):
+        """
+        Dummy quantizer that attaches a certain value to each nn.Linear's
+        `_temp_quantizer_values` attribute.
+        """
+        ATTR_NAME = "_temp_quantizer_values"
+
+        def __init__(self, value: str):
+            self.value = value
+
+        def _attach_value(self, module: torch.nn.Module):
+            if isinstance(module, torch.nn.Linear):
+                if not hasattr(module, self.ATTR_NAME):
+                    setattr(module, self.ATTR_NAME, [])
+                getattr(module, self.ATTR_NAME).append(self.value)
+
+        def prepare(self, model: torch.nn.Module):
+            model.apply(self._attach_value)
+            return model
+
+        def convert(self, model: torch.nn.Module):
+            model.apply(self._attach_value)
+            return model
+
+    def test_composable_qat_quantizer(self):
+        quantizer1 = self._MyQATQuantizer("quantizer1")
+        quantizer2 = self._MyQATQuantizer("quantizer2")
+        composable_quantizer = ComposableQATQuantizer([quantizer1, quantizer2])
+        model = M()
+        model = composable_quantizer.prepare(model)
+        self.assertTrue(hasattr(model.linear1, self._MyQATQuantizer.ATTR_NAME))
+        values_list = getattr(model.linear1, self._MyQATQuantizer.ATTR_NAME)
+        self.assertEqual(values_list, ["quantizer1", "quantizer2"])
+        composable_quantizer.convert(model)
+        values_list = getattr(model.linear1, self._MyQATQuantizer.ATTR_NAME)
+        self.assertEqual(values_list, ["quantizer1", "quantizer2", "quantizer1", "quantizer2"])
 
 if __name__ == "__main__":
     unittest.main()
