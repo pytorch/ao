@@ -27,6 +27,7 @@ __all__ = [
     "autoquant",
     "DEFAULT_AUTOQUANT_CLASS_LIST",
     "DEFAULT_INT4_AUTOQUANT_CLASS_LIST",
+    "OTHER_AUTOQUANT_CLASS_LIST",
 ]
 
 
