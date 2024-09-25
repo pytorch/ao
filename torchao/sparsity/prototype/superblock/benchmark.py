@@ -9,6 +9,7 @@ from torch.sparse._triton_ops_meta import (
 )
 from torchao.sparsity.prototype.superblock.utils import (
     accelerate_with_sparsity,
+    get_args_parser,
     simulate_sparsity,
 )
 from torchao.utils import benchmark_model, profiler_runner
@@ -102,94 +103,8 @@ def main(args):
         return benchmark_model(model, 100, args=(image,))
 
 
-def get_args_parser(add_help=True):
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="PyTorch ImageNet Sparsity Benchmarking", add_help=add_help
-    )
-    parser.add_argument(
-        "--model",
-        default="vit_b_16",
-        choices=["vit_b_16", "vit_h_14"],
-        type=str,
-        help="model name",
-    )
-    parser.add_argument(
-        "--device",
-        default="cuda",
-        type=str,
-        help="device (Use cuda or cpu Default: cuda)",
-    )
-    parser.add_argument(
-        "-b",
-        "--batch-size",
-        default=32,
-        type=int,
-        help="images per gpu, the total batch size is $NGPU x batch_size",
-    )
-    parser.add_argument(
-        "--val-crop-size",
-        default=224,
-        type=int,
-        help="the central crop size used for validation (default: 224)",
-    )
-    parser.add_argument(
-        "--weights", default=None, type=str, help="the weights enum name to load"
-    )
-    parser.add_argument(
-        "--weights-path", type=str, help="path of pretrained weights to load"
-    )
-    # NOTE: sparsity args
-    parser.add_argument(
-        "--sparsity",
-        choices=["bsr", "semi_structured"],
-        default=None,
-        help="weight sparsification to apply",
-    )
-    parser.add_argument(
-        "--bsr",
-        type=int,
-        nargs="?",
-        const=256,
-        default=None,
-        help="Convert sparsified weights to BSR format with optional block size (default: 256)",
-    )
-    parser.add_argument("--sparsity-linear", type=float, default=0.0)
-    parser.add_argument("--sparsity-conv1x1", type=float, default=0.0)
-    parser.add_argument("--sparsity-conv", type=float, default=0.0)
-    parser.add_argument(
-        "--skip-last-layer-sparsity",
-        action="store_true",
-        help="Skip applying sparsity to the last linear layer (for vit only)",
-    )
-    parser.add_argument(
-        "--skip-first-transformer-sparsity",
-        action="store_true",
-        help="Skip applying sparsity to the first transformer layer (for vit only)",
-    )
-    parser.add_argument(
-        "--dtype",
-        choices=["float32", "bfloat16", "float16"],
-        help="Data type",
-        default="bfloat16",
-    )
-    parser.add_argument(
-        "--tune-kernel-params", action="store_true", help="Tune kernel params"
-    )
-    parser.add_argument(
-        "--quantization", action="store_true", help="Run with int8 dynamic quantization"
-    )
-    parser.add_argument("--profile", action="store_true", help="Dump Prefetto trace")
-    parser.add_argument(
-        "--header", action="store_true", help="Print header for first run"
-    )
-
-    return parser
-
-
 if __name__ == "__main__":
-    args = get_args_parser().parse_args()
+    args = get_args_parser(benchmark=True).parse_args()
     result = main(args)
     header = [
         "model",

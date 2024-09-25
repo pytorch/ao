@@ -1,5 +1,6 @@
 #  Copyright (c) Meta Platforms, Inc. and affiliates.
 
+import argparse
 import copy
 import datetime
 import errno
@@ -24,6 +25,89 @@ from torchao.sparsity.prototype.superblock.supermask import (
 )
 from torchvision.transforms import autoaugment, functional as F, transforms
 from torchvision.transforms.functional import InterpolationMode
+
+def get_args_parser(train=False, evaluate=False, benchmark=False):
+    assert sum([train, evaluate, benchmark]) == 1, "One and only one of training, evaluation, or benchmark can be true"
+
+    # Shared common args
+    parser = argparse.ArgumentParser(description="SuperBlock Imagenet Training/Evaluation/Benchmarking Script", add_help=True)
+    parser.add_argument("--data-path", type=str, help="IMAGENET dataset path")
+    parser.add_argument("--model", default="vit_b_16", choices=["vit_b_16", "vit_h_14"], type=str, help="ViT base model")
+    parser.add_argument("--device", default="cuda", type=str, help="device (Default: cuda)")
+    parser.add_argument("-b", "--batch-size", default=32, type=int, help="per device batch size")
+    parser.add_argument("--val-crop-size", default=224, type=int, help="the central crop size used for validation (default: 224)")
+    parser.add_argument("--sparsity", choices=["bsr", "semi_structured"], default=None, help='weight sparsification to apply')
+    parser.add_argument('--bsr', type=int, nargs='?', const=256, default=None, help='Convert sparsified weights to BSR format with optional block size (default: 256)')
+    parser.add_argument("--sparsity-linear", type=float, default=0.0)
+    parser.add_argument("--sparsity-conv1x1", type=float, default=0.0)
+    parser.add_argument("--sparsity-conv", type=float, default=0.0)
+    parser.add_argument("--skip-last-layer-sparsity", action="store_true", help="Skip applying sparsity to the last linear layer (for vit only)")
+    parser.add_argument("--skip-first-transformer-sparsity", action="store_true", help="Skip applying sparsity to the first transformer layer (for vit only)")
+    parser.add_argument("--quantization", action="store_true", help="Run with int8 dynamic quantization")
+    parser.add_argument("--weights", default=None, type=str, help="the weights enum name to load")
+    parser.add_argument("--weights-path", type=str, help="optional checkpoint to load weights after intialization")
+
+    # Eval a subset of training args
+    if evaluate:
+        parser.add_argument("-j", "--workers", default=16, type=int, metavar="N", help="number of data loading workers")
+        parser.add_argument("--world-size", default=1, type=int, help="number of distributed processes")
+        parser.add_argument("--dist-url", default="env://", type=str, help="url used to set up distributed training")
+
+    # lots of training args
+    if train:
+        parser.add_argument("--accumulation-steps", default=1, type=int, help="Number of steps to accumulate gradients over")
+        parser.add_argument("--epochs", default=90, type=int, metavar="N", help="number of total epochs to run")
+        parser.add_argument("--opt", default="sgd", type=str, help="optimizer")
+        parser.add_argument("--lr", default=0.1, type=float, help="initial learning rate")
+        parser.add_argument("--momentum", default=0.9, type=float, metavar="M", help="momentum")
+        parser.add_argument("--wd", "--weight-decay", default=1e-4, type=float, metavar="W", help="weight decay", dest="weight_decay")
+        parser.add_argument("--norm-weight-decay", default=None, type=float, help="weight decay for Normalization layers (default: None, same value as --wd)")
+        parser.add_argument("--bias-weight-decay", default=None, type=float, help="weight decay for bias parameters of all layers (default: None, same value as --wd)")
+        parser.add_argument("--transformer-embedding-decay", default=None, type=float, help="weight decay for embedding parameters for vision transformer models (default: None, same value as --wd)")
+        parser.add_argument("--label-smoothing", default=0.0, type=float, help="label smoothing (default: 0.0)", dest="label_smoothing")
+        parser.add_argument("--mixup-alpha", default=0.0, type=float, help="mixup alpha (default: 0.0)")
+        parser.add_argument("--cutmix-alpha", default=0.0, type=float, help="cutmix alpha (default: 0.0)")
+        parser.add_argument("--lr-scheduler", default="steplr", type=str, help="the lr scheduler (default: steplr)")
+        parser.add_argument("--lr-warmup-epochs", default=0, type=int, help="the number of epochs to warmup (default: 0)")
+        parser.add_argument("--lr-warmup-method", default="constant", type=str, help="the warmup method (default: constant)")
+        parser.add_argument("--lr-warmup-decay", default=0.01, type=float, help="the decay for lr")
+        parser.add_argument("--lr-step-size", default=30, type=int, help="decrease lr every step-size epochs")
+        parser.add_argument("--lr-gamma", default=0.1, type=float, help="decrease lr by a factor of lr-gamma")
+        parser.add_argument("--lr-min", default=0.0, type=float, help="minimum lr of lr schedule (default: 0.0)")
+        parser.add_argument("--print-freq", default=10, type=int, help="print frequency")
+        parser.add_argument("--output-dir", default=".", type=str, help="path to save outputs")
+        parser.add_argument('--resume', action='store_true', help='Resumes training from latest available checkpoint ("model_<epoch>.pth")')
+        parser.add_argument("--start-epoch", default=0, type=int, metavar="N", help="start epoch")
+        parser.add_argument("--cache-dataset", dest="cache_dataset", help="Cache the datasets for quicker initialization. It also serializes the transforms", action="store_true")
+        parser.add_argument("--sync-bn", dest="sync_bn", help="Use sync batch norm", action="store_true")
+        parser.add_argument("--auto-augment", default=None, type=str, help="auto augment policy (default: None)")
+        parser.add_argument("--ra-magnitude", default=9, type=int, help="magnitude of auto augment policy")
+        parser.add_argument("--augmix-severity", default=3, type=int, help="severity of augmix policy")
+        parser.add_argument("--random-erase", default=0.0, type=float, help="random erasing probability (default: 0.0)")
+        # Mixed precision training parameters
+        parser.add_argument("--amp", action="store_true", help="Use torch.cuda.amp for mixed precision training")
+        # distributed training parameters
+        parser.add_argument("--world-size", default=1, type=int, help="number of distributed processes")
+        parser.add_argument("--dist-url", default="env://", type=str, help="url used to set up distributed training")
+        parser.add_argument("--model-ema", action="store_true", help="enable tracking Exponential Moving Average of model parameters")
+        parser.add_argument("--model-ema-steps", type=int, default=32, help="the number of iterations that controls how often to update the EMA model (default: 32)")
+        parser.add_argument("--model-ema-decay", type=float, default=0.99998, help="decay factor for Exponential Moving Average of model parameters (default: 0.99998)")
+        parser.add_argument("--use-deterministic-algorithms", action="store_true", help="Forces the use of deterministic algorithms only.")
+        parser.add_argument("--interpolation", default="bilinear", type=str, help="the interpolation method (default: bilinear)")
+        parser.add_argument("--val-resize-size", default=256, type=int, help="the resize size used for validation (default: 256)")
+        parser.add_argument("--train-crop-size", default=224, type=int, help="the random crop size used for training (default: 224)")
+        parser.add_argument("--clip-grad-norm", default=None, type=float, help="the maximum gradient norm (default None)")
+        parser.add_argument("--ra-reps", default=3, type=int, help="number of repetitions for Repeated Augmentation (default: 3)")
+        parser.add_argument('--meta', action='store_true', help='Use Meta internal imagenet structure')
+    
+    if benchmark:
+        parser.add_argument("--dtype", choices=["float32", "bfloat16", "float16"], help="Data type", default="bfloat16")
+        parser.add_argument("--tune-kernel-params", action="store_true", help="Tune kernel params for BSR")
+        parser.add_argument("--profile", action="store_true", help="Dump Prefetto trace")
+        parser.add_argument("--header", action="store_true", help="Print header for first run")
+
+    return parser
+
 
 
 # filter functions
@@ -71,7 +155,7 @@ def accelerate_with_sparsity(model, args):
             quantize_(
                 model,
                 int8_dynamic_activation_int8_weight(
-                    layout_type=BlockSparseLayoutType()
+                    layout_type=BlockSparseLayoutType(blocksize=args.bsr)
                 ),
                 superblock_only,
             )
@@ -124,8 +208,6 @@ def simulate_sparsity(model, args):
         sparsifier = WeightNormSparsifier(
             sparsity_level=1.0, sparse_block_shape=(1, 4), zeros_per_block=2
         )
-        for line in sparse_config:
-            print(line)
         sparsifier.prepare(model, sparse_config)
         sparsifier.step()
         return sparsifier
@@ -405,7 +487,7 @@ def init_distributed_mode(args):
 
     torch.cuda.set_device(args.gpu)
     args.dist_backend = "nccl"
-    print(f"| distributed init (rank {args.rank}): {args.dist_url}", flush=True)
+    print(f"| distributed init (rank {args.rank})", flush=True)
     torch.distributed.init_process_group(
         backend=args.dist_backend,
         init_method=args.dist_url,
