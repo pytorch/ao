@@ -139,7 +139,7 @@ def _get_per_token_block_size(x: torch.Tensor) -> List[int]:
 # taken from
 # https://github.com/mit-han-lab/smoothquant/blob/2f87951dacfb9238d8d657f52ae83a82a3c9ba0c/smoothquant/fake_quant.py#L26
 # and slightly modified
-def quantize_activation_per_token_absmax(t, dtype=torch.int8):
+def quantize_activation_per_token_absmax(t):
     # if the shape of t is [B, N, K], the shape of scales will be [B, N, 1]
     mapping_type = MappingType.SYMMETRIC
     block_size = list(t.shape)

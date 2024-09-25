@@ -17,6 +17,7 @@ from .quant_primitives import (
 )
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_5
 from torchao.quantization.utils import quantize_activation_per_token_absmax
+from torchao.float8.inference import addmm_float8_unwrapped_inference
 
 import torch.nn.functional as F
 
@@ -518,64 +519,19 @@ class AQFloat8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantize
                             input_float=x,
                             block_size=get_per_token_block_size(x),
                             target_dtype=input_target_dtype,
-                            layout_type=layout_type
+                            layout_type=layout_type,
+                            scale_dtype=torch.float32,
         )
         block_size = get_weight_block_size(weight)
         weight = to_affine_quantized_floatx(
                     input_float=weight,
                     block_size=block_size,
                     target_dtype=target_dtype,
-                    layout_type=layout_type
+                    layout_type=layout_type,
+                    scale_dtype=torch.float32,
         )
         weight = super(AQFloat8DynamicallyQuantizedLinearWeight, cls).from_float(weight, input_quant_func)
         return weight
-
-    @classmethod
-    def _autoquant_test(cls, act_mat, weight, bias, best_time, mode=["relu", None]):
-        """
-        Tests and benchmarks the autoquantization process with special handling for interpolate mode.
-
-        Args:
-            act_mat (torch.Tensor): The activation matrix.
-            weight (torch.Tensor): The weight tensor.
-            bias (torch.Tensor or None): The bias tensor.
-            best_time (float): The best time to beat for the quantization process.
-            mode (list, optional): A list containing mode settings for quantization. The first element is the mode type
-                                   (e.g., "relu"), and the second element is the mode value (e.g., None). Defaults to ["relu", None].
-
-        Returns:
-            float: The benchmarked time for the autoquantization process.
-        """
-        if not _is_interpolate_mode(mode):
-            return super()._autoquant_test(act_mat, weight, bias, best_time, mode)
-
-        # SAM best is between .8 and 1, SDXL also performs best in this range
-        INTERPOLATION_CONSTANT = mode[1]
-        w_qtensor = cls.from_float(weight)
-        x_vals_float8, x_scales = quantize_activation_per_token_absmax(
-            act_mat.reshape(-1, act_mat.shape[-1]), dtype=torch.float8_e4m3fn
-        )
-        quantized_matmul = (
-            lambda x_vals_float8, x_scales, w_vals_float8:
-                safe_int_mm(x_vals_float8, w_vals_float8) * x_scales
-        )
-        q_c_matmul=torch.compile(quantized_matmul, mode="max-autotune-no-cudagraphs")
-        with torch.no_grad():
-            w_vals_float8 = w_qtensor.original_weight_tensor.layout_tensor.float8_data.contiguous().t()
-            res_matmul = do_autoquant_bench(q_c_matmul, x_vals_float8, x_scales.reshape(-1,1), w_vals_float8)
-        print(f">>time: {res_matmul:0.3f}ms for {cls} matmul, to_beat: {best_time:0.3f}ms")
-
-        # if the (much faster) matmul kernel is already beat, don't bother benchmarking full op
-        if res_matmul>=best_time:
-            return res_matmul
-
-        # calculate what time full op needs to beat for dynamic quant to be best given INTERPOLATION_CONSTANT
-        to_beat = best_time + INTERPOLATION_CONSTANT/(1-INTERPOLATION_CONSTANT)*(best_time-res_matmul)
-        res = super()._autoquant_test(act_mat, weight, bias, to_beat)
-        max_float_const_win = (best_time-res_matmul)/(res-res_matmul)
-        res_f = INTERPOLATION_CONSTANT*res+(1-INTERPOLATION_CONSTANT)*res_matmul
-        print(f">>time: {res_f:0.3f}ms for {cls} interpolated, breakeven constant: {max_float_const_win:0.2f}")
-        return res_f
 
 
 # here we don't include int4 quantization in since int8 tends to be a better apples to apples comparison
