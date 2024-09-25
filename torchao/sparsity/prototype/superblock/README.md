@@ -36,49 +36,17 @@ At least one GPU:
   conda create -n superblock
   conda activate superblock
   ```
-* Install PyTorch. For best performance, we recommend `2.3.0.dev20240305+cu121` nightly
+* Install PyTorch. For best performance, we recommend the pytorch nightlies
   ```
-  pip install --pre torch==2.3.0.dev20240305+cu121 --index-url https://download.pytorch.org/whl/nightly/cu121
-  pip install --pre torchvision==0.18.0 --no-deps
+
   ```
+  We ran our experiments with torch==2.6.0.dev20240924+cu124
 
 
 ## Benchmarking
-Baseline:
-```
-python benchmark.py \
-  --model vit_h_14 \
-  --batch-size 256 \
-```
-Result:
-```
-532.1160546875 ms
-```
 
-
-80% sparsity, block size 64 (random weights):
-```
-python benchmark.py \
-  --model vit_h_14 \
-  --batch-size 256 \
-  --sparsity-linear 0.8 \
-  --sp-linear-tile-size 64 \
-  --bsr 64 \
-  --sparsity bsr
-```
-Result:
-```
-393.864453125 ms
-```
-
-Semi-structured sparsity
-```
-python benchmark.py \
-  --model vit_h_14 \
-  --batch-size 256 \
-  --sparsity semi_structured
-```
-
+For all our benchmarking results, you can run `benchmark.sh`. This will run benchmarks with random weights, only testing speedup.
+Please use the evaluation script to validate accuracy.
 
 ## Training
 Please refer to [TRAINING.md](TRAINING.md) for training from scratch. We use [Torchvision](https://github.com/pytorch/vision/tree/main/references/classification) as our framework for training. Supermask can be applied during training.
@@ -188,22 +156,6 @@ mkdir checkpoints
 wget https://huggingface.co/facebook/superblock-vit-b-16/resolve/main/checkpoints/baseline.pth -P checkpoints/
 # For sparsified checkpoints,
 wget https://huggingface.co/facebook/superblock-vit-b-16/resolve/main/checkpoints/sp${SPARSITY}-ts${BLOCK_SIZE}.pth -P checkpoints/
-```
-
-### Benchmark:
-```
-python benchmark.py --model vit_b_16 \
-  --batch-size 256 \
-  --sparsity-linear ${SPARSITY} \
-  --sp-linear-tile-size ${BLOCK_SIZE} \
-  --sparsity bsr\
-  --bsr ${BLOCK_SIZE} \
-  --weights-path ./checkpoints/sp${SPARSITY}-ts${BLOCK_SIZE}.pth \
-  > /dev/null
-```
-Result:
-```
-530.342578125 ms
 ```
 
 ### Evaluate:

@@ -13,12 +13,8 @@ import torch
 import torch.distributed as dist
 
 from torchao.quantization import (
-    int8_dynamic_activation_int8_semi_sparse_weight,
-    quantize_,
-)
-from torchao.quantization.quant_api import (
     int8_dynamic_activation_int8_weight,
-    quanitze_,
+    quantize_,
 )
 from torchao.sparsity import semi_sparse_weight, sparsify_
 from torchao.sparsity.prototype.sparsifier.weight_norm_sparsifier import (
