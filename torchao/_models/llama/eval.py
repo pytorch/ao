@@ -122,6 +122,7 @@ def run_evaluation(
 
         if "awq" in quantization:
             from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
+            from torchao.prototype.awq.example import get_calib_dataset
             if not TORCH_VERSION_AT_LEAST_2_3:
                 print("Awq requires torch2.3+")
                 exit()
