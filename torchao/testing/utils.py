@@ -223,11 +223,9 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
     NUM_DEVICES,
 )
 
-@unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 class TorchAOTensorParallelTestCase(DTensorTestBase):
     """Basic test case for tensor subclasses
     """
-    COMMON_DEVICES = (["cuda"] if torch.cuda.is_available() else [])
     COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 
     TENSOR_SUBCLASS = AffineQuantizedTensor
@@ -279,10 +277,11 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
         quantize_(m, self.QUANT_METHOD_FN(**self.QUANT_METHOD_KWARGS))
         return m
 
-    @common_utils.parametrize("device", COMMON_DEVICES)
     @common_utils.parametrize("dtype", COMMON_DTYPES)
     @with_comms
-    def test_tp(self, device, dtype):
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_tp(self, dtype):
+        device = "cuda"
         # To make sure different ranks create the same module
         torch.manual_seed(5)
 
