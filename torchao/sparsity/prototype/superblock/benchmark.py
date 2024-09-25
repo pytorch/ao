@@ -130,5 +130,8 @@ def get_args_parser(add_help=True):
 if __name__ == "__main__":
     args = get_args_parser().parse_args()
     result = main(args)
-    print(f"{result:.3f} ms", file=sys.stderr)
-    print(f"{1000/result:.3f} img/s")
+    header = ["model", "batch_size", "dtype", "sparsity", "bsr", "sparsity_level", "quantization", "tune_kernel_params", "latency", "img/s"]
+    result_string = " | ".join([args.model, args.batch_size, args.dtype, args.sparsity, args.bsr, args.sparsity_level, args.quantization, args.tune_kernel_params, result, 1000/result])
+    with open("benchmark_results.txt", "w+") as f:
+        f.write(result_string)
+    print(result_string)

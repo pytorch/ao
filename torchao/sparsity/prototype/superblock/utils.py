@@ -92,9 +92,6 @@ def accelerate_with_sparsity(model, args):
         else:
             assert args.bsr is not None, "BSR requires a block size"
             sparsify_(model, block_sparse_weight(blocksize=args.bsr), superblock_only)
-        assert args.bsr is not None, "BSR requires a block size"
-        sparsify_(model, block_sparse_weight(blocksize=args.bsr), superblock_only)
-
     elif args.sparsity == "semi_structured":
         if args.quantization:
             quantize_(
