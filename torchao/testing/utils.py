@@ -216,8 +216,7 @@ class TorchAOCompileTestCase(common_utils.TestCase):
         self.assertGreater(torchao.quantization.utils.compute_error(hp_res, lp_res), self.LINEAR_MIN_SQNR)
 
 import torch.distributed as dist
-from torch.distributed import DeviceMesh
-from torch.distributed._tensor import DTensor, Replicate, Shard
+from torch.distributed._tensor import DTensor, Replicate, Shard, DeviceMesh
 from torch.testing._internal.distributed._tensor.common_dtensor import (
     DTensorTestBase,
     with_comms,
