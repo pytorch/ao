@@ -45,10 +45,8 @@ At least one GPU:
 
 ## Benchmarking
 
-For all our benchmarking results, you can run `benchmark.sh`. This will run benchmarks with random weights, only testing speedup.
-
+For all our benchmarking results, you can run `benchmark.sh`.
 These benchmarks were run on a NVIDIA-A10080GB, with cuSPARSELt v0.5.2.
-
 
 
 

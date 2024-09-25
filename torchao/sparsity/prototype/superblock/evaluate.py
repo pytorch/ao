@@ -59,9 +59,37 @@ def main(args):
     accelerate_with_sparsity(model, args)
 
     criterion = torch.nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
-    evaluate(model, criterion, data_loader_test, device=device, dtype=torch.bfloat16)
+    return evaluate(model, criterion, data_loader_test, device=device, dtype=torch.bfloat16)
 
 
 if __name__ == "__main__":
     args = get_args_parser(evaluate=True).parse_args()
-    main(args)
+    result = main(args)
+    header = [
+        "model",
+        "batch_size",
+        "dtype",
+        "sparsity",
+        "bsr",
+        "sparsity_level",
+        "quantization",
+        "top-1 acc",
+    ]
+    result_string = ",".join(
+        str(_)
+        for _ in [
+            args.model,
+            args.batch_size,
+            args.dtype,
+            args.sparsity,
+            args.bsr,
+            args.sparsity_linear,
+            args.quantization,
+            result,
+        ]
+    )
+    with open("evaluation_results.txt", "a") as f:
+        if args.header:
+            f.write(",".join(header) + "\n")
+        f.write(result_string + "\n")
+    print(result_string)
