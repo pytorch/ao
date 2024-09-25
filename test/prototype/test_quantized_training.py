@@ -356,6 +356,24 @@ class TestFSDP2(FSDPTest):
             rel_error = (fsdp_loss - base_loss).abs() / base_loss.abs()
             assert rel_error < tolerance, (quantize_fn.__name__, mp_policy, iter_idx, rel_error)
 
+    @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
+    def test_precompute_bitnet_scale(self):
+        from torchao.prototype.quantized_training.bitnet import get_bitnet_scale, precompute_bitnet_scale_for_fsdp
+
+        model = nn.Sequential(nn.Linear(32, 64), nn.GELU(), nn.Linear(64, 32)).cuda()
+        model_fsdp = copy.deepcopy(model)
+        quantize_(model_fsdp, bitnet_training())
+        fully_shard(model_fsdp)
+
+        precompute_bitnet_scale_for_fsdp(model_fsdp)
+
+        torch.testing.assert_close(
+            get_bitnet_scale(model[0].weight), model_fsdp[0].weight._local_tensor._precomputed_scale
+        )
+        torch.testing.assert_close(
+            get_bitnet_scale(model[2].weight), model_fsdp[2].weight._local_tensor._precomputed_scale
+        )
+
 
 instantiate_parametrized_tests(TestQuantizedTraining)
 

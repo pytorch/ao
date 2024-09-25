@@ -154,7 +154,7 @@ def precompute_bitnet_scale_for_fsdp(module: nn.Module):
     bitnet_params = [
         p
         for p in module.parameters()
-        if isinstance(p, DTensor) and isinstance(p.to_local(), BitNetTrainingLinearWeight)
+        if isinstance(p, DTensor) and isinstance(p._local_tensor, BitNetTrainingLinearWeight)
     ]
     if len(bitnet_params) == 0:
         return
