@@ -113,7 +113,7 @@ class AWQObserver(AffineQuantizedObserverBase):
         best_scales = None
         for i in range(self.scale_options):
             ratio = i * 1 / self.scale_options
-            scales = self.average.pow(ratio)
+            scales = self.average.pow(ratio).to(self.inputs[0].dtype)
             scales = scales / (scales.max() * scales.min()).sqrt()
             layout = AwqLayoutType(scales, self.target_dtype)
             # regardless of weight dtype, we have to store as packed uint8 tensors
