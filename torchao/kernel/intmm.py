@@ -37,12 +37,8 @@ if TORCH_VERSION_AT_LEAST_2_2:
         """
         # torch.compile path
         if dynamo_is_compiling() or "FakeTensor" in input.__repr__():
-            try:
-                return out_dtype(torch.ops.aten.mm.default, torch.int32, input, mat2)
-            except Exception:
-                # fallback path, would run on H100 for float8 dtypes 
-                # Exception on H100 float8 dtype : "addmm_cuda" not implemented for 'Float8_e4m3fn' 
-                return torch.matmul(input.to(torch.float32), mat2.to(torch.float32)).to(torch.int32)
+            return out_dtype(torch.ops.aten.mm.default, torch.int32, input, mat2)
+
         # error checking for cublas path
         assert (
             mat2.device == input.device
