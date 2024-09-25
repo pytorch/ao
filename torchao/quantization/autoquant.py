@@ -553,7 +553,7 @@ class AQFloat8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantize
         INTERPOLATION_CONSTANT = mode[1]
         w_qtensor = cls.from_float(weight)
         x_vals_float8, x_scales = quantize_activation_per_token_absmax(
-            act_mat.reshape(-1, act_mat.shape[-1])
+            act_mat.reshape(-1, act_mat.shape[-1]), dtype=torch.float8_e4m3fn
         )
         quantized_matmul = (
             lambda x_vals_float8, x_scales, w_vals_float8:
