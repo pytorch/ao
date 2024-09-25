@@ -286,8 +286,7 @@ class TestFSDP2(FSDPTest):
             (bitnet_training(), mp_policy, 1e-6),
         ]
 
-        # FSDP2 mixed-precision requires this commit
-        # https://github.com/pytorch/pytorch/pull/136129
+        # FSDP2 mixed-precision requires https://github.com/pytorch/pytorch/pull/136129
         if TORCH_VERSION_AT_LEAST_2_6:
             # It's complicated (though possible) to simulate FSDP BF16 mixed-precision for base_model.
             # We would need to cast all params to BF16 in forward and backward pass, while keeping
