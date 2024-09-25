@@ -3,13 +3,13 @@ from typing import Tuple, Optional
 
 import torch
 import torch.nn.functional as F
-
+from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.dtypes.uintx.uintx import to_uintx
 from torchao.dtypes.affine_quantized_tensor import (
     to_affine_quantized_intx,
     LayoutType,
     register_layout_cls,
-    PlainAQTLayout,
+    AQTLayout,
     register_aqt_quantized_linear_dispatch
 
 ) 
@@ -113,13 +113,13 @@ class AWQObserver(AffineQuantizedObserverBase):
         best_scales = None
         for i in range(self.scale_options):
             ratio = i * 1 / self.scale_options
-            scales = self.average.pow(ratio).to(self.inputs[0].dtype)
+            scales = self.average.pow(ratio).to(self.weight.dtype)
             scales = scales / (scales.max() * scales.min()).sqrt()
-            layout = AwqLayoutType(scales, self.target_dtype)
+            layout = AwqLayoutType(self.target_dtype, scales)
             # regardless of weight dtype, we have to store as packed uint8 tensors
             tensor_dtype = torch.uint8
             w = to_affine_quantized_intx(
-                self.weight.data,
+                self.weight*scales,
                 self.mapping_type,
                 self.block_size,
                 tensor_dtype,
@@ -164,11 +164,8 @@ class ObservedLinear(torch.nn.Linear):
 
 @dataclass(frozen=True)
 class AwqLayoutType(LayoutType):
-    equalization_scale: torch.Tensor
     dtype: torch.dtype
-
-    def pre_process(self, input: torch.Tensor) -> torch.Tensor:
-        return (input * self.equalization_scale).to(input.dtype)
+    equalization_scale: torch.Tensor
 
     def post_process(self, input: torch.Tensor) -> torch.Tensor:
         # pack weights for sub dtype bit size
@@ -176,23 +173,80 @@ class AwqLayoutType(LayoutType):
             return to_uintx(input, self.dtype)
         return input
     
-    def _quantized_linear_impl(input_tensor, weight_tensor, bias):
-        # divide activations by awq scales
-        # print(input_tensor.dtype, weight_tensor.layout_tensor.layout_type.equalization_scale.dtype, weight_tensor.dequantize().dtype, bias.dtype)
-        return F.linear(input_tensor / weight_tensor.layout_tensor.layout_type.equalization_scale, weight_tensor.dequantize(), bias)
-    
-    def _linear_awq_check(input_tensor, weight_tensor, bias):
-        return isinstance(weight_tensor.layout_tensor, AwqAQTLayout)
+def _quantized_linear_impl(input_tensor, weight_tensor, bias):
+    # divide activations by awq scales
+    return F.linear(input_tensor / weight_tensor.layout_tensor.equalization_scale, weight_tensor.dequantize(), bias)
 
-register_aqt_quantized_linear_dispatch(AwqLayoutType._linear_awq_check, AwqLayoutType._quantized_linear_impl)
+def _linear_awq_check(input_tensor, weight_tensor, bias):
+    return isinstance(weight_tensor.layout_tensor, AwqAQTLayout)
+
+register_aqt_quantized_linear_dispatch(_linear_awq_check, _quantized_linear_impl)
 
 @register_layout_cls(AwqLayoutType)
-class AwqAQTLayout(PlainAQTLayout):
+class AwqAQTLayout(AQTLayout):
+    @staticmethod
+    def __new__(
+        cls,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        equalization_scale: torch.Tensor,
+        layout_type: LayoutType,
+    ):
+        kwargs = {}
+        kwargs["device"] = int_data.device
+        kwargs["layout"] = (
+            kwargs.get("layout") if kwargs.get("layout", False) else int_data.layout
+        )
+        kwargs["dtype"] = int_data.dtype
+        kwargs["requires_grad"] = False
+        shape = int_data.shape
+        return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
+
+    def __init__(
+        self,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        equalization_scale: torch.Tensor,
+        layout_type: LayoutType,
+    ):
+        self.int_data = int_data
+        self.scale = scale
+        self.zero_point = zero_point
+        self.equalization_scale = equalization_scale
+        self.layout_type = layout_type     
+        
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # unpack if needed
         w = self.int_data if self.layout_type.dtype == torch.uint8 else self.int_data.get_plain()
         return w, self.scale, self.zero_point
     
+    def __tensor_flatten__(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return ["int_data", "scale", "zero_point", "equalization_scale"], [self.layout_type]
+    
+    @classmethod
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
+    ):
+        int_data, scale, zero_point = tensor_data_dict["int_data"], tensor_data_dict["scale"], tensor_data_dict["zero_point"]
+        equalization_scale = tensor_data_dict["equalization_scale"]
+        layout_type, = tensor_attributes
+        return cls(int_data, scale, zero_point, equalization_scale, layout_type)
+    
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs):
+        kwargs = {} if kwargs is None else kwargs
+
+        if func is torch.ops.aten.detach.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+            )
+
+        raise NotImplementedError(
+            f"AwqAQTLayout dispatch: attempting to run {func}, this is not supported"
+        )
+        
     @classmethod
     def from_plain(
         cls,
@@ -202,4 +256,16 @@ class AwqAQTLayout(PlainAQTLayout):
         layout_type: LayoutType,
     ):
         assert isinstance(layout_type, AwqLayoutType)
-        return cls(int_data, scale, zero_point, layout_type)
+        return cls(int_data, scale, zero_point, layout_type.equalization_scale, layout_type)
+    
+    def get_layout_type(self) -> LayoutType:
+        return self.layout_type
+    
+    def _apply_fn_to_data(self, fn):
+        self.int_data = fn(self.int_data)
+        self.scale = fn(self.scale)
+        self.zero_point = fn(self.zero_point)
+        self.equalization_scale = fn(self.equalization_scale)
+        return self
+    
+to_awq = AwqAQTLayout.from_plain

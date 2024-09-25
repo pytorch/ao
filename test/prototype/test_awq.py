@@ -30,8 +30,13 @@ if TORCH_VERSION_AT_LEAST_2_3:
     qdtypes = (torch.uint1, torch.uint2, torch.uint3, torch.uint4, torch.uint5, torch.uint6, torch.uint7, torch.uint8)
 else:
     qdtypes = ()
-
-idtypes = (torch.bfloat16,)#, torch.half, torch.float32)
+    
+@pytest.fixture(autouse=True)
+def run_before_and_after_tests():
+    yield
+    torch._dynamo.reset() # reset cache between tests
+    
+idtypes = (torch.half,)#, torch.half, torch.float32)
 @pytest.mark.parametrize("device", devices)   
 @pytest.mark.parametrize("qdtype", qdtypes)
 @pytest.mark.parametrize("idtype", idtypes)
@@ -62,6 +67,7 @@ def test(device, qdtype, idtype):
     # quantize
     is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
     quantize_(m, awq_uintx(quant_dtype = quant_dtype, group_size = group_size), is_observed_linear)
+    m = torch.compile(m, fullgraph=True)
     awq_out = torch.cat([m(i.squeeze(0)) for i in dataset])
     
     assert awq_out is not None
