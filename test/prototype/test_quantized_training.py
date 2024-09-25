@@ -1,6 +1,6 @@
 import pytest
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_6
 
 if not TORCH_VERSION_AT_LEAST_2_4:
     pytest.skip("Requires torch>=2.4", allow_module_level=True)
@@ -300,7 +300,28 @@ class TestFSDP2(FSDPTest):
                 MixedPrecisionPolicy(param_dtype=torch.bfloat16),
                 1e-2,
             ),
+            (
+                bitnet_training(),
+                bitnet_training(),
+                MixedPrecisionPolicy(),
+                1e-6,
+            ),
         ]
+
+        # FSDP2 mixed-precision requires this commit
+        # https://github.com/pytorch/pytorch/pull/136129
+        # TODO: add FSDP2 mixed-precision test for int8_weight_only
+        if TORCH_VERSION_AT_LEAST_2_6:
+            extra_args = [
+                (
+                    bitnet_training(),
+                    bitnet_training(),
+                    MixedPrecisionPolicy(param_dtype=torch.bfloat16),
+                    1e-2,
+                ),
+            ]
+            test_args.extend(extra_args)
+
         self.run_subtests({"args": test_args}, self._run_subtest)
 
     def _run_subtest(self, args):
@@ -353,7 +374,7 @@ class TestFSDP2(FSDPTest):
             base_optim.step()
 
             rel_error = (fsdp_loss - base_loss).abs() / base_loss.abs()
-            assert rel_error < tolerance, (iter_idx, rel_error)
+            assert rel_error < tolerance, (args, iter_idx, rel_error)
 
 
 instantiate_parametrized_tests(TestQuantizedTraining)

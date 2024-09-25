@@ -20,6 +20,8 @@ There are 3 main benefits of using low-precision dtype for training (the extent 
 
 [`benchmarks/quantized_training/pretrain_llama2.py`](../../../benchmarks/quantized_training/pretrain_llama2.py) demonstrates an end-to-end Llama2 pre-training on single GPU for strategies implemented in this folder.
 
+All features in this folder are tested to work with PyTorch 2.4+ unless otherwise stated.
+
 ## INT8 quantized training
 
 Typically, quantized weights cannot be trained directly due to quantization error: a small change in the quantized weight will be round down to zero. To tackle this problem, we use **stochastic rounding** for weight update. In simple terms, stochastic rounding will round up or down randomly, but with a higher chance if it is closer to that direction. For example, 0.8 will have 80% chance of rounding up and 20% of rounding down. It also follows that on average, stochastic rounding will estimate the floating point value exactly.
@@ -145,6 +147,8 @@ from torchao import quantize_
 model = ...
 quantize_(model, bitnet_training())
 ```
+
+Training with FSDP2 is also supported. To use FDSP2 mixed-precision with `param_dtype` != model dtype, PyTorch 2.6+ is required.
 
 Note: following the [BitNet Training Tips, Code and FAQ](https://github.com/microsoft/unilm/blob/master/bitnet/The-Era-of-1-bit-LLMs__Training_Tips_Code_FAQ.pdf), user should insert extra RMSNorm before each `nn.Linear` layers and also remove the original RMSNorm before attention and MLP modules. Calling `quantize_(model, bitnet_training())` will NOT perform this for you. You can take a look at our example training script [`benchmarks/quantized_training/pretrain_llama2.py`](../../../benchmarks/quantized_training/pretrain_llama2.py) on how to do this for our Llama model.
 

@@ -86,11 +86,17 @@ class BitNetTrainingLinearWeight(TorchAOBaseTensor):
             # return new unwrapped object
             return out
 
-    def fsdp_pre_all_gather(self, mesh):
+    # require https://github.com/pytorch/pytorch/pull/136129 for mixed-precision param_dtype
+    # we need default None for module and mp_policy so this method still works with PyTorch 2.4 and 2.5
+    def fsdp_pre_all_gather(self, mesh, module=None, mp_policy=None):
+        data = self._data
+        if mp_policy is not None:
+            data = data.to(mp_policy.param_dtype)
+
         # quantize and pack into 2-bit to save comm bandwidth
         # TODO: precompute absmean similar to float8
-        data = BitNetPacked2bitLinearWeight.from_float(self._data, all_reduce=True)
-        return (data.int_data,), (data.scale,)
+        packed_data = BitNetPacked2bitLinearWeight.from_float(data, all_reduce=True)
+        return (packed_data.int_data,), (packed_data.scale,)
 
     def fsdp_post_all_gather(
         self,
@@ -271,7 +277,7 @@ class _BitNetPacked2bitLinear(torch.autograd.Function):
         input_i8, row_scale = quantize_int8_rowwise(input, eps=1e-5)
         weight_i2, tensor_scale = weight.int_data, weight.scale
 
-        ctx.save_for_backward(input_i8, row_scale, weight_i8, tensor_scale)
+        ctx.save_for_backward(input_i8, row_scale, weight_i2, tensor_scale)
 
         # use int8 tensor cores
         # NOTE: is doing dequant inside matmul faster when M is large?
