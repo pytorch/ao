@@ -15,6 +15,7 @@ from torchao.sparsity.prototype.superblock.utils import (
 from torchao.utils import benchmark_model, profiler_runner
 
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
+torch.backends.mha.set_fastpath_enabled(False)
 
 
 @torch.inference_mode

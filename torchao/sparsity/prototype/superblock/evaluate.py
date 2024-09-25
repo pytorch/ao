@@ -13,6 +13,7 @@ from torchao.sparsity.prototype.superblock.utils import (
 )
 
 torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
+torch.backends.mha.set_fastpath_enabled(False)
 
 
 def main(args):
