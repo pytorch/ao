@@ -6,14 +6,14 @@
 # LICENSE file in the root directory of this source tree.
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
-export TORCHAO_LIBRARIES=${SCRIPT_DIR}/../../../../../../..
+export TORCHAO_INCLUDE_DIRS=${SCRIPT_DIR}/../../../../../../..
 
 export CMAKE_PREFIX_PATH="$(python -c 'import torch.utils; print(torch.utils.cmake_prefix_path)')"
 echo "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}"
-export CMAKE_OUT=/tmp/cmake-out/torch_ao/examples/torch_custom_op
-cmake -DTORCHAO_LIBRARIES=${TORCHAO_LIBRARIES} \
+export CMAKE_OUT=/tmp/cmake-out/torchao
+cmake -DTORCHAO_INCLUDE_DIRS=${TORCHAO_INCLUDE_DIRS} \
     -DCMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH} \
     -DPLATFORM="ATEN" \
-    -S ${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/linear/examples/torch_custom_op \
+    -S ${TORCHAO_INCLUDE_DIRS}/torchao/experimental/kernels/cpu/linear/examples/torch_custom_op \
     -B ${CMAKE_OUT}
 cmake --build  ${CMAKE_OUT}
