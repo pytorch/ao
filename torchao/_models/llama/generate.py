@@ -245,16 +245,11 @@ def main(
             # get calibration data
             insert_awq_observer_(model,calibration_limit, calibration_seq_length, quant_dtype=quant_dtype, group_size=group_size)
             with torch.no_grad():
-                TransformerEvalWrapper(
-                    model=model,
-                    tokenizer=tokenizer,
-                    max_seq_length=calibration_seq_length,
-                    input_prep_func=prepare_inputs_for_model,
-                    device=device,
-                ).run_eval(
-                    tasks=calibration_tasks,
-                    limit=calibration_limit,
-                )
+                with torch.no_grad():
+                calibration_data = get_calib_dataset(tokenizer=tokenizer, n_samples=calibration_limit, block_size=calibration_seq_length)
+                for batch in calibration_data:
+                    model(batch.to(device))
+                    batch.to("cpu")
             is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
             quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size), is_observed_linear)
         if "uintx" in quantization:
