@@ -131,6 +131,7 @@ class Float8LinearConfig:
     #
     # Per-gemm configuration for gemms calculating `output`, `grad_input` and
     # `grad_weight`
+    # TODO(this PR): throw warning if fast_accum False is used with axiswise scaling
     #
     gemm_config_output: Float8GemmConfig = Float8GemmConfig(use_fast_accum=True)
     gemm_config_grad_input: Float8GemmConfig = Float8GemmConfig()

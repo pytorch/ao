@@ -33,6 +33,10 @@ from torchao.float8.float8_linear_utils import (
     linear_requires_sync,
     sync_float8_amax_and_scale_history,
 )
+from torchao.testing.float8.test_utils import (
+    scaling_granularities_by_gemm_lcw_recipe,
+    get_test_float8_linear_config,
+)
 from torch.profiler import profile, ProfilerActivity, record_function
 from utils import (
     kernel_name_to_category,
@@ -258,6 +262,8 @@ def main(
     scaling_type_weight: str = "dynamic",
     scaling_type_grad_output: str = "dynamic",
     scaling_granularity: str = "tensorwise",
+    # TODO(future PR): clean up the override, it's confusing
+    recipe_override: Optional[str] = None,
     model_type: str = "linear",
     dtype_filter: str = "both",
     add_inductor_metadata_to_trace: bool = True,
@@ -271,45 +277,57 @@ def main(
     scaling_type_grad_output = ScalingType(scaling_type_grad_output)
     scaling_granularity = ScalingGranularity(scaling_granularity)
 
-    if scaling_type_input is ScalingType.STATIC:
-        cast_config_input=CastConfig(
-            scaling_type=scaling_type_input,
-            static_scale=torch.tensor([1.0], device="cuda"),
-            scaling_granularity=scaling_granularity,
-        )
-    else:
-        cast_config_input=CastConfig(
-            scaling_type=scaling_type_input,
-            scaling_granularity=scaling_granularity,
-        )
-    if scaling_type_weight is ScalingType.STATIC:
-        cast_config_weight=CastConfig(
-            scaling_type=scaling_type_weight,
-            static_scale=torch.tensor([1.0], device="cuda"),
-            scaling_granularity=scaling_granularity,
-        )
-    else:
-        cast_config_weight=CastConfig(
-            scaling_type=scaling_type_weight,
-            scaling_granularity=scaling_granularity,
-        )
-    if scaling_type_grad_output is ScalingType.STATIC:
-        cast_config_grad_output=CastConfig(
-            scaling_type=scaling_type_grad_output,
-            static_scale=torch.tensor([1.0], device="cuda"),
-            scaling_granularity=scaling_granularity,
-        )
-    else:
-        cast_config_grad_output=CastConfig(
-            scaling_type=scaling_type_grad_output,
-            scaling_granularity=scaling_granularity,
+    if recipe_override is None:
+
+        if scaling_type_input is ScalingType.STATIC:
+            cast_config_input=CastConfig(
+                scaling_type=scaling_type_input,
+                static_scale=torch.tensor([1.0], device="cuda"),
+                scaling_granularity=scaling_granularity,
+            )
+        else:
+            cast_config_input=CastConfig(
+                scaling_type=scaling_type_input,
+                scaling_granularity=scaling_granularity,
+            )
+        if scaling_type_weight is ScalingType.STATIC:
+            cast_config_weight=CastConfig(
+                scaling_type=scaling_type_weight,
+                static_scale=torch.tensor([1.0], device="cuda"),
+                scaling_granularity=scaling_granularity,
+            )
+        else:
+            cast_config_weight=CastConfig(
+                scaling_type=scaling_type_weight,
+                scaling_granularity=scaling_granularity,
+            )
+        if scaling_type_grad_output is ScalingType.STATIC:
+            cast_config_grad_output=CastConfig(
+                scaling_type=scaling_type_grad_output,
+                static_scale=torch.tensor([1.0], device="cuda"),
+                scaling_granularity=scaling_granularity,
+            )
+        else:
+            cast_config_grad_output=CastConfig(
+                scaling_type=scaling_type_grad_output,
+                scaling_granularity=scaling_granularity,
+            )
+
+        config = Float8LinearConfig(
+            cast_config_input=cast_config_input,
+            cast_config_weight=cast_config_weight,
+            cast_config_grad_output=cast_config_grad_output,
         )
 
-    config = Float8LinearConfig(
-        cast_config_input=cast_config_input,
-        cast_config_weight=cast_config_weight,
-        cast_config_grad_output=cast_config_grad_output,
-    )
+    elif recipe_override == "lcw":
+        scaling_granularities_by_gemm = scaling_granularities_by_gemm_lcw_recipe
+        config = get_test_float8_linear_config(
+            scaling_type_input,
+            scaling_type_weight,
+            scaling_type_grad_output,
+            scaling_granularities_by_gemm,
+            False,  # emulate
+        )
 
     scaling_repr = "_".join(
         [
