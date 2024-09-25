@@ -1635,7 +1635,7 @@ def _(func, types, args, kwargs):
 
     if len(shape) == 1 and shape[0] == -1:
         assert len(self.block_size) == 2 and self.block_size[0] == 1
-        block_size = (block_size[1],)
+        block_size = (self.block_size[1],)
         return self.__class__(self.layout_tensor, block_size, (self.numel(),), self.quant_min, self.quant_max, self.zero_point_domain, dtype=self.dtype, strides=self.stride())
 
     raise ValueError(f"{self.__class__.__name__} only supports .view() with same shape or shape=[-1]")
