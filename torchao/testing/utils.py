@@ -9,7 +9,7 @@ from torch.testing._internal import common_utils
 from torchao.dtypes import AffineQuantizedTensor
 from torchao.dtypes import to_affine_quantized_intx
 from torchao.quantization.quant_primitives import MappingType
-from torchao.quantization import quantize_, int4_weight_only
+from torchao.quantization import quantize_, int8_weight_only
 
 """
 How to use:
@@ -231,7 +231,8 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
     COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 
     TENSOR_SUBCLASS = AffineQuantizedTensor
-    QUANT_METHOD_FN = int4_weight_only
+    # QUANT_METHOD_FN = staticmethod(int4_weight_only)
+    QUANT_METHOD_FN = staticmethod(int8_weight_only)
     QUANT_METHOD_KWARGS = {}
 
     # def setUp(self) -> None:
@@ -286,11 +287,12 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
         """
         Quantize the model
         """
-        quantize_(m, self.QUANT_METHOD_FN(**(self.QUANT_METHOD_KWARGS)))
+        quantize_(m, self.QUANT_METHOD_FN(**self.QUANT_METHOD_KWARGS))
         return m
 
     # @common_utils.parametrize("device", COMMON_DEVICES)
     # @common_utils.parametrize("dtype", COMMON_DTYPES)
+    @with_comms
     def test_tp(self):
         device = "cuda"
         dtype = torch.bfloat16
@@ -306,25 +308,23 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
                 return self.linear(x)
 
         # Get rank and device
-        rank = int(os.environ["RANK"])
-        device = torch.device(f"cuda:{rank % torch.cuda.device_count()}")
+        device = torch.device(f"cuda:{self.rank % torch.cuda.device_count()}")
 
         # Original model
-        proj_up = M(1024, 2048).to(device)
-        proj_dn = M(2048, 1024).to(device)
-        example_input = 100 * torch.randn(128, 1024, device=device)
+        proj_up = M(1024, 2048).to(device).to(dtype)
+        proj_dn = M(2048, 1024).to(device).to(dtype)
+        example_input = 100 * torch.randn(128, 1024, device=device, dtype=dtype)
         y = proj_dn(proj_up(example_input))
 
         # Quantize the model
         up_quant = self.quantize(proj_up)
         dn_quant = self.quantize(proj_dn)
         y_q = dn_quant(up_quant(example_input))
-        print("Quantization works!")
 
         mesh = self.build_device_mesh()
         # Shard the models
-        up_dist = colwise_shard(up_quant, mesh)
-        dn_dist = rowwise_shard(dn_quant, mesh)
+        up_dist = self.colwise_shard(up_quant, mesh)
+        dn_dist = self.rowwise_shard(dn_quant, mesh)
 
         # We need to turn inputs into DTensor form as well -- just a format change
         input_dtensor = DTensor.from_local(
@@ -332,15 +332,11 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
         )
 
         y_d = dn_dist(up_dist(input_dtensor))
-        print("Distributed result:", y_d)
-        print("Distributed works!")
 
         up_compiled = torch.compile(up_dist)
         y_up = up_compiled(input_dtensor)
         dn_compiled = torch.compile(dn_dist)
         y_dn = dn_compiled(y_up)
-        print("compiled result:", y_dn)
-        print("torch.compile works!")
 
 common_utils.instantiate_parametrized_tests(TorchAOBasicTestCase)
 common_utils.instantiate_parametrized_tests(TorchAOCompileTestCase)

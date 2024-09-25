@@ -25,35 +25,12 @@ from torchao.dtypes.utils import (
     LayoutType,
     PlainLayoutType,
 )
-from torchao.utils import TorchAOBaseTensor
+from torchao.utils import (
+    TorchAOBaseTensor,
+    fill_defaults,
+)
 
 aten = torch.ops.aten
-
-# TODO: move to torchao/utils.py
-def fill_defaults(args, n, defaults_tail):
-    """
-    __torch_dispatch__ doesn't guarantee the number of arguments you are
-    passed (e.g., defaulted arguments are not passed); but usually it is
-    convenient to pad out the arguments list with defaults.  This function
-    helps you do that.
-    Args:
-        args: the list of positional arguments passed to __torch_dispatch__
-        n: the number of arguments you are expecting to get
-        defaults_tail: default values for the arguments, starting from the
-            end of the list
-    Example:
-        >>> fill_defaults([1, 2, 3], 5, [3, 4, 5])
-        [1, 2, 3, 4, 5]
-        >>> fill_defaults([1, 2, 3], 5, [None, None, None])
-        [1, 2, 3, None, None]]
-    """
-    if n - len(defaults_tail) > len(args):
-        raise RuntimeError("not enough defaults to fill arguments")
-    r = list(args)
-    for i in range(len(args), n):
-        r.append(defaults_tail[i - n + len(defaults_tail)])
-    return r
-
 
 ###############################
 # Base Layout Tensor Subclass #
@@ -327,7 +304,7 @@ class PlainMyDTypeLayout(MyDTypeLayout):
                     func, args, kwargs, args[0]._apply_fn_to_data(lambda x: aten.slice.Tensor(x, dim, start, end, step))
                 )
             elif dim == 1:
-                return PlainMyDTypeLayout(aten.slice.Tensor(self.int_data, dim, start, end, step), self.scale.view(-1, 1), self.transposed, self.layout_type)
+                return PlainMyDTypeLayout(aten.slice.Tensor(self.int_data, dim, start, end, step), self.scale.view(-1), self.transposed, self.layout_type)
             else:
                 raise NotImplementedError(f"PlainMyDTypeLayout dispatch: attempting to run {func}, with dim={dim}, that is not supported")
         elif func is aten.t.default:
