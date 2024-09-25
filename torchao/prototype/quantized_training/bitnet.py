@@ -105,7 +105,7 @@ class BitNetTrainingLinearWeight(TorchAOBaseTensor):
 
         # NOTE: scale is in FP32
         data_i8 = quantize_bitnet_weight(self._data, scale)
-        data_i2 = _pack_i2_to_i8(data_i8)
+        data_i2 = _pack_i2_in_i8(data_i8)
         return (data_i2,), (scale,)
 
     def fsdp_post_all_gather(
@@ -222,12 +222,12 @@ def bitnet_training():
     return _get_linear_subclass_inserter(BitNetTrainingLinearWeight, allow_requires_grad=True)
 
 
-def _pack_i2_to_i8(x: Tensor):
+def _pack_i2_in_i8(x: Tensor):
     # NOTE: this is signed integer, so we have to mask before bit-shift
     return (x[:, ::4] << 6) | ((x[:, 1::4] & 0b11) << 4) | ((x[:, 2::4] & 0b11) << 2) | (x[:, 3::4] & 0b11)
 
 
-def _unpack_i8_to_i2(x: Tensor):
+def _unpack_i2_in_i8(x: Tensor):
     # NOTE: this is signed integer, so left-shift then right-shift will perform sign extension correctly
     # e.g. aa10bbcc -> 10bbcc00 -> 11111110
     return torch.stack([x >> 6, x << 2 >> 6, x << 4 >> 6, x << 6 >> 6], dim=-1).view(x.shape[0], -1)
@@ -266,7 +266,7 @@ class BitNetPacked2bitLinearWeight(TorchAOBaseTensor):
         return f"{self.__class__.__name__}(data={self.dequantize()})"
 
     def dequantize(self, out_dtype=None):
-        out = _unpack_i8_to_i2(self.int_data) * self.scale
+        out = _unpack_i2_in_i8(self.int_data) * self.scale
         if out_dtype is not None:
             out = out.to(out_dtype)
         return out
@@ -312,7 +312,7 @@ class _BitNetPacked2bitLinear(torch.autograd.Function):
 
         # use int8 tensor cores
         # NOTE: is doing dequant inside matmul faster when M is large?
-        weight_i8 = _unpack_i8_to_i2(weight_i2)
+        weight_i8 = _unpack_i2_in_i8(weight_i2)
         out = scaled_int8_mm(input_i8.contiguous(), weight_i8.contiguous().T, row_scale, tensor_scale)
         out = out.view(*batch_dims, weight.shape[0])
 
@@ -322,7 +322,7 @@ class _BitNetPacked2bitLinear(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         input_i8, row_scale, weight_i2, tensor_scale = ctx.saved_tensors
-        weight_i8 = _unpack_i8_to_i2(weight_i2)
+        weight_i8 = _unpack_i2_in_i8(weight_i2)
         grad_input = grad_weight = grad_bias = None
 
         batch_dims = grad_output.shape[:-1]
