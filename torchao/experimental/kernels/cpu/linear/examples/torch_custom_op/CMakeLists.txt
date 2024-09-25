@@ -13,12 +13,12 @@ set(CMAKE_BUILD_TYPE Release)
 add_compile_options("-Wall" "-Werror")
 
 include(CMakePrintHelpers)
-message("TORCHAO_LIBRARIES: ${TORCHAO_LIBRARIES}")
-include_directories(${TORCHAO_LIBRARIES})
+message("TORCHAO_INCLUDE_DIRS: ${TORCHAO_INCLUDE_DIRS}")
+include_directories(${TORCHAO_INCLUDE_DIRS})
 
-add_subdirectory(${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64 ${CMAKE_CURRENT_BINARY_DIR}/kernel_aarch64)
+add_subdirectory(${TORCHAO_INCLUDE_DIRS}/torchao/experimental/kernels/cpu/aarch64 ${CMAKE_CURRENT_BINARY_DIR}/kernel_aarch64)
 
-include(${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/Utils.cmake)
+include(${TORCHAO_INCLUDE_DIRS}/torchao/experimental/kernels/cpu/Utils.cmake)
 
 set(PLATFORM "ATEN" CACHE STRING "Choose platform surface: ATEN, EXECUTORCH")
 string(TOUPPER ${PLATFORM} PLATFORM_TO_UPPER)
