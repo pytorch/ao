@@ -122,7 +122,7 @@ def get_args_parser(add_help=True):
     parser.add_argument("--float16", action="store_true", help="Use float16")
     parser.add_argument("--tune-kernel-params", action="store_true", help="Tune kernel params")
     parser.add_argument("--profile", action="store_true", help="Profile the run and dump Prefetto trace")   
-    parser.add_argument("--quantization", action="store_true", help="Profile the run and dump Prefetto trace")   
+    parser.add_argument("--quantization", action="store_true", help="whether to run with quantization or not")   
 
     return parser
 
@@ -131,7 +131,7 @@ if __name__ == "__main__":
     args = get_args_parser().parse_args()
     result = main(args)
     header = ["model", "batch_size", "dtype", "sparsity", "bsr", "sparsity_level", "quantization", "tune_kernel_params", "latency", "img/s"]
-    result_string = " | ".join([args.model, args.batch_size, args.dtype, args.sparsity, args.bsr, args.sparsity_level, args.quantization, args.tune_kernel_params, result, 1000/result])
+    result_string = " | ".join(str(_) for _ in [args.model, args.batch_size, args.dtype, args.sparsity, args.bsr, args.sparsity_linear, args.quantization, args.tune_kernel_params, result, 1000/result])
     with open("benchmark_results.txt", "w+") as f:
         f.write(result_string)
     print(result_string)
