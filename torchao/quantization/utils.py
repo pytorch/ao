@@ -145,6 +145,7 @@ def quantize_activation_per_token_absmax(t):
     block_size = list(t.shape)
     for i in range(len(block_size) - 1):
         block_size[i] = 1
+    dtype = torch.int8
     eps = 1e-5
     # Note: the original smoothquant does not clamp to qmin/qmax here,
     # but some of the tests with bfloat16 ended up with a flipped sign
