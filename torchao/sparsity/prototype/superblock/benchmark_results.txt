@@ -6,3 +6,6 @@ vit_h_14,256,bfloat16,bsr,64,0.8,False,False,361.4048046875,2.7669803694632154
 vit_h_14,256,bfloat16,bsr,64,0.84,False,False,343.2491015625,2.913336103278675
 vit_h_14,256,bfloat16,bsr,64,0.9,False,False,315.3134375,3.1714474585308468
 vit_h_14,256,bfloat16,semi_structured,None,0.0,True,False,434.479140625,2.301606467370323
+model,batch_size,dtype,sparsity,bsr,sparsity_level,quantization,tune_kernel_params,latency,img/s
+vit_b_16,256,bfloat16,None,None,0.0,False,False,60.8422802734375,16.435938881741414
+vit_h_14,256,bfloat16,bsr,64,0.8,True,False,434.5435546875,2.3012652913909757

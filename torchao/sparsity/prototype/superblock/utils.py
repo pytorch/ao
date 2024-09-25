@@ -46,15 +46,12 @@ def get_args_parser(train=False, evaluate=False, benchmark=False):
     parser.add_argument("--quantization", action="store_true", help="Run with int8 dynamic quantization")
     parser.add_argument("--weights", default=None, type=str, help="the weights enum name to load")
     parser.add_argument("--weights-path", type=str, help="optional checkpoint to load weights after intialization")
+    parser.add_argument("--header", action="store_true", help="Print header for first run")
 
     # Eval a subset of training args
-    if evaluate:
-        parser.add_argument("-j", "--workers", default=16, type=int, metavar="N", help="number of data loading workers")
-        parser.add_argument("--world-size", default=1, type=int, help="number of distributed processes")
-        parser.add_argument("--dist-url", default="env://", type=str, help="url used to set up distributed training")
-
     # lots of training args
-    if train:
+    if train or evaluate:
+        parser.add_argument("-j", "--workers", default=16, type=int, metavar="N", help="number of data loading workers")
         parser.add_argument("--accumulation-steps", default=1, type=int, help="Number of steps to accumulate gradients over")
         parser.add_argument("--epochs", default=90, type=int, metavar="N", help="number of total epochs to run")
         parser.add_argument("--opt", default="sgd", type=str, help="optimizer")
@@ -104,7 +101,6 @@ def get_args_parser(train=False, evaluate=False, benchmark=False):
         parser.add_argument("--dtype", choices=["float32", "bfloat16", "float16"], help="Data type", default="bfloat16")
         parser.add_argument("--tune-kernel-params", action="store_true", help="Tune kernel params for BSR")
         parser.add_argument("--profile", action="store_true", help="Dump Prefetto trace")
-        parser.add_argument("--header", action="store_true", help="Print header for first run")
 
     return parser
 
@@ -155,7 +151,7 @@ def accelerate_with_sparsity(model, args):
             quantize_(
                 model,
                 int8_dynamic_activation_int8_weight(
-                    layout_type=BlockSparseLayoutType(blocksize=args.bsr)
+                    layout_type=BlockSparseLayoutType()
                 ),
                 superblock_only,
             )

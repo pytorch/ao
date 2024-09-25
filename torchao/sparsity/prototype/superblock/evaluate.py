@@ -1,4 +1,5 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
+import os
 import torch
 import torchvision
 
@@ -57,6 +58,7 @@ def main(args):
     if sparsifier_or_none is not None:
         sparsifier_or_none.squash_mask()
     accelerate_with_sparsity(model, args)
+    model = torch.compile(model, mode="max-autotune", fullgraph=True)
 
     criterion = torch.nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
     return evaluate(model, criterion, data_loader_test, device=device, dtype=torch.bfloat16)
@@ -73,14 +75,14 @@ if __name__ == "__main__":
         "bsr",
         "sparsity_level",
         "quantization",
-        "top-1 acc",
+        "top-1_acc",
     ]
     result_string = ",".join(
         str(_)
         for _ in [
             args.model,
             args.batch_size,
-            args.dtype,
+            "bfloat16",
             args.sparsity,
             args.bsr,
             args.sparsity_linear,

@@ -1419,6 +1419,8 @@ def _linear_int8_act_int8_weight_block_sparse_impl(input_tensor, weight_tensor, 
     if bias is not None:
         y += bias
     return y
+
+
 def _linear_bf16_act_uint4_weight_check(input_tensor, weight_tensor, bias):
     return (
         # input is native bfloat16 tensor
