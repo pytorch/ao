@@ -58,7 +58,8 @@ def main(args):
     if sparsifier_or_none is not None:
         sparsifier_or_none.squash_mask()
     accelerate_with_sparsity(model, args)
-    model = torch.compile(model, mode="max-autotune", fullgraph=True)
+    #TODO fix compile 
+    # model = torch.compile(model, mode="max-autotune", fullgraph=True)
 
     criterion = torch.nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
     return evaluate(model, criterion, data_loader_test, device=device, dtype=torch.bfloat16)

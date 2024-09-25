@@ -677,7 +677,6 @@ class SemiSparseAQTLayout(PlainAQTLayout):
 
 @register_layout_cls(BlockSparseLayoutType)
 class BlockSparseAQTLayout(PlainAQTLayout):
-    quantized_linear_impl = "block"
     bsr_crow_indices: Optional[torch.Tensor]
     bsr_col_indices: Optional[torch.Tensor]
     bsr_values: Optional[torch.Tensor]
@@ -809,12 +808,6 @@ class BlockSparseAQTLayout(PlainAQTLayout):
             return return_and_correct_aliasing(
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
             )
-        if func is aten.t.default:
-            """we don't need to repack the weight and just rely on external
-            shape being changed and record the status of transpose/no-transpose
-            """
-            args[0].transposed = not args[0].transposed
-            return return_and_correct_aliasing(func, args, kwargs, args[0])
 
         if func is aten.crow_indices.default:
             return args[0].bsr_crow_indices.detach()
@@ -1391,8 +1384,7 @@ def _linear_int8_act_int8_weight_block_sparse_check(input_tensor, weight_tensor,
         weight_tensor.is_cuda and
         input_tensor.dtype == weight_tensor.dtype and
         isinstance(input_tensor.layout_type, PlainLayoutType) and
-        isinstance(weight_tensor.layout_type, BlockSparseLayoutType) and
-        weight_tensor.layout_tensor.quantized_linear_impl == "block"
+        isinstance(weight_tensor.layout_type, BlockSparseLayoutType)
     )
 
 

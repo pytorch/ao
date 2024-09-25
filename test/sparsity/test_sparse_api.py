@@ -13,12 +13,11 @@ from torchao.quantization.quant_api import (
 )
 
 from torchao.sparsity import (
-    apply_fake_block_sparsity,
     apply_fake_sparsity,
     semi_sparse_weight,
     sparsify_,
 )
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AFTER_2_5
 
 
 logging.basicConfig(
@@ -75,7 +74,7 @@ class TestQuantSemiSparse(TestCase):
         )
         sparse_result = model(input)
 
-        assert torch.allclose(dense_result, sparse_result, rtol=1e-2, atol=1e-2)
+        torch.testing.assert_close(dense_result, sparse_result, rtol=1e-2, atol=1e-2)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_sparse_marlin(self):
@@ -100,9 +99,9 @@ class TestQuantSemiSparse(TestCase):
         quantize_(model, int4_weight_only(layout_type=MarlinSparseLayoutType()))
         sparse_result = model(input)
 
-        assert torch.allclose(
+        torch.testing.assert_close(
             dense_result, sparse_result, atol=3e-1
-        ), "Results are not close"
+        )
 
 
 class TestBlockSparseWeight(TestCase):
@@ -131,11 +130,11 @@ class TestBlockSparseWeight(TestCase):
         sparsify_(model, block_sparse_weight())
         sparse_result = model(input)
 
-        assert torch.allclose(dense_result, sparse_result, rtol=1e-3, atol=1e-3)
+        torch.testing.assert_close(dense_result, sparse_result, rtol=1e-3, atol=1e-3)
 
 
 class TestQuantBlockSparseWeight(TestCase):
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "pytorch 2.3+ feature")
+    @unittest.skipIf(not TORCH_VERSION_AFTER_2_5, "pytorch 2.6+ feature")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_sparse(self):
         input = torch.rand((256, 128)).to(torch.bfloat16).cuda()
@@ -147,15 +146,12 @@ class TestQuantBlockSparseWeight(TestCase):
             .to(torch.bfloat16)
             .cuda()
         )
-        from torchao.sparsity.prototype.superblock.blocksparse import block_sparse_weight
-        block_sparse_weight()
+        from torchao.sparsity.prototype.superblock.blocksparse import blocksparse_int_addmm
         from torchao.sparsity.utils import create_block_sparse_tensor
         M, N = model[0].weight.shape
         model[0].weight.data = create_block_sparse_tensor(M, N, 64, 0.5, torch.bfloat16) * torch.rand(M, N, dtype=torch.bfloat16).cuda()
-        print(model[0].weight)
         M, N = model[1].weight.shape
         model[1].weight.data = create_block_sparse_tensor(M, N, 64, 0.5, torch.bfloat16)
-        print(model[1].weight)  
 
         model_copy = copy.deepcopy(model)
 
@@ -166,8 +162,6 @@ class TestQuantBlockSparseWeight(TestCase):
         quantize_(model, int8_dynamic_activation_int8_weight(layout_type=BlockSparseLayoutType()))
         sparse_result = model(input)
 
-        print(reference)
-        print(sparse_result)
         torch.testing.assert_close(reference, sparse_result, rtol=1e-1, atol=1e-1)
 
 

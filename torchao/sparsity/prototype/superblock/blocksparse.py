@@ -2,7 +2,7 @@ from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import torch
-from torch.sparse._triton_ops import broadcast_batch_dims, bsr_dense_addmm, bsr_dense_mm, _int_bsr_dense_addmm
+from torch.sparse._triton_ops import broadcast_batch_dims, bsr_dense_addmm, bsr_dense_mm
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
 from torchao.utils import TorchAOBaseTensor
@@ -10,32 +10,6 @@ from torchao.utils import TorchAOBaseTensor
 aten = torch.ops.aten
 
 # quantization support
-@torch.library.custom_op("blocksparse::_int_mm", mutates_args=())
-def blocksparse_int_mm(
-    crow_indices: torch.Tensor,
-    col_indices: torch.Tensor,
-    values: torch.Tensor,
-    M: int,
-    K: int,
-    A: torch.Tensor,
-) -> torch.Tensor:
-    assert values.dtype == torch.int8
-    weight_bsr = torch.sparse_bsr_tensor(crow_indices, col_indices, values, size=(M, K))
-    return bsr_dense_mm(weight_bsr, A).t()
-
-
-@torch.library.register_fake("blocksparse::_int_mm")
-def blocksparse_int_mm_abstract(
-    crow_indices: torch.Tensor,
-    col_indices: torch.Tensor,
-    values: torch.Tensor,
-    M: int,
-    K: int,
-    A: torch.Tensor,
-) -> torch.Tensor:
-    return torch.empty((A.shape[-1], M), dtype=torch.int8, device=A.device)
-
-
 @torch.library.custom_op("blocksparse::int_addmm", mutates_args=())
 def blocksparse_int_addmm(
     crow_indices: torch.Tensor,

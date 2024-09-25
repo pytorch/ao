@@ -12,25 +12,6 @@ from torchao.quantization.quant_api import (
 
 
 # Sparsity helper functions
-def apply_fake_block_sparsity(model, sparsity_level, block_size, **kwargs):
-    """
-    This function simulates block sparsity on all linear layers in a model.
-    """
-    filter_fn = kwargs.pop("filter_fn", _is_linear)
-    # torch.ao.pruning flow
-    sparse_config = []
-    for name, mod in model.named_modules():
-        if filter_fn(mod, name):
-            sparse_config.append({"tensor_fqn": f"{name}.weight"})
-
-    sparsifier = WeightNormSparsifier(
-        sparsity_level=sparsity_level, sparse_block_shape=(block_size, block_size)
-    )
-    sparsifier.prepare(model, sparse_config)
-    sparsifier.step()
-    sparsifier.squash_mask()
-
-
 def apply_fake_sparsity(model, **kwargs):
     """
     This function simulates 2:4 sparsity on all linear layers in a model.
