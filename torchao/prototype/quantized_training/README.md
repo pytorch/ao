@@ -124,6 +124,17 @@ quantize_(model, bitnet_training())
 
 Note: following the [BitNet Training Tips, Code and FAQ](https://github.com/microsoft/unilm/blob/master/bitnet/The-Era-of-1-bit-LLMs__Training_Tips_Code_FAQ.pdf), user should insert extra RMSNorm before each `nn.Linear` layers and also remove the original RMSNorm before attention and MLP modules. Calling `quantize_(model, bitnet_training())` will NOT perform this for you. You can take a look at our example training script [`benchmarks/quantized_training/pretrain_llama2.py`](../../../benchmarks/quantized_training/pretrain_llama2.py) on how to do this for our Llama model.
 
+When used with FSDP2 training, you can pre-compute BitNet weight scales for the next iteration to synchronize all scales with a single all-reduce operation. This should be done after optimizer step.
+
+```python
+from torchao.prototype.quantized_training import precompute_bitnet_scale_for_fsdp
+
+for _ in range(n_steps):
+  model(inputs).sum().backward()
+  optim.step()
+  precompute_bitnet_scale_for_fsdp(model)
+```
+
 See [#930](https://github.com/pytorch/ao/pull/930) for some benchmark results.
 
 ## Future ideas

@@ -8,8 +8,9 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 import torch.utils._pytree as pytree
-from torch import Tensor
+from torch import Tensor, nn
 from torch.utils._triton import has_triton
+from torch.distributed._tensor import DTensor
 
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
 from torchao.utils import TorchAOBaseTensor
@@ -34,7 +35,7 @@ aten = torch.ops.aten
 class BitNetTrainingLinearWeight(TorchAOBaseTensor):
     @staticmethod
     @torch._dynamo.disable
-    def __new__(cls, data: Tensor):
+    def __new__(cls, data: Tensor, precomputed_scale: Tensor | None = None):
         return Tensor._make_wrapper_subclass(
             cls,
             data.shape,
@@ -43,15 +44,19 @@ class BitNetTrainingLinearWeight(TorchAOBaseTensor):
         )
 
     @torch._dynamo.disable
-    def __init__(self, data: Tensor):
+    def __init__(self, data: Tensor, precomputed_scale: Tensor | None = None):
         self._data = data
+        self._precomputed_scale = precomputed_scale
 
     def __tensor_flatten__(self):
-        return ["_data"], []
+        if self._precomputed_scale is not None:
+            return ["_data", "_precomputed_scale"], []
+        else:
+            return ["_data"], []
 
     @classmethod
     def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
-        return cls(tensor_data_dict["_data"], *tensor_attributes)
+        return cls(tensor_data_dict["_data"], tensor_data_dict.get("_precomputed_scale", None), *tensor_attributes)
 
     def __repr__(self):
         return f"{self.__class__.__name__}(data={self._data})"
@@ -64,6 +69,7 @@ class BitNetTrainingLinearWeight(TorchAOBaseTensor):
             **pytree.tree_map_only(cls, lambda x: x._data, kwargs),
         )
 
+        # NOTE: _precomputed_scale does not propagate through any ops
         if func is aten.copy_.default:
             # return original object
             return args[0]
@@ -86,17 +92,21 @@ class BitNetTrainingLinearWeight(TorchAOBaseTensor):
             # return new unwrapped object
             return out
 
-    # require https://github.com/pytorch/pytorch/pull/136129 for mixed-precision param_dtype
+    # new signature https://github.com/pytorch/pytorch/pull/136129
     # we need default None for module and mp_policy so this method still works with PyTorch 2.4 and 2.5
     def fsdp_pre_all_gather(self, mesh, module=None, mp_policy=None):
-        data = self._data
-        if mp_policy is not None:
-            data = data.to(mp_policy.param_dtype)
-
         # quantize and pack into 2-bit to save comm bandwidth
-        # TODO: precompute absmean similar to float8
-        packed_data = BitNetPacked2bitLinearWeight.from_float(data, all_reduce=True)
-        return (packed_data.int_data,), (packed_data.scale,)
+        if self._precomputed_scale is not None:
+            scale = self._precomputed_scale
+
+        else:
+            scale = get_bitnet_scale(self._data)
+            dist.all_reduce(scale, op=dist.ReduceOp.AVG)
+
+        # NOTE: scale is in FP32
+        data_i8 = quantize_bitnet_weight(self._data, scale)
+        data_i2 = _pack_i2_to_i8(data_i8)
+        return (data_i2,), (scale,)
 
     def fsdp_post_all_gather(
         self,
@@ -106,13 +116,14 @@ class BitNetTrainingLinearWeight(TorchAOBaseTensor):
         *,
         out: Optional[Tensor] = None,
     ):
-        (int_data,) = all_gather_outputs
+        (data_i2,) = all_gather_outputs
         (scale,) = metadata
+        scale = scale.to(param_dtype)
         if out is not None:
             assert isinstance(out, BitNetPacked2bitLinearWeight)
             out.scale = scale
             return
-        return BitNetPacked2bitLinearWeight(int_data, scale), all_gather_outputs
+        return BitNetPacked2bitLinearWeight(data_i2, scale), all_gather_outputs
 
 
 @BitNetTrainingLinearWeight.implements(F.linear)
@@ -123,17 +134,38 @@ def _(func, types, args, kwargs):
     return _BitNetTrainingLinear.apply(*args, **kwargs)
 
 
-def quantize_bitnet_weight(w: Tensor, eps: float = 1e-5, all_reduce: bool = False) -> Tensor:
-    dtype = w.dtype
-    w = w.float()
-    scale = w.abs().mean()  # tensor-wise abs-mean. FP32
+def get_bitnet_scale(x: Tensor):
+    "Tensor-wise abs-mean. Always return FP32."
+    return x.float().abs().mean()
 
-    if all_reduce and dist.is_initialized():
-        dist.all_reduce(scale, op=dist.ReduceOp.AVG)
 
-    w = w / scale.clip(eps)
+def quantize_bitnet_weight(w: Tensor, scale: Tensor, eps: float = 1e-5) -> Tensor:
+    w = w.float() / scale.clip(eps)
     w = w.round().clip(-1, 1).to(torch.int8)
-    return w, scale.to(dtype)
+    return w
+
+
+@torch.no_grad()
+def precompute_bitnet_scale_for_fsdp(module: nn.Module):
+    """Calculate scale for all BitNetTrainingLinearWeight parameters.
+    This should be run after the optimizer step. It performs a single all-reduce for all
+    parameters to reduce overhead.
+    """
+    bitnet_params = [
+        p
+        for p in module.parameters()
+        if isinstance(p, DTensor) and isinstance(p.to_local(), BitNetTrainingLinearWeight)
+    ]
+    if len(bitnet_params) == 0:
+        return
+
+    # NOTE: use torch.compile to save memory and increase speed?
+    bitnet_scales = [get_bitnet_scale(x) for x in bitnet_params]  # local absmean
+    bitnet_scales = torch.stack(bitnet_scales)
+    bitnet_scales = bitnet_scales.full_tensor()  # global absmean
+
+    for i, p in enumerate(bitnet_params):
+        p._local_tensor._precomputed_scale = bitnet_scales[i]
 
 
 class _BitNetTrainingLinear(torch.autograd.Function):
@@ -145,7 +177,12 @@ class _BitNetTrainingLinear(torch.autograd.Function):
         # https://github.com/microsoft/unilm/blob/master/bitnet/The-Era-of-1-bit-LLMs__Training_Tips_Code_FAQ.pdf
         # Figure 3
         input_i8, row_scale = quantize_int8_rowwise(input, eps=1e-5)
-        weight_i8, tensor_scale = quantize_bitnet_weight(weight._data)
+
+        # NOTE: use FP32 scale for weight quantization, but cast scale to possibly lower precision
+        # for matmul and backward
+        tensor_scale = get_bitnet_scale(weight._data)
+        weight_i8 = quantize_bitnet_weight(weight._data, tensor_scale)
+        tensor_scale = tensor_scale.to(weight.dtype)
 
         ctx.save_for_backward(input_i8, row_scale, weight_i8, tensor_scale)
 
@@ -227,12 +264,6 @@ class BitNetPacked2bitLinearWeight(TorchAOBaseTensor):
 
     def __repr__(self):
         return f"{self.__class__.__name__}(data={self.dequantize()})"
-
-    @classmethod
-    def from_float(cls, tensor: Tensor, *, eps: float = 1e-5, all_reduce: bool = False):
-        int_data, scale = quantize_bitnet_weight(tensor, eps=eps, all_reduce=all_reduce)
-        int_data = _pack_i2_to_i8(int_data)
-        return BitNetPacked2bitLinearWeight(int_data, scale)
 
     def dequantize(self, out_dtype=None):
         out = _unpack_i8_to_i2(self.int_data) * self.scale
