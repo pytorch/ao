@@ -35,7 +35,7 @@ aten = torch.ops.aten
 class BitNetTrainingLinearWeight(TorchAOBaseTensor):
     @staticmethod
     @torch._dynamo.disable
-    def __new__(cls, data: Tensor, precomputed_scale: Tensor | None = None):
+    def __new__(cls, data: Tensor, precomputed_scale: Optional[Tensor] = None):
         return Tensor._make_wrapper_subclass(
             cls,
             data.shape,
@@ -44,7 +44,7 @@ class BitNetTrainingLinearWeight(TorchAOBaseTensor):
         )
 
     @torch._dynamo.disable
-    def __init__(self, data: Tensor, precomputed_scale: Tensor | None = None):
+    def __init__(self, data: Tensor, precomputed_scale: Optional[Tensor] = None):
         self._data = data
         self._precomputed_scale = precomputed_scale
 
