@@ -223,6 +223,7 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
     NUM_DEVICES,
 )
 
+@unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
 class TorchAOTensorParallelTestCase(DTensorTestBase):
     """Basic test case for tensor subclasses
     """
