@@ -196,9 +196,7 @@ def _get_min_alignment(size: int, alignment_value: int) -> int:
         16
     ```
     """
-    if size % alignment_value == 0:
-        return size
-    return (1 + (size // alignment_value)) * alignment_value
+    return (1 + ((size - 1) // alignment_value)) * alignment_value
 
 
 def pad_tensor_for_matmul(
@@ -233,10 +231,6 @@ def pad_tensor_for_matmul(
     # Calculate aligned dimensions based on the specified dims
     dim1_aligned = _get_min_alignment(dim1, 16) if 0 in dims else dim1
     dim2_aligned = _get_min_alignment(dim2, 16) if 1 in dims else dim2
-
-    # Check if padding is needed for either dimension
-    if dim1 == dim1_aligned and dim2 == dim2_aligned:
-        return tensor
 
     # Calculate padding values for both dimensions
     pad_dim1 = dim1_aligned - dim1
