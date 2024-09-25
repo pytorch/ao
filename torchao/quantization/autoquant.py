@@ -17,8 +17,8 @@ from .quant_primitives import (
 )
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_5
 from torchao.quantization.utils import quantize_activation_per_token_absmax
-from torchao.quantization.quant_api import _input_activation_quant_func_fp8
-from torchao.quantization.observer import PerRow
+from torchao.quantization.observer import PerAxis, PerTensor, PerRow
+from torchao.float8.inference import Float8MMConfig
 
 import torch.nn.functional as F
 
@@ -502,6 +502,7 @@ class AQFloat8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantize
 
         # avoid circular dep
         from torchao.dtypes import to_affine_quantized_floatx
+        from torchao.quantization.quant_api import _input_activation_quant_func_fp8
         # weight settings
         def get_weight_block_size(x):
             return (1, x.shape[1])
@@ -515,10 +516,10 @@ class AQFloat8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantize
             return block_size
 
         input_target_dtype = torch.float8_e4m3fn
-        layout_type = Float8LayoutType()
+        layout_type = Float8LayoutType(mm_config=Float8MMConfig(use_fast_accum=True))
         input_quant_func = lambda x: _input_activation_quant_func_fp8(
             x=x,
-            activation_granularity=PerRow,
+            activation_granularity=PerRow(),
             activation_dtype=input_target_dtype,
         )
         block_size = get_weight_block_size(weight)
