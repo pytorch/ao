@@ -93,6 +93,8 @@ def get_tinystories():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="470M", choices=transformer_configs.keys())
+    parser.add_argument("--bf16_model", action="store_true")
+    parser.add_argument("--bf16_amp", action="store_true")
     parser.add_argument("--quantize")
     parser.add_argument("--activation_checkpointing", action="store_true")
     parser.add_argument("--compile", action="store_true")
@@ -116,7 +118,10 @@ if __name__ == "__main__":
 
     config = ModelArgs.from_name(args.model)
     config.block_size = args.seq_len
-    model = Transformer(config).bfloat16().cuda()
+    model = Transformer(config)
+    if args.bf16_model:
+        model.bfloat16()
+    model.cuda()
     with torch.device("cuda"):
         model.setup_caches(args.batch_size, args.seq_len, training=True)
     if args.activation_checkpointing:
@@ -178,7 +183,8 @@ if __name__ == "__main__":
         idx = torch.randint(0, data.shape[0] - args.batch_size * args.seq_len, (1,)).item()
         batch = data[idx : idx + args.batch_size * args.seq_len].view(args.batch_size, args.seq_len).long()
 
-        loss = _get_loss(model, batch)
+        with torch.autocast("cuda", torch.bfloat16, enabled=args.bf16_amp):
+            loss = _get_loss(model, batch)
         loss.backward()
 
         if step % args.log_interval == 0:
@@ -188,10 +194,6 @@ if __name__ == "__main__":
                 max_memory_allocated=torch.cuda.max_memory_allocated() / 1e9,
                 max_memory_reserved=torch.cuda.max_memory_reserved() / 1e9,
             )
-            if step > 0:
-                time1 = time.time()
-                log_dict["tokens_per_second"] = (args.log_interval * args.batch_size * args.seq_len) / (time1 - time0)
-                time0 = time1
             run.log(log_dict, step=step)
             pbar.set_postfix(loss=log_dict["loss"])
 
@@ -200,5 +202,11 @@ if __name__ == "__main__":
 
         step += 1
         pbar.update()
+
+        if step % args.log_interval == 0:
+            time1 = time.time()
+            log_dict = dict(tokens_per_second=(args.log_interval * args.batch_size * args.seq_len) / (time1 - time0))
+            time0 = time1
+            run.log(log_dict, step=step)
 
     run.finish()

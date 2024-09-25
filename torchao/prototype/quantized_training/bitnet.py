@@ -140,7 +140,8 @@ class _BitNetTrainingLinear(torch.autograd.Function):
         # Figure 3
         input_i8, row_scale = quantize_int8_rowwise(input, eps=1e-5)
         weight_i8, tensor_scale = quantize_bitnet_weight(weight._data)
-        ctx.save_for_backward(input, weight_i8, tensor_scale)
+
+        ctx.save_for_backward(input_i8, row_scale, weight_i8, tensor_scale)
 
         # use int8 tensor cores
         out = scaled_int8_mm(input_i8.contiguous(), weight_i8.contiguous().T, row_scale, tensor_scale)
@@ -151,12 +152,11 @@ class _BitNetTrainingLinear(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        input, weight_i8, tensor_scale = ctx.saved_tensors
+        input_i8, row_scale, weight_i8, tensor_scale = ctx.saved_tensors
         grad_input = grad_weight = grad_bias = None
 
         batch_dims = grad_output.shape[:-1]
         grad_output = grad_output.view(-1, weight_i8.shape[0])
-        input = input.view(-1, weight_i8.shape[1])
 
         # NOTE: we can potentially speedup training by also quantizing the backward pass
         # to use INT8 tensor cores
@@ -166,7 +166,8 @@ class _BitNetTrainingLinear(torch.autograd.Function):
             grad_input = grad_input.view(*batch_dims, weight_i8.shape[1])
 
         if ctx.needs_input_grad[1]:
-            grad_weight = grad_output.T @ input
+            # NOTE: we use quantized activation for this calculation
+            grad_weight = grad_output.T @ (input_i8 * row_scale.view(-1, 1))
 
         if ctx.needs_input_grad[2]:
             grad_bias = grad_output.sum(0)
@@ -269,7 +270,8 @@ class _BitNetPacked2bitLinear(torch.autograd.Function):
         # Figure 3
         input_i8, row_scale = quantize_int8_rowwise(input, eps=1e-5)
         weight_i2, tensor_scale = weight.int_data, weight.scale
-        ctx.save_for_backward(input, weight_i2, tensor_scale)
+
+        ctx.save_for_backward(input_i8, row_scale, weight_i8, tensor_scale)
 
         # use int8 tensor cores
         # NOTE: is doing dequant inside matmul faster when M is large?
@@ -282,13 +284,12 @@ class _BitNetPacked2bitLinear(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        input, weight_i2, tensor_scale = ctx.saved_tensors
+        input_i8, row_scale, weight_i2, tensor_scale = ctx.saved_tensors
         weight_i8 = _unpack_i8_to_i2(weight_i2)
         grad_input = grad_weight = grad_bias = None
 
         batch_dims = grad_output.shape[:-1]
         grad_output = grad_output.view(-1, weight_i8.shape[0])
-        input = input.view(-1, weight_i8.shape[1])
 
         # NOTE: we can potentially speedup training by also quantizing the backward pass
         # to use INT8 tensor cores
@@ -298,7 +299,8 @@ class _BitNetPacked2bitLinear(torch.autograd.Function):
             grad_input = grad_input.view(*batch_dims, weight_i8.shape[1])
 
         if ctx.needs_input_grad[1]:
-            grad_weight = grad_output.T @ input
+            # NOTE: we use quantized activation for this calculation
+            grad_weight = grad_output.T @ (input_i8 * row_scale.view(-1, 1))
 
         if ctx.needs_input_grad[2]:
             grad_bias = grad_output.sum(0)
