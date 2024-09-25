@@ -97,14 +97,27 @@ def evaluate(
     model.eval()
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = f"Test: {log_suffix}"
-
+    encoder_time = 0
     num_processed_samples = 0
     with torch.inference_mode():
         for image, target in metric_logger.log_every(data_loader, print_freq, header):
             image = image.to(device, non_blocking=True).to(dtype)
             target = target.to(device, non_blocking=True).to(dtype)
+            # intialize encoder measurements
+            torch.cuda.reset_max_memory_allocated()
+            torch.cuda.synchronize()
+            start_event = torch.cuda.Event(enable_timing=True)
+            end_event = torch.cuda.Event(enable_timing=True)
+            start_event.record()
+
+            # run encoder
             output = model(image)
-            # loss = criterion(output, target)
+
+            # measure time in encoder
+            end_event.record()
+            torch.cuda.synchronize()
+            encoder_time += start_event.elapsed_time(end_event)
+            max_mem = torch.cuda.max_memory_allocated() / (1024**2)
 
             acc1, acc5 = utils.accuracy(output, target, topk=(1, 5))
             # FIXME need to take into account that the datasets
@@ -113,6 +126,7 @@ def evaluate(
             # metric_logger.update(loss=loss.item())
             metric_logger.meters["acc1"].update(acc1.item(), n=batch_size)
             metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
+            metric_logger.meters["batch_time"].update(encoder_time, n=batch_size)
             num_processed_samples += batch_size
     # gather the stats from all processes
 
@@ -134,7 +148,8 @@ def evaluate(
     print(
         f"{header} Acc@1 {metric_logger.acc1.global_avg:.3f} Acc@5 {metric_logger.acc5.global_avg:.3f}"
     )
-    return metric_logger.acc1.global_avg
+    total_time = encoder_time / 1000.0
+    return metric_logger.acc1.global_avg, num_processed_samples.item() / total_time, max_mem
 
 
 def _get_cache_path(filepath):
@@ -208,7 +223,7 @@ def load_data(traindir, valdir, args):
     if args.cache_dataset and os.path.exists(cache_path):
         # Attention, as the transforms are also cached!
         print(f"Loading dataset_test from {cache_path}")
-        dataset_test, _ = torch.load(cache_path)
+        dataset_test, test_sampler = torch.load(cache_path)
     else:
         if args.weights:
             weights = torchvision.models.get_weight(args.weights)

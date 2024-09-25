@@ -76,7 +76,8 @@ def blocksparse_int_addmm_abstract(
 ) -> torch.Tensor:
     N = A.shape[-1]
     M = left_alpha.shape[-1]
-    return torch.empty((N, M), dtype=torch.bfloat16, device=A.device)
+    # to have the same strides as the transposed result
+    return torch.empty((M, N), dtype=torch.bfloat16, device=A.device).t()
 
 
 # bsr wrapper custom op

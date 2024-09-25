@@ -471,12 +471,10 @@ class SemiSparseLayoutType(LayoutType):
         temp.view(-1, 4).scatter_(1, pruning_inds, value=0)
         return temp
 
+
 @dataclass(frozen=True)
 class BlockSparseLayoutType(LayoutType):
-
-    def pre_process(self, input: torch.Tensor) -> torch.Tensor:
-        return input
-
+    blocksize: int = 64
 
 
 @dataclass(frozen=True)
@@ -728,10 +726,6 @@ class BlockSparseAQTLayout(PlainAQTLayout):
         self.zero_point = zero_point
         self.layout_type = layout_type
 
-    def __repr__(self) -> str:  # type: ignore[override]
-        assert hasattr(self, "shape")
-        return f"{self.__class__.__name__}(shape={self.shape})"
-
     def __tensor_flatten__(self): 
         inner_tensors = list(
             filter(lambda x: getattr(self, x) is not None, self.__slots__)
@@ -761,7 +755,7 @@ class BlockSparseAQTLayout(PlainAQTLayout):
 
     @classmethod
     def from_plain(cls, int_data, scale, zero_point, layout_type):
-        bsr_tensor = int_data.to_sparse_bsr(64)
+        bsr_tensor = int_data.to_sparse_bsr(layout_type.blocksize)
         return cls(
             shape=int_data.shape,
             bsr_crow_indices=bsr_tensor.crow_indices(),
@@ -802,6 +796,7 @@ class BlockSparseAQTLayout(PlainAQTLayout):
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
             )
 
+        # Need the following for bsr specific functions
         if func is aten.crow_indices.default:
             return args[0].bsr_crow_indices.detach()
 

@@ -151,7 +151,7 @@ def accelerate_with_sparsity(model, args):
             quantize_(
                 model,
                 int8_dynamic_activation_int8_weight(
-                    layout_type=BlockSparseLayoutType()
+                    layout_type=BlockSparseLayoutType(blocksize=args.bsr)
                 ),
                 superblock_only,
             )

@@ -58,8 +58,7 @@ def main(args):
     if sparsifier_or_none is not None:
         sparsifier_or_none.squash_mask()
     accelerate_with_sparsity(model, args)
-    #TODO fix compile 
-    # model = torch.compile(model, mode="max-autotune", fullgraph=True)
+    model = torch.compile(model, mode="max-autotune", fullgraph=True)
 
     criterion = torch.nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
     return evaluate(model, criterion, data_loader_test, device=device, dtype=torch.bfloat16)
@@ -67,7 +66,7 @@ def main(args):
 
 if __name__ == "__main__":
     args = get_args_parser(evaluate=True).parse_args()
-    result = main(args)
+    accuracy, throughput, max_mem = main(args)
     header = [
         "model",
         "batch_size",
@@ -77,6 +76,8 @@ if __name__ == "__main__":
         "sparsity_level",
         "quantization",
         "top-1_acc",
+        "encoder img/s",
+        "max_mem (MB)",
     ]
     result_string = ",".join(
         str(_)
@@ -88,7 +89,9 @@ if __name__ == "__main__":
             args.bsr,
             args.sparsity_linear,
             args.quantization,
-            result,
+            accuracy,
+            throughput,
+            max_mem
         ]
     )
     with open("evaluation_results.txt", "a") as f:
