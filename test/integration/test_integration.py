@@ -762,7 +762,7 @@ class TestSubclass(unittest.TestCase):
         if dtype != torch.bfloat16:
             self.skipTest("Fails for {dtype}")
         self._test_lin_weight_subclass_impl(
-            AQFloat8DynamicallyQuantizedLinearWeight.from_float, device, 25, test_dtype=dtype
+            AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight.from_float, device, 25, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)

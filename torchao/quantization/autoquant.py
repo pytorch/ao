@@ -494,10 +494,11 @@ class AQFloat8WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
         block_size = (1, weight.shape[1])
         return super(AQFloat8WeightOnlyQuantizedLinearWeight, cls).from_hp_to_floatx(weight, block_size, target_dtype=cls.target_dtype, layout_type=Float8LayoutType())
 
-class AQFloat8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedTensor):
+class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedTensor):
     """
-    AutoQuantizable version of Float8DynamicallyQuantizedLinearWeight
+    AutoQuantizable version of Float8DynamicallyQuantizedLinearWeight using per row scaling
     """
+    activation_granularity: str = PerRow()
     @classmethod
     def from_float(cls, weight):
 
@@ -520,7 +521,7 @@ class AQFloat8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantize
         layout_type = Float8LayoutType(mm_config=Float8MMConfig(use_fast_accum=True))
         input_quant_func = lambda x: _input_activation_quant_func_fp8(
             x=x,
-            activation_granularity=PerRow(),
+            activation_granularity=cls.activation_granularity,
             activation_dtype=input_target_dtype,
         )
         block_size = get_weight_block_size(weight)
@@ -531,7 +532,7 @@ class AQFloat8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantize
                     layout_type=layout_type,
                     scale_dtype=torch.float32,
         )
-        weight = super(AQFloat8DynamicallyQuantizedLinearWeight, cls).from_float(weight, input_quant_func)
+        weight = super(AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight, cls).from_float(weight, input_quant_func)
         return weight
 
 
@@ -553,7 +554,7 @@ DEFAULT_INT4_AUTOQUANT_CLASS_LIST = [
 
 OTHER_AUTOQUANT_CLASS_LIST = [
     AQFloat8WeightOnlyQuantizedLinearWeight,
-    AQFloat8DynamicallyQuantizedLinearWeight,
+    AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight,
 ]
 
 
@@ -681,7 +682,7 @@ def autoquant(
     if set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    if qtensor_class_list in OTHER_AUTOQUANT_CLASS_LIST:
+    if qtensor_class_list is OTHER_AUTOQUANT_CLASS_LIST:
         assert torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9), "float8 requires CUDA arch >= 8.9"
 
     # perform initial swap from linear weights
