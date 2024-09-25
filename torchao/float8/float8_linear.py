@@ -126,6 +126,9 @@ class manual_float8_matmul_with_args_in_hp(torch.autograd.Function):
         input_for_grad_weight_scaling_granularity: ScalingGranularity,
         weight_for_grad_input_scaling_granularity: ScalingGranularity,
         grad_output_for_grad_weight_scaling_granularity: ScalingGranularity,
+        # TODO(this PR): add all the others
+        input_for_grad_weight_keep_in_original_precision: bool,
+        grad_output_for_grad_weight_keep_in_original_precision: bool,
     ):
         ctx.save_for_backward(input_hp, weight_hp_t)
         ctx.linear_mm_config = linear_mm_config
@@ -135,9 +138,9 @@ class manual_float8_matmul_with_args_in_hp(torch.autograd.Function):
         ctx.input_for_grad_weight_scaling_granularity = input_for_grad_weight_scaling_granularity
         ctx.weight_for_grad_input_scaling_granularity = weight_for_grad_input_scaling_granularity
         ctx.grad_output_for_grad_weight_scaling_granularity = grad_output_for_grad_weight_scaling_granularity
+        ctx.input_for_grad_weight_keep_in_original_precision = input_for_grad_weight_keep_in_original_precision
+        ctx.grad_output_for_grad_weight_keep_in_original_precision = grad_output_for_grad_weight_keep_in_original_precision
 
-        # TODO(next): make the tensorwise+axiswise combination work, by 
-        # broadcasting the tensorwise max to axiswise
         if input_scaling_granularity == ScalingGranularity.TENSORWISE:
             axiswise_dim = None
         else:
@@ -210,7 +213,7 @@ class manual_float8_matmul_with_args_in_hp(torch.autograd.Function):
             # TODO(future PR): if the weight was scaled axiswise in the forward, can get the
             # tensorwise max from that.
         else:
-            assert ctx.grad_weight_for_grad_input_scaling_granularity == ScalingGranularity.AXISWISE
+            assert ctx.weight_for_grad_input_scaling_granularity == ScalingGranularity.AXISWISE
             axiswise_dim2 = 1  # will be transposed
         weight_t_fp8_dim0 = hp_tensor_to_float8_dynamic(
             weight_hp_t,
@@ -236,44 +239,52 @@ class manual_float8_matmul_with_args_in_hp(torch.autograd.Function):
         # calculate grad_weight
         #
 
-        # TODO(next): do the gemm in high precision if the config says so
+        # TODO(this PR): also respect keep_in_original_precision for the other gemms
+        if ctx.grad_output_for_grad_weight_keep_in_original_precision:
+            # TODO(this PR): more sensical variable name, now this isn't always fp8
+            grad_output_reshaped_fp8_dim1 = grad_output_reshaped
 
-        if ctx.grad_output_for_grad_weight_scaling_granularity == ScalingGranularity.TENSORWISE:
-            axiswise_dim3 = None
         else:
-            assert ctx.grad_output_for_grad_weight_scaling_granularity == ScalingGranularity.AXISWISE
-            axiswise_dim3 = 0  # will be transposed
+            if ctx.grad_output_for_grad_weight_scaling_granularity == ScalingGranularity.TENSORWISE:
+                axiswise_dim3 = None
+            else:
+                assert ctx.grad_output_for_grad_weight_scaling_granularity == ScalingGranularity.AXISWISE
+                axiswise_dim3 = 0  # will be transposed
 
-        grad_output_reshaped_fp8_dim1 = hp_tensor_to_float8_dynamic(
-            grad_output_reshaped,
-            e5m2_dtype,
-            ctx.linear_mm_config,
-            gemm_input_role=GemmInputRole.GRAD_OUTPUT,
-            scaling_granularity=ctx.grad_output_for_grad_weight_scaling_granularity,
-            axiswise_dim=axiswise_dim3,
-        )
+            grad_output_reshaped_fp8_dim1 = hp_tensor_to_float8_dynamic(
+                grad_output_reshaped,
+                e5m2_dtype,
+                ctx.linear_mm_config,
+                gemm_input_role=GemmInputRole.GRAD_OUTPUT,
+                scaling_granularity=ctx.grad_output_for_grad_weight_scaling_granularity,
+                axiswise_dim=axiswise_dim3,
+            )
 
-        if ctx.input_for_grad_weight_scaling_granularity == ScalingGranularity.TENSORWISE:
-            axiswise_dim4 = None
+        if ctx.input_for_grad_weight_keep_in_original_precision:
+            input_reshaped_fp8_dim1 = input_hp_reshaped
+
         else:
-            assert ctx.input_for_grad_weight_scaling_granularity == ScalingGranularity.AXISWISE
-            axiswise_dim4 = 0
+            if ctx.input_for_grad_weight_scaling_granularity == ScalingGranularity.TENSORWISE:
+                axiswise_dim4 = None
+            else:
+                assert ctx.input_for_grad_weight_scaling_granularity == ScalingGranularity.AXISWISE
+                axiswise_dim4 = 0
 
-        input_reshaped_fp8_dim1 = hp_tensor_to_float8_dynamic(
-            input_hp_reshaped,
-            e4m3_dtype,
-            ctx.linear_mm_config,
-            gemm_input_role=GemmInputRole.INPUT,
-            scaling_granularity=ctx.input_for_grad_weight_scaling_granularity,
-            axiswise_dim=axiswise_dim4,
-        )
+            input_reshaped_fp8_dim1 = hp_tensor_to_float8_dynamic(
+                input_hp_reshaped,
+                e4m3_dtype,
+                ctx.linear_mm_config,
+                gemm_input_role=GemmInputRole.INPUT,
+                scaling_granularity=ctx.input_for_grad_weight_scaling_granularity,
+                axiswise_dim=axiswise_dim4,
+            )
 
         grad_weight = torch.mm(
             grad_output_reshaped_fp8_dim1.t(),
             input_reshaped_fp8_dim1,
         )
 
-        empty_grads = None, None, None, None, None, None, None
+        empty_grads = None, None, None, None, None, None, None, None, None
 
         return grad_input, grad_weight.t(), *empty_grads
 
@@ -607,6 +618,8 @@ class Float8Linear(torch.nn.Linear):
                 self.config.cast_config_input_for_grad_weight.scaling_granularity,
                 self.config.cast_config_weight_for_grad_input.scaling_granularity,
                 self.config.cast_config_grad_output_for_grad_weight.scaling_granularity,
+                self.config.cast_config_input_for_grad_weight.keep_in_original_precision,
+                self.config.cast_config_grad_output_for_grad_weight.keep_in_original_precision,
             )
 
         if self.bias is not None:

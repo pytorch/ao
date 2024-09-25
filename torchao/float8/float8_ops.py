@@ -257,9 +257,12 @@ def preprocess_addmm(a: Float8Tensor, b: Float8Tensor):
     # operand is scaled axiswise and one tensorwise. If this case is found,
     # we reshape the tensorwise scale to be repeat along the needed axis,
     # so that torch._scaled_mm can call the axiswise-axiswise kernel.
-    if len(a_scale.shape) == 0 and len(b_scale.shape) > 0:
+    # Note: using shape/size info does not work with compile here, which is
+    # why we are using inferring scaling type from the presence of
+    # axiswise_dim.
+    if a._axiswise_dim is None and b._axiswise_dim is not None:
         a_scale = a_scale.repeat(a_data.shape[0]).reshape(-1, 1)
-    elif len(a_scale.shape) > 0 and len(b_scale.shape) == 0:
+    elif a._axiswise_dim is not None and b._axiswise_dim is None:
         b_scale = b_scale.repeat(b_data.shape[1]).reshape(1, -1)
 
     return a_data, a_scale, b_data, b_scale
