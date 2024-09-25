@@ -28,12 +28,16 @@ from .utils import (
     _choose_qparams_per_token_asymmetric,
     _fake_quantize_per_channel_group,
     _fake_quantize_per_token,
+    _get_qmin_qmax,
 )
 
 
-# TODO: deprecate this flow in favor of the tensor subclass flow under qat/api.py
-# This is currently needed for DDP and FSDP1, which are not compatible with the
-# subclass flow.
+# TODO: make module swap the main flow again, and remove the quantize_ flow
+# TODO: rename this file to linear.py
+
+# =========================================================
+# |   Linear int8 dynamic activations + int4 weight QAT   |
+# =========================================================
 
 
 class Int8DynActInt4WeightQATQuantizerModuleSwap(Int8DynActInt4WeightQATQuantizer):
@@ -41,10 +45,6 @@ class Int8DynActInt4WeightQATQuantizerModuleSwap(Int8DynActInt4WeightQATQuantize
     Quantizer for performing QAT on a model, where linear layers have int8
     dynamic per token fake quantized activations and int4 fake quantized
     grouped per channel weights.
-
-    Note: This quantizer is implemented using module swaps and may be
-    deprecated in the future. Please use `Int8DynActInt4WeightQATQuantizer`
-    instead if possible.
     """
 
     def prepare(
@@ -92,7 +92,7 @@ def _convert_qat_linear_8da4w(module: torch.nn.Module):
 
             # Load weights and qparams into quantized linear
             n_bit = 4
-            (qmin, qmax) = child._get_qmin_qmax(n_bit)
+            (qmin, qmax) = _get_qmin_qmax(n_bit)
             (s, zp) = get_group_qparams_symmetric(child.weight, n_bit, child.groupsize)
             from torchao._executorch_ops import _quantized_decomposed_quantize_per_channel_group_wrapper
             q_weight = _quantized_decomposed_quantize_per_channel_group_wrapper(
@@ -156,7 +156,7 @@ class Int8DynActInt4WeightQATLinear(torch.nn.Linear):
             (act_scales, act_zp) = _choose_qparams_per_token_asymmetric(
                 x, self.scales_precision, self.zero_points_precision,
             )
-            (act_qmin, act_qmax) = self._get_qmin_qmax(8)
+            (act_qmin, act_qmax) = _get_qmin_qmax(8)
             x_fq = _fake_quantize_per_token(
                 x, act_scales, act_zp, act_qmin, act_qmax,
             )
@@ -170,7 +170,7 @@ class Int8DynActInt4WeightQATLinear(torch.nn.Linear):
             )
             # TODO: pass zp dtype to `get_group_qparams_symmetric` instead
             weight_zp = weight_zp.to(self.zero_points_precision)
-            (weight_qmin, weight_qmax) = self._get_qmin_qmax(4)
+            (weight_qmin, weight_qmax) = _get_qmin_qmax(4)
             w_fq = _fake_quantize_per_channel_group(
                 self.weight,
                 weight_scales,
@@ -182,12 +182,6 @@ class Int8DynActInt4WeightQATLinear(torch.nn.Linear):
         else:
             w_fq = self.weight
         return F.linear(x_fq, w_fq)
-
-    # TODO: move this to common util
-    def _get_qmin_qmax(self, n_bit: int):
-        qmin = -(2 ** (n_bit - 1))
-        qmax = 2 ** (n_bit - 1) - 1
-        return (qmin, qmax)
 
 
 def enable_8da4w_fake_quant_module_swap(mod: torch.nn.Module):
@@ -206,19 +200,15 @@ def disable_8da4w_fake_quant_module_swap(mod: torch.nn.Module):
         mod.disable_fake_quant()
 
 
-# ==================
-# |   int4wo QAT   |
-# ==================
+# ===================================
+# |   Linear int4 weight-only QAT   |
+# ===================================
 
 
 class Int4WeightOnlyQATQuantizerModuleSwap(Int4WeightOnlyQATQuantizer):
     """
     Quantizer for performing QAT on a model, where linear layers have
     int4 fake quantized grouped per channel weights.
-
-    Note: This quantizer is implemented using module swaps and may be
-    deprecated in the future. Please use `Int4WeightOnlyQATQuantizer`
-    instead if possible.
     """
 
     def prepare(
