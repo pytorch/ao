@@ -7,7 +7,7 @@ from torchao.utils import benchmark_torch_function_in_microseconds
 from tqdm import tqdm
 
 
-def benchmark(m: int, k: int, n: int):
+def benchmark(m: int, n: int, k: int):
     float_data = torch.randn(n, k, dtype=torch.half, device="cuda")
     fp6_weight = to_affine_quantized_fpx(float_data, FloatxTensorCoreLayoutType(3, 2))
     fp16_weight = fp6_weight.dequantize(torch.half)

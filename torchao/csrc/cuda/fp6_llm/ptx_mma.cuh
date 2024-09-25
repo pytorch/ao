@@ -55,6 +55,14 @@ __device__ __forceinline__ void B_FromSharedToReg(uint32_t (* __restrict__ Reg)[
         assert( warp_start_col==0 );
     #endif    
 
+    #if __CUDA_ARCH__ == 750
+    if (TilingConfig::WARP_COL_MMA_TENSORS==1) {
+      // For .target sm_75, all threads must contain valid addresses for the 'ldmatrix' op. below. Otherwise, the behavior is undefined.
+      // See https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#warp-level-matrix-load-instruction-ldmatrix
+      // To avoid this, we make threads 16-32 point to the same smem addresses as threads 0-15 by changing the lane id.
+      lane_id = lane_id % 16;
+    }
+    #endif
     int col = (lane_id%8) + (lane_id/16)*8;
     int row = (lane_id%16) / 8 * 8;
     uint32_t smem_local_ptr = static_cast<uint32_t>(__cvta_generic_to_shared(&read_SPTR[warp_start_col+col][slice_id*MMA_16 + row]));
@@ -80,6 +88,28 @@ __device__ __forceinline__ void B_FromSharedToReg(uint32_t (* __restrict__ Reg)[
 __device__ __forceinline__ void
 MMA_FP16_M16N8K16(uint32_t * __restrict__ c, uint32_t * __restrict__ a, uint32_t * __restrict__ b)
 {
+  #if __CUDA_ARCH__ == 750
+    // m16n8k16 op. requires >=sm_80, so instead we use two m16n8k8 ops.
+    asm volatile("mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32"
+                 "{ %0, %1, %2, %3},"
+                 "{ %4, %5},"
+                 "{ %6 },"
+                 "{ %7, %8, %9, %10 };"
+                 : "=r"(c[0]), "=r"(c[1]), "=r"(c[2]), "=r"(c[3])
+                 : "r"(a[0]), "r"(a[1]),
+                   "r"(b[0]),
+                   "r"(c[0]), "r"(c[1]), "r"(c[2]), "r"(c[3]));
+    asm volatile("mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32"
+                 "{ %0, %1, %2, %3},"
+                 "{ %4, %5},"
+                 "{ %6 },"
+                 "{ %7, %8, %9, %10 };"
+                 : "=r"(c[0]), "=r"(c[1]), "=r"(c[2]), "=r"(c[3])
+                 : "r"(a[2]), "r"(a[3]),
+                   "r"(b[1]),
+                   "r"(c[0]), "r"(c[1]), "r"(c[2]), "r"(c[3]));
+
+  #else
     asm volatile("mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32"
                  "{ %0, %1, %2, %3},"
                  "{ %4, %5, %6, %7 },"
@@ -89,6 +119,7 @@ MMA_FP16_M16N8K16(uint32_t * __restrict__ c, uint32_t * __restrict__ a, uint32_t
                  : "r"(a[0]), "r"(a[1]), "r"(a[2]), "r"(a[3]),
                    "r"(b[0]), "r"(b[1]),
                    "r"(c[0]), "r"(c[1]), "r"(c[2]), "r"(c[3]));
+  #endif
 }
 
 #endif
