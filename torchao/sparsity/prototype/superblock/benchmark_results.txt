@@ -21,3 +21,13 @@ model,batch_size,dtype,sparsity,bsr,sparsity_level,quantization,tune_kernel_para
 vit_h_14,256,bfloat16,None,None,0.0,False,False,491.9237890625,2.032835211945702
 vit_h_14,256,bfloat16,None,None,0.0,True,False,454.1960546875,2.2016923962230996
 vit_h_14,256,bfloat16,semi_structured,None,0.0,False,False,507.211640625,1.9715635839267664
+model,batch_size,dtype,sparsity,bsr,sparsity_level,quantization,tune_kernel_params,latency,img/s
+vit_h_14,256,bfloat16,None,None,0.0,False,False,493.1962109375,2.027590597460459
+model,batch_size,dtype,sparsity,bsr,sparsity_level,quantization,tune_kernel_params,latency,img/s
+vit_h_14,256,bfloat16,None,None,0.0,False,False,491.5666796875,2.034312009584788
+vit_h_14,256,bfloat16,None,None,0.0,True,False,453.7969921875,2.2036285326166722
+vit_h_14,256,bfloat16,semi_structured,None,0.0,False,False,507.0969140625,1.9720096341914426
+vit_h_14,256,bfloat16,bsr,64,0.8,False,False,362.064609375,2.761937991471222
+vit_h_14,256,bfloat16,bsr,64,0.84,False,False,343.5137109375,2.911091954003383
+vit_h_14,256,bfloat16,bsr,64,0.9,False,False,316.043125,3.1641251490599585
+vit_h_14,256,bfloat16,semi_structured,None,0.0,True,False,431.17234375,2.3192582142508997

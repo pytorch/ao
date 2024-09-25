@@ -101,11 +101,8 @@ def get_args_parser(add_help=True):
     # NOTE: sparsity args
     parser.add_argument("--sparsity", choices=["bsr", "semi_structured"], default=None, help='weight sparsification to apply')
     parser.add_argument("--sparsity-linear", type=float, default=0.0)
-    parser.add_argument("--sp-linear-tile-size", type=int, default=1)
     parser.add_argument("--sparsity-conv1x1", type=float, default=0.0)
-    parser.add_argument("--sp-conv1x1-tile-size", type=int, default=1)
     parser.add_argument("--sparsity-conv", type=float, default=0.0)
-    parser.add_argument("--sp-conv-tile-size", type=int, default=1)
     parser.add_argument("--skip-last-layer-sparsity", action="store_true", help="Skip applying sparsity to the last linear layer (for vit only)")
     parser.add_argument("--skip-first-transformer-sparsity", action="store_true", help="Skip applying sparsity to the first transformer layer (for vit only)")
     parser.add_argument('--bsr', type=int, nargs='?', default=64, help='Convert sparsified weights to BSR format with optional block size (default: 64)')
