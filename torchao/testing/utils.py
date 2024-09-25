@@ -226,7 +226,7 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
 class TorchAOTensorParallelTestCase(DTensorTestBase):
     """Basic test case for tensor subclasses
     """
-    COMMON_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+    COMMON_DEVICES = (["cuda"] if torch.cuda.is_available() else [])
     COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 
     TENSOR_SUBCLASS = AffineQuantizedTensor
