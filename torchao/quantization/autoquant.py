@@ -517,7 +517,7 @@ class AQFloat8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantize
         input_target_dtype = torch.float8_e4m3fn
         layout_type = Float8LayoutType()
         input_quant_func = lambda x: _input_activation_quant_func_fp8(
-            x=x
+            x=x,
             activation_granularity=PerRow,
             activation_dtype=input_target_dtype,
         )
