@@ -27,10 +27,6 @@ class Int8MixedPrecisionTrainingConfig(NamedTuple):
     grad_input: bool = True
     grad_weight: bool = True
 
-    # workaround for FSDP2 with `MixedPrecisionPolicy(param_dtype)`
-    # see `Int8MixedPrecisionTrainingLinearWeight.fsdp_pre_all_gather()` for more details.
-    fsdp_param_dtype: Optional[torch.dtype] = None
-
 
 _DEFAULT_CONFIG = Int8MixedPrecisionTrainingConfig()
 
@@ -114,15 +110,15 @@ class Int8MixedPrecisionTrainingLinearWeight(TorchAOBaseTensor):
             # return new unwrapped object
             return out
 
-    def fsdp_pre_all_gather(self, mesh):
+    # require https://github.com/pytorch/pytorch/pull/136129 for mixed-precision param_dtype
+    # we need default None for module and mp_policy so this method still works with PyTorch 2.4 and 2.5
+    def fsdp_pre_all_gather(self, mesh, module=None, mp_policy=None):
         # TODO: pre-quantize weight here -> reduce comm bandwidth.
         # we will need another tensor subclass to hold the quantized weight.
+        data = self._data
+        if mp_policy is not None:
+            data = data.to(mp_policy.param_dtype)
 
-        # doing dtype casting to `param_dtype` in `fsdp_post_all_gather()` will give wrong results.
-        # as a workaround, we do it in `fsdp_pre_all_gather()` instead. since `param_dtype` is not
-        # exposed to `fsdp_pre_all_gather()`, we need to specify it in the config.
-        # this workaround can be removed once we implement INT8 communication.
-        data = self._data.to(dtype=self.config.fsdp_param_dtype)
         return (data,), (self.config,)
 
     def fsdp_post_all_gather(

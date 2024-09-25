@@ -276,56 +276,37 @@ class TestFSDP2(FSDPTest):
 
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
     def test_fsdp2_correctness(self):
+        mp_policy = MixedPrecisionPolicy()
+
+        # quantize_fn, mp_policy, tolerance
         test_args = [
-            (
-                int8_weight_only_quantized_training(),  # quantize_fn for base model
-                int8_weight_only_quantized_training(),  # quantize_fn for FSDP model
-                MixedPrecisionPolicy(),
-                0.05,  # tolerance. due to stochastic rounding, use a pretty large tolerance here
-            ),
-            (
-                int8_mixed_precision_training(),
-                int8_mixed_precision_training(),
-                MixedPrecisionPolicy(),
-                1e-6,
-            ),
-            (
-                # It's complicated (though possible) to simulate FSDP BF16 mixed-precision for base_model.
-                # We would need to cast all params to BF16 in forward and backward pass, while keeping
-                # the params in FP32 for optim step.
-                # torch.autocast() will only do this for F.linear() layer (and its backward).
-                # To keep it simple, we just use a larger tolerance here.
-                int8_mixed_precision_training(),
-                int8_mixed_precision_training(Int8MixedPrecisionTrainingConfig(fsdp_param_dtype=torch.bfloat16)),
-                MixedPrecisionPolicy(param_dtype=torch.bfloat16),
-                1e-2,
-            ),
-            (
-                bitnet_training(),
-                bitnet_training(),
-                MixedPrecisionPolicy(),
-                1e-6,
-            ),
+            # high tolerance due to stochastic rounding
+            (int8_weight_only_quantized_training(), mp_policy, 0.05),
+            (int8_mixed_precision_training(), mp_policy, 1e-6),
+            (bitnet_training(), mp_policy, 1e-6),
         ]
 
         # FSDP2 mixed-precision requires this commit
         # https://github.com/pytorch/pytorch/pull/136129
-        # TODO: add FSDP2 mixed-precision test for int8_weight_only
         if TORCH_VERSION_AT_LEAST_2_6:
+            # It's complicated (though possible) to simulate FSDP BF16 mixed-precision for base_model.
+            # We would need to cast all params to BF16 in forward and backward pass, while keeping
+            # the params in FP32 for optim step.
+            # torch.autocast() will only do this for F.linear() layer (and its backward).
+            # To keep it simple, we just use a larger tolerance here.
+            bf16_mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16)
+
             extra_args = [
-                (
-                    bitnet_training(),
-                    bitnet_training(),
-                    MixedPrecisionPolicy(param_dtype=torch.bfloat16),
-                    1e-2,
-                ),
+                (int8_weight_only_quantized_training(), bf16_mp_policy, 1e-2),
+                (int8_mixed_precision_training(), bf16_mp_policy, 1e-2),
+                (bitnet_training(), bf16_mp_policy, 1e-2),
             ]
             test_args.extend(extra_args)
 
         self.run_subtests({"args": test_args}, self._run_subtest)
 
     def _run_subtest(self, args):
-        base_quantize_fn, fsdp_quantize_fn, mp_policy, tolerance = args
+        quantize_fn, mp_policy, tolerance = args
 
         batch_size = 3
         vocab_size = 32
@@ -344,8 +325,8 @@ class TestFSDP2(FSDPTest):
         base_model = Transformer(model_args).cuda()
         fsdp_model = copy.deepcopy(base_model)
 
-        quantize_(base_model.layers, base_quantize_fn, set_inductor_config=False)
-        quantize_(fsdp_model.layers, fsdp_quantize_fn, set_inductor_config=False)
+        quantize_(base_model.layers, quantize_fn, set_inductor_config=False)
+        quantize_(fsdp_model.layers, quantize_fn, set_inductor_config=False)
 
         for layer in fsdp_model.layers:
             fully_shard(layer, mp_policy=mp_policy)

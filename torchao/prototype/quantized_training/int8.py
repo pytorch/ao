@@ -99,8 +99,14 @@ class Int8QuantizedTrainingLinearWeight(TorchAOBaseTensor):
             f"requires_grad={self.requires_grad})"
         )
 
-    def fsdp_pre_all_gather(self, mesh):
-        return (self.int_data, self.scale), None
+    # require https://github.com/pytorch/pytorch/pull/136129 for mixed-precision param_dtype
+    # we need default None for module and mp_policy so this method still works with PyTorch 2.4 and 2.5
+    def fsdp_pre_all_gather(self, mesh, module=None, mp_policy=None):
+        scale = self.scale
+        if mp_policy is not None:
+            scale = scale.to(mp_policy.param_dtype)
+
+        return (self.int_data, scale), None
 
     def fsdp_post_all_gather(
         self,

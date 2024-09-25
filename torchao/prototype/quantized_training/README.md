@@ -20,7 +20,7 @@ There are 3 main benefits of using low-precision dtype for training (the extent 
 
 [`benchmarks/quantized_training/pretrain_llama2.py`](../../../benchmarks/quantized_training/pretrain_llama2.py) demonstrates an end-to-end Llama2 pre-training on single GPU for strategies implemented in this folder.
 
-All features in this folder are tested to work with PyTorch 2.4+ unless otherwise stated.
+All features in this folder are tested to work with PyTorch 2.4+ unless otherwise stated. Training with FSDP2 is also supported, but if you use FDSP2 mixed-precision with `param_dtype` != model dtype, PyTorch 2.6+ is required.
 
 ## INT8 quantized training
 
@@ -58,7 +58,7 @@ BF16 compile    | 10.25            | 9000
 INT8 QT eager   | 10.12            | 5600
 INT8 QT compile |  9.84            | 8700
 
-## INT8 mixed-precision
+## INT8 mixed-precision training
 
 On NVIDIA GPUs, INT8 Tensor Cores is approximately 2x faster than their BF16/FP16 counterparts. In mixed-precision training, we can down-cast activations and weights dynamically to INT8 to leverage faster matmuls. However, since INT8 has very limited range [-128,127], we perform row-wise quantization, similar to how INT8 post-training quantization (PTQ) is done. Weight is still in original precision.
 
@@ -106,32 +106,6 @@ INT8 mixed-precision | ~29k  | 19.47         | 2.90
 
 See [#748](https://github.com/pytorch/ao/pull/748) for more results.
 
-### FSDP support
-
-Out of the box, this INT8 mixed-precision training is not compatible with FSDP2 `MixedPrecisionPolicy(param_dtype=param_dtype)`, where `param_dtype` != model dtype. As a workaround, you will need to manually specify the FSDP2's `param_dtype` in `Int8MixedPrecisionTrainingConfig`
-
-```python
-from torch.distributed._composable.fsdp import fully_shard, MixedPrecisionPolicy
-from torchao.prototype.quantized_training import int8_mixed_precision_training, Int8MixedPrecisionTrainingConfig
-from torchao import quantize_
-
-model = ...  # FP32 model
-
-# setup configs
-mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16)
-int8mp_config = Int8MixedPrecisionTrainingConfig(fsdp_param_dtype=mp_policy.param_dtype)
-
-# exclude LM head
-quantize_(model.layers, int8_mixed_precision_training(int8mp_config))
-
-# shard the model w/ FSDP2
-for layer in model.layers:
-    fully_shard(layer, mp_policy=mp_policy)
-fully_shard(model, mp_policy=mp_policy)
-
-# train model as usual
-```
-
 ## BitNet b1.58
 
 [BitNet b1.58](https://arxiv.org/abs/2402.17764) uses ternary weights: each parameter can only take on 3 distinct values {-1, 0, +1}, thus making a BitNet model very compact. BitNet uses tensor-wise abs-mean scaling for weights (quantize to ternary) and row-wise abs-max scaling for activations (quantize to INT8).
@@ -147,8 +121,6 @@ from torchao import quantize_
 model = ...
 quantize_(model, bitnet_training())
 ```
-
-Training with FSDP2 is also supported. To use FDSP2 mixed-precision with `param_dtype` != model dtype, PyTorch 2.6+ is required.
 
 Note: following the [BitNet Training Tips, Code and FAQ](https://github.com/microsoft/unilm/blob/master/bitnet/The-Era-of-1-bit-LLMs__Training_Tips_Code_FAQ.pdf), user should insert extra RMSNorm before each `nn.Linear` layers and also remove the original RMSNorm before attention and MLP modules. Calling `quantize_(model, bitnet_training())` will NOT perform this for you. You can take a look at our example training script [`benchmarks/quantized_training/pretrain_llama2.py`](../../../benchmarks/quantized_training/pretrain_llama2.py) on how to do this for our Llama model.
 
