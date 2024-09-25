@@ -33,16 +33,6 @@ def apply_sparsity(model):
         if isinstance(module, SupermaskLinear) and "mlp" in name:
             module.sparsify_offline()
 
-
-def verify_sparsity(model):
-    for name, module in model.named_modules():
-        if isinstance(module, torch.nn.Linear):
-            total_weights = module.weight.numel()
-            sparse_weights = (module.weight == 0).sum().item()
-            sparsity_percentage = (sparse_weights / total_weights) * 100
-            print(f"Sparsity verified in layer {name}: {sparsity_percentage:.2f}%")
-
-
 # filter functions
 def mlp_0_only(mod, name):
     return isinstance(mod, torch.nn.Linear) and "mlp.0" in name
@@ -78,7 +68,6 @@ def mlp_only_with_args(
 def accelerate_with_sparsity(model, args):
     if args.sparsity == "bsr":
         apply_sparsity(model)
-        verify_sparsity(model)
         if args.quantization:
             from torchao.dtypes.affine_quantized_tensor import BlockSparseLayoutType
 
@@ -94,10 +83,10 @@ def accelerate_with_sparsity(model, args):
             sparsify_(model, block_sparse_weight(blocksize=args.bsr), superblock_only)
     elif args.sparsity == "semi_structured":
         if args.quantization:
+            from torchao.dtypes.affine_quantized_tensor import SemiSparseLayoutType
             quantize_(
-                model, int8_dynamic_activation_int8_semi_sparse_weight(), mlp_0_only
+                model, int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType()), mlp_only
             )
-            sparsify_(model, semi_sparse_weight(), mlp_3_only)
         else:
             sparsify_(model, semi_sparse_weight(), mlp_only)
     else:
@@ -110,11 +99,11 @@ def simulate_sparsity(model, args):
         apply_supermask(
             model,
             linear_sparsity=args.sparsity_linear,
-            linear_sp_tilesize=args.sp_linear_tile_size,
+            linear_sp_tilesize=args.bsr,
             conv1x1_sparsity=args.sparsity_conv1x1,
-            conv1x1_sp_tilesize=args.sp_conv1x1_tile_size,
+            conv1x1_sp_tilesize=args.bsr,
             conv_sparsity=args.sparsity_conv,
-            conv_sp_tilesize=args.sp_conv_tile_size,
+            conv_sp_tilesize=args.bsr,
             skip_last_layer_sparsity=args.skip_last_layer_sparsity,
             skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
             device=args.device,
@@ -135,12 +124,8 @@ def simulate_sparsity(model, args):
             sparsity_level=1.0, sparse_block_shape=(1, 4), zeros_per_block=2
         )
         sparsifier.prepare(model, sparse_config)
-        for line in sparse_config:
-            print(line)
         sparsifier.step()
         return sparsifier
-    else:
-        print("No sparsity applied!")
 
 
 ### Existing torchvision utils

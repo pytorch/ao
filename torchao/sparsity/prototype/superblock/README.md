@@ -38,7 +38,7 @@ At least one GPU:
   ```
 * Install PyTorch. For best performance, we recommend the pytorch nightlies
   ```
-
+  pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu121
   ```
   We ran our experiments with torch==2.6.0.dev20240924+cu124
 
@@ -46,7 +46,11 @@ At least one GPU:
 ## Benchmarking
 
 For all our benchmarking results, you can run `benchmark.sh`. This will run benchmarks with random weights, only testing speedup.
-Please use the evaluation script to validate accuracy.
+
+These benchmarks were run on a NVIDIA-A10080GB:
+
+
+
 
 ## Training
 Please refer to [TRAINING.md](TRAINING.md) for training from scratch. We use [Torchvision](https://github.com/pytorch/vision/tree/main/references/classification) as our framework for training. Supermask can be applied during training.
