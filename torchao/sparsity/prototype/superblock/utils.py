@@ -12,18 +12,32 @@ from typing import List, Optional, Tuple
 import torch
 import torch.distributed as dist
 
-from torchao.quantization import quantize_, int8_dynamic_activation_int8_semi_sparse_weight
-from torchao.sparsity import sparsify_, semi_sparse_weight
-from torchao.sparsity.prototype.superblock.supermask import SupermaskLinear, apply_supermask
+from torchao.quantization import (
+    int8_dynamic_activation_int8_semi_sparse_weight,
+    quantize_,
+)
+from torchao.quantization.quant_api import (
+    int8_dynamic_activation_int8_weight,
+    quanitze_,
+)
+from torchao.sparsity import semi_sparse_weight, sparsify_
+from torchao.sparsity.prototype.sparsifier.weight_norm_sparsifier import (
+    WeightNormSparsifier,
+)
 from torchao.sparsity.prototype.superblock.blocksparse import block_sparse_weight
-from torchao.sparsity.prototype.sparsifier.weight_norm_sparsifier import WeightNormSparsifier
+from torchao.sparsity.prototype.superblock.supermask import (
+    apply_supermask,
+    SupermaskLinear,
+)
+
 
 ### Custom sparsification utils
 def apply_sparsity(model):
     for name, module in model.named_modules():
         if isinstance(module, SupermaskLinear) and "mlp" in name:
             module.sparsify_offline()
-            
+
+
 def verify_sparsity(model):
     for name, module in model.named_modules():
         if isinstance(module, torch.nn.Linear):
@@ -32,49 +46,71 @@ def verify_sparsity(model):
             sparsity_percentage = (sparse_weights / total_weights) * 100
             print(f"Sparsity verified in layer {name}: {sparsity_percentage:.2f}%")
 
+
 # filter functions
 def mlp_0_only(mod, name):
-    return isinstance(mod, torch.nn.Linear) and 'mlp.0' in name
+    return isinstance(mod, torch.nn.Linear) and "mlp.0" in name
+
 
 def mlp_3_only(mod, name):
-    return isinstance(mod, torch.nn.Linear) and 'mlp.3' in name
+    return isinstance(mod, torch.nn.Linear) and "mlp.3" in name
+
 
 def mlp_only(mod, name):
-    return isinstance(mod, torch.nn.Linear) and 'mlp' in name
-    
+    return isinstance(mod, torch.nn.Linear) and "mlp" in name
+
+
 def superblock_only(mod, name):
     return isinstance(mod, SupermaskLinear) and "mlp" in name
 
-def mlp_only_with_args(mod, name, skip_last_layer_sparsity=False, skip_first_transformer_sparsity=False):
+
+def mlp_only_with_args(
+    mod, name, skip_last_layer_sparsity=False, skip_first_transformer_sparsity=False
+):
     if skip_last_layer_sparsity and "heads.head" in name:
         return False
     if skip_first_transformer_sparsity and "encoder.layers.encoder_layer_0" in name:
         return False
-    if isinstance(mod, torch.nn.Linear) and "mlp" in name: 
+    if isinstance(mod, torch.nn.Linear) and "mlp" in name:
         return True
     return False
 
+
 ### other
+
 
 def accelerate_with_sparsity(model, args):
     if args.sparsity == "bsr":
         apply_sparsity(model)
         verify_sparsity(model)
+        if args.quantization:
+            from torchao.dtypes.affine_quantized_tensor import BlockSparseLayoutType
+
+            quantize_(
+                model,
+                int8_dynamic_activation_int8_weight(
+                    layout_type=BlockSparseLayoutType()
+                ),
+                superblock_only,
+            )
+        else:
+            assert args.bsr is not None, "BSR requires a block size"
+            sparsify_(model, block_sparse_weight(blocksize=args.bsr), superblock_only)
         assert args.bsr is not None, "BSR requires a block size"
         sparsify_(model, block_sparse_weight(blocksize=args.bsr), superblock_only)
 
     elif args.sparsity == "semi_structured":
         if args.quantization:
-            quantize_(model,
-                    int8_dynamic_activation_int8_semi_sparse_weight(),
-                    mlp_0_only)
-            sparsify_(model,
-                    semi_sparse_weight(), 
-                    mlp_3_only)
+            quantize_(
+                model, int8_dynamic_activation_int8_semi_sparse_weight(), mlp_0_only
+            )
+            sparsify_(model, semi_sparse_weight(), mlp_3_only)
         else:
-            sparsify_(model,
-                    semi_sparse_weight(),
-                    mlp_only)
+            sparsify_(model, semi_sparse_weight(), mlp_only)
+    else:
+        if args.quantization:
+            quantize_(model, int8_dynamic_activation_int8_weight(), mlp_only)
+
 
 def simulate_sparsity(model, args):
     if args.sparsity == "bsr":
@@ -94,9 +130,12 @@ def simulate_sparsity(model, args):
     elif args.sparsity == "semi_structured":
         sparse_config = []
         for name, mod in model.named_modules():
-            if mlp_only_with_args(mod, name,
-                                  skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
-                                  skip_last_layer_sparsity=args.skip_last_layer_sparsity):
+            if mlp_only_with_args(
+                mod,
+                name,
+                skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
+                skip_last_layer_sparsity=args.skip_last_layer_sparsity,
+            ):
                 sparse_config.append({"tensor_fqn": f"{name}.weight"})
 
         sparsifier = WeightNormSparsifier(
@@ -112,6 +151,7 @@ def simulate_sparsity(model, args):
 
 
 ### Existing torchvision utils
+
 
 class SmoothedValue:
     """Track a series of values and provide access to smoothed values over a
@@ -164,7 +204,11 @@ class SmoothedValue:
 
     def __str__(self):
         return self.fmt.format(
-            median=self.median, avg=self.avg, global_avg=self.global_avg, max=self.max, value=self.value
+            median=self.median,
+            avg=self.avg,
+            global_avg=self.global_avg,
+            max=self.max,
+            value=self.value,
         )
 
 
@@ -185,7 +229,9 @@ class MetricLogger:
             return self.meters[attr]
         if attr in self.__dict__:
             return self.__dict__[attr]
-        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{attr}'")
+        raise AttributeError(
+            f"'{type(self).__name__}' object has no attribute '{attr}'"
+        )
 
     def __str__(self):
         loss_str = []
@@ -223,7 +269,14 @@ class MetricLogger:
             )
         else:
             log_msg = self.delimiter.join(
-                [header, "[{0" + space_fmt + "}/{1}]", "eta: {eta}", "{meters}", "time: {time}", "data: {data}"]
+                [
+                    header,
+                    "[{0" + space_fmt + "}/{1}]",
+                    "eta: {eta}",
+                    "{meters}",
+                    "time: {time}",
+                    "data: {data}",
+                ]
             )
         MB = 1024.0 * 1024.0
         for obj in iterable:
@@ -248,7 +301,12 @@ class MetricLogger:
                 else:
                     print(
                         log_msg.format(
-                            i, len(iterable), eta=eta_string, meters=str(self), time=str(iter_time), data=str(data_time)
+                            i,
+                            len(iterable),
+                            eta=eta_string,
+                            meters=str(self),
+                            time=str(iter_time),
+                            data=str(data_time),
                         )
                     )
             i += 1
@@ -365,7 +423,10 @@ def init_distributed_mode(args):
     args.dist_backend = "nccl"
     print(f"| distributed init (rank {args.rank}): {args.dist_url}", flush=True)
     torch.distributed.init_process_group(
-        backend=args.dist_backend, init_method=args.dist_url, world_size=args.world_size, rank=args.rank
+        backend=args.dist_backend,
+        init_method=args.dist_url,
+        world_size=args.world_size,
+        rank=args.rank,
     )
     torch.distributed.barrier()
     setup_for_distributed(args.rank == 0)
@@ -390,7 +451,9 @@ def average_checkpoints(inputs):
         with open(fpath, "rb") as f:
             state = torch.load(
                 f,
-                map_location=(lambda s, _: torch.serialization.default_restore_location(s, "cpu")),
+                map_location=(
+                    lambda s, _: torch.serialization.default_restore_location(s, "cpu")
+                ),
             )
         # Copies over the settings from the first checkpoint
         if new_state is None:
@@ -475,7 +538,9 @@ def store_model_weights(model, checkpoint_path, checkpoint_key="model", strict=T
     # and remove unnecessary weights (such as auxiliaries, etc)
     if checkpoint_key == "model_ema":
         del checkpoint[checkpoint_key]["n_averaged"]
-        torch.nn.modules.utils.consume_prefix_in_state_dict_if_present(checkpoint[checkpoint_key], "module.")
+        torch.nn.modules.utils.consume_prefix_in_state_dict_if_present(
+            checkpoint[checkpoint_key], "module."
+        )
     model.load_state_dict(checkpoint[checkpoint_key], strict=strict)
 
     tmp_path = os.path.join(output_dir, str(model.__hash__()))
@@ -543,7 +608,9 @@ def set_weight_decay(
                 continue
             is_custom_key = False
             for key in custom_keys:
-                target_name = f"{prefix}.{name}" if prefix != "" and "." in key else name
+                target_name = (
+                    f"{prefix}.{name}" if prefix != "" and "." in key else name
+                )
                 if key == target_name:
                     params[key].append(p)
                     is_custom_key = True
@@ -563,5 +630,7 @@ def set_weight_decay(
     param_groups = []
     for key in params:
         if len(params[key]) > 0:
-            param_groups.append({"params": params[key], "weight_decay": params_weight_decay[key]})
+            param_groups.append(
+                {"params": params[key], "weight_decay": params_weight_decay[key]}
+            )
     return param_groups

@@ -5,8 +5,54 @@ from typing import Optional, Tuple, List, Dict, Any, Callable
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.utils import TorchAOBaseTensor
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
+from torch.sparse._triton_ops import bsr_dense_mm, _int_bsr_dense_addmm, broadcast_batch_dims, bsr_dense_addmm
 
 aten = torch.ops.aten
+# quantization support
+@torch.library.custom_op("blocksparse::_int_mm", mutates_args=())
+def blocksparse_int_mm(crow_indices: torch.Tensor,
+                   col_indices: torch.Tensor,
+                   values: torch.Tensor,
+                   M: int,
+                   K: int,
+                   A: torch.Tensor) -> torch.Tensor:
+    assert values.dtype == torch.int8
+    weight_bsr = torch.sparse_bsr_tensor(crow_indices, col_indices, values, size=(M, K))
+
+    N = A.shape[-1]
+
+    # original_batch_dims_broadcasted = broadcast_batch_dims("_int_bsr_dense_addmm", weight_bsr, A)
+    # input = torch.zeros(M, N, dtype=torch.int32, device=A.device)
+    return bsr_dense_mm(weight_bsr, A).t().contiguous()
+
+@torch.library.register_fake("blocksparse::_int_mm")
+def blocksparse_int_mm_abstract(crow_indices: torch.Tensor, col_indices: torch.Tensor, values: torch.Tensor, M: int, K: int, A: torch.Tensor) -> torch.Tensor:
+    new_shape = (A.shape[-1], M)
+    return torch.empty(new_shape, dtype=torch.int8, device=A.device)
+
+
+@torch.library.custom_op("blocksparse::int_addmm", mutates_args=())
+def blocksparse_int_addmm(crow_indices: torch.Tensor,
+                          col_indices: torch.Tensor,
+                          values: torch.Tensor,
+                          A: torch.Tensor,
+                          left_alpha: torch.Tensor,
+                          right_alpha: torch.Tensor) -> torch.Tensor:
+    assert values.dtype == torch.int8
+    M = left_alpha.shape[-1]
+    K = A.shape[-2]
+    N = A.shape[-1]
+    weight_bsr = torch.sparse_bsr_tensor(crow_indices, col_indices, values, size=(M, K))
+    original_batch_dims_broadcasted = broadcast_batch_dims(blocksparse_int_addmm, weight_bsr, A)
+    out = A.new_empty(original_batch_dims_broadcasted + (M, N))
+    return bsr_dense_addmm(out, weight_bsr, A, alpha=1, beta=0, out=out, left_alpha=left_alpha, right_alpha=right_alpha).t()
+
+
+@torch.library.register_fake("blocksparse::int_addmm")
+def blocksparse_int_addmm_abstract(crow_indices: torch.Tensor, col_indices: torch.Tensor, values: torch.Tensor, A: torch.Tensor, left_alpha: torch.Tensor, right_alpha: torch.Tensor) -> torch.Tensor:
+    N = A.shape[-1]
+    M = left_alpha.shape[-1]
+    return torch.empty((N, M), dtype=torch.int8, device=A.device)
 
 # bsr wrapper custom op
 @torch.library.custom_op("blocksparse::linear", mutates_args=())
@@ -16,7 +62,7 @@ def blocksparse_linear(A: torch.Tensor, crow_indices: torch.Tensor, col_indices:
 
 @torch.library.register_fake("blocksparse::linear")
 def blocksparse_linear_abstract(A: torch.Tensor, crow_indices: torch.Tensor, col_indices: torch.Tensor, values: torch.Tensor, M: int, K:int , bias: torch.Tensor) -> torch.Tensor:
-    new_shape = A.shape[:-1] + (bias.shape[0],)
+    new_shape = A.shape[:-1] + (M,)
     return torch.empty(new_shape, dtype=A.dtype, device=A.device)
 
 # Subclass definition
