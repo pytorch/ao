@@ -106,7 +106,7 @@ def awq_uintx(quant_dtype: torch.dtype = torch.uint4, group_size: int = 128):
         layout_type = AwqLayoutType(equalization_scale, quant_dtype)
         
         return to_affine_quantized_intx(
-            observed_linear.weight,
+            observed_linear,
             mapping_type, block_size, 
             target_dtype, quant_min, 
             quant_max, eps, 
