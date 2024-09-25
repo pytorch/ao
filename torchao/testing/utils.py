@@ -231,19 +231,8 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
     COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 
     TENSOR_SUBCLASS = AffineQuantizedTensor
-    # QUANT_METHOD_FN = staticmethod(int4_weight_only)
     QUANT_METHOD_FN = staticmethod(int8_weight_only)
     QUANT_METHOD_KWARGS = {}
-
-    # def setUp(self) -> None:
-    #     # Create a device mesh
-    #     world_size = int(os.environ["WORLD_SIZE"])
-    #     if not dist.is_initialized():
-    #         dist.init_process_group(backend="nccl")
-    #         self.mesh = dist.init_device_mesh("cuda", (world_size,))
-
-    # def tearDown(self) -> None:
-    #     dist.destroy_process_group()
 
     @staticmethod
     def colwise_shard(m: torch.nn.Module, mesh: DeviceMesh) -> torch.nn.Module:
@@ -290,12 +279,10 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
         quantize_(m, self.QUANT_METHOD_FN(**self.QUANT_METHOD_KWARGS))
         return m
 
-    # @common_utils.parametrize("device", COMMON_DEVICES)
-    # @common_utils.parametrize("dtype", COMMON_DTYPES)
+    @common_utils.parametrize("device", COMMON_DEVICES)
+    @common_utils.parametrize("dtype", COMMON_DTYPES)
     @with_comms
-    def test_tp(self):
-        device = "cuda"
-        dtype = torch.bfloat16
+    def test_tp(self, device, dtype):
         # To make sure different ranks create the same module
         torch.manual_seed(5)
 

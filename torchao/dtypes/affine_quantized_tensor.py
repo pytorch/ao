@@ -1638,7 +1638,7 @@ def _(func, types, args, kwargs):
         block_size = (block_size[1],)
         return self.__class__(self.layout_tensor, block_size, (x.numel(),), self.quant_min, self.quant_max, self.zero_point_domain, dtype=self.dtype, strides=self.stride())
 
-    raise ValueError(f"{x.__class__.__name__} only supports .view() with same shape or shape=[-1]")
+    raise ValueError(f"{self.__class__.__name__} only supports .view() with same shape or shape=[-1]")
 
 
 to_affine_quantized_intx = AffineQuantizedTensor.from_hp_to_intx
