@@ -18,7 +18,7 @@ import torch.nn as nn
 from torchao.float8.config import CastConfig, Float8LinearConfig, ScalingType
 from torchao.float8.float8_linear_utils import convert_to_float8_training
 from torchao.float8.fsdp_utils import WeightWithDynamicFloat8CastTensor
-from fsdp2_common import check_parity_bf16_mp, check_parity_no_mp
+from torchao.testing.float8.fsdp2_utils import check_parity_bf16_mp, check_parity_no_mp
 from torch.distributed._composable.fsdp import fully_shard, MixedPrecisionPolicy
 from torch.distributed._tensor import DTensor
 from torch.testing._internal.common_cuda import TEST_CUDA

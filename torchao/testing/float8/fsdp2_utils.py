@@ -49,9 +49,9 @@ def check_parity_no_mp(
                 precompute_float8_dynamic_scale_for_fsdp(model)
 
         if compile_transformer_block:
-            test_cls.assertEqual(losses[0], losses[1], atol=1e-4, rtol=1e-4)
+            test_cls.assertEqual(losses[0], losses[1], atol=1e-4, rtol=1e-4, msg = f"iter: {iter_idx}, loss-ref: {losses[0]}, loss-fp8: {losses[1]}")
         else:
-            test_cls.assertEqual(losses[0], losses[1])
+            test_cls.assertEqual(losses[0], losses[1], msg = f"iter: {iter_idx}, loss-ref: {losses[0]}, loss-fp8: {losses[1]}")
 
 
 def check_parity_bf16_mp(
@@ -86,4 +86,4 @@ def check_parity_bf16_mp(
                 ref_model.parameters(), ref_model_bf16.parameters()
             ):
                 param_bf16.detach().copy_(param_fp32)
-        test_cls.assertEqual(losses[0], losses[1])
+        test_cls.assertEqual(losses[0], losses[1], msg = f"iter: {iter_idx}, loss-ref: {losses[0]}, loss-fp8: {losses[1]}")
