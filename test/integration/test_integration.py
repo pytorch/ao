@@ -73,7 +73,7 @@ from torchao.quantization.autoquant import (
     AQInt8WeightOnlyQuantizedLinearWeight3,
     AutoQuantizableLinearWeight,
     AQFloat8WeightOnlyQuantizedLinearWeight,
-    AQFloat8DynamicallyQuantizedLinearWeight,
+    AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight,
 )
 from torch.ao.quantization.quantize_fx import convert_to_reference_fx, prepare_fx
 import os
