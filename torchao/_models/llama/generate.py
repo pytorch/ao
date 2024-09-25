@@ -245,7 +245,6 @@ def main(
             # get calibration data
             insert_awq_observer_(model,calibration_limit, calibration_seq_length, quant_dtype=quant_dtype, group_size=group_size)
             with torch.no_grad():
-                with torch.no_grad():
                 calibration_data = get_calib_dataset(tokenizer=tokenizer, n_samples=calibration_limit, block_size=calibration_seq_length)
                 for batch in calibration_data:
                     model(batch.to(device))
