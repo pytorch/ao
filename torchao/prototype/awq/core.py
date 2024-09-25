@@ -168,7 +168,7 @@ class AwqLayoutType(LayoutType):
     dtype: torch.dtype
 
     def pre_process(self, input: torch.Tensor) -> torch.Tensor:
-        return input * self.equalization_scale
+        return (input * self.equalization_scale).to(input.dtype)
 
     def post_process(self, input: torch.Tensor) -> torch.Tensor:
         # pack weights for sub dtype bit size
