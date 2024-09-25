@@ -92,7 +92,7 @@ def awq_uintx(quant_dtype: torch.dtype = torch.uint4, group_size: int = 128):
     assert quant_dtype in _DTYPE_TO_BIT_WIDTH or quant_dtype == torch.uint8, "Invalid quant_dtype. Please use torch.uint1 .. torch.uint8"
     def weight_quant_func(observed_linear):
         # weight quantization
-        equalization_scale = observed_linear.act_obs.calculate_qparams()
+        equalization_scale = observed_linear.act_obs.calculate_qparams().to(observed_linear.weight.dtype)
         # AQT config
         target_dtype = torch.uint8
         mapping_type = MappingType.ASYMMETRIC
