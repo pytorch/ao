@@ -709,9 +709,10 @@ class TestQuantFlow(TestCase):
         self.assertLess(memory_streaming, memory_baseline)
 
 class TestMultiTensorFlow(TestCase):
-    from torchao.quantization.GPTQ_MT import MultiTensor
+    
 
     def test_multitensor_add_tensors(self):
+        from torchao.quantization.GPTQ_MT import MultiTensor
         tensor1 = torch.randn(3, 3)
         tensor2 = torch.randn(3, 3)
         mt = MultiTensor(tensor1)
@@ -721,6 +722,7 @@ class TestMultiTensorFlow(TestCase):
         self.assertTrue(torch.equal(mt.values[1], tensor2))
 
     def test_multitensor_pad_unpad(self):
+        from torchao.quantization.GPTQ_MT import MultiTensor
         tensor1 = torch.randn(3, 3)
         mt = MultiTensor(tensor1)
         mt.pad_to_length(3)
@@ -729,6 +731,7 @@ class TestMultiTensorFlow(TestCase):
         self.assertEqual(mt.count, 1)
 
     def test_multitensor_inplace_operation(self):
+        from torchao.quantization.GPTQ_MT import MultiTensor
         tensor1 = torch.ones(3, 3)
         mt = MultiTensor(tensor1)
         mt += 1  # In-place addition
@@ -736,10 +739,6 @@ class TestMultiTensorFlow(TestCase):
 
  
 
-common_utils.instantiate_parametrized_tests(TestQuantFlow)
-
-if __name__ == "__main__":
-    unittest.main()
 
 common_utils.instantiate_parametrized_tests(TestQuantFlow)
 
