@@ -9,7 +9,7 @@ from .subclass import ( # noqa
     Int8WeightOnlyQuantizedLinearWeight,
     QuantizedLinearWeightBase,
 )
-from torchao.dtypes import AffineQuantizedTensor, PlainLayoutType, TensorCoreTiledLayoutType
+from torchao.dtypes import AffineQuantizedTensor, PlainLayoutType, TensorCoreTiledLayoutType, Float8LayoutType
 from torchao.quantization.linear_activation_quantized_tensor import LinearActivationQuantizedTensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from .quant_primitives import (
@@ -477,6 +477,22 @@ class AQFloatLinearWeight(torch.Tensor, AQMixin):
     def from_float(cls, weight):
         return weight
 
+class AQFloat8WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
+    """
+    AutoQuantizable version of Float8WeightOnlyQuantizedLinearWeight for target_dtype=torch.float8_e4m3fn
+    """
+    target_dtype: torch.dtype = torch.float8_e4m3fn
+
+    @staticmethod
+    def _quantized_linear_op(act_mat, w_qtensor, bias):
+        return torch.nn.functional.linear(act_mat, w_qtensor.dequantize(), bias)
+
+    @classmethod
+    def from_float(cls, weight):
+        block_size = (1, weight.shape[1])
+        return super(AQFloat8WeightOnlyQuantizedLinearWeight, cls).from_hp_to_floatx(weight, block_size, target_dtype=cls.target_dtype, layout_type=Float8LayoutType())
+
+
 # here we don't include int4 quantization in since int8 tends to be a better apples to apples comparison
 DEFAULT_AUTOQUANT_CLASS_LIST = [
     AQFloatLinearWeight,
@@ -492,6 +508,11 @@ DEFAULT_INT4_AUTOQUANT_CLASS_LIST = [
     AQInt8DynamicallyQuantizedLinearWeight,
     AQInt4G64WeightOnlyQuantizedLinearWeight
 ]
+
+OTHER_AUTOQUANT_CLASS_LIST = [
+    AQFloat8WeightOnlyQuantizedLinearWeight,
+]
+
 
 def _change_linears_to_autoquantizable(model, **kwargs):
     """
@@ -617,6 +638,8 @@ def autoquant(
     if set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
+    if qtensor_class_list in OTHER_AUTOQUANT_CLASS_LIST:
+        assert torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9), "float8 requires CUDA arch >= 8.9"
 
     # perform initial swap from linear weights
     # to AutoQuantizableLinearWeight

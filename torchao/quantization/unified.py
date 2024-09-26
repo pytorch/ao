@@ -1,5 +1,5 @@
 import torch
-from typing import Any
+from typing import Any, List
 from abc import ABC, abstractmethod
 
 """
@@ -17,7 +17,6 @@ class Quantizer(ABC):
     def quantize(
         self, model: torch.nn.Module, *args: Any, **kwargs: Any
     ) -> torch.nn.Module:
-
         pass
 
 
@@ -27,11 +26,10 @@ class TwoStepQuantizer:
     def prepare(
         self, model: torch.nn.Module, *args: Any, **kwargs: Any
     ) -> torch.nn.Module:
-
         pass
 
+    @abstractmethod
     def convert(
         self, model: torch.nn.Module, *args: Any, **kwargs: Any
     ) -> torch.nn.Module:
-
         pass
