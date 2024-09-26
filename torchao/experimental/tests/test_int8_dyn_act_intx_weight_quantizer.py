@@ -77,16 +77,17 @@ class TestInt8DynActIntxWeightQuantizer(unittest.TestCase):
     
     def test_export_compile_aoti(self):
         group_size = 32
-        m = 1
-        n = 256
-        k = 256
+        m = 3
+        k0 = 512
+        k1 = 256
+        k2 = 128
+        k3 = 1024
         nbit = 4
         has_weight_zeros = False
-        n_layers = 3
-        layers = [torch.nn.Linear(k, n, bias=False) for _ in range(n_layers)]
+        layers = [torch.nn.Linear(k0, k1, bias=False), torch.nn.Linear(k1, k2, bias=False), torch.nn.Linear(k2, k3, bias=False)]
         model = torch.nn.Sequential(*layers)
 
-        activations = torch.randn(m, k, dtype=torch.float32)
+        activations = torch.randn(2, 1, m, k0, dtype=torch.float32)
 
         print("Quantizing model")
         quantizer = Int8DynActIntxWeightQuantizer(

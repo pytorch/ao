@@ -80,6 +80,7 @@ Tensor pack_weights_cpu(
       weight_scales.dtype() == torch::kFloat32,
       "weight_scales must be float32");
   CHECK_MSG(weight_scales.dim() == 1, "weight_scales must be 1D");
+  CHECK_MSG(group_size >= 1, "group_size must be >= 1");
   CHECK_MSG(
       weight_scales.size(0) == ((n * k) / group_size),
       "expected 1 scale per group");
@@ -134,9 +135,9 @@ Tensor pack_weights_without_zeros_cpu(
     const Tensor& weight_qvals,
     const Tensor& weight_scales,
     // TODO(T200095131): convert to int64_t when supported by AOTI
-    // group_size is a meta tensor with size (group_size)
+    // group_size is a tensor with size (0, group_size)
     const Tensor& group_size_tensor) {
-  int64_t group_size = group_size_tensor.size(0);
+  int64_t group_size = group_size_tensor.size(1);
   return pack_weights_cpu<weight_nbit, /*has_weight_zeros*/ false>(
       weight_qvals, weight_scales, std::nullopt, group_size);
 }
@@ -151,7 +152,7 @@ Tensor pack_weights_with_zeros_cpu(
     // TODO(T200095131): convert to int64_t when supported by AOTI
     // group_size is a meta tensor with size (group_size)
     const Tensor& group_size_tensor) {
-  int64_t group_size = group_size_tensor.size(0);
+  int64_t group_size = group_size_tensor.size(1);
   return pack_weights_cpu<weight_nbit, /*has_weight_zeros*/ true>(
       weight_qvals, weight_scales, weight_zeros, group_size);
 }
@@ -164,6 +165,7 @@ Tensor pack_weights_meta(
     const Tensor& weight_scales,
     const std::optional<Tensor>& weight_zeros,
     int64_t group_size) {
+  CHECK_MSG(group_size >= 1, "group_size must be >= 1");
   int n = weight_qvals.size(0);
   int k = weight_qvals.size(1);
 
@@ -190,7 +192,7 @@ Tensor pack_weights_without_zeros_meta(
     // TODO(T200095131): convert to int64_t when supported by AOTI
     // group_size is a meta tensor with size (group_size)
     const Tensor& group_size_tensor) {
-  int64_t group_size = group_size_tensor.size(0);
+  int64_t group_size = group_size_tensor.size(1);
   return pack_weights_meta<weight_nbit, /*has_weight_zeros*/ false>(
       weight_qvals, weight_scales, std::nullopt, group_size);
 }
@@ -205,7 +207,7 @@ Tensor pack_weights_with_zeros_meta(
     // TODO(T200095131): convert to int64_t when supported by AOTI
     // group_size is a meta tensor with size (group_size)
     const Tensor& group_size_tensor) {
-  int64_t group_size = group_size_tensor.size(0);
+  int64_t group_size = group_size_tensor.size(1);
   return pack_weights_meta<weight_nbit, /*has_weight_zeros*/ true>(
       weight_qvals, weight_scales, weight_zeros, group_size);
 }
@@ -216,16 +218,19 @@ template <int weight_nbit, bool has_weight_zeros>
 Tensor linear_out_cpu(
     const Tensor& packed_weights,
     // TODO(T200095131): convert n_tensor, k_tensor, group_size_tensor to
-    // int64_t when supported by AOTI Currently they are meta tensors with size
-    // equal to the int they wrap
+    // int64_t when supported by AOTI Currently they are tensors with size
+    // equal to (0, the int they wrap)
     const Tensor& n_tensor,
     const Tensor& k_tensor,
     const Tensor& group_size_tensor,
     const Tensor& activations,
     Tensor& out) {
-  int n = n_tensor.size(0);
-  int k = k_tensor.size(0);
-  int group_size = group_size_tensor.size(0);
+  int n = n_tensor.size(1);
+  int k = k_tensor.size(1);
+  int group_size = group_size_tensor.size(1);
+  CHECK_MSG(n >= 1, "n must be >= 1");
+  CHECK_MSG(k >= 1, "k must be >= 1");
+  CHECK_MSG(group_size >= 1, "group_size must be >= 1");
 
 #ifdef USE_ATEN
   CHECK_MSG(
@@ -303,8 +308,8 @@ template <int weight_nbit, bool has_weight_zeros>
 Tensor linear_cpu(
     const Tensor& packed_weights,
     // TODO(T200095131): convert n_tensor, k_tensor, group_size_tensor to
-    // int64_t when supported by AOTI Currently they are meta tensors with size
-    // equal to the int they wrap
+    // int64_t when supported by AOTI Currently they are tensors with size
+    // equal to (0, the int they wrap)
     const Tensor& n_tensor,
     const Tensor& k_tensor,
     const Tensor& group_size_tensor,
@@ -327,14 +332,17 @@ Tensor linear_meta(
     const Tensor& packed_weights,
     // TODO(T200095131): convert n_tensor, k_tensor, group_size_tensor to
     // int64_t when supported by AOTI
-    // Currently they are meta tensors with size equal to the int they wrap
+    // Currently they are tensors with size equal to (0, the int they wrap)
     const Tensor& n_tensor,
     const Tensor& k_tensor,
     const Tensor& group_size_tensor,
     const Tensor& activations) {
-  int n = n_tensor.size(0);
-  int k = k_tensor.size(0);
+  int n = n_tensor.size(1);
+  int k = k_tensor.size(1);
+  CHECK_MSG(n >= 1, "n must be >= 1");
+  CHECK_MSG(k >= 1, "k must be >= 1");
 
+  CHECK_MSG(activations.dim() == 2, "activations must be 2D");
   int m = activations.size(0);
   int k_ = activations.size(1);
   CHECK_MSG(k == k_, "activation shape is incompatible with packed weights.");

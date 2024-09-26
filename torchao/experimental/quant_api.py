@@ -80,9 +80,11 @@ class _Int8DynActIntxWeightQuantizedLinearNative(nn.Module):
 
         # TODO(T200095131): convert self.n, self.k, self.group_size to
         # int when supported by AOTI
-        self._n = torch.empty(n, dtype=torch.int8)
-        self._k = torch.empty(k, dtype=torch.int8)
-        self._group_size = torch.empty(self.group_size, dtype=torch.int8)
+        # AOTI does not allow a tensor of size (n, 0), so we do (0, n)
+        self._n = torch.empty(0, n, dtype=torch.int8)
+        self._k = torch.empty(0, k, dtype=torch.int8)
+        self._group_size = torch.empty(0, group_size, dtype=torch.int8)
+        
 
         weight_qvals, weight_scales, weight_zeros = _quantize(
             weights, self.group_size, self.nbit, self.has_weight_zeros
@@ -109,7 +111,7 @@ class _Int8DynActIntxWeightQuantizedLinearNative(nn.Module):
         assert x.dim() >= 3
         lead_shape = x.shape[0:-2]
         m, k = x.shape[-2], x.shape[-1]
-        n = self._n.shape[0]
+        n = self._n.shape[1]
         x = x.reshape(-1, m, k)
 
         res = [
@@ -254,7 +256,7 @@ def _replace_linear_with_quantized_linear(module: nn.Module, kwargs={}):
                 if not isinstance(qlinear, _Int8DynActIntxWeightQuantizedLinearNative):
                     raise e
                 logger.warning(
-                    "_Int8DynActIntxWeightQuantizedLinearNative raised an exception during quantize_and_pack_weights: {e}\n"
+                    f"_Int8DynActIntxWeightQuantizedLinearNative raised an exception during quantize_and_pack_weights: {e}\n"
                     + "Falling back to **slow** implementation _Int8DynActIntxWeightQuantizedLinearFallback."
                 )
                 qlinear = _Int8DynActIntxWeightQuantizedLinearFallback()
