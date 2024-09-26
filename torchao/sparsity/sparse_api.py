@@ -4,17 +4,17 @@ import torch
 from torch.ao.pruning import WeightNormSparsifier
 from torch.sparse import to_sparse_semi_structured
 from torchao.quantization.quant_api import (
+    _get_linear_subclass_inserter,
     _is_linear,
     _replace_with_custom_fn_if_matches_filter,
-    _get_linear_subclass_inserter,
     int8_dynamic_activation_int8_semi_sparse_weight,
 )
+
 
 # Sparsity helper functions
 def apply_fake_sparsity(model, **kwargs):
     """
     This function simulates 2:4 sparsity on all linear layers in a model.
-    It uses the torch.ao.pruning flow.
     """
     filter_fn = kwargs.pop("filter_fn", _is_linear)
     # torch.ao.pruning flow
@@ -30,15 +30,19 @@ def apply_fake_sparsity(model, **kwargs):
     sparsifier.step()
     sparsifier.squash_mask()
 
+
 def semi_sparse_weight():
     """
     Convert the weight of linear moduels to semi-structured (2:4) sparsity
     """
     return _get_linear_subclass_inserter(to_sparse_semi_structured)
 
-def sparsify_(model: torch.nn.Module,
-             apply_tensor_subclass: Callable[[torch.Tensor], torch.Tensor],
-             filter_fn: Optional[Callable[[torch.nn.Module, str], bool]]=None) -> torch.nn.Module:
+
+def sparsify_(
+    model: torch.nn.Module,
+    apply_tensor_subclass: Callable[[torch.Tensor], torch.Tensor],
+    filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = None,
+) -> torch.nn.Module:
     """Convert the weight of linear modules in the model with `apply_tensor_subclass`
     This function is essentially the same as quantize, put for sparsity subclasses.
 
@@ -73,6 +77,6 @@ def sparsify_(model: torch.nn.Module,
     """
     _replace_with_custom_fn_if_matches_filter(
         model,
-        apply_tensor_subclass, 
+        apply_tensor_subclass,
         _is_linear if filter_fn is None else filter_fn,
     )
