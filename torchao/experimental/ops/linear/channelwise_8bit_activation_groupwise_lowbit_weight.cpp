@@ -93,7 +93,7 @@ LinearTilingParams get_default_linear_tiling_params(
 
   LinearTilingParams tiling_params;
   auto num_threads = torchao::get_num_threads();
-  assert(num_threads >= 1);
+  TORCHAO_CHECK(num_threads >= 1, "num_threads must be >= 1");
 
   tiling_params.mc_by_mr = 1;
   int mc = tiling_params.mc_by_mr * ukernel_config.mr;

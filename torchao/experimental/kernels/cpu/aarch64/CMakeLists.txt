@@ -13,3 +13,8 @@ if (CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
     ${TORCHAO_INCLUDE_DIRS}/torchao/experimental/kernels/cpu/aarch64/valpacking/interleave.cpp
   )
 endif()
+
+install(
+  TARGETS torchao_kernels_aarch64
+  DESTINATION lib
+)
