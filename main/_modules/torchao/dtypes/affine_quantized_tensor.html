@@ -428,7 +428,6 @@
 <span class="kn">from</span> <span class="nn">torchao.float8.inference</span> <span class="kn">import</span> <span class="n">Float8MMConfig</span>
 <span class="n">aten</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span>
 
-
 <span class="c1">###############################</span>
 <span class="c1"># Base Layout Tensor Subclass #</span>
 <span class="c1">###############################</span>
@@ -855,6 +854,11 @@
 
 
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">BlockSparseLayoutType</span><span class="p">(</span><span class="n">LayoutType</span><span class="p">):</span>
+    <span class="n">blocksize</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">64</span>
+
+
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span> <span class="nc">TensorCoreTiledLayoutType</span><span class="p">(</span><span class="n">LayoutType</span><span class="p">):</span>
     <span class="n">inner_k_tiles</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">8</span>
 
@@ -1050,6 +1054,145 @@
         <span class="n">int_data_compressed</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_cslt_compress</span><span class="p">(</span><span class="n">int_data</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">int_data_compressed</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">layout_type</span><span class="p">)</span>
 
+<span class="nd">@register_layout_cls</span><span class="p">(</span><span class="n">BlockSparseLayoutType</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">BlockSparseAQTLayout</span><span class="p">(</span><span class="n">PlainAQTLayout</span><span class="p">):</span>
+    <span class="n">bsr_crow_indices</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span>
+    <span class="n">bsr_col_indices</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span>
+    <span class="n">bsr_values</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span>
+    <span class="n">scale</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span>
+    <span class="n">zero_point</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span>
+
+    <span class="vm">__slots__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;bsr_crow_indices&quot;</span><span class="p">,</span> <span class="s2">&quot;bsr_col_indices&quot;</span><span class="p">,</span> <span class="s2">&quot;bsr_values&quot;</span><span class="p">,</span> <span class="s2">&quot;scale&quot;</span><span class="p">,</span> <span class="s2">&quot;zero_point&quot;</span><span class="p">]</span> 
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="fm">__new__</span><span class="p">(</span>  <span class="c1"># noqa: PYI034</span>
+        <span class="bp">cls</span><span class="p">,</span>
+        <span class="n">shape</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span><span class="p">,</span>
+        <span class="n">bsr_crow_indices</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+        <span class="n">bsr_col_indices</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+        <span class="n">bsr_values</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+        <span class="n">scale</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> 
+        <span class="n">zero_point</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+        <span class="n">layout_type</span><span class="p">:</span> <span class="n">LayoutType</span><span class="p">,</span>
+        <span class="n">requires_grad</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="k">if</span> <span class="n">bsr_values</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;bsr values must be provided!&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">previous_tensor</span> <span class="o">=</span> <span class="n">bsr_values</span>
+
+        <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;device&quot;</span><span class="p">:</span> <span class="n">previous_tensor</span><span class="o">.</span><span class="n">device</span><span class="p">,</span>
+            <span class="s2">&quot;dtype&quot;</span><span class="p">:</span> <span class="n">previous_tensor</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span>
+            <span class="s2">&quot;layout&quot;</span><span class="p">:</span> <span class="n">previous_tensor</span><span class="o">.</span><span class="n">layout</span><span class="p">,</span>
+            <span class="s2">&quot;requires_grad&quot;</span><span class="p">:</span> <span class="n">requires_grad</span><span class="p">,</span>
+        <span class="p">}</span>
+        <span class="k">return</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="o">.</span><span class="n">_make_wrapper_subclass</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">shape</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>  <span class="c1"># type: ignore[attr-defined]</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>  <span class="c1"># noqa: PYI034</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">shape</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span><span class="p">,</span>
+        <span class="n">bsr_crow_indices</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+        <span class="n">bsr_col_indices</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+        <span class="n">bsr_values</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+        <span class="n">scale</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span> 
+        <span class="n">zero_point</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
+        <span class="n">layout_type</span><span class="p">:</span> <span class="n">LayoutType</span><span class="p">,</span>
+        <span class="n">requires_grad</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bsr_crow_indices</span> <span class="o">=</span> <span class="n">bsr_crow_indices</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bsr_col_indices</span> <span class="o">=</span> <span class="n">bsr_col_indices</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bsr_values</span> <span class="o">=</span> <span class="n">bsr_values</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">scale</span> <span class="o">=</span> <span class="n">scale</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">zero_point</span> <span class="o">=</span> <span class="n">zero_point</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">layout_type</span> <span class="o">=</span> <span class="n">layout_type</span>
+
+    <span class="k">def</span> <span class="nf">__tensor_flatten__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span> 
+        <span class="n">inner_tensors</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span>
+            <span class="nb">filter</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__slots__</span><span class="p">)</span>
+        <span class="p">)</span>
+        <span class="n">tensor_meta</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">layout_type</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">inner_tensors</span><span class="p">,</span> <span class="n">tensor_meta</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">__tensor_unflatten__</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span>
+        <span class="n">inner_tensors</span><span class="p">,</span>
+        <span class="n">tensor_meta</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Size</span><span class="p">,</span> <span class="nb">bool</span><span class="p">],</span>
+        <span class="n">outer_size</span><span class="p">,</span>
+        <span class="n">outer_stride</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
+        <span class="n">shape</span><span class="p">,</span> <span class="n">layout_type</span><span class="p">,</span> <span class="n">requires_grad</span> <span class="o">=</span> <span class="n">tensor_meta</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
+            <span class="n">shape</span><span class="o">=</span><span class="n">shape</span><span class="p">,</span>
+            <span class="n">bsr_crow_indices</span><span class="o">=</span><span class="n">inner_tensors</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;bsr_crow_indices&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+            <span class="n">bsr_col_indices</span><span class="o">=</span><span class="n">inner_tensors</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;bsr_col_indices&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+            <span class="n">bsr_values</span><span class="o">=</span><span class="n">inner_tensors</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;bsr_values&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+            <span class="n">scale</span><span class="o">=</span><span class="n">inner_tensors</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;scale&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+            <span class="n">zero_point</span><span class="o">=</span><span class="n">inner_tensors</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;zero_point&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+            <span class="n">layout_type</span><span class="o">=</span><span class="n">layout_type</span><span class="p">,</span>
+            <span class="n">requires_grad</span><span class="o">=</span><span class="n">requires_grad</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">from_plain</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">layout_type</span><span class="p">):</span>
+        <span class="n">bsr_tensor</span> <span class="o">=</span> <span class="n">int_data</span><span class="o">.</span><span class="n">to_sparse_bsr</span><span class="p">(</span><span class="n">layout_type</span><span class="o">.</span><span class="n">blocksize</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
+            <span class="n">shape</span><span class="o">=</span><span class="n">int_data</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
+            <span class="n">bsr_crow_indices</span><span class="o">=</span><span class="n">bsr_tensor</span><span class="o">.</span><span class="n">crow_indices</span><span class="p">(),</span>
+            <span class="n">bsr_col_indices</span><span class="o">=</span><span class="n">bsr_tensor</span><span class="o">.</span><span class="n">col_indices</span><span class="p">(),</span>
+            <span class="n">bsr_values</span><span class="o">=</span><span class="n">bsr_tensor</span><span class="o">.</span><span class="n">values</span><span class="p">(),</span>
+            <span class="n">scale</span><span class="o">=</span><span class="n">scale</span><span class="p">,</span> 
+            <span class="n">zero_point</span><span class="o">=</span><span class="n">zero_point</span><span class="p">,</span>
+            <span class="n">layout_type</span> <span class="o">=</span> <span class="n">layout_type</span><span class="p">,</span>
+            <span class="n">requires_grad</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">get_plain</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">int_data_expanded</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">blocksparse</span><span class="o">.</span><span class="n">bsr_to_dense</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">crow_indices</span><span class="p">(),</span> <span class="bp">self</span><span class="o">.</span><span class="n">col_indices</span><span class="p">(),</span> <span class="bp">self</span><span class="o">.</span><span class="n">values</span><span class="p">(),</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+        <span class="k">return</span> <span class="n">int_data_expanded</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">zero_point</span>
+
+    <span class="k">def</span> <span class="nf">_apply_fn_to_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">func</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span>
+            <span class="n">shape</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
+            <span class="n">bsr_crow_indices</span><span class="o">=</span><span class="n">func</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bsr_crow_indices</span><span class="p">),</span>
+            <span class="n">bsr_col_indices</span><span class="o">=</span><span class="n">func</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bsr_col_indices</span><span class="p">),</span>
+            <span class="n">bsr_values</span><span class="o">=</span><span class="n">func</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bsr_values</span><span class="p">),</span>
+            <span class="n">scale</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">,</span>
+            <span class="n">zero_point</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">zero_point</span><span class="p">,</span>
+            <span class="n">layout_type</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">layout_type</span><span class="p">,</span>
+            <span class="n">requires_grad</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">requires_grad</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">__torch_dispatch__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
+        <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{}</span> <span class="k">if</span> <span class="n">kwargs</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">kwargs</span>
+
+        <span class="k">if</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">detach</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
+                <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">detach</span><span class="p">)</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">clone</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span>
+                <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">_apply_fn_to_data</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">clone</span><span class="p">)</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Need the following for bsr specific functions</span>
+        <span class="k">if</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">crow_indices</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">bsr_crow_indices</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">col_indices</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">bsr_col_indices</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">bsr_values</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="n">func</span> <span class="ow">is</span> <span class="n">aten</span><span class="o">.</span><span class="n">_nnz</span><span class="o">.</span><span class="n">default</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">bsr_values</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>  
+
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;BlockSparseAQTLayout dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span>
+        <span class="p">)</span>
 
 <span class="nd">@register_layout_cls</span><span class="p">(</span><span class="n">MarlinSparseLayoutType</span><span class="p">)</span>
 <span class="k">class</span> <span class="nc">MarlinSparseAQTLayout</span><span class="p">(</span><span class="n">AQTLayout</span><span class="p">):</span>
@@ -1602,6 +1745,43 @@
         <span class="n">y</span> <span class="o">+=</span> <span class="n">bias</span>
     <span class="k">return</span> <span class="n">y</span>
 
+<span class="k">def</span> <span class="nf">_linear_int8_act_int8_weight_block_sparse_check</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
+    <span class="k">return</span> <span class="p">(</span>
+        <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">)</span> <span class="ow">and</span>
+        <span class="n">_aqt_is_int8_reduced_range</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">)</span> <span class="ow">and</span>
+        <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">)</span> <span class="ow">and</span>
+        <span class="n">weight_tensor</span><span class="o">.</span><span class="n">is_cuda</span> <span class="ow">and</span>
+        <span class="n">input_tensor</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">dtype</span> <span class="ow">and</span>
+        <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">layout_type</span><span class="p">,</span> <span class="n">PlainLayoutType</span><span class="p">)</span> <span class="ow">and</span>
+        <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_type</span><span class="p">,</span> <span class="n">BlockSparseLayoutType</span><span class="p">)</span>
+    <span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">_linear_int8_act_int8_weight_block_sparse_impl</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
+    <span class="n">x_vals_int8</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">int_data</span>
+    <span class="n">x_scales</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">scale</span>
+    <span class="n">w_vals</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_tensor</span>
+    <span class="n">w_scales</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">scale</span>
+    <span class="n">tmp</span> <span class="o">=</span> <span class="n">x_vals_int8</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">x_vals_int8</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+    <span class="n">tmp_t</span> <span class="o">=</span> <span class="n">tmp</span><span class="o">.</span><span class="n">t</span><span class="p">()</span>
+
+    <span class="n">y</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">blocksparse</span><span class="o">.</span><span class="n">int_addmm</span><span class="p">(</span><span class="n">w_vals</span><span class="o">.</span><span class="n">crow_indices</span><span class="p">(),</span>
+                                        <span class="n">w_vals</span><span class="o">.</span><span class="n">col_indices</span><span class="p">(),</span>
+                                        <span class="n">w_vals</span><span class="o">.</span><span class="n">values</span><span class="p">(),</span>
+                                        <span class="n">tmp_t</span><span class="p">,</span>
+                                        <span class="n">w_scales</span><span class="p">,</span>
+                                        <span class="n">x_scales</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">))</span>
+    <span class="n">y_shape</span> <span class="o">=</span> <span class="p">(</span><span class="o">*</span><span class="n">x_vals_int8</span><span class="o">.</span><span class="n">shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">w_scales</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">y</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">*</span><span class="n">y_shape</span><span class="p">)</span>
+
+    <span class="c1"># can downcast only at the very end</span>
+    <span class="n">output_dtype</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dtype</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">y</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">output_dtype</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">y</span> <span class="o">+=</span> <span class="n">bias</span>
+    <span class="k">return</span> <span class="n">y</span>
+
+
 <span class="k">def</span> <span class="nf">_linear_bf16_act_uint4_weight_check</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
     <span class="k">return</span> <span class="p">(</span>
         <span class="c1"># input is native bfloat16 tensor</span>
@@ -1854,6 +2034,7 @@
     <span class="k">for</span> <span class="n">dispatch_condition</span><span class="p">,</span> <span class="n">impl</span> <span class="ow">in</span> <span class="p">[</span>
         <span class="p">(</span><span class="n">_linear_int8_act_int8_weight_check</span><span class="p">,</span> <span class="n">_linear_int8_act_int8_weight_impl</span><span class="p">),</span>
         <span class="p">(</span><span class="n">_linear_int8_act_int8_weight_semi_structured_sparse_check</span><span class="p">,</span> <span class="n">_linear_int8_act_int8_weight_semi_structured_sparse_impl</span><span class="p">),</span>
+        <span class="p">(</span><span class="n">_linear_int8_act_int8_weight_block_sparse_check</span><span class="p">,</span> <span class="n">_linear_int8_act_int8_weight_block_sparse_impl</span><span class="p">),</span>
         <span class="p">(</span><span class="n">_linear_fp8_act_fp8_weight_check</span><span class="p">,</span> <span class="n">_linear_fp8_act_fp8_weight_impl</span><span class="p">),</span>
         <span class="p">(</span><span class="n">_linear_bf16_act_uint4_weight_check</span><span class="p">,</span> <span class="n">_linear_bf16_act_uint4_weight_impl</span><span class="p">),</span>
         <span class="p">(</span><span class="n">_linear_fp_act_int8_weight_check</span><span class="p">,</span> <span class="n">_linear_fp_act_int8_weight_impl</span><span class="p">),</span>
