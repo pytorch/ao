@@ -34,8 +34,7 @@ int get_num_threads();
 #ifdef TORCHAO_PARALLEL_EXECUTORCH
 #pragma message( \
     "TORCHAO_PARALLEL_EXECUTORCH is set.  Using ExecuTorch parallel backend.")
-
-#error "TORCHAO_PARALLEL_EXECUTORCH is not implemented yet"
+#include <torchao/experimental/ops/parallel-executorch-impl.h>
 
 #else
 #ifdef TORCHAO_PARALLEL_PTHREADPOOL

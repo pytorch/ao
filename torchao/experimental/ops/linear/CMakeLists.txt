@@ -10,3 +10,8 @@ include(${TORCHAO_ROOT}/Utils.cmake)
 
 add_library(torchao_ops_linear_${TORCHAO_PARALLEL_BACKEND} STATIC channelwise_8bit_activation_groupwise_lowbit_weight.cpp)
 target_link_torchao_parallel_backend(torchao_ops_linear_${TORCHAO_PARALLEL_BACKEND} "${TORCHAO_PARALLEL_BACKEND}")
+
+install(
+  TARGETS torchao_ops_linear_${TORCHAO_PARALLEL_BACKEND}
+  DESTINATION lib
+)
