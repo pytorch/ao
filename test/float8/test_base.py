@@ -600,7 +600,7 @@ class TestNumerics:
     def test_dynamic_scale_parity(self, dtype: torch.dtype):
         scaling_type_weight = ScalingType.DYNAMIC
         torch.manual_seed(0)
-        hp_tensor = torch.randn(32, 32, device="cuda", dtype=dtype)
+        hp_tensor = torch.randn(16, 16, device="cuda", dtype=dtype)
         float8_config = Float8LinearConfig(
             cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
         )
