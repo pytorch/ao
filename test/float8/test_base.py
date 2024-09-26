@@ -600,25 +600,31 @@ class TestNumerics:
     def test_dynamic_scale_parity(self, dtype: torch.dtype):
         scaling_type_weight = ScalingType.DYNAMIC
         torch.manual_seed(0)
-        hp_tensor = torch.randn(16, 16, device="cuda", dtype=dtype)
+        hp_tensor1 = torch.randn(16, 16, device="cuda", dtype=dtype)
+        hp_tensor2 = hp_tensor1.detach().clone()
         float8_config = Float8LinearConfig(
             cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
         )
         float8_eager = hp_tensor_to_float8_dynamic(
-            hp_tensor,
+            hp_tensor1,
             torch.float8_e4m3fn,
             float8_config,
             gemm_input_role=GemmInputRole.WEIGHT,
         )
+        torch._dynamo.reset()
         float8_compile = torch.compile(hp_tensor_to_float8_dynamic)(
-            hp_tensor,
+            hp_tensor2,
             torch.float8_e4m3fn,
             float8_config,
             gemm_input_role=GemmInputRole.WEIGHT,
         )
         torch.set_printoptions(precision=10, threshold=2000)
         assert torch.equal(float8_eager._scale, float8_compile._scale)
-        assert torch.equal(float8_eager._data, float8_compile._data), f"{float8_eager._data=} vs {float8_compile._data=}"
+        torch.testing.assert_close(
+            float8_eager.to_original_precision(),
+            float8_compile.to_original_precision(),
+            msg=f"{float8_eager.to_original_precision()=} vs {float8_compile.to_original_precision()=}",
+        )
 
 
 class TestFloat8LinearUtils(unittest.TestCase):

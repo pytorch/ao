@@ -59,6 +59,9 @@ def precompute_float8_dynamic_scale_for_fsdp(module: nn.Module) -> None:
         return
 
     # inf-norm is equivalent to max(abs(w))
+    # keep consistent with float8_utils.amax_to_scale
+    # torch.compile and eager show different numerics for 1.0 / float32,
+    # upcast to float64 to ensure same numeric between compile and eager
     max_weights = torch._foreach_norm(weights, ord=math.inf, dtype=torch.float64)  # Partial
     amax_tensor = torch.stack(max_weights)  # Partial
     # clamp is dispatched through DTensor

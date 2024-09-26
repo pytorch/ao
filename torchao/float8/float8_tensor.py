@@ -163,7 +163,9 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
 
         DTensor Invariant: DTensor must always be the outer most tensor subclass
         """
-        # scale is float32 thus upcasting tensor to match
+        # Note: when the line below is compiled with `torch.compile`, `tensor` is automatically
+        # upcasted to `float32` to multiply with the scale
+        # In order to match numerics between eager and compile, we upcast manually here.
         tensor_scaled = tensor.to(torch.float32) * scale
         bits_fp8 = to_fp8_saturated(tensor_scaled, float8_dtype)
 
