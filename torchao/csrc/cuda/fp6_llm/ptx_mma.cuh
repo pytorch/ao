@@ -13,6 +13,10 @@
 //    limitations under the License.
 // 
 // This file is modified from https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/fp6_llm/csrc/include/ptx_mma.cuh
+//
+// MODIFICATION NOTE (2024-09-25): added SM75 support (https://github.com/pytorch/ao/pull/942):
+// - Replaced m16n8k16 Tensor core operation with two m16n8k8 operations
+// - Accounted for a difference in expected parameters for the ldmatrix operation
 
 /***************************************************************************
  * Copyright 2023 The FLash-LLM Authors. All rights reserved.

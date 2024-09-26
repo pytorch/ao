@@ -13,6 +13,10 @@
 //    limitations under the License.
 // 
 // This file is modified from https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/fp6_llm/csrc/include/kernel_matmul.cuh
+//
+// MODIFICATION NOTE (2024-09-25): added SM75 support (https://github.com/pytorch/ao/pull/942):
+// - Added __CUDA_ARCH__ guards such that async operations are only executed for SM80 and up
+//
 
 #include "configs.h"
 #include "utils_gmem.cuh"

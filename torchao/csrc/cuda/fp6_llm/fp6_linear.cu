@@ -13,6 +13,10 @@
 //    limitations under the License.
 // 
 // This file is adapted from https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/fp6_llm/csrc/fp6_linear.cu
+//
+// MODIFICATION NOTE (2024-09-25): added SM75 support (https://github.com/pytorch/ao/pull/942):
+// - Modified the TilingConfig parameters for SM75 to deal with smaller shared memory
+//
 
 #if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 750  // at least Turing
 

@@ -13,6 +13,10 @@
 //    limitations under the License.
 // 
 // This file is modified from https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/fp6_llm/csrc/include/utils_gmem.cuh
+//
+// MODIFICATION NOTE (2024-09-25): added SM75 support (https://github.com/pytorch/ao/pull/942):
+// - Replaced asynchronous copy operations with vectorized loads
+//
 
 #ifndef UTILS_GMEM_CUH
 #define UTILS_GMEM_CUH
