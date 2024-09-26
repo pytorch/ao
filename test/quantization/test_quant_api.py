@@ -344,7 +344,7 @@ class TestQuantFlow(TestCase):
         from torchao._models._eval import MultiTensorInputRecorder, TransformerEvalWrapper
         precision = torch.bfloat16
         device = "cuda"
-        checkpoint_path = Path("checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        checkpoint_path = Path("../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
         model = Transformer.from_name(checkpoint_path.parent.name)
         checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
         model.load_state_dict(checkpoint, assign=True)
