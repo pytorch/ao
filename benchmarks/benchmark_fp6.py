@@ -7,7 +7,7 @@ from torchao.utils import benchmark_torch_function_in_microseconds
 from tqdm import tqdm
 
 
-def benchmark(m: int, n: int, k: int):
+def benchmark(m: int, k: int, n: int):
     float_data = torch.randn(n, k, dtype=torch.half, device="cuda")
     fp6_weight = to_affine_quantized_fpx(float_data, FloatxTensorCoreLayoutType(3, 2))
     fp16_weight = fp6_weight.dequantize(torch.half)
@@ -43,7 +43,7 @@ if __name__ == "__main__":
 
     for m in tqdm([1 << i for i in range(10)]):
         for n, k in zip(n_vals, k_vals):
-            results.append(benchmark(m, n, k))
+            results.append(benchmark(m, k, n))
 
     df = pd.DataFrame(results)
     df.to_csv("fp6_llm_benchmark_results.csv", index=False)
