@@ -23,6 +23,14 @@ function(target_link_torchao_parallel_backend target_name torchao_parallel_backe
         target_compile_definitions(${target_name} PRIVATE TORCHAO_PARALLEL_ATEN=1 AT_PARALLEL_OPENMP=1 INTRA_OP_PARALLEL=1)
         target_link_libraries(${target_name} PRIVATE ${TORCH_INSTALL_PREFIX}/lib/libomp${CMAKE_SHARED_LIBRARY_SUFFIX})
 
+    elseif(TORCHAO_PARALLEL_BACKEND_TOUPPER STREQUAL "EXECUTORCH")
+    message(STATUS "Building with TORCHAO_PARALLEL_BACKEND=TORCHAO_PARALLEL_EXECUTORCH")
+    message(STATUS "EXECUTORCH_INCLUDE_DIRS: ${EXECUTORCH_INCLUDE_DIRS}")
+    message(STATUS "EXECUTORCH_LIBRARIES: ${EXECUTORCH_LIBRARIES}")
+    target_include_directories(${target_name} PRIVATE "${EXECUTORCH_INCLUDE_DIRS}")
+    target_link_libraries(${target_name} PRIVATE "${EXECUTORCH_LIBRARIES}")
+    target_compile_definitions(${target_name} PRIVATE TORCHAO_PARALLEL_EXECUTORCH=1)
+
     elseif(TORCHAO_PARALLEL_BACKEND_TOUPPER STREQUAL "OPENMP")
         message(STATUS "Building with TORCHAO_PARALLEL_BACKEND=OPENMP.  You must set the CMake variable OpenMP_ROOT to the OMP library location before compiling.  Do not use this option if Torch was built with OPENMP; use ATEN_OPENMP instead.")
         find_package(OpenMP REQUIRED)

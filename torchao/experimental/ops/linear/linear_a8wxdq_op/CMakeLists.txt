@@ -19,7 +19,7 @@ if(TORCHAO_OP_TARGET STREQUAL "ATEN")
     target_compile_definitions(linear_a8wxdq_${TORCHAO_OP_TARGET} PRIVATE USE_ATEN=1)
 elseif(TORCHAO_OP_TARGET STREQUAL "EXECUTORCH")
     message(STATUS "Building with TORCHAO_OP_TARGET=EXECUTORCH")
-    add_library(linear_a8wxdq_${TORCHAO_OP_TARGET} SHARED
+    add_library(linear_a8wxdq_${TORCHAO_OP_TARGET} STATIC
         linear_a8wxdq_executorch/w2s.cpp
         linear_a8wxdq_executorch/w2sz.cpp
         linear_a8wxdq_executorch/w3s.cpp
@@ -29,9 +29,9 @@ elseif(TORCHAO_OP_TARGET STREQUAL "EXECUTORCH")
         linear_a8wxdq_executorch/w5s.cpp
         linear_a8wxdq_executorch/w5sz.cpp
     )
-    target_include_directories(linear_a8wxdq_${TORCHAO_OP_TARGET} PRIVATE ${EXECUTORCH_INCLUDE_DIRS})
+    target_include_directories(linear_a8wxdq_${TORCHAO_OP_TARGET} PRIVATE "${EXECUTORCH_INCLUDE_DIRS}")
     target_compile_definitions(linear_a8wxdq_${TORCHAO_OP_TARGET} PRIVATE USE_EXECUTORCH=1)
-    target_link_libraries(linear_a8wxdq_${TORCHAO_OP_TARGET} PRIVATE ${EXECUTORCH_LIBRARIES})
+    target_link_libraries(linear_a8wxdq_${TORCHAO_OP_TARGET} PRIVATE "${EXECUTORCH_LIBRARIES}")
     target_link_libraries(linear_a8wxdq_${TORCHAO_OP_TARGET} PRIVATE torchao_kernels_aarch64)
     target_link_libraries(linear_a8wxdq_${TORCHAO_OP_TARGET} PRIVATE torchao_ops_linear_${TORCHAO_PARALLEL_BACKEND})
 else()
