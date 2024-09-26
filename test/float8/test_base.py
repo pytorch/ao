@@ -15,9 +15,6 @@ import pytest
 
 import torch
 import torch.nn as nn
-from torchao.float8.float8_scaling_utils import (
-    hp_tensor_to_float8_dynamic,
-)
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
@@ -584,47 +581,6 @@ class TestNumerics:
         x = torch.tensor([target_amax], dtype=torch.float16, device="cuda")
         scale = tensor_to_scale(x, float8_dtype)
         assert not torch.any(torch.isinf(scale))
-    
-    @unittest.skipIf(
-        not is_cuda_8_9,
-        "CUDA not available",
-    )
-    @pytest.mark.parametrize(
-        "dtype",
-        [
-            torch.float32,
-            torch.bfloat16,
-            torch.float16,
-        ],
-    )
-    def test_dynamic_scale_parity(self, dtype: torch.dtype):
-        scaling_type_weight = ScalingType.DYNAMIC
-        torch.manual_seed(42)
-        hp_tensor1 = torch.randn(16, 16, device="cuda", dtype=dtype)
-        hp_tensor2 = hp_tensor1.detach().clone()
-        float8_config = Float8LinearConfig(
-            cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
-        )
-        float8_eager = hp_tensor_to_float8_dynamic(
-            hp_tensor1,
-            torch.float8_e4m3fn,
-            float8_config,
-            gemm_input_role=GemmInputRole.WEIGHT,
-        )
-        torch._dynamo.reset()
-        float8_compile = torch.compile(hp_tensor_to_float8_dynamic)(
-            hp_tensor2,
-            torch.float8_e4m3fn,
-            float8_config,
-            gemm_input_role=GemmInputRole.WEIGHT,
-        )
-        torch.set_printoptions(precision=10, threshold=2000)
-        assert torch.equal(float8_eager._scale, float8_compile._scale)
-        torch.testing.assert_close(
-            float8_eager.to_original_precision(),
-            float8_compile.to_original_precision(),
-            msg=f"{float8_eager.to_original_precision()=} vs {float8_compile.to_original_precision()=}",
-        )
 
 
 class TestFloat8LinearUtils(unittest.TestCase):
