@@ -338,13 +338,13 @@ class TestQuantFlow(TestCase):
             f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
         )
 
-    @unittest.skip("skipping until we get checkpoints for gpt-fast")
+    # @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_gptq_quantizer_int4_weight_only(self):
         from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
         from torchao._models._eval import InputRecorder, TransformerEvalWrapper
         precision = torch.bfloat16
         device = "cuda"
-        checkpoint_path = Path("../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
+        checkpoint_path = Path("checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
         model = Transformer.from_name(checkpoint_path.parent.name)
         checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
         model.load_state_dict(checkpoint, assign=True)
@@ -360,7 +360,7 @@ class TestQuantFlow(TestCase):
         percdamp = 0.01
         groupsize = 64
         calibration_tasks = ["wikitext"]
-        calibration_limit = 1
+        calibration_limit = 5
         calibration_seq_length = 100
         input_prep_func = prepare_inputs_for_model
         pad_calibration_inputs = False
@@ -393,7 +393,7 @@ class TestQuantFlow(TestCase):
             device,
         ).run_eval(
             ["wikitext"],
-            1,
+            None,
         )
         assert result['results']['wikitext']['word_perplexity,none'] < 7.77, (
             f"accuracy regressed from 7.76 to {result['results']['wikitext']['word_perplexity,none']}"
