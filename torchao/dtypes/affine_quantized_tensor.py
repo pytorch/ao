@@ -603,7 +603,7 @@ class PlainAQTLayout(AQTLayout):
         elif func is aten.t.default:
             tensor = args[0]
             new = tensor.__class__(
-                tensor.int_data.view(tensor.shape[::-1]), tensor.scale, tensor.zero_point, tensor.layout_type
+                tensor.int_data.t(), tensor.scale, tensor.zero_point, tensor.layout_type
             )
             return return_and_correct_aliasing(func, args, kwargs, new)
 
