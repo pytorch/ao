@@ -36,6 +36,7 @@ def hp_tensor_to_float8_dynamic(
     linear_mm_config: LinearMMConfig,
     reduce_amax: bool = False,
     gemm_input_role: GemmInputRole = GemmInputRole.INPUT,
+    device_mesh = None,
 ) -> Float8Tensor:
     """
     Given a high precision tensor `hp_tensor`,
@@ -52,7 +53,7 @@ def hp_tensor_to_float8_dynamic(
     """
     if tensor_already_casted_to_fp8(hp_tensor):
         return hp_tensor
-    scale = tensor_to_scale(hp_tensor, float8_dtype, reduce_amax)
+    scale = tensor_to_scale(hp_tensor, float8_dtype, reduce_amax, device_mesh)
     return hp_tensor_and_scale_to_float8(
         hp_tensor,
         scale,
