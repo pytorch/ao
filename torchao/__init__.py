@@ -33,11 +33,13 @@ from torchao.quantization import (
     quantize_,
 )
 from . import dtypes
+from . import testing
 
 __all__ = [
     "dtypes",
     "autoquant",
     "quantize_",
+    "testing",
 ]
 
 # test-pytorchbot

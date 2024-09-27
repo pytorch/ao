@@ -135,5 +135,6 @@ class TestAffineQuantized(TestCase):
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantized)
 
+
 if __name__ == "__main__":
     run_tests()

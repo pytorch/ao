@@ -5,7 +5,8 @@ from typing import Sequence
 from torch.distributed import DeviceMesh
 from torch.distributed.tensor import DTensor, Replicate, Shard, Placement
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from my_dtype_tensor_subclass import MyDTypeTensor, fill_defaults
+from my_dtype_tensor_subclass import MyDTypeTensor
+from torchao.utils import fill_defaults
 
 # a tensor subclass that supports tensor parallelism with DTensor
 class MyDTypeTensorTP(MyDTypeTensor):
