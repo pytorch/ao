@@ -9,7 +9,7 @@ on:
     types: [opened, synchronize, reopened, labeled]
 
 concurrency:
-  group: float8_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
+  group: float8_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }} 
   cancel-in-progress: true
 
 env:
