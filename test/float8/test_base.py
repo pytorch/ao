@@ -56,10 +56,7 @@ from torchao.float8.float8_utils import (
     FP8_TYPES,
     tensor_to_scale,
 )
-from torchao.testing.float8.test_utils import (
-    scaling_granularities_by_gemm, 
-    get_test_float8_linear_config,
-)
+from torchao.testing.float8.test_utils import get_test_float8_linear_config
 
 random.seed(0)
 torch.manual_seed(0)
