@@ -1,5 +1,4 @@
 name: Run Float8 Tests
-
 on:
   push:
     branches:
@@ -7,6 +6,7 @@ on:
   pull_request:
     branches:
       - main
+    types: [opened, synchronize, reopened, labeled]
 
 concurrency:
   group: float8_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
@@ -17,6 +17,7 @@ env:
 
 jobs:
   test:
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && (contains(github.event.pull_request.labels.*.name, 'run-ci') || contains(github.event.pull_request.labels.*.name, 'run-float8-tests')))
     strategy:
       fail-fast: false
       matrix:
@@ -26,7 +27,6 @@ jobs:
             torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu121'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.1"
-
     uses: pytorch/test-infra/.github/workflows/linux_job.yml@main
     with:
       timeout: 60
