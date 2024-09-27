@@ -24,6 +24,7 @@ from torchao.float8.config import (
     Float8LinearConfig, 
     ScalingType, 
     ScalingGranularity,
+    _get_recipe,
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_linear_utils import (
@@ -119,28 +120,16 @@ def is_supported(
 
 @pytest.mark.parametrize("fullgraph", [True])
 @pytest.mark.parametrize(
-    # "scaling_type_input", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
-    "scaling_type_input", [ScalingType.DYNAMIC,]
+    "scaling_type_input", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
 @pytest.mark.parametrize(
-    # "scaling_type_weight", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
-    "scaling_type_weight", [ScalingType.DYNAMIC,]
+    "scaling_type_weight", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
 @pytest.mark.parametrize(
-    # "scaling_type_grad_output", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
-    "scaling_type_grad_output", [ScalingType.DYNAMIC,]
+    "scaling_type_grad_output", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
-# @pytest.mark.parametrize(
-#     "scaling_granularity", [ScalingGranularity.TENSORWISE, ScalingGranularity.AXISWISE]
-# )
-@pytest.mark.parametrize(
-    "scaling_granularities_by_gemm",
-    scaling_granularities_by_gemm
-)
-# @pytest.mark.parametrize("emulate", [False, True] if is_cuda_8_9 else [True])
-@pytest.mark.parametrize("emulate", [False, ])
-# @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
-@pytest.mark.parametrize("dtype", [torch.bfloat16, ])
+@pytest.mark.parametrize("emulate", [False, True] if is_cuda_8_9 else [True])
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
 def test_eager_only(
     fullgraph,
@@ -148,24 +137,13 @@ def test_eager_only(
     scaling_type_input: ScalingType,
     scaling_type_weight: ScalingType,
     scaling_type_grad_output: ScalingType,
-    scaling_granularities_by_gemm: List[List[Tuple[ScalingGranularity, ScalingGranularity]]],
     dtype: torch.dtype,
 ):
-    if not is_supported(
-        scaling_granularities_by_gemm, 
-        scaling_type_input, 
-        scaling_type_weight, 
-        scaling_type_grad_output, 
-        dtype,
-    ):
-        pytest.skip()
-
     torch._dynamo.reset()
     config = get_test_float8_linear_config(
         scaling_type_input,
         scaling_type_weight,
         scaling_type_grad_output,
-        scaling_granularities_by_gemm,
         emulate,
     )
     _test_compile_base(
@@ -177,26 +155,17 @@ def test_eager_only(
 
 
 @pytest.mark.parametrize("fullgraph", [True])
-# @pytest.mark.parametrize("emulate", [False, True] if is_cuda_8_9 else [True])
-@pytest.mark.parametrize("emulate", [False,])
+@pytest.mark.parametrize("emulate", [False, True] if is_cuda_8_9 else [True])
 @pytest.mark.parametrize(
-    # "scaling_type_input", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
-    "scaling_type_input", [ScalingType.DYNAMIC,]
+    "scaling_type_input", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
 @pytest.mark.parametrize(
-    # "scaling_type_weight", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
-    "scaling_type_weight", [ScalingType.DYNAMIC,]
+    "scaling_type_weight", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
 @pytest.mark.parametrize(
-    # "scaling_type_grad_output", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
-    "scaling_type_grad_output", [ScalingType.DYNAMIC,]
+    "scaling_type_grad_output", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
-@pytest.mark.parametrize(
-    "scaling_granularities_by_gemm",
-    scaling_granularities_by_gemm
-)
-# @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
-@pytest.mark.parametrize("dtype", [torch.bfloat16,])
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
 def test_aot_eager(
     fullgraph,
@@ -204,24 +173,13 @@ def test_aot_eager(
     scaling_type_input: ScalingType,
     scaling_type_weight: ScalingType,
     scaling_type_grad_output: ScalingType,
-    scaling_granularities_by_gemm: List[List[Tuple[ScalingGranularity, ScalingGranularity]]],
     dtype: torch.dtype,
 ):
-    if not is_supported(
-        scaling_granularities_by_gemm, 
-        scaling_type_input, 
-        scaling_type_weight, 
-        scaling_type_grad_output, 
-        dtype,
-    ):
-        pytest.skip()
-
     torch._dynamo.reset()
     config = get_test_float8_linear_config(
         scaling_type_input,
         scaling_type_weight,
         scaling_type_grad_output,
-        scaling_granularities_by_gemm,
         emulate,
     )
     _test_compile_base(
@@ -235,50 +193,52 @@ def test_aot_eager(
 @pytest.mark.parametrize("fullgraph", [True])
 @pytest.mark.parametrize("emulate", [False])
 @pytest.mark.parametrize(
-    # "scaling_type_input", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
-    "scaling_type_input", [ScalingType.DYNAMIC, ]
+    "scaling_type_input", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
 @pytest.mark.parametrize(
-    # "scaling_type_weight", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
-    "scaling_type_weight", [ScalingType.DYNAMIC, ]
+    "scaling_type_weight", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
 @pytest.mark.parametrize(
-    # "scaling_type_grad_output", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
-    "scaling_type_grad_output", [ScalingType.DYNAMIC, ]
-)
-@pytest.mark.parametrize(
-    "scaling_granularities_by_gemm",
-    scaling_granularities_by_gemm
+    "scaling_type_grad_output", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
 @unittest.skipIf(not torch.cuda.is_available() or not is_cuda_8_9, "CUDA with float8 support not available")
-# @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
-@pytest.mark.parametrize("dtype", [torch.bfloat16,])
-def test_inductor(
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+def test_inductor_from_config_params(
     fullgraph,
     emulate: bool,
     scaling_type_input: ScalingType,
     scaling_type_weight: ScalingType,
     scaling_type_grad_output: ScalingType,
-    scaling_granularities_by_gemm: List[List[Tuple[ScalingGranularity, ScalingGranularity]]],
     dtype: torch.dtype,
 ):
-    if not is_supported(
-        scaling_granularities_by_gemm, 
-        scaling_type_input, 
-        scaling_type_weight, 
-        scaling_type_grad_output, 
-        dtype,
-    ):
-        pytest.skip()
-
     torch._dynamo.reset()
     config = get_test_float8_linear_config(
         scaling_type_input,
         scaling_type_weight,
         scaling_type_grad_output,
-        scaling_granularities_by_gemm,
         emulate,
     )
+    _test_compile_base(
+        "inductor",
+        fullgraph,
+        config,
+        dtype,
+    )
+
+# Note: there are now too many config combinations to test all of
+# them, so this function factors out some of the recipes which are annoying
+# to combine with the main testing function.
+# TODO(future PR): make this cleaner.
+@pytest.mark.parametrize(
+    "recipe_name", 
+    ["all_axiswise", "lw_axiswise_with_gw_hp"],
+)
+@unittest.skipIf(not is_H100, "CUDA with capability 9.0 or greater not available")
+def test_inductor_from_recipe(recipe_name):
+    torch._dynamo.reset()
+    config = _get_recipe(recipe_name)
+    fullgraph = True
+    dtype = torch.bfloat16
     _test_compile_base(
         "inductor",
         fullgraph,
