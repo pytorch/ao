@@ -23,7 +23,6 @@ from torchao.float8.config import (
     CastConfig, 
     Float8LinearConfig, 
     ScalingType, 
-    ScalingGranularity,
     _get_recipe,
 )
 from torchao.float8.float8_linear import Float8Linear
@@ -81,41 +80,6 @@ def _test_compile_base(
     )
     torch.testing.assert_close(m_fp8.bias.grad, m_ref.bias.grad, atol=8e-2, rtol=8e-2)
     torch.testing.assert_close(x.grad, x_ref.grad, atol=8e-2, rtol=8e-2)
-
-
-def is_supported(
-    scaling_granularities_by_gemm, 
-    scaling_type_input, 
-    scaling_type_weight, 
-    scaling_type_grad_output, 
-    dtype,
-) -> bool:
-
-    (
-        (scaling_granularity_input, scaling_granularity_weight, original_prec_input, original_prec_weight),
-        (scaling_granularity_grad_output, scaling_granularity_weight_for_grad_input, original_prec_grad_output, original_prec_weight_for_grad_input),
-        (scaling_granularity_input_for_grad_weight, scaling_granularity_grad_output_for_grad_weight, original_prec_input_for_grad_weight, original_prec_grad_output_for_grad_weight),
-    ) = scaling_granularities_by_gemm
-
-    has_any_axiswise_scaling = (
-        scaling_granularity_input is ScalingGranularity.AXISWISE or
-        scaling_granularity_weight is ScalingGranularity.AXISWISE or
-        scaling_granularity_grad_output is ScalingGranularity.AXISWISE or
-        scaling_granularity_input_for_grad_weight is ScalingGranularity.AXISWISE or
-        scaling_granularity_weight_for_grad_input is ScalingGranularity.AXISWISE or
-        scaling_granularity_grad_output_for_grad_weight is ScalingGranularity.AXISWISE
-    )
-
-    if has_any_axiswise_scaling:
-        if (
-            scaling_type_input != ScalingType.DYNAMIC or
-            scaling_type_weight != ScalingType.DYNAMIC or
-            scaling_type_grad_output != ScalingType.DYNAMIC or
-            dtype != torch.bfloat16 or
-            (not is_H100)
-        ):
-            return False
-    return True
 
 
 @pytest.mark.parametrize("fullgraph", [True])
