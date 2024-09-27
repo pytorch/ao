@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Iterable, Literal, Optional, Tuple, Union
+from typing import Iterable, Literal, NamedTuple, Optional, Tuple, Union
 
 import torchao.float8.config as config
 
@@ -258,3 +258,58 @@ def pad_tensor_for_matmul(
     pad_dim2 = dim2_aligned - dim2
 
     return torch.nn.functional.pad(tensor, (0, pad_dim2, 0, pad_dim1))
+
+
+# The code below introduces a bit of duplication with Float8LinearConfig in 
+# order to improve readability of the implementation of how Float8Linear 
+# uses the config. Specifically, we do two things:
+# 1. wrap the relevant parts of configs in namedtuple, so we can pass
+#    them around in compile-friendly code.
+# 2. make the tuple key names more brief, to make the implementation
+#    code less verbose (the code was so verbose that I felt the need
+#    to add this workaround). 
+# As I was writing this, it became less and less clear on why not just have
+# a namedtuple as a top level config. Punting that to a future PR as 
+# that might be BC-breaking, but probably worth exploring.
+# Note: I also think below is pretty hacky, it's good enough to unblock
+# further prototyping, but IMO pretty important to clean up sooner rather
+# than later.
+
+class ConciseCastConfig(NamedTuple):
+    sc_tp: config.ScalingType
+    sc_gr: config.ScalingGranularity
+    st_sc: Optional[torch.Tensor]
+    orig_prec: bool
+
+    @classmethod
+    def from_cast_config(cls, c: config.CastConfig):
+        return cls(
+            sc_tp=c.scaling_type,
+            sc_gr=c.scaling_granularity,
+            st_sc=c.static_scale,
+            orig_prec=c.keep_in_original_precision,
+        )
+
+class Float8LinearConciseCastsConfig(NamedTuple):
+    cc_i: ConciseCastConfig
+    cc_w: ConciseCastConfig
+    cc_go: ConciseCastConfig
+    cc_i_gw: ConciseCastConfig
+    cc_w_gi: ConciseCastConfig
+    cc_go_gw: ConciseCastConfig
+
+
+def float8_linear_config_to_concise_casts_config(
+    c: config.Float8LinearConfig,
+) -> Float8LinearConciseCastsConfig:
+
+    concise_config = Float8LinearConciseCastsConfig(
+        cc_i = ConciseCastConfig.from_cast_config(c.cast_config_input),
+        cc_w = ConciseCastConfig.from_cast_config(c.cast_config_weight),
+        cc_go = ConciseCastConfig.from_cast_config(c.cast_config_grad_output),
+        cc_i_gw = ConciseCastConfig.from_cast_config(c.cast_config_input_for_grad_weight),
+        cc_w_gi = ConciseCastConfig.from_cast_config(c.cast_config_weight_for_grad_input),
+        cc_go_gw = ConciseCastConfig.from_cast_config(c.cast_config_grad_output_for_grad_weight),
+    )
+
+    return concise_config

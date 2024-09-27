@@ -190,17 +190,17 @@ class Float8LinearConfig:
         cc_i = self.cast_config_input
         cc_w = self.cast_config_weight
         cc_go = self.cast_config_grad_output
-        cc_i2 = self.cast_config_input_for_grad_weight
-        cc_w2 = self.cast_config_weight_for_grad_input
-        cc_go2 = self.cast_config_grad_output_for_grad_weight
+        cc_i_gw = self.cast_config_input_for_grad_weight
+        cc_w_gi = self.cast_config_weight_for_grad_input
+        cc_go_gw = self.cast_config_grad_output_for_grad_weight
 
         # for now, we only have gemm kernels where both operands are scaled with the same
         # granularity. In the future this may be relaxed.
         assert cc_i.scaling_granularity == cc_w.scaling_granularity, \
             "incompatible scaling granularity for output"
-        # assert cc_go.scaling_granularity == cc_w2.scaling_granularity, \
+        # assert cc_go.scaling_granularity == cc_w_gi.scaling_granularity, \
         #     "incompatible scaling granularity for grad_input"
-        assert cc_i2.scaling_granularity == cc_go2.scaling_granularity, \
+        assert cc_i_gw.scaling_granularity == cc_go_gw.scaling_granularity, \
             "incompatible scaling granularity for grad_weight"
 
         # for now, we only have gemm kernels where both operands are either both
@@ -208,9 +208,9 @@ class Float8LinearConfig:
         # TODO(future): make the float8 check more precise with the specific dtypes.
         assert cc_i.keep_in_original_precision == cc_w.keep_in_original_precision, \
             "incompatible operand precision for output"
-        assert cc_go.keep_in_original_precision == cc_w2.keep_in_original_precision, \
+        assert cc_go.keep_in_original_precision == cc_w_gi.keep_in_original_precision, \
             "incompatible operand precision for grad_input"
-        assert cc_i2.keep_in_original_precision == cc_go2.keep_in_original_precision, \
+        assert cc_i_gw.keep_in_original_precision == cc_go_gw.keep_in_original_precision, \
             "incompatible operand precision for grad_weight"
 
 
