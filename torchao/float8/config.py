@@ -119,7 +119,8 @@ class Float8LinearConfig:
     #
     # Optional per-tensor configuration for `input`, `weight`, `grad_output` to
     # calculate `grad_weight`, `grad_input`, and `grad_weight` respectively.
-    # If not specified, then the configuration from the  is reused.
+    # If not specified, then the configuration from `cast_config_input`,
+    # `cast_config_weight` and `cast_config_grad_output`, respectively, is reused.
     # TODO(future PR): maybe rename `cast_config_input` to 
     # `cast_config_input_for_output`, etc, to make the names consistent, 
     # will be BC-breaking.

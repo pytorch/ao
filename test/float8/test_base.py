@@ -36,7 +36,10 @@ from torchao.float8.float8_linear_utils import (
     sync_float8_amax_and_scale_history,
 )
 from torchao.float8.float8_python_api import addmm_float8_unwrapped
-from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_dynamic
+from torchao.float8.float8_scaling_utils import (
+    hp_tensor_to_float8_dynamic,
+    get_maybe_axiswise_dim,
+)
 from torchao.float8.float8_tensor import (
     Float8Tensor,
     GemmInputRole,
@@ -234,34 +237,23 @@ class TestFloat8Tensor:
 
         linear_mm_config = LinearMMConfig()
 
-        if a_granularity is ScalingGranularity.AXISWISE:
-            a_axiswise_dim = -1
-        else:
-            assert a_granularity is ScalingGranularity.TENSORWISE
-            a_axiswise_dim = None
         a_fp8 = hp_tensor_to_float8_dynamic(
             a,
             e4m3_dtype,
             linear_mm_config,
             gemm_input_role=GemmInputRole.INPUT,
             scaling_granularity=a_granularity,
-            axiswise_dim=a_axiswise_dim,
+            axiswise_dim=get_maybe_axiswise_dim(-1, a_granularity),
         )
         a_fp8 = a_fp8.reshape(-1, a_shape[-1])
 
-        b_axiswise_dim = 1 if b_granularity is ScalingGranularity.AXISWISE else None
-        if b_granularity is ScalingGranularity.AXISWISE:
-            b_axiswise_dim = 1  # will be transposed
-        else:
-            assert b_granularity is ScalingGranularity.TENSORWISE
-            b_axiswise_dim = None
         b_fp8 = hp_tensor_to_float8_dynamic(
             b,
             e4m3_dtype,
             linear_mm_config,
             gemm_input_role=GemmInputRole.WEIGHT,
             scaling_granularity=b_granularity,
-            axiswise_dim=b_axiswise_dim,
+            axiswise_dim=get_maybe_axiswise_dim(1, b_granularity),
         )
 
         c_fp8_compute = torch.mm(a_fp8, b_fp8.t())
