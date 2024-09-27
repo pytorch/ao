@@ -38,7 +38,8 @@ from torchao.utils import (
     find_multiple,
     TorchAOBaseTensor,
     TORCH_VERSION_AT_LEAST_2_5,
-    _is_float8_type
+    _is_float8_type,
+    fill_defaults,
 )
 import logging
 
@@ -46,7 +47,6 @@ logger = logging.getLogger(__name__)
 
 from torchao.float8.inference import Float8MMConfig
 aten = torch.ops.aten
-
 
 ###############################
 # Base Layout Tensor Subclass #
@@ -335,8 +335,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         input_float: torch.Tensor,
         block_size: Tuple[int, ...],
         target_dtype: torch.dtype,
-        scale_dtype: Optional[torch.dtype],
         layout_type: LayoutType,
+        scale_dtype: Optional[torch.dtype] = None,
     ):
 
         if target_dtype in FP8_TYPES:
@@ -474,6 +474,11 @@ class SemiSparseLayoutType(LayoutType):
 
 
 @dataclass(frozen=True)
+class BlockSparseLayoutType(LayoutType):
+    blocksize: int = 64
+
+
+@dataclass(frozen=True)
 class TensorCoreTiledLayoutType(LayoutType):
     inner_k_tiles: int = 8
 
@@ -599,12 +604,24 @@ class PlainAQTLayout(AQTLayout):
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
             )
 
-        if func is aten.t.default:
+        elif func is aten.t.default:
             tensor = args[0]
             new = tensor.__class__(
-                tensor.int_data.view(tensor.shape[::-1]), tensor.scale, tensor.zero_point, tensor.layout_type
+                tensor.int_data.t(), tensor.scale, tensor.zero_point, tensor.layout_type
             )
             return return_and_correct_aliasing(func, args, kwargs, new)
+
+        elif func is aten.slice.Tensor:
+            self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
+            if dim == 0:
+                return return_and_correct_aliasing(
+                    func, args, kwargs, args[0]._apply_fn_to_data(lambda x: aten.slice.Tensor(x, dim, start, end, step))
+                )
+            elif dim == 1:
+                assert len(self.scale.shape) == 1, f"slice dim==1 only works when len(scale.shape) == 1 currently, got: {self.scale.shape}"
+                return PlainAQTLayout(aten.slice.Tensor(self.int_data, dim, start, end, step), self.scale.view(-1), self.zero_point.view(-1), self.layout_type)
+            else:
+                raise NotImplementedError(f"PlainAQTLayout dispatch: attempting to run {func}, with dim={dim}, that is not supported")
 
         raise NotImplementedError(
             f"PlainAQTLayout dispatch: attempting to run {func}, this is not supported"
@@ -669,6 +686,145 @@ class SemiSparseAQTLayout(PlainAQTLayout):
         int_data_compressed = torch._cslt_compress(int_data)
         return cls(int_data_compressed, scale, zero_point, layout_type)
 
+@register_layout_cls(BlockSparseLayoutType)
+class BlockSparseAQTLayout(PlainAQTLayout):
+    bsr_crow_indices: Optional[torch.Tensor]
+    bsr_col_indices: Optional[torch.Tensor]
+    bsr_values: Optional[torch.Tensor]
+    scale: Optional[torch.Tensor]
+    zero_point: Optional[torch.Tensor]
+
+    __slots__ = ["bsr_crow_indices", "bsr_col_indices", "bsr_values", "scale", "zero_point"] 
+
+    @staticmethod
+    def __new__(  # noqa: PYI034
+        cls,
+        shape: torch.Size,
+        bsr_crow_indices: Optional[torch.Tensor],
+        bsr_col_indices: Optional[torch.Tensor],
+        bsr_values: Optional[torch.Tensor],
+        scale: Optional[torch.Tensor], 
+        zero_point: Optional[torch.Tensor],
+        layout_type: LayoutType,
+        requires_grad: bool = False,
+    ):
+        if bsr_values is None:
+            raise ValueError("bsr values must be provided!")
+        else:
+            previous_tensor = bsr_values
+
+        kwargs = {
+            "device": previous_tensor.device,
+            "dtype": previous_tensor.dtype,
+            "layout": previous_tensor.layout,
+            "requires_grad": requires_grad,
+        }
+        return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
+
+    def __init__(  # noqa: PYI034
+        self,
+        shape: torch.Size,
+        bsr_crow_indices: Optional[torch.Tensor],
+        bsr_col_indices: Optional[torch.Tensor],
+        bsr_values: Optional[torch.Tensor],
+        scale: Optional[torch.Tensor], 
+        zero_point: Optional[torch.Tensor],
+        layout_type: LayoutType,
+        requires_grad: bool = False,
+    ):
+        self.bsr_crow_indices = bsr_crow_indices
+        self.bsr_col_indices = bsr_col_indices
+        self.bsr_values = bsr_values
+        self.scale = scale
+        self.zero_point = zero_point
+        self.layout_type = layout_type
+
+    def __tensor_flatten__(self): 
+        inner_tensors = list(
+            filter(lambda x: getattr(self, x) is not None, self.__slots__)
+        )
+        tensor_meta = (self.shape, self.layout_type, self.requires_grad)
+        return inner_tensors, tensor_meta
+
+    @classmethod
+    def __tensor_unflatten__(
+        cls,
+        inner_tensors,
+        tensor_meta: Tuple[torch.Size, bool],
+        outer_size,
+        outer_stride,
+    ) -> torch.Tensor:
+        shape, layout_type, requires_grad = tensor_meta
+        return cls(
+            shape=shape,
+            bsr_crow_indices=inner_tensors.get("bsr_crow_indices", None),
+            bsr_col_indices=inner_tensors.get("bsr_col_indices", None),
+            bsr_values=inner_tensors.get("bsr_values", None),
+            scale=inner_tensors.get("scale", None),
+            zero_point=inner_tensors.get("zero_point", None),
+            layout_type=layout_type,
+            requires_grad=requires_grad,
+        )
+
+    @classmethod
+    def from_plain(cls, int_data, scale, zero_point, layout_type):
+        bsr_tensor = int_data.to_sparse_bsr(layout_type.blocksize)
+        return cls(
+            shape=int_data.shape,
+            bsr_crow_indices=bsr_tensor.crow_indices(),
+            bsr_col_indices=bsr_tensor.col_indices(),
+            bsr_values=bsr_tensor.values(),
+            scale=scale, 
+            zero_point=zero_point,
+            layout_type = layout_type,
+            requires_grad=False,
+        )
+
+    def get_plain(self):
+        int_data_expanded = torch.ops.blocksparse.bsr_to_dense(self.crow_indices(), self.col_indices(), self.values(), self.shape[0], self.shape[1])
+        return int_data_expanded, self.scale, self.zero_point
+
+    def _apply_fn_to_data(self, func):
+        return self.__class__(
+            shape = self.shape,
+            bsr_crow_indices=func(self.bsr_crow_indices),
+            bsr_col_indices=func(self.bsr_col_indices),
+            bsr_values=func(self.bsr_values),
+            scale=self.scale,
+            zero_point=self.zero_point,
+            layout_type=self.layout_type,
+            requires_grad=self.requires_grad,
+        )
+
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs):
+        kwargs = {} if kwargs is None else kwargs
+
+        if func is aten.detach.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+            )
+        if func is aten.clone.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+            )
+
+        # Need the following for bsr specific functions
+        if func is aten.crow_indices.default:
+            return args[0].bsr_crow_indices.detach()
+
+        if func is aten.col_indices.default:
+            return args[0].bsr_col_indices.detach()
+
+        if func is aten.values.default:
+            return args[0].bsr_values.detach()
+
+        if func is aten._nnz.default:
+            return args[0].bsr_values.shape[0]  
+
+        raise NotImplementedError(
+            f"BlockSparseAQTLayout dispatch: attempting to run {func}, this is not supported"
+        )
 
 @register_layout_cls(MarlinSparseLayoutType)
 class MarlinSparseAQTLayout(AQTLayout):
@@ -1221,6 +1377,43 @@ def _linear_int8_act_int8_weight_semi_structured_sparse_impl(input_tensor, weigh
         y += bias
     return y
 
+def _linear_int8_act_int8_weight_block_sparse_check(input_tensor, weight_tensor, bias):
+    return (
+        isinstance(input_tensor, AffineQuantizedTensor) and
+        _aqt_is_int8_reduced_range(input_tensor) and
+        isinstance(weight_tensor, AffineQuantizedTensor) and
+        weight_tensor.is_cuda and
+        input_tensor.dtype == weight_tensor.dtype and
+        isinstance(input_tensor.layout_type, PlainLayoutType) and
+        isinstance(weight_tensor.layout_type, BlockSparseLayoutType)
+    )
+
+
+def _linear_int8_act_int8_weight_block_sparse_impl(input_tensor, weight_tensor, bias):
+    x_vals_int8 = input_tensor.layout_tensor.int_data
+    x_scales = input_tensor.layout_tensor.scale
+    w_vals = weight_tensor.layout_tensor
+    w_scales = weight_tensor.layout_tensor.scale
+    tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
+    tmp_t = tmp.t()
+
+    y = torch.ops.blocksparse.int_addmm(w_vals.crow_indices(),
+                                        w_vals.col_indices(),
+                                        w_vals.values(),
+                                        tmp_t,
+                                        w_scales,
+                                        x_scales.reshape(-1))
+    y_shape = (*x_vals_int8.shape[:-1], w_scales.shape[-1])
+    y = y.reshape(*y_shape)
+
+    # can downcast only at the very end
+    output_dtype = input_tensor.dtype
+    y = y.to(output_dtype)
+    if bias is not None:
+        y += bias
+    return y
+
+
 def _linear_bf16_act_uint4_weight_check(input_tensor, weight_tensor, bias):
     return (
         # input is native bfloat16 tensor
@@ -1360,7 +1553,7 @@ def _linear_f16_act_floatx_weight_impl(input_tensor, weight_tensor, bias):
 
     return out.view(*act.shape[:-1], out_dim).to(act.dtype)
 
-def _linear_fp_act_fp8_weight_check(
+def _linear_fp8_act_fp8_weight_check(
     input_tensor: Union[torch.Tensor, AffineQuantizedTensor],
     weight_tensor: Union[torch.Tensor, AffineQuantizedTensor],
     bias: Optional[torch.Tensor],
@@ -1384,7 +1577,7 @@ def preprocess_scale(input_scale: torch.Tensor, input_shape: Tuple[int]):
 
     return input_scale
 
-def _linear_fp_act_fp8_weight_impl(
+def _linear_fp8_act_fp8_weight_impl(
     input_tensor: AffineQuantizedTensor,
     weight_tensor: AffineQuantizedTensor,
     bias: Optional[torch.Tensor],
@@ -1473,7 +1666,8 @@ def _register_aqt_quantized_linear_dispatches():
     for dispatch_condition, impl in [
         (_linear_int8_act_int8_weight_check, _linear_int8_act_int8_weight_impl),
         (_linear_int8_act_int8_weight_semi_structured_sparse_check, _linear_int8_act_int8_weight_semi_structured_sparse_impl),
-        (_linear_fp_act_fp8_weight_check, _linear_fp_act_fp8_weight_impl),
+        (_linear_int8_act_int8_weight_block_sparse_check, _linear_int8_act_int8_weight_block_sparse_impl),
+        (_linear_fp8_act_fp8_weight_check, _linear_fp8_act_fp8_weight_impl),
         (_linear_bf16_act_uint4_weight_check, _linear_bf16_act_uint4_weight_impl),
         (_linear_fp_act_int8_weight_check, _linear_fp_act_int8_weight_impl),
         (_linear_f16_act_floatx_weight_check, _linear_f16_act_floatx_weight_impl),
@@ -1594,6 +1788,39 @@ def _(func, types, args, kwargs):
         tensor.layout_tensor.t(), transposed_block_size, shape, tensor.quant_min, tensor.quant_max, tensor.zero_point_domain, dtype=tensor.dtype, strides=tensor.stride()
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
+
+@implements(aten.slice.Tensor)
+def _(func, types, args, kwargs):
+    self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
+    assert step == 1
+    assert dim == 0 or dim == 1, f"Only dim==0 or 1 are supported, got: {dim}"
+    if end >= self.shape[dim]:
+        end = self.shape[dim]
+    shape = list(self.shape)
+    shape[dim] = end - start
+    block_size = self.block_size
+    assert len(block_size) == 2, f"Slice only works for 2d block_size right now, got: {block_size}"
+    # with slice, some shape dimension might be smaller than block_size dimension, so
+    # we need to make sure there is no overflow
+    block_size = (min(shape[0], block_size[0]), min(shape[1], block_size[1]))
+    new = self.__class__(aten.slice.Tensor(self.layout_tensor, dim, start, end, step), block_size, shape, self.quant_min, self.quant_max, self.zero_point_domain, dtype=self.dtype, strides=self.stride())
+    return return_and_correct_aliasing(func, args, kwargs, new)
+
+# this is needed for DTensor.from_local() and for flattening tensor
+@implements(aten.view.default)
+def _(func, types, args, kwargs):
+    self, shape = args
+
+    if tuple(self.shape) == tuple(shape):
+        return self.__class__(self.layout_tensor, self.block_size, self.shape, self.quant_min, self.quant_max, self.zero_point_domain, dtype=self.dtype, strides=self.stride())
+
+    if len(shape) == 1 and shape[0] == -1:
+        assert len(self.block_size) == 2 and self.block_size[0] == 1
+        block_size = (self.block_size[1],)
+        return self.__class__(self.layout_tensor, block_size, (self.numel(),), self.quant_min, self.quant_max, self.zero_point_domain, dtype=self.dtype, strides=self.stride())
+
+    raise ValueError(f"{self.__class__.__name__} only supports .view() with same shape or shape=[-1]")
+
 
 to_affine_quantized_intx = AffineQuantizedTensor.from_hp_to_intx
 to_affine_quantized_intx_static = AffineQuantizedTensor.from_hp_to_intx_static
