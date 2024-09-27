@@ -3,7 +3,6 @@ from torch import Tensor
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
 
-
 lib = torch.library.Library("torchao", "FRAGMENT")
 lib.define("quant_llm_linear(int EXPONENT, int MANTISSA, Tensor _in_feats, Tensor _weights, Tensor _scales, int splitK) -> Tensor")
 lib.define("unpack_tensor_core_tiled_layout(Tensor packed_w, int inner_k_tiles) -> Tensor")
