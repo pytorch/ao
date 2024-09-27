@@ -3,6 +3,7 @@ import tempfile
 
 import pytest
 import torch
+from packaging.version import Version
 from torch import nn
 from torch.testing._internal.common_utils import (
     TestCase,
@@ -105,8 +106,11 @@ class TestOptim(TestCase):
         model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
         model2 = copy.deepcopy(model1)
 
+        # https://github.com/bitsandbytes-foundation/bitsandbytes/releases/tag/v0.44.0
+        block_size = 256 if Version(bnb.__version__) >= Version("0.44.0") else 2048
+
         optim1 = getattr(bnb.optim, optim_name)(model1.parameters())
-        optim2 = getattr(low_bit_optim, optim_name)(model2.parameters())
+        optim2 = getattr(low_bit_optim, optim_name)(model2.parameters(), block_size=block_size)
 
         for _ in range(2):
             x = torch.randn(4, 32, device=device)

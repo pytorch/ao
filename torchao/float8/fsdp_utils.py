@@ -216,6 +216,7 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
                 self._linear_mm_config,
                 reduce_amax=True,
                 gemm_input_role=GemmInputRole.WEIGHT,
+                device_mesh=mesh,
             )
         return (float8_tensor._data,), (float8_tensor._scale,)
 

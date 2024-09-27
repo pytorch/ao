@@ -3,11 +3,14 @@ import functools
 import copy
 import torch
 import torchao
+import os
 
 from torch.testing._internal import common_utils
 from torchao.dtypes import AffineQuantizedTensor
 from torchao.dtypes import to_affine_quantized_intx
 from torchao.quantization.quant_primitives import MappingType
+from torchao.quantization import quantize_, int8_weight_only
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 """
 How to use:
@@ -69,8 +72,6 @@ def copy_tests(
 
 
 class TorchAOBasicTestCase(common_utils.TestCase):
-    """Basic test case for tensor subclasses
-    """
     COMMON_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
     COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 
@@ -142,6 +143,66 @@ class TorchAOBasicTestCase(common_utils.TestCase):
         lp_res = torch.nn.functional.linear(hp_act_tensor, lp_tensor)
         self.assertGreater(torchao.quantization.utils.compute_error(hp_res, lp_res), self.LINEAR_MIN_SQNR)
 
+
+class TorchAOCompileTestCase(common_utils.TestCase):
+    COMMON_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+    COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
+
+    TENSOR_SUBCLASS = AffineQuantizedTensor
+    FACTORY_FN = to_affine_quantized_intx
+    kwargs = {
+        "mapping_type": MappingType.ASYMMETRIC,
+        "block_size": (1, 32),
+        "target_dtype": torch.uint8,
+    }
+    # minimum sqnr for linear operation when the weight is quantized to low precision
+    # with the above setting
+    LINEAR_MIN_SQNR = 40
+    COMPILE_MIN_SQNR = 50
+
+    @common_utils.parametrize("device", COMMON_DEVICES)
+    @common_utils.parametrize("dtype", COMMON_DTYPES)
+    def test_input_output_tensor_subclass(self, device, dtype):
+        hp_tensor = torch.randn(4, 128, device=device, dtype=dtype)
+        lp_tensor = self.FACTORY_FN(hp_tensor, **self.kwargs)
+        def f(tensor):
+            return tensor
+
+        ref = f(lp_tensor)
+        f = torch.compile(f)
+        compiled = f(lp_tensor)
+        self.assertTrue(isinstance(f(lp_tensor), self.TENSOR_SUBCLASS))
+        self.assertEqual(ref.dequantize(), compiled.dequantize())
+
+    @common_utils.parametrize("device", COMMON_DEVICES)
+    @common_utils.parametrize("dtype", COMMON_DTYPES)
+    def test_input_tensor_subclass(self, device, dtype):
+        hp_tensor = torch.randn(4, 128, device=device, dtype=dtype)
+        lp_tensor = self.FACTORY_FN(hp_tensor, **self.kwargs)
+        def f(tensor):
+            return tensor.dequantize()
+
+        ref = f(lp_tensor)
+        f = torch.compile(f)
+        compiled = f(lp_tensor)
+        self.assertFalse(isinstance(f(lp_tensor), self.TENSOR_SUBCLASS))
+        self.assertEqual(ref, compiled)
+
+    @common_utils.parametrize("device", COMMON_DEVICES)
+    @common_utils.parametrize("dtype", COMMON_DTYPES)
+    def test_output_tensor_subclass(self, device, dtype):
+        hp_tensor = torch.randn(4, 128, device=device, dtype=dtype)
+        def f(hp_tensor):
+            return self.FACTORY_FN(hp_tensor, **self.kwargs)
+
+        ref = f(hp_tensor)
+        f = torch.compile(f)
+        compiled = f(hp_tensor)
+        self.assertTrue(isinstance(f(hp_tensor), self.TENSOR_SUBCLASS))
+        # bfloat16 seems to result in much larger numerical differences
+        if dtype != torch.bfloat16:
+            self.assertGreater(torchao.quantization.utils.compute_error(ref.dequantize(), compiled.dequantize()), self.COMPILE_MIN_SQNR)
+
     @common_utils.parametrize("device", COMMON_DEVICES)
     @common_utils.parametrize("dtype", COMMON_DTYPES)
     def test_linear_compile(self, device, dtype):
@@ -155,7 +216,122 @@ class TorchAOBasicTestCase(common_utils.TestCase):
         lp_res = torch.compile(l)(hp_act_tensor)
         self.assertGreater(torchao.quantization.utils.compute_error(hp_res, lp_res), self.LINEAR_MIN_SQNR)
 
+import torch.distributed as dist
+from torch.distributed._tensor import DTensor, Replicate, Shard, DeviceMesh
+from torch.testing._internal.distributed._tensor.common_dtensor import (
+    DTensorTestBase,
+    with_comms,
+    NUM_DEVICES,
+)
+
+class TorchAOTensorParallelTestCase(DTensorTestBase):
+    """Basic test case for tensor subclasses
+    """
+    COMMON_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
+
+    TENSOR_SUBCLASS = AffineQuantizedTensor
+    QUANT_METHOD_FN = staticmethod(int8_weight_only)
+    QUANT_METHOD_KWARGS = {}
+
+    @staticmethod
+    def colwise_shard(m: torch.nn.Module, mesh: DeviceMesh) -> torch.nn.Module:
+        """
+        Shard linear layer of the model in column-wise fashion
+        """
+        # Column-wise is wrt to A^T, so for A it is row-wise.
+        # Number of rows per rank
+        orig_weight = m.linear.weight
+        n_local_rows = orig_weight.size(0) // mesh.size()
+        rank = mesh.get_local_rank()
+        local_shard = orig_weight[rank * n_local_rows : (rank + 1) * n_local_rows, :]
+        # Construct DTensor from local shard
+        dtensor = DTensor.from_local(local_shard, mesh, [Shard(0)])
+        # Replace parameter in module
+        m.linear.weight = torch.nn.Parameter(
+            dtensor, requires_grad=False
+        )
+        return m
+
+    @staticmethod
+    def rowwise_shard(m: torch.nn.Module, mesh: DeviceMesh) -> torch.nn.Module:
+        """
+        Shard linear layer of the model in row-wise fashion
+        """
+        # Row-wise is wrt to A^T, so for A it is column-wise.
+        # Number of rows per rank
+        orig_weight = m.linear.weight
+        n_local_cols = orig_weight.size(1) // mesh.size()
+        rank = mesh.get_local_rank()
+        local_shard = orig_weight[:, rank * n_local_cols : (rank + 1) * n_local_cols]
+        # Construct DTensor from local shard
+        dtensor = DTensor.from_local(local_shard, mesh, [Shard(1)])
+        # Replace parameter in module
+        m.linear.weight = torch.nn.Parameter(
+            dtensor, requires_grad=False
+        )
+        return m
+
+    def quantize(self, m: torch.nn.Module) -> torch.nn.Module:
+        """
+        Quantize the model
+        """
+        quantize_(m, self.QUANT_METHOD_FN(**self.QUANT_METHOD_KWARGS))
+        return m
+
+    @common_utils.parametrize("dtype", COMMON_DTYPES)
+    @with_comms
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    def test_tp(self, dtype):
+        device = "cuda"
+        # To make sure different ranks create the same module
+        torch.manual_seed(5)
+
+        class M(torch.nn.Module):
+            def __init__(self, in_features, out_features, **kwargs) -> None:
+                super().__init__(**kwargs)
+                self.linear = torch.nn.Linear(in_features, out_features, bias=False, device="cuda")
+
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return self.linear(x)
+
+        # Get rank and device
+        device = torch.device(f"cuda:{self.rank % torch.cuda.device_count()}")
+
+        # Original model
+        proj_up = M(1024, 2048).to(device).to(dtype)
+        proj_dn = M(2048, 1024).to(device).to(dtype)
+        example_input = 100 * torch.randn(128, 1024, device=device, dtype=dtype)
+        y = proj_dn(proj_up(example_input))
+
+        # Quantize the model
+        up_quant = self.quantize(proj_up)
+        dn_quant = self.quantize(proj_dn)
+        y_q = dn_quant(up_quant(example_input))
+
+        mesh = self.build_device_mesh()
+        # Shard the models
+        up_dist = self.colwise_shard(up_quant, mesh)
+        dn_dist = self.rowwise_shard(dn_quant, mesh)
+
+        # We need to turn inputs into DTensor form as well -- just a format change
+        input_dtensor = DTensor.from_local(
+            example_input, mesh, [Replicate()]
+        )
+
+        y_d = dn_dist(up_dist(input_dtensor))
+
+        if not TORCH_VERSION_AT_LEAST_2_5:
+            # Need torch 2.5 to support compiled tensor parallelism
+            return
+
+        up_compiled = torch.compile(up_dist)
+        y_up = up_compiled(input_dtensor)
+        dn_compiled = torch.compile(dn_dist)
+        y_dn = dn_compiled(y_up)
+
 common_utils.instantiate_parametrized_tests(TorchAOBasicTestCase)
+common_utils.instantiate_parametrized_tests(TorchAOCompileTestCase)
+common_utils.instantiate_parametrized_tests(TorchAOTensorParallelTestCase)
 
 if __name__ == "__main__":
     unittest.main()

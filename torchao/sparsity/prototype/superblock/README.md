@@ -36,75 +36,32 @@ At least one GPU:
   conda create -n superblock
   conda activate superblock
   ```
-* Install PyTorch. For best performance, we recommend `2.3.0.dev20240305+cu121` nightly
+* Install PyTorch. For best performance, we recommend the pytorch nightlies
   ```
-  pip install --pre torch==2.3.0.dev20240305+cu121 --index-url https://download.pytorch.org/whl/nightly/cu121
-  pip install --pre torchvision==0.18.0 --no-deps
+  pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu121
   ```
+  We ran our experiments with torch==2.6.0.dev20240924+cu121
 
 
-## Benchmarking
-Baseline:
-```
-python benchmark.py \
-  --model vit_h_14 \
-  --batch-size 256 \
-```
-Result:
-```
-532.1160546875 ms
-```
+# Results
+
+### Benchmarking
+For all our benchmarking results, you can run `benchmark.sh`.
+These benchmarks were run on a NVIDIA-A100-80GB, with cuSPARSELt v0.5.2.
 
 
-80% sparsity, block size 64 (random weights):
-```
-python benchmark.py \
-  --model vit_h_14 \
-  --batch-size 256 \
-  --sparsity-linear 0.8 \
-  --sp-linear-tile-size 64 \
-  --bsr 64 \
-  --sparsity bsr
-```
-Result:
-```
-393.864453125 ms
-```
+### Evaluation
 
-Semi-structured sparsity
-```
-python benchmark.py \
-  --model vit_h_14 \
-  --batch-size 256 \
-  --sparsity semi_structured
-```
+To reproduce our accuracy results, you can run `evaluate.sh`
+You will need to set the following environment variables first to run the script:
 
+```
+IMAGENET_PATH=<put the path of ImageNet dataset here>
+NGPUS=1 # put number of available GPUS here
+```
 
 ## Training
 Please refer to [TRAINING.md](TRAINING.md) for training from scratch. We use [Torchvision](https://github.com/pytorch/vision/tree/main/references/classification) as our framework for training. Supermask can be applied during training.
-
-To apply supermask, we have the following arguments at our disposal,
-
-* Apply Supermask to linear layers:
-    ```
-    --sparsity-linear
-    --sp-linear-tile-size
-    ```
-* Apply Supermask to conv1x1 layers:
-    ```
-    --sparsity-conv1x1
-    --sp-conv1x1-tile-size
-    ```
-* Apply Supermask to all other convolutional layers:
-    ```
-    --sparsity-conv
-    --sp-conv-tile-size
-    ```
-* Skip the first transformer layer and/or last linear layer (ViT only):
-    ```
-    --skip-last-layer-sparsity
-    --skip-first-transformer-sparsity
-    ```
 
 For example, if you would like to train a `vit_b_16` from scratch using Supermask, you can use the respective torchvision command found in [TRAINING.md](TRAINING.md) and append the supermask arguments:
 ```
@@ -119,59 +76,6 @@ Through this command, we are training a `vit_b_16` with 90% sparsity to linear l
 
 Please run `python train.py --help` for a full list of available arguments.
 
-## Evaluation
-
-To run an evaluation of a Supermask-trained model, you can use [evaluate.py](evaluate.py). Our current version has signficant speedup with float32 only and not float16, hence, to illustrate speedup, we don't pass `--amp` in the example commands below.
-
-```
-MODEL_PATH=<put the path of the trained checkpoint here>
-IMAGENET_PATH=<put the path of ImageNet dataset here>
-NGPUS=1 # put number of available GPUS here
-```
-
-* Offline sparsification with BSR:
-  ```
-  python evaluate.py  --model vit_b_16 --batch-size 256 --sparsity-linear 0.9 --sp-linear-tile-size 32 --weights-path ${MODEL_PATH}  --data-path ${IMAGENET_PATH} --sparsity bsr --bsr 64
-  ```
-  This command applies 90% sparsity to linear layers using 32x32 tiles, loads the model weights from ${MODEL_PATH}, loads the ImageNet validation set located at the specified path, applies offline sparsification to the weights, and converts the sparse weights to BSR format with a block size of 32. It is recommended to set `--bsr`      the same as tile size.
-
-* Online sparsification without BSR:
-  ```
-  torchrun --nproc_per_node=${NGPUS} evaluate.py --model vit_b_16 --batch-size 256 --sparsity-linear 0.9 --sp-linear-tile-size 32 --weights-path ${MODEL_PATH} --data-path ${IMAGENET_PATH}
-  ```
-  This is similar to the previous command, but it does not apply offline sparsification or BSR conversion. Instead, the sparsity is applied on-the-fly during evaluation.
-
-*  Semi-structured sparsity
-  ```
-  python evaluate.py  --model vit_b_16 --batch-size 256 --data-path $IMAGENET_PATH --weights-path checkpoints/2x4_sparse_ft_1_epoch.pth --sparsity semi_structured --skip-last-layer-sparsity
-  ```
-
-Please run `python evaluate.py --help` for a full list of available arguments.
-
-Results (1x A100):
-* Baseline
-  ```
-  Test:  Total time: 0:02:11
-  Test:  Acc@1 78.392 Acc@5 93.592
-  ```
-
-* Sparsity= 0.9, Tile Size = 32, Online Sparsification, BSR = None
-  ```
-  Test:  Total time: 0:01:52
-  Test:  Acc@1 76.092 Acc@5 92.656
-  ```
-
-* Sparsity= 0.9, Tile Size = 32, Offline Sparsification, BSR = None
-  ```
-  Test:  Total time: 0:01:54
-  Test:  Acc@1 76.092 Acc@5 92.656
-  ```
-
-* Sparsity= 0.9, Tile Size = 32, Offline Sparsification, BSR = 32
-  ```
-  Test:  Total time: 0:01:25
-  Test:  Acc@1 76.092 Acc@5 92.656
-  ```
 
 ## Pretrained Weights
 
@@ -189,43 +93,5 @@ wget https://huggingface.co/facebook/superblock-vit-b-16/resolve/main/checkpoint
 # For sparsified checkpoints,
 wget https://huggingface.co/facebook/superblock-vit-b-16/resolve/main/checkpoints/sp${SPARSITY}-ts${BLOCK_SIZE}.pth -P checkpoints/
 ```
-
-### Benchmark:
-```
-python benchmark.py --model vit_b_16 \
-  --batch-size 256 \
-  --sparsity-linear ${SPARSITY} \
-  --sp-linear-tile-size ${BLOCK_SIZE} \
-  --sparsity bsr\
-  --bsr ${BLOCK_SIZE} \
-  --weights-path ./checkpoints/sp${SPARSITY}-ts${BLOCK_SIZE}.pth \
-  > /dev/null
-```
-Result:
-```
-530.342578125 ms
-```
-
-### Evaluate:
-8 x A100 GPUs:
-```
-torchrun --nproc_per_node=8 evaluate.py --model vit_b_16 --batch-size 256 --sparsity-linear ${SPARSITY} --sp-linear-tile-size ${BLOCK_SIZE} --bsr ${BLOCK_SIZE} --sparsity bsr --weights-path checkpoints/sp${SPARSITY}-ts${BLOCK_SIZE}.pth --data-path ${IMAGENET_PATH}
-```
-Result:
-```
-Test:  Total time: 0:01:01
-Test:  Acc@1 77.644 Acc@5 93.554
-```
-
-1 x A100 GPUs:
-```
-torchrun --nproc_per_node=1 evaluate.py --model vit_b_16 --batch-size 256 --sparsity-linear ${SPARSITY} --sp-linear-tile-size ${BLOCK_SIZE} --bsr ${BLOCK_SIZE} --sparsity bsr--weights-path checkpoints/sp${SPARSITY}-ts${BLOCK_SIZE}.pth --data-path ${IMAGENET_PATH}
-```
-Result:
-```
-Test:  Total time: 0:01:51
-Test:  Acc@1 77.644 Acc@5 93.554
-```
-
 ## License
 SuperBlock is released under the [MIT license](https://github.com/pytorch-labs/superblock?tab=MIT-1-ov-file#readme).

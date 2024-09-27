@@ -100,8 +100,9 @@ def amax_history_to_scale_stack(
 
 @torch.no_grad()
 def tensor_to_amax(
-    x: torch.Tensor,
-    reduce_amax: bool = False,
+    x: torch.Tensor, 
+    reduce_amax: bool = False, 
+    device_mesh = None,
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE,
     axiswise_dim: Optional[int] = None,
 ) -> torch.Tensor:
@@ -116,7 +117,8 @@ def tensor_to_amax(
     # If the user did not ask for it, assume that it will
     # happen elsewhere.
     if reduce_amax and dist.is_initialized():
-        dist.all_reduce(amax, op=dist.ReduceOp.MAX)
+        pg = device_mesh.get_group() if device_mesh is not None else None
+        dist.all_reduce(amax, op=dist.ReduceOp.MAX, group=pg)
 
     return amax
 
@@ -126,10 +128,17 @@ def tensor_to_scale(
     x: torch.Tensor,
     float8_dtype: torch.dtype,
     reduce_amax: bool = False,
+    device_mesh=None,
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE,
     axiswise_dim: Optional[int] = None,
 ) -> torch.Tensor:
-    amax = tensor_to_amax(x, reduce_amax, scaling_granularity, axiswise_dim)
+    amax = tensor_to_amax(
+        x, 
+        reduce_amax, 
+        device_mesh, 
+        scaling_granularity, 
+        axiswise_dim,
+    )
     return amax_to_scale(amax, float8_dtype, x.dtype)
 
 
@@ -211,9 +220,7 @@ def _get_min_alignment(size: int, alignment_value: int) -> int:
         16
     ```
     """
-    if size % alignment_value == 0:
-        return size
-    return (1 + (size // alignment_value)) * alignment_value
+    return (1 + ((size - 1) // alignment_value)) * alignment_value
 
 
 def pad_tensor_for_matmul(
@@ -248,10 +255,6 @@ def pad_tensor_for_matmul(
     # Calculate aligned dimensions based on the specified dims
     dim1_aligned = _get_min_alignment(dim1, 16) if 0 in dims else dim1
     dim2_aligned = _get_min_alignment(dim2, 16) if 1 in dims else dim2
-
-    # Check if padding is needed for either dimension
-    if dim1 == dim1_aligned and dim2 == dim2_aligned:
-        return tensor
 
     # Calculate padding values for both dimensions
     pad_dim1 = dim1_aligned - dim1

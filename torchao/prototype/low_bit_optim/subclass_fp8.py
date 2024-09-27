@@ -60,7 +60,7 @@ class OptimStateFp8(TorchAOBaseTensor):
         return float_data.view(self.codes.shape).to(dtype)
 
     @classmethod
-    def zeros(cls, shape, block_size: int = 2048, device=None):
+    def zeros(cls, shape, block_size: int = 256, device=None):
         codes = torch.zeros(shape, dtype=DTYPE, device=device)
         scale = torch.zeros(codes.numel() // block_size, device=device)
         return cls(codes, scale)
