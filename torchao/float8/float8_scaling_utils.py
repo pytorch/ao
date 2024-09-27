@@ -38,6 +38,7 @@ def hp_tensor_to_float8_dynamic(
     linear_mm_config: LinearMMConfig,
     reduce_amax: bool = False,
     gemm_input_role: GemmInputRole = GemmInputRole.INPUT,
+    device_mesh = None,
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE,
     axiswise_dim: Optional[int] = None,
 ) -> Float8Tensor:
@@ -62,6 +63,7 @@ def hp_tensor_to_float8_dynamic(
         hp_tensor, 
         float8_dtype, 
         reduce_amax, 
+        device_mesh,
         scaling_granularity, 
         axiswise_dim,
     )

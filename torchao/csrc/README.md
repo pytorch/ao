@@ -11,12 +11,12 @@ To learn more about custom ops in PyTorch you can refer to the [PyTorch Custom O
 
 ## How to add your own kernel in ao
 
-We've integrated a test kernel which implements a non-maximum supression (NMS) op which you can use as a template for your own kernels.
+We've integrated several kernels which you can use as a template for your own kernels. `tensor_core_tiled_layout` is the most straight-forward to get started with.
 
 1. Install the cudatoolkit https://anaconda.org/conda-forge/cudatoolkit
 2. In `csrc/cuda` author your custom kernel and ensure you expose a `TORCH_LIBRARY_IMPL` which will expose `torchao::your_custom_kernel`
-3. In `csrc/` author a `cpp` stub which will include a `TORCH_LIBRARY_FRAGMENT` which will place your custom kernel in the `torchao.ops` namespace and also expose a public function with the right arguments
-4. In `torchao/ops.py` is where you'll expose the python API which your new end users will leverage
+3. In `torchao/ops.py`, define your op signature at the top of the file. You can refer to [this](https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/native/README.md) on how to write the signature correctly
+4. `torchao/ops.py` is also where you'll expose the python API which your new end users will leverage
 5. Write a new test in `test/test_ops.py` which most importantly needs to pass `opcheck()`, this ensures that your custom kernel composes out of the box with `torch.compile()`
 
 And that's it! Once CI passes and your code merged you'll be able to point people to `torchao.ops.your_custom_kernel`. If you're working on an interesting kernel and would like someone else to handle the release and package management please feel free to open an issue.

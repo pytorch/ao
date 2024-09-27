@@ -4,7 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 import torch
 import torch.nn.functional as F
@@ -34,6 +34,44 @@ from .utils import (
 )
 
 
+class ComposableQATQuantizer(TwoStepQuantizer):
+    """
+    Composable quantizer that users can use to apply multiple QAT quantizers easily.
+    Quantizers will be applied in the order they are specified in the constructor.
+
+    Note: the quantizers provided must apply to different modules in the model,
+    e.g. nn.Linear and nn.Embedding, otherwise the behavior will be undefined.
+
+    Example usage::
+
+        my_quantizer = ComposableQATQuantizer([
+            QATQuantizer1(),
+            QATQuantizer2(),
+            QATQuantizer3(),
+        ])
+        model = my_quantizer.prepare(model)
+        train(model)
+        model = my_quantizer.convert(model)
+    """
+
+    def __init__(self, quantizers: List[TwoStepQuantizer]):
+        self.quantizers = quantizers
+
+    def prepare(
+        self, model: torch.nn.Module, *args: Any, **kwargs: Any
+    ) -> torch.nn.Module:
+        for quantizer in self.quantizers:
+            model = quantizer.prepare(model)
+        return model
+
+    def convert(
+        self, model: torch.nn.Module, *args: Any, **kwargs: Any
+    ) -> torch.nn.Module:
+        for quantizer in self.quantizers:
+            model = quantizer.convert(model)
+        return model
+
+
 # =================
 # |   8da4w QAT   |
 # =================
@@ -44,7 +82,8 @@ def int8_dynamic_activation_int4_weight_fake_quantize(group_size=32):
     int4 per group weight symmetric fake quantization to linear. Please see
     :func:`~torchao.quantization.int8_dynamic_activation_int4_weight` for more details.
 
-    Example usage:
+    Example usage::
+
         from torchao.quantization import quantize_
         quantize_(model, int8_dynamic_activation_int4_weight_fake_quantize(group_size=32))
     """
@@ -151,7 +190,8 @@ def int4_weight_only_fake_quantize(group_size=128):
     Applies uint4 weight-only asymmetric per-group fake quantization to linear layers.
     Please see :func:`~torchao.quantization.int4_weight_only` for more details.
 
-    Example usage:
+    Example usage::
+
         from torchao.quantization import quantize_
         quantize_(model, int4_weight_only_fake_quantize(group_size=32))
     """

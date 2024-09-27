@@ -25,7 +25,7 @@ get_random_vector(int size, float min = -1.0, float max = 1.0) {
 }
 
 inline std::vector<uint8_t> get_random_lowbit_vector(int size, int nbit) {
-  assert(nbit >= 2);
+  assert(nbit >= 1);
   assert(nbit <= 8);
 
   int min = 0;
