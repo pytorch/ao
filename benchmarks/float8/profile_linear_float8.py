@@ -263,7 +263,6 @@ def main(
     scaling_type_weight: str = "dynamic",
     scaling_type_grad_output: str = "dynamic",
     scaling_granularity: str = "tensorwise",
-    # TODO(future PR): clean up the override, it's confusing
     recipe_override: Optional[str] = None,
     model_type: str = "linear",
     dtype_filter: str = "both",

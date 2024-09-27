@@ -34,7 +34,7 @@ from torchao.float8.float8_linear_utils import (
 from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_delayed
 from torchao.float8.float8_tensor import LinearMMConfig
 from torchao.float8.float8_utils import e4m3_dtype
-from torchao.testing.float8.test_utils import get_test_float8_linear_config,
+from torchao.testing.float8.test_utils import get_test_float8_linear_config
 
 from torch._dynamo.test_case import TestCase as DynamoTestCase
 from torch._dynamo.testing import CompileCounterWithBackend
