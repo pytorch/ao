@@ -151,8 +151,25 @@ TORCHAO_ALWAYS_INLINE void unpack_uint_odd_bit_values(
   }
 }
 
+template <int nbit>
+void pack_uint_values(
+    uint8_t* packed,
+    uint8_t* unpacked,
+    int packed_size,
+    int unpacked_size,
+    int variant);
+
+template <int nbit>
+void unpack_uint_values(
+    uint8_t* unpacked,
+    uint8_t* packed,
+    int unpacked_size,
+    int packed_size,
+    int variant);
+
 // Benchmark utility to compare variants of uint1 packing
-void pack_uint1_values(
+template <>
+void pack_uint_values<1>(
     uint8_t* packed,
     uint8_t* unpacked,
     int packed_size,
@@ -172,7 +189,8 @@ void pack_uint1_values(
 }
 
 // Benchmark utility to compare variants of uint1 unpacking
-void unpack_uint1_values(
+template <>
+void unpack_uint_values<1>(
     uint8_t* unpacked,
     uint8_t* packed,
     int unpacked_size,
@@ -192,7 +210,8 @@ void unpack_uint1_values(
 }
 
 // Benchmark utility to compare variants of uint2 packing
-void pack_uint2_values(
+template <>
+void pack_uint_values<2>(
     uint8_t* packed,
     uint8_t* unpacked,
     int packed_size,
@@ -256,7 +275,8 @@ void pack_uint2_values(
 }
 
 // Benchmark utility to compare variants of uint2 packing
-void unpack_uint2_values(
+template <>
+void unpack_uint_values<2>(
     uint8_t* unpacked,
     uint8_t* packed,
     int unpacked_size,
@@ -320,7 +340,8 @@ void unpack_uint2_values(
 }
 
 // Benchmark utility to compare variants of uint3 packing
-void pack_uint3_values(
+template <>
+void pack_uint_values<3>(
     uint8_t* packed,
     uint8_t* unpacked,
     int packed_size,
@@ -340,7 +361,8 @@ void pack_uint3_values(
 }
 
 // Benchmark utility to compare variants of uint3 unpacking
-void unpack_uint3_values(
+template <>
+void unpack_uint_values<3>(
     uint8_t* unpacked,
     uint8_t* packed,
     int unpacked_size,
@@ -360,7 +382,8 @@ void unpack_uint3_values(
 }
 
 // Benchmark utility to compare variants of uint4 packing
-void pack_uint4_values(
+template <>
+void pack_uint_values<4>(
     uint8_t* packed,
     uint8_t* unpacked,
     int packed_size,
@@ -400,7 +423,8 @@ void pack_uint4_values(
 }
 
 // Benchmark utility to compare variants of uint4 unpacking
-void unpack_uint4_values(
+template <>
+void unpack_uint_values<4>(
     uint8_t* unpacked,
     uint8_t* packed,
     int unpacked_size,
@@ -440,7 +464,8 @@ void unpack_uint4_values(
 }
 
 // Benchmark utility to compare variants of uint5 packing
-void pack_uint5_values(
+template <>
+void pack_uint_values<5>(
     uint8_t* packed,
     uint8_t* unpacked,
     int packed_size,
@@ -460,7 +485,8 @@ void pack_uint5_values(
 }
 
 // Benchmark utility to compare variants of uint5 unpacking
-void unpack_uint5_values(
+template <>
+void unpack_uint_values<5>(
     uint8_t* unpacked,
     uint8_t* packed,
     int unpacked_size,
@@ -481,10 +507,10 @@ void unpack_uint5_values(
 
 } // namespace
 
-static void benchmark_pack_uint1_values(benchmark::State& state) {
+template <int nbit>
+static void benchmark_pack_uint_values(benchmark::State& state) {
   int unpacked_size = state.range(0);
   int variant = state.range(1);
-  int nbit = 1;
 
   assert(unpacked_size % 8 == 0);
   int packed_size = (unpacked_size / 8) * nbit;
@@ -493,15 +519,15 @@ static void benchmark_pack_uint1_values(benchmark::State& state) {
   auto unpacked = torchao::get_random_lowbit_vector(unpacked_size, nbit);
 
   for (auto _ : state) {
-    pack_uint1_values(
+    pack_uint_values<nbit>(
         packed.data(), unpacked.data(), packed_size, unpacked_size, variant);
   }
 }
 
-static void benchmark_unpack_uint1_values(benchmark::State& state) {
+template <int nbit>
+static void benchmark_unpack_uint_values(benchmark::State& state) {
   int unpacked_size = state.range(0);
   int variant = state.range(1);
-  int nbit = 1;
 
   assert(unpacked_size % 8 == 0);
   int packed_size = (unpacked_size / 8) * nbit;
@@ -510,7 +536,7 @@ static void benchmark_unpack_uint1_values(benchmark::State& state) {
   auto unpacked = std::vector<uint8_t>(unpacked_size, 0);
 
   for (auto _ : state) {
-    unpack_uint1_values(
+    unpack_uint_values<nbit>(
         unpacked.data(),
         packed.data(),
         unpacked.size(),
@@ -519,168 +545,16 @@ static void benchmark_unpack_uint1_values(benchmark::State& state) {
   }
 }
 
-static void benchmark_pack_uint2_values(benchmark::State& state) {
-  int unpacked_size = state.range(0);
-  int variant = state.range(1);
-  int nbit = 2;
-
-  assert(unpacked_size % 8 == 0);
-  int packed_size = (unpacked_size / 8) * nbit;
-
-  auto packed = std::vector<uint8_t>(packed_size, 0);
-  auto unpacked = torchao::get_random_lowbit_vector(unpacked_size, nbit);
-
-  for (auto _ : state) {
-    pack_uint2_values(
-        packed.data(), unpacked.data(), packed_size, unpacked_size, variant);
-  }
-}
-
-static void benchmark_unpack_uint2_values(benchmark::State& state) {
-  int unpacked_size = state.range(0);
-  int variant = state.range(1);
-  int nbit = 2;
-
-  assert(unpacked_size % 8 == 0);
-  int packed_size = (unpacked_size / 8) * nbit;
-
-  auto packed = torchao::get_random_lowbit_vector(packed_size, 8);
-  auto unpacked = std::vector<uint8_t>(unpacked_size, 0);
-
-  for (auto _ : state) {
-    unpack_uint2_values(
-        unpacked.data(),
-        packed.data(),
-        unpacked.size(),
-        packed.size(),
-        variant);
-  }
-}
-
-static void benchmark_pack_uint3_values(benchmark::State& state) {
-  int unpacked_size = state.range(0);
-  int variant = state.range(1);
-  int nbit = 3;
-
-  assert(unpacked_size % 8 == 0);
-  int packed_size = (unpacked_size / 8) * nbit;
-
-  auto packed = std::vector<uint8_t>(packed_size, 0);
-  auto unpacked = torchao::get_random_lowbit_vector(unpacked_size, nbit);
-
-  for (auto _ : state) {
-    pack_uint3_values(
-        packed.data(), unpacked.data(), packed_size, unpacked_size, variant);
-  }
-}
-
-static void benchmark_unpack_uint3_values(benchmark::State& state) {
-  int unpacked_size = state.range(0);
-  int variant = state.range(1);
-  int nbit = 3;
-
-  assert(unpacked_size % 8 == 0);
-  int packed_size = (unpacked_size / 8) * nbit;
-
-  auto packed = torchao::get_random_lowbit_vector(packed_size, 8);
-  auto unpacked = std::vector<uint8_t>(unpacked_size, 0);
-
-  for (auto _ : state) {
-    unpack_uint3_values(
-        unpacked.data(),
-        packed.data(),
-        unpacked.size(),
-        packed.size(),
-        variant);
-  }
-}
-
-static void benchmark_pack_uint4_values(benchmark::State& state) {
-  int unpacked_size = state.range(0);
-  int variant = state.range(1);
-  int nbit = 4;
-
-  assert(unpacked_size % 8 == 0);
-  int packed_size = (unpacked_size / 8) * nbit;
-
-  auto packed = std::vector<uint8_t>(packed_size, 0);
-  auto unpacked = torchao::get_random_lowbit_vector(unpacked_size, nbit);
-
-  for (auto _ : state) {
-    pack_uint4_values(
-        packed.data(), unpacked.data(), packed_size, unpacked_size, variant);
-  }
-}
-
-static void benchmark_unpack_uint4_values(benchmark::State& state) {
-  int unpacked_size = state.range(0);
-  int variant = state.range(1);
-  int nbit = 4;
-
-  assert(unpacked_size % 8 == 0);
-  int packed_size = (unpacked_size / 8) * nbit;
-
-  auto packed = torchao::get_random_lowbit_vector(packed_size, 8);
-  auto unpacked = std::vector<uint8_t>(unpacked_size, 0);
-
-  for (auto _ : state) {
-    unpack_uint4_values(
-        unpacked.data(),
-        packed.data(),
-        unpacked.size(),
-        packed.size(),
-        variant);
-  }
-}
-
-static void benchmark_pack_uint5_values(benchmark::State& state) {
-  int unpacked_size = state.range(0);
-  int variant = state.range(1);
-  int nbit = 5;
-
-  assert(unpacked_size % 8 == 0);
-  int packed_size = (unpacked_size / 8) * nbit;
-
-  auto packed = std::vector<uint8_t>(packed_size, 0);
-  auto unpacked = torchao::get_random_lowbit_vector(unpacked_size, nbit);
-
-  for (auto _ : state) {
-    pack_uint5_values(
-        packed.data(), unpacked.data(), packed_size, unpacked_size, variant);
-  }
-}
-
-static void benchmark_unpack_uint5_values(benchmark::State& state) {
-  int unpacked_size = state.range(0);
-  int variant = state.range(1);
-  int nbit = 5;
-
-  assert(unpacked_size % 8 == 0);
-  int packed_size = (unpacked_size / 8) * nbit;
-
-  auto packed = torchao::get_random_lowbit_vector(packed_size, 8);
-  auto unpacked = std::vector<uint8_t>(unpacked_size, 0);
-
-  for (auto _ : state) {
-    unpack_uint5_values(
-        unpacked.data(),
-        packed.data(),
-        unpacked.size(),
-        packed.size(),
-        variant);
-  }
-}
-
-BENCHMARK(benchmark_pack_uint1_values)->ArgsProduct({{128}, {8, 64, 128}});
-BENCHMARK(benchmark_unpack_uint1_values)->ArgsProduct({{128}, {8, 64, 128}});
-BENCHMARK(benchmark_pack_uint2_values)->ArgsProduct({{128}, {4, 32, 64}});
-BENCHMARK(benchmark_unpack_uint2_values)->ArgsProduct({{128}, {4, 32, 64}});
-BENCHMARK(benchmark_pack_uint3_values)->ArgsProduct({{128}, {8, 64, 128}});
-BENCHMARK(benchmark_unpack_uint3_values)->ArgsProduct({{128}, {8, 64, 128}});
-BENCHMARK(benchmark_pack_uint4_values)->ArgsProduct({{128}, {2, 16, 32}});
-BENCHMARK(benchmark_unpack_uint4_values)->ArgsProduct({{128}, {2, 16, 32}});
-BENCHMARK(benchmark_pack_uint5_values)->ArgsProduct({{128}, {8, 64, 128}});
-BENCHMARK(benchmark_unpack_uint5_values)->ArgsProduct({{128}, {8, 64, 128}});
+BENCHMARK(benchmark_pack_uint_values<1>)->ArgsProduct({{128}, {8, 64, 128}});
+BENCHMARK(benchmark_unpack_uint_values<1>)->ArgsProduct({{128}, {8, 64, 128}});
+BENCHMARK(benchmark_pack_uint_values<2>)->ArgsProduct({{128}, {4, 32, 64}});
+BENCHMARK(benchmark_unpack_uint_values<2>)->ArgsProduct({{128}, {4, 32, 64}});
+BENCHMARK(benchmark_pack_uint_values<3>)->ArgsProduct({{128}, {8, 64, 128}});
+BENCHMARK(benchmark_unpack_uint_values<3>)->ArgsProduct({{128}, {8, 64, 128}});
+BENCHMARK(benchmark_pack_uint_values<4>)->ArgsProduct({{128}, {2, 16, 32}});
+BENCHMARK(benchmark_unpack_uint_values<4>)->ArgsProduct({{128}, {2, 16, 32}});
+BENCHMARK(benchmark_pack_uint_values<5>)->ArgsProduct({{128}, {8, 64, 128}});
+BENCHMARK(benchmark_unpack_uint_values<5>)->ArgsProduct({{128}, {8, 64, 128}});
 
 // Run the benchmark
 BENCHMARK_MAIN();
