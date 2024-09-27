@@ -5,13 +5,12 @@ import torch
 import torchao
 import os
 
-from packaging import version
-
 from torch.testing._internal import common_utils
 from torchao.dtypes import AffineQuantizedTensor
 from torchao.dtypes import to_affine_quantized_intx
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization import quantize_, int8_weight_only
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 """
 How to use:
@@ -36,8 +35,6 @@ copy_tests(TorchAOBasicTestCase, MyTestCase, "my_test_case")
 if __name__ == "__main__":
     unittest.main()
 """
-
-torch_version = version.Version(torch.__version__)
 
 # copied from https://github.com/pytorch/pytorch/blob/941d094dd1b507dacf06ddc6ed3485a9537e09b7/test/inductor/test_torchinductor.py#L11389
 def copy_tests(
@@ -325,7 +322,7 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
 
         y_d = dn_dist(up_dist(input_dtensor))
 
-        if torch_version < COMPILED_TENSOR_PARALLEL_REQUIRED_VERSION:
+        if TORCH_VERSION_AT_LEAST_2_5:
             # Need torch 2.5 to support compiled tensor parallelism
             return
 
