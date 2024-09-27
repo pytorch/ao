@@ -13,6 +13,7 @@ from torchao.quantization.GPTQ import (
     _check_linear_int4_k,
     _replace_linear_int4,
     _replace_linear_8da4w,
+    _replace_embedding_4w,
     get_groupwise_affine_qparams,
     groupwise_affine_quantize_tensor,
     Int8DynActInt4WeightLinear,
@@ -28,6 +29,7 @@ from .utils import (
     _choose_qparams_per_token_asymmetric,
     _fake_quantize_per_channel_group,
     _fake_quantize_per_token,
+    _get_qmin_qmax
 )
 
 
@@ -47,6 +49,14 @@ class Int8DynActInt4WeightQATQuantizerModuleSwap(Int8DynActInt4WeightQATQuantize
     instead if possible.
     """
 
+    def __init__(self, 
+                 quantize_embedding: bool = False,
+                 embedding_groupsize: int = 32,
+                 *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.quantize_embedding = quantize_embedding
+        self.embedding_groupsize = embedding_groupsize
+
     def prepare(
         self,
         model: torch.nn.Module,
@@ -62,6 +72,14 @@ class Int8DynActInt4WeightQATQuantizerModuleSwap(Int8DynActInt4WeightQATQuantize
             Int8DynActInt4WeightQATLinear,
             copy_weights=True,
         )
+        if self.quantize_embedding:
+            _replace_embedding_4w(
+                model,
+                self.embedding_groupsize,
+                Int4WeightQATEmbedding,
+                self.padding_allowed,
+                copy_weights=True
+            )
         return model
 
     def convert(
@@ -92,7 +110,7 @@ def _convert_qat_linear_8da4w(module: torch.nn.Module):
 
             # Load weights and qparams into quantized linear
             n_bit = 4
-            (qmin, qmax) = child._get_qmin_qmax(n_bit)
+            (qmin, qmax) = _get_qmin_qmax(n_bit)
             (s, zp) = get_group_qparams_symmetric(child.weight, n_bit, child.groupsize)
             from torchao._executorch_ops import _quantized_decomposed_quantize_per_channel_group_wrapper
             q_weight = _quantized_decomposed_quantize_per_channel_group_wrapper(
@@ -150,13 +168,14 @@ class Int8DynActInt4WeightQATLinear(torch.nn.Linear):
     def disable_fake_quant(self):
         self.enable_fake_quant(False)
 
+    # pyre-ignore[14]: inconsistent override
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # activations: int8 dynamic asymmetric quant
         if self._fake_quant_enabled:
             (act_scales, act_zp) = _choose_qparams_per_token_asymmetric(
                 x, self.scales_precision, self.zero_points_precision,
             )
-            (act_qmin, act_qmax) = self._get_qmin_qmax(8)
+            (act_qmin, act_qmax) = _get_qmin_qmax(8)
             x_fq = _fake_quantize_per_token(
                 x, act_scales, act_zp, act_qmin, act_qmax,
             )
@@ -170,7 +189,7 @@ class Int8DynActInt4WeightQATLinear(torch.nn.Linear):
             )
             # TODO: pass zp dtype to `get_group_qparams_symmetric` instead
             weight_zp = weight_zp.to(self.zero_points_precision)
-            (weight_qmin, weight_qmax) = self._get_qmin_qmax(4)
+            (weight_qmin, weight_qmax) = _get_qmin_qmax(4)
             w_fq = _fake_quantize_per_channel_group(
                 self.weight,
                 weight_scales,
@@ -183,11 +202,58 @@ class Int8DynActInt4WeightQATLinear(torch.nn.Linear):
             w_fq = self.weight
         return F.linear(x_fq, w_fq)
 
-    # TODO: move this to common util
-    def _get_qmin_qmax(self, n_bit: int):
-        qmin = -(2 ** (n_bit - 1))
-        qmax = 2 ** (n_bit - 1) - 1
-        return (qmin, qmax)
+
+class Int4WeightQATEmbedding(torch.nn.Embedding):
+    """
+    This module implements a embedding layer with int4
+
+    args:
+        embedding_groupsize: the number of elements in each quantized group for weights
+        scales_precision: precision of per group scales and zero points
+    """
+
+    def __init__(self, 
+                groupsize: int = 32, 
+                scales_precision: torch.dtype = torch.float32,
+                *args, 
+                **kwargs):
+        super().__init__(*args, **kwargs)
+        self.bit_width = 4
+        self.groupsize = groupsize
+        self.scales_precision = scales_precision
+        self.zero_points_precision = torch.int32
+        self._fake_quant_enabled = True
+    
+    def forward(self, x):
+        weight = self.weight
+
+        if self._fake_quant_enabled:
+            (weight_scales, weight_zp) = get_group_qparams_symmetric(
+                self.weight, self.bit_width, self.groupsize, self.scales_precision,
+            )
+            # TODO: pass zp dtype to `get_group_qparams_symmetric` instead
+            weight_zp = weight_zp.to(self.zero_points_precision)
+            (weight_qmin, weight_qmax) = _get_qmin_qmax(self.bit_width)
+            w_fq = _fake_quantize_per_channel_group(
+                self.weight,
+                weight_scales,
+                weight_zp,
+                weight_qmin,
+                weight_qmax,
+                self.groupsize,
+            )
+        else:
+            w_fq = self.weight
+
+        return torch.nn.functional.embedding(
+            x, w_fq, self.padding_idx, self.max_norm,
+            self.norm_type, self.scale_grad_by_freq, self.sparse)
+
+    def enable_fake_quant(self, enabled: bool = True):
+        self._fake_quant_enabled = enabled
+
+    def disable_fake_quant(self):
+        self.enable_fake_quant(False)
 
 
 def enable_8da4w_fake_quant_module_swap(mod: torch.nn.Module):

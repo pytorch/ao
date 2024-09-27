@@ -965,6 +965,41 @@ class Int8DynActInt4WeightLinear(torch.nn.Module):
             self.precision,
         )
 
+	
+def _replace_embedding_4w(
+    module: torch.nn.Module,
+    groupsize: int,
+    embedding_class: Type[torch.nn.Module],
+    padding_allowed: bool,
+    copy_weights: bool = False,
+):
+    #import the util function here to avoid circular dependency
+    from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
+
+    def filter_fn(child: torch.nn.Module, cur_fqn:str) -> bool:
+        return isinstance(child, nn.Embedding) and (_check_linear_int4_k(child.embedding_dim, groupsize) or padding_allowed)
+
+    def replacement_fn(child: torch.nn.Module) -> torch.nn.Module:
+        new_embedding = embedding_class(
+                    num_embeddings = child.num_embeddings,
+                    embedding_dim = child.embedding_dim,
+                    padding_idx = child.padding_idx,
+                    max_norm = child.max_norm,
+                    norm_type = child.norm_type,
+                    scale_grad_by_freq = child.scale_grad_by_freq,
+                    sparse = child.sparse,
+                    device=child.weight.device,
+                    groupsize=groupsize,
+                )
+        # In distributed training, the model may be instantiated
+        # on the meta device, in which case there is no need to
+        # copy the weights, and doing so will result in an error
+        if copy_weights and child.weight.device != torch.device("meta"):
+            new_embedding.weight = child.weight
+        return new_embedding
+
+    _replace_with_custom_fn_if_matches_filter(module, replacement_fn, filter_fn)
+
 def _replace_linear_8da4w(
     module: torch.nn.Module,
     groupsize: int,
