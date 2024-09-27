@@ -218,3 +218,85 @@ class Float8LinearConfig:
 # Currently, ROCm only supports fnuz variants.
 # TODO(future PR): move this to Float8LinearConfig
 use_fnuz_dtype = False
+
+
+# Pre-made recipes for common configurations
+# TODO(future PR): go through a round of design on this, and eventually expose
+# as a top level public API.
+def _get_recipe(recipe_name: str) -> Float8LinearConfig:
+    if recipe_name == "all_tensorwise":
+        # Default, dynamic per-tensor scaling with the cuBLAS tensorwise kernel
+        return Float8LinearConfig()
+
+    elif recipe_name == "all_axiswise":
+        # dynamic axiswise scaling with the CUTLASS rowwise kernel
+        cc_i = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
+        cc_w = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
+        cc_go = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
+        
+        # The current rowwise CUTLASS kernels in `torch._scaled_mm` are only
+        # fast with `use_fast_accum=True`. Note that rowwise scaling is more
+        # accurate than tensorwise scaling, so the overall impact on accuracy
+        # of tensorwise vs rowwise taking this flag into account will vary.
+        gc_o = Float8GemmConfig(use_fast_accum=True)
+        gc_gi = Float8GemmConfig(use_fast_accum=True)
+        gc_gw = Float8GemmConfig(use_fast_accum=True)
+
+        return Float8LinearConfig(
+            cast_config_input=cc_i,
+            cast_config_weight=cc_w,
+            cast_config_grad_output=cc_go,
+            gemm_config_output=gc_o,
+            gemm_config_grad_input=gc_gi,
+            gemm_config_grad_weight=gc_gw,
+        )
+
+    elif recipe_name == "lw_axiswise_with_gw_hp":
+
+        # lw's recipe for a modification on all-axiswise:
+        #
+        #   output_hp = input_fp8_axiswise_dim0 @ weight_t_axiswise_dim1
+        #   grad_input_hp = grad_output_fp8_axiswise_dim0 @ weight_fp8_tensorwise
+        #   grad_weight_hp = input_t_hp @ grad_output_hp
+        #
+        # key characteristics:
+        #   * increased accuracy for grad_weight
+        #   * `output` and `weight` now only need to be scaled axiswise across a 
+        #     single dim compared to vanilla all-axiswise, which is more 
+        #     amenable to fast kernels
+
+        # output_hp = input_fp8_axiswise_dim0 @ weight_t_axiswise_dim1
+        cc_i = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
+        cc_w = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
+
+        # grad_input_hp = grad_output_fp8_axiswise_dim0 @ weight_fp8_tensorwise
+        cc_go = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
+        cc_w_gi = CastConfig(scaling_granularity=ScalingGranularity.TENSORWISE)
+
+        # grad_weight_hp = input_t_hp @ grad_output_hp
+        cc_i_gw = CastConfig(keep_in_original_precision=True)
+        cc_go_gw = CastConfig(keep_in_original_precision=True)
+
+        # The current rowwise CUTLASS kernels in `torch._scaled_mm` are only
+        # fast with `use_fast_accum=True`. Note that rowwise scaling is more
+        # accurate than tensorwise scaling, so the overall impact on accuracy
+        # of tensorwise vs rowwise taking this flag into account will vary.
+        gc_o = Float8GemmConfig(use_fast_accum=True)
+        gc_gi = Float8GemmConfig(use_fast_accum=True)
+        gc_gw = Float8GemmConfig(use_fast_accum=True)
+
+        return Float8LinearConfig(
+            cast_config_input=cc_i,
+            cast_config_weight=cc_w,
+            cast_config_grad_output=cc_go,
+            cast_config_input_for_grad_weight=cc_i_gw,
+            cast_config_weight_for_grad_input=cc_w_gi,
+            cast_config_grad_output_for_grad_weight=cc_go_gw,
+            gemm_config_output=gc_o,
+            gemm_config_grad_input=gc_gi,
+            gemm_config_grad_weight=gc_gw,
+        )
+
+    else:
+        # TODO(before land): make recipe_name an enum and tell users what the options are
+        raise AssertionError(f"unknown recipe_name {recipe_name}")

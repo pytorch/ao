@@ -27,6 +27,7 @@ from torchao.float8.config import (
     Float8LinearConfig, 
     ScalingType,
     ScalingGranularity,
+    _get_recipe,
 )
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
@@ -319,15 +320,8 @@ def main(
             cast_config_grad_output=cast_config_grad_output,
         )
 
-    elif recipe_override == "lcw":
-        scaling_granularities_by_gemm = scaling_granularities_by_gemm_lcw_recipe
-        config = get_test_float8_linear_config(
-            scaling_type_input,
-            scaling_type_weight,
-            scaling_type_grad_output,
-            scaling_granularities_by_gemm,
-            False,  # emulate
-        )
+    elif recipe_override is not None:
+        config = _get_recipe(recipe_override)
 
     scaling_repr = "_".join(
         [
