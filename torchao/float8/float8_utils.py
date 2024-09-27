@@ -100,9 +100,9 @@ def amax_history_to_scale_stack(
 
 @torch.no_grad()
 def tensor_to_amax(
-    x: torch.Tensor, 
-    reduce_amax: bool = False, 
-    device_mesh = None,
+    x: torch.Tensor,
+    reduce_amax: bool = False,
+    device_mesh=None,
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE,
     axiswise_dim: Optional[int] = None,
 ) -> torch.Tensor:
@@ -133,10 +133,10 @@ def tensor_to_scale(
     axiswise_dim: Optional[int] = None,
 ) -> torch.Tensor:
     amax = tensor_to_amax(
-        x, 
-        reduce_amax, 
-        device_mesh, 
-        scaling_granularity, 
+        x,
+        reduce_amax,
+        device_mesh,
+        scaling_granularity,
         axiswise_dim,
     )
     return amax_to_scale(amax, float8_dtype, x.dtype)

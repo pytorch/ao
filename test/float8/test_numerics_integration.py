@@ -24,6 +24,7 @@ from torchao.float8.config import (
     Float8LinearConfig, 
     ScalingType,
     ScalingGranularity,
+    _get_recipe,
 )
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
@@ -31,6 +32,7 @@ from torchao.float8.float8_linear_utils import (
     sync_float8_amax_and_scale_history,
 )
 from torchao.float8.float8_utils import compute_error, IS_ROCM
+from torchao.testing.float8.test_utils import get_test_float8_linear_config
 
 is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
 is_cuda_9_0 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
@@ -84,44 +86,9 @@ class FeedForward(nn.Module):
 
 
 class TestFloat8NumericsIntegrationTest:
-    @pytest.mark.parametrize(
-        "scaling_type_input", 
-        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
-    )
-    @pytest.mark.parametrize(
-        "scaling_type_weight", 
-        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
-    )
-    @pytest.mark.parametrize(
-        "scaling_type_grad_output",
-        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
-    )
-    @pytest.mark.parametrize(
-        "scaling_granularity", 
-        [ScalingGranularity.TENSORWISE, ScalingGranularity.AXISWISE],
-    )
-    @pytest.mark.skipif(not is_cuda_8_9, reason="requires SM89 compatible machine")
-    @pytest.mark.skipif(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
-    def test_encoder_fw_bw(
-        self,
-        scaling_type_input: ScalingType,
-        scaling_type_weight: ScalingType,
-        scaling_type_grad_output: ScalingType,
-        scaling_granularity: ScalingGranularity,
-    ):
-        # TODO(later): maybe add float16 back if it becomes important
+
+    def _test_impl(self, config: Float8LinearConfig) -> None:
         data_dtype = torch.bfloat16
-
-        if scaling_granularity is ScalingGranularity.AXISWISE:
-            if (
-                scaling_type_input != ScalingType.DYNAMIC or
-                scaling_type_weight != ScalingType.DYNAMIC or
-                scaling_type_grad_output != ScalingType.DYNAMIC or
-                data_dtype != torch.bfloat16 or
-                (not is_cuda_9_0)
-            ):
-                pytest.skip()
-
         # LLaMa 3 70B shapes
         model_ref = (
             FeedForward(
@@ -136,44 +103,6 @@ class TestFloat8NumericsIntegrationTest:
 
         # for now just test the encoder to simplify things
         model_fp8 = copy.deepcopy(model_ref)
-
-        if scaling_type_input is ScalingType.STATIC:
-            cast_config_input = CastConfig(
-                scaling_type=scaling_type_input,
-                scaling_granularity=scaling_granularity,
-                static_scale=torch.tensor([1.0], device="cuda"),
-            )
-        else:
-            cast_config_input = CastConfig(
-                scaling_type=scaling_type_input,
-                scaling_granularity=scaling_granularity,
-            )
-        if scaling_type_weight is ScalingType.STATIC:
-            cast_config_weight = CastConfig(
-                scaling_type=scaling_type_weight,
-                static_scale=torch.tensor([1.0], device="cuda"),
-            )
-        else:
-            cast_config_weight = CastConfig(
-                scaling_type=scaling_type_weight,
-                scaling_granularity=scaling_granularity,
-            )
-        if scaling_type_grad_output is ScalingType.STATIC:
-            cast_config_grad_output = CastConfig(
-                scaling_type=scaling_type_grad_output,
-                static_scale=torch.tensor([1.0], device="cuda"),
-            )
-        else:
-            cast_config_grad_output = CastConfig(
-                scaling_type=scaling_type_grad_output,
-                scaling_granularity=scaling_granularity,
-            )
-
-        config = Float8LinearConfig(
-            cast_config_input=cast_config_input,
-            cast_config_weight=cast_config_weight,
-            cast_config_grad_output=cast_config_grad_output,
-        )
 
         convert_to_float8_training(
             model_fp8,
@@ -212,9 +141,9 @@ class TestFloat8NumericsIntegrationTest:
 
         out_sqnr = compute_error(model_ref_out, model_fp8_out)
         any_static_scaling = (
-            scaling_type_input is ScalingType.STATIC
-            or scaling_type_weight is ScalingType.STATIC
-            or scaling_type_grad_output is ScalingType.STATIC
+            config.cast_config_input.scaling_type is ScalingType.STATIC
+            or config.cast_config_weight.scaling_type is ScalingType.STATIC
+            or config.cast_config_grad_output.scaling_type is ScalingType.STATIC
         )
         if any_static_scaling:
             assert out_sqnr > 10.0
@@ -235,6 +164,45 @@ class TestFloat8NumericsIntegrationTest:
             cur_grad = param.grad
             sqnr = compute_error(ref_grad, cur_grad)
             assert sqnr > grad_sqnr_threshold
+
+    @pytest.mark.parametrize(
+        "scaling_type_input", 
+        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+    )
+    @pytest.mark.parametrize(
+        "scaling_type_weight", 
+        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+    )
+    @pytest.mark.parametrize(
+        "scaling_type_grad_output",
+        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+    )
+    @pytest.mark.skipif(not is_cuda_8_9, reason="requires SM89 compatible machine")
+    @pytest.mark.skipif(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
+    def test_encoder_fw_bw_from_config_params(
+        self,
+        scaling_type_input: ScalingType,
+        scaling_type_weight: ScalingType,
+        scaling_type_grad_output: ScalingType,
+    ):
+        config = get_test_float8_linear_config(
+            scaling_type_input,
+            scaling_type_weight,
+            scaling_type_grad_output,
+            emulate=False,
+        )
+        self._test_impl(config)
+
+    @pytest.mark.parametrize(
+        "recipe_name",
+        ["all_axiswise", "lw_axiswise_with_gw_hp"],
+    )
+    def test_encoder_fw_bw_from_recipe(
+        self,
+        recipe_name: str,
+    ):
+        config = _get_recipe(recipe_name)
+        self._test_impl(config)
 
 
 if __name__ == "__main__":
