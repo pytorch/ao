@@ -1,91 +1,190 @@
 #  Copyright (c) Meta Platforms, Inc. and affiliates.
 
+import argparse
 import copy
 import datetime
 import errno
 import hashlib
+import math
 import os
 import time
 from collections import defaultdict, deque, OrderedDict
 from typing import List, Optional, Tuple
 
 import torch
-import torch.distributed as dist
 
-from torchao.quantization import quantize_, int8_dynamic_activation_int8_semi_sparse_weight
-from torchao.sparsity import sparsify_, semi_sparse_weight
-from torchao.sparsity.prototype.superblock.supermask import SupermaskLinear, apply_supermask
+from torchao.quantization import int8_dynamic_activation_int8_weight, quantize_
+from torchao.sparsity import semi_sparse_weight, sparsify_
+from torchao.sparsity.prototype.sparsifier.weight_norm_sparsifier import (
+    WeightNormSparsifier,
+)
 from torchao.sparsity.prototype.superblock.blocksparse import block_sparse_weight
-from torchao.sparsity.prototype.sparsifier.weight_norm_sparsifier import WeightNormSparsifier
+from torchao.sparsity.prototype.superblock.supermask import (
+    apply_supermask,
+    SupermaskLinear,
+)
+from torchvision.transforms import autoaugment, functional as F, transforms
+from torchvision.transforms.functional import InterpolationMode
+
+def get_args_parser(train=False, evaluate=False, benchmark=False):
+    assert sum([train, evaluate, benchmark]) == 1, "One and only one of training, evaluation, or benchmark can be true"
+
+    # Shared common args
+    parser = argparse.ArgumentParser(description="SuperBlock Imagenet Training/Evaluation/Benchmarking Script", add_help=True)
+    parser.add_argument("--data-path", type=str, help="IMAGENET dataset path")
+    parser.add_argument("--model", default="vit_b_16", choices=["vit_b_16", "vit_h_14"], type=str, help="ViT base model")
+    parser.add_argument("--device", default="cuda", type=str, help="device (Default: cuda)")
+    parser.add_argument("-b", "--batch-size", default=32, type=int, help="per device batch size")
+    parser.add_argument("--val-crop-size", default=224, type=int, help="the central crop size used for validation (default: 224)")
+    parser.add_argument("--sparsity", choices=["bsr", "semi_structured"], default=None, help='weight sparsification to apply')
+    parser.add_argument('--bsr', type=int, nargs='?', const=256, default=None, help='Convert sparsified weights to BSR format with optional block size (default: 256)')
+    parser.add_argument("--sparsity-linear", type=float, default=0.0)
+    parser.add_argument("--sparsity-conv1x1", type=float, default=0.0)
+    parser.add_argument("--sparsity-conv", type=float, default=0.0)
+    parser.add_argument("--skip-last-layer-sparsity", action="store_true", help="Skip applying sparsity to the last linear layer (for vit only)")
+    parser.add_argument("--skip-first-transformer-sparsity", action="store_true", help="Skip applying sparsity to the first transformer layer (for vit only)")
+    parser.add_argument("--quantization", action="store_true", help="Run with int8 dynamic quantization")
+    parser.add_argument("--weights", default=None, type=str, help="the weights enum name to load")
+    parser.add_argument("--weights-path", type=str, help="optional checkpoint to load weights after intialization")
+    parser.add_argument("--header", action="store_true", help="Print header for first run")
+
+    # Eval a subset of training args
+    # lots of training args
+    if train or evaluate:
+        parser.add_argument("-j", "--workers", default=16, type=int, metavar="N", help="number of data loading workers")
+        parser.add_argument("--accumulation-steps", default=1, type=int, help="Number of steps to accumulate gradients over")
+        parser.add_argument("--epochs", default=90, type=int, metavar="N", help="number of total epochs to run")
+        parser.add_argument("--opt", default="sgd", type=str, help="optimizer")
+        parser.add_argument("--lr", default=0.1, type=float, help="initial learning rate")
+        parser.add_argument("--momentum", default=0.9, type=float, metavar="M", help="momentum")
+        parser.add_argument("--wd", "--weight-decay", default=1e-4, type=float, metavar="W", help="weight decay", dest="weight_decay")
+        parser.add_argument("--norm-weight-decay", default=None, type=float, help="weight decay for Normalization layers (default: None, same value as --wd)")
+        parser.add_argument("--bias-weight-decay", default=None, type=float, help="weight decay for bias parameters of all layers (default: None, same value as --wd)")
+        parser.add_argument("--transformer-embedding-decay", default=None, type=float, help="weight decay for embedding parameters for vision transformer models (default: None, same value as --wd)")
+        parser.add_argument("--label-smoothing", default=0.0, type=float, help="label smoothing (default: 0.0)", dest="label_smoothing")
+        parser.add_argument("--mixup-alpha", default=0.0, type=float, help="mixup alpha (default: 0.0)")
+        parser.add_argument("--cutmix-alpha", default=0.0, type=float, help="cutmix alpha (default: 0.0)")
+        parser.add_argument("--lr-scheduler", default="steplr", type=str, help="the lr scheduler (default: steplr)")
+        parser.add_argument("--lr-warmup-epochs", default=0, type=int, help="the number of epochs to warmup (default: 0)")
+        parser.add_argument("--lr-warmup-method", default="constant", type=str, help="the warmup method (default: constant)")
+        parser.add_argument("--lr-warmup-decay", default=0.01, type=float, help="the decay for lr")
+        parser.add_argument("--lr-step-size", default=30, type=int, help="decrease lr every step-size epochs")
+        parser.add_argument("--lr-gamma", default=0.1, type=float, help="decrease lr by a factor of lr-gamma")
+        parser.add_argument("--lr-min", default=0.0, type=float, help="minimum lr of lr schedule (default: 0.0)")
+        parser.add_argument("--print-freq", default=10, type=int, help="print frequency")
+        parser.add_argument("--output-dir", default=".", type=str, help="path to save outputs")
+        parser.add_argument('--resume', action='store_true', help='Resumes training from latest available checkpoint ("model_<epoch>.pth")')
+        parser.add_argument("--start-epoch", default=0, type=int, metavar="N", help="start epoch")
+        parser.add_argument("--cache-dataset", dest="cache_dataset", help="Cache the datasets for quicker initialization. It also serializes the transforms", action="store_true")
+        parser.add_argument("--sync-bn", dest="sync_bn", help="Use sync batch norm", action="store_true")
+        parser.add_argument("--auto-augment", default=None, type=str, help="auto augment policy (default: None)")
+        parser.add_argument("--ra-magnitude", default=9, type=int, help="magnitude of auto augment policy")
+        parser.add_argument("--augmix-severity", default=3, type=int, help="severity of augmix policy")
+        parser.add_argument("--random-erase", default=0.0, type=float, help="random erasing probability (default: 0.0)")
+        # Mixed precision training parameters
+        parser.add_argument("--amp", action="store_true", help="Use torch.cuda.amp for mixed precision training")
+        # distributed training parameters
+        parser.add_argument("--world-size", default=1, type=int, help="number of distributed processes")
+        parser.add_argument("--dist-url", default="env://", type=str, help="url used to set up distributed training")
+        parser.add_argument("--model-ema", action="store_true", help="enable tracking Exponential Moving Average of model parameters")
+        parser.add_argument("--model-ema-steps", type=int, default=32, help="the number of iterations that controls how often to update the EMA model (default: 32)")
+        parser.add_argument("--model-ema-decay", type=float, default=0.99998, help="decay factor for Exponential Moving Average of model parameters (default: 0.99998)")
+        parser.add_argument("--use-deterministic-algorithms", action="store_true", help="Forces the use of deterministic algorithms only.")
+        parser.add_argument("--interpolation", default="bilinear", type=str, help="the interpolation method (default: bilinear)")
+        parser.add_argument("--val-resize-size", default=256, type=int, help="the resize size used for validation (default: 256)")
+        parser.add_argument("--train-crop-size", default=224, type=int, help="the random crop size used for training (default: 224)")
+        parser.add_argument("--clip-grad-norm", default=None, type=float, help="the maximum gradient norm (default None)")
+        parser.add_argument("--ra-reps", default=3, type=int, help="number of repetitions for Repeated Augmentation (default: 3)")
+        parser.add_argument('--meta', action='store_true', help='Use Meta internal imagenet structure')
+    
+    if benchmark:
+        parser.add_argument("--dtype", choices=["float32", "bfloat16", "float16"], help="Data type", default="bfloat16")
+        parser.add_argument("--tune-kernel-params", action="store_true", help="Tune kernel params for BSR")
+        parser.add_argument("--profile", action="store_true", help="Dump Prefetto trace")
+
+    return parser
+
+
+
+# filter functions
+def mlp_0_only(mod, name):
+    return isinstance(mod, torch.nn.Linear) and "mlp.0" in name
+
+
+def mlp_3_only(mod, name):
+    return isinstance(mod, torch.nn.Linear) and "mlp.3" in name
+
+
+def mlp_only(mod, name):
+    return isinstance(mod, torch.nn.Linear) and "mlp" in name
+
+
+def superblock_only(mod, name):
+    return isinstance(mod, SupermaskLinear) and "mlp" in name
+
+
+def mlp_only_with_args(
+    mod, name, skip_last_layer_sparsity=False, skip_first_transformer_sparsity=False
+):
+    if skip_last_layer_sparsity and "heads.head" in name:
+        return False
+    if skip_first_transformer_sparsity and "encoder.layers.encoder_layer_0" in name:
+        return False
+    if isinstance(mod, torch.nn.Linear) and "mlp" in name:
+        return True
+    return False
+
 
 ### Custom sparsification utils
 def apply_sparsity(model):
     for name, module in model.named_modules():
         if isinstance(module, SupermaskLinear) and "mlp" in name:
             module.sparsify_offline()
-            
-def verify_sparsity(model):
-    for name, module in model.named_modules():
-        if isinstance(module, torch.nn.Linear):
-            total_weights = module.weight.numel()
-            sparse_weights = (module.weight == 0).sum().item()
-            sparsity_percentage = (sparse_weights / total_weights) * 100
-            print(f"Sparsity verified in layer {name}: {sparsity_percentage:.2f}%")
 
-# filter functions
-def mlp_0_only(mod, name):
-    return isinstance(mod, torch.nn.Linear) and 'mlp.0' in name
-
-def mlp_3_only(mod, name):
-    return isinstance(mod, torch.nn.Linear) and 'mlp.3' in name
-
-def mlp_only(mod, name):
-    return isinstance(mod, torch.nn.Linear) and 'mlp' in name
-    
-def superblock_only(mod, name):
-    return isinstance(mod, SupermaskLinear) and "mlp" in name
-
-def mlp_only_with_args(mod, name, skip_last_layer_sparsity=False, skip_first_transformer_sparsity=False):
-    if skip_last_layer_sparsity and "heads.head" in name:
-        return False
-    if skip_first_transformer_sparsity and "encoder.layers.encoder_layer_0" in name:
-        return False
-    if isinstance(mod, torch.nn.Linear) and "mlp" in name: 
-        return True
-    return False
-
-### other
 
 def accelerate_with_sparsity(model, args):
     if args.sparsity == "bsr":
         apply_sparsity(model)
-        verify_sparsity(model)
-        assert args.bsr is not None, "BSR requires a block size"
-        sparsify_(model, block_sparse_weight(blocksize=args.bsr), superblock_only)
+        if args.quantization:
+            from torchao.dtypes.affine_quantized_tensor import BlockSparseLayoutType
 
+            quantize_(
+                model,
+                int8_dynamic_activation_int8_weight(
+                    layout_type=BlockSparseLayoutType(blocksize=args.bsr)
+                ),
+                superblock_only,
+            )
+        else:
+            assert args.bsr is not None, "BSR requires a block size"
+            sparsify_(model, block_sparse_weight(blocksize=args.bsr), superblock_only)
     elif args.sparsity == "semi_structured":
         if args.quantization:
-            quantize_(model,
-                    int8_dynamic_activation_int8_semi_sparse_weight(),
-                    mlp_0_only)
-            sparsify_(model,
-                    semi_sparse_weight(), 
-                    mlp_3_only)
+            from torchao.dtypes.affine_quantized_tensor import SemiSparseLayoutType
+
+            quantize_(
+                model,
+                int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType()),
+                mlp_0_only,
+            )
+            sparsify_(model, semi_sparse_weight(), mlp_3_only)
         else:
-            sparsify_(model,
-                    semi_sparse_weight(),
-                    mlp_only)
+            sparsify_(model, semi_sparse_weight(), mlp_only)
+    else:
+        if args.quantization:
+            quantize_(model, int8_dynamic_activation_int8_weight(), mlp_only)
+
 
 def simulate_sparsity(model, args):
     if args.sparsity == "bsr":
         apply_supermask(
             model,
             linear_sparsity=args.sparsity_linear,
-            linear_sp_tilesize=args.sp_linear_tile_size,
+            linear_sp_tilesize=args.bsr,
             conv1x1_sparsity=args.sparsity_conv1x1,
-            conv1x1_sp_tilesize=args.sp_conv1x1_tile_size,
+            conv1x1_sp_tilesize=args.bsr,
             conv_sparsity=args.sparsity_conv,
-            conv_sp_tilesize=args.sp_conv_tile_size,
+            conv_sp_tilesize=args.bsr,
             skip_last_layer_sparsity=args.skip_last_layer_sparsity,
             skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
             device=args.device,
@@ -94,24 +193,27 @@ def simulate_sparsity(model, args):
     elif args.sparsity == "semi_structured":
         sparse_config = []
         for name, mod in model.named_modules():
-            if mlp_only_with_args(mod, name,
-                                  skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
-                                  skip_last_layer_sparsity=args.skip_last_layer_sparsity):
+            if mlp_only_with_args(
+                mod,
+                name,
+                skip_first_transformer_sparsity=args.skip_first_transformer_sparsity,
+                skip_last_layer_sparsity=args.skip_last_layer_sparsity,
+            ):
                 sparse_config.append({"tensor_fqn": f"{name}.weight"})
 
         sparsifier = WeightNormSparsifier(
             sparsity_level=1.0, sparse_block_shape=(1, 4), zeros_per_block=2
         )
         sparsifier.prepare(model, sparse_config)
-        for line in sparse_config:
-            print(line)
         sparsifier.step()
         return sparsifier
-    else:
-        print("No sparsity applied!")
 
 
-### Existing torchvision utils
+# ------------------------------------------------------------
+# The following code contains torchvision reference code,
+# largely copied from: https://github.com/pytorch/vision/tree/main/references/classification
+# Please open issues in the original repository if you have questions.
+
 
 class SmoothedValue:
     """Track a series of values and provide access to smoothed values over a
@@ -164,7 +266,11 @@ class SmoothedValue:
 
     def __str__(self):
         return self.fmt.format(
-            median=self.median, avg=self.avg, global_avg=self.global_avg, max=self.max, value=self.value
+            median=self.median,
+            avg=self.avg,
+            global_avg=self.global_avg,
+            max=self.max,
+            value=self.value,
         )
 
 
@@ -185,7 +291,9 @@ class MetricLogger:
             return self.meters[attr]
         if attr in self.__dict__:
             return self.__dict__[attr]
-        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{attr}'")
+        raise AttributeError(
+            f"'{type(self).__name__}' object has no attribute '{attr}'"
+        )
 
     def __str__(self):
         loss_str = []
@@ -223,7 +331,14 @@ class MetricLogger:
             )
         else:
             log_msg = self.delimiter.join(
-                [header, "[{0" + space_fmt + "}/{1}]", "eta: {eta}", "{meters}", "time: {time}", "data: {data}"]
+                [
+                    header,
+                    "[{0" + space_fmt + "}/{1}]",
+                    "eta: {eta}",
+                    "{meters}",
+                    "time: {time}",
+                    "data: {data}",
+                ]
             )
         MB = 1024.0 * 1024.0
         for obj in iterable:
@@ -248,7 +363,12 @@ class MetricLogger:
                 else:
                     print(
                         log_msg.format(
-                            i, len(iterable), eta=eta_string, meters=str(self), time=str(iter_time), data=str(data_time)
+                            i,
+                            len(iterable),
+                            eta=eta_string,
+                            meters=str(self),
+                            time=str(iter_time),
+                            data=str(data_time),
                         )
                     )
             i += 1
@@ -316,9 +436,9 @@ def setup_for_distributed(is_master):
 
 
 def is_dist_avail_and_initialized():
-    if not dist.is_available():
+    if not torch.distributed.is_available():
         return False
-    if not dist.is_initialized():
+    if not torch.distributed.is_initialized():
         return False
     return True
 
@@ -326,13 +446,13 @@ def is_dist_avail_and_initialized():
 def get_world_size():
     if not is_dist_avail_and_initialized():
         return 1
-    return dist.get_world_size()
+    return torch.distributed.get_world_size()
 
 
 def get_rank():
     if not is_dist_avail_and_initialized():
         return 0
-    return dist.get_rank()
+    return torch.distributed.get_rank()
 
 
 def is_main_process():
@@ -363,9 +483,12 @@ def init_distributed_mode(args):
 
     torch.cuda.set_device(args.gpu)
     args.dist_backend = "nccl"
-    print(f"| distributed init (rank {args.rank}): {args.dist_url}", flush=True)
+    print(f"| distributed init (rank {args.rank})", flush=True)
     torch.distributed.init_process_group(
-        backend=args.dist_backend, init_method=args.dist_url, world_size=args.world_size, rank=args.rank
+        backend=args.dist_backend,
+        init_method=args.dist_url,
+        world_size=args.world_size,
+        rank=args.rank,
     )
     torch.distributed.barrier()
     setup_for_distributed(args.rank == 0)
@@ -390,7 +513,9 @@ def average_checkpoints(inputs):
         with open(fpath, "rb") as f:
             state = torch.load(
                 f,
-                map_location=(lambda s, _: torch.serialization.default_restore_location(s, "cpu")),
+                map_location=(
+                    lambda s, _: torch.serialization.default_restore_location(s, "cpu")
+                ),
             )
         # Copies over the settings from the first checkpoint
         if new_state is None:
@@ -475,7 +600,9 @@ def store_model_weights(model, checkpoint_path, checkpoint_key="model", strict=T
     # and remove unnecessary weights (such as auxiliaries, etc)
     if checkpoint_key == "model_ema":
         del checkpoint[checkpoint_key]["n_averaged"]
-        torch.nn.modules.utils.consume_prefix_in_state_dict_if_present(checkpoint[checkpoint_key], "module.")
+        torch.nn.modules.utils.consume_prefix_in_state_dict_if_present(
+            checkpoint[checkpoint_key], "module."
+        )
     model.load_state_dict(checkpoint[checkpoint_key], strict=strict)
 
     tmp_path = os.path.join(output_dir, str(model.__hash__()))
@@ -500,8 +627,8 @@ def reduce_across_processes(val):
         return torch.tensor(val)
 
     t = torch.tensor(val, device="cuda")
-    dist.barrier()
-    dist.all_reduce(t)
+    torch.distributed.barrier()
+    torch.distributed.all_reduce(t)
     return t
 
 
@@ -543,7 +670,9 @@ def set_weight_decay(
                 continue
             is_custom_key = False
             for key in custom_keys:
-                target_name = f"{prefix}.{name}" if prefix != "" and "." in key else name
+                target_name = (
+                    f"{prefix}.{name}" if prefix != "" and "." in key else name
+                )
                 if key == target_name:
                     params[key].append(p)
                     is_custom_key = True
@@ -563,5 +692,365 @@ def set_weight_decay(
     param_groups = []
     for key in params:
         if len(params[key]) > 0:
-            param_groups.append({"params": params[key], "weight_decay": params_weight_decay[key]})
+            param_groups.append(
+                {"params": params[key], "weight_decay": params_weight_decay[key]}
+            )
     return param_groups
+
+
+# Presets for ImageNet training/eval taken from: https://github.com/pytorch/vision/blob/main/references/classification/presets.py
+
+
+class ClassificationPresetTrain:
+    def __init__(
+        self,
+        *,
+        crop_size,
+        mean=(0.485, 0.456, 0.406),
+        std=(0.229, 0.224, 0.225),
+        interpolation=InterpolationMode.BILINEAR,
+        hflip_prob=0.5,
+        auto_augment_policy=None,
+        ra_magnitude=9,
+        augmix_severity=3,
+        random_erase_prob=0.0,
+    ):
+        trans = [transforms.RandomResizedCrop(crop_size, interpolation=interpolation)]
+        if hflip_prob > 0:
+            trans.append(transforms.RandomHorizontalFlip(hflip_prob))
+        if auto_augment_policy is not None:
+            if auto_augment_policy == "ra":
+                trans.append(
+                    autoaugment.RandAugment(
+                        interpolation=interpolation, magnitude=ra_magnitude
+                    )
+                )
+            elif auto_augment_policy == "ta_wide":
+                trans.append(
+                    autoaugment.TrivialAugmentWide(interpolation=interpolation)
+                )
+            elif auto_augment_policy == "augmix":
+                trans.append(
+                    autoaugment.AugMix(
+                        interpolation=interpolation, severity=augmix_severity
+                    )
+                )
+            else:
+                aa_policy = autoaugment.AutoAugmentPolicy(auto_augment_policy)
+                trans.append(
+                    autoaugment.AutoAugment(
+                        policy=aa_policy, interpolation=interpolation
+                    )
+                )
+        trans.extend(
+            [
+                transforms.PILToTensor(),
+                transforms.ConvertImageDtype(torch.float),
+                transforms.Normalize(mean=mean, std=std),
+            ]
+        )
+        if random_erase_prob > 0:
+            trans.append(transforms.RandomErasing(p=random_erase_prob))
+
+        self.transforms = transforms.Compose(trans)
+
+    def __call__(self, img):
+        return self.transforms(img)
+
+
+class ClassificationPresetEval:
+    def __init__(
+        self,
+        *,
+        crop_size,
+        resize_size=256,
+        mean=(0.485, 0.456, 0.406),
+        std=(0.229, 0.224, 0.225),
+        interpolation=InterpolationMode.BILINEAR,
+    ):
+
+        self.transforms = transforms.Compose(
+            [
+                transforms.Resize(resize_size, interpolation=interpolation),
+                transforms.CenterCrop(crop_size),
+                transforms.PILToTensor(),
+                transforms.ConvertImageDtype(torch.float),
+                transforms.Normalize(mean=mean, std=std),
+            ]
+        )
+
+    def __call__(self, img):
+        return self.transforms(img)
+
+
+# transforms taken from: https://github.com/pytorch/vision/blob/main/references/classification/transforms.py
+
+
+class RandomMixup(torch.nn.Module):
+    """Randomly apply Mixup to the provided batch and targets.
+    The class implements the data augmentations as described in the paper
+    `"mixup: Beyond Empirical Risk Minimization" <https://arxiv.org/abs/1710.09412>`_.
+
+    Args:
+        num_classes (int): number of classes used for one-hot encoding.
+        p (float): probability of the batch being transformed. Default value is 0.5.
+        alpha (float): hyperparameter of the Beta distribution used for mixup.
+            Default value is 1.0.
+        inplace (bool): boolean to make this transform inplace. Default set to False.
+    """
+
+    def __init__(
+        self,
+        num_classes: int,
+        p: float = 0.5,
+        alpha: float = 1.0,
+        inplace: bool = False,
+    ) -> None:
+        super().__init__()
+
+        if num_classes < 1:
+            raise ValueError(
+                f"Please provide a valid positive value for the num_classes. Got num_classes={num_classes}"
+            )
+
+        if alpha <= 0:
+            raise ValueError("Alpha param can't be zero.")
+
+        self.num_classes = num_classes
+        self.p = p
+        self.alpha = alpha
+        self.inplace = inplace
+
+    def forward(
+        self, batch: torch.Tensor, target: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Args:
+            batch (Tensor): Float tensor of size (B, C, H, W)
+            target (Tensor): Integer tensor of size (B, )
+
+        Returns:
+            Tensor: Randomly transformed batch.
+        """
+        if batch.ndim != 4:
+            raise ValueError(f"Batch ndim should be 4. Got {batch.ndim}")
+        if target.ndim != 1:
+            raise ValueError(f"Target ndim should be 1. Got {target.ndim}")
+        if not batch.is_floating_point():
+            raise TypeError(f"Batch dtype should be a float tensor. Got {batch.dtype}.")
+        if target.dtype != torch.int64:
+            raise TypeError(f"Target dtype should be torch.int64. Got {target.dtype}")
+
+        if not self.inplace:
+            batch = batch.clone()
+            target = target.clone()
+
+        if target.ndim == 1:
+            target = torch.nn.functional.one_hot(
+                target, num_classes=self.num_classes
+            ).to(dtype=batch.dtype)
+
+        if torch.rand(1).item() >= self.p:
+            return batch, target
+
+        # It's faster to roll the batch by one instead of shuffling it to create image pairs
+        batch_rolled = batch.roll(1, 0)
+        target_rolled = target.roll(1, 0)
+
+        # Implemented as on mixup paper, page 3.
+        lambda_param = float(
+            torch._sample_dirichlet(torch.tensor([self.alpha, self.alpha]))[0]
+        )
+        batch_rolled.mul_(1.0 - lambda_param)
+        batch.mul_(lambda_param).add_(batch_rolled)
+
+        target_rolled.mul_(1.0 - lambda_param)
+        target.mul_(lambda_param).add_(target_rolled)
+
+        return batch, target
+
+    def __repr__(self) -> str:
+        s = (
+            f"{self.__class__.__name__}("
+            f"num_classes={self.num_classes}"
+            f", p={self.p}"
+            f", alpha={self.alpha}"
+            f", inplace={self.inplace}"
+            f")"
+        )
+        return s
+
+
+class RandomCutmix(torch.nn.Module):
+    """Randomly apply Cutmix to the provided batch and targets.
+    The class implements the data augmentations as described in the paper
+    `"CutMix: Regularization Strategy to Train Strong Classifiers with Localizable Features"
+    <https://arxiv.org/abs/1905.04899>`_.
+
+    Args:
+        num_classes (int): number of classes used for one-hot encoding.
+        p (float): probability of the batch being transformed. Default value is 0.5.
+        alpha (float): hyperparameter of the Beta distribution used for cutmix.
+            Default value is 1.0.
+        inplace (bool): boolean to make this transform inplace. Default set to False.
+    """
+
+    def __init__(
+        self,
+        num_classes: int,
+        p: float = 0.5,
+        alpha: float = 1.0,
+        inplace: bool = False,
+    ) -> None:
+        super().__init__()
+        if num_classes < 1:
+            raise ValueError(
+                "Please provide a valid positive value for the num_classes."
+            )
+        if alpha <= 0:
+            raise ValueError("Alpha param can't be zero.")
+
+        self.num_classes = num_classes
+        self.p = p
+        self.alpha = alpha
+        self.inplace = inplace
+
+    def forward(
+        self, batch: torch.Tensor, target: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Args:
+            batch (Tensor): Float tensor of size (B, C, H, W)
+            target (Tensor): Integer tensor of size (B, )
+
+        Returns:
+            Tensor: Randomly transformed batch.
+        """
+        if batch.ndim != 4:
+            raise ValueError(f"Batch ndim should be 4. Got {batch.ndim}")
+        if target.ndim != 1:
+            raise ValueError(f"Target ndim should be 1. Got {target.ndim}")
+        if not batch.is_floating_point():
+            raise TypeError(f"Batch dtype should be a float tensor. Got {batch.dtype}.")
+        if target.dtype != torch.int64:
+            raise TypeError(f"Target dtype should be torch.int64. Got {target.dtype}")
+
+        if not self.inplace:
+            batch = batch.clone()
+            target = target.clone()
+
+        if target.ndim == 1:
+            target = torch.nn.functional.one_hot(
+                target, num_classes=self.num_classes
+            ).to(dtype=batch.dtype)
+
+        if torch.rand(1).item() >= self.p:
+            return batch, target
+
+        # It's faster to roll the batch by one instead of shuffling it to create image pairs
+        batch_rolled = batch.roll(1, 0)
+        target_rolled = target.roll(1, 0)
+
+        # Implemented as on cutmix paper, page 12 (with minor corrections on typos).
+        lambda_param = float(
+            torch._sample_dirichlet(torch.tensor([self.alpha, self.alpha]))[0]
+        )
+        _, H, W = F.get_dimensions(batch)
+
+        r_x = torch.randint(W, (1,))
+        r_y = torch.randint(H, (1,))
+
+        r = 0.5 * math.sqrt(1.0 - lambda_param)
+        r_w_half = int(r * W)
+        r_h_half = int(r * H)
+
+        x1 = int(torch.clamp(r_x - r_w_half, min=0))
+        y1 = int(torch.clamp(r_y - r_h_half, min=0))
+        x2 = int(torch.clamp(r_x + r_w_half, max=W))
+        y2 = int(torch.clamp(r_y + r_h_half, max=H))
+
+        batch[:, :, y1:y2, x1:x2] = batch_rolled[:, :, y1:y2, x1:x2]
+        lambda_param = float(1.0 - (x2 - x1) * (y2 - y1) / (W * H))
+
+        target_rolled.mul_(1.0 - lambda_param)
+        target.mul_(lambda_param).add_(target_rolled)
+
+        return batch, target
+
+    def __repr__(self) -> str:
+        s = (
+            f"{self.__class__.__name__}("
+            f"num_classes={self.num_classes}"
+            f", p={self.p}"
+            f", alpha={self.alpha}"
+            f", inplace={self.inplace}"
+            f")"
+        )
+        return s
+
+
+# RA Sampler implementaion taken from: https://github.com/pytorch/vision/blob/main/references/classification/sampler.py
+
+
+class RASampler(torch.utils.data.Sampler):
+    """Sampler that restricts data loading to a subset of the dataset for distributed,
+    with repeated augmentation.
+    It ensures that different each augmented version of a sample will be visible to a
+    different process (GPU).
+    Heavily based on 'torch.utils.data.DistributedSampler'.
+
+    This is borrowed from the DeiT Repo:
+    https://github.com/facebookresearch/deit/blob/main/samplers.py
+    """
+
+    def __init__(
+        self, dataset, num_replicas=None, rank=None, shuffle=True, seed=0, repetitions=3
+    ):
+        if num_replicas is None:
+            if not torch.distributed.is_available():
+                raise RuntimeError("Requires distributed package to be available!")
+            num_replicas = torch.distributed.get_world_size()
+        if rank is None:
+            if not torch.distributed.is_available():
+                raise RuntimeError("Requires distributed package to be available!")
+            rank = torch.distributed.get_rank()
+        self.dataset = dataset
+        self.num_replicas = num_replicas
+        self.rank = rank
+        self.epoch = 0
+        self.num_samples = int(
+            math.ceil(len(self.dataset) * float(repetitions) / self.num_replicas)
+        )
+        self.total_size = self.num_samples * self.num_replicas
+        self.num_selected_samples = int(
+            math.floor(len(self.dataset) // 256 * 256 / self.num_replicas)
+        )
+        self.shuffle = shuffle
+        self.seed = seed
+        self.repetitions = repetitions
+
+    def __iter__(self):
+        if self.shuffle:
+            # Deterministically shuffle based on epoch
+            g = torch.Generator()
+            g.manual_seed(self.seed + self.epoch)
+            indices = torch.randperm(len(self.dataset), generator=g).tolist()
+        else:
+            indices = list(range(len(self.dataset)))
+
+        # Add extra samples to make it evenly divisible
+        indices = [ele for ele in indices for i in range(self.repetitions)]
+        indices += indices[: (self.total_size - len(indices))]
+        assert len(indices) == self.total_size
+
+        # Subsample
+        indices = indices[self.rank : self.total_size : self.num_replicas]
+        assert len(indices) == self.num_samples
+
+        return iter(indices[: self.num_selected_samples])
+
+    def __len__(self):
+        return self.num_selected_samples
+
+    def set_epoch(self, epoch):
+        self.epoch = epoch
