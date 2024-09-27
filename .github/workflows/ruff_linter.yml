@@ -1,13 +1,14 @@
 name: Code Analysis with Ruff
-
 on:
   push:
     branches:
       - main
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
 
 jobs:
   build:
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && (contains(github.event.pull_request.labels.*.name, 'run-ci') || contains(github.event.pull_request.labels.*.name, 'run-code-analysis')))
     runs-on: ubuntu-latest
     strategy:
       matrix:
