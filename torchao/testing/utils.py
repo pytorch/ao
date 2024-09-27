@@ -5,6 +5,8 @@ import torch
 import torchao
 import os
 
+from packaging import version
+
 from torch.testing._internal import common_utils
 from torchao.dtypes import AffineQuantizedTensor
 from torchao.dtypes import to_affine_quantized_intx
@@ -34,6 +36,8 @@ copy_tests(TorchAOBasicTestCase, MyTestCase, "my_test_case")
 if __name__ == "__main__":
     unittest.main()
 """
+
+torch_version = version.Version(torch.__version__)
 
 # copied from https://github.com/pytorch/pytorch/blob/941d094dd1b507dacf06ddc6ed3485a9537e09b7/test/inductor/test_torchinductor.py#L11389
 def copy_tests(
@@ -223,6 +227,8 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
     NUM_DEVICES,
 )
 
+COMPILED_TENSOR_PARALLEL_REQUIRED_VERSION = version.Version("2.5.0dev")
+
 class TorchAOTensorParallelTestCase(DTensorTestBase):
     """Basic test case for tensor subclasses
     """
@@ -318,6 +324,10 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
         )
 
         y_d = dn_dist(up_dist(input_dtensor))
+
+        if torch_version < COMPILED_TENSOR_PARALLEL_REQUIRED_VERSION:
+            # Need torch 2.5 to support compiled tensor parallelism
+            return
 
         up_compiled = torch.compile(up_dist)
         y_up = up_compiled(input_dtensor)
