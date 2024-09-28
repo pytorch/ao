@@ -4,16 +4,16 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import enum
-from typing import Dict, Optional, NamedTuple
+from typing import Dict, NamedTuple, Optional
 
 import torch
-
 import torch.distributed._functional_collectives as funcol
+from torch.distributed._tensor import DTensor
+
 from torchao.float8.float8_utils import (
     e4m3_dtype,
     to_fp8_saturated,
 )
-from torch.distributed._tensor import DTensor
 
 aten = torch.ops.aten
 
