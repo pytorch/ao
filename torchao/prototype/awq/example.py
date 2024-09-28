@@ -96,7 +96,7 @@ def wikitext2_ppl(
         print(f"running {quant_dtype} quantization")
         if scale_store_path is not None:
             print(f"Saving equalization scales to {scale_store_path}")
-            save_equalization_scales(scale_store_path)
+            save_equalization_scales(model, scale_store_path)
             load_equalization_scales_and_quantize_(model, quant_dtype=quant_dtype, group_size=group_size)
         else:
             # use awq_uintx() to apply awq quantization
