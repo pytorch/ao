@@ -144,7 +144,8 @@ if __name__ == "__main__":
         device=args.device,
         precision=precision_dtype,
         sequence_length=args.seq_len,
-        compile=args.compile
+        compile=args.compile,
+        scale_store_path=args.scale_store_path
     )
 
     print(f"{args.quant} Perplexity: {ppl.item():.5f}")
