@@ -69,7 +69,7 @@ def wikitext2_ppl(
         device="cuda", 
         precision=torch.bfloat16, 
         sequence_length=2048, 
-        compile=False
+        compile=False,
         scale_store_path=None):
     print(f"Loading model on {device}...")
     torch.manual_seed(34)
