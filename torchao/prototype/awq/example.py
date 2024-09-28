@@ -69,7 +69,8 @@ def wikitext2_ppl(
         device="cuda", 
         precision=torch.bfloat16, 
         sequence_length=2048, 
-        compile=False):
+        compile=False
+        scale_store_path=None):
     print(f"Loading model on {device}...")
     torch.manual_seed(34)
     t0 = time.time()
@@ -129,7 +130,7 @@ if __name__ == "__main__":
     parser.add_argument("--precision", type=str, default="bfloat16", help="Precision type. Default is 'bfloat16'.")
     parser.add_argument("--seq_len", type=int, default=512, help="Length of examples to calibrate/evaluate model on. Default 512")
     parser.add_argument("--compile", action="store_true", help="Flag to indicate if compilation is required.")
-    parser.add_argument("scale_store_path", type=str, default= None, help="Path to store the scale values.")
+    parser.add_argument("scale_store_path", type=str, default=None, help="Path to store the scale values.")
 
     args = parser.parse_args()
 
