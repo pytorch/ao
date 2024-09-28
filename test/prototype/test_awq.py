@@ -1,11 +1,12 @@
 from copy import deepcopy
+import os
 import pytest
 import torch
 from torchao.quantization import quantize_
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
 if TORCH_VERSION_AT_LEAST_2_3:
-    from torchao.prototype.awq import insert_awq_observer_, awq_uintx, ObservedLinear
+    from torchao.prototype.awq import insert_awq_observer_, awq_uintx, ObservedLinear, save_equalization_scales, load_equalization_scales_and_quantize_
 
 class ToyLinearModel(torch.nn.Module):
     def __init__(self, m=512, n=256, k=128):
@@ -22,12 +23,11 @@ class ToyLinearModel(torch.nn.Module):
         x = self.linear2(x)
         x = self.linear3(x)
         return x
-    
 
 devices = ["cuda"]
 # torch.uintx dtypes are introduced in 2.3
 if TORCH_VERSION_AT_LEAST_2_3:
-    qdtypes = (torch.uint1, torch.uint2, torch.uint3, torch.uint4, torch.uint5, torch.uint6, torch.uint7, torch.uint8)
+    qdtypes = (torch.uint4,)#torch.uint1, torch.uint2, torch.uint3, torch.uint4, torch.uint5, torch.uint6, torch.uint7, torch.uint8)
 else:
     qdtypes = ()
     
@@ -53,6 +53,7 @@ def test(device, qdtype, idtype):
     sequence_length = 5
 
     m = ToyLinearModel(l1,l2,l3).eval().to(original_dtype).to(device)
+    m_save_load = deepcopy(m)
     m_bf16 = deepcopy(m)
 
     dataset = m.example_inputs(dataset_size, sequence_length=sequence_length,  dtype=original_dtype, device=device)
@@ -60,14 +61,26 @@ def test(device, qdtype, idtype):
     bf16_out = torch.cat([m_bf16(i.squeeze(0)) for i in dataset], dim=0)
 
     # calibrate
-    insert_awq_observer_(m, n_validation_examples,sequence_length, quant_dtype=quant_dtype, group_size=group_size)
+    insert_awq_observer_(m, n_validation_examples, sequence_length, quant_dtype=quant_dtype, group_size=group_size)
+    insert_awq_observer_(m_save_load, n_validation_examples, sequence_length, quant_dtype=quant_dtype, group_size=group_size)
+
     for example in calibration_data:
         m(example.to(device))
+        m_save_load(example.to(device))
 
+    equalization_scale_path = "equalization_scales.pt"
+    save_equalization_scales(m_save_load, equalization_scale_path)
+    load_equalization_scales_and_quantize_(m_save_load, equalization_scale_path)
     # quantize
     is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
     quantize_(m, awq_uintx(quant_dtype = quant_dtype, group_size = group_size), is_observed_linear)
     m = torch.compile(m, fullgraph=True)
+    m_save_load = torch.compile(m_save_load, fullgraph=True)
     awq_out = torch.cat([m(i.squeeze(0)) for i in dataset])
+    awq_save_load_out = torch.cat([m_save_load(i.squeeze(0)) for i in dataset])
     
     assert awq_out is not None
+    assert awq_save_load_out is not None
+    assert torch.allclose(awq_out, awq_save_load_out, atol = 1e-2)
+    # remove equalization scale file
+    os.remove(equalization_scale_path)

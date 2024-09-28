@@ -148,6 +148,7 @@ class ObservedLinear(torch.nn.Linear):
     def __init__(self, in_features: int, out_features: int, act_obs: torch.nn.Module, bias: bool = True, device=None, dtype=None):
         super().__init__(in_features, out_features, bias, device, dtype)
         self.act_obs = act_obs
+        self.equalization_scale = None
 
     def forward(self, input: torch.Tensor):
         output = F.linear(input, self.weight, self.bias)
