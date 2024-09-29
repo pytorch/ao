@@ -4,7 +4,7 @@
 # BF16 baseline: python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --bf16_model --compile
 # INT8 QT:       python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --bf16_model --compile --quantize int8_weight_only
 # INT8 MP:       python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --bf16_model --compile --quantize int8_mixed_precision
-# BitNet:        python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --bf16_model --compile --quantize bitnet
+# BitNet:        python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --bf16_model --compile --quantize bitnet --modify_rmsnorm_for_bitnet
 
 import os
 
@@ -99,6 +99,8 @@ if __name__ == "__main__":
     parser.add_argument("--activation_checkpointing", action="store_true")
     parser.add_argument("--compile", action="store_true")
 
+    parser.add_argument("--modify_rmsnorm_for_bitnet", action="store_true")
+
     parser.add_argument("--n_steps", type=int, default=1000)
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--seq_len", type=int, default=2048)
@@ -128,6 +130,26 @@ if __name__ == "__main__":
         for layer in model.layers:
             enable_activation_checkpointing(layer)
 
+    # as recommended by https://github.com/microsoft/unilm/blob/master/bitnet/The-Era-of-1-bit-LLMs__Training_Tips_Code_FAQ.pdf
+    # section 3
+    if args.modify_rmsnorm_for_bitnet:
+        # remove old RMSNorm
+        for layer in model.layers:
+            layer.attention_norm = torch.nn.Identity()
+            layer.ffn_norm = torch.nn.Identity()
+
+        # insert new RMSNorm
+        def insert_rmsnorm(module: torch.nn.Module):
+            for name, child in module.named_children():
+                if isinstance(child, torch.nn.Linear):
+                    w = child.weight
+                    norm = RMSNorm(child.in_features).to(device=w.device, dtype=w.dtype)
+                    setattr(module, name, torch.nn.Sequential(norm, child))
+                else:
+                    insert_rmsnorm(child)
+
+        insert_rmsnorm(model.layers)
+
     # don't apply int8_mixed_precision to LM head, since it can cause convergence issue.
     # TODO: might want to do the same for int8_weight_only to standardize.
     if args.quantize == "int8_weight_only":
@@ -138,23 +160,6 @@ if __name__ == "__main__":
 
     elif args.quantize == "bitnet":
         quantize_(model.layers, bitnet_training(), set_inductor_config=False)
-
-        # remove old RMSNorm
-        for layer in model.layers:
-            layer.attention_norm = torch.nn.Identity()
-            layer.ffn_norm = torch.nn.Identity()
-        
-        # insert new RMSNorm
-        def insert_rmsnorm(module: torch.nn.Module):
-            for name, child in module.named_children():
-                if isinstance(child, torch.nn.Linear):
-                    w = child.weight
-                    norm = RMSNorm(child.in_features).to(device=w.device, dtype=w.dtype)
-                    setattr(module, name, torch.nn.Sequential(norm, child))
-                else:
-                    insert_rmsnorm(child)
-        
-        insert_rmsnorm(model.layers)
 
     elif args.quantize is not None:
         raise ValueError(f"Unsupported quantize={args.quantize}")
