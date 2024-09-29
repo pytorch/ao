@@ -19,7 +19,7 @@ else:
     # change in the future.
     # Multiplying col_scale first is faster than the other way round.
     def scaled_int8_mm(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor) -> Tensor:
-        return torch._int_mm(A, B) * col_scale * row_scale.view(-1, 1)
+        return torch._int_mm(A, B) * col_scale.view(-1) * row_scale.view(-1, 1)
 
 
 class Int8MixedPrecisionTrainingConfig(NamedTuple):

@@ -26,7 +26,7 @@ else:
     # change in the future.
     # Multiplying col_scale first is faster than the other way round.
     def scaled_int8_mm(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor) -> Tensor:
-        return torch._int_mm(A, B) * col_scale * row_scale.view(-1, 1)
+        return torch._int_mm(A, B) * col_scale.view(-1) * row_scale.view(-1, 1)
 
 
 aten = torch.ops.aten
@@ -223,8 +223,16 @@ def bitnet_training():
 
 
 def _pack_i2_in_i8(x: Tensor):
-    # NOTE: this is signed integer, so we have to mask before bit-shift
-    return (x[:, ::4] << 6) | ((x[:, 1::4] & 0b11) << 4) | ((x[:, 2::4] & 0b11) << 2) | (x[:, 3::4] & 0b11)
+    # perform packing: [xxxx xxaa, xxxx xxxbb, xxxx xxcc, xxxx xxdd] -> [aabb ccdd]
+    # for each value, xxxx can be either all 0s or all 1s because these are signed numbers.
+    # thus, we have to mask out the 2 least significant bits (right-most) before bit-shift.
+    # e.g. 1111 1111 (value=-1) -> 0000 0011 -> 0011 0000
+
+    x0 = x[:, ::4] << 6  # don't need to mask this number because we shift it to the left-most
+    x1 = (x[:, 1::4] & 0b11) << 4
+    x2 = (x[:, 2::4] & 0b11) << 2
+    x3 = x[:, 3::4] & 0b11
+    return x0 | x1 | x2 | x3
 
 
 def _unpack_i2_in_i8(x: Tensor):

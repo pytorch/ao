@@ -166,7 +166,7 @@ class TestQuantizedTraining(TestCase):
         embed_dim = 64
         device = "cuda"
 
-        linear = nn.Linear(embed_dim, embed_dim).cuda()
+        linear = nn.Linear(embed_dim, embed_dim, device=device)
         linear_int8mp = copy.deepcopy(linear)
         quantize_(linear_int8mp, int8_mixed_precision_training(config), set_inductor_config=False)
 
