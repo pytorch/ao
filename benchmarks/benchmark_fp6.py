@@ -43,7 +43,7 @@ if __name__ == "__main__":
 
     for m in tqdm([1 << i for i in range(10)]):
         for n, k in zip(n_vals, k_vals):
-            results.append(benchmark(m, n, k))
+            results.append(benchmark(m, k, n))
 
     df = pd.DataFrame(results)
     df.to_csv("fp6_llm_benchmark_results.csv", index=False)
