@@ -20,6 +20,9 @@ from torchao.quantization.quant_api import (
     fpx_weight_only,
     uintx_weight_only,
     unwrap_tensor_subclass,
+    float8_weight_only,
+    float8_dynamic_activation_float8_weight,
+    float8_static_activation_float8_weight,
 )
 from torchao._models._eval import TransformerEvalWrapper, InputRecorder
 
@@ -122,6 +125,12 @@ def run_evaluation(
         else:
             if not TORCH_VERSION_AT_LEAST_2_5:
                 unwrap_tensor_subclass(model)
+        if "float8wo" in quantization:
+            quantize_(model, float8_weight_only())
+        if "float8dq" in quantization:
+            quantize_(model, float8_dynamic_activation_float8_weight())
+        if "float8saq" in quantization:
+            quantize_(model, float8_static_activation_float8_weight())
         if "autoround" in quantization:
             from torchao.prototype.autoround.autoround_llm import quantize_model_with_autoround_
             from transformers import AutoTokenizer
@@ -209,7 +218,8 @@ if __name__ == '__main__':
             "Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, "
             "int4wo-<groupsize>-gptq, autoquant, autoquant-int4, int4wo-<groupsize>-hqq, "
             "uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, "
-            "autoround-<model_device>-<quant_lm_head>-<iters>-<groupsize>-<batch_size>-<seqlen>-<nsamples>-<grad_acc_steps>-<c>"
+            "autoround-<model_device>-<quant_lm_head>-<iters>-<groupsize>-<batch_size>-<seqlen>-<nsamples>-<grad_acc_steps>-<c>, "
+            "float8wo, float8dq, float8saq"
         ),
     )
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
