@@ -20,10 +20,10 @@ Tensor _op_out(
     const Tensor& k_tensor,
     Tensor& out) {
   (void)ctx;
-  linear_out_cpu</*weight_nbit*/ 3, /*has_weight_zeros*/ true>(
+  linear_out_cpu</*weight_nbit*/ 1, /*has_weight_zeros*/ true>(
       activations, packed_weights, group_size_tensor, n_tensor, k_tensor, out);
   return out;
 }
 } // namespace
 
-EXECUTORCH_LIBRARY(torchao, "_linear_8bit_act_3bit_weight.out", _op_out);
+EXECUTORCH_LIBRARY(torchao, "_linear_8bit_act_1bit_weight.out", _op_out);

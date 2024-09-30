@@ -13,17 +13,17 @@
 namespace {
 Tensor _op_out(
     RuntimeContext& ctx,
+    const Tensor& activations,
     const Tensor& packed_weights,
+    const Tensor& group_size_tensor,
     const Tensor& n_tensor,
     const Tensor& k_tensor,
-    const Tensor& group_size_tensor,
-    const Tensor& activations,
     Tensor& out) {
   (void)ctx;
   linear_out_cpu</*weight_nbit*/ 5, /*has_weight_zeros*/ true>(
-      packed_weights, n_tensor, k_tensor, group_size_tensor, activations, out);
+      activations, packed_weights, group_size_tensor, n_tensor, k_tensor, out);
   return out;
 }
 } // namespace
 
-EXECUTORCH_LIBRARY(torchao, "_linear_a8sz_w5sz.out", _op_out);
+EXECUTORCH_LIBRARY(torchao, "_linear_8bit_act_5bit_weight.out", _op_out);

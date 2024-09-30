@@ -30,7 +30,6 @@ if len(libs) == 0:
 else:
     torch.ops.load_library(libs[0])
 
-
 class TestInt8DynActIntxWeightQuantizer(unittest.TestCase):
     def test_accuracy(self):
         group_size = 128
