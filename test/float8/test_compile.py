@@ -32,6 +32,7 @@ from torchao.float8.float8_scaling_utils import (
 from torchao.float8.float8_tensor import (
     LinearMMConfig,
     GemmInputRole,
+    ScaledMMConfig,
 )
 from torchao.float8.float8_utils import e4m3_dtype
 
@@ -379,17 +380,40 @@ def test_dynamic_scale_numeric_parity(dtype: torch.dtype):
     float8_config = Float8LinearConfig(
         cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
     )
+    linear_mm_config = LinearMMConfig(
+        # output
+        ScaledMMConfig(
+            False,
+            float8_config.gemm_config_output.use_fast_accum,
+            False,
+            float8_config.pad_inner_dim,
+        ),
+        # grad_input
+        ScaledMMConfig(
+            False,
+            float8_config.gemm_config_grad_input.use_fast_accum,
+            False,
+            float8_config.pad_inner_dim,
+        ),
+        # grad_weight
+        ScaledMMConfig(
+            False,
+            float8_config.gemm_config_grad_weight.use_fast_accum,
+            False,
+            float8_config.pad_inner_dim,
+        ),
+    )
     float8_eager = hp_tensor_to_float8_dynamic(
         hp_tensor1,
         torch.float8_e4m3fn,
-        float8_config,
+        linear_mm_config,
         gemm_input_role=GemmInputRole.WEIGHT,
     )
     torch._dynamo.reset()
     float8_compile = torch.compile(hp_tensor_to_float8_dynamic)(
         hp_tensor2,
         torch.float8_e4m3fn,
-        float8_config,
+        linear_mm_config,
         gemm_input_role=GemmInputRole.WEIGHT,
     )
     assert torch.equal(float8_eager._scale, float8_compile._scale)
