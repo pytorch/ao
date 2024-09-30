@@ -17,7 +17,4 @@ cmake -DTORCHAO_LIBRARIES=${TORCHAO_LIBRARIES} \
 cmake --build ${CMAKE_OUT}
 
 # Run
-case "$1" in
-    linear_operator) ${CMAKE_OUT}/benchmark_linear_operator; ;;
-    *) echo "Unknown benchmark: $1. Please specify one of: linear_operator."; exit 1; ;;
-esac
+${CMAKE_OUT}/benchmark_linear_8bit_act_xbit_weight

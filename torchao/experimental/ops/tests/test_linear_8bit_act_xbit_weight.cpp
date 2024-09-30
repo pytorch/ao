@@ -8,14 +8,13 @@
 // TODO: move test_utils.h out of aarch64
 #include <torchao/experimental/kernels/cpu/aarch64/linear/linear.h>
 #include <torchao/experimental/kernels/cpu/aarch64/tests/test_utils.h>
-#include <torchao/experimental/ops/linear/channelwise_8bit_activation_groupwise_lowbit_weight.h>
+#include <torchao/experimental/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.h>
 #include <torchao/experimental/ops/memory.h>
 #include <torchao/experimental/ops/parallel.h>
 
 const float kTol = 1.0e-5;
 
-using namespace torchao::ops::linear::
-    channelwise_8bit_activation_groupwise_lowbit_weight;
+using namespace torchao::ops::linear_8bit_act_xbit_weight;
 
 template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
 UKernelConfig get_ukernel_config() {
@@ -42,11 +41,7 @@ UKernelConfig get_ukernel_config() {
 }
 
 template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
-void test_channelwise_8bit_activation_groupwise_lowbit_weight(
-    int m,
-    int n,
-    int k,
-    int group_size) {
+void test_linear_8bit_act_xbit_weight(int m, int n, int k, int group_size) {
   auto ukernel_config =
       get_ukernel_config<weight_nbit, has_weight_zeros, has_bias, has_clamp>();
 
@@ -132,8 +127,8 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight(
   }
 }
 
-TEST(test_channelwise_8bit_activation_groupwise_lowbit_weight, Standard) {
-  test_channelwise_8bit_activation_groupwise_lowbit_weight<
+TEST(test_linear_8bit_act_xbit_weight, Standard) {
+  test_linear_8bit_act_xbit_weight<
       4 /*weight_nbit*/,
       false /*has_weight_zeros*/,
       false /*has_bias*/,
@@ -141,8 +136,8 @@ TEST(test_channelwise_8bit_activation_groupwise_lowbit_weight, Standard) {
       /*m=*/13, /*n=*/8 * 10 + 3, /*k=*/16 * 3, /*group_size=*/16);
 }
 
-TEST(test_channelwise_8bit_activation_groupwise_lowbit_weight, HasWeightZeros) {
-  test_channelwise_8bit_activation_groupwise_lowbit_weight<
+TEST(test_linear_8bit_act_xbit_weight, HasWeightZeros) {
+  test_linear_8bit_act_xbit_weight<
       4 /*weight_nbit*/,
       true /*has_weight_zeros*/,
       true /*has_bias*/,
@@ -150,8 +145,8 @@ TEST(test_channelwise_8bit_activation_groupwise_lowbit_weight, HasWeightZeros) {
       /*m=*/13, /*n=*/8 * 10 + 3, /*k=*/16 * 3, /*group_size=*/16);
 }
 
-TEST(test_channelwise_8bit_activation_groupwise_lowbit_weight, HasBias) {
-  test_channelwise_8bit_activation_groupwise_lowbit_weight<
+TEST(test_linear_8bit_act_xbit_weight, HasBias) {
+  test_linear_8bit_act_xbit_weight<
       4 /*weight_nbit*/,
       false /*has_weight_zeros*/,
       true /*has_bias*/,
@@ -159,8 +154,8 @@ TEST(test_channelwise_8bit_activation_groupwise_lowbit_weight, HasBias) {
       /*m=*/13, /*n=*/8 * 10 + 3, /*k=*/16 * 3, /*group_size=*/16);
 }
 
-TEST(test_channelwise_8bit_activation_groupwise_lowbit_weight, HasClamp) {
-  test_channelwise_8bit_activation_groupwise_lowbit_weight<
+TEST(test_linear_8bit_act_xbit_weight, HasClamp) {
+  test_linear_8bit_act_xbit_weight<
       4 /*weight_nbit*/,
       false /*has_weight_zeros*/,
       false /*has_bias*/,
@@ -168,8 +163,8 @@ TEST(test_channelwise_8bit_activation_groupwise_lowbit_weight, HasClamp) {
       /*m=*/13, /*n=*/8 * 10 + 3, /*k=*/16 * 3, /*group_size=*/16);
 }
 
-TEST(test_channelwise_8bit_activation_groupwise_lowbit_weight, SmallDimension) {
-  test_channelwise_8bit_activation_groupwise_lowbit_weight<
+TEST(test_linear_8bit_act_xbit_weight, SmallDimension) {
+  test_linear_8bit_act_xbit_weight<
       3 /*weight_nbit*/,
       true /*has_weight_zeros*/,
       true /*has_bias*/,
@@ -177,9 +172,7 @@ TEST(test_channelwise_8bit_activation_groupwise_lowbit_weight, SmallDimension) {
       /*m=*/1, /*n=*/1, /*k=*/16 * 3, /*group_size=*/16);
 }
 
-TEST(
-    test_channelwise_8bit_activation_groupwise_lowbit_weight,
-    KNotDivisibleByGroupSize) {
+TEST(test_linear_8bit_act_xbit_weight, KNotDivisibleByGroupSize) {
   int n = 1;
   int k = 16 + 1;
   int group_size = 16;
@@ -207,9 +200,7 @@ TEST(
       std::runtime_error);
 }
 
-TEST(
-    test_channelwise_8bit_activation_groupwise_lowbit_weight,
-    GroupSizeNotDivisibleBy16) {
+TEST(test_linear_8bit_act_xbit_weight, GroupSizeNotDivisibleBy16) {
   int n = 1;
   int k = 20;
   int group_size = 10;

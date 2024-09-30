@@ -4,6 +4,8 @@
 // This source code is licensed under the license found in the
 // LICENSE file in the root directory of this source tree.
 
+#if defined(__aarch64__) || defined(__ARM_NEON)
+
 #include <arm_neon.h>
 #include <gtest/gtest.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/bitpack.h>
@@ -662,3 +664,5 @@ TEST_BITPACKING_128_LOWBIT_VALUES(2);
 TEST_BITPACKING_128_LOWBIT_VALUES(3);
 TEST_BITPACKING_128_LOWBIT_VALUES(4);
 TEST_BITPACKING_128_LOWBIT_VALUES(5);
+
+#endif // defined(__aarch64__) || defined(__ARM_NEON)

@@ -5,16 +5,15 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
-#include <torchao/experimental/ops/linear/channelwise_8bit_activation_groupwise_lowbit_weight.h>
+#include <torchao/experimental/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.h>
 #include <torchao/experimental/ops/macro.h>
 #include <torchao/experimental/ops/memory.h>
 #include <cassert>
 #include <optional>
 
-namespace torchao::ops::linear::
-    channelwise_8bit_activation_groupwise_lowbit_weight {
+namespace torchao::ops::linear_8bit_act_xbit_weight {
 
-class Channelwise8BitActivationGroupwiseLowbitWeightLinearOperator {
+class Linear8BitActXBitWeightOperator {
  private:
   torchao::aligned_byte_ptr packed_weight_data_{nullptr, nullptr};
   int packed_weight_data_size_{0};
@@ -40,7 +39,7 @@ class Channelwise8BitActivationGroupwiseLowbitWeightLinearOperator {
   LinearTileSchedulingPolicy linear_scheduling_policy_;
 
  public:
-  Channelwise8BitActivationGroupwiseLowbitWeightLinearOperator(
+  Linear8BitActXBitWeightOperator(
       UKernelConfig ukernel_config,
       int n,
       int k,
@@ -195,4 +194,4 @@ class Channelwise8BitActivationGroupwiseLowbitWeightLinearOperator {
   }
 };
 } // namespace
-  // torchao::ops::linear::channelwise_8bit_activation_groupwise_lowbit_weight
+  // torchao::ops::linear_8bit_act_xbit_weight

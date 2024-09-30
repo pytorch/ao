@@ -5,6 +5,9 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
+
+#if defined(__aarch64__) || defined(__ARM_NEON)
+
 #include <torchao/experimental/kernels/cpu/aarch64/quantization/quantize.h>
 #include <torchao/experimental/kernels/cpu/aarch64/reduction/reduction.h>
 #include <cassert>
@@ -272,3 +275,5 @@ struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
 };
 
 } // namespace torchao
+
+#endif // defined(__aarch64__) || defined(__ARM_NEON)

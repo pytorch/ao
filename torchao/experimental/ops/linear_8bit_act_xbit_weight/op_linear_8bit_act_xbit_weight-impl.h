@@ -5,8 +5,12 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
+
+#if defined(__aarch64__) || defined(__ARM_NEON)
 #include <torchao/experimental/kernels/cpu/aarch64/linear/linear.h>
-#include <torchao/experimental/ops/linear/channelwise_8bit_activation_groupwise_lowbit_weight.h>
+#endif // defined(__aarch64__) || defined(__ARM_NEON)
+
+#include <torchao/experimental/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.h>
 #include <optional>
 #include <vector>
 
@@ -32,12 +36,11 @@ using RuntimeContext = torch::executor::KernelRuntimeContext;
 namespace {
 
 template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
-inline torchao::ops::linear::
-    channelwise_8bit_activation_groupwise_lowbit_weight::UKernelConfig
-    get_ukernel_config() {
-  torchao::ops::linear::channelwise_8bit_activation_groupwise_lowbit_weight::
-      UKernelConfig config;
+inline torchao::ops::linear_8bit_act_xbit_weight::UKernelConfig
+get_ukernel_config() {
+  torchao::ops::linear_8bit_act_xbit_weight::UKernelConfig config;
 
+#if defined(__aarch64__) || defined(__ARM_NEON)
   namespace ukernel = torchao::kernels::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot;
   config.mr = 1;
@@ -54,6 +57,7 @@ inline torchao::ops::linear::
       &ukernel::prepare_weight_data<weight_nbit, has_weight_zeros>;
   config.kernel_fn =
       &ukernel::kernel<weight_nbit, has_weight_zeros, has_bias, has_clamp>;
+#endif // defined(__aarch64__) || defined(__ARM_NEON)
 
   return config;
 }
@@ -100,8 +104,7 @@ Tensor pack_weights_cpu(
     weight_zeros_ptr = weight_zeros.value().const_data_ptr<int8_t>();
   }
 
-  using namespace torchao::ops::linear::
-      channelwise_8bit_activation_groupwise_lowbit_weight;
+  using namespace torchao::ops::linear_8bit_act_xbit_weight;
 
   auto ukernel_config = get_ukernel_config<
       weight_nbit,
@@ -169,8 +172,7 @@ Tensor pack_weights_meta(
   int n = weight_qvals.size(0);
   int k = weight_qvals.size(1);
 
-  using namespace torchao::ops::linear::
-      channelwise_8bit_activation_groupwise_lowbit_weight;
+  using namespace torchao::ops::linear_8bit_act_xbit_weight;
 
   auto ukernel_config = get_ukernel_config<
       weight_nbit,
@@ -256,8 +258,7 @@ Tensor linear_out_cpu(
   CHECK_MSG(out.size(1) == n, "out shape is incorrect");
 #endif // USE_EXECUTORCH
 
-  using namespace torchao::ops::linear::
-      channelwise_8bit_activation_groupwise_lowbit_weight;
+  using namespace torchao::ops::linear_8bit_act_xbit_weight;
 
   auto ukernel_config = get_ukernel_config<
       weight_nbit,

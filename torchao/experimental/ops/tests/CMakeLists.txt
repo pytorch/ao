@@ -11,8 +11,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_BUILD_TYPE Debug)
 add_compile_options("-Wall" "-Werror")
 
-set(TORCHAO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../..)
-set(TORCHAO_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../../../../..)
+set(TORCHAO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../..)
+set(TORCHAO_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../../../..)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -24,20 +24,22 @@ enable_testing()
 
 include_directories(${TORCHAO_INCLUDE_DIRS})
 
-set(TORCHAO_PARALLEL_BACKEND "TEST_DUMMY")
-add_subdirectory(${TORCHAO_ROOT}/ops/linear ${CMAKE_CURRENT_BINARY_DIR}/torchao_ops_linear_${TORCHAO_PARALLEL_BACKEND})
+set(TORCHAO_PARALLEL_BACKEND "test_dummy")
 add_subdirectory(${TORCHAO_ROOT}/kernels/cpu/aarch64 ${CMAKE_CURRENT_BINARY_DIR}/torchao_kernels_aarch64)
 
 include(${TORCHAO_ROOT}/Utils.cmake)
-add_executable(test_linear_operator test_linear_operator.cpp)
-target_link_libraries(
-    test_linear_operator
-    PRIVATE
-    GTest::gtest_main
-    torchao_kernels_aarch64
-    torchao_ops_linear_${TORCHAO_PARALLEL_BACKEND}
+add_executable(
+  test_linear_8bit_act_xbit_weight
+  test_linear_8bit_act_xbit_weight.cpp
+  ${TORCHAO_ROOT}/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.cpp
 )
-target_link_torchao_parallel_backend(test_linear_operator "${TORCHAO_PARALLEL_BACKEND}")
+target_link_libraries(
+  test_linear_8bit_act_xbit_weight
+  PRIVATE
+  GTest::gtest_main
+  torchao_kernels_aarch64
+)
+target_link_torchao_parallel_backend(test_linear_8bit_act_xbit_weight "${TORCHAO_PARALLEL_BACKEND}")
 
 include(GoogleTest)
-gtest_discover_tests(test_linear_operator)
+gtest_discover_tests(test_linear_8bit_act_xbit_weight)

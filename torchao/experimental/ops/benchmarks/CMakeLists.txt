@@ -11,8 +11,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_BUILD_TYPE Release)
 add_compile_options("-Wall" "-Werror")
 
-set(TORCHAO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../..)
-set(TORCHAO_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../../../../..)
+set(TORCHAO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../..)
+set(TORCHAO_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../../../..)
 
 include(FetchContent)
 FetchContent_Declare(googlebenchmark
@@ -25,16 +25,20 @@ FetchContent_MakeAvailable(
 
 include_directories(${TORCHAO_INCLUDE_DIRS})
 
-set(TORCHAO_PARALLEL_BACKEND "OPENMP")
-add_subdirectory(${TORCHAO_ROOT}/ops/linear ${CMAKE_CURRENT_BINARY_DIR}/torchao_ops_linear_${TORCHAO_PARALLEL_BACKEND})
+set(TORCHAO_PARALLEL_BACKEND "openmp")
+
+include(${TORCHAO_ROOT}/Utils.cmake)
+
 add_subdirectory(${TORCHAO_ROOT}/kernels/cpu/aarch64 ${CMAKE_CURRENT_BINARY_DIR}/torchao_kernels_aarch64)
 
-add_executable(benchmark_linear_operator benchmark_linear_operator.cpp)
+add_executable(benchmark_linear_8bit_act_xbit_weight
+  benchmark_linear_8bit_act_xbit_weight.cpp
+  ${TORCHAO_ROOT}/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.cpp
+)
+target_link_torchao_parallel_backend(benchmark_linear_8bit_act_xbit_weight "${TORCHAO_PARALLEL_BACKEND}")
 target_link_libraries(
-    benchmark_linear_operator
+    benchmark_linear_8bit_act_xbit_weight
     PRIVATE
     benchmark::benchmark
     torchao_kernels_aarch64
-    torchao_ops_linear_${TORCHAO_PARALLEL_BACKEND}
 )
-target_link_torchao_parallel_backend(benchmark_linear_operator "${TORCHAO_PARALLEL_BACKEND}")

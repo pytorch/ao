@@ -4,6 +4,8 @@
 // This source code is licensed under the license found in the
 // LICENSE file in the root directory of this source tree.
 
+#if defined(__aarch64__) || defined(__ARM_NEON)
+
 #include <arm_neon.h>
 #include <gtest/gtest.h>
 #include <torchao/experimental/kernels/cpu/aarch64/reduction/reduction.h>
@@ -58,3 +60,5 @@ TEST(test_compute_sum, SizeSmallerThan16) {
   int expected_sum = std::accumulate(vals.begin(), vals.end(), 0);
   EXPECT_EQ(sum, expected_sum);
 }
+
+#endif // defined(__aarch64__) || defined(__ARM_NEON)
