@@ -5,6 +5,9 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
+
+#if defined(__aarch64__) || defined(__ARM_NEON)
+
 #include <torchao/experimental/kernels/cpu/aarch64/quantization/quantize.h>
 #include <torchao/experimental/kernels/cpu/aarch64/reduction/reduction.h>
 #include <cassert>
@@ -119,3 +122,5 @@ void prepare_activation_data_impl(
 } // namespace
   // channelwise_8bit_activation_prepare_activation_data_1xk_f32::internal
 } // namespace torchao::kernels::cpu::aarch64::linear
+
+#endif // defined(__aarch64__) || defined(__ARM_NEON)
