@@ -224,7 +224,7 @@ use_fnuz_dtype = False
 # Pre-made recipes for common configurations
 # TODO(future PR): go through a round of design on this, and eventually expose
 # as a top level public API.
-def _get_recipe(recipe_name: str) -> Float8LinearConfig:
+def _recipe_name_to_linear_config(recipe_name: str) -> Float8LinearConfig:
     if recipe_name == "all_tensorwise":
         # Default, dynamic per-tensor scaling with the cuBLAS tensorwise kernel
         return Float8LinearConfig()

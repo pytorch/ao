@@ -27,7 +27,7 @@ from torchao.float8.config import (
     Float8LinearConfig, 
     ScalingType,
     ScalingGranularity,
-    _get_recipe,
+    _recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
@@ -320,7 +320,7 @@ def main(
         )
 
     elif recipe_override is not None:
-        config = _get_recipe(recipe_override)
+        config = _recipe_name_to_linear_config(recipe_override)
 
     scaling_repr = "_".join(
         [

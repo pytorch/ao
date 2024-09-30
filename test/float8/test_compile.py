@@ -23,7 +23,7 @@ from torchao.float8.config import (
     CastConfig, 
     Float8LinearConfig, 
     ScalingType, 
-    _get_recipe,
+    _recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_linear_utils import (
@@ -197,7 +197,7 @@ def test_inductor_from_config_params(
 @unittest.skipIf(not is_H100, "CUDA with capability 9.0 or greater not available")
 def test_inductor_from_recipe(recipe_name):
     torch._dynamo.reset()
-    config = _get_recipe(recipe_name)
+    config = _recipe_name_to_linear_config(recipe_name)
     fullgraph = True
     dtype = torch.bfloat16
     _test_compile_base(
