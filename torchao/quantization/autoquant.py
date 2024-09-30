@@ -19,6 +19,7 @@ from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_5
 from torchao.quantization.utils import quantize_activation_per_token_absmax
 
 import torch.nn.functional as F
+import torch.utils._pytree as pytree
 
 __all__ = [
     "AutoQuantizableLinearWeight",
@@ -194,15 +195,16 @@ class AutoQuantizableLinearWeight(torch.Tensor):
             )
             cls.log_shape(mat1, w_autoquant, bias)
             return func(mat1, w_autoquant.weight, bias)
-        try:
-            with torch._C.DisableTorchFunctionSubclass():
-                return func(*args, **kwargs)
-        except:
-            print(f"ERR: subclass doesn't implement {func}")
+        elif func is torch.nn.functional.multi_head_attention_forward:
+            new_args = pytree.tree_map_only(cls, lambda x: x.weight, args)
+            return func(*new_args, **kwargs)
+
+        with torch._C.DisableTorchFunctionSubclass():
+            return func(*args, **kwargs)
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
-         if func is aten.detach.default:
+        if func is aten.detach.default:
             return return_and_correct_aliasing(func, args, kwargs, args[0]._apply_fn_to_data(torch.detach))
 
 @torch.no_grad()
@@ -553,7 +555,7 @@ def _change_autoquantizable_to_quantized(model, supress_autoquant_errors=True, *
         lambda mod, *args:
             hasattr(mod, "weight") and isinstance(mod.weight, AutoQuantizableLinearWeight)
     )
-    error_on_unseen=kwargs.pop("error_on_unseen", True)
+    error_on_unseen=kwargs.pop("error_on_unseen", False)
     from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
     from torchao.quantization.quant_api import _get_subclass_inserter
     _replace_with_custom_fn_if_matches_filter(
