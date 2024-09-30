@@ -5,7 +5,11 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
+
+#if defined(__aarch64__) || defined(__ARM_NEON)
 #include <torchao/experimental/kernels/cpu/aarch64/linear/linear.h>
+#endif // defined(__aarch64__) || defined(__ARM_NEON)
+
 #include <torchao/experimental/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.h>
 #include <optional>
 #include <vector>
@@ -32,9 +36,11 @@ using RuntimeContext = torch::executor::KernelRuntimeContext;
 namespace {
 
 template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
-inline torchao::ops::linear_8bit_act_xbit_weight::UKernelConfig get_ukernel_config() {
+inline torchao::ops::linear_8bit_act_xbit_weight::UKernelConfig
+get_ukernel_config() {
   torchao::ops::linear_8bit_act_xbit_weight::UKernelConfig config;
 
+#if defined(__aarch64__) || defined(__ARM_NEON)
   namespace ukernel = torchao::kernels::cpu::aarch64::linear::
       channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot;
   config.mr = 1;
@@ -51,6 +57,7 @@ inline torchao::ops::linear_8bit_act_xbit_weight::UKernelConfig get_ukernel_conf
       &ukernel::prepare_weight_data<weight_nbit, has_weight_zeros>;
   config.kernel_fn =
       &ukernel::kernel<weight_nbit, has_weight_zeros, has_bias, has_clamp>;
+#endif // defined(__aarch64__) || defined(__ARM_NEON)
 
   return config;
 }
