@@ -7,8 +7,7 @@
 #pragma once
 #include <stdint.h>
 
-namespace torchao::ops::linear::
-    channelwise_8bit_activation_groupwise_lowbit_weight {
+namespace torchao::ops::linear_8bit_act_xbit_weight {
 
 struct UKernelConfig {
   using activation_data_size_fn_type = int (*)(int m, int k, int group_size);
@@ -146,4 +145,4 @@ void linear_operator(
     float clamp_max);
 
 } // namespace
-  // torchao::ops::linear::channelwise_8bit_activation_groupwise_lowbit_weight
+  // torchao::ops::linear_8bit_act_xbit_weight

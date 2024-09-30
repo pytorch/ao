@@ -6,7 +6,7 @@
 
 #include <torchao/experimental/kernels/cpu/aarch64/linear/linear.h>
 #include <torchao/experimental/kernels/cpu/aarch64/tests/test_utils.h>
-#include <torchao/experimental/ops/linear/channelwise_8bit_activation_groupwise_lowbit_weight.h>
+#include <torchao/experimental/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.h>
 #include <torchao/experimental/ops/memory.h>
 #include <torchao/experimental/ops/parallel.h>
 #include <iostream>
@@ -22,8 +22,7 @@
 // one stateful class, but not all surfaces support this (see
 // examples/stateful_class_wrapper.cpp for an example of this).
 
-namespace torchao::ops::linear::
-    channelwise_8bit_activation_groupwise_lowbit_weight {
+namespace torchao::ops::linear_8bit_act_xbit_weight {
 
 template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
 UKernelConfig get_ukernel_config() {
@@ -141,11 +140,10 @@ void linear_operator(
 }
 
 } // namespace
-  // torchao::ops::linear::channelwise_8bit_activation_groupwise_lowbit_weight
+  // torchao::ops::linear_8bit_act_xbit_weight
 
 int main() {
-  using namespace torchao::ops::linear::
-      channelwise_8bit_activation_groupwise_lowbit_weight;
+  using namespace torchao::ops::linear_8bit_act_xbit_weight;
 
   torchao::set_num_threads(8);
   std::cout << "Using " << torchao::get_num_threads() << " threads."

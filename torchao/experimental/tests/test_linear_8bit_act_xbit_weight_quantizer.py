@@ -10,24 +10,22 @@ import glob
 import os
 
 import sys
-import unittest
 import tempfile
+import unittest
 
 import torch
 
-sys.path.insert(
-    0, os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-)
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from quant_api import (
     _Int8DynActIntxWeightQuantizedLinearFallback,
     Int8DynActIntxWeightQuantizer,
 )
 
-libs = glob.glob("/tmp/cmake-out/torchao/lib/liblinear_a8wxdq_ATEN.*")
+libs = glob.glob("/tmp/cmake-out/torchao/lib/libtorchao_ops_aten.*")
 libs = list(filter(lambda l: (l.endswith("so") or l.endswith("dylib")), libs))
 if len(libs) == 0:
     print(
-        "Could not find library lowbit_op_aten; please run `sh build_custom_op.sh` to build the library.  A slow fallback kernel will be used instaed."
+        "Could not find library libtorchao_ops_aten; please run `sh build_torchao_ops.sh aten` in torchao/experimental to build the op library.  A slow fallback kernel will be used instaed."
     )
 else:
     torch.ops.load_library(libs[0])
@@ -74,7 +72,7 @@ class TestInt8DynActIntxWeightQuantizer(unittest.TestCase):
 
                 # Assert at most 5% of entries are not close at a low tolerance
                 self.assertTrue(num_mismatch_at_low_tol / num_total <= 0.05)
-    
+
     def test_export_compile_aoti(self):
         group_size = 32
         m = 3
@@ -106,7 +104,7 @@ class TestInt8DynActIntxWeightQuantizer(unittest.TestCase):
         quantized_model_compiled = torch.compile(quantized_model)
         with torch.no_grad():
             quantized_model_compiled(activations)
-        
+
         with tempfile.TemporaryDirectory() as tmpdirname:
             print("Exporting quantized model with AOTI")
             torch._export.aot_compile(
@@ -118,6 +116,7 @@ class TestInt8DynActIntxWeightQuantizer(unittest.TestCase):
             print("Running quantized model in AOTI")
             fn = torch._export.aot_load(f"{tmpdirname}/model.so", "cpu")
             fn(activations)
+
 
 if __name__ == "__main__":
     unittest.main()

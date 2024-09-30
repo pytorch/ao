@@ -4,7 +4,7 @@
 // This source code is licensed under the license found in the
 // LICENSE file in the root directory of this source tree.
 
-#include <torchao/experimental/ops/linear/linear_a8wxdq_op/linear_a8wxdq-impl.h>
+#include <torchao/experimental/ops/linear_8bit_act_xbit_weight/op_linear_8bit_act_xbit_weight-impl.h>
 
 #define DEFINE_OP(weight_nbit)                                                                                                     \
   m.def(                                                                                                                           \

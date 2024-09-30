@@ -11,4 +11,4 @@ cmake -DTORCHAO_LIBRARIES=${TORCHAO_LIBRARIES} -S . -B ${CMAKE_OUT}
 cmake --build  ${CMAKE_OUT}
 
 # Run
-${CMAKE_OUT}/test_linear_operator
+${CMAKE_OUT}/test_linear_8bit_act_xbit_weight
