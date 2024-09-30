@@ -7,13 +7,12 @@
 #include <benchmark/benchmark.h>
 #include <torchao/experimental/kernels/cpu/aarch64/linear/linear.h>
 #include <torchao/experimental/kernels/cpu/aarch64/tests/test_utils.h>
-#include <torchao/experimental/ops/linear/channelwise_8bit_activation_groupwise_lowbit_weight.h>
+#include <torchao/experimental/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.h>
 #include <torchao/experimental/ops/memory.h>
 #include <torchao/experimental/ops/parallel.h>
 #include <vector>
 
-using namespace torchao::ops::linear::
-    channelwise_8bit_activation_groupwise_lowbit_weight;
+using namespace torchao::ops::linear_8bit_act_xbit_weight;
 
 template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
 UKernelConfig get_ukernel_config() {
@@ -40,8 +39,7 @@ UKernelConfig get_ukernel_config() {
 }
 
 template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
-static void channelwise_8bit_activation_groupwise_lowbit_weight(
-    benchmark::State& state) {
+static void linear_8bit_act_xbit_weight(benchmark::State& state) {
   int m = state.range(0);
   int n = state.range(1);
   int k = state.range(2);
@@ -150,19 +148,20 @@ static void channelwise_8bit_activation_groupwise_lowbit_weight(
     }                                                                    \
   }
 
-#define BENCHMARK_CHANNELWISE_8BIT_ACTIVATION_GROUPWISE_LOWBIT_WEIGHT( \
-    weight_nbit)                                                       \
-  BENCHMARK(channelwise_8bit_activation_groupwise_lowbit_weight<       \
-                weight_nbit,                                           \
-                false /*has_weight_zeros*/,                            \
-                false /*has_bias*/,                                    \
-                false /*has_clamp*/>)                                  \
-      ->ArgsProduct(BENCHMARK_PARAMS)                                  \
-      ->ArgNames(                                                      \
+#define BENCHMARK_LINEAR_8BIT_ACT_XBIT_WEIGHT(weight_nbit) \
+  BENCHMARK(linear_8bit_act_xbit_weight<                   \
+                weight_nbit,                 \
+                false /*has_weight_zeros*/,  \
+                false /*has_bias*/,          \
+                false /*has_clamp*/>)        \
+      ->ArgsProduct(BENCHMARK_PARAMS)        \
+      ->ArgNames(                            \
           {"m", "n", "k", "group_size", "num_threads", "num_test_cases"});
 
-BENCHMARK_CHANNELWISE_8BIT_ACTIVATION_GROUPWISE_LOWBIT_WEIGHT(3);
-BENCHMARK_CHANNELWISE_8BIT_ACTIVATION_GROUPWISE_LOWBIT_WEIGHT(4);
+BENCHMARK_LINEAR_8BIT_ACT_XBIT_WEIGHT(2);
+BENCHMARK_LINEAR_8BIT_ACT_XBIT_WEIGHT(3);
+BENCHMARK_LINEAR_8BIT_ACT_XBIT_WEIGHT(4);
+BENCHMARK_LINEAR_8BIT_ACT_XBIT_WEIGHT(5);
 
 // Run the benchmark
 BENCHMARK_MAIN();

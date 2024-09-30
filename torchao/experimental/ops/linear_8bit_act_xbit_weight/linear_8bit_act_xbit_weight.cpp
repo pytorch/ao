@@ -5,15 +5,14 @@
 // LICENSE file in the root directory of this source tree.
 
 #include <stdint.h>
-#include <torchao/experimental/ops/linear/channelwise_8bit_activation_groupwise_lowbit_weight.h>
+#include <torchao/experimental/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.h>
 #include <torchao/experimental/ops/macro.h>
 #include <torchao/experimental/ops/parallel.h>
 #include <algorithm>
 #include <cassert>
 #include <cstdlib>
 
-namespace torchao::ops::linear::
-    channelwise_8bit_activation_groupwise_lowbit_weight {
+namespace torchao::ops::linear_8bit_act_xbit_weight {
 
 PackWeightDataTilingParams get_default_pack_weight_data_tiling_params(
     const UKernelConfig& ukernel_config,
@@ -118,7 +117,8 @@ LinearTilingParams get_default_linear_tiling_params(
 
 namespace internal {
 
-inline int get_activation_data_buffer_size_with_tile_schedule_policy_single_mc_parallel_nc(
+inline int
+get_activation_data_buffer_size_with_tile_schedule_policy_single_mc_parallel_nc(
     const UKernelConfig& ukernel_config,
     const LinearTilingParams& tiling_params,
     int m,
@@ -354,4 +354,4 @@ int get_activation_data_buffer_size(
 }
 
 } // namespace
-  // torchao::ops::linear::channelwise_8bit_activation_groupwise_lowbit_weight
+  // torchao::ops::linear_8bit_act_xbit_weight

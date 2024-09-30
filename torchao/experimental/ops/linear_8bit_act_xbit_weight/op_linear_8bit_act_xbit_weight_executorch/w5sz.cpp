@@ -8,7 +8,7 @@
 // EXECUTORCH_LIBRARY per cpp file due to a name redefinition error, so a new
 // file is needed for each variant
 
-#include <torchao/experimental/ops/linear/linear_a8wxdq_op/linear_a8wxdq-impl.h>
+#include <torchao/experimental/ops/linear_8bit_act_xbit_weight/op_linear_8bit_act_xbit_weight-impl.h>
 
 namespace {
 Tensor _op_out(
@@ -20,10 +20,10 @@ Tensor _op_out(
     const Tensor& activations,
     Tensor& out) {
   (void)ctx;
-  linear_out_cpu</*weight_nbit*/ 3, /*has_weight_zeros*/ false>(
+  linear_out_cpu</*weight_nbit*/ 5, /*has_weight_zeros*/ true>(
       packed_weights, n_tensor, k_tensor, group_size_tensor, activations, out);
   return out;
 }
 } // namespace
 
-EXECUTORCH_LIBRARY(torchao, "_linear_a8sz_w3s.out", _op_out);
+EXECUTORCH_LIBRARY(torchao, "_linear_a8sz_w5sz.out", _op_out);

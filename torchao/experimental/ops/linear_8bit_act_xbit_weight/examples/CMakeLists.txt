@@ -17,26 +17,29 @@ set(TORCHAO_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../../../../..)
 
 include_directories(${TORCHAO_INCLUDE_DIRS})
 
-set(TORCHAO_PARALLEL_BACKEND "OPENMP")
-add_subdirectory(${TORCHAO_ROOT}/ops/linear ${CMAKE_CURRENT_BINARY_DIR}/torchao_ops_linear_${TORCHAO_PARALLEL_BACKEND})
+set(TORCHAO_PARALLEL_BACKEND "openmp")
 add_subdirectory(${TORCHAO_ROOT}/kernels/cpu/aarch64 ${CMAKE_CURRENT_BINARY_DIR}/torchao_kernels_aarch64)
 
 include(${TORCHAO_ROOT}/Utils.cmake)
 
-add_executable(separate_function_wrappers separate_function_wrappers.cpp)
+add_executable(separate_function_wrappers
+  separate_function_wrappers.cpp
+  ${TORCHAO_ROOT}/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.cpp
+)
 target_link_libraries(
   separate_function_wrappers
     PRIVATE
     torchao_kernels_aarch64
-    torchao_ops_linear_${TORCHAO_PARALLEL_BACKEND}
 )
 target_link_torchao_parallel_backend(separate_function_wrappers "${TORCHAO_PARALLEL_BACKEND}")
 
-add_executable(stateful_class_wrapper stateful_class_wrapper.cpp)
+add_executable(stateful_class_wrapper
+  stateful_class_wrapper.cpp
+  ${TORCHAO_ROOT}/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.cpp
+)
 target_link_libraries(
   stateful_class_wrapper
     PRIVATE
     torchao_kernels_aarch64
-    torchao_ops_linear_${TORCHAO_PARALLEL_BACKEND}
 )
 target_link_torchao_parallel_backend(stateful_class_wrapper "${TORCHAO_PARALLEL_BACKEND}")

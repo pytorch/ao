@@ -6,7 +6,7 @@
 
 #include <torchao/experimental/kernels/cpu/aarch64/linear/linear.h>
 #include <torchao/experimental/kernels/cpu/aarch64/tests/test_utils.h>
-#include <torchao/experimental/ops/linear/examples/Channelwise8BitActivationGroupwiseLowbitWeightLinearOperator.h>
+#include <torchao/experimental/ops/linear_8bit_act_xbit_weight/examples/Linear8BitActXBitWeightOperator.h>
 #include <torchao/experimental/ops/parallel.h>
 #include <iostream>
 #include <vector>
@@ -22,8 +22,7 @@
 // examples/separate_function_wrappers.cpp for an example of how to split the
 // operations into two steps.
 
-using namespace torchao::ops::linear::
-    channelwise_8bit_activation_groupwise_lowbit_weight;
+using namespace torchao::ops::linear_8bit_act_xbit_weight;
 
 template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
 UKernelConfig get_ukernel_config() {
@@ -81,7 +80,7 @@ int main() {
       get_ukernel_config<weight_nbit, has_weight_zeros, has_bias, has_clamp>();
 
   auto linear_operator =
-      Channelwise8BitActivationGroupwiseLowbitWeightLinearOperator(
+      Linear8BitActXBitWeightOperator(
           ukernel_config,
           n,
           k,
