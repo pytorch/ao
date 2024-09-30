@@ -218,14 +218,14 @@ Tensor pack_weights_with_zeros_meta(
 #if defined(USE_ATEN) || defined(USE_EXECUTORCH)
 template <int weight_nbit, bool has_weight_zeros>
 Tensor linear_out_cpu(
+    const Tensor& activations,
     const Tensor& packed_weights,
     // TODO(T200095131): convert n_tensor, k_tensor, group_size_tensor to
     // int64_t when supported by AOTI Currently they are tensors with size
     // equal to (0, the int they wrap)
+    const Tensor& group_size_tensor,
     const Tensor& n_tensor,
     const Tensor& k_tensor,
-    const Tensor& group_size_tensor,
-    const Tensor& activations,
     Tensor& out) {
   int n = n_tensor.size(1);
   int k = k_tensor.size(1);
@@ -307,21 +307,21 @@ Tensor linear_out_cpu(
 #ifdef USE_ATEN
 template <int weight_nbit, bool has_weight_zeros>
 Tensor linear_cpu(
+    const Tensor& activations,
     const Tensor& packed_weights,
     // TODO(T200095131): convert n_tensor, k_tensor, group_size_tensor to
     // int64_t when supported by AOTI Currently they are tensors with size
     // equal to (0, the int they wrap)
-    const Tensor& n_tensor,
-    const Tensor& k_tensor,
     const Tensor& group_size_tensor,
-    const Tensor& activations) {
+    const Tensor& n_tensor,
+    const Tensor& k_tensor) {
   Tensor output_tensor = torch::empty({}, torch::kFloat32);
   linear_out_cpu<weight_nbit, has_weight_zeros>(
+      activations,
       packed_weights,
+      group_size_tensor,
       n_tensor,
       k_tensor,
-      group_size_tensor,
-      activations,
       output_tensor);
   return output_tensor;
 }
@@ -330,14 +330,14 @@ Tensor linear_cpu(
 #ifdef USE_ATEN
 template <int weight_nbit, bool has_weight_zeros>
 Tensor linear_meta(
+    const Tensor& activations,
     const Tensor& packed_weights,
     // TODO(T200095131): convert n_tensor, k_tensor, group_size_tensor to
     // int64_t when supported by AOTI
     // Currently they are tensors with size equal to (0, the int they wrap)
-    const Tensor& n_tensor,
-    const Tensor& k_tensor,
     const Tensor& group_size_tensor,
-    const Tensor& activations) {
+    const Tensor& n_tensor,
+    const Tensor& k_tensor) {
   int n = n_tensor.size(1);
   int k = k_tensor.size(1);
   CHECK_MSG(n >= 1, "n must be >= 1");
