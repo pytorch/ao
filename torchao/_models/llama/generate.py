@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 from datetime import datetime
 import torch
+from tp import maybe_init_dist, apply_tp
 import torchao
 import torch._dynamo.config
 import torch._inductor.config
@@ -30,7 +31,7 @@ default_device = 'cuda' if torch.cuda.is_available() else 'cpu'
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 
-from torchao._models.llama.model import Transformer, prepare_inputs_for_model
+from model import Transformer, prepare_inputs_for_model
 from torchao._models.llama.tokenizer import get_tokenizer
 
 def multinomial_sample_one_no_sync(probs_sort): # Does multinomial sampling without a cuda synchronization
@@ -139,15 +140,21 @@ def encode_tokens(tokenizer, string, bos=True, device=default_device):
         tokens = [tokenizer.bos_id()] + tokens
     return torch.tensor(tokens, dtype=torch.int, device=device)
 
-def _load_model(checkpoint_path, device, precision):
+def _load_model(checkpoint_path, device, precision, use_tp):
+    use_cuda = 'cuda' in device
+    with torch.device('meta'):
+        model = Transformer.from_name(checkpoint_path.parent.name)
     checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
+    print("Successfully loaded checkpoint")
     if "model" in checkpoint and "stories" in str(checkpoint_path):
         checkpoint = checkpoint["model"]
-
-    model = Transformer.from_name(checkpoint_path.parent.name)
     model.load_state_dict(checkpoint, assign=True)
-    model = model.to(device=device, dtype=precision)
 
+    if use_tp:
+        print("Applying tensor parallel to model ...")
+        apply_tp(model)
+
+    model = model.to(device=device, dtype=precision)
     return model.eval()
 
 B_INST, E_INST = "[INST]", "[/INST]"
@@ -182,13 +189,20 @@ def main(
     tokenizer_path = checkpoint_path.parent / "tokenizer.model"
     assert tokenizer_path.is_file(), str(tokenizer_path)
 
+    global print
+    rank = maybe_init_dist()  # Highlight: Initialize distributed training
+    use_tp = rank is not None
+    if use_tp:
+        if rank != 0:
+            # only print on rank 0
+            print = lambda *args, **kwargs: None
+
     print(f"Using device={device}")
     is_chat = "chat" in str(checkpoint_path)
 
     print("Loading model ...")
     t0 = time.time()
-    model = _load_model(checkpoint_path, device, precision)
-
+    model = _load_model(checkpoint_path, device, precision, use_tp=use_tp)
 
     device_sync(device=device) # MKG
     print(f"Time to load model: {time.time() - t0:.02f} seconds")
@@ -315,7 +329,7 @@ def main(
             callback = lambda x : x
         t0 = time.perf_counter()
         import contextlib
-        if (i != num_samples - 1 or not profile):
+        if (i != num_samples - 1 or not profile) or (use_tp and rank != 0):
             prof = contextlib.nullcontext()
         else:
             torch.profiler._utils._init_for_cuda_graphs()
@@ -337,7 +351,10 @@ def main(
             print(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
             continue
         if hasattr(prof, "export_chrome_trace"):
-            prof.export_chrome_trace(f"{profile}.json")
+            if use_tp:
+                prof.export_chrome_trace(f"{profile}_rank_{rank}.json")
+            else:
+                prof.export_chrome_trace(f"{profile}.json")
         device_sync(device=device) # MKG
         t = time.perf_counter() - t0
 
