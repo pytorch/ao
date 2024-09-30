@@ -24,6 +24,7 @@ from torchao.float8.config import (
     Float8LinearConfig, 
     ScalingType,
     ScalingGranularity,
+    _Float8LinearRecipeName,
     _recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear_utils import (
@@ -195,7 +196,7 @@ class TestFloat8NumericsIntegrationTest:
 
     @pytest.mark.parametrize(
         "recipe_name",
-        ["all_axiswise", "lw_axiswise_with_gw_hp"],
+        [_Float8LinearRecipeName.ALL_AXISWISE, _Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP],
     )
     def test_encoder_fw_bw_from_recipe(
         self,

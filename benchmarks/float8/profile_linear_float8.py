@@ -27,16 +27,13 @@ from torchao.float8.config import (
     Float8LinearConfig, 
     ScalingType,
     ScalingGranularity,
+    _Float8LinearRecipeName,
     _recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
     linear_requires_sync,
     sync_float8_amax_and_scale_history,
-)
-from torchao.testing.float8.test_utils import (
-    scaling_granularities_by_gemm_lcw_recipe,
-    get_test_float8_linear_config,
 )
 from torch.profiler import profile, ProfilerActivity, record_function
 from utils import (
@@ -263,7 +260,7 @@ def main(
     scaling_type_weight: str = "dynamic",
     scaling_type_grad_output: str = "dynamic",
     scaling_granularity: str = "tensorwise",
-    recipe_override: Optional[str] = None,
+    recipe_name: Optional[str] = None,
     model_type: str = "linear",
     dtype_filter: str = "both",
     add_inductor_metadata_to_trace: bool = True,
@@ -277,7 +274,7 @@ def main(
     scaling_type_grad_output = ScalingType(scaling_type_grad_output)
     scaling_granularity = ScalingGranularity(scaling_granularity)
 
-    if recipe_override is None:
+    if recipe_name is None:
 
         if scaling_type_input is ScalingType.STATIC:
             cast_config_input=CastConfig(
@@ -319,8 +316,9 @@ def main(
             cast_config_grad_output=cast_config_grad_output,
         )
 
-    elif recipe_override is not None:
-        config = _recipe_name_to_linear_config(recipe_override)
+    elif recipe_name is not None:
+        recipe_name = _Float8LinearRecipeName(recipe_name)
+        config = _recipe_name_to_linear_config(recipe_name)
 
     scaling_repr = "_".join(
         [

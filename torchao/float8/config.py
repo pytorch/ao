@@ -224,12 +224,25 @@ use_fnuz_dtype = False
 # Pre-made recipes for common configurations
 # TODO(future PR): go through a round of design on this, and eventually expose
 # as a top level public API.
-def _recipe_name_to_linear_config(recipe_name: str) -> Float8LinearConfig:
-    if recipe_name == "all_tensorwise":
+class _Float8LinearRecipeName(enum.Enum):
+    ALL_TENSORWISE = "all_tensorwise"
+    ALL_AXISWISE = "all_axiswise"
+    LW_AXISWISE_WITH_GW_HP = "lw_axiswise_with_gw_hp"
+
+
+def _recipe_name_to_linear_config(
+    recipe_name: _Float8LinearRecipeName,
+) -> Float8LinearConfig:
+    """
+    Input: `_Float8LinearRecipeName` value
+    Output: a `Float8LinearConfig` configured to implement the recipe
+    """
+
+    if recipe_name is _Float8LinearRecipeName.ALL_TENSORWISE:
         # Default, dynamic per-tensor scaling with the cuBLAS tensorwise kernel
         return Float8LinearConfig()
 
-    elif recipe_name == "all_axiswise":
+    elif recipe_name is _Float8LinearRecipeName.ALL_AXISWISE:
         # dynamic axiswise scaling with the CUTLASS rowwise kernel
         cc_i = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
         cc_w = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
@@ -252,7 +265,7 @@ def _recipe_name_to_linear_config(recipe_name: str) -> Float8LinearConfig:
             gemm_config_grad_weight=gc_gw,
         )
 
-    elif recipe_name == "lw_axiswise_with_gw_hp":
+    elif recipe_name is _Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP:
 
         # lw's recipe for a modification on all-axiswise:
         #
