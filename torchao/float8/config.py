@@ -195,15 +195,6 @@ class Float8LinearConfig:
         cc_w_gi = self.cast_config_weight_for_grad_input
         cc_go_gw = self.cast_config_grad_output_for_grad_weight
 
-        # for now, we only have gemm kernels where both operands are scaled with the same
-        # granularity. In the future this may be relaxed.
-        assert cc_i.scaling_granularity == cc_w.scaling_granularity, \
-            "incompatible scaling granularity for output"
-        # assert cc_go.scaling_granularity == cc_w_gi.scaling_granularity, \
-        #     "incompatible scaling granularity for grad_input"
-        assert cc_i_gw.scaling_granularity == cc_go_gw.scaling_granularity, \
-            "incompatible scaling granularity for grad_weight"
-
         # for now, we only have gemm kernels where both operands are either both
         # in high precision, or both in float8. In the future, this may be relaxed.
         # TODO(future): make the float8 check more precise with the specific dtypes.
