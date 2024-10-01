@@ -388,7 +388,9 @@ def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
        func in cls._ATEN_OP_OR_TORCH_FN_TABLE:
         return cls._ATEN_OP_OR_TORCH_FN_TABLE[func](func, types, args, kwargs)
 
-    raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run unimplemented operator/function: {func}")
+    arg_types = tuple(type(arg) for arg in args)
+    kwarg_types = {k: type(arg) for k, arg in kwargs}
+    raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run unimplemented operator/function: {func=}, {types=}, {arg_types=}, {kwarg_types=}")
 
 def _register_layout_cls(cls: Callable, layout_type_class: Callable):
     """Helper function for layout registrations, this is used to implement
