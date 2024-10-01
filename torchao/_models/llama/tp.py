@@ -17,7 +17,7 @@ else:
     # Distributed is not supported on MacOS
     funcol = None
 
-from model import Attention, FeedForward, Transformer
+from torchao._models.llama.model import Attention, FeedForward, Transformer
 from torchao.quantization.GPTQ import WeightOnlyInt4Linear
 
 

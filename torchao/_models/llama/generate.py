@@ -31,7 +31,7 @@ default_device = 'cuda' if torch.cuda.is_available() else 'cpu'
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 
-from model import Transformer, prepare_inputs_for_model
+from torchao._models.llama.model import Transformer, prepare_inputs_for_model
 from torchao._models.llama.tokenizer import get_tokenizer
 
 def multinomial_sample_one_no_sync(probs_sort): # Does multinomial sampling without a cuda synchronization
