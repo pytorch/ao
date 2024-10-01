@@ -277,7 +277,7 @@ class Float8Tensor(torch.Tensor):
     _scale: torch.Tensor
     _orig_dtype: torch.dtype
     _linear_mm_config: LinearMMConfig
-    __slots__ = ["_data", "_scale", "_orig_dtype", "_linear_mm_config"]
+    __slots__ = ["_data", "_scale", "_orig_dtype", "_linear_mm_config", "_gemm_input_role"]
 
     def __new__(
         cls,
