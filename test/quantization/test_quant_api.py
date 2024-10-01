@@ -709,8 +709,9 @@ class TestQuantFlow(TestCase):
         self.assertLess(memory_streaming, memory_baseline)
 
 class TestMultiTensorFlow(TestCase):
-    
 
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_multitensor_add_tensors(self):
         from torchao.quantization.GPTQ_MT import MultiTensor
         tensor1 = torch.randn(3, 3)
@@ -721,6 +722,8 @@ class TestMultiTensorFlow(TestCase):
         self.assertTrue(torch.equal(mt.values[0], tensor1))
         self.assertTrue(torch.equal(mt.values[1], tensor2))
 
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+")
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_multitensor_pad_unpad(self):
         from torchao.quantization.GPTQ_MT import MultiTensor
         tensor1 = torch.randn(3, 3)
@@ -729,7 +732,9 @@ class TestMultiTensorFlow(TestCase):
         self.assertEqual(mt.count, 3)
         mt.unpad()
         self.assertEqual(mt.count, 1)
-
+        
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "Test only enabled for 2.4+") 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_multitensor_inplace_operation(self):
         from torchao.quantization.GPTQ_MT import MultiTensor
         tensor1 = torch.ones(3, 3)
