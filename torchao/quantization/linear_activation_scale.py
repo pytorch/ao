@@ -19,6 +19,11 @@ aten = torch.ops.aten
 class WeightTensorWithLinearActivationScaleMetadata(TorchAOBaseTensor):
     """
     Tensor subclass that wraps a weight tensor and provides metadata for linear activation scaling.
+    Right now we hardcode how we apply the scale:
+       scaled_linear_act = input_act / scale
+       out = F.linear(scaled_linear_act, weight, ...)
+
+    We can generalize this to accept a function as well if needed.
 
     Args:
         original_weight_tensor (torch.Tensor): The weight tensor to be wrapped.
