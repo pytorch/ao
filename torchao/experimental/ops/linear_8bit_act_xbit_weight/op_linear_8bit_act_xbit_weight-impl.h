@@ -8,7 +8,7 @@
 
 #if defined(__aarch64__) || defined(__ARM_NEON)
 #include <torchao/experimental/kernels/cpu/aarch64/linear/linear.h>
-#include <torchao/experimental/third-party/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4c32p/kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod.h>
+#include <torchao/experimental/third-party/kleidiai_adapters/kai_matmul_clamp_f32_qsi8d32p1x8_qsi4c32p4x8_1x4x32_neon_dotprod.h>
 #endif // defined(__aarch64__) || defined(__ARM_NEON)
 
 #include <torchao/experimental/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.h>
@@ -58,6 +58,27 @@ get_ukernel_config() {
       &ukernel::prepare_weight_data<weight_nbit, has_weight_zeros>;
   config.kernel_fn =
       &ukernel::kernel<weight_nbit, has_weight_zeros, has_bias, has_clamp>;
+#endif // defined(__aarch64__) || defined(__ARM_NEON)
+
+#if defined(__aarch64__) || defined(__ARM_NEON)
+  static_assert(weight_nbit == 4);
+  static_assert(has_weight_zeros == false);
+  static_assert(has_bias == false);
+  namespace ukernel = torchao::kleidiai_adapters::kai_matmul_clamp_f32_qsi8d32p1x8_qsi4c32p4x8_1x4x32_neon_dotprod;
+  config.mr = 1;
+  config.nr = 4;
+  config.activation_data_size_fn =
+      &ukernel::activation_data_size;
+  config.activation_data_alignment = 16; // size of neon register
+  config.prepare_activation_data_fn =
+      &ukernel::prepare_activation_data;
+  config.weight_data_size_fn =
+      &ukernel::weight_data_size;
+  config.weight_data_alignment = 16; // size of neon register
+  config.prepare_weight_data_fn =
+      &ukernel::prepare_weight_data;
+  config.kernel_fn =
+      &ukernel::kernel;
 #endif // defined(__aarch64__) || defined(__ARM_NEON)
 
   return config;
