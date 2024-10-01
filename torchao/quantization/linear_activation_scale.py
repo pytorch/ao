@@ -50,7 +50,7 @@ class WeightTensorWithLinearActivationScaleMetadata(TorchAOBaseTensor):
         self.scale = scale
 
     def __repr__(self):
-        return f"LinearActivationQuantizedTensor({self.original_weight_tensor}, scale={self.scale}"
+        return f"WeightTensorWithLinearActivationScaleMetadata({self.original_weight_tensor}, scale={self.scale}"
 
     def __tensor_flatten__(self):
         tensor_data = ["original_weight_tensor", "scale"]
