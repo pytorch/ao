@@ -1,20 +1,21 @@
+from typing import Dict, Optional
+
 import torch
 import torch.nn.functional as F
-import json
+
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
      _DTYPE_TO_QVALUE_BOUNDS,
 )
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
+from torchao.dtypes.uintx import _DTYPE_TO_BIT_WIDTH, UintxLayoutType
 from torchao.dtypes import to_affine_quantized_intx
-from torchao.dtypes.uintx.uintx import _DTYPE_TO_BIT_WIDTH
-from torchao.prototype.awq.core import(
+from .core import(
     AWQObserver, 
     ObservedLinear, 
-    AwqLayoutType
 ) 
-from typing import Dict, Optional
+from .layout import to_weight_tensor_with_equalization_scales
 
 
 assert len(_DTYPE_TO_BIT_WIDTH) > 0, "Error importing low bit torch.uint dtypes. Please upgrade to torch 2.3+"
@@ -80,45 +81,6 @@ def _observed_linear_subclass_inserter(constructor):
 
     return insert_subclass
     
-def save_equalization_scales(model: torch.nn.Module, save_path: str) -> Dict[str, torch.Tensor]:
-    result = {}
-
-    def recurse(module: torch.nn.Module, name: str = ''):
-        for child_name, child in module.named_children():
-            full_name = f"{name}.{child_name}" if name else child_name
-            
-            # Apply the analysis function to this layer
-            if isinstance(child, ObservedLinear):
-                result[full_name] = child.act_obs.calculate_qparams()
-            
-            # Recurse into child modules
-            recurse(child, full_name)
-
-    recurse(model)
-    
-    torch.save(result, save_path)
-
-def load_equalization_scales_and_quantize_(model: torch.nn.Module, equalization_scale_path: str, quant_dtype: torch.dtype = torch.uint4, group_size: int = 128, device=None) -> torch.nn.Module:
-    equalization_scales = torch.load(equalization_scale_path)
-    
-    def recurse(module: torch.nn.Module, name: str = ''):
-        if isinstance(module, ObservedLinear):
-            module.equalization_scale = equalization_scales[name]
-            if device is not None:
-                module.to(device=device)  # move to device before quantization
-            module = awq_uintx(quant_dtype, group_size)(module)
-        else:
-            for child_name, child in module.named_children():
-                full_name = f"{name}.{child_name}" if name else child_name
-                new_child = recurse(child, full_name)
-                if new_child is not child:
-                    setattr(model, full_name, new_child)
-            if device is not None:
-                module.to(device=device)
-        return module
-    
-    recurse(model)
-    
 
 def awq_uintx(quant_dtype: torch.dtype = torch.uint4, group_size: int = 128):
     """
@@ -133,10 +95,7 @@ def awq_uintx(quant_dtype: torch.dtype = torch.uint4, group_size: int = 128):
     def weight_quant_func(observed_linear):
         # weight quantization
         # AQT config
-        if observed_linear.equalization_scale is None:
-            equalization_scale = observed_linear.act_obs.calculate_qparams()
-        else:
-            equalization_scale = observed_linear.equalization_scale
+        equalization_scale = observed_linear.act_obs.calculate_qparams()
         target_dtype = torch.uint8
         mapping_type = MappingType.ASYMMETRIC
         block_size = (1, group_size)
@@ -146,9 +105,9 @@ def awq_uintx(quant_dtype: torch.dtype = torch.uint4, group_size: int = 128):
         preserve_zero = True
         zero_point_dtype = torch.int64
         zero_point_domain = ZeroPointDomain.INT
-        layout_type = AwqLayoutType(quant_dtype, equalization_scale)
+        layout_type = UintxLayoutType(quant_dtype)
         
-        return to_affine_quantized_intx(
+        qw = to_affine_quantized_intx(
             observed_linear.weight * equalization_scale,
             mapping_type, block_size, 
             target_dtype, quant_min, 
@@ -157,6 +116,7 @@ def awq_uintx(quant_dtype: torch.dtype = torch.uint4, group_size: int = 128):
             preserve_zero=preserve_zero,
             zero_point_domain=zero_point_domain,
             layout_type=layout_type)
+        return to_weight_tensor_with_equalization_scales(qw, equalization_scale)
     
     return _observed_linear_subclass_inserter(weight_quant_func)
 

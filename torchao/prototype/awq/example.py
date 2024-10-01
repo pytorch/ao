@@ -4,7 +4,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
 from tqdm import tqdm
 import time
-from torchao.prototype.awq import insert_awq_observer_, ObservedLinear, awq_uintx, save_equalization_scales, load_equalization_scales_and_quantize_
+from torchao.prototype.awq import insert_awq_observer_, ObservedLinear, awq_uintx,
 from torchao.quantization import quantize_, int4_weight_only, uintx_weight_only
 
 
@@ -70,7 +70,7 @@ def wikitext2_ppl(
         precision=torch.bfloat16, 
         sequence_length=2048, 
         compile=False,
-        scale_store_path=None):
+        model_save_path=None):
     print(f"Loading model on {device}...")
     torch.manual_seed(34)
     t0 = time.time()
@@ -94,21 +94,17 @@ def wikitext2_ppl(
         print(f"time for calibration: {time.time() - t0:.02f} seconds")
 
         print(f"running {quant_dtype} quantization")
-        if scale_store_path is not None:
-            print(f"Saving equalization scales to {scale_store_path}")
-            save_equalization_scales(model, scale_store_path)
-            load_equalization_scales_and_quantize_(model, scale_store_path, quant_dtype=quant_dtype, group_size=group_size)
-        else:
-            # use awq_uintx() to apply awq quantization
-            is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
-            t0 = time.time()
-            quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size), is_observed_linear)
+        # use awq_uintx() to apply awq quantization
+        is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
+        t0 = time.time()
+        quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size), is_observed_linear)
             
         print(f"time for quantization: {time.time() - t0:.02f} seconds")
-
+        if model_save_path is not None:
+            print(f"Saving model to {model_save_path}")
+            torch.save(model, model_save_path)
     elif quant=="int4":
         print("running int4 quantization")
-        # quantize_(model, uintx_weight_only(torch.uint4, group_size=64))
         quantize_(model, int4_weight_only(group_size=group_size))
 
     if compile:
@@ -130,7 +126,7 @@ if __name__ == "__main__":
     parser.add_argument("--precision", type=str, default="bfloat16", help="Precision type. Default is 'bfloat16'.")
     parser.add_argument("--seq_len", type=int, default=512, help="Length of examples to calibrate/evaluate model on. Default 512")
     parser.add_argument("--compile", action="store_true", help="Flag to indicate if compilation is required.")
-    parser.add_argument("--scale_store_path", type=str, default=None, help="Path to store the scale values.")
+    parser.add_argument("--model_save_path", type=str, default=None, help="Path to store the scale values.")
 
     args = parser.parse_args()
 
@@ -146,7 +142,7 @@ if __name__ == "__main__":
         precision=precision_dtype,
         sequence_length=args.seq_len,
         compile=args.compile,
-        scale_store_path=args.scale_store_path
+        scale_store_path=args.model_save_path
     )
 
     print(f"{args.quant} Perplexity: {ppl.item():.5f}")
