@@ -1,9 +1,11 @@
 import torch
-from typing import Tuple, Optional, Union
+from typing import Tuple, Optional, Union, List
+import torchao.ops
 from collections import defaultdict
 import functools
 import math
 from torchao.quantization.quant_primitives import (
+    _get_reduction_params,
     choose_qparams_affine,
     quantize_affine,
     dequantize_affine,
@@ -205,7 +207,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             return dequantize_affine_floatx(int_data, scale, self.layout_type.ebits, self.layout_type.mbits, output_dtype=output_dtype)
         else:
             data, scale, zero_point = self.layout_tensor.get_plain()
-            return dequantize_affine(
+            dq = dequantize_affine(
                 data,
                 self.block_size,
                 scale,
@@ -216,6 +218,11 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 self.zero_point_domain,
                 output_dtype=output_dtype,
             )
+            # need to return to original shape if tensor was padded
+            # in preprocessing
+            for dim, dim_size in enumerate(self.shape):
+                dq = dq.narrow(dim, 0, dim_size)
+            return dq
 
     @staticmethod
     def _quantized_linear_op(input_tensor, weight_tensor, bias):
@@ -311,7 +318,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             assert zero_point_domain is not None, "zero_point_domain must be specified for non-fp8 types"
             assert zero_point is not None, "zero_point must be specified for non-fp8 types"
         original_shape = input_float.shape
-        input_float = layout_type.pre_process(input_float)
+        input_float, scale, zero_point = layout_type.pre_process_static(input_float, scale, zero_point, block_size)
 
         int_data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
 
@@ -491,6 +498,25 @@ class TensorCoreTiledLayoutType(LayoutType):
             (0, in_features - orig_in_features, 0, out_features - orig_out_features),
         )
         return input
+
+    def pre_process_static(self, input: torch.Tensor, scale: torch.Tensor, zero_point: torch.Tensor, block_size: Tuple[int, ...]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        input = self.pre_process(input)
+        orig_qparam_shape = scale.shape
+        new_qparam_shape, reduction_dims = _get_reduction_params(block_size, input.size())
+        for dim in reduction_dims:
+            new_qparam_shape.pop(dim)
+        change_in_qparam_shape = [new_dim_size-orig_dim_size for new_dim_size, orig_dim_size in zip(new_qparam_shape, orig_qparam_shape)]
+        padding_changes=[]
+        for dim_change in change_in_qparam_shape:
+            padding_changes = [0, dim_change] + padding_changes
+        scale = torch.nn.functional.pad(scale, padding_changes)
+        zero_point = torch.nn.functional.pad(zero_point, padding_changes)
+        return input, scale, zero_point
+        
+
+
+
+
 
     def extra_repr(self):
         return f"inner_k_tiles={self.inner_k_tiles}"
