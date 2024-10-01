@@ -26,6 +26,7 @@ __all__ = [
     "TORCH_VERSION_AT_LEAST_2_3",
     "TORCH_VERSION_AT_LEAST_2_4",
     "TORCH_VERSION_AT_LEAST_2_5",
+    "TORCH_VERSION_AT_LEAST_2_6",
 
     # Needs to be deprecated in the future
     "TORCH_VERSION_AFTER_2_2",
@@ -317,6 +318,7 @@ def is_fbcode():
 def torch_version_at_least(min_version):
     return is_fbcode() or compare_versions(torch.__version__, min_version) >= 0
 
+TORCH_VERSION_AT_LEAST_2_6 = torch_version_at_least("2.6.0")
 TORCH_VERSION_AT_LEAST_2_5 = torch_version_at_least("2.5.0")
 TORCH_VERSION_AT_LEAST_2_4 = torch_version_at_least("2.4.0")
 TORCH_VERSION_AT_LEAST_2_3 = torch_version_at_least("2.3.0")
@@ -386,7 +388,9 @@ def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
        func in cls._ATEN_OP_OR_TORCH_FN_TABLE:
         return cls._ATEN_OP_OR_TORCH_FN_TABLE[func](func, types, args, kwargs)
 
-    raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run unimplemented operator/function: {func}")
+    arg_types = tuple(type(arg) for arg in args)
+    kwarg_types = {k: type(arg) for k, arg in kwargs}
+    raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run unimplemented operator/function: {func=}, {types=}, {arg_types=}, {kwarg_types=}")
 
 def _register_layout_cls(cls: Callable, layout_type_class: Callable):
     """Helper function for layout registrations, this is used to implement
@@ -492,6 +496,30 @@ class TorchAOBaseTensor(torch.Tensor):
             "dtype": dtype,
         }
         return kwargs
+
+def fill_defaults(args, n, defaults_tail):
+    """
+    __torch_dispatch__ doesn't guarantee the number of arguments you are
+    passed (e.g., defaulted arguments are not passed); but usually it is
+    convenient to pad out the arguments list with defaults.  This function
+    helps you do that.
+    Args:
+        args: the list of positional arguments passed to __torch_dispatch__
+        n: the number of arguments you are expecting to get
+        defaults_tail: default values for the arguments, starting from the
+            end of the list
+    Example:
+        >>> fill_defaults([1, 2, 3], 5, [3, 4, 5])
+        [1, 2, 3, 4, 5]
+        >>> fill_defaults([1, 2, 3], 5, [None, None, None])
+        [1, 2, 3, None, None]]
+    """
+    if n - len(defaults_tail) > len(args):
+        raise RuntimeError("not enough defaults to fill arguments")
+    r = list(args)
+    for i in range(len(args), n):
+        r.append(defaults_tail[i - n + len(defaults_tail)])
+    return r
 
 
 ## Deprecated, will be deleted in the future

@@ -13,6 +13,10 @@
 //    limitations under the License.
 // 
 // This file is modified from https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/fp6_llm/csrc/include/kernel_matmul.cuh
+//
+// MODIFICATION NOTE (2024-09-25): added SM75 support (https://github.com/pytorch/ao/pull/942):
+// - Added __CUDA_ARCH__ guards such that async operations are only executed for SM80 and up
+//
 
 #include "configs.h"
 #include "utils_gmem.cuh"
@@ -140,7 +144,9 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
     for(int j=0; j<REG_PER_THREAD_C_TENSOR_16_16; j++)
       c[i][j] = 0.0f;
   //
+  #if __CUDA_ARCH__ >= 800
   cp_async_wait_all();
+  #endif
   __syncthreads();
 
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -175,12 +181,16 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
     if(USE_SEG_4BIT) CopyFromGlobalToShared_A<SMEM_SIZE_PER_WARP_4BIT>(write_SPTR_Frag_4bit, WARP_StartGPTR_A_4BIT, GlobalCopy);
     // copying B tile from GlobalMemory to SharedMemory
     CopyFromGlobalToShared<TilingConfig::TILE_N, TilingConfig::BLOCK_WARPS> (write_SPTR, BTile_GPTR, K_Global, NumColumnToCopy, GlobalCopy);
+    #if __CUDA_ARCH__ >= 800
     cp_async_group_commit();
+    #endif
     core_mma_slice<TilingConfig, EXPONENT, MANTISSA>(c, a, b, read_SPTR_Frag_1bit, read_SPTR_Frag_2bit, read_SPTR_Frag_4bit, read_SPTR, Scales_RPTR, 1); // read_SPTR_Frag_2bit, read_SPTR_Frag_4bit are different for each WARP; read_SPTR is shared among WARPs
     core_mma_slice<TilingConfig, EXPONENT, MANTISSA>(c, a, b, read_SPTR_Frag_1bit, read_SPTR_Frag_2bit, read_SPTR_Frag_4bit, read_SPTR, Scales_RPTR, 2);
     core_mma_slice<TilingConfig, EXPONENT, MANTISSA>(c, a, b, read_SPTR_Frag_1bit, read_SPTR_Frag_2bit, read_SPTR_Frag_4bit, read_SPTR, Scales_RPTR, 3);
     // Barriers and Synchronizations
+    #if __CUDA_ARCH__ >= 800
     cp_async_wait_group<PIPELINE_LEVEL_GMEM-2>();
+    #endif
     __syncthreads();
     core_mma_slice<TilingConfig, EXPONENT, MANTISSA>(c, a, b, read2_SPTR_Frag_1bit, read2_SPTR_Frag_2bit, read2_SPTR_Frag_4bit, read2_SPTR, Scales_RPTR, 0);
     // Updating global PTRs

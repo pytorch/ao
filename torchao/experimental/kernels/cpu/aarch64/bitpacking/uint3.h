@@ -5,6 +5,9 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
+
+#if defined(__aarch64__) || defined(__ARM_NEON)
+
 #include <arm_neon.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/macro.h>
 
@@ -329,3 +332,5 @@ TORCHAO_ALWAYS_INLINE inline void vec_unpack_128_uint3_values(
 } // namespace internal
 } // namespace bitpacking
 } // namespace torchao
+
+#endif // defined(__aarch64__) || defined(__ARM_NEON)

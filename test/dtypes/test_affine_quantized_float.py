@@ -1,35 +1,36 @@
+import pytest
+
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
 )
-import pytest
 
 if not TORCH_VERSION_AT_LEAST_2_5:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
+import copy
+import io
+import random
+import unittest
+from contextlib import nullcontext
+from functools import partial
+from typing import Tuple
+
+import pytest
+import torch
 from torch._inductor.test_case import TestCase as InductorTestCase
 from torch.testing._internal import common_utils
 
+from torchao.float8.float8_utils import compute_error
 from torchao.quantization import (
-    quantize_,
-    float8_weight_only,
     float8_dynamic_activation_float8_weight,
+    float8_weight_only,
+    quantize_,
 )
+from torchao.quantization.observer import PerRow, PerTensor
 from torchao.quantization.quant_api import (
     float8_static_activation_float8_weight,
 )
-from torchao.quantization.quant_primitives import choose_qparams_affine, MappingType
-from torchao.quantization.observer import PerTensor, PerRow
-from torchao.float8.float8_utils import compute_error
-import torch
-import unittest
-import pytest
-import copy
-import random
-from functools import partial
-from typing import Tuple
-from contextlib import nullcontext
-import io
-
+from torchao.quantization.quant_primitives import MappingType, choose_qparams_affine
 
 random.seed(0)
 torch.manual_seed(0)

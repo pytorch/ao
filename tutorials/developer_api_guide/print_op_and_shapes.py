@@ -1,5 +1,6 @@
 import torch
 
+PRINT_ARGS = False
 linear_shapes = []
 from torch.overrides import TorchFunctionMode
 class TorchFunctionLoggingMode(TorchFunctionMode):
@@ -16,11 +17,28 @@ class TorchFunctionLoggingMode(TorchFunctionMode):
             M, K = flattened_input_tensor.shape[0], flattened_input_tensor.shape[1]
             assert K == weight_tensor.shape[1]
             N = weight_tensor.shape[0]
-            print(f"TORCH_FUNC={str(func)} (M, K, N):", M, K, N)
+            print(f"TORCH_FUNC {func=} (M, K, N):", M, K, N)
             linear_shapes.append((M, K, N))
         else:
             arg_shape = args[0].shape if len(args) > 0 and isinstance(args[0], torch.Tensor) else None
-            print(f"TORCH_FUNC={str(func)} args[0] shape:", arg_shape)
+            if PRINT_ARGS:
+                print(f"TORCH_FUNC {func=}, {types=}, {args=}, {kwargs=}, args[0] shape: {arg_shape}")
+            else:
+                print(f"TORCH_FUNC {func=}, {types=}, args[0] shape: {arg_shape}")
+        return func(*args, **kwargs)
+
+
+from torch.utils._python_dispatch import TorchDispatchMode
+class TorchDispatchLoggingMode(TorchDispatchMode):
+    def __torch_dispatch__(cls, func, types, args=(), kwargs=None):
+        if kwargs is None:
+            kwargs = {}
+        arg_shape = args[0].shape if len(args) > 0 and isinstance(args[0], torch.Tensor) else None
+        if PRINT_ARGS:
+            print(f"ATEN_FUNC {func=}, {types=}, {args=}, {kwargs=}, args[0] shape: {arg_shape}")
+        else:
+            print(f"ATEN_FUNC {func=}, {types=}, args[0] shape: {arg_shape}")
+
         return func(*args, **kwargs)
 
 # NOTE: Modify this with your own model
@@ -33,3 +51,7 @@ with TorchFunctionLoggingMode():
 
 print()
 print("all linear shapes (M, K, N):", linear_shapes)
+
+# check all aten ops that's called in the model
+# with TorchDispatchLoggingMode():
+#     m(*example_inputs)

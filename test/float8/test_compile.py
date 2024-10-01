@@ -25,8 +25,15 @@ from torchao.float8.float8_linear_utils import (
     get_float8_layers,
     sync_float8_amax_and_scale_history,
 )
-from torchao.float8.float8_scaling_utils import hp_tensor_to_float8_delayed
-from torchao.float8.float8_tensor import LinearMMConfig
+from torchao.float8.float8_scaling_utils import (
+    hp_tensor_to_float8_delayed,
+    hp_tensor_to_float8_dynamic,
+)
+from torchao.float8.float8_tensor import (
+    LinearMMConfig,
+    GemmInputRole,
+    ScaledMMConfig,
+)
 from torchao.float8.float8_utils import e4m3_dtype
 
 from torch._dynamo.test_case import TestCase as DynamoTestCase
@@ -224,7 +231,8 @@ class TestGraphBreaks(DynamoTestCase):
                 return x_hp
             return x_fp8
 
-    @unittest.skipIf(not torch.cuda.is_available() or not is_H100, "CUDA with float8 support not available")
+    # TODO(future): figure out why the test below fails on CUDA capability 8.9
+    @unittest.skipIf(not torch.cuda.is_available() or not is_H100, "CUDA with capability 9.0 or greater not available")
     def test_float8_with_graph_break_in_the_middle(self):
         """Test that having Float8Tensor object at the boundary of a subgraph"""
         cnts = CompileCounterWithBackend("inductor")
@@ -350,6 +358,66 @@ def test_sync_amax_func_cuda_graph_success():
         sync_func(my_module, fp8_layers)
 
     assert "skipping cudagraphs due to mutaton on input" not in stderr[0]
+
+
+@unittest.skipIf(
+        not is_cuda_8_9,
+        "CUDA not available",
+    )
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        torch.float32,
+        torch.bfloat16,
+        torch.float16,
+    ],
+)
+def test_dynamic_scale_numeric_parity(dtype: torch.dtype):
+    scaling_type_weight = ScalingType.DYNAMIC
+    torch.manual_seed(42)
+    hp_tensor1 = torch.randn(16, 16, device="cuda", dtype=dtype)
+    hp_tensor2 = hp_tensor1.detach().clone()
+    float8_config = Float8LinearConfig(
+        cast_config_weight=CastConfig(scaling_type=scaling_type_weight),
+    )
+    linear_mm_config = LinearMMConfig(
+        # output
+        ScaledMMConfig(
+            False,
+            float8_config.gemm_config_output.use_fast_accum,
+            False,
+            float8_config.pad_inner_dim,
+        ),
+        # grad_input
+        ScaledMMConfig(
+            False,
+            float8_config.gemm_config_grad_input.use_fast_accum,
+            False,
+            float8_config.pad_inner_dim,
+        ),
+        # grad_weight
+        ScaledMMConfig(
+            False,
+            float8_config.gemm_config_grad_weight.use_fast_accum,
+            False,
+            float8_config.pad_inner_dim,
+        ),
+    )
+    float8_eager = hp_tensor_to_float8_dynamic(
+        hp_tensor1,
+        torch.float8_e4m3fn,
+        linear_mm_config,
+        gemm_input_role=GemmInputRole.WEIGHT,
+    )
+    torch._dynamo.reset()
+    float8_compile = torch.compile(hp_tensor_to_float8_dynamic)(
+        hp_tensor2,
+        torch.float8_e4m3fn,
+        linear_mm_config,
+        gemm_input_role=GemmInputRole.WEIGHT,
+    )
+    assert torch.equal(float8_eager._scale, float8_compile._scale)
+    assert torch.equal(float8_eager._data, float8_compile._data)
 
 
 if __name__ == "__main__":
