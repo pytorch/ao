@@ -42,6 +42,9 @@ def amax_to_scale(
         float8_dtype: The float8 dtype.
         orig_dtype: The original dtype of the tensor.
     """
+    # torch.compile and eager show different numerics for 1.0 / float32,
+    # upcast to float64 to ensure same numeric between compile and eager
+    amax = amax.to(torch.float64)
     if float8_dtype in FP8_TYPES:
         res = torch.finfo(float8_dtype).max / torch.clamp(amax, min=EPS)
     else:
