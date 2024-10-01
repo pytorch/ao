@@ -1,9 +1,10 @@
 # pre-train a mini Llama2 on TinyStories with INT8 quantized training
 # pip install huggingface_hub sentencepiece wandb
 #
-# BF16 baseline: python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --n_steps 10_000 --compile
-# INT8 QT:       python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --n_steps 10_000 --compile --quantize int8_weight_only
-# INT8 MP:       python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --n_steps 10_000 --compile --quantize int8_mixed_precision
+# BF16 baseline: python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --bf16_model --compile
+# INT8 QT:       python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --bf16_model --compile --quantize int8_weight_only
+# INT8 MP:       python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --bf16_model --compile --quantize int8_mixed_precision
+# BitNet:        python benchmarks/quantized_training/pretrain_llama2.py --seed 2024 --bf16_model --compile --quantize bitnet --modify_rmsnorm_for_bitnet
 
 import os
 
@@ -20,14 +21,14 @@ import wandb
 from torch.utils.checkpoint import checkpoint
 from tqdm import tqdm
 
-from torchao._models.llama.model import ModelArgs, Transformer, transformer_configs
+from torchao import quantize_
+from torchao._models.llama.model import ModelArgs, Transformer, transformer_configs, RMSNorm
 from torchao.prototype import low_bit_optim
 from torchao.prototype.quantized_training import (
+    bitnet_training,
     int8_mixed_precision_training,
     int8_weight_only_quantized_training,
 )
-from torchao.quantization.quant_api import quantize_
-
 
 # not official models
 transformer_configs.update(
@@ -92,9 +93,13 @@ def get_tinystories():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="470M", choices=transformer_configs.keys())
+    parser.add_argument("--bf16_model", action="store_true")
+    parser.add_argument("--bf16_amp", action="store_true")
     parser.add_argument("--quantize")
     parser.add_argument("--activation_checkpointing", action="store_true")
     parser.add_argument("--compile", action="store_true")
+
+    parser.add_argument("--modify_rmsnorm_for_bitnet", action="store_true")
 
     parser.add_argument("--n_steps", type=int, default=1000)
     parser.add_argument("--batch_size", type=int, default=4)
@@ -104,7 +109,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--weight_decay", type=float, default=1e-2)
 
-    parser.add_argument("--project", default="int8_quantized_training")
+    parser.add_argument("--project", default="quantized_training")
     parser.add_argument("--run_name")
     parser.add_argument("--seed", type=int)
     parser.add_argument("--log_interval", type=int, default=10)
@@ -115,19 +120,47 @@ if __name__ == "__main__":
 
     config = ModelArgs.from_name(args.model)
     config.block_size = args.seq_len
-    model = Transformer(config).bfloat16().cuda()
+    model = Transformer(config)
+    if args.bf16_model:
+        model.bfloat16()
+    model.cuda()
     with torch.device("cuda"):
         model.setup_caches(args.batch_size, args.seq_len, training=True)
     if args.activation_checkpointing:
         for layer in model.layers:
             enable_activation_checkpointing(layer)
 
+    # as recommended by https://github.com/microsoft/unilm/blob/master/bitnet/The-Era-of-1-bit-LLMs__Training_Tips_Code_FAQ.pdf
+    # section 3
+    if args.modify_rmsnorm_for_bitnet:
+        # remove old RMSNorm
+        for layer in model.layers:
+            layer.attention_norm = torch.nn.Identity()
+            layer.ffn_norm = torch.nn.Identity()
+
+        # insert new RMSNorm
+        def insert_rmsnorm(module: torch.nn.Module):
+            for name, child in module.named_children():
+                if isinstance(child, torch.nn.Linear):
+                    w = child.weight
+                    norm = RMSNorm(child.in_features).to(device=w.device, dtype=w.dtype)
+                    setattr(module, name, torch.nn.Sequential(norm, child))
+                else:
+                    insert_rmsnorm(child)
+
+        insert_rmsnorm(model.layers)
+
     # don't apply int8_mixed_precision to LM head, since it can cause convergence issue.
     # TODO: might want to do the same for int8_weight_only to standardize.
     if args.quantize == "int8_weight_only":
         quantize_(model, int8_weight_only_quantized_training(), set_inductor_config=False)
+
     elif args.quantize == "int8_mixed_precision":
         quantize_(model.layers, int8_mixed_precision_training(), set_inductor_config=False)
+
+    elif args.quantize == "bitnet":
+        quantize_(model.layers, bitnet_training(), set_inductor_config=False)
+
     elif args.quantize is not None:
         raise ValueError(f"Unsupported quantize={args.quantize}")
 
@@ -155,7 +188,8 @@ if __name__ == "__main__":
         idx = torch.randint(0, data.shape[0] - args.batch_size * args.seq_len, (1,)).item()
         batch = data[idx : idx + args.batch_size * args.seq_len].view(args.batch_size, args.seq_len).long()
 
-        loss = _get_loss(model, batch)
+        with torch.autocast("cuda", torch.bfloat16, enabled=args.bf16_amp):
+            loss = _get_loss(model, batch)
         loss.backward()
 
         if step % args.log_interval == 0:
@@ -165,10 +199,6 @@ if __name__ == "__main__":
                 max_memory_allocated=torch.cuda.max_memory_allocated() / 1e9,
                 max_memory_reserved=torch.cuda.max_memory_reserved() / 1e9,
             )
-            if step > 0:
-                time1 = time.time()
-                log_dict["tokens_per_second"] = (args.log_interval * args.batch_size * args.seq_len) / (time1 - time0)
-                time0 = time1
             run.log(log_dict, step=step)
             pbar.set_postfix(loss=log_dict["loss"])
 
@@ -177,5 +207,11 @@ if __name__ == "__main__":
 
         step += 1
         pbar.update()
+
+        if step % args.log_interval == 0:
+            time1 = time.time()
+            log_dict = dict(tokens_per_second=(args.log_interval * args.batch_size * args.seq_len) / (time1 - time0))
+            time0 = time1
+            run.log(log_dict, step=step)
 
     run.finish()
