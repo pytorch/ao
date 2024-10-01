@@ -110,7 +110,7 @@ class ToyLinearModel(torch.nn.Module):
         return x
 
 
-def test_static_quant(target_dtype: torch.dtype, mapping_type: MappingType):
+def test_awq(target_dtype: torch.dtype, mapping_type: MappingType):
     print(f"Testing {target_dtype} static quantization:")
     torch.manual_seed(0)
 
@@ -151,5 +151,5 @@ def test_static_quant(target_dtype: torch.dtype, mapping_type: MappingType):
 
 
 if __name__ == "__main__":
-    test_static_quant(torch.uint8, MappingType.ASYMMETRIC)
-    test_static_quant(torch.float8_e4m3fn, MappingType.SYMMETRIC)
+    test_awq(torch.uint8, MappingType.ASYMMETRIC)
+    test_awq(torch.float8_e4m3fn, MappingType.SYMMETRIC)
