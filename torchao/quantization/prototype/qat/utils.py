@@ -259,3 +259,8 @@ def _get_qat_linear_subclass_inserter(
         return lin
 
     return insert_subclass
+
+def _get_qmin_qmax(n_bit: int):
+    qmin = -(2 ** (n_bit - 1))
+    qmax = 2 ** (n_bit - 1) - 1
+    return (qmin, qmax)
