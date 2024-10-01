@@ -6,10 +6,10 @@
 
 from typing import Iterable, Literal, Tuple, Union
 
-import torchao.float8.config as config
-
 import torch
 import torch.distributed as dist
+
+import torchao.float8.config as config
 
 # Helpful visualizer for debugging (only supports fp32):
 # https://www.h-schmidt.net/FloatConverter/IEEE754.html
