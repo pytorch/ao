@@ -81,6 +81,17 @@ class M(torch.nn.Module):
         x = self.linear2(x)
         return x
 
+class M2(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.embedding = torch.nn.Embedding(10, 512)
+
+    def example_inputs(self):
+        return (torch.randint(1, 10, (1, 512)),)
+
+    def forward(self, x):
+        return self.embedding(x)
+
 
 class TestQAT(unittest.TestCase):
     SEED = 123
@@ -668,6 +679,18 @@ class TestQAT(unittest.TestCase):
         composable_quantizer.convert(model)
         values_list = getattr(model.linear1, self._MyQATQuantizer.ATTR_NAME)
         self.assertEqual(values_list, ["quantizer1", "quantizer2", "quantizer1", "quantizer2"])
+
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower")
+    def test_qat_4w_embedding(self):
+        from torchao.quantization.prototype.qat import Int4WeightOnlyEmbeddingQATQuantizer
+        model = M2()
+        x = model.example_inputs()
+        out = model(*x)
+        quantizer = Int4WeightOnlyEmbeddingQATQuantizer()
+        prepared = quantizer.prepare(model)
+        prepared_out = prepared(*x)
+        converted = quantizer.convert(model)
+        converted_out = converted(*x)
 
 if __name__ == "__main__":
     unittest.main()
