@@ -3,7 +3,8 @@ Demo for awq like flow that applies equalization scale to input activation
 * insert_observers_: insert observer for activation and weight
 * quantize_: convert the observed linear module to quantized linear module
    * we first quantize the weight with to_affine_quantized_intx/floatx
-   * then we apply equalization scale to linear activation with to_weight_tensor_with_linear_activation_scale_metadata (input activation will be divided by equalization)
+   * then we apply equalization scale to linear activation with to_weight_tensor_with_linear_activation_scale_metadata (input activation will be divided by equalization_scale), and then call F.linear with
+     scaled input activation and quantized weight (so we can reuse the efficient quantized linear kernels used by quantized weight)
 """
 import torch
 import copy
