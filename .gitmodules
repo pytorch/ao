@@ -1,0 +1,3 @@
+[submodule "torchao/experimental/third-party/kleidiai"]
+	path = torchao/experimental/third-party/kleidiai
+	url = https://git.gitlab.arm.com/kleidi/kleidiai.git

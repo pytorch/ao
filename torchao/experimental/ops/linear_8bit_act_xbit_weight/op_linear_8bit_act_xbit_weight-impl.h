@@ -8,6 +8,7 @@
 
 #if defined(__aarch64__) || defined(__ARM_NEON)
 #include <torchao/experimental/kernels/cpu/aarch64/linear/linear.h>
+#include <torchao/experimental/third-party/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4c32p/kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod.h>
 #endif // defined(__aarch64__) || defined(__ARM_NEON)
 
 #include <torchao/experimental/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.h>
