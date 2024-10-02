@@ -5,6 +5,9 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
+
+#if defined(__aarch64__) || defined(__ARM_NEON)
+
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/bitpack.h>
 #include <torchao/experimental/kernels/cpu/aarch64/linear/channelwise_8bit_activation_prepare_activation_data_1xk_f32-impl.h>
 #include <torchao/experimental/kernels/cpu/aarch64/quantization/quantize.h>
@@ -363,3 +366,5 @@ void torchao::kernels::cpu::aarch64::linear::
                   clamp_min,
                   clamp_max);
 }
+
+#endif // defined(__aarch64__) || defined(__ARM_NEON)

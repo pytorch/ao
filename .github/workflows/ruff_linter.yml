@@ -25,13 +25,18 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install ruff
+        pip install ruff==0.6.8
     - name: Analyzing the code with ruff
       run: |
         ruff check .
-    - name: Check all Python files for syntax errors (E999) and undefined vars (F821)
+    - name: Check *all* Python files for F821, F823, and W191
       run: |
-        ruff check --isolated --select E999,F821
-    - name: Check well formatted code
+        # --isolated is used to skip the allowlist at all so this applies to all files
+        # please be careful when using this large changes means everyone needs to rebase
+        ruff check --isolated --select F821,F823,W191
+    - name: Check the allow-listed files for F,I
+      run: |
+        ruff check --select F,I
+    - name: Check the allow-listed files for well formatted code
       run: |
         ruff format --check

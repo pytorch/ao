@@ -84,7 +84,6 @@ class _Int8DynActIntxWeightQuantizedLinearNative(nn.Module):
         self._n = torch.empty(0, n, dtype=torch.int8)
         self._k = torch.empty(0, k, dtype=torch.int8)
         self._group_size = torch.empty(0, group_size, dtype=torch.int8)
-        
 
         weight_qvals, weight_scales, weight_zeros = _quantize(
             weights, self.group_size, self.nbit, self.has_weight_zeros
@@ -105,7 +104,11 @@ class _Int8DynActIntxWeightQuantizedLinearNative(nn.Module):
         assert x.dim() >= 2
         if x.dim() == 2:
             return self._linear_op(
-                self.packed_weights, self._n, self._k, self._group_size, x
+                x,
+                self.packed_weights,
+                self._group_size,
+                self._n,
+                self._k,
             )
 
         assert x.dim() >= 3
@@ -116,7 +119,7 @@ class _Int8DynActIntxWeightQuantizedLinearNative(nn.Module):
 
         res = [
             self._linear_op(
-                self.packed_weights, self._n, self._k, self._group_size, x[i, :, :]
+                x[i, :, :], self.packed_weights, self._group_size, self._n, self._k
             )
             for i in range(x.shape[0])
         ]
@@ -203,14 +206,15 @@ class _Int8DynActIntxWeightQuantizedLinearFallback(nn.Module):
 
 def _maybe_get_quantized_linear_native(nbit, has_weight_zeros):
     try:
-        if nbit in [2, 3, 4, 5]:
-            wzp_suffix = "z" if has_weight_zeros else ""
+        if nbit in [1, 2, 3, 4, 5]:
+            wzp_suffix = "" if has_weight_zeros else "0zp"
             return _Int8DynActIntxWeightQuantizedLinearNative(
                 pack_weight_op=getattr(
-                    torch.ops.torchao, f"_pack_weights_a8sz_w{nbit}s{wzp_suffix}"
+                    torch.ops.torchao,
+                    f"_pack_8bit_act_{nbit}bit{wzp_suffix}_weight",
                 ),
                 linear_op=getattr(
-                    torch.ops.torchao, f"_linear_a8sz_w{nbit}s{wzp_suffix}"
+                    torch.ops.torchao, f"_linear_8bit_act_{nbit}bit{wzp_suffix}_weight"
                 ),
             )
         else:

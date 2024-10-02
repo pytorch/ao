@@ -146,22 +146,16 @@ class TestFloat8Tensor:
         torch.testing.assert_close(fp8_a._data, fp8_b._data)
 
     @pytest.mark.parametrize("shape", [(8, 16), (4, 8, 16), (2, 4, 8, 16)])
-    @pytest.mark.parametrize("dim_name", ["first", "last"])
-    def test_axiswise_dynamic_cast(self, shape, dim_name):
+    @pytest.mark.parametrize("axiswise_dim", [0, -1])
+    def test_axiswise_dynamic_cast(self, shape, axiswise_dim):
         a = torch.randn(*shape, dtype=torch.bfloat16)
-
-        if dim_name == "first":
-            dim = 0
-        elif dim_name == "last":
-            dim = len(a.shape) - 1
-
         linear_mm_config = LinearMMConfig()
         a_fp8 = hp_tensor_to_float8_dynamic(
             a,
             e4m3_dtype,
             linear_mm_config,
             scaling_granularity=ScalingGranularity.AXISWISE,
-            axiswise_dim=dim,
+            axiswise_dim=axiswise_dim,
         )
         a_dq = a_fp8.to_original_precision()
         sqnr = compute_error(a, a_dq)
@@ -201,7 +195,7 @@ class TestFloat8Tensor:
             e4m3_dtype,
             linear_mm_config,
             scaling_granularity=ScalingGranularity.AXISWISE,
-            axiswise_dim=2,
+            axiswise_dim=-1,
         )
         assert list(a_fp8_d2._data.shape) == [3, 5, 7]
         assert list(a_fp8_d2._scale.shape) == [3, 5, 1]
@@ -252,7 +246,7 @@ class TestFloat8Tensor:
             linear_mm_config,
             gemm_input_role=GemmInputRole.WEIGHT,
             scaling_granularity=b_granularity,
-            axiswise_dim=get_maybe_axiswise_dim(1, b_granularity),
+            axiswise_dim=get_maybe_axiswise_dim(-1, b_granularity),
         )
 
         c_fp8_compute = torch.mm(a_fp8, b_fp8.t())

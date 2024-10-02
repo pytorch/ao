@@ -198,6 +198,8 @@ class TestFloat8NumericsIntegrationTest:
         "recipe_name",
         [_Float8LinearRecipeName.ALL_AXISWISE, _Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP],
     )
+    @pytest.mark.skipif(not is_cuda_9_0, reason="requires SM90 compatible machine")
+    @pytest.mark.skipif(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
     def test_encoder_fw_bw_from_recipe(
         self,
         recipe_name: str,

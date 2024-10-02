@@ -7,9 +7,10 @@
 Defines an nn module designed to be used during inference
 """
 
-from typing import Optional, Tuple, NamedTuple
+from typing import NamedTuple, Optional, Tuple
 
 import torch
+
 from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
 
 Tensor = torch.Tensor

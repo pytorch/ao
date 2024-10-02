@@ -208,7 +208,7 @@ class manual_float8_matmul_with_args_in_hp(torch.autograd.Function):
                 ctx.linear_mm_config,
                 gemm_input_role=GemmInputRole.WEIGHT,
                 scaling_granularity=c.cc_w_gi.sc_gr,
-                axiswise_dim=get_maybe_axiswise_dim(1, c.cc_w_gi.sc_gr),
+                axiswise_dim=get_maybe_axiswise_dim(-1, c.cc_w_gi.sc_gr),
             )
 
         grad_input = torch.mm(
