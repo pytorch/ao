@@ -247,17 +247,18 @@ def main(
             quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
         if "float8wo" in quantization:
             quantize_(model, float8_weight_only())
-        if "float8dq" in quantization:
-            granularity = int(quantization.split("-")[-2])
-            if granularity is None:
-                granularity = PerTensor
-            if granularity=="tensor":
-                granularity = PerTensor
-            elif granularity=="row":
-                granularity = PerRow
-            else:
-                raise ValueError(f"float8dq granularity needs to be either tensor or row but got {granularity}")
-            quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
+        # if "float8dq" in quantization:
+        #     granularity = str(quantization.split("-")[-2])
+        #     print(f"float8dq granularity: {granularity}")
+        #     if granularity is None:
+        #         granularity = PerTensor
+        #     if granularity=="tensor":
+        #         granularity = PerTensor
+        #     elif granularity=="row":
+        #         granularity = PerRow
+        #     else:
+        #         raise ValueError(f"float8dq granularity needs to be either tensor or row but got {granularity}")
+        #     quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
         if "autoquant" in quantization:
             if "autoquant-int4" == quantization:
                 model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
