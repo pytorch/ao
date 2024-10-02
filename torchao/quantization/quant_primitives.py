@@ -300,7 +300,7 @@ def _quantize_affine_no_dtype_cast(
     elif zero_point_domain is None:
         # This case handles quantization for float8 we expect no zero point and no zero point domain
         assert zero_point is None, "zero_point should be None when zero_point_domain is None"
-        quant = torch.clamp(input * scale.reciprocal(), quant_min, quant_max)
+        quant = torch.clamp(torch.round(input * (1.0 / scale)), quant_min, quant_max)
     else:
         assert zero_point_domain == ZeroPointDomain.FLOAT.name
         mid_point = (quant_max + quant_min + 1) / 2
@@ -766,13 +766,16 @@ def _choose_qparams_affine(
         assert mapping_type == MappingType.ASYMMETRIC.name
         scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
         scale = torch.clamp(scale, min=eps)
-        if preserve_zero:
-            zero_point = quant_min - torch.round(min_val_neg / scale)
-            zero_point = torch.clamp(zero_point, quant_min, quant_max)
+        if zero_point_domain is None:
+            zero_point = torch.zeros_like(scale)
         else:
-            assert zero_point_domain == ZeroPointDomain.FLOAT.name, "if not preserve_zero, zero_point must be in FLOAT domain"
-            mid_point = (quant_max + quant_min + 1) / 2
-            zero_point = min_val_neg + scale * mid_point
+            if preserve_zero:
+                zero_point = quant_min - torch.round(min_val_neg / scale)
+                zero_point = torch.clamp(zero_point, quant_min, quant_max)
+            else:
+                assert zero_point_domain == ZeroPointDomain.FLOAT.name, "if not preserve_zero, zero_point must be in FLOAT domain"
+                mid_point = (quant_max + quant_min + 1) / 2
+                zero_point = min_val_neg + scale * mid_point
 
     return scale.to(dtype=scale_dtype), zero_point.to(dtype=zero_point_dtype)
 
