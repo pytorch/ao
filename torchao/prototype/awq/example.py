@@ -8,7 +8,7 @@ from torchao.prototype.awq import insert_awq_observer_, AWQObservedLinear, awq_u
 from torchao.quantization import quantize_, int4_weight_only, uintx_weight_only
 
 
-# adapted from: https://github.com/mit-han-lab/llm-awq
+# adapted from: https://github.com/mit-han-lab/llm-awq/blob/main/awq/entry.py#L255
 def get_calib_dataset(tokenizer=None, n_samples=100, block_size=512):
     dataset = load_dataset("mit-han-lab/pile-val-backup", split="validation")
     samples = []
