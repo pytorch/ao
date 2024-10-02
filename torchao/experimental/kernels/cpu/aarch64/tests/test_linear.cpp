@@ -11,6 +11,7 @@
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/bitpack.h>
 #include <torchao/experimental/kernels/cpu/aarch64/linear/linear.h>
 #include <torchao/experimental/kernels/cpu/aarch64/tests/test_utils.h>
+#include <torchao/experimental/kernels/cpu/aarch64/kleidi/kai_matmul_clamp_f32_qai8dxp_qsi4c32p.h>
 #include <vector>
 
 float kTol = 0.0001;
@@ -348,6 +349,77 @@ TEST(
         true /*has_clamp*/>(
         /*m=*/7, /*k=*/64, /*n=*/n, /*group_size=*/16);
   }
+}
+
+template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
+void test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod(
+    int m,
+    int k,
+    int n,
+    int group_size) {
+  auto test_case = torchao::
+      channelwise_8bit_activation_groupwise_lowbit_weight_test_case::generate(
+          m,
+          k,
+          n,
+          group_size,
+          weight_nbit,
+          has_weight_zeros,
+          has_bias,
+          has_clamp);
+
+  using namespace torchao::kernels::cpu::aarch64::kleidi::kai_matmul_clamp_f32_qai8dxp_qsi4c32p::neon_dotprod_1x4x32;
+
+  std::vector<char> activation_data(
+      activation_data_size(m, k, group_size));
+
+  prepare_activation_data(
+      (void*)activation_data.data(),
+      m,
+      k,
+      group_size,
+      test_case.activations.data());
+
+  std::vector<char> weight_data(
+      weight_data_size(n, k, group_size));
+
+  prepare_weight_data(
+      (void*)weight_data.data(),
+      n,
+      k,
+      group_size,
+      test_case.weight_qvals.data(),
+      test_case.weight_scales.data(),
+      /*weight_zeros=*/test_case.weight_zeros.data());
+
+  std::vector<float> output(m * n);
+  kernel(
+      output.data(),
+      /*output_m_stride=*/n,
+      m,
+      n,
+      k,
+      group_size,
+      weight_data.data(),
+      activation_data.data(),
+      /*bias=*/test_case.bias.data(),
+      /*clamp_min=*/test_case.clamp_min,
+      /*clamp_max=*/test_case.clamp_max);
+
+  for (int i = 0; i < m * n; i++) {
+    EXPECT_NEAR(output[i], test_case.expected_output[i], kTol);
+  }
+}
+
+TEST(
+    test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod,
+    only_supported) {
+  test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod<
+      4 /*weight_nbit*/,
+      false /*has_weight_zeros*/,
+      false /*has_bias*/,
+      false /*has_clamp*/>(
+      /*m=*/16, /*k=*/64, /*n=*/16, /*group_size=*/32);
 }
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)
