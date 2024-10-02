@@ -150,6 +150,41 @@ class Float8LinearConfig:
     force_recompute_fp8_weight_in_bwd: bool = False
 
 
+@dataclass(frozen=True)
+class Float8CommLinearConfig:
+    """
+    Configuration for converting a `torch.nn.Linear` module to float8
+    for training.
+    """
+
+    #
+    # Per-tensor configuration for `weight`
+    #
+    cast_config_weight: CastConfig = CastConfig()
+
+    #
+    # Per-linear configuration
+    #
+
+    # If True, on the first iteration of Float8CommLinear the amaxes will be
+    # initialized with the incoming data. As of 2023-12-30, this doesn't work
+    # with autocast + torch.compile + FSDP. Enabling this option is nice for
+    # testing, but this is not necessary for real training jobs.
+    enable_amax_init: bool = True
+
+    # If True, pre-forward and post-forward functions are run. As of 2023-12-30,
+    # this doesn't work with autocast + torch.compile + FSDP. Enabling this
+    # option is useful for safety, but not strictly necessary.
+    enable_pre_and_post_forward: bool = True
+
+    # Configuration for delayed scaling
+    # Note: this is actually applied per-tensor, but only using the same
+    # configuration for all tensors and layers in the model is currently
+    # supported. If in the future we add support for a more fine grained
+    # configuration, this field may move to per-tensor configs.
+    delayed_scaling_config: DelayedScalingConfig = DelayedScalingConfig()
+
+
 # If True, use 'fnuz' float8 types for calculations.
 # Currently, ROCm only supports fnuz variants.
 # TODO(future PR): move this to Float8LinearConfig

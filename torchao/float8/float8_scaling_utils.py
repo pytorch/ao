@@ -33,10 +33,9 @@ from torchao.float8.float8_utils import (
 def hp_tensor_to_float8_dynamic(
     hp_tensor: torch.Tensor,
     float8_dtype: torch.dtype,
-    linear_mm_config: LinearMMConfig,
+    linear_mm_config: Optional[LinearMMConfig] = None,
     reduce_amax: bool = False,
     gemm_input_role: GemmInputRole = GemmInputRole.INPUT,
-    device_mesh = None,
 ) -> Float8Tensor:
     """
     Given a high precision tensor `hp_tensor`,
@@ -53,7 +52,8 @@ def hp_tensor_to_float8_dynamic(
     """
     if tensor_already_casted_to_fp8(hp_tensor):
         return hp_tensor
-    scale = tensor_to_scale(hp_tensor, float8_dtype, reduce_amax, device_mesh)
+    scale = tensor_to_scale(hp_tensor, float8_dtype, reduce_amax)
+    # print(f"scale: {scale}")
     return hp_tensor_and_scale_to_float8(
         hp_tensor,
         scale,
@@ -101,7 +101,7 @@ def hp_tensor_to_float8_static(
     hp_tensor: torch.Tensor,
     scale: torch.Tensor,
     float8_dtype: torch.dtype,
-    linear_mm_config: LinearMMConfig,
+    linear_mm_config: Optional[LinearMMConfig] = None,
     gemm_input_role: GemmInputRole = GemmInputRole.INPUT,
 ) -> Float8Tensor:
     """
