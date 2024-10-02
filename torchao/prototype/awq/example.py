@@ -98,14 +98,15 @@ def wikitext2_ppl(
         # use awq_uintx() to apply awq quantization
         is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
         
-        from torchao.quantization.quant_primitives import (
-            MappingType,
-            ZeroPointDomain,
-             _DTYPE_TO_QVALUE_BOUNDS,
-        )
-        from torchao.dtypes import to_affine_quantized_intx, TensorCoreTiledLayoutType
+        
         t0 = time.time()
         if "hqq" in quant:
+            from torchao.quantization.quant_primitives import (
+                MappingType,
+                ZeroPointDomain,
+                _DTYPE_TO_QVALUE_BOUNDS,
+            )
+            from torchao.dtypes import to_affine_quantized_intx, TensorCoreTiledLayoutType
             def hqqint4(weight):
                 mapping_type = MappingType.ASYMMETRIC
                 block_size = (1, group_size)

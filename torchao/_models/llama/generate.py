@@ -255,8 +255,29 @@ def main(
                 tasks=['wikitext'], 
                 limit=calibration_limit,
             )
-            is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
-            quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size), is_observed_linear)
+            is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
+            if "hqq" in quant:
+                from torchao.quantization.quant_primitives import (
+                    MappingType,
+                    ZeroPointDomain,
+                    _DTYPE_TO_QVALUE_BOUNDS,
+                )
+                from torchao.dtypes import to_affine_quantized_intx, TensorCoreTiledLayoutType
+                def hqqint4(weight):
+                    mapping_type = MappingType.ASYMMETRIC
+                    block_size = (1, group_size)
+                    target_dtype = torch.int32
+                    quant_min = 0
+                    quant_max = 15
+                    eps = 1e-6
+                    preserve_zero = False
+                    zero_point_dtype = torch.bfloat16
+                    zero_point_domain = ZeroPointDomain.FLOAT
+            
+                    return to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, layout_type=TensorCoreTiledLayoutType(inner_k_tiles=8), use_hqq=True)
+                quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size, weight_quant_fn=hqqint4), is_observed_linear)
+            else:
+                quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size), is_observed_linear)
         if "uintx" in quantization:
             # uintx-nbits-groupsize, e.g. "uintx-2-64"
             if "hqq" in quantization:
