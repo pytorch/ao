@@ -27,7 +27,7 @@ class ToyLinearModel(torch.nn.Module):
 devices = ["cuda"]
 # torch.uintx dtypes are introduced in 2.3
 if TORCH_VERSION_AT_LEAST_2_3:
-    qdtypes = (torch.uint4,)#torch.uint1, torch.uint2, torch.uint3, torch.uint4, torch.uint5, torch.uint6, torch.uint7, torch.uint8)
+    qdtypes = (torch.uint3, torch.uint4,  torch.uint8)
 else:
     qdtypes = ()
     
@@ -36,7 +36,7 @@ def run_before_and_after_tests():
     yield
     torch._dynamo.reset() # reset cache between tests
     
-idtypes = (torch.half,)#, torch.half, torch.float32)
+idtypes = (torch.half, torch.bfloat16)#, torch.half, torch.float32)
 @pytest.mark.parametrize("device", devices)   
 @pytest.mark.parametrize("qdtype", qdtypes)
 @pytest.mark.parametrize("idtype", idtypes)
