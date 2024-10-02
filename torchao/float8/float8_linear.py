@@ -152,21 +152,21 @@ class Float8Linear(torch.nn.Linear):
                 emulate,
                 self.config.gemm_config_output.use_fast_accum,
                 False,
-                self.config.pad_inner_dim,
+                self.config.pad_dimensions,
             ),
             # grad_input
             ScaledMMConfig(
                 emulate,
                 self.config.gemm_config_grad_input.use_fast_accum,
                 False,
-                self.config.pad_inner_dim,
+                self.config.pad_dimensions,
             ),
             # grad_weight
             ScaledMMConfig(
                 emulate,
                 self.config.gemm_config_grad_weight.use_fast_accum,
                 False,
-                self.config.pad_inner_dim,
+                self.config.pad_dimensions,
             ),
         )
 
