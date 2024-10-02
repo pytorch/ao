@@ -287,15 +287,6 @@ class InputRecorder(eval_wrapper):
             return torch.randn(
                 (1, T, self.vocab_size), dtype=torch.bfloat16, device=self._device
             )
-                 
-        def _model_call(self, inps):
-            input = self.input_prep_func(inps.to(self._device))
-
-            max_seq_length = min(max(inps.size()), self.max_length)
-            with torch.device(self._device):
-                self.model_.setup_caches(self.batch_size, max_seq_length)
-            logits = self.model_(*input)
-            return logits
 
         # pad or truncate to the right size
         if T >= self.calibration_seq_length:

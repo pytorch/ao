@@ -4,7 +4,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
 from tqdm import tqdm
 import time
-from torchao.prototype.awq import insert_awq_observer_, ObservedLinear, awq_uintx,
+from torchao.prototype.awq import insert_awq_observer_, AWQObservedLinear, awq_uintx,
 from torchao.quantization import quantize_, int4_weight_only, uintx_weight_only
 
 
@@ -95,7 +95,7 @@ def wikitext2_ppl(
 
         print(f"running {quant_dtype} quantization")
         # use awq_uintx() to apply awq quantization
-        is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
+        is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
         t0 = time.time()
         quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size), is_observed_linear)
             

@@ -119,27 +119,6 @@ def run_evaluation(
             quantizer = Int4WeightOnlyGPTQQuantizer(groupsize=groupsize, device=device)
             model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
             model = quantizer.quantize(model, inputs).to(device)
-
-        if "awq" in quantization:
-            from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
-            from torchao.prototype.awq.example import get_calib_dataset
-            if not TORCH_VERSION_AT_LEAST_2_3:
-                print("Awq requires torch2.3+")
-                exit()
-            from torchao.prototype.awq import insert_awq_observer_, awq_uintx, ObservedLinear
-            quant_dtype = quantization.split("-")[1]
-            group_size = int(quantization.split("-")[2])
-            quant_dtype = getattr(torch, quant_dtype, torch.uint8)
-            model=model.to(device)
-            # get calibration data
-            insert_awq_observer_(model,calibration_limit, calibration_seq_length, quant_dtype=quant_dtype, group_size=group_size)
-            with torch.no_grad():
-                calibration_data = get_calib_dataset(tokenizer=tokenizer, n_samples=calibration_limit, block_size=calibration_seq_length)
-                for batch in calibration_data:
-                    model(batch.to(device))
-                    batch.to("cpu")
-            is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
-            quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size), is_observed_linear)
         else:
             if not TORCH_VERSION_AT_LEAST_2_5:
                 unwrap_tensor_subclass(model)
@@ -231,7 +210,6 @@ if __name__ == '__main__':
             "int4wo-<groupsize>-gptq, autoquant, autoquant-int4, int4wo-<groupsize>-hqq, "
             "uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, "
             "autoround-<model_device>-<quant_lm_head>-<iters>-<groupsize>-<batch_size>-<seqlen>-<nsamples>-<grad_acc_steps>-<c>"
-            "awq-uint<nbits>-<groupsize>"
         ),
     )
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')

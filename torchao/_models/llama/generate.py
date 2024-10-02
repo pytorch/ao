@@ -238,18 +238,23 @@ def main(
             if not TORCH_VERSION_AT_LEAST_2_3:
                 print("Awq requires torch2.3+")
                 exit()
-            from torchao.prototype.awq import insert_awq_observer_, awq_uintx, ObservedLinear
+            from torchao.prototype.awq import insert_awq_observer_, awq_uintx, AWQObservedLinear
             quant_dtype = quantization.split("-")[1]
             group_size = int(quantization.split("-")[2])
             quant_dtype = getattr(torch, quant_dtype, torch.uint8)
             model=model.to(device)
             # get calibration data
-            insert_awq_observer_(model,calibration_limit, calibration_seq_length, quant_dtype=quant_dtype, group_size=group_size)
-            with torch.no_grad():
-                calibration_data = get_calib_dataset(tokenizer=tokenizer, n_samples=calibration_limit, block_size=calibration_seq_length)
-                for batch in calibration_data:
-                    model(batch.to(device))
-                    batch.to("cpu")
+            insert_awq_observer_(model, calibration_limit, calibration_seq_length, quant_dtype=quant_dtype, group_size=group_size)
+            TransformerEvalWrapper(
+                model=model.to(device),
+                tokenizer=tokenizer,
+                max_seq_length=calibration_seq_length,
+                input_prep_func=prepare_inputs_for_model,
+                device=device,
+            ).run_eval(
+                tasks=['wikitext'], 
+                limit=calibration_limit,
+            )
             is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
             quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size), is_observed_linear)
         if "uintx" in quantization:

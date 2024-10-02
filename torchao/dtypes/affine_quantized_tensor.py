@@ -28,14 +28,12 @@ from torchao.dtypes.utils import (
     is_device,
     get_out_shape,
 )
-
 from torchao.float8.inference import (
     preprocess_data,
     Float8MMConfig,
     addmm_float8_unwrapped_inference,
     _is_rowwise_scaled
 )
-
 from torch.utils._python_dispatch import is_traceable_wrapper_subclass
 from dataclasses import dataclass
 from torchao.utils import (
@@ -1463,6 +1461,7 @@ def _linear_bf16_act_uint4_weight_impl(input_tensor, weight_tensor, bias):
         f"need input_tensor shape: {input_tensor.shape} final"
         f"dim to match weight_tensor shape: {weight_tensor.shape} second dim "
     )
+
     # TODO: check groupsize quantization
     # avoid circular dep, TODO: move this to a common util.py
     act_mat = input_tensor

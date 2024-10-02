@@ -65,25 +65,25 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, spars
     elif quantization == "autoquant":
         model = autoquant(model.to(device=device))
     elif quantization == "awq":
-        from datasets import load_dataset
-        from tqdm import tqdm
-        from torchao.prototype.awq.api import ObservedLinear, insert_awq_observer, awq_quant 
-        
-        insert_awq_observer(model, precision, device)
-        wikitext103 = load_dataset("wikitext", "wikitext-103-v1")
-        wikitext103_train  = wikitext103["train"]
-        wikitext103_calibration = wikitext103_train.select(range(1))
-        calibration_input_ids = [tokenizer.encode(text, return_tensors="pt") for text in wikitext103_calibration["text"]]
-        model.to(device)
-        print("running awq calibration")
-        for i, ids in tqdm(enumerate(calibration_input_ids)):
-            if ids.shape[-1] == 0:
-                continue
-            model(ids.to(device))
-
-
-        is_observed_linear = lambda m, fqn: isinstance(model, ObservedLinear)
-        quantize_(model, awq_quant, is_observed_linear)
+        from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
+        from torchao.prototype.awq.example import get_calib_dataset
+        if not TORCH_VERSION_AT_LEAST_2_3:
+            print("AWQ quantization requires torch2.3+")
+            exit()
+        from torchao.prototype.awq import insert_awq_observer_, awq_uintx, AWQObservedLinear
+        quant_dtype = torch.uint4
+        group_size = 64
+        calibration_limit = 10
+        calibration_seq_length = 1024
+        model=model.to(device)
+        insert_awq_observer_(model,calibration_limit, calibration_seq_length, quant_dtype=quant_dtype, group_size=group_size)
+        with torch.no_grad():
+            calibration_data = get_calib_dataset(tokenizer=tokenizer, n_samples=calibration_limit, block_size=calibration_seq_length)
+            for batch in calibration_data:
+                model(batch.to(device))
+                batch.to("cpu")
+        is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
+        quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size), is_observed_linear)
 
     if quantization != "autoquant" and compile:
         model = torch.compile(model, mode= "max-autotune", fullgraph=True)

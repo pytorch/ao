@@ -6,7 +6,7 @@ from torchao.quantization import quantize_
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
 if TORCH_VERSION_AT_LEAST_2_3:
-    from torchao.prototype.awq import insert_awq_observer_, awq_uintx, ObservedLinear
+    from torchao.prototype.awq import insert_awq_observer_, awq_uintx, AWQObservedLinear
 
 class ToyLinearModel(torch.nn.Module):
     def __init__(self, m=512, n=256, k=128):
@@ -67,7 +67,7 @@ def test(device, qdtype, idtype):
 
     
     # quantize
-    is_observed_linear = lambda m, fqn: isinstance(m, ObservedLinear)
+    is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
     quantize_(m, awq_uintx(quant_dtype = quant_dtype, group_size = group_size), is_observed_linear)
     
     model_save_path = "awq_model.pt"

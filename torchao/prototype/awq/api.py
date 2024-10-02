@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, Optional, Callable
 
 import torch
 import torch.nn.functional as F
@@ -8,12 +8,13 @@ from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
      _DTYPE_TO_QVALUE_BOUNDS,
 )
+from torchao.quantization.observer import PerGroup
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.dtypes.uintx import _DTYPE_TO_BIT_WIDTH, UintxLayoutType
 from torchao.dtypes import to_affine_quantized_intx
 from .core import(
     AWQObserver, 
-    ObservedLinear, 
+    AWQObservedLinear, 
 ) 
 from .layout import to_weight_tensor_with_equalization_scales
 
@@ -36,7 +37,7 @@ def insert_awq_observer_(model: torch.nn.Module, n_validation_examples: int, val
 
     # AQT config
     mapping_type = MappingType.ASYMMETRIC
-    block_size = (1, group_size)
+    quantization_granularity = PerGroup(group_size)
     quant_min = 0
     quant_max = 255 if quant_dtype == torch.uint8 else 2 ** _DTYPE_TO_BIT_WIDTH[quant_dtype] - 1 
     eps = torch.finfo(torch.float32).eps
@@ -46,11 +47,11 @@ def insert_awq_observer_(model: torch.nn.Module, n_validation_examples: int, val
     assert quant_dtype in _DTYPE_TO_BIT_WIDTH or quant_dtype == torch.uint8, "Invalid quant_dtype. Please use torch.uint1 .. torch.uint8"
 
     def replace_with_observer(layer):
-        # creates observer and replaces linear layers with observed linear layers
+        # creates observer and replaces linear layers with AWQObservedLinear layers
         observer = AWQObserver(
             layer.weight,
             layer.bias, 
-            block_size, 
+            quantization_granularity, 
             mapping_type,
             quant_dtype, 
             n_validation_examples,
@@ -62,15 +63,15 @@ def insert_awq_observer_(model: torch.nn.Module, n_validation_examples: int, val
             quant_min=quant_min,
             quant_max = quant_max,
             eps = eps)
-        return ObservedLinear.from_float(layer, observer)
+        return AWQObservedLinear.from_float(layer, observer)
     _replace_with_custom_fn_if_matches_filter(model, replace_with_observer, _is_linear)
 
 def _observed_linear_subclass_inserter(constructor):
     """
-    Replaces unquantized observed linear instances with quantized linear instances.
+    Replaces unquantized AWQObservedLinear instances with quantized linear instances.
 
     Args:
-        constructor: the function which applies quantization to the observed linear layer
+        constructor: the function which applies quantization to the AWQObservedLinear layer
     """
     def insert_subclass(observed_linear):
         # creates the new linear layer using constructor
@@ -82,13 +83,16 @@ def _observed_linear_subclass_inserter(constructor):
     return insert_subclass
     
 
-def awq_uintx(quant_dtype: torch.dtype = torch.uint4, group_size: int = 128):
+def awq_uintx(quant_dtype: torch.dtype = torch.uint4,
+              group_size: int = 128, 
+              weight_quant_fn: Optional[Callable[[torch.Tensor], torch.Tensor]]= None):
     """
     Quantizes linear layers when passed into quantize_()
 
     Args:
         quant_dtype: The data type of the quantized weights. Currently only torch.uint4 is intended to be used but can be used with torch.uint1 -> torch.uint8
         group_size: Quantization granularity. Use -1 for channel wise quantization
+        weight_quant_fn: The quantization function to be used, which takes in the weight and returns the quantized weight. If None, then affine uint4 quantization is used
     """
     
     assert quant_dtype in _DTYPE_TO_BIT_WIDTH or quant_dtype == torch.uint8, "Invalid quant_dtype. Please use torch.uint1 .. torch.uint8"
@@ -98,7 +102,7 @@ def awq_uintx(quant_dtype: torch.dtype = torch.uint4, group_size: int = 128):
         equalization_scale = observed_linear.act_obs.calculate_qparams()
         target_dtype = torch.uint8
         mapping_type = MappingType.ASYMMETRIC
-        block_size = (1, group_size)
+        quantization_granularity = PerGroup(group_size)
         quant_min = _DTYPE_TO_QVALUE_BOUNDS[quant_dtype][0]
         quant_max = _DTYPE_TO_QVALUE_BOUNDS[quant_dtype][1]
         eps = torch.finfo(torch.float32).eps
@@ -106,16 +110,19 @@ def awq_uintx(quant_dtype: torch.dtype = torch.uint4, group_size: int = 128):
         zero_point_dtype = torch.int64
         zero_point_domain = ZeroPointDomain.INT
         layout_type = UintxLayoutType(quant_dtype)
-        
-        qw = to_affine_quantized_intx(
-            observed_linear.weight * equalization_scale,
-            mapping_type, block_size, 
-            target_dtype, quant_min, 
-            quant_max, eps, 
-            zero_point_dtype=zero_point_dtype,
-            preserve_zero=preserve_zero,
-            zero_point_domain=zero_point_domain,
-            layout_type=layout_type)
+        if weight_quant_fn is not None:
+            qw = weight_quant_fn(observed_linear.weight * equalization_scale)
+        else:
+            # usage according to original paper
+            qw = to_affine_quantized_intx(
+                observed_linear.weight * equalization_scale,
+                mapping_type, (1, quantization_granularity.group_size), 
+                target_dtype, quant_min, 
+                quant_max, eps, 
+                zero_point_dtype=zero_point_dtype,
+                preserve_zero=preserve_zero,
+                zero_point_domain=zero_point_domain,
+                layout_type=layout_type)
         return to_weight_tensor_with_equalization_scales(qw, equalization_scale)
     
     return _observed_linear_subclass_inserter(weight_quant_func)

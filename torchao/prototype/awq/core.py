@@ -12,7 +12,7 @@ from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
 )
 from torchao.quantization.observer import (
-    AffineQuantizedObserverBase, PerGroup
+    AffineQuantizedObserverBase, GranularityType
 )
 
 
@@ -20,7 +20,7 @@ class AWQObserver(AffineQuantizedObserverBase):
     def __init__(self,
         weight: torch.Tensor,
         bias: torch.Tensor,
-        block_size: Tuple,
+        quantization_granularity: GranularityType,
         mapping_type: MappingType,
         target_dtype: torch.dtype,
         n_validation_examples: int,
@@ -40,7 +40,7 @@ class AWQObserver(AffineQuantizedObserverBase):
         Args:
             weight: The weight tensor to be observed.
             bias: The bias tensor to be observed.
-            block_size: The weight tensor shape after being reshaped to support per group quantization
+            quantization_granularity: Granularity type which specifies how many weights share the same scale/zero point
             input_dtype: The data type of the input tensor.
             mapping_type: Always set to asymmetric 
             target_dtype: The target data type of the quantized tensor
@@ -59,7 +59,7 @@ class AWQObserver(AffineQuantizedObserverBase):
         super().__init__(
             mapping_type,
             target_dtype,
-            PerGroup(block_size[-1]), 
+            quantization_granularity, 
             quant_min = quant_min,
             quant_max = quant_max,
             eps = eps,
@@ -68,7 +68,7 @@ class AWQObserver(AffineQuantizedObserverBase):
             preserve_zero = preserve_zero,
             zero_point_domain = zero_point_domain,
         )
-        self.block_size = block_size
+        self.quantization_granularity = quantization_granularity
         self.weight = weight
         self.bias = bias
         self.n_validation_examples = n_validation_examples
@@ -115,7 +115,7 @@ class AWQObserver(AffineQuantizedObserverBase):
             w = to_affine_quantized_intx(
                 self.weight*scales,
                 self.mapping_type,
-                self.block_size,
+                (1, self.quantization_granularity.group_size),
                 tensor_dtype,
                 quant_min = self.quant_min,
                 quant_max = self.quant_max,
@@ -138,7 +138,7 @@ class AWQObserver(AffineQuantizedObserverBase):
                 self.outputs[i].to("cpu")
         return best_scales.detach()
 
-class ObservedLinear(torch.nn.Linear):
+class AWQObservedLinear(torch.nn.Linear):
     def __init__(self, in_features: int, out_features: int, act_obs: torch.nn.Module, bias: bool = True, device=None, dtype=None):
         super().__init__(in_features, out_features, bias, device, dtype)
         self.act_obs = act_obs

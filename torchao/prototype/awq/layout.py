@@ -22,7 +22,7 @@ class WeightTensorWithEqualizationScales(TorchAOBaseTensor):
         equalization_scale (torch.Tensor): The equalization scale tensor.
     """
 
-    quantized_weight_tensor: AffineQuantizedTensor
+    quantized_weight_tensor: TorchAOBaseTensor
     equalization_scale: torch.Tensor
 
     def __new__(
@@ -69,7 +69,7 @@ class WeightTensorWithEqualizationScales(TorchAOBaseTensor):
         input_tensor: torch.Tensor, weight_tensor: torch.Tensor, bias: torch.Tensor
     ):
         return torch.nn.functional.linear(
-            input_tensor / weight_tensor.equalization_scale, weight_tensor.quantized_weight_tensor.dequantize(), bias
+            input_tensor / weight_tensor.equalization_scale, weight_tensor.quantized_weight_tensor, bias
         )
 
     @classmethod
