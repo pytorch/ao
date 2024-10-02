@@ -15,6 +15,7 @@ import torch._dynamo.config
 import torch._inductor.config
 from torchao.utils import get_model_size_in_bytes
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.quantization.observer import PerRow, PerTensor
 
 def device_sync(device):
     if "cuda" in device:
@@ -213,6 +214,7 @@ def main(
             unwrap_tensor_subclass,
             float8_weight_only,
             float8_dynamic_activation_float8_weight,
+            float8_static_activation_float8_weight,
         )
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
@@ -247,18 +249,31 @@ def main(
             quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
         if "float8wo" in quantization:
             quantize_(model, float8_weight_only())
-        # if "float8dq" in quantization:
-        #     granularity = str(quantization.split("-")[-2])
-        #     print(f"float8dq granularity: {granularity}")
-        #     if granularity is None:
-        #         granularity = PerTensor
-        #     if granularity=="tensor":
-        #         granularity = PerTensor
-        #     elif granularity=="row":
-        #         granularity = PerRow
-        #     else:
-        #         raise ValueError(f"float8dq granularity needs to be either tensor or row but got {granularity}")
-        #     quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
+        if "float8dq" in quantization:
+            granularity = str(quantization.split("-")[-1])
+            if granularity=="tensor":
+                granularity = PerTensor()
+            elif granularity=="row":
+                granularity = PerRow()
+            else:
+                if granularity=="float8dq":
+                    granularity = PerTensor()
+                else:
+                    raise ValueError(f"Unknown granularity {granularity}")
+            quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
+        if "float8sdq" in quantization:
+            print(model.__dict__)
+            scale, _ = choose_qparams_affine(
+                    input_tensor,
+                    MappingType.SYMMETRIC,
+                    input_tensor.shape,
+                    torch.float8_e4m3fn,
+                    scale_dtype=torch.float32,
+                )
+            granularity = str(quantization.split("-")[-1])
+            if granularity=="tensor":
+                granularity = PerTensor()
+            quantize_(model, float8_static_activation_float8_weight(scale, granularity=granularity))
         if "autoquant" in quantization:
             if "autoquant-int4" == quantization:
                 model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
@@ -433,7 +448,7 @@ if __name__ == '__main__':
     parser.add_argument('-q', '--quantization', type=str, 
         help=(
             'Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, '
-            +'autoquant-int4, autoquant-float8, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, float8wo, float8dq-<granularity>'
+            +'autoquant-int4, autoquant-float8, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, float8wo, float8dq-<granularity>, float8sdq-<granularity>'
         )
     )
     parser.add_argument('--kv_cache_quantization', action='store_true', help='Whether to quantize the KV cache')
