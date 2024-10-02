@@ -16,6 +16,9 @@ from .linear_activation_quantized_tensor import (  # noqat: F403
     LinearActivationQuantizedTensor,
     to_linear_activation_quantized,
 )
+from .linear_activation_scale import (  # noqat: F403
+    to_weight_tensor_with_linear_activation_scale_metadata,
+)
 
 __all__ = [
     "swap_conv2d_1x1_to_linear"
@@ -47,6 +50,7 @@ __all__ = [
     "fpx_weight_only",
     "LinearActivationQuantizedTensor",
     "to_linear_activation_quantized",
+    "to_weight_tensor_with_linear_activation_scale_metadata",
     "float8_weight_only",
     "float8_dynamic_activation_float8_weight"
 ]
