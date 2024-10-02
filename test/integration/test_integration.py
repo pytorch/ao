@@ -73,6 +73,7 @@ from torchao.quantization.autoquant import (
     AQInt8WeightOnlyQuantizedLinearWeight3,
     AutoQuantizableLinearWeight,
     AQFloat8WeightOnlyQuantizedLinearWeight,
+    AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight,
 )
 from torch.ao.quantization.quantize_fx import convert_to_reference_fx, prepare_fx
 import os
@@ -677,27 +678,28 @@ class TestSubclass(unittest.TestCase):
     ):
         if not "cuda" in test_device:
             self.skipTest("test requires cuda")
-        m, k, n = test_shape
-        x = torch.randn(m, k, device=test_device, dtype=test_dtype)
-        lin = torch.nn.Linear(k, n, device=test_device).to(test_dtype)
-        ref_f = lin(x)
+        with torch.no_grad():
+            m, k, n = test_shape
+            x = torch.randn(m, k, device=test_device, dtype=test_dtype)
+            lin = torch.nn.Linear(k, n, device=test_device).to(test_dtype)
+            ref_f = lin(x)
 
-        lin.weight = torch.nn.Parameter(
-            test_subclass_from_float(lin.weight), requires_grad=False
-        )
-        test = lin(x)
-        self.assertGreater(
-            SQNR(ref_f, test),
-            min_sqnr,
-            f"{lin.weight.__class__.__name__} failed, no compile, dtype={test_dtype}, (m, k, n)={test_shape}"
-        )
-        lin_comp = torch.compile(lin, mode='max-autotune')
-        test_comp = lin_comp(x)
-        self.assertGreater(
-            SQNR(ref_f, test_comp),
-            min_sqnr,
-            f"{lin.weight.__class__.__name__} failed at compile with dtype={test_dtype}, (m, k, n)={test_shape}"
-        )
+            lin.weight = torch.nn.Parameter(
+                test_subclass_from_float(lin.weight), requires_grad=False
+            )
+            test = lin(x)
+            self.assertGreater(
+                SQNR(ref_f, test),
+                min_sqnr,
+                f"{lin.weight.__class__.__name__} failed, no compile, dtype={test_dtype}, (m, k, n)={test_shape}"
+            )
+            lin_comp = torch.compile(lin, mode='max-autotune')
+            test_comp = lin_comp(x)
+            self.assertGreater(
+                SQNR(ref_f, test_comp),
+                min_sqnr,
+                f"{lin.weight.__class__.__name__} failed at compile with dtype={test_dtype}, (m, k, n)={test_shape}"
+            )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_4, "skip because there is some bug in inductor codegen")
@@ -751,6 +753,16 @@ class TestSubclass(unittest.TestCase):
     def test_aq_float8_weight_only_quant_subclass(self, device, dtype):
         self._test_lin_weight_subclass_impl(
             AQFloat8WeightOnlyQuantizedLinearWeight.from_float, device, 30, test_dtype=dtype
+        )
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant+aqt needs newer pytorch")
+    @unittest.skipIf(not is_H100, "Need H100 to run")
+    def test_aq_float8_dynamic_quant_subclass(self, device, dtype):
+        if dtype != torch.bfloat16:
+            self.skipTest("Fails for {dtype}")
+        self._test_lin_weight_subclass_impl(
+            AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight.from_float, device, 25, test_dtype=dtype
         )
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
