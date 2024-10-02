@@ -46,11 +46,11 @@ __all__ = [
     "int4_weight_only",
     "int8_weight_only",
     "uintx_weight_only",
-    "float8_weight_only",
     "fpx_weight_only",
     "LinearActivationQuantizedTensor",
     "to_linear_activation_quantized",
     "to_weight_tensor_with_linear_activation_scale_metadata",
     "float8_weight_only",
-    "float8_dynamic_activation_float8_weight"
+    "float8_dynamic_activation_float8_weight",
+    "float8_static_activation_float8_weight"
 ]
