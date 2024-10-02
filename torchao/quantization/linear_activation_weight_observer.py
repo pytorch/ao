@@ -1,12 +1,13 @@
+from typing import Callable, Dict, Optional
+
 import torch
-from typing import Callable, Optional, Dict
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from torchao.utils import (
-    TorchAOBaseTensor,
-    TORCH_VERSION_AT_LEAST_2_5,
-)
 
 from torchao.quantization.observer import AffineQuantizedObserverBase
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_5,
+    TorchAOBaseTensor,
+)
 
 __all__ = [
     "LinearActivationWeightObservedTensor",

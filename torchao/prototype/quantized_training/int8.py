@@ -14,7 +14,7 @@ _c10d_functional = torch.ops._c10d_functional
 
 
 @torch.no_grad()
-def quantize_int8_rowwise(tensor: Tensor, stochastic_rounding: bool = False):
+def quantize_int8_rowwise(tensor: Tensor, stochastic_rounding: bool = False, eps: float = 1e-12):
     """Normal rounding will always round down small changes in weight update. To tackle this problem,
     stochastic rounding can be used, which has a low chance, but not zero, of rounding up. The
     probability of rounding up is equal to x - ⌊x⌋, which indicates how close the value is to the next
@@ -29,7 +29,7 @@ def quantize_int8_rowwise(tensor: Tensor, stochastic_rounding: bool = False):
     """
     # absmax symmetric quantization
     scale = tensor.abs().amax(1) / 127  # same dtype as tensor
-    inv_scale = 1.0 / scale.float().clip(1e-12)
+    inv_scale = 1.0 / scale.float().clip(eps)
     tensor = tensor.float() * inv_scale.view(-1, 1)  # slightly faster than divide directly
 
     if stochastic_rounding:
@@ -99,8 +99,14 @@ class Int8QuantizedTrainingLinearWeight(TorchAOBaseTensor):
             f"requires_grad={self.requires_grad})"
         )
 
-    def fsdp_pre_all_gather(self, mesh):
-        return (self.int_data, self.scale), None
+    # require https://github.com/pytorch/pytorch/pull/136129 for mixed-precision param_dtype
+    # we need default None for module and mp_policy so this method still works with PyTorch 2.4 and 2.5
+    def fsdp_pre_all_gather(self, mesh, module=None, mp_policy=None):
+        scale = self.scale
+        if mp_policy is not None:
+            scale = scale.to(mp_policy.param_dtype)
+
+        return (self.int_data, scale), None
 
     def fsdp_post_all_gather(
         self,

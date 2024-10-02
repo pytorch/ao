@@ -11,25 +11,21 @@ from torchao.utils import TorchAOBaseTensor
 from .int8 import quantize_int8_rowwise
 
 if has_triton():
-    from .int8_mm import int8_mm_dequant
+    from .int8_mm import scaled_int8_mm
 
 else:
 
     # This is less performant than the explicit hand-written Triton kernel, though things might
     # change in the future.
-    # Multiplying B_scale first is faster than the other way round.
-    def int8_mm_dequant(A: Tensor, B: Tensor, A_scale_rowwise: Tensor, B_scale_colwise: Tensor) -> Tensor:
-        return torch._int_mm(A, B) * B_scale_colwise * A_scale_rowwise.view(-1, 1)
+    # Multiplying col_scale first is faster than the other way round.
+    def scaled_int8_mm(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor) -> Tensor:
+        return torch._int_mm(A, B) * col_scale.view(-1) * row_scale.view(-1, 1)
 
 
 class Int8MixedPrecisionTrainingConfig(NamedTuple):
     output: bool = True
     grad_input: bool = True
     grad_weight: bool = True
-
-    # workaround for FSDP2 with `MixedPrecisionPolicy(param_dtype)`
-    # see `Int8MixedPrecisionTrainingLinearWeight.fsdp_pre_all_gather()` for more details.
-    fsdp_param_dtype: Optional[torch.dtype] = None
 
 
 _DEFAULT_CONFIG = Int8MixedPrecisionTrainingConfig()
@@ -114,15 +110,15 @@ class Int8MixedPrecisionTrainingLinearWeight(TorchAOBaseTensor):
             # return new unwrapped object
             return out
 
-    def fsdp_pre_all_gather(self, mesh):
+    # require https://github.com/pytorch/pytorch/pull/136129 for mixed-precision param_dtype
+    # we need default None for module and mp_policy so this method still works with PyTorch 2.4 and 2.5
+    def fsdp_pre_all_gather(self, mesh, module=None, mp_policy=None):
         # TODO: pre-quantize weight here -> reduce comm bandwidth.
         # we will need another tensor subclass to hold the quantized weight.
+        data = self._data
+        if mp_policy is not None:
+            data = data.to(mp_policy.param_dtype)
 
-        # doing dtype casting to `param_dtype` in `fsdp_post_all_gather()` will give wrong results.
-        # as a workaround, we do it in `fsdp_pre_all_gather()` instead. since `param_dtype` is not
-        # exposed to `fsdp_pre_all_gather()`, we need to specify it in the config.
-        # this workaround can be removed once we implement INT8 communication.
-        data = self._data.to(dtype=self.config.fsdp_param_dtype)
         return (data,), (self.config,)
 
     def fsdp_post_all_gather(
@@ -171,7 +167,7 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor) -> Tensor:
     # A may have more than 2 dims, while B must be exactly 2-dim
     A_i8, A_scale_rowwise = quantize_int8_rowwise(A.view(-1, A.shape[-1]))
     B_t_i8, B_scale_colwise = quantize_int8_rowwise(B.T)
-    out = int8_mm_dequant(
+    out = scaled_int8_mm(
         A_i8.contiguous(),
         B_t_i8.contiguous().T,
         A_scale_rowwise.contiguous(),

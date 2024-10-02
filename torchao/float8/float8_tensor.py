@@ -4,16 +4,16 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import enum
-from typing import Dict, Optional, NamedTuple
+from typing import Dict, NamedTuple, Optional
 
 import torch
-
 import torch.distributed._functional_collectives as funcol
+from torch.distributed._tensor import DTensor
+
 from torchao.float8.float8_utils import (
     e4m3_dtype,
     to_fp8_saturated,
 )
-from torch.distributed._tensor import DTensor
 
 aten = torch.ops.aten
 
@@ -164,7 +164,10 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
 
         DTensor Invariant: DTensor must always be the outer most tensor subclass
         """
-        tensor_scaled = tensor * scale
+        # Note: when the line below is compiled with `torch.compile`, `tensor` is automatically
+        # upcasted to `float32` to multiply with the scale
+        # In order to match numerics between eager and compile, we upcast manually here.
+        tensor_scaled = tensor.to(torch.float32) * scale
         bits_fp8 = to_fp8_saturated(tensor_scaled, float8_dtype)
 
         if isinstance(bits_fp8, DTensor):
@@ -267,15 +270,15 @@ class Float8Tensor(torch.Tensor):
       with `_data`. For example:
       - if scaling is tensorwise, `_scale` is a scalar tensor
       - if scaling is axiswise and _data.shape is [3, 5], `_scale` could have
-        shape [1, 5] or [3, 1]. The dim of the non-one entry defines the scaling
-        axis.
+        shape [1, 5] or [3, 1]. `axiswise_dim` defines the scaling axis.
       - if scaling is axiswise and _data.shape is [2, 3, 5], `_scale` could have
-        shape [1, 1, 5] or [2, 1, 1]. The dim of the non-one entry defines the scaling
+        shape [1, 1, 5] or [2, 1, 1]. `axiswise_dim` defines the scaling
         axis. Non-one entries which are not the first or last element are not
         supported.
     * `_orig_dtype`: the original dtype of the tensor used to create this
       tensor.
-    * `_axiswise_dim`: for axiswise scaling only, contains the axis scales across
+    * `_axiswise_dim`: for axiswise scaling only, contains the axis scales
+      across. Only values of 0 or -1 are supported.
 
     Intended usage of this abstraction:
     1. to bundle raw data + fp8 metadata together for easy passing through
@@ -319,6 +322,7 @@ class Float8Tensor(torch.Tensor):
             linear_mm_config if linear_mm_config is not None else LinearMMConfig()
         )
         self._gemm_input_role = gemm_input_role
+        assert axiswise_dim in (None, 0, -1), f"unsupported axiswise_dim {axiswise_dim}"
         self._axiswise_dim = axiswise_dim
 
         return self

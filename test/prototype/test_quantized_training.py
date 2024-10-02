@@ -1,6 +1,6 @@
 import pytest
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_6
 
 if not TORCH_VERSION_AT_LEAST_2_4:
     pytest.skip("Requires torch>=2.4", allow_module_level=True)
@@ -11,7 +11,7 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from torch import nn
-from torch.distributed._composable.fsdp import fully_shard, MixedPrecisionPolicy
+from torch.distributed._composable.fsdp import MixedPrecisionPolicy, fully_shard
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torch.testing._internal.common_utils import TestCase, instantiate_parametrized_tests, parametrize, run_tests
@@ -20,6 +20,7 @@ from torch.testing._internal.distributed._tensor.common_dtensor import ModelArgs
 from torchao.prototype.low_bit_optim import _AdamW
 from torchao.prototype.quantized_training import (
     Int8MixedPrecisionTrainingConfig,
+    bitnet_training,
     int8_mixed_precision_training,
     int8_weight_only_quantized_training,
     quantize_int8_rowwise,
@@ -165,7 +166,7 @@ class TestQuantizedTraining(TestCase):
         embed_dim = 64
         device = "cuda"
 
-        linear = nn.Linear(embed_dim, embed_dim).cuda()
+        linear = nn.Linear(embed_dim, embed_dim, device=device)
         linear_int8mp = copy.deepcopy(linear)
         quantize_(linear_int8mp, int8_mixed_precision_training(config), set_inductor_config=False)
 
@@ -187,6 +188,70 @@ class TestQuantizedTraining(TestCase):
         assert snr(inputs_ref.grad, inputs_int8mp.grad) > 20
         assert snr(linear.weight.grad, linear_int8mp.weight.grad) > 20
 
+    @parametrize("compile", [False, True])
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    def test_bitnet_training(self, compile):
+        # reference implementation
+        # https://github.com/microsoft/unilm/blob/master/bitnet/The-Era-of-1-bit-LLMs__Training_Tips_Code_FAQ.pdf
+        # Figure 3
+        class BitLinear(nn.Linear):
+            def activation_quant(self, x):
+                scale = 127.0 / x.abs().max(dim=-1, keepdim=True).values.clamp_(min=1e-5)
+                return (x * scale).round().clamp_(-128, 127) / scale
+
+            def weight_quant(self, x):
+                scale = 1.0 / x.abs().mean().clamp_(min=1e-5)
+                return (x * scale).round().clamp_(-1, 1) / scale
+
+            def forward(self, x):
+                w = self.weight
+                x = x + (self.activation_quant(x) - x).detach()
+                w = w + (self.weight_quant(w) - w).detach()
+                return F.linear(x, w, self.bias)
+
+        _reset()
+        bsize = 4
+        embed_dim = 32
+        device = "cuda"
+
+        # only use 1 matmul shape to reduce triton autotune time
+        model_ref = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim, bias=False),
+            nn.GELU(),
+            nn.Linear(embed_dim, embed_dim),
+        ).to(device)
+        model = copy.deepcopy(model_ref)
+        quantize_(model, bitnet_training(), set_inductor_config=False)
+
+        # change model_ref to use BitLinear
+        model_ref[0].__class__ = BitLinear
+        model_ref[2].__class__ = BitLinear
+
+        if compile:
+            model_ref.compile()
+            model.compile()
+
+        optim_ref = torch.optim.AdamW(model_ref.parameters())
+        optim = torch.optim.AdamW(model.parameters())
+
+        for i in range(5):
+            inputs = torch.randn(bsize, embed_dim, device=device)
+            labels = torch.randint(embed_dim, size=(bsize,), device=device)
+            loss_ref = F.cross_entropy(model_ref(inputs), labels)
+            loss = F.cross_entropy(model(inputs), labels)
+
+            torch.testing.assert_close(loss, loss_ref)
+
+            loss_ref.backward()
+            optim_ref.step()
+            optim_ref.zero_grad()
+
+            loss.backward()
+            for p in model.parameters():
+                assert p.grad is not None
+            optim.step()
+            optim.zero_grad()
+
 
 _FSDP_WORLD_SIZE = 2
 
@@ -198,35 +263,36 @@ class TestFSDP2(FSDPTest):
 
     @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
     def test_fsdp2_correctness(self):
+        mp_policy = MixedPrecisionPolicy()
+
+        # quantize_fn, mp_policy, tolerance
         test_args = [
-            (
-                int8_weight_only_quantized_training(),  # quantize_fn for base model
-                int8_weight_only_quantized_training(),  # quantize_fn for FSDP model
-                MixedPrecisionPolicy(),
-                0.05,  # tolerance. due to stochastic rounding, use a pretty large tolerance here
-            ),
-            (
-                int8_mixed_precision_training(),
-                int8_mixed_precision_training(),
-                MixedPrecisionPolicy(),
-                1e-6,
-            ),
-            (
-                # It's complicated (though possible) to simulate FSDP BF16 mixed-precision for base_model.
-                # We would need to cast all params to BF16 in forward and backward pass, while keeping
-                # the params in FP32 for optim step.
-                # torch.autocast() will only do this for F.linear() layer (and its backward).
-                # To keep it simple, we just use a larger tolerance here.
-                int8_mixed_precision_training(),
-                int8_mixed_precision_training(Int8MixedPrecisionTrainingConfig(fsdp_param_dtype=torch.bfloat16)),
-                MixedPrecisionPolicy(param_dtype=torch.bfloat16),
-                1e-2,
-            ),
+            # high tolerance due to stochastic rounding
+            (int8_weight_only_quantized_training, mp_policy, 0.05),
+            (int8_mixed_precision_training, mp_policy, 1e-6),
+            (bitnet_training, mp_policy, 1e-5),
         ]
+
+        # FSDP2 mixed-precision requires https://github.com/pytorch/pytorch/pull/136129
+        if TORCH_VERSION_AT_LEAST_2_6:
+            # It's complicated (though possible) to simulate FSDP BF16 mixed-precision for base_model.
+            # We would need to cast all params to BF16 in forward and backward pass, while keeping
+            # the params in FP32 for optim step.
+            # torch.autocast() will only do this for F.linear() layer (and its backward).
+            # To keep it simple, we just use a larger tolerance here.
+            bf16_mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16)
+
+            extra_args = [
+                (int8_weight_only_quantized_training, bf16_mp_policy, 1e-2),
+                (int8_mixed_precision_training, bf16_mp_policy, 1e-2),
+                (bitnet_training, bf16_mp_policy, 1e-2),
+            ]
+            test_args.extend(extra_args)
+
         self.run_subtests({"args": test_args}, self._run_subtest)
 
     def _run_subtest(self, args):
-        base_quantize_fn, fsdp_quantize_fn, mp_policy, tolerance = args
+        quantize_fn, mp_policy, tolerance = args
 
         batch_size = 3
         vocab_size = 32
@@ -245,8 +311,8 @@ class TestFSDP2(FSDPTest):
         base_model = Transformer(model_args).cuda()
         fsdp_model = copy.deepcopy(base_model)
 
-        quantize_(base_model.layers, base_quantize_fn, set_inductor_config=False)
-        quantize_(fsdp_model.layers, fsdp_quantize_fn, set_inductor_config=False)
+        quantize_(base_model.layers, quantize_fn(), set_inductor_config=False)
+        quantize_(fsdp_model.layers, quantize_fn(), set_inductor_config=False)
 
         for layer in fsdp_model.layers:
             fully_shard(layer, mp_policy=mp_policy)
@@ -275,7 +341,25 @@ class TestFSDP2(FSDPTest):
             base_optim.step()
 
             rel_error = (fsdp_loss - base_loss).abs() / base_loss.abs()
-            assert rel_error < tolerance, (iter_idx, rel_error)
+            assert rel_error < tolerance, (quantize_fn.__name__, mp_policy, iter_idx, rel_error)
+
+    @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
+    def test_precompute_bitnet_scale(self):
+        from torchao.prototype.quantized_training.bitnet import get_bitnet_scale, precompute_bitnet_scale_for_fsdp
+
+        model = nn.Sequential(nn.Linear(32, 64), nn.GELU(), nn.Linear(64, 32)).cuda()
+        model_fsdp = copy.deepcopy(model)
+        quantize_(model_fsdp, bitnet_training())
+        fully_shard(model_fsdp)
+
+        precompute_bitnet_scale_for_fsdp(model_fsdp)
+
+        torch.testing.assert_close(
+            get_bitnet_scale(model[0].weight), model_fsdp[0].weight._local_tensor._precomputed_scale
+        )
+        torch.testing.assert_close(
+            get_bitnet_scale(model[2].weight), model_fsdp[2].weight._local_tensor._precomputed_scale
+        )
 
 
 instantiate_parametrized_tests(TestQuantizedTraining)

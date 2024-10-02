@@ -4,6 +4,8 @@
 // This source code is licensed under the license found in the
 // LICENSE file in the root directory of this source tree.
 
+#if defined(__aarch64__) || defined(__ARM_NEON)
+
 #include <arm_neon.h>
 #include <gtest/gtest.h>
 #include <torchao/experimental/kernels/cpu/aarch64/quantization/quantize.h>
@@ -68,3 +70,5 @@ TEST(test_quantize, ExpectedOutput) {
     }
   }
 }
+
+#endif // defined(__aarch64__) || defined(__ARM_NEON)

@@ -188,7 +188,7 @@ class manual_float8_matmul_with_args_in_hp(torch.autograd.Function):
             ctx.linear_mm_config,
             gemm_input_role=GemmInputRole.WEIGHT,
             scaling_granularity=ctx.weight_scaling_granularity,
-            axiswise_dim=1,  # will be transposed
+            axiswise_dim=-1,  # will be transposed
         )
 
         grad_input = torch.mm(

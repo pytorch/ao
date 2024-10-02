@@ -246,7 +246,7 @@ but if you use 2.4 or before, you'll need to use `unwrap_tensor_subclass` as wel
 
 Note that the workaround will not be needed after https://github.com/pytorch/pytorch/issues/129682 is fixed.
 
-
+Note that the workaround is also required for `torch.compile` with `freezing` (`torch._inductor.config.freezing=True`) until https://github.com/pytorch/pytorch/pull/136265 is fixed.
 
 ## Other Available Quantization Techniques
 
