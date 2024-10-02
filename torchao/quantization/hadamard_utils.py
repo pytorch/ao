@@ -9,6 +9,8 @@
 # Licensed under Apache License 2.0.
 # Adapted from https://github.com/Cornell-RelaxML/quip-sharp/blob/main/lib/utils/matmul_had.py
 
+# TODO: reformat this file
+
 import torch
 
 try:
@@ -108,9 +110,15 @@ def get_hadK(n, transpose=False):
     return hadK, K
 
 
-def matmul_hadU(X, transpose=False):
+def matmul_hadU(X, hadK, K):
+    if X.device == torch.device("cpu") and hadK.device == torch.device("cpu"):
+        return matmul_hadU_cpu(X, hadK, K)
+    else:
+        return matmul_hadU_cuda(X, hadK, K)
+
+
+def matmul_hadU_cpu(X, hadK, K):
     n = X.shape[-1]
-    hadK, K = get_hadK(n, transpose)
     input = X.clone().view(-1, n, 1)
     output = input.clone()
     while input.shape[1] > K:
@@ -132,22 +140,20 @@ def matmul_hadU(X, transpose=False):
     return input.view(X.shape) / torch.tensor(n).sqrt()
 
 
-def matmul_hadUt(X):
-    return matmul_hadU(X, transpose=True)
-
-
 def random_hadamard_matrix(size, device):
     # See https://cornell-relaxml.github.io/quip-sharp/ , Section "Randomized Hadamard Transformation"
     Q = torch.randint(low=0, high=2, size=(size,)).to(torch.float64)
     Q = Q * 2 - 1
     Q = torch.diag(Q)
-    return matmul_hadU(Q).to(device)
+    hadK, K = get_hadK(size)
+    return matmul_hadU_cpu(Q, hadK, K).to(device)
 
 
 def hadamard_matrix(size, device):
     # See https://cornell-relaxml.github.io/quip-sharp/ , Section "Randomized Hadamard Transformation"
     Q = torch.eye(size)
-    return matmul_hadU(Q).to(device)
+    hadK, K = get_hadK(size)
+    return matmul_hadU_cpu(Q, hadK, K).to(device)
 
 
 def matmul_hadU_cuda(X, hadK, K):
@@ -160,10 +166,6 @@ def matmul_hadU_cuda(X, hadK, K):
     input = HadamardTransform.apply(input.contiguous()) / torch.tensor(n).sqrt()
     input = hadK.to(input.device).to(input.dtype) @ input
     return input.reshape(X.shape)
-
-
-def matmul_hadUt_cuda(X, hadK, K):
-    return matmul_hadU_cuda(X, hadK, K, transpose=True)
 
 
 def apply_exact_had_to_linear(module, had_dim=-1, output=False, R2=None):
@@ -182,10 +184,10 @@ def apply_exact_had_to_linear(module, had_dim=-1, output=False, R2=None):
     if had_dim == -1:
         if output:
             had_K, K = get_hadK(out_features)
-            W_ = matmul_hadU_cuda(W_.t(), had_K, K).t()
+            W_ = matmul_hadU(W_.t(), had_K, K).t()
         if not output:
             had_K, K = get_hadK(in_features)
-            W_ = matmul_hadU_cuda(W_, had_K, K)
+            W_ = matmul_hadU(W_, had_K, K)
     else:
         hadK = hadamard_matrix(had_dim, "cuda").to(torch.float64)
         if R2 is not None:

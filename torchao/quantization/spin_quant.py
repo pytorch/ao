@@ -7,7 +7,7 @@ Based on https://github.com/facebookresearch/SpinQuant
 import torch
 from torch import nn
 
-from torchao.quantization.hadamard_utils import apply_exact_had_to_linear, random_hadamard_matrix, get_hadK, matmul_hadU_cuda
+from torchao.quantization.hadamard_utils import apply_exact_had_to_linear, random_hadamard_matrix, get_hadK, matmul_hadU
 from torchao._models.llama.model import Transformer, Attention
 
 
@@ -16,15 +16,16 @@ class HadamardMultiplier(nn.Module):
 
     def __init__(self, had_K, K, fp32_had=False):
         super().__init__()
-        self.register_buffer("had_K", had_K)
+        assert had_K is not None  # TODO: this can currently happen. Should it be a no-op in this case?
+        self.register_buffer("had_K", had_K)  # TODO: is buffer necessary?
         self.K = K
         self.fp32_had = fp32_had
 
     def forward(self, x):
         if self.fp32_had:  # Full Hadamard in FP32
-            x = matmul_hadU_cuda(x.float(), self.had_K, self.K).to(x.dtype)
+            x = matmul_hadU(x.float(), self.had_K, self.K).to(x.dtype)
         else:  # Full Hadamard in FP16
-            x = matmul_hadU_cuda(x, self.had_K, self.K)
+            x = matmul_hadU(x, self.had_K, self.K)
 
         return x
 
@@ -92,6 +93,7 @@ def _add_activation_wrappers_r3_r4(model):
     # eval_utils/main.py:36
     fp32_had = False   # default used in SpinQuant
     had_K, K = get_hadK(model.config.intermediate_size)
+    print(f"K: {K}")
     _wrap_r4_layers(model, had_K, K, fp32_had)
 
 
@@ -104,6 +106,11 @@ def apply_spinquant(model: Transformer):
     """
     assert isinstance(model, Transformer), "Only Transformer models are supported"
 
+    # device = next(model.parameters()).device
+    # dtype = next(model.parameters()).dtype
+
     _rotate_model_r2(model)
     _rotate_model_r4(model)
     _add_activation_wrappers_r3_r4(model)
+
+    # model.to(device=device, dtype=dtype)
