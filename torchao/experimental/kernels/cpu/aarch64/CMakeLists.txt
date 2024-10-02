@@ -4,6 +4,24 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+include(FetchContent)
+
+# KleidiAI is an open-source library that provides optimized
+# performance-critical routines, also known as micro-kernels, for artificial
+# intelligence (AI) workloads tailored for Arm® CPUs.
+FetchContent_Declare(kleidiai
+        GIT_REPOSITORY https://git.gitlab.arm.com/kleidi/kleidiai.git
+        GIT_TAG main) # TODO: set a pin
+
+FetchContent_MakeAvailable(kleidiai)
+
+# Disabled by default. Force enable if we are on a suitable system.
+# TODO: Introduce ISA specific flags for i8mm.
+CMAKE_DEPENDENT_OPTION(BUILD_KLEIDI "Download, build, and link against Arm KleidiAI library"
+  OFF "CMAKE_SYSTEM_PROCESSOR STREQUAL \"arm64\"" ON)
+
+add_compile_definitions("TORCHAO_ENABLE_KLEIDI=$<BOOL:${BUILD_KLEIDI}>")
+
 if (CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
   add_library(
     torchao_kernels_aarch64
@@ -12,6 +30,10 @@ if (CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
     ${TORCHAO_INCLUDE_DIRS}/torchao/experimental/kernels/cpu/aarch64/quantization/quantize.cpp
     ${TORCHAO_INCLUDE_DIRS}/torchao/experimental/kernels/cpu/aarch64/valpacking/interleave.cpp
   )
+  if (BUILD_KLEIDI)
+    message(STATUS "Building with Kleidi")
+    target_link_libraries(torchao_kernels_aarch64 PUBLIC kleidiai)
+  endif()
 endif()
 
 install(
