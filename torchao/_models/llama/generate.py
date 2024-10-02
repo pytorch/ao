@@ -210,7 +210,9 @@ def main(
             fpx_weight_only,
             uintx_weight_only,
             autoquant,
-            unwrap_tensor_subclass
+            unwrap_tensor_subclass,
+            float8_weight_only,
+            float8_dynamic_activation_float8_weight,
         )
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
@@ -243,6 +245,19 @@ def main(
             dtype = _NBITS_TO_DTYPE[nbits]
             group_size = int(_quant_args[2])
             quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
+        if "float8wo" in quantization:
+            quantize_(model, float8_weight_only())
+        if "float8dq" in quantization:
+            granularity = int(quantization.split("-")[-2])
+            if granularity is None:
+                granularity = PerTensor
+            if granularity=="tensor":
+                granularity = PerTensor
+            elif granularity=="row":
+                granularity = PerRow
+            else:
+                raise ValueError(f"float8dq granularity needs to be either tensor or row but got {granularity}")
+            quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
         if "autoquant" in quantization:
             if "autoquant-int4" == quantization:
                 model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
@@ -417,7 +432,7 @@ if __name__ == '__main__':
     parser.add_argument('-q', '--quantization', type=str, 
         help=(
             'Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, '
-            +'autoquant-int4, autoquant-float8, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin'
+            +'autoquant-int4, autoquant-float8, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, float8wo, float8dq-<granularity>'
         )
     )
     parser.add_argument('--kv_cache_quantization', action='store_true', help='Whether to quantize the KV cache')
