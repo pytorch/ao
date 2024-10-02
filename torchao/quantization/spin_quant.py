@@ -1,4 +1,8 @@
-"""Based on https://github.com/facebookresearch/SpinQuant"""
+"""
+SpinQuant implementation (https://arxiv.org/abs/2405.16406)
+
+Based on https://github.com/facebookresearch/SpinQuant
+"""
 
 import torch
 from torch import nn
@@ -8,24 +12,19 @@ from torchao._models.llama.model import Transformer, Attention
 
 
 class HadamardMultiplier(nn.Module):
-    """Wrapper that multiplies input by Hadamard matrix before feeding it to a module."""
+    """Multiply the input by a Hadamard matrix."""
 
-    def __init__(self, module, had_K, K, fp32_had=False):
+    def __init__(self, had_K, K, fp32_had=False):
         super().__init__()
-        self.module = module
         self.register_buffer("had_K", had_K)
         self.K = K
         self.fp32_had = fp32_had
 
     def forward(self, x):
-        x_dtype = x.dtype
-
         if self.fp32_had:  # Full Hadamard in FP32
-            x = matmul_hadU_cuda(x.float(), self.had_K, self.K).to(x_dtype)
+            x = matmul_hadU_cuda(x.float(), self.had_K, self.K).to(x.dtype)
         else:  # Full Hadamard in FP16
             x = matmul_hadU_cuda(x, self.had_K, self.K)
-
-        x = self.module(x)
 
         return x
 
@@ -77,7 +76,8 @@ def _rotate_model_r4(model):
 def _wrap_r4_layers(module, had_K, K, fp32_had):
     for name, child in module.named_children():
         if isinstance(child, nn.Linear) and name == "w2":  # FeedForward last layer
-            setattr(module, name, HadamardMultiplier(child, had_K, K, fp32_had))
+            new_child = nn.Sequential(HadamardMultiplier(had_K, K, fp32_had), child)
+            setattr(module, name, new_child)
         else:
             _wrap_r4_layers(child, had_K, K, fp32_had)
 
