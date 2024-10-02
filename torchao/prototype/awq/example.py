@@ -4,7 +4,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
 from tqdm import tqdm
 import time
-from torchao.prototype.awq import insert_awq_observer_, AWQObservedLinear, awq_uintx,
+from torchao.prototype.awq import insert_awq_observer_, AWQObservedLinear, awq_uintx
 from torchao.quantization import quantize_, int4_weight_only, uintx_weight_only
 
 
@@ -86,6 +86,7 @@ def wikitext2_ppl(
         t0 = time.time()
         
         # insert observers to find average magnitude and calculate scales
+            
         insert_awq_observer_(model,validation_size, sequence_length, quant_dtype=quant_dtype, group_size=group_size)
         calibration_data = get_calib_dataset(tokenizer=tokenizer, n_samples=calibration_size, block_size=sequence_length)
         for batch in calibration_data:
@@ -96,8 +97,27 @@ def wikitext2_ppl(
         print(f"running {quant_dtype} quantization")
         # use awq_uintx() to apply awq quantization
         is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
+        
+        from torchao.quantization.quant_primitives import (
+            MappingType,
+            ZeroPointDomain,
+             _DTYPE_TO_QVALUE_BOUNDS,
+        )
+        from torchao.dtypes import to_affine_quantized_intx, TensorCoreTiledLayoutType
         t0 = time.time()
-        quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size), is_observed_linear)
+        def hqqint4(weight):
+            mapping_type = MappingType.ASYMMETRIC
+            block_size = (1, group_size)
+            target_dtype = torch.int32
+            quant_min = 0
+            quant_max = 15
+            eps = 1e-6
+            preserve_zero = False
+            zero_point_dtype = torch.bfloat16
+            zero_point_domain = ZeroPointDomain.FLOAT
+    
+            return to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, layout_type=TensorCoreTiledLayoutType(inner_k_tiles=8), use_hqq=True)
+        quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size, weight_quant_fn=hqqint4), is_observed_linear)
             
         print(f"time for quantization: {time.time() - t0:.02f} seconds")
         if model_save_path is not None:
@@ -106,7 +126,9 @@ def wikitext2_ppl(
     elif quant=="int4":
         print("running int4 quantization")
         quantize_(model, int4_weight_only(group_size=group_size))
-
+    elif quant=="hqq":
+        print("running int4-hqq quantization")
+        quantize_(model,int4_weight_only(group_size=group_size, use_hqq=True))
     if compile:
         model = torch.compile(model)
 
@@ -142,7 +164,7 @@ if __name__ == "__main__":
         precision=precision_dtype,
         sequence_length=args.seq_len,
         compile=args.compile,
-        scale_store_path=args.model_save_path
+        model_save_path=args.model_save_path
     )
 
     print(f"{args.quant} Perplexity: {ppl.item():.5f}")

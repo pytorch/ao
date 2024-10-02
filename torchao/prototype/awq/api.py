@@ -84,7 +84,7 @@ def _observed_linear_subclass_inserter(constructor):
     
 
 def awq_uintx(quant_dtype: torch.dtype = torch.uint4,
-              group_size: int = 128, 
+              group_size: int = 64, 
               weight_quant_fn: Optional[Callable[[torch.Tensor], torch.Tensor]]= None):
     """
     Quantizes linear layers when passed into quantize_()
@@ -95,25 +95,28 @@ def awq_uintx(quant_dtype: torch.dtype = torch.uint4,
         weight_quant_fn: The quantization function to be used, which takes in the weight and returns the quantized weight. If None, then affine uint4 quantization is used
     """
     
-    assert quant_dtype in _DTYPE_TO_BIT_WIDTH or quant_dtype == torch.uint8, "Invalid quant_dtype. Please use torch.uint1 .. torch.uint8"
+    
     def weight_quant_func(observed_linear):
         # weight quantization
         # AQT config
         equalization_scale = observed_linear.act_obs.calculate_qparams()
-        target_dtype = torch.uint8
-        mapping_type = MappingType.ASYMMETRIC
-        quantization_granularity = PerGroup(group_size)
-        quant_min = _DTYPE_TO_QVALUE_BOUNDS[quant_dtype][0]
-        quant_max = _DTYPE_TO_QVALUE_BOUNDS[quant_dtype][1]
-        eps = torch.finfo(torch.float32).eps
-        preserve_zero = True
-        zero_point_dtype = torch.int64
-        zero_point_domain = ZeroPointDomain.INT
-        layout_type = UintxLayoutType(quant_dtype)
         if weight_quant_fn is not None:
             qw = weight_quant_fn(observed_linear.weight * equalization_scale)
         else:
             # usage according to original paper
+            assert quant_dtype in _DTYPE_TO_BIT_WIDTH or quant_dtype == torch.uint8, "Invalid quant_dtype. Please use torch.uint1 .. torch.uint8"
+            
+            target_dtype = torch.uint8
+            mapping_type = MappingType.ASYMMETRIC
+            quantization_granularity = PerGroup(group_size)
+            quant_min = _DTYPE_TO_QVALUE_BOUNDS[quant_dtype][0]
+            quant_max = _DTYPE_TO_QVALUE_BOUNDS[quant_dtype][1]
+            eps = torch.finfo(torch.float32).eps
+            preserve_zero = True
+            zero_point_dtype = torch.int64
+            zero_point_domain = ZeroPointDomain.INT
+            layout_type = UintxLayoutType(quant_dtype)
+        
             qw = to_affine_quantized_intx(
                 observed_linear.weight * equalization_scale,
                 mapping_type, (1, quantization_granularity.group_size), 

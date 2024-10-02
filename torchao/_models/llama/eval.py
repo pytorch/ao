@@ -112,7 +112,7 @@ def run_evaluation(
                 model.config.vocab_size,
                 device="cpu"
             ).record_inputs(
-                ["pile_hackernews"],
+                calibration_tasks,
                 calibration_limit,
             ).get_inputs()
 
