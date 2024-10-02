@@ -5,6 +5,9 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
+
+#if defined(__aarch64__) || defined(__ARM_NEON)
+
 #include <arm_neon.h>
 
 namespace torchao::kernels::cpu::aarch64::linear {
@@ -164,3 +167,5 @@ void kernel(
 #include <torchao/experimental/kernels/cpu/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot-impl.h>
 #include <torchao/experimental/kernels/cpu/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16_f32_neondot-impl.h>
 #include <torchao/experimental/kernels/cpu/aarch64/linear/channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot-impl.h>
+
+#endif // defined(__aarch64__) || defined(__ARM_NEON)

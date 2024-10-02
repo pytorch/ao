@@ -1,9 +1,11 @@
+from typing import Any, Callable, Dict, Optional
+
 import torch
-from typing import Callable, Optional, Dict, Any
 from torch.utils._python_dispatch import return_and_correct_aliasing
+
 from torchao.utils import (
-    TorchAOBaseTensor,
     TORCH_VERSION_AT_LEAST_2_5,
+    TorchAOBaseTensor,
 )
 
 __all__ = [

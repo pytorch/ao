@@ -13,6 +13,10 @@
 //    limitations under the License.
 // 
 // This file is modified from https://github.com/usyd-fsalab/fp6_llm/blob/ce76774bcfc26b325c1b558abcf1935026d9abbc/fp6_llm/csrc/include/utils_gmem.cuh
+//
+// MODIFICATION NOTE (2024-09-25): added SM75 support (https://github.com/pytorch/ao/pull/942):
+// - Replaced asynchronous copy operations with vectorized loads
+//
 
 #ifndef UTILS_GMEM_CUH
 #define UTILS_GMEM_CUH
@@ -39,7 +43,15 @@ __device__ __forceinline__ void CopyFromGlobalToShared_A(uint32_t* SPTR,
     GPTR_HALF += lane_id*8;
     #pragma unroll
     for(int i=0; i<SMEM_SIZE_IN_BYTES_PER_WARP/WARP_SIZE/16; i++) {
+        #if __CUDA_ARCH__ == 750
+        if (pred_guard) {
+            float4* SPTR_VEC = reinterpret_cast<float4*>(SPTR_HALF);
+            const float4* GPTR_VEC = reinterpret_cast<const float4*>(GPTR_HALF);
+            SPTR_VEC[0] = GPTR_VEC[0];
+        }
+        #else
         cp_async<16>( SPTR_HALF, GPTR_HALF, pred_guard);
+        #endif
         SPTR_HALF += 256;   // Forward 512 Bytes
         GPTR_HALF += 256;   // Forward 512 Bytes
     }
@@ -82,8 +94,15 @@ __device__ __forceinline__ void CopyFromGlobalToShared(half (* __restrict__ Shar
     #pragma unroll
     for (int i = 0; i < MaxIteration; i++) {
         bool AsyncCopyPred = (line_id+i*NumOfGroups) < NumOfLinesLeft && Pred;
+        #if __CUDA_ARCH__ == 750
+        if (AsyncCopyPred) {
+            float4* SharedPtrVec = reinterpret_cast<float4*>(&(*SharedPTR)[line_offset]);
+            const float4* GlobalPtrVec = reinterpret_cast<const float4*>(GlobalPTR);
+            SharedPtrVec[0] = GlobalPtrVec[0];
+        }
+        #else
         cp_async<16>( &(*SharedPTR)[line_offset], GlobalPTR, AsyncCopyPred);
-        //
+        #endif
         GlobalPTR += NumOfGroups * GlobalStride;
         SharedPTR += NumOfGroups;
     }

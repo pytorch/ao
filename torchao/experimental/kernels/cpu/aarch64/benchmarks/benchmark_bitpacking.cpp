@@ -4,6 +4,8 @@
 // This source code is licensed under the license found in the
 // LICENSE file in the root directory of this source tree.
 
+#if defined(__aarch64__) || defined(__ARM_NEON)
+
 #include <arm_neon.h>
 #include <benchmark/benchmark.h>
 
@@ -796,3 +798,5 @@ BENCHMARK(benchmark_unpack_uint5_values)->ArgsProduct({{128}, {8, 64, 128}});
 
 // Run the benchmark
 BENCHMARK_MAIN();
+
+#endif // defined(__aarch64__) || defined(__ARM_NEON)
