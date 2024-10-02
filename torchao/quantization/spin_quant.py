@@ -35,7 +35,7 @@ def _rotate_model_r2(model):
 
     # Note: using a random Hadamard matrix for R2 is a substitute for the Caley
     # optimization they use in the paper. It's not clear that it adds value to
-    # use a random Hadamard matrix.
+    # use a random Hadamard matrix. But it doesn't seem to hurt much either.
     torch.manual_seed(0)
     R2 = random_hadamard_matrix(model.config.head_dim, "cuda")
     
@@ -95,12 +95,15 @@ def _add_activation_wrappers_r3_r4(model):
     _wrap_r4_layers(model, had_K, K, fp32_had)
 
 
-def apply_spinquant_to_llama(model: Transformer):
+def apply_spinquant(model: Transformer):
     """
-    Apply SpinQuant to Llama: https://arxiv.org/abs/2405.16406
+    Apply SpinQuant to a Transformer model: https://arxiv.org/abs/2405.16406
     
-    Currently, this only applies the R2 + R3 + R4 rotation matrices to the model (not R1).
+    Currently, this only applies the R2 + R3 + R4 rotation matrices to the model
+    (not R1, and no Cayley optimization).
     """
+    assert isinstance(model, Transformer), "Only Transformer models are supported"
+
     _rotate_model_r2(model)
     _rotate_model_r4(model)
     _add_activation_wrappers_r3_r4(model)

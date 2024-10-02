@@ -31,7 +31,7 @@ from torchao._models.llama.model import prepare_inputs_for_model
 from tokenizer import get_tokenizer
 import time
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-from torchao.quantization.spin_quant import apply_spinquant_to_llama
+from torchao.quantization.spin_quant import apply_spinquant
 
 def run_evaluation(
     checkpoint_path: Path,
@@ -71,7 +71,7 @@ def run_evaluation(
 
     if quantization:
         if "spinquant" in quantization:
-            apply_spinquant_to_llama(model)
+            apply_spinquant(model)
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
