@@ -17,6 +17,10 @@ concurrency:
 env:
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   test-nightly:
     strategy:
@@ -33,10 +37,17 @@ jobs:
             torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
-
-    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+          - name: ROCM Nightly
+            runs-on: linux.rocm.gpu
+            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/rocm6.3'
+            gpu-arch-type: "rocm"
+            gpu-arch-version: "6.3"
+    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@rocm_experiment
     with:
       timeout: 120
+      no-sudo: ${{ matrix.gpu-arch-type == 'rocm' }}
+      continue-on-error: ${{ matrix.gpu-arch-type == 'rocm' }}
+      test-infra-ref: rocm_experiment
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
@@ -71,7 +82,6 @@ jobs:
             torch-spec: 'torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.1"
-
           - name: CPU 2.3
             runs-on: linux.4xlarge
             torch-spec: 'torch==2.3.0 --index-url https://download.pytorch.org/whl/cpu'
@@ -99,8 +109,6 @@ jobs:
         conda create -n venv python=3.9 -y
         conda activate venv
         echo "::group::Install newer objcopy that supports --set-section-alignment"
-        yum install -y  devtoolset-10-binutils
-        export PATH=/opt/rh/devtoolset-10/root/usr/bin/:$PATH
         python -m pip install --upgrade pip
         pip install ${{ matrix.torch-spec }}
         pip install -r dev-requirements.txt
