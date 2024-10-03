@@ -1,6 +1,7 @@
 from torchao.testing.utils import copy_tests, TorchAOTensorParallelTestCase
 from torch.testing._internal.common_utils import run_tests
 from torchao.quantization import int8_weight_only
+import torch
 
 class TestAffineQuantizedTensorParallel(TorchAOTensorParallelTestCase):
     pass
@@ -13,4 +14,7 @@ else:
     print("Skipping TestAffineQuantizedTensorParallel because it doesn't run on H100")
 
 if __name__ == "__main__":
-    run_tests()
+    if not is_H100:
+        run_tests()
+    else:
+        print("Skipping TestAffineQuantizedTensorParallel: not supported on H100")
