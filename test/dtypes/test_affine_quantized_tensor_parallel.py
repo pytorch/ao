@@ -8,10 +8,7 @@ class TestAffineQuantizedTensorParallel(TorchAOTensorParallelTestCase):
 
 is_H100 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
 
-if not is_H100:
-    copy_tests(TorchAOTensorParallelTestCase, TestAffineQuantizedTensorParallel, "aqt_tp")
-else:
-    print("Skipping TestAffineQuantizedTensorParallel because it doesn't run on H100")
+copy_tests(TorchAOTensorParallelTestCase, TestAffineQuantizedTensorParallel, "aqt_tp")
 
 if __name__ == "__main__":
     if not is_H100:
