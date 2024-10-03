@@ -4,13 +4,14 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 import logging
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Union
 
 import torch
 import torch.distributed as dist
 import torch.nn as nn
-from torchao.float8.config import Float8LinearConfig, ScalingType
+from torchao.float8.config import Float8LinearConfig, Float8CommLinearConfig, ScalingType
 from torchao.float8.float8_linear import Float8Linear
+from torchao.float8.float8_comm_linear import Float8CommLinear
 
 from torchao.float8.float8_utils import (
     amax_history_to_scale_stack,
@@ -23,8 +24,10 @@ log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
 
 
-def linear_requires_sync(config: Float8LinearConfig):
+def linear_requires_sync(config: Union[Float8LinearConfig, Float8CommLinearConfig]):
     """Returns whether the given linear_type requires sync before forward."""
+    if isinstance(config, Float8CommLinearConfig):
+        return config.cast_config_weight.scaling_type is ScalingType.DELAYED
     return any(
         [
             config.cast_config_input.scaling_type is ScalingType.DELAYED,
@@ -126,7 +129,8 @@ def convert_to_float8_training(
     module: nn.Module,
     *,
     module_filter_fn: Optional[Callable[[nn.Module, str], bool]] = None,
-    config: Float8LinearConfig = None,
+    config: Optional[Float8LinearConfig] = None,
+    comm_only: bool = False,
 ) -> nn.Module:
     """
     Swaps `torch.nn.Linear` in `module` with `Float8Linear`.
@@ -144,6 +148,39 @@ def convert_to_float8_training(
     if config is None:
         config = Float8LinearConfig()
     from_float = lambda m: Float8Linear.from_float(
+        m,
+        config=config,
+    )
+    return swap_linear_layers(
+        module,
+        from_float,
+        module_filter_fn=module_filter_fn,
+    )
+
+
+def convert_to_float8_comm_training(
+    module: nn.Module,
+    *,
+    module_filter_fn: Optional[Callable[[nn.Module, str], bool]] = None,
+    config: Optional[Float8CommLinearConfig] = None,
+    comm_only: bool = False,
+) -> nn.Module:
+    """
+    Swaps `torch.nn.Linear` in `module` with `Float8Linear`.
+
+    Args:
+        module: Module to modify.
+        module_filter_fn: If specified, only the `torch.nn.Linear` subclasses that
+            that pass the filter function will be swapped. The inputs to the
+            filter function are the module instance and the FQN.
+        config (Float8CommLinearConfig): configuration for conversion to float8
+
+    Returns:
+     nn.Module: The modified module with swapped linear layers.
+    """
+    if config is None:
+        config = Float8CommLinearConfig()
+    from_float = lambda m: Float8CommLinear.from_float(
         m,
         config=config,
     )
