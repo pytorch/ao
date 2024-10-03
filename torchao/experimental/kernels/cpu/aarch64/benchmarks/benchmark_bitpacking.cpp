@@ -14,6 +14,7 @@
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint2.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint3.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint4.h>
+#include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint6.h>
 #include <torchao/experimental/kernels/cpu/aarch64/tests/test_utils.h>
 #include <cassert>
 
@@ -36,7 +37,7 @@ TORCHAO_ALWAYS_INLINE void pack_uint_odd_bit_values(
     int variant) {
   constexpr int bitsPerByte = 8;
   assert(unpacked_size * nbit / bitsPerByte == packed_size);
-  assert(packed_size % variant == 0);
+  assert(unpacked_size % variant == 0);
 
   uint8x16_t unpacked0;
   uint8x16_t unpacked1;
@@ -103,7 +104,7 @@ TORCHAO_ALWAYS_INLINE void unpack_uint_odd_bit_values(
     int variant) {
   constexpr int bitsPerByte = 8;
   assert(unpacked_size * nbit / bitsPerByte == packed_size);
-  assert(packed_size % variant == 0);
+  assert(unpacked_size % variant == 0);
 
   uint8x16_t unpacked0;
   uint8x16_t unpacked1;
@@ -222,7 +223,7 @@ void pack_uint_values<2>(
   constexpr int nbit = 2;
   constexpr int bitsPerByte = 8;
   assert(unpacked_size * nbit / bitsPerByte == packed_size);
-  assert(packed_size % variant == 0);
+  assert(unpacked_size % variant == 0);
 
   uint8x8_t unpacked0_8x8;
   uint8x8_t unpacked1_8x8;
@@ -287,7 +288,7 @@ void unpack_uint_values<2>(
   constexpr int nbit = 2;
   constexpr int bitsPerByte = 8;
   assert(unpacked_size * nbit / bitsPerByte == packed_size);
-  assert(packed_size % variant == 0);
+  assert(unpacked_size % variant == 0);
 
   uint8x8_t unpacked0_8x8;
   uint8x8_t unpacked1_8x8;
@@ -394,7 +395,7 @@ void pack_uint_values<4>(
   constexpr int nbit = 4;
   constexpr int bitsPerByte = 8;
   assert(unpacked_size * nbit / bitsPerByte == packed_size);
-  assert(packed_size % variant == 0);
+  assert(unpacked_size % variant == 0);
 
   uint8x16_t unpacked0;
   uint8x16_t unpacked1;
@@ -435,7 +436,7 @@ void unpack_uint_values<4>(
   constexpr int nbit = 4;
   constexpr int bitsPerByte = 8;
   assert(unpacked_size * nbit / bitsPerByte == packed_size);
-  assert(packed_size % variant == 0);
+  assert(unpacked_size % variant == 0);
 
   uint8x16_t unpacked0;
   uint8x16_t unpacked1;
@@ -507,6 +508,98 @@ void unpack_uint_values<5>(
       variant);
 }
 
+// Benchmark utility to compare variants of uint6 packing
+template <>
+void pack_uint_values<6>(
+    uint8_t* packed,
+    uint8_t* unpacked,
+    int packed_size,
+    int unpacked_size,
+    int variant) {
+  constexpr int nbit = 6;
+  constexpr int bitsPerByte = 8;
+  assert(unpacked_size * nbit / bitsPerByte == packed_size);
+  assert(unpacked_size % variant == 0);
+
+  uint8x16_t unpacked0;
+  uint8x16_t unpacked1;
+  uint8x16_t unpacked2;
+  uint8x16_t unpacked3;
+
+  switch (variant) {
+    case 4:
+      for (int i = 0; i < unpacked_size; i += 4) {
+        torchao::bitpacking::internal::pack_4_uint6_values(
+            packed + ((i * nbit) / bitsPerByte), unpacked + i);
+      }
+      break;
+    case 32:
+      for (int i = 0; i < unpacked_size; i += 32) {
+        unpacked0 = vld1q_u8(unpacked + i);
+        unpacked1 = vld1q_u8(unpacked + 16 + i);
+        torchao::bitpacking::internal::vec_pack_32_uint6_values(
+            packed + ((i * nbit) / bitsPerByte), unpacked0, unpacked1);
+      }
+      break;
+    case 64:
+      for (int i = 0; i < unpacked_size; i += 64) {
+        unpacked0 = vld1q_u8(unpacked + i);
+        unpacked1 = vld1q_u8(unpacked + 16 + i);
+        unpacked2 = vld1q_u8(unpacked + 32 + i);
+        unpacked3 = vld1q_u8(unpacked + 48 + i);
+        torchao::bitpacking::internal::vec_pack_64_uint6_values(
+            packed + ((i * nbit) / bitsPerByte), unpacked0, unpacked1, unpacked2, unpacked3);
+      }
+      break;
+  }
+}
+
+// Benchmark utility to compare variants of uint6 unpacking
+template <>
+void unpack_uint_values<6>(
+    uint8_t* unpacked,
+    uint8_t* packed,
+    int unpacked_size,
+    int packed_size,
+    int variant) {
+  constexpr int nbit = 6;
+  constexpr int bitsPerByte = 8;
+  assert(unpacked_size * nbit / bitsPerByte == packed_size);
+  assert(unpacked_size % variant == 0);
+
+  uint8x16_t unpacked0;
+  uint8x16_t unpacked1;
+  uint8x16_t unpacked2;
+  uint8x16_t unpacked3;
+
+  switch (variant) {
+    case 4:
+      for (int i = 0; i < unpacked_size; i += 4) {
+        torchao::bitpacking::internal::unpack_4_uint6_values(
+            unpacked + i, packed + ((i * nbit) / bitsPerByte));
+      }
+      break;
+    case 32:
+      for (int i = 0; i < unpacked_size; i += 32) {
+        torchao::bitpacking::internal::vec_unpack_32_uint6_values(
+            unpacked0, unpacked1, packed + ((i * nbit) / bitsPerByte));
+        vst1q_u8(unpacked + i, unpacked0);
+        vst1q_u8(unpacked + 16 + i, unpacked1);
+      }
+      break;
+    case 64:
+      for (int i = 0; i < unpacked_size; i += 64) {
+        torchao::bitpacking::internal::vec_unpack_64_uint6_values(
+            unpacked0, unpacked1, unpacked2, unpacked3, packed + ((i * nbit) / bitsPerByte));
+        vst1q_u8(unpacked + i, unpacked0);
+        vst1q_u8(unpacked + 16 + i, unpacked1);
+        vst1q_u8(unpacked + 32 + i, unpacked2);
+        vst1q_u8(unpacked + 48 + i, unpacked3);
+      }
+      break;
+  }
+}
+
 } // namespace
 
 template <int nbit>
@@ -557,6 +650,8 @@ BENCHMARK(benchmark_pack_uint_values<4>)->ArgsProduct({{128}, {2, 16, 32}});
 BENCHMARK(benchmark_unpack_uint_values<4>)->ArgsProduct({{128}, {2, 16, 32}});
 BENCHMARK(benchmark_pack_uint_values<5>)->ArgsProduct({{128}, {8, 64, 128}});
 BENCHMARK(benchmark_unpack_uint_values<5>)->ArgsProduct({{128}, {8, 64, 128}});
+BENCHMARK(benchmark_pack_uint_values<6>)->ArgsProduct({{128}, {8, 64, 128}});
+BENCHMARK(benchmark_unpack_uint_values<6>)->ArgsProduct({{128}, {4, 32, 64}});
 
 // Run the benchmark
 BENCHMARK_MAIN();
