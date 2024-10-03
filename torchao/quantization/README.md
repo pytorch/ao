@@ -30,7 +30,7 @@ Benchmarks and evaluation for model meta-llama/Meta-Llama-3.1-8B are run on a ma
 |               | int4wo-64               |  8.44               |  241.39       | 1019.14                 |  7.08            |  4.22           |
 |               | float8wo                |  7.60               |  178.46       | 1339.93                 | 12.09            |  7.51           |
 |               | float8dq (PerTensor)    |  7.62               |  116.40       |  873.58                 | 11.14            |  7.51           |
-|               | float8dq (Per Row)      |  7.62               |  154.63       | 1161.47                 | 11.14            |  7.51           |
+|               | float8dq (Per Row)      |  7.61               |  154.63       | 1161.47                 | 11.14            |  7.51           |
 
 note: Int8 dynamic quantization works best on compute bound models like [SAM](https://github.com/pytorch-labs/segment-anything-fast) whereas Llama with batchsize=1 tends to be memory bound, thus the rather low performance.
 
@@ -137,6 +137,8 @@ change_linear_weights_to_int8_dqtensors(model)
 ```python
 # for torch 2.4+
 from torchao.quantization import quantize_, float8_dynamic_activation_float8_weight
+from torchao.quantization.observer import PerTensor
+quantize_(model, float8_dynamic_activation_float8_weight(granularity=PerTensor()))
 from torchao.quantization.observer import PerTensor
 quantize_(model, float8_dynamic_activation_float8_weight(granularity=PerTensor()))
 

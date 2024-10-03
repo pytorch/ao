@@ -128,9 +128,17 @@ def run_evaluation(
         if "float8wo" in quantization:
             quantize_(model, float8_weight_only())
         if "float8dq" in quantization:
-            quantize_(model, float8_dynamic_activation_float8_weight())
-        if "float8saq" in quantization:
-            quantize_(model, float8_static_activation_float8_weight())
+            granularity = str(quantization.split("-")[-1])
+            if granularity=="tensor":
+                granularity = PerTensor()
+            elif granularity=="row":
+                granularity = PerRow()
+            else:
+                if granularity=="float8dq":
+                    granularity = PerTensor()
+                else:
+                    raise ValueError(f"Unknown granularity {granularity}")
+            quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
         if "autoround" in quantization:
             from torchao.prototype.autoround.autoround_llm import quantize_model_with_autoround_
             from transformers import AutoTokenizer
