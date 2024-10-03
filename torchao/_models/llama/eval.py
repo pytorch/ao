@@ -24,7 +24,9 @@ from torchao.quantization.quant_api import (
     float8_dynamic_activation_float8_weight,
     float8_static_activation_float8_weight,
 )
+from torchao.quantization.observer import PerRow, PerTensor
 from torchao._models._eval import TransformerEvalWrapper, InputRecorder
+from torchao._models.llama.model import prepare_inputs_for_model
 
 from tokenizer import get_tokenizer
 import time
@@ -56,33 +58,17 @@ def run_evaluation(
     tokenizer_path = checkpoint_path.parent / "tokenizer.model"
     assert tokenizer_path.is_file(), str(tokenizer_path)
     # Load Model and Tokenizer
-
     print("Loading model ...")
     t0 = time.time()
     model = _load_model(checkpoint_path, "cpu", precision)
 
     if max_length is None:
         max_length = model.config.block_size
-    print('Load model successfully')
     device_sync(device=device) # MKG
     print(f"Time to load model: {time.time() - t0:.02f} seconds")
     tokenizer = get_tokenizer(tokenizer_path, checkpoint_path)
-    print('Run completed until tokenizer')
 
     if quantization:
-        from torchao.quantization.quant_api import (
-            quantize_,
-            int4_weight_only,
-            int8_weight_only,
-            int8_dynamic_activation_int8_weight,
-            fpx_weight_only,
-            uintx_weight_only,
-            unwrap_tensor_subclass,
-            float8_weight_only,
-            float8_dynamic_activation_float8_weight,
-        )
-        from torchao.quantization.observer import PerRow, PerTensor
-        print('Quantization imports completed')
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
@@ -117,7 +103,6 @@ def run_evaluation(
             # avoid circular imports
             from torchao._models._eval import InputRecorder
             from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
-            from torchao._models.llama.model import prepare_inputs_for_model
             groupsize=int(quantization.split("-")[-2])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
             assert precision==torch.bfloat16, f"{quantization} requires precision or bfloat16 but got {precision}"

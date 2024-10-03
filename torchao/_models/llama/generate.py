@@ -210,8 +210,11 @@ def main(
             fpx_weight_only,
             uintx_weight_only,
             autoquant,
-            unwrap_tensor_subclass
+            unwrap_tensor_subclass,
+            float8_weight_only,
+            float8_dynamic_activation_float8_weight,
         )
+        from torchao.quantization.observer import PerTensor, PerRow
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
@@ -257,19 +260,6 @@ def main(
                 else:
                     raise ValueError(f"Unknown granularity {granularity}")
             quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
-        # if "float8sdq" in quantization:
-        #     print(model.__dict__)
-        #     scale, _ = choose_qparams_affine(
-        #             input_tensor,
-        #             MappingType.SYMMETRIC,
-        #             input_tensor.shape,
-        #             torch.float8_e4m3fn,
-        #             scale_dtype=torch.float32,
-        #         )
-        #     granularity = str(quantization.split("-")[-1])
-        #     if granularity=="tensor":
-        #         granularity = PerTensor()
-        #     quantize_(model, float8_static_activation_float8_weight(scale, granularity=granularity))
         if "autoquant" in quantization:
             if "autoquant-int4" == quantization:
                 model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
