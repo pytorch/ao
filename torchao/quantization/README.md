@@ -20,6 +20,16 @@ Benchmarks and evaluation are run on a machine with a single NVIDIA-A100-80GB GP
 |             | int4wo-64               |  8.316              |  180.80       |  763.33                 |  6.88            |  4.22           |
 |             | int4wo-64-GPTQ          |  7.921              |  180.80       |  763.33                 |  6.88            |  4.22           |
 |             | autoquant-int4hqq       |  8.110              |  188.41       |  800.58                 |  7.14            |  4.25           |
+| Llama-3.1-8B  | Base (bfloat16)         |  7.441              |   95.64       | 1435.54                 | 16.43            | 15.01           |
+|             | int8dq                  |  7.581              |    8.61       |   64.75                 |  9.24            |  7.52           |
+|             | int8wo                  |  7.447              |  153.03       | 1150.80                 | 10.42            |  7.52           |
+|             | fp6                     |  7.661              |  161.58       |  910.02                 |  7.72            |  5.63           |
+|             | int4wo-64               |  8.316              |  180.80       |  763.33                 |  6.88            |  4.22           |
+|             | int4wo-64-GPTQ          |  7.921              |  180.80       |  763.33                 |  6.88            |  4.22           |
+|             | autoquant-int4hqq       |  8.110              |  188.41       |  800.58                 |  7.14            |  4.25           |
+|             | float8wo               |  8.316              |  180.80       |  763.33                 |  6.88            |  4.22           |
+|             | float8dq (PerTensor)          |  7.921              |  180.80       |  763.33                 |  6.88            |  4.22           |
+|             | float8dq (Per Row)       |  8.110              |  188.41       |  800.58                 |  7.14            |  4.25           |
 
 note: Int8 dynamic quantization works best on compute bound models like [SAM](https://github.com/pytorch-labs/segment-anything-fast) whereas Llama with batchsize=1 tends to be memory bound, thus the rather low performance.
 
@@ -119,6 +129,15 @@ quantize_(model, int8_dynamic_activation_int8_weight())
 # for torch 2.2.2 and 2.3
 from torchao.quantization.quant_api import change_linear_weights_to_int8_dqtensors
 change_linear_weights_to_int8_dqtensors(model)
+```
+
+#### A8W8 Float8 Dynamic Quantization
+
+```python
+# for torch 2.4+
+from torchao.quantization import quantize_, float8_dynamic_activation_float8_weight
+quantize_(model, float8_dynamic_activation_float8_weight())
+
 ```
 
 #### A16W6 Floating Point WeightOnly Quantization

@@ -243,6 +243,33 @@ def main(
             dtype = _NBITS_TO_DTYPE[nbits]
             group_size = int(_quant_args[2])
             quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
+        if "float8wo" in quantization:
+            quantize_(model, float8_weight_only())
+        if "float8dq" in quantization:
+            granularity = str(quantization.split("-")[-1])
+            if granularity=="tensor":
+                granularity = PerTensor()
+            elif granularity=="row":
+                granularity = PerRow()
+            else:
+                if granularity=="float8dq":
+                    granularity = PerTensor()
+                else:
+                    raise ValueError(f"Unknown granularity {granularity}")
+            quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
+        # if "float8sdq" in quantization:
+        #     print(model.__dict__)
+        #     scale, _ = choose_qparams_affine(
+        #             input_tensor,
+        #             MappingType.SYMMETRIC,
+        #             input_tensor.shape,
+        #             torch.float8_e4m3fn,
+        #             scale_dtype=torch.float32,
+        #         )
+        #     granularity = str(quantization.split("-")[-1])
+        #     if granularity=="tensor":
+        #         granularity = PerTensor()
+        #     quantize_(model, float8_static_activation_float8_weight(scale, granularity=granularity))
         if "autoquant" in quantization:
             if "autoquant-int4" == quantization:
                 model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)

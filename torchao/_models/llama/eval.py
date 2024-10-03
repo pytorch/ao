@@ -28,8 +28,6 @@ from torchao._models._eval import TransformerEvalWrapper, InputRecorder
 
 from tokenizer import get_tokenizer
 import time
-from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
-from torchao._models.llama.model import prepare_inputs_for_model, TransformerBlock
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 def run_evaluation(
@@ -65,13 +63,26 @@ def run_evaluation(
 
     if max_length is None:
         max_length = model.config.block_size
-
+    print('Load model successfully')
     device_sync(device=device) # MKG
     print(f"Time to load model: {time.time() - t0:.02f} seconds")
     tokenizer = get_tokenizer(tokenizer_path, checkpoint_path)
-
+    print('Run completed until tokenizer')
 
     if quantization:
+        from torchao.quantization.quant_api import (
+            quantize_,
+            int4_weight_only,
+            int8_weight_only,
+            int8_dynamic_activation_int8_weight,
+            fpx_weight_only,
+            uintx_weight_only,
+            unwrap_tensor_subclass,
+            float8_weight_only,
+            float8_dynamic_activation_float8_weight,
+        )
+        from torchao.quantization.observer import PerRow, PerTensor
+        print('Quantization imports completed')
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
@@ -103,6 +114,10 @@ def run_evaluation(
             from torchao.dtypes import MarlinSparseLayoutType
             quantize_(model, int4_weight_only(layout_type=MarlinSparseLayoutType()))
         if "int4wo" in quantization and "gptq" in quantization:
+            # avoid circular imports
+            from torchao._models._eval import InputRecorder
+            from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
+            from torchao._models.llama.model import prepare_inputs_for_model
             groupsize=int(quantization.split("-")[-2])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
             assert precision==torch.bfloat16, f"{quantization} requires precision or bfloat16 but got {precision}"
@@ -134,6 +149,7 @@ def run_evaluation(
         if "autoround" in quantization:
             from torchao.prototype.autoround.autoround_llm import quantize_model_with_autoround_
             from transformers import AutoTokenizer
+            from torchao._models.llama.model import TransformerBlock
 
             _tokenizer = AutoTokenizer.from_pretrained(checkpoint_path.parent)
             # parse args from quantization string:
@@ -191,6 +207,9 @@ def run_evaluation(
     if compile:
         model = torch.compile(model, mode="max-autotune", fullgraph=True)
     with torch.no_grad():
+        print("Running evaluation ...")
+        # avoid circular imports
+        from torchao._models._eval import TransformerEvalWrapper
         TransformerEvalWrapper(
             model=model.to(device),
             tokenizer=tokenizer,
