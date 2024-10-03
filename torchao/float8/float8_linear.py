@@ -9,10 +9,13 @@ A simple module swap UX for a float8 version of `torch.nn.Linear`.
 
 import dataclasses
 import enum
+import logging
 
 from typing import Optional
 
 import torch
+
+import torch.utils.checkpoint as checkpoint
 
 from torchao.float8.config import Float8LinearConfig, ScalingType
 
@@ -29,17 +32,25 @@ from torchao.float8.float8_scaling_utils import (
 from torchao.float8.float8_tensor import (
     Float8Tensor,
     GemmInputRole,
+    hp_tensor_and_scale_to_float8,
     LinearMMConfig,
     ScaledMMConfig,
 )
 
-from torchao.float8.float8_utils import e4m3_dtype, e5m2_dtype, tensor_to_amax
+from torchao.float8.float8_utils import (
+    e4m3_dtype,
+    e5m2_dtype,
+    tensor_to_amax,
+    tensor_to_scale,
+)
 
 from torchao.float8.fsdp_utils import (
     WeightWithDelayedFloat8CastTensor,
     WeightWithDynamicFloat8CastTensor,
     WeightWithStaticFloat8CastTensor,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # this code was resurrected from https://github.com/pytorch-labs/torchao.float8/pull/128/files
@@ -180,6 +191,15 @@ class Float8Linear(torch.nn.Linear):
         # would be initialized in every iteration.
         self.enable_pre_and_post_forward = self.config.enable_pre_and_post_forward
 
+        # See the comments in config.py for more details of this option.
+        if (
+            self.config.enable_pre_and_post_forward
+            and not self.config.force_recompute_fp8_weight_in_bwd
+        ):
+            logger.warning(
+                "When using FSDP, it's recommended to enable config.force_recompute_fp8_weight_in_bwd."
+            )
+
     def create_buffers(self):
         # Default values for history buffers, see above TODO
         history_len = self.config.delayed_scaling_config.history_len
@@ -226,17 +246,17 @@ class Float8Linear(torch.nn.Linear):
 
         if self.config.cast_config_input.static_scale is not None:
             self.register_always_float32_buffer(
-                "fp8_static_scale_input", 
+                "fp8_static_scale_input",
                 self.config.cast_config_input.static_scale.to(device),
             )
         if self.config.cast_config_weight.static_scale is not None:
             self.register_always_float32_buffer(
-                "fp8_static_scale_weight", 
+                "fp8_static_scale_weight",
                 self.config.cast_config_weight.static_scale.to(device),
             )
         if self.config.cast_config_grad_output.static_scale is not None:
             self.register_always_float32_buffer(
-                "fp8_static_scale_grad_output", 
+                "fp8_static_scale_grad_output",
                 self.config.cast_config_grad_output.static_scale.to(device),
             )
 
@@ -296,56 +316,48 @@ class Float8Linear(torch.nn.Linear):
             input_fp8 = hp_tensor_to_float8_static(
                 input, self.fp8_static_scale_input, e4m3_dtype, self.linear_mm_config
             )
-            
+
         return input_fp8
 
-    def cast_weight_to_float8(
-        self, weight: torch.Tensor, is_amax_initialized: bool
-    ) -> torch.Tensor:
+    def get_weight_scale(self, weight: torch.Tensor) -> Optional[torch.Tensor]:
+        if isinstance(weight, Float8Tensor):
+            return None
         if self.scaling_type_weight is ScalingType.DELAYED:
-            if isinstance(self.weight, Float8Tensor):  # cast by FSDP
-                weight_fp8 = self.weight
-            else:
-                scale_fn_name = self.config.delayed_scaling_config.scale_fn_name
-                _maybe_initialize_amaxes_scales_for_float8_cast(
-                    weight,
-                    self.fp8_amax_weight,
-                    self.fp8_amax_history_weight,
-                    self.fp8_scale_weight,
-                    scale_fn_name,
-                    e4m3_dtype,
-                    is_amax_initialized,
-                    reduce_amax=False,
-                )
-
-                weight_fp8 = hp_tensor_to_float8_delayed(
-                    weight,
-                    self.fp8_scale_weight,
-                    e4m3_dtype,
-                    self.fp8_amax_weight,
-                    linear_mm_config=self.linear_mm_config,
-                    gemm_input_role=GemmInputRole.WEIGHT,
-                )
+            scale_fn_name = self.config.delayed_scaling_config.scale_fn_name
+            _maybe_initialize_amaxes_scales_for_float8_cast(
+                weight,
+                self.fp8_amax_weight,
+                self.fp8_amax_history_weight,
+                self.fp8_scale_weight,
+                scale_fn_name,
+                e4m3_dtype,
+                self.is_amax_initialized,
+                reduce_amax=True,
+            )
+            self.fp8_amax_weight.fill_(tensor_to_amax(weight))
+            return self.fp8_scale_weight
         elif self.scaling_type_weight is ScalingType.DYNAMIC:
-            if isinstance(self.weight, Float8Tensor):  # cast by FSDP
-                weight_fp8 = self.weight
-            else:
-                weight_fp8 = hp_tensor_to_float8_dynamic(
-                    self.weight,
-                    e4m3_dtype,
-                    self.linear_mm_config,
-                    gemm_input_role=GemmInputRole.WEIGHT,
-                )
+            return tensor_to_scale(weight, e4m3_dtype)
         else:
             assert self.scaling_type_weight is ScalingType.STATIC
-            weight_fp8 = hp_tensor_to_float8_static(
-                self.weight, 
-                self.fp8_static_scale_weight, 
-                e4m3_dtype, 
-                self.linear_mm_config,
-                gemm_input_role=GemmInputRole.WEIGHT,
-            )
-        return weight_fp8
+            return self.fp8_static_scale_weight
+
+    def cast_weight_to_float8_t(
+        self,
+        weight: torch.Tensor,
+        is_amax_initialized: bool,
+        weight_scale: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        if isinstance(weight, Float8Tensor):
+            return weight.t()
+        weight_fp8 = hp_tensor_and_scale_to_float8(
+            weight,
+            weight_scale,
+            e4m3_dtype,
+            self.linear_mm_config,
+            gemm_input_role=GemmInputRole.WEIGHT,
+        )
+        return weight_fp8.t()
 
     def cast_output_to_float8_in_bw(self, output: torch.Tensor) -> torch.Tensor:
         if self.scaling_type_grad_output is ScalingType.DELAYED:
@@ -364,8 +376,8 @@ class Float8Linear(torch.nn.Linear):
         else:
             assert self.scaling_type_grad_output is ScalingType.STATIC
             output = NoopFwToFloat8E5M2BwStatic.apply(
-                output, 
-                self.fp8_static_scale_grad_output, 
+                output,
+                self.fp8_static_scale_grad_output,
                 self.linear_mm_config,
             )
         return output
@@ -396,9 +408,24 @@ class Float8Linear(torch.nn.Linear):
             self.float8_pre_forward(input)
 
         input_fp8 = self.cast_input_to_float8(input, self.is_amax_initialized)
-        weight_fp8 = self.cast_weight_to_float8(self.weight, self.is_amax_initialized)
 
-        output = manual_float8_matmul.apply(input_fp8, weight_fp8.t())
+        # If force_recompute_fp8_weight_in_bwd, we only recompute the fp8 weight,
+        # weight_scale should be saved.
+        weight_scale = self.get_weight_scale(self.weight)
+
+        if self.config.force_recompute_fp8_weight_in_bwd:
+            weight_fp8_t = checkpoint.checkpoint(
+                self.cast_weight_to_float8_t,
+                self.weight,
+                self.is_amax_initialized,
+                weight_scale,
+            )
+        else:
+            weight_fp8_t = self.cast_weight_to_float8_t(
+                self.weight, self.is_amax_initialized, weight_scale
+            )
+
+        output = manual_float8_matmul.apply(input_fp8, weight_fp8_t)
 
         # Cast grad_output to float8_e5m2 during backward
         output = self.cast_output_to_float8_in_bw(output)
