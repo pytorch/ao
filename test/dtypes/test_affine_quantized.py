@@ -177,14 +177,10 @@ class TestAffineQuantized(TestCase):
 
         deregister_aqt_quantized_linear_dispatch(dispatch_condition)
 
-<<<<<<< HEAD
     @common_utils.parametrize(
         "apply_quant", get_quantization_functions(is_cusparselt_available, True)
     )
-=======
     @skip_if_rocm("ROCm development in progress")
-    @common_utils.parametrize("apply_quant", get_quantization_functions(True, True))
->>>>>>> f52d14af (skip failing unit tests for ROCm CI)
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     def test_print_quantized_module(self, apply_quant):
         linear = torch.nn.Linear(128, 256, dtype=torch.bfloat16, device="cuda")

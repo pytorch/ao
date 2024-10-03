@@ -33,13 +33,17 @@ jobs:
             torch-spec: '--pre torch==2.7.0.dev20250122 --index-url https://download.pytorch.org/whl/nightly/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
-
-    permissions:
-      id-token: write
-      contents: read
-    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+          - name: ROCM Nightly
+            runs-on: linux.rocm.gpu
+            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/rocm6.3'
+            gpu-arch-type: "rocm"
+            gpu-arch-version: "6.3"
+    uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@rocm_experiment
     with:
       timeout: 120
+      no-sudo: ${{ matrix.gpu-arch-type == 'rocm' }}
+      continue-on-error: ${{ matrix.gpu-arch-type == 'rocm' }}
+      test-infra-ref: rocm_experiment
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
