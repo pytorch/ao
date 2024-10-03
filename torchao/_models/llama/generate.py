@@ -256,7 +256,7 @@ def main(
                 limit=calibration_limit,
             )
             is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
-            if "hqq" in quant:
+            if "hqq" in quant and quant_dtype == torch.uint4:
                 from torchao.quantization.quant_primitives import (
                     MappingType,
                     ZeroPointDomain,

@@ -81,7 +81,7 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, spars
             calibration_data = get_calib_dataset(tokenizer=tokenizer, n_samples=calibration_limit, block_size=calibration_seq_length)
             for batch in calibration_data:
                 model(batch.to(device))
-                batch.to("cpu")
+                del batch
         is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
         quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size), is_observed_linear)
 

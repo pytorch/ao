@@ -8,6 +8,7 @@ from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
      _DTYPE_TO_QVALUE_BOUNDS,
 )
+from torchao.quantization import to_weight_tensor_with_linear_activation_scale_metadata
 from torchao.quantization.observer import PerGroup
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.dtypes.uintx import _DTYPE_TO_BIT_WIDTH, UintxLayoutType
@@ -16,7 +17,6 @@ from .core import(
     AWQObserver, 
     AWQObservedLinear, 
 ) 
-from .layout import to_weight_tensor_with_equalization_scales
 
 
 assert len(_DTYPE_TO_BIT_WIDTH) > 0, "Error importing low bit torch.uint dtypes. Please upgrade to torch 2.3+"
@@ -34,7 +34,7 @@ def insert_awq_observer_(model: torch.nn.Module, n_validation_examples: int, val
         group_size: Quantization granularity. Use -1 for channel wise quantization
     """
     _is_linear = lambda m, fqn: isinstance(m, torch.nn.Linear)
-
+    assert quant_dtype in _DTYPE_TO_BIT_WIDTH or quant_dtype == torch.uint8, "Invalid quant_dtype. Please use torch.uint1 .. torch.uint8"
     # AQT config
     mapping_type = MappingType.ASYMMETRIC
     quantization_granularity = PerGroup(group_size)
@@ -44,7 +44,7 @@ def insert_awq_observer_(model: torch.nn.Module, n_validation_examples: int, val
     preserve_zero = True
     zero_point_dtype = torch.int64
     zero_point_domain = ZeroPointDomain.INT
-    assert quant_dtype in _DTYPE_TO_BIT_WIDTH or quant_dtype == torch.uint8, "Invalid quant_dtype. Please use torch.uint1 .. torch.uint8"
+    
 
     def replace_with_observer(layer):
         # creates observer and replaces linear layers with AWQObservedLinear layers
@@ -126,7 +126,7 @@ def awq_uintx(quant_dtype: torch.dtype = torch.uint4,
                 preserve_zero=preserve_zero,
                 zero_point_domain=zero_point_domain,
                 layout_type=layout_type)
-        return to_weight_tensor_with_equalization_scales(qw, equalization_scale)
+        return to_weight_tensor_with_linear_activation_scale_metadata(qw, equalization_scale)
     
     return _observed_linear_subclass_inserter(weight_quant_func)
 
