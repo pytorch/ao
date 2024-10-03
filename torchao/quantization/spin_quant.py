@@ -4,11 +4,12 @@ SpinQuant implementation (https://arxiv.org/abs/2405.16406)
 Based on https://github.com/facebookresearch/SpinQuant
 """
 
+import typing
 import torch
 from torch import nn
 
 from torchao.quantization.hadamard_utils import apply_exact_had_to_linear, random_hadamard_matrix, get_hadK, matmul_hadU
-from torchao._models.llama.model import Transformer, Attention
+from torchao._models.llama.model import RMSNorm, Transformer, Attention
 
 
 class HadamardMultiplier(nn.Module):
@@ -93,8 +94,61 @@ def _add_activation_wrappers_r3_r4(model):
     # eval_utils/main.py:36
     fp32_had = False   # default used in SpinQuant
     had_K, K = get_hadK(model.config.intermediate_size)
-    print(f"K: {K}")
+    # print(f"K: {K}")
     _wrap_r4_layers(model, had_K, K, fp32_had)
+
+
+def _fuse_layernorm_linear(layernorm: RMSNorm, linear_layers: typing.Iterable[torch.nn.Linear]):
+    """Fuse the linear operations in Layernorm into the adjacent linear blocks."""
+    for linear in linear_layers:
+        linear_dtype = linear.weight.dtype
+
+        # Calculating new weight and bias
+        W = linear.weight.data.double()
+        linear.weight.data = (W * layernorm.weight.double()).to(linear_dtype)
+
+        if hasattr(layernorm, "bias"):  # not true for RMSNorm
+            if linear.bias is None:
+                linear.bias = torch.nn.Parameter(
+                    torch.zeros(linear.out_features, dtype=torch.float64)
+                )
+            linear.bias.data = linear.bias.data.double() + torch.matmul(
+                W, layernorm.bias.double()
+            )
+            linear.bias.data = linear.bias.data.to(linear_dtype)
+
+
+def _fuse_layernorm_weights_into_linear(model):
+    """
+    Fuse RMSNorm weights into the subsequent linear layers. 
+    
+    This is done in the paper specifically to make pre-norm LLMs like LLaMa
+    rotation-invariant when quantization is not present. (I must admit I don't
+    understand this. It would seem that either location for the RMSNorm weight
+    multiplication would lead to the same results, but I might be missing
+    something.)
+    """
+    # Embedding fusion (from utils/fuse_norm_utils.py:43)
+    # I currently don't understand why this is necessary, so I'm omitting it. It
+    # doesn't seem to affect performance (tested on int4wo)
+    # for W in [model.tok_embeddings]:
+    #     W_ = W.weight.data.double()
+    #     W.weight.data = (W_ - W_.mean(dim=-1, keepdim=True)).to(W.weight.data.dtype)
+
+    for layer in model.layers:
+        _fuse_layernorm_linear(layer.ffn_norm, [layer.feed_forward.w1, layer.feed_forward.w3])
+        _fuse_layernorm_linear(layer.attention_norm, [layer.attention.wqkv])
+
+        # Set the scale parameters to 1 (identity)
+        W_norm = layer.ffn_norm.weight.data
+        layer.ffn_norm.weight.data = torch.ones_like(W_norm)
+        W_norm = layer.attention_norm.weight.data
+        layer.attention_norm.weight.data = torch.ones_like(W_norm)
+
+    # Fuse the output layer
+    _fuse_layernorm_linear(model.norm, [model.output])
+    W_norm = model.norm.weight.data
+    model.norm.weight.data = torch.ones_like(W_norm)
 
 
 def apply_spinquant(model: Transformer):
@@ -109,6 +163,10 @@ def apply_spinquant(model: Transformer):
     # device = next(model.parameters()).device
     # dtype = next(model.parameters()).dtype
 
+    # Fusing layernorm weights into linear layers seems to hurt performance
+    # (12.82 -> 14.18 ppl for int4wo-64), while leading to the same perplexity
+    # without quantization. I'm omitting it since it doesn't seem to add value.
+    # _fuse_layernorm_weights_into_linear(model)
     _rotate_model_r2(model)
     _rotate_model_r4(model)
     _add_activation_wrappers_r3_r4(model)
