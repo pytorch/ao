@@ -111,23 +111,28 @@ class Float8LinearConfig:
     """
 
     #
-    # Per-tensor configuration for `input`, `weight`, `grad_output`
+    # Per-tensor configuration for casting of `input`, `weight`, `grad_output`
+    # for the operands of gemms calculating `output`, `grad_weight`, and `grad_input`.
     #
+    # Note: 
+    # 1. if `cast_config_input_for_grad_weight` is None, then 
+    #    `cast_config_input` is used for scaling `input` for both gemms that
+    #    use `input.  
+    # 2. if `cast_config_input_for_grad_weight` is specified, then 
+    #    a. `cast_config_input` is used for scaling `input` for the gemm that calculates
+    #       `output`
+    #    b. `cast_config_input_for_grad_weight` is used for scaling `input` for
+    #       the gemm that calculates `grad_weight`
+    # 3. the same behavior holds for `cast_config_weight` and `cast_config_grad_output`.
+    #
+    # `input`
     cast_config_input: CastConfig = CastConfig()
-    cast_config_weight: CastConfig = CastConfig()
-    cast_config_grad_output: CastConfig = CastConfig()
-
-    #
-    # Optional per-tensor configuration for `input`, `weight`, `grad_output` to
-    # calculate `grad_weight`, `grad_input`, and `grad_weight` respectively.
-    # If not specified, then the configuration from `cast_config_input`,
-    # `cast_config_weight` and `cast_config_grad_output`, respectively, is reused.
-    # TODO(future PR): maybe rename `cast_config_input` to 
-    # `cast_config_input_for_output`, etc, to make the names consistent, 
-    # will be BC-breaking.
-    #
     cast_config_input_for_grad_weight: Optional[CastConfig] = None
+    # `weight`
+    cast_config_weight: CastConfig = CastConfig()
     cast_config_weight_for_grad_input: Optional[CastConfig] = None
+    # `grad_output`
+    cast_config_grad_output: CastConfig = CastConfig()
     cast_config_grad_output_for_grad_weight: Optional[CastConfig] = None
 
     #
@@ -326,5 +331,4 @@ def recipe_name_to_linear_config(
         )
 
     else:
-        # TODO(before land): make recipe_name an enum and tell users what the options are
         raise AssertionError(f"unknown recipe_name {recipe_name}")

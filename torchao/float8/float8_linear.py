@@ -554,14 +554,16 @@ class Float8Linear(torch.nn.Linear):
         if self.has_any_delayed_scaling:
             self.float8_pre_forward(input)
 
-        # TODO(this PR): reuse with config, make a property
-        has_all_axiswise_scaling = (
-            self.config.cast_config_input.scaling_granularity is ScalingGranularity.AXISWISE and
-            self.config.cast_config_weight.scaling_granularity is ScalingGranularity.AXISWISE and
-            self.config.cast_config_grad_output.scaling_granularity is ScalingGranularity.AXISWISE
+        has_any_axiswise_scaling = (
+            self.config.cast_config_input.scaling_granularity is ScalingGranularity.AXISWISE or
+            self.config.cast_config_weight.scaling_granularity is ScalingGranularity.AXISWISE or
+            self.config.cast_config_grad_output.scaling_granularity is ScalingGranularity.AXISWISE or
+            self.config.cast_config_input_for_grad_weight.scaling_granularity is ScalingGranularity.AXISWISE or
+            self.config.cast_config_weight_for_grad_input.scaling_granularity is ScalingGranularity.AXISWISE or
+            self.config.cast_config_grad_output_for_grad_weight.scaling_granularity is ScalingGranularity.AXISWISE
         )
 
-        if not has_all_axiswise_scaling:
+        if not has_any_axiswise_scaling:
             input_fp8 = self.cast_input_to_float8(input, self.is_amax_initialized)
             # If force_recompute_fp8_weight_in_bwd, we only recompute the fp8 weight,
             # weight_scale should be saved.
