@@ -255,10 +255,7 @@ def main(
             elif granularity=="row":
                 granularity = PerRow()
             else:
-                if granularity=="float8dq":
-                    granularity = PerTensor()
-                else:
-                    raise ValueError(f"Unknown granularity {granularity}")
+                granularity = PerTensor()
             quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
         if "autoquant" in quantization:
             if "autoquant-int4" == quantization:

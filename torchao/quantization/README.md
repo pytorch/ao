@@ -139,9 +139,6 @@ change_linear_weights_to_int8_dqtensors(model)
 from torchao.quantization import quantize_, float8_dynamic_activation_float8_weight
 from torchao.quantization.observer import PerTensor
 quantize_(model, float8_dynamic_activation_float8_weight(granularity=PerTensor()))
-from torchao.quantization.observer import PerTensor
-quantize_(model, float8_dynamic_activation_float8_weight(granularity=PerTensor()))
-
 ```
 
 #### A16W6 Floating Point WeightOnly Quantization
