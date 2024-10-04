@@ -73,6 +73,9 @@ from torchao.float8.inference import Float8MMConfig
 
 from torchao.quantization.observer import PerTensor, PerRow, get_block_size
 
+from torchao.float8 import Float8LinearConfig
+from torchao.float8.float8_linear import Float8Linear
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -401,10 +404,25 @@ def _get_linear_subclass_inserter(constructor, *, allow_requires_grad=False, **k
     return insert_subclass
 
 def quantize_(
+    # NOT FOR LAND: this is the same across inference and torchao.float8
     model: torch.nn.Module,
+
+    # NOT FOR LAND: this seems to leak implementation details, in the future
+    # can this be named in a more generic way without mentioning the 
+    # implementation? Short term, seems ok to have float8 training use this
+    # evern though the implementation is different from 100% tensor subclass 
+    # based workflows.
     apply_tensor_subclass: Callable[[torch.nn.Module], torch.nn.Module],
+
+    # NOT FOR LAND: this is the same across inference and torchao.float8
     filter_fn: Optional[Callable[[torch.nn.Module, str], bool]] = None,
+
+    # NOT FOR LAND: this seems inference specific, in the future would we 
+    # consider renaming or some other way to make things more clear?
     set_inductor_config: bool = True,
+
+    # NOT FOR LAND: this seems inference specific, in the future would we 
+    # consider renaming or some other way to make things more clear?
     device: Optional[torch.types.Device] = None,
 ):
     """Convert the weight of linear modules in the model with `apply_tensor_subclass`, model is modified inplace
@@ -827,6 +845,31 @@ def float8_static_activation_float8_weight(
         return quantized_weight
 
     return _get_linear_subclass_inserter(apply_float8_static_activation_quant)
+
+
+# TO DISCUSS:
+# below currently just band aids float8 training in without actually changing 
+# how float8 training is configured. Is this fine? Is this a no-go? Somewhere in the
+# middle? How strongly do we care about config consistency among various 
+# projects? 
+# Vasiliy: I'm cool to conform to some other config standard, I would just say 
+# that a config (and not callables/partials) does seem more natural for 
+# training as the # of things to configure is significantly higher compared to
+# your average inference setup.
+def float8_for_training(
+    float8_linear_config: Optional[Float8LinearConfig] = None,
+):
+    """
+    Applies various transformations useful for training with float8 compute.
+    The specifics of the transformations are defined by `float8_linear_config`.
+
+    TODO(if this PR moves forward): write out a more descriptive docblock.
+    """
+    def apply_float8_linear_training(module: torch.nn.Module):
+        return Float8Linear.from_float(module, config=float8_linear_config)
+
+    return apply_float8_linear_training
+
 
 
 def uintx_weight_only(dtype, group_size=64, pack_dim=-1, use_hqq=False):
