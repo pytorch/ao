@@ -103,7 +103,7 @@ class Float8GemmConfig:
     use_fast_accum: bool = False
 
 
-@dataclass(frozen=False)
+@dataclass(frozen=True)
 class Float8LinearConfig:
     """
     Configuration for converting a `torch.nn.Linear` module to float8
@@ -192,13 +192,18 @@ class Float8LinearConfig:
     force_recompute_fp8_weight_in_bwd: bool = False
 
     def __post_init__(self):
-        # populate the additional cast overrides, if the user did not specify them
+        # Populate the additional cast overrides, if the user did not specify them
+        # Note: this hacks around the frozen-ness of this dataclass
+        # by using `object.__setattr__`.  This is fine, as what we really need
+        # is for this object to be frozen after `__post_init__` for torch.compile
+        # to work.
+        # Source of hack: https://stackoverflow.com/a/65959419/
         if self.cast_config_input_for_grad_weight is None:
-            self.cast_config_input_for_grad_weight = self.cast_config_input
+            object.__setattr__(self, "cast_config_input_for_grad_weight", self.cast_config_input)
         if self.cast_config_weight_for_grad_input is None:
-            self.cast_config_weight_for_grad_input = self.cast_config_weight
+            object.__setattr__(self, "cast_config_weight_for_grad_input", self.cast_config_weight)
         if self.cast_config_grad_output_for_grad_weight is None:
-            self.cast_config_grad_output_for_grad_weight = self.cast_config_grad_output
+            object.__setattr__(self, "cast_config_grad_output_for_grad_weight", self.cast_config_grad_output)
 
         # float8 all-gather only supports tensorwise, in the future may support blockwise
         if self.cast_config_weight.scaling_granularity != ScalingGranularity.TENSORWISE:
