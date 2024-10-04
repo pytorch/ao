@@ -5,6 +5,7 @@ Based on https://github.com/facebookresearch/SpinQuant
 """
 
 import typing
+
 import torch
 from torch import nn
 
@@ -17,8 +18,8 @@ class HadamardMultiplier(nn.Module):
 
     def __init__(self, had_K, K, fp32_had=False):
         super().__init__()
-        assert had_K is not None  # TODO: this can currently happen. Should it be a no-op in this case?
-        self.register_buffer("had_K", had_K)  # TODO: is buffer necessary?
+        assert had_K is not None, "had_K must be provided"
+        self.register_buffer("had_K", had_K)
         self.K = K
         self.fp32_had = fp32_had
 
@@ -27,77 +28,47 @@ class HadamardMultiplier(nn.Module):
             x = matmul_hadU(x.float(), self.had_K, self.K).to(x.dtype)
         else:  # Full Hadamard in FP16
             x = matmul_hadU(x, self.had_K, self.K)
-
         return x
 
 
-@torch.inference_mode()
-def _rotate_model_r2(model):
-    """Rotate the W_v and W_o weights of the multi-head self-attention modules."""
-
-    # Note: using a random Hadamard matrix for R2 is a substitute for the Caley
-    # optimization they use in the paper. It's not clear that it adds value to
-    # use a random Hadamard matrix. But it doesn't seem to hurt much either.
-    torch.manual_seed(0)
-    R2 = random_hadamard_matrix(model.config.head_dim, "cuda")
+def apply_spinquant(model: Transformer):
+    """
+    Apply SpinQuant to a Transformer model: https://arxiv.org/abs/2405.16406
     
-    # Apply R2 rotation to all multi-head self-attention modules
-    for m in model.modules():
-        if isinstance(m, Attention):
-            head_dim = model.config.head_dim
+    Currently, this only applies the R1 + R2 + R4 rotation matrices to the model
+    (not R3, and no Cayley optimization).
+    """
+    assert isinstance(model, Transformer), "Only Transformer models are supported"
 
-            # Rotate W_o
-            apply_exact_had_to_linear(m.wo, had_dim=head_dim, output=False, R2=R2)
+    original_device = next(model.parameters()).device
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model.to(device=device)
+    torch.manual_seed(0)  # for reproducability of random Hadamard matrices
 
-            # Extract W_v
-            kv_size = model.config.n_local_heads * head_dim
-            wq, wk, wv = m.wqkv.weight.data.split([model.config.dim, kv_size, kv_size], dim=0)
-            out_features, in_features = wv.shape
-            wv_mod = nn.Linear(in_features, out_features, bias=False, device=wq.device, dtype=wq.dtype)
-            wv_mod.weight.data = wv
+    fuse_layernorm_weights_into_linear(model)
+    apply_spinquant_r1(model, device)
+    apply_spinquant_r2(model, device)
+    apply_spinquant_r4(model, device)
 
-            # Rotate W_v
-            apply_exact_had_to_linear(wv_mod, had_dim=head_dim, output=True, R2=R2)
+    model.to(device=original_device)
 
-            m.wqkv.weight.data = torch.cat([wq, wk, wv_mod.weight.data], dim=0)
+
+def apply_spinquant_r1(model, device):
+    R1 = random_hadamard_matrix(model.config.dim, device)
+    _rotate_model_r1(model, R1)
+
+
+def apply_spinquant_r2(model, device):
+    R2 = random_hadamard_matrix(model.config.head_dim, device)
+    _rotate_model_r2(model, R2)
+
+
+def apply_spinquant_r4(model, device):
+    _rotate_model_r4(model)
+    _add_activation_wrappers_r4(model)
 
 
 @torch.inference_mode()
-def _rotate_model_r4(model):
-    """Rotate the MLP output weights."""
-
-    for layer in model.layers:
-        W = layer.feed_forward.w2
-        # print(f"Min/max before R4 rotation: {W.weight.data.min().item():.2f}/{W.weight.data.max().item():.2f}")
-        apply_exact_had_to_linear(
-            W, had_dim=-1, output=False
-        )  # apply exact (inverse) hadamard on the weights of mlp output
-        # print(f"Min/max *after* R4 rotation: {W.weight.data.min().item():.2f}/{W.weight.data.max().item():.2f}")
-
-
-def _wrap_r4_layers(module, had_K, K, fp32_had):
-    for name, child in module.named_children():
-        if isinstance(child, nn.Linear) and name == "w2":  # FeedForward last layer
-            new_child = nn.Sequential(HadamardMultiplier(had_K, K, fp32_had), child)
-            setattr(module, name, new_child)
-        else:
-            _wrap_r4_layers(child, had_K, K, fp32_had)
-
-
-def _add_activation_wrappers_r3_r4(model):
-    """Modify the forward pass to rotate the activations at specific points."""
-    
-    # R3
-    # TODO
-
-    # R4
-    # eval_utils/main.py:36
-    fp32_had = False   # default used in SpinQuant
-    had_K, K = get_hadK(model.config.intermediate_size)
-    # print(f"K: {K}")
-    _wrap_r4_layers(model, had_K, K, fp32_had)
-
-
 def _fuse_layernorm_linear(layernorm: RMSNorm, linear_layers: typing.Iterable[torch.nn.Linear]):
     """Fuse the linear operations in Layernorm into the adjacent linear blocks."""
     for linear in linear_layers:
@@ -118,7 +89,76 @@ def _fuse_layernorm_linear(layernorm: RMSNorm, linear_layers: typing.Iterable[to
             linear.bias.data = linear.bias.data.to(linear_dtype)
 
 
-def _fuse_layernorm_weights_into_linear(model):
+@torch.inference_mode()
+def _rotate_model_r1(model, R1):
+    _rotate_embeddings(model, R1)
+    _rotate_head(model, R1)
+
+    for layer in model.layers:
+        _rotate_attention_inputs(layer, R1)
+        _rotate_attention_output(layer, R1)
+        _rotate_mlp_input(layer, R1)
+        _rotate_mlp_output(layer, R1)
+
+
+@torch.inference_mode()
+def _rotate_model_r2(model, R2):
+    """Rotate the W_v and W_o weights of the multi-head self-attention modules."""
+    
+    # Apply R2 rotation to all multi-head self-attention modules
+    for layer in model.layers:
+        attn = layer.attention
+        head_dim = model.config.head_dim
+
+        # Rotate W_o
+        apply_exact_had_to_linear(attn.wo, had_dim=head_dim, output=False, R2=R2)
+
+        # Extract W_v
+        kv_size = model.config.n_local_heads * head_dim
+        wq, wk, wv = attn.wqkv.weight.data.split([model.config.dim, kv_size, kv_size], dim=0)
+        out_features, in_features = wv.shape
+        wv_mod = nn.Linear(in_features, out_features, bias=False, device=wq.device, dtype=wq.dtype)
+        wv_mod.weight.data = wv
+
+        # Rotate W_v
+        apply_exact_had_to_linear(wv_mod, had_dim=head_dim, output=True, R2=R2)
+
+        attn.wqkv.weight.data = torch.cat([wq, wk, wv_mod.weight.data], dim=0)
+
+
+@torch.inference_mode()
+def _rotate_model_r4(model):
+    """Rotate the MLP output weights."""
+
+    for layer in model.layers:
+        W = layer.feed_forward.w2
+        # print(f"Min/max before R4 rotation: {W.weight.data.min().item():.2f}/{W.weight.data.max().item():.2f}")
+        apply_exact_had_to_linear(
+            W, had_dim=-1, output=False
+        )  # apply exact (inverse) hadamard on the weights of mlp output
+        # print(f"Min/max *after* R4 rotation: {W.weight.data.min().item():.2f}/{W.weight.data.max().item():.2f}")
+
+
+def _add_activation_wrappers_r4(model):
+    """Modify the forward pass to rotate the activations at specific points."""
+    # eval_utils/main.py:36
+    fp32_had = False   # default used in SpinQuant
+    had_K, K = get_hadK(model.config.intermediate_size)
+    # print(f"K: {K}")
+    _wrap_r4_layers(model, had_K, K, fp32_had)
+
+
+def _wrap_r4_layers(module, had_K, K, fp32_had):
+    for name, child in module.named_children():
+        if isinstance(child, nn.Linear) and name == "w2":  # FeedForward last layer
+            new_child = nn.Sequential(HadamardMultiplier(had_K, K, fp32_had), child)
+            setattr(module, name, new_child)
+        else:
+            _wrap_r4_layers(child, had_K, K, fp32_had)
+
+
+@torch.inference_mode()
+def fuse_layernorm_weights_into_linear(model):
     """
     Fuse RMSNorm weights into the subsequent linear layers. 
     
@@ -129,11 +169,13 @@ def _fuse_layernorm_weights_into_linear(model):
     something.)
     """
     # Embedding fusion (from utils/fuse_norm_utils.py:43)
-    # I currently don't understand why this is necessary, so I'm omitting it. It
-    # doesn't seem to affect performance (tested on int4wo)
-    # for W in [model.tok_embeddings]:
-    #     W_ = W.weight.data.double()
-    #     W.weight.data = (W_ - W_.mean(dim=-1, keepdim=True)).to(W.weight.data.dtype)
+    # I currently don't understand why this is necessary, so I'm omitting it (I
+    # contacted the authors about it:
+    # https://github.com/facebookresearch/SpinQuant/issues/14). It doesn't seem
+    # to affect performance (tested on int4wo)
+    for W in [model.tok_embeddings]:
+        W_ = W.weight.data.double()
+        W.weight.data = (W_ - W_.mean(dim=-1, keepdim=True)).to(W.weight.data.dtype)
 
     for layer in model.layers:
         _fuse_layernorm_linear(layer.ffn_norm, [layer.feed_forward.w1, layer.feed_forward.w3])
@@ -151,24 +193,50 @@ def _fuse_layernorm_weights_into_linear(model):
     model.norm.weight.data = torch.ones_like(W_norm)
 
 
-def apply_spinquant(model: Transformer):
-    """
-    Apply SpinQuant to a Transformer model: https://arxiv.org/abs/2405.16406
-    
-    Currently, this only applies the R2 + R3 + R4 rotation matrices to the model
-    (not R1, and no Cayley optimization).
-    """
-    assert isinstance(model, Transformer), "Only Transformer models are supported"
+def _rotate_mlp_output(layer, R1):
+    W = layer.feed_forward.w2
+    dtype = W.weight.dtype
+    W_ = W.weight.data.to( dtype=torch.float64)
+    W.weight.data = torch.matmul(R1.T, W_).to(dtype=dtype)
+    if W.bias is not None:
+        b = W.bias.data.to(dtype=torch.float64)
+        W.bias.data = torch.matmul(R1.T, b).to(dtype=dtype)
 
-    # device = next(model.parameters()).device
-    # dtype = next(model.parameters()).dtype
 
-    # Fusing layernorm weights into linear layers seems to hurt performance
-    # (12.82 -> 14.18 ppl for int4wo-64), while leading to the same perplexity
-    # without quantization. I'm omitting it since it doesn't seem to add value.
-    # _fuse_layernorm_weights_into_linear(model)
-    _rotate_model_r2(model)
-    _rotate_model_r4(model)
-    _add_activation_wrappers_r3_r4(model)
+def _rotate_mlp_input(layer, R1):
+    mlp_inputs = [layer.feed_forward.w1, layer.feed_forward.w3]
+    for W in mlp_inputs:
+        dtype = W.weight.dtype
+        W_ = W.weight.data.to(dtype=torch.float64)
+        W.weight.data = torch.matmul(W_, R1).to(dtype=dtype)
 
-    # model.to(device=device, dtype=dtype)
+
+def _rotate_attention_output(layer, R1):
+    W = layer.attention.wo
+    dtype = W.weight.dtype
+    W_ = W.weight.data.to(dtype=torch.float64)
+    W.weight.data = torch.matmul(R1.T, W_).to(dtype=dtype)
+    if W.bias is not None:
+        b = W.bias.data.to(dtype=torch.float64)
+        W.bias.data = torch.matmul(R1.T, b).to(dtype=dtype)
+
+
+def _rotate_attention_inputs(layer, R1):
+    W = layer.attention.wqkv
+    dtype = W.weight.dtype
+    W_ = W.weight.to(dtype=torch.float64)
+    W.weight.data = torch.matmul(W_, R1).to(dtype=dtype)
+
+
+def _rotate_head(model, R1):
+    W = model.output
+    dtype = W.weight.dtype
+    W_ = W.weight.data.to(dtype=torch.float64)
+    W.weight.data = torch.matmul(W_, R1).to(dtype=dtype)
+
+
+def _rotate_embeddings(model, R1):
+    W = model.tok_embeddings
+    dtype = W.weight.dtype
+    W_ = W.weight.data.to(dtype=torch.float64)
+    W.weight.data = torch.matmul(W_, R1).to(dtype=dtype)
