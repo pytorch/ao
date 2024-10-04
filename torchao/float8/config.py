@@ -59,6 +59,11 @@ class CastConfig:
     # TODO(ideally before this PR lands): a better name for this
     keep_in_original_precision: bool = False
 
+    def short_str(self):
+        if self.keep_in_original_precision:
+            return "orig_prec"
+        return f"{self.scaling_type.short_str()}_{self.scaling_granularity.short_str()}"
+
     def __post_init__(self):
         if self.scaling_type is ScalingType.STATIC:
             assert (

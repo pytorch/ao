@@ -508,7 +508,7 @@ class TestFloat8Linear:
             config=config,
         )
         s = m.__repr__()
-        assert "i:dyn,w:del,go:dyn" in s
+        assert "i:dyn_ten,w:del_ten,go:dyn_ten" in s
 
     @unittest.skipIf(not is_cuda_8_9, "CUDA 8.9 not available")
     def test_inference_mode(self):

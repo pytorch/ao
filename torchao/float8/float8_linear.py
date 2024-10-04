@@ -603,25 +603,20 @@ class Float8Linear(torch.nn.Linear):
             self.float8_post_forward()
         return output
 
-    def scaling_type_repr(self):
-        # add scaling type settings without using too many characters
-        # example: "i:del,w:del,go:dyn"
-        return f"i:{self.scaling_type_input.short_str()},w:{self.scaling_type_weight.short_str()},go:{self.scaling_type_grad_output.short_str()}"
-
-    def scaling_granularity_repr(self):
-        # add scaling granularity settings without using too many characters
-        # example: "i:ten,w:ten,g:ten" or "i:axs,w:axs,g:axs"
-        c = self.config
-        gi = c.cast_config_input.scaling_granularity.short_str()
-        gw = c.cast_config_weight.scaling_granularity.short_str()
-        ggo = c.cast_config_grad_output.scaling_granularity.short_str()
-        gi2 = c.cast_config_input_for_grad_weight.scaling_granularity.short_str()
-        gw2 = c.cast_config_weight_for_grad_input.scaling_granularity.short_str()
-        ggo2 = c.cast_config_grad_output_for_grad_weight.scaling_granularity.short_str()
-        return f"i:{gi},w:{gw},go:{ggo},i2:{gi2},w2:{gw2},go2:{ggo2}"
-
     def extra_repr(self):
-        s = f'{super().extra_repr()}, scaling_type="{self.scaling_type_repr()}", scaling_granularity="{self.scaling_granularity_repr()}"'
+        c = self.config
+        ci = f"i:{c.cast_config_input.short_str()}"
+        cw = f"w:{c.cast_config_weight.short_str()}"
+        cgo = f"go:{c.cast_config_grad_output.short_str()}"
+        parts = [ci, cw, cgo]
+        if c.cast_config_input_for_grad_weight != c.cast_config_input:
+            parts.append(f"i_gw:{c.cast_config_input_for_grad_weight.short_str()}") 
+        if c.cast_config_weight_for_grad_input != c.cast_config_weight:
+            parts.append(f"w_gi:{c.cast_config_weight_for_grad_input.short_str()}") 
+        if c.cast_config_grad_output_for_grad_weight != c.cast_config_grad_output:
+            parts.append(f"go_gw:{c.cast_config_grad_output_for_grad_weight.short_str()}") 
+        cast_config_str = ",".join(parts)
+        s = f'{super().extra_repr()}, cast_configs={cast_config_str}"'
         return s
 
     @classmethod
