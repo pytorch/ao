@@ -93,6 +93,7 @@ __all__ = [
     "uintx_weight_only",
     "fpx_weight_only",
     "float8_dynamic_activation_float8_weight",
+    "float8_static_activation_float8_weight",
 ]
 
 from .GPTQ import (
