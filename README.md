@@ -170,14 +170,19 @@ For *most* developers you probably want to skip building custom C++/CUDA extensi
 USE_CPP=0 pip install -e .
 ```
 
-## Integrations
+## OSS Integrations
 
 We're also fortunate to be integrated into some of the leading open-source libraries including
 1. Hugging Face transformers with a [builtin inference backend](https://huggingface.co/docs/transformers/main/quantization/torchao) and [low bit optimizers](https://github.com/huggingface/transformers/pull/31865)
-2. Hugging Face diffusers best practices with torch.compile and torchao [standalone repo](https://github.com/sayakpaul/diffusers-torchao)
+2. Hugging Face diffusers best practices with torch.compile and torchao in a standalone repo [diffusers-torchao](https://github.com/sayakpaul/diffusers-torchao)
 3. Mobius HQQ backend leveraged our int4 kernels to get [195 tok/s on a 4090](https://github.com/mobiusml/hqq#faster-inference)
+4. [TorchTune](https://github.com/pytorch/torchtune) for our QLoRA and QAT recipes
+5. [torchchat](https://github.com/pytorch/torchtune) for post training quantization
+6. [SGLang](https://github.com/sgl-project/sglang/pull/1341) for LLM inference quantization
 
 ## Videos
+* [Keynote talk at GPU MODE IRL](https://youtu.be/FH5wiwOyPX4?si=VZK22hHz25GRzBG1&t=1009)
+* [Low precision dtypes at PyTorch conference](https://youtu.be/xcKwEZ77Cps?si=7BS6cXMGgYtFlnrA)
 * [Slaying OOMs at the Mastering LLM's course](https://www.youtube.com/watch?v=UvRl4ansfCg)
 * [Advanced Quantization at CUDA MODE](https://youtu.be/1u9xUK3G4VM?si=4JcPlw2w8chPXW8J)
 * [Chip Huyen's GPU Optimization Workshop](https://www.youtube.com/live/v_q2JTIqE20?si=mf7HeZ63rS-uYpS6)
