@@ -28,8 +28,8 @@ from torchao.float8.config import (
     Float8LinearConfig, 
     ScalingGranularity,
     ScalingType,
-    _Float8LinearRecipeName,
-    _recipe_name_to_linear_config,
+    Float8LinearRecipeName,
+    recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_linear_utils import (
@@ -378,7 +378,7 @@ class TestFloat8Linear:
     # TODO(future PR): make this cleaner.
     @pytest.mark.parametrize(
         "recipe_name", 
-        [_Float8LinearRecipeName.ALL_AXISWISE, _Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP],
+        [Float8LinearRecipeName.ALL_AXISWISE, Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP],
     )
     @pytest.mark.parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
     @pytest.mark.parametrize("linear_bias", [True, False])
@@ -398,7 +398,7 @@ class TestFloat8Linear:
         linear_dtype = torch.bfloat16
         x = torch.randn(*x_shape, device="cuda", dtype=linear_dtype)
         m_ref = nn.Linear(16, 32, bias=linear_bias, device="cuda", dtype=linear_dtype)
-        config = _recipe_name_to_linear_config(recipe_name)
+        config = recipe_name_to_linear_config(recipe_name)
         self._test_linear_impl(
             x,
             m_ref,

@@ -27,8 +27,8 @@ from torchao.float8.config import (
     Float8LinearConfig, 
     ScalingType,
     ScalingGranularity,
-    _Float8LinearRecipeName,
-    _recipe_name_to_linear_config,
+    Float8LinearRecipeName,
+    recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
@@ -281,8 +281,8 @@ def main(
             emulate=False,
         )
     elif recipe_name is not None:
-        recipe_name = _Float8LinearRecipeName(recipe_name)
-        config = _recipe_name_to_linear_config(recipe_name)
+        recipe_name = Float8LinearRecipeName(recipe_name)
+        config = recipe_name_to_linear_config(recipe_name)
 
     scaling_repr = "_".join(
         [

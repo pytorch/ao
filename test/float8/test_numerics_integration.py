@@ -24,8 +24,8 @@ from torchao.float8.config import (
     Float8LinearConfig, 
     ScalingType,
     ScalingGranularity,
-    _Float8LinearRecipeName,
-    _recipe_name_to_linear_config,
+    Float8LinearRecipeName,
+    recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
@@ -196,7 +196,7 @@ class TestFloat8NumericsIntegrationTest:
 
     @pytest.mark.parametrize(
         "recipe_name",
-        [_Float8LinearRecipeName.ALL_AXISWISE, _Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP],
+        [Float8LinearRecipeName.ALL_AXISWISE, Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP],
     )
     @pytest.mark.skipif(not is_cuda_9_0, reason="requires SM90 compatible machine")
     @pytest.mark.skipif(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
@@ -204,7 +204,7 @@ class TestFloat8NumericsIntegrationTest:
         self,
         recipe_name: str,
     ):
-        config = _recipe_name_to_linear_config(recipe_name)
+        config = recipe_name_to_linear_config(recipe_name)
         self._test_impl(config)
 
 

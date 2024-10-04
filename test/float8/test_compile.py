@@ -23,8 +23,8 @@ from torchao.float8.config import (
     CastConfig, 
     Float8LinearConfig, 
     ScalingType, 
-    _Float8LinearRecipeName,
-    _recipe_name_to_linear_config,
+    Float8LinearRecipeName,
+    recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_linear_utils import (
@@ -200,12 +200,12 @@ def test_inductor_from_config_params(
 # TODO(future PR): make this cleaner.
 @pytest.mark.parametrize(
     "recipe_name", 
-    [_Float8LinearRecipeName.ALL_AXISWISE, _Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP],
+    [Float8LinearRecipeName.ALL_AXISWISE, Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP],
 )
 @unittest.skipIf(not is_H100, "CUDA with capability 9.0 or greater not available")
 def test_inductor_from_recipe(recipe_name):
     torch._dynamo.reset()
-    config = _recipe_name_to_linear_config(recipe_name)
+    config = recipe_name_to_linear_config(recipe_name)
     fullgraph = True
     dtype = torch.bfloat16
     _test_compile_base(

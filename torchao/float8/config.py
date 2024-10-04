@@ -233,25 +233,25 @@ use_fnuz_dtype = False
 # Pre-made recipes for common configurations
 # TODO(future PR): go through a round of design on this, and eventually expose
 # as a top level public API.
-class _Float8LinearRecipeName(enum.Enum):
+class Float8LinearRecipeName(enum.Enum):
     ALL_TENSORWISE = "all_tensorwise"
     ALL_AXISWISE = "all_axiswise"
     LW_AXISWISE_WITH_GW_HP = "lw_axiswise_with_gw_hp"
 
 
-def _recipe_name_to_linear_config(
-    recipe_name: _Float8LinearRecipeName,
+def recipe_name_to_linear_config(
+    recipe_name: Float8LinearRecipeName,
 ) -> Float8LinearConfig:
     """
-    Input: `_Float8LinearRecipeName` value
+    Input: `Float8LinearRecipeName` value
     Output: a `Float8LinearConfig` configured to implement the recipe
     """
 
-    if recipe_name is _Float8LinearRecipeName.ALL_TENSORWISE:
+    if recipe_name is Float8LinearRecipeName.ALL_TENSORWISE:
         # Default, dynamic per-tensor scaling with the cuBLAS tensorwise kernel
         return Float8LinearConfig()
 
-    elif recipe_name is _Float8LinearRecipeName.ALL_AXISWISE:
+    elif recipe_name is Float8LinearRecipeName.ALL_AXISWISE:
         # dynamic axiswise scaling with the CUTLASS rowwise kernel
         cc_i = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
         cc_w = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
@@ -274,7 +274,7 @@ def _recipe_name_to_linear_config(
             gemm_config_grad_weight=gc_gw,
         )
 
-    elif recipe_name is _Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP:
+    elif recipe_name is Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP:
 
         # lw's recipe for a modification on all-axiswise:
         #
@@ -284,9 +284,9 @@ def _recipe_name_to_linear_config(
         #
         # key characteristics:
         #   * increased accuracy for grad_weight
-        #   * `output` and `weight` now only need to be scaled axiswise across a 
-        #     single dim compared to vanilla all-axiswise, which is more 
-        #     amenable to fast kernels
+        #   * `input`, `weight` and `grad_output` now only need to be scaled 
+        #     axiswise across a single dim compared to vanilla all-axiswise, 
+        #     which is more amenable to fast kernels
 
         # output_hp = input_fp8_axiswise_dim0 @ weight_t_axiswise_dim1
         cc_i = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
