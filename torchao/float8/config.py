@@ -61,8 +61,9 @@ class CastConfig:
 
     def __post_init__(self):
         if self.scaling_type is ScalingType.STATIC:
-            assert self.static_scale is not None, \
-                "static_scale must be specified for static scaling"
+            assert (
+                self.static_scale is not None
+            ), "static_scale must be specified for static scaling"
         if self.scaling_granularity is ScalingGranularity.AXISWISE:
             assert self.scaling_type is ScalingType.DYNAMIC, \
                 "only dynamic scaling type is supported for axiswise scaling granularity"
@@ -172,6 +173,23 @@ class Float8LinearConfig:
     # supported. If in the future we add support for a more fine grained
     # configuration, this field may move to per-tensor configs.
     delayed_scaling_config: DelayedScalingConfig = DelayedScalingConfig()
+
+    # If the option is enabled, fp8_weight will always be re-computed in backward.
+    # It's recommended to enable this flag when using FSDP.
+    # Otherwise, the entire fp8_weight, instead of the sharded weight may be saved.
+    # If using outer activation checkpointing context or SAC, you may disable this option
+    # and handle the recomputation of fp8 weight in your customized AC context.
+    #
+    # Details:
+    # When using float8 training with FSDP, the original weight is sharded; fp8_weight (in forward) and fp8_weight_transpose (in backward) are used by the model.
+    # However, when partitioning the forward_backward graph, torch.compile may decide to
+    # save the fp8_weight_transpose for backward, which is an un-sahrded weight and costs a high memory utilization.
+    # The longer-term solution is to let compile decide how to partition the graph with optimal computation and memory savings.
+    # For now, we use the checkpointing api to force the recomputation of fp8 weight in backward.
+    # TODO(future PR): either enable by default or have a warning and set up the
+    # tests so that the warning does not spam the CI stdout.
+
+    force_recompute_fp8_weight_in_bwd: bool = False
 
     def __post_init__(self):
         # populate the additional cast overrides, if the user did not specify them

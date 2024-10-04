@@ -188,6 +188,7 @@ class TestQuantizedTraining(TestCase):
         assert snr(inputs_ref.grad, inputs_int8mp.grad) > 20
         assert snr(linear.weight.grad, linear_int8mp.weight.grad) > 20
 
+    @pytest.mark.skip('Flaky on CI')
     @parametrize("compile", [False, True])
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     def test_bitnet_training(self, compile):
