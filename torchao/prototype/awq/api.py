@@ -12,7 +12,7 @@ from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_fi
 from torchao.dtypes.uintx import _DTYPE_TO_BIT_WIDTH, UintxLayoutType
 from torchao.dtypes import( 
     to_affine_quantized_intx,
-    TensorCoreLayoutType
+    TensorCoreTiledLayoutType,
 )
 from .core import(
     AWQObserver, 
@@ -106,7 +106,7 @@ def awq_uintx(quant_dtype: torch.dtype = torch.uint4,
             preserve_zero = False
             zero_point_dtype = torch.bfloat16
             zero_point_domain = ZeroPointDomain.FLOAT
-            layout_type = TensorCoreLayoutType(inner_k_tiles=8)
+            layout_type = TensorCoreTiledLayoutType(inner_k_tiles=8)
         else:
             target_dtype = torch.uint8
             eps = torch.finfo(torch.float32).eps
