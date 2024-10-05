@@ -149,7 +149,6 @@ def wikitext2_ppl(
         tasks: list[str],
         calibration_size: int, 
         validation_size:int, 
-        group_size: int, 
         device: str, 
         precision:torch.dtype, 
         sequence_length: int, 
@@ -187,11 +186,9 @@ def wikitext2_ppl(
             torch.save(model, model_save_path)
     elif quant.startswith("int4wo"):
         group_size = int(quant.split("-")[1])
-        print(f"running int4 weight only quantization with group size {group_size}")
-        quantize_(model, int4_weight_only(group_size=group_size))
-    elif quant=="hqq":
-        print("running int4-hqq weight only quantization")
-        quantize_(model,int4_weight_only(group_size=group_size, use_hqq=True))
+        use_hqq = "hqq" in quant
+        print(f"running {quant} quantization with group size {group_size}")
+        quantize_(model, int4_weight_only(group_size=group_size, use_hqq))
     if compile:
         model = torch.compile(model)
     
@@ -203,7 +200,7 @@ if __name__ == "__main__":
 
     # Optional arguments with default values
     parser.add_argument("repo", type=str, help="Repository ID of the model.")
-    parser.add_argument("quant", type=str, help="Quantization method. Options are either int4 or awq-uintx where x is [1..8]")
+    parser.add_argument("quant", type=str, help="Quantization method. Options are either awq-uint<x>-<group_size> for x =[1..8], int4wo-<group_size>, or int4wo-<group_size>-hqq.")
     parser.add_argument("--tasks", type=list[str], help="Task to benchmark model on. Either PPL or QA", default=["PPL"])
     parser.add_argument("--calibration_samples", type=int, default=10, help="Number of samples to use for calibration. Default is 10.")
     parser.add_argument("--validation_size", type=int, default=1, help="Validation size. Default is 1.")
@@ -223,7 +220,6 @@ if __name__ == "__main__":
         args.tasks,
         args.calibration_samples,
         args.validation_size,
-        args.group_size,
         args.device,
         args.precision_dtype,
         args.seq_len,
