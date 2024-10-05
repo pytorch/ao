@@ -25,6 +25,7 @@ from torchao.float8.float8_linear_utils import (
     linear_requires_sync,
     sync_float8_amax_and_scale_history,
 )
+from torchao.quantization.quant_api import quantize_, float8_for_training
 from torchao.float8.float8_utils import compute_error, IS_ROCM
 
 is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
@@ -144,10 +145,12 @@ class TestFloat8NumericsIntegrationTest:
             cast_config_grad_output=cast_config_grad_output,
         )
 
-        convert_to_float8_training(
-            model_fp8,
-            config=config,
-        )
+        # convert_to_float8_training(
+        #     model_fp8,
+        #     config=config,
+        # )
+        quantize_(model_fp8, float8_for_training(config))
+        print(model_fp8)
 
         lr = 0.01
         optim_ref = torch.optim.SGD(model_ref.parameters(), lr=lr)
