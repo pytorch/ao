@@ -196,8 +196,6 @@ def wikitext2_ppl(
         model = torch.compile(model)
     
     results = benchmark(model, tokenizer, sequence_length, tasks=tasks)
-    else:
-        print("Invalid benchmark specified. Choose either PPL or QA")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate a model with the specified parameters.")
