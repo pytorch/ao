@@ -221,7 +221,7 @@ if __name__ == "__main__":
         args.calibration_samples,
         args.validation_size,
         args.device,
-        args.precision_dtype,
+        args.precision,
         args.seq_len,
         args.compile,
         args.model_save_path
