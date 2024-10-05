@@ -1,5 +1,3 @@
-from typing import Dict, Optional, Callable
-
 import torch
 import torch.nn.functional as F
 
@@ -12,7 +10,10 @@ from torchao.quantization import to_weight_tensor_with_linear_activation_scale_m
 from torchao.quantization.observer import PerGroup
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.dtypes.uintx import _DTYPE_TO_BIT_WIDTH, UintxLayoutType
-from torchao.dtypes import to_affine_quantized_intx
+from torchao.dtypes import( 
+    to_affine_quantized_intx,
+    TensorCoreLayoutType
+)
 from .core import(
     AWQObserver, 
     AWQObservedLinear, 
@@ -85,7 +86,7 @@ def _observed_linear_subclass_inserter(constructor):
 
 def awq_uintx(quant_dtype: torch.dtype = torch.uint4,
               group_size: int = 64, 
-              weight_quant_fn: Optional[Callable[[torch.Tensor], torch.Tensor]]= None):
+              use_hqq: bool = False,):
     """
     Quantizes linear layers when passed into quantize_()
 
@@ -94,38 +95,43 @@ def awq_uintx(quant_dtype: torch.dtype = torch.uint4,
         group_size: Quantization granularity. Use -1 for channel wise quantization
         weight_quant_fn: The quantization function to be used, which takes in the weight and returns the quantized weight. If None, then affine uint4 quantization is used
     """
-    
+    assert quant_dtype in _DTYPE_TO_BIT_WIDTH or quant_dtype == torch.uint8, "Invalid quant_dtype. Please use torch.uint1 .. torch.uint8"
     
     def weight_quant_func(observed_linear):
-        # weight quantization
-        # AQT config
         equalization_scale = observed_linear.act_obs.calculate_qparams()
-        if weight_quant_fn is not None:
-            qw = weight_quant_fn(observed_linear.weight * equalization_scale)
+        # AQT config
+        if quant_dtype == torch.uint4:
+            target_dtype = torch.int32
+            eps = 1e-6
+            preserve_zero = False
+            zero_point_dtype = torch.bfloat16
+            zero_point_domain = ZeroPointDomain.FLOAT
+            layout_type = TensorCoreLayoutType(inner_k_tiles=8)
         else:
-            # usage according to original paper
-            assert quant_dtype in _DTYPE_TO_BIT_WIDTH or quant_dtype == torch.uint8, "Invalid quant_dtype. Please use torch.uint1 .. torch.uint8"
-            
             target_dtype = torch.uint8
-            mapping_type = MappingType.ASYMMETRIC
-            quantization_granularity = PerGroup(group_size)
-            quant_min = _DTYPE_TO_QVALUE_BOUNDS[quant_dtype][0]
-            quant_max = _DTYPE_TO_QVALUE_BOUNDS[quant_dtype][1]
             eps = torch.finfo(torch.float32).eps
             preserve_zero = True
             zero_point_dtype = torch.int64
             zero_point_domain = ZeroPointDomain.INT
             layout_type = UintxLayoutType(quant_dtype)
+            
+        mapping_type = MappingType.ASYMMETRIC
+        block_size = (1, group_size)
+        quant_min = _DTYPE_TO_QVALUE_BOUNDS[quant_dtype][0]
+        quant_max = _DTYPE_TO_QVALUE_BOUNDS[quant_dtype][1]
+        qw = to_affine_quantized_intx(
+            observed_linear.weight * equalization_scale,
+            mapping_type,
+            block_size, 
+            target_dtype, quant_min, 
+            quant_max, eps, 
+            zero_point_dtype=zero_point_dtype,
+            preserve_zero=preserve_zero,
+            zero_point_domain=zero_point_domain,
+            layout_type=layout_type,
+            use_hqq=use_hqq
+        )
         
-            qw = to_affine_quantized_intx(
-                observed_linear.weight * equalization_scale,
-                mapping_type, (1, quantization_granularity.group_size), 
-                target_dtype, quant_min, 
-                quant_max, eps, 
-                zero_point_dtype=zero_point_dtype,
-                preserve_zero=preserve_zero,
-                zero_point_domain=zero_point_domain,
-                layout_type=layout_type)
         return to_weight_tensor_with_linear_activation_scale_metadata(qw, equalization_scale)
     
     return _observed_linear_subclass_inserter(weight_quant_func)

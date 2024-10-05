@@ -70,8 +70,8 @@ def wiki2_eval(model, tokenizer, sequence_length, stride=512, verbose=True):
 
 	return {'perplexity':ppl, 'prediction_time':pred_time}
     
-# from Hicham Badri (@mobicham)
-def QA(model, tokenizer):
+# adapted from Hicham Badri (@mobicham)
+def benchmark(model, tokenizer, max_length, tasks=None):
     import numpy as np
     import copy
     import lm_eval
@@ -83,65 +83,70 @@ def QA(model, tokenizer):
         pass
     model_eval = lm_eval.models.huggingface.HFLM(pretrained=model, tokenizer=tokenizer)
     eval_batch_size = 1 #8
-    
+    if tasks is None:
+        tasks = ["PPL","truthfulqa_mc2", "winogrande", "arc_challenge", "hellaswag", "gsm8k", "mmlu"]
     results = {}
+    if "PPL" in tasks:
+        results["perplexity"] = wiki2_eval(model, tokenizer, 512, verbose=True)
     ############################################
-    for task in [("truthfulqa_mc2", 0)]: 
-        tag, fewshot = task
-        results[tag] = lm_eval.evaluator.simple_evaluate(model_eval, tasks=[tag], num_fewshot=fewshot, batch_size=eval_batch_size)['results']
-        print(tag, results[tag])
-    
-    for task in [("winogrande", 5)]:
-        tag, fewshot = task
-        results[tag] = lm_eval.evaluator.simple_evaluate(model_eval, tasks=[tag], num_fewshot=fewshot, batch_size=eval_batch_size)['results']
-        print(tag, results[tag])
-    
-    for task in [("arc_challenge", 25)]: 
-        tag, fewshot = task
-        results[tag] = lm_eval.evaluator.simple_evaluate(model_eval, tasks=[tag], num_fewshot=fewshot, batch_size=eval_batch_size)['results']
-        print(tag, results[tag])
+    if "truthfulqa_mc2" in tasks:
+        for task in [("truthfulqa_mc2", 0)]: 
+            tag, fewshot = task
+            results[tag] = lm_eval.evaluator.simple_evaluate(model_eval, tasks=[tag], num_fewshot=fewshot, batch_size=eval_batch_size)['results']
+            print(tag, results[tag])
+    if "winogrande" in tasks:
+        for task in [("winogrande", 5)]:
+            tag, fewshot = task
+            results[tag] = lm_eval.evaluator.simple_evaluate(model_eval, tasks=[tag], num_fewshot=fewshot, batch_size=eval_batch_size)['results']
+            print(tag, results[tag])
+    if "arc_challenge" in tasks:
+        for task in [("arc_challenge", 25)]: 
+            tag, fewshot = task
+            results[tag] = lm_eval.evaluator.simple_evaluate(model_eval, tasks=[tag], num_fewshot=fewshot, batch_size=eval_batch_size)['results']
+            print(tag, results[tag])
     
     # ############################################
-    for task in [("hellaswag", 10)]: 
-        tag, fewshot = task
-        results[tag] = lm_eval.evaluator.simple_evaluate(model_eval, tasks=[tag], num_fewshot=fewshot, batch_size=eval_batch_size)['results']
-        print(tag, results[tag])
-        
-    for task in [("gsm8k", 5)]:
-        tag, fewshot = task
-        results[tag] = lm_eval.evaluator.simple_evaluate(model_eval, tasks=[tag], num_fewshot=fewshot, batch_size=eval_batch_size)['results']
-        print(tag, results[tag])
+    if "hellaswag" in tasks:
+        for task in [("hellaswag", 10)]: 
+            tag, fewshot = task
+            results[tag] = lm_eval.evaluator.simple_evaluate(model_eval, tasks=[tag], num_fewshot=fewshot, batch_size=eval_batch_size)['results']
+            print(tag, results[tag])
+    if "gsm8k" in tasks:
+        for task in [("gsm8k", 5)]:
+            tag, fewshot = task
+            results[tag] = lm_eval.evaluator.simple_evaluate(model_eval, tasks=[tag], num_fewshot=fewshot, batch_size=eval_batch_size)['results']
+            print(tag, results[tag])
     # ############################################
     
     results_1  = copy.deepcopy(results)
-    
-    #MMLU
-    results_mmlu = {}
-    for task in [("mmlu", 5)]:  
-        tag, fewshot = task
-        results_mmlu[tag] = lm_eval.evaluator.simple_evaluate(model_eval, tasks=[tag], num_fewshot=fewshot, batch_size=eval_batch_size)['results']
-        print(tag, results_mmlu[tag])
-    
-    mmlu_list    = "hendrycksTest-abstract_algebra,hendrycksTest-anatomy,hendrycksTest-astronomy,hendrycksTest-business_ethics,hendrycksTest-clinical_knowledge,hendrycksTest-college_biology,hendrycksTest-college_chemistry,hendrycksTest-college_computer_science,hendrycksTest-college_mathematics,hendrycksTest-college_medicine,hendrycksTest-college_physics,hendrycksTest-computer_security,hendrycksTest-conceptual_physics,hendrycksTest-econometrics,hendrycksTest-electrical_engineering,hendrycksTest-elementary_mathematics,hendrycksTest-formal_logic,hendrycksTest-global_facts,hendrycksTest-high_school_biology,hendrycksTest-high_school_chemistry,hendrycksTest-high_school_computer_science,hendrycksTest-high_school_european_history,hendrycksTest-high_school_geography,hendrycksTest-high_school_government_and_politics,hendrycksTest-high_school_macroeconomics,hendrycksTest-high_school_mathematics,hendrycksTest-high_school_microeconomics,hendrycksTest-high_school_physics,hendrycksTest-high_school_psychology,hendrycksTest-high_school_statistics,hendrycksTest-high_school_us_history,hendrycksTest-high_school_world_history,hendrycksTest-human_aging,hendrycksTest-human_sexuality,hendrycksTest-international_law,hendrycksTest-jurisprudence,hendrycksTest-logical_fallacies,hendrycksTest-machine_learning,hendrycksTest-management,hendrycksTest-marketing,hendrycksTest-medical_genetics,hendrycksTest-miscellaneous,hendrycksTest-moral_disputes,hendrycksTest-moral_scenarios,hendrycksTest-nutrition,hendrycksTest-philosophy,hendrycksTest-prehistory,hendrycksTest-professional_accounting,hendrycksTest-professional_law,hendrycksTest-professional_medicine,hendrycksTest-professional_psychology,hendrycksTest-public_relations,hendrycksTest-security_studies,hendrycksTest-sociology,hendrycksTest-us_foreign_policy,hendrycksTest-virology,hendrycksTest-world_religions"
-    mmlu_list    = [l.replace('hendrycksTest-','') for l in mmlu_list.split(',')]
-    results_mmlu = results_mmlu['mmlu']
-    
-    k = []
-    for r in results_mmlu:
-        if np.any([(l in r) for l in mmlu_list]):
-            k.append(results_mmlu[r]['acc,none'])
-    
-    assert len(k)==57
-    print('MMLU avg acc', np.mean(k)) 
-    
-    results['mmlu'] = np.mean(k)
+    if "mmlu" in tasks:
+        #MMLU
+        results_mmlu = {}
+        for task in [("mmlu", 5)]:  
+            tag, fewshot = task
+            results_mmlu[tag] = lm_eval.evaluator.simple_evaluate(model_eval, tasks=[tag], num_fewshot=fewshot, batch_size=eval_batch_size)['results']
+            print(tag, results_mmlu[tag])
+        
+        mmlu_list    = "hendrycksTest-abstract_algebra,hendrycksTest-anatomy,hendrycksTest-astronomy,hendrycksTest-business_ethics,hendrycksTest-clinical_knowledge,hendrycksTest-college_biology,hendrycksTest-college_chemistry,hendrycksTest-college_computer_science,hendrycksTest-college_mathematics,hendrycksTest-college_medicine,hendrycksTest-college_physics,hendrycksTest-computer_security,hendrycksTest-conceptual_physics,hendrycksTest-econometrics,hendrycksTest-electrical_engineering,hendrycksTest-elementary_mathematics,hendrycksTest-formal_logic,hendrycksTest-global_facts,hendrycksTest-high_school_biology,hendrycksTest-high_school_chemistry,hendrycksTest-high_school_computer_science,hendrycksTest-high_school_european_history,hendrycksTest-high_school_geography,hendrycksTest-high_school_government_and_politics,hendrycksTest-high_school_macroeconomics,hendrycksTest-high_school_mathematics,hendrycksTest-high_school_microeconomics,hendrycksTest-high_school_physics,hendrycksTest-high_school_psychology,hendrycksTest-high_school_statistics,hendrycksTest-high_school_us_history,hendrycksTest-high_school_world_history,hendrycksTest-human_aging,hendrycksTest-human_sexuality,hendrycksTest-international_law,hendrycksTest-jurisprudence,hendrycksTest-logical_fallacies,hendrycksTest-machine_learning,hendrycksTest-management,hendrycksTest-marketing,hendrycksTest-medical_genetics,hendrycksTest-miscellaneous,hendrycksTest-moral_disputes,hendrycksTest-moral_scenarios,hendrycksTest-nutrition,hendrycksTest-philosophy,hendrycksTest-prehistory,hendrycksTest-professional_accounting,hendrycksTest-professional_law,hendrycksTest-professional_medicine,hendrycksTest-professional_psychology,hendrycksTest-public_relations,hendrycksTest-security_studies,hendrycksTest-sociology,hendrycksTest-us_foreign_policy,hendrycksTest-virology,hendrycksTest-world_religions"
+        mmlu_list    = [l.replace('hendrycksTest-','') for l in mmlu_list.split(',')]
+        results_mmlu = results_mmlu['mmlu']
+        
+        k = []
+        for r in results_mmlu:
+            if np.any([(l in r) for l in mmlu_list]):
+                k.append(results_mmlu[r]['acc,none'])
+        
+        assert len(k)==57
+        print('MMLU avg acc', np.mean(k)) 
+        
+        results['mmlu'] = np.mean(k)
     return results
 
 
 def wikitext2_ppl(
         repo_id: str,
         quant: str,
-        benchmark: str,
+        tasks: list[str],
         calibration_size: int, 
         validation_size:int, 
         group_size: int, 
@@ -159,6 +164,7 @@ def wikitext2_ppl(
     print(f"Time to load model: {time.time() - t0:.02f} seconds")
     if quant.startswith("awq"):
         quant_dtype = quant.split("-")[1]
+        group_size = int(quant.split("-")[2])
         quant_dtype = getattr(torch, quant_dtype, torch.bfloat16)
         print(f"running {quant_dtype} calibration")
         t0 = time.time()
@@ -171,50 +177,25 @@ def wikitext2_ppl(
         print(f"time for calibration: {time.time() - t0:.02f} seconds")
         
         is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
-        if "hqq" in quant:
-            print(f"running awq-hqq quantization")
-            from torchao.quantization.quant_primitives import (
-                MappingType,
-                ZeroPointDomain,
-                _DTYPE_TO_QVALUE_BOUNDS,
-            )
-            from torchao.dtypes import to_affine_quantized_intx, TensorCoreTiledLayoutType
-            # example of using a different quantization function
-            def hqqint4(weight):
-                mapping_type = MappingType.ASYMMETRIC
-                block_size = (1, group_size)
-                target_dtype = torch.int32
-                quant_min = 0
-                quant_max = 15
-                eps = 1e-6
-                preserve_zero = False
-                zero_point_dtype = torch.bfloat16
-                zero_point_domain = ZeroPointDomain.FLOAT
-        
-                return to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, layout_type=TensorCoreTiledLayoutType(inner_k_tiles=8), use_hqq=True)
-            t0 = time.time()
-            quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size, weight_quant_fn=hqqint4), is_observed_linear)
-        else:
-            print(f"running {quant_dtype} quantization")
-            t0 = time.time()
-            # use awq_uintx() to apply awq quantization
-            quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size), is_observed_linear)
+        use_hqq = "hqq" in quant
+        print(f"running {quant_dtype} quantization")
+        t0 = time.time()
+        quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size, use_hqq=use_hqq), is_observed_linear)
         print(f"time for quantization: {time.time() - t0:.02f} seconds")
         if model_save_path is not None:
             print(f"Saving model to {model_save_path}")
             torch.save(model, model_save_path)
-    elif quant=="int4":
-        print("running int4 quantization")
+    elif quant.startswith("int4wo"):
+        group_size = int(quant.split("-")[1])
+        print(f"running int4 weight only quantization with group size {group_size}")
         quantize_(model, int4_weight_only(group_size=group_size))
     elif quant=="hqq":
-        print("running int4-hqq quantization")
+        print("running int4-hqq weight only quantization")
         quantize_(model,int4_weight_only(group_size=group_size, use_hqq=True))
     if compile:
         model = torch.compile(model)
-    if benchmark == "QA":
-        return QA(model, tokenizer)
-    elif benchmark == "PPL":
-        return wiki2_eval(model, tokenizer, sequence_length)
+    
+    results = benchmark(model, tokenizer, sequence_length, tasks=tasks)
     else:
         print("Invalid benchmark specified. Choose either PPL or QA")
 
@@ -225,10 +206,9 @@ if __name__ == "__main__":
     # Optional arguments with default values
     parser.add_argument("repo", type=str, help="Repository ID of the model.")
     parser.add_argument("quant", type=str, help="Quantization method. Options are either int4 or awq-uintx where x is [1..8]")
-    parser.add_argument("--benchmark", type=str, help="Task to benchmark model on. Either PPL or QA", default="QA")
+    parser.add_argument("--tasks", type=list[str], help="Task to benchmark model on. Either PPL or QA", default=["PPL"])
     parser.add_argument("--calibration_samples", type=int, default=10, help="Number of samples to use for calibration. Default is 10.")
     parser.add_argument("--validation_size", type=int, default=1, help="Validation size. Default is 1.")
-    parser.add_argument("--group_size", type=int, default=64, help="Group size to use for weights. Default is 64")
     parser.add_argument("--device", type=str, default="cuda", help="Device to run the evaluation on. Default is 'cuda'.")
     parser.add_argument("--precision", type=str, default="bfloat16", help="Precision type. Default is 'bfloat16'.")
     parser.add_argument("--seq_len", type=int, default=512, help="Length of examples to calibrate and evaluate model on. Default is 512")
