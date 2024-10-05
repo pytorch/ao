@@ -1,7 +1,7 @@
 import torch
 from torch import Tensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from torchao.utils import TorchAOBaseTensor
+from torchao.utils import TorchAOBaseTensor, TORCH_VERSION_AT_LEAST_2_4
 
 from .quant_utils import create_dynamic_map, scale_tensor, quantize_8bit_with_qmap, dequant_with_qmap
 
@@ -67,6 +67,23 @@ class OptimState8bit(TorchAOBaseTensor):
             f"{self.__class__.__name__}(signed={self.signed}, block_size={self.block_size}, "
             f"shape={tuple(self.shape)}, device={self.device}, requires_grad={self.requires_grad})"
         )
+
+
+# in pre-2.4, calling .to(device, dtype) will not dispatch aten._to_copy.default when
+# dtype is the same but device is different. thus, we must override .to() method instead.
+if not TORCH_VERSION_AT_LEAST_2_4:
+    def _to(self, *args, **kwargs):
+        # ignore other args/kwargs
+        device = kwargs.pop("device", None)
+        return OptimState8bit(
+            self.codes.to(device),
+            self.scale.to(device),
+            self.qmap.to(device),
+            self.signed,
+        )
+
+    OptimState8bit.to = _to
+    del _to  # make sure to not re-use
 
 
 @OptimState8bit.implements(aten.copy_.default)
