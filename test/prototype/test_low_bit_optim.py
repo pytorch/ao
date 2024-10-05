@@ -97,6 +97,29 @@ class TestOptim(TestCase):
         optim.step()
         optim.zero_grad()
 
+        # test serialization. also test the case CUDA optim loads CPU state dict
+        with tempfile.NamedTemporaryFile() as f:
+            torch.save(optim.state_dict(), f.name)
+            state_dict = torch.load(f.name, map_location="cpu")
+
+        model2 = copy.deepcopy(model)
+        optim2 = getattr(low_bit_optim, optim_name)(model2.parameters())
+        optim2.load_state_dict(state_dict)
+
+        for _ in range(2):
+            x = torch.randn(4, 32, device=device, dtype=dtype)
+
+            model(x).sum().backward()
+            optim.step()
+            optim.zero_grad()
+
+            model2(x).sum().backward()
+            optim2.step()
+            optim2.zero_grad()
+
+        for p1, p2 in zip(model.parameters(), model2.parameters()):
+            torch.testing.assert_close(p2, p1)
+
     @pytest.mark.skipif(bnb is None, reason="bitsandbytes is not availablle")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="bitsandbytes 8-bit Adam only works for CUDA")
     @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_3, reason="requires PyTorch >= 2.3")
@@ -205,7 +228,7 @@ class TestOptim(TestCase):
         # save checkpoint. make sure it can be serialized by torch.save()
         with tempfile.NamedTemporaryFile() as file:
             torch.save(optim1.state_dict(), file.name)
-            state_dict = torch.load(file.name)
+            state_dict = torch.load(file.name, map_location="cpu")
 
         # resume training
         model2 = copy.deepcopy(model1)

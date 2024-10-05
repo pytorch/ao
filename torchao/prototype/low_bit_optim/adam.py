@@ -109,6 +109,7 @@ class _AdamBase(Optimizer):
 
 # this will work with any optim state tensor subclass that implements aten.lerp.Scalar and aten.copy_.default
 # and param tensor subclass that implements aten.add_.Tensor, and aten.addcdiv_.default
+# NOTE: should we cast inputs to FP32 to ensure computations are always in FP32?
 def single_param_adam(
     p: Tensor,
     grad: Tensor,

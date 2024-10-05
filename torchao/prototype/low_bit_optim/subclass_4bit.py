@@ -2,6 +2,7 @@ import math
 
 import torch
 from torch import Tensor
+from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.utils import TorchAOBaseTensor
 
 from .quant_utils import create_dynamic_map, scale_tensor, quantize_4bit_with_qmap, dequant_with_qmap
@@ -60,8 +61,9 @@ class OptimState4bit(TorchAOBaseTensor):
     def dequantize(self, output_dtype=None):
         codes = torch.stack([self.codes >> 4, self.codes & 0b1111], dim=-1)  # unpack
         float_data = dequant_with_qmap(codes, self.qmap, self.scale)
-        dtype = output_dtype or torch.get_default_dtype()
-        return float_data.view(self._shape).to(dtype)
+        if output_dtype is not None:
+            float_data = float_data.to(output_dtype)
+        return float_data.view(self._shape)
 
     @classmethod
     def zeros(cls, shape, signed: bool = True, block_size: int = 128, device=None):
@@ -105,6 +107,20 @@ def _(func, types, args, kwargs):
         dst.copy_(src.dequantize())
 
     return dst
+
+
+@OptimState4bit.implements(aten._to_copy.default)
+def _(func, types, args, kwargs):
+    # ignore dtype
+    device = kwargs.get("device", None)
+    out = OptimState4bit(
+        args[0].codes.to(device=device),
+        args[0].scale.to(device=device),
+        args[0].qmap.to(device=device),
+        args[0].signed,
+        args[0].shape,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, out)
 
 
 @OptimState4bit.implements(aten.lerp.Scalar)
