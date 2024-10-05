@@ -33,42 +33,42 @@ def get_calib_dataset(tokenizer=None, n_samples=100, block_size=512):
 
 # from https://github.com/mobiusml/hqq/blob/master/examples/llama2_benchmark/eval_model.py
 def wiki2_eval(model, tokenizer, sequence_length, stride=512, verbose=True):
-	model.eval()
-	tokenizer.pad_token     = tokenizer.eos_token 
-	tokenizer.padding_side  = "right" 
-	tokenizer.add_eos_token = False
+    model.eval()
+    tokenizer.pad_token     = tokenizer.eos_token 
+    tokenizer.padding_side  = "right" 
+    tokenizer.add_eos_token = False
 
-	dataset   = load_dataset('wikitext', 'wikitext-2-raw-v1', split='test')
-	encodings = tokenizer('\n\n'.join(dataset['text']), return_tensors='pt')
-	
-	encodings['input_ids'] = encodings['input_ids'].to('cuda')
+    dataset   = load_dataset('wikitext', 'wikitext-2-raw-v1', split='test')
+    encodings = tokenizer('\n\n'.join(dataset['text']), return_tensors='pt')
 
-	lls, t = [], []
-	for i in tqdm(range(0, encodings['input_ids'].size(1), stride), disable=not verbose):
-		begin_loc  = max(i + stride - sequence_length, 0)
-		end_loc    = min(i + stride, encodings['input_ids'].size(1))
-		trg_len    = end_loc - i  
-		input_ids  = encodings['input_ids'][:,begin_loc:end_loc]
-		target_ids = input_ids.clone()
-		target_ids[:,:-trg_len] = -100 #ignore context 
+    encodings['input_ids'] = encodings['input_ids'].to('cuda')
 
-		t1 = time.time()
-		with torch.no_grad():
-			log_likelihood = model(input_ids, labels=target_ids).loss * trg_len
-		torch.cuda.synchronize()
-		t2 = time.time()
-		t.append((t2-t1))
-		lls.append(log_likelihood)
+    lls, t = [], []
+    for i in tqdm(range(0, encodings['input_ids'].size(1), stride), disable=not verbose):
+        begin_loc  = max(i + stride - sequence_length, 0)
+        end_loc    = min(i + stride, encodings['input_ids'].size(1))
+        trg_len    = end_loc - i  
+        input_ids  = encodings['input_ids'][:,begin_loc:end_loc]
+        target_ids = input_ids.clone()
+        target_ids[:,:-trg_len] = -100 #ignore context 
 
-		del input_ids, target_ids
+        t1 = time.time()
+        with torch.no_grad():
+            log_likelihood = model(input_ids, labels=target_ids).loss * trg_len
+        torch.cuda.synchronize()
+        t2 = time.time()
+        t.append((t2-t1))
+        lls.append(log_likelihood)
 
-	ppl       = float(torch.exp(torch.stack(lls).sum() / end_loc))
-	pred_time = sum(t)/len(t)
-	if(verbose):
-		print('perplexity', ppl)
-		print('time', str(pred_time) + '  sec')
+        del input_ids, target_ids
 
-	return {'perplexity':ppl, 'prediction_time':pred_time}
+    ppl       = float(torch.exp(torch.stack(lls).sum() / end_loc))
+    pred_time = sum(t)/len(t)
+    if(verbose):
+        print('perplexity', ppl)
+        print('time', str(pred_time) + '  sec')
+
+    return {'perplexity':ppl, 'prediction_time':pred_time}
     
 # adapted from Hicham Badri (@mobicham)
 def benchmark(model, tokenizer, max_length, tasks=None):
@@ -227,4 +227,4 @@ if __name__ == "__main__":
         args.model_save_path
     )
 
-    print(f"{args.quant} Perplexity: {ppl.items():.5f}")
+    print(f"{args.quant} Results: {ppl}")
