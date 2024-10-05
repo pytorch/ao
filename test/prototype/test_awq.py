@@ -50,7 +50,8 @@ def test_awq_loading(device, qdtype, idtype):
     n_calibration_examples = 10
     n_validation_examples = 10
     sequence_length = 5
-
+    if quant_dtype == torch.uint4 and idtype != torch.bfloat16:
+        pytest.skip("uint4 is uses tinygemm kernel which is only supported for bfloat16 inputs")
     m = ToyLinearModel(l1,l2,l3).eval().to(original_dtype).to(device)
     dataset = m.example_inputs(dataset_size, sequence_length=sequence_length,  dtype=original_dtype, device=device)
     calibration_data = dataset[:n_calibration_examples]
@@ -71,7 +72,7 @@ def test_awq_loading(device, qdtype, idtype):
     loaded_model = torch.load(model_save_path)
     os.remove(model_save_path)
     
-    if device == "cuda":
+    if torch.cuda.is_available():
         m = torch.compile(m, fullgraph=True)
         loaded_model = torch.compile(loaded_model, fullgraph=True)
     
@@ -87,7 +88,7 @@ def test_awq_loading(device, qdtype, idtype):
 def test_save_weights_only():
     dataset_size = 100
     l1,l2,l3 = 512,256,128
-    original_dtype = torch.half
+    original_dtype = torch.bfloat16
     quant_dtype = torch.uint4
     device = "cuda"
     group_size = 128
