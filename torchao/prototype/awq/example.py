@@ -218,17 +218,17 @@ if __name__ == "__main__":
     # Convert precision argument to torch dtype
     precision_dtype = getattr(torch, args.precision, torch.bfloat16)
     ppl = wikitext2_ppl(
-        repo_id=args.repo,
-        quant=args.quant,
-        benchmark = args.benchmark,
-        calibration_size=args.calibration_samples,
-        validation_size=args.validation_size,
-        group_size= args.group_size,
-        device=args.device,
-        precision=precision_dtype,
-        sequence_length=args.seq_len,
-        compile=args.compile,
-        model_save_path=args.model_save_path
+        args.repo,
+        args.quant,
+        args.tasks,
+        args.calibration_samples,
+        args.validation_size,
+        args.group_size,
+        args.device,
+        args.precision_dtype,
+        args.seq_len,
+        args.compile,
+        args.model_save_path
     )
 
     print(f"{args.quant} Perplexity: {ppl.items():.5f}")
