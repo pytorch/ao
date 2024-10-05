@@ -188,7 +188,7 @@ def wikitext2_ppl(
         group_size = int(quant.split("-")[1])
         use_hqq = "hqq" in quant
         print(f"running {quant} quantization with group size {group_size}")
-        quantize_(model, int4_weight_only(group_size=group_size, use_hqq))
+        quantize_(model, int4_weight_only(group_size=group_size, use_hqq= use_hqq))
     if compile:
         model = torch.compile(model)
     
