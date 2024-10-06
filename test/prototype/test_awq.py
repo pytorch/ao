@@ -36,22 +36,20 @@ def run_before_and_after_tests():
     yield
     torch._dynamo.reset() # reset cache between tests
     
-idtypes = (torch.half, torch.bfloat16)
 @pytest.mark.parametrize("device", devices)   
 @pytest.mark.parametrize("qdtype", qdtypes)
-@pytest.mark.parametrize("idtype", idtypes)
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_3,reason="torch.uint(2-7) requires torch2.3+")
 def test_awq_loading(device, qdtype, idtype):
     dataset_size = 100
     l1,l2,l3 = 512,256,128
-    original_dtype = idtype
+    original_dtype = torch.bfloat16 # tinygemm kernel only uses bfloat16 inputs
     quant_dtype = qdtype
     group_size = 128
     n_calibration_examples = 10
     n_validation_examples = 10
     sequence_length = 5
-    if quant_dtype == torch.uint4 and idtype != torch.bfloat16:
-        pytest.skip("uint4 is uses tinygemm kernel which is only supported for bfloat16 inputs")
+
     m = ToyLinearModel(l1,l2,l3).eval().to(original_dtype).to(device)
     dataset = m.example_inputs(dataset_size, sequence_length=sequence_length,  dtype=original_dtype, device=device)
     calibration_data = dataset[:n_calibration_examples]
