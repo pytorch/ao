@@ -19,7 +19,12 @@ if not TORCH_VERSION_AT_LEAST_2_5:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchao.float8.config import CastConfig, Float8LinearConfig, ScalingType
+from torchao.float8.config import (
+    CastConfig, 
+    Float8LinearConfig, 
+    ScalingType,
+    ScalingGranularity,
+)
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
     linear_requires_sync,
@@ -28,6 +33,7 @@ from torchao.float8.float8_linear_utils import (
 from torchao.float8.float8_utils import compute_error, IS_ROCM
 
 is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
+is_cuda_9_0 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
 
 torch.manual_seed(0)
 
@@ -90,6 +96,10 @@ class TestFloat8NumericsIntegrationTest:
         "scaling_type_grad_output",
         [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
     )
+    @pytest.mark.parametrize(
+        "scaling_granularity", 
+        [ScalingGranularity.TENSORWISE, ScalingGranularity.AXISWISE],
+    )
     @pytest.mark.skipif(not is_cuda_8_9, reason="requires SM89 compatible machine")
     @pytest.mark.skipif(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
     def test_encoder_fw_bw(
@@ -97,9 +107,20 @@ class TestFloat8NumericsIntegrationTest:
         scaling_type_input: ScalingType,
         scaling_type_weight: ScalingType,
         scaling_type_grad_output: ScalingType,
+        scaling_granularity: ScalingGranularity,
     ):
         # TODO(later): maybe add float16 back if it becomes important
         data_dtype = torch.bfloat16
+
+        if scaling_granularity is ScalingGranularity.AXISWISE:
+            if (
+                scaling_type_input != ScalingType.DYNAMIC or
+                scaling_type_weight != ScalingType.DYNAMIC or
+                scaling_type_grad_output != ScalingType.DYNAMIC or
+                data_dtype != torch.bfloat16 or
+                (not is_cuda_9_0)
+            ):
+                pytest.skip()
 
         # LLaMa 3 70B shapes
         model_ref = (
@@ -119,24 +140,34 @@ class TestFloat8NumericsIntegrationTest:
         if scaling_type_input is ScalingType.STATIC:
             cast_config_input = CastConfig(
                 scaling_type=scaling_type_input,
+                scaling_granularity=scaling_granularity,
                 static_scale=torch.tensor([1.0], device="cuda"),
             )
         else:
-            cast_config_input = CastConfig(scaling_type=scaling_type_input)
+            cast_config_input = CastConfig(
+                scaling_type=scaling_type_input,
+                scaling_granularity=scaling_granularity,
+            )
         if scaling_type_weight is ScalingType.STATIC:
             cast_config_weight = CastConfig(
                 scaling_type=scaling_type_weight,
                 static_scale=torch.tensor([1.0], device="cuda"),
             )
         else:
-            cast_config_weight = CastConfig(scaling_type=scaling_type_weight)
+            cast_config_weight = CastConfig(
+                scaling_type=scaling_type_weight,
+                scaling_granularity=scaling_granularity,
+            )
         if scaling_type_grad_output is ScalingType.STATIC:
             cast_config_grad_output = CastConfig(
                 scaling_type=scaling_type_grad_output,
                 static_scale=torch.tensor([1.0], device="cuda"),
             )
         else:
-            cast_config_grad_output = CastConfig(scaling_type=scaling_type_grad_output)
+            cast_config_grad_output = CastConfig(
+                scaling_type=scaling_type_grad_output,
+                scaling_granularity=scaling_granularity,
+            )
 
         config = Float8LinearConfig(
             cast_config_input=cast_config_input,

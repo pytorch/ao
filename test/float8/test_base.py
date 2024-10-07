@@ -324,6 +324,10 @@ class TestFloat8Linear:
         "scaling_type_grad_output",
         [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
     )
+    @pytest.mark.parametrize(
+        "scaling_granularity", 
+        [ScalingGranularity.TENSORWISE, ScalingGranularity.AXISWISE],
+    )
     @pytest.mark.parametrize("linear_dtype", [torch.bfloat16, torch.float32])
     @pytest.mark.parametrize("linear_bias", [False, True])
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
@@ -334,33 +338,56 @@ class TestFloat8Linear:
         scaling_type_input: ScalingType,
         scaling_type_weight: ScalingType,
         scaling_type_grad_output: ScalingType,
+        scaling_granularity: ScalingGranularity,
         linear_dtype: torch.dtype,
         linear_bias: bool,
     ):
+        if scaling_granularity is ScalingGranularity.AXISWISE:
+            if (
+                scaling_type_input != ScalingType.DYNAMIC or
+                scaling_type_weight != ScalingType.DYNAMIC or
+                scaling_type_grad_output != ScalingType.DYNAMIC or
+                linear_dtype != torch.bfloat16 or
+                (not is_cuda_9_0)
+            ):
+                pytest.skip()
+
         x = torch.randn(*x_shape, device="cuda", dtype=linear_dtype)
         m_ref = nn.Linear(16, 32, bias=linear_bias, device="cuda", dtype=linear_dtype)
 
         if scaling_type_input is ScalingType.STATIC:
             cast_config_input = CastConfig(
                 scaling_type=scaling_type_input,
+                scaling_granularity=scaling_granularity,
                 static_scale=torch.tensor([1.0], device="cuda"),
             )
         else:
-            cast_config_input = CastConfig(scaling_type=scaling_type_input)
+            cast_config_input = CastConfig(
+                scaling_type=scaling_type_input,
+                scaling_granularity=scaling_granularity,
+            )
         if scaling_type_weight is ScalingType.STATIC:
             cast_config_weight = CastConfig(
                 scaling_type=scaling_type_weight,
+                scaling_granularity=scaling_granularity,
                 static_scale=torch.tensor([1.0], device="cuda"),
             )
         else:
-            cast_config_weight = CastConfig(scaling_type=scaling_type_weight)
+            cast_config_weight = CastConfig(
+                scaling_type=scaling_type_weight,
+                scaling_granularity=scaling_granularity,
+            )
         if scaling_type_grad_output is ScalingType.STATIC:
             cast_config_grad_output = CastConfig(
                 scaling_type=scaling_type_grad_output,
+                scaling_granularity=scaling_granularity,
                 static_scale=torch.tensor([1.0], device="cuda"),
             )
         else:
-            cast_config_grad_output = CastConfig(scaling_type=scaling_type_grad_output)
+            cast_config_grad_output = CastConfig(
+                scaling_type=scaling_type_grad_output,
+                scaling_granularity=scaling_granularity,
+            )
 
         config = Float8LinearConfig(
             cast_config_input=cast_config_input,

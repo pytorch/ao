@@ -18,7 +18,12 @@ if not TORCH_VERSION_AT_LEAST_2_5:
 
 import torch
 import torch.nn as nn
-from torchao.float8.config import CastConfig, Float8LinearConfig, ScalingType
+from torchao.float8.config import (
+    CastConfig, 
+    Float8LinearConfig, 
+    ScalingType, 
+    ScalingGranularity,
+)
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
@@ -39,6 +44,7 @@ from torchao.float8.float8_utils import e4m3_dtype
 from torch._dynamo.test_case import TestCase as DynamoTestCase
 from torch._dynamo.testing import CompileCounterWithBackend
 
+# TODO(future PR): standardize IS_H100 with the rest of the codebase
 is_H100 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
 is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
 
@@ -67,6 +73,8 @@ def _test_compile_base(
     y_fp8.sum().backward()
     y_ref = m_ref(x)
     y_ref.sum().backward()
+    # TODO(future PR): can also test fp8 eager vs compile here with a tigher 
+    # tolerance
     torch.testing.assert_close(y_fp8, y_ref, atol=9.5e-2, rtol=9.5e-2)
     torch.testing.assert_close(
         m_fp8.weight.grad, m_ref.weight.grad, atol=2e-1, rtol=2e-1
@@ -77,29 +85,42 @@ def _get_config(
     scaling_type_input, 
     scaling_type_weight, 
     scaling_type_grad_output, 
+    scaling_granularity,
     emulate,
 ):
     if scaling_type_input is ScalingType.STATIC:
         cast_config_input = CastConfig(
             scaling_type=scaling_type_input,
+            scaling_granularity=scaling_granularity,
             static_scale=torch.tensor([1.0], device="cuda"),
         )
     else:
-        cast_config_input = CastConfig(scaling_type=scaling_type_input)
+        cast_config_input = CastConfig(
+            scaling_type=scaling_type_input,
+            scaling_granularity=scaling_granularity,
+        )
     if scaling_type_weight is ScalingType.STATIC:
         cast_config_weight = CastConfig(
             scaling_type=scaling_type_weight,
+            scaling_granularity=scaling_granularity,
             static_scale=torch.tensor([1.0], device="cuda"),
         )
     else:
-        cast_config_weight = CastConfig(scaling_type=scaling_type_weight)
+        cast_config_weight = CastConfig(
+            scaling_type=scaling_type_weight,
+            scaling_granularity=scaling_granularity,
+        )
     if scaling_type_grad_output is ScalingType.STATIC:
         cast_config_grad_output = CastConfig(
             scaling_type=scaling_type_grad_output,
+            scaling_granularity=scaling_granularity,
             static_scale=torch.tensor([1.0], device="cuda"),
         )
     else:
-        cast_config_grad_output = CastConfig(scaling_type=scaling_type_grad_output)
+        cast_config_grad_output = CastConfig(
+            scaling_type=scaling_type_grad_output,
+            scaling_granularity=scaling_granularity,
+        )
 
     config = Float8LinearConfig(
         cast_config_input=cast_config_input,
@@ -108,6 +129,25 @@ def _get_config(
         emulate=emulate,
     )
     return config
+
+
+def is_supported(
+    scaling_granularity, 
+    scaling_type_input, 
+    scaling_type_weight, 
+    scaling_type_grad_output, 
+    dtype,
+) -> bool:
+    if scaling_granularity is ScalingGranularity.AXISWISE:
+        if (
+            scaling_type_input != ScalingType.DYNAMIC or
+            scaling_type_weight != ScalingType.DYNAMIC or
+            scaling_type_grad_output != ScalingType.DYNAMIC or
+            dtype != torch.bfloat16 or
+            (not is_H100)
+        ):
+            return False
+    return True
 
 
 @pytest.mark.parametrize("fullgraph", [True])
@@ -120,6 +160,9 @@ def _get_config(
 @pytest.mark.parametrize(
     "scaling_type_grad_output", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
+@pytest.mark.parametrize(
+    "scaling_granularity", [ScalingGranularity.TENSORWISE, ScalingGranularity.AXISWISE]
+)
 @pytest.mark.parametrize("emulate", [False, True] if is_cuda_8_9 else [True])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
 @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
@@ -129,11 +172,25 @@ def test_eager_only(
     scaling_type_input: ScalingType,
     scaling_type_weight: ScalingType,
     scaling_type_grad_output: ScalingType,
+    scaling_granularity: ScalingGranularity,
     dtype: torch.dtype,
 ):
+    if not is_supported(
+        scaling_granularity, 
+        scaling_type_input, 
+        scaling_type_weight, 
+        scaling_type_grad_output, 
+        dtype,
+    ):
+        pytest.skip()
+
     torch._dynamo.reset()
     config = _get_config(
-        scaling_type_input, scaling_type_weight, scaling_type_grad_output, emulate,
+        scaling_type_input, 
+        scaling_type_weight, 
+        scaling_type_grad_output, 
+        scaling_granularity,
+        emulate,
     )
     _test_compile_base(
         "eager",
@@ -154,6 +211,9 @@ def test_eager_only(
 @pytest.mark.parametrize(
     "scaling_type_grad_output", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
+@pytest.mark.parametrize(
+    "scaling_granularity", [ScalingGranularity.TENSORWISE, ScalingGranularity.AXISWISE]
+)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
 @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
 def test_aot_eager(
@@ -162,11 +222,25 @@ def test_aot_eager(
     scaling_type_input: ScalingType,
     scaling_type_weight: ScalingType,
     scaling_type_grad_output: ScalingType,
+    scaling_granularity: ScalingGranularity,
     dtype: torch.dtype,
 ):
+    if not is_supported(
+        scaling_granularity, 
+        scaling_type_input, 
+        scaling_type_weight, 
+        scaling_type_grad_output, 
+        dtype,
+    ):
+        pytest.skip()
+
     torch._dynamo.reset()
     config = _get_config(
-        scaling_type_input, scaling_type_weight, scaling_type_grad_output, emulate,
+        scaling_type_input, 
+        scaling_type_weight, 
+        scaling_type_grad_output, 
+        scaling_granularity, 
+        emulate,
     )
     _test_compile_base(
         "aot_eager",
@@ -187,6 +261,9 @@ def test_aot_eager(
 @pytest.mark.parametrize(
     "scaling_type_grad_output", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
+@pytest.mark.parametrize(
+    "scaling_granularity", [ScalingGranularity.TENSORWISE, ScalingGranularity.AXISWISE]
+)
 @unittest.skipIf(not torch.cuda.is_available() or not is_cuda_8_9, "CUDA with float8 support not available")
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16, torch.float32])
 def test_inductor(
@@ -195,11 +272,25 @@ def test_inductor(
     scaling_type_input: ScalingType,
     scaling_type_weight: ScalingType,
     scaling_type_grad_output: ScalingType,
+    scaling_granularity: ScalingGranularity,
     dtype: torch.dtype,
 ):
+    if not is_supported(
+        scaling_granularity, 
+        scaling_type_input, 
+        scaling_type_weight, 
+        scaling_type_grad_output, 
+        dtype,
+    ):
+        pytest.skip()
+
     torch._dynamo.reset()
     config = _get_config(
-        scaling_type_input, scaling_type_weight, scaling_type_grad_output, emulate,
+        scaling_type_input, 
+        scaling_type_weight, 
+        scaling_type_grad_output, 
+        scaling_granularity, 
+        emulate,
     )
     _test_compile_base(
         "inductor",
