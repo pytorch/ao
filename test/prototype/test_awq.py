@@ -4,7 +4,7 @@ import pytest
 import torch
 from torchao.quantization import quantize_
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_5
 if TORCH_VERSION_AT_LEAST_2_3:
     from torchao.prototype.awq import insert_awq_observer_, awq_uintx, AWQObservedLinear
 
@@ -39,7 +39,7 @@ def run_before_and_after_tests():
 @pytest.mark.parametrize("device", devices)   
 @pytest.mark.parametrize("qdtype", qdtypes)
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_3,reason="torch.uint(2-7) requires torch2.3+")
+@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5,reason="requires nightly pytorch")
 def test_awq_loading(device, qdtype):
     if qdtype == torch.uint4 and device == "cpu":
         pytest.skip("uint4 not supported on cpu")
