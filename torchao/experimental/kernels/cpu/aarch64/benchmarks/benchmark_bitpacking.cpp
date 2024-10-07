@@ -14,6 +14,7 @@
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint2.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint3.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint4.h>
+#include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint5.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint6.h>
 #include <torchao/experimental/kernels/cpu/aarch64/tests/test_utils.h>
 #include <cassert>
