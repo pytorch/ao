@@ -9,7 +9,7 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 from torchao.dtypes.floatx import (
-    FloatxTensorCoreAQTLayout,
+    FloatxTensorCoreAQTTensorImpl,
     FloatxTensorCoreLayoutType,
     to_scaled_tc_floatx,
     from_scaled_tc_floatx,
@@ -28,7 +28,7 @@ _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 _Floatx_DTYPES = [(3, 2), (2, 2)]
 
 
-class TestFloatxTensorCoreAQTLayout(TestCase):
+class TestFloatxTensorCoreAQTTensorImpl(TestCase):
     @parametrize("device", _DEVICES)
     def test_pack_tc_fp6_correctness(self, device):
         x = torch.randint(256, size=(256, 64), dtype=torch.uint8, device=device)
@@ -82,7 +82,7 @@ class TestFloatxTensorCoreAQTLayout(TestCase):
         scale = choose_qparams_affine_floatx(x, ebits, mbits)
         x = quantize_affine_floatx(x, scale, ebits, mbits)
         layout_type = FloatxTensorCoreLayoutType(ebits, mbits)
-        floatx_layout_tensor = FloatxTensorCoreAQTLayout.from_plain(x, scale, None, layout_type).cuda()
+        floatx_layout_tensor = FloatxTensorCoreAQTTensorImpl.from_plain(x, scale, None, layout_type).cuda()
         assert floatx_layout_tensor.device.type == "cuda"
         floatx_layout_tensor = floatx_layout_tensor.cpu()
         assert floatx_layout_tensor.device.type == "cpu"
@@ -106,7 +106,7 @@ class TestFloatxTensorCoreAQTLayout(TestCase):
         torch.testing.assert_close(actual, expected)
 
 
-instantiate_parametrized_tests(TestFloatxTensorCoreAQTLayout)
+instantiate_parametrized_tests(TestFloatxTensorCoreAQTTensorImpl)
 
 
 if __name__ == "__main__":

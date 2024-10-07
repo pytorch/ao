@@ -53,7 +53,7 @@ aten = torch.ops.aten
 ###############################
 # Base Layout Tensor Subclass #
 ###############################
-class AQTLayout(TorchAOBaseTensor):
+class AQTTensorImpl(TorchAOBaseTensor):
     """
     Base class for the layout tensor for `AffineQuantizedTensor`
     """
@@ -61,7 +61,7 @@ class AQTLayout(TorchAOBaseTensor):
         """Get the plain (unpacked) Tensor for the layout Tensor
 
         Returns data, scale and zero_point
-        Can be overwritten if other types of AQTLayout Tensor has different numbers of plain tensors
+        Can be overwritten if other types of AQTTensorImpl has different numbers of plain tensors
         """
         pass
 
@@ -131,7 +131,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
     regardless of the internal representation's type or orientation.
 
     fields:
-      layout_tensor (AQTLayout): tensor that serves as a general layout storage for the quantized data,
+      layout_tensor (AQTTensorImpl): tensor that serves as a general layout storage for the quantized data,
          e.g. storing plain tensors (int_data, scale, zero_point) or packed formats depending on device
          and operator/kernel
       block_size (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
@@ -151,7 +151,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
     @staticmethod
     def __new__(
         cls,
-        layout_tensor: AQTLayout,
+        layout_tensor: AQTTensorImpl,
         block_size: Tuple[int, ...],
         shape: torch.Size,
         quant_min: Optional[Union[int, float]] = None,
@@ -173,7 +173,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
 
     def __init__(
         self,
-        layout_tensor: AQTLayout,
+        layout_tensor: AQTTensorImpl,
         block_size: Tuple[int, ...],
         shape: torch.Size,
         quant_min: Optional[Union[int, float]] = None,
@@ -549,7 +549,7 @@ class MarlinSparseLayoutType(LayoutType):
 
 
 @register_layout_cls(PlainLayoutType)
-class PlainAQTLayout(AQTLayout):
+class PlainAQTTensorImpl(AQTTensorImpl):
     """
     Layout storage class for plain layout for affine quantized tensor, it stores int_data, scale, zero_point
     tensors directly as plain tensors.
@@ -645,12 +645,12 @@ class PlainAQTLayout(AQTLayout):
                 )
             elif dim == 1:
                 assert len(self.scale.shape) == 1, f"slice dim==1 only works when len(scale.shape) == 1 currently, got: {self.scale.shape}"
-                return PlainAQTLayout(aten.slice.Tensor(self.int_data, dim, start, end, step), self.scale.view(-1), self.zero_point.view(-1), self.layout_type)
+                return PlainAQTTensorImpl(aten.slice.Tensor(self.int_data, dim, start, end, step), self.scale.view(-1), self.zero_point.view(-1), self.layout_type)
             else:
-                raise NotImplementedError(f"PlainAQTLayout dispatch: attempting to run {func}, with dim={dim}, that is not supported")
+                raise NotImplementedError(f"PlainAQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported")
 
         raise NotImplementedError(
-            f"PlainAQTLayout dispatch: attempting to run {func}, this is not supported"
+            f"PlainAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
         )
 
     __torch_function__ = torch._C._disabled_torch_function_impl
@@ -673,7 +673,7 @@ class PlainAQTLayout(AQTLayout):
         return cls(int_data, scale, zero_point, layout_type)
 
 @register_layout_cls(SemiSparseLayoutType)
-class SemiSparseAQTLayout(PlainAQTLayout):
+class SemiSparseAQTTensorImpl(PlainAQTTensorImpl):
     """
     Layout storage class for semi_sparse_cusparselt layout for affine quantized tensor
     """
@@ -687,7 +687,7 @@ class SemiSparseAQTLayout(PlainAQTLayout):
             )
 
         raise NotImplementedError(
-            f"SparseAQTLayout dispatch: attempting to run {func}, this is not supported"
+            f"SparseAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
         )
 
     def get_plain(self):
@@ -713,7 +713,7 @@ class SemiSparseAQTLayout(PlainAQTLayout):
         return cls(int_data_compressed, scale, zero_point, layout_type)
 
 @register_layout_cls(BlockSparseLayoutType)
-class BlockSparseAQTLayout(PlainAQTLayout):
+class BlockSparseAQTTensorImpl(PlainAQTTensorImpl):
     bsr_crow_indices: Optional[torch.Tensor]
     bsr_col_indices: Optional[torch.Tensor]
     bsr_values: Optional[torch.Tensor]
@@ -849,11 +849,11 @@ class BlockSparseAQTLayout(PlainAQTLayout):
             return args[0].bsr_values.shape[0]
 
         raise NotImplementedError(
-            f"BlockSparseAQTLayout dispatch: attempting to run {func}, this is not supported"
+            f"BlockSparseAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
         )
 
 @register_layout_cls(MarlinSparseLayoutType)
-class MarlinSparseAQTLayout(AQTLayout):
+class MarlinSparseAQTTensorImpl(AQTTensorImpl):
     """
     Layout storage class for sparse_marlin_24 layout for affine quantized tensor.
 
@@ -922,7 +922,7 @@ class MarlinSparseAQTLayout(AQTLayout):
             )
 
         raise NotImplementedError(
-            f"MarlinSparseAQTLayout dispatch: attempting to run {func}, this is not supported"
+            f"MarlinSparseAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
         )
 
     def __tensor_flatten__(self):
@@ -1023,7 +1023,7 @@ class MarlinSparseAQTLayout(AQTLayout):
 
 
 @register_layout_cls(Float8LayoutType)
-class Float8AQTLayout(AQTLayout):
+class Float8AQTTensorImpl(AQTTensorImpl):
     """
     Layout storage class for float8 layout for affine quantized tensor
     """
@@ -1112,12 +1112,12 @@ class Float8AQTLayout(AQTLayout):
                 )
             elif dim == 1:
                 assert len(self.scale.shape) == 1, f"slice dim==1 only works when len(scale.shape) == 1 currently, got: {self.scale.shape}"
-                return Float8AQTLayout(aten.slice.Tensor(self.float8_data, dim, start, end, step), self.scale, None, self.layout_type)
+                return Float8AQTTensorImpl(aten.slice.Tensor(self.float8_data, dim, start, end, step), self.scale, None, self.layout_type)
             else:
-                raise NotImplementedError(f"Float8AQTLayout dispatch: attempting to run {func}, with dim={dim}, that is not supported")
+                raise NotImplementedError(f"Float8AQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported")
         else:
             raise NotImplementedError(
-                f"Float8AQTLayout dispatch: attempting to run {func}, this is not supported"
+                f"Float8AQTTensorImpl dispatch: attempting to run {func}, this is not supported"
             )
 
     __torch_function__ = torch._C._disabled_torch_function_impl
@@ -1152,7 +1152,7 @@ class Float8AQTLayout(AQTLayout):
 
 
 @register_layout_cls(TensorCoreTiledLayoutType)
-class TensorCoreTiledAQTLayout(AQTLayout):
+class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
     """
     Layout storage class for tensor_core_tiled layout for affine quantized tensor, this is for int4 only,
     it stores the original tensor of dimension [n][k] (int32 dtype) as packed weight of 4-d tensor of
@@ -1230,7 +1230,7 @@ class TensorCoreTiledAQTLayout(AQTLayout):
         kwargs = self._get_to_kwargs(*args, **kwargs)
         device = kwargs["device"]
         if not is_device("cuda", device):
-            raise ValueError(f"TensorCoreTiledAQTLayout is only available for cuda device, can't convert to {device}")
+            raise ValueError(f"TensorCoreTiledAQTTensorImpl is only available for cuda device, can't convert to {device}")
         return self.__class__(
             self.packed_weight.to(device),
             self.scale_and_zero.to(device),
@@ -1265,7 +1265,7 @@ class TensorCoreTiledAQTLayout(AQTLayout):
             return return_and_correct_aliasing(func, args, kwargs, args[0])
 
         raise NotImplementedError(
-            f"TensorCoreTiledAQTLayout dispatch: attempting to run {func}, this is not supported"
+            f"TensorCoreTiledAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
         )
 
     __torch_function__ = torch._C._disabled_torch_function_impl

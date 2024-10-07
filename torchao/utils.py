@@ -405,7 +405,7 @@ def _register_layout_cls(cls: Callable, layout_type_class: Callable):
     """
 
     # cls._LAYOUT_CONSTRUCTOR_TABLE is a map from layout_type_class like TensorCoreTiledLayout
-    # to layout class constructor like TensorCoreTiledAQTLayout.from_plain that can construct a layout_tensor
+    # to layout class constructor like TensorCoreTiledAQTTensorImpl.from_plain that can construct a layout_tensor
     # from plain data like (quantized, unpacked) `data`, `scale`, `zero_point`
     if not hasattr(cls, "_LAYOUT_CONSTRUCTOR_TABLE"):
         cls._LAYOUT_CONSTRUCTOR_TABLE = {}
@@ -461,7 +461,7 @@ class TorchAOBaseTensor(torch.Tensor):
             register_layout_cls = MyTensor.register_layout_cls
 
             @register_layout_cls(PlainLayoutType)
-            class PlainAQTLayout(...):
+            class PlainAQTTensorImpl(...):
                 ...
 
          `get_layout_tensor_constructor`:
