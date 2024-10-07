@@ -41,6 +41,9 @@ def run_before_and_after_tests():
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_3,reason="torch.uint(2-7) requires torch2.3+")
 def test_awq_loading(device, qdtype):
+    if qdtype == torch.uint4 and device == "cpu":
+        pytest.skip("uint4 not supported on cpu")
+        
     dataset_size = 100
     l1,l2,l3 = 512,256,128
     original_dtype = torch.bfloat16 # tinygemm kernel only uses bfloat16 inputs
