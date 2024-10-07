@@ -161,6 +161,8 @@ def main(
     temperature: float = 0.8,
     checkpoint_path: Path = Path("checkpoints/meta-Transformer/Transformer-2-7b-chat-hf/model.pth"),
     quantization: Optional[str] = None,
+    calibration_limit: int = 10,
+    calibration_seq_length: int = 256,
     kv_cache_quantization: bool = False,
     cache_size: Optional[int] = None,
     linear_causal_mask: bool=False,
@@ -210,8 +212,11 @@ def main(
             fpx_weight_only,
             uintx_weight_only,
             autoquant,
-            unwrap_tensor_subclass
+            unwrap_tensor_subclass,
+            float8_weight_only,
+            float8_dynamic_activation_float8_weight,
         )
+        from torchao.quantization.observer import PerTensor, PerRow
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
@@ -229,6 +234,33 @@ def main(
             quantize_(model, int4_weight_only(layout_type=MarlinSparseLayoutType()))
         if "fp6" in quantization:
             quantize_(model, fpx_weight_only(3, 2))
+        if quantization.startswith("awq"):
+            from torchao._models._eval import TransformerEvalWrapper
+            from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
+            from torchao.prototype.awq.example import get_calib_dataset
+            if not TORCH_VERSION_AT_LEAST_2_3:
+                print("Awq requires torch2.3+")
+                exit()
+            from torchao.prototype.awq import insert_awq_observer_, awq_uintx, AWQObservedLinear
+            quant_dtype = quantization.split("-")[1]
+            group_size = int(quantization.split("-")[2])
+            quant_dtype = getattr(torch, quant_dtype, torch.uint8)
+            model=model.to(device)
+            # get calibration data
+            insert_awq_observer_(model, calibration_limit, calibration_seq_length, quant_dtype=quant_dtype, group_size=group_size)
+            TransformerEvalWrapper(
+                model=model.to(device),
+                tokenizer=tokenizer,
+                max_seq_length=calibration_seq_length,
+                input_prep_func=prepare_inputs_for_model,
+                device=device,
+            ).run_eval(
+                tasks=['wikitext'], 
+                limit=calibration_limit,
+            )
+            is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
+            use_hqq = "hqq" in quantization
+            quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size, use_hqq=use_hqq), is_observed_linear)
         if "uintx" in quantization:
             # uintx-nbits-groupsize, e.g. "uintx-2-64"
             if "hqq" in quantization:
@@ -243,6 +275,17 @@ def main(
             dtype = _NBITS_TO_DTYPE[nbits]
             group_size = int(_quant_args[2])
             quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
+        if "float8wo" in quantization:
+            quantize_(model, float8_weight_only())
+        if "float8dq" in quantization:
+            granularity = str(quantization.split("-")[-1])
+            if granularity=="tensor":
+                granularity = PerTensor()
+            elif granularity=="row":
+                granularity = PerRow()
+            else:
+                granularity = PerTensor()
+            quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
         if "autoquant" in quantization:
             if "autoquant-int4" == quantization:
                 model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
@@ -420,6 +463,8 @@ if __name__ == '__main__':
             +'autoquant-int4, autoquant-float8, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin'
         )
     )
+    parser.add_argument("--calibration_limit", type=int, default=10, help="Number of calibration examples")
+    parser.add_argument("--calibration_seq_length", type=int, default=256, help="Sequence length for calibration")
     parser.add_argument('--kv_cache_quantization', action='store_true', help='Whether to quantize the KV cache')
     parser.add_argument('--cache_size', type=int, default=None, help='Force size of cache to be a certain number of tokens, if not set, will use max_new_tokens+prompt_size')
     parser.add_argument('--linear_causal_mask', action='store_true', help='Whether to use the memory efficient, but slightly less fast, linear causal mask (important for long context lengths)')
@@ -435,5 +480,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     main(
         args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.top_k,
-        args.temperature, args.checkpoint_path, args.quantization, args.kv_cache_quantization, args.cache_size, args.linear_causal_mask, args.save, args.compile, args.compile_prefill, args.profile, args.memory_profile, args.device, args.precision, args.write_result
+        args.temperature, args.checkpoint_path, args.quantization, args.calibration_limit, args.calibration_seq_length, args.kv_cache_quantization, args.cache_size, args.linear_causal_mask, args.save, args.compile, args.compile_prefill, args.profile, args.memory_profile, args.device, args.precision, args.write_result
     )

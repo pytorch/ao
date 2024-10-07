@@ -15,15 +15,20 @@ class ScalingType(enum.Enum):
     DELAYED = "delayed"
     DYNAMIC = "dynamic"
     STATIC = "static"
+    # ScalingType.DISABLED means "skip scaling for this tensor, leave it in
+    # its original precision.
+    DISABLED = "disabled"
 
     def short_str(self):
         if self is ScalingType.DELAYED:
             return "del"
         elif self is ScalingType.DYNAMIC:
             return "dyn"
-        else:
-            assert self is ScalingType.STATIC
+        elif self is ScalingType.STATIC:
             return "sta"
+        else:
+            assert self is ScalingType.DISABLED
+            return "dis"
 
 
 class ScalingGranularity(enum.Enum):
@@ -54,14 +59,8 @@ class CastConfig:
     scaling_type: ScalingType = ScalingType.DYNAMIC
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE
     static_scale: Optional[torch.Tensor] = None
-    # If True, this tensor is not scaled to float8 and left in its original
-    # precision.
-    # TODO(ideally before this PR lands): a better name for this
-    keep_in_original_precision: bool = False
 
     def short_str(self):
-        if self.keep_in_original_precision:
-            return "orig_prec"
         return f"{self.scaling_type.short_str()}_{self.scaling_granularity.short_str()}"
 
     def __post_init__(self):
@@ -227,16 +226,18 @@ class Float8LinearConfig:
         cc_i_gw = self.cast_config_input_for_grad_weight
         cc_w_gi = self.cast_config_weight_for_grad_input
         cc_go_gw = self.cast_config_grad_output_for_grad_weight
-
         # for now, we only have gemm kernels where both operands are either both
         # in high precision, or both in float8. In the future, this may be relaxed.
         # TODO(future): make the float8 check more precise with the specific dtypes.
-        assert cc_i.keep_in_original_precision == cc_w.keep_in_original_precision, \
-            "incompatible operand precision for output"
-        assert cc_go.keep_in_original_precision == cc_w_gi.keep_in_original_precision, \
-            "incompatible operand precision for grad_input"
-        assert cc_i_gw.keep_in_original_precision == cc_go_gw.keep_in_original_precision, \
-            "incompatible operand precision for grad_weight"
+        for cc1, cc2, gemm_name in (
+            (cc_i, cc_w, "output"),
+            (cc_go, cc_w_gi, "grad_input"),
+            (cc_i_gw, cc_go_gw, "grad_weight"),
+        ):
+            is_disabled_1 = cc1.scaling_type is ScalingType.DISABLED
+            is_disabled_2 = cc1.scaling_type is ScalingType.DISABLED
+            assert is_disabled_1 == is_disabled_2, \
+                f"incompatible operand precision for {gemm_name}"
 
 
 # If True, use 'fnuz' float8 types for calculations.
@@ -312,8 +313,8 @@ def recipe_name_to_linear_config(
         cc_w_gi = CastConfig(scaling_granularity=ScalingGranularity.TENSORWISE)
 
         # grad_weight_hp = input_t_hp @ grad_output_hp
-        cc_i_gw = CastConfig(keep_in_original_precision=True)
-        cc_go_gw = CastConfig(keep_in_original_precision=True)
+        cc_i_gw = CastConfig(scaling_type=ScalingType.DISABLED)
+        cc_go_gw = CastConfig(scaling_type=ScalingType.DISABLED)
 
         # The current rowwise CUTLASS kernels in `torch._scaled_mm` are only
         # fast with `use_fast_accum=True`. Note that rowwise scaling is more

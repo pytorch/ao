@@ -137,7 +137,7 @@ class manual_float8_matmul_with_args_in_hp(torch.autograd.Function):
 
         c = config
 
-        if c.cast_config_input.keep_in_original_precision:
+        if c.cast_config_input.scaling_type is ScalingType.DISABLED:
             input_maybe_fp8 = input_hp
         else:
             input_maybe_fp8 = hp_tensor_to_float8_dynamic(
@@ -149,7 +149,7 @@ class manual_float8_matmul_with_args_in_hp(torch.autograd.Function):
                 axiswise_dim=get_maybe_axiswise_dim(-1, c.cast_config_input.scaling_granularity),
             )
 
-        if c.cast_config_weight.keep_in_original_precision:
+        if c.cast_config_weight.scaling_type is ScalingType.DISABLED:
             weight_maybe_fp8_t = weight_hp_t
         else:
             weight_maybe_fp8_t = hp_tensor_to_float8_dynamic(
@@ -185,7 +185,7 @@ class manual_float8_matmul_with_args_in_hp(torch.autograd.Function):
         # calculate grad_input
         #
 
-        if c.cast_config_grad_output.keep_in_original_precision:
+        if c.cast_config_grad_output.scaling_type is ScalingType.DISABLED:
             grad_output_reshaped_maybe_fp8_dim0 = grad_output_reshaped
         else:
             grad_output_reshaped_maybe_fp8_dim0 = hp_tensor_to_float8_dynamic(
@@ -197,7 +197,7 @@ class manual_float8_matmul_with_args_in_hp(torch.autograd.Function):
                 axiswise_dim=get_maybe_axiswise_dim(-1, c.cast_config_grad_output.scaling_granularity),
             )
         
-        if c.cast_config_weight_for_grad_input.keep_in_original_precision:
+        if c.cast_config_weight_for_grad_input.scaling_type is ScalingType.DISABLED:
             weight_t_maybe_fp8_dim0 = weight_hp_t
         else:
             # Note: we need https://github.com/pytorch/pytorch/issues/136267 
@@ -228,7 +228,7 @@ class manual_float8_matmul_with_args_in_hp(torch.autograd.Function):
         # calculate grad_weight
         #
 
-        if c.cast_config_grad_output_for_grad_weight.keep_in_original_precision:
+        if c.cast_config_grad_output_for_grad_weight.scaling_type is ScalingType.DISABLED:
             grad_output_reshaped_maybe_fp8_dim1 = grad_output_reshaped
         else:
             grad_output_reshaped_maybe_fp8_dim1 = hp_tensor_to_float8_dynamic(
@@ -240,7 +240,7 @@ class manual_float8_matmul_with_args_in_hp(torch.autograd.Function):
                 axiswise_dim=get_maybe_axiswise_dim(0, c.cast_config_grad_output_for_grad_weight.scaling_granularity),
             )
         
-        if c.cast_config_input_for_grad_weight.keep_in_original_precision:
+        if c.cast_config_input_for_grad_weight.scaling_type is ScalingType.DISABLED:
             input_reshaped_maybe_fp8_dim1 = input_hp_reshaped
         else:
             input_reshaped_maybe_fp8_dim1 = hp_tensor_to_float8_dynamic(

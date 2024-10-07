@@ -20,13 +20,16 @@ from torchao.quantization.quant_api import (
     fpx_weight_only,
     uintx_weight_only,
     unwrap_tensor_subclass,
+    float8_weight_only,
+    float8_dynamic_activation_float8_weight,
+    float8_static_activation_float8_weight,
 )
+from torchao.quantization.observer import PerRow, PerTensor
 from torchao._models._eval import TransformerEvalWrapper, InputRecorder
+from torchao._models.llama.model import prepare_inputs_for_model
 
 from tokenizer import get_tokenizer
 import time
-from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
-from torchao._models.llama.model import prepare_inputs_for_model, TransformerBlock
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 def run_evaluation(
@@ -55,18 +58,15 @@ def run_evaluation(
     tokenizer_path = checkpoint_path.parent / "tokenizer.model"
     assert tokenizer_path.is_file(), str(tokenizer_path)
     # Load Model and Tokenizer
-
     print("Loading model ...")
     t0 = time.time()
     model = _load_model(checkpoint_path, "cpu", precision)
 
     if max_length is None:
         max_length = model.config.block_size
-
     device_sync(device=device) # MKG
     print(f"Time to load model: {time.time() - t0:.02f} seconds")
     tokenizer = get_tokenizer(tokenizer_path, checkpoint_path)
-
 
     if quantization:
         if "int8wo" in quantization:
@@ -100,6 +100,9 @@ def run_evaluation(
             from torchao.dtypes import MarlinSparseLayoutType
             quantize_(model, int4_weight_only(layout_type=MarlinSparseLayoutType()))
         if "int4wo" in quantization and "gptq" in quantization:
+            # avoid circular imports
+            from torchao._models._eval import InputRecorder
+            from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
             groupsize=int(quantization.split("-")[-2])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
             assert precision==torch.bfloat16, f"{quantization} requires precision or bfloat16 but got {precision}"
@@ -122,9 +125,24 @@ def run_evaluation(
         else:
             if not TORCH_VERSION_AT_LEAST_2_5:
                 unwrap_tensor_subclass(model)
+        if "float8wo" in quantization:
+            quantize_(model, float8_weight_only())
+        if "float8dq" in quantization:
+            granularity = str(quantization.split("-")[-1])
+            if granularity=="tensor":
+                granularity = PerTensor()
+            elif granularity=="row":
+                granularity = PerRow()
+            else:
+                if granularity=="float8dq":
+                    granularity = PerTensor()
+                else:
+                    raise ValueError(f"Unknown granularity {granularity}")
+            quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
         if "autoround" in quantization:
             from torchao.prototype.autoround.autoround_llm import quantize_model_with_autoround_
             from transformers import AutoTokenizer
+            from torchao._models.llama.model import TransformerBlock
 
             _tokenizer = AutoTokenizer.from_pretrained(checkpoint_path.parent)
             # parse args from quantization string:
@@ -182,6 +200,9 @@ def run_evaluation(
     if compile:
         model = torch.compile(model, mode="max-autotune", fullgraph=True)
     with torch.no_grad():
+        print("Running evaluation ...")
+        # avoid circular imports
+        from torchao._models._eval import TransformerEvalWrapper
         TransformerEvalWrapper(
             model=model.to(device),
             tokenizer=tokenizer,
@@ -209,7 +230,8 @@ if __name__ == '__main__':
             "Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, "
             "int4wo-<groupsize>-gptq, autoquant, autoquant-int4, int4wo-<groupsize>-hqq, "
             "uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, "
-            "autoround-<model_device>-<quant_lm_head>-<iters>-<groupsize>-<batch_size>-<seqlen>-<nsamples>-<grad_acc_steps>-<c>"
+            "autoround-<model_device>-<quant_lm_head>-<iters>-<groupsize>-<batch_size>-<seqlen>-<nsamples>-<grad_acc_steps>-<c>, "
+            "float8wo, float8dq, float8saq"
         ),
     )
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
