@@ -210,8 +210,11 @@ def main(
             fpx_weight_only,
             uintx_weight_only,
             autoquant,
-            unwrap_tensor_subclass
+            unwrap_tensor_subclass,
+            float8_weight_only,
+            float8_dynamic_activation_float8_weight,
         )
+        from torchao.quantization.observer import PerTensor, PerRow
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
@@ -243,6 +246,17 @@ def main(
             dtype = _NBITS_TO_DTYPE[nbits]
             group_size = int(_quant_args[2])
             quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
+        if "float8wo" in quantization:
+            quantize_(model, float8_weight_only())
+        if "float8dq" in quantization:
+            granularity = str(quantization.split("-")[-1])
+            if granularity=="tensor":
+                granularity = PerTensor()
+            elif granularity=="row":
+                granularity = PerRow()
+            else:
+                granularity = PerTensor()
+            quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
         if "autoquant" in quantization:
             if "autoquant-int4" == quantization:
                 model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
