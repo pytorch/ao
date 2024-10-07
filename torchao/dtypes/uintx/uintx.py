@@ -236,7 +236,7 @@ class UintxLayoutType(LayoutType):
 class UintxAQTLayout(PlainAQTLayout):
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        return self.int_data, self.scale, self.zero_point
+        return self.int_data.get_plain(), self.scale, self.zero_point
 
     @classmethod
     def from_plain(
