@@ -10,6 +10,7 @@ from torchao.dtypes.utils import (
 from torchao.utils import TorchAOBaseTensor
 from torchao.dtypes.affine_quantized_tensor import PlainAQTLayout, register_layout_cls
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
+from torchao.utils import fill_defaults
 
 aten = torch.ops.aten
 
@@ -191,31 +192,6 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0].apply_transformation(lambda x: (x * args[1]).to(torch.uint8))
     )
-
-def fill_defaults(args, n, defaults_tail):
-    """
-    __torch_dispatch__ doesn't guarantee the number of arguments you are
-    passed (e.g., defaulted arguments are not passed); but usually it is
-    convenient to pad out the arguments list with defaults.  This function
-    helps you do that.
-    Args:
-        args: the list of positional arguments passed to __torch_dispatch__
-        n: the number of arguments you are expecting to get
-        defaults_tail: default values for the arguments, starting from the
-            end of the list
-    Example:
-        >>> fill_defaults([1, 2, 3], 5, [3, 4, 5])
-        [1, 2, 3, 4, 5]
-        >>> fill_defaults([1, 2, 3], 5, [None, None, None])
-        [1, 2, 3, None, None]]
-    """
-    if n - len(defaults_tail) > len(args):
-        raise RuntimeError("not enough defaults to fill arguments")
-    r = list(args)
-    for i in range(len(args), n):
-        r.append(defaults_tail[i - n + len(defaults_tail)])
-    return r
-
 
 @implements(aten.slice.Tensor)
 def _(func, types, args, kwargs):
