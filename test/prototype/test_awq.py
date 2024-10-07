@@ -84,7 +84,7 @@ def test_awq_loading(device, qdtype):
     assert awq_save_load_out is not None
     assert torch.allclose(awq_out, awq_save_load_out, atol = 1e-2)
 
-@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_3,reason="torch.uint(2-7) requires torch2.3+")
+@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5,reason="requires nightly pytorch")
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_save_weights_only():
     dataset_size = 100
