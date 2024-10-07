@@ -143,6 +143,21 @@ def hp_tensor_to_float8_static(
     )
 
 
+def get_maybe_axiswise_dim(
+    axiswise_dim: int,
+    scaling_granularity: ScalingGranularity,
+) -> Optional[int]:
+    """
+    Convenience function which takes in an axiswise dim which is only relevant
+    for axiswise scaing, and a scaling type.  The output is pass-through
+    if scaling type is axiswise, and None otherwise.  This is done to keep the
+    logic from choosing the axiswise dim out of the scaling function.
+    """
+    if scaling_granularity is ScalingGranularity.AXISWISE:
+        return axiswise_dim
+    return None
+
+
 def _maybe_initialize_amaxes_scales_for_float8_cast(
     x,
     cur_amax,
