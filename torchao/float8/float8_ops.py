@@ -43,12 +43,9 @@ def implements(aten_ops):
     [
         aten.view.default,
         aten._unsafe_view.default,
-        aten.t.default,
         aten.as_strided.default,
         aten.clone.default,
-        aten.detach.default,
         aten.slice.Tensor,
-        aten.transpose.int,
         aten.fill_.Scalar,
         aten.reshape.default,
     ]
@@ -67,11 +64,28 @@ def float8_desugar_op(aten_op, args, kwargs=None):
 
 @implements(
     [
+        aten.detach.default,
+    ]
+)
+def float8_desugar_data_and_scale_op(aten_op, args, kwargs=None):
+    new_data = aten_op(args[0]._data, *args[1:], **kwargs)
+    new_scale = aten_op(args[0]._scale, *args[1:], **kwargs)
+    return Float8Tensor(
+        new_data,
+        new_scale,
+        args[0]._orig_dtype,
+        args[0]._linear_mm_config,
+        args[0]._gemm_input_role,
+    )
+
+
+@implements(
+    [
         aten.t.default,
         aten.transpose.int,
     ]
 )
-def float8_desugar_data_and_scale(aten_op, args, kwargs=None):
+def float8_transpose(aten_op, args, kwargs=None):
     new_data = aten_op(args[0]._data, *args[1:], **kwargs)
     new_scale = aten_op(args[0]._scale, *args[1:], **kwargs)
 
