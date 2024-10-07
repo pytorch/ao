@@ -36,7 +36,7 @@ class TestInt8DynActIntxWeightQuantizer(unittest.TestCase):
         m = 1
         n = 1071
         k = 4096
-        activations = torch.randn(m, k, dtype=torch.float32)
+        activations = torch.randn(2, 3, m, k, dtype=torch.float32)
         model = torch.nn.Sequential(*[torch.nn.Linear(k, n, bias=False)])
 
         for nbit in [1, 2, 3, 4, 5, 6, 7]:
@@ -84,7 +84,7 @@ class TestInt8DynActIntxWeightQuantizer(unittest.TestCase):
         layers = [torch.nn.Linear(k0, k1, bias=False), torch.nn.Linear(k1, k2, bias=False), torch.nn.Linear(k2, k3, bias=False)]
         model = torch.nn.Sequential(*layers)
 
-        activations = torch.randn(2, 1, m, k0, dtype=torch.float32)
+        activations = torch.randn(m, k0, dtype=torch.float32)
 
         print("Quantizing model")
         quantizer = Int8DynActIntxWeightQuantizer(
