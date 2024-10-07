@@ -1484,11 +1484,13 @@ class TestExport(unittest.TestCase):
 
         # make sure it compiles
         example_inputs = (x,)
-        from torch._export import capture_pre_autograd_graph
         # TODO: export changes numerics right now, this is because of functionalization according to Zhengxu
         # we can re-enable this after non-functional IR is enabled in export
         # model = torch.export.export(model, example_inputs).module()
-        model = capture_pre_autograd_graph(model, example_inputs)
+        if TORCH_VERSION_AT_LEAST_2_5:
+            model = torch.export.export_for_training(model, example_inputs).module()
+        else:
+            model = torch._export.capture_pre_autograd_graph(model, example_inputs)
         after_export = model(x)
         self.assertTrue(torch.equal(after_export, ref))
         if api is _int8da_int8w_api:
