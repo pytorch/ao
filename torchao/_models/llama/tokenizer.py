@@ -1,5 +1,4 @@
 # copied from https://github.com/pytorch-labs/gpt-fast/blob/main/tokenizer.py
-from __future__ import annotations
 
 import os
 from pathlib import Path
