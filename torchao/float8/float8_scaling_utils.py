@@ -12,6 +12,8 @@ from typing import Optional
 
 import torch
 
+from torchao.float8.config import ScalingGranularity
+
 from torchao.float8.float8_tensor import (
     Float8Tensor,
     GemmInputRole,
@@ -37,6 +39,8 @@ def hp_tensor_to_float8_dynamic(
     reduce_amax: bool = False,
     gemm_input_role: GemmInputRole = GemmInputRole.INPUT,
     device_mesh = None,
+    scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE,
+    axiswise_dim: Optional[int] = None,
 ) -> Float8Tensor:
     """
     Given a high precision tensor `hp_tensor`,
@@ -50,16 +54,26 @@ def hp_tensor_to_float8_dynamic(
         reduce_amax: whether to reduce the max(abs(hp_tensor)) value across distributed ranks
         gemm_input_role: Defines the role of this tensor (input, weight or grad_output) in
           the 3 fwd/bwd gemms of linear
+        scaling_granularity: Defines the scaling granularity
+        axiswise_dim: if axiswise granularity is used, defines the dim to scale across
     """
     if tensor_already_casted_to_fp8(hp_tensor):
         return hp_tensor
-    scale = tensor_to_scale(hp_tensor, float8_dtype, reduce_amax, device_mesh)
+    scale = tensor_to_scale(
+        hp_tensor, 
+        float8_dtype, 
+        reduce_amax, 
+        device_mesh,
+        scaling_granularity, 
+        axiswise_dim,
+    )
     return hp_tensor_and_scale_to_float8(
         hp_tensor,
         scale,
         float8_dtype,
         linear_mm_config,
         gemm_input_role,
+        axiswise_dim,
     )
 
 

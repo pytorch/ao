@@ -26,6 +26,18 @@ class ScalingType(enum.Enum):
             return "sta"
 
 
+class ScalingGranularity(enum.Enum):
+    """
+    Defines the granularity of scaling strategies for casting to float8
+    """
+
+    # A single scaling factor for the entire tensor
+    TENSORWISE = "tensorwise"
+    # Scaling factors computed along one axis of the tensor, reducing it to
+    # size 1.
+    AXISWISE = "axiswise"
+
+
 @dataclass(frozen=True)
 class CastConfig:
     """
@@ -146,6 +158,8 @@ class Float8LinearConfig:
     # save the fp8_weight_transpose for backward, which is an un-sahrded weight and costs a high memory utilization.
     # The longer-term solution is to let compile decide how to partition the graph with optimal computation and memory savings.
     # For now, we use the checkpointing api to force the recomputation of fp8 weight in backward.
+    # TODO(future PR): either enable by default or have a warning and set up the
+    # tests so that the warning does not spam the CI stdout.
 
     force_recompute_fp8_weight_in_bwd: bool = False
 

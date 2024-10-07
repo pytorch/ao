@@ -9,7 +9,6 @@ A simple module swap UX for a float8 version of `torch.nn.Linear`.
 
 import dataclasses
 import enum
-import logging
 
 from typing import Optional
 
@@ -49,8 +48,6 @@ from torchao.float8.fsdp_utils import (
     WeightWithDynamicFloat8CastTensor,
     WeightWithStaticFloat8CastTensor,
 )
-
-logger = logging.getLogger(__name__)
 
 
 # this code was resurrected from https://github.com/pytorch-labs/torchao.float8/pull/128/files
@@ -190,15 +187,6 @@ class Float8Linear(torch.nn.Linear):
         # Otherwise, the amax buffer would never be marked as initialized and
         # would be initialized in every iteration.
         self.enable_pre_and_post_forward = self.config.enable_pre_and_post_forward
-
-        # See the comments in config.py for more details of this option.
-        if (
-            self.config.enable_pre_and_post_forward
-            and not self.config.force_recompute_fp8_weight_in_bwd
-        ):
-            logger.warning(
-                "When using FSDP, it's recommended to enable config.force_recompute_fp8_weight_in_bwd."
-            )
 
     def create_buffers(self):
         # Default values for history buffers, see above TODO
