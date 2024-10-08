@@ -1105,14 +1105,27 @@ class Float8AQTTensorImpl(AQTTensorImpl):
             args[0].transposed = not args[0].transposed
             return return_and_correct_aliasing(func, args, kwargs, args[0])
         elif func is aten.slice.Tensor:
+            print('Float8 args: ', args, kwargs)
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
+            print('Float8 args after: ', len(args), kwargs)
             if dim == 0:
-                return return_and_correct_aliasing(
-                    func, args, kwargs, args[0]._apply_fn_to_data(lambda x: aten.slice.Tensor(x, dim, start, end, step))
-                )
+                print('Calling dim == 0')
+                #TODO: scale replecation should be dependent on block size
+                if self.scale.ndim == 1:
+                    print('Calling dim == 0, scale.ndim == 1')
+                    return return_and_correct_aliasing(
+                        func, args, kwargs, args[0]._apply_fn_to_data(lambda x: aten.slice.Tensor(x, dim, start, end, step))
+                    )
+                else:
+                    print('Calling dim == 0, scale.ndim != 1')
+                    return return_and_correct_aliasing(
+                        func, args, kwargs, Float8AQTLayout(aten.slice.Tensor(self.float8_data, dim, start, end, step), self.scale, None, self.layout_type)
+                    )
             elif dim == 1:
-                assert len(self.scale.shape) == 1, f"slice dim==1 only works when len(scale.shape) == 1 currently, got: {self.scale.shape}"
-                return Float8AQTTensorImpl(aten.slice.Tensor(self.float8_data, dim, start, end, step), self.scale, None, self._layout)
+                print('Calling dim == 1')
+                # assert len(self.scale.shape) == 1, f"slice dim==1 only works when len(scale.shape) == 1 currently, got: {self.scale.shape}"
+                Float8AQTTensorImpl(aten.slice.Tensor(self.float8_data, dim, start, end, step), self.scale, None, self.layout_type)
+                
             else:
                 raise NotImplementedError(f"Float8AQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported")
         else:
@@ -1851,7 +1864,9 @@ def _(func, types, args, kwargs):
 
 @implements(aten.slice.Tensor)
 def _(func, types, args, kwargs):
+    print('Affine args: ', len(args), len(kwargs))
     self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
+    print('Affine args after fill defaults: ', self, dim, start, end, step)
     assert step == 1
     assert dim == 0 or dim == 1, f"Only dim==0 or 1 are supported, got: {dim}"
     if end >= self.shape[dim]:

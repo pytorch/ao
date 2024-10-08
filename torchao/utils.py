@@ -517,8 +517,10 @@ def fill_defaults(args, n, defaults_tail):
     if n - len(defaults_tail) > len(args):
         raise RuntimeError("not enough defaults to fill arguments")
     r = list(args)
+    print('Fill defalts: ', r)
     for i in range(len(args), n):
         r.append(defaults_tail[i - n + len(defaults_tail)])
+    print('Fill defalts after: ', r)
     return r
 
 

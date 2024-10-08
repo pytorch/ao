@@ -244,12 +244,15 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
         n_local_rows = orig_weight.size(0) // mesh.size()
         rank = mesh.get_local_rank()
         local_shard = orig_weight[rank * n_local_rows : (rank + 1) * n_local_rows, :]
+        print('local shard device:', local_shard.device)
         # Construct DTensor from local shard
         dtensor = DTensor.from_local(local_shard, mesh, [Shard(0)])
+        print('Dtensor device:', dtensor.device)
         # Replace parameter in module
         m.linear.weight = torch.nn.Parameter(
             dtensor, requires_grad=False
         )
+        print('module device:', m.linear.weight.device)
         return m
 
     @staticmethod
@@ -310,7 +313,6 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
 
         mesh = self.build_device_mesh()
         mesh.device_type = "cuda"
-
         # Shard the models
         up_dist = self.colwise_shard(up_quant, mesh)
         dn_dist = self.rowwise_shard(dn_quant, mesh)
