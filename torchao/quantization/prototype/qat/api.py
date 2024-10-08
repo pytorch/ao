@@ -14,6 +14,7 @@ from torchao.quantization.unified import TwoStepQuantizer
 from torchao.quantization.quant_primitives import ZeroPointDomain
 
 
+# TODO: change this to quant_primitives.Granularity
 class QuantizationGranularity(Enum):
     PER_CHANNEL = "per_channel"
     PER_TOKEN = "per_token"
