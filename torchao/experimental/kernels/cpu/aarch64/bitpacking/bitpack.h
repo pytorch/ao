@@ -109,6 +109,7 @@ TORCHAO_ALWAYS_INLINE inline void vec_pack_32_lowbit_values(
           vget_high_u8(shifted0),
           vget_low_u8(shifted1),
           vget_high_u8(shifted1));
+      break;
     case 3:
       uint8_t buffer3[32];
       vst1q_u8(buffer3, shifted0);
@@ -185,6 +186,7 @@ TORCHAO_ALWAYS_INLINE inline void vec_unpack_32_lowbit_values(
           shifted0_low, shifted0_high, shifted1_low, shifted1_high, packed);
       shifted0 = vcombine_u8(shifted0_low, shifted0_high);
       shifted1 = vcombine_u8(shifted1_low, shifted1_high);
+      break;
     case 3:
       uint8_t buffer3[32];
       torchao::bitpacking::internal::unpack_8_uint3_values(buffer3, packed);
