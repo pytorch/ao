@@ -548,17 +548,9 @@ TEST(test_bitpacking_64_uint6_values, PackUnpackAreSame) {
   torchao::bitpacking::internal::vec_load_64_uint8_values(
       input0, input1, input2, input3, input.data());
   torchao::bitpacking::internal::vec_pack_64_uint6_values(
-      packed.data(),
-      input0,
-      input1,
-      input2,
-      input3);
+      packed.data(), input0, input1, input2, input3);
   torchao::bitpacking::internal::vec_unpack_64_uint6_values(
-      unpacked0,
-      unpacked1,
-      unpacked2,
-      unpacked3,
-      packed.data());
+      unpacked0, unpacked1, unpacked2, unpacked3, packed.data());
 
   for (int i = 0; i < 16; ++i) {
     EXPECT_EQ(input0[i], unpacked0[i]);
