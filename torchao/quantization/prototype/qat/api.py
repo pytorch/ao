@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 
 from torchao.dtypes import (
-    TensorCoreTiledLayoutType,
+    TensorCoreTiledLayout,
 )
 from torchao.quantization.quant_api import (
     _get_linear_subclass_inserter,
@@ -258,8 +258,8 @@ class Int4WeightOnlyQATQuantizer(TwoStepQuantizer):
         unwrap_fn = _get_linear_subclass_inserter(_unwrap_affine_fake_quantized_tensor)
         filter_fn = _is_linear_with_fq_weight
         model = _replace_with_custom_fn_if_matches_filter(model, unwrap_fn, filter_fn)
-        layout_type = TensorCoreTiledLayoutType(self.inner_k_tiles)
-        quantize_fn = int4_weight_only(self.groupsize, layout_type)
+        layout = TensorCoreTiledLayout(self.inner_k_tiles)
+        quantize_fn = int4_weight_only(self.groupsize, layout)
         quantize_(model, quantize_fn)
         return model
 

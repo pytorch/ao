@@ -5,7 +5,7 @@ import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from .bitpacking import pack, unpack
 from torchao.dtypes.utils import (
-    LayoutType,
+    Layout,
 )
 from torchao.utils import TorchAOBaseTensor
 from torchao.dtypes.affine_quantized_tensor import PlainAQTTensorImpl, register_layout
@@ -187,14 +187,14 @@ def _(func, types, args, kwargs):
 to_uintx = UintxTensor.from_uint8
 
 @dataclass(frozen=True)
-class UintxLayoutType(LayoutType):
+class UintxLayout(Layout):
     dtype: torch.dtype
     pack_dim: int = -1
 
     def post_process(self, input: torch.Tensor) -> torch.Tensor:
         return to_uintx(input, self.dtype, self.pack_dim)
 
-@register_layout(UintxLayoutType)
+@register_layout(UintxLayout)
 class UintxAQTTensorImpl(PlainAQTTensorImpl):
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -206,7 +206,7 @@ class UintxAQTTensorImpl(PlainAQTTensorImpl):
         int_data: torch.Tensor,
         scale: torch.Tensor,
         zero_point: torch.Tensor,
-        layout_type: LayoutType,
+        layout: Layout,
     ):
-        assert isinstance(layout_type, UintxLayoutType)
-        return cls(int_data, scale, zero_point, layout_type)
+        assert isinstance(layout, UintxLayout)
+        return cls(int_data, scale, zero_point, layout)
