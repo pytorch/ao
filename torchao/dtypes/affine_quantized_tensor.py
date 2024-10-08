@@ -1058,7 +1058,7 @@ class Float8AQTTensorImpl(AQTTensorImpl):
         self.float8_data = float8_data
         self.scale = scale
         self.transposed = transposed
-        self.layout = layout
+        self.layout_type = layout
 
     def _apply_fn_to_data(self, fn):
         """ Applys a fn to all tensor components stored on this class"""
@@ -1190,7 +1190,7 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         self.packed_weight = packed_weight
         self.scale_and_zero = scale_and_zero
         self.transposed = False
-        self.layout = layout
+        self.layout_type = layout
 
     def __tensor_flatten__(self):
         return ["packed_weight", "scale_and_zero"], [self.transposed, self.layout]
