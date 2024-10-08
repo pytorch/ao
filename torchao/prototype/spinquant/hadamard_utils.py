@@ -13,11 +13,11 @@ import torch
 
 try:
     """
+    NB: fast_hadamard_transform package is required for CUDA support.
+
     To install the fast_hadamard_transform package:
     ```
-        git clone https://github.com/Dao-AILab/fast-hadamard-transform.git
-        cd fast-hadamard-transform
-        pip install .
+        pip install git+https://github.com/Dao-AILab/fast-hadamard-transform.git
     ```
     """
     from fast_hadamard_transform import hadamard_transform
