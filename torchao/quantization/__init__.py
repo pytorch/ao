@@ -48,6 +48,7 @@ from .quant_api import (
     float8_static_activation_float8_weight,
     float8_weight_only,
     fpx_weight_only,
+    gemlite_uintx_weight_only,
     int4_weight_only,
     int8_dynamic_activation_int4_weight,
     int8_dynamic_activation_int8_semi_sparse_weight,
@@ -108,8 +109,9 @@ __all__ = [
     "float8_static_activation_float8_weight",
     "uintx_weight_only",
     "fpx_weight_only",
-    # smooth quant - subject to change
+    "gemlite_uintx_weight_only",
     "swap_conv2d_1x1_to_linear",
+    # smooth quant - subject to change
     "get_scale",
     "SmoothFakeDynQuantMixin",
     "SmoothFakeDynamicallyQuantizedLinear",

@@ -104,6 +104,7 @@ __all__ = [
     "float8_weight_only",
     "uintx_weight_only",
     "fpx_weight_only",
+    "gemlite_uintx_weight_only",
     "float8_dynamic_activation_float8_weight",
     "float8_static_activation_float8_weight",
     "Int8DynActInt4WeightQuantizer",
@@ -627,6 +628,33 @@ def int8_dynamic_activation_int4_weight(
         mapping_type=mapping_type,
         act_mapping_type=act_mapping_type,
     )
+
+
+def gemlite_uintx_weight_only(
+    group_size: Optional[int] = 64,
+    bit_width: int = 4,
+    packing_bitwidth: int = 32,
+    contiguous: Optional[bool] = None,
+):
+    """
+    applies weight only 4 or 8 bit integer quantization and utilizes the gemlite triton kernel and its associated weight packing format.
+    This only works for fp16 models. 8 bit quantization is symmetric, 4 bit quantization is asymmetric.
+
+    Args:
+        `group_size`: parameter for quantization, controls the granularity of quantization, smaller
+         size is more fine grained
+        `bit_width`: bit width of the quantized weight.
+        `packing_bitwidth`: bit width of the packed weight, should be 8 or 32. Can have performance impacts depending on hardware.
+        `contiguous`: if set, the weight will be packed as specified. Leaving it as None lets gemlite determine the best choice.
+    """
+
+    from torchao.dtypes.uintx.gemlite_layout import apply_gemlite_quant
+
+    use_hqq = True if bit_width == 4 else False
+    apply_fn = lambda weight: apply_gemlite_quant(
+        weight, group_size, bit_width, packing_bitwidth, contiguous, use_hqq
+    )
+    return _get_linear_subclass_inserter(apply_fn)
 
 
 def int4_weight_only(
