@@ -11,14 +11,14 @@ from torch.testing._internal.common_utils import TestCase
 
 from torchao.quantization.observer import (
     AffineQuantizedMinMaxObserver,
-    PerAxis,
-    PerTensor,
 )
 from torchao.quantization.quant_api import (
     insert_observers_,
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
+    PerAxis,
+    PerTensor,
 )
 
 

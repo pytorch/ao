@@ -4,6 +4,9 @@ from .quant_primitives import (
     choose_qparams_affine_with_min_max,
     MappingType,
     Granularity,
+    PerAxis,
+    PerRow,
+    PerTensor,
     ZeroPointDomain,
 )
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
