@@ -116,8 +116,10 @@ def main():
     
         # Read the image back into memory to send as response
         example_image = cv2.imread(temp_file.name)
+        t = time.time()
         with torch.backends.cuda.sdp_kernel(enable_cudnn=True):
             masks = mask_generator.generate(example_image)
+        print(f"Took {time.time() - t} to generate a mask for input image.")
         # Save an example
         plt.figure(figsize=(example_image.shape[1]/100., example_image.shape[0]/100.), dpi=100)
         plt.imshow(example_image)
