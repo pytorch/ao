@@ -40,10 +40,10 @@ from torchao.quantization import LinearActivationQuantizedTensor
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.quantization.observer import (
     AffineQuantizedMinMaxObserver,
-    PerTensor,
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
+    PerTensor,
     fake_quantize_affine,
 )
 
