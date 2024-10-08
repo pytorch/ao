@@ -431,17 +431,17 @@
 <span class="n">aten</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">ops</span><span class="o">.</span><span class="n">aten</span>
 
 <span class="c1">###############################</span>
-<span class="c1"># Base Tensor Impl Subclass #</span>
+<span class="c1"># Base Layout Tensor Subclass #</span>
 <span class="c1">###############################</span>
-<span class="k">class</span> <span class="nc">AQTTensorImpl</span><span class="p">(</span><span class="n">TorchAOBaseTensor</span><span class="p">):</span>
+<span class="k">class</span> <span class="nc">AQTLayout</span><span class="p">(</span><span class="n">TorchAOBaseTensor</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    Base class for the tensor impl for `AffineQuantizedTensor`</span>
+<span class="sd">    Base class for the layout tensor for `AffineQuantizedTensor`</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="nf">get_plain</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the plain (unpacked) Tensor for the tensor impl</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the plain (unpacked) Tensor for the layout Tensor</span>
 
 <span class="sd">        Returns data, scale and zero_point</span>
-<span class="sd">        Can be overwritten if other types of AQTTensorImpl has different numbers of plain tensors</span>
+<span class="sd">        Can be overwritten if other types of AQTLayout Tensor has different numbers of plain tensors</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">pass</span>
 
@@ -456,7 +456,7 @@
         <span class="n">zero_point</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
         <span class="n">layout_type</span><span class="p">:</span> <span class="n">LayoutType</span><span class="p">,</span>
     <span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot; Construct a TensorImpl from data, scale, zero_point and the layout_type&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot; Construct a Layout from data, scale, zero_point and the layout_type&quot;&quot;&quot;</span>
         <span class="k">pass</span>
 
     <span class="k">def</span> <span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
@@ -511,7 +511,7 @@
 <span class="sd">    regardless of the internal representation&#39;s type or orientation.</span>
 
 <span class="sd">    fields:</span>
-<span class="sd">      tensor_impl (AQTTensorImpl): tensor that serves as a general tensor impl storage for the quantized data,</span>
+<span class="sd">      layout_tensor (AQTLayout): tensor that serves as a general layout storage for the quantized data,</span>
 <span class="sd">         e.g. storing plain tensors (int_data, scale, zero_point) or packed formats depending on device</span>
 <span class="sd">         and operator/kernel</span>
 <span class="sd">      block_size (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that&#39;s sharing the same qparam</span>
@@ -531,7 +531,7 @@
     <span class="nd">@staticmethod</span>
     <span class="k">def</span> <span class="fm">__new__</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span>
-        <span class="n">tensor_impl</span><span class="p">:</span> <span class="n">AQTTensorImpl</span><span class="p">,</span>
+        <span class="n">layout_tensor</span><span class="p">:</span> <span class="n">AQTLayout</span><span class="p">,</span>
         <span class="n">block_size</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
         <span class="n">shape</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span><span class="p">,</span>
         <span class="n">quant_min</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -541,9 +541,9 @@
         <span class="n">strides</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="p">):</span>
         <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{}</span>
-        <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;device&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tensor_impl</span><span class="o">.</span><span class="n">device</span>
+        <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;device&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">layout_tensor</span><span class="o">.</span><span class="n">device</span>
         <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;layout&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
-            <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;layout&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;layout&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span> <span class="k">else</span> <span class="n">tensor_impl</span><span class="o">.</span><span class="n">layout</span>
+            <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;layout&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;layout&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span> <span class="k">else</span> <span class="n">layout_tensor</span><span class="o">.</span><span class="n">layout</span>
         <span class="p">)</span>
         <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;dtype&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dtype</span>
         <span class="k">if</span> <span class="n">strides</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
@@ -553,7 +553,7 @@
 
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
-        <span class="n">tensor_impl</span><span class="p">:</span> <span class="n">AQTTensorImpl</span><span class="p">,</span>
+        <span class="n">layout_tensor</span><span class="p">:</span> <span class="n">AQTLayout</span><span class="p">,</span>
         <span class="n">block_size</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
         <span class="n">shape</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Size</span><span class="p">,</span>
         <span class="n">quant_min</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -562,7 +562,7 @@
         <span class="n">dtype</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
         <span class="n">strides</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
     <span class="p">):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">tensor_impl</span> <span class="o">=</span> <span class="n">tensor_impl</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">layout_tensor</span> <span class="o">=</span> <span class="n">layout_tensor</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">block_size</span> <span class="o">=</span> <span class="n">block_size</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span> <span class="o">=</span> <span class="n">quant_min</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">quant_max</span> <span class="o">=</span> <span class="n">quant_max</span>
@@ -570,12 +570,12 @@
 
     <span class="k">def</span> <span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">return</span> <span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">(tensor_impl=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">tensor_impl</span><span class="si">}</span><span class="s2">, block_size=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="si">}</span><span class="s2">, &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">(layout_tensor=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">layout_tensor</span><span class="si">}</span><span class="s2">, block_size=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="si">}</span><span class="s2">, &quot;</span>
             <span class="sa">f</span><span class="s2">&quot;shape=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, device=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="si">}</span><span class="s2">, dtype=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2">, requires_grad=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">requires_grad</span><span class="si">}</span><span class="s2">)&quot;</span>
         <span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_quantization_type</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;shape=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, block_size=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="si">}</span><span class="s2">, device=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="si">}</span><span class="s2">, layout_type=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">layout_type</span><span class="si">}</span><span class="s2">, tensor_impl_dtype=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2">, quant_min=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span><span class="si">}</span><span class="s2">, quant_max=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">quant_max</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;shape=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">, block_size=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="si">}</span><span class="s2">, device=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="si">}</span><span class="s2">, layout_type=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">layout_type</span><span class="si">}</span><span class="s2">, layout_tensor_dtype=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2">, quant_min=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span><span class="si">}</span><span class="s2">, quant_max=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">quant_max</span><span class="si">}</span><span class="s2">&quot;</span>
 
 <div class="viewcode-block" id="AffineQuantizedTensor.dequantize"><a class="viewcode-back" href="../../../generated/torchao.dtypes.AffineQuantizedTensor.html#torchao.dtypes.AffineQuantizedTensor.dequantize">[docs]</a>    <span class="k">def</span> <span class="nf">dequantize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">output_dtype</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">:</span>
         <span class="k">if</span> <span class="n">output_dtype</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -583,10 +583,10 @@
 
         <span class="kn">from</span> <span class="nn">torchao.dtypes.floatx</span> <span class="kn">import</span> <span class="n">FloatxTensorCoreLayoutType</span>
         <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">layout_type</span><span class="p">,</span> <span class="n">FloatxTensorCoreLayoutType</span><span class="p">):</span>
-            <span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">get_plain</span><span class="p">()</span>
+            <span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">get_plain</span><span class="p">()</span>
             <span class="k">return</span> <span class="n">dequantize_affine_floatx</span><span class="p">(</span><span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">layout_type</span><span class="o">.</span><span class="n">ebits</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">layout_type</span><span class="o">.</span><span class="n">mbits</span><span class="p">,</span> <span class="n">output_dtype</span><span class="o">=</span><span class="n">output_dtype</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">get_plain</span><span class="p">()</span>
+            <span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">get_plain</span><span class="p">()</span>
             <span class="n">dq</span> <span class="o">=</span> <span class="n">dequantize_affine</span><span class="p">(</span>
                 <span class="n">data</span><span class="p">,</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
@@ -612,16 +612,16 @@
         <span class="k">raise</span> <span class="n">QuantizedLinearNotImplementedError</span><span class="p">(</span><span class="s2">&quot;No specialized dispatch found for quantized linear op&quot;</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">__tensor_flatten__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">return</span> <span class="p">[</span><span class="s2">&quot;tensor_impl&quot;</span><span class="p">],</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">quant_max</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">zero_point_domain</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span>
+        <span class="k">return</span> <span class="p">[</span><span class="s2">&quot;layout_tensor&quot;</span><span class="p">],</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">quant_max</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">zero_point_domain</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">]</span>
 
     <span class="nd">@classmethod</span>
     <span class="k">def</span> <span class="nf">__tensor_unflatten__</span><span class="p">(</span>
         <span class="bp">cls</span><span class="p">,</span> <span class="n">tensor_data_dict</span><span class="p">,</span> <span class="n">tensor_attributes</span><span class="p">,</span> <span class="n">outer_size</span><span class="p">,</span> <span class="n">outer_stride</span>
     <span class="p">):</span>
-        <span class="n">tensor_impl</span> <span class="o">=</span> <span class="n">tensor_data_dict</span><span class="p">[</span><span class="s2">&quot;tensor_impl&quot;</span><span class="p">]</span>
+        <span class="n">layout_tensor</span> <span class="o">=</span> <span class="n">tensor_data_dict</span><span class="p">[</span><span class="s2">&quot;layout_tensor&quot;</span><span class="p">]</span>
         <span class="n">block_size</span><span class="p">,</span> <span class="n">shape</span><span class="p">,</span> <span class="n">quant_min</span><span class="p">,</span> <span class="n">quant_max</span><span class="p">,</span> <span class="n">zero_point_domain</span><span class="p">,</span> <span class="n">dtype</span> <span class="o">=</span> <span class="n">tensor_attributes</span>
         <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
-            <span class="n">tensor_impl</span><span class="p">,</span>
+            <span class="n">layout_tensor</span><span class="p">,</span>
             <span class="n">block_size</span><span class="p">,</span>
             <span class="n">shape</span> <span class="k">if</span> <span class="n">outer_size</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">outer_size</span><span class="p">,</span>
             <span class="n">quant_min</span><span class="p">,</span>
@@ -669,10 +669,10 @@
             <span class="c1"># Note: output will be uint8 tensor for sub byte tensors for now</span>
 
         <span class="n">data</span> <span class="o">=</span> <span class="n">layout_type</span><span class="o">.</span><span class="n">post_process</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
-        <span class="n">tensor_impl_ctr</span> <span class="o">=</span> <span class="n">get_tensor_impl_constructor</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">layout_type</span><span class="p">))</span>
-        <span class="n">tensor_impl</span> <span class="o">=</span> <span class="n">tensor_impl_ctr</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">layout_type</span><span class="p">)</span>
+        <span class="n">layout_tensor_ctr</span> <span class="o">=</span> <span class="n">get_layout_tensor_constructor</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">layout_type</span><span class="p">))</span>
+        <span class="n">layout_tensor</span> <span class="o">=</span> <span class="n">layout_tensor_ctr</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">layout_type</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
-            <span class="n">tensor_impl</span><span class="p">,</span>
+            <span class="n">layout_tensor</span><span class="p">,</span>
             <span class="n">block_size</span><span class="p">,</span>
             <span class="n">original_shape</span><span class="p">,</span>
             <span class="n">quant_min</span><span class="p">,</span>
@@ -704,10 +704,10 @@
 
         <span class="n">int_data</span> <span class="o">=</span> <span class="n">layout_type</span><span class="o">.</span><span class="n">post_process</span><span class="p">(</span><span class="n">int_data</span><span class="p">)</span>
 
-        <span class="n">tensor_impl_ctr</span> <span class="o">=</span> <span class="n">get_tensor_impl_constructor</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">layout_type</span><span class="p">))</span>
-        <span class="n">tensor_impl</span> <span class="o">=</span> <span class="n">tensor_impl_ctr</span><span class="p">(</span><span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">layout_type</span><span class="p">)</span>
+        <span class="n">layout_tensor_ctr</span> <span class="o">=</span> <span class="n">get_layout_tensor_constructor</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">layout_type</span><span class="p">))</span>
+        <span class="n">layout_tensor</span> <span class="o">=</span> <span class="n">layout_tensor_ctr</span><span class="p">(</span><span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">layout_type</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
-            <span class="n">tensor_impl</span><span class="p">,</span>
+            <span class="n">layout_tensor</span><span class="p">,</span>
             <span class="n">block_size</span><span class="p">,</span>
             <span class="n">original_shape</span><span class="p">,</span>
             <span class="n">quant_min</span><span class="p">,</span>
@@ -790,10 +790,10 @@
         <span class="n">floatx_unpacked</span> <span class="o">=</span> <span class="n">quantize_affine_floatx</span><span class="p">(</span><span class="n">input_float</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">ebits</span><span class="p">,</span> <span class="n">mbits</span><span class="p">)</span>
         <span class="n">floatx_packed</span> <span class="o">=</span> <span class="n">layout_type</span><span class="o">.</span><span class="n">post_process</span><span class="p">(</span><span class="n">floatx_unpacked</span><span class="p">)</span>
 
-        <span class="n">tensor_impl_ctr</span> <span class="o">=</span> <span class="n">get_tensor_impl_constructor</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">layout_type</span><span class="p">))</span>
-        <span class="n">tensor_impl</span> <span class="o">=</span> <span class="n">tensor_impl_ctr</span><span class="p">(</span><span class="n">floatx_packed</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">layout_type</span><span class="p">)</span>
+        <span class="n">layout_tensor_ctr</span> <span class="o">=</span> <span class="n">get_layout_tensor_constructor</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">layout_type</span><span class="p">))</span>
+        <span class="n">layout_tensor</span> <span class="o">=</span> <span class="n">layout_tensor_ctr</span><span class="p">(</span><span class="n">floatx_packed</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">layout_type</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
-            <span class="n">tensor_impl</span><span class="p">,</span>
+            <span class="n">layout_tensor</span><span class="p">,</span>
             <span class="n">block_size</span><span class="p">,</span>
             <span class="n">original_shape</span><span class="p">,</span>
             <span class="n">dtype</span><span class="o">=</span><span class="n">input_float</span><span class="o">.</span><span class="n">dtype</span>
@@ -801,13 +801,13 @@
 
     <span class="nd">@property</span>
     <span class="k">def</span> <span class="nf">layout_type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">LayoutType</span><span class="p">:</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">layout_type</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">layout_type</span>
 
 <div class="viewcode-block" id="AffineQuantizedTensor.to"><a class="viewcode-back" href="../../../generated/torchao.dtypes.AffineQuantizedTensor.html#torchao.dtypes.AffineQuantizedTensor.to">[docs]</a>    <span class="k">def</span> <span class="nf">to</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
         <span class="n">kwargs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_to_kwargs</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
         <span class="n">device</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;device&quot;</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">),</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">),</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span><span class="p">,</span>
@@ -818,7 +818,7 @@
 
     <span class="k">def</span> <span class="nf">_apply_fn_to_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fn</span><span class="p">):</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span>
-            <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tensor_impl</span><span class="p">),</span>
+            <span class="n">fn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">layout_tensor</span><span class="p">),</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span><span class="p">,</span>
@@ -844,10 +844,10 @@
 
 
 <span class="c1">######################################################</span>
-<span class="c1"># LayoutType and TensorImpl Subclass Registration #</span>
+<span class="c1"># LayoutType and Layout Tensor Subclass Registration #</span>
 <span class="c1">######################################################</span>
-<span class="n">register_layout</span> <span class="o">=</span> <span class="n">AffineQuantizedTensor</span><span class="o">.</span><span class="n">register_layout</span>
-<span class="n">get_tensor_impl_constructor</span> <span class="o">=</span> <span class="n">AffineQuantizedTensor</span><span class="o">.</span><span class="n">get_tensor_impl_constructor</span>
+<span class="n">register_layout_cls</span> <span class="o">=</span> <span class="n">AffineQuantizedTensor</span><span class="o">.</span><span class="n">register_layout_cls</span>
+<span class="n">get_layout_tensor_constructor</span> <span class="o">=</span> <span class="n">AffineQuantizedTensor</span><span class="o">.</span><span class="n">get_layout_tensor_constructor</span>
 
 <span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <span class="k">class</span> <span class="nc">SemiSparseLayoutType</span><span class="p">(</span><span class="n">LayoutType</span><span class="p">):</span>
@@ -928,10 +928,10 @@
         <span class="k">return</span> <span class="n">w_24</span><span class="o">.</span><span class="n">t</span><span class="p">()</span>
 
 
-<span class="nd">@register_layout</span><span class="p">(</span><span class="n">PlainLayoutType</span><span class="p">)</span>
-<span class="k">class</span> <span class="nc">PlainAQTTensorImpl</span><span class="p">(</span><span class="n">AQTTensorImpl</span><span class="p">):</span>
+<span class="nd">@register_layout_cls</span><span class="p">(</span><span class="n">PlainLayoutType</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">PlainAQTLayout</span><span class="p">(</span><span class="n">AQTLayout</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    TensorImpl storage class for plain layout for affine quantized tensor, it stores int_data, scale, zero_point</span>
+<span class="sd">    Layout storage class for plain layout for affine quantized tensor, it stores int_data, scale, zero_point</span>
 <span class="sd">    tensors directly as plain tensors.</span>
 
 <span class="sd">    fields:</span>
@@ -1025,12 +1025,12 @@
                 <span class="p">)</span>
             <span class="k">elif</span> <span class="n">dim</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
                 <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;slice dim==1 only works when len(scale.shape) == 1 currently, got: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span>
-                <span class="k">return</span> <span class="n">PlainAQTTensorImpl</span><span class="p">(</span><span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">int_data</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">step</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">zero_point</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">layout_type</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">PlainAQTLayout</span><span class="p">(</span><span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">int_data</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">step</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">zero_point</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">layout_type</span><span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>
-                <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;PlainAQTTensorImpl dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, with dim=</span><span class="si">{</span><span class="n">dim</span><span class="si">}</span><span class="s2">, that is not supported&quot;</span><span class="p">)</span>
+                <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;PlainAQTLayout dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, with dim=</span><span class="si">{</span><span class="n">dim</span><span class="si">}</span><span class="s2">, that is not supported&quot;</span><span class="p">)</span>
 
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;PlainAQTTensorImpl dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;PlainAQTLayout dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span>
         <span class="p">)</span>
 
     <span class="n">__torch_function__</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_disabled_torch_function_impl</span>
@@ -1052,10 +1052,10 @@
         <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout_type</span><span class="p">,</span> <span class="n">PlainLayoutType</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">int_data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">layout_type</span><span class="p">)</span>
 
-<span class="nd">@register_layout</span><span class="p">(</span><span class="n">SemiSparseLayoutType</span><span class="p">)</span>
-<span class="k">class</span> <span class="nc">SemiSparseAQTTensorImpl</span><span class="p">(</span><span class="n">PlainAQTTensorImpl</span><span class="p">):</span>
+<span class="nd">@register_layout_cls</span><span class="p">(</span><span class="n">SemiSparseLayoutType</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">SemiSparseAQTLayout</span><span class="p">(</span><span class="n">PlainAQTLayout</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    TensorImpl storage class for semi_sparse_cusparselt layout for affine quantized tensor</span>
+<span class="sd">    Layout storage class for semi_sparse_cusparselt layout for affine quantized tensor</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="nd">@classmethod</span>
     <span class="k">def</span> <span class="nf">__torch_dispatch__</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">types</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">):</span>
@@ -1067,7 +1067,7 @@
             <span class="p">)</span>
 
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;SparseAQTTensorImpl dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;SparseAQTLayout dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span>
         <span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">get_plain</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
@@ -1092,8 +1092,8 @@
         <span class="n">int_data_compressed</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_cslt_compress</span><span class="p">(</span><span class="n">int_data</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">int_data_compressed</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="n">zero_point</span><span class="p">,</span> <span class="n">layout_type</span><span class="p">)</span>
 
-<span class="nd">@register_layout</span><span class="p">(</span><span class="n">BlockSparseLayoutType</span><span class="p">)</span>
-<span class="k">class</span> <span class="nc">BlockSparseAQTTensorImpl</span><span class="p">(</span><span class="n">PlainAQTTensorImpl</span><span class="p">):</span>
+<span class="nd">@register_layout_cls</span><span class="p">(</span><span class="n">BlockSparseLayoutType</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">BlockSparseAQTLayout</span><span class="p">(</span><span class="n">PlainAQTLayout</span><span class="p">):</span>
     <span class="n">bsr_crow_indices</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span>
     <span class="n">bsr_col_indices</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span>
     <span class="n">bsr_values</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]</span>
@@ -1229,13 +1229,13 @@
             <span class="k">return</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">bsr_values</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
 
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;BlockSparseAQTTensorImpl dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;BlockSparseAQTLayout dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span>
         <span class="p">)</span>
 
-<span class="nd">@register_layout</span><span class="p">(</span><span class="n">MarlinSparseLayoutType</span><span class="p">)</span>
-<span class="k">class</span> <span class="nc">MarlinSparseAQTTensorImpl</span><span class="p">(</span><span class="n">AQTTensorImpl</span><span class="p">):</span>
+<span class="nd">@register_layout_cls</span><span class="p">(</span><span class="n">MarlinSparseLayoutType</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">MarlinSparseAQTLayout</span><span class="p">(</span><span class="n">AQTLayout</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    TensorImpl storage class for sparse_marlin_24 layout for affine quantized tensor.</span>
+<span class="sd">    Layout storage class for sparse_marlin_24 layout for affine quantized tensor.</span>
 
 <span class="sd">    Can be used with 4 bits and 8 bits quantization.</span>
 
@@ -1302,7 +1302,7 @@
             <span class="p">)</span>
 
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;MarlinSparseAQTTensorImpl dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;MarlinSparseAQTLayout dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span>
         <span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">__tensor_flatten__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
@@ -1402,10 +1402,10 @@
         <span class="k">return</span> <span class="bp">self</span>
 
 
-<span class="nd">@register_layout</span><span class="p">(</span><span class="n">Float8LayoutType</span><span class="p">)</span>
-<span class="k">class</span> <span class="nc">Float8AQTTensorImpl</span><span class="p">(</span><span class="n">AQTTensorImpl</span><span class="p">):</span>
+<span class="nd">@register_layout_cls</span><span class="p">(</span><span class="n">Float8LayoutType</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">Float8AQTLayout</span><span class="p">(</span><span class="n">AQTLayout</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    TensorImpl storage class for float8 tensor impl for affine quantized tensor</span>
+<span class="sd">    Layout storage class for float8 layout for affine quantized tensor</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">float8_data</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
     <span class="n">scale</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span>
@@ -1492,12 +1492,12 @@
                 <span class="p">)</span>
             <span class="k">elif</span> <span class="n">dim</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
                 <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;slice dim==1 only works when len(scale.shape) == 1 currently, got: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span>
-                <span class="k">return</span> <span class="n">Float8AQTTensorImpl</span><span class="p">(</span><span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">float8_data</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">step</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">layout_type</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">Float8AQTLayout</span><span class="p">(</span><span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">float8_data</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">step</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">layout_type</span><span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>
-                <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Float8AQTTensorImpl dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, with dim=</span><span class="si">{</span><span class="n">dim</span><span class="si">}</span><span class="s2">, that is not supported&quot;</span><span class="p">)</span>
+                <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Float8AQTLayout dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, with dim=</span><span class="si">{</span><span class="n">dim</span><span class="si">}</span><span class="s2">, that is not supported&quot;</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-                <span class="sa">f</span><span class="s2">&quot;Float8AQTTensorImpl dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;Float8AQTLayout dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span>
             <span class="p">)</span>
 
     <span class="n">__torch_function__</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_disabled_torch_function_impl</span>
@@ -1516,9 +1516,9 @@
         <span class="n">zero_point</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">],</span>
         <span class="n">layout_type</span><span class="p">:</span> <span class="n">LayoutType</span><span class="p">,</span>
     <span class="p">):</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot; Main entrypoint for constructing Float8TensorImpl&quot;&quot;&quot;</span>
-        <span class="k">assert</span> <span class="n">_is_float8_type</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">dtype</span><span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Float8 TensorImpl must be constructed from float8 dtype but got </span><span class="si">{</span><span class="n">data</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2">&quot;</span>
-        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout_type</span><span class="p">,</span> <span class="n">Float8LayoutType</span><span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Float8 TensorImpl must be constructed from Float8LayoutType but got </span><span class="si">{</span><span class="n">layout_type</span><span class="si">}</span><span class="s2">&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot; Main entrypoint for constructing Float8Layout Tensor&quot;&quot;&quot;</span>
+        <span class="k">assert</span> <span class="n">_is_float8_type</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">dtype</span><span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Float8 Layout must be constructed from float8 dtype but got </span><span class="si">{</span><span class="n">data</span><span class="o">.</span><span class="n">dtype</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">layout_type</span><span class="p">,</span> <span class="n">Float8LayoutType</span><span class="p">),</span> <span class="sa">f</span><span class="s2">&quot;Float8 Layout must be constructed from Float8LayoutType but got </span><span class="si">{</span><span class="n">layout_type</span><span class="si">}</span><span class="s2">&quot;</span>
         <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">scale</span><span class="p">,</span> <span class="kc">False</span><span class="p">,</span> <span class="n">layout_type</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
@@ -1531,10 +1531,10 @@
                 <span class="sa">f</span><span class="s2">&quot;layout_type=</span><span class="si">{</span><span class="n">layout_type</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
 
 
-<span class="nd">@register_layout</span><span class="p">(</span><span class="n">TensorCoreTiledLayoutType</span><span class="p">)</span>
-<span class="k">class</span> <span class="nc">TensorCoreTiledAQTTensorImpl</span><span class="p">(</span><span class="n">AQTTensorImpl</span><span class="p">):</span>
+<span class="nd">@register_layout_cls</span><span class="p">(</span><span class="n">TensorCoreTiledLayoutType</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">TensorCoreTiledAQTLayout</span><span class="p">(</span><span class="n">AQTLayout</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">    TensorImpl storage class for tensor_core_tiled tensor impl for affine quantized tensor, this is for int4 only,</span>
+<span class="sd">    Layout storage class for tensor_core_tiled layout for affine quantized tensor, this is for int4 only,</span>
 <span class="sd">    it stores the original tensor of dimension [n][k] (int32 dtype) as packed weight of 4-d tensor of</span>
 <span class="sd">    dimension: [n / 8][k / (inner_k_tiles * 16)][32][inner_k_tiles / 2]</span>
 
@@ -1610,7 +1610,7 @@
         <span class="n">kwargs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_to_kwargs</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
         <span class="n">device</span> <span class="o">=</span> <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;device&quot;</span><span class="p">]</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">is_device</span><span class="p">(</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span> <span class="n">device</span><span class="p">):</span>
-            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;TensorCoreTiledAQTTensorImpl is only available for cuda device, can&#39;t convert to </span><span class="si">{</span><span class="n">device</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;TensorCoreTiledAQTLayout is only available for cuda device, can&#39;t convert to </span><span class="si">{</span><span class="n">device</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">packed_weight</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">),</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">scale_and_zero</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">device</span><span class="p">),</span>
@@ -1645,7 +1645,7 @@
             <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
 
         <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
-            <span class="sa">f</span><span class="s2">&quot;TensorCoreTiledAQTTensorImpl dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;TensorCoreTiledAQTLayout dispatch: attempting to run </span><span class="si">{</span><span class="n">func</span><span class="si">}</span><span class="s2">, this is not supported&quot;</span>
         <span class="p">)</span>
 
     <span class="n">__torch_function__</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_C</span><span class="o">.</span><span class="n">_disabled_torch_function_impl</span>
@@ -1691,14 +1691,14 @@
 <span class="k">def</span> <span class="nf">_aqt_is_int8</span><span class="p">(</span><span class="n">aqt</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Check if an AffineQuantizedTensor is int8 quantized Tensor&quot;&quot;&quot;</span>
     <span class="k">return</span> <span class="p">(</span>
-        <span class="n">aqt</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span> <span class="ow">and</span>
+        <span class="n">aqt</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span> <span class="ow">and</span>
         <span class="p">(</span><span class="n">aqt</span><span class="o">.</span><span class="n">quant_min</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">aqt</span><span class="o">.</span><span class="n">quant_min</span> <span class="o">==</span> <span class="o">-</span><span class="mi">128</span><span class="p">)</span> <span class="ow">and</span>
         <span class="p">(</span><span class="n">aqt</span><span class="o">.</span><span class="n">quant_max</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">aqt</span><span class="o">.</span><span class="n">quant_max</span> <span class="o">==</span> <span class="mi">127</span><span class="p">)</span>
     <span class="p">)</span>
 
 <span class="k">def</span> <span class="nf">_aqt_is_int8_reduced_range</span><span class="p">(</span><span class="n">aqt</span><span class="p">):</span>
     <span class="k">return</span> <span class="p">(</span>
-        <span class="n">aqt</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span> <span class="ow">and</span>
+        <span class="n">aqt</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">int8</span> <span class="ow">and</span>
         <span class="n">aqt</span><span class="o">.</span><span class="n">quant_min</span> <span class="o">==</span> <span class="o">-</span><span class="mi">127</span> <span class="ow">and</span>
         <span class="p">(</span><span class="n">aqt</span><span class="o">.</span><span class="n">quant_max</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">aqt</span><span class="o">.</span><span class="n">quant_max</span> <span class="o">==</span> <span class="mi">127</span><span class="p">)</span>
     <span class="p">)</span>
@@ -1707,7 +1707,7 @@
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Check if an AffineQuantizedTensor is uint4 quantized Tensor&quot;&quot;&quot;</span>
     <span class="c1"># TODO: use torch.uint4</span>
     <span class="k">return</span> <span class="p">(</span>
-        <span class="n">aqt</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span> <span class="ow">and</span>
+        <span class="n">aqt</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">int32</span> <span class="ow">and</span>
         <span class="n">aqt</span><span class="o">.</span><span class="n">quant_min</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span>
         <span class="n">aqt</span><span class="o">.</span><span class="n">quant_max</span> <span class="o">==</span> <span class="mi">15</span>
     <span class="p">)</span>
@@ -1744,10 +1744,10 @@
     <span class="c1"># value of a float 16, (which results in a value of inf even if multiplying</span>
     <span class="c1"># by the other scale would bring it within the expected range)</span>
 
-    <span class="n">x_vals_int8</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">int_data</span>
-    <span class="n">x_scales</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span>
-    <span class="n">w_vals_int8_t</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">int_data</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span><span class="o">.</span><span class="n">t</span><span class="p">()</span>
-    <span class="n">w_scales</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span>
+    <span class="n">x_vals_int8</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">int_data</span>
+    <span class="n">x_scales</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">scale</span>
+    <span class="n">w_vals_int8_t</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">int_data</span><span class="o">.</span><span class="n">contiguous</span><span class="p">()</span><span class="o">.</span><span class="n">t</span><span class="p">()</span>
+    <span class="n">w_scales</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">scale</span>
     <span class="n">tmp</span> <span class="o">=</span> <span class="n">x_vals_int8</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">x_vals_int8</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
     <span class="n">y_dot_scaled</span> <span class="o">=</span> <span class="n">int_scaled_matmul</span><span class="p">(</span><span class="n">tmp</span><span class="p">,</span> <span class="n">w_vals_int8_t</span><span class="p">,</span> <span class="n">x_scales</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
 
@@ -1775,10 +1775,10 @@
     <span class="p">)</span>
 
 <span class="k">def</span> <span class="nf">_linear_int8_act_int8_weight_semi_structured_sparse_impl</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
-    <span class="n">x_vals_int8</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">int_data</span>
-    <span class="n">x_scales</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span>
-    <span class="n">w_vals_int8</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">int_data</span>
-    <span class="n">w_scales</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span>
+    <span class="n">x_vals_int8</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">int_data</span>
+    <span class="n">x_scales</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">scale</span>
+    <span class="n">w_vals_int8</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">int_data</span>
+    <span class="n">w_scales</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">scale</span>
     <span class="n">tmp</span> <span class="o">=</span> <span class="n">x_vals_int8</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">x_vals_int8</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
     <span class="c1"># we fuse one of the scalar matrix multiplications (w_scales) into the sparse mm</span>
     <span class="n">y_dot_bf16_w_scales_fused</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">_cslt_sparse_mm</span><span class="p">(</span>
@@ -1807,10 +1807,10 @@
 
 
 <span class="k">def</span> <span class="nf">_linear_int8_act_int8_weight_block_sparse_impl</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
-    <span class="n">x_vals_int8</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">int_data</span>
-    <span class="n">x_scales</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span>
-    <span class="n">w_vals</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span>
-    <span class="n">w_scales</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span>
+    <span class="n">x_vals_int8</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">int_data</span>
+    <span class="n">x_scales</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">scale</span>
+    <span class="n">w_vals</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_tensor</span>
+    <span class="n">w_scales</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">scale</span>
     <span class="n">tmp</span> <span class="o">=</span> <span class="n">x_vals_int8</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">x_vals_int8</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
     <span class="n">tmp_t</span> <span class="o">=</span> <span class="n">tmp</span><span class="o">.</span><span class="n">t</span><span class="p">()</span>
 
@@ -1836,7 +1836,7 @@
         <span class="c1"># input is native bfloat16 tensor</span>
         <span class="ow">not</span> <span class="n">is_traceable_wrapper_subclass</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">)</span> <span class="ow">and</span>
         <span class="n">input_tensor</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span> <span class="ow">and</span>
-        <span class="c1"># weight is uint4, group quantized tensor_core_tiled tensor impl affine quantized tensor</span>
+        <span class="c1"># weight is uint4, group quantized tensor_core_tiled layout affine quantized tensor</span>
         <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">)</span> <span class="ow">and</span>
         <span class="n">_aqt_is_tensor_core_tile_uint4</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">)</span> <span class="ow">and</span>
         <span class="n">weight_tensor</span><span class="o">.</span><span class="n">dtype</span> <span class="o">==</span> <span class="n">torch</span><span class="o">.</span><span class="n">bfloat16</span> <span class="ow">and</span>
@@ -1858,8 +1858,8 @@
     <span class="n">act_mat</span> <span class="o">=</span> <span class="n">input_tensor</span>
     <span class="c1"># weight is packed from padded (out_features, in_features) weight tensor</span>
     <span class="c1"># (same dimension requirement as F.linear weight)</span>
-    <span class="n">packed_weight</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">packed_weight</span>
-    <span class="n">scale_and_zero</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale_and_zero</span>
+    <span class="n">packed_weight</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">packed_weight</span>
+    <span class="n">scale_and_zero</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">scale_and_zero</span>
 
     <span class="n">orig_act_size</span> <span class="o">=</span> <span class="n">act_mat</span><span class="o">.</span><span class="n">size</span><span class="p">()</span>
     <span class="n">orig_dtype</span> <span class="o">=</span> <span class="n">act_mat</span><span class="o">.</span><span class="n">dtype</span>
@@ -1902,11 +1902,11 @@
 <span class="k">def</span> <span class="nf">_linear_fp_act_int8_weight_impl</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="p">,</span> <span class="n">bias</span><span class="p">):</span>
     <span class="c1"># TODO: enable cpu and mps efficient path</span>
     <span class="c1"># is_cpu and is_mps only, some issue with is_contiguous() currently</span>
-    <span class="c1"># return torch.ops.aten._weight_int8pack_mm(input_tensor.contiguous(), w_vals_int8_t, weight_tensor.tensor_impl.scale)</span>
+    <span class="c1"># return torch.ops.aten._weight_int8pack_mm(input_tensor.contiguous(), w_vals_int8_t, weight_tensor.layout_tensor.scale)</span>
 
     <span class="c1"># per channel int8 weight only quantizated mm</span>
-    <span class="n">w_vals_int8_t</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">int_data</span><span class="o">.</span><span class="n">t</span><span class="p">()</span>
-    <span class="n">scale</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span>
+    <span class="n">w_vals_int8_t</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">int_data</span><span class="o">.</span><span class="n">t</span><span class="p">()</span>
+    <span class="n">scale</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">scale</span>
     <span class="n">orig_dtype</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">dtype</span>
     <span class="n">m</span> <span class="o">=</span> <span class="n">torch</span><span class="o">.</span><span class="n">mm</span><span class="p">(</span>
         <span class="n">input_tensor</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]),</span>
@@ -1960,8 +1960,8 @@
         <span class="n">weight</span><span class="o">.</span><span class="n">layout_type</span><span class="o">.</span><span class="n">ebits</span><span class="p">,</span>
         <span class="n">weight</span><span class="o">.</span><span class="n">layout_type</span><span class="o">.</span><span class="n">mbits</span><span class="p">,</span>
         <span class="n">act_reshaped</span><span class="p">,</span>
-        <span class="n">weight</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">packed_floatx_data</span><span class="p">,</span>
-        <span class="n">weight</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span><span class="p">,</span>
+        <span class="n">weight</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">packed_floatx_data</span><span class="p">,</span>
+        <span class="n">weight</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">scale</span><span class="p">,</span>
         <span class="n">splitK</span><span class="o">=</span><span class="n">splitK</span><span class="p">,</span>
     <span class="p">)</span>
 
@@ -1979,7 +1979,7 @@
         <span class="k">return</span> <span class="p">(</span>
             <span class="nb">isinstance</span><span class="p">(</span><span class="n">aqt</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">)</span> <span class="ow">and</span>
             <span class="nb">isinstance</span><span class="p">(</span><span class="n">aqt</span><span class="o">.</span><span class="n">layout_type</span><span class="p">,</span> <span class="n">Float8LayoutType</span><span class="p">)</span>
-            <span class="ow">and</span> <span class="n">aqt</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">dtype</span> <span class="ow">in</span> <span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e5m2</span><span class="p">]</span>
+            <span class="ow">and</span> <span class="n">aqt</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">dtype</span> <span class="ow">in</span> <span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e5m2</span><span class="p">]</span>
             <span class="ow">and</span> <span class="p">(</span><span class="n">aqt</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">aqt</span><span class="o">.</span><span class="n">block_size</span> <span class="ow">or</span> <span class="n">_is_rowwise_scaled</span><span class="p">(</span><span class="n">aqt</span><span class="p">))</span>
         <span class="p">)</span>
     <span class="k">return</span> <span class="n">check_aqt</span><span class="p">(</span><span class="n">input_tensor</span><span class="p">)</span> <span class="ow">and</span> <span class="n">check_aqt</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">)</span>
@@ -2004,14 +2004,14 @@
     <span class="n">out_shape</span> <span class="o">=</span> <span class="n">get_out_shape</span><span class="p">(</span><span class="n">input_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
 
     <span class="c1"># Weight tensor preprocessing</span>
-    <span class="n">w_tensor_impl</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span>
-    <span class="k">assert</span> <span class="ow">not</span> <span class="n">w_tensor_impl</span><span class="o">.</span><span class="n">transposed</span><span class="p">,</span> <span class="s2">&quot;Weight tensor must be contiguous&quot;</span>
-    <span class="n">w_data</span> <span class="o">=</span> <span class="n">w_tensor_impl</span><span class="o">.</span><span class="n">float8_data</span>
-    <span class="n">w_scale</span> <span class="o">=</span> <span class="n">w_tensor_impl</span><span class="o">.</span><span class="n">scale</span>
+    <span class="n">w_layout</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_tensor</span>
+    <span class="k">assert</span> <span class="ow">not</span> <span class="n">w_layout</span><span class="o">.</span><span class="n">transposed</span><span class="p">,</span> <span class="s2">&quot;Weight tensor must be contiguous&quot;</span>
+    <span class="n">w_data</span> <span class="o">=</span> <span class="n">w_layout</span><span class="o">.</span><span class="n">float8_data</span>
+    <span class="n">w_scale</span> <span class="o">=</span> <span class="n">w_layout</span><span class="o">.</span><span class="n">scale</span>
 
     <span class="c1"># Input tensor preprocessing</span>
-    <span class="n">inpt_data</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">float8_data</span>
-    <span class="n">input_scale</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span>
+    <span class="n">inpt_data</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">float8_data</span>
+    <span class="n">input_scale</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">scale</span>
     <span class="c1"># Handle case where input tensor is more than 2D</span>
     <span class="n">inpt_data</span> <span class="o">=</span> <span class="n">inpt_data</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">inpt_data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
 
@@ -2047,7 +2047,7 @@
         <span class="c1"># weight is float8 quantized affine quantized tensor</span>
         <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">)</span> <span class="ow">and</span>
         <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_type</span><span class="p">,</span> <span class="n">Float8LayoutType</span><span class="p">)</span>
-        <span class="ow">and</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">dtype</span> <span class="ow">in</span> <span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e5m2</span><span class="p">]</span>
+        <span class="ow">and</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">dtype</span> <span class="ow">in</span> <span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">float8_e4m3fn</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">float8_e5m2</span><span class="p">]</span>
         <span class="ow">and</span> <span class="p">(</span><span class="n">weight_tensor</span><span class="o">.</span><span class="n">shape</span> <span class="o">==</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">block_size</span> <span class="ow">or</span> <span class="n">_is_rowwise_scaled</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">))</span>
     <span class="p">)</span>
 
@@ -2074,11 +2074,11 @@
 
     <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">weight_tensor</span><span class="p">,</span> <span class="n">AffineQuantizedTensor</span><span class="p">)</span>
 
-    <span class="n">sparse_w_int4</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">int_data</span>
-    <span class="n">scale</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">scale</span>
-    <span class="n">meta</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">meta</span>
-    <span class="n">original_shape</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">original_shape</span>
-    <span class="n">num_bits</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">num_bits</span>
+    <span class="n">sparse_w_int4</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">int_data</span>
+    <span class="n">scale</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">scale</span>
+    <span class="n">meta</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">meta</span>
+    <span class="n">original_shape</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">original_shape</span>
+    <span class="n">num_bits</span> <span class="o">=</span> <span class="n">weight_tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">num_bits</span>
 
     <span class="c1"># Folds batch dimension into the first dimension</span>
     <span class="n">input_2d</span> <span class="o">=</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">input_tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
@@ -2225,7 +2225,7 @@
     <span class="n">tensor</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
     <span class="n">shape</span> <span class="o">=</span> <span class="n">tensor</span><span class="o">.</span><span class="n">shape</span><span class="p">[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
     <span class="n">new</span> <span class="o">=</span> <span class="n">tensor</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span>
-        <span class="n">tensor</span><span class="o">.</span><span class="n">tensor_impl</span><span class="o">.</span><span class="n">t</span><span class="p">(),</span> <span class="n">transposed_block_size</span><span class="p">,</span> <span class="n">shape</span><span class="p">,</span> <span class="n">tensor</span><span class="o">.</span><span class="n">quant_min</span><span class="p">,</span> <span class="n">tensor</span><span class="o">.</span><span class="n">quant_max</span><span class="p">,</span> <span class="n">tensor</span><span class="o">.</span><span class="n">zero_point_domain</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">tensor</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">strides</span><span class="o">=</span><span class="n">tensor</span><span class="o">.</span><span class="n">stride</span><span class="p">()</span>
+        <span class="n">tensor</span><span class="o">.</span><span class="n">layout_tensor</span><span class="o">.</span><span class="n">t</span><span class="p">(),</span> <span class="n">transposed_block_size</span><span class="p">,</span> <span class="n">shape</span><span class="p">,</span> <span class="n">tensor</span><span class="o">.</span><span class="n">quant_min</span><span class="p">,</span> <span class="n">tensor</span><span class="o">.</span><span class="n">quant_max</span><span class="p">,</span> <span class="n">tensor</span><span class="o">.</span><span class="n">zero_point_domain</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">tensor</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">strides</span><span class="o">=</span><span class="n">tensor</span><span class="o">.</span><span class="n">stride</span><span class="p">()</span>
     <span class="p">)</span>
     <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">new</span><span class="p">)</span>
 
@@ -2243,7 +2243,7 @@
     <span class="c1"># with slice, some shape dimension might be smaller than block_size dimension, so</span>
     <span class="c1"># we need to make sure there is no overflow</span>
     <span class="n">block_size</span> <span class="o">=</span> <span class="p">(</span><span class="nb">min</span><span class="p">(</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">block_size</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span> <span class="nb">min</span><span class="p">(</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">block_size</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
-    <span class="n">new</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span><span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tensor_impl</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">step</span><span class="p">),</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">shape</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">quant_max</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">zero_point_domain</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">strides</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">stride</span><span class="p">())</span>
+    <span class="n">new</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span><span class="n">aten</span><span class="o">.</span><span class="n">slice</span><span class="o">.</span><span class="n">Tensor</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">layout_tensor</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">end</span><span class="p">,</span> <span class="n">step</span><span class="p">),</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">shape</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">quant_max</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">zero_point_domain</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">strides</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">stride</span><span class="p">())</span>
     <span class="k">return</span> <span class="n">return_and_correct_aliasing</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">,</span> <span class="n">new</span><span class="p">)</span>
 
 <span class="c1"># this is needed for DTensor.from_local() and for flattening tensor</span>
@@ -2252,12 +2252,12 @@
     <span class="bp">self</span><span class="p">,</span> <span class="n">shape</span> <span class="o">=</span> <span class="n">args</span>
 
     <span class="k">if</span> <span class="nb">tuple</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">shape</span><span class="p">):</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tensor_impl</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">quant_max</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">zero_point_domain</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">strides</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">stride</span><span class="p">())</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">layout_tensor</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">quant_max</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">zero_point_domain</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">strides</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">stride</span><span class="p">())</span>
 
     <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span> <span class="ow">and</span> <span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
         <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span>
         <span class="n">block_size</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">block_size</span><span class="p">[</span><span class="mi">1</span><span class="p">],)</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tensor_impl</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">numel</span><span class="p">(),),</span> <span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">quant_max</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">zero_point_domain</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">strides</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">stride</span><span class="p">())</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">layout_tensor</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">numel</span><span class="p">(),),</span> <span class="bp">self</span><span class="o">.</span><span class="n">quant_min</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">quant_max</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">zero_point_domain</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dtype</span><span class="p">,</span> <span class="n">strides</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">stride</span><span class="p">())</span>
 
     <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2"> only supports .view() with same shape or shape=[-1]&quot;</span><span class="p">)</span>
 
