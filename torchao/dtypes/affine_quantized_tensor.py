@@ -586,7 +586,7 @@ class PlainAQTTensorImpl(AQTTensorImpl):
         self.int_data = int_data
         self.scale = scale
         self.zero_point = zero_point
-        self.layout = layout
+        self.layout_type = layout
 
     def __tensor_flatten__(self):
         return ["int_data", "scale", "zero_point"], [self.layout]
