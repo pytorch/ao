@@ -152,6 +152,7 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
         float8_dtype=e4m3_dtype,
         linear_mm_config: Optional[LinearMMConfig] = None,
         gemm_input_role: Optional[GemmInputRole] = GemmInputRole.INPUT,
+        axiswise_dim: Optional[int] = None,
     ):
         """
         This function will apply the scaling, and then convert to a Float8Tensor
@@ -183,6 +184,7 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
                 tensor.dtype,
                 linear_mm_config=linear_mm_config,
                 gemm_input_role=gemm_input_role,
+                axiswise_dim=axiswise_dim,
             )
             return DTensor.from_local(
                 inner_float8_tensor,
@@ -199,6 +201,7 @@ class _ToFloat8ConstrFunc(torch.autograd.Function):
             tensor.dtype,
             linear_mm_config=linear_mm_config,
             gemm_input_role=gemm_input_role,
+            axiswise_dim=axiswise_dim,
         )
 
     @staticmethod
@@ -229,6 +232,7 @@ def hp_tensor_and_scale_to_float8(
     float8_dtype=e4m3_dtype,
     linear_mm_config: Optional[LinearMMConfig] = None,
     gemm_input_role: Optional[GemmInputRole] = GemmInputRole.INPUT,
+    axiswise_dim: Optional[int] = None,
 ):
     """
     Given a high precision tensor `hp_tensor` and a precalculated scale `s`,
@@ -245,9 +249,10 @@ def hp_tensor_and_scale_to_float8(
           the 3 fwd/bwd gemms of linear
         gemm_input_role: Defines the role of this tensor (input, weight or grad_output) in
           the 3 fwd/bwd gemms of linear
+        axiswise_dim: for rowwise scaling, contains the axis scaled across
     """
     return _ToFloat8ConstrFunc.apply(
-        hp_tensor, s, float8_dtype, linear_mm_config, gemm_input_role
+        hp_tensor, s, float8_dtype, linear_mm_config, gemm_input_role, axiswise_dim
     )
 
 
@@ -261,11 +266,19 @@ class Float8Tensor(torch.Tensor):
     * `_data`: the underlying e4m3 or e5m2 data
     * `_scale`: the scale used to scale the original fp32 tensor. We multiply
       by scale to go from fp32 range to fp8 range, and divide by scale to go
-      from fp8 range to fp32 range.
+      from fp8 range to fp32 range. Scale is guaranteed to have a shape compatible
+      with `_data`. For example:
+      - if scaling is tensorwise, `_scale` is a scalar tensor
+      - if scaling is axiswise and _data.shape is [3, 5], `_scale` could have
+        shape [1, 5] or [3, 1]. `axiswise_dim` defines the scaling axis.
+      - if scaling is axiswise and _data.shape is [2, 3, 5], `_scale` could have
+        shape [1, 1, 5] or [2, 1, 1]. `axiswise_dim` defines the scaling
+        axis. Non-one entries which are not the first or last element are not
+        supported.
     * `_orig_dtype`: the original dtype of the tensor used to create this
       tensor.
-    * `_emulate`: if true using fp32 emulation for the matmuls, helpful
-      if you don't have access to h100 hardware.
+    * `_axiswise_dim`: for axiswise scaling only, contains the axis scales
+      across. Only values of 0 or -1 are supported.
 
     Intended usage of this abstraction:
     1. to bundle raw data + fp8 metadata together for easy passing through
@@ -280,6 +293,7 @@ class Float8Tensor(torch.Tensor):
     _scale: torch.Tensor
     _orig_dtype: torch.dtype
     _linear_mm_config: LinearMMConfig
+    _axiswise_dim: Optional[int]
     __slots__ = ["_data", "_scale", "_orig_dtype", "_linear_mm_config"]
 
     def __new__(
@@ -289,13 +303,8 @@ class Float8Tensor(torch.Tensor):
         orig_dtype: torch.dtype,
         linear_mm_config: Optional[LinearMMConfig],
         gemm_input_role: Optional[GemmInputRole] = GemmInputRole.INPUT,
+        axiswise_dim: Optional[int] = None,
     ):
-        assert (
-            scale.numel() == 1
-        ), "Scale should contain a single value, but got: {} elements".format(
-            scale.numel()
-        )
-
         self = torch.Tensor._make_wrapper_subclass(
             cls,
             data.size(),
@@ -313,17 +322,20 @@ class Float8Tensor(torch.Tensor):
             linear_mm_config if linear_mm_config is not None else LinearMMConfig()
         )
         self._gemm_input_role = gemm_input_role
+        assert axiswise_dim in (None, 0, -1), f"unsupported axiswise_dim {axiswise_dim}"
+        self._axiswise_dim = axiswise_dim
 
         return self
 
     def __repr__(self):
-        return f"Float8Tensor(dtype={self._data.dtype}, scale={self._scale}, linear_mm_config={self._linear_mm_config}\ngemm_input_role={self._gemm_input_role}\nas_orig_prec={self.to_original_precision()}"
+        return f"Float8Tensor(dtype={self._data.dtype}, scale={self._scale}, linear_mm_config={self._linear_mm_config}, axiswise_dim={self._axiswise_dim}\ngemm_input_role={self._gemm_input_role}\nas_orig_prec={self.to_original_precision()}"
 
     def __tensor_flatten__(self):
         ctx = {
             "_orig_dtype": self._orig_dtype,
             "_linear_mm_config": self._linear_mm_config,
             "_gemm_input_role": self._gemm_input_role,
+            "_axiswise_dim": self._axiswise_dim,
         }
         return ["_data", "_scale"], ctx
 
@@ -336,6 +348,7 @@ class Float8Tensor(torch.Tensor):
             metadata["_orig_dtype"],
             metadata["_linear_mm_config"],
             metadata["_gemm_input_role"],
+            metadata["_axiswise_dim"],
         )
 
     def to_original_precision(self):

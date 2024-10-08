@@ -180,7 +180,7 @@ def _register_custom_op(lib):
 
         # after this, `_the_op_that_needs_to_be_preserved` will be preserved as
         # torch.ops.my_namespace.the_op_that_needs_to_be_preserved operator after
-        # torch.export.export / torch._export.capture_pre_autograd_graph
+        # torch.export.export / torch._export.export_for_training
 
     """
     from torch._inductor.decomposition import register_decomposition

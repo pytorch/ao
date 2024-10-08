@@ -202,14 +202,16 @@ class TestQuantPrimitives(unittest.TestCase):
         self.assertTrue(torch.equal(scale, scale_ref))
         self.assertTrue(torch.equal(zero_point, zp_ref))
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "skipping when torch version is 2.3 or lower")
-    @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_6, "skipping when torch version is 2.6 or higher")
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_choose_qparams_token_asym(self):
         input = torch.randn(10, 10)
         mapping_type = MappingType.ASYMMETRIC
         dtype = torch.int8
         block_size = (1, 10)
-        scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, eps=torch.finfo(torch.float32).eps)
+        if TORCH_VERSION_AT_LEAST_2_6:
+            scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, eps=torch.finfo(torch.float32).eps, scale_dtype=torch.float64, zero_point_dtype=torch.int64)
+        else:
+            scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, eps=torch.finfo(torch.float32).eps)
 
         scale_ref, zp_ref = torch.ops.quantized_decomposed.choose_qparams_per_token_asymmetric(input, dtype)
         scale_ref = scale_ref.squeeze()
