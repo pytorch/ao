@@ -1624,7 +1624,7 @@ def _linear_fp8_act_fp8_weight_impl(
     out_shape = get_out_shape(input_tensor.shape, weight_tensor.shape)
 
     # Weight tensor preprocessing
-    w_tensor impl = weight_tensor.tensor_impl
+    w_tensor_impl = weight_tensor.tensor_impl
     assert not w_layout.transposed, "Weight tensor must be contiguous"
     w_data = w_layout.float8_data
     w_scale = w_layout.scale
