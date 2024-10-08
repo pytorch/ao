@@ -213,15 +213,15 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                 original_weight = original_layer.weight.tensor_impl.float8_data.to(
                     torch.float32
                 )
-                new_weight = new_layer.weight.tensor_impl.float8_data.to(
-                    torch.float32
-                )
+                new_weight = new_layer.weight.tensor_impl.float8_data.to(torch.float32)
             else:
                 original_weight = original_layer.weight.original_weight_tensor.tensor_impl.float8_data.to(
                     torch.float32
                 )
-                new_weight = new_layer.weight.original_weight_tensor.tensor_impl.float8_data.to(
-                    torch.float32
+                new_weight = (
+                    new_layer.weight.original_weight_tensor.tensor_impl.float8_data.to(
+                        torch.float32
+                    )
                 )
 
             assert torch.allclose(
