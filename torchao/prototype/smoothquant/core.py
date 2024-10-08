@@ -204,7 +204,9 @@ def _quantized_linear_impl(input_tensor, weight_tensor, bias):
     inv_smoothing_factor = weight_tensor.layout_tensor.layout_type.inv_smoothing_factor
     act_scales = weight_tensor.layout_tensor.layout_type.act_scales
     wei_scales = weight_tensor.layout_tensor.layout_type.wei_scales
+    input_shape = input_tensor.shape
     input = input_tensor * inv_smoothing_factor
+    input = input.reshape(-1, input_shape[-1])
     if (weight_tensor.device.type == "cpu" and not TORCH_VERSION_AT_LEAST_2_4) or \
         not TORCH_VERSION_AT_LEAST_2_2:
         # _int_mm is not available on CUDA until PyTorch 2.2
@@ -235,7 +237,7 @@ def _quantized_linear_impl(input_tensor, weight_tensor, bias):
         )
         if bias is not None:
             y += bias
-    return y.to(input_tensor.dtype)
+    return y.to(input_tensor.dtype).reshape(input_shape[:-1] + (-1,))
 
 
 def _linear_sq_check(input_tensor, weight_tensor, bias):
