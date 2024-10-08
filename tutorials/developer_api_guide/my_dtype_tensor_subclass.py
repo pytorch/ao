@@ -33,11 +33,11 @@ from torchao.utils import (
 aten = torch.ops.aten
 
 ###############################
-# Base Layout Tensor Subclass #
+# Base Tensor Impl Subclass #
 ###############################
-class MyDTypeLayout(torch.Tensor):
+class MyDTypeTensorImpl(torch.Tensor):
     """
-    Base class for the layout tensor for `MyDTypeTensor`
+    Base class for the tensor impl for `MyDTypeTensor`
     """
     # get the original unpacked Tensors
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -53,7 +53,7 @@ class MyDTypeLayout(torch.Tensor):
         scale: torch.Tensor,
         layout_type: LayoutType,
     ):
-        """Construct a layout tensor from plain tensors and a layout_type, which main contain
+        """Construct a tensor impl from plain tensors and a layout_type, which main contain
         extra metadata for packing etc.
         """
         pass
@@ -82,17 +82,17 @@ class MyDTypeTensor(TorchAOBaseTensor):
     @staticmethod
     def __new__(
         cls,
-        layout_tensor: MyDTypeLayout,
+        tensor_impl: MyDTypeTensorImpl,
         shape: torch.Size,
         dtype: Optional[torch.dtype] = None,
         requires_grad: bool = False,
     ):
         kwargs = {}
-        kwargs["device"] = layout_tensor.device
+        kwargs["device"] = tensor_impl.device
         kwargs["layout"] = (
             kwargs.get("layout")
             if kwargs.get("layout", False)
-            else layout_tensor.layout
+            else tensor_impl.layout
         )
         kwargs["dtype"] = dtype
         kwargs["requires_grad"] = requires_grad
@@ -100,12 +100,12 @@ class MyDTypeTensor(TorchAOBaseTensor):
 
     def __init__(
         self,
-        layout_tensor: MyDTypeLayout,
+        tensor_impl: MyDTypeTensorImpl,
         shape: torch.Size,
         dtype: Optional[torch.dtype] = None,
         requires_grad: bool = False,
     ):
-        self.layout_tensor = layout_tensor
+        self.tensor_impl = tensor_impl
 
     """__tensor_flatten__ and __tensor_unflatten__ are used to desugar the tensor into native Tensors/attributes and
     reconstruct the tensor subclass instance from the desugared tensor and attributes, these are required to define
@@ -118,7 +118,7 @@ class MyDTypeTensor(TorchAOBaseTensor):
         The first one contains any tensor fields such as int_data and scale as keys to a dictionary
         The second one contains all other non tensor type fields as values of a list
         """
-        return ["layout_tensor"], [self.shape, self.dtype, self.requires_grad]
+        return ["tensor_impl"], [self.shape, self.dtype, self.requires_grad]
 
     @classmethod
     def __tensor_unflatten__(
@@ -129,10 +129,10 @@ class MyDTypeTensor(TorchAOBaseTensor):
         tensor_data_dict contains the tensor fields of the class as a dictionary
         tensor_attributes contains all other non tensor type fields
         """
-        layout_tensor = tensor_data_dict["layout_tensor"]
+        tensor_impl = tensor_data_dict["tensor_impl"]
         shape, dtype, requires_grad = tensor_attributes
         return cls(
-            layout_tensor,
+            tensor_impl,
             shape if outer_size is None else outer_size,
             dtype=dtype,
             requires_grad=requires_grad,
@@ -152,25 +152,25 @@ class MyDTypeTensor(TorchAOBaseTensor):
         dtype = torch.int16
         scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, dtype)
         int_data = quantize_affine(input_float, block_size, scale, zero_point, dtype)
-        layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
-        layout_tensor = layout_tensor_ctr(int_data, scale, layout_type)
-        return cls(layout_tensor, input_float.shape)
+        tensor_impl_ctr = get_tensor_impl_constructor(type(layout_type))
+        tensor_impl = tensor_impl_ctr(int_data, scale, layout_type)
+        return cls(tensor_impl, input_float.shape)
 
     """[Optional] We can overwrite layout property of the Tensor to represent different packing formats
     """
 
     @property
     def layout_type(self) -> LayoutType:
-        return self.layout_tensor.layout_type
+        return self.tensor_impl.layout_type
 
     def dequantize(self, output_dtype=None):
         """We can define a dequantize method to convert the quantized tensor to a floating point tensor"""
         if output_dtype is None:
             output_dtype = torch.get_default_dtype()
-        int_data, scale = self.layout_tensor.get_plain()
+        int_data, scale = self.tensor_impl.get_plain()
         transposed = False
         block_size = (1, int_data.shape[-1])
-        if hasattr(self.layout_tensor, "transposed") and self.layout_tensor.transposed:
+        if hasattr(self.tensor_impl, "transposed") and self.tensor_impl.transposed:
             transposed = True
         res = dequantize_affine(int_data, block_size, scale, None, int_data.dtype, output_dtype=output_dtype)
         if transposed:
@@ -186,10 +186,10 @@ class MyDTypeTensor(TorchAOBaseTensor):
     def _apply_fn_to_data(self, fn):
         """
         Used for implementing aten ops by applying them only to the relevant tensor atributes
-        In this case we only want to call things like to() or view() on the layout tensor
+        In this case we only want to call things like to() or view() on the tensor impl
         """
         return self.__class__(
-            fn(self.layout_tensor),
+            fn(self.tensor_impl),
             self.shape,
             self.dtype,
         )
@@ -206,14 +206,14 @@ class MyDTypeTensor(TorchAOBaseTensor):
     """
 
 ######################################################
-# LayoutType and Layout Tensor Subclass Registration #
+# LayoutType and TensorImpl Subclass Registration #
 ######################################################
 
-register_layout_cls = MyDTypeTensor.register_layout_cls
-get_layout_tensor_constructor = MyDTypeTensor.get_layout_tensor_constructor
+register_layout = MyDTypeTensor.register_layout
+get_tensor_impl_constructor = MyDTypeTensor.get_tensor_impl_constructor
 
-@register_layout_cls(PlainLayoutType)
-class PlainMyDTypeLayout(MyDTypeLayout):
+@register_layout(PlainLayoutType)
+class PlainMyDTypeTensorImpl(MyDTypeTensorImpl):
     def __new__(
         cls,
         int_data: torch.Tensor,
@@ -261,7 +261,7 @@ class PlainMyDTypeLayout(MyDTypeLayout):
         scale: torch.Tensor,
         layout_type: LayoutType,
     ):
-        """Construct a layout tensor from plain tensors and a layout_type, which main contain
+        """Construct a tensor impl from plain tensors and a layout_type, which main contain
         extra metadata for packing etc.
         """
         assert isinstance(layout_type, PlainLayoutType)
@@ -292,11 +292,11 @@ class PlainMyDTypeLayout(MyDTypeLayout):
         elif func is aten.split.Tensor:
             int_data_list = func(args[0].int_data, *args[1:], **kwargs)
             scale_list = func(args[0].scale, *args[1:], **kwargs)
-            out = [PlainMyDTypeLayout(int_data, scale, args[0].transposed, args[0].layout_type) for int_data, scale in zip(int_data_list, scale_list)]
+            out = [PlainMyDTypeTensorImpl(int_data, scale, args[0].transposed, args[0].layout_type) for int_data, scale in zip(int_data_list, scale_list)]
             return out
         elif func is aten.empty_like.default:
             int_data_empty_like = func(args[0].int_data, *args[1:], **kwargs)
-            return PlainMyDTypeLayout(int_data_empty_like, args[0].scale, args[0].transposed, args[0].layout_type)
+            return PlainMyDTypeTensorImpl(int_data_empty_like, args[0].scale, args[0].transposed, args[0].layout_type)
         elif func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
             if dim == 0:
@@ -304,16 +304,16 @@ class PlainMyDTypeLayout(MyDTypeLayout):
                     func, args, kwargs, args[0]._apply_fn_to_data(lambda x: aten.slice.Tensor(x, dim, start, end, step))
                 )
             elif dim == 1:
-                return PlainMyDTypeLayout(aten.slice.Tensor(self.int_data, dim, start, end, step), self.scale.view(-1), self.transposed, self.layout_type)
+                return PlainMyDTypeTensorImpl(aten.slice.Tensor(self.int_data, dim, start, end, step), self.scale.view(-1), self.transposed, self.layout_type)
             else:
-                raise NotImplementedError(f"PlainMyDTypeLayout dispatch: attempting to run {func}, with dim={dim}, that is not supported")
+                raise NotImplementedError(f"PlainMyDTypeTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported")
         elif func is aten.t.default:
-            return return_and_correct_aliasing(func, args, kwargs, PlainMyDTypeLayout(args[0].int_data, args[0].scale, not args[0].transposed, args[0].layout_type))
+            return return_and_correct_aliasing(func, args, kwargs, PlainMyDTypeTensorImpl(args[0].int_data, args[0].scale, not args[0].transposed, args[0].layout_type))
 
         # Tensor parallel support END
 
         raise NotImplementedError(
-            f"PlainMyDTypeLayout dispatch: attempting to run {func}, this is not supported"
+            f"PlainMyDTypeTensorImpl dispatch: attempting to run {func}, this is not supported"
         )
 
 #####################################################
