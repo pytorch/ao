@@ -4,11 +4,11 @@ from dataclasses import dataclass
 
 """
 Base class for different LayoutType, should not be instantiated directly
-used to allow users to pass around configurations for the layout, e.g. inner_k_tiles
-for int4 tensor core tiled layout
+used to allow users to pass around configurations for the tensor impl, e.g. inner_k_tiles
+for int4 tensor core tiled tensor impl
 
-Note: Layout (https://pytorch.org/docs/stable/tensor_attributes.html#torch-layout) is an abstraction not only for custom data representation, it is also used for how the
-Tensor interacts with different operators, e.g. the same data representation can have different
+Note: TensorImpl is an abstraction not only for custom data representation, it is also used for how the
+tensorImpl interacts with different operators, e.g. the same data representation can have different
 behaviors when running the same operator, e.g. transpose, quantized_linear.
 """
 @dataclass(frozen=True)
