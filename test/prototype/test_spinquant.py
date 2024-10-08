@@ -1,23 +1,31 @@
+import importlib
 import pytest
 import torch
 from torchao._models.llama.model import Transformer
 from torchao.prototype.spinquant.spinquant import apply_spinquant
 
-_AVAILABLE_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+
+def _is_package_available(pkg_name):
+    return importlib.util.find_spec(pkg_name) is not None
 
 
-def init_model(name="7B", device="cpu", precision=torch.bfloat16):
+def _init_model(name="7B", device="cpu", precision=torch.bfloat16):
     model = Transformer.from_name(name)
     model.to(device=device, dtype=precision)
     return model.eval()
 
 
+_AVAILABLE_DEVICES = ["cpu"]
+if torch.cuda.is_available() and _is_package_available("fast_hadamard_transform"):
+    _AVAILABLE_DEVICES.append("cuda")
+
+
 @pytest.mark.parametrize("device", _AVAILABLE_DEVICES)
-@pytest.mark.parametrize("is_training", [False])
-def test_spinquant_no_quantization(device, is_training):
-    model = init_model(device=device)
+def test_spinquant_no_quantization(device):
+    model = _init_model(device=device)
     seq_len = 16
     batch_size = 1
+    is_training = False
     input_ids = torch.randint(0, 1024, (batch_size, seq_len)).to(device)
     input_pos = None if is_training else torch.arange(seq_len).to(device)
     with torch.device(device):
