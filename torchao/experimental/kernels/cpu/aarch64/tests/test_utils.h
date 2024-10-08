@@ -43,6 +43,27 @@ inline std::vector<uint8_t> get_random_lowbit_vector(int size, int nbit) {
   return res;
 }
 
+inline std::vector<int8_t> get_random_signed_lowbit_vector(int size, int nbit) {
+  assert(nbit >= 1);
+  assert(nbit <= 8);
+
+  int min = 0;
+  int max = (1 << nbit) - 1;
+  int offset = (1 << (nbit - 1));
+
+  std::random_device random_device;
+  auto rng = std::mt19937(random_device());
+  auto dist = std::bind(std::uniform_int_distribution<>(min, max), rng);
+
+  std::vector<int8_t> res(size);
+  std::vector<int16_t> tmp(size);
+  std::generate(tmp.begin(), tmp.end(), std::ref(dist));
+  for (int i = 0; i < size; i++) {
+    res[i] = tmp[i] - offset;
+  }
+  return res;
+}
+
 struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
   int m;
   int k;
@@ -271,6 +292,86 @@ struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
         weight_scales,
         weight_zeros,
         bias);
+  }
+};
+
+template <int weight_nbit>
+struct lowbit_embedding_test_case {
+  int num_embeddings;
+  int embedding_dim;
+  int group_size;
+  std::vector<int8_t> weight_qvals;
+  std::vector<float> weight_scales;
+  std::vector<int8_t> weight_zeros;
+  std::vector<float> expected_outputs;
+
+  lowbit_embedding_test_case(
+      int num_embeddings,
+      int embedding_dim,
+      int group_size,
+      std::vector<int8_t> weight_qvals,
+      std::vector<float> weight_scales,
+      std::vector<int8_t> weight_zeros,
+      std::vector<float> expected_outputs)
+      : num_embeddings{num_embeddings},
+        embedding_dim{embedding_dim},
+        group_size{group_size},
+        weight_qvals{weight_qvals},
+        weight_scales{weight_scales},
+        weight_zeros{weight_zeros},
+        expected_outputs{expected_outputs} {
+    assert(embedding_dim % group_size == 0);
+    int groups_per_embedding = embedding_dim / group_size;
+    assert(weight_qvals.size() == num_embeddings * embedding_dim);
+    assert(weight_scales.size() == num_embeddings * groups_per_embedding);
+    assert(weight_zeros.size() == num_embeddings * groups_per_embedding);
+    assert(expected_outputs.size() == num_embeddings * embedding_dim);
+  }
+
+  static lowbit_embedding_test_case generate(
+      int num_embeddings,
+      int embedding_dim,
+      int group_size,
+      bool has_weight_zeros) {
+    int groups_per_embedding = embedding_dim / group_size;
+
+    auto weight_qvals = get_random_signed_lowbit_vector(
+        num_embeddings * embedding_dim, weight_nbit);
+    auto weight_scales =
+        get_random_vector(num_embeddings * groups_per_embedding, 0.1, 1.0);
+
+    std::vector<int8_t> weight_zeros;
+    if (has_weight_zeros) {
+      weight_zeros = get_random_signed_lowbit_vector(
+          num_embeddings * groups_per_embedding, weight_nbit);
+    } else {
+      weight_zeros =
+          std::vector<int8_t>(num_embeddings * groups_per_embedding, 0);
+    }
+
+    auto expected_outputs = std::vector<float>(num_embeddings * embedding_dim);
+    for (int embedding_idx = 0; embedding_idx < num_embeddings;
+         embedding_idx++) {
+      for (int j = 0; j < embedding_dim; j++) {
+        auto qval = weight_qvals[embedding_idx * embedding_dim + j];
+        // std::cout << "qval: " << (int)qval << std::endl;
+        auto scale = weight_scales
+            [embedding_idx * groups_per_embedding + j / group_size];
+        auto zero =
+            weight_zeros[embedding_idx * groups_per_embedding + j / group_size];
+        expected_outputs[embedding_idx * embedding_dim + j] =
+            scale * (qval - zero);
+      }
+    }
+
+    return lowbit_embedding_test_case(
+        num_embeddings,
+        embedding_dim,
+        group_size,
+        weight_qvals,
+        weight_scales,
+        weight_zeros,
+        expected_outputs);
   }
 };
 
