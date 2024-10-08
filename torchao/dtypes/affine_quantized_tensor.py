@@ -51,17 +51,17 @@ from torchao.float8.inference import Float8MMConfig
 aten = torch.ops.aten
 
 ###############################
-# Base Layout Tensor Subclass #
+# Base Tensor Impl Subclass #
 ###############################
-class AQTLayout(TorchAOBaseTensor):
+class AQTTensorImpl(TorchAOBaseTensor):
     """
-    Base class for the layout tensor for `AffineQuantizedTensor`
+    Base class for the tensor impl for `AffineQuantizedTensor`
     """
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Get the plain (unpacked) Tensor for the layout Tensor
+        """Get the plain (unpacked) Tensor for the tensor impl
 
         Returns data, scale and zero_point
-        Can be overwritten if other types of AQTLayout Tensor has different numbers of plain tensors
+        Can be overwritten if other types of AQTTensorImpl has different numbers of plain tensors
         """
         pass
 
@@ -76,7 +76,7 @@ class AQTLayout(TorchAOBaseTensor):
         zero_point: torch.Tensor,
         layout_type: LayoutType,
     ):
-        """ Construct a Layout from data, scale, zero_point and the layout_type"""
+        """ Construct a TensorImpl from data, scale, zero_point and the layout_type"""
         pass
 
     def __repr__(self):
@@ -131,7 +131,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
     regardless of the internal representation's type or orientation.
 
     fields:
-      layout_tensor (AQTLayout): tensor that serves as a general layout storage for the quantized data,
+      tensor_impl (AQTTensorImpl): tensor that serves as a general tensor impl storage for the quantized data,
          e.g. storing plain tensors (int_data, scale, zero_point) or packed formats depending on device
          and operator/kernel
       block_size (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
@@ -151,7 +151,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
     @staticmethod
     def __new__(
         cls,
-        layout_tensor: AQTLayout,
+        tensor_impl: AQTTensorImpl,
         block_size: Tuple[int, ...],
         shape: torch.Size,
         quant_min: Optional[Union[int, float]] = None,
@@ -161,9 +161,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         strides=None,
     ):
         kwargs = {}
-        kwargs["device"] = layout_tensor.device
+        kwargs["device"] = tensor_impl.device
         kwargs["layout"] = (
-            kwargs.get("layout") if kwargs.get("layout", False) else layout_tensor.layout
+            kwargs.get("layout") if kwargs.get("layout", False) else tensor_impl.layout
         )
         kwargs["dtype"] = dtype
         if strides is not None:
@@ -173,7 +173,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
 
     def __init__(
         self,
-        layout_tensor: AQTLayout,
+        tensor_impl: AQTTensorImpl,
         block_size: Tuple[int, ...],
         shape: torch.Size,
         quant_min: Optional[Union[int, float]] = None,
@@ -182,7 +182,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         dtype=None,
         strides=None,
     ):
-        self.layout_tensor = layout_tensor
+        self.tensor_impl = tensor_impl
         self.block_size = block_size
         self.quant_min = quant_min
         self.quant_max = quant_max
@@ -190,12 +190,12 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
 
     def __repr__(self):
         return (
-            f"{self.__class__.__name__}(layout_tensor={self.layout_tensor}, block_size={self.block_size}, "
+            f"{self.__class__.__name__}(tensor_impl={self.tensor_impl}, block_size={self.block_size}, "
             f"shape={self.shape}, device={self.device}, dtype={self.dtype}, requires_grad={self.requires_grad})"
         )
 
     def _quantization_type(self):
-        return f"shape={self.shape}, block_size={self.block_size}, device={self.device}, layout_type={self.layout_type}, layout_tensor_dtype={self.layout_tensor.dtype}, quant_min={self.quant_min}, quant_max={self.quant_max}"
+        return f"shape={self.shape}, block_size={self.block_size}, device={self.device}, layout_type={self.layout_type}, tensor_impl_dtype={self.tensor_impl.dtype}, quant_min={self.quant_min}, quant_max={self.quant_max}"
 
     def dequantize(self, output_dtype: Optional[torch.dtype] = None) -> torch.Tensor:
         if output_dtype is None:
@@ -203,10 +203,10 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
 
         from torchao.dtypes.floatx import FloatxTensorCoreLayoutType
         if isinstance(self.layout_type, FloatxTensorCoreLayoutType):
-            int_data, scale = self.layout_tensor.get_plain()
+            int_data, scale = self.tensor_impl.get_plain()
             return dequantize_affine_floatx(int_data, scale, self.layout_type.ebits, self.layout_type.mbits, output_dtype=output_dtype)
         else:
-            data, scale, zero_point = self.layout_tensor.get_plain()
+            data, scale, zero_point = self.tensor_impl.get_plain()
             dq = dequantize_affine(
                 data,
                 self.block_size,
@@ -232,16 +232,16 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         raise QuantizedLinearNotImplementedError("No specialized dispatch found for quantized linear op")
 
     def __tensor_flatten__(self):
-        return ["layout_tensor"], [self.block_size, self.shape, self.quant_min, self.quant_max, self.zero_point_domain, self.dtype]
+        return ["tensor_impl"], [self.block_size, self.shape, self.quant_min, self.quant_max, self.zero_point_domain, self.dtype]
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
-        layout_tensor = tensor_data_dict["layout_tensor"]
+        tensor_impl = tensor_data_dict["tensor_impl"]
         block_size, shape, quant_min, quant_max, zero_point_domain, dtype = tensor_attributes
         return cls(
-            layout_tensor,
+            tensor_impl,
             block_size,
             shape if outer_size is None else outer_size,
             quant_min,
@@ -289,10 +289,10 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             # Note: output will be uint8 tensor for sub byte tensors for now
 
         data = layout_type.post_process(data)
-        layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
-        layout_tensor = layout_tensor_ctr(data, scale, zero_point, layout_type)
+        tensor_impl_ctr = get_tensor_impl_constructor(type(layout_type))
+        tensor_impl = tensor_impl_ctr(data, scale, zero_point, layout_type)
         return cls(
-            layout_tensor,
+            tensor_impl,
             block_size,
             original_shape,
             quant_min,
@@ -324,10 +324,10 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
 
         int_data = layout_type.post_process(int_data)
 
-        layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
-        layout_tensor = layout_tensor_ctr(int_data, scale, zero_point, layout_type)
+        tensor_impl_ctr = get_tensor_impl_constructor(type(layout_type))
+        tensor_impl = tensor_impl_ctr(int_data, scale, zero_point, layout_type)
         return cls(
-            layout_tensor,
+            tensor_impl,
             block_size,
             original_shape,
             quant_min,
@@ -410,10 +410,10 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         floatx_unpacked = quantize_affine_floatx(input_float, scale, ebits, mbits)
         floatx_packed = layout_type.post_process(floatx_unpacked)
 
-        layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
-        layout_tensor = layout_tensor_ctr(floatx_packed, scale, None, layout_type)
+        tensor_impl_ctr = get_tensor_impl_constructor(type(layout_type))
+        tensor_impl = tensor_impl_ctr(floatx_packed, scale, None, layout_type)
         return cls(
-            layout_tensor,
+            tensor_impl,
             block_size,
             original_shape,
             dtype=input_float.dtype
@@ -421,13 +421,13 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
 
     @property
     def layout_type(self) -> LayoutType:
-        return self.layout_tensor.layout_type
+        return self.tensor_impl.layout_type
 
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
         device = kwargs.pop("device")
         return self.__class__(
-            self.layout_tensor.to(device),
+            self.tensor_impl.to(device),
             self.block_size,
             self.shape,
             self.quant_min,
@@ -438,7 +438,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
 
     def _apply_fn_to_data(self, fn):
         return self.__class__(
-            fn(self.layout_tensor),
+            fn(self.tensor_impl),
             self.block_size,
             self.shape,
             self.quant_min,
@@ -464,10 +464,10 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
 
 
 ######################################################
-# LayoutType and Layout Tensor Subclass Registration #
+# LayoutType and TensorImpl Subclass Registration #
 ######################################################
-register_layout_cls = AffineQuantizedTensor.register_layout_cls
-get_layout_tensor_constructor = AffineQuantizedTensor.get_layout_tensor_constructor
+register_layout = AffineQuantizedTensor.register_layout
+get_tensor_impl_constructor = AffineQuantizedTensor.get_tensor_impl_constructor
 
 @dataclass(frozen=True)
 class SemiSparseLayoutType(LayoutType):
@@ -548,10 +548,10 @@ class MarlinSparseLayoutType(LayoutType):
         return w_24.t()
 
 
-@register_layout_cls(PlainLayoutType)
-class PlainAQTLayout(AQTLayout):
+@register_layout(PlainLayoutType)
+class PlainAQTTensorImpl(AQTTensorImpl):
     """
-    Layout storage class for plain layout for affine quantized tensor, it stores int_data, scale, zero_point
+    TensorImpl storage class for plain layout for affine quantized tensor, it stores int_data, scale, zero_point
     tensors directly as plain tensors.
 
     fields:
@@ -645,12 +645,12 @@ class PlainAQTLayout(AQTLayout):
                 )
             elif dim == 1:
                 assert len(self.scale.shape) == 1, f"slice dim==1 only works when len(scale.shape) == 1 currently, got: {self.scale.shape}"
-                return PlainAQTLayout(aten.slice.Tensor(self.int_data, dim, start, end, step), self.scale.view(-1), self.zero_point.view(-1), self.layout_type)
+                return PlainAQTTensorImpl(aten.slice.Tensor(self.int_data, dim, start, end, step), self.scale.view(-1), self.zero_point.view(-1), self.layout_type)
             else:
-                raise NotImplementedError(f"PlainAQTLayout dispatch: attempting to run {func}, with dim={dim}, that is not supported")
+                raise NotImplementedError(f"PlainAQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported")
 
         raise NotImplementedError(
-            f"PlainAQTLayout dispatch: attempting to run {func}, this is not supported"
+            f"PlainAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
         )
 
     __torch_function__ = torch._C._disabled_torch_function_impl
@@ -672,10 +672,10 @@ class PlainAQTLayout(AQTLayout):
         assert isinstance(layout_type, PlainLayoutType)
         return cls(int_data, scale, zero_point, layout_type)
 
-@register_layout_cls(SemiSparseLayoutType)
-class SemiSparseAQTLayout(PlainAQTLayout):
+@register_layout(SemiSparseLayoutType)
+class SemiSparseAQTTensorImpl(PlainAQTTensorImpl):
     """
-    Layout storage class for semi_sparse_cusparselt layout for affine quantized tensor
+    TensorImpl storage class for semi_sparse_cusparselt layout for affine quantized tensor
     """
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
@@ -687,7 +687,7 @@ class SemiSparseAQTLayout(PlainAQTLayout):
             )
 
         raise NotImplementedError(
-            f"SparseAQTLayout dispatch: attempting to run {func}, this is not supported"
+            f"SparseAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
         )
 
     def get_plain(self):
@@ -712,8 +712,8 @@ class SemiSparseAQTLayout(PlainAQTLayout):
         int_data_compressed = torch._cslt_compress(int_data)
         return cls(int_data_compressed, scale, zero_point, layout_type)
 
-@register_layout_cls(BlockSparseLayoutType)
-class BlockSparseAQTLayout(PlainAQTLayout):
+@register_layout(BlockSparseLayoutType)
+class BlockSparseAQTTensorImpl(PlainAQTTensorImpl):
     bsr_crow_indices: Optional[torch.Tensor]
     bsr_col_indices: Optional[torch.Tensor]
     bsr_values: Optional[torch.Tensor]
@@ -849,13 +849,13 @@ class BlockSparseAQTLayout(PlainAQTLayout):
             return args[0].bsr_values.shape[0]
 
         raise NotImplementedError(
-            f"BlockSparseAQTLayout dispatch: attempting to run {func}, this is not supported"
+            f"BlockSparseAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
         )
 
-@register_layout_cls(MarlinSparseLayoutType)
-class MarlinSparseAQTLayout(AQTLayout):
+@register_layout(MarlinSparseLayoutType)
+class MarlinSparseAQTTensorImpl(AQTTensorImpl):
     """
-    Layout storage class for sparse_marlin_24 layout for affine quantized tensor.
+    TensorImpl storage class for sparse_marlin_24 layout for affine quantized tensor.
 
     Can be used with 4 bits and 8 bits quantization.
 
@@ -922,7 +922,7 @@ class MarlinSparseAQTLayout(AQTLayout):
             )
 
         raise NotImplementedError(
-            f"MarlinSparseAQTLayout dispatch: attempting to run {func}, this is not supported"
+            f"MarlinSparseAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
         )
 
     def __tensor_flatten__(self):
@@ -1022,10 +1022,10 @@ class MarlinSparseAQTLayout(AQTLayout):
         return self
 
 
-@register_layout_cls(Float8LayoutType)
-class Float8AQTLayout(AQTLayout):
+@register_layout(Float8LayoutType)
+class Float8AQTTensorImpl(AQTTensorImpl):
     """
-    Layout storage class for float8 layout for affine quantized tensor
+    TensorImpl storage class for float8 tensor impl for affine quantized tensor
     """
     float8_data: torch.Tensor
     scale: torch.Tensor
@@ -1112,12 +1112,12 @@ class Float8AQTLayout(AQTLayout):
                 )
             elif dim == 1:
                 assert len(self.scale.shape) == 1, f"slice dim==1 only works when len(scale.shape) == 1 currently, got: {self.scale.shape}"
-                return Float8AQTLayout(aten.slice.Tensor(self.float8_data, dim, start, end, step), self.scale, None, self.layout_type)
+                return Float8AQTTensorImpl(aten.slice.Tensor(self.float8_data, dim, start, end, step), self.scale, None, self.layout_type)
             else:
-                raise NotImplementedError(f"Float8AQTLayout dispatch: attempting to run {func}, with dim={dim}, that is not supported")
+                raise NotImplementedError(f"Float8AQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported")
         else:
             raise NotImplementedError(
-                f"Float8AQTLayout dispatch: attempting to run {func}, this is not supported"
+                f"Float8AQTTensorImpl dispatch: attempting to run {func}, this is not supported"
             )
 
     __torch_function__ = torch._C._disabled_torch_function_impl
@@ -1136,9 +1136,9 @@ class Float8AQTLayout(AQTLayout):
         zero_point: Optional[torch.Tensor],
         layout_type: LayoutType,
     ):
-        """ Main entrypoint for constructing Float8Layout Tensor"""
-        assert _is_float8_type(data.dtype), f"Float8 Layout must be constructed from float8 dtype but got {data.dtype}"
-        assert isinstance(layout_type, Float8LayoutType), f"Float8 Layout must be constructed from Float8LayoutType but got {layout_type}"
+        """ Main entrypoint for constructing Float8TensorImpl"""
+        assert _is_float8_type(data.dtype), f"Float8 TensorImpl must be constructed from float8 dtype but got {data.dtype}"
+        assert isinstance(layout_type, Float8LayoutType), f"Float8 TensorImpl must be constructed from Float8LayoutType but got {layout_type}"
         return cls(data, scale, False, layout_type)
 
     def __repr__(self):
@@ -1151,10 +1151,10 @@ class Float8AQTLayout(AQTLayout):
                 f"layout_type={layout_type})")
 
 
-@register_layout_cls(TensorCoreTiledLayoutType)
-class TensorCoreTiledAQTLayout(AQTLayout):
+@register_layout(TensorCoreTiledLayoutType)
+class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
     """
-    Layout storage class for tensor_core_tiled layout for affine quantized tensor, this is for int4 only,
+    TensorImpl storage class for tensor_core_tiled tensor impl for affine quantized tensor, this is for int4 only,
     it stores the original tensor of dimension [n][k] (int32 dtype) as packed weight of 4-d tensor of
     dimension: [n / 8][k / (inner_k_tiles * 16)][32][inner_k_tiles / 2]
 
@@ -1230,7 +1230,7 @@ class TensorCoreTiledAQTLayout(AQTLayout):
         kwargs = self._get_to_kwargs(*args, **kwargs)
         device = kwargs["device"]
         if not is_device("cuda", device):
-            raise ValueError(f"TensorCoreTiledAQTLayout is only available for cuda device, can't convert to {device}")
+            raise ValueError(f"TensorCoreTiledAQTTensorImpl is only available for cuda device, can't convert to {device}")
         return self.__class__(
             self.packed_weight.to(device),
             self.scale_and_zero.to(device),
@@ -1265,7 +1265,7 @@ class TensorCoreTiledAQTLayout(AQTLayout):
             return return_and_correct_aliasing(func, args, kwargs, args[0])
 
         raise NotImplementedError(
-            f"TensorCoreTiledAQTLayout dispatch: attempting to run {func}, this is not supported"
+            f"TensorCoreTiledAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
         )
 
     __torch_function__ = torch._C._disabled_torch_function_impl
@@ -1311,14 +1311,14 @@ class TensorCoreTiledAQTLayout(AQTLayout):
 def _aqt_is_int8(aqt):
     """Check if an AffineQuantizedTensor is int8 quantized Tensor"""
     return (
-        aqt.layout_tensor.dtype == torch.int8 and
+        aqt.tensor_impl.dtype == torch.int8 and
         (aqt.quant_min is None or aqt.quant_min == -128) and
         (aqt.quant_max is None or aqt.quant_max == 127)
     )
 
 def _aqt_is_int8_reduced_range(aqt):
     return (
-        aqt.layout_tensor.dtype == torch.int8 and
+        aqt.tensor_impl.dtype == torch.int8 and
         aqt.quant_min == -127 and
         (aqt.quant_max is None or aqt.quant_max == 127)
     )
@@ -1327,7 +1327,7 @@ def _aqt_is_tensor_core_tile_uint4(aqt):
     """Check if an AffineQuantizedTensor is uint4 quantized Tensor"""
     # TODO: use torch.uint4
     return (
-        aqt.layout_tensor.dtype == torch.int32 and
+        aqt.tensor_impl.dtype == torch.int32 and
         aqt.quant_min == 0 and
         aqt.quant_max == 15
     )
@@ -1364,10 +1364,10 @@ def _linear_int8_act_int8_weight_impl(input_tensor, weight_tensor, bias):
     # value of a float 16, (which results in a value of inf even if multiplying
     # by the other scale would bring it within the expected range)
 
-    x_vals_int8 = input_tensor.layout_tensor.int_data
-    x_scales = input_tensor.layout_tensor.scale
-    w_vals_int8_t = weight_tensor.layout_tensor.int_data.contiguous().t()
-    w_scales = weight_tensor.layout_tensor.scale
+    x_vals_int8 = input_tensor.tensor_impl.int_data
+    x_scales = input_tensor.tensor_impl.scale
+    w_vals_int8_t = weight_tensor.tensor_impl.int_data.contiguous().t()
+    w_scales = weight_tensor.tensor_impl.scale
     tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
     y_dot_scaled = int_scaled_matmul(tmp, w_vals_int8_t, x_scales.reshape(-1, 1))
 
@@ -1395,10 +1395,10 @@ def _linear_int8_act_int8_weight_semi_structured_sparse_check(input_tensor, weig
     )
 
 def _linear_int8_act_int8_weight_semi_structured_sparse_impl(input_tensor, weight_tensor, bias):
-    x_vals_int8 = input_tensor.layout_tensor.int_data
-    x_scales = input_tensor.layout_tensor.scale
-    w_vals_int8 = weight_tensor.layout_tensor.int_data
-    w_scales = weight_tensor.layout_tensor.scale
+    x_vals_int8 = input_tensor.tensor_impl.int_data
+    x_scales = input_tensor.tensor_impl.scale
+    w_vals_int8 = weight_tensor.tensor_impl.int_data
+    w_scales = weight_tensor.tensor_impl.scale
     tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
     # we fuse one of the scalar matrix multiplications (w_scales) into the sparse mm
     y_dot_bf16_w_scales_fused = torch._cslt_sparse_mm(
@@ -1427,10 +1427,10 @@ def _linear_int8_act_int8_weight_block_sparse_check(input_tensor, weight_tensor,
 
 
 def _linear_int8_act_int8_weight_block_sparse_impl(input_tensor, weight_tensor, bias):
-    x_vals_int8 = input_tensor.layout_tensor.int_data
-    x_scales = input_tensor.layout_tensor.scale
-    w_vals = weight_tensor.layout_tensor
-    w_scales = weight_tensor.layout_tensor.scale
+    x_vals_int8 = input_tensor.tensor_impl.int_data
+    x_scales = input_tensor.tensor_impl.scale
+    w_vals = weight_tensor.tensor_impl
+    w_scales = weight_tensor.tensor_impl.scale
     tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
     tmp_t = tmp.t()
 
@@ -1456,7 +1456,7 @@ def _linear_bf16_act_uint4_weight_check(input_tensor, weight_tensor, bias):
         # input is native bfloat16 tensor
         not is_traceable_wrapper_subclass(input_tensor) and
         input_tensor.dtype == torch.bfloat16 and
-        # weight is uint4, group quantized tensor_core_tiled layout affine quantized tensor
+        # weight is uint4, group quantized tensor_core_tiled tensor impl affine quantized tensor
         isinstance(weight_tensor, AffineQuantizedTensor) and
         _aqt_is_tensor_core_tile_uint4(weight_tensor) and
         weight_tensor.dtype == torch.bfloat16 and
@@ -1478,8 +1478,8 @@ def _linear_bf16_act_uint4_weight_impl(input_tensor, weight_tensor, bias):
     act_mat = input_tensor
     # weight is packed from padded (out_features, in_features) weight tensor
     # (same dimension requirement as F.linear weight)
-    packed_weight = weight_tensor.layout_tensor.packed_weight
-    scale_and_zero = weight_tensor.layout_tensor.scale_and_zero
+    packed_weight = weight_tensor.tensor_impl.packed_weight
+    scale_and_zero = weight_tensor.tensor_impl.scale_and_zero
 
     orig_act_size = act_mat.size()
     orig_dtype = act_mat.dtype
@@ -1522,11 +1522,11 @@ def _linear_fp_act_int8_weight_check(input_tensor, weight_tensor, bias):
 def _linear_fp_act_int8_weight_impl(input_tensor, weight_tensor, bias):
     # TODO: enable cpu and mps efficient path
     # is_cpu and is_mps only, some issue with is_contiguous() currently
-    # return torch.ops.aten._weight_int8pack_mm(input_tensor.contiguous(), w_vals_int8_t, weight_tensor.layout_tensor.scale)
+    # return torch.ops.aten._weight_int8pack_mm(input_tensor.contiguous(), w_vals_int8_t, weight_tensor.tensor_impl.scale)
 
     # per channel int8 weight only quantizated mm
-    w_vals_int8_t = weight_tensor.layout_tensor.int_data.t()
-    scale = weight_tensor.layout_tensor.scale
+    w_vals_int8_t = weight_tensor.tensor_impl.int_data.t()
+    scale = weight_tensor.tensor_impl.scale
     orig_dtype = input_tensor.dtype
     m = torch.mm(
         input_tensor.reshape(-1, input_tensor.shape[-1]),
@@ -1580,8 +1580,8 @@ def _linear_f16_act_floatx_weight_impl(input_tensor, weight_tensor, bias):
         weight.layout_type.ebits,
         weight.layout_type.mbits,
         act_reshaped,
-        weight.layout_tensor.packed_floatx_data,
-        weight.layout_tensor.scale,
+        weight.tensor_impl.packed_floatx_data,
+        weight.tensor_impl.scale,
         splitK=splitK,
     )
 
@@ -1599,7 +1599,7 @@ def _linear_fp8_act_fp8_weight_check(
         return (
             isinstance(aqt, AffineQuantizedTensor) and
             isinstance(aqt.layout_type, Float8LayoutType)
-            and aqt.layout_tensor.dtype in [torch.float8_e4m3fn, torch.float8_e5m2]
+            and aqt.tensor_impl.dtype in [torch.float8_e4m3fn, torch.float8_e5m2]
             and (aqt.shape == aqt.block_size or _is_rowwise_scaled(aqt))
         )
     return check_aqt(input_tensor) and check_aqt(weight_tensor)
@@ -1624,14 +1624,14 @@ def _linear_fp8_act_fp8_weight_impl(
     out_shape = get_out_shape(input_tensor.shape, weight_tensor.shape)
 
     # Weight tensor preprocessing
-    w_layout = weight_tensor.layout_tensor
-    assert not w_layout.transposed, "Weight tensor must be contiguous"
-    w_data = w_layout.float8_data
-    w_scale = w_layout.scale
+    w_tensor_impl = weight_tensor.tensor_impl
+    assert not w_tensor_impl.transposed, "Weight tensor must be contiguous"
+    w_data = w_tensor_impl.float8_data
+    w_scale = w_tensor_impl.scale
 
     # Input tensor preprocessing
-    inpt_data = input_tensor.layout_tensor.float8_data
-    input_scale = input_tensor.layout_tensor.scale
+    inpt_data = input_tensor.tensor_impl.float8_data
+    input_scale = input_tensor.tensor_impl.scale
     # Handle case where input tensor is more than 2D
     inpt_data = inpt_data.reshape(-1, inpt_data.shape[-1])
 
@@ -1667,7 +1667,7 @@ def _linear_fp_act_fp8_weight_check(
         # weight is float8 quantized affine quantized tensor
         isinstance(weight_tensor, AffineQuantizedTensor) and
         isinstance(weight_tensor.layout_type, Float8LayoutType)
-        and weight_tensor.layout_tensor.dtype in [torch.float8_e4m3fn, torch.float8_e5m2]
+        and weight_tensor.tensor_impl.dtype in [torch.float8_e4m3fn, torch.float8_e5m2]
         and (weight_tensor.shape == weight_tensor.block_size or _is_rowwise_scaled(weight_tensor))
     )
 
@@ -1694,11 +1694,11 @@ def _linear_fp_act_int4_weight_sparse_marlin_impl(input_tensor, weight_tensor, b
 
     assert isinstance(weight_tensor, AffineQuantizedTensor)
 
-    sparse_w_int4 = weight_tensor.layout_tensor.int_data
-    scale = weight_tensor.layout_tensor.scale
-    meta = weight_tensor.layout_tensor.meta
-    original_shape = weight_tensor.layout_tensor.original_shape
-    num_bits = weight_tensor.layout_tensor.num_bits
+    sparse_w_int4 = weight_tensor.tensor_impl.int_data
+    scale = weight_tensor.tensor_impl.scale
+    meta = weight_tensor.tensor_impl.meta
+    original_shape = weight_tensor.tensor_impl.original_shape
+    num_bits = weight_tensor.tensor_impl.num_bits
 
     # Folds batch dimension into the first dimension
     input_2d = input_tensor.view(-1, input_tensor.shape[-1])
@@ -1845,7 +1845,7 @@ def _(func, types, args, kwargs):
     tensor = args[0]
     shape = tensor.shape[::-1]
     new = tensor.__class__(
-        tensor.layout_tensor.t(), transposed_block_size, shape, tensor.quant_min, tensor.quant_max, tensor.zero_point_domain, dtype=tensor.dtype, strides=tensor.stride()
+        tensor.tensor_impl.t(), transposed_block_size, shape, tensor.quant_min, tensor.quant_max, tensor.zero_point_domain, dtype=tensor.dtype, strides=tensor.stride()
     )
     return return_and_correct_aliasing(func, args, kwargs, new)
 
@@ -1863,7 +1863,7 @@ def _(func, types, args, kwargs):
     # with slice, some shape dimension might be smaller than block_size dimension, so
     # we need to make sure there is no overflow
     block_size = (min(shape[0], block_size[0]), min(shape[1], block_size[1]))
-    new = self.__class__(aten.slice.Tensor(self.layout_tensor, dim, start, end, step), block_size, shape, self.quant_min, self.quant_max, self.zero_point_domain, dtype=self.dtype, strides=self.stride())
+    new = self.__class__(aten.slice.Tensor(self.tensor_impl, dim, start, end, step), block_size, shape, self.quant_min, self.quant_max, self.zero_point_domain, dtype=self.dtype, strides=self.stride())
     return return_and_correct_aliasing(func, args, kwargs, new)
 
 # this is needed for DTensor.from_local() and for flattening tensor
@@ -1872,12 +1872,12 @@ def _(func, types, args, kwargs):
     self, shape = args
 
     if tuple(self.shape) == tuple(shape):
-        return self.__class__(self.layout_tensor, self.block_size, self.shape, self.quant_min, self.quant_max, self.zero_point_domain, dtype=self.dtype, strides=self.stride())
+        return self.__class__(self.tensor_impl, self.block_size, self.shape, self.quant_min, self.quant_max, self.zero_point_domain, dtype=self.dtype, strides=self.stride())
 
     if len(shape) == 1 and shape[0] == -1:
         assert len(self.block_size) == 2 and self.block_size[0] == 1
         block_size = (self.block_size[1],)
-        return self.__class__(self.layout_tensor, block_size, (self.numel(),), self.quant_min, self.quant_max, self.zero_point_domain, dtype=self.dtype, strides=self.stride())
+        return self.__class__(self.tensor_impl, block_size, (self.numel(),), self.quant_min, self.quant_max, self.zero_point_domain, dtype=self.dtype, strides=self.stride())
 
     raise ValueError(f"{self.__class__.__name__} only supports .view() with same shape or shape=[-1]")
 
