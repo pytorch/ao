@@ -13,9 +13,9 @@ import torch
 
 try:
     """
-    NB: fast_hadamard_transform package is required for CUDA support.
+    Note: fast_hadamard_transform package is required for CUDA support.
 
-    To install the fast_hadamard_transform package:
+    To install the fast_hadamard_transform package, run the following:
     ```
         pip install git+https://github.com/Dao-AILab/fast-hadamard-transform.git
     ```
@@ -24,7 +24,7 @@ try:
 except:
     pass
 
-from torchao.quantization._hadamard_matrices import get_had172, get_had156, get_had140, get_had108, get_had60, get_had52, get_had36, get_had28, get_had44, get_had40, get_had20, get_had12, get_had60, get_had52, get_had36, get_had28, get_had44, get_had40, get_had20, get_had12
+from torchao.prototype.spinquant._hadamard_matrices import get_had172, get_had156, get_had140, get_had108, get_had60, get_had52, get_had36, get_had28, get_had44, get_had40, get_had20, get_had12
 
 
 class HadamardTransform(torch.autograd.Function):
@@ -153,9 +153,11 @@ def matmul_hadU_cuda(X, hadK, K):
     return input.reshape(X.shape)
 
 
-def random_hadamard_matrix(size, device):
+def random_hadamard_matrix(size, device, seed=0):
     # See https://cornell-relaxml.github.io/quip-sharp/ , Section "Randomized Hadamard Transformation"
-    Q = torch.randint(low=0, high=2, size=(size,)).to(torch.float64)
+    gen = torch.Generator()
+    gen.manual_seed(seed)
+    Q = torch.randint(low=0, high=2, size=(size,), generator=gen).to(torch.float64)
     Q = Q * 2 - 1
     Q = torch.diag(Q)
     hadK, K = get_hadK(size)
@@ -176,33 +178,34 @@ def apply_exact_had_to_linear(module, had_dim=-1, output=False, R2=None):
     if had_dim != -1:
         assert is_pow2(had_dim), "Hadamard dimension must be a power of 2!"
 
-    W_ = module.weight.data
-    dtype = W_.dtype
-    device_orig = W_.device
+    W = module.weight.data
+    dtype_orig = W.dtype
+    device_orig = W.device
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    init_shape = W_.shape
-    W_ = W_.float().to(device=device)
+    W = W.float().to(device=device)
 
     if had_dim == -1:
         if output:
             had_K, K = get_hadK(out_features)
-            W_ = matmul_hadU(W_.t(), had_K, K).t()
-        if not output:
+            W = matmul_hadU(W.t(), had_K, K).t()
+        else:
             had_K, K = get_hadK(in_features)
-            W_ = matmul_hadU(W_, had_K, K)
+            W = matmul_hadU(W, had_K, K)
     else:
-        hadK = hadamard_matrix(had_dim, device).to(torch.float64)
         if R2 is not None:
             hadK = R2.to(torch.float64)
-        if output:
-            W_ = W_.t()
-            transposed_shape = W_.shape
-            temp = W_.reshape(-1, transposed_shape[-1] // had_dim, had_dim)
-            temp = temp.to(torch.float64) @ hadK
-            W_ = temp.reshape(transposed_shape).t()
         else:
-            init_shape = W_.shape
-            temp = W_.reshape(-1, init_shape[-1] // had_dim, had_dim)
-            temp = temp.to(torch.float64) @ hadK
-            W_ = temp.reshape(init_shape)
-    module.weight.data = W_.to(device=device_orig, dtype=dtype)
+            hadK = hadamard_matrix(had_dim, device).to(torch.float64)
+
+        if output:
+            W = W.t()
+
+        shape = W.shape
+        temp = W.reshape(-1, shape[-1] // had_dim, had_dim)
+        temp = temp.to(torch.float64) @ hadK
+        W = temp.reshape(shape)
+
+        if output:
+            W = W.t()
+
+    module.weight.data = W.to(device=device_orig, dtype=dtype_orig)
