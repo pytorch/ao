@@ -19,6 +19,9 @@ class LayoutType:
     def post_process(self, input: torch.Tensor) -> torch.Tensor:
         return input
 
+    def pre_process_static(self, input: torch.Tensor, scale: torch.Tensor, zero_point: torch.Tensor, block_size: Tuple[int, ...]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return self.pre_process(input), scale, zero_point
+
     def __repr__(self):
         return f"{self.__class__.__name__}({self.extra_repr()})"
 
