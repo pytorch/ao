@@ -1,0 +1,57 @@
+!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload and Display Image from FastAPI Response</title>
+    <style>
+        #preview {
+            margin-top: 20px;
+            max-width: 100%;
+            max-height: 400px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Upload an Image and Display the Response</h1>
+    <form id="uploadForm">
+        <label for="image">Choose an image to upload:</label><br>
+        <input type="file" id="image" name="image" accept="image/*" required><br><br>
+        <input type="submit" value="Upload Image">
+    </form>
+
+    <h2>Received Image Preview:</h2>
+    <img id="preview" alt="Received Image">
+
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+
+            const formData = new FormData();
+            const fileInput = document.getElementById('image');
+            const file = fileInput.files[0];
+
+            if (file) {
+                formData.append('image', file);
+
+                // Perform the image upload via Fetch API
+                fetch('http://127.0.0.1:5000/upload', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.blob()) // Get the image as a Blob from the response
+                .then(imageBlob => {
+                    const imageObjectURL = URL.createObjectURL(imageBlob);
+                    const preview = document.getElementById('preview');
+                    preview.src = imageObjectURL;
+                    preview.style.display = 'block';
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                });
+            }
+        });
+    </script>
+</body>
+</html>
