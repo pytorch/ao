@@ -50,7 +50,7 @@ class TestQuantSemiSparse(common_utils.TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "pytorch 2.5+ feature")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @unittest.skipIf(not torch.backend.cusparselt.is_available(), "Need cuSPARSELt")
+    @unittest.skipIf(not torch.backends.cusparselt.is_available(), "Need cuSPARSELt")
     @common_utils.parametrize("compile", [True, False])
     def test_quant_semi_sparse(self, compile):
         torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
@@ -82,7 +82,7 @@ class TestQuantSemiSparse(common_utils.TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "pytorch 2.5+ feature")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @unittest.skipIf(not torch.backend.cusparselt.is_available(), "Need cuSPARSELt")
+    @unittest.skipIf(not torch.backends.cusparselt.is_available(), "Need cuSPARSELt")
     @common_utils.parametrize("compile", [True, False])
     def test_sparse_marlin(self, compile):
         input = torch.rand((256, 256)).half().cuda()
