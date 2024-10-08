@@ -1,7 +1,7 @@
 import pytest
 import torch
 from torchao._models.llama.model import Transformer
-from torchao.quantization.spin_quant import apply_spinquant
+from torchao.prototype.spinquant.spinquant import apply_spinquant
 
 _AVAILABLE_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 
@@ -12,8 +12,7 @@ def init_model(name="7B", device="cpu", precision=torch.bfloat16):
     return model.eval()
 
 
-# @pytest.mark.parametrize("device", _AVAILABLE_DEVICES)
-@pytest.mark.parametrize("device", ["cuda"])
+@pytest.mark.parametrize("device", _AVAILABLE_DEVICES)
 @pytest.mark.parametrize("is_training", [False])
 def test_spinquant_no_quantization(device, is_training):
     model = init_model(device=device)

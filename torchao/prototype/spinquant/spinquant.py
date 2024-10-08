@@ -10,7 +10,7 @@ import typing
 import torch
 from torch import nn
 
-from torchao.quantization.hadamard_utils import apply_exact_had_to_linear, random_hadamard_matrix, get_hadK, matmul_hadU
+from torchao.prototype.spinquant.hadamard_utils import apply_exact_had_to_linear, random_hadamard_matrix, get_hadK, matmul_hadU
 from torchao._models.llama.model import RMSNorm, Transformer, Attention
 
 
