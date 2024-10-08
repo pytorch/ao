@@ -30,7 +30,7 @@ if TORCH_VERSION_AT_LEAST_2_3:
 
     _BIT_WIDTH_TO_DTYPE = {v: k for k, v in _DTYPE_TO_BIT_WIDTH.items()}
 else:
-    print("uintx feature need torch 2.3+, please upgrade pytorch")
+    print("uintx feature requires torch 2.3+, please upgrade pytorch")
 
 
 class UintxTensor(TorchAOBaseTensor):

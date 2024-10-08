@@ -1,6 +1,7 @@
 import torch
 from torch import Tensor
-from torchao.utils import TorchAOBaseTensor
+from torch.utils._python_dispatch import return_and_correct_aliasing
+from torchao.utils import TorchAOBaseTensor, TORCH_VERSION_AT_LEAST_2_4
 
 from .quant_utils import create_dynamic_map, scale_tensor, quantize_8bit_with_qmap, dequant_with_qmap
 
@@ -49,8 +50,10 @@ class OptimState8bit(TorchAOBaseTensor):
         return cls(*[tensor_data_dict[name] for name in cls.tensor_attrs], *tensor_attributes)
 
     def dequantize(self, output_dtype=None):
-        dtype = output_dtype or torch.get_default_dtype()
-        return dequant_with_qmap(self.codes, self.qmap, self.scale).to(dtype)
+        float_data = dequant_with_qmap(self.codes, self.qmap, self.scale)
+        if output_dtype is not None:
+            float_data = float_data.to(output_dtype)
+        return float_data
 
     @classmethod
     def zeros(cls, shape, signed: bool = True, block_size: int = 256, device=None):
@@ -64,6 +67,23 @@ class OptimState8bit(TorchAOBaseTensor):
             f"{self.__class__.__name__}(signed={self.signed}, block_size={self.block_size}, "
             f"shape={tuple(self.shape)}, device={self.device}, requires_grad={self.requires_grad})"
         )
+
+
+# in pre-2.4, calling .to(device, dtype) will not dispatch aten._to_copy.default when
+# dtype is the same but device is different. thus, we must override .to() method instead.
+if not TORCH_VERSION_AT_LEAST_2_4:
+    def _to(self, *args, **kwargs):
+        # ignore other args/kwargs
+        device = kwargs.pop("device", None)
+        return OptimState8bit(
+            self.codes.to(device),
+            self.scale.to(device),
+            self.qmap.to(device),
+            self.signed,
+        )
+
+    OptimState8bit.to = _to
+    del _to  # make sure to not re-use
 
 
 @OptimState8bit.implements(aten.copy_.default)
@@ -87,6 +107,19 @@ def _(func, types, args, kwargs):
         dst.copy_(src.dequantize())
 
     return dst
+
+
+@OptimState8bit.implements(aten._to_copy.default)
+def _(func, types, args, kwargs):
+    # ignore dtype
+    device = kwargs.get("device", None)
+    out = OptimState8bit(
+        args[0].codes.to(device=device),
+        args[0].scale.to(device=device),
+        args[0].qmap.to(device=device),
+        args[0].signed,
+    )
+    return return_and_correct_aliasing(func, args, kwargs, out)
 
 
 @OptimState8bit.implements(aten.lerp.Scalar)
