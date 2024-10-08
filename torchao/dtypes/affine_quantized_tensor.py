@@ -763,7 +763,7 @@ class BlockSparseAQTTensorImpl(PlainAQTTensorImpl):
         self.bsr_values = bsr_values
         self.scale = scale
         self.zero_point = zero_point
-        self.layout = layout
+        self.layout_type = layout
 
     def __tensor_flatten__(self):
         inner_tensors = list(
@@ -907,7 +907,7 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         self.scale = scale
         self.zero_point = zero_point
         self.meta = meta
-        self.layout = layout
+        self.layout_type = layout
         self.original_shape = original_shape
         self.group_size = group_size
         self.num_bits = num_bits
