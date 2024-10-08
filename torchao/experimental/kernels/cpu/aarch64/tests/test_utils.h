@@ -235,7 +235,6 @@ struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
           zero,
           qmin,
           qmax);
-      // std::fill(weight_qvals.begin(), weight_qvals.end(), -7);
     }
 
     std::vector<float> bias(m, 0.0);
@@ -276,44 +275,6 @@ struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
         expected_output[m_idx * n + n_idx] = res;
       }
     }
-
-#if 0 // Alternate reference implementation for debugging.
-    auto num_groups = k / weight_group_size;
-    for (int m_idx = 0; m_idx < m; m_idx++) {
-      for (int n_idx = 0; n_idx < n; n_idx++) {
-        int32_t result_idx = m_idx * n + n_idx;
-        float weights_fsum = 0.0;
-        for (int g_idx = 0; g_idx < num_groups; g_idx++) {
-          int32_t weights_qsum = 0;
-          int32_t acc_i32 = 0;
-          for (int k_idx = 0; k_idx < weight_group_size; k_idx++) {
-            const int32_t activation_idx = m_idx * k + g_idx * weight_group_size + k_idx;
-            const int32_t weight_idx = n_idx * k + g_idx * weight_group_size + k_idx;
-
-            const int32_t weight_qval = weight_qvals[weight_idx];
-            const int32_t activation_qval = activation_qvals[activation_idx];
-
-            weights_qsum += weight_qval;
-            acc_i32 +=  weight_qval * activation_qval;
-          }
-          // For each group, we have a weight scale
-          const int32_t weight_scale_idx = n_idx * num_groups + g_idx;
-          const float weight_scale = weight_scales[weight_scale_idx]; // already rounded trip to bf16
-          expected_output[result_idx] += (float) acc_i32 * weight_scales[weight_scale_idx];
-          weights_fsum += weights_qsum * weight_scale;
-        }
-        // For each output channel, we have an activation scale
-        const int32_t activation_zero_point = activation_zeros[m_idx];
-        const float activation_scale = activation_scales[m_idx];
-        expected_output[result_idx] -= activation_zero_point * weights_fsum;
-        expected_output[result_idx] *= activation_scale;
-        expected_output[result_idx] += bias[m_idx];
-        if (has_clamp) {
-          expected_output[result_idx] = std::min(std::max(expected_output[result_idx], clamp_min), clamp_max);
-        }
-      }
-    }
-#endif 
 
     // Return test case
     return channelwise_8bit_activation_groupwise_lowbit_weight_test_case(

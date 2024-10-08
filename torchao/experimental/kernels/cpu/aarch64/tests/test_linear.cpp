@@ -357,7 +357,7 @@ TEST(
 // #ifdef TORCHAO_ENABLE_KLEIDI
 // TODO: Wire up the the compile defination for TORCHAO_ENABLE_KLEIDI
 
-template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
+template <bool has_bias, bool has_clamp>
 void test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod(
     int m,
     int k,
@@ -369,8 +369,8 @@ void test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod(
           k,
           n,
           group_size,
-          weight_nbit,
-          has_weight_zeros,
+          /*weight_nbit=*/4,
+          /*has_weight_zeros*/false,
           has_bias,
           has_clamp,
           /*weight_scale_bf16_round_trip=*/true);
@@ -421,8 +421,6 @@ TEST(
     test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod,
     k_eq_gs_32) {
   test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod<
-      4 /*weight_nbit*/,
-      false /*has_weight_zeros*/,
       false /*has_bias*/,
       false /*has_clamp*/>(
       /*m=*/1, /*k=*/32, /*n=*/4, /*group_size=*/32);
@@ -432,8 +430,6 @@ TEST(
     test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod,
     large_k_n_gs32) {
   test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod<
-      4 /*weight_nbit*/,
-      false /*has_weight_zeros*/,
       false /*has_bias*/,
       false /*has_clamp*/>(
       /*m=*/1, /*k=*/1024, /*n=*/512, /*group_size=*/32);
@@ -443,8 +439,6 @@ TEST(
     test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod,
     even_n_gs32) {
   test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod<
-      4 /*weight_nbit*/,
-      false /*has_weight_zeros*/,
       false /*has_bias*/,
       false /*has_clamp*/>(
       /*m=*/1, /*k=*/1024, /*n=*/182, /*group_size=*/32);
@@ -454,14 +448,21 @@ TEST(
     test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod,
     k_eq_gs128) {
   test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod<
-      4 /*weight_nbit*/,
-      false /*has_weight_zeros*/,
       false /*has_bias*/,
       false /*has_clamp*/>(
       /*m=*/1, /*k=*/128, /*n=*/182, /*group_size=*/128);
 }
 
-template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
+TEST(
+    test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod,
+    clamp_k_eq_gs128) {
+  test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod<
+      false /*has_bias*/,
+      true /*has_clamp*/>(
+      /*m=*/1, /*k=*/128, /*n=*/182, /*group_size=*/128);
+}
+
+template <bool has_bias, bool has_clamp>
 void test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod(
     int m,
     int k,
@@ -473,8 +474,8 @@ void test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod(
           k,
           n,
           group_size,
-          weight_nbit,
-          has_weight_zeros,
+          /*weight_nbit=*/4,
+          /*has_weight_zeros=*/false,
           has_bias,
           has_clamp,
           /*weight_scale_bf16_round_trip=*/true);
@@ -525,8 +526,6 @@ TEST(
     test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod,
     k_eq_gs_32) {
   test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod<
-      4 /*weight_nbit*/,
-      false /*has_weight_zeros*/,
       false /*has_bias*/,
       false /*has_clamp*/>(
       /*m=*/1, /*k=*/32, /*n=*/4, /*group_size=*/32);
@@ -536,8 +535,6 @@ TEST(
     test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod,
     large_k_n_gs32) {
   test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod<
-      4 /*weight_nbit*/,
-      false /*has_weight_zeros*/,
       false /*has_bias*/,
       false /*has_clamp*/>(
       /*m=*/1, /*k=*/1024, /*n=*/512, /*group_size=*/32);
@@ -547,8 +544,6 @@ TEST(
     test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod,
     even_n_gs32) {
   test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod<
-      4 /*weight_nbit*/,
-      false /*has_weight_zeros*/,
       false /*has_bias*/,
       false /*has_clamp*/>(
       /*m=*/1, /*k=*/1024, /*n=*/182, /*group_size=*/32);
@@ -558,10 +553,17 @@ TEST(
     test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod,
     k_eq_gs128) {
   test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod<
-      4 /*weight_nbit*/,
-      false /*has_weight_zeros*/,
       false /*has_bias*/,
       false /*has_clamp*/>(
+      /*m=*/1, /*k=*/128, /*n=*/182, /*group_size=*/128);
+}
+
+TEST(
+    test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod,
+    clamp_k_eq_gs128) {
+  test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod<
+      false /*has_bias*/,
+      true /*has_clamp*/>(
       /*m=*/1, /*k=*/128, /*n=*/182, /*group_size=*/128);
 }
 // #endif // defined(TORCHAO_ENABLE_KLEIDI)
