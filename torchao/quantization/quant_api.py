@@ -54,6 +54,8 @@ from torchao.quantization.weight_tensor_linear_activation_quantization import (
 
 from .quant_primitives import (
     MappingType,
+    PerRow,
+    PerTensor,
     ZeroPointDomain,
 )
 from .weight_only import WeightOnlyInt8QuantLinear
@@ -71,7 +73,7 @@ from torchao.quantization.linear_activation_weight_observer import (
 )
 from torchao.float8.inference import Float8MMConfig
 
-from torchao.quantization.observer import PerTensor, PerRow, get_block_size
+from torchao.quantization.observer import get_block_size
 
 logger = logging.getLogger(__name__)
 
