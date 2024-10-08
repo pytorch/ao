@@ -14,7 +14,7 @@ from .affine_quantized_tensor import (
     SemiSparseLayoutType,
     TensorCoreTiledLayoutType,
     Float8LayoutType,
-    Float8AQTTensorImpl,
+    Float8AQTLayout,
     MarlinSparseLayoutType,
 )
 
@@ -33,6 +33,6 @@ __all__ = [
     "SemiSparseLayoutType",
     "TensorCoreTiledLayoutType",
     "Float8LayoutType",
-    "Float8AQTTensorImpl",
+    "Float8AQTLayout",
     "MarlinSparseLayoutType",
 ]

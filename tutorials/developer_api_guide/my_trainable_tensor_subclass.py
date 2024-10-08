@@ -43,8 +43,8 @@ class MyTrainableDTypeTensor(MyDTypeTensor):
         dtype = torch.int16
         scale, _ = choose_qparams_affine(input_float, mapping_type, block_size, dtype)
         int_data = (input_float / scale).to(torch.int8)
-        tensor_impl_ctr = cls.get_tensor_impl_constructor(type(layout_type))
-        return tensor_impl_ctr(int_data, scale, layout_type)
+        layout_tensor_ctr = cls.get_layout_tensor_constructor(type(layout_type))
+        return layout_tensor_ctr(int_data, scale, layout_type)
 
     @classmethod
     def from_float(
@@ -71,9 +71,9 @@ class _ToMyTrainableDTypeTensor(torch.autograd.Function):
         input_float: torch.Tensor,
         layout_type: LayoutType,
     ) -> "MyTrainableDTypeTensor":
-        tensor_impl = MyTrainableDTypeTensor._quantize(input_float, layout_type)
+        layout_tensor = MyTrainableDTypeTensor._quantize(input_float, layout_type)
         return MyTrainableDTypeTensor(
-            tensor_impl,
+            layout_tensor,
             input_float.shape,
             requires_grad=True,
         )
@@ -137,15 +137,15 @@ def _(func, types, args, kwargs):
     """
     assert len(args) == 2
     assert isinstance(args[0], MyTrainableDTypeTensor)
-    assert args[0].tensor_impl.int_data.dtype == torch.int8
+    assert args[0].layout_tensor.int_data.dtype == torch.int8
     float0 = args[0].dequantize()
     float1 = args[1].dequantize() if isinstance(args[1], MyTrainableDTypeTensor) else args[1]
     new_value = torch.add(float0, float1, **kwargs)
-    new_tensor_impl = MyTrainableDTypeTensor._quantize(
+    new_layout_tensor = MyTrainableDTypeTensor._quantize(
         new_value,
-        args[0].tensor_impl.get_layout_type(),
+        args[0].layout_tensor.get_layout_type(),
     )
-    args[0].tensor_impl = new_tensor_impl
+    args[0].layout_tensor = new_layout_tensor
     return return_and_correct_aliasing(func, args, kwargs, args[0])
 
 @implements(aten.add.Tensor)
@@ -190,7 +190,7 @@ def main():
         loss = loss_fn(output, target)
         loss.backward()
         if VERBOSE:
-            weight = m.linear.weight.tensor_impl.int_data.flatten()[:3]
+            weight = m.linear.weight.layout_tensor.int_data.flatten()[:3]
             weight_grad = m.linear.weight.grad.flatten()[:3]
             print(" * step %s: weight grad = %s, weight value = %s" % (i, weight_grad, weight))
         optimizer.step()

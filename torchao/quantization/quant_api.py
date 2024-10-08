@@ -886,7 +886,7 @@ def fpx_weight_only(ebits: int, mbits: int):
     e.g. fp6_e3_m2, fp6_e2_m3, ...
     The packing format and kernels are from the fp6-llm paper: https://arxiv.org/abs/2401.14112
     github repo: https://github.com/usyd-fsalab/fp6_llm, now renamed to quant-llm
-    For more details for packing please see: :class:`~torchao.dtypes.fpx.FpxTensorCoreAQTTensorImpl`
+    For more details for packing please see: :class:`~torchao.dtypes.fpx.FpxTensorCoreAQTLayout`
 
     This is experimental, will be merged with `to_affine_quantized_floatx`
     in the future
