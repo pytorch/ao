@@ -30,6 +30,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
+    TORCH_VERSION_AT_LEAST_2_6,
     is_fbcode,
 )
 
@@ -207,7 +208,10 @@ class TestQuantPrimitives(unittest.TestCase):
         mapping_type = MappingType.ASYMMETRIC
         dtype = torch.int8
         block_size = (1, 10)
-        scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, eps=torch.finfo(torch.float32).eps)
+        if TORCH_VERSION_AT_LEAST_2_6:
+            scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, eps=torch.finfo(torch.float32).eps, scale_dtype=torch.float64, zero_point_dtype=torch.int64)
+        else:
+            scale, zero_point = choose_qparams_affine(input, mapping_type, block_size, dtype, eps=torch.finfo(torch.float32).eps)
 
         scale_ref, zp_ref = torch.ops.quantized_decomposed.choose_qparams_per_token_asymmetric(input, dtype)
         scale_ref = scale_ref.squeeze()

@@ -1,9 +1,11 @@
 import torch
-from typing import Tuple, Optional, Union
+from typing import Tuple, Optional, Union, List
+import torchao.ops
 from collections import defaultdict
 import functools
 import math
 from torchao.quantization.quant_primitives import (
+    _get_reduction_params,
     choose_qparams_affine,
     quantize_affine,
     dequantize_affine,
@@ -188,8 +190,8 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
 
     def __repr__(self):
         return (
-            f"{self.__class__.__name__}(data={str(self.dequantize())}..., shape={self.shape}, block_size={self.block_size}, "
-            f"device={self.device}, dtype={self.dtype}, requires_grad={self.requires_grad}, layout_tensor={self.layout_tensor})"
+            f"{self.__class__.__name__}(layout_tensor={self.layout_tensor}, block_size={self.block_size}, "
+            f"shape={self.shape}, device={self.device}, dtype={self.dtype}, requires_grad={self.requires_grad})"
         )
 
     def _quantization_type(self):
@@ -205,7 +207,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             return dequantize_affine_floatx(int_data, scale, self.layout_type.ebits, self.layout_type.mbits, output_dtype=output_dtype)
         else:
             data, scale, zero_point = self.layout_tensor.get_plain()
-            return dequantize_affine(
+            dq = dequantize_affine(
                 data,
                 self.block_size,
                 scale,
@@ -216,6 +218,11 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 self.zero_point_domain,
                 output_dtype=output_dtype,
             )
+            # need to return to original shape if tensor was padded
+            # in preprocessing
+            for dim, dim_size in enumerate(self.shape):
+                dq = dq.narrow(dim, 0, dim_size)
+            return dq
 
     @staticmethod
     def _quantized_linear_op(input_tensor, weight_tensor, bias):
@@ -311,7 +318,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             assert zero_point_domain is not None, "zero_point_domain must be specified for non-fp8 types"
             assert zero_point is not None, "zero_point must be specified for non-fp8 types"
         original_shape = input_float.shape
-        input_float = layout_type.pre_process(input_float)
+        input_float, scale, zero_point = layout_type.pre_process_static(input_float, scale, zero_point, block_size)
 
         int_data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
 
@@ -491,6 +498,25 @@ class TensorCoreTiledLayoutType(LayoutType):
             (0, in_features - orig_in_features, 0, out_features - orig_out_features),
         )
         return input
+
+    def pre_process_static(self, input: torch.Tensor, scale: torch.Tensor, zero_point: torch.Tensor, block_size: Tuple[int, ...]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        input = self.pre_process(input)
+        orig_qparam_shape = scale.shape
+        new_qparam_shape, reduction_dims = _get_reduction_params(block_size, input.size())
+        for dim in reduction_dims:
+            new_qparam_shape.pop(dim)
+        change_in_qparam_shape = [new_dim_size-orig_dim_size for new_dim_size, orig_dim_size in zip(new_qparam_shape, orig_qparam_shape)]
+        padding_changes=[]
+        for dim_change in change_in_qparam_shape:
+            padding_changes = [0, dim_change] + padding_changes
+        scale = torch.nn.functional.pad(scale, padding_changes)
+        zero_point = torch.nn.functional.pad(zero_point, padding_changes)
+        return input, scale, zero_point
+        
+
+
+
+
 
     def extra_repr(self):
         return f"inner_k_tiles={self.inner_k_tiles}"
@@ -694,7 +720,7 @@ class BlockSparseAQTLayout(PlainAQTLayout):
     scale: Optional[torch.Tensor]
     zero_point: Optional[torch.Tensor]
 
-    __slots__ = ["bsr_crow_indices", "bsr_col_indices", "bsr_values", "scale", "zero_point"] 
+    __slots__ = ["bsr_crow_indices", "bsr_col_indices", "bsr_values", "scale", "zero_point"]
 
     @staticmethod
     def __new__(  # noqa: PYI034
@@ -703,7 +729,7 @@ class BlockSparseAQTLayout(PlainAQTLayout):
         bsr_crow_indices: Optional[torch.Tensor],
         bsr_col_indices: Optional[torch.Tensor],
         bsr_values: Optional[torch.Tensor],
-        scale: Optional[torch.Tensor], 
+        scale: Optional[torch.Tensor],
         zero_point: Optional[torch.Tensor],
         layout_type: LayoutType,
         requires_grad: bool = False,
@@ -727,7 +753,7 @@ class BlockSparseAQTLayout(PlainAQTLayout):
         bsr_crow_indices: Optional[torch.Tensor],
         bsr_col_indices: Optional[torch.Tensor],
         bsr_values: Optional[torch.Tensor],
-        scale: Optional[torch.Tensor], 
+        scale: Optional[torch.Tensor],
         zero_point: Optional[torch.Tensor],
         layout_type: LayoutType,
         requires_grad: bool = False,
@@ -739,7 +765,7 @@ class BlockSparseAQTLayout(PlainAQTLayout):
         self.zero_point = zero_point
         self.layout_type = layout_type
 
-    def __tensor_flatten__(self): 
+    def __tensor_flatten__(self):
         inner_tensors = list(
             filter(lambda x: getattr(self, x) is not None, self.__slots__)
         )
@@ -774,7 +800,7 @@ class BlockSparseAQTLayout(PlainAQTLayout):
             bsr_crow_indices=bsr_tensor.crow_indices(),
             bsr_col_indices=bsr_tensor.col_indices(),
             bsr_values=bsr_tensor.values(),
-            scale=scale, 
+            scale=scale,
             zero_point=zero_point,
             layout_type = layout_type,
             requires_grad=False,
@@ -820,7 +846,7 @@ class BlockSparseAQTLayout(PlainAQTLayout):
             return args[0].bsr_values.detach()
 
         if func is aten._nnz.default:
-            return args[0].bsr_values.shape[0]  
+            return args[0].bsr_values.shape[0]
 
         raise NotImplementedError(
             f"BlockSparseAQTLayout dispatch: attempting to run {func}, this is not supported"
@@ -1068,20 +1094,31 @@ class Float8AQTLayout(AQTLayout):
             return return_and_correct_aliasing(
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
             )
-        if func is aten.clone.default:
+        elif func is aten.clone.default:
             return return_and_correct_aliasing(
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
             )
-        if func is aten.t.default:
+        elif func is aten.t.default:
             """we don't need to repack the weight and just rely on external
             shape being changed and record the status of transpose/no-transpose
             """
             args[0].transposed = not args[0].transposed
             return return_and_correct_aliasing(func, args, kwargs, args[0])
-
-        raise NotImplementedError(
-            f"Float8AQTLayout dispatch: attempting to run {func}, this is not supported"
-        )
+        elif func is aten.slice.Tensor:
+            self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
+            if dim == 0:
+                return return_and_correct_aliasing(
+                    func, args, kwargs, args[0]._apply_fn_to_data(lambda x: aten.slice.Tensor(x, dim, start, end, step))
+                )
+            elif dim == 1:
+                assert len(self.scale.shape) == 1, f"slice dim==1 only works when len(scale.shape) == 1 currently, got: {self.scale.shape}"
+                return Float8AQTLayout(aten.slice.Tensor(self.float8_data, dim, start, end, step), self.scale, None, self.layout_type)
+            else:
+                raise NotImplementedError(f"Float8AQTLayout dispatch: attempting to run {func}, with dim={dim}, that is not supported")
+        else:
+            raise NotImplementedError(
+                f"Float8AQTLayout dispatch: attempting to run {func}, this is not supported"
+            )
 
     __torch_function__ = torch._C._disabled_torch_function_impl
 
@@ -1618,6 +1655,28 @@ def _linear_fp8_act_fp8_weight_impl(
         use_fast_accum=scaled_mm_config.use_fast_accum,
     ).reshape(out_shape)
 
+def _linear_fp_act_fp8_weight_check(
+    input_tensor: Union[torch.Tensor, AffineQuantizedTensor],
+    weight_tensor: Union[torch.Tensor, AffineQuantizedTensor],
+    bias: Optional[torch.Tensor],
+) -> bool:
+    return (
+        # input is native float tensor
+        not is_traceable_wrapper_subclass(input_tensor) and
+        input_tensor.is_floating_point() and
+        # weight is float8 quantized affine quantized tensor
+        isinstance(weight_tensor, AffineQuantizedTensor) and
+        isinstance(weight_tensor.layout_type, Float8LayoutType)
+        and weight_tensor.layout_tensor.dtype in [torch.float8_e4m3fn, torch.float8_e5m2]
+        and (weight_tensor.shape == weight_tensor.block_size or _is_rowwise_scaled(weight_tensor))
+    )
+
+def _linear_fp_act_fp8_weight_impl(
+    input_tensor: torch.Tensor,
+    weight_tensor: AffineQuantizedTensor,
+    bias: Optional[torch.Tensor],
+):
+    return torch.nn.functional.linear(input_tensor, weight_tensor.dequantize(), bias)
 
 def _linear_fp_act_int4_weight_sparse_marlin_check(input_tensor, weight_tensor, bias):
     return (
@@ -1668,6 +1727,7 @@ def _register_aqt_quantized_linear_dispatches():
         (_linear_int8_act_int8_weight_semi_structured_sparse_check, _linear_int8_act_int8_weight_semi_structured_sparse_impl),
         (_linear_int8_act_int8_weight_block_sparse_check, _linear_int8_act_int8_weight_block_sparse_impl),
         (_linear_fp8_act_fp8_weight_check, _linear_fp8_act_fp8_weight_impl),
+        (_linear_fp_act_fp8_weight_check, _linear_fp_act_fp8_weight_impl),
         (_linear_bf16_act_uint4_weight_check, _linear_bf16_act_uint4_weight_impl),
         (_linear_fp_act_int8_weight_check, _linear_fp_act_int8_weight_impl),
         (_linear_f16_act_floatx_weight_check, _linear_f16_act_floatx_weight_impl),

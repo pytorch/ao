@@ -4,12 +4,13 @@
 # This source code is licensed under the BSD 3-Clause license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Iterable, Literal, Tuple, Union
-
-import torchao.float8.config as config
+from typing import Iterable, Literal, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
+
+import torchao.float8.config as config
+from torchao.float8.config import ScalingGranularity
 
 # Helpful visualizer for debugging (only supports fp32):
 # https://www.h-schmidt.net/FloatConverter/IEEE754.html
@@ -42,6 +43,9 @@ def amax_to_scale(
         float8_dtype: The float8 dtype.
         orig_dtype: The original dtype of the tensor.
     """
+    # torch.compile and eager show different numerics for 1.0 / float32,
+    # upcast to float64 to ensure same numeric between compile and eager
+    amax = amax.to(torch.float64)
     if float8_dtype in FP8_TYPES:
         res = torch.finfo(float8_dtype).max / torch.clamp(amax, min=EPS)
     else:
@@ -99,9 +103,18 @@ def amax_history_to_scale_stack(
 
 @torch.no_grad()
 def tensor_to_amax(
-    x: torch.Tensor, reduce_amax: bool = False, device_mesh=None
+    x: torch.Tensor,
+    reduce_amax: bool = False,
+    device_mesh=None,
+    scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE,
+    axiswise_dim: Optional[int] = None,
 ) -> torch.Tensor:
-    amax = torch.max(torch.abs(x))
+    if scaling_granularity is ScalingGranularity.TENSORWISE:
+        amax = torch.max(torch.abs(x))
+    else:
+        assert scaling_granularity is ScalingGranularity.AXISWISE, "unsupported"
+        assert axiswise_dim is not None, "unsupported"
+        amax = torch.amax(torch.abs(x), dim=axiswise_dim, keepdim=True)
 
     # If the user asked for distributed reduction, do it.
     # If the user did not ask for it, assume that it will
@@ -119,8 +132,16 @@ def tensor_to_scale(
     float8_dtype: torch.dtype,
     reduce_amax: bool = False,
     device_mesh=None,
+    scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE,
+    axiswise_dim: Optional[int] = None,
 ) -> torch.Tensor:
-    amax = tensor_to_amax(x, reduce_amax=reduce_amax, device_mesh=device_mesh)
+    amax = tensor_to_amax(
+        x,
+        reduce_amax,
+        device_mesh,
+        scaling_granularity,
+        axiswise_dim,
+    )
     return amax_to_scale(amax, float8_dtype, x.dtype)
 
 

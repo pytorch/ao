@@ -26,6 +26,7 @@ __all__ = [
     "TORCH_VERSION_AT_LEAST_2_3",
     "TORCH_VERSION_AT_LEAST_2_4",
     "TORCH_VERSION_AT_LEAST_2_5",
+    "TORCH_VERSION_AT_LEAST_2_6",
 
     # Needs to be deprecated in the future
     "TORCH_VERSION_AFTER_2_2",
@@ -179,7 +180,7 @@ def _register_custom_op(lib):
 
         # after this, `_the_op_that_needs_to_be_preserved` will be preserved as
         # torch.ops.my_namespace.the_op_that_needs_to_be_preserved operator after
-        # torch.export.export / torch._export.capture_pre_autograd_graph
+        # torch.export.export / torch._export.export_for_training
 
     """
     from torch._inductor.decomposition import register_decomposition
@@ -317,6 +318,7 @@ def is_fbcode():
 def torch_version_at_least(min_version):
     return is_fbcode() or compare_versions(torch.__version__, min_version) >= 0
 
+TORCH_VERSION_AT_LEAST_2_6 = torch_version_at_least("2.6.0")
 TORCH_VERSION_AT_LEAST_2_5 = torch_version_at_least("2.5.0")
 TORCH_VERSION_AT_LEAST_2_4 = torch_version_at_least("2.4.0")
 TORCH_VERSION_AT_LEAST_2_3 = torch_version_at_least("2.3.0")
@@ -386,7 +388,9 @@ def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
        func in cls._ATEN_OP_OR_TORCH_FN_TABLE:
         return cls._ATEN_OP_OR_TORCH_FN_TABLE[func](func, types, args, kwargs)
 
-    raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run unimplemented operator/function: {func}")
+    arg_types = tuple(type(arg) for arg in args)
+    kwarg_types = {k: type(arg) for k, arg in kwargs}
+    raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run unimplemented operator/function: {func=}, {types=}, {arg_types=}, {kwarg_types=}")
 
 def _register_layout_cls(cls: Callable, layout_type_class: Callable):
     """Helper function for layout registrations, this is used to implement
