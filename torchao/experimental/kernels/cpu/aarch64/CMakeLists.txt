@@ -11,7 +11,7 @@ include(FetchContent)
 # intelligence (AI) workloads tailored for Arm® CPUs.
 FetchContent_Declare(kleidiai
         GIT_REPOSITORY https://git.gitlab.arm.com/kleidi/kleidiai.git
-        GIT_TAG main) # TODO: set a pin
+        GIT_TAG 35e156d62d1d7e4d27a39f56ed7770a665628b31) # same as xnnpack for now, TODO - revisit this
 
 FetchContent_MakeAvailable(kleidiai)
 
