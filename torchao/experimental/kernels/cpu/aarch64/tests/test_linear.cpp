@@ -6,8 +6,8 @@
 
 #if defined(__aarch64__) || defined(__ARM_NEON)
 
-#include <vector>
 #include <arm_neon.h>
+#include <vector>
 
 #include <gtest/gtest.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/bitpack.h>
@@ -375,10 +375,10 @@ void test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod(
           has_clamp,
           /*weight_scale_bf16_round_trip=*/true);
 
-  using namespace torchao::kernels::cpu::aarch64::kleidi::kai_matmul_clamp_f32_qai8dxp_qsi4c32p::neon_dotprod_1x4x32;
+  using namespace torchao::kernels::cpu::aarch64::kleidi::
+      kai_matmul_clamp_f32_qai8dxp_qsi4c32p::neon_dotprod_1x4x32;
 
-  std::vector<char> activation_data(
-      activation_data_size(m, k, group_size));
+  std::vector<char> activation_data(activation_data_size(m, k, group_size));
 
   prepare_activation_data(
       (void*)activation_data.data(),
@@ -387,8 +387,7 @@ void test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod(
       group_size,
       test_case.activations.data());
 
-  std::vector<char> weight_data(
-      weight_data_size(n, k, group_size));
+  std::vector<char> weight_data(weight_data_size(n, k, group_size));
 
   prepare_weight_data(
       (void*)weight_data.data(),
@@ -462,8 +461,6 @@ TEST(
       /*m=*/1, /*k=*/128, /*n=*/182, /*group_size=*/128);
 }
 
-
-
 template <int weight_nbit, bool has_weight_zeros, bool has_bias, bool has_clamp>
 void test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod(
     int m,
@@ -482,10 +479,10 @@ void test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod(
           has_clamp,
           /*weight_scale_bf16_round_trip=*/true);
 
-  using namespace torchao::kernels::cpu::aarch64::kleidi::kai_matmul_clamp_f32_qai8dxp_qsi4c32p::neon_dotprod_1x8x32;
+  using namespace torchao::kernels::cpu::aarch64::kleidi::
+      kai_matmul_clamp_f32_qai8dxp_qsi4c32p::neon_dotprod_1x8x32;
 
-  std::vector<char> activation_data(
-      activation_data_size(m, k, group_size));
+  std::vector<char> activation_data(activation_data_size(m, k, group_size));
 
   prepare_activation_data(
       (void*)activation_data.data(),
@@ -494,8 +491,7 @@ void test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod(
       group_size,
       test_case.activations.data());
 
-  std::vector<char> weight_data(
-      weight_data_size(n, k, group_size));
+  std::vector<char> weight_data(weight_data_size(n, k, group_size));
 
   prepare_weight_data(
       (void*)weight_data.data(),

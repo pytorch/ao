@@ -1,4 +1,3 @@
-// namespace example
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // All rights reserved.
 //
@@ -42,8 +41,9 @@ const Ukernel get_ukernel() {
 }
 
 int activation_data_size(int m, int k, int group_size) {
-  (void) group_size; // unused
-  return kai_matmul_clamp_f32_qai8dxp_qsi4c32p::activation_data_size(get_ukernel(), m, k);
+  (void)group_size; // unused
+  return kai_matmul_clamp_f32_qai8dxp_qsi4c32p::activation_data_size(
+      get_ukernel(), m, k);
 }
 
 void prepare_activation_data(
@@ -52,17 +52,14 @@ void prepare_activation_data(
     int k,
     int group_size,
     const float* activations) {
-  (void) group_size; // unused
+  (void)group_size; // unused
   kai_matmul_clamp_f32_qai8dxp_qsi4c32p::prepare_activation_data(
-      get_ukernel(),
-      activation_data,
-      m,
-      k,
-      activations);
+      get_ukernel(), activation_data, m, k, activations);
 }
 
 int weight_data_size(int n, int k, int group_size) {
-  return kai_matmul_clamp_f32_qai8dxp_qsi4c32p::weight_data_size(get_ukernel(), n, k, group_size);
+  return kai_matmul_clamp_f32_qai8dxp_qsi4c32p::weight_data_size(
+      get_ukernel(), n, k, group_size);
 }
 
 void prepare_weight_data(
@@ -96,15 +93,15 @@ void kernel(
     const float* bias,
     float clamp_min,
     float clamp_max) {
-    (void) bias; // unused - needs API fixing
-    assert(output_m_stride == n);
-    if (clamp_min == 0 && clamp_max == 0) {
-      clamp_min = std::numeric_limits<float>::lowest();
-      clamp_max = std::numeric_limits<float>::max();
-    }
+  (void)bias; // unused - needs API fixing
+  assert(output_m_stride == n);
+  if (clamp_min == 0 && clamp_max == 0) {
+    clamp_min = std::numeric_limits<float>::lowest();
+    clamp_max = std::numeric_limits<float>::max();
+  }
 
-    auto ukernel = get_ukernel(); 
-    ukernel.run_matmul(
+  auto ukernel = get_ukernel();
+  ukernel.run_matmul(
       m,
       n,
       k,
@@ -112,8 +109,8 @@ void kernel(
       activation_data,
       weight_data,
       output,
-      /*dst_stride_row=*/ n * sizeof(float),
-      /*dst_stride_col=*/ sizeof(float),
+      /*dst_stride_row=*/n * sizeof(float),
+      /*dst_stride_col=*/sizeof(float),
       clamp_min,
       clamp_max);
 }

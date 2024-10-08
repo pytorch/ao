@@ -1,4 +1,3 @@
-// namespace example
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 // All rights reserved.
 //
@@ -7,10 +6,10 @@
 
 #pragma once
 
-#include <cstdint>
-#include <cstddef>
-#include <cstring>
 #include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <limits>
 #include <vector>
 
@@ -25,7 +24,7 @@ namespace torchao::kernels::cpu::aarch64::kleidi {
 // TODO: find a better place for these?
 
 size_t roundup(size_t a, size_t b) {
-    return ((a + b - 1) / b) * b;
+  return ((a + b - 1) / b) * b;
 }
 
 uint16_t get_bf16_from_float(float f) {
@@ -111,13 +110,15 @@ void prepare_weight_data(
   uint8_t wzp = 8;
   for (size_t i = 0; i < n * k; i += 2) {
     const uint8_t low = static_cast<uint8_t>(weight_qvals[i] + wzp);
-    const uint8_t high = static_cast<uint8_t>(weight_qvals[i+1] + wzp);
+    const uint8_t high = static_cast<uint8_t>(weight_qvals[i + 1] + wzp);
     packed_weight_qvals[i / 2] = ((high << 4) | (low & 0xF));
   }
 
   // Parameters for packing
   rhs_packing::qparams_t qparams{
-      .lhs_zero_point=1, .rhs_zero_point=wzp, .scale_dt = kai_datatype::kai_dt_bf16};
+      .lhs_zero_point = 1,
+      .rhs_zero_point = wzp,
+      .scale_dt = kai_datatype::kai_dt_bf16};
 
   auto rhs_pack = get_rhs_packing();
 
@@ -133,7 +134,7 @@ void prepare_weight_data(
       /*rhs_stride=*/roundup(k, 2) / 2,
       /*bias=*/nullptr, // TODO fix APIs to move bias here
       /*scale=*/reinterpret_cast<const uint16_t*>(weight_scales_bf16.data()),
-      /*scale_stride=*/ sizeof(uint16_t) * (roundup(k, group_size) / group_size),
+      /*scale_stride=*/sizeof(uint16_t) * (roundup(k, group_size) / group_size),
       /*rhs_packed=*/weight_data,
       /*extra_bytes=*/0,
       /*qparams=*/&qparams);
