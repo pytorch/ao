@@ -9,10 +9,11 @@ from torchao.dtypes.uintx import _DTYPE_TO_BIT_WIDTH, UintxLayoutType
 from torchao.dtypes import to_affine_quantized_intx
 from torchao.quantization.quant_primitives import (
     MappingType,
+    Granularity,
     ZeroPointDomain,
 )
 from torchao.quantization.observer import (
-    AffineQuantizedObserverBase, GranularityType
+    AffineQuantizedObserverBase,
 )
 
 
@@ -20,7 +21,7 @@ class AWQObserver(AffineQuantizedObserverBase):
     def __init__(self,
         weight: torch.Tensor,
         bias: torch.Tensor,
-        quantization_granularity: GranularityType,
+        quantization_granularity: Granularity,
         mapping_type: MappingType,
         target_dtype: torch.dtype,
         n_validation_examples: int,
@@ -40,7 +41,7 @@ class AWQObserver(AffineQuantizedObserverBase):
         Args:
             weight: The weight tensor to be observed.
             bias: The bias tensor to be observed.
-            quantization_granularity: Granularity type which specifies how many weights share the same scale/zero point
+            quantization_granularity: Granularity which specifies how many weights share the same scale/zero point
             input_dtype: The data type of the input tensor.
             mapping_type: Always set to asymmetric 
             target_dtype: The target data type of the quantized tensor
