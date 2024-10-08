@@ -394,7 +394,7 @@ def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
 
 def _register_layout(cls: Callable, layout_type_class: Callable):
     """Helper function for layout registrations, this is used to implement
-    register_layout decorator for each tensor subclass, see aqt.py for example usage
+    register_layout decorator for each tensor subclass, see affine_quantized_tensor.py for example usage
 
     Args:
         cls: Tensor subclass type
