@@ -82,10 +82,10 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
         scale = choose_qparams_affine_floatx(x, ebits, mbits)
         x = quantize_affine_floatx(x, scale, ebits, mbits)
         layout_type = FloatxTensorCoreLayoutType(ebits, mbits)
-        floatx_layout_tensor = FloatxTensorCoreAQTTensorImpl.from_plain(x, scale, None, layout_type).cuda()
-        assert floatx_layout_tensor.device.type == "cuda"
-        floatx_layout_tensor = floatx_layout_tensor.cpu()
-        assert floatx_layout_tensor.device.type == "cpu"
+        floatx_tensor_impl = FloatxTensorCoreAQTTensorImpl.from_plain(x, scale, None, layout_type).cuda()
+        assert floatx_tensor_impl.device.type == "cuda"
+        floatx_tensor_impl = floatx_tensor_impl.cpu()
+        assert floatx_tensor_impl.device.type == "cpu"
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="quantization only works with torch.compile for 2.5+")

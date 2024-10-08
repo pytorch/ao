@@ -10,7 +10,7 @@ from torchao.dtypes.utils import (
 )
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
 from dataclasses import dataclass
-from torchao.dtypes.affine_quantized_tensor import AQTTensorImpl, register_layout_cls
+from torchao.dtypes.affine_quantized_tensor import AQTTensorImpl, register_layout
 
 
 aten = torch.ops.aten
@@ -359,7 +359,7 @@ class FloatxTensorCoreLayoutType(LayoutType):
     ebits: int
     mbits: int
 
-@register_layout_cls(FloatxTensorCoreLayoutType)
+@register_layout(FloatxTensorCoreLayoutType)
 class FloatxTensorCoreAQTTensorImpl(AQTTensorImpl):
     """FloatxTensorCoreAQTTensorImpl represents a Tensor with dtype floatx(ebits=a, mbits=b),
     it has a internal tensor field of "packed_floatx_data", which is packed from the

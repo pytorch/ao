@@ -24,14 +24,14 @@ def _(func, types, args, kwargs):
 
 @implements([aten.split.Tensor])
 def _(func, types, args, kwargs):
-    layout_tensor_list = func(args[0].layout_tensor, *args[1:], **kwargs)
-    out = [MyDTypeTensorTP(layout_tensor, layout_tensor.shape) for layout_tensor in layout_tensor_list]
+    tensor_impl_list = func(args[0].tensor_impl, *args[1:], **kwargs)
+    out = [MyDTypeTensorTP(tensor_impl, tensor_impl.shape) for tensor_impl in tensor_impl_list]
     return out
 
 @implements([aten.empty_like.default])
 def _(func, types, args, kwargs):
-    empty_like_layout_tensor = func(args[0].layout_tensor, *args[1:], **kwargs)
-    return MyDTypeTensorTP(empty_like_layout_tensor, empty_like_layout_tensor.shape)
+    empty_like_tensor_impl = func(args[0].tensor_impl, *args[1:], **kwargs)
+    return MyDTypeTensorTP(empty_like_tensor_impl, empty_like_tensor_impl.shape)
 
 @implements(aten.slice.Tensor)
 def _(func, types, args, kwargs):
@@ -41,7 +41,7 @@ def _(func, types, args, kwargs):
         end = self.shape[dim]
     shape = list(self.shape)
     shape[dim] = end - start
-    return self.__class__(aten.slice.Tensor(self.layout_tensor, dim, start, end, step), shape, self.dtype)
+    return self.__class__(aten.slice.Tensor(self.tensor_impl, dim, start, end, step), shape, self.dtype)
 
 # this is needed for DTensor.from_local() and for flattening tensor
 @implements(aten.view.default)
@@ -49,10 +49,10 @@ def _(func, types, args, kwargs):
     x, shape = args
 
     if tuple(x.shape) == tuple(shape):
-        return x.__class__(x.layout_tensor, x.shape, x.dtype)
+        return x.__class__(x.tensor_impl, x.shape, x.dtype)
 
     if len(shape) == 1 and shape[0] == -1:
-        return x.__class__(x.layout_tensor, (x.numel(),), x.dtype)
+        return x.__class__(x.tensor_impl, (x.numel(),), x.dtype)
 
     raise ValueError(f"{x.__class__.__name__} only supports .view() with same shape or shape=[-1]")
 
@@ -60,7 +60,7 @@ def _(func, types, args, kwargs):
 def _(func, types, args, kwargs):
     tensor = args[0]
     shape = tensor.shape[::-1]
-    new = tensor.__class__(tensor.layout_tensor.t(), shape, tensor.dtype)
+    new = tensor.__class__(tensor.tensor_impl.t(), shape, tensor.dtype)
     return return_and_correct_aliasing(func, args, kwargs, new)
 
 @implements(aten.addmm.default)

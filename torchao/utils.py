@@ -392,20 +392,20 @@ def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
     kwarg_types = {k: type(arg) for k, arg in kwargs}
     raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run unimplemented operator/function: {func=}, {types=}, {arg_types=}, {kwarg_types=}")
 
-def _register_layout_cls(cls: Callable, layout_type_class: Callable):
+def _register_tensor_impl_cls(cls: Callable, layout_type_class: Callable):
     """Helper function for layout registrations, this is used to implement
-    register_layout_cls decorator for each tensor subclass, see aqt.py for example usage
+    register_tensor_impl_cls decorator for each tensor subclass, see aqt.py for example usage
 
     Args:
         cls: Tensor subclass type
         layout_type_class: the class type of subclass of `LayoutType`, e.g. `PlainLayoutType`
 
     Returns:
-        a decorator that registers the layout tensor constructor in the table
+        a decorator that registers the tensor impl constructor in the table
     """
 
     # cls._LAYOUT_CONSTRUCTOR_TABLE is a map from layout_type_class like TensorCoreTiledLayout
-    # to layout class constructor like TensorCoreTiledAQTTensorImpl.from_plain that can construct a layout_tensor
+    # to layout class constructor like TensorCoreTiledAQTTensorImpl.from_plain that can construct a tensor_impl
     # from plain data like (quantized, unpacked) `data`, `scale`, `zero_point`
     if not hasattr(cls, "_LAYOUT_CONSTRUCTOR_TABLE"):
         cls._LAYOUT_CONSTRUCTOR_TABLE = {}
@@ -413,12 +413,12 @@ def _register_layout_cls(cls: Callable, layout_type_class: Callable):
     def decorator(layout_class):
         cls._LAYOUT_CONSTRUCTOR_TABLE[layout_type_class] = layout_class.from_plain
         if TORCH_VERSION_AT_LEAST_2_5:
-            # Allow serialization to work for models uses this layout tensor subclass
+            # Allow serialization to work for models uses this tensor impl subclass
             torch.serialization.add_safe_globals([layout_type_class, layout_class])
         return layout_class
     return decorator
 
-def _get_layout_tensor_constructor(cls: Callable, layout_type_class: Callable) -> Callable:
+def _get_tensor_impl_constructor(cls: Callable, layout_type_class: Callable) -> Callable:
     """Get Layout class constructor (LayoutClass.from_plain) for `cls` based on `layout_type_class`
     `layout_type_class` means the class type of subclass of `LayoutType`, e.g. `PlainLayoutType`
 
@@ -427,7 +427,7 @@ def _get_layout_tensor_constructor(cls: Callable, layout_type_class: Callable) -
         layout_type_class: the class type of subclass of `LayoutType`, e.g. `PlainLayoutType`
 
     Returns:
-        layout tensor subclass constructor for the layout_type_class
+        tensor impl subclass constructor for the layout_type_class
     """
     if not hasattr(cls, "_LAYOUT_CONSTRUCTOR_TABLE"):
         raise ValueError(f"no registered layout class constructor for: {cls}")
@@ -457,25 +457,25 @@ class TorchAOBaseTensor(torch.Tensor):
             def _(func, types, args, kwargs):
                 ...
 
-        `register_layout_cls`:
-            register_layout_cls = MyTensor.register_layout_cls
+        `register_tensor_impl_cls`:
+            register_tensor_impl_cls = MyTensor.register_tensor_impl_cls
 
-            @register_layout_cls(PlainLayoutType)
+            @register_tensor_impl_cls(PlainLayoutType)
             class PlainAQTTensorImpl(...):
                 ...
 
-         `get_layout_tensor_constructor`:
-            get_layout_tensor_constructor = MyTensor.get_layout_tensor_constructor
+         `get_tensor_impl_constructor`:
+            get_tensor_impl_constructor = MyTensor.get_tensor_impl_constructor
             # in constructor of MyTensor:
-            layout_tensor_ctr = get_layout_tensor_constructor(type(layout_type))
-            layout_tensor = layout_tensor_ctr(data, scale, zero_point, layout_type)
+            tensor_impl_ctr = get_tensor_impl_constructor(type(layout_type))
+            tensor_impl = tensor_impl_ctr(data, scale, zero_point, layout_type)
 
     """
     implements = classmethod(_implements)
     __torch_dispatch__ = classmethod(_dispatch__torch_dispatch__)
     __torch_function__ = classmethod(_dispatch__torch_function__)
-    register_layout_cls = classmethod(_register_layout_cls)
-    get_layout_tensor_constructor = classmethod(_get_layout_tensor_constructor)
+    register_tensor_impl_cls = classmethod(_register_tensor_impl_cls)
+    get_tensor_impl_constructor = classmethod(_get_tensor_impl_constructor)
 
     def _get_to_kwargs(self, *args, **kwargs):
         # `torch._C._nn._parse_to` can't handle `layout` argument
