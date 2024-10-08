@@ -3,14 +3,16 @@ import os
 import pytest
 import torch
 import tempfile
+from torch.ao.quantization import HistogramObserver
 from torchao.quantization import quantize_
 from torchao.utils import (
   TORCH_VERSION_AT_LEAST_2_2,
   TORCH_VERSION_AT_LEAST_2_4,
+)
+from torchao.quantization.utils import (
   dynamically_quantize_per_channel,
   dequantize_per_channel,
 )
-
 from torchao.prototype.smoothquant import (
     insert_smooth_quant_observer,
     smooth_quant,
@@ -50,7 +52,7 @@ idtypes = (torch.float, torch.bfloat16, torch.half)
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.parametrize("idtype", idtypes)
 def test_compute(bias, alpha, quant_mode, device, idtype):
-    class Linear(torch.nn.module):
+    class Linear(torch.nn.Module):
         def __init__(self, bias: bool):
             super().__init__()
             self.fc = torch.nn.Linear(16, 16, bias)
@@ -59,10 +61,9 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
         def forward(self, x):
             return self.fc(x)
 
-    original_dtype = idtype
-    m = Linear(bias).eval().to(original_dtype).to(device)
+    m = Linear(bias).eval().to(idtype).to(device)
     m_ref = deepcopy(m)
-    data = torch.randn(2, 16, dtype=original_dtype, device=device)
+    data = torch.randn(2, 16, dtype=idtype, device=device)
 
     # calibrate
     insert_smooth_quant_observer(m, alpha, quant_mode, 1)
@@ -70,33 +71,53 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
     # quantize
     is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
     quantize_(m, smooth_quant(), is_observed_linear)
-    # m = torch.compile(m, fullgraph=True)
-    out = m(data)
+    with torch.inference_mode():
+        # m = torch.compile(m, fullgraph=True)
+        out = m(data)
 
-    # reference
-    weight = m_ref.fc.weight.data
-    bias = m_ref.fc.bias
-    x_abs_max_per_ic = torch.abs(data).max(dim=0).values
-    w_abs_max_per_ic = torch.abs(weight).max(dim=0).values
-    smoothing_factor = (
-        torch.pow(x_abs_max_per_ic, alpha) / torch.pow(
-        w_abs_max_per_ic, 1 - alpha)
-    )
-    act = data / smoothing_factor
-    wei = weight * smoothing_factor
-    qw, w_scales, w_zps = dynamically_quantize_per_channel(
-        wei, -128, 127, torch.int8
-    )
-    if (device == "cpu" and not TORCH_VERSION_AT_LEAST_2_4) or \
-        not TORCH_VERSION_AT_LEAST_2_2:
-        dqw = dequantize_per_channel(qw, w_scales, w_zps, torch.float32)
-        out_ref = torch.nn.functional.linear(act, dqw, bias)
-    elif quant_mode == "static":
-        pass
-    else:
-        pass
+        # reference
+        weight = m_ref.fc.weight.data.float()
+        b = m_ref.fc.bias.float() if bias else None
+        x_abs_max_per_ic = torch.abs(data).max(dim=0).values
+        w_abs_max_per_ic = torch.abs(weight).max(dim=0).values
+        smoothing_factor = (
+            torch.pow(x_abs_max_per_ic, alpha) / torch.pow(
+            w_abs_max_per_ic, 1 - alpha)
+        )
+        act = data / smoothing_factor
+        wei = weight * smoothing_factor
+        qw, w_scales, w_zps = dynamically_quantize_per_channel(
+            wei, -128, 127, torch.int8
+        )
+        fq_wei = dequantize_per_channel(qw, w_scales, w_zps, torch.float32)
+        if (device == "cpu" and not TORCH_VERSION_AT_LEAST_2_4) or \
+            not TORCH_VERSION_AT_LEAST_2_2:
+            # _int_mm is not supported in these cases
+            out_ref = torch.nn.functional.linear(act, fq_wei, b)
+        elif quant_mode == "static":
+            # activation is quantized per-tensor
+            obs = HistogramObserver(
+                dtype=torch.int8,
+                qscheme=torch.per_tensor_symmetric,
+            )
+            obs(act.float())
+            act_scale, _ = obs.calculate_qparams()
+            fq_act = torch.quantize_per_tensor(
+                act.float(), scale=act_scale.item(), zero_point=0, dtype=torch.qint8
+            ).dequantize()
+            out_ref = torch.nn.functional.linear(fq_act, fq_wei, b)
+        else:
+            # activation is quantized per-row (batch * sequence_length)
+            qx, x_scales, x_zps = dynamically_quantize_per_channel(
+                act.float(), -128, 127, torch.int8
+            )
+            fq_act = dequantize_per_channel(qx, x_scales, x_zps, torch.float32)
+            out_ref = torch.nn.functional.linear(fq_act, fq_wei, b)
 
-    assert torch.allclose(out, out_ref, atol = 1e-2)
+        # Quantized weights of the reference and the SmoothQuant model may differ by 1
+        # when elements are quantized to -128 in one case and -127 in the other.
+        # So, the tolerance is relatively big here
+        assert torch.allclose(out, out_ref.to(idtype), atol = 0.2)
 
 
 @pytest.mark.parametrize("alpha", alpha_list)
@@ -141,4 +162,4 @@ def test_save_load_recipe(alpha, quant_mode, device, idtype):
     
     assert out is not None
     assert save_load_out is not None
-    assert torch.allclose(out, save_load_out, atol = 1e-2)
+    assert torch.allclose(out, save_load_out)

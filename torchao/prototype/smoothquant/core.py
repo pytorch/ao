@@ -207,8 +207,8 @@ def _quantized_linear_impl(input_tensor, weight_tensor, bias):
     input = input_tensor * inv_smoothing_factor
     if (weight_tensor.device.type == "cpu" and not TORCH_VERSION_AT_LEAST_2_4) or \
         not TORCH_VERSION_AT_LEAST_2_2:
-        # _int_mm is not available on CUDA before PyTorch 2.2
-        # _int_mm is not available on CPU before PyTorch 2.4
+        # _int_mm is not available on CUDA until PyTorch 2.2
+        # _int_mm is not available on CPU until PyTorch 2.4
         # So compute in float here
         y = F.linear(input, weight_tensor.dequantize(), bias)
     else:
@@ -216,7 +216,7 @@ def _quantized_linear_impl(input_tensor, weight_tensor, bias):
         quant_min = _DTYPE_TO_QVALUE_BOUNDS[target_dtype][0]
         quant_max = _DTYPE_TO_QVALUE_BOUNDS[target_dtype][1]
         if act_scales is not None:
-            # dynamic quant
+            # static quant
             act_zero_points = torch.zeros_like(act_scales, dtype=torch.int64)
             qx = torch.ops.quantized_decomposed.quantize_per_tensor(
                 input,
@@ -228,7 +228,7 @@ def _quantized_linear_impl(input_tensor, weight_tensor, bias):
             )
             act_scales = act_scales * torch.ones(input.size(0), dtype=act_scales.dtype)
         else:
-            # static quant
+            # dynamic quant
             qx, act_scales, _ = dynamically_quantize_per_channel(input, quant_min, quant_max, target_dtype)
         y = quant_int8_per_token_matmul(
             qx, act_scales, weight_tensor.layout_tensor.int_data, wei_scales
