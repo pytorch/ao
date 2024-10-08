@@ -30,10 +30,10 @@ from torchao.quantization.quant_api import (
     float8_static_activation_float8_weight,
 )
 from torchao.quantization.quant_primitives import (
-    choose_qparams_affine,
     MappingType,
     PerRow,
     PerTensor,
+    choose_qparams_affine,
 )
 
 random.seed(0)
