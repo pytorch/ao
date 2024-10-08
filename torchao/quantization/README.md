@@ -21,6 +21,17 @@ Benchmarks and evaluation are run on a machine with a single NVIDIA-A100-80GB GP
 |             | int4wo-64-GPTQ          |  7.921              |  180.80       |  763.33                 |  6.88            |  4.22           |
 |             | autoquant-int4hqq       |  8.110              |  188.41       |  800.58                 |  7.14            |  4.25           |
 
+Benchmarks and evaluation for model meta-llama/Meta-Llama-3.1-8B are run on a machine with a single NVIDIA-H100 GPU using the scripts for [generation](../_models/llama/generate.py) and [eval](../_models/llama/eval.py). Evaluation was done using the lm_eval library for tasks/data.
+
+| Model         | Technique               | wikitext-perplexity | Tokens/Second | Memory Bandwidth (GB/s) | Peak Memory (GB) | Model Size (GB) |
+| -----------   | ----------------------- | ------------------- | ------------- | ----------------------- | ---------------- | --------------- |
+| Llama-3.1-8B  | Base (bfloat16)         |  7.54               |  126.90       | 1904.75                 | 16.75            | 15.01           |
+|               | int8wo                  |  7.56               |  198.85       | 1495.41                 | 11.05            |  7.52           |
+|               | int4wo-64               |  8.44               |  241.39       | 1019.14                 |  7.08            |  4.22           |
+|               | float8wo                |  7.60               |  178.46       | 1339.93                 | 12.09            |  7.51           |
+|               | float8dq (PerTensor)    |  7.62               |  116.40       |  873.58                 | 11.14            |  7.51           |
+|               | float8dq (Per Row)      |  7.61               |  154.63       | 1161.47                 | 11.14            |  7.51           |
+
 note: Int8 dynamic quantization works best on compute bound models like [SAM](https://github.com/pytorch-labs/segment-anything-fast) whereas Llama with batchsize=1 tends to be memory bound, thus the rather low performance.
 
 For int4 we make heavy use of [tinygemm](https://github.com/pytorch/ao/blob/cb3bd8c674f2123af232a0231b5e38ddafa756a8/torchao/dtypes/aqt.py#L526) of `torch.ops.aten._weight_int4pack_mm` to bitpack into a layout optimized for tensor cores
@@ -119,6 +130,15 @@ quantize_(model, int8_dynamic_activation_int8_weight())
 # for torch 2.2.2 and 2.3
 from torchao.quantization.quant_api import change_linear_weights_to_int8_dqtensors
 change_linear_weights_to_int8_dqtensors(model)
+```
+
+#### A8W8 Float8 Dynamic Quantization
+
+```python
+# for torch 2.4+
+from torchao.quantization import quantize_, float8_dynamic_activation_float8_weight
+from torchao.quantization.observer import PerTensor
+quantize_(model, float8_dynamic_activation_float8_weight(granularity=PerTensor()))
 ```
 
 #### A16W6 Floating Point WeightOnly Quantization

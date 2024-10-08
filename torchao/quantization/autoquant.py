@@ -17,6 +17,8 @@ from .quant_primitives import (
 )
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_5
 from torchao.quantization.utils import quantize_activation_per_token_absmax
+from torchao.quantization.observer import PerAxis, PerTensor, PerRow
+from torchao.float8.inference import Float8MMConfig
 
 import torch.nn.functional as F
 
@@ -25,6 +27,7 @@ __all__ = [
     "autoquant",
     "DEFAULT_AUTOQUANT_CLASS_LIST",
     "DEFAULT_INT4_AUTOQUANT_CLASS_LIST",
+    "OTHER_AUTOQUANT_CLASS_LIST",
 ]
 
 
@@ -221,7 +224,6 @@ def do_autoquant_bench(op, *args, **kwargs):
         stream.synchronize()
         torch.cuda.current_stream().wait_stream(stream)
         torch.cuda.synchronize()
-
         graph = torch.cuda.CUDAGraph()
         with torch.cuda.graph(graph, stream=stream):
             op(*args, **kwargs)
@@ -492,6 +494,47 @@ class AQFloat8WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
         block_size = (1, weight.shape[1])
         return super(AQFloat8WeightOnlyQuantizedLinearWeight, cls).from_hp_to_floatx(weight, block_size, target_dtype=cls.target_dtype, layout_type=Float8LayoutType())
 
+class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedTensor):
+    """
+    AutoQuantizable version of Float8DynamicallyQuantizedLinearWeight using per row scaling
+    """
+    activation_granularity: str = PerRow()
+    @classmethod
+    def from_float(cls, weight):
+
+        # avoid circular dep
+        from torchao.dtypes import to_affine_quantized_floatx
+        from torchao.quantization.quant_api import _input_activation_quant_func_fp8
+        # weight settings
+        def get_weight_block_size(x):
+            return (1, x.shape[1])
+        target_dtype = torch.float8_e4m3fn
+
+        # input settings
+        def get_per_token_block_size(x):
+            block_size = list(x.shape)
+            for i in range(len(block_size)-1):
+                block_size[i] = 1
+            return block_size
+
+        input_target_dtype = torch.float8_e4m3fn
+        layout_type = Float8LayoutType(mm_config=Float8MMConfig(use_fast_accum=True))
+        input_quant_func = lambda x: _input_activation_quant_func_fp8(
+            x=x,
+            activation_granularity=cls.activation_granularity,
+            activation_dtype=input_target_dtype,
+        )
+        block_size = get_weight_block_size(weight)
+        weight = to_affine_quantized_floatx(
+                    input_float=weight,
+                    block_size=block_size,
+                    target_dtype=target_dtype,
+                    layout_type=layout_type,
+                    scale_dtype=torch.float32,
+        )
+        weight = super(AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight, cls).from_float(weight, input_quant_func)
+        return weight
+
 
 # here we don't include int4 quantization in since int8 tends to be a better apples to apples comparison
 DEFAULT_AUTOQUANT_CLASS_LIST = [
@@ -511,6 +554,7 @@ DEFAULT_INT4_AUTOQUANT_CLASS_LIST = [
 
 OTHER_AUTOQUANT_CLASS_LIST = [
     AQFloat8WeightOnlyQuantizedLinearWeight,
+    AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight,
 ]
 
 
@@ -638,7 +682,7 @@ def autoquant(
     if set_inductor_config:
         torchao.quantization.utils.recommended_inductor_config_setter()
 
-    if qtensor_class_list in OTHER_AUTOQUANT_CLASS_LIST:
+    if qtensor_class_list is OTHER_AUTOQUANT_CLASS_LIST:
         assert torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9), "float8 requires CUDA arch >= 8.9"
 
     # perform initial swap from linear weights
