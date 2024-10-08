@@ -3,9 +3,9 @@ from torchao.prototype.hqq.core import HQQQuantizer
 from torchao.dtypes.affine_quantized_tensor import (
     to_affine_quantized_intx,
     ZeroPointDomain,
-    PlainAQTTensorImpl,
+    PlainAQTLayout,
     PlainLayoutType,
-    TensorCoreTiledAQTTensorImpl,
+    TensorCoreTiledAQTLayout,
     TensorCoreTiledLayoutType,
     MappingType,
 )

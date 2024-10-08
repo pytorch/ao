@@ -35,7 +35,7 @@ jobs:
             gpu-arch-version: "12.1"
           - name: CUDA 2.4
             runs-on: linux.g5.12xlarge.nvidia.gpu
-            torch-spec: 'torch==2.4.1'
+            torch-spec: 'torch==2.4.0'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.1"
           - name: CUDA Nightly (Oct 1)
