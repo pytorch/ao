@@ -398,7 +398,7 @@ def _register_layout(cls: Callable, layout_type_class: Callable):
 
     Args:
         cls: Tensor subclass type
-        layout_type_class: the class type of subclass of `LayoutType`, e.g. `PlainLayoutType`
+        layout_type_class: the class type of subclass of `Layout`, e.g. `PlainLayout`
 
     Returns:
         a decorator that registers the tensor impl constructor in the table
@@ -420,11 +420,11 @@ def _register_layout(cls: Callable, layout_type_class: Callable):
 
 def _get_tensor_impl_constructor(cls: Callable, layout_type_class: Callable) -> Callable:
     """Get TensorImpl class constructor (TensorImplClass.from_plain) for `cls` based on `layout_type_class`
-    `layout_type_class` means the class type of subclass of `LayoutType`, e.g. `PlainLayoutType`
+    `layout_type_class` means the class type of subclass of `Layout`, e.g. `PlainLayout`
 
     Args:
         cls: Tensor subclass type
-        layout_type_class: the class type of subclass of `LayoutType`, e.g. `PlainLayoutType`
+        layout_type_class: the class type of subclass of `Layout`, e.g. `PlainLayout`
 
     Returns:
         tensor impl subclass constructor for the layout_type_class
@@ -460,7 +460,7 @@ class TorchAOBaseTensor(torch.Tensor):
         `register_layout`:
             register_layout = MyTensor.register_layout
 
-            @register_layout(PlainLayoutType)
+            @register_layout(PlainLayout)
             class PlainAQTTensorImpl(...):
                 ...
 

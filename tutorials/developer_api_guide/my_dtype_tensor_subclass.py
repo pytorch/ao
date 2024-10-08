@@ -22,8 +22,8 @@ from torchao.quantization.quant_primitives import (
     dequantize_affine,
 )
 from torchao.dtypes.utils import (
-    LayoutType,
-    PlainLayoutType,
+    Layout,
+    PlainLayout,
 )
 from torchao.utils import (
     TorchAOBaseTensor,
@@ -43,7 +43,7 @@ class MyDTypeTensorImpl(torch.Tensor):
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor]:
         return self.int_data, self.scale
 
-    def get_layout_type(self) -> LayoutType:
+    def get_layout_type(self) -> Layout:
         return self.layout_type
 
     @classmethod
@@ -51,7 +51,7 @@ class MyDTypeTensorImpl(torch.Tensor):
         cls,
         int_data: torch.Tensor,
         scale: torch.Tensor,
-        layout_type: LayoutType,
+        layout_type: Layout,
     ):
         """Construct a tensor impl from plain tensors and a layout_type, which main contain
         extra metadata for packing etc.
@@ -145,7 +145,7 @@ class MyDTypeTensor(TorchAOBaseTensor):
     def from_float(
         cls,
         input_float: torch.Tensor,
-        layout_type: LayoutType = PlainLayoutType(),
+        layout_type: Layout = PlainLayout(),
     ):
         mapping_type = MappingType.SYMMETRIC
         block_size = (1, input_float.shape[-1])
@@ -160,7 +160,7 @@ class MyDTypeTensor(TorchAOBaseTensor):
     """
 
     @property
-    def layout_type(self) -> LayoutType:
+    def layout_type(self) -> Layout:
         return self.tensor_impl.layout_type
 
     def dequantize(self, output_dtype=None):
@@ -206,20 +206,20 @@ class MyDTypeTensor(TorchAOBaseTensor):
     """
 
 ######################################################
-# LayoutType and TensorImpl Subclass Registration #
+# Layout and TensorImpl Subclass Registration #
 ######################################################
 
 register_layout = MyDTypeTensor.register_layout
 get_tensor_impl_constructor = MyDTypeTensor.get_tensor_impl_constructor
 
-@register_layout(PlainLayoutType)
+@register_layout(PlainLayout)
 class PlainMyDTypeTensorImpl(MyDTypeTensorImpl):
     def __new__(
         cls,
         int_data: torch.Tensor,
         scale: torch.Tensor,
         transposed: bool,
-        layout_type: LayoutType,
+        layout_type: Layout,
     ):
         kwargs = {}
         kwargs["device"] = int_data.device
@@ -236,7 +236,7 @@ class PlainMyDTypeTensorImpl(MyDTypeTensorImpl):
         int_data: torch.Tensor,
         scale: torch.Tensor,
         transposed: bool,
-        layout_type: LayoutType,
+        layout_type: Layout,
     ):
         self.int_data = int_data
         self.scale = scale
@@ -259,12 +259,12 @@ class PlainMyDTypeTensorImpl(MyDTypeTensorImpl):
         cls,
         int_data: torch.Tensor,
         scale: torch.Tensor,
-        layout_type: LayoutType,
+        layout_type: Layout,
     ):
         """Construct a tensor impl from plain tensors and a layout_type, which main contain
         extra metadata for packing etc.
         """
-        assert isinstance(layout_type, PlainLayoutType)
+        assert isinstance(layout_type, PlainLayout)
         return cls(int_data, scale, False, layout_type)
 
     def _apply_fn_to_data(self, fn):

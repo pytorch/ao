@@ -19,7 +19,7 @@ from torch.ao.quantization import MinMaxObserver, QConfigMapping
 from torchao.quantization.dynamic_quant import (
     DynamicallyPerAxisQuantizedLinear,
 )
-from torchao.dtypes import TensorCoreTiledLayoutType
+from torchao.dtypes import TensorCoreTiledLayout
 from torchao.quantization.quant_api import (
     int4_weight_only,
     int8_weight_only,
@@ -876,7 +876,7 @@ class TestSubclass(unittest.TestCase):
         for test_shape in ([(256, 256, 16)] + ([(256, 256, 8)] if device=='cuda' else [])):
             for groupsize in [64, 32]:
                 for inner_k_tiles in [4, 2]:
-                    kwargs = {"groupsize": groupsize, "layout_type": TensorCoreTiledLayoutType(inner_k_tiles=inner_k_tiles)}
+                    kwargs = {"groupsize": groupsize, "layout_type": TensorCoreTiledLayout(inner_k_tiles=inner_k_tiles)}
 
                     def api(mod):
                         kwargs_copy = kwargs.copy()

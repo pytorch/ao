@@ -14,7 +14,7 @@ import torch
 
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.quantization.quant_primitives import choose_qparams_affine, MappingType
-from torchao.dtypes.utils import LayoutType, PlainLayoutType
+from torchao.dtypes.utils import Layout, PlainLayout
 from my_dtype_tensor_subclass import MyDTypeLayout, MyDTypeTensor
 
 aten = torch.ops.aten
@@ -33,7 +33,7 @@ class MyTrainableDTypeTensor(MyDTypeTensor):
     def _quantize(
         cls,
         input_float: torch.Tensor,
-        layout_type: LayoutType,
+        layout_type: Layout,
     ) -> MyDTypeLayout:
         """
         Convert from a floating point tensor (fp32/fp16/bf16) to the desired dtype.
@@ -50,7 +50,7 @@ class MyTrainableDTypeTensor(MyDTypeTensor):
     def from_float(
         cls,
         input_float: torch.Tensor,
-        layout_type: LayoutType = PlainLayoutType(),
+        layout_type: Layout = PlainLayout(),
     ) -> "MyTrainableDTypeTensor":
         """
         Main entry point for creating a `MyTrainableDTypeTensor`.
@@ -69,7 +69,7 @@ class _ToMyTrainableDTypeTensor(torch.autograd.Function):
     def forward(
         ctx: torch.autograd.function.FunctionCtx,
         input_float: torch.Tensor,
-        layout_type: LayoutType,
+        layout_type: Layout,
     ) -> "MyTrainableDTypeTensor":
         tensor_impl = MyTrainableDTypeTensor._quantize(input_float, layout_type)
         return MyTrainableDTypeTensor(

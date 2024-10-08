@@ -13,7 +13,7 @@ import unittest
 import torch
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
 from torchao.dtypes import (
-    TensorCoreTiledLayoutType,
+    TensorCoreTiledLayout,
 )
 from torchao.quantization.prototype.qat.api import (
     ComposableQATQuantizer,
@@ -585,7 +585,7 @@ class TestQAT(unittest.TestCase):
         )
         qat_model = qat_quantizer.prepare(m)
         ptq_model = m2
-        quantize_(ptq_model, int4_weight_only(group_size, TensorCoreTiledLayoutType(inner_k_tiles)))
+        quantize_(ptq_model, int4_weight_only(group_size, TensorCoreTiledLayout(inner_k_tiles)))
 
         # Compare model values
         torch.manual_seed(self.SEED)
