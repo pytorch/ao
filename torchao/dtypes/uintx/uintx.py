@@ -8,7 +8,7 @@ from torchao.dtypes.utils import (
     LayoutType,
 )
 from torchao.utils import TorchAOBaseTensor
-from torchao.dtypes.affine_quantized_tensor import PlainAQTLayout, register_layout_cls
+from torchao.dtypes.affine_quantized_tensor import PlainAQTTensorImpl, register_layout
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
 
 aten = torch.ops.aten
@@ -194,8 +194,8 @@ class UintxLayoutType(LayoutType):
     def post_process(self, input: torch.Tensor) -> torch.Tensor:
         return to_uintx(input, self.dtype, self.pack_dim)
 
-@register_layout_cls(UintxLayoutType)
-class UintxAQTLayout(PlainAQTLayout):
+@register_layout(UintxLayoutType)
+class UintxAQTTensorImpl(PlainAQTTensorImpl):
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         return self.int_data.get_plain(), self.scale, self.zero_point
