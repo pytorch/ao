@@ -26,13 +26,15 @@ from torchao.quantization import (
     float8_weight_only,
     quantize_,
 )
+from torchao.quantization.granularity import (
+    PerRow,
+    PerTensor,
+)
 from torchao.quantization.quant_api import (
     float8_static_activation_float8_weight,
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
-    PerRow,
-    PerTensor,
     choose_qparams_affine,
 )
 

@@ -51,11 +51,12 @@ from .linear_activation_quantized_tensor import (
 from torchao.quantization.weight_tensor_linear_activation_quantization import (
     to_weight_tensor_with_linear_activation_quantization_metadata,
 )
-
-from .quant_primitives import (
-    MappingType,
+from .granularity import (
     PerRow,
     PerTensor,
+)
+from .quant_primitives import (
+    MappingType,
     ZeroPointDomain,
 )
 from .weight_only import WeightOnlyInt8QuantLinear

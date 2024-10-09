@@ -9,6 +9,10 @@ from torch.ao.quantization.observer import MinMaxObserver, PerChannelMinMaxObser
 from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import TestCase
 
+from torchao.quantization.granularity import (
+    PerAxis,
+    PerTensor,
+)
 from torchao.quantization.observer import (
     AffineQuantizedMinMaxObserver,
 )
@@ -17,8 +21,6 @@ from torchao.quantization.quant_api import (
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
-    PerAxis,
-    PerTensor,
 )
 
 
