@@ -17,7 +17,7 @@ class Linear8BitActXBitWeightOperator {
  private:
   torchao::aligned_byte_ptr packed_weight_data_{nullptr, nullptr};
   int packed_weight_data_size_{0};
-  int packed_weight_data_alignment_{0};
+  int preferred_packed_weight_data_alignment_{0};
 
   torchao::aligned_byte_ptr activation_data_buffer_{nullptr, nullptr};
 
@@ -107,13 +107,13 @@ class Linear8BitActXBitWeightOperator {
     // Pack weight data
     auto packed_weight_data_size =
         get_packed_weight_data_size(ukernel_config_, n_, k_, group_size_);
-    auto packed_weight_data_alignment =
-        get_packed_weight_data_alignment(ukernel_config_);
+    auto preferred_packed_weight_data_alignment =
+        get_preferred_packed_weight_data_alignment(ukernel_config_);
 
     packed_weight_data_size_ = packed_weight_data_size;
-    packed_weight_data_alignment_ = packed_weight_data_alignment;
+    preferred_packed_weight_data_alignment_ = preferred_packed_weight_data_alignment;
     packed_weight_data_ = torchao::make_aligned_byte_ptr(
-        packed_weight_data_alignment, packed_weight_data_size);
+        preferred_packed_weight_data_alignment, packed_weight_data_size);
 
     pack_weight_data_operator(
         ukernel_config_,
@@ -136,7 +136,7 @@ class Linear8BitActXBitWeightOperator {
         k_,
         group_size_);
     auto activation_data_buffer_alignment =
-        get_activation_data_buffer_alignment(ukernel_config_);
+        get_preferred_activation_data_buffer_alignment(ukernel_config_);
     activation_data_buffer_ = torchao::make_aligned_byte_ptr(
         activation_data_buffer_alignment, activation_data_buffer_size);
 
@@ -168,7 +168,7 @@ class Linear8BitActXBitWeightOperator {
           k_,
           group_size_);
       auto activation_data_buffer_alignment =
-          get_activation_data_buffer_alignment(ukernel_config_);
+          get_preferred_activation_data_buffer_alignment(ukernel_config_);
       activation_data_buffer_ = torchao::make_aligned_byte_ptr(
           activation_data_buffer_alignment, activation_data_buffer_size);
     }
