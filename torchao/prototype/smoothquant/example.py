@@ -1,5 +1,6 @@
 import torch
 import argparse
+import os
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
 from tqdm import tqdm
@@ -95,32 +96,41 @@ def wikitext2_ppl(
         precision:torch.dtype, 
         sequence_length: int, 
         compile: bool,
+        model_load_path: str,
         model_save_path: str):
     print(f"Loading model on {device}...")
     torch.manual_seed(34)
     t0 = time.time()
     # load any model with torch.nn.linear layers
     tokenizer = AutoTokenizer.from_pretrained(model_id)
-    model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=precision).eval().to(device)
-    print(f"Time to load model: {time.time() - t0:.02f} seconds")
-    print(f"running calibration")
-    t0 = time.time()
-    # insert observers to find average magnitude and calculate scales
-    insert_smooth_quant_observer(model, 0.5, quant_mode, calibration_size)
-    calibration_data = get_calib_dataset(tokenizer=tokenizer, n_samples=calibration_size, block_size=sequence_length)
-    for batch in calibration_data:
-        model(batch.to(device))
-        batch.to("cpu")
-    print(f"time for calibration: {time.time() - t0:.02f} seconds")
-    
-    is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
-    print(f"running SmoothQuant with {quant_mode} quantization")
-    t0 = time.time()
-    quantize_(model, smooth_quant(), is_observed_linear)
-    print(f"time for quantization: {time.time() - t0:.02f} seconds")
-    if model_save_path is not None:
-        print(f"Saving quantized model to {model_save_path}")
-        torch.save(model, model_save_path)
+    if model_load_path is not None and os.path.exists(model_load_path):
+        print(f"Loading quantized model from {model_load_path}")
+        t0 = time.time()
+        model = torch.load(model_load_path, weights_only=False).to(device)
+        print(f"Time to load quantized model: {time.time() - t0:.02f} seconds")
+    else:
+        model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=precision).eval().to(device)
+        print(f"Time to load model: {time.time() - t0:.02f} seconds")
+        print(f"running calibration")
+        t0 = time.time()
+        # insert observers to find average magnitude and calculate scales
+        insert_smooth_quant_observer(model, 0.5, quant_mode, calibration_size)
+        calibration_data = get_calib_dataset(tokenizer=tokenizer, n_samples=calibration_size, block_size=sequence_length)
+        for batch in calibration_data:
+            model(batch.to(device))
+            batch.to("cpu")
+        print(f"time for calibration: {time.time() - t0:.02f} seconds")
+
+        is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
+        print(f"running SmoothQuant with {quant_mode} quantization")
+        t0 = time.time()
+        quantize_(model, smooth_quant(), is_observed_linear)
+        print(f"time for quantization: {time.time() - t0:.02f} seconds")
+        if model_save_path is not None:
+            print(f"Saving quantized model to {model_save_path}")
+            t0 = time.time()
+            torch.save(model, model_save_path)
+            print(f"Time to save quantized model: {time.time() - t0:.02f} seconds")
     if compile:
         model = torch.compile(model)
     
@@ -138,6 +148,9 @@ if __name__ == "__main__":
     parser.add_argument("--precision", type=str, default="bfloat16", help="Precision type. Default is 'bfloat16'.")
     parser.add_argument("--seq_len", type=int, default=512, help="Length of examples to calibrate and evaluate model on. Default is 512")
     parser.add_argument("--compile", action="store_true", help="Flag to indicate if compilation is required.")
+    parser.add_argument("--model-load-path", type=str, default=None,
+                        help="Path to load quantized model. If this is provided, "
+                        "the model will be loaded from this path instead of quantizing the model.")
     parser.add_argument("--model-save-path", type=str, default=None, help="Path to store quantized model.")
 
     args = parser.parse_args()
@@ -152,5 +165,6 @@ if __name__ == "__main__":
         args.precision,
         args.seq_len,
         args.compile,
+        args.model_load_path,
         args.model_save_path
     )
