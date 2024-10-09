@@ -18,10 +18,12 @@ from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_fi
 from torchao.quantization.observer import (
     AffineQuantizedMinMaxObserver,
 )
+from torchao.quantization.granularity import (
+    PerAxis,
+    PerTensor,
+)
 from torchao.quantization.quant_primitives import (
     MappingType,
-    PerTensor,
-    PerAxis,
     FP8_TYPES, 
 )
 

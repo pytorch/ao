@@ -15,7 +15,9 @@ Evaluation perplexity numbers were calculated using the script in awq/example.py
 
 
 The following tests were performed using LM eval and groupsize = 128
-| Model              | Quantization | Perplexity | Truthful QA MC2 | WinoGrande | ARC challenge | 
+
+| Model              | Quantization | Perplexity | Truthful QA MC2 | WinoGrande | ARC challenge |
+|--------------------|--------------|------------|-----------------|------------|---------------|
 | Llama-3-8B-Instruct| bfloat16     | 10.936     | 0.540           | 0.783      | 0.567         |
 |                    | awq-hqq-int4 | 11.383     | 0.522           | 0.772      | 0.543         |
 |                    | awq-uint4    | 11.409     | 0.519           | 0.756      | 0.577         |

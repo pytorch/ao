@@ -26,7 +26,7 @@ from torchao.quantization.quant_api import (
 )
 from torchao._models._eval import TransformerEvalWrapper, InputRecorder
 from torchao._models.llama.model import prepare_inputs_for_model
-from torchao.quantization.quant_primitives import PerRow, PerTensor
+from torchao.quantization.granularity import PerRow, PerTensor
 
 from tokenizer import get_tokenizer
 import time
