@@ -1,0 +1,10 @@
+﻿.. role:: hidden
+    :class: hidden-section
+.. currentmodule:: torchao.quantization
+
+
+Int4WeightOnlyQuantizer
+=======================
+
+.. autoclass:: Int4WeightOnlyQuantizer
+    :members:
