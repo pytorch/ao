@@ -325,3 +325,52 @@ class Int8DynActIntxWeightQuantizer:
             },
         )
         return model
+
+
+from _linear_8bit_act_xbit_weight_subclass_quantizer import IntxWeightLayoutType
+from torchao.quantization.quant_api import (
+    _get_linear_subclass_inserter,
+    MappingType,
+    to_affine_quantized_intx,
+    ZeroPointDomain,
+)
+
+
+def int8_dyn_act_intx_weight(
+    group_size: int = 128,
+    nbit: int = 4,
+    has_weight_zeros: bool = False,
+    target: str = "native",
+):
+
+    def apply(weight):
+        assert weight.shape[-1] % group_size == 0
+        use_hqq = False
+        layout_type = IntxWeightLayoutType(
+            nbit=nbit, group_size=group_size, target=target
+        )
+        mapping_type = MappingType.ASYMMETRIC
+        eps = torch.finfo(torch.float32).eps
+        block_size = (1, group_size)
+        target_dtype = torch.int32
+        quant_min = -(1 << (nbit - 1))
+        quant_max = (1 << (nbit - 1)) - 1
+        zero_point_dtype = torch.int8
+        preserve_zero = has_weight_zeros
+        zero_point_domain = ZeroPointDomain.INT if has_weight_zeros else None
+        return to_affine_quantized_intx(
+            weight,
+            mapping_type,
+            block_size,
+            target_dtype,
+            quant_min,
+            quant_max,
+            eps,
+            zero_point_dtype=zero_point_dtype,
+            preserve_zero=preserve_zero,
+            zero_point_domain=zero_point_domain,
+            layout_type=layout_type,
+            use_hqq=use_hqq,
+        )
+
+    return _get_linear_subclass_inserter(apply)
