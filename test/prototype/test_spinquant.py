@@ -2,7 +2,7 @@ import importlib
 import pytest
 import torch
 from torchao._models.llama.model import Transformer
-from torchao.prototype.spinquant.spinquant import apply_spinquant
+from torchao.prototype.spinquant import apply_spinquant
 
 
 def _is_package_available(pkg_name):
