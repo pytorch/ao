@@ -1,23 +1,15 @@
 import torch
-import torch.nn.functional as F
-import json
 from torchao.quantization.quant_primitives import (
-    MappingType,
-    ZeroPointDomain,
      _DTYPE_TO_QVALUE_BOUNDS,
 )
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.dtypes import to_affine_quantized_intx_static
-from torchao.dtypes.uintx.uintx import _DTYPE_TO_BIT_WIDTH
 from torchao.prototype.smoothquant.core import(
     SmoothQuantObserver, 
     SmoothQuantObservedLinear, 
     SmoothQuantLayoutType,
 ) 
 from typing import Dict, Optional
-
-
-assert len(_DTYPE_TO_BIT_WIDTH) > 0, "Error importing low bit torch.uint dtypes. Please upgrade to torch 2.3+"
 
 
 def insert_smooth_quant_observer(
