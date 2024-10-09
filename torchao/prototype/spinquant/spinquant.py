@@ -32,12 +32,15 @@ class HadamardMultiplier(nn.Module):
         return x
 
 
-def apply_spinquant(model: Transformer, use_r1=False, use_r2=True, use_r4=True, pretrained_rotation_path=None):
+def apply_spinquant(model: Transformer, use_r1=False, use_r2=False, use_r4=True, pretrained_rotation_path=None):
     """
     Apply SpinQuant to a Transformer model: https://arxiv.org/abs/2405.16406
     
-    Currently, this has the option of applying R1, R2, and R4 rotation matrices to
-    the model (not R3, and no Cayley optimization).
+    Currently, the R1, R2, and R4 rotation matrices are implemented, and can be used independently
+    from each other. For R1 and R2, random Hadamard matrices are used. The default is to only use R4,
+    which appears to show best results in many cases (see https://github.com/pytorch/ao/pull/983).
+
+    Note that the R3 rotation matrix and Cayley optimization for R1/R2 are currently not implemented.
     """
     assert isinstance(model, Transformer), "Only Transformer models are supported"
 
