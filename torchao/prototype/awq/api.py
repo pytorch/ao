@@ -1,9 +1,9 @@
 import torch
 import torch.nn.functional as F
 
+from torchao.quantization.granularity import PerGroup
 from torchao.quantization.quant_primitives import (
     MappingType,
-    PerGroup,
     ZeroPointDomain,
      _DTYPE_TO_QVALUE_BOUNDS,
 )
