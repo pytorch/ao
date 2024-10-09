@@ -24,9 +24,9 @@ from torchao.quantization.quant_api import (
     float8_dynamic_activation_float8_weight,
     float8_static_activation_float8_weight,
 )
-from torchao.quantization.observer import PerRow, PerTensor
 from torchao._models._eval import TransformerEvalWrapper, InputRecorder
 from torchao._models.llama.model import prepare_inputs_for_model
+from torchao.quantization.granularity import PerRow, PerTensor
 
 from tokenizer import get_tokenizer
 import time

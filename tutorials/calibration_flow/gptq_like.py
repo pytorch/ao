@@ -37,10 +37,10 @@ from torchao.dtypes import to_affine_quantized_intx_static
 from torchao.quantization import quantize_
 from torchao.quantization import to_linear_activation_quantized
 from torchao.quantization import LinearActivationQuantizedTensor
+from torchao.quantization.granularity import PerTensor
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.quantization.observer import (
     AffineQuantizedMinMaxObserver,
-    PerTensor,
 )
 from torchao.quantization.quant_primitives import (
     MappingType,

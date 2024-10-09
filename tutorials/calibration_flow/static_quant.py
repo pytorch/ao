@@ -17,8 +17,10 @@ from torchao.quantization import to_linear_activation_quantized
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.quantization.observer import (
     AffineQuantizedMinMaxObserver,
-    PerTensor,
+)
+from torchao.quantization.granularity import (
     PerAxis,
+    PerTensor,
 )
 from torchao.quantization.quant_primitives import (
     MappingType,

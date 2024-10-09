@@ -26,11 +26,17 @@ from torchao.quantization import (
     float8_weight_only,
     quantize_,
 )
-from torchao.quantization.observer import PerRow, PerTensor
+from torchao.quantization.granularity import (
+    PerRow,
+    PerTensor,
+)
 from torchao.quantization.quant_api import (
     float8_static_activation_float8_weight,
 )
-from torchao.quantization.quant_primitives import MappingType, choose_qparams_affine
+from torchao.quantization.quant_primitives import (
+    MappingType,
+    choose_qparams_affine,
+)
 
 random.seed(0)
 torch.manual_seed(0)

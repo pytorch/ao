@@ -216,7 +216,7 @@ def main(
             float8_weight_only,
             float8_dynamic_activation_float8_weight,
         )
-        from torchao.quantization.observer import PerTensor, PerRow
+        from torchao.quantization.granularity import PerTensor, PerRow
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:

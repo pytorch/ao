@@ -12,12 +12,14 @@ from .subclass import ( # noqa
 from torchao.dtypes import AffineQuantizedTensor, PlainLayoutType, TensorCoreTiledLayoutType, Float8LayoutType
 from torchao.quantization.linear_activation_quantized_tensor import LinearActivationQuantizedTensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from .quant_primitives import (
-    safe_int_mm,
+from .granularity import (
+    PerAxis,
+    PerRow,
+    PerTensor,
 )
+from .quant_primitives import safe_int_mm
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_5
 from torchao.quantization.utils import quantize_activation_per_token_absmax
-from torchao.quantization.observer import PerAxis, PerTensor, PerRow
 from torchao.float8.inference import Float8MMConfig
 
 import torch.nn.functional as F
