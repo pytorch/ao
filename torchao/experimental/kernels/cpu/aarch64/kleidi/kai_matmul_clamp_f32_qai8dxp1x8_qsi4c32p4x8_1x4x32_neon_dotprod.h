@@ -93,7 +93,7 @@ void kernel(
     const float* bias,
     float clamp_min,
     float clamp_max) {
-  (void)bias; // unused - needs API fixing
+  (void)bias; // TODO(T203756650) - unused - needs API fixing
   assert(output_m_stride == n);
   if (clamp_min == 0 && clamp_max == 0) {
     clamp_min = std::numeric_limits<float>::lowest();
