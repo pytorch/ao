@@ -7,6 +7,8 @@ from torch.autograd import Variable
 import torch.nn.functional as F
 import numpy as np
 
+from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
+
 # original supermask
 scores_min=None
 scores_max=9e9
@@ -195,81 +197,104 @@ def apply_supermask(
     device="cuda",
     verbose=False,
 ):
-    sparsified_modules = {}
+    # create filter function
+    # TODO: it might be better to move the filtering function to the script calling this function
+    is_last_layer = lambda module, name: name == "heads.head"
+    is_first_transformer_layer = lambda module, name: name == "encoder.layers.encoder_layer_0"
+    # TODO: create condition for ffn, k,v,q,o projections
+    reject_fn = lambda module, name : (skip_last_layer_sparsity and is_last_layer(module, name)) or (skip_first_transformer_sparsity and is_first_transformer_layer(module, name))
+    filter_fn = lambda module, name : not reject_fn(module, name) and isinstance(module, (torch.nn.Linear, torch.nn.Conv2d))
 
-    for n, m in model.named_modules():
-        # check conditions for skipping sparsity
-        if skip_last_layer_sparsity and n == "heads.head":
-            continue
-        if skip_first_transformer_sparsity and "encoder.layers.encoder_layer_0" in n:
-            continue
-        
-        # convert 1x1 convolutions
-        if conv1x1_sparsity != 0.0 and isinstance(m, torch.nn.Conv2d) and m.kernel_size == (1, 1):
-            new_m = SupermaskConv2d(
-                conv1x1_sparsity, False, False, None, None, None,
-                m.in_channels,
-                m.out_channels,
-                m.kernel_size, 
-                stride=m.stride,
-                padding=m.padding,
-                dilation=m.dilation,
-                groups=m.groups,
-                bias=m.bias is not None,
-                padding_mode=m.padding_mode,
-                device=device,
-                tile_size=conv1x1_sp_tilesize,
-            )
-            new_m.weight.data.copy_(m.weight.data)
-            if m.bias is not None:
-                new_m.bias.data.copy_(m.bias.data)
-            sparsified_modules[n] = new_m
-            continue
+    _replace_with_custom_fn_if_matches_filter(
+        model,
+        SuperMaskReplacementClass(
+            linear_sparsity=linear_sparsity,
+            linear_sp_tilesize=linear_sp_tilesize,
+            conv1x1_sparsity=conv1x1_sparsity,
+            conv1x1_sp_tilesize=conv1x1_sp_tilesize,
+            conv_sparsity=conv_sparsity,
+            conv_sp_tilesize=conv_sp_tilesize,
+            device=device,
+            verbose=verbose,
+        ),
+        filter_fn,
+    )
 
-        # convert all other convolutions (not tested!)
-        if conv_sparsity != 0.0 and isinstance(m, torch.nn.Conv2d):
-            new_m = SupermaskConv2d(
-                conv_sparsity, False, False, None, None, None,
-                m.in_channels,
-                m.out_channels,
-                m.kernel_size, 
-                stride=m.stride,
-                padding=m.padding,
-                dilation=m.dilation,
-                groups=m.groups,
-                bias=m.bias is not None,
-                padding_mode=m.padding_mode,
-                device=device,
-                tile_size=conv_sp_tilesize,
-            )
-            new_m.weight.data.copy_(m.weight.data)
-            if m.bias is not None:
-                new_m.bias.data.copy_(m.bias.data)
-            sparsified_modules[n] = new_m
-            continue
+class SuperMaskReplacementClass:
+    def __init__(
+        self,
+        linear_sparsity=0.0,
+        linear_sp_tilesize=1,
+        conv1x1_sparsity=0.0,
+        conv1x1_sp_tilesize=1,
+        conv_sparsity=0.0,
+        conv_sp_tilesize=1,
+        device="cuda",
+        verbose=False,
+    ):
+        self.linear_sparsity = linear_sparsity
+        self.linear_sp_tilesize = linear_sp_tilesize
+        self.conv1x1_sparsity = conv1x1_sparsity
+        self.conv1x1_sp_tilesize = conv1x1_sp_tilesize
+        self.conv_sparsity = conv_sparsity
+        self.conv_sp_tilesize = conv_sp_tilesize
+        self.device = device
+        self.verbose = verbose
 
-        if linear_sparsity != 0.0 and isinstance(m, torch.nn.Linear):
-            new_m = SupermaskLinear(
-                linear_sparsity, False, False, None, None, None,
-                m.in_features,
-                m.out_features,
-                bias=m.bias is not None,
-                device=device,
-                tile_size=linear_sp_tilesize,
-            )
-            new_m.weight.data.copy_(m.weight.data)
-            if m.bias is not None:
-                new_m.bias.data.copy_(m.bias.data)
-            sparsified_modules[n] = new_m
-            continue
+    def __call__(self, module):
+        module_new = None
 
-    # add modules to model
-    for k, v in sparsified_modules.items():
-        sm_name, ch_name = k.rsplit(".", 1)
-        sm = model.get_submodule(sm_name)
-        sm.add_module(ch_name, v)
+        if self.conv1x1_sparsity != 0.0 and isinstance(module, torch.nn.Conv2d) and module.kernel_size == (1, 1):
+            # convert 1x1 convolutions
+            module_new = SupermaskConv2d(
+                self.conv1x1_sparsity, False, False, None, None, None,
+                module.in_channels,
+                module.out_channels,
+                module.kernel_size, 
+                stride=module.stride,
+                padding=module.padding,
+                dilation=module.dilation,
+                groups=module.groups,
+                bias=module.bias is not None,
+                padding_mode=module.padding_mode,
+                tile_size=self.conv1x1_sp_tilesize,
+            ).to(device=self.device, dtype=module.weight.dtype)
+            module_new.weight.data.copy_(module.weight.data)
+            if module.bias is not None:
+                module_new.bias.data.copy_(module.bias.data)
+        elif self.conv_sparsity != 0.0 and isinstance(module, torch.nn.Conv2d):
+            # convert all other convolutions (not tested!)
+            module_new = SupermaskConv2d(
+                self.conv_sparsity, False, False, None, None, None,
+                module.in_channels,
+                module.out_channels,
+                module.kernel_size, 
+                stride=module.stride,
+                padding=module.padding,
+                dilation=module.dilation,
+                groups=module.groups,
+                bias=module.bias is not None,
+                padding_mode=module.padding_mode,
+                tile_size=self.conv_sp_tilesize,
+            ).to(device=self.device, dtype=module.weight.dtype)
+            module_new.weight.data.copy_(module.weight.data)
+            if module.bias is not None:
+                module_new.bias.data.copy_(module.bias.data)
+        elif self.linear_sparsity != 0.0 and isinstance(module, torch.nn.Linear):
+            module_new = SupermaskLinear(
+                self.linear_sparsity, False, False, None, None, None,
+                module.in_features,
+                module.out_features,
+                bias=module.bias is not None,
+                tile_size=self.linear_sp_tilesize,
+            ).to(device=self.device, dtype=module.weight.dtype)
+            module_new.weight.data.copy_(module.weight.data)
+            if module.bias is not None:
+                module_new.bias.data.copy_(module.bias.data)
+        else:
+            return module
 
-        if verbose:
-            print(f'sparsified module "{k}" with sparsity={v.sparsity}, tile size={v.tile_size}')
+        if self.verbose:
+            print(f'sparsified module "{module}" with sparsity={module_new.sparsity}, tile size={module_new.tile_size}')
 
-    return model
+        return module_new
