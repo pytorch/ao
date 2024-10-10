@@ -15,34 +15,6 @@ The BSR format is efficient for sparse matrices with a block structure, where no
 
 Currently, the BSR format is optimized for Nvidia A100 GPU(s) only.
 
-## Setup
-To use SuperBlock, you will need
-* [PyTorch](https://pytorch.org/get-started/locally/)
-
-To train the model or evaluate accuracy, you will need:
-* ImageNet2012-blurred dataset
-
-At least one GPU:
-* A100 or H100
-
-## Installation
-* Clone this repo
-  ```
-  git clone https://github.com/pytorch-labs/superblock.git
-  cd superblock
-  ```
-* Create a new conda environment
-  ```
-  conda create -n superblock
-  conda activate superblock
-  ```
-* Install PyTorch. For best performance, we recommend the pytorch nightlies
-  ```
-  pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu121
-  ```
-  We ran our experiments with torch==2.6.0.dev20240924+cu121
-
-
 # Results
 
 ### Benchmarking
