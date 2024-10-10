@@ -1,12 +1,7 @@
-import importlib
 import pytest
 import torch
 from torchao._models.llama.model import Transformer
 from torchao.prototype.spinquant import apply_spinquant
-
-
-def _is_package_available(pkg_name):
-    return importlib.util.find_spec(pkg_name) is not None
 
 
 def _init_model(name="7B", device="cpu", precision=torch.bfloat16):
@@ -15,9 +10,7 @@ def _init_model(name="7B", device="cpu", precision=torch.bfloat16):
     return model.eval()
 
 
-_AVAILABLE_DEVICES = ["cpu"]
-if torch.cuda.is_available() and _is_package_available("fast_hadamard_transform"):
-    _AVAILABLE_DEVICES.append("cuda")
+_AVAILABLE_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 
 
 @pytest.mark.parametrize("device", _AVAILABLE_DEVICES)

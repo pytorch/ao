@@ -11,20 +11,25 @@
 
 import torch
 
-try:
-    """
-    Note: fast_hadamard_transform package is required for CUDA support.
-
-    To install the fast_hadamard_transform package, run the following:
-    ```
-        pip install git+https://github.com/Dao-AILab/fast-hadamard-transform.git
-    ```
-    """
-    from fast_hadamard_transform import hadamard_transform
-except:
-    pass
-
 from torchao.prototype.spinquant._hadamard_matrices import get_had172, get_had156, get_had140, get_had108, get_had60, get_had52, get_had36, get_had28, get_had44, get_had40, get_had20, get_had12
+
+try:
+    from fast_hadamard_transform import hadamard_transform
+
+    def matmul_hadU(X, hadK, K):
+        if X.is_cuda:
+            return matmul_hadU_fast(X, hadK, K)
+        else:
+            return matmul_hadU_slow(X, hadK, K)
+
+except ImportError:
+
+    print("NOTE: Using slow Hadamard transform for SpinQuant. "
+          "For better performance on GPU, install `fast_hadamard_transform`: "
+          "`pip install git+https://github.com/Dao-AILab/fast-hadamard-transform.git`")
+
+    def matmul_hadU(X, hadK, K):
+        return matmul_hadU_slow(X, hadK, K)
 
 
 class HadamardTransform(torch.autograd.Function):
@@ -113,14 +118,7 @@ def get_hadK(n, transpose=False):
     return hadK, K
 
 
-def matmul_hadU(X, hadK, K):
-    if X.device == torch.device("cpu"):
-        return matmul_hadU_cpu(X, hadK, K)
-    else:
-        return matmul_hadU_cuda(X, hadK, K)
-
-
-def matmul_hadU_cpu(X, hadK, K):
+def matmul_hadU_slow(X, hadK, K):
     n = X.shape[-1]
     input = X.clone().view(-1, n, 1)
     output = input.clone()
@@ -143,7 +141,7 @@ def matmul_hadU_cpu(X, hadK, K):
     return input.view(X.shape) / torch.tensor(n).sqrt()
 
 
-def matmul_hadU_cuda(X, hadK, K):
+def matmul_hadU_fast(X, hadK, K):
     n = X.shape[-1]
     if K == 1:
         return HadamardTransform.apply(X.contiguous()) / torch.tensor(n).sqrt()
@@ -161,14 +159,14 @@ def random_hadamard_matrix(size, device, seed=0):
     Q = Q * 2 - 1
     Q = torch.diag(Q)
     hadK, K = get_hadK(size)
-    return matmul_hadU_cpu(Q, hadK, K).to(device)
+    return matmul_hadU_slow(Q, hadK, K).to(device)
 
 
 def hadamard_matrix(size, device):
     # See https://cornell-relaxml.github.io/quip-sharp/ , Section "Randomized Hadamard Transformation"
     Q = torch.eye(size)
     hadK, K = get_hadK(size)
-    return matmul_hadU_cpu(Q, hadK, K).to(device)
+    return matmul_hadU_slow(Q, hadK, K).to(device)
 
 
 def apply_exact_had_to_linear(module, had_dim=-1, output=False, R2=None):
@@ -180,22 +178,20 @@ def apply_exact_had_to_linear(module, had_dim=-1, output=False, R2=None):
 
     W = module.weight.data
     dtype_orig = W.dtype
-    device_orig = W.device
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    W = W.float().to(device=device)
+    W = W.float()
 
     if had_dim == -1:
         if output:
             had_K, K = get_hadK(out_features)
-            W = matmul_hadU(W.t(), had_K, K).t()
+            W = matmul_hadU(W.t(), had_K.to(W.device), K).t()
         else:
             had_K, K = get_hadK(in_features)
-            W = matmul_hadU(W, had_K, K)
+            W = matmul_hadU(W, had_K.to(W.device), K)
     else:
         if R2 is not None:
             hadK = R2.to(torch.float64)
         else:
-            hadK = hadamard_matrix(had_dim, device).to(torch.float64)
+            hadK = hadamard_matrix(had_dim, W.device).to(torch.float64)
 
         if output:
             W = W.t()
@@ -208,4 +204,4 @@ def apply_exact_had_to_linear(module, had_dim=-1, output=False, R2=None):
         if output:
             W = W.t()
 
-    module.weight.data = W.to(device=device_orig, dtype=dtype_orig)
+    module.weight.data = W.to(dtype=dtype_orig)
