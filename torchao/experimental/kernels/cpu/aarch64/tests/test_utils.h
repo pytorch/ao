@@ -43,6 +43,28 @@ inline std::vector<uint8_t> get_random_lowbit_vector(int size, int nbit) {
   return res;
 }
 
+// TODO move these to a common utils 
+inline uint16_t
+get_bf16_from_float(float f) {
+  uint16_t bf16;
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  memcpy(&bf16, &f, sizeof(uint16_t));
+#else
+  const void* fp = reinterpret_cast<const void*>(
+      reinterpret_cast<uintptr_t>(&f) + sizeof(float) - sizeof(uint16_t));
+  memcpy(&bf16, fp, sizeof(uint16_t));
+#endif // __BYTE_ORDER__
+  return bf16;
+}
+
+inline float
+get_float_from_bf16(uint16_t bf16) {
+  float f;
+  const uint32_t i32 = (bf16 << 16);
+  memcpy(&f, &i32, sizeof(uint32_t));
+  return f;
+}
+
 struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
   int m;
   int k;
@@ -135,7 +157,8 @@ struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
       int weight_nbit,
       bool has_weight_zeros,
       bool has_bias,
-      bool has_clamp) {
+      bool has_clamp,
+      bool round_weight_scales_to_bf16=false) {
     // activations is m x k (stored in row-major)
     // weights is k x n (stored in column-major)
 
@@ -198,6 +221,11 @@ struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
         scale = torchao::quantization::get_scale(vmin, vmax, qmin, qmax);
         zero = 0;
       }
+      if (round_weight_scales_to_bf16) {
+        // weight scales are bf16 in the kernel
+        // so we need to round trip them to bf16 and back to float to match it.
+        scale = get_float_from_bf16(get_bf16_from_float(scale));
+      }
       weight_scales[group_idx] = scale;
       weight_zeros[group_idx] = zero;
 
@@ -225,6 +253,7 @@ struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
 
     // Compute expected output
     std::vector<float> expected_output(m * n);
+
     for (int m_idx = 0; m_idx < m; m_idx++) {
       for (int n_idx = 0; n_idx < n; n_idx++) {
         float res = 0.0;
