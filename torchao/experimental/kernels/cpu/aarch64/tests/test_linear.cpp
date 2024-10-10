@@ -462,6 +462,16 @@ TEST(
       /*m=*/1, /*k=*/128, /*n=*/182, /*group_size=*/128);
 }
 
+TEST(
+    test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod,
+    m_clamp_k_eq_gs128) {
+  test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod<
+      false /*has_bias*/,
+      true /*has_clamp*/>(
+      /*m=*/11, /*k=*/128, /*n=*/182, /*group_size=*/128);
+}
+
+
 template <bool has_bias, bool has_clamp>
 void test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod(
     int m,
@@ -565,6 +575,15 @@ TEST(
       false /*has_bias*/,
       true /*has_clamp*/>(
       /*m=*/1, /*k=*/128, /*n=*/182, /*group_size=*/128);
+}
+
+TEST(
+    test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod,
+    m_clamp_k_eq_gs128) {
+  test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod<
+      false /*has_bias*/,
+      true /*has_clamp*/>(
+      /*m=*/11, /*k=*/128, /*n=*/182, /*group_size=*/128);
 }
 // #endif // defined(TORCHAO_ENABLE_KLEIDI)
 #endif // defined(__aarch64__) || defined(__ARM_NEON)
