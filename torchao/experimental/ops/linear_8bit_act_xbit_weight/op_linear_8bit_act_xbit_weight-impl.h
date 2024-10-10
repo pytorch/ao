@@ -47,12 +47,12 @@ get_ukernel_config() {
   config.nr = 8;
   config.activation_data_size_fn =
       &ukernel::activation_data_size<has_weight_zeros>;
-  config.activation_data_alignment = 16; // size of neon register
+  config.preferred_activation_data_alignment = 16; // size of neon register
   config.prepare_activation_data_fn =
       &ukernel::prepare_activation_data<has_weight_zeros>;
   config.weight_data_size_fn =
       &ukernel::weight_data_size<weight_nbit, has_weight_zeros>;
-  config.weight_data_alignment = 16; // size of neon register
+  config.preferred_weight_data_alignment = 16; // size of neon register
   config.prepare_weight_data_fn =
       &ukernel::prepare_weight_data<weight_nbit, has_weight_zeros>;
   config.kernel_fn =
@@ -116,7 +116,7 @@ Tensor pack_weights_cpu(
 
   auto packed_weight_data_size =
       get_packed_weight_data_size(ukernel_config, n, k, group_size);
-  Tensor packed_weights = torch::empty({packed_weight_data_size}, torch::kInt8);
+  Tensor packed_weights = torch::empty({static_cast<int64_t>(packed_weight_data_size)}, torch::kInt8);
   pack_weight_data_operator(
       ukernel_config,
       pack_weight_tiling_params,
@@ -182,7 +182,7 @@ Tensor pack_weights_meta(
 
   auto packed_weight_data_size =
       get_packed_weight_data_size(ukernel_config, n, k, group_size);
-  return torch::empty({packed_weight_data_size}).to("meta");
+  return torch::empty({static_cast<int64_t>(packed_weight_data_size)}).to("meta");
 }
 #endif // USE_ATEN
 

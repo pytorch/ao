@@ -117,7 +117,7 @@ LinearTilingParams get_default_linear_tiling_params(
 
 namespace internal {
 
-inline int
+inline size_t
 get_activation_data_buffer_size_with_tile_schedule_policy_single_mc_parallel_nc(
     const UKernelConfig& ukernel_config,
     const LinearTilingParams& tiling_params,
@@ -128,7 +128,7 @@ get_activation_data_buffer_size_with_tile_schedule_policy_single_mc_parallel_nc(
       tiling_params.mc_by_mr * ukernel_config.mr, k, group_size);
 }
 
-inline int
+inline size_t
 get_activation_data_buffer_size_with_tile_schedule_policy_parallel_mc_parallel_nc(
     const UKernelConfig& ukernel_config,
     const LinearTilingParams& tiling_params,
@@ -162,7 +162,7 @@ inline void linear_operator_with_tile_schedule_policy_single_mc_parallel_nc(
   int nc = std::min(n, tiling_params.nc_by_nr * ukernel_config.nr);
   int num_mc_panels = (m + mc - 1) / mc;
   int num_nc_panels = (n + nc - 1) / nc;
-  int weight_data_size = ukernel_config.weight_data_size_fn(nr, k, group_size);
+  size_t weight_data_size = ukernel_config.weight_data_size_fn(nr, k, group_size);
 
   for (int mc_tile_idx = 0; mc_tile_idx < num_mc_panels; mc_tile_idx++) {
     int m_idx = mc_tile_idx * mc;
@@ -223,8 +223,8 @@ inline void linear_operator_with_tile_schedule_policy_parallel_mc_parallel_nc(
   int num_mc_panels = (m + mc - 1) / mc;
   int num_nc_panels = (n + nc - 1) / nc;
 
-  int weight_data_size = ukernel_config.weight_data_size_fn(nr, k, group_size);
-  int activation_data_size =
+  size_t weight_data_size = ukernel_config.weight_data_size_fn(nr, k, group_size);
+  size_t activation_data_size =
       ukernel_config.activation_data_size_fn(mr, k, group_size);
 
   torchao::parallel_1d(0, num_mc_panels, [&](int64_t idx) {
@@ -332,7 +332,7 @@ void linear_operator(
   }
 }
 
-int get_activation_data_buffer_size(
+size_t get_activation_data_buffer_size(
     const UKernelConfig& ukernel_config,
     const LinearTilingParams& tiling_params,
     LinearTileSchedulingPolicy scheduling_policy,
