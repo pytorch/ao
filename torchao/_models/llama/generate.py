@@ -167,6 +167,7 @@ def main(
     save: bool = False,
     compile: bool = True,
     compile_prefill: bool = False,
+    superblock: bool = False,
     profile: Optional[Path] = None,
     memory_profile: Optional[Path] = None,
     device=default_device,
@@ -272,6 +273,24 @@ def main(
         output_dir = str(checkpoint_path.cwd())
         filename = str(checkpoint_path.name).split(".")[0]
         torch.save(model.state_dict(), os.path.join(output_dir, filename + f"-{quantization}.pt"))
+
+    if superblock:
+        from torchao.sparsity.prototype.superblock.utils import (
+            accelerate_with_sparsity,
+            get_args_parser,
+            simulate_sparsity,
+        )
+
+        superblock_args = get_args_parser(benchmark=True).parse_args([])
+        superblock_args.sparsity = "bsr"
+        superblock_args.sparsity_linear = 0.9
+        superblock_args.bsr = 64
+
+        sparsifier_or_none = simulate_sparsity(model, superblock_args)
+        if sparsifier_or_none is not None:
+            sparsifier_or_none.squash_mask()
+
+        accelerate_with_sparsity(model, superblock_args)
 
     if compile:
         print("Compiling Model")
@@ -426,6 +445,7 @@ if __name__ == '__main__':
     parser.add_argument('--save', action='store_true', help='Whether to save the quantized model.')
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
     parser.add_argument('--compile_prefill', action='store_true', help='Whether to compile the prefill (improves prefill perf, but higher compile times)')
+    parser.add_argument('--superblock', action='store_true', help='Apply Superblock BSR sparsity')
     parser.add_argument('--profile', type=Path, default=None, help='Profile path.')
     parser.add_argument('--memory_profile', type=Path, default=None, help='filename for memory profile.')
     parser.add_argument('--device', type=str, default=default_device, help='Device to use')
@@ -435,5 +455,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     main(
         args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.top_k,
-        args.temperature, args.checkpoint_path, args.quantization, args.kv_cache_quantization, args.cache_size, args.linear_causal_mask, args.save, args.compile, args.compile_prefill, args.profile, args.memory_profile, args.device, args.precision, args.write_result
+        args.temperature, args.checkpoint_path, args.quantization, args.kv_cache_quantization, args.cache_size, args.linear_causal_mask, args.save, args.compile, args.compile_prefill, args.superblock, args.profile, args.memory_profile, args.device, args.precision, args.write_result
     )
