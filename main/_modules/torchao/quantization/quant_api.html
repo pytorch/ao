@@ -431,7 +431,10 @@
 <span class="kn">from</span> <span class="nn">torchao.quantization.weight_tensor_linear_activation_quantization</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">to_weight_tensor_with_linear_activation_quantization_metadata</span><span class="p">,</span>
 <span class="p">)</span>
-
+<span class="kn">from</span> <span class="nn">.granularity</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">PerRow</span><span class="p">,</span>
+    <span class="n">PerTensor</span><span class="p">,</span>
+<span class="p">)</span>
 <span class="kn">from</span> <span class="nn">.quant_primitives</span> <span class="kn">import</span> <span class="p">(</span>
     <span class="n">MappingType</span><span class="p">,</span>
     <span class="n">ZeroPointDomain</span><span class="p">,</span>
@@ -451,7 +454,7 @@
 <span class="p">)</span>
 <span class="kn">from</span> <span class="nn">torchao.float8.inference</span> <span class="kn">import</span> <span class="n">Float8MMConfig</span>
 
-<span class="kn">from</span> <span class="nn">torchao.quantization.observer</span> <span class="kn">import</span> <span class="n">PerTensor</span><span class="p">,</span> <span class="n">PerRow</span><span class="p">,</span> <span class="n">get_block_size</span>
+<span class="kn">from</span> <span class="nn">torchao.quantization.observer</span> <span class="kn">import</span> <span class="n">get_block_size</span>
 
 <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
 
