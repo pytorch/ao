@@ -1346,7 +1346,6 @@ def _linear_int8_act_int8_weight_check(input_tensor, weight_tensor, bias):
         isinstance(input_tensor, AffineQuantizedTensor) and
         _aqt_is_int8_reduced_range(input_tensor) and
         isinstance(weight_tensor, AffineQuantizedTensor) and
-        weight_tensor.is_cuda and
         input_tensor.dtype == weight_tensor.dtype and
         isinstance(input_tensor.layout_type, PlainLayoutType) and
         isinstance(weight_tensor.layout_type, PlainLayoutType)

@@ -2,7 +2,7 @@ import itertools
 import os
 import torch
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_2
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_2, TORCH_VERSION_AT_LEAST_2_4
 
 try:
     # Only works for torch2.2 or newer.
@@ -109,6 +109,21 @@ def int_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return safe_int_mm(a, b)
 
 
+lib = torch.library.Library("torchao", "FRAGMENT")
+if intmm_triton is None:
+    lib.define("int_scaled_matmul(Tensor a, Tensor b, Tensor scales1) -> Tensor")
+
+
+@torch.library.impl(lib, "int_scaled_matmul", "CPU")
+def int_scaled_matmul_cpu(a, b, scales1):
+    if TORCH_VERSION_AT_LEAST_2_4:
+        c = torch._int_mm(a, b)
+        c = c.float() * scales1
+        return c.to(scales1.dtype)
+    else:
+        return safe_int_mm(a, b) * scales1
+
+
 def int_scaled_matmul(a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor) -> torch.Tensor:
     """
     Performs scaled integer matrix multiplication.
@@ -126,12 +141,15 @@ def int_scaled_matmul(a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor) -
     """
     M, K = a.shape
     K, N = b.shape
-    assert M == scales1.size(0)
+    assert M == scales1.size(0) or scales1.numel() == 1
     assert 1 == scales1.size(1)
     assert scales1.is_contiguous()
     scales1 = scales1.expand((M, N))
     assert scales1.dim() == 2
     if intmm_triton is not None and AUTOTUNER_ENABLE:
+        return torch.ops.torchao.int_scaled_matmul(a, b, scales1)
+
+    if all([x.device.type == "cpu" for x in (a, b, scales1)]):
         return torch.ops.torchao.int_scaled_matmul(a, b, scales1)
 
     c = safe_int_mm(a, b)
