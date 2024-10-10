@@ -10,7 +10,7 @@ from torch.testing._internal.common_utils import (
 )
 from torchao.dtypes.floatx import (
     FloatxTensorCoreAQTTensorImpl,
-    FloatxTensorCoreLayoutType,
+    FloatxTensorCoreLayout,
     to_scaled_tc_floatx,
     from_scaled_tc_floatx,
 )
@@ -81,8 +81,8 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
         x = torch.randn(256, 64)
         scale = choose_qparams_affine_floatx(x, ebits, mbits)
         x = quantize_affine_floatx(x, scale, ebits, mbits)
-        layout_type = FloatxTensorCoreLayoutType(ebits, mbits)
-        floatx_tensor_impl = FloatxTensorCoreAQTTensorImpl.from_plain(x, scale, None, layout_type).cuda()
+        _layout = FloatxTensorCoreLayout(ebits, mbits)
+        floatx_tensor_impl = FloatxTensorCoreAQTTensorImpl.from_plain(x, scale, None, _layout).cuda()
         assert floatx_tensor_impl.device.type == "cuda"
         floatx_tensor_impl = floatx_tensor_impl.cpu()
         assert floatx_tensor_impl.device.type == "cpu"
