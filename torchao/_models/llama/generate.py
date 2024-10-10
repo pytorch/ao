@@ -230,8 +230,8 @@ def main(
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
             quantize_(model, int4_weight_only(group_size=groupsize))
         if "marlin" in quantization:
-            from torchao.dtypes import MarlinSparseLayoutType
-            quantize_(model, int4_weight_only(layout_type=MarlinSparseLayoutType()))
+            from torchao.dtypes import MarlinSparseLayout
+            quantize_(model, int4_weight_only(layout_type=MarlinSparseLayout()))
         if "fp6" in quantization:
             quantize_(model, fpx_weight_only(3, 2))
         if quantization.startswith("awq"):

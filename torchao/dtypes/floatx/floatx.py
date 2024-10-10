@@ -6,7 +6,7 @@ from torch import Tensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.prototype.custom_fp_utils import _f32_to_floatx_unpacked, _floatx_unpacked_to_f32, _n_ones
 from torchao.dtypes.utils import (
-    LayoutType,
+    Layout,
 )
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
 from dataclasses import dataclass
@@ -353,13 +353,13 @@ _SPLIT_K_MAP = [
 # quantization api integrations
 
 @dataclass(frozen=True)
-class FloatxTensorCoreLayoutType(LayoutType):
+class FloatxTensorCoreLayout(Layout):
     """Layout type for FloatxTensorCoreAQTTensorImpl
     """
     ebits: int
     mbits: int
 
-@register_layout(FloatxTensorCoreLayoutType)
+@register_layout(FloatxTensorCoreLayout)
 class FloatxTensorCoreAQTTensorImpl(AQTTensorImpl):
     """FloatxTensorCoreAQTTensorImpl represents a Tensor with dtype floatx(ebits=a, mbits=b),
     it has a internal tensor field of "packed_floatx_data", which is packed from the
@@ -386,7 +386,7 @@ class FloatxTensorCoreAQTTensorImpl(AQTTensorImpl):
         cls,
         packed_floatx_data: torch.Tensor,
         scale: torch.Tensor,
-        layout_type: LayoutType,
+        layout_type: Layout,
     ):
         assert packed_floatx_data.ndim == 2
         assert packed_floatx_data.dtype == torch.uint8
@@ -404,7 +404,7 @@ class FloatxTensorCoreAQTTensorImpl(AQTTensorImpl):
         self,
         packed_floatx_data: torch.Tensor,
         scale: torch.Tensor,
-        layout_type: LayoutType,
+        layout_type: Layout,
     ):
         self.packed_floatx_data = packed_floatx_data
         self.scale = scale
@@ -431,7 +431,7 @@ class FloatxTensorCoreAQTTensorImpl(AQTTensorImpl):
         unpacked_floatx_data: torch.Tensor,
         scale: torch.Tensor,
         zero_point: Optional[torch.Tensor],
-        layout_type: LayoutType,
+        layout_type: Layout,
     ):
         """
         Format for `unpacked_floatx_data` will be:
@@ -440,7 +440,7 @@ class FloatxTensorCoreAQTTensorImpl(AQTTensorImpl):
         For example for fp6_e3_m2, the format will be: `00SEEEMM`, where S is sign bit, E is exponent
         bit, M is mantissa bit
         """
-        assert isinstance(layout_type, FloatxTensorCoreLayoutType)
+        assert isinstance(layout_type, FloatxTensorCoreLayout)
         packed_floatx_data = pack_tc_floatx(unpacked_floatx_data, 1 + layout_type.ebits + layout_type.mbits)
         return cls(packed_floatx_data, scale, layout_type)
 
@@ -488,5 +488,5 @@ class FloatxTensorCoreAQTTensorImpl(AQTTensorImpl):
 
     __torch_function__ = torch._C._disabled_torch_function_impl
 
-    def get_layout_type(self) -> LayoutType:
+    def get_layout_type(self) -> Layout:
         return self.layout_type
