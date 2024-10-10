@@ -2,7 +2,7 @@ import torch
 import pandas as pd
 import torch.nn.functional as F
 from torchao.dtypes import to_affine_quantized_fpx
-from torchao.dtypes.floatx import FloatxTensorCoreAQTLayout, FloatxTensorCoreLayoutType
+from torchao.dtypes.floatx import FloatxTensorCoreAQTTensorImpl, FloatxTensorCoreLayoutType
 from torchao.utils import benchmark_torch_function_in_microseconds
 from tqdm import tqdm
 

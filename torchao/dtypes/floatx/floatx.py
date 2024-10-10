@@ -10,7 +10,7 @@ from torchao.dtypes.utils import (
 )
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
 from dataclasses import dataclass
-from torchao.dtypes.affine_quantized_tensor import AQTLayout, register_layout_cls
+from torchao.dtypes.affine_quantized_tensor import AQTTensorImpl, register_layout
 
 
 aten = torch.ops.aten
@@ -354,14 +354,14 @@ _SPLIT_K_MAP = [
 
 @dataclass(frozen=True)
 class FloatxTensorCoreLayoutType(LayoutType):
-    """Layout type for FloatxTensorCoreAQTLayout
+    """Layout type for FloatxTensorCoreAQTTensorImpl
     """
     ebits: int
     mbits: int
 
-@register_layout_cls(FloatxTensorCoreLayoutType)
-class FloatxTensorCoreAQTLayout(AQTLayout):
-    """FloatxTensorCoreAQTLayout represents a Tensor with dtype floatx(ebits=a, mbits=b),
+@register_layout(FloatxTensorCoreLayoutType)
+class FloatxTensorCoreAQTTensorImpl(AQTTensorImpl):
+    """FloatxTensorCoreAQTTensorImpl represents a Tensor with dtype floatx(ebits=a, mbits=b),
     it has a internal tensor field of "packed_floatx_data", which is packed from the
     uint8 unpacked data (the output of `quantize_affine_floatx` operator)
 
@@ -377,10 +377,10 @@ class FloatxTensorCoreAQTLayout(AQTLayout):
     If original Tensor shape is (M, N), and the data is in nbit, the shape of the packed data will be
     (M, N // 8 * nbit)
 
-    FloatxTensorCoreAQTLayout.from_plain takes an unpacked uint8 floatx Tensor of shape (M, N), with format of
+    FloatxTensorCoreAQTTensorImpl.from_plain takes an unpacked uint8 floatx Tensor of shape (M, N), with format of
     (zero padding bits + sign bit + exponent bits + mantissa bits), e.g. 00SEEEMM for fp6_e3_m2
-    it will then pack the weight and instantiate the FloatxTensorCoreAQTLayout tensor
-    FloatxTensorCoreAQTLayout.__init__() takes a packed floatx Tensor of shape (M, N // 8 * nbit)
+    it will then pack the weight and instantiate the FloatxTensorCoreAQTTensorImpl tensor
+    FloatxTensorCoreAQTTensorImpl.__init__() takes a packed floatx Tensor of shape (M, N // 8 * nbit)
     """
     def __new__(
         cls,
@@ -483,7 +483,7 @@ class FloatxTensorCoreAQTLayout(AQTLayout):
             )
 
         raise NotImplementedError(
-            f"FloatxTensorCoreAQTLayout dispatch: attempting to run {func}, this is not supported"
+            f"FloatxTensorCoreAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
         )
 
     __torch_function__ = torch._C._disabled_torch_function_impl
