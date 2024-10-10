@@ -1,32 +1,16 @@
 from dataclasses import dataclass
-from typing import Tuple, Optional
-
+from typing import Optional
 import torch
 import torch.nn.functional as F
-from torch.utils._python_dispatch import return_and_correct_aliasing
 from torch.ao.quantization import PerChannelMinMaxObserver, HistogramObserver
-from torchao.dtypes.uintx.uintx import to_uintx
-from torchao.dtypes.affine_quantized_tensor import (
-    to_affine_quantized_intx,
-    LayoutType,
-    register_layout_cls,
-    AQTLayout,
-    register_aqt_quantized_linear_dispatch
-
-) 
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
-    _DTYPE_TO_QVALUE_BOUNDS,
 )
 from torchao.quantization.observer import (
     AffineQuantizedObserverBase, PerRow
 )
-from torchao.quantization.utils import (
-    dynamically_quantize_per_channel,
-    quant_int8_per_token_matmul,
-)
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_2, TORCH_VERSION_AT_LEAST_2_4
+
 
 class SmoothQuantObserver(AffineQuantizedObserverBase):
     def __init__(self,
@@ -191,139 +175,3 @@ class SmoothQuantObservedLinear(torch.nn.Linear):
         observed_linear.weight = float_linear.weight
         observed_linear.bias = float_linear.bias
         return observed_linear
-
-
-@dataclass(frozen=True)
-class SmoothQuantLayoutType(LayoutType):
-    inv_smoothing_factor: torch.Tensor
-    act_scales: torch.Tensor
-    wei_scales: torch.Tensor
-
-
-def _quantized_linear_impl(input_tensor, weight_tensor, bias):
-    inv_smoothing_factor = weight_tensor.layout_tensor.layout_type.inv_smoothing_factor
-    act_scales = weight_tensor.layout_tensor.layout_type.act_scales
-    wei_scales = weight_tensor.layout_tensor.layout_type.wei_scales
-    input_shape = input_tensor.shape
-    input = input_tensor * inv_smoothing_factor
-    input = input.reshape(-1, input_shape[-1])
-    if (weight_tensor.device.type == "cpu" and not TORCH_VERSION_AT_LEAST_2_4) or \
-        not TORCH_VERSION_AT_LEAST_2_2:
-        # _int_mm is not available on CUDA until PyTorch 2.2
-        # _int_mm is not available on CPU until PyTorch 2.4
-        # So compute in float here
-        y = F.linear(input, weight_tensor.dequantize(), bias)
-    else:
-        target_dtype = torch.int8
-        quant_min = _DTYPE_TO_QVALUE_BOUNDS[target_dtype][0]
-        quant_max = _DTYPE_TO_QVALUE_BOUNDS[target_dtype][1]
-        if act_scales is not None:
-            # static quant
-            act_zero_points = torch.zeros_like(act_scales, dtype=torch.int64)
-            qx = torch.ops.quantized_decomposed.quantize_per_tensor(
-                input,
-                act_scales,
-                act_zero_points,
-                quant_min,
-                quant_max,
-                dtype=target_dtype,
-            )
-            act_scales = act_scales * torch.ones(input.size(0), dtype=act_scales.dtype)
-        else:
-            # dynamic quant
-            qx, act_scales, _ = dynamically_quantize_per_channel(input, quant_min, quant_max, target_dtype)
-        y = quant_int8_per_token_matmul(
-            qx, act_scales, weight_tensor.layout_tensor.int_data, wei_scales
-        )
-        if bias is not None:
-            y += bias
-    return y.to(input_tensor.dtype).reshape(input_shape[:-1] + (-1,))
-
-
-def _linear_sq_check(input_tensor, weight_tensor, bias):
-    return isinstance(weight_tensor.layout_tensor, SmoothQuantAQTLayout)
-
-
-register_aqt_quantized_linear_dispatch(_linear_sq_check, _quantized_linear_impl)
-
-
-@register_layout_cls(SmoothQuantLayoutType)
-class SmoothQuantAQTLayout(AQTLayout):
-    @staticmethod
-    def __new__(
-        cls,
-        int_data: torch.Tensor,
-        scale: torch.Tensor,
-        zero_point: torch.Tensor,
-        layout_type: LayoutType,
-    ):
-        kwargs = {}
-        kwargs["device"] = int_data.device
-        kwargs["layout"] = (
-            kwargs.get("layout") if kwargs.get("layout", False) else int_data.layout
-        )
-        kwargs["dtype"] = int_data.dtype
-        kwargs["requires_grad"] = False
-        shape = int_data.shape
-        return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
-
-    def __init__(
-        self,
-        int_data: torch.Tensor,
-        scale: torch.Tensor,
-        zero_point: torch.Tensor,
-        layout_type: LayoutType,
-    ):
-        self.int_data = int_data
-        self.scale = scale
-        self.zero_point = zero_point
-        self.layout_type = layout_type     
-
-    def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        return self.int_data, self.scale, self.zero_point
-
-    def __tensor_flatten__(self):
-        return ["int_data", "scale", "zero_point"], [self.layout_type]
-
-    @classmethod
-    def __tensor_unflatten__(
-        cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
-    ):
-        int_data, scale, zero_point = tensor_data_dict["int_data"], tensor_data_dict["scale"], tensor_data_dict["zero_point"]
-        layout_type, = tensor_attributes
-        return cls(int_data, scale, zero_point, layout_type)
-
-    @classmethod
-    def __torch_dispatch__(cls, func, types, args, kwargs):
-        kwargs = {} if kwargs is None else kwargs
-
-        if func is torch.ops.aten.detach.default:
-            return return_and_correct_aliasing(
-                func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
-            )
-
-        raise NotImplementedError(
-            f"SmoothQuantAQTLayout dispatch: attempting to run {func}, this is not supported"
-        )
-
-    @classmethod
-    def from_plain(
-        cls,
-        int_data: torch.Tensor,
-        scale: torch.Tensor,
-        zero_point: torch.Tensor,
-        layout_type: LayoutType,
-    ):
-        assert isinstance(layout_type, SmoothQuantLayoutType)
-        return cls(int_data, scale, zero_point, layout_type)
-
-    def get_layout_type(self) -> LayoutType:
-        return self.layout_type
-
-    def _apply_fn_to_data(self, fn):
-        self.int_data = fn(self.int_data)
-        self.scale = fn(self.scale)
-        self.zero_point = fn(self.zero_point)
-        return self
-    
-to_smooth_quant = SmoothQuantAQTLayout.from_plain

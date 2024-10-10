@@ -87,7 +87,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
         act = data / smoothing_factor
         wei = weight * smoothing_factor
         qw, w_scales, w_zps = dynamically_quantize_per_channel(
-            wei, -128, 127, torch.int8
+            wei, -127, 127, torch.int8
         )
         fq_wei = dequantize_per_channel(qw, w_scales, w_zps, torch.float32)
         if (device == "cpu" and not TORCH_VERSION_AT_LEAST_2_4) or \
@@ -109,7 +109,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
         else:
             # activation is quantized per-row (batch * sequence_length)
             qx, x_scales, x_zps = dynamically_quantize_per_channel(
-                act.float(), -128, 127, torch.int8
+                act.float(), -127, 127, torch.int8
             )
             fq_act = dequantize_per_channel(qx, x_scales, x_zps, torch.float32)
             out_ref = torch.nn.functional.linear(fq_act, fq_wei, b)
@@ -131,7 +131,7 @@ def test_save_load_recipe(alpha, quant_mode, device, idtype):
     n_calib_examples = 10
     sequence_length = 5
 
-    m = ToyLinearModel(l1,l2,l3).eval().to(original_dtype).to(device)
+    m = ToyLinearModel(l1, l2, l3).eval().to(original_dtype).to(device)
     m_save_load = deepcopy(m)
 
     dataset = m.example_inputs(dataset_size, sequence_length=sequence_length, dtype=original_dtype, device=device)

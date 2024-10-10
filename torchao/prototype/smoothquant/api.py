@@ -3,12 +3,16 @@ from torchao.quantization.quant_primitives import (
      _DTYPE_TO_QVALUE_BOUNDS,
 )
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
-from torchao.dtypes import to_affine_quantized_intx_static
+from torchao.dtypes import to_affine_quantized_intx, to_affine_quantized_intx_static
+from torchao.quantization.linear_activation_quantized_tensor import (
+    to_linear_activation_quantized,
+)
+from torchao.quantization.quant_primitives import MappingType
+from torchao.quantization.utils import _get_per_token_block_size
 from torchao.prototype.smoothquant.core import(
-    SmoothQuantObserver, 
-    SmoothQuantObservedLinear, 
-    SmoothQuantLayoutType,
-) 
+    SmoothQuantObserver,
+    SmoothQuantObservedLinear,
+)
 from typing import Dict, Optional
 
 
@@ -93,9 +97,10 @@ def save_smooth_quant_recipe(model: torch.nn.Module, save_path: str) -> Dict[str
     
     torch.save(result, save_path)
 
+
 def load_smooth_quant_recipe(model: torch.nn.Module, recipe_path: str, device=None) -> torch.nn.Module:
     recipe = torch.load(recipe_path, weights_only=True)
-    
+
     def recurse(module: torch.nn.Module, name: str = ''):
         if isinstance(module, SmoothQuantObservedLinear):
             smoothing_factor = recipe.get(name + ".smoothing_factor", None)
@@ -114,9 +119,9 @@ def load_smooth_quant_recipe(model: torch.nn.Module, recipe_path: str, device=No
             full_name = f"{name}.{child_name}" if name else child_name
             setattr(mod_new, child_name, recurse(child, full_name))
         return mod_new
-    
+
     recurse(model)
-    
+
 
 def smooth_quant(
         smoothing_factor: Optional[torch.Tensor] = None,
@@ -137,31 +142,40 @@ def smooth_quant(
         quant_min = _DTYPE_TO_QVALUE_BOUNDS[target_dtype][0]
         quant_max = _DTYPE_TO_QVALUE_BOUNDS[target_dtype][1]
         nonlocal smoothing_factor, act_scales, wei_scales
-        # act_scales is None for dynamic quantization
+        # act_scales is None for dynamic quantization thus not checked
         if any(x is None for x in (smoothing_factor, wei_scales)):
             factor, s_act, s_wei = observed_linear.obs.calculate_qparams()
             weight = observed_linear.obs.weight * factor
         else:
             factor, s_act, s_wei = smoothing_factor, act_scales, wei_scales
             weight = observed_linear.weight * factor
-        weight_t = weight.t().contiguous()
-        block_size = (weight_t.size(0), 1)
-        inv_smoothing_factor = 1 / factor
-        layout_type = SmoothQuantLayoutType(
-            inv_smoothing_factor, s_act, s_wei
-        )
+        weight = weight.to(observed_linear.weight.dtype)
+        block_size = (1, weight.size(1))
         wei_zero_points = torch.zeros_like(s_wei, dtype=torch.int64)
-        return to_affine_quantized_intx_static(
-            weight_t,
+        qw = to_affine_quantized_intx_static(
+            weight,
             s_wei,
             wei_zero_points,
             block_size,
             target_dtype,
             quant_min,
             quant_max,
-            layout_type=layout_type
         )
-    
+
+        def static_quantize_act(input):
+            x_scales = s_act * torch.ones(input.numel() // input.size(-1), dtype=s_act.dtype)
+            x_zp = torch.zeros_like(x_scales, dtype=torch.int64)
+            act = input / factor
+            act = act.to(input.dtype)
+            return to_affine_quantized_intx_static(act, x_scales, x_zp, _get_per_token_block_size(act), target_dtype, quant_min=-127)
+
+        def dynamic_quantize_act(input):
+            act = input / factor
+            act = act.to(input.dtype)
+            return to_affine_quantized_intx(act, MappingType.SYMMETRIC, _get_per_token_block_size(act), target_dtype, quant_min=-127)
+
+        is_dynamic = s_act is None
+        input_quant_func = dynamic_quantize_act if is_dynamic else static_quantize_act
+        return to_linear_activation_quantized(qw, input_quant_func)
+
     return _observed_linear_subclass_inserter(quantize_weight)
-
-
