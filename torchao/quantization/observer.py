@@ -1,4 +1,10 @@
 import torch
+from .granularity import (
+    Granularity,
+    PerAxis,
+    PerRow,
+    PerTensor,
+)
 from .quant_primitives import (
     _get_reduction_params,
     choose_qparams_affine_with_min_max,
@@ -8,81 +14,12 @@ from .quant_primitives import (
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 from abc import ABCMeta, abstractmethod
-from dataclasses import dataclass
 from typing import Tuple, Optional, Any
 from functools import partial
 import logging
 
 logger = logging.getLogger(__name__)
 
-
-@dataclass(frozen=True)
-class GranularityType:
-    """
-    Base class for representing the granularity of quantization.
-
-    This class serves as a parent for specific granularity types used in 
-    quantization operations, such as per-tensor or per-axis quantization.
-    """
-    pass
-
-@dataclass(frozen=True)
-class PerTensor(GranularityType):
-    """
-    Represents per-tensor granularity in quantization.
-
-    This granularity type calcualtes the quantization parameters
-    based off the entire tensor.
-    """
-    pass
-
-@dataclass(frozen=True)
-class PerAxis(GranularityType):
-    """
-    Represents per-axis granularity in quantization.
-
-    This granularity type calcualtes different quantization parameters
-    along a specified axis of the tensor.
-
-    For example if the input tensor is shape [8, 16] and axis=0, then
-    the quantization parameters are calculated for each row of the tensor.
-    Giving a total of 8 quantization parameters.
-
-
-    Attributes:
-        axis (int): The axis along which reduction is performed.
-    """
-    axis: int
-
-@dataclass(frozen=True)
-
-class PerGroup(GranularityType):
-    """
-    Represents per-channel group granularity in quantization.
-
-    This granularity type calcualtes different quantization parameters
-    for each group of <group_size> elements.
-
-    For example if the input tensor is shape [8, 16], and the group size is 4, then
-    the input tensor is reshaped to [64, 4]
-    quantization parameters are calculated for each group of 4 elements,
-    giving a total of 64 quantization parameters.
-
-    Attributes:
-        group_size (int): The size of each quantization group
-
-    """
-    group_size: int
-
-class PerRow(GranularityType):
-    """
-    Represents row-wise granularity in quantization.
-
-    This is a special case of per-axis quantization and is unique to Float8 matmuls
-    where the input is quantized with a block_size of (1, ..., input.shape[-1]). And the weight
-    is quantized with a block_size of (1, weight.shape[1]).
-    """
-    pass
 
 # borrowed from torch.ao.quantization.observer
 class _PartialWrapper:
@@ -120,23 +57,23 @@ def _with_args(cls_or_self, *args, **kwargs):
 
 
 def get_block_size(
-    input_shape: Tuple[int, ...], granularity_type: GranularityType
+    input_shape: Tuple[int, ...], granularity: Granularity
 ) -> Tuple[int, ...]:
     """Get the block size based on the input shape and granularity type.
 
     Args:
         input_shape: The input tensor shape possibly more than 2 dimensions
-        granularity_type: The granularity type of the quantization
+        granularity: The granularity type of the quantization
     """
-    if isinstance(granularity_type, PerTensor):
+    if isinstance(granularity, PerTensor):
         return input_shape
-    elif isinstance(granularity_type, PerAxis):
+    elif isinstance(granularity, PerAxis):
         block_size = list(input_shape)
-        block_size[granularity_type.axis] = 1
+        block_size[granularity.axis] = 1
         return tuple(block_size)
-    elif isinstance(granularity_type, PerRow):
+    elif isinstance(granularity, PerRow):
         return (1,) * (len(input_shape) - 1) + (input_shape[-1],)
-    raise ValueError(f"Unsupported GranularityType: {granularity_type}")
+    raise ValueError(f"Unsupported Granularity: {granularity}")
 
 
 ABC: Any = ABCMeta("ABC", (object,), {})  # compatible with Python 2 *and* 3:
@@ -146,7 +83,7 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
     """Observer module for affine quantization (https://github.com/pytorch/ao/tree/main/torchao/quantization#affine-quantization)
 
     Args:
-      `granularity_type` and `block_size`: The granularity of the quantization,
+      `granularity` and `block_size`: The granularity of the quantization,
         must specify at least one, if both are specified `block_size` takes precedence
         Current supported granularity type are `PerTensor` and `PerAxis`
       other args: please see `:class:torchao.dtypes.AffineQuantizedTensor`
@@ -158,7 +95,7 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
         self,
         mapping_type: MappingType,
         target_dtype: torch.dtype,
-        granularity_type: GranularityType,
+        granularity: Granularity,
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
         eps: Optional[float] = None,
@@ -168,11 +105,11 @@ class AffineQuantizedObserverBase(ABC, torch.nn.Module):
         zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
     ):
         super().__init__()
-        assert granularity_type is not None, "granularity_type is None"
+        assert granularity is not None, "granularity is None"
 
         self.mapping_type = mapping_type
         self.target_dtype = target_dtype
-        self.granularity_type = granularity_type
+        self.granularity = granularity
         self.quant_min = quant_min
         self.quant_max = quant_max
         self.eps = eps
@@ -202,8 +139,8 @@ class AffineQuantizedMinMaxObserver(AffineQuantizedObserverBase):
             return input
 
         input_detached = input.detach()
-        assert self.granularity_type is not None, "granularity_type is None"
-        block_size = get_block_size(input_detached.shape, self.granularity_type)
+        assert self.granularity is not None, "granularity is None"
+        block_size = get_block_size(input_detached.shape, self.granularity)
 
         shape_for_reduction, reduction_dims = _get_reduction_params(
             block_size, input_detached.size()

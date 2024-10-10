@@ -1,13 +1,13 @@
 import torch
 import torch.nn.functional as F
 
+from torchao.quantization.granularity import PerGroup
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
      _DTYPE_TO_QVALUE_BOUNDS,
 )
 from torchao.quantization import to_weight_tensor_with_linear_activation_scale_metadata
-from torchao.quantization.observer import PerGroup
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.dtypes.uintx import _DTYPE_TO_BIT_WIDTH, UintxLayoutType
 from torchao.dtypes import( 
