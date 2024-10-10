@@ -120,7 +120,7 @@ def mlp_only(mod, name):
 
 
 def superblock_only(mod, name):
-    return isinstance(mod, SupermaskLinear) and "mlp" in name
+    return isinstance(mod, SupermaskLinear)# and "mlp" in name
 
 
 def mlp_only_with_args(
@@ -138,7 +138,7 @@ def mlp_only_with_args(
 ### Custom sparsification utils
 def apply_sparsity(model):
     for name, module in model.named_modules():
-        if isinstance(module, SupermaskLinear) and "mlp" in name:
+        if isinstance(module, SupermaskLinear):# and "mlp" in name: # TODO: add option in another function for "mlp" in name
             module.sparsify_offline()
 
 
