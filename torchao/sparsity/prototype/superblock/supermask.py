@@ -37,6 +37,21 @@ class GetSubnet(torch.autograd.Function):
         return g, None, None, None
 
 
+class ApplyMask(torch.autograd.Function):
+    """Supermask STE function"""
+    @staticmethod
+    def forward(ctx, weight, scores):
+        return weight * scores
+    @staticmethod
+    def backward(ctx, grad_output):
+        grad_weight = grad_scores = None
+        if ctx.needs_input_grad[0]:
+            grad_weight = grad_output
+        if ctx.needs_input_grad[1]:
+            grad_scores = grad_output
+        return grad_weight, grad_scores
+
+
 class SupermaskLinear(nn.Linear):
     """Supermask class for Linear layer"""
     def __init__(self, sparsity, fixed_mask, fixed_weight, bitwidth, transform, fixed_transform, *args, **kwargs):
@@ -111,7 +126,8 @@ class SupermaskLinear(nn.Linear):
     def forward(self, x):
         if not self.sparsify_weights:
             subnet = self.get_mask()
-            w = (self.weight*self.scale+self.shift) * subnet
+            w = (self.weight*self.scale+self.shift)
+            w = ApplyMask.apply(w, subnet)
         else:
             w = self.weight
         return F.linear(x, w, self.bias)
@@ -181,7 +197,8 @@ class SupermaskConv2d(nn.Conv2d):
                 subnet = subnet.repeat_interleave(self.tile_size, dim=i)
                 subnet = torch.narrow(subnet, i, 0, k)
 
-        w = (self.weight*self.scale+self.shift) * subnet
+        w = (self.weight*self.scale+self.shift)
+        w = ApplyMask.apply(w, subnet)
         return F.conv2d(x, w, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 def apply_supermask(
