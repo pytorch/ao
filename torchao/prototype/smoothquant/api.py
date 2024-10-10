@@ -123,6 +123,35 @@ def load_smooth_quant_recipe(model: torch.nn.Module, recipe_path: str, device=No
     recurse(model)
 
 
+# StaticQuantizeAct and DynamicQuantizeAct are defined as classes to allow for easy serialization and deserialization
+class StaticQuantizeAct:
+    def __init__(self, factor, x_scale, target_dtype, quant_min=-127):
+        super().__init__()
+        self.factor = factor
+        self.x_scale = x_scale
+        self.x_zp = torch.zeros_like(x_scale, dtype=torch.int64)
+        self.target_dtype = target_dtype
+        self.quant_min = quant_min
+
+    def __call__(self, input):
+        x_zp = torch.zeros([1], dtype=torch.int64)
+        act = input / self.factor
+        act = act.to(input.dtype)
+        return to_affine_quantized_intx_static(act, self.x_scale, x_zp, list(act.shape), self.target_dtype, self.quant_min)
+
+
+class DynamicQuantizeAct:
+    def __init__(self, factor, target_dtype, quant_min=-127):
+        self.factor = factor
+        self.target_dtype = target_dtype
+        self.quant_min = quant_min
+
+    def __call__(self, input):
+        act = input / self.factor
+        act = act.to(input.dtype)
+        return to_affine_quantized_intx(act, MappingType.SYMMETRIC, _get_per_token_block_size(act), self.target_dtype, self.quant_min)
+
+
 def smooth_quant(
         smoothing_factor: Optional[torch.Tensor] = None,
         act_scales: Optional[torch.Tensor] = None,
@@ -144,17 +173,17 @@ def smooth_quant(
         nonlocal smoothing_factor, act_scales, wei_scales
         # act_scales is None for dynamic quantization thus not checked
         if any(x is None for x in (smoothing_factor, wei_scales)):
-            factor, s_act, s_wei = observed_linear.obs.calculate_qparams()
+            factor, x_scale, w_scales = observed_linear.obs.calculate_qparams()
             weight = observed_linear.obs.weight * factor
         else:
-            factor, s_act, s_wei = smoothing_factor, act_scales, wei_scales
+            factor, x_scale, w_scales = smoothing_factor, act_scales, wei_scales
             weight = observed_linear.weight * factor
         weight = weight.to(observed_linear.weight.dtype)
         block_size = (1, weight.size(1))
-        wei_zero_points = torch.zeros_like(s_wei, dtype=torch.int64)
+        wei_zero_points = torch.zeros_like(w_scales, dtype=torch.int64)
         qw = to_affine_quantized_intx_static(
             weight,
-            s_wei,
+            w_scales,
             wei_zero_points,
             block_size,
             target_dtype,
@@ -162,20 +191,12 @@ def smooth_quant(
             quant_max,
         )
 
-        def static_quantize_act(input):
-            x_scales = s_act * torch.ones(input.numel() // input.size(-1), dtype=s_act.dtype)
-            x_zp = torch.zeros_like(x_scales, dtype=torch.int64)
-            act = input / factor
-            act = act.to(input.dtype)
-            return to_affine_quantized_intx_static(act, x_scales, x_zp, _get_per_token_block_size(act), target_dtype, quant_min=-127)
-
-        def dynamic_quantize_act(input):
-            act = input / factor
-            act = act.to(input.dtype)
-            return to_affine_quantized_intx(act, MappingType.SYMMETRIC, _get_per_token_block_size(act), target_dtype, quant_min=-127)
-
-        is_dynamic = s_act is None
-        input_quant_func = dynamic_quantize_act if is_dynamic else static_quantize_act
+        is_dynamic = x_scale is None
+        if is_dynamic:
+            input_quant_func = DynamicQuantizeAct(factor, target_dtype)
+        else:
+            input_quant_func = StaticQuantizeAct(factor, x_scale, target_dtype)
+        
         return to_linear_activation_quantized(qw, input_quant_func)
 
     return _observed_linear_subclass_inserter(quantize_weight)

@@ -141,7 +141,7 @@ def int_scaled_matmul(a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor) -
     """
     M, K = a.shape
     K, N = b.shape
-    assert M == scales1.size(0)
+    assert M == scales1.size(0) or scales1.numel() == 1
     assert 1 == scales1.size(1)
     assert scales1.is_contiguous()
     scales1 = scales1.expand((M, N))
