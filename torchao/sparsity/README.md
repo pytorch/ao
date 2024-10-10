@@ -57,7 +57,7 @@ from torchao.dtypes import MarlinSparseLayout
 
 # Your FP16 model
 model = model.cuda().half()
-quantize_(model, int4_weight_only(_layout=MarlinSparseLayout()))
+quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
 ```
 
 Note the existing API results in an extremely high accuracy degredation and is intended to be used in concert with an already sparsified+finetuned checkpoint where possible until we develop
@@ -72,7 +72,7 @@ from torchao.quantization.quant_api import quantize_, int8_dynamic_activation_in
 from torchao.dtypes import SemiSparseLayout
 
 model = model.cuda()
-quantize_(model, int8_dynamic_activation_int8_weight(_layout=SemiSparseLayout()))
+quantize_(model, int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()))
 ```
 
 ### 2:4 sparsity

@@ -511,7 +511,7 @@ def int8_dynamic_activation_int4_weight(group_size=32, mapping_type=MappingType.
     return _get_linear_subclass_inserter(apply_int8_dynamic_activation_int4_weight_quant, group_size=group_size, mapping_type=mapping_type)
 
 
-def int4_weight_only(group_size=128, _layout=TensorCoreTiledLayout(inner_k_tiles=8), use_hqq=False):
+def int4_weight_only(group_size=128, layout=TensorCoreTiledLayout(inner_k_tiles=8), use_hqq=False):
     """
     Applies uint4 weight-only asymmetric per-group quantization to linear layers, using
     "tensor_core_tiled" layout for speedup with tinygemm kernel
@@ -527,7 +527,7 @@ def int4_weight_only(group_size=128, _layout=TensorCoreTiledLayout(inner_k_tiles
     Args:
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained, choices are [256, 128, 64, 32]
-        `_layout`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`
+        `layout`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`
         `use_hqq`: whether to use hqq or default quantization mode, default is False
     """
     def apply_int4_weight_only_quant(weight):
@@ -550,12 +550,12 @@ def int4_weight_only(group_size=128, _layout=TensorCoreTiledLayout(inner_k_tiles
         # Sparse Marlin only supports symmetric quantization.
         # NOTE: If we start having lots of layouts that require different configurations,
         # we should consider moving this logic somewhere else.
-        if isinstance(_layout, MarlinSparseLayout):
+        if isinstance(layout, MarlinSparseLayout):
             mapping_type = MappingType.SYMMETRIC
             preserve_zero = True
             zero_point_domain = ZeroPointDomain.INT
 
-        return to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, _layout=_layout, use_hqq=use_hqq)
+        return to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, _layout=layout, use_hqq=use_hqq)
 
     return _get_linear_subclass_inserter(apply_int4_weight_only_quant)
 
@@ -583,7 +583,7 @@ def _int8_symm_per_token_reduced_range_quant(x: torch.Tensor) -> torch.Tensor:
     return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype, eps=eps, quant_min=quant_min, quant_max=quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
 
 
-def int8_dynamic_activation_int8_weight(_layout=PlainLayout()):
+def int8_dynamic_activation_int8_weight(layout=PlainLayout()):
     """
     Applies int8 dynamic symmetric per-token activation and int8 per-channel weight
     quantization to linear layers
@@ -609,7 +609,7 @@ def int8_dynamic_activation_int8_weight(_layout=PlainLayout()):
         input_quant_func = _int8_symm_per_token_reduced_range_quant
 
         block_size = get_weight_block_size(weight)
-        weight = to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, _layout=_layout)
+        weight = to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, _layout=layout)
         weight = to_linear_activation_quantized(weight, input_quant_func)
         return weight
 
@@ -621,12 +621,12 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight
     quantization + 2:4 sparsity to linear layers.
     """
-    warnings.warn("""int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the _layout kwarg in int8_dynamic_activation_int8_weight instead.
+    warnings.warn("""int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout kwarg in int8_dynamic_activation_int8_weight instead.
 
     from torchao.dtypes import SemiSparseLayout
-    int8_dynamic_activation_int8_weight(_layout=SemiSparseLayout()""")
+    int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()""")
 
-    return int8_dynamic_activation_int8_weight(_layout=SemiSparseLayout())
+    return int8_dynamic_activation_int8_weight(layout=SemiSparseLayout())
 
 
 def float8_weight_only(weight_dtype: torch.dtype = torch.float8_e4m3fn):

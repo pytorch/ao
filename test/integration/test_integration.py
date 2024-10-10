@@ -876,7 +876,7 @@ class TestSubclass(unittest.TestCase):
         for test_shape in ([(256, 256, 16)] + ([(256, 256, 8)] if device=='cuda' else [])):
             for groupsize in [64, 32]:
                 for inner_k_tiles in [4, 2]:
-                    kwargs = {"groupsize": groupsize, "_layout": TensorCoreTiledLayout(inner_k_tiles=inner_k_tiles)}
+                    kwargs = {"groupsize": groupsize, "layout": TensorCoreTiledLayout(inner_k_tiles=inner_k_tiles)}
 
                     def api(mod):
                         kwargs_copy = kwargs.copy()
@@ -888,7 +888,7 @@ class TestSubclass(unittest.TestCase):
                                 unwrap_tensor_subclass(mod)
                         else:
                             kwargs_copy["inner_k_tiles"] = inner_k_tiles
-                            del kwargs_copy["_layout"]
+                            del kwargs_copy["layout"]
                             change_linear_weights_to_int4_woqtensors(mod, **kwargs_copy)
 
                     self._test_lin_weight_subclass_api_impl(

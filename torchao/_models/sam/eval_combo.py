@@ -315,7 +315,7 @@ def run(
                   int8_dynamic_activation_int8_weight(),
                   attn_only)
         quantize_(predictor.model.image_encoder,
-                  int8_dynamic_activation_int8_weight(_layout=SemiSparseLayout()),
+                  int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()),
                   mlp_lin1_only)
         sparsify_(predictor.model.image_encoder,
                   semi_sparse_weight(),
@@ -330,7 +330,7 @@ def run(
         quantize_(predictor.model.image_encoder,
                   int8_dynamic_activation_int8_weight(),
                   attn_only)
-        quantize_(predictor.model.image_encoder, int4_weight_only(_layout=MarlinSparseLayout()), mlp_lin1_only)
+        quantize_(predictor.model.image_encoder, int4_weight_only(layout=MarlinSparseLayout()), mlp_lin1_only)
         sparsify_(predictor.model.image_encoder,
                   semi_sparse_weight(),
                   mlp_lin2_only)
