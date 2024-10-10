@@ -1,0 +1,20 @@
+- func: int1mm
+  file: divbit.metal
+
+- func: int2mm
+  file: divbit.metal
+
+- func: int3mm
+  file: int3mm.metal
+
+- func: int4mm
+  file: divbit.metal
+
+- func: int5mm
+  file: int5mm.metal
+
+- func: int6mm
+  file: int6mm.metal
+
+- func: int7mm
+  file: int7mm.metal
