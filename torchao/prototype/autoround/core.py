@@ -192,7 +192,7 @@ def apply_auto_round():
                 ), f"Invalid bits: {_auto_round_config.bits}"
                 dtype = _BIT_WIDTH_TO_DTYPE[_auto_round_config.bits]
                 pack_dim = -1
-                layout_type = UintxLayout(dtype=dtype, pack_dim=pack_dim)
+                _layout = UintxLayout(dtype=dtype, pack_dim=pack_dim)
                 return to_affine_quantized_intx_static(
                     input_float=input_float,
                     scale=scale.to(input_float.dtype),
@@ -202,7 +202,7 @@ def apply_auto_round():
                     quant_min=quant_min,
                     quant_max=quant_max,
                     zero_point_domain=ZeroPointDomain.INT,
-                    layout_type=layout_type,
+                    _layout=_layout,
                 )
 
             def to_int4_tinygemm_weight(input_float):
@@ -256,7 +256,7 @@ def apply_auto_round():
                     quant_min=quant_min,
                     quant_max=quant_max,
                     zero_point_domain=ZeroPointDomain.FLOAT,
-                    layout_type=TensorCoreTiledLayout(inner_k_tiles=inner_k_tiles),
+                    _layout=TensorCoreTiledLayout(inner_k_tiles=inner_k_tiles),
                 )
 
             # TODO(Yi): better way to select the weight quantization function

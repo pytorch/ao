@@ -74,7 +74,7 @@ class TestQuantSemiSparse(common_utils.TestCase):
 
         quantize_(
             model,
-            int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayout()),
+            int8_dynamic_activation_int8_weight(_layout=SemiSparseLayout()),
         )
         if compile:
             model = torch.compile(model)
@@ -108,7 +108,7 @@ class TestQuantSemiSparse(common_utils.TestCase):
         dense_result = model_copy(input.bfloat16()).half()
 
         # Sparse + quantized
-        quantize_(model, int4_weight_only(layout_type=MarlinSparseLayout()))
+        quantize_(model, int4_weight_only(_layout=MarlinSparseLayout()))
         if compile:
             model = torch.compile(model)
         sparse_result = model(input)
@@ -190,7 +190,7 @@ class TestQuantBlockSparseWeight(common_utils.TestCase):
         quantize_(
             model,
             int8_dynamic_activation_int8_weight(
-                layout_type=BlockSparseLayout(blocksize=64)
+                _layout=BlockSparseLayout(blocksize=64)
             ),
         )
         if compile:

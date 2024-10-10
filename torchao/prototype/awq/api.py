@@ -106,14 +106,14 @@ def awq_uintx(quant_dtype: torch.dtype = torch.uint4,
             preserve_zero = False
             zero_point_dtype = torch.bfloat16
             zero_point_domain = ZeroPointDomain.FLOAT
-            layout_type = TensorCoreTiledLayout(inner_k_tiles=8)
+            _layout = TensorCoreTiledLayout(inner_k_tiles=8)
         else:
             target_dtype = torch.uint8
             eps = torch.finfo(torch.float32).eps
             preserve_zero = True
             zero_point_dtype = torch.int64
             zero_point_domain = ZeroPointDomain.INT
-            layout_type = UintxLayout(quant_dtype)
+            _layout = UintxLayout(quant_dtype)
             
         mapping_type = MappingType.ASYMMETRIC
         block_size = (1, group_size)
@@ -128,7 +128,7 @@ def awq_uintx(quant_dtype: torch.dtype = torch.uint4,
             zero_point_dtype=zero_point_dtype,
             preserve_zero=preserve_zero,
             zero_point_domain=zero_point_domain,
-            layout_type=layout_type,
+            _layout=_layout,
             use_hqq=use_hqq
         )
         

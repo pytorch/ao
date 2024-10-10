@@ -309,11 +309,11 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
         input_eps = 1e-5
         input_quant_min = -127
         input_quant_max = 127
-        layout_type = PlainLayout()
+        _layout = PlainLayout()
         input_quant_func = lambda x: to_affine_quantized_intx(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype, eps=input_eps, quant_min=input_quant_min, quant_max=input_quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
 
         block_size = get_weight_block_size(weight)
-        weight = to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, layout_type=layout_type)
+        weight = to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, _layout=_layout)
         weight = super(AQInt8DynamicallyQuantizedLinearWeight, cls).from_float(weight, input_quant_func)
         return weight
 
@@ -435,7 +435,7 @@ class AQInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
     @classmethod
     def from_float(cls, weight):
         group_size = cls.group_size
-        layout_type = TensorCoreTiledLayout(inner_k_tiles=8)
+        _layout = TensorCoreTiledLayout(inner_k_tiles=8)
 
         if weight.shape[-1] % group_size != 0:
             return weight
@@ -449,7 +449,7 @@ class AQInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
         preserve_zero = False
         zero_point_dtype = torch.bfloat16
         zero_point_domain = ZeroPointDomain.FLOAT
-        return super(AQInt4G32WeightOnlyQuantizedLinearWeight, cls).from_hp_to_intx(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, layout_type=layout_type, use_hqq=use_hqq)
+        return super(AQInt4G32WeightOnlyQuantizedLinearWeight, cls).from_hp_to_intx(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, _layout=_layout, use_hqq=use_hqq)
 
 class AQInt4G64WeightOnlyQuantizedLinearWeight(AQInt4G32WeightOnlyQuantizedLinearWeight):
     group_size: int = 64
@@ -492,7 +492,7 @@ class AQFloat8WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
     @classmethod
     def from_float(cls, weight):
         block_size = (1, weight.shape[1])
-        return super(AQFloat8WeightOnlyQuantizedLinearWeight, cls).from_hp_to_floatx(weight, block_size, target_dtype=cls.target_dtype, layout_type=Float8Layout())
+        return super(AQFloat8WeightOnlyQuantizedLinearWeight, cls).from_hp_to_floatx(weight, block_size, target_dtype=cls.target_dtype, _layout=Float8Layout())
 
 class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedTensor):
     """
@@ -518,7 +518,7 @@ class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(AQMixin, LinearActiv
             return block_size
 
         input_target_dtype = torch.float8_e4m3fn
-        layout_type = Float8Layout(mm_config=Float8MMConfig(use_fast_accum=True))
+        _layout = Float8Layout(mm_config=Float8MMConfig(use_fast_accum=True))
         input_quant_func = lambda x: _input_activation_quant_func_fp8(
             x=x,
             activation_granularity=cls.activation_granularity,
@@ -529,7 +529,7 @@ class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(AQMixin, LinearActiv
                     input_float=weight,
                     block_size=block_size,
                     target_dtype=target_dtype,
-                    layout_type=layout_type,
+                    _layout=_layout,
                     scale_dtype=torch.float32,
         )
         weight = super(AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight, cls).from_float(weight, input_quant_func)

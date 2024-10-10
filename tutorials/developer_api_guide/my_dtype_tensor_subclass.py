@@ -43,25 +43,25 @@ class MyDTypeTensorImpl(torch.Tensor):
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor]:
         return self.int_data, self.scale
 
-    def get_layout_type(self) -> Layout:
-        return self.layout_type
+    def get_layout(self) -> Layout:
+        return self._layout
 
     @classmethod
     def from_plain(
         cls,
         int_data: torch.Tensor,
         scale: torch.Tensor,
-        layout_type: Layout,
+        _layout: Layout,
     ):
-        """Construct a tensor impl from plain tensors and a layout_type, which main contain
+        """Construct a tensor impl from plain tensors and a _layout, which main contain
         extra metadata for packing etc.
         """
         pass
 
     def __repr__(self):
         int_data, scale = self.get_plain()
-        layout_type = self.get_layout_type()
-        return f"{self.__class__.__name__}(int_data={int_data}, scale={scale}, layout_type={layout_type})"
+        _layout = self.get_layout()
+        return f"{self.__class__.__name__}(int_data={int_data}, scale={scale}, _layout={_layout})"
 
     __torch_function__ = torch._C._disabled_torch_function_impl
 
@@ -145,23 +145,23 @@ class MyDTypeTensor(TorchAOBaseTensor):
     def from_float(
         cls,
         input_float: torch.Tensor,
-        layout_type: Layout = PlainLayout(),
+        _layout: Layout = PlainLayout(),
     ):
         mapping_type = MappingType.SYMMETRIC
         block_size = (1, input_float.shape[-1])
         dtype = torch.int16
         scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, dtype)
         int_data = quantize_affine(input_float, block_size, scale, zero_point, dtype)
-        tensor_impl_ctr = get_tensor_impl_constructor(type(layout_type))
-        tensor_impl = tensor_impl_ctr(int_data, scale, layout_type)
+        tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
+        tensor_impl = tensor_impl_ctr(int_data, scale, _layout)
         return cls(tensor_impl, input_float.shape)
 
     """[Optional] We can overwrite layout property of the Tensor to represent different packing formats
     """
 
     @property
-    def layout_type(self) -> Layout:
-        return self.tensor_impl.layout_type
+    def _layout(self) -> Layout:
+        return self.tensor_impl._layout
 
     def dequantize(self, output_dtype=None):
         """We can define a dequantize method to convert the quantized tensor to a floating point tensor"""
@@ -219,7 +219,7 @@ class PlainMyDTypeTensorImpl(MyDTypeTensorImpl):
         int_data: torch.Tensor,
         scale: torch.Tensor,
         transposed: bool,
-        layout_type: Layout,
+        _layout: Layout,
     ):
         kwargs = {}
         kwargs["device"] = int_data.device
@@ -236,43 +236,43 @@ class PlainMyDTypeTensorImpl(MyDTypeTensorImpl):
         int_data: torch.Tensor,
         scale: torch.Tensor,
         transposed: bool,
-        layout_type: Layout,
+        _layout: Layout,
     ):
         self.int_data = int_data
         self.scale = scale
         self.transposed = transposed
-        self.layout_type = layout_type
+        self._layout = _layout
 
     def __tensor_flatten__(self):
-        return ["int_data", "scale"], [self.transposed, self.layout_type]
+        return ["int_data", "scale"], [self.transposed, self._layout]
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
         int_data, scale = tensor_data_dict["int_data"], tensor_data_dict["scale"]
-        transposed, layout_type, = tensor_attributes
-        return cls(int_data, scale, transposed, layout_type)
+        transposed, _layout, = tensor_attributes
+        return cls(int_data, scale, transposed, _layout)
 
     @classmethod
     def from_plain(
         cls,
         int_data: torch.Tensor,
         scale: torch.Tensor,
-        layout_type: Layout,
+        _layout: Layout,
     ):
-        """Construct a tensor impl from plain tensors and a layout_type, which main contain
+        """Construct a tensor impl from plain tensors and a _layout, which main contain
         extra metadata for packing etc.
         """
-        assert isinstance(layout_type, PlainLayout)
-        return cls(int_data, scale, False, layout_type)
+        assert isinstance(_layout, PlainLayout)
+        return cls(int_data, scale, False, _layout)
 
     def _apply_fn_to_data(self, fn):
         return self.__class__(
             fn(self.int_data),
             fn(self.scale),
             self.transposed,
-            self.layout_type,
+            self._layout,
         )
 
     @classmethod
@@ -292,11 +292,11 @@ class PlainMyDTypeTensorImpl(MyDTypeTensorImpl):
         elif func is aten.split.Tensor:
             int_data_list = func(args[0].int_data, *args[1:], **kwargs)
             scale_list = func(args[0].scale, *args[1:], **kwargs)
-            out = [PlainMyDTypeTensorImpl(int_data, scale, args[0].transposed, args[0].layout_type) for int_data, scale in zip(int_data_list, scale_list)]
+            out = [PlainMyDTypeTensorImpl(int_data, scale, args[0].transposed, args[0]._layout) for int_data, scale in zip(int_data_list, scale_list)]
             return out
         elif func is aten.empty_like.default:
             int_data_empty_like = func(args[0].int_data, *args[1:], **kwargs)
-            return PlainMyDTypeTensorImpl(int_data_empty_like, args[0].scale, args[0].transposed, args[0].layout_type)
+            return PlainMyDTypeTensorImpl(int_data_empty_like, args[0].scale, args[0].transposed, args[0]._layout)
         elif func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
             if dim == 0:
@@ -304,11 +304,11 @@ class PlainMyDTypeTensorImpl(MyDTypeTensorImpl):
                     func, args, kwargs, args[0]._apply_fn_to_data(lambda x: aten.slice.Tensor(x, dim, start, end, step))
                 )
             elif dim == 1:
-                return PlainMyDTypeTensorImpl(aten.slice.Tensor(self.int_data, dim, start, end, step), self.scale.view(-1), self.transposed, self.layout_type)
+                return PlainMyDTypeTensorImpl(aten.slice.Tensor(self.int_data, dim, start, end, step), self.scale.view(-1), self.transposed, self._layout)
             else:
                 raise NotImplementedError(f"PlainMyDTypeTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported")
         elif func is aten.t.default:
-            return return_and_correct_aliasing(func, args, kwargs, PlainMyDTypeTensorImpl(args[0].int_data, args[0].scale, not args[0].transposed, args[0].layout_type))
+            return return_and_correct_aliasing(func, args, kwargs, PlainMyDTypeTensorImpl(args[0].int_data, args[0].scale, not args[0].transposed, args[0]._layout))
 
         # Tensor parallel support END
 

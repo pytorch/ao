@@ -124,7 +124,7 @@ class AWQObserver(AffineQuantizedObserverBase):
                 zero_point_dtype = self.zero_point_dtype,
                 preserve_zero = self.preserve_zero,
                 zero_point_domain = self.zero_point_domain,
-                layout_type = layout
+                _layout = layout
             )
             loss = 0
             for i in range(self.n_validation_examples):

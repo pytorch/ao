@@ -31,7 +31,7 @@ def get_quantization_functions(do_sparse: bool, do_int4: bool):
         base_functions.append(int4_weight_only(group_size=32))
 
     if do_sparse:
-        base_functions.append(int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayout()))
+        base_functions.append(int8_dynamic_activation_int8_weight(_layout=SemiSparseLayout()))
 
     if is_cuda_8_9:
         base_functions.append(float8_weight_only())

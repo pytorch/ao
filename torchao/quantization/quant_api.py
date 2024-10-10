@@ -511,7 +511,7 @@ def int8_dynamic_activation_int4_weight(group_size=32, mapping_type=MappingType.
     return _get_linear_subclass_inserter(apply_int8_dynamic_activation_int4_weight_quant, group_size=group_size, mapping_type=mapping_type)
 
 
-def int4_weight_only(group_size=128, layout_type=TensorCoreTiledLayout(inner_k_tiles=8), use_hqq=False):
+def int4_weight_only(group_size=128, _layout=TensorCoreTiledLayout(inner_k_tiles=8), use_hqq=False):
     """
     Applies uint4 weight-only asymmetric per-group quantization to linear layers, using
     "tensor_core_tiled" layout for speedup with tinygemm kernel
@@ -527,7 +527,7 @@ def int4_weight_only(group_size=128, layout_type=TensorCoreTiledLayout(inner_k_t
     Args:
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained, choices are [256, 128, 64, 32]
-        `layout_type`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`
+        `_layout`: layout type for quantized tensor, default is `TensorCoreTiledLayout(inner_k_tiles=8)`
         `use_hqq`: whether to use hqq or default quantization mode, default is False
     """
     def apply_int4_weight_only_quant(weight):
@@ -550,12 +550,12 @@ def int4_weight_only(group_size=128, layout_type=TensorCoreTiledLayout(inner_k_t
         # Sparse Marlin only supports symmetric quantization.
         # NOTE: If we start having lots of layouts that require different configurations,
         # we should consider moving this logic somewhere else.
-        if isinstance(layout_type, MarlinSparseLayout):
+        if isinstance(_layout, MarlinSparseLayout):
             mapping_type = MappingType.SYMMETRIC
             preserve_zero = True
             zero_point_domain = ZeroPointDomain.INT
 
-        return to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, layout_type=layout_type, use_hqq=use_hqq)
+        return to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, _layout=_layout, use_hqq=use_hqq)
 
     return _get_linear_subclass_inserter(apply_int4_weight_only_quant)
 
@@ -583,7 +583,7 @@ def _int8_symm_per_token_reduced_range_quant(x: torch.Tensor) -> torch.Tensor:
     return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype, eps=eps, quant_min=quant_min, quant_max=quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
 
 
-def int8_dynamic_activation_int8_weight(layout_type=PlainLayout()):
+def int8_dynamic_activation_int8_weight(_layout=PlainLayout()):
     """
     Applies int8 dynamic symmetric per-token activation and int8 per-channel weight
     quantization to linear layers
@@ -609,7 +609,7 @@ def int8_dynamic_activation_int8_weight(layout_type=PlainLayout()):
         input_quant_func = _int8_symm_per_token_reduced_range_quant
 
         block_size = get_weight_block_size(weight)
-        weight = to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, layout_type=layout_type)
+        weight = to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, _layout=_layout)
         weight = to_linear_activation_quantized(weight, input_quant_func)
         return weight
 
@@ -621,12 +621,12 @@ def int8_dynamic_activation_int8_semi_sparse_weight():
     Applies int8 dnynamic symmetric per-token activation and int8 per-channel weight
     quantization + 2:4 sparsity to linear layers.
     """
-    warnings.warn("""int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the layout_type kwarg in int8_dynamic_activation_int8_weight instead.
+    warnings.warn("""int8_dyanmic_activation_int8_semi_sparse_weight() will be deprecated at a later release. Please use the _layout kwarg in int8_dynamic_activation_int8_weight instead.
 
     from torchao.dtypes import SemiSparseLayout
-    int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayout()""")
+    int8_dynamic_activation_int8_weight(_layout=SemiSparseLayout()""")
 
-    return int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayout())
+    return int8_dynamic_activation_int8_weight(_layout=SemiSparseLayout())
 
 
 def float8_weight_only(weight_dtype: torch.dtype = torch.float8_e4m3fn):
@@ -649,7 +649,7 @@ def float8_weight_only(weight_dtype: torch.dtype = torch.float8_e4m3fn):
             block_size=block_size,
             target_dtype=weight_dtype,
             scale_dtype=None,
-            layout_type=Float8Layout(mm_config=None),
+            _layout=Float8Layout(mm_config=None),
         )
 
     return _get_linear_subclass_inserter(apply_float8wo_quant)
@@ -706,7 +706,7 @@ def _input_activation_quant_func_fp8(
             block_size=block_size,
             target_dtype=activation_dtype,
             scale_dtype=torch.float32,
-            layout_type=Float8Layout(mm_config=None),  # Config is stored on weight
+            _layout=Float8Layout(mm_config=None),  # Config is stored on weight
         )
     else:
         assert isinstance(activation_granularity, PerTensor), "Static quantization only supports PerTensor granularity"
@@ -715,7 +715,7 @@ def _input_activation_quant_func_fp8(
             block_size=block_size,
             scale=scale,
             target_dtype=activation_dtype,
-            layout_type=Float8Layout(mm_config=None),  # Config is stored on weight
+            _layout=Float8Layout(mm_config=None),  # Config is stored on weight
         )
     return activation
 
@@ -759,7 +759,7 @@ def float8_dynamic_activation_float8_weight(
             block_size=block_size,
             target_dtype=weight_dtype,
             scale_dtype=torch.float32,
-            layout_type=Float8Layout(mm_config=mm_config),
+            _layout=Float8Layout(mm_config=mm_config),
         )
 
         input_quant_func = partial(
@@ -809,7 +809,7 @@ def float8_static_activation_float8_weight(
             block_size=block_size,
             target_dtype=weight_dtype,
             scale_dtype=torch.float32,
-            layout_type=Float8Layout(mm_config=mm_config),
+            _layout=Float8Layout(mm_config=mm_config),
         )
 
         input_quant_func = _input_activation_quant_func_fp8
@@ -860,14 +860,14 @@ def uintx_weight_only(dtype, group_size=64, pack_dim=-1, use_hqq=False):
             zero_point_dtype = None
             zero_point_domain = ZeroPointDomain.FLOAT
             preserve_zero = False
-            layout_type = PlainLayout()
+            _layout = PlainLayout()
         else:
             quant_min, quant_max = None, None
             eps = torch.finfo(torch.float32).eps
             zero_point_dtype = torch.int32
             zero_point_domain = ZeroPointDomain.INT
             preserve_zero = True
-            layout_type = UintxLayout(dtype=dtype, pack_dim=pack_dim)
+            _layout = UintxLayout(dtype=dtype, pack_dim=pack_dim)
 
         return to_affine_quantized_intx(
             weight, mapping_type, block_size, dtype,
@@ -875,7 +875,7 @@ def uintx_weight_only(dtype, group_size=64, pack_dim=-1, use_hqq=False):
             eps=eps, zero_point_dtype=zero_point_dtype,
             zero_point_domain=zero_point_domain,
             preserve_zero=preserve_zero,
-            layout_type=layout_type,
+            _layout=_layout,
             use_hqq=use_hqq,
         )
 
@@ -905,8 +905,8 @@ def fpx_weight_only(ebits: int, mbits: int):
                 "expected in_dim % 64 == 0 and out_dim % 256 == 0")
             return weight
 
-        layout_type = FloatxTensorCoreLayout(ebits, mbits)
-        return to_affine_quantized_fpx(weight, layout_type)
+        _layout = FloatxTensorCoreLayout(ebits, mbits)
+        return to_affine_quantized_fpx(weight, _layout)
     return _get_linear_subclass_inserter(apply_quant_llm)
 
 

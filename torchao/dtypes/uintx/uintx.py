@@ -206,7 +206,7 @@ class UintxAQTTensorImpl(PlainAQTTensorImpl):
         int_data: torch.Tensor,
         scale: torch.Tensor,
         zero_point: torch.Tensor,
-        layout_type: Layout,
+        _layout: Layout,
     ):
-        assert isinstance(layout_type, UintxLayout)
-        return cls(int_data, scale, zero_point, layout_type)
+        assert isinstance(_layout, UintxLayout)
+        return cls(int_data, scale, zero_point, _layout)

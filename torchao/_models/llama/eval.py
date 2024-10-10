@@ -98,7 +98,7 @@ def run_evaluation(
             quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
         if "marlin" in quantization:
             from torchao.dtypes import MarlinSparseLayout
-            quantize_(model, int4_weight_only(layout_type=MarlinSparseLayout()))
+            quantize_(model, int4_weight_only(_layout=MarlinSparseLayout()))
         if "int4wo" in quantization and "gptq" in quantization:
             # avoid circular imports
             from torchao._models._eval import InputRecorder
