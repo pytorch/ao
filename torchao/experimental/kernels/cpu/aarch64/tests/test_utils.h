@@ -44,7 +44,8 @@ inline std::vector<uint8_t> get_random_lowbit_vector(int size, int nbit) {
 }
 
 // TODO move these to a common utils 
-uint16_t get_bf16_from_float(float f) {
+inline uint16_t
+get_bf16_from_float(float f) {
   uint16_t bf16;
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
   memcpy(&bf16, &f, sizeof(uint16_t));
@@ -56,7 +57,8 @@ uint16_t get_bf16_from_float(float f) {
   return bf16;
 }
 
-float get_float_from_bf16(uint16_t bf16) {
+inline float
+get_float_from_bf16(uint16_t bf16) {
   float f;
   const uint32_t i32 = (bf16 << 16);
   memcpy(&f, &i32, sizeof(uint32_t));

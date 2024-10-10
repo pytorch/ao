@@ -40,7 +40,7 @@ const Ukernel get_ukernel() {
           kai_run_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod};
 }
 
-int activation_data_size(int m, int k, int group_size) {
+size_t activation_data_size(int m, int k, int group_size) {
   (void)group_size; // unused
   return kai_matmul_clamp_f32_qai8dxp_qsi4c32p::activation_data_size(
       get_ukernel(), m, k);
@@ -57,7 +57,7 @@ void prepare_activation_data(
       get_ukernel(), activation_data, m, k, activations);
 }
 
-int weight_data_size(int n, int k, int group_size) {
+size_t weight_data_size(int n, int k, int group_size) {
   return kai_matmul_clamp_f32_qai8dxp_qsi4c32p::weight_data_size(
       get_ukernel(), n, k, group_size);
 }
@@ -115,7 +115,7 @@ void kernel(
       clamp_max);
 }
 
-size_t get_alignement() {
+size_t get_preferred_alignement() {
   return 16;
 }
 } // namespace neon_dotprod_1x4x32

@@ -43,7 +43,7 @@ namespace kai_matmul_clamp_f32_qai8dxp_qsi4c32p {
 
 using Ukernel = struct kai_matmul_clamp_f32_qai8dxp_qsi4c32p_ukernel;
 
-int activation_data_size(const Ukernel ukernel, int m, int k) {
+size_t activation_data_size(const Ukernel ukernel, int m, int k) {
   auto lhs_packing = get_lhs_packing();
   return lhs_packing.get_lhs_packed_size(
       m, k, ukernel.get_mr(), ukernel.get_kr(), ukernel.get_sr());
@@ -69,7 +69,7 @@ void prepare_activation_data(
       activation_data);
 }
 
-int weight_data_size(const Ukernel ukernel, int n, int k, int group_size) {
+size_t weight_data_size(const Ukernel ukernel, int n, int k, int group_size) {
   auto rhs_pack = get_rhs_packing();
   return rhs_pack.get_rhs_packed_size(
       n,
