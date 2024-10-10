@@ -6,6 +6,7 @@ from torchao.quantization import (
     int4_weight_only,
     int8_weight_only,
     int8_dynamic_activation_int4_weight,
+    int8_dynamic_activation_int4_weight_cutlass,
     int8_dynamic_activation_int8_weight,
     int8_dynamic_activation_int8_semi_sparse_weight,
     float8_weight_only,
@@ -25,6 +26,7 @@ def get_quantization_functions(do_sparse: bool, do_int4: bool):
     base_functions = [
         int8_weight_only(),
         int8_dynamic_activation_int4_weight(),
+        int8_dynamic_activation_int4_weight_cutlass(),
         int8_dynamic_activation_int8_weight(),
     ]
     if do_int4:
