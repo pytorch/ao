@@ -99,8 +99,15 @@ void prepare_weight_data(
   // TODO SIMDify this
   size_t n_groups = n * k / group_size;
   auto weight_scales_bf16 = std::vector<uint16_t>(n_groups, 0);
+
+  // We don't support weight zeros yet
+  if (weight_zeros != nullptr) {
+    for (size_t i = 0; i < n_groups; i++) {
+      assert(weight_zeros[i] == 0);
+    }
+  }
+
   for (size_t i = 0; i < n_groups; i++) {
-    assert(weight_zeros[i] == 0);
     weight_scales_bf16[i] = get_bf16_from_float(weight_scales[i]);
   }
 
