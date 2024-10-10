@@ -156,7 +156,7 @@ struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
       bool has_weight_zeros,
       bool has_bias,
       bool has_clamp,
-      bool weight_scale_bf16_round_trip=false) {
+      bool round_weight_scales_to_bf16=false) {
     // activations is m x k (stored in row-major)
     // weights is k x n (stored in column-major)
 
@@ -219,7 +219,7 @@ struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
         scale = torchao::quantization::get_scale(vmin, vmax, qmin, qmax);
         zero = 0;
       }
-      if (weight_scale_bf16_round_trip) {
+      if (round_weight_scales_to_bf16) {
         // weight scales are bf16 in the kernel
         // so we need to round trip them to bf16 and back to float to match it.
         scale = get_float_from_bf16(get_bf16_from_float(scale));

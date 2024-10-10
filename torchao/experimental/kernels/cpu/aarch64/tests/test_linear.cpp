@@ -488,7 +488,7 @@ void test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod(
           /*has_weight_zeros=*/false,
           has_bias,
           has_clamp,
-          /*weight_scale_bf16_round_trip=*/true);
+          /*round_weight_scales_to_bf16=*/true);
 
   using namespace torchao::kernels::cpu::aarch64::kleidi::
       kai_matmul_clamp_f32_qai8dxp_qsi4c32p::neon_dotprod_1x8x32;
