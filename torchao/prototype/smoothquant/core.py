@@ -136,12 +136,12 @@ class SmoothQuantObserver(AffineQuantizedObserverBase):
                 act_new = act * inv_smoothing_factor
                 self.act_obs(act_new)
             act_scale, _ = self.act_obs.calculate_qparams()
-            act_scales = torch.Tensor([act_scale])
+            act_scales = torch.Tensor([act_scale]).to(self.device)
         # 4 update weight and find scales
-        self.wei_oc_obs(self.weight * smoothing_factor)
+        self.wei_oc_obs(self.weight * smoothing_factor.to(self.device))
         wei_scales, _ = self.wei_oc_obs.calculate_qparams()
         # 5 return results
-        return smoothing_factor, act_scales, wei_scales
+        return smoothing_factor.to(self.device), act_scales, wei_scales.to(self.device)
 
 
 class SmoothQuantObservedLinear(torch.nn.Linear):
