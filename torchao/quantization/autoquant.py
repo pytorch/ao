@@ -23,6 +23,7 @@ from torchao.quantization.utils import quantize_activation_per_token_absmax
 from torchao.float8.inference import Float8MMConfig
 from torch.fx._symbolic_trace import Tracer
 import copy
+from torchao.utils import benchmark_model
 
 import torch.nn.functional as F
 
@@ -39,6 +40,8 @@ aten = torch.ops.aten
 
 AUTOQUANT_CACHE = {}
 AUTOQUANT_CACHE2 = {}
+
+USE_SUBGRAPH = False
 
 class QuantizationTracer(Tracer):
     def is_leaf_module(self, m: torch.nn.Module, module_qualified_name: str) -> bool:
@@ -70,8 +73,6 @@ def _remove_all_nodes_after(end_node, model):
                 user.replace_input_with(n, n.args[0])
             model.graph.erase_node(n)
 
-    # model.graph.eliminate_dead_code()
-    # model.recompile()
     return model
 
 # TODO: Document the methods
@@ -90,7 +91,7 @@ class AutoQuantizableLinearWeight(torch.Tensor):
     """
 
     @staticmethod
-    def __new__(cls, weight, qtensor_class_list, *args, mode=["relu", None], model=None, fqn=None, example_inputs=None, **kwargs):
+    def __new__(cls, weight, qtensor_class_list, *args, mode=["relu", None], model=None, fqn=None, example_inputs=None, min_sqnr=30, **kwargs):
         kwargs["device"] = weight.device
         kwargs["layout"] = (
             kwargs.get("layout") if kwargs.get("layout", False) else weight.layout
@@ -102,7 +103,7 @@ class AutoQuantizableLinearWeight(torch.Tensor):
         shape = kwargs.pop("shape", weight.shape)
         return torch.Tensor._make_wrapper_subclass(cls, shape, **kwargs)  # type: ignore[attr-defined]
 
-    def __init__(self, weight, qtensor_class_list, *args, mode=["relu", None], model=None, fqn=None, example_inputs=None, **kwargs):
+    def __init__(self, weight, qtensor_class_list, *args, mode=["relu", None], model=None, fqn=None, example_inputs=None, min_sqnr=30, **kwargs):
         self.weight = weight
         self.qtensor_class_list = qtensor_class_list
         self.logged_data = {}
@@ -110,6 +111,7 @@ class AutoQuantizableLinearWeight(torch.Tensor):
         self.model = model
         self.fqn = fqn
         self.example_inputs = example_inputs
+        self.min_sqnr = min_sqnr
 
     def __repr__(self):
         return (
@@ -129,11 +131,22 @@ class AutoQuantizableLinearWeight(torch.Tensor):
                 update_cache(q_cls, shapes_and_dtype, None)
 
     def tune_autoquant(self, q_cls):
-        # act_shape, w_shape, bias_shape, act_dtype = shapes_and_dtype
         with torch.no_grad():
-            # act_mat = torch.randn(act_shape, dtype=act_dtype, device=self.device)
+            try:
+                linear_module = self.model.get_submodule(self.fqn)
+                cur_time = q_cls._autoquant_test2(self.model, linear_module, self.example_inputs, self.weight)
+                original_weight_id = id(self.weight)
+                prev_res = check_cache2(original_weight_id)
+                print(f">>time: {cur_time:0.3f}ms for {q_cls}, to_beat: {prev_res}")
+                if prev_res is None or cur_time < prev_res[1]:
+                    update_cache2(original_weight_id, q_cls, cur_time)
+                res = cur_time
+            except Exception as e:
+                print(f"warning: failed to autoquant {q_cls.__name__} due to {e}")
+                res = torch.inf
 
-            print("fqn:", self.fqn)
+    def tune_autoquant_fx(self, q_cls):
+        with torch.no_grad():
             try:
                 model = torch.fx.GraphModule(self.model, copy.deepcopy(self.model.graph))
                 end_node = None
@@ -144,13 +157,11 @@ class AutoQuantizableLinearWeight(torch.Tensor):
                     node_fqn = n.target
                     if isinstance(module, torch.nn.Linear):
                         if node_fqn == self.fqn:
-                            print("found end node:", n)
                             end_node = n
                             break
 
                 if end_node is not None:
-                    model = _remove_all_nodes_after(end_node, model)
-                    # res = q_cls._autoquant_test(act_mat, self.weight, bias, best_time, self.mode)
+                    # model = _remove_all_nodes_after(end_node, model)
                     linear_module = self.model.get_submodule(self.fqn)
                     cur_time = q_cls._autoquant_test2(model, linear_module, self.example_inputs, self.weight)
                     original_weight_id = id(self.weight)
@@ -200,16 +211,6 @@ class AutoQuantizableLinearWeight(torch.Tensor):
             # for each logged shape+dtype, benchmark
             cur_time=0
             total_seen=0
-            # shape_count = count_shapes(self, do_print=False)
-            # for shapes_and_dtype, times_seen in self.logged_data.items():
-            # only print shapes once
-            # if print_shape_once == True:
-            #     print_shape_once = False
-            #     count_shapes(self, do_print=True)
-
-            # time_for_best_shape = check_cache(best_cls, shapes_and_dtype)
-            # time_for_best_shape = check_cache2((id(self.weight), q_cls))
-            # time_for_best_shape = torch.inf if time_for_best_shape is None else time_for_best_shape
             self.tune_autoquant(q_cls)
             torch._dynamo.reset()
         bench_res = check_cache2(id(self.weight))
@@ -240,8 +241,8 @@ class AutoQuantizableLinearWeight(torch.Tensor):
     @classmethod
     def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
         weight = tensor_data_dict["weight"]
-        qtensor_class_list, mode, model, fqn, example_inputs, dtype, shape = tensor_attributes[0]
-        return cls(weight, qtensor_class_list, mode, shape=shape if outer_size is None else outer_size, dtype=dtype, strides=outer_stride, fqn=fqn, model=model, example_inputs=example_inputs)
+        qtensor_class_list, mode, model, fqn, example_inputs, min_sqnr, dtype, shape = tensor_attributes[0]
+        return cls(weight, qtensor_class_list, mode, shape=shape if outer_size is None else outer_size, dtype=dtype, strides=outer_stride, fqn=fqn, model=model, example_inputs=example_inputs, min_sqnr=min_sqnr)
 
     @classmethod
     def from_float(cls, weight, qtensor_class_list, **kwargs):
@@ -303,13 +304,26 @@ def do_autoquant_bench(op, *args, **kwargs):
             res = do_bench(lambda: graph.replay(), warmup=warmup, rep=rep, return_mode="median")
     return res
 
+
 @torch.no_grad()
-def do_autoquant_bench2(op, *args, **kwargs):
+def do_autoquant_bench2(model, *args, **kwargs):
     """
     runs benchmark op(*args, **kwargs) avoiding torch.compile overhead
     """
-    rep = kwargs.pop("rep", 100)
-    warmup = kwargs.pop("warmup", 25)
+    rep = kwargs.pop("rep", 200)
+    warmup = kwargs.pop("warmup", 30)
+
+    torch._dynamo.reset()
+    benchmark_model(model, warmup, args, kwargs)
+    return benchmark_model(model, rep, args, kwargs)
+
+@torch.no_grad()
+def do_autoquant_bench3(op, *args, **kwargs):
+    """
+    runs benchmark op(*args, **kwargs) avoiding torch.compile overhead
+    """
+    rep = kwargs.pop("rep", 200)
+    warmup = kwargs.pop("warmup", 30)
     with torch.no_grad():
         torch.cuda.synchronize()
         stream = torch.cuda.Stream()
@@ -374,10 +388,37 @@ class AQMixin():
     def _autoquant_test2(cls, sub_model, linear_module, example_inputs, weight):
         # overwrite the weight
         orig_weight = linear_module.weight
+        # if isinstance(example_inputs, dict):
+        #     unquantized_output = sub_model(**example_inputs)
+        # else:
+        #     unquantized_output = sub_model(*example_inputs)
+
+
         linear_module.weight = torch.nn.Parameter(cls.from_float(weight), requires_grad=False)
+
+        # if isinstance(example_inputs, dict):
+        #     quantized_output = sub_model(**example_inputs)
+        # else:
+        #     quantized_output = sub_model(*example_inputs)
+
+        # if torchao.quantization.utils.compute_error(unquantized_output, quantized_output) < linear_module.weight.min_sqnr:
+        #     linear_module.weight = torch.nn.Parameter(orig_weight, requires_grad=False)
+        #     return torch.inf
+
+        # linear_module.weight = torch.nn.Parameter(weight, requires_grad=False)
         torch._dynamo.reset()
+        # sub_model_compiled = torch.compile(sub_model, mode="max-autotune")
+        # if isinstance(example_inputs, dict):
+        #     res = do_autoquant_bench2(sub_model_compiled, **example_inputs, warmup=5, rep=20)
+        # else:
+        #     res = do_autoquant_bench2(sub_model_compiled, *example_inputs, warmup=5, rep=20)
+
         sub_model_compiled = torch.compile(sub_model, mode="max-autotune-no-cudagraphs")
-        res = do_autoquant_bench2(sub_model_compiled, *example_inputs, warmup=5, rep=20)
+        if isinstance(example_inputs, dict):
+            res = do_autoquant_bench3(sub_model_compiled, **example_inputs)
+        else:
+            res = do_autoquant_bench3(sub_model_compiled, *example_inputs)
+
         linear_module.weight = torch.nn.Parameter(orig_weight, requires_grad=False)
         return res
 
@@ -718,9 +759,11 @@ def _change_linears_to_autoquantizable(model, example_input, **kwargs):
     _ = kwargs.pop("error_on_unseen", True) # same kwargs used for this and to_quantized
     kwargs["qtensor_class_list"] = kwargs.get("qtensor_class_list", DEFAULT_AUTOQUANT_CLASS_LIST)
     kwargs["mode"] = kwargs.get("mode", ["relu", None])
-    tracer = QuantizationTracer()
-    kwargs["model"] = torch.fx.GraphModule(model, tracer.trace(model))
+    # tracer = QuantizationTracer()
+    # kwargs["model"] = torch.fx.GraphModule(model, tracer.trace(model))
+    kwargs["model"] = model
     kwargs["example_inputs"] = example_input
+    kwargs["min_sqnr"] = kwargs.get("min_sqnr", 30)
     from torchao.quantization.quant_api import _get_subclass_inserter
     _replace_with_custom_fn_if_matches_filter(
         model,
@@ -780,6 +823,7 @@ def autoquant(
     manual=False,
     set_inductor_config=True,
     supress_autoquant_errors=True,
+    min_sqnr=0,
     **aq_kwargs
 ):
     """
@@ -814,6 +858,9 @@ def autoquant(
                                 the user to call model.finalize_autoquant (True) so inputs with several shapes/dtypes can be logged.
         set_inductor_config (bool, optional): Whether to automatically use recommended inductor config settings (defaults to True)
         supress_autoquant_errors (bool, optional): Whether to suppress errors during autoquantization. (defaults to True)
+        min_sqnr (float, optional): minimum SQNR comparing the output of the model with quantizing v.s. not quantizing
+        the layer with a specific type of quantization, used for filtering out quantization method that introduces
+        too much accuracy degradation
         **aq_kwargs: Additional keyword arguments for the autoquantization process.
 
     Returns:
@@ -845,6 +892,7 @@ def autoquant(
         filter_fn=filter_fn,
         qtensor_class_list=qtensor_class_list,
         mode=mode,
+        min_sqnr=min_sqnr,
         **aq_kwargs
     )
 
@@ -901,5 +949,7 @@ def autoquant(
         example_input = [example_input]
     if isinstance(example_input, (tuple, list)):
         model(*example_input)
+    elif isinstance(example_input, dict):
+        model(**example_input)
 
     return model
