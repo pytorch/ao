@@ -15,6 +15,19 @@ from lm_eval.tasks import get_task_dict
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import json
+import os
+import time
+import datetime
+from collections import defaultdict, deque, OrderedDict
+
+import torchvision
+from torchvision.transforms import autoaugment, transforms
+from torchvision.transforms.functional import InterpolationMode
+import torch.distributed as dist
+from torchvision import models
+
+from torchao.sparsity.prototype.superblock.presets import ClassificationPresetEval
+import torchao.sparsity.prototype.superblock.utils as superblock_utils
 
 def write_history_to_csv(history, output_file, keyword):
     #keyword example: ['cal_PPL', 'cal_throughput', 'config']
@@ -108,8 +121,6 @@ def load_model(repo_id, device):
     )
     return model, tokenizer
 
-
-
 def load_parameters_from_json(json_path):
     with open(json_path, "r") as f:
         config = json.load(f)
@@ -153,8 +164,60 @@ def load_parameters_from_json(json_path):
     
     return parameters_list
 
-
 def load_initial_samples(json_path):
     with open(json_path, "r") as f:
         config = json.load(f)
     return config["initial_samples"]
+
+def load_imagenet_data(args):
+    print("Loading data")
+    val_resize_size, val_crop_size = (
+        args.val_resize_size,
+        args.val_crop_size
+    )
+    interpolation = InterpolationMode(args.interpolation)
+
+    preprocessing = ClassificationPresetEval(
+            crop_size=val_crop_size, resize_size=val_resize_size, interpolation=interpolation
+    )
+
+    dataset_test = torchvision.datasets.ImageFolder(
+        args.valdir,
+        preprocessing,
+    )
+
+    test_sampler = torch.utils.data.SequentialSampler(dataset_test)
+    return dataset_test, test_sampler
+
+
+def cal_acc(model, criterion, data_loader, device, print_freq=100, log_suffix="", args=None):
+    model.eval()
+    metric_logger = superblock_utils.MetricLogger(delimiter="  ")
+    header = f"Test: {log_suffix}"
+
+    with torch.no_grad():
+        for image, target in metric_logger.log_every(data_loader, print_freq, header):
+            image=image.to(torch.bfloat16)
+
+            image = image.to(device, non_blocking=True)
+            target = target.to(device, non_blocking=True)
+            output = model(image)
+            output = output.to(torch.float32)
+            loss = criterion(output, target)
+
+            acc1, acc5 = superblock_utils.accuracy(output, target, topk=(1, 5))
+            # FIXME need to take into account that the datasets
+            # could have been padded in distributed setup
+            batch_size = image.shape[0]
+            metric_logger.update(loss=loss.item())
+            metric_logger.meters["acc1"].update(acc1.item(), n=batch_size)
+            metric_logger.meters["acc5"].update(acc5.item(), n=batch_size)
+
+    print(f"{header} Acc@1 {metric_logger.acc1.global_avg:.3f} Acc@5 {metric_logger.acc5.global_avg:.3f}")
+    return metric_logger.acc1.global_avg
+
+
+def load_vit_model(model_name, weights_name):
+    model_class = getattr(models, model_name)
+    model = model_class(weights=weights_name)
+    return model
