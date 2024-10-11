@@ -35,7 +35,7 @@ class FakeQuantizeConfig:
         dtype: dtype to simulate during fake quantization, e.g. torch.int8.
             For PyTorch versions older than 2.6, you may use `TorchAODType` to represent
             torch.int1 to torch.int7 instead, e.g. TorchAODType.INT4.
-        granularity: granularity of scales and zero points, e.g. PerToken(32).
+        granularity: granularity of scales and zero points, e.g. PerGroup(32).
             We also support the following strings:
                1) 'per_token': equivalent to PerToken()
                2) 'per_channel': equivalent to PerAxis(0)
