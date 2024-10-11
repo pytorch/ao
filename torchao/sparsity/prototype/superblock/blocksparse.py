@@ -6,6 +6,7 @@ from torch.sparse._triton_ops import broadcast_batch_dims, bsr_dense_addmm, bsr_
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
 from torchao.utils import TorchAOBaseTensor
+from torchao.sparsity.prototype.blocksparse._triton_ops import bsr_dense_addmm
 
 aten = torch.ops.aten
 
@@ -92,6 +93,8 @@ def blocksparse_linear(
     bias: torch.Tensor,
 ) -> torch.Tensor:
     weight_bsr = torch.sparse_bsr_tensor(crow_indices, col_indices, values, size=(M, K))
+    # TODO: Change this to call into Triton kernel directly like int_addmm
+    # This way we know we must be on the hot path
     return torch.nn.functional.linear(A, weight_bsr, bias)
 
 
@@ -228,6 +231,7 @@ def block_sparse__nnz(func, types, args, kwargs):
 @implements(torch.nn.functional.linear)
 def block_sparse_linear(func, types, args, kwargs):
     x, w, bias = args
+    # TODO: Change this to do padding to make sure blocksparse.linear works
     return torch.ops.blocksparse.linear(
         x, w.crow_indices(), w.col_indices(), w.values(), w.shape[0], w.shape[1], bias
     )
