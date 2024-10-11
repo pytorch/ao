@@ -92,7 +92,7 @@ class FakeQuantizeConfig:
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
         is_dynamic: bool = True,
         range_learning: bool = False,
-        # optional kwargs
+        *,
         group_size: Optional[int] = None,
         is_symmetric: Optional[bool] = None,
     ):
