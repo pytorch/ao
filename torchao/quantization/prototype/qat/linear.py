@@ -46,12 +46,12 @@ class FakeQuantizedLinear(torch.nn.Linear):
         activation_config = FakeQuantizeConfig(
             dtype=torch.int8,
             granularity="per_token",
-            symmetric=False,
+            is_symmetric=False,
         )
         weight_config = FakeQuantizeConfig(
             dtype=torch.int4,
             group_size=8,
-            symmetric=True,
+            is_symmetric=True,
         )
         fq_linear = FakeQuantizedLinear(
             16, 32, False, activation_config, weight_config,
