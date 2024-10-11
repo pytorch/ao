@@ -8,13 +8,17 @@ from typing import Optional, Tuple
 
 import torch
 
+from torchao.quantization.granularity import (
+    PerAxis,
+    PerGroup,
+    PerToken,
+)
 from torchao.quantization.utils import (
     get_group_qparams_symmetric,
     get_groupwise_affine_qparams,
 )
 from .api import (
     FakeQuantizeConfig,
-    QuantizationGranularity,
 )
 from .utils import (
     _choose_qparams_per_token_asymmetric,
@@ -47,12 +51,9 @@ class FakeQuantizer(torch.nn.Module):
         if not self.enabled:
             return x
 
-        if self.config.granularity == QuantizationGranularity.PER_TOKEN:
+        if isinstance(self.config.granularity, PerToken):
             return self._per_token_forward(x)
-        elif self.config.granularity in [
-            QuantizationGranularity.PER_CHANNEL,
-            QuantizationGranularity.PER_GROUP,
-        ]:
+        elif isinstance(self.config.granularity, (PerAxis, PerGroup)):
             return self._per_channel_or_group_forward(x)
         else:
             raise ValueError("Unknown granularity %s" % self.config.granularity)
@@ -67,6 +68,7 @@ class FakeQuantizer(torch.nn.Module):
             (self.scale, self.zero_point) = _choose_qparams_per_token_asymmetric(
                 x, self.config.scale_precision, self.config.zero_point_precision,
             )
+        # TODO: handle dtype instead
         qmin, qmax = _get_qmin_qmax(self.config.bit_width)
         return _fake_quantize_per_token(x, self.scale, self.zero_point, qmin, qmax)
 
@@ -84,11 +86,11 @@ class FakeQuantizer(torch.nn.Module):
         symmetric = self.config.symmetric
 
         # get group size
-        if granularity == QuantizationGranularity.PER_CHANNEL:
+        if isinstance(granularity, PerAxis):
+            assert granularity.axis == 0
             group_size =  x.size()[-1]
-        elif granularity == QuantizationGranularity.PER_GROUP:
-            assert self.config.group_size is not None
-            group_size = self.config.group_size
+        elif isinstance(granularity, PerGroup):
+            group_size = granularity.group_size
         else:
             raise ValueError("Group size not defined for granularity %s" % granularity)
 
@@ -113,4 +115,4 @@ class FakeQuantizer(torch.nn.Module):
         """
         Return whether we need to compute new scales and zero points.
         """
-        return self.config.dynamic or self.scale is None or self.zero_point is None
+        return self.config.is_dynamic or self.scale is None or self.zero_point is None

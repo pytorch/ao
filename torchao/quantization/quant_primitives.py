@@ -64,6 +64,18 @@ class ZeroPointDomain(Enum):
     INT = auto()
     FLOAT = auto()
 
+class TorchSignedInt(Enum):
+    """Placeholder for the torch.int1 to torch.int7 dtypes, which are added to
+    PyTorch 2.6, for compatibility with older PyTorch versions. This will be
+    deprecated once we no longer support PyTorch 2.5.
+    """
+    INT1 = auto()
+    INT2 = auto()
+    INT3 = auto()
+    INT4 = auto()
+    INT5 = auto()
+    INT6 = auto()
+    INT7 = auto()
 
 if TORCH_VERSION_AT_LEAST_2_5:
     torch.serialization.add_safe_globals([MappingType, ZeroPointDomain])

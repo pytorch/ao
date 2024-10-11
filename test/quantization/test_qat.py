@@ -16,10 +16,15 @@ from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noq
 from torchao.dtypes import (
     TensorCoreTiledLayoutType,
 )
+from torchao.quantization.granularity import (
+    PerAxis,
+    PerGroup,
+    PerRow,
+    PerToken,
+)
 from torchao.quantization.prototype.qat.api import (
     ComposableQATQuantizer,
     FakeQuantizeConfig,
-    QuantizationGranularity,
 )
 from torchao.quantization.prototype.qat.fake_quantizer import (
     FakeQuantizer,
@@ -624,46 +629,104 @@ class TestQAT(unittest.TestCase):
         converted = quantizer.convert(model)
         converted_out = converted(*x)
 
-    def test_fake_quantize_config(self):
+    def test_fake_quantize_config_granularity(self):
         """
-        Test initialization and property setting of `FakeQuantizeConfig`.
+        Test initialization and property setting of `FakeQuantizeConfig`'s granularity.
         """
-        # basic configs
-        per_token_config = FakeQuantizeConfig(8, "per_token")
-        self.assertEqual(per_token_config.bit_width, 8)
-        self.assertEqual(per_token_config.granularity, QuantizationGranularity.PER_TOKEN)
-        self.assertIsNone(per_token_config.group_size)
-        per_channel_config = FakeQuantizeConfig(4, "per_channel")
-        self.assertEqual(per_channel_config.bit_width, 4)
-        self.assertEqual(per_channel_config.granularity, QuantizationGranularity.PER_CHANNEL)
-        self.assertIsNone(per_channel_config.group_size)
+        # per token
+        per_token_config1 = FakeQuantizeConfig(torch.int8, PerToken())
+        per_token_config2 = FakeQuantizeConfig(torch.int8, "per_token")
+        self.assertIsInstance(per_token_config1.granularity, PerToken)
+        self.assertIsInstance(per_token_config2.granularity, PerToken)
 
-        # initialize per_group config using only group size
-        per_group_config = FakeQuantizeConfig(4, group_size=32)
-        self.assertEqual(per_group_config.bit_width, 4)
-        self.assertEqual(per_group_config.granularity, QuantizationGranularity.PER_GROUP)
-        self.assertEqual(per_group_config.group_size, 32)
+        # per channel
+        per_channel_config1 = FakeQuantizeConfig(torch.int8, PerAxis(0))
+        per_channel_config2 = FakeQuantizeConfig(torch.int8, "per_channel")
+        self.assertIsInstance(per_channel_config1.granularity, PerAxis)
+        self.assertIsInstance(per_channel_config2.granularity, PerAxis)
+        self.assertEqual(per_channel_config1.granularity.axis, 0)
+        self.assertEqual(per_channel_config2.granularity.axis, 0)
 
-        # set granularity after initialization, should accept str as before
-        per_group_config.granularity = "per_token"
-        self.assertEqual(per_token_config.granularity, QuantizationGranularity.PER_TOKEN)
+        # per group
+        per_group_config1 = FakeQuantizeConfig(torch.int8, PerGroup(32))
+        per_group_config2 = FakeQuantizeConfig(torch.int8, "per_group", group_size=32)
+        per_group_config3 = FakeQuantizeConfig(torch.int8, group_size=32)
+        self.assertIsInstance(per_group_config1.granularity, PerGroup)
+        self.assertIsInstance(per_group_config2.granularity, PerGroup)
+        self.assertIsInstance(per_group_config3.granularity, PerGroup)
+        self.assertEqual(per_group_config1.group_size, 32)
+        self.assertEqual(per_group_config2.group_size, 32)
+        self.assertEqual(per_group_config3.group_size, 32)
 
-        # set group_size after initialization, should also update granularity
-        per_group_config.group_size = 16
-        self.assertEqual(per_group_config.granularity, QuantizationGranularity.PER_GROUP)
-        self.assertEqual(per_group_config.group_size, 16)
+        # set `group_size` after initialization
+        per_token_config1.group_size = 64
+        per_channel_config1.group_size = 64
+        per_group_config1.group_size = 64
+        self.assertIsInstance(per_token_config1.granularity, PerGroup)
+        self.assertIsInstance(per_channel_config1.granularity, PerGroup)
+        self.assertIsInstance(per_group_config1.granularity, PerGroup)
+        self.assertEqual(per_token_config1.granularity.group_size, 64)
+        self.assertEqual(per_channel_config1.granularity.group_size, 64)
+        self.assertEqual(per_group_config1.granularity.group_size, 64)
 
-        # bad config1: no granularity or group size provided
-        with self.assertRaisesRegex(ValueError, "group_size or granularity must be set"):
-            FakeQuantizeConfig(8)
+    def test_fake_quantize_config_granularity_error_cases(self):
+        """
+        Test incorrect settings of `FakeQuantizeConfig`'s granularity.
+        """
+        # no granularity provided
+        with self.assertRaisesRegex(ValueError, "`granularity` or `group_size` must be set"):
+            FakeQuantizeConfig(torch.int8)
 
-        # bad config2: 'per_group' but no group size
-        with self.assertRaisesRegex(ValueError, "no group_size was set"):
-            FakeQuantizeConfig(8, "per_group")
+        # group_size with conflicting granularity
+        msg = "`group_size` conflicts with granularity"
+        with self.assertRaisesRegex(ValueError, msg):
+            FakeQuantizeConfig(torch.int8, PerToken(), group_size=32)
+        with self.assertRaisesRegex(ValueError, msg):
+            FakeQuantizeConfig(torch.int8, PerGroup(64), group_size=32)
+        with self.assertRaisesRegex(ValueError, msg):
+            FakeQuantizeConfig(torch.int8, "per_token", group_size=32)
 
-        # bad config3: group size was set but granularity was not 'per_group'
-        with self.assertRaisesRegex(ValueError, "group_size was set"):
-            FakeQuantizeConfig(8, "per_token", group_size=16)
+        # 'per_group' but no group_size
+        msg = "Granularity was 'per_group' but no `group_size` was set"
+        with self.assertRaisesRegex(ValueError, msg):
+            FakeQuantizeConfig(torch.int8, "per_group")
+
+        # not supported
+        with self.assertRaisesRegex(ValueError, "not supported"):
+            FakeQuantizeConfig(torch.int8, PerRow())
+        with self.assertRaisesRegex(ValueError, "Only axis=0 is supported"):
+            FakeQuantizeConfig(torch.int8, PerAxis(1))
+        with self.assertRaisesRegex(ValueError, "Unexpected granularity"):
+            FakeQuantizeConfig(torch.int8, "blah")
+        with self.assertRaisesRegex(ValueError, "unexpected type"):
+            FakeQuantizeConfig(torch.int8, 1234)
+
+    def test_fake_quantize_config_mapping_type(self):
+        """
+        Test initialization and property setting of `FakeQuantizeConfig`'s mapping type.
+        """
+        # symmetric
+        symmetric_config1 = FakeQuantizeConfig(torch.int8, "per_token")
+        symmetric_config2 = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=True)
+        symmetric_config3 = FakeQuantizeConfig(torch.int8, "per_token", MappingType.SYMMETRIC)
+        self.assertEqual(symmetric_config1.mapping_type, MappingType.SYMMETRIC)
+        self.assertEqual(symmetric_config2.mapping_type, MappingType.SYMMETRIC)
+        self.assertEqual(symmetric_config3.mapping_type, MappingType.SYMMETRIC)
+
+        # asymmetric
+        asymmetric_config1 = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
+        asymmetric_config2 = FakeQuantizeConfig(torch.int8, "per_token", MappingType.ASYMMETRIC)
+        self.assertEqual(asymmetric_config1.mapping_type, MappingType.ASYMMETRIC)
+        self.assertEqual(asymmetric_config2.mapping_type, MappingType.ASYMMETRIC)
+
+        # bad config1: both mapping_type and is_symmetric are set
+        msg = "Cannot set both `mapping_type` and `is_symmetric`"
+        with self.assertRaisesRegex(ValueError, msg):
+            FakeQuantizeConfig(torch.int8, "per_token", MappingType.SYMMETRIC, is_symmetric=False)
+
+        # bad config2: not supported
+        with self.assertRaisesRegex(ValueError, "not supported"):
+            FakeQuantizeConfig(torch.int8, "per_token", MappingType.SYMMETRIC_NO_CLIPPING_ERR)
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower")
     def test_fake_quantized_linear_8da4w(self):
