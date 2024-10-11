@@ -20,8 +20,6 @@ FetchContent_MakeAvailable(kleidiai)
 CMAKE_DEPENDENT_OPTION(BUILD_KLEIDI "Download, build, and link against Arm KleidiAI library"
   OFF "CMAKE_SYSTEM_PROCESSOR STREQUAL \"arm64\"" ON)
 
-add_compile_definitions("TORCHAO_ENABLE_KLEIDI=$<BOOL:${BUILD_KLEIDI}>")
-
 if (CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
   add_library(
     torchao_kernels_aarch64
@@ -31,6 +29,9 @@ if (CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
     ${TORCHAO_INCLUDE_DIRS}/torchao/experimental/kernels/cpu/aarch64/valpacking/interleave.cpp
   )
   if (BUILD_KLEIDI)
+    # Temporarily exposing this to the parent scope until we wire
+    # this up properly from the top level
+    set(TORCHAO_ENABLE_KLEIDI ON PARENT_SCOPE)
     message(STATUS "Building with Kleidi")
     target_link_libraries(torchao_kernels_aarch64 PUBLIC kleidiai)
   endif()
