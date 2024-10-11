@@ -14,7 +14,7 @@ from torch import Tensor
 from torchao.dtypes import (
     to_affine_quantized_intx_static,
     to_affine_quantized_floatx_static,
-    Float8LayoutType,
+    Float8Layout,
 )
 from torchao.quantization.utils import compute_error
 from torchao.quantization import quantize_
@@ -22,8 +22,10 @@ from torchao.quantization import to_weight_tensor_with_linear_activation_scale_m
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.quantization.observer import (
     AffineQuantizedMinMaxObserver,
-    PerTensor,
+)
+from torchao.quantization.granularity import (
     PerAxis,
+    PerTensor,
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
@@ -71,7 +73,7 @@ def apply_awq(target_dtype: torch.dtype):
             if target_dtype == torch.uint8:
                 return to_affine_quantized_intx_static(weight, weight_scale, weight_zero_point, block_size, target_dtype)
             elif target_dtype == torch.float8_e4m3fn:
-                return to_affine_quantized_floatx_static(weight, weight_scale, block_size, target_dtype, Float8LayoutType(mm_config=None))
+                return to_affine_quantized_floatx_static(weight, weight_scale, block_size, target_dtype, Float8Layout(mm_config=None))
             else:
                 raise ValueError(f"Unsupported target dtype {target_dtype}")
         linear = torch.nn.Linear(observed_linear.in_features, observed_linear.out_features, False, device=observed_linear.weight.device, dtype=observed_linear.weight.dtype)

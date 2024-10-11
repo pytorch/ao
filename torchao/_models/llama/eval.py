@@ -24,13 +24,14 @@ from torchao.quantization.quant_api import (
     float8_dynamic_activation_float8_weight,
     float8_static_activation_float8_weight,
 )
-from torchao.quantization.observer import PerRow, PerTensor
 from torchao._models._eval import TransformerEvalWrapper, InputRecorder
 from torchao._models.llama.model import prepare_inputs_for_model
+from torchao.quantization.granularity import PerRow, PerTensor
 
 from tokenizer import get_tokenizer
 import time
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.prototype.spinquant import apply_spinquant
 
 def run_evaluation(
     checkpoint_path: Path,
@@ -69,6 +70,8 @@ def run_evaluation(
     tokenizer = get_tokenizer(tokenizer_path, checkpoint_path)
 
     if quantization:
+        if "spinquant" in quantization:
+            apply_spinquant(model)
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
@@ -97,8 +100,8 @@ def run_evaluation(
             group_size = int(_quant_args[2])
             quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
         if "marlin" in quantization:
-            from torchao.dtypes import MarlinSparseLayoutType
-            quantize_(model, int4_weight_only(layout_type=MarlinSparseLayoutType()))
+            from torchao.dtypes import MarlinSparseLayout
+            quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
         if "int4wo" in quantization and "gptq" in quantization:
             # avoid circular imports
             from torchao._models._eval import InputRecorder
@@ -229,7 +232,7 @@ if __name__ == '__main__':
         help=(
             "Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, "
             "int4wo-<groupsize>-gptq, autoquant, autoquant-int4, int4wo-<groupsize>-hqq, "
-            "uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, "
+            "uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, spinquant, "
             "autoround-<model_device>-<quant_lm_head>-<iters>-<groupsize>-<batch_size>-<seqlen>-<nsamples>-<grad_acc_steps>-<c>, "
             "float8wo, float8dq, float8saq"
         ),

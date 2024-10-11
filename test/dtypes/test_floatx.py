@@ -9,8 +9,8 @@ from torch.testing._internal.common_utils import (
     run_tests,
 )
 from torchao.dtypes.floatx import (
-    FloatxTensorCoreAQTLayout,
-    FloatxTensorCoreLayoutType,
+    FloatxTensorCoreAQTTensorImpl,
+    FloatxTensorCoreLayout,
     to_scaled_tc_floatx,
     from_scaled_tc_floatx,
 )
@@ -21,14 +21,14 @@ from torchao.quantization import (
     fpx_weight_only,
 )
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_fbcode
 
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 _Floatx_DTYPES = [(3, 2), (2, 2)]
 
 
-class TestFloatxTensorCoreAQTLayout(TestCase):
+class TestFloatxTensorCoreAQTTensorImpl(TestCase):
     @parametrize("device", _DEVICES)
     def test_pack_tc_fp6_correctness(self, device):
         x = torch.randint(256, size=(256, 64), dtype=torch.uint8, device=device)
@@ -81,16 +81,17 @@ class TestFloatxTensorCoreAQTLayout(TestCase):
         x = torch.randn(256, 64)
         scale = choose_qparams_affine_floatx(x, ebits, mbits)
         x = quantize_affine_floatx(x, scale, ebits, mbits)
-        layout_type = FloatxTensorCoreLayoutType(ebits, mbits)
-        floatx_layout_tensor = FloatxTensorCoreAQTLayout.from_plain(x, scale, None, layout_type).cuda()
-        assert floatx_layout_tensor.device.type == "cuda"
-        floatx_layout_tensor = floatx_layout_tensor.cpu()
-        assert floatx_layout_tensor.device.type == "cpu"
+        _layout = FloatxTensorCoreLayout(ebits, mbits)
+        floatx_tensor_impl = FloatxTensorCoreAQTTensorImpl.from_plain(x, scale, None, _layout).cuda()
+        assert floatx_tensor_impl.device.type == "cuda"
+        floatx_tensor_impl = floatx_tensor_impl.cpu()
+        assert floatx_tensor_impl.device.type == "cpu"
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="quantization only works with torch.compile for 2.5+")
     @parametrize("ebits,mbits", _Floatx_DTYPES)
     @parametrize("bias", [False, True])
+    @pytest.mark.skipif(is_fbcode(), reason="broken in fbcode")
     def test_fpx_weight_only(self, ebits, mbits, bias):
         N, OC, IC = 4, 256, 64
         device = "cuda"
@@ -106,7 +107,7 @@ class TestFloatxTensorCoreAQTLayout(TestCase):
         torch.testing.assert_close(actual, expected)
 
 
-instantiate_parametrized_tests(TestFloatxTensorCoreAQTLayout)
+instantiate_parametrized_tests(TestFloatxTensorCoreAQTTensorImpl)
 
 
 if __name__ == "__main__":

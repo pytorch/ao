@@ -1,18 +1,18 @@
 import torch
 import torch.nn.functional as F
 
+from torchao.quantization.granularity import PerGroup
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
      _DTYPE_TO_QVALUE_BOUNDS,
 )
 from torchao.quantization import to_weight_tensor_with_linear_activation_scale_metadata
-from torchao.quantization.observer import PerGroup
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
-from torchao.dtypes.uintx import _DTYPE_TO_BIT_WIDTH, UintxLayoutType
+from torchao.dtypes.uintx import _DTYPE_TO_BIT_WIDTH, UintxLayout
 from torchao.dtypes import( 
     to_affine_quantized_intx,
-    TensorCoreTiledLayoutType,
+    TensorCoreTiledLayout,
 )
 from .core import(
     AWQObserver, 
@@ -106,14 +106,14 @@ def awq_uintx(quant_dtype: torch.dtype = torch.uint4,
             preserve_zero = False
             zero_point_dtype = torch.bfloat16
             zero_point_domain = ZeroPointDomain.FLOAT
-            layout_type = TensorCoreTiledLayoutType(inner_k_tiles=8)
+            _layout = TensorCoreTiledLayout(inner_k_tiles=8)
         else:
             target_dtype = torch.uint8
             eps = torch.finfo(torch.float32).eps
             preserve_zero = True
             zero_point_dtype = torch.int64
             zero_point_domain = ZeroPointDomain.INT
-            layout_type = UintxLayoutType(quant_dtype)
+            _layout = UintxLayout(quant_dtype)
             
         mapping_type = MappingType.ASYMMETRIC
         block_size = (1, group_size)
@@ -128,12 +128,10 @@ def awq_uintx(quant_dtype: torch.dtype = torch.uint4,
             zero_point_dtype=zero_point_dtype,
             preserve_zero=preserve_zero,
             zero_point_domain=zero_point_domain,
-            layout_type=layout_type,
+            _layout=_layout,
             use_hqq=use_hqq
         )
         
         return to_weight_tensor_with_linear_activation_scale_metadata(qw, equalization_scale)
     
     return _observed_linear_subclass_inserter(weight_quant_func)
-
-

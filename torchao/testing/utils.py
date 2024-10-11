@@ -309,6 +309,8 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
         y_q = dn_quant(up_quant(example_input))
 
         mesh = self.build_device_mesh()
+        mesh.device_type = "cuda"
+
         # Shard the models
         up_dist = self.colwise_shard(up_quant, mesh)
         dn_dist = self.rowwise_shard(dn_quant, mesh)

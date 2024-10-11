@@ -9,15 +9,17 @@ from .subclass import ( # noqa
     Int8WeightOnlyQuantizedLinearWeight,
     QuantizedLinearWeightBase,
 )
-from torchao.dtypes import AffineQuantizedTensor, PlainLayoutType, TensorCoreTiledLayoutType, Float8LayoutType
+from torchao.dtypes import AffineQuantizedTensor, PlainLayout, TensorCoreTiledLayout, Float8Layout
 from torchao.quantization.linear_activation_quantized_tensor import LinearActivationQuantizedTensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from .quant_primitives import (
-    safe_int_mm,
+from .granularity import (
+    PerAxis,
+    PerRow,
+    PerTensor,
 )
+from .quant_primitives import safe_int_mm
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_5
 from torchao.quantization.utils import quantize_activation_per_token_absmax
-from torchao.quantization.observer import PerAxis, PerTensor, PerRow
 from torchao.float8.inference import Float8MMConfig
 
 import torch.nn.functional as F
@@ -309,11 +311,11 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
         input_eps = 1e-5
         input_quant_min = -127
         input_quant_max = 127
-        layout_type = PlainLayoutType()
+        _layout = PlainLayout()
         input_quant_func = lambda x: to_affine_quantized_intx(x, input_mapping_type, get_per_token_block_size(x), input_target_dtype, eps=input_eps, quant_min=input_quant_min, quant_max=input_quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
 
         block_size = get_weight_block_size(weight)
-        weight = to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, layout_type=layout_type)
+        weight = to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, _layout=_layout)
         weight = super(AQInt8DynamicallyQuantizedLinearWeight, cls).from_float(weight, input_quant_func)
         return weight
 
@@ -348,7 +350,7 @@ class AQInt8DynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedT
         )
         q_c_matmul=torch.compile(quantized_matmul, mode="max-autotune-no-cudagraphs")
         with torch.no_grad():
-            w_vals_int8 = w_qtensor.original_weight_tensor.layout_tensor.int_data.contiguous().t()
+            w_vals_int8 = w_qtensor.original_weight_tensor.tensor_impl.int_data.contiguous().t()
             res_matmul = do_autoquant_bench(q_c_matmul, x_vals_int8, x_scales.reshape(-1,1), w_vals_int8)
         print(f">>time: {res_matmul:0.3f}ms for {cls} matmul, to_beat: {best_time:0.3f}ms")
 
@@ -399,8 +401,8 @@ class AQInt8WeightOnlyQuantizedLinearWeight2(AQInt8WeightOnlyQuantizedLinearWeig
         orig_dtype = act_mat.dtype
         orig_shape = act_mat.shape
         act_mat = act_mat.reshape(-1, act_mat.shape[-1], 1)
-        y = (act_mat*w_qtensor.layout_tensor.int_data.t().unsqueeze(0)).sum(dim=-2)
-        y = y.reshape(*orig_shape[:-1], y.shape[-1]) * w_qtensor.layout_tensor.scale
+        y = (act_mat*w_qtensor.tensor_impl.int_data.t().unsqueeze(0)).sum(dim=-2)
+        y = y.reshape(*orig_shape[:-1], y.shape[-1]) * w_qtensor.tensor_impl.scale
         if bias is not None:
             y += bias
         return y.to(orig_dtype)
@@ -420,7 +422,7 @@ class AQInt8WeightOnlyQuantizedLinearWeight3(AQInt8WeightOnlyQuantizedLinearWeig
     @staticmethod
     def _quantized_linear_op(act_mat, w_qtensor, bias):
         orig_shape = act_mat.shape
-        y = torch.mm(act_mat.reshape(-1, orig_shape[-1]), w_qtensor.layout_tensor.int_data.t()*w_qtensor.layout_tensor.scale)
+        y = torch.mm(act_mat.reshape(-1, orig_shape[-1]), w_qtensor.tensor_impl.int_data.t()*w_qtensor.tensor_impl.scale)
         y=y.reshape(*orig_shape[:-1], y.shape[-1])
         if bias is not None:
             y += bias
@@ -435,7 +437,7 @@ class AQInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
     @classmethod
     def from_float(cls, weight):
         group_size = cls.group_size
-        layout_type = TensorCoreTiledLayoutType(inner_k_tiles=8)
+        _layout = TensorCoreTiledLayout(inner_k_tiles=8)
 
         if weight.shape[-1] % group_size != 0:
             return weight
@@ -449,7 +451,7 @@ class AQInt4G32WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
         preserve_zero = False
         zero_point_dtype = torch.bfloat16
         zero_point_domain = ZeroPointDomain.FLOAT
-        return super(AQInt4G32WeightOnlyQuantizedLinearWeight, cls).from_hp_to_intx(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, layout_type=layout_type, use_hqq=use_hqq)
+        return super(AQInt4G32WeightOnlyQuantizedLinearWeight, cls).from_hp_to_intx(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, zero_point_dtype=zero_point_dtype, preserve_zero=preserve_zero, zero_point_domain=zero_point_domain, _layout=_layout, use_hqq=use_hqq)
 
 class AQInt4G64WeightOnlyQuantizedLinearWeight(AQInt4G32WeightOnlyQuantizedLinearWeight):
     group_size: int = 64
@@ -492,7 +494,7 @@ class AQFloat8WeightOnlyQuantizedLinearWeight(AffineQuantizedTensor, AQMixin):
     @classmethod
     def from_float(cls, weight):
         block_size = (1, weight.shape[1])
-        return super(AQFloat8WeightOnlyQuantizedLinearWeight, cls).from_hp_to_floatx(weight, block_size, target_dtype=cls.target_dtype, layout_type=Float8LayoutType())
+        return super(AQFloat8WeightOnlyQuantizedLinearWeight, cls).from_hp_to_floatx(weight, block_size, target_dtype=cls.target_dtype, _layout=Float8Layout())
 
 class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedTensor):
     """
@@ -518,7 +520,7 @@ class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(AQMixin, LinearActiv
             return block_size
 
         input_target_dtype = torch.float8_e4m3fn
-        layout_type = Float8LayoutType(mm_config=Float8MMConfig(use_fast_accum=True))
+        _layout = Float8Layout(mm_config=Float8MMConfig(use_fast_accum=True))
         input_quant_func = lambda x: _input_activation_quant_func_fp8(
             x=x,
             activation_granularity=cls.activation_granularity,
@@ -529,7 +531,7 @@ class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(AQMixin, LinearActiv
                     input_float=weight,
                     block_size=block_size,
                     target_dtype=target_dtype,
-                    layout_type=layout_type,
+                    _layout=_layout,
                     scale_dtype=torch.float32,
         )
         weight = super(AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight, cls).from_float(weight, input_quant_func)

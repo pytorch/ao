@@ -5,14 +5,15 @@ import torch
 import torch.nn.functional as F
 
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from torchao.dtypes.uintx import _DTYPE_TO_BIT_WIDTH, UintxLayoutType
+from torchao.dtypes.uintx import _DTYPE_TO_BIT_WIDTH, UintxLayout
 from torchao.dtypes import to_affine_quantized_intx
+from torchao.quantization.granularity import Granularity
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
 )
 from torchao.quantization.observer import (
-    AffineQuantizedObserverBase, GranularityType
+    AffineQuantizedObserverBase,
 )
 
 
@@ -20,7 +21,7 @@ class AWQObserver(AffineQuantizedObserverBase):
     def __init__(self,
         weight: torch.Tensor,
         bias: torch.Tensor,
-        quantization_granularity: GranularityType,
+        quantization_granularity: Granularity,
         mapping_type: MappingType,
         target_dtype: torch.dtype,
         n_validation_examples: int,
@@ -40,7 +41,7 @@ class AWQObserver(AffineQuantizedObserverBase):
         Args:
             weight: The weight tensor to be observed.
             bias: The bias tensor to be observed.
-            quantization_granularity: Granularity type which specifies how many weights share the same scale/zero point
+            quantization_granularity: Granularity which specifies how many weights share the same scale/zero point
             input_dtype: The data type of the input tensor.
             mapping_type: Always set to asymmetric 
             target_dtype: The target data type of the quantized tensor
@@ -109,7 +110,7 @@ class AWQObserver(AffineQuantizedObserverBase):
             ratio = i * 1 / self.scale_options
             scales = self.average.pow(ratio).to(self.weight.dtype)
             scales = scales / (scales.max() * scales.min()).sqrt()
-            layout = UintxLayoutType(self.target_dtype)
+            layout = UintxLayout(self.target_dtype)
             # regardless of weight dtype, we have to store as packed uint8 tensors
             tensor_dtype = torch.uint8
             w = to_affine_quantized_intx(
@@ -124,7 +125,7 @@ class AWQObserver(AffineQuantizedObserverBase):
                 zero_point_dtype = self.zero_point_dtype,
                 preserve_zero = self.preserve_zero,
                 zero_point_domain = self.zero_point_domain,
-                layout_type = layout
+                _layout = layout
             )
             loss = 0
             for i in range(self.n_validation_examples):

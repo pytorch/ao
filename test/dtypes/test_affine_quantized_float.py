@@ -26,11 +26,17 @@ from torchao.quantization import (
     float8_weight_only,
     quantize_,
 )
-from torchao.quantization.observer import PerRow, PerTensor
+from torchao.quantization.granularity import (
+    PerRow,
+    PerTensor,
+)
 from torchao.quantization.quant_api import (
     float8_static_activation_float8_weight,
 )
-from torchao.quantization.quant_primitives import MappingType, choose_qparams_affine
+from torchao.quantization.quant_primitives import (
+    MappingType,
+    choose_qparams_affine,
+)
 
 random.seed(0)
 torch.manual_seed(0)
@@ -210,18 +216,18 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
 
             # Compare weights
             if mode == "weight-only":
-                original_weight = original_layer.weight.layout_tensor.float8_data.to(
+                original_weight = original_layer.weight.tensor_impl.float8_data.to(
                     torch.float32
                 )
-                new_weight = new_layer.weight.layout_tensor.float8_data.to(
-                    torch.float32
-                )
+                new_weight = new_layer.weight.tensor_impl.float8_data.to(torch.float32)
             else:
-                original_weight = original_layer.weight.original_weight_tensor.layout_tensor.float8_data.to(
+                original_weight = original_layer.weight.original_weight_tensor.tensor_impl.float8_data.to(
                     torch.float32
                 )
-                new_weight = new_layer.weight.original_weight_tensor.layout_tensor.float8_data.to(
-                    torch.float32
+                new_weight = (
+                    new_layer.weight.original_weight_tensor.tensor_impl.float8_data.to(
+                        torch.float32
+                    )
                 )
 
             assert torch.allclose(

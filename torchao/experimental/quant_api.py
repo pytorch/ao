@@ -115,15 +115,7 @@ class _Int8DynActIntxWeightQuantizedLinearNative(nn.Module):
         lead_shape = x.shape[0:-2]
         m, k = x.shape[-2], x.shape[-1]
         n = self._n.shape[1]
-        x = x.reshape(-1, m, k)
-
-        res = [
-            self._linear_op(
-                x[i, :, :], self.packed_weights, self._group_size, self._n, self._k
-            )
-            for i in range(x.shape[0])
-        ]
-        res = torch.stack(res)
+        res = self._linear_op(x.reshape(-1, k), self.packed_weights, self._group_size, self._n, self._k)
         res = res.reshape(*lead_shape, m, n)
         return res
 
@@ -206,7 +198,7 @@ class _Int8DynActIntxWeightQuantizedLinearFallback(nn.Module):
 
 def _maybe_get_quantized_linear_native(nbit, has_weight_zeros):
     try:
-        if nbit in [1, 2, 3, 4, 5]:
+        if nbit in [1, 2, 3, 4, 5, 6]:
             wzp_suffix = "" if has_weight_zeros else "0zp"
             return _Int8DynActIntxWeightQuantizedLinearNative(
                 pack_weight_op=getattr(
