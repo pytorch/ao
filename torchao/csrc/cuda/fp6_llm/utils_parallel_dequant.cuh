@@ -30,9 +30,10 @@
 template<int EXPONENT, int MANTISSA>
 __device__ __forceinline__ void FPx_FP16_Cast_4Way(uint32_t *In, uint32_t *Out1, uint32_t *Out2) {
     //
-    constexpr int RIGHT_SHIFT = 5 - EXPONENT;
+    constexpr bool USE_BF16 = true;  // TODO: don't hardcode here
+    constexpr int RIGHT_SHIFT = USE_BF16 ? 8 - EXPONENT : 5 - EXPONENT;
     constexpr int MASK1 = 0x80000000;
-    constexpr int MASK2 = MASK1 >> EXPONENT + MANTISSA;
+    constexpr int MASK2 = MASK1 >> EXPONENT + MANTISSA;  // NB: arithmetic shift, not logical
     constexpr int MASK3 = MASK2 & 0x7fffffff;
     constexpr int MASK  = MASK3 | MASK3 >> 16;
     //
@@ -46,13 +47,16 @@ __device__ __forceinline__ void FPx_FP16_Cast_4Way(uint32_t *In, uint32_t *Out1,
 
 template<int EXPONENT, int MANTISSA>
 __device__ __forceinline__ uint32_t MultScale(uint32_t PackedFP16Pair, half Scale) {
-    constexpr int BIAS_OFFSET = (int(1) << (5-1)) - (int(1) << (EXPONENT-1));
+    constexpr bool USE_BF16 = true;  // TODO: don't hardcode here
+    constexpr EXP_16 = USE_BF16 ? 8 : 5;
+    constexpr int BIAS_OFFSET = (int(1) << (EXP_16-1)) - (int(1) << (EXPONENT-1));
     constexpr int BIAS        = int(1) << BIAS_OFFSET;
     //
     half* FP16_1 = reinterpret_cast<half*>(&PackedFP16Pair);
     half* FP16_2 = FP16_1 + 1;
     uint32_t output;
     half* output_half_ptr = reinterpret_cast<half*>(&output);
+    // TODO: should these ops be bf16-specific?
     output_half_ptr[0] = __hmul( __hmul(*FP16_1,__float2half(1.0f*BIAS)), Scale);
     output_half_ptr[1] = __hmul( __hmul(*FP16_2,__float2half(1.0f*BIAS)), Scale);   
     return output;
@@ -104,9 +108,12 @@ __device__ __forceinline__ void Dequant_32FP6_4Way(uint32_t (* __restrict__ Reg)
             if(i%2==1)  Frag_PTR_4bit++;
             else        (*Frag_PTR_4bit) = (*Frag_PTR_4bit) << 4;
         }
+        // Packed_FP6 now contains 4x 1234 5600
         //
         uint32_t out1, out2;
         FPx_FP16_Cast_4Way<EXPONENT, MANTISSA>(&Packed_FP6, &out1, &out2);
+        // out1 now contains 2 FP16 values, as shown by R1 in figure 6
+        // out2 now contains 2 FP16 values, as shown by R2 in figure 6
         //
         *OutputRegs = MultScale<EXPONENT, MANTISSA>(out1, Scale_RPTR[0]  );       // Muliply FP16 scales
         OutputRegs += 1;
