@@ -121,7 +121,8 @@ def int_scaled_matmul_cpu(a, b, scales1):
         c = c.float() * scales1
         return c.to(scales1.dtype)
     else:
-        return safe_int_mm(a, b) * scales1
+        c = safe_int_mm(a, b) * scales1.float()
+        return c.to(scales1.dtype)
 
 
 def int_scaled_matmul(a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor) -> torch.Tensor:
