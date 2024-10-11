@@ -31,7 +31,7 @@ from torchao._models.llama.model import Transformer, prepare_inputs_for_model
 from torchao._models.llama.tokenizer import get_tokenizer
 from torchao._models._eval import TransformerEvalWrapper, InputRecorder
 
-from torchao.dtypes import TensorCoreTiledLayoutType
+from torchao.dtypes import TensorCoreTiledLayout
 
 from torchao._models.llama.generate import ( 
     device_sync,

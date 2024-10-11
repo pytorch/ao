@@ -9,13 +9,14 @@
 #if defined(__aarch64__) || defined(__ARM_NEON)
 
 #include <arm_neon.h>
+#include <stddef.h>
 
 namespace torchao::kernels::cpu::aarch64::linear {
 
 namespace channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot {
 
 template <bool has_weight_zeros>
-int activation_data_size(int m, int k, int group_size);
+size_t activation_data_size(int m, int k, int group_size);
 
 template <bool has_weight_zeros>
 void prepare_activation_data(
@@ -28,7 +29,7 @@ void prepare_activation_data(
     const float* activations);
 
 template <int weight_nbit, bool has_weight_zeros>
-int weight_data_size(int n, int k, int group_size);
+size_t weight_data_size(int n, int k, int group_size);
 
 template <int weight_nbit, bool has_weight_zeros>
 void prepare_weight_data(
@@ -65,7 +66,7 @@ void kernel(
 namespace channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16_f32_neondot {
 
 template <bool has_weight_zeros>
-int activation_data_size(int m, int k, int group_size);
+size_t activation_data_size(int m, int k, int group_size);
 
 template <bool has_weight_zeros>
 void prepare_activation_data(
@@ -78,7 +79,7 @@ void prepare_activation_data(
     const float* activations);
 
 template <int weight_nbit, bool has_weight_zeros>
-int weight_data_size(int n, int k, int group_size);
+size_t weight_data_size(int n, int k, int group_size);
 
 template <int weight_nbit, bool has_weight_zeros>
 void prepare_weight_data(
@@ -115,7 +116,7 @@ void kernel(
 namespace channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot {
 
 template <bool has_weight_zeros>
-int activation_data_size(int m, int k, int group_size);
+size_t activation_data_size(int m, int k, int group_size);
 
 template <bool has_weight_zeros>
 void prepare_activation_data(
@@ -128,7 +129,7 @@ void prepare_activation_data(
     const float* activations);
 
 template <int weight_nbit, bool has_weight_zeros>
-int weight_data_size(int n, int k, int group_size);
+size_t weight_data_size(int n, int k, int group_size);
 
 template <int weight_nbit, bool has_weight_zeros>
 void prepare_weight_data(

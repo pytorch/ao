@@ -5,7 +5,7 @@ import unittest
 import torch
 from torch import nn
 from torch.testing._internal import common_utils
-from torchao.dtypes import MarlinSparseLayoutType, SemiSparseLayoutType
+from torchao.dtypes import MarlinSparseLayout, SemiSparseLayout
 from torchao.quantization.quant_api import (
     int4_weight_only,
     int8_dynamic_activation_int8_weight,
@@ -74,7 +74,7 @@ class TestQuantSemiSparse(common_utils.TestCase):
 
         quantize_(
             model,
-            int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType()),
+            int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()),
         )
         if compile:
             model = torch.compile(model)
@@ -108,7 +108,7 @@ class TestQuantSemiSparse(common_utils.TestCase):
         dense_result = model_copy(input.bfloat16()).half()
 
         # Sparse + quantized
-        quantize_(model, int4_weight_only(layout_type=MarlinSparseLayoutType()))
+        quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
         if compile:
             model = torch.compile(model)
         sparse_result = model(input)
@@ -185,12 +185,12 @@ class TestQuantBlockSparseWeight(common_utils.TestCase):
         quantize_(model_copy, int8_dynamic_activation_int8_weight())
         reference = model_copy(input)
 
-        from torchao.dtypes.affine_quantized_tensor import BlockSparseLayoutType
+        from torchao.dtypes.affine_quantized_tensor import BlockSparseLayout
 
         quantize_(
             model,
             int8_dynamic_activation_int8_weight(
-                layout_type=BlockSparseLayoutType(blocksize=64)
+                layout=BlockSparseLayout(blocksize=64)
             ),
         )
         if compile:

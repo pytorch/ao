@@ -6,11 +6,11 @@ from torch import Tensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.prototype.custom_fp_utils import _f32_to_floatx_unpacked, _floatx_unpacked_to_f32, _n_ones
 from torchao.dtypes.utils import (
-    LayoutType,
+    Layout,
 )
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
 from dataclasses import dataclass
-from torchao.dtypes.affine_quantized_tensor import AQTLayout, register_layout_cls
+from torchao.dtypes.affine_quantized_tensor import AQTTensorImpl, register_layout
 
 
 aten = torch.ops.aten
@@ -353,15 +353,15 @@ _SPLIT_K_MAP = [
 # quantization api integrations
 
 @dataclass(frozen=True)
-class FloatxTensorCoreLayoutType(LayoutType):
-    """Layout type for FloatxTensorCoreAQTLayout
+class FloatxTensorCoreLayout(Layout):
+    """Layout type for FloatxTensorCoreAQTTensorImpl
     """
     ebits: int
     mbits: int
 
-@register_layout_cls(FloatxTensorCoreLayoutType)
-class FloatxTensorCoreAQTLayout(AQTLayout):
-    """FloatxTensorCoreAQTLayout represents a Tensor with dtype floatx(ebits=a, mbits=b),
+@register_layout(FloatxTensorCoreLayout)
+class FloatxTensorCoreAQTTensorImpl(AQTTensorImpl):
+    """FloatxTensorCoreAQTTensorImpl represents a Tensor with dtype floatx(ebits=a, mbits=b),
     it has a internal tensor field of "packed_floatx_data", which is packed from the
     uint8 unpacked data (the output of `quantize_affine_floatx` operator)
 
@@ -377,20 +377,20 @@ class FloatxTensorCoreAQTLayout(AQTLayout):
     If original Tensor shape is (M, N), and the data is in nbit, the shape of the packed data will be
     (M, N // 8 * nbit)
 
-    FloatxTensorCoreAQTLayout.from_plain takes an unpacked uint8 floatx Tensor of shape (M, N), with format of
+    FloatxTensorCoreAQTTensorImpl.from_plain takes an unpacked uint8 floatx Tensor of shape (M, N), with format of
     (zero padding bits + sign bit + exponent bits + mantissa bits), e.g. 00SEEEMM for fp6_e3_m2
-    it will then pack the weight and instantiate the FloatxTensorCoreAQTLayout tensor
-    FloatxTensorCoreAQTLayout.__init__() takes a packed floatx Tensor of shape (M, N // 8 * nbit)
+    it will then pack the weight and instantiate the FloatxTensorCoreAQTTensorImpl tensor
+    FloatxTensorCoreAQTTensorImpl.__init__() takes a packed floatx Tensor of shape (M, N // 8 * nbit)
     """
     def __new__(
         cls,
         packed_floatx_data: torch.Tensor,
         scale: torch.Tensor,
-        layout_type: LayoutType,
+        _layout: Layout,
     ):
         assert packed_floatx_data.ndim == 2
         assert packed_floatx_data.dtype == torch.uint8
-        shape = (packed_floatx_data.shape[0], packed_floatx_data.shape[1] // (1 + layout_type.ebits + layout_type.mbits) * 8)
+        shape = (packed_floatx_data.shape[0], packed_floatx_data.shape[1] // (1 + _layout.ebits + _layout.mbits) * 8)
         kwargs = {}
         kwargs["device"] = packed_floatx_data.device
         kwargs["layout"] = (
@@ -404,25 +404,25 @@ class FloatxTensorCoreAQTLayout(AQTLayout):
         self,
         packed_floatx_data: torch.Tensor,
         scale: torch.Tensor,
-        layout_type: LayoutType,
+        _layout: Layout,
     ):
         self.packed_floatx_data = packed_floatx_data
         self.scale = scale
-        self.layout_type = layout_type
+        self._layout = _layout
 
     def __tensor_flatten__(self):
-        return ["packed_floatx_data", "scale"], [self.layout_type]
+        return ["packed_floatx_data", "scale"], [self._layout]
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
         packed_floatx_data, scale = tensor_data_dict["packed_floatx_data"], tensor_data_dict["scale"]
-        layout_type, = tensor_attributes
-        return cls(packed_floatx_data, scale, layout_type)
+        _layout, = tensor_attributes
+        return cls(packed_floatx_data, scale, _layout)
 
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor]:
-        unpacked_floatx_data = unpack_tc_floatx(self.packed_floatx_data, 1 + self.layout_type.ebits + self.layout_type.mbits)
+        unpacked_floatx_data = unpack_tc_floatx(self.packed_floatx_data, 1 + self._layout.ebits + self._layout.mbits)
         return unpacked_floatx_data, self.scale
 
     @classmethod
@@ -431,7 +431,7 @@ class FloatxTensorCoreAQTLayout(AQTLayout):
         unpacked_floatx_data: torch.Tensor,
         scale: torch.Tensor,
         zero_point: Optional[torch.Tensor],
-        layout_type: LayoutType,
+        _layout: Layout,
     ):
         """
         Format for `unpacked_floatx_data` will be:
@@ -440,20 +440,20 @@ class FloatxTensorCoreAQTLayout(AQTLayout):
         For example for fp6_e3_m2, the format will be: `00SEEEMM`, where S is sign bit, E is exponent
         bit, M is mantissa bit
         """
-        assert isinstance(layout_type, FloatxTensorCoreLayoutType)
-        packed_floatx_data = pack_tc_floatx(unpacked_floatx_data, 1 + layout_type.ebits + layout_type.mbits)
-        return cls(packed_floatx_data, scale, layout_type)
+        assert isinstance(_layout, FloatxTensorCoreLayout)
+        packed_floatx_data = pack_tc_floatx(unpacked_floatx_data, 1 + _layout.ebits + _layout.mbits)
+        return cls(packed_floatx_data, scale, _layout)
 
     def __repr__(self):
         unpacked_floatx_data, scale = self.get_plain()
-        layout_type = self.get_layout_type()
-        return f"{self.__class__.__name__}(unpacked_floatx_data={unpacked_floatx_data}, scale={scale}, layout_type={layout_type})"
+        _layout = self.get_layout()
+        return f"{self.__class__.__name__}(unpacked_floatx_data={unpacked_floatx_data}, scale={scale}, _layout={_layout})"
 
     def _apply_fn_to_data(self, fn):
         return self.__class__(
             fn(self.packed_floatx_data),
             fn(self.scale),
-            self.layout_type,
+            self._layout,
         )
 
     def to(self, *args, **kwargs):
@@ -462,7 +462,7 @@ class FloatxTensorCoreAQTLayout(AQTLayout):
         return self.__class__(
             self.packed_floatx_data.to(device),
             self.scale.to(device),
-            self.layout_type,
+            self._layout,
         )
 
     @classmethod
@@ -483,10 +483,10 @@ class FloatxTensorCoreAQTLayout(AQTLayout):
             )
 
         raise NotImplementedError(
-            f"FloatxTensorCoreAQTLayout dispatch: attempting to run {func}, this is not supported"
+            f"FloatxTensorCoreAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
         )
 
     __torch_function__ = torch._C._disabled_torch_function_impl
 
-    def get_layout_type(self) -> LayoutType:
-        return self.layout_type
+    def get_layout(self) -> Layout:
+        return self._layout

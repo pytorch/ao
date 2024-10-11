@@ -19,7 +19,7 @@ from torch.ao.quantization import MinMaxObserver, QConfigMapping
 from torchao.quantization.dynamic_quant import (
     DynamicallyPerAxisQuantizedLinear,
 )
-from torchao.dtypes import TensorCoreTiledLayoutType
+from torchao.dtypes import TensorCoreTiledLayout
 from torchao.quantization.quant_api import (
     int4_weight_only,
     int8_weight_only,
@@ -876,7 +876,7 @@ class TestSubclass(unittest.TestCase):
         for test_shape in ([(256, 256, 16)] + ([(256, 256, 8)] if device=='cuda' else [])):
             for groupsize in [64, 32]:
                 for inner_k_tiles in [4, 2]:
-                    kwargs = {"groupsize": groupsize, "layout_type": TensorCoreTiledLayoutType(inner_k_tiles=inner_k_tiles)}
+                    kwargs = {"groupsize": groupsize, "layout": TensorCoreTiledLayout(inner_k_tiles=inner_k_tiles)}
 
                     def api(mod):
                         kwargs_copy = kwargs.copy()
@@ -888,7 +888,7 @@ class TestSubclass(unittest.TestCase):
                                 unwrap_tensor_subclass(mod)
                         else:
                             kwargs_copy["inner_k_tiles"] = inner_k_tiles
-                            del kwargs_copy["layout_type"]
+                            del kwargs_copy["layout"]
                             change_linear_weights_to_int4_woqtensors(mod, **kwargs_copy)
 
                     self._test_lin_weight_subclass_api_impl(
@@ -1051,7 +1051,7 @@ class TestSaveLoadMeta(unittest.TestCase):
         self.assertTrue(torch.equal(ref_q, test))
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(is_fbcode(), "'PlainAQTLayout' object has no attribute 'int_data'")
+    @unittest.skipIf(is_fbcode(), "'PlainAQTTensorImpl' object has no attribute 'int_data'")
     @torch.no_grad()
     def test_save_load_dqtensors(self, device, dtype):
         if device == "cpu":

@@ -25,7 +25,7 @@ namespace channelwise_8bit_activation_prepare_activation_data_1xk_f32::
 //   The groupi_qvals_sum is only present if has_weight_zeros = true.
 
 // Returns number of bytes required for activation_data
-int inline activation_data_size_impl(
+size_t inline activation_data_size_impl(
     int m,
     int k,
     // Ignored if has_weight_zeros = false

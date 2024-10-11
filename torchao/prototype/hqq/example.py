@@ -3,10 +3,10 @@ from torchao.prototype.hqq.core import HQQQuantizer
 from torchao.dtypes.affine_quantized_tensor import (
     to_affine_quantized_intx,
     ZeroPointDomain,
-    PlainAQTLayout,
-    PlainLayoutType,
-    TensorCoreTiledAQTLayout,
-    TensorCoreTiledLayoutType,
+    PlainAQTTensorImpl,
+    PlainLayout,
+    TensorCoreTiledAQTTensorImpl,
+    TensorCoreTiledLayout,
     MappingType,
 )
 
@@ -34,7 +34,7 @@ target_dtype      = torch.uint8 #until sub-byte dtypes are supported
 preserve_zero     = False
 zero_point_domain = ZeroPointDomain.FLOAT
 zero_point_dtype  = compute_dtype
-layout_type       = PlainLayoutType()
+_layout       = PlainLayout()
 
 for nbits in list(range(2, 9))[::-1]:
     print('------------------------------------------------------------------------------')
@@ -47,7 +47,7 @@ for nbits in list(range(2, 9))[::-1]:
             quant_max=2**nbits - 1,
             zero_point_domain= zero_point_domain,
             preserve_zero=preserve_zero,
-            layout_type=layout_type,
+            _layout=_layout,
             )
 
     linear_layer.weight = q_tensor_default
@@ -66,7 +66,7 @@ for nbits in list(range(2, 9))[::-1]:
             quant_max=2**nbits - 1,
             zero_point_domain=zero_point_domain,
             preserve_zero=preserve_zero,
-            layout_type=layout_type,
+            _layout=_layout,
             use_hqq=True,
             )
 
@@ -87,7 +87,7 @@ from torchao.quantization.quant_api import int4_weight_only
 nbits = 4
 target_dtype = torch.int32
 inner_k_tiles = 8 
-layout_type = TensorCoreTiledLayoutType(inner_k_tiles=inner_k_tiles)
+_layout = TensorCoreTiledLayout(inner_k_tiles=inner_k_tiles)
 
 int4_weight_only_patch_fct = int4_weight_only(group_size=group_size, inner_k_tiles=inner_k_tiles)
 linear_layer_default = torch.nn.Linear(in_features, out_features, bias=False, device=device)
@@ -108,7 +108,7 @@ q_tensor_hqq = to_affine_quantized_intx(
         quant_max=2**nbits - 1,
         zero_point_domain=zero_point_domain,
         preserve_zero=preserve_zero,
-        layout_type=layout_type,
+        _layout=_layout,
         use_hqq=True,
         )
 linear_layer.weight = q_tensor_hqq
