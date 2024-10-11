@@ -21,7 +21,7 @@ from torchao.quantization import (
     fpx_weight_only,
 )
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_fbcode
 
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
@@ -91,6 +91,7 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
     @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="quantization only works with torch.compile for 2.5+")
     @parametrize("ebits,mbits", _Floatx_DTYPES)
     @parametrize("bias", [False, True])
+    @pytest.mark.skipif(is_fbcode(), reason="broken in fbcode")
     def test_fpx_weight_only(self, ebits, mbits, bias):
         N, OC, IC = 4, 256, 64
         device = "cuda"
