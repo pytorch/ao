@@ -4,8 +4,8 @@ from torchao.quantization.quant_primitives import (
 )
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.dtypes import to_affine_quantized_intx, to_affine_quantized_intx_static
-from torchao.quantization.linear_activation_quantized_tensor import (
-    to_linear_activation_quantized,
+from torchao.quantization.linear_activation_scale_quantized import (
+    to_linear_scale_activation_quantized,
 )
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.utils import _get_per_token_block_size
@@ -14,6 +14,7 @@ from torchao.prototype.smoothquant.core import(
     SmoothQuantObservedLinear,
 )
 from typing import Dict, Optional
+from torch._dynamo import is_compiling as dynamo_is_compiling
 
 
 def insert_smooth_quant_observer(
@@ -94,7 +95,7 @@ def save_smooth_quant_recipe(model: torch.nn.Module, save_path: str) -> Dict[str
             recurse(child, full_name)
 
     recurse(model)
-    
+
     torch.save(result, save_path)
 
 
@@ -125,9 +126,8 @@ def load_smooth_quant_recipe(model: torch.nn.Module, recipe_path: str, device=No
 
 # StaticQuantizeAct and DynamicQuantizeAct are defined as classes to allow for easy serialization and deserialization
 class StaticQuantizeAct:
-    def __init__(self, factor, x_scale, target_dtype, quant_min=-127):
+    def __init__(self, x_scale, target_dtype, quant_min=-127):
         super().__init__()
-        self.factor = factor
         self.x_scale = x_scale
         self.x_zp = torch.zeros_like(x_scale, dtype=torch.int64)
         self.target_dtype = target_dtype
@@ -135,21 +135,27 @@ class StaticQuantizeAct:
 
     def __call__(self, input):
         x_zp = torch.zeros([1], dtype=torch.int64)
-        act = input / self.factor
-        act = act.to(input.dtype)
-        return to_affine_quantized_intx_static(act, self.x_scale, x_zp, list(act.shape), self.target_dtype, self.quant_min)
+        qx = to_affine_quantized_intx_static(
+            input, self.x_scale, x_zp, list(input.shape), self.target_dtype, self.quant_min
+        )
+        if dynamo_is_compiling() or "FakeTensor" in input.__repr__():
+            return qx.tensor_impl.int_data.to(qx.dtype)
+        return qx
 
 
 class DynamicQuantizeAct:
-    def __init__(self, factor, target_dtype, quant_min=-127):
-        self.factor = factor
+    def __init__(self, target_dtype, quant_min=-127):
         self.target_dtype = target_dtype
         self.quant_min = quant_min
 
     def __call__(self, input):
-        act = input / self.factor
-        act = act.to(input.dtype)
-        return to_affine_quantized_intx(act, MappingType.SYMMETRIC, _get_per_token_block_size(act), self.target_dtype, self.quant_min)
+        block_size = _get_per_token_block_size(input)
+        qx = to_affine_quantized_intx(
+            input, MappingType.SYMMETRIC, block_size, self.target_dtype, self.quant_min
+        )
+        if dynamo_is_compiling() or "FakeTensor" in input.__repr__():
+            return qx.tensor_impl.int_data.to(qx.dtype)
+        return qx
 
 
 def smooth_quant(
@@ -193,10 +199,10 @@ def smooth_quant(
 
         is_dynamic = x_scale is None
         if is_dynamic:
-            input_quant_func = DynamicQuantizeAct(factor, target_dtype)
+            input_quant_func = DynamicQuantizeAct(target_dtype)
         else:
-            input_quant_func = StaticQuantizeAct(factor, x_scale, target_dtype)
-        
-        return to_linear_activation_quantized(qw, input_quant_func)
+            input_quant_func = StaticQuantizeAct(x_scale, target_dtype)
+
+        return to_linear_scale_activation_quantized(qw, factor, input_quant_func)
 
     return _observed_linear_subclass_inserter(quantize_weight)

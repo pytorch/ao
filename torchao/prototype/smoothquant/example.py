@@ -133,7 +133,7 @@ def wikitext2_ppl(
             print(f"Time to save quantized model: {time.time() - t0:.02f} seconds")
     if compile:
         model = torch.compile(model)
-    
+
     return benchmark(model, tokenizer, sequence_length, tasks=["PPL"], device=device)
 
 if __name__ == "__main__":
