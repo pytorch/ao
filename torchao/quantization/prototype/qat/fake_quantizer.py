@@ -60,7 +60,7 @@ class FakeQuantizer(torch.nn.Module):
         elif isinstance(self.config.granularity, (PerAxis, PerGroup)):
             return self._per_channel_or_group_forward(x)
         else:
-            raise ValueError("Unknown granularity %s" % self.config.granularity)
+            raise ValueError("Unknown granularity '%s'" % self.config.granularity)
 
     def _per_token_forward(self, x: torch.Tensor):
         """
@@ -94,7 +94,7 @@ class FakeQuantizer(torch.nn.Module):
         elif isinstance(granularity, PerGroup):
             group_size = granularity.group_size
         else:
-            raise ValueError("Group size not defined for granularity %s" % granularity)
+            raise ValueError("Unexpected granularity '%s'" % granularity)
 
         # get scales and zero points
         if self._should_compute_qparams():

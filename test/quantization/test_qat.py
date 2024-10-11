@@ -713,12 +713,22 @@ class TestQAT(unittest.TestCase):
         self.assertEqual(symmetric_config1.mapping_type, MappingType.SYMMETRIC)
         self.assertEqual(symmetric_config2.mapping_type, MappingType.SYMMETRIC)
         self.assertEqual(symmetric_config3.mapping_type, MappingType.SYMMETRIC)
+        self.assertTrue(symmetric_config1.is_symmetric)
+        self.assertTrue(symmetric_config2.is_symmetric)
+        self.assertTrue(symmetric_config3.is_symmetric)
 
         # asymmetric
         asymmetric_config1 = FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
         asymmetric_config2 = FakeQuantizeConfig(torch.int8, "per_token", MappingType.ASYMMETRIC)
         self.assertEqual(asymmetric_config1.mapping_type, MappingType.ASYMMETRIC)
         self.assertEqual(asymmetric_config2.mapping_type, MappingType.ASYMMETRIC)
+        self.assertFalse(asymmetric_config1.is_symmetric)
+        self.assertFalse(asymmetric_config2.is_symmetric)
+
+        # set `is_symmetric` after initialization
+        asymmetric_config1.is_symmetric = True
+        self.assertEqual(asymmetric_config1.mapping_type, MappingType.SYMMETRIC)
+        self.assertTrue(asymmetric_config1.is_symmetric)
 
         # bad config1: both mapping_type and is_symmetric are set
         msg = "Cannot set both `mapping_type` and `is_symmetric`"
@@ -728,6 +738,37 @@ class TestQAT(unittest.TestCase):
         # bad config2: not supported
         with self.assertRaisesRegex(ValueError, "not supported"):
             FakeQuantizeConfig(torch.int8, "per_token", MappingType.SYMMETRIC_NO_CLIPPING_ERR)
+
+    def test_fake_quantize_config_dtype(self):
+        """
+        Test that unsupported dtypes are caught in `FakeQuantizeConfig`.
+        """
+        msg = "Unsupported dtype"
+        with self.assertRaisesRegex(ValueError, msg):
+            FakeQuantizeConfig(torch.int16, "per_token")
+        with self.assertRaisesRegex(ValueError, msg):
+            FakeQuantizeConfig(torch.int32, "per_token")
+        with self.assertRaisesRegex(ValueError, msg):
+            FakeQuantizeConfig(torch.bfloat16, "per_token")
+        with self.assertRaisesRegex(ValueError, msg):
+            FakeQuantizeConfig(torch.float32, "per_token")
+        # OK
+        FakeQuantizeConfig(torch.uint1, "per_token")
+        FakeQuantizeConfig(torch.uint2, "per_token")
+        FakeQuantizeConfig(torch.uint3, "per_token")
+        FakeQuantizeConfig(torch.uint4, "per_token")
+        FakeQuantizeConfig(torch.uint5, "per_token")
+        FakeQuantizeConfig(torch.uint6, "per_token")
+        FakeQuantizeConfig(torch.uint7, "per_token")
+        FakeQuantizeConfig(torch.uint8, "per_token")
+        FakeQuantizeConfig(TorchAODType.INT1, "per_token")
+        FakeQuantizeConfig(TorchAODType.INT2, "per_token")
+        FakeQuantizeConfig(TorchAODType.INT3, "per_token")
+        FakeQuantizeConfig(TorchAODType.INT4, "per_token")
+        FakeQuantizeConfig(TorchAODType.INT5, "per_token")
+        FakeQuantizeConfig(TorchAODType.INT6, "per_token")
+        FakeQuantizeConfig(TorchAODType.INT7, "per_token")
+        FakeQuantizeConfig(torch.int8, "per_token")
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower")
     def test_fake_quantized_linear_8da4w(self):
