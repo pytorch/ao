@@ -377,7 +377,7 @@ class Int4WeightOnlyQATLinear(FakeQuantizedLinear):
             raise ValueError("Padding for QAT 4w is not supported yet")
         self.inner_k_tiles = inner_k_tiles
         weight_config = FakeQuantizeConfig(
-            dtype=TorchAODType.INT4,
+            dtype=torch.uint4,
             group_size=groupsize,
             is_symmetric=False,
             is_dynamic=True,

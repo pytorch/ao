@@ -775,7 +775,7 @@ class TestQAT(unittest.TestCase):
         """
         group_size = 128
         weight_config = FakeQuantizeConfig(
-            dtype=TorchAODType.INT4,
+            dtype=torch.uint4,
             group_size=group_size,
             is_symmetric=False,
             zero_point_domain=ZeroPointDomain.FLOAT,
