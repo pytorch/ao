@@ -5,6 +5,9 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
+
+#if defined(__aarch64__) || defined(__ARM_NEON)
+
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/bitpack.h>
 #include <torchao/experimental/kernels/cpu/aarch64/linear/channelwise_8bit_activation_prepare_activation_data_1xk_f32-impl.h>
 #include <torchao/experimental/kernels/cpu/aarch64/quantization/quantize.h>
@@ -178,7 +181,7 @@ void kernel_impl(
 //  The groupi_zero is only present if has_weight_zeros = true.
 
 // Returns number of bytes required for weight_data
-int inline weight_data_size_impl(
+size_t inline weight_data_size_impl(
     int n,
     int k,
     int group_size,
@@ -267,7 +270,7 @@ void prepare_weight_data_impl(
 
 // Activation functions
 template <bool has_weight_zeros>
-int torchao::kernels::cpu::aarch64::linear::
+size_t torchao::kernels::cpu::aarch64::linear::
     channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot::
         activation_data_size(int m, int k, int group_size) {
   return torchao::kernels::cpu::aarch64::linear::
@@ -294,7 +297,7 @@ void torchao::kernels::cpu::aarch64::linear::
 
 // Weight functions
 template <int weight_nbit, bool has_weight_zeros>
-int torchao::kernels::cpu::aarch64::linear::
+size_t torchao::kernels::cpu::aarch64::linear::
     channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot::
         weight_data_size(int n, int k, int group_size) {
   return torchao::kernels::cpu::aarch64::linear::
@@ -363,3 +366,5 @@ void torchao::kernels::cpu::aarch64::linear::
                   clamp_min,
                   clamp_max);
 }
+
+#endif // defined(__aarch64__) || defined(__ARM_NEON)

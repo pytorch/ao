@@ -5,6 +5,8 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
+
+#if defined(__aarch64__) || defined(__ARM_NEON)
 #include <arm_neon.h>
 
 // These methods are here temporarily
@@ -53,3 +55,5 @@ void quantize(
 } // namespace cpu
 } // namespace kernels
 } // namespace torchao
+
+#endif // defined(__aarch64__) || defined(__ARM_NEON)

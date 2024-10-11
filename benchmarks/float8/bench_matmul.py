@@ -13,6 +13,8 @@ import torch
 import torch.nn as nn
 import torch.utils.benchmark as benchmark
 
+from torchao.float8.config import ScalingGranularity
+
 from utils import (
     get_name_to_shapes_iter, 
     profiler_output_to_filtered_time_by_kernel_name,
@@ -75,6 +77,7 @@ def run(
     K: Optional[int] = None,
     N: Optional[int] = None,
     use_gpu_kernel_time: bool = False,
+    scaling_granularity: str = "tensorwise",
 ):
     device = "cuda"
 
@@ -84,6 +87,7 @@ def run(
     dtype = torch.bfloat16
     name_to_shapes = get_name_to_shapes_iter(shape_gen_name, M, K, N)
     fast_accum_vals = [True, False]
+    scaling_granularity = ScalingGranularity(scaling_granularity)
 
     for idx, (fast_accum, (name, (M, K, N))) in enumerate(itertools.product(fast_accum_vals, name_to_shapes)):
         if n_limit is not None and idx >= n_limit:
@@ -109,8 +113,13 @@ def run(
         d1, d2, d3 = torch.float8_e4m3fn, torch.float8_e4m3fn, dtype
         A = torch.zeros(M, K, device=device, dtype=d1)
         B = torch.zeros(K, N, device=device, dtype=d2).t().contiguous().t()
-        scale_a = torch.tensor([1.0], device=device)
-        scale_b = torch.tensor([1.0], device=device)
+        if scaling_granularity == ScalingGranularity.TENSORWISE:
+            scale_a = torch.tensor([1.0], device=device)
+            scale_b = torch.tensor([1.0], device=device)
+        else:
+            assert scaling_granularity == ScalingGranularity.AXISWISE, "unsupported"
+            scale_a = torch.ones(M, 1, device=device)
+            scale_b = torch.ones(1, N, device=device)
 
         def do_matmul(A, B):
             nonlocal scale_a

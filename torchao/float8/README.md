@@ -116,6 +116,8 @@ We compose with the `DTensor` based [distributed APIs](https://pytorch.org/docs/
 such as FSDP, TP and SP. Please see the [torchtitan](https://github.com/pytorch/torchtitan) repository for e2e examples
 on using `torchao.float8` in a distributed setting.
 
+:warning: <em>When using FSDP, it's recommended to enable `config.force_recompute_fp8_weight_in_bwd`, which prevents the un-sharded fp8 weights to be saved for backward. If you are using customized activation checkpoiting, you may ignore this config and handle the recomputation of fp8 weights in the customized AC code. </em>
+
 # Performance
 
 A common question about float8 training is "when is float8 linear faster vs bfloat16?".  Given the M, K, N of the forward pass through your linear, you can reference the table below for a microbenchmark based speedup estimate on NVIDIA H100:

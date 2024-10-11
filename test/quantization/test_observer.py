@@ -1,23 +1,27 @@
 import re
+import unittest
+
 import torch
 import torch.nn as nn
+
+# NOTE: we can copy paste these here if we decide to deprecate them in torch.ao
+from torch.ao.quantization.observer import MinMaxObserver, PerChannelMinMaxObserver
+from torch.testing._internal import common_utils
 from torch.testing._internal.common_utils import TestCase
+
+from torchao.quantization.granularity import (
+    PerAxis,
+    PerTensor,
+)
 from torchao.quantization.observer import (
     AffineQuantizedMinMaxObserver,
-    PerTensor,
-    PerAxis,
-)
-from torchao.quantization.quant_primitives import (
-    MappingType,
 )
 from torchao.quantization.quant_api import (
     insert_observers_,
 )
-from torch.testing._internal import common_utils
-import unittest
-
-# NOTE: we can copy paste these here if we decide to deprecate them in torch.ao
-from torch.ao.quantization.observer import MinMaxObserver, PerChannelMinMaxObserver
+from torchao.quantization.quant_primitives import (
+    MappingType,
+)
 
 
 class TestQuantFlow(TestCase):
@@ -40,7 +44,7 @@ class TestQuantFlow(TestCase):
         obs = AffineQuantizedMinMaxObserver(
             MappingType.ASYMMETRIC,
             torch.uint8,
-            granularity_type=PerTensor(),
+            granularity=PerTensor(),
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
@@ -52,7 +56,7 @@ class TestQuantFlow(TestCase):
         obs = AffineQuantizedMinMaxObserver(
             MappingType.ASYMMETRIC,
             torch.uint8,
-            granularity_type=PerAxis(axis=0),
+            granularity=PerAxis(axis=0),
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
@@ -66,7 +70,7 @@ class TestQuantFlow(TestCase):
         obs = AffineQuantizedMinMaxObserver(
             MappingType.SYMMETRIC,
             torch.float8_e4m3fn,
-            granularity_type=PerTensor(),
+            granularity=PerTensor(),
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
@@ -85,7 +89,7 @@ class TestQuantFlow(TestCase):
         obs = AffineQuantizedMinMaxObserver(
             MappingType.SYMMETRIC,
             torch.float8_e4m3fn,
-            granularity_type=PerAxis(1),
+            granularity=PerAxis(1),
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
@@ -100,7 +104,7 @@ class TestQuantFlow(TestCase):
         obs = AffineQuantizedMinMaxObserver(
             MappingType.SYMMETRIC,
             torch.float8_e4m3fn,
-            granularity_type=PerAxis(0),
+            granularity=PerAxis(0),
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
@@ -119,7 +123,7 @@ class TestQuantFlow(TestCase):
         obs = AffineQuantizedMinMaxObserver(
             MappingType.SYMMETRIC,
             torch.float8_e4m3fn,
-            granularity_type=PerAxis(1),
+            granularity=PerAxis(1),
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
@@ -147,7 +151,7 @@ class TestLinearObserver(TestCase):
         input_observer = AffineQuantizedMinMaxObserver(
             MappingType.SYMMETRIC,
             torch.float8_e4m3fn,
-            granularity_type=PerTensor(),
+            granularity=PerTensor(),
             eps=torch.finfo(torch.float32).eps,
             scale_dtype=torch.float,
             zero_point_dtype=torch.int,
@@ -157,7 +161,7 @@ class TestLinearObserver(TestCase):
             weight_observer = AffineQuantizedMinMaxObserver(
                 MappingType.SYMMETRIC,
                 torch.float8_e4m3fn,
-                granularity_type=PerTensor(),
+                granularity=PerTensor(),
                 eps=torch.finfo(torch.float32).eps,
                 scale_dtype=torch.float,
                 zero_point_dtype=torch.int,

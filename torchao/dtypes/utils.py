@@ -3,21 +3,24 @@ from typing import Union, Tuple
 from dataclasses import dataclass
 
 """
-Base class for different LayoutType, should not be instantiated directly
-used to allow users to pass around configurations for the layout tensor, e.g. inner_k_tiles
-for int4 tensor core tiled layout
+Base class for different Layout, should not be instantiated directly
+used to allow users to pass around configurations for the tensor impl, e.g. inner_k_tiles
+for int4 tensor core tiled tensor impl
 
-Note: layout is an abstraction not only for custom data representation, it is also used for how the
-layout interacts with different operators, e.g. the same data representation can have different
+Note: TensorImpl is an abstraction not only for custom data representation, it is also used for how the
+tensorImpl interacts with different operators, e.g. the same data representation can have different
 behaviors when running the same operator, e.g. transpose, quantized_linear.
 """
 @dataclass(frozen=True)
-class LayoutType:
+class Layout:
     def pre_process(self, input: torch.Tensor) -> torch.Tensor:
         return input
 
     def post_process(self, input: torch.Tensor) -> torch.Tensor:
         return input
+
+    def pre_process_static(self, input: torch.Tensor, scale: torch.Tensor, zero_point: torch.Tensor, block_size: Tuple[int, ...]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        return self.pre_process(input), scale, zero_point
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self.extra_repr()})"
@@ -26,10 +29,10 @@ class LayoutType:
         return ""
 
 """
-Plain LayoutType, the most basic LayoutType, also has no extra metadata, will typically be the default
+Plain Layout, the most basic Layout, also has no extra metadata, will typically be the default
 """
 @dataclass(frozen=True)
-class PlainLayoutType(LayoutType):
+class PlainLayout(Layout):
     pass
 
 def is_device(target_device_str: str, device: Union[str, torch.device]):

@@ -9,7 +9,7 @@ from torch import Tensor
 from torchao.dtypes import (
     to_affine_quantized_intx_static,
     to_affine_quantized_floatx_static,
-    Float8LayoutType,
+    Float8Layout,
 )
 from torchao.quantization.utils import compute_error
 from torchao.quantization import quantize_
@@ -17,8 +17,10 @@ from torchao.quantization import to_linear_activation_quantized
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.quantization.observer import (
     AffineQuantizedMinMaxObserver,
-    PerTensor,
+)
+from torchao.quantization.granularity import (
     PerAxis,
+    PerTensor,
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
@@ -66,7 +68,7 @@ def apply_static_quant(target_dtype: torch.dtype):
             if target_dtype == torch.uint8:
                 return to_affine_quantized_intx_static(weight, weight_scale, weight_zero_point, block_size, target_dtype)
             elif target_dtype == torch.float8_e4m3fn:
-                return to_affine_quantized_floatx_static(weight, weight_scale, block_size, target_dtype, Float8LayoutType(mm_config=None))
+                return to_affine_quantized_floatx_static(weight, weight_scale, block_size, target_dtype, Float8Layout(mm_config=None))
             else:
                 raise ValueError(f"Unsupported target dtype {target_dtype}")
         linear = torch.nn.Linear(observed_linear.in_features, observed_linear.out_features, False, device=observed_linear.weight.device, dtype=observed_linear.weight.dtype)
@@ -80,7 +82,7 @@ def apply_static_quant(target_dtype: torch.dtype):
         if target_dtype == torch.uint8:
             input_quant_func = lambda x: to_affine_quantized_intx_static(x, act_scale, act_zero_point, x.shape, target_dtype)
         elif target_dtype == torch.float8_e4m3fn:
-            input_quant_func = lambda x: to_affine_quantized_floatx_static(x, act_scale, x.shape, target_dtype, Float8LayoutType(mm_config=None))
+            input_quant_func = lambda x: to_affine_quantized_floatx_static(x, act_scale, x.shape, target_dtype, Float8Layout(mm_config=None))
         else:
             raise ValueError(f"Unsupported target dtype {target_dtype}")
         linear.weight = torch.nn.Parameter(to_linear_activation_quantized(linear.weight, input_quant_func), requires_grad=False)
@@ -102,7 +104,7 @@ class QuantizedLinear(torch.nn.Module):
         if self.target_dtype == torch.uint8:
             self.qweight = to_affine_quantized_intx_static(weight, weight_scale, weight_zero_point, block_size, self.target_dtype)
         elif self.target_dtype == torch.float8_e4m3fn:
-            self.qweight = to_affine_quantized_floatx_static(weight, weight_scale, block_size, target_dtype, Float8LayoutType(mm_config=None))
+            self.qweight = to_affine_quantized_floatx_static(weight, weight_scale, block_size, target_dtype, Float8Layout(mm_config=None))
         else:
             raise ValueError(f"Unsupported target dtype {self.target_dtype}")
 
@@ -111,7 +113,7 @@ class QuantizedLinear(torch.nn.Module):
         if self.target_dtype == torch.uint8:
             qinput = to_affine_quantized_intx_static(input, self.act_scale, self.act_zero_point, block_size, self.target_dtype)
         elif self.target_dtype == torch.float8_e4m3fn:
-            qinput = to_affine_quantized_floatx_static(input, self.act_scale, block_size, self.target_dtype, Float8LayoutType(mm_config=None))
+            qinput = to_affine_quantized_floatx_static(input, self.act_scale, block_size, self.target_dtype, Float8Layout(mm_config=None))
         else:
             raise ValueError(f"Unsupported target dtype {self.target_dtype}")
         return F.linear(qinput, self.qweight, self.bias)

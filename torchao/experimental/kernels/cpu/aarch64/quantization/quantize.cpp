@@ -4,6 +4,8 @@
 // This source code is licensed under the license found in the
 // LICENSE file in the root directory of this source tree.
 
+#if defined(__aarch64__) || defined(__ARM_NEON)
+
 #include <torchao/experimental/kernels/cpu/aarch64/quantization/quantize.h>
 #include <algorithm>
 #include <cassert>
@@ -111,3 +113,5 @@ void torchao::kernels::cpu::aarch64::quantization::quantize(
     vst1_s8(qvals + i, vec_qval_s8_01);
   }
 }
+
+#endif // defined(__aarch64__) || defined(__ARM_NEON)

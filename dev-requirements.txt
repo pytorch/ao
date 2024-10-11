@@ -19,5 +19,5 @@ tabulate  # QOL for printing tables to stdout
 ninja
 
 # Linting
-ruff
+ruff==0.6.8
 pre-commit

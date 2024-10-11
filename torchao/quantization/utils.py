@@ -3,7 +3,8 @@
 
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
-from typing import Dict, List, Optional, Tuple
+import importlib.util
+from typing import Dict, List, Optional
 
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
@@ -40,12 +41,7 @@ __all__ = [
     "recommended_inductor_config_setter"
 ]
 
-try:
-    import lm_eval  # pyre-ignore[21]  # noqa: F401
-
-    _lm_eval_available = True
-except:
-    _lm_eval_available = False
+_lm_eval_available = importlib.util.find_spec("lm_eval") is not None
 
 # basic SQNR
 def compute_error(x, y):

@@ -6,7 +6,7 @@ This folder implements:
 - 4-bit optimizers as outlined in https://arxiv.org/abs/2309.01507
 - FP8 optimizers using the native `torch.float8_e4m3fn` dtype (experimental)
 
-The implementation is fully done in Python (with tensor subclass) and relies on `torch.compile()` to generate efficient fused kernel.
+The implementation is fully done in Python (with tensor subclass) and relies on `torch.compile()` to generate efficient fused kernel. Thus, your platform must support `torch.compile()` to use these optimizers. We only test on CPU and CUDA, so there might be bugs or errors on other platforms.
 
 ## Usage
 
@@ -58,7 +58,7 @@ NOTE: lpmm's 4-bit AdamW does not support BF16 weights.
 
 ## Optimizer CPU offload
 
-This folder also implements optimizer CPU offload (i.e. ZeRO-Offload) for single GPU training. For multi-GPU training, you can use FSDP's built-in CPU offload.
+This folder also implements optimizer CPU offload (i.e. ZeRO-Offload) for single GPU training. Only CUDA is supported. For multi-GPU training, you can use FSDP's built-in CPU offload.
 
 ```python
 import torch
@@ -85,6 +85,17 @@ model.load_state_dict(ckpt["model"])
 
 optim = CPUOffloadOptimizer(model.parameters(), torch.optim.AdamW, fused=True)
 optim.load_state_dict(ckpt["optim"])
+```
+
+`CPUOffloadOptimizer` is not compatible with PyTorch's built-in LR scheduler because it only acts as a wrapper around the actual optimizers (and extra logic for moving data around). To adjust the LR, you have to manually update it like follows (in fact you can use the below code for all PyTorch optimizers too):
+
+```python
+lr = ... # compute your desired LR value
+for param_group in optim.param_groups: 
+    if isinstance(param_group["lr"], torch.Tensor): 
+        param_group["lr"].fill_(lr) 
+    else: 
+        param_group["lr"] = lr 
 ```
 
 NOTE:

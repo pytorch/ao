@@ -51,19 +51,27 @@ configs = [
 
 @triton.autotune(configs=configs, key=["M", "N", "K", "stride_ak", "stride_bk"])
 @triton.jit
-def _int8_mm_dequant_kernel(
-    A_ptr, B_ptr, C_ptr,
-    A_scale_rowwise_ptr,
-    B_scale_colwise_ptr,
-    M, N, K,
-    stride_am, stride_ak,
-    stride_bk, stride_bn,
-    stride_cm, stride_cn,
+def _scaled_int8_mm_kernel(
+    A_ptr,
+    B_ptr,
+    C_ptr,
+    row_scale_ptr,
+    col_scale_ptr,
+    M,
+    N,
+    K,
+    stride_am,
+    stride_ak,
+    stride_bk,
+    stride_bn,
+    stride_cm,
+    stride_cn,
     BLOCK_M: tl.constexpr,
     BLOCK_N: tl.constexpr,
     BLOCK_K: tl.constexpr,
     GROUP_M: tl.constexpr = 8,
     EVEN_K: tl.constexpr = True,
+    COL_SCALE_SCALAR: tl.constexpr = False,
 ):
     # based on triton.ops.matmul
     pid = tl.program_id(0)
@@ -104,41 +112,60 @@ def _int8_mm_dequant_kernel(
     idx_n = rn[None, :]
     mask = (idx_m < M) & (idx_n < N)
 
-    a_scale = tl.load(A_scale_rowwise_ptr + idx_m, mask=idx_m < M).to(tl.float32)
-    b_scale = tl.load(B_scale_colwise_ptr + idx_n, mask=idx_n < N).to(tl.float32)
-    acc = acc.to(tl.float32) * a_scale * b_scale
+    row_scale = tl.load(row_scale_ptr + idx_m, mask=idx_m < M).to(tl.float32)
+    if COL_SCALE_SCALAR:
+        # hack to support BitNet. col_scale is now a scalar
+        col_scale = tl.load(col_scale_ptr).to(tl.float32)
+    else:
+        col_scale = tl.load(col_scale_ptr + idx_n, mask=idx_n < N).to(tl.float32)
+    acc = acc.to(tl.float32) * row_scale * col_scale
 
     # inductor generates a suffix
     xindex = idx_m * stride_cm + idx_n * stride_cn
     tl.store(C_ptr + tl.broadcast_to(xindex, mask.shape), acc, mask)
 
 
-lib.define("int8_mm_dequant(Tensor A, Tensor B, Tensor A_scale, Tensor B_scale) -> Tensor")
+lib.define("scaled_int8_mm(Tensor A, Tensor B, Tensor A_scale, Tensor B_scale) -> Tensor")
 
 
-def int8_mm_dequant(A: Tensor, B: Tensor, A_scale_rowwise: Tensor, B_scale_colwise: Tensor) -> Tensor:
+def scaled_int8_mm(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor) -> Tensor:
+    """Compute `(A @ B) * row_scale * col_scale`, where `A` and `B` are INT8 to utilize
+    INT8 tensor cores. `col_scale` can be a scalar.
+    """
     assert A.dtype is torch.int8 and B.dtype is torch.int8
-    assert A_scale_rowwise.dtype is B_scale_colwise.dtype
+    assert row_scale.dtype is col_scale.dtype
     assert A.shape[1] == B.shape[0]
-    assert A_scale_rowwise.squeeze().shape == (A.shape[0],)
-    assert B_scale_colwise.squeeze().shape == (B.shape[1],)
-    assert A_scale_rowwise.is_contiguous()
-    assert B_scale_colwise.is_contiguous()
-    return torch.ops.torchao.int8_mm_dequant(A, B, A_scale_rowwise, B_scale_colwise)
+    assert row_scale.squeeze().shape == (A.shape[0],)
+    assert col_scale.squeeze().shape in ((B.shape[1],), ())
+    assert row_scale.is_contiguous()
+    assert col_scale.is_contiguous()
+    return torch.ops.torchao.scaled_int8_mm(A, B, row_scale, col_scale)
 
 
-@torch.library.impl(lib, "int8_mm_dequant", "Meta")
-def _(A: Tensor, B: Tensor, A_scale_rowwise: Tensor, B_scale_colwise: Tensor):
-    return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=A_scale_rowwise.dtype)
+@torch.library.impl(lib, "scaled_int8_mm", "Meta")
+def _(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor):
+    return torch.empty((A.shape[0], B.shape[1]), device=A.device, dtype=row_scale.dtype)
 
 
-@torch.library.impl(lib, "int8_mm_dequant", "CUDA")
-def int8_mm_dequant_cuda(A: Tensor, B: Tensor, A_scale_rowwise: Tensor, B_scale_colwise: Tensor):
+@torch.library.impl(lib, "scaled_int8_mm", "CUDA")
+def scaled_int8_mm_cuda(A: Tensor, B: Tensor, row_scale: Tensor, col_scale: Tensor):
     M, K = A.shape
     _, N = B.shape
-    C = torch.empty(M, N, device=A.device, dtype=A_scale_rowwise.dtype)
+    C = torch.empty(M, N, device=A.device, dtype=row_scale.dtype)
     grid = lambda meta: (triton.cdiv(meta["M"], meta["BLOCK_M"]) * triton.cdiv(meta["N"], meta["BLOCK_N"]),)
-    _int8_mm_dequant_kernel[grid](
-        A, B, C, A_scale_rowwise, B_scale_colwise, M, N, K, *A.stride(), *B.stride(), *C.stride(), EVEN_K=K % 2 == 0
+    _scaled_int8_mm_kernel[grid](
+        A,
+        B,
+        C,
+        row_scale,
+        col_scale,
+        M,
+        N,
+        K,
+        *A.stride(),
+        *B.stride(),
+        *C.stride(),
+        EVEN_K=K % 2 == 0,
+        COL_SCALE_SCALAR=col_scale.numel() == 1,
     )
     return C

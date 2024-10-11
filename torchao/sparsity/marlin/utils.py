@@ -9,7 +9,7 @@ class Marlin24Constants:
     MIN_THREAD_N: int = 128
     MAX_PARALLEL: int = 64
 
-    # NOTE: Cuda kernel supports fp8, but not implemented yet in SparseMarlinAQTLayout
+    # NOTE: Cuda kernel supports fp8, but not implemented yet in SparseMarlinAQTTensorImpl
     SUPPORTED_NUM_BITS: List[int] = field(default_factory=lambda: [4, 8])
     SUPPORTED_GROUP_SIZES: List[int] = field(default_factory=lambda: [-1, 32, 64, 128])
 const = Marlin24Constants()

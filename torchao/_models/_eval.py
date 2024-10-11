@@ -12,7 +12,7 @@ import torch
 import torch.nn.functional as F
 
 from torchao.quantization.utils import _lm_eval_available, _MultiInput
-
+from torchao.quantization.GPTQ_MT import MultiTensor
 import lm_eval
 try:  # lm_eval version 0.4
     from lm_eval.evaluator import evaluate  # pyre-ignore[21]
@@ -24,6 +24,136 @@ except:  # lm_eval version 0.3
     eval_wrapper = base.BaseLM
     get_task_dict = tasks.get_task_dict
     evaluate = evaluator.evaluate
+import torch
+import torch.nn.functional as F
+
+class MultiTensorInputRecorder(eval_wrapper):
+    def __init__(
+        self,
+        tokenizer,
+        calibration_seq_length,
+        input_prep_func=None,
+        pad_calibration_inputs=False,
+        vocab_size=32000,
+        pad_token=0,
+        device="cpu",
+    ):
+        try:
+            super().__init__()
+        except TypeError:
+            # lm_eval 0.4.2 removed the default init
+            super().__init__("gpt2", device="cpu")
+
+        self.tokenizer = tokenizer
+        self._device = torch.device(device)
+        self.vocab_size = vocab_size
+        self._max_seq_length = calibration_seq_length
+        self.calibration_seq_length = calibration_seq_length
+
+        self.input_prep_func = (
+            input_prep_func if input_prep_func is not None else lambda x: (x,)
+        )
+
+        self.pad_calibration_inputs = pad_calibration_inputs
+        self.pad_token = pad_token
+
+        # Initialize inputs as a list of two empty lists for input tensors and indices
+        self.inputs = [[], []]
+
+    @property
+    def eot_token_id(self):
+        try:
+            return self.tokenizer.eos_id()
+        except:
+            return self.tokenizer.eos_id
+
+    @property
+    def max_length(self):
+        return self._max_seq_length
+
+    @property
+    def max_gen_toks(self):
+        return 50
+
+    @property
+    def batch_size(self):
+        return 1
+
+    @property
+    def device(self):
+        return self._device
+
+    def tok_encode(self, string: str, **kwargs):
+        tokens = self.tokenizer.encode(string)
+        if hasattr(self.tokenizer, "bos_id"):
+            try:
+                tokens = [self.tokenizer.bos_id()] + tokens
+            except:
+                tokens = [self.tokenizer.bos_id] + tokens
+        return tokens
+
+    def tok_decode(self, tokens):
+        decoded = self.tokenizer.decode(tokens)
+        return decoded
+
+    def add_input(self, args):
+        # Ensure that inputs are added correctly as pairs
+        self.inputs[0].append(args[0])
+        self.inputs[1].append(args[1])
+
+    def record_inputs(self, calibration_tasks, calibration_limit):
+        try:
+            lm_eval.tasks.initialize_tasks()
+        except:
+            pass
+
+        task_dict = get_task_dict(calibration_tasks)
+        print("Obtaining GPTQ calibration inputs on: ", calibration_tasks)
+
+        evaluate(
+            self,
+            task_dict,
+            limit=calibration_limit,
+        )
+        return self
+
+    def get_inputs(self):
+        # Return MultiTensor instances for both inputs and indices
+        return [MultiTensor(self.inputs[0]), MultiTensor(self.inputs[1])]
+
+    def _model_call(self, inps):
+        inps = inps.squeeze(0)
+        T = len(inps)
+        if (
+            # Can't use inputs that are too short when padding is disabled
+            (T < self.calibration_seq_length and not self.pad_calibration_inputs)
+            or
+            # Can't use inputs that actually use the token we use for padding
+            (self.pad_calibration_inputs and self.pad_token in inps)
+        ):
+            # Give random output
+            return torch.randn(
+                (1, T, self.vocab_size), dtype=torch.bfloat16, device=self._device
+            )
+
+        # Pad or truncate to the correct size
+        if T >= self.calibration_seq_length:
+            inps = inps[: self.calibration_seq_length]
+        else:
+            inps = F.pad(inps, (0, self.calibration_seq_length - T), value=self.pad_token)
+
+        inps = inps.unsqueeze(0)
+        model_in = self.input_prep_func(inps)
+
+        self.add_input(model_in)
+
+        # Output `something` with the correct shape to keep eval going
+        return torch.randn(
+            (1, T, self.vocab_size), dtype=torch.bfloat16, device=self._device
+        )
+
+    def _model_generate(self, context, max_length, eos_token_id):
+        raise Exception("unimplemented")
 
 class InputRecorder(eval_wrapper):
     """
