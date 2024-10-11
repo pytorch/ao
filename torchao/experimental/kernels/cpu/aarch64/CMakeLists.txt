@@ -23,10 +23,10 @@ CMAKE_DEPENDENT_OPTION(BUILD_KLEIDI "Download, build, and link against Arm Kleid
 if (CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
   add_library(
     torchao_kernels_aarch64
-    ${TORCHAO_INCLUDE_DIRS}/torchao/experimental/kernels/cpu/aarch64/reduction/find_min_and_max.cpp
-    ${TORCHAO_INCLUDE_DIRS}/torchao/experimental/kernels/cpu/aarch64/reduction/compute_sum.cpp
-    ${TORCHAO_INCLUDE_DIRS}/torchao/experimental/kernels/cpu/aarch64/quantization/quantize.cpp
-    ${TORCHAO_INCLUDE_DIRS}/torchao/experimental/kernels/cpu/aarch64/valpacking/interleave.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/reduction/find_min_and_max.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/reduction/compute_sum.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/quantization/quantize.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/valpacking/interleave.cpp
   )
   if (BUILD_KLEIDI)
     # Temporarily exposing this to the parent scope until we wire
