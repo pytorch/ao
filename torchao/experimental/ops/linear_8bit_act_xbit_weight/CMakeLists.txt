@@ -31,6 +31,8 @@ if(TORCHAO_OP_EXECUTORCH_BUILD)
         op_linear_8bit_act_xbit_weight_executorch/w4sz.cpp
         op_linear_8bit_act_xbit_weight_executorch/w5s.cpp
         op_linear_8bit_act_xbit_weight_executorch/w5sz.cpp
+        op_linear_8bit_act_xbit_weight_executorch/w6s.cpp
+        op_linear_8bit_act_xbit_weight_executorch/w6sz.cpp
     )
     target_link_torchao_parallel_backend(torchao_ops_linear_8bit_act_xbit_weight_executorch executorch)
     target_include_directories(torchao_ops_linear_8bit_act_xbit_weight_executorch PRIVATE "${EXECUTORCH_INCLUDE_DIRS}")
