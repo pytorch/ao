@@ -14,7 +14,7 @@ import torch
 import torch.nn.functional as F
 from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib  # noqa: F401
 from torchao.dtypes import (
-    TensorCoreTiledLayoutType,
+    TensorCoreTiledLayout,
 )
 from torchao.quantization.granularity import (
     PerAxis,
@@ -46,6 +46,7 @@ from torchao.quantization.quant_api import (
 from torchao.quantization.quant_primitives import (
     fake_quantize_affine,
     MappingType,
+    TorchAODType,
     ZeroPointDomain,
 )
 from torchao.quantization.unified import (
@@ -739,8 +740,8 @@ class TestQAT(unittest.TestCase):
             256,
             688,
             bias=False,
-            activation_config=FakeQuantizeConfig(8, "per_token", symmetric=False),
-            weight_config=FakeQuantizeConfig(4, group_size=group_size),
+            activation_config=FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False),
+            weight_config=FakeQuantizeConfig(TorchAODType.INT4, group_size=group_size),
         )
 
         def linear_forward_8da4w(x: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
@@ -774,9 +775,9 @@ class TestQAT(unittest.TestCase):
         """
         group_size = 128
         weight_config = FakeQuantizeConfig(
-            bit_width=4,
+            dtype=TorchAODType.INT4,
             group_size=group_size,
-            symmetric=False,
+            is_symmetric=False,
             zero_point_domain=ZeroPointDomain.FLOAT,
         )
         torch.manual_seed(self.SEED)

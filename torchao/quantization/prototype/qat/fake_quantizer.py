@@ -13,6 +13,10 @@ from torchao.quantization.granularity import (
     PerGroup,
     PerToken,
 )
+from torchao.quantization.quant_primitives import (
+    _DTYPE_TO_BIT_WIDTH,
+    _DTYPE_TO_QVALUE_BOUNDS,
+)
 from torchao.quantization.utils import (
     get_group_qparams_symmetric,
     get_groupwise_affine_qparams,
@@ -62,14 +66,13 @@ class FakeQuantizer(torch.nn.Module):
         """
         Perform per token fake quantization on the tensor.
         """
-        if self.config.symmetric:
+        if self.config.is_symmetric:
             raise NotImplementedError("Symmetric per token is not supported yet")
         if self._should_compute_qparams():
             (self.scale, self.zero_point) = _choose_qparams_per_token_asymmetric(
                 x, self.config.scale_precision, self.config.zero_point_precision,
             )
-        # TODO: handle dtype instead
-        qmin, qmax = _get_qmin_qmax(self.config.bit_width)
+        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype]
         return _fake_quantize_per_token(x, self.scale, self.zero_point, qmin, qmax)
 
     def _per_channel_or_group_forward(self, x: torch.Tensor):
@@ -78,12 +81,11 @@ class FakeQuantizer(torch.nn.Module):
         We express per channel using per group where the group size is the size
         of the last dimension of the tensor.
         """
-        bit_width = self.config.bit_width
         granularity = self.config.granularity
         scale_precision = self.config.scale_precision
         zero_point_precision = self.config.zero_point_precision
         zero_point_domain = self.config.zero_point_domain
-        symmetric = self.config.symmetric
+        is_symmetric = self.config.is_symmetric
 
         # get group size
         if isinstance(granularity, PerAxis):
@@ -96,7 +98,8 @@ class FakeQuantizer(torch.nn.Module):
 
         # get scales and zero points
         if self._should_compute_qparams():
-            if symmetric:
+            bit_width = _DTYPE_TO_BIT_WIDTH[self.config.dtype]
+            if is_symmetric:
                 (self.scale, self.zero_point) = get_group_qparams_symmetric(
                     x, bit_width, group_size, scale_precision,
                 )
@@ -106,7 +109,7 @@ class FakeQuantizer(torch.nn.Module):
                 )
             self.zero_point = self.zero_point.to(zero_point_precision)
 
-        qmin, qmax = _get_qmin_qmax(bit_width, symmetric)
+        qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype]
         return _fake_quantize_per_channel_group(
             x, self.scale, self.zero_point, qmin, qmax, group_size, zero_point_domain,
         )

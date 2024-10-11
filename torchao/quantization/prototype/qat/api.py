@@ -18,8 +18,10 @@ from torchao.quantization.granularity import (
 )
 from torchao.quantization.unified import TwoStepQuantizer
 from torchao.quantization.quant_primitives import (
+    _SUB_BYTE_INT_BOUNDS,
+    _SUB_BYTE_UINT_BOUNDS,
     MappingType,
-    TorchSignedInt,
+    TorchAODType,
     ZeroPointDomain,
 )
 
@@ -31,8 +33,8 @@ class FakeQuantizeConfig:
 
     args:
         dtype: dtype to simulate during fake quantization, e.g. torch.int8.
-            For PyTorch versions older than 2.6, you may use `TorchSignedInt` to represent
-            torch.int1 to torch.int7 instead.
+            For PyTorch versions older than 2.6, you may use `TorchAODType` to represent
+            torch.int1 to torch.int7 instead, e.g. TorchAODType.INT4.
         granularity: granularity of scales and zero points, e.g. PerToken(32).
             We also support the following strings:
                1) 'per_token': equivalent to PerToken()
@@ -71,7 +73,7 @@ class FakeQuantizeConfig:
         FakeQuantizeConfig(torch.int4, "per_group", group_size=32, is_symmetric=True)
         FakeQuantizeConfig(torch.int4, PerGroup(32), MappingType.SYMMETRIC)
     """
-    dtype: Union[torch.dtype, TorchSignedInt]
+    dtype: Union[torch.dtype, TorchAODType]
     granularity: Granularity
     mapping_type: MappingType
     scale_precision: torch.dtype
@@ -82,7 +84,7 @@ class FakeQuantizeConfig:
 
     def __init__(
         self,
-        dtype: Union[torch.dtype, TorchSignedInt],
+        dtype: Union[torch.dtype, TorchAODType],
         granularity: Union[Granularity, str, None] = None,
         mapping_type: Optional[MappingType] = None,
         scale_precision: torch.dtype = torch.float32,
@@ -90,16 +92,25 @@ class FakeQuantizeConfig:
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
         is_dynamic: bool = True,
         range_learning: bool = False,
-        **kwargs,
+        # optional kwargs
+        group_size: Optional[int] = None,
+        is_symmetric: Optional[bool] = None,
     ):
         self.dtype = dtype
-        self.granularity = self._get_granularity(granularity, kwargs.get("group_size"))
-        self.mapping_type = self._get_mapping_type(mapping_type, kwargs.get("is_symmetric"))
+        self.granularity = self._get_granularity(granularity, group_size)
+        self.mapping_type = self._get_mapping_type(mapping_type, is_symmetric)
         self.scale_precision = scale_precision
         self.zero_point_precision = zero_point_precision
         self.zero_point_domain = zero_point_domain
         self.is_dynamic = is_dynamic
         self.range_learning = range_learning
+
+        # Validate dtype
+        all_dtypes = [torch.int8, torch.uint8]
+        all_dtypes.extend(list(_SUB_BYTE_INT_BOUNDS.keys()))
+        all_dtypes.extend(list(_SUB_BYTE_UINT_BOUNDS.keys()))
+        if dtype not in all_dtypes:
+            raise ValueError("Unsupported dtype '%s', choose from %s" % (dtype, all_dtypes))
 
     def _get_granularity(
         self,

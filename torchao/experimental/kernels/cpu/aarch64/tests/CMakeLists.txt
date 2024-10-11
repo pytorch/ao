@@ -29,6 +29,18 @@ add_library(
   ${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64/valpacking/interleave.cpp
 )
 
+if(NOT TORCHAO_INCLUDE_DIRS)
+  set(TORCHAO_INCLUDE_DIRS ${TORCHAO_LIBRARIES})
+endif()
+
+add_subdirectory(${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64 ${CMAKE_CURRENT_BINARY_DIR}/torchao_kernels_aarch64)
+
+# The TORCHAO_ENABLE_KLEIDI cmake variable should be set by `torchao_kernels_aarch64"
+# This is a temporary work around.
+if(TORCHAO_ENABLE_KLEIDI)
+  add_compile_definitions(TORCHAO_ENABLE_KLEIDI)
+endif()
+
 enable_testing()
 
 add_executable(test_quantization test_quantization.cpp)
@@ -61,6 +73,7 @@ target_link_libraries(
     PRIVATE
     GTest::gtest_main
     dep
+    torchao_kernels_aarch64
 )
 
 add_executable(test_valpacking test_valpacking.cpp)

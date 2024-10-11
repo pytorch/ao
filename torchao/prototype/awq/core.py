@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from torchao.dtypes.uintx import _DTYPE_TO_BIT_WIDTH, UintxLayoutType
+from torchao.dtypes.uintx import _DTYPE_TO_BIT_WIDTH, UintxLayout
 from torchao.dtypes import to_affine_quantized_intx
 from torchao.quantization.granularity import Granularity
 from torchao.quantization.quant_primitives import (
@@ -110,7 +110,7 @@ class AWQObserver(AffineQuantizedObserverBase):
             ratio = i * 1 / self.scale_options
             scales = self.average.pow(ratio).to(self.weight.dtype)
             scales = scales / (scales.max() * scales.min()).sqrt()
-            layout = UintxLayoutType(self.target_dtype)
+            layout = UintxLayout(self.target_dtype)
             # regardless of weight dtype, we have to store as packed uint8 tensors
             tensor_dtype = torch.uint8
             w = to_affine_quantized_intx(
@@ -125,7 +125,7 @@ class AWQObserver(AffineQuantizedObserverBase):
                 zero_point_dtype = self.zero_point_dtype,
                 preserve_zero = self.preserve_zero,
                 zero_point_domain = self.zero_point_domain,
-                layout_type = layout
+                _layout = layout
             )
             loss = 0
             for i in range(self.n_validation_examples):

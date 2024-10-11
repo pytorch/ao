@@ -18,7 +18,10 @@ from torchao.quantization.GPTQ import (
     Int8DynActInt4WeightLinear,
     WeightOnlyInt4Linear,
 )
-from torchao.quantization.quant_primitives import ZeroPointDomain
+from torchao.quantization.quant_primitives import (
+    TorchAODType,
+    ZeroPointDomain,
+)
 from torchao.quantization.unified import TwoStepQuantizer
 from torchao.quantization.utils import get_group_qparams_symmetric
 from .api import FakeQuantizeConfig
@@ -35,18 +38,18 @@ class FakeQuantizedLinear(torch.nn.Linear):
     """
     General linear layer with fake quantized weights and activations.
 
-    Specific fake quantization bit widths, granularity, schemes etc. are specified
+    Specific target dtypes, granularity, schemes etc. are specified
     through separate configs for weights and activations.
 
     Example usage::
 
         activation_config = FakeQuantizeConfig(
-            bit_width=8,
+            dtype=torch.int8,
             granularity="per_token",
             symmetric=False,
         )
         weight_config = FakeQuantizeConfig(
-            bit_width=4,
+            dtype=torch.int4,
             group_size=8,
             symmetric=True,
         )
@@ -209,18 +212,18 @@ class Int8DynActInt4WeightQATLinear(FakeQuantizedLinear):
         scales_precision: torch.dtype = torch.float32,
     ) -> None:
         activation_config = FakeQuantizeConfig(
-            bit_width=8,
+            dtype=torch.int8,
             granularity="per_token",
-            symmetric=False,
-            dynamic=True,
+            is_symmetric=False,
+            is_dynamic=True,
             scale_precision=scales_precision,
             zero_point_precision=scales_precision,
         )
         weight_config = FakeQuantizeConfig(
-            bit_width=4,
+            dtype=TorchAODType.INT4,
             group_size=groupsize,
-            symmetric=True,
-            dynamic=True,
+            is_symmetric=True,
+            is_dynamic=True,
             scale_precision=scales_precision,
             zero_point_precision=scales_precision,
         )
@@ -374,10 +377,10 @@ class Int4WeightOnlyQATLinear(FakeQuantizedLinear):
             raise ValueError("Padding for QAT 4w is not supported yet")
         self.inner_k_tiles = inner_k_tiles
         weight_config = FakeQuantizeConfig(
-            bit_width=4,
+            dtype=TorchAODType.INT4,
             group_size=groupsize,
-            symmetric=False,
-            dynamic=True,
+            is_symmetric=False,
+            is_dynamic=True,
             scale_precision=scales_precision,
             zero_point_precision=scales_precision,
             zero_point_domain=ZeroPointDomain.FLOAT,

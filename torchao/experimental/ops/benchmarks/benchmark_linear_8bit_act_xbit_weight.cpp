@@ -24,12 +24,12 @@ UKernelConfig get_ukernel_config() {
   config.nr = 8;
   config.activation_data_size_fn =
       &ukernel::activation_data_size<has_weight_zeros>;
-  config.activation_data_alignment = 16; // size of neon register
+  config.preferred_activation_data_alignment = 16; // size of neon register
   config.prepare_activation_data_fn =
       &ukernel::prepare_activation_data<has_weight_zeros>;
   config.weight_data_size_fn =
       &ukernel::weight_data_size<weight_nbit, has_weight_zeros>;
-  config.weight_data_alignment = 16; // size of neon register
+  config.preferred_weight_data_alignment = 16; // size of neon register
   config.prepare_weight_data_fn =
       &ukernel::prepare_weight_data<weight_nbit, has_weight_zeros>;
   config.kernel_fn =
@@ -85,13 +85,13 @@ static void linear_8bit_act_xbit_weight(benchmark::State& state) {
   // Pack test case weights
   size_t packed_weight_data_size =
       get_packed_weight_data_size(ukernel_config, n, k, group_size);
-  size_t packed_weight_data_alignment =
-      get_packed_weight_data_alignment(ukernel_config);
+  size_t preferred_packed_weight_data_alignment =
+      get_preferred_packed_weight_data_alignment(ukernel_config);
 
   std::vector<std::unique_ptr<char[], void (*)(void*)>> packed_weight_data;
   for (int i = 0; i < test_cases.size(); i++) {
     packed_weight_data.emplace_back(torchao::make_aligned_byte_ptr(
-        packed_weight_data_alignment, packed_weight_data_size));
+        preferred_packed_weight_data_alignment, packed_weight_data_size));
     pack_weight_data_operator(
         ukernel_config,
         pack_weight_data_tiling_params,
@@ -112,11 +112,11 @@ static void linear_8bit_act_xbit_weight(benchmark::State& state) {
       m,
       k,
       group_size);
-  size_t activation_data_buffer_alignment =
-      get_activation_data_buffer_alignment(ukernel_config);
+  size_t preferred_activation_data_buffer_alignment =
+      get_preferred_activation_data_buffer_alignment(ukernel_config);
 
   auto activation_data_buffer = torchao::make_aligned_byte_ptr(
-      activation_data_buffer_alignment, activation_data_buffer_size);
+      preferred_activation_data_buffer_alignment, activation_data_buffer_size);
 
   auto output = std::vector<float>(m * n);
   for (auto _ : state) {

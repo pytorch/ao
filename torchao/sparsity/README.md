@@ -53,11 +53,11 @@ Sparse-Marlin 2:4 is an optimized GPU kernel that extends the Mixed Auto-Regress
 
 ```py
 from torchao.quantization.quant_api import quantize_, int4_weight_only
-from torchao.dtypes import MarlinSparseLayoutType
+from torchao.dtypes import MarlinSparseLayout
 
 # Your FP16 model
 model = model.cuda().half()
-quantize_(model, int4_weight_only(layout_type=MarlinSparseLayoutType()))
+quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
 ```
 
 Note the existing API results in an extremely high accuracy degredation and is intended to be used in concert with an already sparsified+finetuned checkpoint where possible until we develop
@@ -69,17 +69,17 @@ We support composing int8 dynaic quantization with 2:4 sparsity. We fuse one of 
 
 ```py
 from torchao.quantization.quant_api import quantize_, int8_dynamic_activation_int8_weight
-from torchao.dtypes import SemiSparseLayoutType
+from torchao.dtypes import SemiSparseLayout
 
 model = model.cuda()
-quantize_(model, int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType()))
+quantize_(model, int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()))
 ```
 
 ### 2:4 sparsity
 
 ```py
 from torchao.sparsity.sparse_api import sparsify_, semi_sparse_weight
-from torchao.dtypes import SemiSparseLayoutType
+from torchao.dtypes import SemiSparseLayout
 
 model = model.cuda()
 sparsify_(model, semi_sparse_weight())

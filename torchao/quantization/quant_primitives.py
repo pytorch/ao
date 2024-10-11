@@ -64,11 +64,12 @@ class ZeroPointDomain(Enum):
     INT = auto()
     FLOAT = auto()
 
-class TorchSignedInt(Enum):
-    """Placeholder for the torch.int1 to torch.int7 dtypes, which are added to
-    PyTorch 2.6, for compatibility with older PyTorch versions. This will be
-    deprecated once we no longer support PyTorch 2.5.
+class TorchAODType(Enum):
     """
+    Placeholder for dtypes that do not exist in PyTorch core yet.
+    """
+    # torch.int1 to torch.int7 will be added to PyTorch 2.6
+    # These will remain here for BC with older PyTorch versions
     INT1 = auto()
     INT2 = auto()
     INT3 = auto()
@@ -91,16 +92,17 @@ FP8_TYPES = {
 Map from dtype to the bound value of integers
 TODO: maybe can replace this with call to torch.iinfo
 """
-_DTYPE_TO_QVALUE_BOUNDS: Dict[torch.dtype, Tuple[int, int]] = {
+_DTYPE_TO_QVALUE_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {
     torch.uint8: (0, 255),
     torch.int8: (-128, 127),
     torch.int16: (-(2**15), 2**15 - 1),
     torch.int32: (-(2**31), 2**31 - 1),
 }
-_SUB_BYTE_DTYPE_BOUNDS: Dict[torch.dtype, Tuple[int, int]] = {}
+_SUB_BYTE_UINT_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {}
+_SUB_BYTE_INT_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {}
 
 if TORCH_VERSION_AT_LEAST_2_3:
-    _SUB_BYTE_DTYPE_BOUNDS = {
+    _SUB_BYTE_UINT_BOUNDS = {
         torch.uint1: (0, 2**1-1),
         torch.uint2: (0, 2**2-1),
         torch.uint3: (0, 2**3-1),
@@ -109,10 +111,39 @@ if TORCH_VERSION_AT_LEAST_2_3:
         torch.uint6: (0, 2**6-1),
         torch.uint7: (0, 2**7-1),
     }
-    _DTYPE_TO_QVALUE_BOUNDS.update(
-        _SUB_BYTE_DTYPE_BOUNDS
-    )
+    _SUB_BYTE_INT_BOUNDS = {
+        TorchAODType.INT1: (-(2**0), 2**0 - 1),
+        TorchAODType.INT2: (-(2**1), 2**1 - 1),
+        TorchAODType.INT3: (-(2**2), 2**2 - 1),
+        TorchAODType.INT4: (-(2**3), 2**3 - 1),
+        TorchAODType.INT5: (-(2**4), 2**4 - 1),
+        TorchAODType.INT6: (-(2**5), 2**5 - 1),
+        TorchAODType.INT7: (-(2**6), 2**6 - 1),
+    }
+    _DTYPE_TO_QVALUE_BOUNDS.update(_SUB_BYTE_UINT_BOUNDS)
+    _DTYPE_TO_QVALUE_BOUNDS.update(_SUB_BYTE_INT_BOUNDS)
 
+_DTYPE_TO_BIT_WIDTH: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {
+    torch.uint1: 1,
+    torch.uint2: 2,
+    torch.uint3: 3,
+    torch.uint4: 4,
+    torch.uint5: 5,
+    torch.uint6: 6,
+    torch.uint7: 7,
+    torch.uint8: 8,
+    TorchAODType.INT1: 1,
+    TorchAODType.INT2: 2,
+    TorchAODType.INT3: 3,
+    TorchAODType.INT4: 4,
+    TorchAODType.INT5: 5,
+    TorchAODType.INT6: 6,
+    TorchAODType.INT7: 7,
+    torch.int8: 8,
+    torch.int16: 16,
+    torch.int32: 32,
+}
+assert _DTYPE_TO_BIT_WIDTH.keys() == _DTYPE_TO_QVALUE_BOUNDS.keys()
 
 _ONES_TABLE = [_n_ones(i) for i in range(8)]
 
@@ -263,7 +294,7 @@ def _quantize_affine(
     quant_min, quant_max = _get_and_check_qmin_qmax(output_dtype, quant_min, quant_max)
     # workaround for uintx dtypes, since we don't have native Uintx dtype connected with
     # torch.uintx dtypes yet
-    if output_dtype in _SUB_BYTE_DTYPE_BOUNDS:
+    if output_dtype in _SUB_BYTE_UINT_BOUNDS:
         output_dtype = torch.uint8
     return _quantize_affine_no_dtype_cast(
         input,
@@ -389,7 +420,7 @@ def _dequantize_affine(
     """op definition that has compatible signatures with custom op library
     """
     # TODO: validate scale/zero_point dimensions are compatible with block_size
-    if input_dtype not in _SUB_BYTE_DTYPE_BOUNDS:
+    if input_dtype not in _SUB_BYTE_UINT_BOUNDS:
         assert input.dtype == input_dtype, f"Expected: {input_dtype}, got: {input.dtype}"
     assert output_dtype in [torch.float32, torch.float16, torch.bfloat16], f"Unsupported output dtype: {output_dtype}"
     quant_min, quant_max = _get_and_check_qmin_qmax(input_dtype, quant_min, quant_max)
