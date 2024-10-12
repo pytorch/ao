@@ -99,7 +99,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
         if (device == "cpu" and not TORCH_VERSION_AT_LEAST_2_4) or \
             not TORCH_VERSION_AT_LEAST_2_2:
             # _int_mm is not supported in these cases
-            out_ref = torch.nn.functional.linear(act, fq_wei, b)
+            out_ref = torch.nn.functional.linear(act.to(idtype), fq_wei, b)
         elif quant_mode == "static":
             # activation is quantized per-tensor
             obs = HistogramObserver(
