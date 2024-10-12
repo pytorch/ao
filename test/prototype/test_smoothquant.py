@@ -66,10 +66,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
     data = torch.randn(2, 16, dtype=idtype, device=device)
 
     # calibrate
-    reduce_range = device == "cpu"
-    insert_smooth_quant_observer(
-        m, alpha, quant_mode, reduce_range=reduce_range, n_calib_examples=1
-    )
+    insert_smooth_quant_observer(m, alpha, quant_mode, n_calib_examples=1)
     m(data)
     # quantize
     is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
@@ -90,10 +87,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
         act = data / smoothing_factor
         wei = weight * smoothing_factor
         qw, w_scales, w_zps = dynamically_quantize_per_channel(
-            wei,
-            -63 if reduce_range else -127,
-            63 if reduce_range else 127,
-            torch.int8
+            wei, -127, 127, torch.int8
         )
         fq_wei = dequantize_per_channel(qw, w_scales, w_zps, idtype)
         if (device == "cpu" and not TORCH_VERSION_AT_LEAST_2_4) or \
@@ -105,8 +99,8 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
             obs = HistogramObserver(
                 dtype=torch.int8,
                 qscheme=torch.per_tensor_symmetric,
-                quant_min=-63 if reduce_range else -127,
-                quant_max=63 if reduce_range else 127,
+                quant_min=-127,
+                quant_max=127,
             )
             obs(act.float().to("cpu"))
             act_scale, _ = obs.calculate_qparams()
@@ -117,10 +111,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
         else:
             # activation is quantized per-row (batch * sequence_length)
             qx, x_scales, x_zps = dynamically_quantize_per_channel(
-                act.float(),
-                -63 if reduce_range else -127,
-                63 if reduce_range else 127,
-                torch.int8
+                act.float(), -127, 127, torch.int8
             )
             fq_act = dequantize_per_channel(qx, x_scales, x_zps, idtype)
             out_ref = torch.nn.functional.linear(fq_act, fq_wei, b)
@@ -147,13 +138,8 @@ def test_save_load_recipe(alpha, quant_mode, device, idtype):
     calibration_data = dataset[:n_calib_examples]
 
     # calibrate
-    reduce_range = device == "cpu"
-    insert_smooth_quant_observer(
-        m, alpha, quant_mode, reduce_range=reduce_range, n_calib_examples=n_calib_examples
-    )
-    insert_smooth_quant_observer(
-        m_save_load, alpha, quant_mode, reduce_range=reduce_range, n_calib_examples=n_calib_examples
-    )
+    insert_smooth_quant_observer(m, alpha, quant_mode, n_calib_examples=n_calib_examples)
+    insert_smooth_quant_observer(m_save_load, alpha, quant_mode, n_calib_examples=n_calib_examples)
 
     for example in calibration_data:
         m(example.to(device))

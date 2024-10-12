@@ -21,7 +21,6 @@ def insert_smooth_quant_observer(
         model: torch.nn.Module,
         alpha: float = 0.5,
         quant_mode: str = "static",
-        reduce_range: bool = False,
         n_calib_examples: int = 20):
     """
     Inserts SmoothQuantObserver into Linear layers of a given model.
@@ -29,13 +28,11 @@ def insert_smooth_quant_observer(
     Args:
         model: The model to be modified (in place). Ensure model is on the desired device for calibration
         mapping_type: symmetric or asymmetric quantization of weight
-        reduce_range: Quantize act/wei to 7 bits on old CPU platforms
         n_calib_examples: Number of examples used for calibration
     """
     _is_linear = lambda m, fqn: isinstance(m, torch.nn.Linear)
 
-    quant_min = -63 if reduce_range else -127
-    quant_max = 63 if reduce_range else 127
+    quant_min, quant_max = -127, 127
     eps = torch.finfo(torch.float32).eps
 
     def replace_with_observer(layer):
