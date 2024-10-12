@@ -105,9 +105,10 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
             obs = HistogramObserver(
                 dtype=torch.int8,
                 qscheme=torch.per_tensor_symmetric,
-                reduce_range=reduce_range,
+                quant_min=-63 if reduce_range else -127,
+                quant_max=63 if reduce_range else 127,
             )
-            obs(act.float())
+            obs(act.float().to("cpu"))
             act_scale, _ = obs.calculate_qparams()
             fq_act = torch.quantize_per_tensor(
                 act.float(), scale=act_scale.item(), zero_point=0, dtype=torch.qint8

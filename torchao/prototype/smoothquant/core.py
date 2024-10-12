@@ -99,7 +99,7 @@ class SmoothQuantObserver(AffineQuantizedObserverBase):
           # record inputs to find qparams for activation
           if len(self.inputs) < self.n_calib_examples:
               self.inputs.append(input.to("cpu").view(-1, input.size(-1)))
-        self.act_ic_obs(input)
+        self.act_ic_obs(input.to("cpu"))
         return input
 
     def calculate_qparams(self):

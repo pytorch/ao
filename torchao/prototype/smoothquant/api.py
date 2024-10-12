@@ -136,7 +136,7 @@ class StaticQuantizeAct:
         self.quant_min = quant_min
 
     def __call__(self, input):
-        x_zp = torch.zeros([1], dtype=torch.int64)
+        x_zp = torch.zeros([1], dtype=torch.int64, device=self.x_scale.device)
         qx = to_affine_quantized_intx_static(
             input, self.x_scale, x_zp, list(input.shape), self.target_dtype, self.quant_min
         )
