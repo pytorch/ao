@@ -295,7 +295,14 @@ class Float8Tensor(torch.Tensor):
     _linear_mm_config: LinearMMConfig
     _gemm_input_role: GemmInputRole
     _axiswise_dim: Optional[int]
-    __slots__ = ["_data", "_scale", "_orig_dtype", "_linear_mm_config", "_gemm_input_role", "_axiswise_dim"]
+    __slots__ = [
+        "_data",
+        "_scale",
+        "_orig_dtype",
+        "_linear_mm_config",
+        "_gemm_input_role",
+        "_axiswise_dim",
+    ]
 
     def __new__(
         cls,
