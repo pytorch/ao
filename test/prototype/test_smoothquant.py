@@ -80,7 +80,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
 
         # reference
         weight = m_ref.fc.weight.data.float()
-        b = m_ref.fc.bias.float() if bias else None
+        b = m_ref.fc.bias if bias else None
         x_abs_max_per_ic = torch.abs(data).max(dim=0).values
         w_abs_max_per_ic = torch.abs(weight).max(dim=0).values
         smoothing_factor = (
@@ -95,7 +95,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
             63 if reduce_range else 127,
             torch.int8
         )
-        fq_wei = dequantize_per_channel(qw, w_scales, w_zps, torch.float32)
+        fq_wei = dequantize_per_channel(qw, w_scales, w_zps, idtype)
         if (device == "cpu" and not TORCH_VERSION_AT_LEAST_2_4) or \
             not TORCH_VERSION_AT_LEAST_2_2:
             # _int_mm is not supported in these cases
@@ -112,7 +112,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
             act_scale, _ = obs.calculate_qparams()
             fq_act = torch.quantize_per_tensor(
                 act.float(), scale=act_scale.item(), zero_point=0, dtype=torch.qint8
-            ).dequantize()
+            ).dequantize().to(idtype)
             out_ref = torch.nn.functional.linear(fq_act, fq_wei, b)
         else:
             # activation is quantized per-row (batch * sequence_length)
@@ -122,12 +122,10 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
                 63 if reduce_range else 127,
                 torch.int8
             )
-            fq_act = dequantize_per_channel(qx, x_scales, x_zps, torch.float32)
+            fq_act = dequantize_per_channel(qx, x_scales, x_zps, idtype)
             out_ref = torch.nn.functional.linear(fq_act, fq_wei, b)
 
-        # Quantized weights of the reference and the SmoothQuant model may differ by 1
-        # when elements are quantized to -128 in one case and -127 in the other.
-        # So, the tolerance is relatively big here
+        # BFloat16 and Float16 have larger errors
         assert torch.allclose(out, out_ref.to(idtype), atol = 0.2)
 
 
@@ -149,8 +147,13 @@ def test_save_load_recipe(alpha, quant_mode, device, idtype):
     calibration_data = dataset[:n_calib_examples]
 
     # calibrate
-    insert_smooth_quant_observer(m, alpha, quant_mode, n_calib_examples)
-    insert_smooth_quant_observer(m_save_load, alpha, quant_mode, n_calib_examples)
+    reduce_range = device == "cpu"
+    insert_smooth_quant_observer(
+        m, alpha, quant_mode, reduce_range=reduce_range, n_calib_examples=n_calib_examples
+    )
+    insert_smooth_quant_observer(
+        m_save_load, alpha, quant_mode, reduce_range=reduce_range, n_calib_examples=n_calib_examples
+    )
 
     for example in calibration_data:
         m(example.to(device))
