@@ -24,7 +24,6 @@ class SmoothQuantObserver(AffineQuantizedObserverBase):
         scale_dtype: Optional[torch.dtype] = None,
         zero_point_dtype: Optional[torch.dtype] = None,
         zero_point_domain = ZeroPointDomain.INT,
-        reduce_range: Optional[bool] = False,
     ):
         """
         A custom observer for SmoothQuant
@@ -41,7 +40,6 @@ class SmoothQuantObserver(AffineQuantizedObserverBase):
             scale_dtype: The data type of the scale tensor.
             zero_point_dtype: The data type of the zero point tensor.
             zero_point_domain: The domain of the zero point.
-            reduce_range: Quantize act/wei to less than 8 bits on old platforms
         """
         super().__init__(
             MappingType.SYMMETRIC,
@@ -70,15 +68,11 @@ class SmoothQuantObserver(AffineQuantizedObserverBase):
             ch_axis=-1,
             dtype=torch.int8,
             qscheme=torch.per_channel_affine,
-            reduce_range=False,
-            quant_min=quant_min,
-            quant_max=quant_max,
             eps=eps,
         )
         self.act_obs = HistogramObserver(
             dtype=torch.int8,
             qscheme=torch.per_tensor_symmetric,
-            reduce_range=reduce_range,
             quant_min=quant_min,
             quant_max=quant_max,
             eps=eps,
@@ -87,16 +81,12 @@ class SmoothQuantObserver(AffineQuantizedObserverBase):
             ch_axis=1,
             dtype=torch.int8,
             qscheme=torch.per_channel_affine,
-            reduce_range=False,
-            quant_min=quant_min,
-            quant_max=quant_max,
             eps=eps,
         )
         self.wei_oc_obs = PerChannelMinMaxObserver(
             ch_axis=0,
             dtype=torch.int8,
             qscheme=torch.per_channel_symmetric,
-            reduce_range=reduce_range,
             quant_min=quant_min,
             quant_max=quant_max,
             eps=eps,

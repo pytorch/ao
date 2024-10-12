@@ -66,7 +66,10 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
     data = torch.randn(2, 16, dtype=idtype, device=device)
 
     # calibrate
-    insert_smooth_quant_observer(m, alpha, quant_mode, 1)
+    reduce_range = device == "cpu"
+    insert_smooth_quant_observer(
+        m, alpha, quant_mode, reduce_range=reduce_range, n_calib_examples=1
+    )
     m(data)
     # quantize
     is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
@@ -87,7 +90,10 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
         act = data / smoothing_factor
         wei = weight * smoothing_factor
         qw, w_scales, w_zps = dynamically_quantize_per_channel(
-            wei, -127, 127, torch.int8
+            wei,
+            -63 if reduce_range else -127,
+            63 if reduce_range else 127,
+            torch.int8
         )
         fq_wei = dequantize_per_channel(qw, w_scales, w_zps, torch.float32)
         if (device == "cpu" and not TORCH_VERSION_AT_LEAST_2_4) or \
@@ -99,6 +105,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
             obs = HistogramObserver(
                 dtype=torch.int8,
                 qscheme=torch.per_tensor_symmetric,
+                reduce_range=reduce_range,
             )
             obs(act.float())
             act_scale, _ = obs.calculate_qparams()
@@ -109,7 +116,10 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
         else:
             # activation is quantized per-row (batch * sequence_length)
             qx, x_scales, x_zps = dynamically_quantize_per_channel(
-                act.float(), -127, 127, torch.int8
+                act.float(),
+                -63 if reduce_range else -127,
+                63 if reduce_range else 127,
+                torch.int8
             )
             fq_act = dequantize_per_channel(qx, x_scales, x_zps, torch.float32)
             out_ref = torch.nn.functional.linear(fq_act, fq_wei, b)
