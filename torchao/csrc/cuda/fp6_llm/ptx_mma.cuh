@@ -92,6 +92,7 @@ __device__ __forceinline__ void B_FromSharedToReg(uint32_t (* __restrict__ Reg)[
 __device__ __forceinline__ void
 MMA_FP16_M16N8K16(uint32_t * __restrict__ c, uint32_t * __restrict__ a, uint32_t * __restrict__ b)
 {
+  constexpr bool USE_BF16 = true;  // TODO: don't hardcode here
   #if __CUDA_ARCH__ == 750
     // m16n8k16 op. requires >=sm_80, so instead we use two m16n8k8 ops.
     asm volatile("mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32"
@@ -114,15 +115,27 @@ MMA_FP16_M16N8K16(uint32_t * __restrict__ c, uint32_t * __restrict__ a, uint32_t
                    "r"(c[0]), "r"(c[1]), "r"(c[2]), "r"(c[3]));
 
   #else
-    asm volatile("mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32"
-                 "{ %0, %1, %2, %3},"
-                 "{ %4, %5, %6, %7 },"
-                 "{ %8, %9 },"
-                 "{ %10, %11, %12, %13 };"
-                 : "=r"(c[0]), "=r"(c[1]), "=r"(c[2]), "=r"(c[3])
-                 : "r"(a[0]), "r"(a[1]), "r"(a[2]), "r"(a[3]),
-                   "r"(b[0]), "r"(b[1]),
-                   "r"(c[0]), "r"(c[1]), "r"(c[2]), "r"(c[3]));
+    if (USE_BF16) {
+      asm volatile("mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32"
+                  "{ %0, %1, %2, %3},"
+                  "{ %4, %5, %6, %7 },"
+                  "{ %8, %9 },"
+                  "{ %10, %11, %12, %13 };"
+                  : "=r"(c[0]), "=r"(c[1]), "=r"(c[2]), "=r"(c[3])
+                  : "r"(a[0]), "r"(a[1]), "r"(a[2]), "r"(a[3]),
+                    "r"(b[0]), "r"(b[1]),
+                    "r"(c[0]), "r"(c[1]), "r"(c[2]), "r"(c[3]));
+    } else {  // FP16
+      asm volatile("mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32"
+                  "{ %0, %1, %2, %3},"
+                  "{ %4, %5, %6, %7 },"
+                  "{ %8, %9 },"
+                  "{ %10, %11, %12, %13 };"
+                  : "=r"(c[0]), "=r"(c[1]), "=r"(c[2]), "=r"(c[3])
+                  : "r"(a[0]), "r"(a[1]), "r"(a[2]), "r"(a[3]),
+                    "r"(b[0]), "r"(b[1]),
+                    "r"(c[0]), "r"(c[1]), "r"(c[2]), "r"(c[3]));
+    }
   #endif
 }
 

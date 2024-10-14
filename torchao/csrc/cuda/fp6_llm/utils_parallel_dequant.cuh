@@ -20,6 +20,7 @@
 
 #include <cuda.h>
 #include <cuda_fp16.h>
+#include <cuda_bf16.h>
 #include <cuda_runtime.h>
 
 /*
@@ -48,17 +49,27 @@ __device__ __forceinline__ void FPx_FP16_Cast_4Way(uint32_t *In, uint32_t *Out1,
 template<int EXPONENT, int MANTISSA>
 __device__ __forceinline__ uint32_t MultScale(uint32_t PackedFP16Pair, half Scale) {
     constexpr bool USE_BF16 = true;  // TODO: don't hardcode here
-    constexpr EXP_16 = USE_BF16 ? 8 : 5;
+    constexpr int EXP_16 = USE_BF16 ? 8 : 5;
     constexpr int BIAS_OFFSET = (int(1) << (EXP_16-1)) - (int(1) << (EXPONENT-1));
     constexpr int BIAS        = int(1) << BIAS_OFFSET;
     //
-    half* FP16_1 = reinterpret_cast<half*>(&PackedFP16Pair);
-    half* FP16_2 = FP16_1 + 1;
     uint32_t output;
-    half* output_half_ptr = reinterpret_cast<half*>(&output);
-    // TODO: should these ops be bf16-specific?
-    output_half_ptr[0] = __hmul( __hmul(*FP16_1,__float2half(1.0f*BIAS)), Scale);
-    output_half_ptr[1] = __hmul( __hmul(*FP16_2,__float2half(1.0f*BIAS)), Scale);   
+    if (USE_BF16) {
+        __nv_bfloat16* FP16_1 = reinterpret_cast<__nv_bfloat16*>(&PackedFP16Pair);
+        __nv_bfloat16* FP16_2 = FP16_1 + 1;
+        __nv_bfloat16* output_half_ptr = reinterpret_cast<__nv_bfloat16*>(&output);
+        // TODO: should not do scale conversion here (scale parameter should be bfloat16)
+        __nv_bfloat16 Scale_bf16 = __float2bfloat16(__half2float(Scale));
+        // TODO: it might be faster to do both ops (for [0] and [1]) in one op using __hmul2
+        output_half_ptr[0] = __hmul( __hmul(*FP16_1,__float2bfloat16(1.0f*BIAS)), Scale_bf16);
+        output_half_ptr[1] = __hmul( __hmul(*FP16_2,__float2bfloat16(1.0f*BIAS)), Scale_bf16);
+    } else {
+        half* FP16_1 = reinterpret_cast<half*>(&PackedFP16Pair);
+        half* FP16_2 = FP16_1 + 1;
+        half* output_half_ptr = reinterpret_cast<half*>(&output);
+        output_half_ptr[0] = __hmul( __hmul(*FP16_1,__float2half(1.0f*BIAS)), Scale);
+        output_half_ptr[1] = __hmul( __hmul(*FP16_2,__float2half(1.0f*BIAS)), Scale);
+    }
     return output;
 }
 

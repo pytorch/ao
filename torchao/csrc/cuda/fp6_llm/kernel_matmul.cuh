@@ -212,7 +212,11 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
     #pragma unroll
     for(size_t j=threadIdx.x%WARP_SIZE; j<TilingConfig::TILE_M; j+=WARP_SIZE) // j-th row
     {
-      if constexpr (std::is_same<OutputDataType, half>::value)   BlockGlobalPTR[j+i*M_Global] = __float2half_rn(smem_CFrag[i][j]);
-      else                                            BlockGlobalPTR[j+i*M_Global] = smem_CFrag[i][j];
+      if constexpr (std::is_same<OutputDataType, half>::value)
+        BlockGlobalPTR[j+i*M_Global] = __float2half_rn(smem_CFrag[i][j]);
+      else if constexpr (std::is_same<OutputDataType, __nv_bfloat16>::value)
+        BlockGlobalPTR[j+i*M_Global] = __float2bfloat16_rn(smem_CFrag[i][j]);
+      else
+        BlockGlobalPTR[j+i*M_Global] = smem_CFrag[i][j];
     }
 }
