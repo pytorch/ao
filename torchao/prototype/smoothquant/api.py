@@ -1,7 +1,4 @@
 import torch
-from torchao.quantization.quant_primitives import (
-     _DTYPE_TO_QVALUE_BOUNDS,
-)
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.dtypes import to_affine_quantized_intx, to_affine_quantized_intx_static
 from torchao.quantization.linear_activation_scale_quantized import (
@@ -173,9 +170,6 @@ def smooth_quant(
 
     def quantize_weight(observed_linear):
         target_dtype = torch.int8
-        quant_min = _DTYPE_TO_QVALUE_BOUNDS[target_dtype][0]
-        quant_max = _DTYPE_TO_QVALUE_BOUNDS[target_dtype][1]
-        nonlocal smoothing_factor, act_scales, wei_scales
         # act_scales is None for dynamic quantization thus not checked
         if any(x is None for x in (smoothing_factor, wei_scales)):
             factor, x_scale, w_scales = observed_linear.obs.calculate_qparams()
@@ -192,8 +186,6 @@ def smooth_quant(
             wei_zero_points,
             block_size,
             target_dtype,
-            quant_min,
-            quant_max,
         )
 
         is_dynamic = x_scale is None

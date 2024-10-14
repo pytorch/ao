@@ -134,6 +134,7 @@ def _(func, types, args, kwargs):
         original_weight_tensor = weight_tensor.original_weight_tensor
         scale = weight_tensor.scale
         scaled_input_act = input_tensor / scale
+        scaled_input_act = scaled_input_act.to(input_tensor.dtype)
         aqt = input_quant_func(scaled_input_act)
         return func(bias, aqt, original_weight_tensor)
     else:
@@ -150,6 +151,7 @@ def _(func, types, args, kwargs):
         original_weight_tensor = weight_tensor.original_weight_tensor
         scale = weight_tensor.scale
         scaled_input_act = input_tensor / scale
+        scaled_input_act = scaled_input_act.to(input_tensor.dtype)
         aqt = input_quant_func(scaled_input_act)
         return func(aqt, original_weight_tensor)
 

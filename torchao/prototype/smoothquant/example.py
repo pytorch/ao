@@ -43,11 +43,15 @@ def wiki2_eval(model, tokenizer, sequence_length, stride=512, verbose=True, devi
     tokenizer.padding_side  = "right" 
     tokenizer.add_eos_token = False
 
+    print("Loading dataset")
+    t0 = time.time()
     dataset   = load_dataset('wikitext', 'wikitext-2-raw-v1', split='test')
     encodings = tokenizer('\n\n'.join(dataset['text']), return_tensors='pt')
+    print(f"Time to load dataset: {time.time() - t0:.02f} seconds")
 
     encodings['input_ids'] = encodings['input_ids'].to(device)
 
+    print("Running evaluation")
     lls, t = [], []
     for i in tqdm(range(0, encodings['input_ids'].size(1), stride), disable=not verbose):
         begin_loc  = max(i + stride - sequence_length, 0)
