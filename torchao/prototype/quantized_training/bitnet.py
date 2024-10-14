@@ -92,9 +92,8 @@ class BitNetTrainingLinearWeight(TorchAOBaseTensor):
             # return new unwrapped object
             return out
 
-    # new signature https://github.com/pytorch/pytorch/pull/136129
-    # we need default None for module and mp_policy so this method still works with PyTorch 2.4 and 2.5
-    def fsdp_pre_all_gather(self, mesh, module=None, mp_policy=None):
+    # FSDP all-gather extension v1
+    def fsdp_pre_all_gather(self, mesh):
         # quantize and pack into 2-bit to save comm bandwidth
         if self._precomputed_scale is not None:
             scale = self._precomputed_scale

@@ -110,9 +110,17 @@ class Int8MixedPrecisionTrainingLinearWeight(TorchAOBaseTensor):
             # return new unwrapped object
             return out
 
-    # require https://github.com/pytorch/pytorch/pull/136129 for mixed-precision param_dtype
-    # we need default None for module and mp_policy so this method still works with PyTorch 2.4 and 2.5
-    def fsdp_pre_all_gather(self, mesh, module=None, mp_policy=None):
+    # FSDP all-gather extension v2
+    # https://github.com/pytorch/pytorch/pull/137005
+    # we need default values so this method still works with PyTorch 2.4 and 2.5
+    def fsdp_pre_all_gather(
+        self,
+        mesh,
+        outer_size=None,
+        outer_stride=None,
+        module=None,
+        mp_policy=None,
+    ):
         # TODO: pre-quantize weight here -> reduce comm bandwidth.
         # we will need another tensor subclass to hold the quantized weight.
         data = self._data
