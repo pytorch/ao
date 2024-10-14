@@ -226,7 +226,7 @@ class TestQuantFlow(TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "skipping when torch verion is 2.3 or lower")
     def test_8da4w_quantizer(self):
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
-        from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
+        from torchao.quantization.quantize_linear import Int8DynActInt4WeightLinear
 
         quantizer = Int8DynActInt4WeightQuantizer(groupsize=32)
         m = ToyLinearModel().eval()
@@ -519,7 +519,7 @@ class TestQuantFlow(TestCase):
 
         # reference
         from torchao.quantization.quant_api import Int8DynActInt4WeightQuantizer
-        from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
+        from torchao.quantization.quantize_linear import Int8DynActInt4WeightLinear
 
         quantizer = Int8DynActInt4WeightQuantizer(groupsize=group_size, mapping_type=mapping_type)
         m_copy = quantizer.quantize(m_copy)

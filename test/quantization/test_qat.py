@@ -177,7 +177,7 @@ class TestQAT(unittest.TestCase):
         Set the weight to the quantized version of the given fp32 weights,
         for making linear outputs comparable with QAT.
         """
-        from torchao.quantization.GPTQ import (
+        from torchao.quantization.quantize_linear import (
             Int8DynActInt4WeightLinear,
             WeightOnlyInt4Linear,
         )
@@ -214,7 +214,7 @@ class TestQAT(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower")
     def test_qat_8da4w_linear(self):
         from torchao.quantization.qat.linear import Int8DynActInt4WeightQATLinear
-        from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
+        from torchao.quantization.quantize_linear import Int8DynActInt4WeightLinear
 
         group_size = 128
         torch.manual_seed(self.SEED)
@@ -519,7 +519,7 @@ class TestQAT(unittest.TestCase):
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     def test_qat_4w_linear(self):
         from torchao.quantization.qat.linear import Int4WeightOnlyQATLinear
-        from torchao.quantization.GPTQ import WeightOnlyInt4Linear
+        from torchao.quantization.quantize_linear import WeightOnlyInt4Linear
 
         group_size = 128
         device = torch.device("cuda")
