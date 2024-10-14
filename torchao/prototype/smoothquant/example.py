@@ -99,7 +99,6 @@ def wikitext2_ppl(
         device: str, 
         precision:torch.dtype, 
         sequence_length: int, 
-        compile: bool,
         model_load_path: str,
         model_save_path: str):
     print(f"Loading model on {device}...")
@@ -135,8 +134,6 @@ def wikitext2_ppl(
             t0 = time.time()
             torch.save(model, model_save_path)
             print(f"Time to save quantized model: {time.time() - t0:.02f} seconds")
-    if compile:
-        model = torch.compile(model)
 
     return benchmark(model, tokenizer, sequence_length, tasks=["PPL"], device=device)
 
@@ -151,7 +148,6 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="cuda", help="Device to run the evaluation on. Default is 'cuda'.")
     parser.add_argument("--precision", type=str, default="bfloat16", help="Precision type. Default is 'bfloat16'.")
     parser.add_argument("--seq_len", type=int, default=512, help="Length of examples to calibrate and evaluate model on. Default is 512")
-    parser.add_argument("--compile", action="store_true", help="Flag to indicate if compilation is required.")
     parser.add_argument("--model-load-path", type=str, default=None,
                         help="Path to load quantized model. If this is provided, "
                         "the model will be loaded from this path instead of quantizing the model.")
@@ -168,7 +164,6 @@ if __name__ == "__main__":
         args.device,
         args.precision,
         args.seq_len,
-        args.compile,
         args.model_load_path,
         args.model_save_path
     )
