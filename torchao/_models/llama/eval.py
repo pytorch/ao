@@ -71,6 +71,7 @@ def run_evaluation(
 
     if quantization:
         if "spinquant" in quantization:
+            from torchao.prototype.spinquant import apply_spinquant
             apply_spinquant(model)
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
