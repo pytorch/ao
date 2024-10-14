@@ -58,6 +58,7 @@ from torchao.quantization.utils import (
     groupwise_affine_quantize_tensor,
 )
 from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
 )
@@ -753,14 +754,15 @@ class TestQAT(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, msg):
             FakeQuantizeConfig(torch.float32, "per_token")
         # OK
-        FakeQuantizeConfig(torch.uint1, "per_token")
-        FakeQuantizeConfig(torch.uint2, "per_token")
-        FakeQuantizeConfig(torch.uint3, "per_token")
-        FakeQuantizeConfig(torch.uint4, "per_token")
-        FakeQuantizeConfig(torch.uint5, "per_token")
-        FakeQuantizeConfig(torch.uint6, "per_token")
-        FakeQuantizeConfig(torch.uint7, "per_token")
-        FakeQuantizeConfig(torch.uint8, "per_token")
+        if TORCH_VERSION_AT_LEAST_2_3:
+            FakeQuantizeConfig(torch.uint1, "per_token")
+            FakeQuantizeConfig(torch.uint2, "per_token")
+            FakeQuantizeConfig(torch.uint3, "per_token")
+            FakeQuantizeConfig(torch.uint4, "per_token")
+            FakeQuantizeConfig(torch.uint5, "per_token")
+            FakeQuantizeConfig(torch.uint6, "per_token")
+            FakeQuantizeConfig(torch.uint7, "per_token")
+            FakeQuantizeConfig(torch.uint8, "per_token")
         FakeQuantizeConfig(TorchAODType.INT1, "per_token")
         FakeQuantizeConfig(TorchAODType.INT2, "per_token")
         FakeQuantizeConfig(TorchAODType.INT3, "per_token")
