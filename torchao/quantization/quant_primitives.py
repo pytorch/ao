@@ -98,6 +98,19 @@ _DTYPE_TO_QVALUE_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]]
     torch.int16: (-(2**15), 2**15 - 1),
     torch.int32: (-(2**31), 2**31 - 1),
 }
+_DTYPE_TO_BIT_WIDTH: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {
+    TorchAODType.INT1: 1,
+    TorchAODType.INT2: 2,
+    TorchAODType.INT3: 3,
+    TorchAODType.INT4: 4,
+    TorchAODType.INT5: 5,
+    TorchAODType.INT6: 6,
+    TorchAODType.INT7: 7,
+    torch.int8: 8,
+    torch.int16: 16,
+    torch.int32: 32,
+}
+
 _SUB_BYTE_UINT_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {}
 _SUB_BYTE_INT_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {}
 
@@ -123,26 +136,17 @@ if TORCH_VERSION_AT_LEAST_2_3:
     _DTYPE_TO_QVALUE_BOUNDS.update(_SUB_BYTE_UINT_BOUNDS)
     _DTYPE_TO_QVALUE_BOUNDS.update(_SUB_BYTE_INT_BOUNDS)
 
-_DTYPE_TO_BIT_WIDTH: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {
-    torch.uint1: 1,
-    torch.uint2: 2,
-    torch.uint3: 3,
-    torch.uint4: 4,
-    torch.uint5: 5,
-    torch.uint6: 6,
-    torch.uint7: 7,
-    torch.uint8: 8,
-    TorchAODType.INT1: 1,
-    TorchAODType.INT2: 2,
-    TorchAODType.INT3: 3,
-    TorchAODType.INT4: 4,
-    TorchAODType.INT5: 5,
-    TorchAODType.INT6: 6,
-    TorchAODType.INT7: 7,
-    torch.int8: 8,
-    torch.int16: 16,
-    torch.int32: 32,
-}
+    _DTYPE_TO_BIT_WIDTH.update({
+        torch.uint1: 1,
+        torch.uint2: 2,
+        torch.uint3: 3,
+        torch.uint4: 4,
+        torch.uint5: 5,
+        torch.uint6: 6,
+        torch.uint7: 7,
+        torch.uint8: 8,
+    })
+
 assert _DTYPE_TO_BIT_WIDTH.keys() == _DTYPE_TO_QVALUE_BOUNDS.keys()
 
 _ONES_TABLE = [_n_ones(i) for i in range(8)]
