@@ -6,7 +6,7 @@ from torch.sparse._triton_ops import broadcast_batch_dims, bsr_dense_addmm, bsr_
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
 from torchao.utils import TorchAOBaseTensor
-from torchao.sparsity.prototype.blocksparse._triton_ops import bsr_dense_addmm
+from torchao.sparsity.prototype.blocksparse._triton_ops import bsr_dense_addmm as torchao_bsr_dense_addmm
 
 aten = torch.ops.aten
 
@@ -110,6 +110,48 @@ def blocksparse_linear_abstract(
 ) -> torch.Tensor:
     new_shape = A.shape[:-1] + (M,)
     return torch.empty(new_shape, dtype=A.dtype, device=A.device)
+
+
+# bsr wrapper custom op
+@torch.library.custom_op("blocksparse::addmm", mutates_args=())
+def blocksparse_addmm(
+    x_padded: torch.Tensor,
+    crow_indices: torch.Tensor,
+    col_indices: torch.Tensor,
+    values: torch.Tensor,
+    M: int,
+    K: int,
+    bias: torch.Tensor,
+) -> torch.Tensor:
+    weight_bsr = torch.sparse_bsr_tensor(crow_indices, col_indices, values, size=(M, K))
+    N_padded = x_padded.shape[1]
+    out = x_padded.new_empty((M, N_padded))
+    bsr_dense_addmm(
+        out,
+        weight_bsr,
+        # x,
+        x_padded,
+        alpha=1,
+        beta=0,
+        out=out,
+        # left_alpha=left_alpha,
+        # right_alpha=right_alpha,
+    )
+    return out
+
+
+@torch.library.register_fake("blocksparse::addmm")
+def blocksparse_addmm_abstract(
+    x_padded: torch.Tensor,
+    crow_indices: torch.Tensor,
+    col_indices: torch.Tensor,
+    values: torch.Tensor,
+    M: int,
+    K: int,
+    bias: torch.Tensor,
+) -> torch.Tensor:
+    N_padded = x_padded.shape[1]
+    return x_padded.new_empty((M, N_padded))
 
 
 # Subclass definition
@@ -228,13 +270,39 @@ def block_sparse__nnz(func, types, args, kwargs):
     return args[0].bsr_values.shape[0]
 
 
+def next_power_of_two(n):
+    assert n > 0
+    return 2 ** (n.bit_length())
+
+
 @implements(torch.nn.functional.linear)
 def block_sparse_linear(func, types, args, kwargs):
-    x, w, bias = args
-    # TODO: Change this to do padding to make sure blocksparse.linear works
-    return torch.ops.blocksparse.linear(
-        x, w.crow_indices(), w.col_indices(), w.values(), w.shape[0], w.shape[1], bias
+    # linear(x, w^t)
+    # linear(w, x^t)^t
+    x_orig, w, bias = args
+    assert bias is None, f"Expected bias to be None, but got {type(bias)}"
+    # # TODO: Change this to do padding to make sure blocksparse.linear works
+    # return torch.ops.blocksparse.linear(
+    #     x, w.crow_indices(), w.col_indices(), w.values(), w.shape[0], w.shape[1], bias
+    # )
+    x = x_orig.reshape(-1, x_orig.size(-1)).t()
+    M = w.shape[0]
+    K = w.shape[1]
+    N = x.shape[1]
+    N_padded = max(16, next_power_of_two(N))
+    x_padded = torch.nn.functional.pad(x, (0, N_padded - N), 'constant', 0)
+    out = torch.ops.blocksparse.addmm(
+        x_padded,
+        w.crow_indices(),
+        w.col_indices(),
+        w.values(),
+        M,
+        K,
+        bias
     )
+    # import pdb; pdb.set_trace()
+    # return out.view(x_orig.size(0), -1, M)
+    return out[:, :x.size(-1)].t().reshape(x_orig.size(0), -1, M)
 
 
 def block_sparse_weight(blocksize=64):
