@@ -217,6 +217,9 @@ def main(
             float8_dynamic_activation_float8_weight,
         )
         from torchao.quantization.granularity import PerTensor, PerRow
+        if "spinquant" in quantization:
+            from torchao.prototype.spinquant import apply_spinquant
+            apply_spinquant(model)
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
