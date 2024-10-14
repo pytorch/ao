@@ -34,7 +34,7 @@
 #define PTX_MMA_CUH
 
 #include <cuda.h>
-#include <cuda_fp16.h>
+#include <cuda_bf16.h>  // Include BF16 header
 #include <cuda_runtime.h>
 
 #include <assert.h>
@@ -42,10 +42,10 @@
 
 // MODIFICATION NOTE: to support MSVC
 // - uint32_t __restrict__ Reg[][4] is changed to uint32_t (* __restrict__ Reg)[4]
-// - half __restrict__ (*read_SPTR) is changed to half (* __restrict__ read_SPTR)
+// - __nv_bfloat16 __restrict__ (*read_SPTR) is changed to __nv_bfloat16 (* __restrict__ read_SPTR)
 template <typename TilingConfig>
 __device__ __forceinline__ void B_FromSharedToReg(uint32_t (* __restrict__ Reg)[4],
-                                                  half     (* __restrict__ read_SPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
+                                                  __nv_bfloat16 (* __restrict__ read_SPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
                                                   int                      slice_id) {
     #ifdef DEBUG_MODE
         static_assert( (TilingConfig::WARP_COL_MMA_TENSORS==1) || (TilingConfig::WARP_COL_MMA_TENSORS%2==0) );
@@ -82,7 +82,7 @@ __device__ __forceinline__ void B_FromSharedToReg(uint32_t (* __restrict__ Reg)[
             asm volatile("ldmatrix.sync.aligned.x4.m8n8.shared.b16 {%0, %1, %2, %3}, [%4];\n"
                          : "=r"(Reg[i][0]), "=r"(Reg[i][1]), "=r"(Reg[i][2]), "=r"(Reg[i][3])
                          : "r"(smem_local_ptr));
-            smem_local_ptr += 16 * (WARP_K+PADDING_SHARED_MEM_FOR_B_8) * sizeof(half);
+            smem_local_ptr += 16 * (WARP_K+PADDING_SHARED_MEM_FOR_B_8) * sizeof(__nv_bfloat16);
         }
     }
 }
@@ -90,11 +90,11 @@ __device__ __forceinline__ void B_FromSharedToReg(uint32_t (* __restrict__ Reg)[
 // MODIFICATION NOTE: to support MSVC, the function signature is changed from
 // MMA_FP16_M16N8K16(uint32_t __restrict__ c[], uint32_t __restrict__ *a, uint32_t __restrict__ *b).
 __device__ __forceinline__ void
-MMA_FP16_M16N8K16(uint32_t * __restrict__ c, uint32_t * __restrict__ a, uint32_t * __restrict__ b)
+MMA_BF16_M16N8K16(uint32_t * __restrict__ c, uint32_t * __restrict__ a, uint32_t * __restrict__ b)
 {
   #if __CUDA_ARCH__ == 750
     // m16n8k16 op. requires >=sm_80, so instead we use two m16n8k8 ops.
-    asm volatile("mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32"
+    asm volatile("mma.sync.aligned.m16n8k8.row.col.f32.bf16.bf16.f32"
                  "{ %0, %1, %2, %3},"
                  "{ %4, %5},"
                  "{ %6 },"
@@ -103,7 +103,7 @@ MMA_FP16_M16N8K16(uint32_t * __restrict__ c, uint32_t * __restrict__ a, uint32_t
                  : "r"(a[0]), "r"(a[1]),
                    "r"(b[0]),
                    "r"(c[0]), "r"(c[1]), "r"(c[2]), "r"(c[3]));
-    asm volatile("mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32"
+    asm volatile("mma.sync.aligned.m16n8k8.row.col.f32.bf16.bf16.f32"
                  "{ %0, %1, %2, %3},"
                  "{ %4, %5},"
                  "{ %6 },"
@@ -114,7 +114,7 @@ MMA_FP16_M16N8K16(uint32_t * __restrict__ c, uint32_t * __restrict__ a, uint32_t
                    "r"(c[0]), "r"(c[1]), "r"(c[2]), "r"(c[3]));
 
   #else
-    asm volatile("mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32"
+    asm volatile("mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32"
                  "{ %0, %1, %2, %3},"
                  "{ %4, %5, %6, %7 },"
                  "{ %8, %9 },"
