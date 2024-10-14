@@ -56,25 +56,3 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
 else()
     message(FATAL_ERROR "Torchao experimental ops can only be built on arm64 CPUs.")
 endif()
-
-install(EXPORT _targets
-    FILE torchao_targets.cmake
-    NAMESPACE torchao::
-    DESTINATION lib/cmake/torchao
-)
-
-include(CMakePackageConfigHelpers)
-
-file(GLOB TORCHAO_LIBRARIES "${CMAKE_INSTALL_PREFIX}/lib/*")
-set(TORCHAO_INCLUDE_DIRS "${CMAKE_INSTALL_PREFIX}/include")
-
-# Configure the config file
-configure_package_config_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/torchao-config.cmake.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/torchao-config.cmake"
-    INSTALL_DESTINATION lib/cmake/torchao
-)
-
-# Install the config file
-install(FILES "${CMAKE_CURRENT_BINARY_DIR}/torchao-config.cmake"
-        DESTINATION lib/cmake/torchao)
