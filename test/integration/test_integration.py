@@ -328,6 +328,7 @@ class SmoothquantUnitTest(unittest.TestCase):
         assert torch.allclose(y_ref, y)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "newer dtypes not supported")
     def test_weight_t_and_non_t_numerics_match(self):
         # verify that numerics match whether weight is stored
         # in transposed format (for cuBLAS) vs non-transposed format
@@ -1126,6 +1127,7 @@ class UtilsUnitTest(unittest.TestCase):
 class SmoothquantIntegrationTest(unittest.TestCase):
     @torch.no_grad()
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "newer dtypes not supported")
     def test_non_dynamically_quantizable_linear(self):
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
             self.skipTest("test requires SM capability of at least (8, 0).")
