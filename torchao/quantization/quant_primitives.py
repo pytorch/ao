@@ -106,14 +106,24 @@ _DTYPE_TO_BIT_WIDTH: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {
     TorchAODType.INT5: 5,
     TorchAODType.INT6: 6,
     TorchAODType.INT7: 7,
+    torch.uint8: 8,
     torch.int8: 8,
     torch.int16: 16,
     torch.int32: 32,
 }
 
 _SUB_BYTE_UINT_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {}
-_SUB_BYTE_INT_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {}
+_SUB_BYTE_INT_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {
+    TorchAODType.INT1: (-(2**0), 2**0 - 1),
+    TorchAODType.INT2: (-(2**1), 2**1 - 1),
+    TorchAODType.INT3: (-(2**2), 2**2 - 1),
+    TorchAODType.INT4: (-(2**3), 2**3 - 1),
+    TorchAODType.INT5: (-(2**4), 2**4 - 1),
+    TorchAODType.INT6: (-(2**5), 2**5 - 1),
+    TorchAODType.INT7: (-(2**6), 2**6 - 1),
+}
 
+# torch.uintX available only in PyTorch 2.3+
 if TORCH_VERSION_AT_LEAST_2_3:
     _SUB_BYTE_UINT_BOUNDS = {
         torch.uint1: (0, 2**1-1),
@@ -124,18 +134,6 @@ if TORCH_VERSION_AT_LEAST_2_3:
         torch.uint6: (0, 2**6-1),
         torch.uint7: (0, 2**7-1),
     }
-    _SUB_BYTE_INT_BOUNDS = {
-        TorchAODType.INT1: (-(2**0), 2**0 - 1),
-        TorchAODType.INT2: (-(2**1), 2**1 - 1),
-        TorchAODType.INT3: (-(2**2), 2**2 - 1),
-        TorchAODType.INT4: (-(2**3), 2**3 - 1),
-        TorchAODType.INT5: (-(2**4), 2**4 - 1),
-        TorchAODType.INT6: (-(2**5), 2**5 - 1),
-        TorchAODType.INT7: (-(2**6), 2**6 - 1),
-    }
-    _DTYPE_TO_QVALUE_BOUNDS.update(_SUB_BYTE_UINT_BOUNDS)
-    _DTYPE_TO_QVALUE_BOUNDS.update(_SUB_BYTE_INT_BOUNDS)
-
     _DTYPE_TO_BIT_WIDTH.update({
         torch.uint1: 1,
         torch.uint2: 2,
@@ -144,9 +142,10 @@ if TORCH_VERSION_AT_LEAST_2_3:
         torch.uint5: 5,
         torch.uint6: 6,
         torch.uint7: 7,
-        torch.uint8: 8,
     })
 
+_DTYPE_TO_QVALUE_BOUNDS.update(_SUB_BYTE_UINT_BOUNDS)
+_DTYPE_TO_QVALUE_BOUNDS.update(_SUB_BYTE_INT_BOUNDS)
 assert _DTYPE_TO_BIT_WIDTH.keys() == _DTYPE_TO_QVALUE_BOUNDS.keys()
 
 _ONES_TABLE = [_n_ones(i) for i in range(8)]
