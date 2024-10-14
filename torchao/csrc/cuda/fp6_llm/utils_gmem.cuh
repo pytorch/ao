@@ -29,7 +29,7 @@
  * Copying A1/A2 from global memory to shared memory.
  * Usually 1024 or 2048 Bytes
  */
-template<int SMEM_SIZE_IN_BYTES_PER_WARP>
+template<typename T, int SMEM_SIZE_IN_BYTES_PER_WARP>
 __device__ __forceinline__ void CopyFromGlobalToShared_A(uint32_t* SPTR, 
                                                         const uint4* GPTR,
                                                         bool pred_guard = true) {
@@ -37,23 +37,23 @@ __device__ __forceinline__ void CopyFromGlobalToShared_A(uint32_t* SPTR,
         static_assert(SMEM_SIZE_IN_BYTES_PER_WARP/WARP_SIZE % 16 == 0);
     #endif
     int lane_id      = threadIdx.x % WARP_SIZE;
-    half* SPTR_HALF = reinterpret_cast<half*>(SPTR);
-    const half* GPTR_HALF = reinterpret_cast<const half*>(GPTR);
-    SPTR_HALF += lane_id*8;
-    GPTR_HALF += lane_id*8;
+    T* SPTR_T = reinterpret_cast<T*>(SPTR);
+    const T* GPTR_T = reinterpret_cast<const T*>(GPTR);
+    SPTR_T += lane_id*8;
+    GPTR_T += lane_id*8;
     #pragma unroll
     for(int i=0; i<SMEM_SIZE_IN_BYTES_PER_WARP/WARP_SIZE/16; i++) {
         #if __CUDA_ARCH__ == 750
         if (pred_guard) {
-            float4* SPTR_VEC = reinterpret_cast<float4*>(SPTR_HALF);
-            const float4* GPTR_VEC = reinterpret_cast<const float4*>(GPTR_HALF);
+            float4* SPTR_VEC = reinterpret_cast<float4*>(SPTR_T);
+            const float4* GPTR_VEC = reinterpret_cast<const float4*>(GPTR_T);
             SPTR_VEC[0] = GPTR_VEC[0];
         }
         #else
-        cp_async<16>( SPTR_HALF, GPTR_HALF, pred_guard);
+        cp_async<T, 16>( SPTR_T, GPTR_T, pred_guard);
         #endif
-        SPTR_HALF += 256;   // Forward 512 Bytes
-        GPTR_HALF += 256;   // Forward 512 Bytes
+        SPTR_T += 256;   // Forward 512 Bytes
+        GPTR_T += 256;   // Forward 512 Bytes
     }
 
 }
@@ -61,8 +61,9 @@ __device__ __forceinline__ void CopyFromGlobalToShared_A(uint32_t* SPTR,
 /* 
  * Copying 64 Quant Scales (FP16) from global memory to shared memory.
  */
-__device__ __forceinline__ void CopyFromGlobalToShared_Scales(half* SPTR_QuantScales,
-                                                              const half* GPTR_A_Scales) {
+template <typename T>
+__device__ __forceinline__ void CopyFromGlobalToShared_Scales(T* SPTR_QuantScales,
+                                                              const T* GPTR_A_Scales) {
     int lane_id         = threadIdx.x % WARP_SIZE;
     int Offset_Shared   = lane_id*2; 
     int Offset_Global   = lane_id/4 + (lane_id%4)*16;
@@ -75,9 +76,9 @@ __device__ __forceinline__ void CopyFromGlobalToShared_Scales(half* SPTR_QuantSc
  * (2) Copying 64 rows * X  columns of FP16 values, originally in column major
  * 16 Bytes per thread -> 512 Bytes per WARP = 4 line per WARP = 1 line per 8 Threads
  */
-template<int MaxNumOfLinesToCopy, int BLOCK_WARPS>
-__device__ __forceinline__ void CopyFromGlobalToShared(half (* __restrict__ SharedPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
-                                                       const half*          GlobalPTR,
+template<typename T, int MaxNumOfLinesToCopy, int BLOCK_WARPS>
+__device__ __forceinline__ void CopyFromGlobalToShared(T (* __restrict__ SharedPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
+                                                       const T*             GlobalPTR,
                                                        const int            GlobalStride,
                                                        const int            NumOfLinesLeft,        // To support arbitrary N dimensions.
                                                        bool                 Pred = true) {
@@ -101,7 +102,7 @@ __device__ __forceinline__ void CopyFromGlobalToShared(half (* __restrict__ Shar
             SharedPtrVec[0] = GlobalPtrVec[0];
         }
         #else
-        cp_async<16>( &(*SharedPTR)[line_offset], GlobalPTR, AsyncCopyPred);
+        cp_async<T, 16>( &(*SharedPTR)[line_offset], GlobalPTR, AsyncCopyPred);
         #endif
         GlobalPTR += NumOfGroups * GlobalStride;
         SharedPTR += NumOfGroups;

@@ -28,10 +28,9 @@
  * Outputs: R1, R2
  * Note:    Simplified Exponent calculation is applied.
  */
-template<int EXPONENT, int MANTISSA>
+template<int EXPONENT, int MANTISSA, bool USE_BF16>
 __device__ __forceinline__ void FPx_FP16_Cast_4Way(uint32_t *In, uint32_t *Out1, uint32_t *Out2) {
     //
-    constexpr bool USE_BF16 = true;  // TODO: don't hardcode here
     constexpr int RIGHT_SHIFT = USE_BF16 ? 8 - EXPONENT : 5 - EXPONENT;
     constexpr int MASK1 = 0x80000000;
     constexpr int MASK2 = MASK1 >> EXPONENT + MANTISSA;  // NB: arithmetic shift, not logical
@@ -48,35 +47,39 @@ __device__ __forceinline__ void FPx_FP16_Cast_4Way(uint32_t *In, uint32_t *Out1,
 
 template<int EXPONENT, int MANTISSA>
 __device__ __forceinline__ uint32_t MultScale(uint32_t PackedFP16Pair, half Scale) {
-    constexpr bool USE_BF16 = true;  // TODO: don't hardcode here
-    constexpr int EXP_16 = USE_BF16 ? 8 : 5;
-    constexpr int BIAS_OFFSET = (int(1) << (EXP_16-1)) - (int(1) << (EXPONENT-1));
+    constexpr int BIAS_OFFSET = (int(1) << (5-1)) - (int(1) << (EXPONENT-1));
     constexpr int BIAS        = int(1) << BIAS_OFFSET;
     //
+    half* FP16_1 = reinterpret_cast<half*>(&PackedFP16Pair);
+    half* FP16_2 = FP16_1 + 1;
     uint32_t output;
-    if (USE_BF16) {
-        __nv_bfloat16* FP16_1 = reinterpret_cast<__nv_bfloat16*>(&PackedFP16Pair);
-        __nv_bfloat16* FP16_2 = FP16_1 + 1;
-        __nv_bfloat16* output_half_ptr = reinterpret_cast<__nv_bfloat16*>(&output);
-        // TODO: should not do scale conversion here (scale parameter should be bfloat16)
-        __nv_bfloat16 Scale_bf16 = __float2bfloat16(__half2float(Scale));
-        // TODO: it might be faster to do both ops (for [0] and [1]) in one op using __hmul2
-        output_half_ptr[0] = __hmul( __hmul(*FP16_1,__float2bfloat16(1.0f*BIAS)), Scale_bf16);
-        output_half_ptr[1] = __hmul( __hmul(*FP16_2,__float2bfloat16(1.0f*BIAS)), Scale_bf16);
-    } else {
-        half* FP16_1 = reinterpret_cast<half*>(&PackedFP16Pair);
-        half* FP16_2 = FP16_1 + 1;
-        half* output_half_ptr = reinterpret_cast<half*>(&output);
-        output_half_ptr[0] = __hmul( __hmul(*FP16_1,__float2half(1.0f*BIAS)), Scale);
-        output_half_ptr[1] = __hmul( __hmul(*FP16_2,__float2half(1.0f*BIAS)), Scale);
-    }
+    half* output_half_ptr = reinterpret_cast<half*>(&output);
+    output_half_ptr[0] = __hmul( __hmul(*FP16_1,__float2half(1.0f*BIAS)), Scale);
+    output_half_ptr[1] = __hmul( __hmul(*FP16_2,__float2half(1.0f*BIAS)), Scale);   
+    return output;
+}
+
+template<int EXPONENT, int MANTISSA>
+__device__ __forceinline__ uint32_t MultScale(uint32_t PackedBF16Pair, __nv_bfloat16 Scale) {
+    constexpr int BIAS_OFFSET = (int(1) << (8-1)) - (int(1) << (EXPONENT-1));
+    constexpr int BIAS        = int(1) << BIAS_OFFSET;
+    //
+    __nv_bfloat16* BF16_1 = reinterpret_cast<__nv_bfloat16*>(&PackedBF16Pair);
+    __nv_bfloat16* BF16_2 = BF16_1 + 1;
+    uint32_t output;
+    __nv_bfloat16* output_bf16_ptr = reinterpret_cast<__nv_bfloat16*>(&output);
+    // TODO: it might be faster to do both ops (for [0] and [1]) in one op using __hmul2
+    // TODO: this multiplication with bias is potentially problematic and might also slow things down.
+    // Note that BIAS has a value of 2^120 -> what happens when the int overflows?
+    output_bf16_ptr[0] = __hmul( __hmul(*BF16_1,__float2bfloat16(1.0f*BIAS)), Scale);
+    output_bf16_ptr[1] = __hmul( __hmul(*BF16_2,__float2bfloat16(1.0f*BIAS)), Scale);
     return output;
 }
 
 // MODIFICATION NOTE: to support MSVC
 // - u_int32_t __restrict__ Reg[][4] is changed to below.
 // - u_int32_t __restrict__ *read_RPTR_1bit is changed to below. similarly for read_RPTR_2bit and read_RPTR_4bit
-template<int EXPONENT, int MANTISSA>
+template<int EXPONENT, int MANTISSA, bool USE_BF16>
 __device__ __forceinline__ void Dequant_32FP6_4Way(uint32_t (* __restrict__ Reg)[4], 
                                                    uint32_t  * __restrict__ read_RPTR_1bit,
                                                    uint32_t  * __restrict__ read_RPTR_2bit, 
@@ -92,7 +95,8 @@ __device__ __forceinline__ void Dequant_32FP6_4Way(uint32_t (* __restrict__ Reg)
     uint32_t *Frag_PTR_1bit = read_RPTR_1bit;
     uint32_t *Frag_PTR_2bit = read_RPTR_2bit;
     uint32_t *Frag_PTR_4bit = read_RPTR_4bit;
-    half      *Scale_RPTR    = reinterpret_cast<half*>(Scales);
+    using scalar_t = typename std::conditional<USE_BF16, __nv_bfloat16, half>::type;
+    scalar_t *Scale_RPTR = reinterpret_cast<scalar_t*>(Scales);
     // Dequantizing 32 FP6, each Loop dequantizing 4 FP6
     #pragma unroll(8)
     for(int i=0; i<8; i++) { 
@@ -122,13 +126,13 @@ __device__ __forceinline__ void Dequant_32FP6_4Way(uint32_t (* __restrict__ Reg)
         // Packed_FP6 now contains 4x 1234 5600
         //
         uint32_t out1, out2;
-        FPx_FP16_Cast_4Way<EXPONENT, MANTISSA>(&Packed_FP6, &out1, &out2);
+        FPx_FP16_Cast_4Way<EXPONENT, MANTISSA, USE_BF16>(&Packed_FP6, &out1, &out2);
         // out1 now contains 2 FP16 values, as shown by R1 in figure 6
         // out2 now contains 2 FP16 values, as shown by R2 in figure 6
         //
-        *OutputRegs = MultScale<EXPONENT, MANTISSA>(out1, Scale_RPTR[0]  );       // Muliply FP16 scales
+        *OutputRegs = MultScale<EXPONENT, MANTISSA>(out1, Scale_RPTR[0]);       // Muliply FP16 scales
         OutputRegs += 1;
-        *OutputRegs = MultScale<EXPONENT, MANTISSA>(out2, Scale_RPTR[1]);         // Muliply FP16 scales
+        *OutputRegs = MultScale<EXPONENT, MANTISSA>(out2, Scale_RPTR[1]);       // Muliply FP16 scales
         OutputRegs += 1;
         // Updating offset for FP16 scales for every two iterations
         if(i%2==1)  Scale_RPTR += 2;
@@ -139,7 +143,8 @@ __device__ __forceinline__ void Dequant_32FP6_4Way(uint32_t (* __restrict__ Reg)
 /*
  * 
  */
-__device__ __forceinline__ void ExtractFromSharedToReg_Scales(uint32_t* Scales, half* WARP_SPTR_Scales) {
+template <typename T>
+__device__ __forceinline__ void ExtractFromSharedToReg_Scales(uint32_t* Scales, T* WARP_SPTR_Scales) {
     int lane_id = threadIdx.x % WARP_SIZE;
     uint32_t* SPTR_uint = reinterpret_cast<uint32_t*>(WARP_SPTR_Scales);
     uint32_t tmpReg = SPTR_uint[lane_id];
