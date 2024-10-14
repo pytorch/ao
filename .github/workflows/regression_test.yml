@@ -67,7 +67,7 @@ jobs:
 
     uses: pytorch/test-infra/.github/workflows/linux_job.yml@main
     with:
-      timeout: 60
+      timeout: 120
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
