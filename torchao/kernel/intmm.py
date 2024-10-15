@@ -56,10 +56,9 @@ if TORCH_VERSION_AT_LEAST_2_2:
         
         if device_cpu or bad_dimensions_for_cublas:
             # fallback path
-            # Compute in float instead of int32 because int32 matmul is not parallelized on CPU
-            return torch.matmul(input.cpu().to(torch.float), mat2.cpu().to(torch.float)).to(
+            return torch.matmul(input.cpu().to(torch.int32), mat2.cpu().to(torch.int32)).to(
                 input.device.type
-            ).to(torch.int32)
+            )
 
         # cublas paths
         if not mat2.is_contiguous():  # silently gives incorrect result without this
@@ -127,7 +126,7 @@ def int_scaled_matmul(a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor) -
     """
     M, K = a.shape
     K, N = b.shape
-    assert M == scales1.size(0) or scales1.numel() == 1
+    assert M == scales1.size(0)
     assert 1 == scales1.size(1)
     assert scales1.is_contiguous()
     scales1 = scales1.expand((M, N))
@@ -136,6 +135,4 @@ def int_scaled_matmul(a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor) -
         return torch.ops.torchao.int_scaled_matmul(a, b, scales1)
 
     c = safe_int_mm(a, b)
-    # to float to avoid overflow of float16
-    c = c.float() * scales1
-    return c.to(scales1.dtype)
+    return c * scales1
