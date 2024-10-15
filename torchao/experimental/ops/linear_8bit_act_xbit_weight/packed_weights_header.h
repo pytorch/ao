@@ -17,19 +17,18 @@ torchao::ops::PackedWeightsHeader get_packed_weights_header_universal(
     int nr,
     int kr,
     int version = 1) {
-  TORCHAO_CHECK(
-      version >= 0 && version < 256, "version must be between 0 and 255");
-  TORCHAO_CHECK(
-      weight_nbit >= 1 && weight_nbit < 256,
-      "weight_nbit must be between 1 and 255");
   return torchao::ops::PackedWeightsHeader(
       torchao::ops::PackedWeightsFormat::linear_8bit_act_xbit_weight_universal,
-      {((static_cast<unsigned short>(version) << 8) |
-        static_cast<unsigned short>(weight_nbit)),
-       ((static_cast<unsigned short>(has_weight_zeros) << 8) |
-        static_cast<unsigned short>(has_bias)),
-       static_cast<unsigned short>(nr),
-       static_cast<unsigned short>(kr),
+      {version,
+       weight_nbit,
+       has_weight_zeros,
+       has_bias,
+       nr,
+       kr,
+       0,
+       0,
+       0,
+       0,
        0,
        0,
        0,
