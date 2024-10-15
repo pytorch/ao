@@ -35,13 +35,14 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    uses: pytorch/test-infra/.github/workflows/build_wheels_linux.yml@main
+    uses: pytorch/test-infra/.github/workflows/build_wheels_linux.yml@test_meta_cdn
     with:
       # Set the ref to an empty string instead of the default nightly because
       # torchao doesn't have nightly branch setup yet, instead the build is
       # triggered daily from main with a schedule
       repository: pytorch/ao
       ref: ""
+      test-infra-ref: "test_meta_cdn"
       build-matrix: ${{ needs.generate-matrix.outputs.matrix }}
       env-var-script: packaging/env_var_script_linux.sh
       pre-script: packaging/pre_build_script.sh
