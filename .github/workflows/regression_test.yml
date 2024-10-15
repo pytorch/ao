@@ -61,7 +61,7 @@ jobs:
             gpu-arch-version: ""
           - name: CPU Nightly
             runs-on: linux.4xlarge
-            torch-spec: '--pre torch==2.6.0.dev20241010+cpu --index-url https://download.pytorch.org/whl/nightly/cpu'
+            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
 
@@ -81,4 +81,6 @@ jobs:
         pip install ${{ matrix.torch-spec }}
         pip install -r dev-requirements.txt
         pip install .
+        export CONDA=$(dirname $(dirname $(which conda)))
+        export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
         pytest test --verbose -s
