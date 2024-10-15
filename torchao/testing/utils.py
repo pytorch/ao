@@ -250,6 +250,7 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
         m.linear.weight = torch.nn.Parameter(
             dtensor, requires_grad=False
         )
+        print('colwise shard Shapeof m.linear.weight : ', m.linear.weight.shape)
         return m
 
     @staticmethod
@@ -264,11 +265,15 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
         rank = mesh.get_local_rank()
         local_shard = orig_weight[:, rank * n_local_cols : (rank + 1) * n_local_cols]
         # Construct DTensor from local shard
-        dtensor = DTensor.from_local(local_shard, mesh, [Shard(1)])
+        dtensor = DTensor.from_local(local_shard, mesh, [Shard(1)], run_check=True)
+        print(f'dtensor shape: {dtensor.shape}')
+        print(f'Other dtensor values: {local_shard.original_weight_tensor.tensor_impl.float8_data.shape}, {mesh}, {[Shard(1)]}')
         # Replace parameter in module
         m.linear.weight = torch.nn.Parameter(
             dtensor, requires_grad=False
         )
+        print('rowwise shard Shapeof m.linear.weight : ', m.linear.weight.shape)
+
         return m
 
     def quantize(self, m: torch.nn.Module) -> torch.nn.Module:
@@ -302,11 +307,13 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
         proj_dn = M(2048, 1024).to(device).to(dtype)
         example_input = 100 * torch.randn(128, 1024, device=device, dtype=dtype)
         y = proj_dn(proj_up(example_input))
-
+        print('Run before y')
         # Quantize the model
         up_quant = self.quantize(proj_up)
         dn_quant = self.quantize(proj_dn)
+        print('Run before y_q')
         y_q = dn_quant(up_quant(example_input))
+        print('Executed y_q')
 
         mesh = self.build_device_mesh()
         mesh.device_type = "cuda"

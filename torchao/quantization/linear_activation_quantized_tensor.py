@@ -124,6 +124,7 @@ def _(func, types, args, kwargs):
         return func(bias, aqt, original_weight_tensor)
     else:
         # aten.mm.default
+        print('Args: ', args[0].shape, args[1].shape, type(args[0]), type(args[1]))
         assert args[0].shape[-1] == args[1].shape[0], (
             f"need mat1 shape: {args[0].shape} final dim"
             f"to match mat2 shape: {args[1].shape} first dim"
@@ -164,6 +165,27 @@ def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.t)
     )
+
+@implements(aten.slice.Tensor)
+def _(func, types, args, kwargs):
+    print('Input quant func: ', args[0].input_quant_func)
+    x = return_and_correct_aliasing(
+        func, args, kwargs, LinearActivationQuantizedTensor(
+        func(args[0].original_weight_tensor, *args[1:]), args[0].input_quant_func)
+    )
+    print(f'Linear act Post slice: {x.original_weight_tensor.shape} {x.original_weight_tensor.tensor_impl.float8_data.shape}')
+    return x
+
+# this is needed for DTensor.from_local() and for flattening tensor
+@implements(aten.view.default)
+def _(func, types, args, kwargs):
+    print('Linear view args:', args[1:])
+    print('Device: ', args[0].original_weight_tensor.device)
+    x= return_and_correct_aliasing(
+        func, args, kwargs, LinearActivationQuantizedTensor(func(args[0].original_weight_tensor, *args[1:]), args[0].input_quant_func)
+    )
+    print(f'Linear act Post view: {x.original_weight_tensor.shape} {x.original_weight_tensor.tensor_impl.float8_data.shape}')
+    return x
 
 to_linear_activation_quantized = LinearActivationQuantizedTensor.from_float
 
