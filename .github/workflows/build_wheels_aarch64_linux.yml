@@ -1,5 +1,5 @@
 # From https://github.com/pytorch/test-infra/wiki/Using-Nova-Reusable-Build-Workflows
-name: Build Linux Wheels
+name: Build AARCH64 Linux Wheels
 
 on:
   pull_request:
