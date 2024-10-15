@@ -1,4 +1,5 @@
 import copy
+import itertools
 import logging
 import unittest
 
@@ -113,13 +114,13 @@ class TestQuantSemiSparse(common_utils.TestCase):
 class TestBlockSparseWeight(common_utils.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "pytorch 2.4+ feature due to need for custom op support")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @common_utils.parametrize("compile", [True, False])
-    def test_sparse(self, compile):
+    @common_utils.parametrize("compile, bias", itertools.product([True, False], repeat=2))
+    def test_sparse(self, compile, bias):
         input = torch.rand((1024, 1024)).half().cuda()
         model = (
             nn.Sequential(
-                nn.Linear(1024, 2048),
-                nn.Linear(2048, 1024),
+                nn.Linear(1024, 2048, bias=bias),
+                nn.Linear(2048, 1024, bias=bias),
             )
             .half()
             .cuda()
@@ -149,13 +150,13 @@ class TestBlockSparseWeight(common_utils.TestCase):
 class TestQuantBlockSparseWeight(common_utils.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AFTER_2_5, "pytorch 2.6+ feature")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @common_utils.parametrize("compile", [True, False])
-    def test_sparse(self, compile):
+    @common_utils.parametrize("compile, bias", itertools.product([True, False], repeat=2))
+    def test_sparse(self, compile, bias):
         input = torch.rand((256, 128)).to(torch.bfloat16).cuda()
         model = (
             nn.Sequential(
-                nn.Linear(128, 256),
-                nn.Linear(256, 128),
+                nn.Linear(128, 256, bias=bias),
+                nn.Linear(256, 128, bias=bias),
             )
             .to(torch.bfloat16)
             .cuda()

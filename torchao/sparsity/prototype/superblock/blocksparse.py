@@ -280,7 +280,6 @@ def block_sparse_linear(func, types, args, kwargs):
     # linear(x, w^t)
     # linear(w, x^t)^t
     x_orig, w, bias = args
-    assert bias is None, f"Expected bias to be None, but got {type(bias)}"
     # # TODO: Change this to do padding to make sure blocksparse.linear works
     # return torch.ops.blocksparse.linear(
     #     x, w.crow_indices(), w.col_indices(), w.values(), w.shape[0], w.shape[1], bias
@@ -302,7 +301,10 @@ def block_sparse_linear(func, types, args, kwargs):
     )
     # import pdb; pdb.set_trace()
     # return out.view(x_orig.size(0), -1, M)
-    return out[:, :x.size(-1)].t().reshape(x_orig.size(0), -1, M)
+    out_orig = out[:, :x.size(-1)].t().reshape(x_orig.shape[:-1] + (M,))
+    if bias is None:
+        return out_orig
+    return out_orig + bias
 
 
 def block_sparse_weight(blocksize=64):
