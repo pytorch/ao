@@ -50,5 +50,6 @@ jobs:
       package-name: torchao
       trigger-event: ${{ github.event_name }}
       architecture: aarch64
+      setup-miniconda: false
     secrets:
       PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
