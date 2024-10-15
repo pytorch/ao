@@ -1062,9 +1062,12 @@ class Float8AQTTensorImpl(AQTTensorImpl):
 
     def _apply_fn_to_data(self, fn):
         """ Applys a fn to all tensor components stored on this class"""
-        fn(self.float8_data)
-        fn(self.scale)
-        return self
+        return self.__class__(
+            fn(self.float8_data),
+            fn(self.scale),
+            self.transposed,
+            self._layout,
+        )
 
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
@@ -1109,19 +1112,18 @@ class Float8AQTTensorImpl(AQTTensorImpl):
             if dim == 0:
                 #TODO: scale replecation should be dependent on block size
                 if self.scale.ndim == 1:
-                    print("slice for dim 0, scale is 1")
                     return return_and_correct_aliasing(
                         func, args, kwargs, args[0]._apply_fn_to_data(lambda x: aten.slice.Tensor(x, dim, start, end, step))
                     )
-                else:
-                    print("slice for dim 0, scale != 1")
+                elif self.scale.ndim == 0:
                     return return_and_correct_aliasing(
                         func, args, kwargs, Float8AQTTensorImpl(aten.slice.Tensor(self.float8_data, dim, start, end, step), self.scale, None, self._layout)
                     )
+                else:
+                    raise NotImplementedError(f"Float8AQTTensorImpl dispatch: attempting to run {func}, with scale ndim={dim}, that is not supported")
             elif dim == 1:
-                print("slice for dim 1")
                 return return_and_correct_aliasing(
-                        func, args, kwargs, Float8AQTTensorImpl(aten.slice.Tensor(self.float8_data, dim, start, end, step), self.scale, None, self._layout)
+                        func, args, kwargs, Float8AQTTensorImpl(aten.slice.Tensor(self.float8_data, dim, start, end, step).contiguous(), self.scale, None, self._layout)
                 )
             else:
                 raise NotImplementedError(f"Float8AQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported")
@@ -1653,15 +1655,6 @@ def _linear_fp8_act_fp8_weight_impl(
 
     # Preprocess data
     inpt_data, w_data = preprocess_data(inpt_data, w_data.T, scaled_mm_config)
-    
-    print(f"out_shape: {out_shape}")
-    print(f"input_tensor: {input_tensor.shape}, weight_tensor: {weight_tensor.shape}")
-    print(f"inpt_data: {inpt_data.shape}, w_data: {w_data.shape}")
-
-    
-    print(f"out_shape: {out_shape}")
-    print(f"input_tensor: {input_tensor.shape}, weight_tensor: {weight_tensor.shape}")
-    print(f"inpt_data: {inpt_data.shape}, w_data: {w_data.shape}")
 
     # Perform the computation
     return addmm_float8_unwrapped_inference(
@@ -1877,17 +1870,12 @@ def _(func, types, args, kwargs):
         end = self.shape[dim]
     shape = list(self.shape)
     shape[dim] = end - start
-    print(f"Shape: {self.shape} -> {shape}")
-    print(f"Block size: {self.block_size} -> {self.block_size}")
-    print(f"end: {end}, start: {start}")
     block_size = self.block_size
     assert len(block_size) == 2, f"Slice only works for 2d block_size right now, got: {block_size}"
     # with slice, some shape dimension might be smaller than block_size dimension, so
     # we need to make sure there is no overflow
     block_size = (min(shape[0], block_size[0]), min(shape[1], block_size[1]))
     new = self.__class__(aten.slice.Tensor(self.tensor_impl, dim, start, end, step), block_size, shape, self.quant_min, self.quant_max, self.zero_point_domain, dtype=self.dtype, strides=self.stride())
-    print(f"slice (Outer tensor shape): {self.shape} -> {new.shape}")
-    print(f"slice (Inner data shape): {self.tensor_impl.float8_data.shape} -> {new.tensor_impl.float8_data.shape}")
     return return_and_correct_aliasing(func, args, kwargs, new)
 
 # this is needed for DTensor.from_local() and for flattening tensor

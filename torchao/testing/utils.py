@@ -301,14 +301,13 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
         proj_up = M(1024, 2048).to(device).to(dtype)
         proj_dn = M(2048, 1024).to(device).to(dtype)
         example_input = 100 * torch.randn(128, 1024, device=device, dtype=dtype)
-        print('Run y')
         y = proj_dn(proj_up(example_input))
 
         # Quantize the model
         up_quant = self.quantize(proj_up)
         dn_quant = self.quantize(proj_dn)
         y_q = dn_quant(up_quant(example_input))
-        
+
         mesh = self.build_device_mesh()
         mesh.device_type = "cuda"
 
