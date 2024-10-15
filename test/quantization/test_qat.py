@@ -29,6 +29,9 @@ from torchao.quantization.prototype.qat.api import (
 from torchao.quantization.prototype.qat.fake_quantizer import (
     FakeQuantizer,
 )
+from torchao.quantization.prototype.qat.embedding import (
+    FakeQuantizedEmbedding,
+)
 from torchao.quantization.prototype.qat.linear import (
     FakeQuantizedLinear,
 )
@@ -850,6 +853,40 @@ class TestQAT(unittest.TestCase):
         x2 = copy.deepcopy(x)
         fq_out = fq_linear(x)
         baseline_out = linear_forward_4w(x2, fq_linear.weight)
+        torch.testing.assert_close(baseline_out, fq_out, atol=0, rtol=0)
+
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower")
+    def test_fake_quantized_embedding_4w(self):
+        """
+        Test that we can express int4 per group symmetric weight only fake quantization
+        with `FakeQuantizedEmbedding`.
+        """
+        num_embeddings = 64
+        embedding_dim = 128
+        group_size = 32
+        torch.manual_seed(self.SEED)
+        fq_embedding = FakeQuantizedEmbedding(
+            num_embeddings,
+            embedding_dim,
+            weight_config=FakeQuantizeConfig(TorchAODType.INT4, group_size=group_size),
+        )
+
+        def embedding_forward_4w(x: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
+            """
+            Baseline for int4 per group symmetric weight only fake quantization.
+            """
+            (s, zp) = get_group_qparams_symmetric(weight, 4, group_size, torch.float32)
+            zp = zp.to(torch.int32)
+            (qmin, qmax) = _get_qmin_qmax(4)
+            w_fq = _fake_quantize_per_channel_group(weight, s, zp, qmin, qmax, group_size)
+            return F.embedding(x, w_fq)
+
+        # Compare embedding values
+        torch.manual_seed(self.SEED)
+        x = torch.randint(num_embeddings, (5, 10))
+        x2 = copy.deepcopy(x)
+        fq_out = fq_embedding(x)
+        baseline_out = embedding_forward_4w(x2, fq_embedding.weight)
         torch.testing.assert_close(baseline_out, fq_out, atol=0, rtol=0)
 
 
