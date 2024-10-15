@@ -1653,6 +1653,10 @@ def _linear_fp8_act_fp8_weight_impl(
 
     # Preprocess data
     inpt_data, w_data = preprocess_data(inpt_data, w_data.T, scaled_mm_config)
+    
+    print(f"out_shape: {out_shape}")
+    print(f"input_tensor: {input_tensor.shape}, weight_tensor: {weight_tensor.shape}")
+    print(f"inpt_data: {inpt_data.shape}, w_data: {w_data.shape}")
 
     
     print(f"out_shape: {out_shape}")
