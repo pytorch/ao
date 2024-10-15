@@ -81,4 +81,5 @@ jobs:
         pip install ${{ matrix.torch-spec }}
         pip install -r dev-requirements.txt
         pip install .
+        export LD_LIBRARY_PATH=$CONDA/lib/:$LD_LIBRARY_PATH
         pytest test --verbose -s
