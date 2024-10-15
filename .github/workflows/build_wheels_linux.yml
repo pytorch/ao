@@ -22,13 +22,14 @@ on:
 
 jobs:
   generate-matrix:
-    uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@main
+    uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@test_meta_cdn
     with:
       package-type: wheel
       os: linux
       with-cpu: enable
       with-cuda: enable
       with-rocm: disable
+      test-infra-ref: test_meta_cdn
 
   build:
     needs: generate-matrix
@@ -42,7 +43,7 @@ jobs:
       # triggered daily from main with a schedule
       repository: pytorch/ao
       ref: ""
-      test-infra-ref: "test_meta_cdn"
+      test-infra-ref: test_meta_cdn
       build-matrix: ${{ needs.generate-matrix.outputs.matrix }}
       env-var-script: packaging/env_var_script_linux.sh
       pre-script: packaging/pre_build_script.sh
