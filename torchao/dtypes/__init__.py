@@ -17,6 +17,8 @@ from .affine_quantized_tensor import (
     Float8AQTTensorImpl,
     MarlinSparseLayout,
 )
+# to maintain BC for torchtune, TODO remove this
+from .affine_quantized_tensor import TensorCoreTiledLayout as TensorCoreTiledLayoutType
 
 __all__ = [
     "NF4Tensor",
