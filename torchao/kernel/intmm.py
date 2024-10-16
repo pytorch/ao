@@ -139,7 +139,7 @@ def int_scaled_matmul(a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor) -
 
     c = safe_int_mm(a, b)
 
-    if all([x.device.type == "cpu" for x in (c, scales1)]):
+    if scales1.dtype == torch.half:
         # to float to avoid overflow of float16
         c = c.float() * scales1
         return c.to(scales1.dtype)
