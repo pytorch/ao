@@ -1,10 +1,13 @@
 import torch
-from typing import Callable
+from typing import Callable, Optional
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.utils import (
     TorchAOBaseTensor,
     TORCH_VERSION_AT_LEAST_2_5,
 )
+from torchao.dtypes import to_affine_quantized_intx, to_affine_quantized_intx_static
+from torchao.quantization.utils import _get_per_token_block_size
+from torchao.quantization.quant_primitives import MappingType
 
 __all__ = [
     "LinearActivationScaleQuantizedTensor",
@@ -31,8 +34,12 @@ class LinearActivationScaleQuantizedTensor(TorchAOBaseTensor):
     def __new__(
         cls,
         original_weight_tensor: torch.Tensor,
-        scale: torch.Tensor,
-        input_quant_func: Callable,
+        equalization_scale: torch.Tensor,
+        act_scales: Optional[torch.Tensor],
+        act_zero_points: Optional[torch.Tensor],
+        target_dtype: torch.dtype,
+        quant_min: int,
+        quant_max: int,
     ):
         kwargs = {}
         dtype = original_weight_tensor.dtype
@@ -45,60 +52,147 @@ class LinearActivationScaleQuantizedTensor(TorchAOBaseTensor):
     def __init__(
         self,
         original_weight_tensor: torch.Tensor,
-        scale: torch.Tensor,
-        input_quant_func: Callable[[torch.Tensor], torch.Tensor],
+        equalization_scale: torch.Tensor,
+        act_scales: Optional[torch.Tensor],
+        act_zero_points: Optional[torch.Tensor],
+        target_dtype: torch.dtype,
+        quant_min: int,
+        quant_max: int,
     ):
         self.original_weight_tensor = original_weight_tensor
-        self.scale = scale
-        self.input_quant_func = input_quant_func
+        self.equalization_scale = equalization_scale
+        self.act_scales = act_scales
+        self.act_zero_points = act_zero_points
+        self.target_dtype = target_dtype
+        self.quant_min = quant_min
+        self.quant_max = quant_max
 
     def __repr__(self):
         return (f"LinearActivationScaleQuantizedTensor({self.original_weight_tensor}, "
-                f"scale={self.scale}, quant_func={self.input_quant_func})")
+                f"equalization_scale={self.equalization_scale}, "
+                f"act_scales={self.act_scales}), "
+                f"act_zero_points={self.act_zero_points}, "
+                f"target_dtype={self.target_dtype}, "
+                f"quant_min={self.quant_min}, "
+                f"quant_max={self.quant_max})"
+                )
 
     def __tensor_flatten__(self):
-        return ["original_weight_tensor", "scale"], [self.input_quant_func]
+        tensor_data = [
+            "original_weight_tensor",
+            "equalization_scale",
+        ]
+        tensor_attributes = [self.target_dtype, self.quant_min, self.quant_max]
+        if self.act_scales is not None:
+            tensor_data.append("act_scales")
+        if self.act_zero_points is not None:
+            tensor_data.append("act_zero_points")
+        return tensor_data, tensor_attributes
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
         original_weight_tensor = tensor_data_dict["original_weight_tensor"]
-        scale = tensor_data_dict["scale"]
-        input_quant_func, = tensor_attributes
+        equalization_scale = tensor_data_dict["equalization_scale"]
+        act_scales = tensor_data_dict["act_scales"] if "act_scales" in tensor_data_dict else None
+        act_zero_points = tensor_data_dict["act_zero_points"] if "act_zero_points" in tensor_data_dict else None
+        target_dtype, quant_min, quant_max = tensor_attributes
         return cls(
             original_weight_tensor,
-            scale,
-            input_quant_func,
+            equalization_scale,
+            act_scales,
+            act_zero_points,
+            target_dtype,
+            quant_min,
+            quant_max,
         )
 
     @staticmethod
     def _quantized_linear_op(input_tensor, weight_tensor, bias):
-        input_quant_func = weight_tensor.input_quant_func
         original_weight_tensor = weight_tensor.original_weight_tensor
-        scale = weight_tensor.scale
-        scaled_input_act = input_tensor / scale
+        equalization_scale = weight_tensor.equalization_scale
+        scaled_input_act = input_tensor / equalization_scale
         scaled_input_act = scaled_input_act.to(input_tensor.dtype)
-        aqt = input_quant_func(scaled_input_act)
+        if weight_tensor.act_scales is not None:
+            # static quant
+            act_zero_points = (
+                weight_tensor.act_zero_points
+                if weight_tensor.act_zero_points is not None
+                else torch.zeros_like(weight_tensor.act_scales, dtype=torch.int64)
+            )
+            aqt = to_affine_quantized_intx_static(
+                scaled_input_act,
+                weight_tensor.act_scales,
+                act_zero_points,
+                list(scaled_input_act.shape),
+                weight_tensor.target_dtype,
+                quant_min=weight_tensor.quant_min,
+                quant_max=weight_tensor.quant_max,
+            )
+        else:
+            # dynamic quant
+            block_size = _get_per_token_block_size(scaled_input_act)
+            aqt = to_affine_quantized_intx(
+                scaled_input_act,
+                MappingType.SYMMETRIC,
+                block_size,
+                weight_tensor.target_dtype,
+                quant_min=weight_tensor.quant_min,
+                quant_max=weight_tensor.quant_max,
+            )
+
         return torch.nn.functional.linear(aqt, original_weight_tensor, bias)
 
     @classmethod
-    def from_float(cls, input_float, scale, input_quant_func):
-        return cls(input_float, scale, input_quant_func)
+    def from_float(cls, input_float, equalization_scale, act_scales, act_zero_points, target_dtype, quant_min, quant_max):
+        return cls(
+            input_float,
+            equalization_scale,
+            act_scales,
+            act_zero_points,
+            target_dtype,
+            quant_min,
+            quant_max,
+        )
 
     def _apply_fn_to_data(self, fn):
         return self.__class__(
             fn(self.original_weight_tensor),
-            fn(self.scale),
-            self.input_quant_func,
+            fn(self.equalization_scale),
+            (
+                fn(self.act_scales)
+                if self.act_scales is not None
+                else None
+            ),
+            (
+                fn(self.act_zero_points)
+                if self.act_zero_points is not None
+                else None
+            ),
+            self.target_dtype,
+            self.quant_min,
+            self.quant_max,
         )
 
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
         return self.__class__(
             self.original_weight_tensor.to(**kwargs),
-            self.scale.to(**kwargs),
-            self.input_quant_func,
+            self.equalization_scale.to(**kwargs),
+            (
+                self.act_scales.to(**kwargs)
+                if self.act_scales is not None
+                else None
+            ),
+            (
+                self.act_zero_points.to(**kwargs)
+                if self.act_zero_points is not None
+                else None
+            ),
+            self.target_dtype,
+            self.quant_min,
+            self.quant_max,
         )
 
 implements = LinearActivationScaleQuantizedTensor.implements
@@ -130,29 +224,52 @@ def _(func, types, args, kwargs):
             args[2],
             args[0],
         )
-        input_quant_func = weight_tensor.input_quant_func
-        original_weight_tensor = weight_tensor.original_weight_tensor
-        scale = weight_tensor.scale
-        scaled_input_act = input_tensor / scale
-        scaled_input_act = scaled_input_act.to(input_tensor.dtype)
-        aqt = input_quant_func(scaled_input_act)
-        return func(bias, aqt, original_weight_tensor)
     else:
         # aten.mm.default
         assert args[0].shape[-1] == args[1].shape[0], (
             f"need mat1 shape: {args[0].shape} final dim"
             f"to match mat2 shape: {args[1].shape} first dim"
         )
-        input_tensor, weight_tensor = (
+        input_tensor, weight_tensor, bias = (
             args[0],
             args[1],
+            None,
         )
-        input_quant_func = weight_tensor.input_quant_func
-        original_weight_tensor = weight_tensor.original_weight_tensor
-        scale = weight_tensor.scale
-        scaled_input_act = input_tensor / scale
-        scaled_input_act = scaled_input_act.to(input_tensor.dtype)
-        aqt = input_quant_func(scaled_input_act)
+    original_weight_tensor = weight_tensor.original_weight_tensor
+    equalization_scale = weight_tensor.equalization_scale
+    scaled_input_act = input_tensor / equalization_scale
+    scaled_input_act = scaled_input_act.to(input_tensor.dtype)
+    if weight_tensor.act_scales is not None:
+        # static quant
+        act_zero_points = (
+            weight_tensor.act_zero_points
+            if weight_tensor.act_zero_points is not None
+            else torch.zeros_like(weight_tensor.act_scales, dtype=torch.int64)
+        )
+        aqt = to_affine_quantized_intx_static(
+            scaled_input_act,
+            weight_tensor.act_scales,
+            act_zero_points,
+            list(scaled_input_act.shape),
+            weight_tensor.target_dtype,
+            quant_min=weight_tensor.quant_min,
+            quant_max=weight_tensor.quant_max,
+        )
+    else:
+        # dynamic quant
+        block_size = _get_per_token_block_size(scaled_input_act)
+        aqt = to_affine_quantized_intx(
+            scaled_input_act,
+            MappingType.SYMMETRIC,
+            block_size,
+            weight_tensor.target_dtype,
+            quant_min=weight_tensor.quant_min,
+            quant_max=weight_tensor.quant_max,
+        )
+
+    if func == aten.addmm.default:
+        return func(bias, aqt, original_weight_tensor)
+    else:
         return func(aqt, original_weight_tensor)
 
 
