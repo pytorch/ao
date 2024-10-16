@@ -41,7 +41,7 @@ For example, on a single GPU:
 ```python
 import torch
 from torchtune.models.llama3 import llama3
-from torchao.quantization.prototype.qat import Int8DynActInt4WeightQATQuantizer
+from torchao.prototype.quantization.qat import Int8DynActInt4WeightQATQuantizer
 
 # Smaller version of llama3 to fit in a single GPU
 model = llama3(

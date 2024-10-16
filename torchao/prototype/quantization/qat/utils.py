@@ -46,7 +46,7 @@ class _GenericFakeQuantize(torch.autograd.Function):
         zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
     ) -> torch.Tensor:
         # avoid circular dependencies
-        from torchao.quantization.prototype.qat.affine_fake_quantized_tensor import (
+        from torchao.prototype.quantization.qat.affine_fake_quantized_tensor import (
             AffineFakeQuantizedTensor,
         )
 
@@ -88,7 +88,7 @@ class _UnwrapAffineFakeQuantizedTensor(torch.autograd.Function):
         input: torch.Tensor,
     ) -> torch.Tensor:
         # avoid circular dependencies
-        from torchao.quantization.prototype.qat.affine_fake_quantized_tensor import (
+        from torchao.prototype.quantization.qat.affine_fake_quantized_tensor import (
             AffineFakeQuantizedTensor,
         )
         assert isinstance(input, AffineFakeQuantizedTensor)

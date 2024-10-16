@@ -22,17 +22,17 @@ from torchao.quantization.granularity import (
     PerRow,
     PerToken,
 )
-from torchao.quantization.prototype.qat.api import (
+from torchao.prototype.quantization.qat.api import (
     ComposableQATQuantizer,
     FakeQuantizeConfig,
 )
-from torchao.quantization.prototype.qat.fake_quantizer import (
+from torchao.prototype.quantization.qat.fake_quantizer import (
     FakeQuantizer,
 )
-from torchao.quantization.prototype.qat.linear import (
+from torchao.prototype.quantization.qat.linear import (
     FakeQuantizedLinear,
 )
-from torchao.quantization.prototype.qat.utils import (
+from torchao.prototype.quantization.qat.utils import (
     _choose_qparams_per_token_asymmetric,
     _fake_quantize_per_channel_group,
     _fake_quantize_per_token,
@@ -172,7 +172,7 @@ class TestQAT(unittest.TestCase):
             Int8DynActInt4WeightLinear,
             WeightOnlyInt4Linear,
         )
-        from torchao.quantization.prototype.qat.linear import (
+        from torchao.prototype.quantization.qat.linear import (
             Int8DynActInt4WeightQATLinear,
             Int4WeightOnlyQATLinear,
         )
@@ -204,7 +204,7 @@ class TestQAT(unittest.TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower")
     def test_qat_8da4w_linear(self):
-        from torchao.quantization.prototype.qat.linear import Int8DynActInt4WeightQATLinear
+        from torchao.prototype.quantization.qat.linear import Int8DynActInt4WeightQATLinear
         from torchao.quantization.GPTQ import Int8DynActInt4WeightLinear
 
         group_size = 128
@@ -229,7 +229,7 @@ class TestQAT(unittest.TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower")
     def test_qat_8da4w_quantizer(self):
-        from torchao.quantization.prototype.qat import Int8DynActInt4WeightQATQuantizer
+        from torchao.prototype.quantization.qat import Int8DynActInt4WeightQATQuantizer
         from torchao.quantization.GPTQ import Int8DynActInt4WeightQuantizer
 
         group_size = 16
@@ -263,7 +263,7 @@ class TestQAT(unittest.TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower")
     def test_qat_8da4w_quantizer_meta_weights(self):
-        from torchao.quantization.prototype.qat import Int8DynActInt4WeightQATQuantizer
+        from torchao.prototype.quantization.qat import Int8DynActInt4WeightQATQuantizer
 
         with torch.device("meta"):
             m = M()
@@ -278,7 +278,7 @@ class TestQAT(unittest.TestCase):
         """
         Test that 8da4w QAT with disabled fake quant matches nn.Linear in forward.
         """
-        from torchao.quantization.prototype.qat import (
+        from torchao.prototype.quantization.qat import (
             Int8DynActInt4WeightQATQuantizer,
             disable_8da4w_fake_quant,
             enable_8da4w_fake_quant,
@@ -337,7 +337,7 @@ class TestQAT(unittest.TestCase):
         """
         Test that 8da4w QAT with disabled fake quant matches nn.Linear in backward.
         """
-        from torchao.quantization.prototype.qat import (
+        from torchao.prototype.quantization.qat import (
             Int8DynActInt4WeightQATQuantizer,
             disable_8da4w_fake_quant,
         )
@@ -419,7 +419,7 @@ class TestQAT(unittest.TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower")
     def test_qat_8da4w_quantizer_gradients(self):
-        from torchao.quantization.prototype.qat import Int8DynActInt4WeightQATQuantizer
+        from torchao.prototype.quantization.qat import Int8DynActInt4WeightQATQuantizer
         quantizer = Int8DynActInt4WeightQATQuantizer(groupsize=16)
         self._test_qat_quantized_gradients(quantizer)
 
@@ -509,7 +509,7 @@ class TestQAT(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     def test_qat_4w_linear(self):
-        from torchao.quantization.prototype.qat.linear import Int4WeightOnlyQATLinear
+        from torchao.prototype.quantization.qat.linear import Int4WeightOnlyQATLinear
         from torchao.quantization.GPTQ import WeightOnlyInt4Linear
 
         group_size = 128
@@ -536,14 +536,14 @@ class TestQAT(unittest.TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower")
     def test_qat_4w_quantizer_gradients(self):
-        from torchao.quantization.prototype.qat import Int4WeightOnlyQATQuantizer
+        from torchao.prototype.quantization.qat import Int4WeightOnlyQATQuantizer
         quantizer = Int4WeightOnlyQATQuantizer(groupsize=32, inner_k_tiles=8)
         self._test_qat_quantized_gradients(quantizer)
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower")
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     def test_qat_4w_quantizer(self):
-        from torchao.quantization.prototype.qat import Int4WeightOnlyQATQuantizer
+        from torchao.prototype.quantization.qat import Int4WeightOnlyQATQuantizer
         from torchao.quantization.GPTQ import Int4WeightOnlyQuantizer
 
         group_size = 32
@@ -621,7 +621,7 @@ class TestQAT(unittest.TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower")
     def test_qat_4w_embedding(self):
-        from torchao.quantization.prototype.qat import Int4WeightOnlyEmbeddingQATQuantizer
+        from torchao.prototype.quantization.qat import Int4WeightOnlyEmbeddingQATQuantizer
         model = M2()
         x = model.example_inputs()
         out = model(*x)
