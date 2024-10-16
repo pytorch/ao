@@ -1,0 +1,55 @@
+# From https://github.com/pytorch/test-infra/wiki/Using-Nova-Reusable-Build-Workflows
+name: Build AARCH64 Linux Wheels
+
+on:
+  pull_request:
+    paths:
+      - build/packaging/**
+      - .github/workflows/build_wheels_aarch64_linux.yml
+      - setup.py
+  push:
+    branches:
+      - nightly
+      - main
+      - release/*
+    tags:
+        # NOTE: Binary build pipelines should only get triggered on release candidate builds
+        # Release candidate tags look like: v1.11.0-rc1
+        - v[0-9]+.[0-9]+.[0-9]+-rc[0-9]+
+  schedule:
+    - cron: '0 0 * * *'  # Runs at midnight UTC every day
+  workflow_dispatch:
+
+jobs:
+  generate-matrix:
+    uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@main
+    with:
+      package-type: wheel
+      os: linux-aarch64
+      test-infra-repository: pytorch/test-infra
+      test-infra-ref: main
+      with-cuda: disable
+
+  build:
+    needs: generate-matrix
+    permissions:
+      id-token: write
+      contents: read
+    uses: pytorch/test-infra/.github/workflows/build_wheels_linux.yml@main
+    with:
+      # Set the ref to an empty string instead of the default nightly because
+      # torchao doesn't have nightly branch setup yet, instead the build is
+      # triggered daily from main with a schedule
+      repository: pytorch/ao
+      ref: ""
+      build-matrix: ${{ needs.generate-matrix.outputs.matrix }}
+      env-var-script: packaging/env_var_script_linux.sh
+      pre-script: packaging/pre_build_script.sh
+      # post-script: packaging/post_build_script.sh
+      smoke-test-script: packaging/smoke_test.py
+      package-name: torchao
+      trigger-event: ${{ github.event_name }}
+      architecture: aarch64
+      setup-miniconda: false
+    secrets:
+      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
