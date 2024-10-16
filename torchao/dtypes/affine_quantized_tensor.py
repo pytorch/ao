@@ -1062,9 +1062,12 @@ class Float8AQTTensorImpl(AQTTensorImpl):
 
     def _apply_fn_to_data(self, fn):
         """ Applys a fn to all tensor components stored on this class"""
-        fn(self.float8_data)
-        fn(self.scale)
-        return self
+        return self.__class__(
+            fn(self.float8_data),
+            fn(self.scale),
+            self.transposed,
+            self._layout,
+        )
 
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
@@ -1107,12 +1110,21 @@ class Float8AQTTensorImpl(AQTTensorImpl):
         elif func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
             if dim == 0:
-                return return_and_correct_aliasing(
-                    func, args, kwargs, args[0]._apply_fn_to_data(lambda x: aten.slice.Tensor(x, dim, start, end, step))
-                )
+                #TODO: scale replecation should be dependent on block size
+                if self.scale.ndim == 1:
+                    return return_and_correct_aliasing(
+                        func, args, kwargs, args[0]._apply_fn_to_data(lambda x: aten.slice.Tensor(x, dim, start, end, step))
+                    )
+                elif self.scale.ndim == 0:
+                    return return_and_correct_aliasing(
+                        func, args, kwargs, Float8AQTTensorImpl(aten.slice.Tensor(self.float8_data, dim, start, end, step), self.scale, None, self._layout)
+                    )
+                else:
+                    raise NotImplementedError(f"Float8AQTTensorImpl dispatch: attempting to run {func}, with scale ndim={dim}, that is not supported")
             elif dim == 1:
-                assert len(self.scale.shape) == 1, f"slice dim==1 only works when len(scale.shape) == 1 currently, got: {self.scale.shape}"
-                return Float8AQTTensorImpl(aten.slice.Tensor(self.float8_data, dim, start, end, step), self.scale, None, self._layout)
+                return return_and_correct_aliasing(
+                        func, args, kwargs, Float8AQTTensorImpl(aten.slice.Tensor(self.float8_data, dim, start, end, step).contiguous(), self.scale, None, self._layout)
+                )
             else:
                 raise NotImplementedError(f"Float8AQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported")
         else:
