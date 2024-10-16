@@ -2,7 +2,9 @@
 # These will be removed in the future
 
 from .linear import (
+    Int8DynActInt4WeightQATLinear,
     Int8DynActInt4WeightQATQuantizer as Int8DynActInt4WeightQATQuantizerModuleSwap,
+    Int4WeightOnlyQATLinear,
     Int4WeightOnlyQATQuantizer as Int4WeightOnlyQATQuantizerModuleSwap,
     enable_8da4w_fake_quant as enable_8da4w_fake_quant_module_swap,
     disable_8da4w_fake_quant as disable_8da4w_fake_quant_module_swap,
