@@ -11,7 +11,7 @@ import random
 from contextlib import nullcontext, redirect_stdout
 from dataclasses import dataclass, field
 import pathlib
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
 
 import fire
 import pandas as pd
@@ -43,124 +43,13 @@ from utils import (
     profiler_output_to_gpu_time_for_key,
     profiler_output_to_filtered_time_by_kernel_name,
     update_triton_kernels_in_prof_chome_trace_with_torch_logs,
+    subgraph_name_to_subgraph_and_inputs,
 )
 
 # don't truncate long kernel names
 pd.options.display.max_colwidth = 100
 # display 3 trailing decimal points for floats
 pd.set_option("display.float_format", "{:.3f}".format)
-
-
-
-class LNLinear(torch.nn.Module):
-    def __init__(self, fc_dim1, fc_dim2):
-        super().__init__()
-        self.ln = torch.nn.LayerNorm(fc_dim1, elementwise_affine=False)
-        self.fc = torch.nn.Linear(fc_dim1, fc_dim2, bias=False)
-
-    def forward(self, x):
-        x = self.ln(x)
-        x = self.fc(x)
-        return x
-
-
-# copied from https://github.com/pytorch/torchtitan/blob/main/torchtitan/models/norms.py
-class RMSNorm(nn.Module):
-    """
-    Initialize the RMSNorm normalization layer.
-
-    Args:
-        dim (int): The dimension of the input tensor.
-        eps (float, optional): A small value added to the denominator for numerical stability. Default is 1e-6.
-
-    Attributes:
-        eps (float): A small value added to the denominator for numerical stability.
-        weight (nn.Parameter): Learnable scaling parameter.
-
-    """
-
-    def __init__(self, dim: int, eps: float = 1e-6):
-        super().__init__()
-        self.eps = eps
-        self.weight = nn.Parameter(torch.ones(dim))
-
-    def _norm(self, x: torch.Tensor):
-        return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
-
-    def forward(self, x: torch.Tensor):
-        output = self._norm(x.float()).type_as(x)
-        return output * self.weight
-
-    def reset_parameters(self):
-        torch.nn.init.ones_(self.weight)  # type: ignore
-
-
-# copied from https://github.com/pytorch/torchtitan/blob/main/torchtitan/models/llama/model.py
-class FeedForward(nn.Module):
-    """
-    FeedForward module
-
-    Args:
-        dim (int): Input dimension.
-        hidden_dim (int): Hidden dimension of the feedforward layer.
-        multiple_of (int): Value to ensure hidden dimension is a multiple of this value.
-        ffn_dim_multiplier (Optional[float]): Custom multiplier for hidden dimension. Defaults to None.
-
-    Attributes:
-        w1 (Linear): Linear transformation for the first layer.
-        w2 (Linear): Linear transformation for the second layer.
-        w3 (Linear): Linear transformation for the third layer.
-
-    """
-
-    def __init__(
-        self,
-        dim: int,
-        hidden_dim: int,
-        multiple_of: int,
-        ffn_dim_multiplier: Optional[float],
-    ):
-        super().__init__()
-        hidden_dim = int(2 * hidden_dim / 3)
-        # custom dim factor multiplier
-        if ffn_dim_multiplier is not None:
-            hidden_dim = int(ffn_dim_multiplier * hidden_dim)
-        hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of)
-
-        self.w1 = nn.Linear(dim, hidden_dim, bias=False)
-        self.w2 = nn.Linear(hidden_dim, dim, bias=False)
-        self.w3 = nn.Linear(dim, hidden_dim, bias=False)
-
-    def forward(self, x):
-        return self.w2(F.silu(self.w1(x)) * self.w3(x))
-
-    def init_weights(self, init_std: float):
-        nn.init.trunc_normal_(self.w1.weight, mean=0.0, std=0.02)
-        for linear in (self.w2, self.w3):
-            nn.init.trunc_normal_(linear.weight, mean=0.0, std=init_std)
-
-
-class NormFFNResidualNorm(nn.Module):
-    """
-    A fragment representing the end of TransformerBlock n and the start
-    of TransformerBlock n + 1, intended to include the fusions relevant
-    to float8 gemms in the FFN module in forward and backward.
-    """
-
-    def __init__(self, dim, hidden_dim, multiple_of, ffn_dim_multiplier):
-        super().__init__()
-        self.ffn_norm = RMSNorm(dim)
-        self.ffn = FeedForward(dim, hidden_dim, multiple_of, ffn_dim_multiplier)
-        self.attn_norm = RMSNorm(dim)
-
-    def forward(self, h):
-        # end of transformer block n
-        x = self.ffn_norm(h)
-        x = self.ffn(x)
-        x = h + x
-        # start of transformer block n + 1
-        x = self.attn_norm(x)
-        return x
 
 
 @dataclass
@@ -265,8 +154,8 @@ def main(
     dtype_filter: str = "both",
     add_inductor_metadata_to_trace: bool = True,
     enable_sync_amax_history: bool = True,
+    mkn_override: Optional[Tuple[int, int, int]] = None,
 ):
-    assert model_type in ("linear", "ln_linear", "norm_ffn_norm", "norm_ffn_norm_small"), "unsupported"
     assert dtype_filter in ("both", "float8", "bfloat16")
 
     scaling_type_input = ScalingType(scaling_type_input)
@@ -295,59 +184,23 @@ def main(
     print(f"model_type is set to    | {model_type}")
     print(f"scaling_repr is set to  | {scaling_repr}")
 
-    device = "cuda"
-    ref_dtype = torch.bfloat16
-    if model_type == "ln_linear":
-        M, K, N = 4 * 4096, 8192, 7168
-        m_ref = LNLinear(K, N)
-        input_tensor = torch.randn(
-            M, K, device=device, dtype=ref_dtype, requires_grad=True
-        )
-    elif model_type == "norm_ffn_norm":
-        m_ref = NormFFNResidualNorm(
-            dim=4096,
-            hidden_dim=16384,
-            multiple_of=1024,
-            ffn_dim_multiplier=1.3,
-        )
-        input_tensor = torch.randn(
-            1, 8192, 4096, device=device, dtype=ref_dtype
-        ).requires_grad_()
-    elif model_type == "norm_ffn_norm_small":
-        m_ref = NormFFNResidualNorm(
-            dim=4096,
-            hidden_dim=4096,
-            multiple_of=1024,
-            ffn_dim_multiplier=1.0,
-        )
-        input_tensor = torch.randn(
-            1, 2048, 4096, device=device, dtype=ref_dtype
-        ).requires_grad_()
-    else:
-        M, K, N = 4096, 4096, 4096
-        m_ref = torch.nn.Sequential(
-            torch.nn.Linear(K, N, bias=False),
-        )
-        input_tensor = torch.randn(
-            M, K, device=device, dtype=ref_dtype, requires_grad=True
-        )
-
-    m_ref = m_ref.to(device).to(ref_dtype)
+    m_ref, input_tensors = subgraph_name_to_subgraph_and_inputs(
+        model_type, mkn_override)
 
     m_float8 = copy.deepcopy(m_ref)
     convert_to_float8_training(m_float8, config=config)
 
-    def ref_forw_backward(x):
-        out = m_ref(x)
+    def ref_forw_backward(*inputs):
+        out = m_ref(*inputs)
         out.sum().backward()
 
-    def float8_forw(x):
-        out = m_float8(x)
+    def float8_forw(*inputs):
+        out = m_float8(*inputs)
         return out
 
     sync_amax_history = sync_float8_amax_and_scale_history
 
-    def float8_forw_backward_wrapper(x):
+    def float8_forw_backward_wrapper(*inputs):
         # sync_float8_amax_and_scale_history is not full graph torch
         # compile friendly, so we add a high level wrapper to allow
         # inspection of the fw+bw torch.compile without the scale
@@ -356,7 +209,7 @@ def main(
         if linear_requires_sync(config) and enable_sync_amax_history:
             with record_function("scale_amax_and_scales"):
                 sync_amax_history(m_float8)
-        out = float8_forw(x)
+        out = float8_forw(*inputs)
 
         # out.sum().backward() is also not torch.compile fullgraph
         # friendly
@@ -399,7 +252,7 @@ def main(
                 profile_config = ProfileConfig(
                     trace_ref_path, log_ref_path, trace_ref_modified_path, ref_trace_suffix, iters=profile_iters, warmup_iters=2, sync=True
                 )
-                p = profile_function(profile_config, ref_forw_backward, add_inductor_metadata_to_trace, input_tensor)
+                p = profile_function(profile_config, ref_forw_backward, add_inductor_metadata_to_trace, *input_tensors)
                 print(f"saved profiling trace to {trace_ref_path}")
                 if add_inductor_metadata_to_trace:
                     print(f"saved torch logs to {log_ref_path}")
@@ -441,7 +294,7 @@ def main(
                     sync=True,
                 )
                 p = profile_function(
-                    profile_config, float8_forw_backward_wrapper, add_inductor_metadata_to_trace, input_tensor 
+                    profile_config, float8_forw_backward_wrapper, add_inductor_metadata_to_trace, *input_tensors 
                 )
                 print(f"saved profiling trace to {trace_float8_path}")
                 if add_inductor_metadata_to_trace:

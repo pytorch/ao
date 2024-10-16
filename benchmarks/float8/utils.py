@@ -5,9 +5,15 @@
 # LICENSE file in the root directory of this source tree.
 
 import collections
+import enum
 import json
 import re
-from typing import Optional
+from typing import Optional, Tuple
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch._inductor.utils import do_bench_using_profiling
 
 from torch.profiler import profile, ProfilerActivity, record_function
 
@@ -66,26 +72,6 @@ def profiler_output_to_filtered_time_by_kernel_name(
         # and it maps to this CUDA event:
         #   sm80_xmma_gemm_f32f32_f32f32_f32_tn_n_tilesize256x64...         0.00%       0.000us         0.00%       0.000us       0.000us       1.022ms        31.82%       1.022ms       1.022ms             1
         if not (e.self_cpu_time_total > thresh and e.self_device_time_total > thresh):
-            continue
-
-        # manually filter expected microbenchmarking overhead, in order of execution
-        if e.key == 'aten::sum':
-            # forward pass sum
-            assert e.count == num_iter, f'unexpected number of iter for {e.key}'
-            continue
-        elif e.key == 'aten::fill_':
-            # filling the forward pass sum with 1.0
-            assert e.count == num_iter, f'unexpected number of iter for {e.key}'
-            continue
-        elif e.key == 'aten::copy_':
-            # copying 1.0 from grad_out of `sum` to grad_out of next op
-            assert e.count == num_iter, f'unexpected number of iter for {e.key}'
-            continue
-        elif e.key == 'aten::add_':
-            # accumulating gradients into leaf tensors
-            assert e.count == (num_iter * num_leaf_tensors), f'unexpected number of iter for {e.key}'
-            continue
-        elif e.key == 'cudaDeviceSynchronize':
             continue
 
         kernel_name_to_gpu_time_us[e.key] = e.self_device_time_total
@@ -350,3 +336,326 @@ def get_gpu_kernel_gemm_time_s(f, *args, **kwargs):
         raise AssertionError("unexpected format of data")
 
 
+class LNLinear(torch.nn.Module):
+    def __init__(self, fc_dim1, fc_dim2):
+        super().__init__()
+        self.ln = torch.nn.LayerNorm(fc_dim1, elementwise_affine=False)
+        self.fc = torch.nn.Linear(fc_dim1, fc_dim2, bias=False)
+
+    def forward(self, x):
+        x = self.ln(x)
+        x = self.fc(x)
+        return x
+
+
+# copied from https://github.com/pytorch/torchtitan/blob/main/torchtitan/models/norms.py
+class RMSNorm(nn.Module):
+    """
+    Initialize the RMSNorm normalization layer.
+
+    Args:
+        dim (int): The dimension of the input tensor.
+        eps (float, optional): A small value added to the denominator for numerical stability. Default is 1e-6.
+
+    Attributes:
+        eps (float): A small value added to the denominator for numerical stability.
+        weight (nn.Parameter): Learnable scaling parameter.
+
+    """
+
+    def __init__(self, dim: int, eps: float = 1e-6):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
+
+    def _norm(self, x: torch.Tensor):
+        return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+
+    def forward(self, x: torch.Tensor):
+        output = self._norm(x.float()).type_as(x)
+        return output * self.weight
+
+    def reset_parameters(self):
+        torch.nn.init.ones_(self.weight)  # type: ignore
+
+
+# copied from https://github.com/pytorch/torchtitan/blob/main/torchtitan/models/llama/model.py
+class FeedForward(nn.Module):
+    """
+    FeedForward module
+
+    Args:
+        dim (int): Input dimension.
+        hidden_dim (int): Hidden dimension of the feedforward layer.
+        multiple_of (int): Value to ensure hidden dimension is a multiple of this value.
+        ffn_dim_multiplier (Optional[float]): Custom multiplier for hidden dimension. Defaults to None.
+
+    Attributes:
+        w1 (Linear): Linear transformation for the first layer.
+        w2 (Linear): Linear transformation for the second layer.
+        w3 (Linear): Linear transformation for the third layer.
+
+    """
+
+    def __init__(
+        self,
+        dim: int,
+        hidden_dim: int,
+        multiple_of: int,
+        ffn_dim_multiplier: Optional[float],
+    ):
+        super().__init__()
+        hidden_dim = int(2 * hidden_dim / 3)
+        # custom dim factor multiplier
+        if ffn_dim_multiplier is not None:
+            hidden_dim = int(ffn_dim_multiplier * hidden_dim)
+        hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of)
+
+        self.w1 = nn.Linear(dim, hidden_dim, bias=False)
+        self.w2 = nn.Linear(hidden_dim, dim, bias=False)
+        self.w3 = nn.Linear(dim, hidden_dim, bias=False)
+
+    def forward(self, x):
+        return self.w2(F.silu(self.w1(x)) * self.w3(x))
+
+    def init_weights(self, init_std: float):
+        nn.init.trunc_normal_(self.w1.weight, mean=0.0, std=0.02)
+        for linear in (self.w2, self.w3):
+            nn.init.trunc_normal_(linear.weight, mean=0.0, std=init_std)
+
+
+class NormFFNResidualNorm(nn.Module):
+    """
+    A fragment representing the end of TransformerBlock n and the start
+    of TransformerBlock n + 1, intended to include the fusions relevant
+    to float8 gemms in the FFN module in forward and backward.
+    """
+
+    def __init__(self, dim, hidden_dim, multiple_of, ffn_dim_multiplier):
+        super().__init__()
+        self.ffn_norm = RMSNorm(dim)
+        self.ffn = FeedForward(dim, hidden_dim, multiple_of, ffn_dim_multiplier)
+        self.attn_norm = RMSNorm(dim)
+
+    def forward(self, h):
+        # end of transformer block n
+        x = self.ffn_norm(h)
+        x = self.ffn(x)
+        x = h + x
+        # start of transformer block n + 1
+        x = self.attn_norm(x)
+        return x
+
+#
+# The following model definitions intend to capture all the 
+# relevant (prev_op -> linear -> [next_op, ...]) subgraphs from the LLaMa model
+# family.  We use https://github.com/pytorch/torchtitan/tree/main/torchtitan/models/llama
+# as the reference code structure, and manually define all the subgraphs
+# around linear layers.
+#
+# The goal here is to set up microbenchmarks on the fusion of float8 
+# scaling/casting that are relevant to transformer models, and break
+# them up in such a way that we can easily reason about fusions regarding
+# each linear layer without having to dig through large traces / long log files.
+# There is some duplication here (attn_norm and ffn_norm appear in multiple
+# places), and that's ok.
+#
+# Simplifying assumptions (may be relaxed in the future):
+# 1. don't model fusion with rotary embeddings and repeat-transpose
+# 2. don't model fusion with SDPA
+#
+# Patterns:
+# 1. add -> attn_norm -> attn.{wq|wk|wv}
+#   - note: rotary embedding, repeat-transpose, SDPA not modeled for simplicity
+#   - note: model just one of (q, k, v) and assume the others are similar
+# 2. transpose-contiguous -> attn.wo -> add -> ffn_norm
+# 3. add -> ffn_norm -> ffn.w1 -> silu -> mul
+#   - note: assume that `add -> ffn_norm -> ffn.w3 -> mul` is covered by above
+# 4. silu -> mul -> ffn.w2 -> add -> attn_norm
+#   - note: in today's torchtitan codebase, the transformer blocks are compiled 
+#     separately, so `add` and `attn_norm` are not in the same graph
+#
+
+class AttnWQKVSubgraph(nn.Module):
+    def __init__(self, dim1, dim2):
+        super().__init__()
+        self.attn_norm = RMSNorm(dim1)
+        self.fc = nn.Linear(dim1, dim2, bias=False)
+
+    def forward(self, x, y):
+        x = x + y
+        x = self.attn_norm(x)
+        x = self.fc(x)
+        return x
+
+
+class AttnWOSubgraph(nn.Module):
+    def __init__(self, dim1, dim2):
+        super().__init__()
+        self.fc = nn.Linear(dim1, dim2, bias=False)
+        self.ffn_norm = RMSNorm(dim2)
+
+    def forward(self, x, y):
+        x = x.transpose(0, 1).contiguous()
+        x = self.fc(x)
+        x = x + y
+        x = self.ffn_norm(x)
+        return x
+
+
+class FFNW13Subgraph(nn.Module):
+    def __init__(self, dim1, dim2):
+        super().__init__()
+        self.ffn_norm = RMSNorm(dim1)
+        self.fc = nn.Linear(dim1, dim2, bias=False)
+
+    def forward(self, x, y):
+        x = x + y
+        x = self.ffn_norm(x)
+        x = self.fc(x)
+        x = F.silu(x)
+        x = x * x
+        return x
+
+
+class FFNW2Subgraph(nn.Module):
+    def __init__(self, dim1, dim2):
+        super().__init__()
+        self.fc = nn.Linear(dim1, dim2, bias=False)
+        self.attn_norm = RMSNorm(dim2)
+
+    def forward(self, x, y):
+        x = F.silu(x)
+        x = x * x
+        x = self.fc(x)
+        x = x + y
+        x = self.attn_norm(x)
+        return x
+
+
+class ModelType(enum.Enum):
+    LINEAR = "linear"
+    LN_LINEAR = "ln_linear"
+    NORM_FFN_NORM = "norm_ffn_norm"
+    NORM_FFN_NORM_SMALL = "norm_ffn_norm_small"
+    ATTN_WQKV_SUBGRAPH = "attn_wqkv_subgraph"
+    ATTN_WO_SUBGRAPH = "attn_wo_subgraph"
+    FFN_W13_SUBGRAPH = "ffn_w13_subgraph"
+    FFN_W2_SUBGRAPH = "ffn_w12_subgraph"
+
+
+def subgraph_name_to_subgraph_and_inputs(
+    model_type: str,
+    mkn_override: Optional[Tuple[int, int, int]] = None,
+):
+    try:
+        model_type = ModelType(model_type)
+    except ValueError as e:
+        valid_values = [e.value for e in ModelType]
+        print(f"invalid model_type {model_type}, valid values: {valid_values}")
+        raise e
+
+    device = "cuda"
+    ref_dtype = torch.bfloat16
+    if model_type is ModelType.LN_LINEAR:
+        M, K, N = 4 * 4096, 8192, 7168
+        if mkn_override is not None:
+            M, K, N = mkn_override
+        m_ref = LNLinear(K, N)
+        input_tensor = torch.randn(
+            M, K, device=device, dtype=ref_dtype, requires_grad=True
+        )
+        input_tensors = (input_tensor,)
+
+    elif model_type is ModelType.NORM_FFN_NORM:
+        assert mkn_override is None, "unsupported"
+        m_ref = NormFFNResidualNorm(
+            dim=4096,
+            hidden_dim=16384,
+            multiple_of=1024,
+            ffn_dim_multiplier=1.3,
+        )
+        input_tensor = torch.randn(
+            1, 8192, 4096, device=device, dtype=ref_dtype
+        ).requires_grad_()
+        input_tensors = (input_tensor,)
+
+    elif model_type is ModelType.NORM_FFN_NORM_SMALL:
+        assert mkn_override is None, "unsupported"
+        m_ref = NormFFNResidualNorm(
+            dim=4096,
+            hidden_dim=4096,
+            multiple_of=1024,
+            ffn_dim_multiplier=1.0,
+        )
+        input_tensor = torch.randn(
+            1, 2048, 4096, device=device, dtype=ref_dtype
+        ).requires_grad_()
+        input_tensors = (input_tensor,)
+
+    elif model_type is ModelType.ATTN_WQKV_SUBGRAPH:
+        M, K, N = 1024, 2048, 4096
+        if mkn_override is not None:
+            M, K, N = mkn_override
+        m_ref = AttnWQKVSubgraph(K, N)
+        input_tensor = torch.randn(
+            M, K, device=device, dtype=ref_dtype).requires_grad_()
+        input_tensor2 = torch.randn(
+            M, K, device=device, dtype=ref_dtype).requires_grad_()
+        input_tensors = (input_tensor, input_tensor2)
+
+    elif model_type is ModelType.ATTN_WO_SUBGRAPH:
+        M, K, N = 1024, 2048, 4096
+        if mkn_override is not None:
+            M, K, N = mkn_override
+        m_ref = AttnWOSubgraph(K, N)
+        input_tensor = torch.randn(
+            K, M, device=device, dtype=ref_dtype).requires_grad_()
+        input_tensor2 = torch.randn(
+            M, N, device=device, dtype=ref_dtype).requires_grad_()
+        input_tensors = (input_tensor, input_tensor2)
+
+    elif model_type is ModelType.FFN_W13_SUBGRAPH:
+        M, K, N = 1024, 2048, 4096
+        if mkn_override is not None:
+            M, K, N = mkn_override
+        m_ref = FFNW13Subgraph(K, N)
+        input_tensor = torch.randn(
+            M, K, device=device, dtype=ref_dtype).requires_grad_()
+        input_tensor2 = torch.randn(
+            M, K, device=device, dtype=ref_dtype).requires_grad_()
+        input_tensors = (input_tensor, input_tensor2)
+
+    elif model_type is ModelType.FFN_W2_SUBGRAPH:
+        M, K, N = 1024, 2048, 4096
+        if mkn_override is not None:
+            M, K, N = mkn_override
+        m_ref = FFNW2Subgraph(K, N)
+        input_tensor = torch.randn(
+            M, K, device=device, dtype=ref_dtype).requires_grad_()
+        input_tensor2 = torch.randn(
+            M, N, device=device, dtype=ref_dtype).requires_grad_()
+        input_tensors = (input_tensor, input_tensor2)
+
+    else:
+        assert ModelType is ModelType.LINEAR
+        M, K, N = 4096, 4096, 4096
+        if mkn_override is not None:
+            M, K, N = mkn_override
+        m_ref = torch.nn.Sequential(
+            torch.nn.Linear(K, N, bias=False),
+        )
+        input_tensor = torch.randn(
+            M, K, device=device, dtype=ref_dtype, requires_grad=True
+        )
+        input_tensors = (input_tensor,)
+
+    m_ref = m_ref.to(device).to(ref_dtype)
+    return m_ref, input_tensors
+
+
+def do_bench_using_profiling_wrapper_s(fn, *args, **kwargs):
+    def fn_inner():
+        fn(*args, **kwargs)
+    res = do_bench_using_profiling(fn_inner) / 1e3
+    return res

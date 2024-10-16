@@ -6,44 +6,36 @@
 import argparse
 import copy
 from dataclasses import dataclass
-from itertools import product
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 import pandas as pd
 
 import torch
+import torch.nn as nn
 import torch.utils.benchmark as benchmark
+from torchao.testing.float8.test_utils import get_test_float8_linear_config
+from torchao.float8 import convert_to_float8_training
 from torchao.float8.config import (
     CastConfig, 
     Float8LinearConfig, 
     ScalingType,
     ScalingGranularity,
+    Float8LinearRecipeName,
+    recipe_name_to_linear_config,
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_linear_utils import (
     linear_requires_sync,
     sync_float8_amax_and_scale_history,
 )
-from torchao.float8.float8_tensor import ScaledMMConfig
-from utils import get_name_to_shapes_iter
+from utils import (
+    get_name_to_shapes_iter,
+    do_bench_using_profiling_wrapper_s,
+    subgraph_name_to_subgraph_and_inputs,
+)
 from tqdm import tqdm
 
-# estimating TOPs for matmuls in fp32, fp16, fp8
-# assuming A * B = C, with A being M * K, B being K * N, C being M * N
-
-# H100 SXM specs: bottom of https://www.nvidia.com/en-us/data-center/h100/
-h100_peak_flops_float32 = 67e12
-h100_peak_flops_fp16_tc = 1979e12
-h100_peak_tops_float8_tc = 3958e12
-
-dtype_to_peak_tops = {
-    torch.float32: h100_peak_flops_float32,
-    torch.float16: h100_peak_flops_fp16_tc,
-    torch.bfloat16: h100_peak_flops_fp16_tc,
-    torch.float8_e4m3fn: h100_peak_tops_float8_tc,
-    torch.float8_e5m2: h100_peak_tops_float8_tc,
-}
 
 # prevent splitting columns when printing a data frame
 pd.set_option("display.expand_frame_repr", False)
@@ -72,28 +64,6 @@ class Experiment:
     ref_time_sec: float
     float8_time_sec: float
     dtype: torch.dtype
-    compiled: bool
-    use_fast_accum: bool
-    scaling_repr: str
-
-    # 3 Times since we are calculating forward backward
-    @property
-    def ref_tops_sec(self):
-        M, K, N = self.shape
-        return float(3 * (2 * M * K * N)) / self.ref_time_sec
-
-    @property
-    def ref_pct_top_peak(self):
-        return self.ref_tops_sec / dtype_to_peak_tops[self.dtype]
-
-    @property
-    def float8_tops_sec(self):
-        M, K, N = self.shape
-        return float(3 * (2 * M * K * N)) / self.float8_time_sec
-
-    @property
-    def float8_pct_top_peak(self):
-        return self.float8_tops_sec / dtype_to_peak_tops[torch.float8_e4m3fn]
 
 
 # TODO(future PR): add option to measure GPU kernel time, as in other
@@ -102,7 +72,6 @@ def main(
     sweep_path: Optional[Path] = None,
     compile: bool = True,
     n_limit: Optional[int] = None,
-    fast_accum_filter: Optional[bool] = None,
     shape_name_filter: Optional[str] = None,
     *,
     shape_gen_name: str = 'llama',
@@ -112,137 +81,93 @@ def main(
     scaling_type_input: str = "dynamic",
     scaling_type_weight: str = "dynamic",
     scaling_type_grad_output: str = "dynamic",
-    scaling_granularity: str = "tensorwise",
+    recipe_name: Optional[str] = None,
+    use_e2e_time: bool = True,
+    model_type: str = "linear",
 ):
     device = "cuda"
-    print(f"Compile is set to             | {compile}")
+    print(f"model_type: {model_type}")
+    print(f"use_e2e_time: {use_e2e_time}")
+
+    # TODO(future PR): switch to fire.Fire
 
     scaling_type_input = ScalingType(scaling_type_input)
     scaling_type_weight = ScalingType(scaling_type_weight)
     scaling_type_grad_output = ScalingType(scaling_type_grad_output)
-    scaling_granularity = ScalingGranularity(scaling_granularity)
 
-    if scaling_type_input is ScalingType.STATIC:
-        cast_config_input=CastConfig(
-            scaling_type=scaling_type_input,
-            static_scale=torch.tensor([1.0], device="cuda"),
-            scaling_granularity=scaling_granularity,
+    if recipe_name is None:
+        config = get_test_float8_linear_config(
+            scaling_type_input,
+            scaling_type_weight,
+            scaling_type_grad_output,
+            emulate=False,
         )
-    else:
-        cast_config_input=CastConfig(
-            scaling_type=scaling_type_input,
-            scaling_granularity=scaling_granularity,
-        )
-    if scaling_type_weight is ScalingType.STATIC:
-        cast_config_weight=CastConfig(
-            scaling_type=scaling_type_weight,
-            static_scale=torch.tensor([1.0], device="cuda"),
-            scaling_granularity=scaling_granularity,
-        )
-    else:
-        cast_config_weight=CastConfig(
-            scaling_type=scaling_type_weight,
-            scaling_granularity=scaling_granularity,
-        )
-    if scaling_type_grad_output is ScalingType.STATIC:
-        cast_config_grad_output=CastConfig(
-            scaling_type=scaling_type_grad_output,
-            static_scale=torch.tensor([1.0], device="cuda"),
-            scaling_granularity=scaling_granularity,
-        )
-    else:
-        cast_config_grad_output=CastConfig(
-            scaling_type=scaling_type_grad_output,
-            scaling_granularity=scaling_granularity,
-        )
-
-    config = Float8LinearConfig(
-        cast_config_input=cast_config_input,
-        cast_config_weight=cast_config_weight,
-        cast_config_grad_output=cast_config_grad_output,
-    )
+    elif recipe_name is not None:
+        recipe_name = Float8LinearRecipeName(recipe_name)
+        config = recipe_name_to_linear_config(recipe_name)
+    print(f"config: {config}")
 
     name_to_shapes = get_name_to_shapes_iter(shape_gen_name, M, K, N)
     input_bias = False
-    if fast_accum_filter is not None:
-        use_fast_accum = [fast_accum_filter]
-    else:
-        use_fast_accum = [True, False]
     if shape_name_filter is not None:
         k = shape_name_filter
         name_to_shapes = ((k, v) for (k, v) in name_to_shapes if k == shape_name_filter)
     experiment_list: List[Experiment] = []
     dtype = torch.bfloat16
-    for idx, (fast_accum, (name, (M, K, N))) in enumerate(
-        tqdm(list(product(use_fast_accum, name_to_shapes)))
-    ):
+    for idx, (name, (M, K, N)) in enumerate(tqdm(name_to_shapes)):
         if n_limit is not None and idx >= n_limit:
             break
-        linear_ref = torch.nn.Linear(K, N, bias=input_bias).to(
-            device=device, dtype=dtype
-        )
+        m_ref, input_tensors = subgraph_name_to_subgraph_and_inputs(
+            model_type, mkn_override=(M, K, N))
 
-        linear_float8 = Float8Linear.from_float(
-            copy.deepcopy(linear_ref),
-            config=config,
-        )
-        scaling_repr = f"{linear_float8.scaling_type_repr()},{linear_float8.scaling_granularity_repr()}"
+        # linear_ref = nn.Sequential(nn.Linear(K, N, bias=input_bias)).to(
+        #     device=device, dtype=dtype
+        # )
+        # input_tensor = torch.randn(M, K, device=device, dtype=dtype, requires_grad=True)
 
-        if fast_accum:
-            linear_float8.forward_config = ScaledMMConfig(False, True, False)
-        else:
-            linear_float8.forward_config = ScaledMMConfig(False, False, False)
+        m_float8 = copy.deepcopy(m_ref)
+        convert_to_float8_training(m_float8, config=config)
 
-        input_tensor = torch.randn(M, K, device=device, dtype=dtype, requires_grad=True)
-        ref_forw_backward = lambda: linear_ref(input_tensor).sum().backward()
+        def ref_forw_backward(*input_tensors):
+            return m_ref(*input_tensors).sum().backward()
 
-        def float8_forw_backward():
+        def float8_forw_backward(*input_tensors):
             if linear_requires_sync(config):
-                sync_float8_amax_and_scale_history(linear_float8)
-            linear_float8(input_tensor).sum().backward()
-
-        def n_times(n, fn, *args, **kwargs):
-            def wrapper(*args, **kwargs):
-                for _ in range(n):
-                    fn(*args, **kwargs)
-
-            return wrapper
-
-        REPEAT_N = 100
-
-        ref_forw_backward = n_times(REPEAT_N, ref_forw_backward)
-        float8_forw_backward = n_times(REPEAT_N, float8_forw_backward)
+                sync_float8_amax_and_scale_history(m_float8)
+            return m_float8(*input_tensors).sum().backward()
 
         if compile:
             ref_forw_backward = torch.compile(ref_forw_backward)
             float8_forw_backward = torch.compile(float8_forw_backward)
 
-        for _ in range(5):
-            ref_forw_backward()
-            float8_forw_backward()
+        n_warmup = 2
+        for _ in range(n_warmup):
+            ref_forw_backward(*input_tensors)
+        if not use_e2e_time:
+            ref_time = do_bench_using_profiling_wrapper_s(ref_forw_backward, *input_tensors)
+        else:
+            ref_time = (
+                benchmark_torch_function_in_microseconds(ref_forw_backward, *input_tensors)
+                * 1e-6
+            )
 
-        ref_time = (
-            benchmark_torch_function_in_microseconds(ref_forw_backward)
-            * 1e-6
-            / REPEAT_N
-        )
-        float8_time = (
-            benchmark_torch_function_in_microseconds(float8_forw_backward)
-            * 1e-6
-            / REPEAT_N
-        )
+        for _ in range(n_warmup):
+            float8_forw_backward(*input_tensors)
+        if not use_e2e_time:
+            float8_time = do_bench_using_profiling_wrapper_s(float8_forw_backward, *input_tensors)
+        else:
+            float8_time = (
+                benchmark_torch_function_in_microseconds(float8_forw_backward, *input_tensors)
+                * 1e-6
+            )
+
         experiment = Experiment(
             name,
             (M, K, N),
             ref_time,
             float8_time,
             dtype,
-            compile,
-            use_fast_accum=fast_accum,
-            scaling_repr=scaling_repr,
         )
-        print(experiment)
-        print("float8 speedup", experiment.ref_time_sec / experiment.float8_time_sec)
         experiment_list.append(experiment)
         torch._dynamo.reset()
 
@@ -251,16 +176,9 @@ def main(
         "M",
         "K",
         "N",
-        "scaling_repr",
         "ref_dtype",
-        "compiled",
-        "use_fast_accum",
         "ref_time_sec",
         "pt_fp8_time_sec",
-        "ref_tops_sec",
-        "ref_pct_top_peak",
-        "pt_fp8_tops_sec",
-        "pt_fp8_pct_top_peak",
     ]
     data = []
     for experiment in experiment_list:
@@ -270,16 +188,9 @@ def main(
                 experiment.shape[0],
                 experiment.shape[1],
                 experiment.shape[2],
-                experiment.scaling_repr,
                 experiment.dtype,
-                experiment.compiled,
-                experiment.use_fast_accum,
                 experiment.ref_time_sec,
                 experiment.float8_time_sec,
-                experiment.ref_tops_sec,
-                experiment.ref_pct_top_peak,
-                experiment.float8_tops_sec,
-                experiment.float8_pct_top_peak,
             ]
         )
 
@@ -299,9 +210,6 @@ def main(
         [
             "name",
             "shape",
-            "scaling_repr",
-            "compiled",
-            "use_fast_accum",
             "ref_time_sec",
             "pt_fp8_time_sec",
             "pt_fp8_speedup",
@@ -324,12 +232,15 @@ def invoke_main() -> None:
     parser.add_argument("--M", type=int, required=False)
     parser.add_argument("--K", type=int, required=False)
     parser.add_argument("--N", type=int, required=False)
-    parser.add_argument("--fast_accum_filter", type=bool, required=False)
     parser.add_argument("--shape_name_filter", type=str, required=False)
     parser.add_argument("--scaling_type_input", type=str, required=False)
     parser.add_argument("--scaling_type_weight", type=str, required=False)
     parser.add_argument("--scaling_type_grad_output", type=str, required=False)
-    parser.add_argument("--scaling_granularity", type=str, required=False)
+    parser.add_argument("--recipe_name", type=str, required=False)
+    # TODO(future PR): align this arg name with profiling script after
+    # switching to fire.Fire
+    parser.add_argument("--use_e2e_time", action="store_true", required=False)
+    parser.add_argument("--model_type", type=str, required=False)
     args = parser.parse_args()
     output_path = Path(args.output_path) if args.output_path is not None else None
     kwargs = {}
@@ -347,13 +258,16 @@ def invoke_main() -> None:
         kwargs["scaling_type_weight"] = args.scaling_type_weight
     if args.scaling_type_grad_output is not None:
         kwargs["scaling_type_grad_output"] = args.scaling_type_grad_output
-    if args.scaling_granularity is not None:
-        kwargs["scaling_granularity"] = args.scaling_granularity
+    if args.recipe_name is not None:
+        kwargs["recipe_name"] = args.recipe_name
+    if args.use_e2e_time is not None:
+        kwargs["use_e2e_time"] = args.use_e2e_time
+    if args.model_type is not None:
+        kwargs["model_type"] = args.model_type
     main(
         output_path,
         not args.disable_compile,
         args.n_limit,
-        args.fast_accum_filter,
         args.shape_name_filter,
         **kwargs,
     )
