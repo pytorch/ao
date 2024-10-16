@@ -220,7 +220,7 @@ def _replace_with_custom_fn_if_matches_filter(
 
 def _is_linear(mod, *args):
     # avoid circular dependencies
-    from torchao.quantization.prototype.qat.affine_fake_quantized_tensor import (
+    from torchao.prototype.quantization.qat.affine_fake_quantized_tensor import (
         AffineFakeQuantizedTensor,
     )
 
