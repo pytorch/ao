@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - build/packaging/**
-      - .github/workflows/build_wheels_aarch64_linux.yml
+      - .github/workflows/build_wheels_windows.yml
       - setup.py
   push:
     branches:
