@@ -34,6 +34,8 @@ from torchao.quantization.qat.embedding import (
 )
 from torchao.quantization.qat.linear import (
     FakeQuantizedLinear,
+    Int8DynActInt4WeightQATLinear,
+    Int4WeightOnlyQATLinear
 )
 from torchao.quantization.qat.utils import (
     _choose_qparams_per_token_asymmetric,
@@ -66,6 +68,10 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
 )
 
+from torchao.quantization.GPTQ import (
+    _replace_linear_8da4w,
+    _replace_linear_int4
+)
 
 # TODO: put this in a common test utils file
 _CUDA_IS_AVAILABLE = torch.cuda.is_available()
@@ -854,6 +860,48 @@ class TestQAT(unittest.TestCase):
         fq_out = fq_linear(x)
         baseline_out = linear_forward_4w(x2, fq_linear.weight)
         torch.testing.assert_close(baseline_out, fq_out, atol=0, rtol=0)
+        
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower")        
+    def test_replace_linear_8da4w(self):
+        module = torch.nn.ModuleList([
+            torch.nn.Linear(in_features=256, out_features=50, bias=True)
+        ])
+        _replace_linear_8da4w(module, 256, False, torch.float32, torch.float32, Int8DynActInt4WeightQATLinear, copy_weights=True)
+        assert(not isinstance(module[0], Int8DynActInt4WeightQATLinear) and isinstance(module[0], torch.nn.Linear))
+        module = torch.nn.ModuleList([
+            torch.nn.Linear(in_features=256, out_features=50, bias=False)
+        ])
+        _replace_linear_8da4w(module, 256, False, torch.float32, torch.float32, Int8DynActInt4WeightQATLinear, copy_weights=True)
+        assert(isinstance(module[0], Int8DynActInt4WeightQATLinear))
+    
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower")    
+    def test_replace_linear_int4(self):
+        module = torch.nn.ModuleList([
+            torch.nn.Linear(in_features=256, out_features=50, bias=True)
+        ])
+        _replace_linear_int4(
+            module, 
+            256, 
+            8,
+            padding_allowed=True, 
+            precision=torch.bfloat16, 
+            scales_precision=torch.bfloat16, 
+            linear_class=Int4WeightOnlyQATLinear, 
+            copy_weights=True)
+        assert(not isinstance(module[0], Int4WeightOnlyQATLinear) and isinstance(module[0], torch.nn.Linear))
+        module = torch.nn.ModuleList([
+            torch.nn.Linear(in_features=256, out_features=50, bias=False)
+        ])
+        _replace_linear_int4(
+            module, 
+            256, 
+            8,
+            padding_allowed=True, 
+            precision=torch.bfloat16, 
+            scales_precision=torch.bfloat16, 
+            linear_class=Int4WeightOnlyQATLinear, 
+            copy_weights=True)
+        assert(isinstance(module[0], Int4WeightOnlyQATLinear))
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower")
     def test_fake_quantized_embedding_4w(self):
