@@ -24,16 +24,6 @@ if "%VSDEVCMD_ARGS%" == "" (
 
 if "%CU_VERSION%" == "xpu" call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat"
 
-REM Check CUDA version and skip build if it's 11.8
-if "%CUDA_VERSION%" == "11.8" (
-    echo Skipping build for CUDA 11.8
-    exit /b 0
-)
-
-REM Set TORCH_CUDA_ARCH_LIST
-set TORCH_CUDA_ARCH_LIST=8.0;8.6
-if "%CU_VERSION%" == "cu124" set TORCH_CUDA_ARCH_LIST=%TORCH_CUDA_ARCH_LIST%;9.0
-
 set DISTUTILS_USE_SDK=1
 
 set args=%1
