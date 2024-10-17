@@ -13,6 +13,7 @@ from .weight_only import *  # noqa: F403
 from .unified import *
 from .autoquant import *
 from .granularity import *
+from .quantize_linear import *
 from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
     to_linear_activation_quantized,

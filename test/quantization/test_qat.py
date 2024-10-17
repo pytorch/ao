@@ -68,7 +68,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
 )
 
-from torchao.quantization.GPTQ import (
+from torchao.quantization.quantize_linear import (
     _replace_linear_8da4w,
     _replace_linear_int4
 )
@@ -239,7 +239,7 @@ class TestQAT(unittest.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower")
     def test_qat_8da4w_quantizer(self):
         from torchao.quantization.qat import Int8DynActInt4WeightQATQuantizer
-        from torchao.quantization.GPTQ import Int8DynActInt4WeightQuantizer
+        from torchao.quantization.quantize_linear import Int8DynActInt4WeightQuantizer
 
         group_size = 16
         torch.manual_seed(self.SEED)
@@ -553,7 +553,7 @@ class TestQAT(unittest.TestCase):
     @unittest.skipIf(not _CUDA_IS_AVAILABLE, "skipping when cuda is not available")
     def test_qat_4w_quantizer(self):
         from torchao.quantization.qat import Int4WeightOnlyQATQuantizer
-        from torchao.quantization.GPTQ import Int4WeightOnlyQuantizer
+        from torchao.quantization.quantize_linear import Int4WeightOnlyQuantizer
 
         group_size = 32
         inner_k_tiles = 8
