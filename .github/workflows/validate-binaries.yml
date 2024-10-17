@@ -45,5 +45,7 @@ jobs:
       repository: "pytorch/ao"
       with_cuda: "enable"
       with_rocm: "disable"
-      smoke_test: "source ./.github/scripts/validate_binaries.sh"
+      smoke_test: |
+          pip install -r dev-requirements.txt
+          pytest test --verbose -s
       install_torch: true
