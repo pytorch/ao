@@ -32,6 +32,8 @@ jobs:
       test-infra-repository: pytorch/test-infra
       test-infra-ref: main
       with-xpu: enable
+      with-cuda: disable
+
   build:
     needs: generate-matrix
     strategy:
