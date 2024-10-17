@@ -59,9 +59,9 @@ if TORCH_VERSION_AT_LEAST_2_2:
         
         if device_cpu or bad_dimensions_for_cublas:
             # fallback path
-            return torch.matmul(input.cpu().to(torch.float), mat2.cpu().to(torch.float)).to(
+            return torch.matmul(input.cpu().to(torch.int32), mat2.cpu().to(torch.int32)).to(
                 input.device.type
-            ).to(torch.int32)
+            )
 
         # cublas paths
         if not mat2.is_contiguous():  # silently gives incorrect result without this
