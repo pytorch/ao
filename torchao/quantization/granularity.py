@@ -22,7 +22,7 @@ class PerTensor(Granularity):
     """
     Represents per-tensor granularity in quantization.
 
-    This granularity type calcualtes the quantization parameters
+    This granularity type calculates the quantization parameters
     based off the entire tensor.
     """
     pass
@@ -32,13 +32,12 @@ class PerAxis(Granularity):
     """
     Represents per-axis granularity in quantization.
 
-    This granularity type calcualtes different quantization parameters
+    This granularity type calculates different quantization parameters
     along a specified axis of the tensor.
 
     For example if the input tensor is shape [8, 16] and axis=0, then
     the quantization parameters are calculated for each row of the tensor.
     Giving a total of 8 quantization parameters.
-
 
     Attributes:
         axis (int): The axis along which reduction is performed.
@@ -46,12 +45,11 @@ class PerAxis(Granularity):
     axis: int
 
 @dataclass(frozen=True)
-
 class PerGroup(Granularity):
     """
     Represents per-channel group granularity in quantization.
 
-    This granularity type calcualtes different quantization parameters
+    This granularity type calculates different quantization parameters
     for each group of <group_size> elements.
 
     For example if the input tensor is shape [8, 16], and the group size is 4, then
@@ -72,5 +70,21 @@ class PerRow(Granularity):
     This is a special case of per-axis quantization and is unique to Float8 matmuls
     where the input is quantized with a block_size of (1, ..., input.shape[-1]). And the weight
     is quantized with a block_size of (1, weight.shape[1]).
+    """
+    pass
+
+class PerToken(Granularity):
+    """
+    Represents per-token granularity in quantization.
+
+    This granularity type calculates a different set of quantization parameters
+    for each token, which is represented as the last dimension of the tensor.
+
+    For example, if the input tensor has shape [2, 3, 4], then there are 6 tokens
+    with 4 elements each, and we will calculate 6 sets of quantization parameters,
+    one for each token.
+
+    If the input tensor has only two dimensions, e.g. [8, 16], then this is
+    equivalent to `PerAxis(axis=0)`, which yields 8 sets of quantization parameters.
     """
     pass

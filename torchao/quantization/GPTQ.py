@@ -617,7 +617,8 @@ def _replace_linear_int4(
     copy_weights: bool = False,
 ):
     for name, child in module.named_children():
-        if isinstance(child, nn.Linear) and (skip_layer_func is None or not skip_layer_func(child.weight)):
+        # TODO: support linear bias
+        if isinstance(child, nn.Linear) and child.bias is None and (skip_layer_func is None or not skip_layer_func(child.weight)):
             if _check_linear_int4_k(child.in_features, groupsize, inner_k_tiles) or padding_allowed:
                 new_linear = linear_class(
                     child.in_features,
@@ -979,7 +980,8 @@ def _replace_linear_8da4w(
     from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 
     def filter_fn(child: torch.nn.Module, cur_fqn:str) -> bool:
-        return isinstance(child, nn.Linear) and (_check_linear_int4_k(child.in_features, groupsize) or padding_allowed)
+        # TODO: support linear bias
+        return isinstance(child, nn.Linear) and child.bias is None and (_check_linear_int4_k(child.in_features, groupsize) or padding_allowed)
 
     def replacement_fn(child: torch.nn.Module) -> torch.nn.Module:
         new_linear = linear_class(

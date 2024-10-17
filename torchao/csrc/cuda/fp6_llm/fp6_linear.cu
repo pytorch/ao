@@ -29,17 +29,16 @@
 inline bool isSM75GPU() {
     int device;
     cudaError_t err = cudaGetDevice(&device);
-    if (err != cudaSuccess) {
-        return false;
-    }
+    if (err != cudaSuccess) return false;
 
-    cudaDeviceProp props;
-    err = cudaGetDeviceProperties(&props, device);
-    if (err != cudaSuccess) {
-        return false;
-    }
+    int major, minor;
+    err = cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, device);
+    if (err != cudaSuccess) return false;
 
-    return (props.major == 7) && (props.minor == 5);
+    err = cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, device);
+    if (err != cudaSuccess) return false;
+
+    return (major == 7) && (minor == 5);
 }
 
 template<typename TilingConfig, typename OutputDataType, int EXPONENT, int MANTISSA>

@@ -1,11 +1,11 @@
 # From https://github.com/pytorch/test-infra/wiki/Using-Nova-Reusable-Build-Workflows
-name: Build Linux Wheels
+name: Build AARCH64 Linux Wheels
 
 on:
   pull_request:
     paths:
       - build/packaging/**
-      - .github/workflows/build_wheels_linux.yml
+      - .github/workflows/build_wheels_aarch64_linux.yml
       - setup.py
   push:
     branches:
@@ -25,10 +25,10 @@ jobs:
     uses: pytorch/test-infra/.github/workflows/generate_binary_build_matrix.yml@main
     with:
       package-type: wheel
-      os: linux
-      with-cpu: enable
-      with-cuda: enable
-      with-rocm: enable
+      os: linux-aarch64
+      test-infra-repository: pytorch/test-infra
+      test-infra-ref: main
+      with-cuda: disable
 
   build:
     needs: generate-matrix
@@ -45,11 +45,11 @@ jobs:
       build-matrix: ${{ needs.generate-matrix.outputs.matrix }}
       env-var-script: packaging/env_var_script_linux.sh
       pre-script: packaging/pre_build_script.sh
-      post-script: packaging/post_build_script.sh
+      # post-script: packaging/post_build_script.sh
       smoke-test-script: packaging/smoke_test.py
       package-name: torchao
       trigger-event: ${{ github.event_name }}
-      # This is the CUDA version to be uploaded to torchao-nightly pypi
-      upload-to-pypi: cu121
+      architecture: aarch64
+      setup-miniconda: false
     secrets:
       PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}

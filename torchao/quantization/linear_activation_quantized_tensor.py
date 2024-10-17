@@ -165,6 +165,20 @@ def _(func, types, args, kwargs):
         func, args, kwargs, args[0]._apply_fn_to_data(torch.t)
     )
 
+@implements(aten.slice.Tensor)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func, args, kwargs, LinearActivationQuantizedTensor(
+        func(args[0].original_weight_tensor, *args[1:]), args[0].input_quant_func)
+    )
+
+# this is needed for DTensor.from_local() and for flattening tensor
+@implements(aten.view.default)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func, args, kwargs, LinearActivationQuantizedTensor(func(args[0].original_weight_tensor, *args[1:]), args[0].input_quant_func)
+    )
+
 to_linear_activation_quantized = LinearActivationQuantizedTensor.from_float
 
 if TORCH_VERSION_AT_LEAST_2_5:

@@ -7,6 +7,7 @@
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
+#include <torchao/experimental/ops/packed_weights_header.h>
 
 namespace torchao::ops::linear_8bit_act_xbit_weight {
 
@@ -59,6 +60,8 @@ struct UKernelConfig {
   kernel_fn_type kernel_fn{nullptr};
   int mr{0};
   int nr{0};
+
+  torchao::ops::PackedWeightsHeader packed_weights_header;
 };
 
 // Pack weight functions
