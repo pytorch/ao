@@ -17,11 +17,15 @@ class STDIORedirector {
       std::string file_name =
           std::string(std::getenv("HOME")) + "/tmp/BENCH_LOG";
       redirect_out_ = fopen(file_name.c_str(), "w");
-      stdout_dupfd_ = dup(1);
+      stdout_dupfd_ = dup(STDOUT_FILENO);
+      stderr_dupfd_ = dup(STDERR_FILENO);
       /* replace stdout with our output fd */
-      dup2(fileno(redirect_out_), 1);
+      dup2(fileno(redirect_out_), STDOUT_FILENO);
+      dup2(fileno(redirect_out_), STDERR_FILENO);
       fflush(stdout);
+      fflush(stderr);
       setvbuf(stdout, nil, _IONBF, 0);
+      setvbuf(stderr, nil, _IONBF, 0);
       setvbuf(redirect_out_, nil, _IONBF, 0);
     }
   }
@@ -29,9 +33,12 @@ class STDIORedirector {
   ~STDIORedirector() {
     if (@available(iOS 17, *)) {
       fflush(stdout);
+      fflush(stderr);
       /* restore stdout */
-      dup2(stdout_dupfd_, 1);
+      dup2(stdout_dupfd_, STDOUT_FILENO);
+      dup2(stderr_dupfd_, STDERR_FILENO);
       close(stdout_dupfd_);
+      close(stderr_dupfd_);
       fclose(redirect_out_);
     }
   }
@@ -39,6 +46,7 @@ class STDIORedirector {
  private:
   FILE* redirect_out_;
   int stdout_dupfd_;
+  int stderr_dupfd_;
 };
 
 static STDIORedirector stdio_redirector_;
