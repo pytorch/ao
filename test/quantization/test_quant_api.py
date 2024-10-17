@@ -236,71 +236,6 @@ class TestQuantFlow(TestCase):
         assert isinstance(m.linear2, Int8DynActInt4WeightLinear)
         m(*example_inputs)
 
-    # TODO: save model weights as artifacts and re-enable in CI
-    # For now, to run this test, you will need to download the weights from HF
-    # and run this script to convert them:
-    # https://github.com/pytorch-labs/gpt-fast/blob/6253c6bb054e658d67566150f87329b87815ae63/scripts/convert_hf_checkpoint.py
-    @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    def test_8da4w_gptq_quantizer(self):
-        from torchao.quantization.GPTQ import Int8DynActInt4WeightGPTQQuantizer
-        from torchao._models._eval import InputRecorder, TransformerEvalWrapper
-        # should be similar to TorchCompileDynamicQuantizer
-        precision = torch.bfloat16
-        device = "cpu"
-        checkpoint_path = Path("../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
-        model = Transformer.from_name(checkpoint_path.parent.name)
-        checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
-        model.load_state_dict(checkpoint, assign=True)
-        model = model.to(dtype=precision, device=device)
-        model.eval()
-        tokenizer_path = checkpoint_path.parent / "tokenizer.model"
-        assert tokenizer_path.is_file(), tokenizer_path
-        tokenizer = get_tokenizer(  # pyre-ignore[28]
-            tokenizer_path,
-            "Llama-2-7b-chat-hf",
-        )
-        blocksize = 128
-        percdamp = 0.01
-        groupsize = 128
-        calibration_tasks = ["wikitext"]
-        calibration_limit = 1
-        calibration_seq_length = 100
-        input_prep_func = prepare_inputs_for_model
-        pad_calibration_inputs = False
-
-        inputs = InputRecorder(
-            tokenizer,
-            calibration_seq_length,
-            input_prep_func,
-            pad_calibration_inputs,
-            model.config.vocab_size,
-        ).record_inputs(
-            calibration_tasks,
-            calibration_limit,
-        ).get_inputs()
-
-        quantizer = Int8DynActInt4WeightGPTQQuantizer(
-            blocksize,
-            percdamp,
-            groupsize,
-            precision=precision,
-        )
-        model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
-        model = quantizer.quantize(model, inputs)
-        result=TransformerEvalWrapper(
-            model,
-            tokenizer,
-            model.config.block_size,
-            prepare_inputs_for_model,
-            device,
-        ).run_eval(
-            ["wikitext"],
-            1,
-        )
-
-        assert result['results']['wikitext']['word_perplexity,none'] < 7.88, (
-            f"accuracy regressed from 7.87 to {result['results']['wikitext']['word_perplexity,none']}"
-        )
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch verion is 2.4 or lower")
@@ -404,7 +339,7 @@ class TestQuantFlow(TestCase):
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_quantizer_int4_weight_only(self):
-        from torchao.quantization.GPTQ import Int4WeightOnlyQuantizer
+        from torchao.quantization.quantize_linear import Int4WeightOnlyQuantizer
         from torchao._models._eval import TransformerEvalWrapper
         precision = torch.bfloat16
         device = "cuda"
