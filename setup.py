@@ -115,8 +115,9 @@ def get_extensions():
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
     cuda_sources = list(glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True))
 
-    extensions_hip_dir = os.path.join(extensions_dir, "cuda", "tensor_core_tiled_layout")
+    extensions_hip_dir = os.path.join(extensions_dir, "cuda", "tensor_core_tiled_layout", "sparse_marlin")
     hip_sources = list(glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True))
+    hip_sources = list(glob.glob(os.path.join(extensions_hip_dir, "*.h"), recursive=True))
 
     if not IS_ROCM and use_cuda:
         sources += cuda_sources
