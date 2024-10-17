@@ -27,6 +27,16 @@ __device__ inline void cp_async4_pred_zfill(void* smem_ptr,
                                             const bool zfill = false) {
   const int BYTES = 16;
   int src_in_bytes = (zfill ? 0 : BYTES);
+  #ifdef USE_ROCM
+  uint32_t smem = static_cast<uint32_t>(__builtin_amdgcn_s_getpc());
+  asm volatile(
+      "{\n"
+      "   .reg .pred p;\n"
+      "   setp.ne.b32 p, %0, 0;\n"
+      "   @p cp.async [%1], [%2], %3;\n" // AMD ROCm equivalent
+      "}\n" ::"r"((int)pred),
+      "r"(smem), "l"(glob_ptr), "n"(BYTES), "r"(src_in_bytes));
+  #else
   uint32_t smem = static_cast<uint32_t>(__cvta_generic_to_shared(smem_ptr));
   asm volatile(
       "{\n"
@@ -35,6 +45,7 @@ __device__ inline void cp_async4_pred_zfill(void* smem_ptr,
       "   @p cp.async.cg.shared.global [%1], [%2], %3;\n"
       "}\n" ::"r"((int)pred),
       "r"(smem), "l"(glob_ptr), "n"(BYTES), "r"(src_in_bytes));
+  #endif
 }
 
 __device__ inline void cp_async4_pred(void* smem_ptr, const void* glob_ptr,
