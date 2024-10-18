@@ -6,7 +6,7 @@
 
 #include <stdint.h>
 #include <torchao/experimental/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.h>
-#include <torchao/experimental/ops/macro.h>
+#include <torchao/experimental/ops/library.h>
 #include <torchao/experimental/ops/parallel.h>
 #include <algorithm>
 #include <cassert>

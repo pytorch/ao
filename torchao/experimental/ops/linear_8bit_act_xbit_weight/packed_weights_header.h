@@ -5,12 +5,12 @@
 // LICENSE file in the root directory of this source tree.
 
 #pragma once
-#include <torchao/experimental/ops/macro.h>
+#include <torchao/experimental/ops/library.h>
 #include <torchao/experimental/ops/packed_weights_header.h>
 
 namespace torchao::ops::linear_8bit_act_xbit_weight {
 
-torchao::ops::PackedWeightsHeader get_packed_weights_header_universal(
+inline torchao::ops::PackedWeightsHeader get_packed_weights_header_universal(
     int weight_nbit,
     bool has_weight_zeros,
     bool has_bias,

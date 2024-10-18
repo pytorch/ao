@@ -10,30 +10,12 @@
 #include <torchao/experimental/kernels/cpu/aarch64/linear/linear.h>
 #endif // defined(__aarch64__) || defined(__ARM_NEON)
 
+#include <torchao/experimental/ops/library.h>
 #include <torchao/experimental/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.h>
 #include <torchao/experimental/ops/linear_8bit_act_xbit_weight/packed_weights_header.h>
 #include <torchao/experimental/ops/packed_weights_header.h>
 #include <optional>
 #include <vector>
-
-#if defined(USE_ATEN) && !defined(USE_EXECUTORCH)
-#pragma message("USE_ATEN")
-#include <torch/library.h>
-#include <torch/script.h>
-#include <torch/torch.h>
-using Tensor = at::Tensor;
-#define CHECK_MSG(cond, msg) TORCH_CHECK(cond, msg)
-
-#elif defined(USE_EXECUTORCH) && !defined(USE_ATEN)
-#pragma message("USE_EXECUTORCH")
-#include <executorch/extension/kernel_util/make_boxed_from_unboxed_functor.h>
-#include <executorch/runtime/kernel/kernel_includes.h>
-using Tensor = torch::executor::Tensor;
-using RuntimeContext = torch::executor::KernelRuntimeContext;
-#define CHECK_MSG(cond, msg) ET_CHECK_MSG(cond, msg)
-#else
-#error "Must define either USE_ATEN or USE_EXECUTORCH"
-#endif
 
 namespace {
 
@@ -52,7 +34,7 @@ get_ukernel_config(torchao::ops::PackedWeightsHeader header) {
           channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot;
 
       // Check packing params match the kernel
-      CHECK_MSG(
+      TORCHAO_CHECK(
           header ==
               torchao::ops::linear_8bit_act_xbit_weight::
                   get_packed_weights_header_universal(
@@ -80,9 +62,9 @@ get_ukernel_config(torchao::ops::PackedWeightsHeader header) {
           &ukernel::kernel<weight_nbit, has_weight_zeros, has_bias, has_clamp>;
       return config;
       break;
-    default:
-      CHECK_MSG(false, "Unsupported packed weights format");
 #endif // defined(__aarch64__) || defined(__ARM_NEON)
+    default:
+      TORCHAO_CHECK(false, "Unsupported packed weights format");
   }
 }
 
@@ -103,8 +85,9 @@ Tensor pack_weights_cpu(
     const Tensor& weight_scales,
     const std::optional<Tensor>& weight_zeros,
     int64_t group_size) {
-  CHECK_MSG(weight_qvals.dtype() == torch::kInt8, "weight_qvals must be int8");
-  CHECK_MSG(weight_qvals.dim() == 2, "weight_qvals must be 2D");
+  TORCHAO_CHECK(
+      weight_qvals.dtype() == torch::kInt8, "weight_qvals must be int8");
+  TORCHAO_CHECK(weight_qvals.dim() == 2, "weight_qvals must be 2D");
 
   // In PyTorch, weights are nxk in row-major format (with activations being
   // right-multiplied).
@@ -114,25 +97,25 @@ Tensor pack_weights_cpu(
   int n = weight_qvals.size(0);
   int k = weight_qvals.size(1);
 
-  CHECK_MSG(
+  TORCHAO_CHECK(
       weight_scales.dtype() == torch::kFloat32,
       "weight_scales must be float32");
-  CHECK_MSG(weight_scales.dim() == 1, "weight_scales must be 1D");
-  CHECK_MSG(group_size >= 1, "group_size must be >= 1");
-  CHECK_MSG(
+  TORCHAO_CHECK(weight_scales.dim() == 1, "weight_scales must be 1D");
+  TORCHAO_CHECK(group_size >= 1, "group_size must be >= 1");
+  TORCHAO_CHECK(
       weight_scales.size(0) == ((n * k) / group_size),
       "expected 1 scale per group");
 
-  CHECK_MSG(
+  TORCHAO_CHECK(
       has_weight_zeros == weight_zeros.has_value(),
       "has_weight_zeros must match weight_zeros.has_value()");
   const int8_t* weight_zeros_ptr = nullptr;
   if constexpr (has_weight_zeros) {
-    CHECK_MSG(
+    TORCHAO_CHECK(
         weight_zeros.value().dtype() == torch::kInt8,
         "weight_zeros must be int8");
-    CHECK_MSG(weight_zeros.value().dim() == 1, "weight_zeros must be 1D");
-    CHECK_MSG(
+    TORCHAO_CHECK(weight_zeros.value().dim() == 1, "weight_zeros must be 1D");
+    TORCHAO_CHECK(
         weight_zeros.value().size(0) == ((n * k) / group_size),
         "expected 1 zero per group");
     weight_zeros_ptr = weight_zeros.value().const_data_ptr<int8_t>();
@@ -206,7 +189,7 @@ Tensor pack_weights_meta(
     const Tensor& weight_scales,
     const std::optional<Tensor>& weight_zeros,
     int64_t group_size) {
-  CHECK_MSG(group_size >= 1, "group_size must be >= 1");
+  TORCHAO_CHECK(group_size >= 1, "group_size must be >= 1");
   int n = weight_qvals.size(0);
   int k = weight_qvals.size(1);
 
@@ -269,22 +252,23 @@ Tensor linear_out_cpu(
   int n = n_tensor.size(1);
   int k = k_tensor.size(1);
   int group_size = group_size_tensor.size(1);
-  CHECK_MSG(n >= 1, "n must be >= 1");
-  CHECK_MSG(k >= 1, "k must be >= 1");
-  CHECK_MSG(group_size >= 1, "group_size must be >= 1");
+  TORCHAO_CHECK(n >= 1, "n must be >= 1");
+  TORCHAO_CHECK(k >= 1, "k must be >= 1");
+  TORCHAO_CHECK(group_size >= 1, "group_size must be >= 1");
 
 #ifdef USE_ATEN
-  CHECK_MSG(
+  TORCHAO_CHECK(
       activations.dtype() == torch::kFloat32, "activations must be float32");
 #endif // USE_ATEN
 
-  CHECK_MSG(activations.dim() == 2, "activations must be 2D");
+  TORCHAO_CHECK(activations.dim() == 2, "activations must be 2D");
   int m = activations.size(0);
   int k_ = activations.size(1);
-  CHECK_MSG(k == k_, "activation shape is incompatible with packed weights.");
+  TORCHAO_CHECK(
+      k == k_, "activation shape is incompatible with packed weights.");
 
 #ifdef USE_ATEN
-  CHECK_MSG(out.dtype() == torch::kFloat32, "out must be float32");
+  TORCHAO_CHECK(out.dtype() == torch::kFloat32, "out must be float32");
 #endif // USE_ATEN
 
 #ifdef USE_ATEN
@@ -292,23 +276,23 @@ Tensor linear_out_cpu(
 #endif // USE_ATEN
 
 #ifdef USE_EXECUTORCH
-  CHECK_MSG(out.dim() == 2, "out must be 2D");
-  CHECK_MSG(out.size(0) == m, "out shape is incorrect");
-  CHECK_MSG(out.size(1) == n, "out shape is incorrect");
+  TORCHAO_CHECK(out.dim() == 2, "out must be 2D");
+  TORCHAO_CHECK(out.size(0) == m, "out shape is incorrect");
+  TORCHAO_CHECK(out.size(1) == n, "out shape is incorrect");
 #endif // USE_EXECUTORCH
 
   using namespace torchao::ops::linear_8bit_act_xbit_weight;
 
-  CHECK_MSG(packed_weights.dim() == 1, "packed_weights must be 1D");
+  TORCHAO_CHECK(packed_weights.dim() == 1, "packed_weights must be 1D");
 #ifdef USE_ATEN
-  CHECK_MSG(
+  TORCHAO_CHECK(
       packed_weights.dtype() == torch::kInt8, "packed_weights must be int8");
 #endif // USE_ATEN
-  CHECK_MSG(
+  TORCHAO_CHECK(
       packed_weights.size(0) >= torchao::ops::PackedWeightsHeader::size(),
       "packed_weights is not big enough to read the header.");
-  auto header = torchao::ops::PackedWeightsHeader::read(
-      packed_weights.const_data_ptr());
+  auto header =
+      torchao::ops::PackedWeightsHeader::read(packed_weights.const_data_ptr());
 
   auto ukernel_config = get_ukernel_config<
       weight_nbit,
@@ -392,13 +376,14 @@ Tensor linear_meta(
     const Tensor& k_tensor) {
   int n = n_tensor.size(1);
   int k = k_tensor.size(1);
-  CHECK_MSG(n >= 1, "n must be >= 1");
-  CHECK_MSG(k >= 1, "k must be >= 1");
+  TORCHAO_CHECK(n >= 1, "n must be >= 1");
+  TORCHAO_CHECK(k >= 1, "k must be >= 1");
 
-  CHECK_MSG(activations.dim() == 2, "activations must be 2D");
+  TORCHAO_CHECK(activations.dim() == 2, "activations must be 2D");
   int m = activations.size(0);
   int k_ = activations.size(1);
-  CHECK_MSG(k == k_, "activation shape is incompatible with packed weights.");
+  TORCHAO_CHECK(
+      k == k_, "activation shape is incompatible with packed weights.");
   return torch::empty({m, n}).to("meta");
 }
 #endif // USE_ATEN
