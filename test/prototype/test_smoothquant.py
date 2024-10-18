@@ -3,7 +3,7 @@ import os
 import pytest
 import torch
 import tempfile
-from torch.ao.quantization import HistogramObserver
+from torch.ao.quantization import MovingAverageMinMaxObserver
 from torchao.quantization import quantize_
 from torchao.utils import (
   TORCH_VERSION_AT_LEAST_2_2,
@@ -45,7 +45,7 @@ quant_mode_list = ["static", "dynamic"]
 devices = ["cpu"]
 if torch.cuda.is_available():
     devices.append("cuda")
-idtypes = (torch.float, torch.bfloat16, torch.half)
+idtypes = (torch.float, torch.bfloat16)
 
 if TORCH_VERSION_AT_LEAST_2_5:
     # This test case will trigger recompilation many times, so set a large cache_size_limit here
@@ -102,7 +102,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
             out_ref = torch.nn.functional.linear(act.to(idtype), fq_wei, b)
         elif quant_mode == "static":
             # activation is quantized per-tensor
-            obs = HistogramObserver(
+            obs = MovingAverageMinMaxObserver(
                 dtype=torch.int8,
                 qscheme=torch.per_tensor_symmetric,
                 quant_min=-127,

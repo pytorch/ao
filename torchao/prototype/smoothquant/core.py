@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Optional
 import torch
 import torch.nn.functional as F
-from torch.ao.quantization import PerChannelMinMaxObserver, HistogramObserver
+from torch.ao.quantization import PerChannelMinMaxObserver, MovingAverageMinMaxObserver
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
@@ -70,7 +70,7 @@ class SmoothQuantObserver(AffineQuantizedObserverBase):
             qscheme=torch.per_channel_affine,
             eps=eps,
         )
-        self.act_obs = HistogramObserver(
+        self.act_obs = MovingAverageMinMaxObserver(
             dtype=torch.int8,
             qscheme=torch.per_tensor_symmetric,
             quant_min=quant_min,

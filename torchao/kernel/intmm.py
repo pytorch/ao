@@ -138,10 +138,4 @@ def int_scaled_matmul(a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor) -
         return torch.ops.torchao.int_scaled_matmul(a, b, scales1)
 
     c = safe_int_mm(a, b)
-
-    if scales1.dtype == torch.half:
-        # to float to avoid overflow of float16
-        c = c * scales1.float()
-        return c.to(torch.half)
-
     return c * scales1

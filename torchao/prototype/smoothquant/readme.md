@@ -63,21 +63,27 @@ load_smooth_quant_recipe(model, "./smooth_quant_recipe.json")
 ```
 
 ## Benchmark
-Running the example case with `torch.compile` on a NVIDIA A10 GPU.
+Running the example case with `torch.compile` on a NVIDIA A10G GPU.
 ### meta-llama/Llama-2-7b-hf
-| Quant Method | Perplexity | Latency (sec/it) |
-|-|-|-|
-| SmoothQuant dynamic | 7.4318 | 0.6874 |
-| SmoothQuant static | 424.995 | 0.4560 |
-| AWQ UINT4 Group size 128 | 7.4837 | 1.0018 |
+| Quant Method | Perplexity |
+|-|-|
+| SmoothQuant dynamic | 7.4341 |
+| SmoothQuant static | 10.6206 |
 
 ### meta-llama/Meta-Llama-3-8B
-| Quant Method | Perplexity | Latency (sec/it) |
-|-|-|-|
-| SmoothQuant dynamic | 8.8274 | 0.9008 |
-| SmoothQuant static | 124.2236 | 0.5537 |
-| AWQ UINT4 Group size 128 | 8.7087 | 1.2868 |
+| Quant Method | Perplexity |
+|-|-|
+| SmoothQuant dynamic | 8.8184 |
+| SmoothQuant static | 12.4086 |
 
-Note:
-1. Static quantization needs tuning on recipe and alpha to get good accuracy. So, the data here is for reference only.
-2. AWQ's calibration runs on `mit-han-lab/pile-val-backup`, validation split while SmoothQuant's calibration runs on `wikitext/wikitext-2-raw-v1`, test split.
+Commands
+```bash
+# dynamic quant
+TORCHINDUCTOR_FREEZING=1 python example.py -m <model_id> --device=cuda --quant-mode=dynamic --compile
+# static quant
+TORCHINDUCTOR_FREEZING=1 python example.py -m <model_id> --device=cuda --quant-mode=static --compile
+```
+Environment:
+- AWS g5.12xlarge instance
+- torch==2.6.0.dev20241017+cu124
+- python==3.12.6
