@@ -125,6 +125,8 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.parametrize("idtype", idtypes)
 def test_save_load_recipe(alpha, quant_mode, device, idtype):
+    # This test case will trigger recompilation many times, so set a large cache_size_limit here
+    torch._dynamo.config.cache_size_limit = 32
     dataset_size = 20
     l1, l2, l3 = 512, 256, 128
     original_dtype = idtype
@@ -153,8 +155,8 @@ def test_save_load_recipe(alpha, quant_mode, device, idtype):
     # quantize
     is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
     quantize_(m, smooth_quant(), is_observed_linear)
-    # m = torch.compile(m, fullgraph=True)
-    # m_save_load = torch.compile(m_save_load, fullgraph=True)
+    m = torch.compile(m, fullgraph=True)
+    m_save_load = torch.compile(m_save_load, fullgraph=True)
     out_list = [m(data.squeeze(0)) for data in dataset]
     out = torch.cat(out_list)
     save_load_out_list = [m_save_load(data.squeeze(0)) for data in dataset]

@@ -38,7 +38,7 @@ if TORCH_VERSION_AT_LEAST_2_2:
         # torch.compile path
         if dynamo_is_compiling() or "FakeTensor" in input.__repr__():
             if input.device.type == "cpu":
-                # CPU needs float for better performance and further optimizations
+                # Matmul in int32 is slow on CPU and not supported well by Inductor cpp backend
                 return out_dtype(torch.ops.aten.mm.default, torch.int32, input.float(), mat2.float())
             return out_dtype(torch.ops.aten.mm.default, torch.int32, input, mat2)
 

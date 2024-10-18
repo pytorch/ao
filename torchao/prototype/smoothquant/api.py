@@ -1,8 +1,14 @@
 import torch
 from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter
 from torchao.dtypes import to_affine_quantized_intx, to_affine_quantized_intx_static
-from torchao.quantization.linear_activation_scale_quantized import (
-    to_linear_scale_activation_quantized,
+from torchao.quantization.linear_activation_quantized_tensor import (
+    to_linear_activation_quantized,
+)
+from torchao.quantization.linear_activation_scale import (
+    to_weight_tensor_with_linear_activation_scale_metadata,
+)
+from torchao.quantization.weight_tensor_linear_activation_quantization import (
+    to_weight_tensor_with_linear_activation_quantization_metadata,
 )
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization.utils import _get_per_token_block_size
@@ -11,7 +17,6 @@ from torchao.prototype.smoothquant.core import(
     SmoothQuantObservedLinear,
 )
 from typing import Dict, Optional
-from torch._dynamo import is_compiling as dynamo_is_compiling
 
 
 def insert_smooth_quant_observer(
@@ -120,6 +125,22 @@ def load_smooth_quant_recipe(model: torch.nn.Module, recipe_path: str, device=No
     recurse(model)
 
 
+class _ActQuantizer:
+    def __init__(self, target_dtype, quant_min=-127):
+        self.target_dtype = target_dtype
+        self.quant_min = quant_min
+
+    def dynamic_quantize(self, input):
+        return to_affine_quantized_intx(
+            input, MappingType.SYMMETRIC, _get_per_token_block_size(input), self.target_dtype, self.quant_min
+        )
+
+    def static_quantize(self, input, scale, zero_point):
+        return to_affine_quantized_intx_static(
+            input, scale, zero_point, list(input.shape), self.target_dtype, self.quant_min
+        )
+
+
 def smooth_quant(
         smoothing_factor: Optional[torch.Tensor] = None,
         act_scales: Optional[torch.Tensor] = None,
@@ -154,8 +175,16 @@ def smooth_quant(
             target_dtype,
         )
 
-        return to_linear_scale_activation_quantized(
-            qw, factor, x_scale, None, target_dtype, -127, 127
-        )
+        if x_scale is None:
+            # dynamic quant
+            qw = to_linear_activation_quantized(qw, _ActQuantizer(target_dtype).dynamic_quantize)
+        else:
+            # static quant
+            x_zero_point = torch.zeros_like(x_scale, dtype=torch.int64)
+            qw = to_weight_tensor_with_linear_activation_quantization_metadata(
+                qw, _ActQuantizer(target_dtype).static_quantize, x_scale, x_zero_point
+            )
+
+        return to_weight_tensor_with_linear_activation_scale_metadata(qw, factor.to(qw.dtype))
 
     return _observed_linear_subclass_inserter(quantize_weight)
