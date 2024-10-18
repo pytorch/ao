@@ -63,8 +63,10 @@ from .quant_primitives import (
 from .weight_only import WeightOnlyInt8QuantLinear
 from .unified import Quantizer, TwoStepQuantizer
 from torchao.quantization.quantize_linear import (
-    Int4WeightOnlyGPTQQuantizer,
     Int4WeightOnlyQuantizer,
+)
+from torchao.quantization.GPTQ_MT import (
+    Int4WeightOnlyGPTQQuantizer
 )
 from .utils import _get_per_token_block_size
 import logging
