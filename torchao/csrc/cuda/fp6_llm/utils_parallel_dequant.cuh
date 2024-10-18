@@ -20,7 +20,10 @@
 
 #include <cuda.h>
 #include <cuda_fp16.h>
+// TODO: can cuda_bf16 be imported for SM75? How to guard against this? The guard below does not work outside of device code
+// #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
 #include <cuda_bf16.h>
+// #endif
 #include <cuda_runtime.h>
 
 /*
