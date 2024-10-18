@@ -161,6 +161,7 @@ def main(
     temperature: float = 0.8,
     checkpoint_path: Path = Path("checkpoints/meta-Transformer/Transformer-2-7b-chat-hf/model.pth"),
     quantization: Optional[str] = None,
+    sparsity: Optional[str] = None,
     calibration_limit: int = 10,
     calibration_seq_length: int = 256,
     kv_cache_quantization: bool = False,
@@ -202,6 +203,11 @@ def main(
 
     torch.manual_seed(1234)
 
+    def ffn_only(mod, fqn):
+        return isinstance(mod, torch.nn.Linear) and "feed_forward" in fqn and ("w1" in fqn or "w3" in fqn)
+
+    def not_ffn_only(mod, fqn):
+        return isinstance(mod, torch.nn.Linear) and not("feed_forward" in fqn and ("w1" in fqn or "w3" in fqn))
 
     if quantization:
         from torchao.quantization.quant_api import (
@@ -217,10 +223,19 @@ def main(
             float8_dynamic_activation_float8_weight,
         )
         from torchao.quantization.granularity import PerTensor, PerRow
+        from torchao.dtypes import MarlinSparseLayout, SemiSparseLayout, PlainLayout
         if "int8wo" in quantization:
-            quantize_(model, int8_weight_only())
+            if "semi" in sparsity:
+                quantize_(model, int8_weight_only(layout=SemiSparseLayout()), filter_fn=ffn_only)
+                quantize_(model, int8_weight_only(), filter_fn=not_ffn_only)
+            else:
+                quantize_(model, int8_dynamic_activation_int8_weight())
         if "int8dq" in quantization:
-            quantize_(model, int8_dynamic_activation_int8_weight())
+            if "semi" in sparsity:
+                quantize_(model, int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()), filter_fn=ffn_only)
+                quantize_(model, int8_dynamic_activation_int8_weight(), filter_fn=not_ffn_only)
+            else:
+                quantize_(model, int8_dynamic_activation_int8_weight())
         if "int4wo" in quantization:
             if "hqq" in quantization:
                 use_hqq=True
@@ -228,10 +243,10 @@ def main(
                 use_hqq=False
             groupsize=int(quantization.split("-")[1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
-            quantize_(model, int4_weight_only(group_size=groupsize))
-        if "marlin" in quantization:
-            from torchao.dtypes import MarlinSparseLayout
-            quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
+            if "semi" in sparsity:
+                quantize_(model, int4_weight_only(group_size=groupsize, layout=MarlinSparseLayout()))
+            else:
+                quantize_(model, int4_weight_only(group_size=groupsize))
         if "fp6" in quantization:
             quantize_(model, fpx_weight_only(3, 2))
         if quantization.startswith("awq"):
@@ -308,6 +323,22 @@ def main(
         else:
             if not TORCH_VERSION_AT_LEAST_2_5:
                 unwrap_tensor_subclass(model)
+
+    # standalone sparsity
+    elif sparsity:
+        from torch.sparse import SparseSemiStructuredTensor
+        SparseSemiStructuredTensor._FORCE_CUTLASS = False
+        from torchao.sparsity import semi_sparse_weight, sparsify_
+        from torchao.sparsity.prototype.superblock.blocksparse import block_sparse_weight
+        for name, mod in model.named_modules():
+            print(name, mod)
+        
+        # breakpoint()
+        if "semi" in sparsity:
+            sparsify_(model, semi_sparse_weight(), filter_fn=ffn_only)
+        elif "block" in sparsity:
+            sparsify_(model, block_sparse_weight(), filter_fn=ffn_only)
+
 
     model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
 
@@ -421,9 +452,10 @@ def main(
     print(f"Model Size: {model_size:.02f} GB")
     if write_result:
         result_txt = f"\n{datetime.today().strftime('%Y%m%d%H%M%S')}, tok/s={tokpersec:6.2f}, mem/s={bandwidth:7.2f} GB/s, peak_mem={mem:5.2f} GB, model_size={model_size:5.2f} GB "
-        result_txt += f"quant: {quantization}, mod: {checkpoint_path.parent.name}, kv_quant: {kv_cache_quantization}, compile: {compile}, compile_prefill: {compile_prefill}, dtype: {precision}, device: {device} "
+        result_txt += f"quant: {quantization}, sparse: {sparsity}, mod: {checkpoint_path.parent.name}, kv_quant: {kv_cache_quantization}, compile: {compile}, compile_prefill: {compile_prefill}, dtype: {precision}, device: {device} "
         result_txt += f"repro: python generate.py "
         result_txt += f"--quantization {quantization} " if quantization else ""
+        result_txt += f"--sparsity {sparsity} " if sparsity else ""
         result_txt += f"--checkpoint_path {checkpoint_path} "
         result_txt += f"--device {device} "
         result_txt += f"--precision {precision} "
@@ -463,6 +495,11 @@ if __name__ == '__main__':
             +'autoquant-int4, autoquant-float8, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin'
         )
     )
+    parser.add_argument('-s', '--sparsity', type=str, 
+        help=(
+            'Which quantization techniques to apply: semi-structured or block-sparse'
+        )
+    )
     parser.add_argument("--calibration_limit", type=int, default=10, help="Number of calibration examples")
     parser.add_argument("--calibration_seq_length", type=int, default=256, help="Sequence length for calibration")
     parser.add_argument('--kv_cache_quantization', action='store_true', help='Whether to quantize the KV cache')
@@ -480,5 +517,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     main(
         args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.top_k,
-        args.temperature, args.checkpoint_path, args.quantization, args.calibration_limit, args.calibration_seq_length, args.kv_cache_quantization, args.cache_size, args.linear_causal_mask, args.save, args.compile, args.compile_prefill, args.profile, args.memory_profile, args.device, args.precision, args.write_result
+        args.temperature, args.checkpoint_path, args.quantization, args.sparsity, args.calibration_limit, args.calibration_seq_length, args.kv_cache_quantization, args.cache_size, args.linear_causal_mask, args.save, args.compile, args.compile_prefill, args.profile, args.memory_profile, args.device, args.precision, args.write_result
     )
