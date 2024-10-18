@@ -15,6 +15,8 @@ import torch._dynamo.config
 import torch._inductor.config
 from torchao.utils import get_model_size_in_bytes
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torch.sparse import SparseSemiStructuredTensor
+SparseSemiStructuredTensor._FORCE_CUTLASS = False
 
 def device_sync(device):
     if "cuda" in device:
@@ -223,13 +225,9 @@ def main(
             float8_dynamic_activation_float8_weight,
         )
         from torchao.quantization.granularity import PerTensor, PerRow
-        from torchao.dtypes import MarlinSparseLayout, SemiSparseLayout, PlainLayout
+        from torchao.dtypes import MarlinSparseLayout, SemiSparseLayout
         if "int8wo" in quantization:
-            if "semi" in sparsity:
-                quantize_(model, int8_weight_only(layout=SemiSparseLayout()), filter_fn=ffn_only)
-                quantize_(model, int8_weight_only(), filter_fn=not_ffn_only)
-            else:
-                quantize_(model, int8_dynamic_activation_int8_weight())
+            quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
             if "semi" in sparsity:
                 quantize_(model, int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()), filter_fn=ffn_only)
@@ -326,8 +324,6 @@ def main(
 
     # standalone sparsity
     elif sparsity:
-        from torch.sparse import SparseSemiStructuredTensor
-        SparseSemiStructuredTensor._FORCE_CUTLASS = False
         from torchao.sparsity import semi_sparse_weight, sparsify_
         from torchao.sparsity.prototype.superblock.blocksparse import block_sparse_weight
         for name, mod in model.named_modules():
@@ -497,7 +493,7 @@ if __name__ == '__main__':
     )
     parser.add_argument('-s', '--sparsity', type=str, 
         help=(
-            'Which quantization techniques to apply: semi-structured or block-sparse'
+            'Which sparsity techniques to apply: semi-structured'
         )
     )
     parser.add_argument("--calibration_limit", type=int, default=10, help="Number of calibration examples")
