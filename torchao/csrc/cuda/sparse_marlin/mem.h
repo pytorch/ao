@@ -51,6 +51,16 @@ __device__ inline void cp_async4_pred_zfill(void* smem_ptr,
 __device__ inline void cp_async4_pred(void* smem_ptr, const void* glob_ptr,
                                       bool pred = true) {
   const int BYTES = 16;
+  #ifdef USE_ROCM
+  uint32_t smem = static_cast<uint32_t>(__builtin_amdgcn_s_getpc());
+  asm volatile(
+      "{\n"
+      "   .reg .pred p;\n"
+      "   setp.ne.b32 p, %0, 0;\n"
+      "   @p ds_read_b128 %1, %2 offset:0;\n" // AMD ROCm equivalent
+      "}\n" ::"r"((int)pred),
+      "r"(smem), "l"(glob_ptr));
+  #else
   uint32_t smem = static_cast<uint32_t>(__cvta_generic_to_shared(smem_ptr));
   asm volatile(
       "{\n"
@@ -59,70 +69,125 @@ __device__ inline void cp_async4_pred(void* smem_ptr, const void* glob_ptr,
       "   @p cp.async.cg.shared.global [%1], [%2], %3;\n"
       "}\n" ::"r"((int)pred),
       "r"(smem), "l"(glob_ptr), "n"(BYTES));
+  #endif
 }
 
 // Asynchronous global->shared copy
 __device__ inline void cp_async4(void* smem_ptr, const void* glob_ptr) {
   const int BYTES = 16;
+  #ifdef USE_ROCM
+  uint32_t smem = static_cast<uint32_t>(__builtin_amdgcn_s_getpc());
+  asm volatile(
+      "{\n"
+      "   ds_read_b128 %0, %1 offset:0;\n"
+      "}\n" ::"r"(smem),
+      "l"(glob_ptr));
+  #else
   uint32_t smem = static_cast<uint32_t>(__cvta_generic_to_shared(smem_ptr));
   asm volatile(
       "{\n"
       "   cp.async.cg.shared.global [%0], [%1], %2;\n"
       "}\n" ::"r"(smem),
       "l"(glob_ptr), "n"(BYTES));
+  #endif
 }
 
 // Async copy fence.
 __device__ inline void cp_async_fence() {
+#ifdef USE_ROCM
+  __builtin_amdgcn_s_waitcnt(0);
+#else
   asm volatile("cp.async.commit_group;\n" ::);
+#endif
 }
 
 // Wait until at most `n` async copy stages are still pending.
 template <int n>
 __device__ inline void cp_async_wait() {
+#ifdef USE_ROCM
+  // For AMD GPUs, we use s_waitcnt
+  // This waits for all outstanding memory operations to complete
+  __builtin_amdgcn_s_waitcnt(0);
+#else
+  // For NVIDIA GPUs, use the original instruction
   asm volatile("cp.async.wait_group %0;\n" ::"n"(n));
+#endif
 }
 
 // Instruction for loading a full 16x16 matrix fragment of operand A from shared
 // memory, directly in tensor core layout.
 __device__ inline void ldsm4(FragA& frag_a, const void* smem_ptr) {
+  #ifdef USE_ROCM
+  uint32_t* a = reinterpret_cast<uint32_t*>(&frag_a);
+  uint32_t smem = static_cast<uint32_t>(__builtin_amdgcn_s_getpc());
+  asm volatile(
+      "ds_read_b128 %0, %1 offset:0\n"
+      "ds_read_b128 %2, %1 offset:16\n"
+      : "=v"(a[0]), "=v"(a[1]), "=v"(a[2]), "=v"(a[3])
+      : "v"(smem));
+  #else
   uint32_t* a = reinterpret_cast<uint32_t*>(&frag_a);
   uint32_t smem = static_cast<uint32_t>(__cvta_generic_to_shared(smem_ptr));
   asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0,%1,%2,%3}, [%4];\n"
                : "=r"(a[0]), "=r"(a[1]), "=r"(a[2]), "=r"(a[3])
                : "r"(smem));
+  #endif
 }
 
 __device__ inline void ldsm4_m(FragM& frag_m, const void* smem_ptr) {
   uint32_t* a = reinterpret_cast<uint32_t*>(&frag_m);
+  #ifdef USE_ROCM
+  uint32_t smem = static_cast<uint32_t>(__builtin_amdgcn_s_getpc());
+  asm volatile(
+      "ds_read_b64 %0, %2 offset:0\n"
+      : "=v"(a[0]), "=v"(a[1])
+      : "v"(smem));
+  #else
   uint32_t smem = static_cast<uint32_t>(__cvta_generic_to_shared(smem_ptr));
   asm volatile("ldmatrix.sync.aligned.m8n8.x2.shared.b16 {%0,%1}, [%2];\n"
                : "=r"(a[0]), "=r"(a[1])
                : "r"(smem));
+  #endif
 }
 
 // Instruction for loading a full 16x16 matrix fragment of operand A from shared
 // memory, directly in tensor core layout.
 __device__ inline void ldsm4_t(FragA& frag_a, const void* smem_ptr) {
   uint32_t* a = reinterpret_cast<uint32_t*>(&frag_a);
+  #ifdef USE_ROCM
+  uint32_t smem = static_cast<uint32_t>(__builtin_amdgcn_s_getpc());
+  asm volatile(
+      "ds_read_b128 %0, %4 offset:0\n"
+      "ds_read_b128 %2, %4 offset:16\n"
+      : "=v"(a[0]), "=v"(a[1]), "=v"(a[2]), "=v"(a[3])
+      : "v"(smem));
+  #else
   uint32_t smem = static_cast<uint32_t>(__cvta_generic_to_shared(smem_ptr));
   asm volatile(
       "ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 {%0,%1,%2,%3}, [%4];\n"
       : "=r"(a[0]), "=r"(a[1]), "=r"(a[2]), "=r"(a[3])
       : "r"(smem));
+  #endif
 }
 
 // Wait until barrier reaches `count`, then lock for current threadblock.
 __device__ inline void barrier_acquire(int* lock, int count) {
   if (threadIdx.x == 0) {
     int state = -1;
-    do
+    do {
       // Guarantee that subsequent writes by this threadblock will be visible
       // globally.
+      #ifdef USE_ROCM
+      asm volatile("flat_load_dword %0, %1 glc\n\t"
+                   "s_waitcnt vmcnt(0) & lgkmcnt(0)\n\t"
+                   : "=v"(state)
+                   : "v"(lock));
+      #else
       asm volatile("ld.global.acquire.gpu.b32 %0, [%1];\n"
                    : "=r"(state)
                    : "l"(lock));
-    while (state != count);
+      #endif
+    } while (state != count);
   }
   __syncthreads();
 }
@@ -138,10 +203,19 @@ __device__ inline void barrier_release(int* lock, bool reset = false) {
     int val = 1;
     // Make sure that all writes since acquiring this barrier are visible
     // globally, while releasing the barrier.
+    #ifdef USE_ROCM
+    asm volatile("s_waitcnt vmcnt(0) & lgkmcnt(0)\n\t"
+                 "s_memrealtime\n\t"
+                 "s_waitcnt vmcnt(0) & lgkmcnt(0)\n\t"
+                 "flat_atomic_add_i32 %0, %1\n\t"
+                 : "+v"(*lock)
+                 : "v"(val));
+    #else
     asm volatile("fence.acq_rel.gpu;\n");
     asm volatile("red.relaxed.gpu.global.add.s32 [%0], %1;\n"
                  :
                  : "l"(lock), "r"(val));
+    #endif
   }
 }
 }  // namespace torchao
