@@ -27,7 +27,8 @@ struct UKernelConfig {
       int group_size,
       const int8_t* weight_qvals,
       const float* weight_scales,
-      const int8_t* weight_zeros);
+      const int8_t* weight_zeros,
+      const float* bias);
   using kernel_fn_type = void (*)(
       float* output,
       int output_m_stride,
@@ -37,7 +38,6 @@ struct UKernelConfig {
       int group_size,
       const void* weight_data,
       const void* activation_data,
-      const float* bias,
       float clamp_min,
       float clamp_max);
 
@@ -98,7 +98,8 @@ void pack_weight_data_operator(
     int group_size,
     const int8_t* weight_qvals,
     const float* weight_scales,
-    const int8_t* weight_zeros);
+    const int8_t* weight_zeros,
+    const float* bias);
 
 // Linear functions
 struct LinearTilingParams {
@@ -144,7 +145,6 @@ void linear_operator(
     int group_size,
     const void* weight_data,
     const float* activations,
-    const float* bias,
     float clamp_min,
     float clamp_max);
 
