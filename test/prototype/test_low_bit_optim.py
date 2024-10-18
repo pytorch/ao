@@ -15,7 +15,7 @@ from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torchao.prototype import low_bit_optim
 from torchao.prototype.low_bit_optim.quant_utils import quantize_8bit_with_qmap, quantize_4bit_with_qmap
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_6
 
 try:
     import bitsandbytes as bnb
@@ -255,7 +255,7 @@ class TestFSDP2(FSDPTest):
     def world_size(self) -> int:
         return 2
 
-    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="OptimState8bit dispatch: attempting to run unimplemented operator/function: aten.as_strided.default")
+    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_6, reason="PyTorch>=2.6 is required.")
     @skip_if_lt_x_gpu(2)
     def test_fsdp2(self):
         optim_classes = [low_bit_optim.AdamW8bit, low_bit_optim.AdamW4bit]
