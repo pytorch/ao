@@ -17,6 +17,71 @@ def _check_linear_int4_k(k, groupsize = 1, inner_k_tiles = None):
         return k_divisible_by_groupsize and k_divisible_by_16_times_inner_k_tiles
     return k_divisible_by_groupsize
 
+def _replace_linear_int4(
+    module: torch.nn.Module,
+    groupsize: int,
+    inner_k_tiles: Optional[int],
+    padding_allowed: bool,
+    skip_layer_func: Optional[Callable] = None,
+    precision: torch.dtype = torch.bfloat16,
+    scales_precision: torch.dtype = torch.bfloat16,
+    linear_class: Type[torch.nn.Module] = WeightOnlyInt4Linear,
+    copy_weights: bool = False,
+):
+    for name, child in module.named_children():
+        if isinstance(child, nn.Linear) and (skip_layer_func is None or not skip_layer_func(child.weight)):
+            if _check_linear_int4_k(child.in_features, groupsize, inner_k_tiles) or padding_allowed:
+                new_linear = linear_class(
+                    child.in_features,
+                    child.out_features,
+                    bias=False,
+                    device=child.weight.device,
+                    groupsize=groupsize,
+                    inner_k_tiles=inner_k_tiles,
+                    precision=precision,
+                    scales_precision=scales_precision,
+                )
+                # TODO: merge with 8da4w?
+                # In distributed training, the model may be instantiated
+                # on the meta device, in which case there is no need to
+                # copy the weights, and doing so will result in an error
+                if copy_weights and child.weight.device != torch.device("meta"):
+                    new_linear.weight = child.weight
+                setattr(module, name, new_linear)
+        else:
+            _replace_linear_int4(
+                child,
+                groupsize,
+                inner_k_tiles,
+                padding_allowed,
+                skip_layer_func,
+                precision,
+                scales_precision,
+                linear_class,
+                copy_weights,
+            )
+
+def linear_forward_int4(
+    x: torch.Tensor,
+    weight_int4pack: torch.Tensor,
+    scales_and_zeros: torch.Tensor,
+    out_features: int,
+    groupsize: int,
+    precision: torch.dtype = torch.bfloat16,
+    scales_precision: torch.dtype = torch.bfloat16,
+):
+    origin_x_size = x.size()
+    x = x.reshape(-1, origin_x_size[-1])
+    c = torch.ops.aten._weight_int4pack_mm(
+        x.to(precision),
+        weight_int4pack,
+        groupsize,
+        scales_and_zeros.to(scales_precision)
+    ).to(dtype=x.dtype)
+    new_shape = origin_x_size[:-1] + (out_features,)
+    c = c.reshape(new_shape)
+    return c
+
 
 class WeightOnlyInt4Linear(torch.nn.Module):
     __constants__ = ['in_features', 'out_features']
@@ -140,70 +205,6 @@ class Int4WeightOnlyQuantizer(Quantizer):
                 cur_state_dict[f"{fqn}.scales_and_zeros"] = scales_and_zeros.to(self.device)
         return cur_state_dict
 
-def _replace_linear_int4(
-    module: torch.nn.Module,
-    groupsize: int,
-    inner_k_tiles: Optional[int],
-    padding_allowed: bool,
-    skip_layer_func: Optional[Callable] = None,
-    precision: torch.dtype = torch.bfloat16,
-    scales_precision: torch.dtype = torch.bfloat16,
-    linear_class: Type[torch.nn.Module] = WeightOnlyInt4Linear,
-    copy_weights: bool = False,
-):
-    for name, child in module.named_children():
-        if isinstance(child, nn.Linear) and (skip_layer_func is None or not skip_layer_func(child.weight)):
-            if _check_linear_int4_k(child.in_features, groupsize, inner_k_tiles) or padding_allowed:
-                new_linear = linear_class(
-                    child.in_features,
-                    child.out_features,
-                    bias=False,
-                    device=child.weight.device,
-                    groupsize=groupsize,
-                    inner_k_tiles=inner_k_tiles,
-                    precision=precision,
-                    scales_precision=scales_precision,
-                )
-                # TODO: merge with 8da4w?
-                # In distributed training, the model may be instantiated
-                # on the meta device, in which case there is no need to
-                # copy the weights, and doing so will result in an error
-                if copy_weights and child.weight.device != torch.device("meta"):
-                    new_linear.weight = child.weight
-                setattr(module, name, new_linear)
-        else:
-            _replace_linear_int4(
-                child,
-                groupsize,
-                inner_k_tiles,
-                padding_allowed,
-                skip_layer_func,
-                precision,
-                scales_precision,
-                linear_class,
-                copy_weights,
-            )
-
-def linear_forward_int4(
-    x: torch.Tensor,
-    weight_int4pack: torch.Tensor,
-    scales_and_zeros: torch.Tensor,
-    out_features: int,
-    groupsize: int,
-    precision: torch.dtype = torch.bfloat16,
-    scales_precision: torch.dtype = torch.bfloat16,
-):
-    origin_x_size = x.size()
-    x = x.reshape(-1, origin_x_size[-1])
-    c = torch.ops.aten._weight_int4pack_mm(
-        x.to(precision),
-        weight_int4pack,
-        groupsize,
-        scales_and_zeros.to(scales_precision)
-    ).to(dtype=x.dtype)
-    new_shape = origin_x_size[:-1] + (out_features,)
-    c = c.reshape(new_shape)
-    return c
 
 def _replace_linear_8da4w(
     module: torch.nn.Module,
