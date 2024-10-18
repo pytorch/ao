@@ -262,7 +262,7 @@ def _replace_linear_with_quantized_linear(module: nn.Module, kwargs={}):
                 )
 
 
-class Int8DynActIntxWeightQuantizer:
+class Int8DynActIntxWeightLinearQuantizer:
     def __init__(
         self,
         device,
@@ -274,14 +274,14 @@ class Int8DynActIntxWeightQuantizer:
     ):
         if device != "cpu":
             raise NotImplementedError(
-                "Only device=cpu is currently supported in Int8DynActLowbitWeightQuantizer"
+                "Only device=cpu is currently supported in Int8DynActIntxWeightLinearQuantizer"
             )
         else:
             self.device = device
 
         if precision != torch.float32:
             raise NotImplementedError(
-                "Only precision=torch.float32 is currently supported in Int8DynActLowbitWeightQuantizer"
+                "Only precision=torch.float32 is currently supported in Int8DynActIntxWeightLinearQuantizer"
             )
         else:
             self.precision = precision
