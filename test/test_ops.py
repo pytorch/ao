@@ -288,35 +288,6 @@ def test_dequantize_tensor_core_tiled_layout_op(shape, inner_k_tiles, group_size
     q_groups = k // group_size
     scales = torch.randn(n, q_groups, dtype=torch.bfloat16, device=device)
     zeros = torch.randn_like(scales)
-    scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros)
-
-    test_utils = [
-    "test_schema",
-    "test_autograd_registration",
-    "test_faketensor",
-    ]
-    # TODO: Figure out why test fails unless torch >= 2.5
-    if TORCH_VERSION_AT_LEAST_2_5:
-        test_utils.append("test_aot_dispatch_dynamic")
-    opcheck(
-        torch.ops.torchao.dequantize_tensor_core_tiled_layout,
-        (packed_w, scales_and_zeros, group_size, inner_k_tiles),
-        test_utils=test_utils,
-    )
-
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
-def test_dequantize_tensor_core_tiled_layout_op(shape, inner_k_tiles, group_size):
-    n, k = shape
-    device = "cuda"
-
-    q = torch.randint(0, 16, shape, dtype=torch.int, device=device)
-    if TORCH_VERSION_AT_LEAST_2_5:
-        q = (q[::, ::2] << 4 | q[::, 1::2]).to(torch.uint8)
-    packed_w = torch._convert_weight_to_int4pack(q, inner_k_tiles)
-    q_groups = k // group_size
-    scales = torch.randn(n, q_groups, dtype=torch.bfloat16, device=device)
-    zeros = torch.randn_like(scales)
 
     # Test the case where CUDA SM version is less than 8.0
     with patch('torch.cuda.get_device_capability', return_value=(7, 5)):
@@ -324,16 +295,23 @@ def test_dequantize_tensor_core_tiled_layout_op(shape, inner_k_tiles, group_size
             scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros)
         assert "4 bit quantization with tinygemm is not supported on this device" in str(excinfo.value)
 
-    # Test the case where CUDA SM version is 8.0 or higher (original behavior)
     with patch('torch.cuda.get_device_capability', return_value=(8, 0)):
         scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros)
-        # Add assertions to check if scales_and_zeros is correctly packed
-        # For example:
-        assert scales_and_zeros.shape == (n, q_groups, 2)
-        assert scales_and_zeros.dtype == torch.bfloat16
+        test_utils = [
+        "test_schema",
+        "test_autograd_registration",
+        "test_faketensor",
+        ]
+        # TODO: Figure out why test fails unless torch >= 2.5
+        if TORCH_VERSION_AT_LEAST_2_5:
+            test_utils.append("test_aot_dispatch_dynamic")
+        opcheck(
+            torch.ops.torchao.dequantize_tensor_core_tiled_layout,
+            (packed_w, scales_and_zeros, group_size, inner_k_tiles),
+            test_utils=test_utils,
+        )
+
     
-
-
 MARLIN_24_BATCH_SIZE = [1, 4, 8, 16, 32, 64]
 MARLIN_24_K_CHUNKS = [128]
 MARLIN_24_N_CHUNKS = [512]
