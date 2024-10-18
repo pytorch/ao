@@ -123,6 +123,7 @@ def blocksparse_addmm(
     K: int,
     bias: torch.Tensor,
 ) -> torch.Tensor:
+    assert bias is None
     weight_bsr = torch.sparse_bsr_tensor(crow_indices, col_indices, values, size=(M, K))
     N_padded = x_padded.shape[1]
     out = x_padded.new_empty((M, N_padded))
@@ -250,6 +251,43 @@ def block_sparse_detach(func, types, args, kwargs):
     )
 
 
+@implements(aten.unsqueeze.default)
+def block_sparse_unsqueeze(func, types, args, kwargs):
+    assert len(args) == 2
+    assert len(kwargs) == 0
+    assert args[-1] == 2
+    bsr = args[0]
+    assert bsr.dim() == 2
+    assert not bsr.requires_grad
+    return BlockSparseTensor(bsr.shape + (1,),
+            bsr.crow_indices(),
+            bsr.col_indices(),
+            bsr.values().unsqueeze(-1))
+
+
+@implements(aten.mul.Tensor)
+def block_sparse_mul(func, types, args, kwargs):
+    assert len(args) == 2
+    assert len(kwargs) == 0
+    bsr, t = args
+
+    def my_mul(bsr, t):
+        assert isinstance(bsr, BlockSparseTensor)
+        assert isinstance(t, torch.Tensor)
+        assert bsr.dim() == 3
+        assert t.dim() == 3
+        assert not bsr.requires_grad
+        # import pdb; pdb.set_trace()
+        return BlockSparseTensor(bsr.shape,
+                bsr.crow_indices(),
+                bsr.col_indices(),
+                bsr.values() * t.view(1, 16, 64, 1).transpose(0, 1).index_select(0, bsr.col_indices()))
+
+    if isinstance(bsr, torch.Tensor) and isinstance(t, BlockSparseTensor):
+        return my_mul(t, bsr)
+    return my_mul(bsr, t)
+
+
 @implements(aten.values.default)
 def block_sparse_values(func, types, args, kwargs):
     return args[0].bsr_values.detach()
@@ -288,8 +326,15 @@ def block_sparse_linear(func, types, args, kwargs):
     M = w.shape[0]
     K = w.shape[1]
     N = x.shape[1]
-    N_padded = max(16, next_power_of_two(N))
+    # N_padded = max(16, next_power_of_two(N))
+    N_padded = N
     x_padded = torch.nn.functional.pad(x, (0, N_padded - N), 'constant', 0)
+    # TODO: Replace this with mul + sum for the mv case similar to
+    # https://github.com/pytorch/pytorch/blob/a9685767773157440c162caaf125856e04e2981f/torch/_inductor/decomposition.py#L292
+    # use .to_dense to get a baseline implementation that works and then use NJT for .sum and such
+    if x_padded.size(-1) == 1:
+        print("USING THIS")
+        return (torch.mul(w.unsqueeze(2), x_padded.unsqueeze(0))).sum(dim=1) + bias
     out = torch.ops.blocksparse.addmm(
         x_padded,
         w.crow_indices(),
@@ -297,7 +342,7 @@ def block_sparse_linear(func, types, args, kwargs):
         w.values(),
         M,
         K,
-        bias
+        None,
     )
     # import pdb; pdb.set_trace()
     # return out.view(x_orig.size(0), -1, M)

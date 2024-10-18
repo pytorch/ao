@@ -114,9 +114,10 @@ class TestQuantSemiSparse(common_utils.TestCase):
 class TestBlockSparseWeight(common_utils.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "pytorch 2.4+ feature due to need for custom op support")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @common_utils.parametrize("compile, bias", itertools.product([True, False], repeat=2))
-    def test_sparse(self, compile, bias):
-        input = torch.rand((1024, 1024)).half().cuda()
+    @common_utils.parametrize("compile, bias", list(itertools.product([True, False], repeat=2)))
+    @common_utils.parametrize("batch_size", [1, 1024])
+    def test_sparse(self, batch_size, compile, bias):
+        input = torch.rand((batch_size, 1024)).half().cuda()
         model = (
             nn.Sequential(
                 nn.Linear(1024, 2048, bias=bias),
