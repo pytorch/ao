@@ -1716,8 +1716,7 @@ def _linear_fp8_act_fp8_weight_impl(
 
     # Preprocess data
     inpt_data, w_data = preprocess_data(inpt_data, w_data.T, scaled_mm_config)
-    w_scale = torch.Tensor([1]).cuda().float()
-    input_scale = torch.Tensor([1]).cuda().float()
+
     # Perform the computation
     return addmm_float8_unwrapped_inference(
         inpt_data,
