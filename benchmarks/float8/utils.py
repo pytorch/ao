@@ -348,5 +348,3 @@ def get_gpu_kernel_gemm_time_s(f, *args, **kwargs):
         return data["aten::_scaled_mm"] / 1e6 / n_iter
     else:
         raise AssertionError("unexpected format of data")
-
-
