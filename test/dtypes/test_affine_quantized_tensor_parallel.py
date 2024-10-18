@@ -157,7 +157,7 @@ if torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0):
         def test_tp(self, dtype):
             return self._test_tp(dtype)
 
-    class TestFloat8dqTensorAffineQuantizedTensorParallel(TestFloat8dqAffineQuantizedTensorParallel):
+    class TestFloat8dqTensorAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel):
         QUANT_METHOD_FN = staticmethod(float8_dynamic_activation_float8_weight)
         QUANT_METHOD_KWARGS = {"granularity": PerTensor()}
         COMMON_DTYPES = [torch.bfloat16, torch.float16, torch.float32]
@@ -168,7 +168,7 @@ if torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0):
         def test_tp(self, dtype):
             return self._test_tp(dtype)
 
-    class TestFloat8dqRowAffineQuantizedTensorParallel(TestFloat8dqAffineQuantizedTensorParallel):
+    class TestFloat8dqRowAffineQuantizedTensorParallel(TestAffineQuantizedTensorParallel):
         QUANT_METHOD_FN = staticmethod(float8_dynamic_activation_float8_weight)
         QUANT_METHOD_KWARGS = {"granularity": PerRow()}
         COMMON_DTYPES = [torch.bfloat16]
