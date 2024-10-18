@@ -317,7 +317,6 @@ def test_dequantize_tensor_core_tiled_layout_op(shape, inner_k_tiles, group_size
     q_groups = k // group_size
     scales = torch.randn(n, q_groups, dtype=torch.bfloat16, device=device)
     zeros = torch.randn_like(scales)
-    scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros)
 
     # Test the case where CUDA SM version is less than 8.0
     with patch('torch.cuda.get_device_capability', return_value=(7, 5)):
