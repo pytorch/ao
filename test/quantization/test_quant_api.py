@@ -338,43 +338,6 @@ class TestQuantFlow(TestCase):
         )
 
     @unittest.skip("skipping until we get checkpoints for gpt-fast")
-    def test_quantizer_int4_weight_only(self):
-        from torchao.quantization.quantize_linear import Int4WeightOnlyQuantizer
-        from torchao._models._eval import TransformerEvalWrapper
-        precision = torch.bfloat16
-        device = "cuda"
-        checkpoint_path = Path("../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
-        model = Transformer.from_name(checkpoint_path.parent.name)
-        checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
-        model.load_state_dict(checkpoint, assign=True)
-        model = model.to(dtype=precision, device=device)
-        model.eval()
-        tokenizer_path = checkpoint_path.parent / "tokenizer.model"
-        assert tokenizer_path.is_file(), tokenizer_path
-        tokenizer = get_tokenizer(  # pyre-ignore[28]
-            tokenizer_path,
-            "Llama-2-7b-chat-hf",
-        )
-        groupsize = 64
-        quantizer = Int4WeightOnlyQuantizer(
-            groupsize,
-        )
-        model = quantizer.quantize(model).cuda()
-        result = TransformerEvalWrapper(
-            model,
-            tokenizer,
-            model.config.block_size,
-            prepare_inputs_for_model,
-            device,
-        ).run_eval(
-            ["wikitext"],
-            1,
-        )
-        assert result['results']['wikitext']['word_perplexity,none'] < 8.24, (
-            f"accuracy regressed from 8.23 to {result['results']['wikitext']['word_perplexity,none']}"
-        )
-
-    @unittest.skip("skipping until we get checkpoints for gpt-fast")
     def test_eval_wrapper(self):
         from torchao._models._eval import TransformerEvalWrapper
         precision = torch.bfloat16
