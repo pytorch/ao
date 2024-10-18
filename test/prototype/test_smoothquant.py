@@ -45,7 +45,11 @@ quant_mode_list = ["static", "dynamic"]
 devices = ["cpu"]
 if torch.cuda.is_available():
     devices.append("cuda")
-idtypes = (torch.float, torch.bfloat16) # torch.half
+idtypes = (torch.float, torch.bfloat16, torch.half)
+
+if TORCH_VERSION_AT_LEAST_2_5:
+    # This test case will trigger recompilation many times, so set a large cache_size_limit here
+    torch._dynamo.config.cache_size_limit = 32
 
 @pytest.mark.parametrize("bias", bias_list)
 @pytest.mark.parametrize("alpha", alpha_list)
@@ -73,7 +77,8 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
     is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
     quantize_(m, smooth_quant(), is_observed_linear)
     with torch.inference_mode():
-        # m = torch.compile(m, fullgraph=True)
+        if TORCH_VERSION_AT_LEAST_2_5:
+            m = torch.compile(m, fullgraph=True)
         out = m(data)
 
         # reference
@@ -126,8 +131,6 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
 @pytest.mark.parametrize("device", devices)
 @pytest.mark.parametrize("idtype", idtypes)
 def test_save_load_recipe(alpha, quant_mode, device, idtype):
-    # This test case will trigger recompilation many times, so set a large cache_size_limit here
-    torch._dynamo.config.cache_size_limit = 32
     dataset_size = 20
     l1, l2, l3 = 512, 256, 128
     original_dtype = idtype
