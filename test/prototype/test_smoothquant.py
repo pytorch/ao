@@ -8,6 +8,7 @@ from torchao.quantization import quantize_
 from torchao.utils import (
   TORCH_VERSION_AT_LEAST_2_2,
   TORCH_VERSION_AT_LEAST_2_4,
+  TORCH_VERSION_AT_LEAST_2_5,
 )
 from torchao.quantization.utils import (
   dynamically_quantize_per_channel,
@@ -155,8 +156,10 @@ def test_save_load_recipe(alpha, quant_mode, device, idtype):
     # quantize
     is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
     quantize_(m, smooth_quant(), is_observed_linear)
-    m = torch.compile(m, fullgraph=True)
-    m_save_load = torch.compile(m_save_load, fullgraph=True)
+    if TORCH_VERSION_AT_LEAST_2_5:
+        # earlier versions are not compatible
+        m = torch.compile(m, fullgraph=True)
+        m_save_load = torch.compile(m_save_load, fullgraph=True)
     out_list = [m(data.squeeze(0)) for data in dataset]
     out = torch.cat(out_list)
     save_load_out_list = [m_save_load(data.squeeze(0)) for data in dataset]
