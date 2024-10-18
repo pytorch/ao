@@ -1,12 +1,16 @@
 import contextlib
 from typing import List, Optional
 
-import torchao.float8.config as config
-
 import torch
 import torch.distributed as dist
 import torch.nn as nn
-from torchao.float8.config import Float8LinearConfig, ScalingType
+
+import torchao.float8.config as config
+from torchao.float8.config import (
+    Float8LinearConfig,
+    ScalingType,
+)
+
 from torchao.float8.float8_linear_utils import (
     linear_requires_sync,
     sync_float8_amax_and_scale_history,
@@ -21,8 +25,8 @@ def check_parity_no_mp(
     fsdp_model: nn.Module,
     fsdp_optim: torch.optim.Optimizer,
     local_inp: torch.Tensor,
+    config: Float8LinearConfig,
     precompute: bool = False,
-    config: Optional[Float8LinearConfig] = None,
     compile_transformer_block: bool = False,
 ):
     # TODO(before land): reorder args and make config not optional
@@ -84,3 +88,44 @@ def check_parity_bf16_mp(
             ):
                 param_bf16.detach().copy_(param_fp32)
         test_cls.assertEqual(losses[0], losses[1], msg = f"iter: {iter_idx}, loss-ref: {losses[0]}, loss-fp8: {losses[1]}")
+
+
+def check_parity_fp8_comm_only(
+    test_cls,
+    ref_model: nn.Module,
+    ref_optim: torch.optim.Optimizer,
+    fsdp_model: nn.Module,
+    fsdp_optim: torch.optim.Optimizer,
+    local_inp: torch.Tensor,
+    config: Float8LinearConfig,
+    precompute: bool = False,
+    compile: bool = False,
+):
+    for iter_idx in range(10):
+        losses: List[torch.Tensor] = []
+        for model, optim in ((ref_model, ref_optim), (fsdp_model, fsdp_optim)):
+
+            optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
+            losses.append(model(local_inp).sum())
+            losses[-1].backward()
+            if model is ref_model:
+                for name, param in model.named_parameters():
+                    dist.all_reduce(param.grad)
+                    param.grad.div_(dist.get_world_size())
+
+            if linear_requires_sync(config):
+                sync_float8_amax_and_scale_history(model)
+
+            optim.step()
+            if (
+                model is fsdp_model
+                and precompute
+                and config.cast_config_weight.scaling_type is ScalingType.DYNAMIC
+            ):
+                precompute_float8_dynamic_scale_for_fsdp(model)
+        
+        if compile:
+            # When compile, the ref loss and fsdp loss are not exactly the same, only check the loss values are valid for now.
+            assert (torch.isfinite(losses[0]).any() and torch.isfinite(losses[1]).any()), f"iter: {iter_idx}, loss-ref: {losses[0]}, loss-fp8: {losses[1]}"
+        else:
+            test_cls.assertEqual(losses[0], losses[1], f"iter: {iter_idx}, loss-ref: {losses[0]}, loss-fp8: {losses[1]}")
