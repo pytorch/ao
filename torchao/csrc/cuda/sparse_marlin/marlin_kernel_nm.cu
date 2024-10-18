@@ -52,7 +52,7 @@ static constexpr int min_thread_n = 128;
 static constexpr int tile_size = 16;
 static constexpr int max_par = 64;
 
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 800
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 800 && !defined(USE_ROCM)
 
 template <const int num_bits,         // weight bits
           const int threads,          // number of threads in a threadblock
