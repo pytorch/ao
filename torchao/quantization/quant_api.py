@@ -61,9 +61,11 @@ from .quant_primitives import (
 )
 from .weight_only import WeightOnlyInt8QuantLinear
 from .unified import Quantizer, TwoStepQuantizer
-from .GPTQ import (
-    Int4WeightOnlyGPTQQuantizer,
+from torchao.quantization.quantize_linear import (
     Int4WeightOnlyQuantizer,
+)
+from torchao.quantization.GPTQ_MT import (
+    Int4WeightOnlyGPTQQuantizer
 )
 from .utils import _get_per_token_block_size
 import logging
@@ -99,14 +101,12 @@ __all__ = [
     "float8_static_activation_float8_weight",
 ]
 
-from .GPTQ import (
+from torchao.quantization.quantize_linear import (
     Int8DynActInt4WeightQuantizer,
-    Int8DynActInt4WeightGPTQQuantizer,
-
 )
 __all__ += [
     "Int8DynActInt4WeightQuantizer",
-    "Int8DynActInt4WeightGPTQQuantizer",
+
 ]
 
 ### TO BE DEPRECATED START
