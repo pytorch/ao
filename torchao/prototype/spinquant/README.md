@@ -14,6 +14,13 @@ pip install git+https://github.com/Dao-AILab/fast-hadamard-transform.git
 
 See https://github.com/pytorch/ao/pull/983 for Wikitext benchmark results.
 
+Tested on:
+
+- Llama-2-7b
+- PyTorch 2.4.1
+- NVIDIA A100
+- CUDA 12.1
+
 Without `torch.compile`:
 
 | Configuration  | Average tokens/sec | Average Bandwidth (GB/s) | Peak Memory Usage (GB) | Model Size (GB) |
