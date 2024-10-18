@@ -7,6 +7,8 @@
 import os
 import torch
 from torchao.sparsity import sparsify_, semi_sparse_weight
+from torchao.quantization import quantize_, float8_weight_only, float8_dynamic_activation_float8_weight
+from torchao.dtypes import SemiSparseLayoutType
 
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -55,7 +57,8 @@ def is_mlp_up_or_mlp_gate(mod, name):
     return isinstance(mod, torch.nn.Linear) and ('mlp.gate' in name or 'mlp.up' in name)
 
 # apply sparsity
-sparsify_(model, semi_sparse_weight(), filter_fn=is_mlp_up_or_mlp_gate)
+# sparsify_(model, semi_sparse_weight(), filter_fn=is_mlp_up_or_mlp_gate)
+quantize_(model, apply_float8_dynamic_activation_quant())
 
 # Specify the max length (including both the prompt and the response)
 # When calling `generate` with `cache_implementation="static" later, this is also used to create a `StaticCache` object
@@ -78,7 +81,7 @@ print(response)
 # "reduce-overhead" will use cudagraphs.
 torch._inductor.config.triton.cudagraph_dynamic_shape_warn_limit = None
 
-model.forward = torch.compile(model.forward, mode="reduce-overhead", fullgraph=True)
+# model.forward = torch.compile(model.forward, mode="reduce-overhead", fullgraph=True)
 
 benchmark(lambda: model.generate(**inputs))
 
@@ -89,16 +92,16 @@ print(response)
 
 ## Run torch.compile baseline
 
-del model
-model = AutoModelForCausalLM.from_pretrained("nm-testing/SparseLlama-3-8B-pruned_50.2of4", torch_dtype=torch.float16).cuda()
+# del model
+# model = AutoModelForCausalLM.from_pretrained("nm-testing/SparseLlama-3-8B-pruned_50.2of4", torch_dtype=torch.float16).cuda()
 
-model.generation_config.max_length = 128
-model.generation_config.pad_token_id = tokenizer.eos_token_id
-model.generation_config.cache_implementation = "static"
+# model.generation_config.max_length = 128
+# model.generation_config.pad_token_id = tokenizer.eos_token_id
+# model.generation_config.cache_implementation = "static"
 
-model.forward = torch.compile(model.forward, mode="reduce-overhead", fullgraph=True)
-benchmark(lambda: model.generate(**inputs))
+# model.forward = torch.compile(model.forward, mode="reduce-overhead", fullgraph=True)
+# benchmark(lambda: model.generate(**inputs))
 
-outputs = model.generate(**inputs)
-response = tokenizer.batch_decode(outputs)[0]
-print(response)
+# outputs = model.generate(**inputs)
+# response = tokenizer.batch_decode(outputs)[0]
+# print(response)

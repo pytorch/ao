@@ -88,12 +88,12 @@ def run(
         "M",
         "K",
         "N",
-        "ref_time_s",
-        "fp8_time_s",
+        "ref_time_ms",
+        "fp8_time_ms",
         "fp8_speedup",
-        "fp8_24_time_s",
-        "fp8_24_speedup (ref)",
-        "fp8_24_speedup (fp8)",
+        # "fp8_24_time_s",
+        # "fp8_24_speedup (ref)",
+        # "fp8_24_speedup (fp8)",
     )
     results = []
 
@@ -101,7 +101,7 @@ def run(
     name_to_shapes = get_name_to_shapes_iter(shape_gen_name, M, K, N)
     fast_accum_vals = [True, False]
 
-    for idx, (fast_accum, (name, (M, K, N))) in enumerate(
+    for idx, (fast_accum, (name, (M, N, K))) in enumerate(
         itertools.product(fast_accum_vals, name_to_shapes)
     ):
         if n_limit is not None and idx >= n_limit:
@@ -130,21 +130,16 @@ def run(
         scale_a = torch.tensor([1.0], device=device)
         scale_b = torch.tensor([1.0], device=device)
 
+        from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensor
+        SparseSemiStructuredTensor._FORCE_CUTLASS = False
+        A_sparse = to_sparse_semi_structured(A)
+
+        # @torch.compile(mode="max-autotune")
         def do_matmul(A, B):
             nonlocal scale_a
             nonlocal scale_b
             return torch._scaled_mm(
                 A, B, scale_a, scale_b, out_dtype=d3, use_fast_accum=fast_accum
-            )
-
-        cslt_alg_id = 0
-        alpha = scale_a * scale_b
-
-        def do_sparse_matmul(A, B):
-            nonlocal cslt_alg_id
-            nonlocal alpha
-            return torch._cslt_sparse_mm(
-                A, B, out_dtype=d3, alg_id=cslt_alg_id, alpha=alpha
             )
 
         fp8_time_sec, fp8_tops_sec, fp8_pct_top_peak = do_benchmarks(
@@ -154,28 +149,28 @@ def run(
             f"fp8 time_sec {fp8_time_sec:.2E}, tops/sec {fp8_tops_sec:.2E}, pct_peak {fp8_pct_top_peak:.3f}"
         )
 
-        from torch.sparse import to_sparse_semi_structured
-
-        A_sparse = torch._cslt_compress(A)
-
-        cslt_alg_id = torch._cslt_sparse_mm_search(
-            A_sparse, B, out_dtype=d3, alpha=alpha
-        )
-        print(f"cslt_alg_id: {cslt_alg_id}")
-
-        fp8_24sparse_time_sec, fp8_24sparse_tops_sec, fp8_24sparse_pct_top_peak = (
-            do_benchmarks(
-                tops,
-                dtype_to_peak_tops[d1],
-                use_gpu_kernel_time,
-                do_sparse_matmul,
-                A_sparse,
-                B,
+        @torch.compile(mode="max-autotune")
+        def do_sparse_matmul(A_sparse, B):
+            nonlocal scale_a
+            nonlocal scale_b
+            return torch._scaled_mm(
+                A_sparse, B, scale_a, scale_b, out_dtype=d3, use_fast_accum=fast_accum
             )
-        )
-        print(
-            f"fp8+24 sparse time_sec {fp8_24sparse_time_sec:.2E}, tops/sec {fp8_24sparse_tops_sec:.2E}, pct_peak {fp8_24sparse_pct_top_peak:.3f}"
-        )
+
+
+        # fp8_24sparse_time_sec, fp8_24sparse_tops_sec, fp8_24sparse_pct_top_peak = (
+        #     do_benchmarks(
+        #         tops,
+        #         dtype_to_peak_tops[d1],
+        #         use_gpu_kernel_time,
+        #         do_matmul,
+        #         A_sparse,
+        #         B,
+        #     )
+        # )
+        # print(
+        #     f"fp8+24 sparse time_sec {fp8_24sparse_time_sec:.2E}, tops/sec {fp8_24sparse_tops_sec:.2E}, pct_peak {fp8_24sparse_pct_top_peak:.3f}"
+        # )
 
         del A, B, scale_a, scale_b
 
@@ -186,12 +181,12 @@ def run(
                 M,
                 K,
                 N,
-                ref_time_sec,
-                fp8_time_sec,
+                ref_time_sec * 1000,
+                fp8_time_sec * 1000,
                 ref_time_sec / fp8_time_sec,
-                fp8_24sparse_time_sec,
-                ref_time_sec / fp8_24sparse_time_sec,
-                fp8_time_sec / fp8_24sparse_time_sec,
+                # fp8_24sparse_time_sec,
+                # ref_time_sec / fp8_24sparse_time_sec,
+                # fp8_time_sec / fp8_24sparse_time_sec,
             ]
         )
 

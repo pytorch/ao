@@ -410,7 +410,7 @@ def _dequantize_affine_no_dtype_check(
     2. dequantize the input based on the quantization parameters scale and zero_point and args like zero_point_domain
     3. reshape the quantized result to origianl shape and change dtype to the output_dtype
     """
-    assert len(block_size) == input.dim(), f"Got input dim:{input.dim()}, block_size: {block_size}"
+    # assert len(block_size) == input.dim(), f"Got input dim:{input.dim()}, block_size: {block_size}"
     shape_for_reduction, reduction_dims = _get_reduction_params(block_size, input.size())
     original_shape = input.shape
     input = input.view(shape_for_reduction)

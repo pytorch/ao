@@ -629,45 +629,6 @@ class PlainAQTLayout(AQTLayout):
         assert isinstance(layout_type, PlainLayoutType)
         return cls(int_data, scale, zero_point, layout_type)
 
-@register_layout_cls(SemiSparseLayoutType)
-class SemiSparseAQTLayout(PlainAQTLayout):
-    """
-    Layout storage class for semi_sparse_cusparselt layout for affine quantized tensor
-    """
-    @classmethod
-    def __torch_dispatch__(cls, func, types, args, kwargs):
-        kwargs = {} if kwargs is None else kwargs
-
-        if func is aten.detach.default:
-            return return_and_correct_aliasing(
-                func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
-            )
-
-        raise NotImplementedError(
-            f"SparseAQTLayout dispatch: attempting to run {func}, this is not supported"
-        )
-
-    def get_plain(self):
-        # Currently we don't have cuSPARSELt expansion routines, so we matmul by
-        # the identity matrix to get the original dense matrix. This is slow though.
-        cols = self.int_data.numel() * 16 // (10 * self.scale.shape[0])
-        int_data_expanded = torch._cslt_sparse_mm(self.int_data,
-                                                  torch.eye(cols,
-                                                            dtype=self.int_data.dtype,
-                                                            device=self.int_data.device).t())
-        return int_data_expanded, self.scale, self.zero_point
-
-    @classmethod
-    def from_plain(
-        cls,
-        int_data: torch.Tensor,
-        scale: torch.Tensor,
-        zero_point: Optional[torch.Tensor],
-        layout_type: LayoutType,
-    ):
-        assert isinstance(layout_type, SemiSparseLayoutType)
-        int_data_compressed = torch._cslt_compress(int_data)
-        return cls(int_data_compressed, scale, zero_point, layout_type)
 
 
 @register_layout_cls(MarlinSparseLayoutType)
@@ -957,6 +918,47 @@ class Float8AQTLayout(AQTLayout):
                 f"transposed={self.transposed}, "
                 f"layout_type={layout_type})")
 
+@register_layout_cls(SemiSparseLayoutType)
+class SemiSparseAQTLayout(Float8AQTLayout):
+    # """
+    # Layout storage class for semi_sparse_cusparselt layout for affine quantized tensor
+    # """
+    # @classmethod
+    # def __torch_dispatch__(cls, func, types, args, kwargs):
+    #     kwargs = {} if kwargs is None else kwargs
+
+    #     if func is aten.detach.default:
+    #         return return_and_correct_aliasing(
+    #             func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+    #         )
+
+    #     raise NotImplementedError(
+    #         f"SparseAQTLayout dispatch: attempting to run {func}, this is not supported"
+    #     )
+
+    def get_plain(self):
+        # Currently we don't have cuSPARSELt expansion routines, so we matmul by
+        # the identity matrix to get the original dense matrix. This is slow though.
+        cols = self.float8_data.numel() * 16 // (9 * self.scale.shape[0])
+        int_data_expanded = torch._cslt_sparse_mm(self.float8_data,
+                                                  torch.eye(cols,
+                                                            dtype=self.float8_data.dtype,
+                                                            device=self.float8_data.device).t())
+        return int_data_expanded, self.scale, None
+
+    @classmethod
+    def from_plain(
+        cls,
+        float8_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: Optional[torch.Tensor],
+        layout_type: LayoutType,
+    ):
+        assert isinstance(layout_type, SemiSparseLayoutType)
+        float8_data_compressed = torch._cslt_compress(float8_data)
+        
+        output = cls(float8_data_compressed, scale, False, layout_type)
+        return output
 
 @register_layout_cls(TensorCoreTiledLayoutType)
 class TensorCoreTiledAQTLayout(AQTLayout):

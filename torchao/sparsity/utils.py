@@ -30,11 +30,11 @@ def create_semi_structured_tensor(
     mask_entries = [random.choice(choices) for i in range(r * c // 2)]
 
     mask = (
-        torch.tensor(mask_entries, dtype=dtype)
+        torch.tensor(mask_entries, dtype=torch.int32)
         .reshape(r, c)
         .contiguous()
     ).cuda()
-    sparse_weight = torch.rand(r, c).to(dtype).cuda() * mask
+    sparse_weight = (torch.rand(r, c).cuda() * mask).to(dtype)
     return sparse_weight
 
 # Observers
