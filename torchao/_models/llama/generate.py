@@ -325,16 +325,8 @@ def main(
     # standalone sparsity
     elif sparsity:
         from torchao.sparsity import semi_sparse_weight, sparsify_
-        from torchao.sparsity.prototype.superblock.blocksparse import block_sparse_weight
-        for name, mod in model.named_modules():
-            print(name, mod)
-        
-        # breakpoint()
         if "semi" in sparsity:
             sparsify_(model, semi_sparse_weight(), filter_fn=ffn_only)
-        elif "block" in sparsity:
-            sparsify_(model, block_sparse_weight(), filter_fn=ffn_only)
-
 
     model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
 
