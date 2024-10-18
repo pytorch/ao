@@ -504,23 +504,6 @@ TEST(test_bitpacking_4_uint6_values, PackUnpackAreSame) {
   }
 }
 
-TEST(test_bitpacking_4_uint6_values_v2, PackUnpackAreSame) {
-  int unpacked_bytes = 4;
-  int packed_bytes = 3;
-  auto input = torchao::get_random_lowbit_vector(unpacked_bytes, 6);
-  std::vector<uint8_t> packed(packed_bytes, 0);
-  std::vector<uint8_t> unpacked(unpacked_bytes, 0);
-
-  torchao::bitpacking::internal::pack_4_uint6_values_v2(
-      packed.data(), input.data());
-  torchao::bitpacking::internal::unpack_4_uint6_values_v2(
-      unpacked.data(), packed.data());
-  for (int i = 0; i < unpacked_bytes; ++i) {
-    EXPECT_EQ(input[i], unpacked[i]);
-  }
-}
-
-
 TEST(test_bitpacking_32_uint6_values, PackUnpackAreSame) {
   int unpacked_bytes = 32;
   int packed_bytes = 24;
@@ -538,31 +521,6 @@ TEST(test_bitpacking_32_uint6_values, PackUnpackAreSame) {
   torchao::bitpacking::internal::vec_pack_32_uint6_values(
       packed.data(), input0, input1);
   torchao::bitpacking::internal::vec_unpack_32_uint6_values(
-      unpacked0, unpacked1, packed.data());
-
-  for (int i = 0; i < 16; ++i) {
-    EXPECT_EQ(input0[i], unpacked0[i]);
-    EXPECT_EQ(input1[i], unpacked1[i]);
-  }
-}
-
-TEST(test_bitpacking_32_uint6_values_v2, PackUnpackAreSame) {
-  int unpacked_bytes = 32;
-  int packed_bytes = 24;
-  auto input = torchao::get_random_lowbit_vector(unpacked_bytes, 6);
-  std::vector<uint8_t> packed(packed_bytes, 0);
-
-  uint8x16_t input0;
-  uint8x16_t input1;
-
-  uint8x16_t unpacked0;
-  uint8x16_t unpacked1;
-
-  input0 = vld1q_u8(input.data());
-  input1 = vld1q_u8(input.data() + 16);
-  torchao::bitpacking::internal::vec_pack_32_uint6_values_v2(
-      packed.data(), input0, input1);
-  torchao::bitpacking::internal::vec_unpack_32_uint6_values_v2(
       unpacked0, unpacked1, packed.data());
 
   for (int i = 0; i < 16; ++i) {
@@ -592,37 +550,6 @@ TEST(test_bitpacking_64_uint6_values, PackUnpackAreSame) {
   torchao::bitpacking::internal::vec_pack_64_uint6_values(
       packed.data(), input0, input1, input2, input3);
   torchao::bitpacking::internal::vec_unpack_64_uint6_values(
-      unpacked0, unpacked1, unpacked2, unpacked3, packed.data());
-
-  for (int i = 0; i < 16; ++i) {
-    EXPECT_EQ(input0[i], unpacked0[i]);
-    EXPECT_EQ(input1[i], unpacked1[i]);
-    EXPECT_EQ(input2[i], unpacked2[i]);
-    EXPECT_EQ(input3[i], unpacked3[i]);
-  }
-}
-
-TEST(test_bitpacking_64_uint6_values_v2, PackUnpackAreSame) {
-  int unpacked_bytes = 64;
-  int packed_bytes = 48;
-  auto input = torchao::get_random_lowbit_vector(unpacked_bytes, 6);
-  std::vector<uint8_t> packed(packed_bytes, 0);
-
-  uint8x16_t input0;
-  uint8x16_t input1;
-  uint8x16_t input2;
-  uint8x16_t input3;
-
-  uint8x16_t unpacked0;
-  uint8x16_t unpacked1;
-  uint8x16_t unpacked2;
-  uint8x16_t unpacked3;
-
-  torchao::bitpacking::internal::vec_load_64_uint8_values(
-      input0, input1, input2, input3, input.data());
-  torchao::bitpacking::internal::vec_pack_64_uint6_values_v2(
-      packed.data(), input0, input1, input2, input3);
-  torchao::bitpacking::internal::vec_unpack_64_uint6_values_v2(
       unpacked0, unpacked1, unpacked2, unpacked3, packed.data());
 
   for (int i = 0; i < 16; ++i) {

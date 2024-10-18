@@ -19,3 +19,4 @@ ${CMAKE_OUT}/test_reduction
 ${CMAKE_OUT}/test_bitpacking
 ${CMAKE_OUT}/test_linear
 ${CMAKE_OUT}/test_valpacking
+${CMAKE_OUT}/test_embedding
