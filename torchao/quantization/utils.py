@@ -314,7 +314,7 @@ def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16
 def pack_tinygemm_scales_and_zeros(scales, zeros, dtype=torch.bfloat16):
     if torch.cuda.is_available():
         min_sm = (8, 0)
-        if torch.cuda.get_device_capability() <= min_sm:
+        if torch.cuda.get_device_capability() < min_sm:
             raise NotImplementedError(f"4 bit quantization with tinygemm is not supported on this device as it requires sm_{min_sm[0]}.{min_sm[1]} or higher but got {torch.cuda.get_device_capability()}")
 
     guard_dtype_size(scales, "scales", dtype=dtype, size=zeros.size())
