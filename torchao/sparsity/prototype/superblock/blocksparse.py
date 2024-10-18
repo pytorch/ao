@@ -278,14 +278,28 @@ def block_sparse_mul(func, types, args, kwargs):
         assert t.dim() == 3
         assert not bsr.requires_grad
         # import pdb; pdb.set_trace()
+        assert t.size(0) == 1
+        t_blocked = t.view(t.size(0), t.size(1) // 64, 64, 1)
+        masked_t = t_blocked.transpose(0, 1).index_select(0, bsr.col_indices())
+        new_values = bsr.values() * masked_t
         return BlockSparseTensor(bsr.shape,
                 bsr.crow_indices(),
                 bsr.col_indices(),
-                bsr.values() * t.view(1, 16, 64, 1).transpose(0, 1).index_select(0, bsr.col_indices()))
+                bsr.values() * masked_t)
 
     if isinstance(bsr, torch.Tensor) and isinstance(t, BlockSparseTensor):
         return my_mul(t, bsr)
     return my_mul(bsr, t)
+
+
+@implements(aten.sum.dim_IntList)
+def block_sparse_sum(func, types, args, kwargs):
+    bsr, dim = args
+    assert type(dim) == list
+    assert len(dim) == 1
+    dim = dim[0]
+    assert dim == 1
+    return torch.nested.nested_tensor_from_jagged(bsr.values(), bsr.crow_indices()).sum(dim=1).view(bsr.shape[0], -1).sum(1, keepdim=True)
 
 
 @implements(aten.values.default)
@@ -334,7 +348,10 @@ def block_sparse_linear(func, types, args, kwargs):
     # use .to_dense to get a baseline implementation that works and then use NJT for .sum and such
     if x_padded.size(-1) == 1:
         print("USING THIS")
-        return (torch.mul(w.unsqueeze(2), x_padded.unsqueeze(0))).sum(dim=1) + bias
+        ret = (torch.mul(w.unsqueeze(2), x_padded.unsqueeze(0))).sum(dim=1)
+        if bias is None:
+            return ret.t()
+        return ret.t() + bias
     out = torch.ops.blocksparse.addmm(
         x_padded,
         w.crow_indices(),
