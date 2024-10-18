@@ -35,9 +35,12 @@ from torchao.quantization import (
 from . import dtypes
 from . import testing
 
+from torchao.kv_cache import PagedAttentionCache, PagedTensor
 __all__ = [
     "dtypes",
     "autoquant",
+    "PagedAttentionCache",
+    "PagedTensor"
     "quantize_",
     "testing",
 ]
