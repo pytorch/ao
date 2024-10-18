@@ -47,12 +47,12 @@ torchao.quantization.quantize_(model, smooth_quant(), is_observed_linear)
 
 (Advanced) `save_smooth_quant_recipe` and `load_smooth_quant_recipe` saves or loads a recipe for a model.
 
-A recipe contains smoothing factors and quantization parameters of weights and activation for all linear layers that are to be quantized. For advanced users, these parameters can be saved and modified somehow to produce better accuray, e.g., different alpha for different layres. Users can even leave some linear layers unquantized by deleting these layers in the recipe. Such modifications can be published as a recipe. By loading the recipe, it can be reused and calibration is no longer needed.
+A recipe contains smoothing factors and quantization parameters of weights and activation for all linear layers that are to be quantized. For advanced users, these parameters can be saved and modified somehow to produce better accuray, e.g., different alpha for different layers. Users can even leave some linear layers unquantized by deleting these layers in the recipe. Such modifications can be published as a recipe. By loading the recipe, it can be reused and calibration is no longer needed.
 
 To save a recipe, users should insert observers and run calibration first. For example,
 ```python
 insert_smooth_quant_observer(model, alpha=0.5, quant_mode="dynamic")
-for data in dataset:
+for data in dataset_for_calibration:
     model(data)
 save_smooth_quant_recipe(model, "./smooth_quant_recipe.json")
 ```
@@ -63,7 +63,7 @@ load_smooth_quant_recipe(model, "./smooth_quant_recipe.json")
 ```
 
 ## Benchmark
-Running the example case with `torch.compile` on a NVIDIA A10G GPU.
+Running the example with `torch.compile` on a NVIDIA A10G GPU.
 ### meta-llama/Llama-2-7b-hf
 | Quant Method | Perplexity |
 |-|-|
