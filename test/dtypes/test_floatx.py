@@ -91,16 +91,17 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
     @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="quantization only works with torch.compile for 2.5+")
     @parametrize("ebits,mbits", _Floatx_DTYPES)
     @parametrize("bias", [False, True])
+    @parametrize("dtype", [torch.half, torch.bfloat16])
     @pytest.mark.skipif(is_fbcode(), reason="broken in fbcode")
-    def test_fpx_weight_only(self, ebits, mbits, bias):
+    def test_fpx_weight_only(self, ebits, mbits, bias, dtype):
         N, OC, IC = 4, 256, 64
         device = "cuda"
 
-        linear = torch.nn.Linear(IC, OC, bias=bias, device=device, dtype=torch.half)
+        linear = torch.nn.Linear(IC, OC, bias=bias, device=device, dtype=dtype)
         fpx_linear = copy.deepcopy(linear)
         quantize_(fpx_linear, fpx_weight_only(ebits, mbits))
 
-        x = torch.randn(N, IC, device=device, dtype=torch.half)
+        x = torch.randn(N, IC, device=device, dtype=dtype)
         expected = fpx_linear(x)
         actual = torch.compile(fpx_linear, fullgraph=True)(x)
         # somehow compile now changes the result a bit

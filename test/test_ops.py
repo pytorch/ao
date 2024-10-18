@@ -33,22 +33,23 @@ from torchao.quantization.utils import (
 
 
 class TestOps(TestCase):
-    def _create_floatx_inputs(self, ebits: int, mbits: int, BS: int, OC: int, IC: int, device):
+    def _create_floatx_inputs(self, ebits: int, mbits: int, BS: int, OC: int, IC: int, device, dtype):
         # Randomly initialize each byte
         nbits = 1 + ebits + mbits
         floatx_weight = torch.randint(256, (OC, IC // 8 * nbits), dtype=torch.uint8)
-        scale = torch.rand(OC).half() + 0.5
-        fp16_act = torch.rand(BS, IC).half() + 0.5
+        scale = torch.rand(OC).to(dtype) + 0.5
+        fp16_act = torch.rand(BS, IC).to(dtype) + 0.5
         return floatx_weight.to(device), scale.to(device), fp16_act.to(device)
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     @parametrize("ebits,mbits", [(3, 2), (2, 2)])
-    def test_quant_llm_linear(self, ebits, mbits):
+    @parametrize("dtype", [torch.half, torch.bfloat16])
+    def test_quant_llm_linear(self, ebits, mbits, dtype):
         BS = 2
         OC = 256
         IC = 256
         splitK = 1
-        floatx_weight, scale, fp16_act = self._create_floatx_inputs(ebits, mbits, BS, OC, IC, "cuda")
+        floatx_weight, scale, fp16_act = self._create_floatx_inputs(ebits, mbits, BS, OC, IC, "cuda", dtype)
 
         # smoke test
         torchao.ops.quant_llm_linear(ebits, mbits, fp16_act, floatx_weight, scale, splitK)
@@ -60,13 +61,14 @@ class TestOps(TestCase):
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
     @parametrize("BS,OC,IC,splitK", [(1, 2048, 4096, 5), (2, 8192, 8192, 6)])
     @parametrize("ebits,mbits", [(3, 2), (2, 2)])
-    def test_quant_llm_linear_correctness(self, ebits, mbits, BS, OC, IC, splitK):
+    @parametrize("dtype", [torch.half, torch.bfloat16])
+    def test_quant_llm_linear_correctness(self, ebits, mbits, BS, OC, IC, splitK, dtype):
         # adapted from https://github.com/usyd-fsalab/fp6_llm/blob/5df6737cca32f604e957e3f63f03ccc2e4d1df0d/tests/python/kernel_test_fpx.py
-        floatx_weight, scale, fp16_act = self._create_floatx_inputs(ebits, mbits, BS, OC, IC, "cuda")
+        floatx_weight, scale, fp16_act = self._create_floatx_inputs(ebits, mbits, BS, OC, IC, "cuda", dtype)
 
         results_floatx = torchao.ops.quant_llm_linear(ebits, mbits, fp16_act, floatx_weight, scale, splitK)
 
-        fp16_weight = from_scaled_tc_floatx(floatx_weight, ebits, mbits, scale).half()
+        fp16_weight = from_scaled_tc_floatx(floatx_weight, ebits, mbits, scale).to(dtype)
         results_fp16 = fp16_act @ fp16_weight.T
 
         error = (results_floatx - results_fp16).abs().mean()
