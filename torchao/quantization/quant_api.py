@@ -482,9 +482,12 @@ def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
     target_dtype = torch.int8
     return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype)
 
-def apply_int8_dynamic_activation_int4_weight_quant(weight, group_size=32, mapping_type=MappingType.SYMMETRIC):
+# FIXME: use layouts instead of pack_bits!!!
+def apply_int8_dynamic_activation_int4_weight_quant(weight, group_size=32, mapping_type=MappingType.SYMMETRIC, input_mapping_type=MappingType.ASYMMETRIC, pack_bits=False):
     """This is defined here instead of local function to support serialization
     """
+    if group_size is None:
+        group_size = weight.shape[-1]
     if weight.shape[-1] % group_size != 0:
         return weight
 
@@ -496,13 +499,24 @@ def apply_int8_dynamic_activation_int4_weight_quant(weight, group_size=32, mappi
     quant_max = 7
 
     # input settings
-    input_quant_func = _int8_asymm_per_token_quant
+    if input_mapping_type == MappingType.ASYMMETRIC:
+        input_quant_func = _int8_asymm_per_token_quant
+    elif input_mapping_type == MappingType.SYMMETRIC:
+        input_quant_func = _int8_symm_per_token_reduced_range_quant_cutlass
+    else:
+        assert False, f"Unsupported input mapping type: {input_mapping_type}"
 
     weight = to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, quant_min, quant_max, eps)
     weight = to_linear_activation_quantized(weight, input_quant_func)
+
+    if pack_bits:
+        weight.original_weight_tensor.tensor_impl.int_data = (
+            (weight.original_weight_tensor.tensor_impl.int_data[:, 1::2] & 0xF) << 4
+        ) | (weight.original_weight_tensor.tensor_impl.int_data[:, 0::2] & 0xF)
+
     return weight
 
-def int8_dynamic_activation_int4_weight(group_size=32, mapping_type=MappingType.SYMMETRIC):
+def int8_dynamic_activation_int4_weight(group_size=32, mapping_type=MappingType.SYMMETRIC, input_mapping_type=MappingType.ASYMMETRIC, pack_bits=False):
     """Applies int8 dynamic per token asymmetric activation quantization and int4 per group weight symmetric quantization to linear
     This is used to produce a model for executorch backend, but currently executorch did not
     support lowering for the quantized model from this flow yet
@@ -511,7 +525,7 @@ def int8_dynamic_activation_int4_weight(group_size=32, mapping_type=MappingType.
         `group_size`: parameter for quantization, controls the granularity of quantization, smaller
          size is more fine grained
     """
-    return _get_linear_subclass_inserter(apply_int8_dynamic_activation_int4_weight_quant, group_size=group_size, mapping_type=mapping_type)
+    return _get_linear_subclass_inserter(apply_int8_dynamic_activation_int4_weight_quant, group_size=group_size, mapping_type=mapping_type, input_mapping_type=input_mapping_type, pack_bits=pack_bits)
 
 
 def int4_weight_only(group_size=128, layout=TensorCoreTiledLayout(inner_k_tiles=8), use_hqq=False):
@@ -583,7 +597,17 @@ def _int8_symm_per_token_reduced_range_quant(x: torch.Tensor) -> torch.Tensor:
     eps = 1e-5
     quant_min = -127
     quant_max = 127
+
     return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype, eps=eps, quant_min=quant_min, quant_max=quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
+
+def _int8_symm_per_token_reduced_range_quant_cutlass(x: torch.Tensor) -> torch.Tensor:
+    mapping_type = MappingType.SYMMETRIC
+    target_dtype = torch.int8
+    eps = 1e-5
+    quant_min = -127
+    quant_max = 127
+
+    return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype, eps=eps, quant_min=quant_min, quant_max=quant_max, scale_dtype=torch.float16 if x.dtype == torch.float16 else None)
 
 
 def int8_dynamic_activation_int8_weight(layout=PlainLayout()):

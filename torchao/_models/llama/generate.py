@@ -13,6 +13,7 @@ import torch
 import torchao
 import torch._dynamo.config
 import torch._inductor.config
+from torchao.quantization.quant_primitives import MappingType
 from torchao.utils import get_model_size_in_bytes
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
@@ -209,6 +210,7 @@ def main(
             int8_weight_only,
             int8_dynamic_activation_int8_weight,
             int4_weight_only,
+            int8_dynamic_activation_int4_weight,
             fpx_weight_only,
             uintx_weight_only,
             autoquant,
@@ -221,6 +223,16 @@ def main(
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
             quantize_(model, int8_dynamic_activation_int8_weight())
+        if "w4a8-cutlass" in quantization:
+            quantize_(
+                model,
+                int8_dynamic_activation_int4_weight(
+                    group_size=None,
+                    mapping_type=MappingType.SYMMETRIC,
+                    input_mapping_type=MappingType.SYMMETRIC,
+                    pack_bits=True,
+                )
+            )
         if "int4wo" in quantization:
             if "hqq" in quantization:
                 use_hqq=True
@@ -459,7 +471,7 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint_path', type=Path, default=Path("../../../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
     parser.add_argument('-q', '--quantization', type=str, 
         help=(
-            'Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, '
+            'Which quantization techniques to apply: int8dq, w4a8-cutlass, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, '
             +'autoquant-int4, autoquant-float8, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin'
         )
     )
