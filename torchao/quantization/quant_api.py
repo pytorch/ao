@@ -730,6 +730,7 @@ def float8_dynamic_activation_float8_weight(
         Union[_fp8_granularities, Tuple[_fp8_granularities, _fp8_granularities]]
     ] = None,
     mm_config: Optional[Float8MMConfig] = None,
+    layout=None
 ):
     """
     Applies float8 dynamic symmetric quantization to both activations and weights of linear layers.
@@ -750,6 +751,12 @@ def float8_dynamic_activation_float8_weight(
 
     activation_granularity, weight_granularity = _normalize_granularity(granularity)
 
+    if layout is None:
+        layout = Float8Layout(mm_config=mm_config)
+    elif isinstance(layout, SemiSparseLayout):
+        assert activation_granularity == weight_granularity == PerTensor(), "SemiSparseLayout only supports PerTensor granularity for activations and weights"
+        layout = SemiSparseLayout(mm_config=mm_config)
+
     def apply_float8_dynamic_activation_quant(weight: torch.Tensor):
         if isinstance(weight_granularity, PerRow):
             assert (
@@ -762,7 +769,7 @@ def float8_dynamic_activation_float8_weight(
             block_size=block_size,
             target_dtype=weight_dtype,
             scale_dtype=torch.float32,
-            _layout=Float8Layout(mm_config=mm_config),
+            _layout=layout,
         )
 
         input_quant_func = partial(

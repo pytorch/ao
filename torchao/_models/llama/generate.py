@@ -298,7 +298,11 @@ def main(
                 granularity = PerRow()
             else:
                 granularity = PerTensor()
-            quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
+            if "semi" in sparsity:
+                quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity, layout=SemiSparseLayout()), filter_fn=ffn_only)
+                quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity), filter_fn=not_ffn_only)
+            else:
+                quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
         if "autoquant" in quantization:
             if "autoquant-int4" == quantization:
                 model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
