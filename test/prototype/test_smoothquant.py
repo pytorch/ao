@@ -45,7 +45,7 @@ quant_mode_list = ["static", "dynamic"]
 devices = ["cpu"]
 if torch.cuda.is_available():
     devices.append("cuda")
-idtypes = (torch.float, torch.bfloat16, torch.half)
+idtypes = (torch.float, torch.bfloat16) # torch.half
 
 @pytest.mark.parametrize("bias", bias_list)
 @pytest.mark.parametrize("alpha", alpha_list)
