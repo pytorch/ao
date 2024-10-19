@@ -14,7 +14,7 @@ from torchao.dtypes import (
     to_affine_quantized_intx_static,
     TensorCoreTiledLayout
 )
-from torchao.quantization.quantize_linear import (
+from torchao.quantization._quantized_linear import (
     _check_linear_int4_k,
 )
 from torchao.quantization.quant_primitives import (
