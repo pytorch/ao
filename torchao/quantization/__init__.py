@@ -14,7 +14,7 @@ from .unified import *
 from .autoquant import *
 from .GPTQ_MT import *
 from .granularity import *
-from .quantize_linear import *
+from ._quantized_linear import *
 from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
     to_linear_activation_quantized,
@@ -39,9 +39,6 @@ __all__ = [
     "compute_error",
     "Int4WeightOnlyGPTQQuantizer",
     "Int4WeightOnlyQuantizer",
-    "WeightOnlyInt4Linear",
-    "Int8DynActInt4WeightLinear",
-    "Int8DynActInt4WeightQuantizer",
     "quantize_affine",
     "dequantize_affine",
     "choose_qprams_affine",
