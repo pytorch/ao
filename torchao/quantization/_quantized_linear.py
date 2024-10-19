@@ -185,6 +185,16 @@ def _replace_linear_int4(
                 copy_weights,
             )
 
+def replace_linear_int4(module, groupsize, inner_k_tiles, padding_allowed, skip_layer_func = None):
+    _replace_linear_int4(
+        module,
+        groupsize,
+        inner_k_tiles,
+        padding_allowed,
+        skip_layer_func,
+        linear_class=WeightOnlyInt4Linear,
+    )
+
 def linear_forward_int4(
     x: torch.Tensor,
     weight_int4pack: torch.Tensor,

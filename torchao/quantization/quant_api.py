@@ -61,7 +61,7 @@ from .quant_primitives import (
 )
 from .weight_only import WeightOnlyInt8QuantLinear
 from .unified import Quantizer, TwoStepQuantizer
-from torchao.quantization.quantize_linear import (
+from torchao.quantization._quantized_linear import (
     Int4WeightOnlyQuantizer,
 )
 from torchao.quantization.GPTQ_MT import (
@@ -101,12 +101,11 @@ __all__ = [
     "float8_static_activation_float8_weight",
 ]
 
-from torchao.quantization.quantize_linear import (
+from torchao.quantization._quantized_linear import (
     Int8DynActInt4WeightQuantizer,
 )
 __all__ += [
     "Int8DynActInt4WeightQuantizer",
-
 ]
 
 ### TO BE DEPRECATED START

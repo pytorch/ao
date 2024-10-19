@@ -9,7 +9,7 @@ from typing import Any, Optional
 import torch
 import torch.nn.functional as F
 
-from torchao.quantization.quantize_linear import (
+from torchao.quantization._quantized_linear import (
     WeightOnlyInt4Linear,
     Int8DynActInt4WeightLinear,
     _replace_linear_8da4w,
