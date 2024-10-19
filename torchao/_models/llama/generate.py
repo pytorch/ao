@@ -16,6 +16,8 @@ import torch._inductor.config
 from torchao.utils import get_model_size_in_bytes
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
+# torch._dynamo.config.capture_scalar_outputs = True
+
 def device_sync(device):
     if "cuda" in device:
         torch.cuda.synchronize(device)
@@ -41,6 +43,7 @@ def logits_to_probs(logits, temperature: float = 1.0, top_k: Optional[int] = Non
     logits = logits / max(temperature, 1e-5)
 
     if top_k is not None:
+        # print("logits.size(): ", logits.size())
         v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
         pivot = v.select(-1, -1).unsqueeze(-1)
         logits = torch.where(logits < pivot, -float("Inf"), logits)
@@ -295,7 +298,7 @@ def main(
     if compile:
         print("Compiling Model")
         global decode_one_token, prefill
-        decode_one_token = torch.compile(decode_one_token, mode="reduce-overhead", fullgraph=True)
+        decode_one_token = torch.compile(decode_one_token, mode="reduce-overhead", fullgraph=True, dynamic=True)
 
         if compile_prefill:
             prefill = torch.compile(prefill, fullgraph=True, dynamic=True)

@@ -128,9 +128,8 @@ class SupermaskLinear(nn.Linear):
             subnet = self.get_mask()
             w = (self.weight*self.scale+self.shift)
             w = ApplyMask.apply(w, subnet)
-        else:
-            w = self.weight
-        return F.linear(x, w, self.bias)
+            return F.linear(x, w, self.bias)
+        return F.linear(x, self.weight, self.bias)
     
 
 class SupermaskConv2d(nn.Conv2d):
