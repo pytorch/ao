@@ -768,14 +768,16 @@ def float8_dynamic_activation_float8_weight(
             _layout=Float8Layout(mm_config=mm_config),
         )
 
-        input_quant_func = partial(
-            _input_activation_quant_func_fp8,
-            activation_granularity=activation_granularity,
-            activation_dtype=activation_dtype,
-        )
+        input_quant_func = _input_activation_quant_func_fp8
+        input_quant_kwargs = {
+            "activation_granularity": activation_granularity,
+            "activation_dtype": activation_dtype,
+        }
 
         quantized_weight = to_linear_activation_quantized(
-            quantized_weight, input_quant_func
+            quantized_weight, 
+            input_quant_func,
+            quant_kwargs=input_quant_kwargs
         )
         return quantized_weight
 
