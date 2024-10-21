@@ -277,7 +277,7 @@ class TestOptim(TestCase):
 
         # small LR so that weight update is small
         # when bf16_stochastic_round=False, the test will fail after 1 iteration
-        optim1 = torch.optim.AdamW(model1.parameters(), lr=1e-5, fused=True)
+        optim1 = torch.optim.AdamW(model1.parameters(), lr=1e-5)
         optim2 = low_bit_optim._AdamW(model2.parameters(), lr=1e-5, bf16_stochastic_round=True)
 
         # overfit on this sample
