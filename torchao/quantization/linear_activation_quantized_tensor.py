@@ -1,5 +1,5 @@
 import torch
-from typing import Callable, Dict, Any
+from typing import Callable, Dict, Any, Optional
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.utils import (
     TorchAOBaseTensor,
@@ -72,7 +72,7 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
         )
 
     @staticmethod
-    def _quantized_linear_op(input_tensor, weight_tensor, bias):
+    def _quantized_linear_op(input_tensor: torch.Tensor, weight_tensor: torch.Tensor, bias: torch.Tensor):
         input_quant_func = weight_tensor.input_quant_func
         original_weight_tensor = weight_tensor.original_weight_tensor
         quant_kwargs = weight_tensor.quant_kwargs
@@ -80,7 +80,10 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
         return torch.nn.functional.linear(aqt, original_weight_tensor, bias)
 
     @classmethod
-    def from_float(cls, input_float, input_quant_func, quant_kwargs):
+    def from_float(cls, 
+                   input_float: torch.Tensor, 
+                   input_quant_func: Callable, 
+                   quant_kwargs: Optional[Dict[str, Any]] = None):
         if quant_kwargs is None:
             quant_kwargs = {}
         return cls(input_float, input_quant_func, quant_kwargs)
