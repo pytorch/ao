@@ -19,7 +19,7 @@ import torch
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from quant_api import (
     _Int8DynActIntxWeightQuantizedLinearFallback,
-    Int8DynActIntxWeightQuantizer,
+    Int8DynActIntxWeightLinearQuantizer,
 )
 
 
@@ -74,7 +74,7 @@ class TestInt8DynActIntxWeightQuantizer(unittest.TestCase):
             for has_weight_zeros in [True, False]:
                 print(f"Testing nbit={nbit}, has_weight_zeros={has_weight_zeros}")
                 quantized_model = copy.deepcopy(model)
-                quantizer = Int8DynActIntxWeightQuantizer(
+                quantizer = Int8DynActIntxWeightLinearQuantizer(
                     device="cpu",
                     precision=torch.float32,
                     bitwidth=nbit,
@@ -122,7 +122,7 @@ class TestInt8DynActIntxWeightQuantizer(unittest.TestCase):
         activations = torch.randn(m, k0, dtype=torch.float32)
 
         print("Quantizing model")
-        quantizer = Int8DynActIntxWeightQuantizer(
+        quantizer = Int8DynActIntxWeightLinearQuantizer(
             device="cpu",
             precision=torch.float32,
             bitwidth=nbit,
