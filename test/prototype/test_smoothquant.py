@@ -49,7 +49,7 @@ idtypes = (torch.float, torch.bfloat16, torch.half)
 
 if TORCH_VERSION_AT_LEAST_2_5:
     # This test case will trigger recompilation many times, so set a large cache_size_limit here
-    torch._dynamo.config.cache_size_limit = 32
+    torch._dynamo.config.cache_size_limit = 64
 
 @pytest.mark.parametrize("bias", bias_list)
 @pytest.mark.parametrize("alpha", alpha_list)
@@ -110,6 +110,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
             )
             obs(act.float().to("cpu"))
             act_scale, _ = obs.calculate_qparams()
+            act_scale = act_scale.to(idtype)
             fq_act = torch.quantize_per_tensor(
                 act.float(), scale=act_scale.item(), zero_point=0, dtype=torch.qint8
             ).dequantize().to(idtype)
