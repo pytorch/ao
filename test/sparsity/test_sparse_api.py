@@ -119,10 +119,11 @@ class TestBlockSparseWeight(common_utils.TestCase):
     def test_sparse(self, batch_size, compile, bias):
         input = torch.rand((batch_size, 1024)).half().cuda()
         model = (
-            nn.Sequential(
-                nn.Linear(1024, 2048, bias=bias),
-                nn.Linear(2048, 1024, bias=bias),
-            )
+            nn.Linear(1024, 2048, bias=bias)
+            # nn.Sequential(
+            #     nn.Linear(1024, 2048, bias=bias),
+            #     nn.Linear(2048, 1024, bias=bias),
+            # )
             .half()
             .cuda()
             .eval()
@@ -130,10 +131,13 @@ class TestBlockSparseWeight(common_utils.TestCase):
 
         from torchao.sparsity.utils import create_block_sparse_tensor
 
-        M, N = model[0].weight.shape
-        model[0].weight.data = create_block_sparse_tensor(M, N, 64, 0.5, torch.float16)
-        M, N = model[1].weight.shape
-        model[1].weight.data = create_block_sparse_tensor(M, N, 64, 0.5, torch.float16)
+        M, N = model.weight.shape
+        model.weight.data = create_block_sparse_tensor(M, N, 64, 0.5, torch.float16)
+
+        # M, N = model[0].weight.shape
+        # model[0].weight.data = create_block_sparse_tensor(M, N, 64, 0.5, torch.float16)
+        # M, N = model[1].weight.shape
+        # model[1].weight.data = create_block_sparse_tensor(M, N, 64, 0.5, torch.float16)
         dense_result = model(input)
 
         from torchao.sparsity.prototype.superblock.blocksparse import (
@@ -141,8 +145,8 @@ class TestBlockSparseWeight(common_utils.TestCase):
         )
 
         sparsify_(model, block_sparse_weight(blocksize=64))
-        # if compile:
-        #     model = torch.compile(model)
+        if compile:
+            model = torch.compile(model, dynamic=True)
         sparse_result = model(input)
 
         torch.testing.assert_close(dense_result, sparse_result, rtol=1e-3, atol=1e-3)

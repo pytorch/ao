@@ -227,6 +227,7 @@ class BlockSparseTensor(TorchAOBaseTensor):
     @classmethod
     def from_dense(cls, dense_tensor, blocksize):
         bsr_tensor = dense_tensor.to_sparse_bsr(blocksize)
+        print("A")
         bsr_nt = torch.nested.nested_tensor_from_jagged(bsr_tensor.values().detach(), bsr_tensor.crow_indices().detach()).detach()
         return cls(
             shape=dense_tensor.shape,
@@ -238,15 +239,12 @@ class BlockSparseTensor(TorchAOBaseTensor):
         )
 
     def apply_fn_to_shard(self, func):
-        new_bsr_values = func(self.bsr_values)
-        new_bsr_crow_indices = func(self.bsr_crow_indices)
-        bsr_nt = torch.nested.nested_tensor_from_jagged(new_bsr_values.detach(), new_bsr_crow_indices.detach()).detach()
         return BlockSparseTensor(
             shape=self.shape,
-            bsr_crow_indices=new_bsr_crow_indices,
+            bsr_crow_indices=func(self.bsr_crow_indices),
             bsr_col_indices=func(self.bsr_col_indices),
-            bsr_values=new_bsr_values,
-            bsr_nt=bsr_nt,
+            bsr_values=func(self.bsr_values),
+            bsr_nt=func(self.bsr_nt),
             requires_grad=self.requires_grad,
         )
 
@@ -294,6 +292,7 @@ def block_sparse_mul(func, types, args, kwargs):
         t_blocked = t.view(t.size(0), t.size(1) // 64, 64, 1)
         masked_t = t_blocked.transpose(0, 1).index_select(0, bsr.col_indices())
         new_values = bsr.values() * masked_t
+        print("C")
         bsr_nt = torch.nested.nested_tensor_from_jagged(new_values.detach(), bsr.crow_indices().detach()).detach()
         return BlockSparseTensor(bsr.shape,
                                  bsr.crow_indices(),
