@@ -32,7 +32,7 @@ def _dequant_kernel(
     tl.static_print(q_idx)
     # NOTE: Must upcast q_idx to int32 (q_idx is tl.uint8, which does not work for pointer indexing)
     q_vals = tl.load(qmap_ptr + q_idx.to(tl.int32))
-    absmax = tl.load(absmax_ptr + group_offsets)  # TODO: might need to add mask for this load also
+    absmax = tl.load(absmax_ptr + group_offsets, mask=group_offsets < (M * N // GROUP_SIZE))
 
     dq = q_vals * absmax
     tl.store(dq_ptr + offsets, dq, mask=mask)
