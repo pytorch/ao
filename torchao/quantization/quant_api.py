@@ -483,7 +483,7 @@ def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
     target_dtype = torch.int8
     eps = torch.finfo(torch.float32).eps
     if TORCH_VERSION_AT_LEAST_2_6:
-        return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype, eps=eps, quant_min=quant_min, quant_max=quant_max, scale_dtype=torch.float64, zero_point_dtype=torch.int64)
+        return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype, eps=eps, scale_dtype=torch.float64, zero_point_dtype=torch.int64)
     else:
         return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype, eps=eps)
 
