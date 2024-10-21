@@ -3,10 +3,10 @@ import torch
 from torchao.dtypes.affine_quantized_tensor import (
     to_affine_quantized_intx,
     ZeroPointDomain,
-    PlainAQTLayout,
-    PlainLayoutType,
-    TensorCoreTiledAQTLayout,
-    TensorCoreTiledLayoutType,
+    PlainAQTTensorImpl,
+    PlainLayout,
+    TensorCoreTiledAQTTensorImpl,
+    TensorCoreTiledLayout,
     MappingType,
 )
 

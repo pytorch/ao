@@ -48,7 +48,7 @@ def pretty_print_nested_results(results, precision: int = 6):
 def run_evaluation(repo_id, tasks, limit, device, precision, quantization, sparsity, compile, save, batch_size, max_length):
 
     tokenizer = AutoTokenizer.from_pretrained(repo_id)
-    model = AutoModelForCausalLM.from_pretrained(repo_id).to(dtype=precision, device=device)
+    model = AutoModelForCausalLM.from_pretrained(repo_id, torch_dtype=precision).to(device)
 
     if quantization == "autoquant" and compile:
         model = torch.compile(model, mode="max-autotune", fullgraph=True)
@@ -64,9 +64,29 @@ def run_evaluation(repo_id, tasks, limit, device, precision, quantization, spars
         quantize_(model, fpx_weight_only(3, 2))
     elif quantization == "autoquant":
         model = autoquant(model.to(device=device))
+    elif quantization == "awq":
+        from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
+        from torchao.prototype.awq.example import get_calib_dataset
+        if not TORCH_VERSION_AT_LEAST_2_3:
+            print("AWQ quantization requires torch2.3+")
+            exit()
+        from torchao.prototype.awq import insert_awq_observer_, awq_uintx, AWQObservedLinear
+        quant_dtype = torch.uint4
+        group_size = 64
+        calibration_limit = 10
+        calibration_seq_length = 1024
+        model=model.to(device)
+        insert_awq_observer_(model,calibration_limit, calibration_seq_length, quant_dtype=quant_dtype, group_size=group_size)
+        with torch.no_grad():
+            calibration_data = get_calib_dataset(tokenizer=tokenizer, n_samples=calibration_limit, block_size=calibration_seq_length)
+            for batch in calibration_data:
+                model(batch.to(device))
+                del batch
+        is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
+        quantize_(model, awq_uintx(quant_dtype=quant_dtype, group_size = group_size), is_observed_linear)
 
     if quantization != "autoquant" and compile:
-        model = torch.compile(model, mode="max-autotune", fullgraph=True)
+        model = torch.compile(model, mode= "max-autotune", fullgraph=True)
 
     if sparsity == "semi_sparse":
         def all_linear(mod, name):
@@ -114,7 +134,7 @@ if __name__ == '__main__':
     parser.add_argument('--limit', type=int, default=None, help='Number of eval samples to evaluate')
     parser.add_argument('--precision', type=lambda x: getattr(torch, x.split(".")[-1]), default=torch.bfloat16, help='dtype precision to use')
     parser.add_argument('--device', type=str, default="cuda", help='Device to use for evaluation')
-    parser.add_argument('-q', '--quantization', default = "None", choices=["int8dq", "int8wo", "int4wo", "autoquant", "None"], help='Which quantization technique to apply')
+    parser.add_argument('-q', '--quantization', default = "None", choices=["int8dq", "int8wo", "int4wo","autoquant", "awq", "None"], help='Which quantization technique to apply')
     parser.add_argument('-s', '--sparsity', default = "None", choices=["semi_sparse", "semi_sparse_mlp_only", "None"], help='Which sparsity technique to apply')
     parser.add_argument('--compile', action='store_true', help='Whether to compile the model.')
     parser.add_argument('--save', action='store_true', help='Whether to save the model.')

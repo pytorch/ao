@@ -145,8 +145,7 @@ def _(func, types, args, kwargs):
         kwargs,
         args[0].to(*args[1:], **kwargs)._apply_fn_to_data(torch.clone),
     )
-
-
+    
 @implements(aten.t.default)
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(

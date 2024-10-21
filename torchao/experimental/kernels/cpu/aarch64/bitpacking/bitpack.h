@@ -9,13 +9,13 @@
 #if defined(__aarch64__) || defined(__ARM_NEON)
 
 #include <arm_neon.h>
-#include <torchao/experimental/kernels/cpu/aarch64/bitpacking/macro.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint1.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint2.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint3.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint4.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint5.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint6.h>
+#include <torchao/experimental/kernels/cpu/aarch64/macro.h>
 #include <cassert>
 
 namespace torchao {
@@ -109,6 +109,7 @@ TORCHAO_ALWAYS_INLINE inline void vec_pack_32_lowbit_values(
           vget_high_u8(shifted0),
           vget_low_u8(shifted1),
           vget_high_u8(shifted1));
+      break;
     case 3:
       uint8_t buffer3[32];
       vst1q_u8(buffer3, shifted0);
@@ -141,7 +142,7 @@ TORCHAO_ALWAYS_INLINE inline void vec_pack_32_lowbit_values(
       break;
     case 6:
       torchao::bitpacking::internal::vec_pack_32_uint6_values(
-        packed, shifted0, shifted1);
+          packed, shifted0, shifted1);
       break;
     default:
       assert(false);
@@ -152,7 +153,7 @@ template <int nbit>
 TORCHAO_ALWAYS_INLINE inline void vec_unpack_32_lowbit_values(
     int8x16_t& unpacked0,
     int8x16_t& unpacked1,
-    uint8_t* packed) {
+    const uint8_t* packed) {
   static_assert(nbit < 8);
   static_assert(nbit >= 1);
 
@@ -185,6 +186,7 @@ TORCHAO_ALWAYS_INLINE inline void vec_unpack_32_lowbit_values(
           shifted0_low, shifted0_high, shifted1_low, shifted1_high, packed);
       shifted0 = vcombine_u8(shifted0_low, shifted0_high);
       shifted1 = vcombine_u8(shifted1_low, shifted1_high);
+      break;
     case 3:
       uint8_t buffer3[32];
       torchao::bitpacking::internal::unpack_8_uint3_values(buffer3, packed);
@@ -215,7 +217,7 @@ TORCHAO_ALWAYS_INLINE inline void vec_unpack_32_lowbit_values(
       break;
     case 6:
       torchao::bitpacking::internal::vec_unpack_32_uint6_values(
-        shifted0, shifted1, packed);
+          shifted0, shifted1, packed);
       break;
     default:
       assert(false);
@@ -286,7 +288,7 @@ TORCHAO_ALWAYS_INLINE inline void vec_unpack_64_lowbit_values(
     int8x16_t& unpacked1,
     int8x16_t& unpacked2,
     int8x16_t& unpacked3,
-    uint8_t* packed) {
+    const uint8_t* packed) {
   static_assert(nbit < 8);
   static_assert(nbit >= 1);
 
@@ -441,7 +443,7 @@ TORCHAO_ALWAYS_INLINE inline void vec_unpack_128_lowbit_values(
     int8x16_t& unpacked5,
     int8x16_t& unpacked6,
     int8x16_t& unpacked7,
-    uint8_t* packed) {
+    const uint8_t* packed) {
   static_assert(nbit < 8);
   static_assert(nbit >= 1);
 

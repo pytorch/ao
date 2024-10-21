@@ -19,7 +19,7 @@ from torch.ao.quantization import MinMaxObserver, QConfigMapping
 from torchao.quantization.dynamic_quant import (
     DynamicallyPerAxisQuantizedLinear,
 )
-from torchao.dtypes import TensorCoreTiledLayoutType
+from torchao.dtypes import TensorCoreTiledLayout
 from torchao.quantization.quant_api import (
     int4_weight_only,
     int8_weight_only,
@@ -108,6 +108,10 @@ def _int8wo_api(mod):
             unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int8_woqtensors(mod)
+
+def _int8wo_groupwise_api(mod):
+    group_size = 32
+    quantize_(mod, int8_weight_only(group_size=group_size), set_inductor_config=False)
 
 def _int8da_int8w_api(mod):
     if TORCH_VERSION_AT_LEAST_2_4:
@@ -328,6 +332,7 @@ class SmoothquantUnitTest(unittest.TestCase):
         assert torch.allclose(y_ref, y)
 
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "newer dtypes not supported")
     def test_weight_t_and_non_t_numerics_match(self):
         # verify that numerics match whether weight is stored
         # in transposed format (for cuBLAS) vs non-transposed format
@@ -876,7 +881,7 @@ class TestSubclass(unittest.TestCase):
         for test_shape in ([(256, 256, 16)] + ([(256, 256, 8)] if device=='cuda' else [])):
             for groupsize in [64, 32]:
                 for inner_k_tiles in [4, 2]:
-                    kwargs = {"groupsize": groupsize, "layout_type": TensorCoreTiledLayoutType(inner_k_tiles=inner_k_tiles)}
+                    kwargs = {"groupsize": groupsize, "layout": TensorCoreTiledLayout(inner_k_tiles=inner_k_tiles)}
 
                     def api(mod):
                         kwargs_copy = kwargs.copy()
@@ -888,7 +893,7 @@ class TestSubclass(unittest.TestCase):
                                 unwrap_tensor_subclass(mod)
                         else:
                             kwargs_copy["inner_k_tiles"] = inner_k_tiles
-                            del kwargs_copy["layout_type"]
+                            del kwargs_copy["layout"]
                             change_linear_weights_to_int4_woqtensors(mod, **kwargs_copy)
 
                     self._test_lin_weight_subclass_api_impl(
@@ -925,6 +930,16 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
             y_wo = m(x)
             sqnr = compute_error(y_ref, y_wo)
             self.assertGreater(sqnr, 43.0)
+
+    def test_weight_only_groupwise_quant(self):
+        for x_shape in [[128, 512]]:
+            x = torch.randn(*x_shape)
+            m = nn.Sequential(nn.Linear(512, 32))
+            y_ref = m(x)
+            _int8wo_groupwise_api(m)
+            y_wo = m(x)
+            sqnr = compute_error(y_ref, y_wo)
+            self.assertGreater(sqnr, 45.0)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
@@ -1051,7 +1066,7 @@ class TestSaveLoadMeta(unittest.TestCase):
         self.assertTrue(torch.equal(ref_q, test))
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
-    @unittest.skipIf(is_fbcode(), "'PlainAQTLayout' object has no attribute 'int_data'")
+    @unittest.skipIf(is_fbcode(), "'PlainAQTTensorImpl' object has no attribute 'int_data'")
     @torch.no_grad()
     def test_save_load_dqtensors(self, device, dtype):
         if device == "cpu":
@@ -1126,6 +1141,7 @@ class UtilsUnitTest(unittest.TestCase):
 class SmoothquantIntegrationTest(unittest.TestCase):
     @torch.no_grad()
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "newer dtypes not supported")
     def test_non_dynamically_quantizable_linear(self):
         if torch.cuda.is_available() and torch.cuda.get_device_capability() < (8, 0):
             self.skipTest("test requires SM capability of at least (8, 0).")

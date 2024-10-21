@@ -4,34 +4,224 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Any, List, Optional
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any, List, Optional, Union
 
 import torch
-import torch.nn.functional as F
 
-from torchao.dtypes import (
-    TensorCoreTiledLayoutType,
-)
-from torchao.quantization.quant_api import (
-    _get_linear_subclass_inserter,
-    _replace_with_custom_fn_if_matches_filter,
-    int4_weight_only,
-    int8_dynamic_activation_int4_weight,
-    quantize_,
-)
-from torchao.quantization.quant_primitives import (
-    MappingType,
-    ZeroPointDomain,
+from torchao.quantization.granularity import (
+    Granularity,
+    PerAxis,
+    PerGroup,
+    PerToken,
 )
 from torchao.quantization.unified import TwoStepQuantizer
-from torchao.quantization.utils import _get_per_token_block_size
-from .affine_fake_quantized_tensor import to_affine_fake_quantized
-from .utils import (
-    _enable_fake_quant,
-    _get_qat_linear_subclass_inserter,
-    _is_linear_with_fq_weight,
-    _unwrap_affine_fake_quantized_tensor,
+from torchao.quantization.quant_primitives import (
+    _SUB_BYTE_INT_BOUNDS,
+    _SUB_BYTE_UINT_BOUNDS,
+    MappingType,
+    TorchAODType,
+    ZeroPointDomain,
 )
+
+
+@dataclass
+class FakeQuantizeConfig:
+    """
+    Config for how to fake quantize weights or activations.
+
+    args:
+        dtype: dtype to simulate during fake quantization, e.g. torch.int8.
+            For PyTorch versions older than 2.6, you may use `TorchAODType` to represent
+            torch.int1 to torch.int7 instead, e.g. TorchAODType.INT4.
+        granularity: granularity of scales and zero points, e.g. PerGroup(32).
+            We also support the following strings:
+               1) 'per_token': equivalent to PerToken()
+               2) 'per_channel': equivalent to PerAxis(0)
+               3) 'per_group': equivalent to PerGroup(group_size), must be combined
+                   with separate `group_size` kwarg, Alternatively, just set the
+                   `group_size` kwarg and leave this field empty.
+        mapping_type: whether to use symmetric (default) or asymmetric quantization
+            Alternatively, set `is_symmetric` (bool) and leave this field empty.
+        scale_precision: scale dtype (default torch.fp32)
+        zero_point_precision: zero point dtype (default torch.int32)
+        zero_point_domain: whether zero point is in integer (default) or float domain
+        is_dynamic: whether to use dynamic (defualt) or static scale and zero points
+        range_learning: whether to learn scale and zero points during training (coming soon)
+
+    kwargs (optional):
+        group_size: size of each group in per group fake quantization,
+            can be set instead of `granularity`
+        is_symmetric: whether to use symmetric or asymmetric quantization,
+            can be set instead of `mapping_type`
+
+    Example usage::
+
+        # Per token asymmetric quantization
+        FakeQuantizeConfig(torch.int8, "per_token", is_symmetric=False)
+        FakeQuantizeConfig(torch.int8, PerToken(), MappingType.ASYMMETRIC)
+
+        # Per channel symmetric quantization
+        FakeQuantizeConfig(torch.int4, "per_channel")
+        FakeQuantizeConfig(torch.int4, "per_channel", is_symmetric=True)
+        FakeQuantizeConfig(torch.int4, PerAxis(0), MappingType.SYMMETRIC)
+
+        # Per group symmetric quantization
+        FakeQuantizeConfig(torch.int4, group_size=32)
+        FakeQuantizeConfig(torch.int4, group_size=32, is_symmetric=True)
+        FakeQuantizeConfig(torch.int4, "per_group", group_size=32, is_symmetric=True)
+        FakeQuantizeConfig(torch.int4, PerGroup(32), MappingType.SYMMETRIC)
+    """
+    dtype: Union[torch.dtype, TorchAODType]
+    granularity: Granularity
+    mapping_type: MappingType
+    scale_precision: torch.dtype
+    zero_point_precision: torch.dtype
+    zero_point_domain: ZeroPointDomain
+    is_dynamic: bool = True
+    range_learning: bool = False
+
+    def __init__(
+        self,
+        dtype: Union[torch.dtype, TorchAODType],
+        granularity: Union[Granularity, str, None] = None,
+        mapping_type: Optional[MappingType] = None,
+        scale_precision: torch.dtype = torch.float32,
+        zero_point_precision: torch.dtype = torch.int32,
+        zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+        is_dynamic: bool = True,
+        range_learning: bool = False,
+        *,
+        group_size: Optional[int] = None,
+        is_symmetric: Optional[bool] = None,
+    ):
+        self.dtype = dtype
+        self.granularity = self._get_granularity(granularity, group_size)
+        self.mapping_type = self._get_mapping_type(mapping_type, is_symmetric)
+        self.scale_precision = scale_precision
+        self.zero_point_precision = zero_point_precision
+        self.zero_point_domain = zero_point_domain
+        self.is_dynamic = is_dynamic
+        self.range_learning = range_learning
+
+        # Validate dtype
+        all_dtypes = [torch.int8, torch.uint8]
+        all_dtypes.extend(list(_SUB_BYTE_INT_BOUNDS.keys()))
+        all_dtypes.extend(list(_SUB_BYTE_UINT_BOUNDS.keys()))
+        if dtype not in all_dtypes:
+            raise ValueError("Unsupported dtype '%s', choose from %s" % (dtype, all_dtypes))
+
+    def _get_granularity(
+        self,
+        granularity: Union[Granularity, str, None],
+        group_size: Optional[int],
+    ) -> Granularity:
+        """
+        Parse the `Granularity` represented in the args.
+
+        Granularity can be specified in one of three ways:
+            1) `Granularity` object: one of PerToken(), PerAxis(), and PerGroup(group_size)
+            2) str: one of 'per_token', 'per_channel', and 'per_group'
+            3) None: `group_size` must be set instead, represents per group granularity
+        """
+        # If group_size is set, then granularity must be either "per_group" or None
+        if group_size is not None and granularity != "per_group" and granularity is not None:
+            raise ValueError("`group_size` conflicts with granularity '%s'" % granularity)
+
+        # Case 1: Granularity object
+        if isinstance(granularity, Granularity):
+            if not isinstance(granularity, (PerToken, PerAxis, PerGroup)):
+                raise ValueError("Granularity '%s' is not supported" % granularity)
+            if isinstance(granularity, PerAxis) and granularity.axis != 0:
+                raise ValueError("Only axis=0 is supported for PerAxis granularity")
+            return granularity
+
+        # Case 2: str granularity
+        if granularity == "per_token":
+            return PerToken()
+        elif granularity == "per_channel":
+            return PerAxis(axis=0)
+        elif granularity == "per_group":
+            if group_size is None:
+                raise ValueError("Granularity was 'per_group' but no `group_size` was set")
+            return PerGroup(group_size)
+        elif isinstance(granularity, str):
+            raise ValueError(
+                "Unexpected granularity: '%s', must be one of %s" %
+               (granularity, ["per_token", "per_channel", "per_group"])
+            )
+
+        # Case 3: None granularity + group_size was specified
+        if granularity is not None:
+            raise ValueError(
+                "Granularity '%s' has unexpected type %s" % (granularity, type(granularity))
+            )
+        if group_size is None:
+            raise ValueError("At least one of `granularity` or `group_size` must be set")
+        return PerGroup(group_size)
+
+    def _get_mapping_type(
+        self,
+        mapping_type: Optional[MappingType],
+        is_symmetric: Optional[bool],
+    ) -> MappingType:
+        """
+        Parse the `MappingType` represented in the args.
+
+        Mapping type can be specified in one of two ways:
+            1): `MappingType` object: one of SYMMETRIC or ASYMMETRIC
+            2): is_symmetric bool
+        """
+        if mapping_type is not None and is_symmetric is not None:
+            raise ValueError("Cannot set both `mapping_type` and `is_symmetric`")
+
+        # Case 0: Default to symmetric
+        if mapping_type is None and is_symmetric is None:
+            return MappingType.SYMMETRIC
+
+        # Case 1: MappingType object
+        if mapping_type is not None:
+            if mapping_type not in [MappingType.SYMMETRIC, MappingType.ASYMMETRIC]:
+                raise ValueError("MappingType '%s' is not supported" % mapping_type)
+            return mapping_type
+
+        # Case 2: is_symmetric flag
+        assert is_symmetric is not None
+        if is_symmetric:
+            return MappingType.SYMMETRIC
+        else:
+            return MappingType.ASYMMETRIC
+
+    @property
+    def group_size(self) -> int:
+        """
+        If this is per group granularity, return the group size.
+        Otherwise, throw an error.
+        """
+        if isinstance(self.granularity, PerGroup):
+            return self.granularity.group_size
+        else:
+            raise ValueError("`group_size` is undefined for %s granularity" % self.granularity)
+
+    @property
+    def is_symmetric(self) -> bool:
+        """
+        Return True if mapping type is symmetric, else False (asymmetric).
+        """
+        return self.mapping_type == MappingType.SYMMETRIC
+
+    def __setattr__(self, name: str, value: Any):
+        """
+        Support setting `group_size` and `is_symmetric`.
+        """
+        if name == "group_size":
+            super().__setattr__("granularity", PerGroup(value))
+        elif name == "is_symmetric":
+            mapping_type = MappingType.SYMMETRIC if value else MappingType.ASYMMETRIC
+            super().__setattr__("mapping_type", mapping_type)
+        else:
+            super().__setattr__(name, value)
 
 
 class ComposableQATQuantizer(TwoStepQuantizer):
@@ -70,207 +260,3 @@ class ComposableQATQuantizer(TwoStepQuantizer):
         for quantizer in self.quantizers:
             model = quantizer.convert(model)
         return model
-
-
-# =================
-# |   8da4w QAT   |
-# =================
-
-def int8_dynamic_activation_int4_weight_fake_quantize(group_size=32):
-    """
-    Applies int8 dynamic per token asymmetric activation fake quantization and
-    int4 per group weight symmetric fake quantization to linear. Please see
-    :func:`~torchao.quantization.int8_dynamic_activation_int4_weight` for more details.
-
-    Example usage::
-
-        from torchao.quantization import quantize_
-        quantize_(model, int8_dynamic_activation_int4_weight_fake_quantize(group_size=32))
-    """
-    # avoid circular dep
-    from torchao.dtypes import to_affine_quantized_intx
-
-    def _apply_weight_fake_quant(weight: torch.Tensor):
-        mapping_type = MappingType.SYMMETRIC
-        block_size = (1, group_size)
-        target_dtype = torch.int8
-        eps = torch.finfo(torch.float32).eps
-        quant_min = -8
-        quant_max = 7
-        return to_affine_fake_quantized(
-            weight,
-            mapping_type,
-            block_size,
-            target_dtype,
-            quant_min,
-            quant_max,
-            eps,
-        )
-
-    def _apply_input_activation_fake_quant(x: torch.Tensor):
-        mapping_type = MappingType.ASYMMETRIC
-        target_dtype = torch.int8
-        return to_affine_fake_quantized(
-            x,
-            mapping_type,
-            _get_per_token_block_size(x),
-            target_dtype,
-        )
-
-    return _get_qat_linear_subclass_inserter(
-        _apply_weight_fake_quant,
-        _apply_input_activation_fake_quant,
-    )
-
-class Int8DynActInt4WeightQATQuantizer(TwoStepQuantizer):
-    """
-    Quantizer for performing QAT on a model, where linear layers have int8
-    dynamic per token fake quantized activations and int4 fake quantized
-    grouped per channel weights.
-    """
-
-    def __init__(
-        self,
-        groupsize: int = 256,
-        padding_allowed: bool = False,
-        precision: torch.dtype = torch.float32,
-        scales_precision: torch.dtype = torch.float32,
-    ) -> None:
-        super().__init__()
-        self.groupsize: int = groupsize
-        self.padding_allowed: bool = padding_allowed
-        self.precision: torch.dtype = precision
-        self.scales_precision: torch.dtype = scales_precision
-
-    def prepare(
-        self,
-        model: torch.nn.Module,
-        *args: Any,
-        **kwargs: Any
-    ) -> torch.nn.Module:
-        quantize_(
-            model,
-            int8_dynamic_activation_int4_weight_fake_quantize(group_size=self.groupsize),
-        )
-        return model
-
-    def convert(
-        self,
-        model: torch.nn.Module,
-        *args: Any,
-        **kwargs: Any
-    ) -> torch.nn.Module:
-        unwrap_fn = _get_linear_subclass_inserter(_unwrap_affine_fake_quantized_tensor)
-        filter_fn = _is_linear_with_fq_weight
-        model = _replace_with_custom_fn_if_matches_filter(model, unwrap_fn, filter_fn)
-        quantize_fn = int8_dynamic_activation_int4_weight(self.groupsize)
-        quantize_(model, quantize_fn)
-        return model
-
-
-def enable_8da4w_fake_quant(mod: torch.nn.Module):
-    """
-    Enable fake quantization for int8 dynamic activations + int4 weight.
-    """
-    _enable_fake_quant(mod, enable=True)
-
-def disable_8da4w_fake_quant(mod: torch.nn.Module):
-    """
-    Disable fake quantization for int8 dynamic activations + int4 weight.
-    """
-    _enable_fake_quant(mod, enable=False)
-
-
-# ==================
-# |   int4wo QAT   |
-# ==================
-
-def int4_weight_only_fake_quantize(group_size=128):
-    """
-    Applies uint4 weight-only asymmetric per-group fake quantization to linear layers.
-    Please see :func:`~torchao.quantization.int4_weight_only` for more details.
-
-    Example usage::
-
-        from torchao.quantization import quantize_
-        quantize_(model, int4_weight_only_fake_quantize(group_size=32))
-    """
-    def _apply_fake_quant(weight):
-        mapping_type = MappingType.ASYMMETRIC
-        block_size = (1, group_size)
-        target_dtype = torch.int32
-        quant_min = 0
-        quant_max = 15
-        eps = 1e-6
-        preserve_zero = False
-        zero_point_dtype = torch.bfloat16
-        zero_point_domain = ZeroPointDomain.FLOAT
-        return to_affine_fake_quantized(
-            weight,
-            mapping_type,
-            block_size,
-            target_dtype,
-            quant_min,
-            quant_max,
-            eps,
-            zero_point_dtype=zero_point_dtype,
-            preserve_zero=preserve_zero,
-            zero_point_domain=zero_point_domain,
-        )
-    return _get_qat_linear_subclass_inserter(_apply_fake_quant)
-
-class Int4WeightOnlyQATQuantizer(TwoStepQuantizer):
-    """
-    Quantizer for performing QAT on a model, where linear layers have
-    int4 fake quantized grouped per channel weights.
-    """
-
-    def __init__(
-        self,
-        groupsize: int = 256,
-        inner_k_tiles: Optional[int] = 8,
-        precision: torch.dtype = torch.bfloat16,
-        scales_precision: torch.dtype = torch.bfloat16,
-    ) -> None:
-        super().__init__()
-        assert inner_k_tiles in [2, 4, 8]
-        assert groupsize in [32, 64, 128, 256]
-        self.inner_k_tiles = inner_k_tiles
-        self.groupsize = groupsize
-        self.precision = precision
-        self.scales_precision = scales_precision
-
-    def prepare(
-        self,
-        model: torch.nn.Module,
-        *args: Any,
-        **kwargs: Any
-    ) -> torch.nn.Module:
-        quantize_(model, int4_weight_only_fake_quantize(group_size=self.groupsize))
-        return model
-
-    def convert(
-        self,
-        model: torch.nn.Module,
-        *args: Any,
-        **kwargs: Any
-    ) -> torch.nn.Module:
-        unwrap_fn = _get_linear_subclass_inserter(_unwrap_affine_fake_quantized_tensor)
-        filter_fn = _is_linear_with_fq_weight
-        model = _replace_with_custom_fn_if_matches_filter(model, unwrap_fn, filter_fn)
-        layout_type = TensorCoreTiledLayoutType(self.inner_k_tiles)
-        quantize_fn = int4_weight_only(self.groupsize, layout_type)
-        quantize_(model, quantize_fn)
-        return model
-
-def enable_4w_fake_quant(mod: torch.nn.Module):
-    """
-    Enable fake quantization for int4 weight only.
-    """
-    _enable_fake_quant(mod, enable=True)
-
-def disable_4w_fake_quant(mod: torch.nn.Module):
-    """
-    Disable fake quantization for int4 weight only.
-    """
-    _enable_fake_quant(mod, enable=False)

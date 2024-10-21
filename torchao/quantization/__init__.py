@@ -12,11 +12,12 @@ from .utils import *  # noqa: F403
 from .weight_only import *  # noqa: F403
 from .unified import *
 from .autoquant import *
-from .linear_activation_quantized_tensor import (  # noqat: F403
+from .granularity import *
+from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
     to_linear_activation_quantized,
 )
-from .linear_activation_scale import (  # noqat: F403
+from .linear_activation_scale import (
     to_weight_tensor_with_linear_activation_scale_metadata,
 )
 

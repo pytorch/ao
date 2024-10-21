@@ -5,7 +5,7 @@ import pytest
 from torch import nn
 from torch.testing._internal.common_utils import TestCase, run_tests
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-from torchao.dtypes import MarlinSparseLayoutType
+from torchao.dtypes import MarlinSparseLayout
 from torchao.sparsity.sparse_api import apply_fake_sparsity
 from torchao.quantization.quant_api import int4_weight_only, quantize_
 from torchao.sparsity.marlin import (
@@ -50,7 +50,7 @@ class SparseMarlin24(TestCase):
         dense_result = model_copy(self.input.bfloat16()).half()
 
         # Sparse + quantized
-        quantize_(self.model, int4_weight_only(layout_type=MarlinSparseLayoutType()))
+        quantize_(self.model, int4_weight_only(layout=MarlinSparseLayout()))
         sparse_result = self.model(self.input)
 
         assert torch.allclose(dense_result, sparse_result, atol=3e-1), "Results are not close"
@@ -67,7 +67,7 @@ class SparseMarlin24(TestCase):
         dense_result = model_copy(self.input.bfloat16()).half()
 
         # Sparse + quantized
-        quantize_(self.model, int4_weight_only(layout_type=MarlinSparseLayoutType()))
+        quantize_(self.model, int4_weight_only(layout=MarlinSparseLayout()))
         self.model.forward = torch.compile(self.model.forward, fullgraph=True)
         sparse_result = self.model(self.input)
 

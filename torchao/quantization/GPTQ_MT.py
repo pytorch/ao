@@ -12,7 +12,7 @@ from torchao.quantization.utils import compute_error as SQNR
 
 from torchao.dtypes import (
     to_affine_quantized_intx_static,
-    TensorCoreTiledLayoutType
+    TensorCoreTiledLayout
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
@@ -613,7 +613,7 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
             quant_min = 0
             quant_max = 15
             zero_point_domain = ZeroPointDomain.FLOAT
-            layout_type = TensorCoreTiledLayoutType(inner_k_tiles=8)
+            _layout = TensorCoreTiledLayout(inner_k_tiles=8)
             # at least the big up to here should be a util
 
             quantized_tensor = to_affine_quantized_intx_static(
@@ -625,7 +625,7 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
                 quant_min=quant_min, 
                 quant_max=quant_max, 
                 zero_point_domain=zero_point_domain, 
-                layout_type=layout_type, 
+                _layout=_layout, 
             )
             return quantized_tensor
         self.make_qtensor = make_qtensor
@@ -690,4 +690,3 @@ def _replace_with_custom_fn_if_matches_filter(
         if new_child is not child:
             setattr(model, name, new_child)
     return model
-

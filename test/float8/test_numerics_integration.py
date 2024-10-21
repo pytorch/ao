@@ -19,15 +19,24 @@ if not TORCH_VERSION_AT_LEAST_2_5:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchao.float8.config import CastConfig, Float8LinearConfig, ScalingType
+from torchao.float8.config import (
+    CastConfig, 
+    Float8LinearConfig, 
+    ScalingType,
+    ScalingGranularity,
+    Float8LinearRecipeName,
+    recipe_name_to_linear_config,
+)
 from torchao.float8.float8_linear_utils import (
     convert_to_float8_training,
     linear_requires_sync,
     sync_float8_amax_and_scale_history,
 )
 from torchao.float8.float8_utils import compute_error, IS_ROCM
+from torchao.testing.float8.test_utils import get_test_float8_linear_config
 
 is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
+is_cuda_9_0 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
 
 torch.manual_seed(0)
 
@@ -78,29 +87,9 @@ class FeedForward(nn.Module):
 
 
 class TestFloat8NumericsIntegrationTest:
-    @pytest.mark.parametrize(
-        "scaling_type_input", 
-        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
-    )
-    @pytest.mark.parametrize(
-        "scaling_type_weight", 
-        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
-    )
-    @pytest.mark.parametrize(
-        "scaling_type_grad_output",
-        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
-    )
-    @pytest.mark.skipif(not is_cuda_8_9, reason="requires SM89 compatible machine")
-    @pytest.mark.skipif(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
-    def test_encoder_fw_bw(
-        self,
-        scaling_type_input: ScalingType,
-        scaling_type_weight: ScalingType,
-        scaling_type_grad_output: ScalingType,
-    ):
-        # TODO(later): maybe add float16 back if it becomes important
-        data_dtype = torch.bfloat16
 
+    def _test_impl(self, config: Float8LinearConfig) -> None:
+        data_dtype = torch.bfloat16
         # LLaMa 3 70B shapes
         model_ref = (
             FeedForward(
@@ -115,34 +104,6 @@ class TestFloat8NumericsIntegrationTest:
 
         # for now just test the encoder to simplify things
         model_fp8 = copy.deepcopy(model_ref)
-
-        if scaling_type_input is ScalingType.STATIC:
-            cast_config_input = CastConfig(
-                scaling_type=scaling_type_input,
-                static_scale=torch.tensor([1.0], device="cuda"),
-            )
-        else:
-            cast_config_input = CastConfig(scaling_type=scaling_type_input)
-        if scaling_type_weight is ScalingType.STATIC:
-            cast_config_weight = CastConfig(
-                scaling_type=scaling_type_weight,
-                static_scale=torch.tensor([1.0], device="cuda"),
-            )
-        else:
-            cast_config_weight = CastConfig(scaling_type=scaling_type_weight)
-        if scaling_type_grad_output is ScalingType.STATIC:
-            cast_config_grad_output = CastConfig(
-                scaling_type=scaling_type_grad_output,
-                static_scale=torch.tensor([1.0], device="cuda"),
-            )
-        else:
-            cast_config_grad_output = CastConfig(scaling_type=scaling_type_grad_output)
-
-        config = Float8LinearConfig(
-            cast_config_input=cast_config_input,
-            cast_config_weight=cast_config_weight,
-            cast_config_grad_output=cast_config_grad_output,
-        )
 
         convert_to_float8_training(
             model_fp8,
@@ -181,9 +142,9 @@ class TestFloat8NumericsIntegrationTest:
 
         out_sqnr = compute_error(model_ref_out, model_fp8_out)
         any_static_scaling = (
-            scaling_type_input is ScalingType.STATIC
-            or scaling_type_weight is ScalingType.STATIC
-            or scaling_type_grad_output is ScalingType.STATIC
+            config.cast_config_input.scaling_type is ScalingType.STATIC
+            or config.cast_config_weight.scaling_type is ScalingType.STATIC
+            or config.cast_config_grad_output.scaling_type is ScalingType.STATIC
         )
         if any_static_scaling:
             assert out_sqnr > 10.0
@@ -204,6 +165,47 @@ class TestFloat8NumericsIntegrationTest:
             cur_grad = param.grad
             sqnr = compute_error(ref_grad, cur_grad)
             assert sqnr > grad_sqnr_threshold
+
+    @pytest.mark.parametrize(
+        "scaling_type_input", 
+        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+    )
+    @pytest.mark.parametrize(
+        "scaling_type_weight", 
+        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+    )
+    @pytest.mark.parametrize(
+        "scaling_type_grad_output",
+        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
+    )
+    @pytest.mark.skipif(not is_cuda_8_9, reason="requires SM89 compatible machine")
+    @pytest.mark.skipif(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
+    def test_encoder_fw_bw_from_config_params(
+        self,
+        scaling_type_input: ScalingType,
+        scaling_type_weight: ScalingType,
+        scaling_type_grad_output: ScalingType,
+    ):
+        config = get_test_float8_linear_config(
+            scaling_type_input,
+            scaling_type_weight,
+            scaling_type_grad_output,
+            emulate=False,
+        )
+        self._test_impl(config)
+
+    @pytest.mark.parametrize(
+        "recipe_name",
+        [Float8LinearRecipeName.ALL_AXISWISE, Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP],
+    )
+    @pytest.mark.skipif(not is_cuda_9_0, reason="requires SM90 compatible machine")
+    @pytest.mark.skipif(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
+    def test_encoder_fw_bw_from_recipe(
+        self,
+        recipe_name: str,
+    ):
+        config = recipe_name_to_linear_config(recipe_name)
+        self._test_impl(config)
 
 
 if __name__ == "__main__":

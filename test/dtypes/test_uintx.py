@@ -4,7 +4,7 @@ import pytest
 
 import torch
 
-from torchao.dtypes.uintx.uintx import to_uintx
+from torchao.dtypes.uintx import to_uintx
 from torchao.quantization.quant_api import quantize_, uintx_weight_only
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
