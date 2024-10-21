@@ -38,6 +38,7 @@ from torchao.dtypes import (
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
+    TORCH_VERSION_AT_LEAST_2_6,
     unwrap_tensor_subclass,
 )
 from .subclass import (
@@ -480,7 +481,11 @@ def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
     """
     mapping_type = MappingType.ASYMMETRIC
     target_dtype = torch.int8
-    return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype)
+    eps = torch.finfo(torch.float32).eps
+    if TORCH_VERSION_AT_LEAST_2_6:
+        return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype, eps=eps, quant_min=quant_min, quant_max=quant_max, scale_dtype=torch.float64, zero_point_dtype=torch.int64)
+    else:
+        return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype, eps=eps)
 
 def apply_int8_dynamic_activation_int4_weight_quant(weight, group_size=32, mapping_type=MappingType.SYMMETRIC):
     """This is defined here instead of local function to support serialization
@@ -586,7 +591,7 @@ def _int8_symm_per_token_reduced_range_quant(x: torch.Tensor) -> torch.Tensor:
     return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype, eps=eps, quant_min=quant_min, quant_max=quant_max, scale_dtype=torch.float32 if x.dtype == torch.float16 else None)
 
 
-def int8_dynamic_activation_int8_weight(layout=PlainLayout()):
+def int8_dynamic_activation_int8_weight(layout=PlainLayout(), act_mapping_type=MappingType.SYMMETRIC):
     """
     Applies int8 dynamic symmetric per-token activation and int8 per-channel weight
     quantization to linear layers
@@ -609,7 +614,10 @@ def int8_dynamic_activation_int8_weight(layout=PlainLayout()):
         zero_point_dtype = torch.int64
 
         # input settings
-        input_quant_func = _int8_symm_per_token_reduced_range_quant
+        if act_mapping_type == MappingType.SYMMETRIC:
+            input_quant_func = _int8_asymm_per_token_quant
+        else:
+            input_quant_func = _int8_symm_per_token_reduced_range_quant
 
         block_size = get_weight_block_size(weight)
         weight = to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, _layout=layout)
