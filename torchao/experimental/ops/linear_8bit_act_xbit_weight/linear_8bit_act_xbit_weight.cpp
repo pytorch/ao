@@ -5,8 +5,8 @@
 // LICENSE file in the root directory of this source tree.
 
 #include <stdint.h>
+#include <torchao/experimental/ops/library.h>
 #include <torchao/experimental/ops/linear_8bit_act_xbit_weight/linear_8bit_act_xbit_weight.h>
-#include <torchao/experimental/ops/macro.h>
 #include <torchao/experimental/ops/parallel.h>
 #include <algorithm>
 #include <cassert>
@@ -50,7 +50,8 @@ void pack_weight_data_operator(
     int group_size,
     const int8_t* weight_qvals,
     const float* weight_scales,
-    const int8_t* weight_zeros) {
+    const int8_t* weight_zeros,
+    const float* bias) {
   TORCHAO_CHECK(group_size % 16 == 0, "group_size must be a multiple of 16");
   TORCHAO_CHECK(k % group_size == 0, "group_size must divide k");
 
@@ -67,6 +68,7 @@ void pack_weight_data_operator(
         (n_idx / nr) * ukernel_config.weight_data_size_fn(nr, k, group_size);
     int weight_qvals_offset = n_idx * k;
     int weight_scales_and_zeros_offset = (n_idx * k / group_size);
+    int bias_offset = n_idx;
 
     ukernel_config.prepare_weight_data_fn(
         (char*)weight_data + weight_data_offset,
@@ -75,7 +77,8 @@ void pack_weight_data_operator(
         group_size,
         weight_qvals + weight_qvals_offset,
         weight_scales + weight_scales_and_zeros_offset,
-        weight_zeros + weight_scales_and_zeros_offset);
+        weight_zeros + weight_scales_and_zeros_offset,
+        bias + bias_offset);
   });
 }
 
@@ -151,9 +154,6 @@ inline void linear_operator_with_tile_schedule_policy_single_mc_parallel_nc(
     int group_size,
     const void* weight_data,
     const float* activations,
-    // const void* activation_data,
-    // Not applied if nullptr
-    const float* bias,
     // Ignored if has_clamp = false
     float clamp_min,
     float clamp_max) {
@@ -162,7 +162,8 @@ inline void linear_operator_with_tile_schedule_policy_single_mc_parallel_nc(
   int nc = std::min(n, tiling_params.nc_by_nr * ukernel_config.nr);
   int num_mc_panels = (m + mc - 1) / mc;
   int num_nc_panels = (n + nc - 1) / nc;
-  size_t weight_data_size = ukernel_config.weight_data_size_fn(nr, k, group_size);
+  size_t weight_data_size =
+      ukernel_config.weight_data_size_fn(nr, k, group_size);
 
   for (int mc_tile_idx = 0; mc_tile_idx < num_mc_panels; mc_tile_idx++) {
     int m_idx = mc_tile_idx * mc;
@@ -182,7 +183,6 @@ inline void linear_operator_with_tile_schedule_policy_single_mc_parallel_nc(
 
       int output_offset = m_idx * n + n_idx;
       int weight_data_offset = (n_idx / nr) * weight_data_size;
-      int bias_offset = m_idx;
 
       ukernel_config.kernel_fn(
           output + output_offset,
@@ -193,7 +193,6 @@ inline void linear_operator_with_tile_schedule_policy_single_mc_parallel_nc(
           group_size,
           /*weight_data=*/(char*)weight_data + weight_data_offset,
           /*activation_data=*/activation_data_buffer,
-          /*bias=*/bias + bias_offset,
           clamp_min,
           clamp_max);
     });
@@ -213,7 +212,6 @@ inline void linear_operator_with_tile_schedule_policy_parallel_mc_parallel_nc(
     int group_size,
     const void* weight_data,
     const float* activations,
-    const float* bias,
     float clamp_min,
     float clamp_max) {
   int mr = ukernel_config.mr;
@@ -223,7 +221,8 @@ inline void linear_operator_with_tile_schedule_policy_parallel_mc_parallel_nc(
   int num_mc_panels = (m + mc - 1) / mc;
   int num_nc_panels = (n + nc - 1) / nc;
 
-  size_t weight_data_size = ukernel_config.weight_data_size_fn(nr, k, group_size);
+  size_t weight_data_size =
+      ukernel_config.weight_data_size_fn(nr, k, group_size);
   size_t activation_data_size =
       ukernel_config.activation_data_size_fn(mr, k, group_size);
 
@@ -254,7 +253,6 @@ inline void linear_operator_with_tile_schedule_policy_parallel_mc_parallel_nc(
     int activation_data_offset = (m_idx / mr) * activation_data_size;
     int output_offset = m_idx * n + n_idx;
     int weight_data_offset = (n_idx / nr) * weight_data_size;
-    int bias_offset = m_idx;
 
     ukernel_config.kernel_fn(
         output + output_offset,
@@ -265,7 +263,6 @@ inline void linear_operator_with_tile_schedule_policy_parallel_mc_parallel_nc(
         group_size,
         /*weight_data=*/(char*)weight_data + weight_data_offset,
         /*activation_data=*/activation_data_buffer + activation_data_offset,
-        /*bias=*/bias + bias_offset,
         clamp_min,
         clamp_max);
   });
@@ -286,8 +283,6 @@ void linear_operator(
     int group_size,
     const void* weight_data,
     const float* activations,
-    // Not applied if nullptr
-    const float* bias,
     // Ignored if has_clamp = false
     float clamp_min,
     float clamp_max) {
@@ -306,7 +301,6 @@ void linear_operator(
           group_size,
           weight_data,
           activations,
-          bias,
           clamp_min,
           clamp_max);
       break;
@@ -323,7 +317,6 @@ void linear_operator(
               group_size,
               weight_data,
               activations,
-              bias,
               clamp_min,
               clamp_max);
       break;

@@ -51,15 +51,17 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot
       test_case.activations.data());
 
   std::vector<char> weight_data(
-      weight_data_size<weight_nbit, has_weight_zeros>(n, k, group_size));
-  prepare_weight_data<weight_nbit, has_weight_zeros>(
+      weight_data_size<weight_nbit, has_weight_zeros, has_bias>(
+          n, k, group_size));
+  prepare_weight_data<weight_nbit, has_weight_zeros, has_bias>(
       (void*)weight_data.data(),
       n,
       k,
       group_size,
       test_case.weight_qvals.data(),
       test_case.weight_scales.data(),
-      /*weight_zeros=*/test_case.weight_zeros.data());
+      /*weight_zeros=*/test_case.weight_zeros.data(),
+      test_case.bias.data());
 
   std::vector<float> output(m * n);
   kernel<weight_nbit, has_weight_zeros, has_bias, has_clamp>(
@@ -71,7 +73,6 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x1x32_f32_neondot
       group_size,
       weight_data.data(),
       activation_data.data(),
-      /*bias=*/test_case.bias.data(),
       /*clamp_min=*/test_case.clamp_min,
       /*clamp_max=*/test_case.clamp_max);
 
@@ -154,15 +155,17 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16_f32_neondot
       test_case.activations.data());
 
   std::vector<char> weight_data(
-      weight_data_size<weight_nbit, has_weight_zeros>(n, k, group_size));
-  prepare_weight_data<weight_nbit, has_weight_zeros>(
+      weight_data_size<weight_nbit, has_weight_zeros, has_bias>(
+          n, k, group_size));
+  prepare_weight_data<weight_nbit, has_weight_zeros, has_bias>(
       (void*)weight_data.data(),
       n,
       k,
       group_size,
       test_case.weight_qvals.data(),
       test_case.weight_scales.data(),
-      /*weight_zeros=*/test_case.weight_zeros.data());
+      /*weight_zeros=*/test_case.weight_zeros.data(),
+      test_case.bias.data());
 
   std::vector<float> output(m * n);
   kernel<weight_nbit, has_weight_zeros, has_bias, has_clamp>(
@@ -174,7 +177,6 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x4x16_f32_neondot
       group_size,
       weight_data.data(),
       activation_data.data(),
-      /*bias=*/test_case.bias.data(),
       /*clamp_min=*/test_case.clamp_min,
       /*clamp_max=*/test_case.clamp_max);
 
@@ -270,15 +272,17 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot
       test_case.activations.data());
 
   std::vector<char> weight_data(
-      weight_data_size<weight_nbit, has_weight_zeros>(n, k, group_size));
-  prepare_weight_data<weight_nbit, has_weight_zeros>(
+      weight_data_size<weight_nbit, has_weight_zeros, has_bias>(
+          n, k, group_size));
+  prepare_weight_data<weight_nbit, has_weight_zeros, has_bias>(
       (void*)weight_data.data(),
       n,
       k,
       group_size,
       test_case.weight_qvals.data(),
       test_case.weight_scales.data(),
-      /*weight_zeros=*/test_case.weight_zeros.data());
+      /*weight_zeros=*/test_case.weight_zeros.data(),
+      test_case.bias.data());
 
   std::vector<float> output(m * n);
   kernel<weight_nbit, has_weight_zeros, has_bias, has_clamp>(
@@ -290,7 +294,6 @@ void test_channelwise_8bit_activation_groupwise_lowbit_weight_1x8x16_f32_neondot
       group_size,
       weight_data.data(),
       activation_data.data(),
-      /*bias=*/test_case.bias.data(),
       /*clamp_min=*/test_case.clamp_min,
       /*clamp_max=*/test_case.clamp_max);
 
@@ -370,7 +373,7 @@ void test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod(
           n,
           group_size,
           /*weight_nbit=*/4,
-          /*has_weight_zeros*/false,
+          /*has_weight_zeros*/ false,
           has_bias,
           has_clamp,
           /*weight_scale_bf16_round_trip=*/true);
@@ -470,7 +473,6 @@ TEST(
       true /*has_clamp*/>(
       /*m=*/11, /*k=*/128, /*n=*/182, /*group_size=*/128);
 }
-
 
 template <bool has_bias, bool has_clamp>
 void test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod(

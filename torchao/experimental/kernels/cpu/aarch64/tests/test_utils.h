@@ -161,7 +161,7 @@ struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
     assert(weight_qvals.size() == n * k);
     assert((weight_group_size * weight_scales.size()) == (n * k));
     assert((weight_group_size * weight_zeros.size()) == (n * k));
-    assert(bias.size() == m);
+    assert(bias.size() == n);
 
     if (has_clamp) {
       assert(clamp_min < clamp_max);
@@ -258,9 +258,9 @@ struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
           qmax);
     }
 
-    std::vector<float> bias(m, 0.0);
+    std::vector<float> bias(n, 0.0);
     if (has_bias) {
-      bias = get_random_vector(m, -1.0, 1.0);
+      bias = get_random_vector(n, -1.0, 1.0);
     }
 
     float clamp_min = 0.0;
@@ -289,7 +289,7 @@ struct channelwise_8bit_activation_groupwise_lowbit_weight_test_case {
 
           res += activation_dequant * weight_dequant;
         }
-        res += bias[m_idx];
+        res += bias[n_idx];
         if (has_clamp) {
           res = std::min(std::max(res, clamp_min), clamp_max);
         }
