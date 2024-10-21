@@ -196,10 +196,6 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
 
         # Load the state dict from the buffer
         weights_only_load = True
-        if mode == "dynamic":
-            # TODO will fix in followup
-            weights_only_load = False
-
         loaded_state_dict = torch.load(buffer, weights_only=weights_only_load)
 
         # Create a new model and load the state dict
