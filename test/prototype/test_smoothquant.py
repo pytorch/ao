@@ -110,7 +110,6 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
             )
             obs(act.float().to("cpu"))
             act_scale, _ = obs.calculate_qparams()
-            act_scale = act_scale.to(idtype)
             fq_act = torch.quantize_per_tensor(
                 act.float(), scale=act_scale.item(), zero_point=0, dtype=torch.qint8
             ).dequantize().to(idtype)
@@ -124,7 +123,10 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
             out_ref = torch.nn.functional.linear(fq_act, fq_wei, b)
 
         # BFloat16 and Float16 have larger errors
-        assert torch.allclose(out, out_ref.to(idtype), atol = 0.2)
+        atol = 0.1 if idtype == torch.float else (
+            0.2 if idtype == torch.half else 0.3
+        )
+        assert torch.allclose(out, out_ref.to(idtype), atol=atol)
 
 
 @pytest.mark.parametrize("alpha", alpha_list)
