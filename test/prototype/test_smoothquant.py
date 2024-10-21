@@ -45,7 +45,7 @@ quant_mode_list = ["static", "dynamic"]
 devices = ["cpu"]
 if torch.cuda.is_available():
     devices.append("cuda")
-idtypes = (torch.float, torch.bfloat16)
+idtypes = (torch.float, torch.bfloat16, torch.half)
 
 if TORCH_VERSION_AT_LEAST_2_5:
     # This test case will trigger recompilation many times, so set a large cache_size_limit here
@@ -60,7 +60,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
     class Linear(torch.nn.Module):
         def __init__(self, bias: bool):
             super().__init__()
-            self.fc = torch.nn.Linear(16, 16, bias)
+            self.fc = torch.nn.Linear(32, 32, bias)
             self.fc.weight.data = torch.randn_like(self.fc.weight.data)
 
         def forward(self, x):
@@ -68,7 +68,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
 
     m = Linear(bias).eval().to(idtype).to(device)
     m_ref = deepcopy(m)
-    data = torch.randn(2, 16, dtype=idtype, device=device)
+    data = torch.randn(2, 32, dtype=idtype, device=device)
 
     # calibrate
     insert_smooth_quant_observer(m, alpha, quant_mode, n_calib_examples=1)
