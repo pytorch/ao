@@ -88,7 +88,7 @@ class UintxTensor(TorchAOBaseTensor):
         return [getattr(self,i) for i in self.__class__.bits_to_shard[self.bit_width]]
 
     def __repr__(self):
-        return f"Int{self.bit_width}Tensor(shape = {self.packed_shape}, data = {unpack(self.get_shards(), self.bit_width, dim = self.pack_dim)})"
+        return f"Int{self.bit_width}Tensor(shape = {self.packed_shape}, data = {unpack(self.get_shards(), self.bit_width, self.original_size, dim = self.pack_dim)})"
 
     def __tensor_flatten__(self):
         return self.__class__.bits_to_shard[self.bit_width], [self.packed_shape, self.bit_width, self.pack_dim]
@@ -108,6 +108,8 @@ class UintxTensor(TorchAOBaseTensor):
     def apply_transformation(self, fn):
         og = self.get_plain()
         new = fn(og)
+        if new.dim() == 0:
+            new = new.unsqueeze(0)
         dtype = _BIT_WIDTH_TO_DTYPE[self.bit_width]
         return self.from_uint8(new, dtype, self.pack_dim)
 
@@ -152,8 +154,33 @@ class UintxTensor(TorchAOBaseTensor):
                 self.pack_dim,
             )
         return super().to(*args, **kwargs)
+    
+    def __setitem__(self, index, value):
+        if isinstance(value, UintxTensor):
+            value = value.get_plain()
+        elif isinstance(value, torch.Tensor):
+            if value.dtype != torch.uint8:
+                raise ValueError(f"Expected uint8 tensor, got {value.dtype}")
+        else:
+            value = torch.tensor(value, dtype=torch.uint8, device=self.device)
 
+        plain_data = self.get_plain()
+        plain_data[index] = value
+        new_packed = self.from_uint8(plain_data, _BIT_WIDTH_TO_DTYPE[self.bit_width], self.pack_dim)
 
+        # Update the shards
+        for shard_name in self.bits_to_shard[self.bit_width]:
+            setattr(self, shard_name, getattr(new_packed, shard_name))
+
+    @classmethod
+    def __torch_function__(cls, func, types, args=(), kwargs=None):
+        if kwargs is None:
+            kwargs = {}
+        if func is torch.Tensor.__setitem__:
+            self, index, value = args
+            self.__setitem__(index, value)
+            return None
+        return super().__torch_function__(func, types, args, kwargs)
 
 implements = UintxTensor.implements
 
@@ -211,8 +238,14 @@ def _(func, types, args, kwargs):
 
 @implements(aten.select.int)
 def _(func, types, args, kwargs):
+    self, dim, index = args
+    
+    def select_fn(x):
+        selected = x.select(dim, index)
+        return selected.unsqueeze(dim)
+    
     return return_and_correct_aliasing(
-        func, args, kwargs, args[0].apply_transformation(lambda x: x.select(args[1], args[2]))
+        func, args, kwargs, self.apply_transformation(select_fn)
     )
 
 @implements(aten.set_)
