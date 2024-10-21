@@ -270,7 +270,7 @@ class TestOptim(TestCase):
             torch.testing.assert_close(p2, p1)
 
     def test_optim_bf16_stochastic_round_correctness(self):
-        device = "cuda"
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         torch.manual_seed(2024)
         model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
         model2 = copy.deepcopy(model1).bfloat16()
