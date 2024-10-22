@@ -17,6 +17,7 @@ from torchao.quantization.quant_api import (
 from torchao.sparsity import apply_fake_sparsity, semi_sparse_weight, sparsify_
 from torchao.utils import TORCH_VERSION_AFTER_2_5, TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_4
 
+from torch.sparse import SparseSemiStructuredTensor
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -29,6 +30,7 @@ class TestSemiStructuredSparse(common_utils.TestCase):
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
     def test_sparse(self, compile):
+        SparseSemiStructuredTensor._FORCE_CUTLASS = False
         input = torch.rand((128, 128)).half().cuda()
         model = (
             nn.Sequential(

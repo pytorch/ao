@@ -35,7 +35,19 @@ def semi_sparse_weight():
     """
     Convert the weight of linear moduels to semi-structured (2:4) sparsity
     """
-    return _get_linear_subclass_inserter(lambda x: SparseSemiStructuredTensorCUSPARSELT.from_dense(x.to(torch.bfloat16), fuse_transpose_cusparselt=True))
+
+    def helper(x):
+        x_packed = torch._cslt_compress(x)
+        sparse = SparseSemiStructuredTensorCUSPARSELT(x.shape,
+        packed=x_packed,
+        meta=None,
+        packed_t=None,
+        meta_t=None,
+        compressed_swizzled_bitmask=None, 
+        fuse_transpose_cusparselt=True)
+        return sparse
+        
+    return _get_linear_subclass_inserter(helper)
 
 
 def sparsify_(
