@@ -26,6 +26,8 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
         on top of it
       `input_quant_func` (Callable[[torch.Tensor], torch.Tensor]): a function that takes a high precision floating point tensor and returns
         a quantized tensor, this is used to quantize input
+      `quant_kwargs` (Dict[str, Any]): Additional keyword arguments for the quantization function.
+        Restriction: Must not contain tensor values.
     """
     quant_kwargs: Dict[str, Any]
     
