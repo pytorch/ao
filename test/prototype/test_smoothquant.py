@@ -38,7 +38,7 @@ class ToyLinearModel(torch.nn.Module):
 
 
 bias_list = [True, False]
-alpha_list = [0.5, 0.75]
+alpha_list = [None, 0.5, 0.75]
 quant_mode_list = ["static", "dynamic"]
 devices = ["cpu"]
 if torch.cuda.is_available():
@@ -84,7 +84,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
         b = m_ref.fc.bias if bias else None
         x_abs_max_per_ic = torch.abs(data).max(dim=0).values
         w_abs_max_per_ic = torch.abs(weight).max(dim=0).values
-        smoothing_factor = (
+        smoothing_factor = 1 if alpha is None else (
             torch.pow(x_abs_max_per_ic, alpha) / torch.pow(
             w_abs_max_per_ic, 1 - alpha)
         )

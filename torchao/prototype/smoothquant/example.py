@@ -1,6 +1,7 @@
 import torch
 import argparse
 import os
+from typing import Optional
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
 from tqdm import tqdm
@@ -93,7 +94,7 @@ def benchmark(model, tokenizer, max_length, tasks=None, device="cuda"):
 
 def wikitext2_ppl(
         model_id: str,
-        alpha: float,
+        alpha: Optional[float],
         quant_mode: str,
         calibration_size: int,
         device: str,
@@ -147,15 +148,19 @@ if __name__ == "__main__":
     parser.add_argument("--model-id", "-m", type=str, help="Repository ID of the model.")
     parser.add_argument("--alpha", type=float, default=0.5, help="The alpha hyperparameter for SmoothQuant.")
     parser.add_argument("--quant-mode", type=str, help="Quantization mode, either static or dynamic.")
-    parser.add_argument("--calibration-samples", type=int, default=10, help="Number of samples to use for calibration. Default is 10.")
+    parser.add_argument("--calibration-samples", type=int, default=10,
+                        help="Number of samples to use for calibration. Default is 10.")
     parser.add_argument("--device", type=str, default="cuda", help="Device to run the evaluation on. Default is 'cuda'.")
     parser.add_argument("--precision", type=str, default="bfloat16", help="Precision type. Default is 'bfloat16'.")
-    parser.add_argument("--seq_len", type=int, default=512, help="Length of examples to calibrate and evaluate model on. Default is 512")
+    parser.add_argument("--seq_len", type=int, default=512,
+                        help="Length of examples to calibrate and evaluate model on. Default is 512")
     parser.add_argument("--compile", action="store_true", help="Flag to indicate if compilation is required.")
     parser.add_argument("--model-load-path", type=str, default=None,
                         help="Path to load quantized model. If this is provided, "
                         "the model will be loaded from this path instead of quantizing the model.")
     parser.add_argument("--model-save-path", type=str, default=None, help="Path to store quantized model.")
+    parser.add_argument("--disable-smooth-quant", action="store_true",
+                        help="Run conventional dynamic or static quantization for testing or debugging.")
 
     args = parser.parse_args()
 
@@ -163,7 +168,7 @@ if __name__ == "__main__":
     precision_dtype = getattr(torch, args.precision, torch.bfloat16)
     ppl = wikitext2_ppl(
         args.model_id,
-        args.alpha,
+        None if args.disable_smooth_quant else args.alpha,
         args.quant_mode,
         args.calibration_samples,
         args.device,

@@ -21,14 +21,15 @@ from typing import Dict, Optional
 
 def insert_smooth_quant_observer_(
         model: torch.nn.Module,
-        alpha: float = 0.5,
+        alpha: Optional[float] = 0.5,
         quant_mode: str = "dynamic"):
     """
     Inserts SmoothQuantObserver into Linear layers of a given model.
 
     Args:
         model: The model to be modified (in place). Ensure model is on the desired device for calibration
-        alpha: The alpha value to determine smoothing factor
+        alpha: The alpha value to determine smoothing factor. Factor = 1 if alpha is None, which means
+               falling back to conventional quantization.
         quant_mode: dynamic or static quantization of activation
     """
     _is_linear = lambda m, fqn: isinstance(m, torch.nn.Linear)

@@ -12,7 +12,7 @@ from torchao.quantization.observer import (
 class SmoothQuantObserver(torch.nn.Module):
     def __init__(self,
         weight: torch.Tensor,
-        alpha: float = 0.5,
+        alpha: Optional[float] = 0.5,
         quant_mode: str = "static", # or dynamic
         quant_min: Optional[int] = None,
         quant_max: Optional[int] = None,
@@ -23,7 +23,8 @@ class SmoothQuantObserver(torch.nn.Module):
 
         Args:
             weight: The weight tensor to be observed.
-            alpha: The alpha value to determine smoothing factor
+            alpha: The alpha value to determine smoothing factor, normally between 0 and 1.
+                   Fall back to conventional quantization if alpha is None.
             quant_mode: The mode of activation quantization, either static or dynamic
             quant_min: The minimum quantized value
             quant_max: The maximum quantized value
@@ -83,9 +84,15 @@ class SmoothQuantObserver(torch.nn.Module):
             torch.max(torch.abs(wei_min_per_ic), torch.abs(wei_max_per_ic)) + self.eps
         )
         # 2 calculate the smoothing factor
-        smoothing_factor = torch.pow(x_abs_max_per_ic, self.alpha) / torch.pow(
-            w_abs_max_per_ic.to(x_abs_max_per_ic.device), 1 - self.alpha
-        )
+        if self.alpha is None:
+            # fall back to conventional quantization if alpha is None
+            smoothing_factor = torch.ones_like(
+                x_abs_max_per_ic, dtype=x_abs_max_per_ic.dtype, device=x_abs_max_per_ic.device
+            )
+        else:
+            smoothing_factor = torch.pow(x_abs_max_per_ic, self.alpha) / torch.pow(
+                w_abs_max_per_ic.to(x_abs_max_per_ic.device), 1 - self.alpha
+            )
         # 3 apply smoothing factor to activations and find scales for static quantization
         act_scales = None
         if self.quant_mode == "static":
