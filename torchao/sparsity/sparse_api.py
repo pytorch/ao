@@ -2,7 +2,7 @@ from typing import Callable, Optional
 
 import torch
 from torch.ao.pruning import WeightNormSparsifier
-from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensorCUSPARSELT
+from torch.sparse import to_sparse_semi_structured
 from torchao.quantization.quant_api import (
     _get_linear_subclass_inserter,
     _is_linear,
@@ -35,19 +35,7 @@ def semi_sparse_weight():
     """
     Convert the weight of linear moduels to semi-structured (2:4) sparsity
     """
-
-    def helper(x):
-        x_packed = torch._cslt_compress(x)
-        sparse = SparseSemiStructuredTensorCUSPARSELT(x.shape,
-        packed=x_packed,
-        meta=None,
-        packed_t=None,
-        meta_t=None,
-        compressed_swizzled_bitmask=None, 
-        fuse_transpose_cusparselt=True)
-        return sparse
-        
-    return _get_linear_subclass_inserter(helper)
+    return _get_linear_subclass_inserter(to_sparse_semi_structured)
 
 
 def sparsify_(
