@@ -6,6 +6,7 @@ import torch
 from torch import nn
 from torch.testing._internal import common_utils
 from torchao.dtypes import MarlinSparseLayout, SemiSparseLayout
+from torchao.dtypes.affine_quantized_tensor import SemiSparseFloat8Layout
 from torchao.quantization.quant_api import (
     int4_weight_only,
     int8_dynamic_activation_int8_weight,
@@ -26,7 +27,8 @@ class TestSemiStructuredSparse(common_utils.TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "pytorch 2.3+ feature")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_sparse(self):
+    @common_utils.parametrize("compile", [True, False])
+    def test_sparse(self, compile):
         input = torch.rand((128, 128)).half().cuda()
         model = (
             nn.Sequential(
@@ -43,6 +45,9 @@ class TestSemiStructuredSparse(common_utils.TestCase):
 
         sparsify_(model, semi_sparse_weight())
         sparse_result = model(input)
+
+        if compile:
+            model = torch.compile(model)
 
         torch.testing.assert_close(dense_result, sparse_result, rtol=1e-3, atol=1e-3)
 
@@ -148,7 +153,7 @@ class TestQuantSemiSparse(common_utils.TestCase):
         dense_result = model_copy(input.bfloat16())
 
         # Sparse + quantized
-        quantize_(model, float8_dynamic_activation_float8_weight(granularity=PerTensor(), layout=SemiSparseLayout()))
+        quantize_(model, float8_dynamic_activation_float8_weight(granularity=PerTensor(), layout=SemiSparseFloat8Layout()))
         if compile:
             model = torch.compile(model)
         sparse_result = model(input)

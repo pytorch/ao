@@ -1178,7 +1178,7 @@ class SemiSparseFloat8AQTTensorImpl(Float8AQTTensorImpl):
         zero_point: Optional[torch.Tensor],
         _layout: Layout,
     ):
-        assert isinstance(_layout, SemiSparseLayout)
+        assert isinstance(_layout, SemiSparseFloat8Layout)
         float8_data_compressed = torch._cslt_compress(float8_data)
         output = cls(float8_data_compressed, scale, False, _layout)
         return output
@@ -1651,7 +1651,7 @@ def _linear_fp8_act_fp8_weight_semi_structured_check(
             and aqt.tensor_impl.dtype in [torch.float8_e4m3fn, torch.float8_e5m2]
             and (aqt.shape == aqt.block_size or _is_rowwise_scaled(aqt))
         )
-    return check_aqt(input_tensor) and check_aqt(weight_tensor, layout=SemiStructuredFloat8Layout)
+    return check_aqt(input_tensor) and check_aqt(weight_tensor, layout=SemiSparseFloat8Layout)
 
 def _linear_fp8_act_fp8_weight_semi_structured_impl(
     input_tensor: AffineQuantizedTensor,
