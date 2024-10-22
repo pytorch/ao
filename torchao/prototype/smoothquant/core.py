@@ -84,7 +84,7 @@ class SmoothQuantObserver(torch.nn.Module):
         )
         # 2 calculate the smoothing factor
         smoothing_factor = torch.pow(x_abs_max_per_ic, self.alpha) / torch.pow(
-            w_abs_max_per_ic, 1 - self.alpha
+            w_abs_max_per_ic.to(x_abs_max_per_ic.device), 1 - self.alpha
         )
         # 3 apply smoothing factor to activations and find scales for static quantization
         act_scales = None
