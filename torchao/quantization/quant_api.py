@@ -481,11 +481,10 @@ def _int8_asymm_per_token_quant(x: torch.Tensor) -> torch.Tensor:
     """
     mapping_type = MappingType.ASYMMETRIC
     target_dtype = torch.int8
-    eps = torch.finfo(torch.float32).eps
     if TORCH_VERSION_AT_LEAST_2_6:
-        return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype, eps=eps, scale_dtype=torch.float64, zero_point_dtype=torch.int64)
+        return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype, scale_dtype=torch.float64, zero_point_dtype=torch.int64)
     else:
-        return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype, eps=eps)
+        return to_affine_quantized_intx(x, mapping_type, _get_per_token_block_size(x), target_dtype)
 
 def apply_int8_dynamic_activation_int4_weight_quant(weight, group_size=32, mapping_type=MappingType.SYMMETRIC):
     """This is defined here instead of local function to support serialization
