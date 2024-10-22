@@ -150,9 +150,6 @@ class TestQuantSemiSparse(common_utils.TestCase):
             model = torch.compile(model)
         sparse_result = model(input)
 
-        print(sparse_result)
-        print(dense_result)
-
         torch.testing.assert_close(dense_result, sparse_result, atol=3e-1, rtol=3e-1)
 
 

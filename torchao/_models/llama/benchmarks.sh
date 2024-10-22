@@ -6,8 +6,8 @@ export CHECKPOINT_PATH=../../../checkpoints # path to checkpoints folder
 # python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --sparsity semi-structured --precision float16 --write_result benchmark_results.txt
 # python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --quantization int8dq --sparsity semi-structured --precision float16 --write_result benchmark_results.txt
 export MODEL_REPO=nm-testing/SparseLlama-3-8B-pruned_50.2of4
-python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --sparsity semi --compile_prefill --write_result benchmark_results.txt --max_new_tokens 1
-python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --compile_prefill --write_result benchmark_results.txt --max_new_tokens 1
+python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --sparsity semi_structured --compile_prefill --write_result benchmark_results.txt --max_new_tokens 1 --prefill_size 8192
+# python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --compile_prefill --write_result benchmark_results.txt --max_new_tokens 1
 # python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --quantization float8dq-tensor --sparsity semi --compile_prefill --write_result benchmark_results.txt --max_new_tokens 1 --prompt 16384
 # python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --quantization float8dq-tensor --sparsity none --compile_prefill --write_result benchmark_results.txt --max_new_tokens 1 --prompt 16384
 # python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --quantization float8dq-tensor --sparsity semi --compile_prefill --write_result benchmark_results.txt --max_new_tokens 1 --prompt 32768

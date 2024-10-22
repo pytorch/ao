@@ -674,6 +674,45 @@ class PlainAQTTensorImpl(AQTTensorImpl):
         assert isinstance(_layout, PlainLayout)
         return cls(int_data, scale, zero_point, _layout)
 
+@register_layout(SemiSparseLayout)
+class SemiSparseAQTTensorImpl(PlainAQTTensorImpl):
+    """
+    TensorImpl storage class for semi_sparse_cusparselt layout for affine quantized tensor
+    """
+    @classmethod
+    def __torch_dispatch__(cls, func, types, args, kwargs):
+        kwargs = {} if kwargs is None else kwargs
+
+        if func is aten.detach.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
+            )
+
+        raise NotImplementedError(
+            f"SparseAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
+        )
+
+    def get_plain(self):
+        # Currently we don't have cuSPARSELt expansion routines, so we matmul by
+        # the identity matrix to get the original dense matrix. This is slow though.
+        cols = self.int_data.numel() * 16 // (10 * self.scale.shape[0])
+        int_data_expanded = torch._cslt_sparse_mm(self.int_data,
+                                                  torch.eye(cols,
+                                                            dtype=self.int_data.dtype,
+                                                            device=self.int_data.device).t())
+        return int_data_expanded, self.scale, self.zero_point
+
+    @classmethod
+    def from_plain(
+        cls,
+        int_data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: Optional[torch.Tensor],
+        _layout: Layout,
+    ):
+        assert isinstance(_layout, SemiSparseLayout)
+        int_data_compressed = torch._cslt_compress(int_data)
+        return cls(int_data_compressed, scale, zero_point, _layout)
 
 @register_layout(BlockSparseLayout)
 class BlockSparseAQTTensorImpl(PlainAQTTensorImpl):
@@ -1406,7 +1445,6 @@ def _linear_int8_act_int8_weight_semi_structured_sparse_impl(input_tensor, weigh
     tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
     # must pad 
     row, col = tmp.shape
-    from torch.sparse import SparseSemiStructuredTensorCUSPARSELT
     tmp_padded = SparseSemiStructuredTensorCUSPARSELT._pad_dense_input(tmp)
     # we fuse one of the scalar matrix multiplications (w_scales) into the sparse mm
     y_dot_bf16_w_scales_fused = torch._cslt_sparse_mm(

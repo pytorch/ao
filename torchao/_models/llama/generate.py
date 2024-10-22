@@ -16,6 +16,10 @@ import torch._inductor.config
 from torchao.utils import get_model_size_in_bytes
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
+from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensor
+SparseSemiStructuredTensor._FORCE_CUTLASS = False
+# SparseSemiStructuredTensor._FUSE_TRANSPOSE = True
+
 def device_sync(device):
     if "cuda" in device:
         torch.cuda.synchronize(device)
@@ -153,7 +157,7 @@ def _load_model(checkpoint_path, device, precision):
 B_INST, E_INST = "[INST]", "[/INST]"
 
 def main(
-    ttft: int = 0,
+    prefill_size: int = 0,
     prompt: str = "Hello, my name is",
     interactive: bool = False,
     num_samples: int = 5,
@@ -180,11 +184,11 @@ def main(
     """Generates text samples based on a pre-trained Transformer model and tokenizer.
     """
 
-    if ttft > 0:
+    if prefill_size > 0:
         print("Running TTFT benchmark!")
-        assert max_new_tokens == 1, "ttft only supports max_new_tokens=1"
+        assert max_new_tokens == 1, "prefill_size only supports max_new_tokens=1"
         # create prompt of prefill size ttft
-        prompt = "prompt " * (int(ttft)-3)
+        prompt = "prompt " * (int(prefill_size)-3)
 
 
     torchao.quantization.utils.recommended_inductor_config_setter()
@@ -200,7 +204,6 @@ def main(
     t0 = time.time()
     model = _load_model(checkpoint_path, device, precision)
 
-
     device_sync(device=device) # MKG
     print(f"Time to load model: {time.time() - t0:.02f} seconds")
 
@@ -212,7 +215,7 @@ def main(
     torch.manual_seed(1234)
 
     def ffn_only(mod, fqn):
-        return isinstance(mod, torch.nn.Linear) and "feed_forward" in fqn
+        return isinstance(mod, torch.nn.Linear) and "feed_forward" in fqn and ("w1" in fqn )
 
     def not_ffn_only(mod, fqn):
         return isinstance(mod, torch.nn.Linear) and not ffn_only(mod, fqn)
@@ -337,7 +340,7 @@ def main(
     elif sparsity:
         from torchao.sparsity import semi_sparse_weight, sparsify_
         if "semi" in sparsity:
-            sparsify_(model, semi_sparse_weight(), filter_fn=ffn_only)
+            sparsify_(model.to(device), semi_sparse_weight(), filter_fn=ffn_only)
 
     model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
 
@@ -485,7 +488,7 @@ def main(
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Your CLI description.')
-    parser.add_argument('--ttft', type=int, default=0, help='Whether to run in ttft mode')
+    parser.add_argument('--prefill_size', type=int, default=0, help='Whether to run in ttft mode')
     parser.add_argument('--prompt', type=str, default="Hello, my name is", help='Input prompt.')
     parser.add_argument('--interactive', action='store_true', help='Whether to launch in interactive mode')
     parser.add_argument('--num_samples', type=int, default=5, help='Number of samples.')
@@ -520,6 +523,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     main(
-        args.ttft, args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.top_k,
+        args.prefill_size, args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.top_k,
         args.temperature, args.checkpoint_path, args.quantization, args.sparsity, args.calibration_limit, args.calibration_seq_length, args.kv_cache_quantization, args.cache_size, args.linear_causal_mask, args.save, args.compile, args.compile_prefill, args.profile, args.memory_profile, args.device, args.precision, args.write_result
     )
