@@ -87,6 +87,8 @@ def run_gpu_sparse_benchmark(m, k, n, args):
         sparse_func_c = torch.compile(sparse_func, mode="max-autotune")
         sparse_time_c = benchmark_model_with_warmup(sparse_func_c, 'sparse_compile.json.gz')
 
+        torch._dynamo.reset()
+
         return {
             "test_function": args.eval_fn,
             "m": m,
@@ -107,7 +109,8 @@ if __name__ == "__main__":
         "--mode",
         type=str,
         choices=[
-            "llama-3b",
+            "llama3-8b-a",
+            "llama3-8b-w",
             "vit-mlp",
             "nvidia-fixed-k",
             "nvidia-fixed-mn",
@@ -157,15 +160,8 @@ if __name__ == "__main__":
 
     print(f"Started benchmark: {args}")
 
-    if args.mode == "llama-3b-shapes":
-        bert_shapes = [
-            (3072, 1024, 16384),
-            (4096, 1024, 16384),
-            (1024, 1024, 16384),
-            (1024, 4096, 16384),
-            # (16, 4096, 11008),
-            # (16, 4096, 4096),
-            # (16, 11008, 4096),
+    if args.mode == "llama3-8b-a":
+        mm_shapes = [
             (4096, 13312, 16384),
             (4096, 16384, 6560),
             (4096, 22528, 32768),
@@ -175,12 +171,30 @@ if __name__ == "__main__":
         ]
         results = (
             run_gpu_sparse_benchmark(m, k, n, args)
-            for (m, k, n) in tqdm(bert_shapes)
+            for (m, n, k) in tqdm(mm_shapes)
+        )
+    elif args.mode == "llama3-8b-w":
+        mm_shapes = [
+            (16, 4096, 11008),
+            (16, 4096, 4096),
+            (16, 11008, 4096),
+            (4096, 4096, 11008),
+            (4096, 4096, 4096),
+            (4096, 11008, 4096),
+            (8192, 4096, 11008),
+            (8192, 4096, 4096),
+            (8192, 11008, 4096),
+        ]
+        results = (
+            run_gpu_sparse_benchmark(m, k, n, args)
+            for (m, k, n) in tqdm(mm_shapes)
         )
     elif args.mode == "vit-mlp":
         vit_shapes= [
+            # vit-base
             (768, 3072, 50432),
             (3072, 3072, 50432),
+            # vit-huge
             (1280, 5120, 65792),
             (5120, 1280, 65792),
         ]

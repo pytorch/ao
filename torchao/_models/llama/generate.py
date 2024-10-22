@@ -15,8 +15,6 @@ import torch._dynamo.config
 import torch._inductor.config
 from torchao.utils import get_model_size_in_bytes
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
-from torch.sparse import SparseSemiStructuredTensor
-SparseSemiStructuredTensor._FORCE_CUTLASS = False
 
 def device_sync(device):
     if "cuda" in device:
@@ -481,7 +479,7 @@ def main(
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Your CLI description.')
-
+    parser.add_argument('--ttft', type=bool, default=False, help='Whether to run in ttft mode')
     parser.add_argument('--prompt', type=str, default="Hello, my name is", help='Input prompt.')
     parser.add_argument('--interactive', action='store_true', help='Whether to launch in interactive mode')
     parser.add_argument('--num_samples', type=int, default=5, help='Number of samples.')
