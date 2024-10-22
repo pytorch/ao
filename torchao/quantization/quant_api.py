@@ -614,9 +614,9 @@ def int8_dynamic_activation_int8_weight(layout=PlainLayout(), act_mapping_type=M
 
         # input settings
         if act_mapping_type == MappingType.SYMMETRIC:
-            input_quant_func = _int8_asymm_per_token_quant
-        else:
             input_quant_func = _int8_symm_per_token_reduced_range_quant
+        else:
+            input_quant_func = _int8_asymm_per_token_quant
 
         block_size = get_weight_block_size(weight)
         weight = to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype, _layout=layout)
