@@ -17,7 +17,10 @@
 
 #pragma once
 #include "base.h"
+
+#ifndef USE_ROCM
 #include <cudaTypedefs.h>
+#endif
 
 namespace torchao {
 
