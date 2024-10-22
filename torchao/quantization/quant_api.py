@@ -186,7 +186,6 @@ def _replace_with_custom_fn_if_matches_filter(
     replacement_fn,
     filter_fn,
     cur_fqn="",
-    type_list=[],
     device=None,
 ) -> None:
     """
@@ -198,20 +197,12 @@ def _replace_with_custom_fn_if_matches_filter(
         replacement_fn (Callable[[torch.nn.Module], torch.nn.Module]): The function to replace matching modules.
         filter_fn (Callable[[torch.nn.Module], bool]): The filter function to determine which modules to replace.
         cur_fqn (str, optional): The current fully qualified name of the module being processed. Defaults to "".
-        type_list (list, optional): The list of types corresponding to the modules in the cur_fqn. Defaults to [].
         device (device, optional): Device to move the model to before applying `filter_fn`. Defaults to None.
 
     Returns:
         None
-    """    
-    
-    filter_accept = False
-    try:
-        filter_accept = filter_fn(model, cur_fqn[:-1], type_list+type(model))
-    except TypeError: # we used to not have type_list
-        filter_accept = filter_fn(model, cur_fqn[:-1])
-
-    if filter_accept:
+    """
+    if filter_fn(model, cur_fqn[:-1]):
         if device is not None:
             model.to(device=device)  # move to device before quantization
         model = replacement_fn(model)
@@ -219,7 +210,7 @@ def _replace_with_custom_fn_if_matches_filter(
     else:
         for name, child in model.named_children():
             new_child = _replace_with_custom_fn_if_matches_filter(
-                child, replacement_fn, filter_fn, f"{cur_fqn}{name}.", type_list+type(model), device
+                child, replacement_fn, filter_fn, f"{cur_fqn}{name}.", device
             )
             if new_child is not child:
                 setattr(model, name, new_child)
@@ -233,11 +224,10 @@ def _is_linear(mod, *args):
     from torchao.quantization.qat.affine_fake_quantized_tensor import (
         AffineFakeQuantizedTensor,
     )
-    if len(args)>=2:
-        not_in_mha = torch.nn.MultiheadAttention not in args[2]
+
     # adding weight tensor subclass isinstance check to make sure the weight is only quantized once
     # when it is shared by multiple linear modules
-    return not_in_mha and (
+    return (
         isinstance(mod, torch.nn.Linear)
         and hasattr(mod, "weight")
         and not isinstance(mod.weight, QuantizedLinearWeightBase)
@@ -245,6 +235,7 @@ def _is_linear(mod, *args):
         and not isinstance(mod.weight, AffineQuantizedTensor)
         and not isinstance(mod.weight, LinearActivationQuantizedTensor)
         and not isinstance(mod.weight, AffineFakeQuantizedTensor)
+        and not isinstance(mod, nn.modules.linear.NonDynamicallyQuantizableLinear)
     )
 
 import torch.nn.utils.parametrize as parametrize
