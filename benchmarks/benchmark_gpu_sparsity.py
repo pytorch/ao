@@ -107,8 +107,8 @@ if __name__ == "__main__":
         "--mode",
         type=str,
         choices=[
-            "bert-large",
-            "vit-mlp-shapes",
+            "llama-3b",
+            "vit-mlp",
             "nvidia-fixed-k",
             "nvidia-fixed-mn",
         ],
@@ -144,7 +144,7 @@ if __name__ == "__main__":
             "float32",
             "float8_e4m3fn"
         ],
-        default="float8_e4m3fn",
+        default="bfloat16",
     )
     parser.add_argument(
         "--backend", type=str, choices=["cutlass", "cusparselt"], default="cusparselt"
@@ -177,7 +177,7 @@ if __name__ == "__main__":
             run_gpu_sparse_benchmark(m, k, n, args)
             for (m, k, n) in tqdm(bert_shapes)
         )
-    elif args.mode == "vit-mlp-shapes":
+    elif args.mode == "vit-mlp":
         vit_shapes= [
             (768, 3072, 50432),
             (3072, 3072, 50432),
@@ -186,7 +186,7 @@ if __name__ == "__main__":
         ]
         results = (
             run_gpu_sparse_benchmark(m, k, n, args)
-            for (m, n, k) in tqdm(vit_shapes)
+            for (m, k, n) in tqdm(vit_shapes)
         )
     elif args.mode == "nvidia-fixed-k":
         mn_vals = [
