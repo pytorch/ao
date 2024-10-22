@@ -1,25 +1,18 @@
 export CHECKPOINT_PATH=../../../checkpoints # path to checkpoints folder
 
 # 2:4 sparse model
-# export MODEL_REPO=meta-llama/Meta-Llama-3.1-8B
+# export MODEL_REPO=nm-testing/SparseLlama-3-8B-pruned_50.2of4
 # python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --precision float16 --write_result benchmark_results.txt
 # python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --sparsity semi-structured --precision float16 --write_result benchmark_results.txt
 # python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --quantization int8dq --sparsity semi-structured --precision float16 --write_result benchmark_results.txt
-export MODEL_REPO=nm-testing/SparseLlama-3-8B-pruned_50.2of4
-# python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --write_result benchmark_results.txt --max_new_tokens 1 --prefill_size 8192
-# python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --sparsity semi_structured --write_result benchmark_results.txt --max_new_tokens 1 --prefill_size 8192 --compile_prefill
-# python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --compile_prefill --write_result benchmark_results.txt --max_new_tokens 1
-# python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --quantization int8dq --compile_prefill --write_result benchmark_results.txt --max_new_tokens 1
-python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --quantization int8dq --sparsity semi-structured --compile_prefill --write_result benchmark_results.txt --max_new_tokens 1
-# python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --quantization float8dq-tensor --sparsity semi --compile_prefill --write_result benchmark_results.txt --max_new_tokens 1 --prompt 16384
-# python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --quantization float8dq-tensor --sparsity none --compile_prefill --write_result benchmark_results.txt --max_new_tokens 1 --prompt 16384
-# python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --quantization float8dq-tensor --sparsity semi --compile_prefill --write_result benchmark_results.txt --max_new_tokens 1 --prompt 32768
-# python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --quantization float8dq-tensor --sparsity none --compile_prefill --write_result benchmark_results.txt --max_new_tokens 1 --prompt 32768
-# python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --quantization float8dq-tensor --sparsity semi --compile_prefill --write_result benchmark_results.txt --max_new_tokens 1 --prompt 65536
-# python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --quantization float8dq-tensor --sparsity none --compile_prefill --write_result benchmark_results.txt --max_new_tokens 1 --prompt 65536
-# python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --quantization float8dq-tensor --sparsity semi --compile_prefill --write_result benchmark_results.txt --max_new_tokens 1 --prompt 131072
-# python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --quantization float8dq-tensor --sparsity none --compile_prefill --write_result benchmark_results.txt --max_new_tokens 1 --prompt 131072
-# python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --quantization int4wo-64 --sparsity semi-structured --precision float16 --write_result benchmark_results.txt
+
+# TTFT benchmarks
+export MODEL_REPO=meta-llama/Meta-Llama-3.1-8B
+python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --write_result benchmark_results.txt --max_new_tokens 1 --prefill_size 8192
+python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --compile_prefill --write_result benchmark_results.txt --max_new_tokens 1 --prefill_size 8192
+python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --compile_prefill --quantization int8dq --write_result benchmark_results.txt --max_new_tokens 1 --prefill_size 8192
+python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --compile_prefill --quantization int8wo --write_result benchmark_results.txt --max_new_tokens 1 --prefill_size 8192
+python generate.py --checkpoint_path $CHECKPOINT_PATH/$MODEL_REPO/model.pth --compile --compile_prefill --quantization int8dq --sparsity semi-structured --write_result benchmark_results.txt --max_new_tokens 1 --prefill_size 8192
 
 # README BENCHMARKS
 #export MODEL_REPO=meta-llama/Llama-2-7b-chat-hf
