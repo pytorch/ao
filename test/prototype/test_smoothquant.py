@@ -47,7 +47,7 @@ idtypes = (torch.float, torch.bfloat16, torch.half)
 
 if TORCH_VERSION_AT_LEAST_2_5:
     # This test case will trigger recompilation many times, so set a large cache_size_limit here
-    torch._dynamo.config.cache_size_limit = 64
+    torch._dynamo.config.cache_size_limit = 128
 
 @pytest.mark.parametrize("bias", bias_list)
 @pytest.mark.parametrize("alpha", alpha_list)

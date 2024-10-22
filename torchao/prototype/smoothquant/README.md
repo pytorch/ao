@@ -65,25 +65,34 @@ load_smooth_quant_recipe(model, "./smooth_quant_recipe.json")
 ## Benchmark
 Running the example with `torch.compile` on a NVIDIA A10G GPU.
 ### meta-llama/Llama-2-7b-hf
-| Quant Method | Perplexity |
-|-|-|
-| SmoothQuant dynamic | 7.4341 |
-| SmoothQuant static | 10.6206 |
+Perplexity
+| Quant Method | alpha=0.25 | alpha=0.5 | alpha=0.75 | alpha=None* |
+|-|-|-|-|-|
+| Dynamic | 8.1872 | 7.4257 | 7.2518 | 7.5509 |
+| Static | 43.8051 | 11.2984 | 7.5791 | 19.5050 |
+
+Note*: Conventional quantization without SmoothQuant
 
 ### meta-llama/Meta-Llama-3-8B
-| Quant Method | Perplexity |
-|-|-|
-| SmoothQuant dynamic | 8.8184 |
-| SmoothQuant static | 12.4086 |
+Perplexity
+| Quant Method | alpha=0.25 | alpha=0.5 | alpha=0.75 | alpha=None* |
+|-|-|-|-|-|
+| Dynamic | 21.2475 | 8.8288 | 9.6514 | 8.3574 |
+| Static | 301.7118 | 18.0617 | 10.8343 | 278.9819 |
 
-Commands
+Note*: Conventional quantization without SmoothQuant
+
+### Test method
+**Commands**
 ```bash
 # dynamic quant
 TORCHINDUCTOR_FREEZING=1 python example.py -m <model_id> --device=cuda --quant-mode=dynamic --compile
 # static quant
 TORCHINDUCTOR_FREEZING=1 python example.py -m <model_id> --device=cuda --quant-mode=static --compile
 ```
-Environment:
+Use `--alpha` to specify the alpha parameter. Add `--disable-smooth-quant` to run quantization without SmoothQuant.
+
+**Environment**
 - AWS g5.12xlarge instance
 - torch==2.6.0.dev20241017+cu124
 - python==3.12.6
