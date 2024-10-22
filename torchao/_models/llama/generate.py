@@ -153,6 +153,7 @@ def _load_model(checkpoint_path, device, precision):
 B_INST, E_INST = "[INST]", "[/INST]"
 
 def main(
+    ttft: int = 0,
     prompt: str = "Hello, my name is",
     interactive: bool = False,
     num_samples: int = 5,
@@ -179,7 +180,12 @@ def main(
     """Generates text samples based on a pre-trained Transformer model and tokenizer.
     """
 
-    prompt = "prompt " * (int(prompt)-3)
+    if ttft > 0:
+        print("Running TTFT benchmark!")
+        assert max_new_tokens == 1, "ttft only supports max_new_tokens=1"
+        # create prompt of prefill size ttft
+        prompt = "prompt " * (int(ttft)-3)
+
 
     torchao.quantization.utils.recommended_inductor_config_setter()
 
@@ -206,7 +212,7 @@ def main(
     torch.manual_seed(1234)
 
     def ffn_only(mod, fqn):
-        return isinstance(mod, torch.nn.Linear) and "feed_forward" in fqn # and ("w1" in fqn or "w2" in fqn)
+        return isinstance(mod, torch.nn.Linear) and "feed_forward" in fqn
 
     def not_ffn_only(mod, fqn):
         return isinstance(mod, torch.nn.Linear) and not ffn_only(mod, fqn)
@@ -229,7 +235,7 @@ def main(
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
-            if "semi" in sparsity:
+            if sparsity and "semi" in sparsity:
                 quantize_(model, int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()), filter_fn=ffn_only)
                 quantize_(model, int8_dynamic_activation_int8_weight(), filter_fn=not_ffn_only)
             else:
@@ -479,7 +485,7 @@ def main(
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Your CLI description.')
-    parser.add_argument('--ttft', type=bool, default=False, help='Whether to run in ttft mode')
+    parser.add_argument('--ttft', type=int, default=0, help='Whether to run in ttft mode')
     parser.add_argument('--prompt', type=str, default="Hello, my name is", help='Input prompt.')
     parser.add_argument('--interactive', action='store_true', help='Whether to launch in interactive mode')
     parser.add_argument('--num_samples', type=int, default=5, help='Number of samples.')
@@ -514,6 +520,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     main(
-        args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.top_k,
+        args.ttft, args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.top_k,
         args.temperature, args.checkpoint_path, args.quantization, args.sparsity, args.calibration_limit, args.calibration_seq_length, args.kv_cache_quantization, args.cache_size, args.linear_causal_mask, args.save, args.compile, args.compile_prefill, args.profile, args.memory_profile, args.device, args.precision, args.write_result
     )
