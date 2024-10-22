@@ -13,7 +13,6 @@ from torchao.utils import benchmark_model, profiler_runner
 from torchao.sparsity.utils import create_semi_structured_tensor, create_block_sparse_tensor
 
 from tqdm import tqdm
-import triton
 
 torch.set_printoptions(
     precision=2,
@@ -26,7 +25,6 @@ torch.set_printoptions(
 
 def benchmark_model_with_warmup(func, x, N_WARMUP=3):
     benchmark_model(func, N_WARMUP, device_type="cuda")
-    # return profiler_runner(x, benchmark_model, func, 10, device_type="cuda")
     return benchmark_model(func, 10, device_type="cuda")
     
 
@@ -81,19 +79,13 @@ def run_gpu_sparse_benchmark(m, k, n, args):
             raise ValueError(f"Unknown eval_fn: {args.eval_fn}")
 
         dense_time = benchmark_model_with_warmup(dense_func, 'dense.json.gz')
-        denes_tflops = 2 * m * n * k / (dense_time/ 1e3) / 1e12
-
         sparse_time = benchmark_model_with_warmup(sparse_func, 'sparse.json.gz')
-        sparse_tflops = 2 * m * n * k / (sparse_time/ 1e3) / 1e12
 
         dense_func_c = torch.compile(dense_func, mode="max-autotune")
         dense_time_c = benchmark_model_with_warmup(dense_func_c, 'dense_compile.json.gz')
 
         sparse_func_c = torch.compile(sparse_func, mode="max-autotune")
         sparse_time_c = benchmark_model_with_warmup(sparse_func_c, 'sparse_compile.json.gz')
-        sparse_tflops_c = 2 * m * n * k / (sparse_time_c/ 1e3) / 1e12
-
-        torch._dynamo.reset()
 
         return {
             "test_function": args.eval_fn,
@@ -105,7 +97,7 @@ def run_gpu_sparse_benchmark(m, k, n, args):
             "dense": dense_time,
             "dense_c": dense_time_c,
             "sparse_c": sparse_time_c,
-            "speedup (d/s)": sparse_time/ sparse_time_c, 
+            "speedup (d/s)": min(dense_time, dense_time_c) / min(sparse_time, sparse_time_c), 
         }
 
 
@@ -165,52 +157,37 @@ if __name__ == "__main__":
 
     print(f"Started benchmark: {args}")
 
-    if args.mode == "bert-large-shapes":
+    if args.mode == "llama-3b-shapes":
         bert_shapes = [
             (3072, 1024, 16384),
             (4096, 1024, 16384),
             (1024, 1024, 16384),
             (1024, 4096, 16384),
-        ]
-        results = (
-            run_gpu_sparse_benchmark(m, k, n, args)
-            for (m, k, n) in bert_shapes
-        )
-    elif args.mode == "vit-mlp-shapes":
-        vit_shapes= [
-            # (768, 3072, 50432),
-            # (3072, 3072, 50432),
-            # (1280, 5120, 65792),
-            # (5120, 1280, 65792),
-            # m n k
+            # (16, 4096, 11008),
+            # (16, 4096, 4096),
+            # (16, 11008, 4096),
             (4096, 13312, 16384),
             (4096, 16384, 6560),
             (4096, 22528, 32768),
             (4096, 32768, 11264),
             (4096, 5632, 16384),
             (4096, 16384, 2816),
-            # (1, 4096, 11008),
-            # (1, 4096, 4096),
-            # (2, 4096, 11008),
-            # (2, 4096, 4096),
-            # (4, 4096, 11008),
-            # (4, 4096, 4096),
-            # (8, 4096, 11008),
-            # (8, 4096, 4096),
-            # (16, 4096, 11008),
-            # (16, 4096, 4096),
-            # (16, 11008, 4096),
-            # (32, 4096, 11008),
-            # (32, 4096, 4096),
-            # (64, 4096, 11008),
-            # (64, 4096, 4096),
         ]
-        results = [run_gpu_sparse_benchmark(m, k, n, args) for (m, n, k) in tqdm(vit_shapes)]
-        # for i in [8192]:
-        #     results.append(run_gpu_sparse_benchmark(4096, 11008, 16384, args))
-        #     # results.append(run_gpu_sparse_benchmark(4096, 4096, i, args))
-        #     # results.append(run_gpu_sparse_benchmark(11008, 4096, i, args))
-
+        results = (
+            run_gpu_sparse_benchmark(m, k, n, args)
+            for (m, k, n) in tqdm(bert_shapes)
+        )
+    elif args.mode == "vit-mlp-shapes":
+        vit_shapes= [
+            (768, 3072, 50432),
+            (3072, 3072, 50432),
+            (1280, 5120, 65792),
+            (5120, 1280, 65792),
+        ]
+        results = (
+            run_gpu_sparse_benchmark(m, k, n, args)
+            for (m, n, k) in tqdm(vit_shapes)
+        )
     elif args.mode == "nvidia-fixed-k":
         mn_vals = [
             3072,
@@ -243,16 +220,16 @@ if __name__ == "__main__":
             5120,
             6400,
             7680,
-            # 8960,
-            # 10240,
-            # 11520,
-            # 12800,
-            # 14080,
-            # 15360,
-            # 16640,
-            # 17920,
-            # 19200,
-            # 20480,
+            8960,
+            10240,
+            11520,
+            12800,
+            14080,
+            15360,
+            16640,
+            17920,
+            19200,
+            20480,
         ]
         results = (
             run_gpu_sparse_benchmark(10240, k, 10240, args)
