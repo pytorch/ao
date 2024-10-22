@@ -90,7 +90,7 @@ class TestQuantSemiSparse(common_utils.TestCase):
         if not torch.backends.cusparselt.is_available():
             self.skipTest("Need cuSPARSELt")
             
-        input = torch.rand((256, 256)).half().cuda()
+        input = torch.rand((256, 256)).half().cuda().contiguous()
         model = (
             nn.Sequential(
                 nn.Linear(256, 1024),
@@ -100,8 +100,7 @@ class TestQuantSemiSparse(common_utils.TestCase):
             .cuda()
             .eval()
         )
-
-        apply_fake_sparsity(model)
+        torch.compiler.disable(apply_fake_sparsity(model))
         model_copy = copy.deepcopy(model)
 
         # Quantized
@@ -130,8 +129,8 @@ class TestQuantSemiSparse(common_utils.TestCase):
         input = torch.rand((256, 256)).to(torch.bfloat16).cuda()
         model = (
             nn.Sequential(
-                nn.Linear(256, 1024, bias=None),
-                # nn.Linear(1024, 256, bias=None),
+                nn.Linear(256, 1024),
+                nn.Linear(1024, 256),
             )
             .to(torch.bfloat16)
             .cuda()

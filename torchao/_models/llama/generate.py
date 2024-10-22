@@ -181,6 +181,8 @@ def main(
     """Generates text samples based on a pre-trained Transformer model and tokenizer.
     """
 
+    prompt = "prompt " * (int(prompt)-3)
+
     torchao.quantization.utils.recommended_inductor_config_setter()
 
     assert checkpoint_path.is_file(), checkpoint_path
@@ -206,10 +208,10 @@ def main(
     torch.manual_seed(1234)
 
     def ffn_only(mod, fqn):
-        return isinstance(mod, torch.nn.Linear) and "feed_forward" in fqn and ("w1" in fqn or "w3" in fqn)
+        return isinstance(mod, torch.nn.Linear) and "feed_forward" in fqn # and ("w1" in fqn or "w2" in fqn)
 
     def not_ffn_only(mod, fqn):
-        return isinstance(mod, torch.nn.Linear) and not("feed_forward" in fqn and ("w1" in fqn or "w3" in fqn))
+        return isinstance(mod, torch.nn.Linear) and not ffn_only(mod, fqn)
 
     if quantization:
         from torchao.quantization.quant_api import (
@@ -299,6 +301,7 @@ def main(
             else:
                 granularity = PerTensor()
             if "semi" in sparsity:
+                # quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity, layout=SemiSparseLayout()))
                 quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity, layout=SemiSparseLayout()), filter_fn=ffn_only)
                 quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity), filter_fn=not_ffn_only)
             else:
@@ -345,12 +348,13 @@ def main(
         decode_one_token = torch.compile(decode_one_token, mode="reduce-overhead", fullgraph=True)
 
         if compile_prefill:
-            prefill = torch.compile(prefill, fullgraph=True, dynamic=True)
+            prefill = torch.compile(prefill, mode="max-autotune", fullgraph=True, dynamic=True)
 
     if memory_profile:
         torch.cuda.memory._record_memory_history(True,trace_alloc_max_entries=250000, trace_alloc_record_context=True)
     aggregate_metrics = {
         'tokens_per_sec': [],
+        'time': [],
     }
     start = -1 if compile else 0
 
@@ -413,13 +417,14 @@ def main(
                 tok_list = y.tolist()
                 # truncate text after end of string token
                 tokens = tok_list if not tokenizer.eos_id() in y else tok_list[:tok_list.index(tokenizer.eos_id())]
-                print(tokenizer.decode(tokens))
+                # print(tokenizer.decode(tokens))
         else:
             print()
         tokens_generated = y.size(0) - prompt_length
         tokens_sec = tokens_generated / t
         aggregate_metrics['tokens_per_sec'].append(tokens_sec)
-        print(f"Time for inference {i + 1}: {t:.02f} sec total, {tokens_sec:.02f} tokens/sec")
+        aggregate_metrics['time'].append(t)
+        print(f"Time for inference {i + 1}: {t:.04f} sec total, {tokens_sec:.02f} tokens/sec")
         print(f"Bandwidth achieved: {model_size * tokens_sec:.02f} GB/s")
 
         if memory_profile and i==0:
@@ -435,15 +440,18 @@ def main(
 
     print("==========")
 
+    #ignore first sample for warmup
+    avg_time = torch.mean(torch.tensor(aggregate_metrics['time'][1:])).item()
     tokpersec = torch.mean(torch.tensor(aggregate_metrics['tokens_per_sec'])).item()
     bandwidth = model_size * tokpersec
     mem = torch.cuda.max_memory_reserved() /1e9
     print(f"Average tokens/sec: {tokpersec:.2f}")
     print(f"Average Bandwidth: {bandwidth:.02f} GB/s")
+    print(f"Average time: {avg_time:.03f} s")
     print(f"Peak Memory Usage: {mem:.02f} GB")
     print(f"Model Size: {model_size:.02f} GB")
     if write_result:
-        result_txt = f"\n{datetime.today().strftime('%Y%m%d%H%M%S')}, tok/s={tokpersec:6.2f}, mem/s={bandwidth:7.2f} GB/s, peak_mem={mem:5.2f} GB, model_size={model_size:5.2f} GB "
+        result_txt = f"\n{datetime.today().strftime('%Y%m%d%H%M%S')}, tok/s={tokpersec:6.2f}, mem/s={bandwidth:7.2f} GB/s, time={t:5.4f} sec, peak_mem={mem:5.2f} GB, model_size={model_size:5.2f} GB "
         result_txt += f"quant: {quantization}, sparse: {sparsity}, mod: {checkpoint_path.parent.name}, kv_quant: {kv_cache_quantization}, compile: {compile}, compile_prefill: {compile_prefill}, dtype: {precision}, device: {device} "
         result_txt += f"repro: python generate.py "
         result_txt += f"--quantization {quantization} " if quantization else ""

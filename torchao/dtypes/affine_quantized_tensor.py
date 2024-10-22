@@ -43,6 +43,7 @@ from torchao.utils import (
     _is_float8_type,
     fill_defaults,
 )
+from torch.sparse import SparseSemiStructuredTensorCUSPARSELT
 import logging
 
 logger = logging.getLogger(__name__)
@@ -1133,7 +1134,7 @@ class SemiSparseAQTTensorImpl(Float8AQTTensorImpl):
     def get_plain(self):
         # Currently we don't have cuSPARSELt expansion routines, so we matmul by
         # the identity matrix to get the original dense matrix. This is slow though.
-        # cols = self.float8_data.numel() * 16 // (10 * self.shape[0])
+        cols = self.float8_data.numel() * 16 // (10 * self.shape[0])
         # int_data_expanded = torch._cslt_sparse_mm(self.float8_data,
         #                                           torch.eye(cols,
         #                                                     dtype=self.float8_data.dtype,
@@ -1151,7 +1152,6 @@ class SemiSparseAQTTensorImpl(Float8AQTTensorImpl):
         assert isinstance(_layout, SemiSparseLayout)
         float8_data_compressed = torch._cslt_compress(float8_data)
         output = cls(float8_data_compressed, scale, False, _layout)
-        cls.original_shape = float8_data.shape
         return output
 
 
@@ -1645,16 +1645,12 @@ def _linear_fp8_act_fp8_weight_semi_structured_impl(
     # Handle case where input tensor is more than 2D
     inpt_data = inpt_data.reshape(-1, inpt_data.shape[-1])
 
-    # Preprocess data
-    # breakpoint()
-    # inpt_data, w_data = preprocess_data(inpt_data, w_data.T, scaled_mm_config)
-
     with torch.no_grad():
-        from torch.sparse import SparseSemiStructuredTensorCUSPARSELT
-
         w_compressed = SparseSemiStructuredTensorCUSPARSELT(
             weight_tensor.shape, packed=w_data,
-            meta=None, packed_t=None, meta_t=None, compressed_swizzled_bitmask=None, requires_grad=False)
+            meta=None, packed_t=None, meta_t=None,
+            compressed_swizzled_bitmask=None, requires_grad=False, fuse_transpose_cusparselt=True)
+
         # Perform the computation
         return addmm_float8_unwrapped_inference(
             inpt_data,
@@ -1663,20 +1659,7 @@ def _linear_fp8_act_fp8_weight_semi_structured_impl(
             w_scale,
             output_dtype=input_tensor.dtype,
             bias=bias,
-        ).contiguous()
-    # A = inpt_data
-    # # B = w_compressed
-    # row, col = A.shape
-    # # A_padded = SparseSemiStructuredTensorCUSPARSELT._pad_dense_input(A)
-    # sparse_result = torch._cslt_sparse_mm(
-    #     w_data,
-    #     A.t(),
-    #     alpha=input_scale * w_scale,
-    #     out_dtype=torch.bfloat16,
-    #     bias=None,
-    # ).t()
-    # return sparse_result.contiguous()
-
+        ).reshape(out_shape)
 
 def preprocess_scale(input_scale: torch.Tensor, input_shape: Tuple[int]):
     """ Ensures input tensor is correctly formated for _scaled_mm """
