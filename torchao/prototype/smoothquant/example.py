@@ -117,7 +117,7 @@ def wikitext2_ppl(
         print(f"running calibration")
         t0 = time.time()
         # insert observers to find average magnitude and calculate scales
-        insert_smooth_quant_observer(model, alpha, quant_mode, calibration_size)
+        insert_smooth_quant_observer(model, alpha, quant_mode)
         calibration_data = get_calib_dataset(tokenizer=tokenizer, n_samples=calibration_size, block_size=sequence_length)
         for batch in calibration_data:
             model(batch.to(device))

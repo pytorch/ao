@@ -1,9 +1,7 @@
 from copy import deepcopy
-import os
 import pytest
 import torch
 import tempfile
-from torch.ao.quantization import MovingAverageMinMaxObserver
 from torchao.quantization import quantize_
 from torchao.utils import (
   TORCH_VERSION_AT_LEAST_2_2,
@@ -71,7 +69,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
     data = torch.randn(2, 32, dtype=idtype, device=device)
 
     # calibrate
-    insert_smooth_quant_observer(m, alpha, quant_mode, n_calib_examples=1)
+    insert_smooth_quant_observer(m, alpha, quant_mode)
     m(data)
     # quantize
     is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
@@ -102,14 +100,9 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
             out_ref = torch.nn.functional.linear(act.to(idtype), fq_wei, b)
         elif quant_mode == "static":
             # activation is quantized per-tensor
-            obs = MovingAverageMinMaxObserver(
-                dtype=torch.int8,
-                qscheme=torch.per_tensor_symmetric,
-                quant_min=-127,
-                quant_max=127,
-            )
-            obs(act.float().to("cpu"))
-            act_scale, _ = obs.calculate_qparams()
+            act_min, act_max = torch.aminmax(act.float())
+            max_val_pos = torch.max(-act_min, act_max)
+            act_scale = max_val_pos / 127.0
             fq_act = torch.quantize_per_tensor(
                 act.float(), scale=act_scale.item(), zero_point=0, dtype=torch.qint8
             ).dequantize().to(idtype)
@@ -147,8 +140,8 @@ def test_save_load_recipe(alpha, quant_mode, device, idtype):
     calibration_data = dataset[:n_calib_examples]
 
     # calibrate
-    insert_smooth_quant_observer(m, alpha, quant_mode, n_calib_examples=n_calib_examples)
-    insert_smooth_quant_observer(m_save_load, alpha, quant_mode, n_calib_examples=n_calib_examples)
+    insert_smooth_quant_observer(m, alpha, quant_mode)
+    insert_smooth_quant_observer(m_save_load, alpha, quant_mode)
 
     for example in calibration_data:
         m(example.to(device))
