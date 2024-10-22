@@ -46,6 +46,43 @@ __device__ __forceinline__ void FPx_FP16_Cast_4Way(uint32_t *In, uint32_t *Out1,
     *In    = (*In) << 8;
     *Out2  = *In & 0x80008000;
     *Out2 |= ( (*In) & MASK ) >> RIGHT_SHIFT;
+
+    if constexpr (false && USE_BF16) {
+        // Add exponent bias
+        constexpr int MASK1_EXP = 0x80000000;
+        constexpr int MASK2_EXP = MASK1_EXP >> (EXPONENT + RIGHT_SHIFT);  // NB: arithmetic shift, not logical
+        constexpr int MASK3_EXP = MASK2_EXP & 0x7fffffff;
+        constexpr int MASK_EXP  = MASK3_EXP | MASK3_EXP >> 16;
+        // Extract exponents bits
+        union {
+            uint32_t u32;
+            uint8_t  u8[4];
+            uint16_t u16[2];
+        } tmp1, tmp2;
+        /*
+        constexpr uint16_t BIAS_OFFSET = (1 << (8-1)) - (1 << (EXPONENT-1));  // 124 = 0x7c
+        tmp1.u32 = (*Out1 & MASK_EXP) >> 7;
+        tmp2.u32 = (*Out2 & MASK_EXP) >> 7;
+        tmp1.u16[0] += BIAS_OFFSET;
+        tmp1.u16[1] += BIAS_OFFSET;
+        tmp2.u16[0] += BIAS_OFFSET;
+        tmp2.u16[1] += BIAS_OFFSET;
+        *Out1 = (*Out1 & ~MASK_EXP) | (tmp1.u32 << 7);
+        *Out2 = (*Out2 & ~MASK_EXP) | (tmp2.u32 << 7);
+        */
+        // /*
+        constexpr uint8_t BIAS_OFFSET = (1 << (8-1)) - (1 << (EXPONENT-1));  // 124 = 0x7c
+        tmp1.u32 = (*Out1 & MASK_EXP) << 1;
+        tmp2.u32 = (*Out2 & MASK_EXP) << 1;
+        // NB: little endian
+        tmp1.u8[3] += BIAS_OFFSET;
+        tmp1.u8[1] += BIAS_OFFSET;
+        tmp2.u8[3] += BIAS_OFFSET;
+        tmp2.u8[1] += BIAS_OFFSET;
+        *Out1 = (*Out1 & ~MASK_EXP) | (tmp1.u32 >> 1);
+        *Out2 = (*Out2 & ~MASK_EXP) | (tmp2.u32 >> 1);
+        // */
+    }
 }
 
 template<int EXPONENT, int MANTISSA>
@@ -65,17 +102,41 @@ __device__ __forceinline__ uint32_t MultScale(uint32_t PackedFP16Pair, half Scal
 template<int EXPONENT, int MANTISSA>
 __device__ __forceinline__ uint32_t MultScale(uint32_t PackedBF16Pair, __nv_bfloat16 Scale) {
     constexpr int BIAS_OFFSET = (int(1) << (8-1)) - (int(1) << (EXPONENT-1));
-    constexpr int BIAS        = int(1) << BIAS_OFFSET;
-    //
     __nv_bfloat16* BF16_1 = reinterpret_cast<__nv_bfloat16*>(&PackedBF16Pair);
     __nv_bfloat16* BF16_2 = BF16_1 + 1;
     uint32_t output;
     __nv_bfloat16* output_bf16_ptr = reinterpret_cast<__nv_bfloat16*>(&output);
+    if constexpr (false) {
+        // Bfloat16 exponent bias is 127, which would lead to multiplication with
+        // 2^127, which would lead to overflow. Instead, we decompose the exponent
+        // into smaller values and multiply several times.
+        __nv_bfloat16 tmp1 = *BF16_1;
+        __nv_bfloat16 tmp2 = *BF16_2;
+        // FIXME: only works for exponent=3 right now.
+        // Note that for exponent=3, BIAS_OFFSET = 2^7 - 2^2 = 124 = 4*31 
+        const __nv_bfloat16 BIAS = __float2bfloat16(1.0f * (uint32_t(1) << BIAS_OFFSET / 4));
+        #pragma unroll
+        for (int i = 0; i < 4; i++) {
+            tmp1 = __hmul(tmp1, BIAS);
+            tmp2 = __hmul(tmp2, BIAS);
+        }
+        output_bf16_ptr[0] = __hmul( tmp1, Scale);
+        output_bf16_ptr[1] = __hmul( tmp2, Scale);
+    } else {
+        // Bfloat16 exponent bias is 127, which would lead to multiplication with
+        // 2^127, which would lead to overflow. Instead, we use type punning to
+        // directly construct a float with a large exponent.
+        union {
+            uint32_t u32;
+            float f;
+        } tmp;
+        tmp.u32 = (BIAS_OFFSET + 127) << 23;  // 127=exponent bias, 23=mantissa
+        output_bf16_ptr[0] = __hmul( __hmul(*BF16_1,__float2bfloat16(tmp.f)), Scale);
+        output_bf16_ptr[1] = __hmul( __hmul(*BF16_2,__float2bfloat16(tmp.f)), Scale);
+    }
     // TODO: it might be faster to do both ops (for [0] and [1]) in one op using __hmul2
-    // TODO: this multiplication with bias is potentially problematic and might also slow things down.
-    // Note that BIAS has a value of 2^120 -> what happens when the int overflows?
-    output_bf16_ptr[0] = __hmul( __hmul(*BF16_1,__float2bfloat16(1.0f*BIAS)), Scale);
-    output_bf16_ptr[1] = __hmul( __hmul(*BF16_2,__float2bfloat16(1.0f*BIAS)), Scale);
+    // output_bf16_ptr[0] = __hmul( *BF16_1, Scale);
+    // output_bf16_ptr[1] = __hmul( *BF16_2, Scale);
     return output;
 }
 
