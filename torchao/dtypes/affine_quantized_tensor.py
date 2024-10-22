@@ -528,6 +528,9 @@ class TensorCoreTiledLayout(Layout):
 class Float8Layout(Layout):
     mm_config: Optional[Float8MMConfig] = None
 
+@dataclass(frozen=True)
+class SemiSparseFloat8Layout(Layout):
+    mm_config: Optional[Float8MMConfig] = None
 
 @dataclass(frozen=True)
 class MarlinSparseLayout(Layout):
@@ -1152,24 +1155,11 @@ class Float8AQTTensorImpl(AQTTensorImpl):
                 f"transposed={self.transposed}, "
                 f"_layout={_layout})")
 
-@register_layout(SemiSparseLayout)
-class SemiSparseAQTTensorImpl(Float8AQTTensorImpl):
+@register_layout(SemiSparseFloat8Layout)
+class SemiSparseFloat8AQTTensorImpl(Float8AQTTensorImpl):
     """
     TensorImpl storage class for semi_sparse_cusparselt layout for affine quantized tensor
     """
-    # @classmethod
-    # def __torch_dispatch__(cls, func, types, args, kwargs):
-    #     kwargs = {} if kwargs is None else kwargs
-
-    #     if func is aten.detach.default:
-    #         return return_and_correct_aliasing(
-    #             func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
-    #         )
-
-    #     raise NotImplementedError(
-    #         f"SparseAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
-    #     )
-
     def get_plain(self):
         # Currently we don't have cuSPARSELt expansion routines, so we matmul by
         # the identity matrix to get the original dense matrix. This is slow though.
@@ -1661,7 +1651,7 @@ def _linear_fp8_act_fp8_weight_semi_structured_check(
             and aqt.tensor_impl.dtype in [torch.float8_e4m3fn, torch.float8_e5m2]
             and (aqt.shape == aqt.block_size or _is_rowwise_scaled(aqt))
         )
-    return check_aqt(input_tensor) and check_aqt(weight_tensor, layout=SemiSparseLayout)
+    return check_aqt(input_tensor) and check_aqt(weight_tensor, layout=SemiStructuredFloat8Layout)
 
 def _linear_fp8_act_fp8_weight_semi_structured_impl(
     input_tensor: AffineQuantizedTensor,

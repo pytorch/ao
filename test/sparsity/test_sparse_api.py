@@ -81,6 +81,9 @@ class TestQuantSemiSparse(common_utils.TestCase):
             model = torch.compile(model)
         sparse_result = model(input)
 
+        print(sparse_result)
+        print(dense_result)
+
         torch.testing.assert_close(dense_result, sparse_result, rtol=1e-2, atol=1e-2)
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "pytorch 2.5+ feature")
