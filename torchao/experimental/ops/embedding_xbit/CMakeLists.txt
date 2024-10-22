@@ -17,3 +17,20 @@ target_link_libraries(torchao_ops_embedding_xbit_aten PRIVATE torchao_kernels_aa
 target_include_directories(torchao_ops_embedding_xbit_aten PRIVATE "${TORCH_INCLUDE_DIRS}")
 target_link_libraries(torchao_ops_embedding_xbit_aten PRIVATE "${TORCH_LIBRARIES}")
 target_compile_definitions(torchao_ops_embedding_xbit_aten PRIVATE USE_ATEN=1)
+
+if(TORCHAO_BUILD_EXECUTORCH_OPS)
+    # ExecuTorch package is not required, but EXECUTORCH_INCLUDE_DIRS and EXECUTORCH_LIBRARIES must
+    # be defined and EXECUTORCH_LIBRARIES must include the following libraries installed by ExecuTorch:
+    # libexecutorch.a
+    # libextension_threadpool.a
+    # libcpuinfo.a
+    # libpthreadpool.a
+    add_library(torchao_ops_embedding_xbit_executorch OBJECT
+        op_embedding_xbit_executorch.cpp
+    )
+    target_link_torchao_parallel_backend(torchao_ops_embedding_xbit_executorch executorch)
+    target_include_directories(torchao_ops_embedding_xbit_executorch PRIVATE "${EXECUTORCH_INCLUDE_DIRS}")
+    target_compile_definitions(torchao_ops_embedding_xbit_executorch PRIVATE USE_EXECUTORCH=1)
+    target_link_libraries(torchao_ops_embedding_xbit_executorch PRIVATE "${EXECUTORCH_LIBRARIES}")
+    target_link_libraries(torchao_ops_embedding_xbit_executorch PRIVATE torchao_kernels_aarch64)
+endif()
