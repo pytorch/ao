@@ -1155,14 +1155,16 @@
             <span class="n">_layout</span><span class="o">=</span><span class="n">Float8Layout</span><span class="p">(</span><span class="n">mm_config</span><span class="o">=</span><span class="n">mm_config</span><span class="p">),</span>
         <span class="p">)</span>
 
-        <span class="n">input_quant_func</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span>
-            <span class="n">_input_activation_quant_func_fp8</span><span class="p">,</span>
-            <span class="n">activation_granularity</span><span class="o">=</span><span class="n">activation_granularity</span><span class="p">,</span>
-            <span class="n">activation_dtype</span><span class="o">=</span><span class="n">activation_dtype</span><span class="p">,</span>
-        <span class="p">)</span>
+        <span class="n">input_quant_func</span> <span class="o">=</span> <span class="n">_input_activation_quant_func_fp8</span>
+        <span class="n">input_quant_kwargs</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;activation_granularity&quot;</span><span class="p">:</span> <span class="n">activation_granularity</span><span class="p">,</span>
+            <span class="s2">&quot;activation_dtype&quot;</span><span class="p">:</span> <span class="n">activation_dtype</span><span class="p">,</span>
+        <span class="p">}</span>
 
         <span class="n">quantized_weight</span> <span class="o">=</span> <span class="n">to_linear_activation_quantized</span><span class="p">(</span>
-            <span class="n">quantized_weight</span><span class="p">,</span> <span class="n">input_quant_func</span>
+            <span class="n">quantized_weight</span><span class="p">,</span> 
+            <span class="n">input_quant_func</span><span class="p">,</span>
+            <span class="n">quant_kwargs</span><span class="o">=</span><span class="n">input_quant_kwargs</span>
         <span class="p">)</span>
         <span class="k">return</span> <span class="n">quantized_weight</span>
 
