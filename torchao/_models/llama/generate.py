@@ -250,7 +250,7 @@ def main(
                 use_hqq=False
             groupsize=int(quantization.split("-")[1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
-            if "semi" in sparsity:
+            if sparsity and "semi" in sparsity:
                 quantize_(model, int4_weight_only(group_size=groupsize, layout=MarlinSparseLayout()))
             else:
                 quantize_(model, int4_weight_only(group_size=groupsize))
@@ -307,7 +307,7 @@ def main(
                 granularity = PerRow()
             else:
                 granularity = PerTensor()
-            if "semi" in sparsity:
+            if sparsity and "semi" in sparsity:
                 # quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity, layout=SemiSparseLayout()))
                 quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity, layout=SemiSparseLayout()), filter_fn=ffn_only)
                 quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity), filter_fn=not_ffn_only)
