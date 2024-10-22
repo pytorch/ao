@@ -527,6 +527,7 @@ class TensorCoreTiledLayout(Layout):
 class Float8Layout(Layout):
     mm_config: Optional[Float8MMConfig] = None
 
+
 @dataclass(frozen=True)
 class MarlinSparseLayout(Layout):
 
@@ -1150,6 +1151,7 @@ class Float8AQTTensorImpl(AQTTensorImpl):
                 f"transposed={self.transposed}, "
                 f"_layout={_layout})")
 
+
 @register_layout(TensorCoreTiledLayout)
 class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
     """
@@ -1604,6 +1606,7 @@ def _linear_fp8_act_fp8_weight_check(
             and (aqt.shape == aqt.block_size or _is_rowwise_scaled(aqt))
         )
     return check_aqt(input_tensor) and check_aqt(weight_tensor)
+
 
 def preprocess_scale(input_scale: torch.Tensor, input_shape: Tuple[int]):
     """ Ensures input tensor is correctly formated for _scaled_mm """
