@@ -10,6 +10,8 @@
 #include <torch/script.h>
 #include <torch/torch.h>
 using Tensor = at::Tensor;
+#define Tensor_dtype_kInt32 torch::kInt32
+#define Tensor_dtype_kInt64 torch::kInt64
 #define TORCHAO_CHECK(cond, msg) TORCH_CHECK(cond, msg)
 
 #elif defined(USE_EXECUTORCH) && !defined(USE_ATEN)
@@ -18,6 +20,8 @@ using Tensor = at::Tensor;
 #include <executorch/runtime/kernel/kernel_includes.h>
 using Tensor = torch::executor::Tensor;
 using RuntimeContext = torch::executor::KernelRuntimeContext;
+#define Tensor_dtype_kInt32 torch::executor::ScalarType::Int
+#define Tensor_dtype_kInt64 torch::executor::ScalarType::Long
 #define TORCHAO_CHECK(cond, msg) ET_CHECK_MSG(cond, msg)
 
 #elif !defined(USE_EXECUTORCH) && !defined(USE_ATEN)
