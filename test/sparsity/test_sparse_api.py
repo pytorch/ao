@@ -5,8 +5,7 @@ import unittest
 import torch
 from torch import nn
 from torch.testing._internal import common_utils
-from torchao.dtypes import MarlinSparseLayout, SemiSparseLayout
-from torchao.dtypes.affine_quantized_tensor import SemiSparseFloat8Layout
+from torchao.dtypes import MarlinSparseLayout, SemiSparseLayout, SemiSparseFloat8Layout
 from torchao.quantization.quant_api import (
     int4_weight_only,
     int8_dynamic_activation_int8_weight,

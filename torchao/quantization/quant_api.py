@@ -32,6 +32,7 @@ from torchao.dtypes import (
     PlainLayout,
     AffineQuantizedTensor,
     SemiSparseLayout,
+    SemiSparseFloat8Layout,
     Float8Layout,
     MarlinSparseLayout,
 )
@@ -753,9 +754,9 @@ def float8_dynamic_activation_float8_weight(
 
     if layout is None:
         layout = Float8Layout(mm_config=mm_config)
-    elif isinstance(layout, SemiSparseLayout):
-        assert activation_granularity == weight_granularity == PerTensor(), "SemiSparseLayout only supports PerTensor granularity for activations and weights"
-        layout = SemiSparseLayout(mm_config=mm_config)
+    elif isinstance(layout, SemiSparseFloat8Layout):
+        assert activation_granularity == weight_granularity == PerTensor(), "SemiSparseFoat8Layout only supports PerTensor granularity for activations and weights"
+        layout = SemiSparseFloat8Layout(mm_config=mm_config)
 
     def apply_float8_dynamic_activation_quant(weight: torch.Tensor):
         if isinstance(weight_granularity, PerRow):

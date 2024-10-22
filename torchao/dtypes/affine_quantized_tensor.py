@@ -472,7 +472,6 @@ get_tensor_impl_constructor = AffineQuantizedTensor.get_tensor_impl_constructor
 
 @dataclass(frozen=True)
 class SemiSparseLayout(Layout):
-    mm_config: Optional[Float8MMConfig] = None
 
     def pre_process(self, input: torch.Tensor) -> torch.Tensor:
         # prune to 2:4 if not already
@@ -1164,11 +1163,11 @@ class SemiSparseFloat8AQTTensorImpl(Float8AQTTensorImpl):
         # Currently we don't have cuSPARSELt expansion routines, so we matmul by
         # the identity matrix to get the original dense matrix. This is slow though.
         cols = self.float8_data.numel() * 16 // (10 * self.shape[0])
-        # int_data_expanded = torch._cslt_sparse_mm(self.float8_data,
-        #                                           torch.eye(cols,
-        #                                                     dtype=self.float8_data.dtype,
-        #                                                     device=self.float8_data.device).t())
-        return torch.zeros(self.shape).to(self.device), self.scale, None
+        float_data_expanded = torch._cslt_sparse_mm(self.float8_data,
+                                                    torch.eye(cols,
+                                                            dtype=self.float8_data.dtype,
+                                                            device=self.float8_data.device).t())
+        return float_data_expanded, self.scale, None
 
     @classmethod
     def from_plain(
@@ -1438,8 +1437,8 @@ def _linear_int8_act_int8_weight_semi_structured_sparse_impl(input_tensor, weigh
     tmp_padded = SparseSemiStructuredTensorCUSPARSELT._pad_dense_input(tmp)
     # we fuse one of the scalar matrix multiplications (w_scales) into the sparse mm
     y_dot_bf16_w_scales_fused = torch._cslt_sparse_mm(
-        w_vals_int8, tmp_padded.t(), alpha=w_scales.to(torch.float32), out_dtype=torch.bfloat16,
-    ).t()[:row, :]
+        w_vals_int8, tmp_padded.t(), alpha=w_scales.to(torch.float32), out_dtype=torch.bfloat16, transpose_result=True
+    )[:row, :]
     y = (y_dot_bf16_w_scales_fused * x_scales.reshape(-1, 1)).reshape(
         *x_vals_int8.shape[:-1], y_dot_bf16_w_scales_fused.shape[-1]
     )
