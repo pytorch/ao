@@ -29,8 +29,13 @@ from torchao.quantization.prototype.qat.api import (
 from torchao.quantization.prototype.qat.fake_quantizer import (
     FakeQuantizer,
 )
+from torchao.quantization.prototype.qat.embedding import (
+    FakeQuantizedEmbedding,
+)
 from torchao.quantization.prototype.qat.linear import (
     FakeQuantizedLinear,
+    Int8DynActInt4WeightQATLinear,
+    Int4WeightOnlyQATLinear
 )
 from torchao.quantization.prototype.qat.utils import (
     _choose_qparams_per_token_asymmetric,
@@ -63,6 +68,10 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
 )
 
+from torchao.quantization.GPTQ import (
+    _replace_linear_8da4w,
+    _replace_linear_int4
+)
 
 # TODO: put this in a common test utils file
 _CUDA_IS_AVAILABLE = torch.cuda.is_available()
@@ -850,6 +859,82 @@ class TestQAT(unittest.TestCase):
         x2 = copy.deepcopy(x)
         fq_out = fq_linear(x)
         baseline_out = linear_forward_4w(x2, fq_linear.weight)
+        torch.testing.assert_close(baseline_out, fq_out, atol=0, rtol=0)
+        
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower")        
+    def test_replace_linear_8da4w(self):
+        module = torch.nn.ModuleList([
+            torch.nn.Linear(in_features=256, out_features=50, bias=True)
+        ])
+        _replace_linear_8da4w(module, 256, False, torch.float32, torch.float32, Int8DynActInt4WeightQATLinear, copy_weights=True)
+        assert(not isinstance(module[0], Int8DynActInt4WeightQATLinear) and isinstance(module[0], torch.nn.Linear))
+        module = torch.nn.ModuleList([
+            torch.nn.Linear(in_features=256, out_features=50, bias=False)
+        ])
+        _replace_linear_8da4w(module, 256, False, torch.float32, torch.float32, Int8DynActInt4WeightQATLinear, copy_weights=True)
+        assert(isinstance(module[0], Int8DynActInt4WeightQATLinear))
+    
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower")    
+    def test_replace_linear_int4(self):
+        module = torch.nn.ModuleList([
+            torch.nn.Linear(in_features=256, out_features=50, bias=True)
+        ])
+        _replace_linear_int4(
+            module, 
+            256, 
+            8,
+            padding_allowed=True, 
+            precision=torch.bfloat16, 
+            scales_precision=torch.bfloat16, 
+            linear_class=Int4WeightOnlyQATLinear, 
+            copy_weights=True)
+        assert(not isinstance(module[0], Int4WeightOnlyQATLinear) and isinstance(module[0], torch.nn.Linear))
+        module = torch.nn.ModuleList([
+            torch.nn.Linear(in_features=256, out_features=50, bias=False)
+        ])
+        _replace_linear_int4(
+            module, 
+            256, 
+            8,
+            padding_allowed=True, 
+            precision=torch.bfloat16, 
+            scales_precision=torch.bfloat16, 
+            linear_class=Int4WeightOnlyQATLinear, 
+            copy_weights=True)
+        assert(isinstance(module[0], Int4WeightOnlyQATLinear))
+
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "skipping when torch version is 2.4 or lower")
+    def test_fake_quantized_embedding_4w(self):
+        """
+        Test that we can express int4 per group symmetric weight only fake quantization
+        with `FakeQuantizedEmbedding`.
+        """
+        num_embeddings = 64
+        embedding_dim = 128
+        group_size = 32
+        torch.manual_seed(self.SEED)
+        fq_embedding = FakeQuantizedEmbedding(
+            num_embeddings,
+            embedding_dim,
+            weight_config=FakeQuantizeConfig(TorchAODType.INT4, group_size=group_size),
+        )
+
+        def embedding_forward_4w(x: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
+            """
+            Baseline for int4 per group symmetric weight only fake quantization.
+            """
+            (s, zp) = get_group_qparams_symmetric(weight, 4, group_size, torch.float32)
+            zp = zp.to(torch.int32)
+            (qmin, qmax) = _get_qmin_qmax(4)
+            w_fq = _fake_quantize_per_channel_group(weight, s, zp, qmin, qmax, group_size)
+            return F.embedding(x, w_fq)
+
+        # Compare embedding values
+        torch.manual_seed(self.SEED)
+        x = torch.randint(num_embeddings, (5, 10))
+        x2 = copy.deepcopy(x)
+        fq_out = fq_embedding(x)
+        baseline_out = embedding_forward_4w(x2, fq_embedding.weight)
         torch.testing.assert_close(baseline_out, fq_out, atol=0, rtol=0)
 
 

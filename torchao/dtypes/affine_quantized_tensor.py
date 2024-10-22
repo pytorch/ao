@@ -57,6 +57,9 @@ aten = torch.ops.aten
 class AQTTensorImpl(TorchAOBaseTensor):
     """
     Base class for the tensor impl for `AffineQuantizedTensor`
+
+    Note: This is not a user facing API, it's used by AffineQuantizedTensor to construct
+    the underlying implementation of a AQT based on layout
     """
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Get the plain (unpacked) Tensor for the tensor impl
@@ -488,6 +491,10 @@ class BlockSparseLayout(Layout):
 
 @dataclass(frozen=True)
 class TensorCoreTiledLayout(Layout):
+    """
+    inner_k_tiles is an internal argument for packing function of tensor core tiled layout
+    that can affect the performance of the matmul kernel
+    """
     inner_k_tiles: int = 8
 
     def pre_process(self, input: torch.Tensor) -> torch.Tensor:
@@ -513,11 +520,16 @@ class TensorCoreTiledLayout(Layout):
         scale = torch.nn.functional.pad(scale, padding_changes)
         zero_point = torch.nn.functional.pad(zero_point, padding_changes)
         return input, scale, zero_point
-        
 
-
-
-
+    def post_process(self, input: torch.Tensor) -> torch.Tensor:
+        orig_out_features, orig_in_features = input.shape
+        in_features = find_multiple(orig_in_features, 1024)
+        out_features = find_multiple(orig_out_features, 8)
+        input = torch.nn.functional.pad(
+            input,
+            (0, in_features - orig_in_features, 0, out_features - orig_out_features),
+        )
+        return input
 
     def extra_repr(self):
         return f"inner_k_tiles={self.inner_k_tiles}"
@@ -552,7 +564,7 @@ class MarlinSparseLayout(Layout):
 @register_layout(PlainLayout)
 class PlainAQTTensorImpl(AQTTensorImpl):
     """
-    TensorImpl storage class for plain layout for affine quantized tensor, it stores int_data, scale, zero_point
+    TensorImpl for plain layout for affine quantized tensor, it stores int_data, scale, zero_point
     tensors directly as plain tensors.
 
     fields:
@@ -676,7 +688,7 @@ class PlainAQTTensorImpl(AQTTensorImpl):
 @register_layout(SemiSparseLayout)
 class SemiSparseAQTTensorImpl(PlainAQTTensorImpl):
     """
-    TensorImpl storage class for semi_sparse_cusparselt layout for affine quantized tensor
+    TensorImpl for semi_sparse_cusparselt layout for affine quantized tensor
     """
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
@@ -856,7 +868,7 @@ class BlockSparseAQTTensorImpl(PlainAQTTensorImpl):
 @register_layout(MarlinSparseLayout)
 class MarlinSparseAQTTensorImpl(AQTTensorImpl):
     """
-    TensorImpl storage class for sparse_marlin_24 layout for affine quantized tensor.
+    TensorImpl for sparse_marlin_24 layout for affine quantized tensor.
 
     Can be used with 4 bits and 8 bits quantization.
 
@@ -1026,7 +1038,10 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
 @register_layout(Float8Layout)
 class Float8AQTTensorImpl(AQTTensorImpl):
     """
-    TensorImpl storage class for float8 tensor impl for affine quantized tensor
+    TensorImpl for float8 layout affine quantized tensor
+
+    Note: technically we should not create a new layout for float8 we should merge this into
+    plain layout
     """
     float8_data: torch.Tensor
     scale: torch.Tensor
@@ -1063,9 +1078,12 @@ class Float8AQTTensorImpl(AQTTensorImpl):
 
     def _apply_fn_to_data(self, fn):
         """ Applys a fn to all tensor components stored on this class"""
-        fn(self.float8_data)
-        fn(self.scale)
-        return self
+        return self.__class__(
+            fn(self.float8_data),
+            fn(self.scale),
+            self.transposed,
+            self._layout,
+        )
 
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
@@ -1108,12 +1126,21 @@ class Float8AQTTensorImpl(AQTTensorImpl):
         elif func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
             if dim == 0:
-                return return_and_correct_aliasing(
-                    func, args, kwargs, args[0]._apply_fn_to_data(lambda x: aten.slice.Tensor(x, dim, start, end, step))
-                )
+                #TODO: scale replecation should be dependent on block size
+                if self.scale.ndim == 1:
+                    return return_and_correct_aliasing(
+                        func, args, kwargs, args[0]._apply_fn_to_data(lambda x: aten.slice.Tensor(x, dim, start, end, step))
+                    )
+                elif self.scale.ndim == 0:
+                    return return_and_correct_aliasing(
+                        func, args, kwargs, Float8AQTTensorImpl(aten.slice.Tensor(self.float8_data, dim, start, end, step), self.scale, None, self._layout)
+                    )
+                else:
+                    raise NotImplementedError(f"Float8AQTTensorImpl dispatch: attempting to run {func}, with scale ndim={dim}, that is not supported")
             elif dim == 1:
-                assert len(self.scale.shape) == 1, f"slice dim==1 only works when len(scale.shape) == 1 currently, got: {self.scale.shape}"
-                return Float8AQTTensorImpl(aten.slice.Tensor(self.float8_data, dim, start, end, step), self.scale, None, self._layout)
+                return return_and_correct_aliasing(
+                        func, args, kwargs, Float8AQTTensorImpl(aten.slice.Tensor(self.float8_data, dim, start, end, step).contiguous(), self.scale, None, self._layout)
+                )
             else:
                 raise NotImplementedError(f"Float8AQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported")
         else:
@@ -1155,9 +1182,21 @@ class Float8AQTTensorImpl(AQTTensorImpl):
 @register_layout(TensorCoreTiledLayout)
 class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
     """
-    TensorImpl storage class for tensor_core_tiled tensor impl for affine quantized tensor, this is for int4 only,
-    it stores the original tensor of dimension [n][k] (int32 dtype) as packed weight of 4-d tensor of
+    TensorImpl for tensor_core_tiled layout for affine quantized tensor, this is for int4 only,
+    used by tinygemm kernels `_weight_int4pack_mm`
+
+    It stores the original tensor of dimension [n][k] (int32 dtype) as packed weight of 4-d tensor of
     dimension: [n / 8][k / (inner_k_tiles * 16)][32][inner_k_tiles / 2]
+    (unpacked Tensor shape is n * k)
+    where inner_k_tiles is an internal argument for packing function of tensor core tiled layout
+    that can affect the performance of the matmul kernel (defaults to 8)
+
+    Note: we also pack scale and zero point together here for tinygemm kernel
+
+    Note: technically tensor core tiled layout should be the layout for the underlying packed weight
+    (int Tensor) but since the scale and zero_point are also packed into the same tensor here which is not used
+    in plain layout, we just created a layout for AQT right now, this could be improved if we split out
+    int4 aqt into a separate tensor subclass
 
     fields:
       packed_weight (torch.Tensor): the 4-d packed tensor in a tensor_core_tiled layout
@@ -1240,9 +1279,15 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         )
 
     def _apply_fn_to_data(self, fn):
-        self.packed_weight = fn(self.packed_weight)
-        self.scale_and_zero = fn(self.scale_and_zero)
-        return self
+        # self.packed_weight = fn(self.packed_weight)
+        # self.scale_and_zero = fn(self.scale_and_zero)
+        # return self
+        return self.__class__(
+            fn(self.packed_weight),
+            fn(self.scale_and_zero),
+            self.transposed,
+            self._layout,
+        )
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
@@ -1262,8 +1307,36 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
             """we don't need to repack the weight and just rely on external
             shape being changed and record the status of transpose/no-transpose
             """
-            args[0].transposed = not args[0].transposed
-            return return_and_correct_aliasing(func, args, kwargs, args[0])
+            transposed = TensorCoreTiledAQTTensorImpl(args[0].packed_weight, args[0].scale_and_zero, not args[0].transposed, args[0]._layout)
+            return return_and_correct_aliasing(func, args, kwargs, transposed)
+
+        if func is aten.slice.Tensor:
+            self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
+            if dim == 0:
+                int_data, scale, zero_point = self.get_plain()
+                int_data = aten.slice.Tensor(int_data, dim, start, end, step)
+                # this is to handle padding
+                int_data = self._layout.post_process(int_data)
+                sliced = self.from_plain(int_data, scale, zero_point, self._layout)
+                return return_and_correct_aliasing(func, args, kwargs, sliced)
+            elif dim == 1:
+                int_data, scale, zero_point = self.get_plain()
+                assert step == 1, "Only step == 1 is supported in slicing right now"
+                data_len = int_data.shape[dim]
+                scale_len = scale.shape[dim]
+                ratio = data_len / scale_len
+                start_scale = int(start / ratio)
+                end_scale = int(end / ratio)
+
+                int_data = aten.slice.Tensor(int_data, dim, start, end, step)
+                # this is to handle padding
+                int_data = self._layout.post_process(int_data)
+                scale = aten.slice.Tensor(scale, dim, start_scale, end_scale, step)
+                zero_point = aten.slice.Tensor(zero_point, dim, start_scale, end_scale, step)
+                sliced = self.from_plain(int_data, scale, zero_point, self._layout)
+                return sliced
+            else:
+                raise NotImplementedError(f"TensorCoreTiledAQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported")
 
         raise NotImplementedError(
             f"TensorCoreTiledAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
@@ -1500,6 +1573,7 @@ def _linear_bf16_act_uint4_weight_impl(input_tensor, weight_tensor, bias):
     orig_out_features = weight_tensor.shape[-2]
     y = y[:, :orig_out_features]
     y = y.reshape(*orig_act_size[:-1], orig_out_features)
+
 
     if bias is not None:
         y += bias

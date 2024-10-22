@@ -1,5 +1,5 @@
 import torch
-from typing import Callable
+from typing import Callable, Dict, Any, Optional
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.utils import (
     TorchAOBaseTensor,
@@ -26,11 +26,16 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
         on top of it
       `input_quant_func` (Callable[[torch.Tensor], torch.Tensor]): a function that takes a high precision floating point tensor and returns
         a quantized tensor, this is used to quantize input
+      `quant_kwargs` (Dict[str, Any]): Additional keyword arguments for the quantization function.
+        Restriction: Must not contain tensor values.
     """
+    quant_kwargs: Dict[str, Any]
+    
     def __new__(
         cls,
         original_weight_tensor: torch.Tensor,
         input_quant_func: Callable,
+        quant_kwargs: Dict[str, Any]
     ):
         kwargs = {}
         dtype = original_weight_tensor.dtype
@@ -44,42 +49,52 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
         self,
         original_weight_tensor: torch.Tensor,
         input_quant_func: Callable[[torch.Tensor], torch.Tensor],
+        quant_kwargs: Dict[str, Any],
     ):
         self.original_weight_tensor = original_weight_tensor
         self.input_quant_func = input_quant_func
+        self.quant_kwargs = quant_kwargs
 
     def __repr__(self):
-        return f"LinearActivationQuantizedTensor({self.original_weight_tensor}, {self.input_quant_func})"
+        return f"LinearActivationQuantizedTensor({self.original_weight_tensor}, {self.input_quant_func}, quant_kwargs={self.quant_kwargs}))"
 
     def __tensor_flatten__(self):
-        return ["original_weight_tensor"], [self.input_quant_func]
+        return ["original_weight_tensor"], [self.input_quant_func, self.quant_kwargs]
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
         original_weight_tensor = tensor_data_dict["original_weight_tensor"]
-        input_quant_func, = tensor_attributes
+        input_quant_func, quant_kwargs = tensor_attributes
         return cls(
             original_weight_tensor,
             input_quant_func,
+            quant_kwargs
         )
 
     @staticmethod
-    def _quantized_linear_op(input_tensor, weight_tensor, bias):
+    def _quantized_linear_op(input_tensor: torch.Tensor, weight_tensor: torch.Tensor, bias: torch.Tensor):
         input_quant_func = weight_tensor.input_quant_func
         original_weight_tensor = weight_tensor.original_weight_tensor
-        aqt = input_quant_func(input_tensor)
+        quant_kwargs = weight_tensor.quant_kwargs
+        aqt = input_quant_func(input_tensor, **quant_kwargs)
         return torch.nn.functional.linear(aqt, original_weight_tensor, bias)
 
     @classmethod
-    def from_float(cls, input_float, input_quant_func):
-        return cls(input_float, input_quant_func)
+    def from_float(cls, 
+                   input_float: torch.Tensor, 
+                   input_quant_func: Callable, 
+                   quant_kwargs: Optional[Dict[str, Any]] = None):
+        if quant_kwargs is None:
+            quant_kwargs = {}
+        return cls(input_float, input_quant_func, quant_kwargs)
 
     def _apply_fn_to_data(self, fn):
         return self.__class__(
             fn(self.original_weight_tensor),
             self.input_quant_func,
+            self.quant_kwargs,
         )
 
     def to(self, *args, **kwargs):
@@ -87,6 +102,7 @@ class LinearActivationQuantizedTensor(TorchAOBaseTensor):
         return self.__class__(
             self.original_weight_tensor.to(**kwargs),
             self.input_quant_func,
+            self.quant_kwargs,
         )
 
 implements = LinearActivationQuantizedTensor.implements
@@ -163,6 +179,20 @@ def _(func, types, args, kwargs):
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0]._apply_fn_to_data(torch.t)
+    )
+
+@implements(aten.slice.Tensor)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func, args, kwargs, LinearActivationQuantizedTensor(
+        func(args[0].original_weight_tensor, *args[1:]), args[0].input_quant_func)
+    )
+
+# this is needed for DTensor.from_local() and for flattening tensor
+@implements(aten.view.default)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func, args, kwargs, LinearActivationQuantizedTensor(func(args[0].original_weight_tensor, *args[1:]), args[0].input_quant_func)
     )
 
 to_linear_activation_quantized = LinearActivationQuantizedTensor.from_float

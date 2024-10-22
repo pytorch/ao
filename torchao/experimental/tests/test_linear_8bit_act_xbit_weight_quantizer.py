@@ -16,10 +16,10 @@ import unittest
 
 import torch
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from quant_api import (
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
+from torchao.experimental.quant_api import (
     _Int8DynActIntxWeightQuantizedLinearFallback,
-    Int8DynActIntxWeightQuantizer,
+    Int8DynActIntxWeightLinearQuantizer,
 )
 
 
@@ -43,6 +43,7 @@ def cmake_build_torchao_ops(temp_build_dir):
             "cmake",
             "--build",
             temp_build_dir.name,
+            "-j 16",
             "--target install",
             "--config Release",
         ]
@@ -53,12 +54,8 @@ temp_build_dir = tempfile.TemporaryDirectory()
 cmake_build_torchao_ops(temp_build_dir)
 libs = glob.glob(f"{temp_build_dir.name}/lib/libtorchao_ops_aten.*")
 libs = list(filter(lambda l: (l.endswith("so") or l.endswith("dylib")), libs))
-if len(libs) == 0:
-    print(
-        "Could not find library libtorchao_ops_aten; please run `sh build_torchao_ops.sh aten` in torchao/experimental to build the op library.  A slow fallback kernel will be used instaed."
-    )
-else:
-    torch.ops.load_library(libs[0])
+assert len(libs) == 1
+torch.ops.load_library(libs[0])
 
 
 class TestInt8DynActIntxWeightQuantizer(unittest.TestCase):
@@ -74,7 +71,7 @@ class TestInt8DynActIntxWeightQuantizer(unittest.TestCase):
             for has_weight_zeros in [True, False]:
                 print(f"Testing nbit={nbit}, has_weight_zeros={has_weight_zeros}")
                 quantized_model = copy.deepcopy(model)
-                quantizer = Int8DynActIntxWeightQuantizer(
+                quantizer = Int8DynActIntxWeightLinearQuantizer(
                     device="cpu",
                     precision=torch.float32,
                     bitwidth=nbit,
@@ -122,7 +119,7 @@ class TestInt8DynActIntxWeightQuantizer(unittest.TestCase):
         activations = torch.randn(m, k0, dtype=torch.float32)
 
         print("Quantizing model")
-        quantizer = Int8DynActIntxWeightQuantizer(
+        quantizer = Int8DynActIntxWeightLinearQuantizer(
             device="cpu",
             precision=torch.float32,
             bitwidth=nbit,
