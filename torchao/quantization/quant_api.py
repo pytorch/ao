@@ -32,7 +32,6 @@ from torchao.dtypes import (
     PlainLayout,
     AffineQuantizedTensor,
     SemiSparseLayout,
-    SemiSparseFloat8Layout,
     Float8Layout,
     MarlinSparseLayout,
 )
@@ -733,6 +732,7 @@ def float8_dynamic_activation_float8_weight(
     mm_config: Optional[Float8MMConfig] = None,
     layout=None
 ):
+    from torchao.experimental.sparse import SemiSparseFloat8Layout
     """
     Applies float8 dynamic symmetric quantization to both activations and weights of linear layers.
 
