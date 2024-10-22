@@ -65,7 +65,7 @@ Note that our optimizer step calculations are always done in FP32 to ensure accu
 - In stochastic rounding, we will round up with the probability of `(x - round_down(x)) / (round_up(x) - round_down(x))`, and round down otherwise.
 - It follows that successive weight update with stochastic rounding will correctly approximate high-precision weight update.
 - Since BF16 is simply a truncation of FP32, there is an efficient implementation for FP32->BF16 stochastic rounding (the same is not true for FP32->FP16).
-- More detailed discussion can be found at https://arxiv.org/abs/2010.06192. [llm.c](https://github.com/karpathy/llm.c/blob/master/llmc/adamw.cuh#L43) also implements this approach.
+- More detailed discussion can be found at https://arxiv.org/abs/2010.06192. [llm.c](https://github.com/karpathy/llm.c/blob/7ecd8906afe6ed7a2b2cdb731c042f26d525b820/llmc/adamw.cuh#L43) also implements this approach.
 
 ```python
 # a clone of torch.optim.AdamW with extra features
