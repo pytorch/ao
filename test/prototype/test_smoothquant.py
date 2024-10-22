@@ -94,11 +94,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
             wei, -127, 127, torch.int8
         )
         fq_wei = dequantize_per_channel(qw, w_scales, w_zps, idtype)
-        if (device == "cpu" and not TORCH_VERSION_AT_LEAST_2_4) or \
-            not TORCH_VERSION_AT_LEAST_2_2:
-            # _int_mm is not supported in these cases
-            out_ref = torch.nn.functional.linear(act.to(idtype), fq_wei, b)
-        elif quant_mode == "static":
+        if quant_mode == "static":
             # activation is quantized per-tensor
             act_min, act_max = torch.aminmax(act.float())
             max_val_pos = torch.max(-act_min, act_max)
