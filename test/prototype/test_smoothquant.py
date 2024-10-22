@@ -13,7 +13,7 @@ from torchao.quantization.utils import (
   dequantize_per_channel,
 )
 from torchao.prototype.smoothquant import (
-    insert_smooth_quant_observer,
+    insert_smooth_quant_observer_,
     smooth_quant,
     SmoothQuantObservedLinear,
     save_smooth_quant_recipe,
@@ -69,7 +69,7 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
     data = torch.randn(2, 32, dtype=idtype, device=device)
 
     # calibrate
-    insert_smooth_quant_observer(m, alpha, quant_mode)
+    insert_smooth_quant_observer_(m, alpha, quant_mode)
     m(data)
     # quantize
     is_observed_linear = lambda m, fqn: isinstance(m, SmoothQuantObservedLinear)
@@ -140,8 +140,8 @@ def test_save_load_recipe(alpha, quant_mode, device, idtype):
     calibration_data = dataset[:n_calib_examples]
 
     # calibrate
-    insert_smooth_quant_observer(m, alpha, quant_mode)
-    insert_smooth_quant_observer(m_save_load, alpha, quant_mode)
+    insert_smooth_quant_observer_(m, alpha, quant_mode)
+    insert_smooth_quant_observer_(m_save_load, alpha, quant_mode)
 
     for example in calibration_data:
         m(example.to(device))

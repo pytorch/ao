@@ -19,7 +19,7 @@ from torchao.prototype.smoothquant.core import(
 from typing import Dict, Optional
 
 
-def insert_smooth_quant_observer(
+def insert_smooth_quant_observer_(
         model: torch.nn.Module,
         alpha: float = 0.5,
         quant_mode: str = "dynamic"):

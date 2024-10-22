@@ -26,14 +26,14 @@ python example.py -m MODLE_ID --device=<cuda or cpu> --quant-mode=<dynamic or st
 
 ## Usage of API
 The following APIs are provided:
-- insert_smooth_quant_observer
+- insert_smooth_quant_observer_
 - smooth_quant
 - save_smooth_quant_recipe (advanced)
 - load_smooth_quant_recipe (advanced)
 
-`insert_smooth_quant_observer` inserts observers into the model to be quantized. For example:
+`insert_smooth_quant_observer_` inserts observers into the model to be quantized. For example:
 ```python
-insert_smooth_quant_observer(model, alpha=0.5, quant_mode="dynamic")
+insert_smooth_quant_observer_(model, alpha=0.5, quant_mode="dynamic")
 ```
 After insertion, run the model for calibration on a certain dataset or (advanced) load a recipe.
 
@@ -51,14 +51,14 @@ A recipe contains smoothing factors and quantization parameters of weights and a
 
 To save a recipe, users should insert observers and run calibration first. For example,
 ```python
-insert_smooth_quant_observer(model, alpha=0.5, quant_mode="dynamic")
+insert_smooth_quant_observer_(model, alpha=0.5, quant_mode="dynamic")
 for data in dataset_for_calibration:
     model(data)
 save_smooth_quant_recipe(model, "./smooth_quant_recipe.json")
 ```
 To load a recipe, users should insert observers first. For example,
 ```python
-insert_smooth_quant_observer(model)
+insert_smooth_quant_observer_(model)
 load_smooth_quant_recipe(model, "./smooth_quant_recipe.json")
 ```
 

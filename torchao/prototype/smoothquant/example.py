@@ -6,7 +6,7 @@ from datasets import load_dataset
 from tqdm import tqdm
 import time
 from torchao.prototype.smoothquant import (
-  insert_smooth_quant_observer,
+  insert_smooth_quant_observer_,
   SmoothQuantObservedLinear,
   smooth_quant
 )
@@ -117,7 +117,7 @@ def wikitext2_ppl(
         print(f"running calibration")
         t0 = time.time()
         # insert observers to find average magnitude and calculate scales
-        insert_smooth_quant_observer(model, alpha, quant_mode)
+        insert_smooth_quant_observer_(model, alpha, quant_mode)
         calibration_data = get_calib_dataset(tokenizer=tokenizer, n_samples=calibration_size, block_size=sequence_length)
         for batch in calibration_data:
             model(batch.to(device))
