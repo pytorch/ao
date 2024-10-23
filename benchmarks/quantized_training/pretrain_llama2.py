@@ -11,6 +11,7 @@ import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 import argparse
+import json
 import time
 from functools import partial
 from pathlib import Path
@@ -108,6 +109,7 @@ if __name__ == "__main__":
     parser.add_argument("--optim", default="AdamW")
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--weight_decay", type=float, default=1e-2)
+    parser.add_argument("--optim_kwargs", type=json.loads, default=dict())
 
     parser.add_argument("--project", default="quantized_training")
     parser.add_argument("--run_name")
@@ -171,7 +173,12 @@ if __name__ == "__main__":
     # only use optimizers from torchao.prototype.low_bit_optim to support quantized training
     if args.optim == "AdamW":
         args.optim = "_AdamW"
-    optim = getattr(low_bit_optim, args.optim)(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optim = getattr(low_bit_optim, args.optim)(
+        model.parameters(),
+        lr=args.lr,
+        weight_decay=args.weight_decay,
+        **args.optim_kwargs,
+    )
 
     data = get_tinystories().cuda()
     args.torch_version = torch.__version__
