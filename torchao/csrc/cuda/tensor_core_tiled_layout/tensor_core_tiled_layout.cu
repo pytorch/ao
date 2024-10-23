@@ -1,4 +1,4 @@
-#if (defined(USE_ROCM) && ROCM_VERSION >= 50700) || !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800  // at least Ampere and ROCm > 5.7
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800  // at least Ampere and ROCm > 5.7
 
 #include <ATen/ATen.h>
 #include <ATen/core/Tensor.h>
