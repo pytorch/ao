@@ -72,6 +72,9 @@ from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
     to_linear_activation_quantized,
 )
+from .qat import (
+    intx_quantization_aware_training,
+)
 from .quant_primitives import (
     MappingType,
     ZeroPointDomain,
@@ -101,6 +104,7 @@ __all__ = [
     "int8_dynamic_activation_int8_semi_sparse_weight",
     "int4_weight_only",
     "int8_weight_only",
+    "intx_quantization_aware_training",
     "float8_weight_only",
     "uintx_weight_only",
     "fpx_weight_only",
