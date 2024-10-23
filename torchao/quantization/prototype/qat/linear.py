@@ -28,7 +28,7 @@ from torchao.quantization.utils import (
     get_groupwise_affine_qparams,
     groupwise_affine_quantize_tensor,
 )
-from torchao.quantization.prototype.qat.utils import (
+from torchao.quantization.qat.utils import (
     _choose_qparams_per_token_asymmetric,
     _fake_quantize_per_channel_group,
     _fake_quantize_per_token,
