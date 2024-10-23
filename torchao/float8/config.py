@@ -96,6 +96,29 @@ class DelayedScalingConfig:
         ), f"{self.scale_fn_name} is not implemented yet. Only max is supported for now."
 
 
+@dataclass
+class Float8TypeConfig:
+    """
+    Configuration for selecting the preferred float8 type pair, either e4m3fn/e5m2 or e4m3fnuz/e5m2fnuz.
+
+    Currently, ROCm only supports fnuz variants.
+    """
+
+    # The preferred e4m3 type.
+    e4m3_dtype = torch.float8_e4m3fn
+
+    # The preferred e5m2 type.
+    e5m2_dtype = torch.float8_e5m2
+
+    def __post_init__(self):
+        if torch.version.hip and torch.cuda.is_available():
+            prop = torch.cuda.get_device_properties(0)
+            MI300_ARCH = ("gfx940", "gfx941", "gfx942")
+            if prop.gcnArchName.split(":")[0] in MI300_ARCH:
+                self.e4m3_dtype = torch.float8_e4m3fnuz
+                self.e5m2_dtype = torch.float8_e5m2fnuz
+
+
 @dataclass(frozen=True)
 class Float8GemmConfig:
     """
