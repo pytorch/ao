@@ -7,12 +7,6 @@ import unittest
 
 import torch
 from torch import nn
-from torchao.sparsity.prototype import (
-    BaseSparsifier,
-    FakeSparsity,
-    NearlyDiagonalSparsifier,
-    WeightNormSparsifier,
-)
 from torch.nn.utils.parametrize import is_parametrized
 from torch.testing._internal.common_pruning import (
     ImplementedSparsifier,
@@ -21,6 +15,12 @@ from torch.testing._internal.common_pruning import (
 )
 
 from torch.testing._internal.common_utils import TestCase
+from torchao.prototype.sparsity import (
+    BaseSparsifier,
+    FakeSparsity,
+    NearlyDiagonalSparsifier,
+    WeightNormSparsifier,
+)
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -485,6 +485,7 @@ class TestNearlyDiagonalSparsifier(TestCase):
                         assert mask[row, col] == 1
                     else:
                         assert mask[row, col] == 0
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,10 +1,16 @@
-import warnings
 import unittest
+import warnings
 
 from torch import nn
 from torch.testing._internal.common_utils import TestCase
 
-from torchao.sparsity.prototype import BaseScheduler, CubicSL, LambdaSL, WeightNormSparsifier
+from torchao.prototype.sparsity import (
+    BaseScheduler,
+    CubicSL,
+    LambdaSL,
+    WeightNormSparsifier,
+)
+
 
 class ImplementedScheduler(BaseScheduler):
     def get_sl(self):
@@ -189,6 +195,7 @@ class TestCubicScheduler(TestCase):
             self.sorted_sparse_levels,
             msg="Sparsity level is not reaching the target level afer delta_t * n steps ",
         )
+
 
 if __name__ == "__main__":
     unittest.main()

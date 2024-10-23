@@ -13,7 +13,12 @@ from torchao.quantization.quant_api import (
 )
 
 from torchao.sparsity import apply_fake_sparsity, semi_sparse_weight, sparsify_
-from torchao.utils import TORCH_VERSION_AFTER_2_5, TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_4
+from torchao.utils import (
+    TORCH_VERSION_AFTER_2_5,
+    TORCH_VERSION_AT_LEAST_2_3,
+    TORCH_VERSION_AT_LEAST_2_4,
+    TORCH_VERSION_AT_LEAST_2_5,
+)
 
 
 logging.basicConfig(
@@ -88,7 +93,7 @@ class TestQuantSemiSparse(common_utils.TestCase):
     def test_sparse_marlin(self, compile):
         if not torch.backends.cusparselt.is_available():
             self.skipTest("Need cuSPARSELt")
-            
+
         input = torch.rand((256, 256)).half().cuda()
         model = (
             nn.Sequential(
@@ -117,7 +122,10 @@ class TestQuantSemiSparse(common_utils.TestCase):
 
 
 class TestBlockSparseWeight(common_utils.TestCase):
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "pytorch 2.4+ feature due to need for custom op support")
+    @unittest.skipIf(
+        not TORCH_VERSION_AT_LEAST_2_4,
+        "pytorch 2.4+ feature due to need for custom op support",
+    )
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
     @common_utils.parametrize("compile", [True, False])
     def test_sparse(self, compile):
@@ -140,7 +148,7 @@ class TestBlockSparseWeight(common_utils.TestCase):
         model[1].weight.data = create_block_sparse_tensor(M, N, 64, 0.5, torch.float16)
         dense_result = model(input)
 
-        from torchao.sparsity.prototype.superblock.blocksparse import (
+        from torchao.prototype.sparsity.superblock.blocksparse import (
             block_sparse_weight,
         )
 
@@ -167,7 +175,7 @@ class TestQuantBlockSparseWeight(common_utils.TestCase):
             .cuda()
             .eval()
         )
-        from torchao.sparsity.prototype.superblock.blocksparse import (
+        from torchao.prototype.sparsity.superblock.blocksparse import (
             blocksparse_int_addmm,
         )
         from torchao.sparsity.utils import create_block_sparse_tensor
@@ -189,9 +197,7 @@ class TestQuantBlockSparseWeight(common_utils.TestCase):
 
         quantize_(
             model,
-            int8_dynamic_activation_int8_weight(
-                layout=BlockSparseLayout(blocksize=64)
-            ),
+            int8_dynamic_activation_int8_weight(layout=BlockSparseLayout(blocksize=64)),
         )
         if compile:
             model = torch.compile(model)
