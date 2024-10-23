@@ -9,8 +9,7 @@ from typing import Iterable, Literal, Optional, Tuple, Union
 import torch
 import torch.distributed as dist
 
-import torchao.float8.config as config
-from torchao.float8.config import ScalingGranularity
+from torchao.float8.config import Float8TypeConfig, ScalingGranularity
 
 # Helpful visualizer for debugging (only supports fp32):
 # https://www.h-schmidt.net/FloatConverter/IEEE754.html
@@ -29,8 +28,9 @@ FP8_TYPES = {
 
 
 # User defined type for using the individual F8 type based on config
-e4m3_dtype = torch.float8_e4m3fn if not config.use_fnuz_dtype else torch.float8_e4m3fnuz
-e5m2_dtype = torch.float8_e5m2 if not config.use_fnuz_dtype else torch.float8_e5m2fnuz
+type_config = Float8TypeConfig()
+e4m3_dtype = type_config.e4m3_dtype
+e5m2_dtype = type_config.e5m2_dtype
 
 
 @torch.no_grad()
