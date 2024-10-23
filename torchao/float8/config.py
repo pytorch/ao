@@ -111,7 +111,7 @@ class Float8TypeConfig:
     e5m2_dtype = torch.float8_e5m2
 
     def __post_init__(self):
-        if torch.version.hip:
+        if torch.version.hip and torch.cuda.is_available():
             prop = torch.cuda.get_device_properties(0)
             MI300_ARCH = ("gfx940", "gfx941", "gfx942")
             if prop.gcnArchName.split(":")[0] in MI300_ARCH:
