@@ -16,10 +16,6 @@ import torch._inductor.config
 from torchao.utils import get_model_size_in_bytes
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
-from torch.sparse import to_sparse_semi_structured, SparseSemiStructuredTensor
-SparseSemiStructuredTensor._FORCE_CUTLASS = False
-# SparseSemiStructuredTensor._FUSE_TRANSPOSE = True
-
 def device_sync(device):
     if "cuda" in device:
         torch.cuda.synchronize(device)
@@ -204,6 +200,7 @@ def main(
     t0 = time.time()
     model = _load_model(checkpoint_path, device, precision)
 
+
     device_sync(device=device) # MKG
     print(f"Time to load model: {time.time() - t0:.02f} seconds")
 
@@ -310,11 +307,6 @@ def main(
                 granularity = PerRow()
             else:
                 granularity = PerTensor()
-            if sparsity and "semi" in sparsity:
-                # quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity, layout=SemiSparseLayout()))
-                quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity, layout=SemiSparseLayout()), filter_fn=ffn_only)
-                quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity), filter_fn=not_ffn_only)
-            else:
                 quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
         if "autoquant" in quantization:
             if "autoquant-int4" == quantization:
@@ -343,6 +335,7 @@ def main(
     elif sparsity:
         from torchao.sparsity import semi_sparse_weight, sparsify_
         if "semi" in sparsity:
+            #TODO there is a bug here, need to fix
             sparsify_(model.to(device), semi_sparse_weight(), filter_fn=ffn_only)
 
     model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
@@ -423,11 +416,11 @@ def main(
         device_sync(device=device) # MKG
         t = time.perf_counter() - t0
 
-        if not interactive:
+        if not interactive and prefill_size == 0:
                 tok_list = y.tolist()
                 # truncate text after end of string token
                 tokens = tok_list if not tokenizer.eos_id() in y else tok_list[:tok_list.index(tokenizer.eos_id())]
-                # print(tokenizer.decode(tokens))
+                print(tokenizer.decode(tokens))
         else:
             print()
         tokens_generated = y.size(0) - prompt_length
@@ -457,7 +450,7 @@ def main(
     mem = torch.cuda.max_memory_reserved() /1e9
     print(f"Average tokens/sec: {tokpersec:.2f}")
     print(f"Average Bandwidth: {bandwidth:.02f} GB/s")
-    print(f"Average time: {avg_time:.03f} s")
+    print(f"Average time: {avg_time:.04f} s")
     print(f"Peak Memory Usage: {mem:.02f} GB")
     print(f"Model Size: {model_size:.02f} GB")
     if write_result:
@@ -471,6 +464,7 @@ def main(
         result_txt += f"--precision {precision} "
         result_txt += f"--compile " if compile else ""
         result_txt += f"--compile_prefill " if compile_prefill else ""
+        result_txt += f"--prefill_size {prefill_size}" if prefill_size else ""
         result_txt += f"--profile {profile} " if profile else ""
         result_txt += f"--profile {memory_profile} " if memory_profile else ""
         result_txt += f"--interactive " if interactive else ""
