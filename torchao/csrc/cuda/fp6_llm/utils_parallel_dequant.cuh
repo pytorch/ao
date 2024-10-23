@@ -46,44 +46,6 @@ __device__ __forceinline__ void FPx_FP16_Cast_4Way(uint32_t *In, uint32_t *Out1,
     *In    = (*In) << 8;
     *Out2  = *In & 0x80008000;
     *Out2 |= ( (*In) & MASK ) >> RIGHT_SHIFT;
-
-    if constexpr (false && USE_BF16) {
-        // This snippet adds the exponent bias directly to the exponent bits instead of constructing a bf16 type and 
-        // multiplying with 2^bias in the `MultScale()` function. However, this option is slower, so I don't use it.
-        // Figure 6 in the FP6 paper provides a helpful visualization of how the FP6 bits are layed out.
-        constexpr int MASK1_EXP = 0x80000000;
-        constexpr int MASK2_EXP = MASK1_EXP >> (EXPONENT + RIGHT_SHIFT);  // NB: arithmetic shift, not logical
-        constexpr int MASK3_EXP = MASK2_EXP & 0x7fffffff;
-        constexpr int MASK_EXP  = MASK3_EXP | MASK3_EXP >> 16;
-        // Extract exponent bits
-        union {
-            uint32_t u32;
-            uint8_t  u8[4];
-            uint16_t u16[2];
-        } tmp1, tmp2;
-        /*
-        constexpr uint16_t BIAS_OFFSET = (1 << (8-1)) - (1 << (EXPONENT-1));
-        tmp1.u32 = (*Out1 & MASK_EXP) >> 7;
-        tmp2.u32 = (*Out2 & MASK_EXP) >> 7;
-        tmp1.u16[0] += BIAS_OFFSET;
-        tmp1.u16[1] += BIAS_OFFSET;
-        tmp2.u16[0] += BIAS_OFFSET;
-        tmp2.u16[1] += BIAS_OFFSET;
-        *Out1 = (*Out1 & ~MASK_EXP) | (tmp1.u32 << 7);
-        *Out2 = (*Out2 & ~MASK_EXP) | (tmp2.u32 << 7);
-        */
-        constexpr uint8_t BIAS_OFFSET = (1 << (8-1)) - (1 << (EXPONENT-1));
-        tmp1.u32 = (*Out1 & MASK_EXP) << 1;
-        tmp2.u32 = (*Out2 & MASK_EXP) << 1;
-        // Add exponent bias to exponent bits (NB: little endian)
-        tmp1.u8[3] += BIAS_OFFSET;
-        tmp1.u8[1] += BIAS_OFFSET;
-        tmp2.u8[3] += BIAS_OFFSET;
-        tmp2.u8[1] += BIAS_OFFSET;
-        // Insert new exponent bits
-        *Out1 = (*Out1 & ~MASK_EXP) | (tmp1.u32 >> 1);
-        *Out2 = (*Out2 & ~MASK_EXP) | (tmp2.u32 >> 1);
-    }
 }
 
 template<int EXPONENT, int MANTISSA>
@@ -137,9 +99,6 @@ __device__ __forceinline__ uint32_t MultScale(uint32_t PackedBF16Pair, __nv_bflo
         output_bf16_ptr[0] = __hmul( __hmul(*BF16_1,__float2bfloat16(tmp.f)), Scale);
         output_bf16_ptr[1] = __hmul( __hmul(*BF16_2,__float2bfloat16(tmp.f)), Scale);
     }
-    // Use this if exponent bias is already added in `FPx_FP16_Cast_4Way`
-    // output_bf16_ptr[0] = __hmul( *BF16_1, Scale);
-    // output_bf16_ptr[1] = __hmul( *BF16_2, Scale);
     return output;
 }
 
