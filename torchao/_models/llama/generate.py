@@ -186,7 +186,6 @@ def main(
         # create prompt of prefill size ttft
         prompt = "prompt " * (int(prefill_size)-3)
 
-
     torchao.quantization.utils.recommended_inductor_config_setter()
 
     assert checkpoint_path.is_file(), checkpoint_path
@@ -307,7 +306,7 @@ def main(
                 granularity = PerRow()
             else:
                 granularity = PerTensor()
-                quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
+            quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
         if "autoquant" in quantization:
             if "autoquant-int4" == quantization:
                 model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)

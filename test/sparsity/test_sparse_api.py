@@ -6,7 +6,6 @@ import torch
 from torch import nn
 from torch.testing._internal import common_utils
 from torchao.dtypes import MarlinSparseLayout, SemiSparseLayout
-from torchao.experimental.sparse import SemiSparseFloat8Layout
 from torchao.quantization.quant_api import (
     int4_weight_only,
     int8_dynamic_activation_int8_weight,
@@ -122,44 +121,6 @@ class TestQuantSemiSparse(common_utils.TestCase):
         sparse_result = model(input)
 
         torch.testing.assert_close(dense_result, sparse_result, atol=3e-1, rtol=3e-1)
-
-    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "pytorch 2.5+ feature")
-    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    @common_utils.parametrize("compile", [True, False])
-    def test_fp8_sparse(self, compile):
-        from torchao.quantization.granularity import (
-            PerRow,
-            PerTensor,
-        )
-        if not torch.backends.cusparselt.is_available():
-            self.skipTest("Need cuSPARSELt")
-            
-        input = torch.rand((256, 256)).to(torch.bfloat16).cuda()
-        model = (
-            nn.Sequential(
-                nn.Linear(256, 1024),
-                nn.Linear(1024, 256),
-            )
-            .to(torch.bfloat16)
-            .cuda()
-            .eval()
-        )
-
-        apply_fake_sparsity(model)
-        model_copy = copy.deepcopy(model)
-
-        # Quantized
-        quantize_(model_copy.bfloat16(), float8_dynamic_activation_float8_weight())
-        dense_result = model_copy(input.bfloat16())
-
-        # Sparse + quantized
-        quantize_(model, float8_dynamic_activation_float8_weight(granularity=PerTensor(), layout=SemiSparseFloat8Layout()))
-        if compile:
-            model = torch.compile(model)
-        sparse_result = model(input)
-
-        torch.testing.assert_close(dense_result, sparse_result, atol=3e-1, rtol=3e-1)
-
 
 class TestBlockSparseWeight(common_utils.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "pytorch 2.4+ feature due to need for custom op support")
