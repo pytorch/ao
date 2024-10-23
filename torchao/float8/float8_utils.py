@@ -9,7 +9,6 @@ from typing import Iterable, Literal, Optional, Tuple, Union
 import torch
 import torch.distributed as dist
 
-import torchao.float8.config as config
 from torchao.float8.config import Float8TypeConfig, ScalingGranularity
 
 # Helpful visualizer for debugging (only supports fp32):
