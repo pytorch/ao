@@ -9,14 +9,12 @@ from typing import Any, Optional
 import torch
 import torch.nn.functional as F
 
-from torchao.quantization.GPTQ import (
-    _check_linear_int4_k,
-    _replace_linear_int4,
-    _replace_linear_8da4w,
-    get_groupwise_affine_qparams,
-    groupwise_affine_quantize_tensor,
-    Int8DynActInt4WeightLinear,
+from torchao.quantization._quantized_linear import (
     WeightOnlyInt4Linear,
+    Int8DynActInt4WeightLinear,
+    _replace_linear_8da4w,
+    _replace_linear_int4,
+    _check_linear_int4_k,
 )
 from torchao.quantization.quant_primitives import (
     TorchAODType,
@@ -26,7 +24,11 @@ from torchao.quantization.unified import TwoStepQuantizer
 from torchao.quantization.utils import get_group_qparams_symmetric
 from .api import FakeQuantizeConfig
 from .fake_quantizer import FakeQuantizer
-from .utils import (
+from torchao.quantization.utils import (
+    get_groupwise_affine_qparams,
+    groupwise_affine_quantize_tensor,
+)
+from torchao.quantization.qat.utils import (
     _choose_qparams_per_token_asymmetric,
     _fake_quantize_per_channel_group,
     _fake_quantize_per_token,
