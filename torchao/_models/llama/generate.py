@@ -16,6 +16,8 @@ import torch._inductor.config
 from torchao.utils import get_model_size_in_bytes
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
+torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
+
 def device_sync(device):
     if "cuda" in device:
         torch.cuda.synchronize(device)
@@ -211,7 +213,7 @@ def main(
     torch.manual_seed(1234)
 
     def ffn_only(mod, fqn):
-        return isinstance(mod, torch.nn.Linear) and "feed_forward" in fqn
+        return isinstance(mod, torch.nn.Linear) and "feed_forward" in fqn and "w1" in fqn
 
     def not_ffn_only(mod, fqn):
         return isinstance(mod, torch.nn.Linear) and not ffn_only(mod, fqn)
@@ -250,7 +252,7 @@ def main(
             groupsize=int(quantization.split("-")[1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
             if sparsity and "semi" in sparsity:
-                quantize_(model, int4_weight_only(group_size=groupsize, layout=MarlinSparseLayout()))
+                quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
             else:
                 quantize_(model, int4_weight_only(group_size=groupsize))
         if "fp6" in quantization:

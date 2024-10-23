@@ -64,7 +64,7 @@ class TestQuantSemiSparse(common_utils.TestCase):
 
         torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
 
-        input = torch.rand((128, 128)).half().cuda()
+        input = torch.rand((1, 128)).half().cuda()
         model = (
             nn.Sequential(
                 nn.Linear(128, 256),
@@ -119,8 +119,8 @@ class TestQuantSemiSparse(common_utils.TestCase):
         if compile:
             model = torch.compile(model)
         sparse_result = model(input)
-
         torch.testing.assert_close(dense_result, sparse_result, atol=3e-1, rtol=3e-1)
+
 
 class TestBlockSparseWeight(common_utils.TestCase):
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "pytorch 2.4+ feature due to need for custom op support")

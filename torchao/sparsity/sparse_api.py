@@ -6,8 +6,8 @@ from torch.sparse import to_sparse_semi_structured
 from torchao.quantization.quant_api import (
     _get_linear_subclass_inserter,
     _is_linear,
-    _replace_with_custom_fn_if_matches_filter,
     int8_dynamic_activation_int8_semi_sparse_weight,
+    quantize_, 
 )
 
 
@@ -75,8 +75,4 @@ def sparsify_(
         from torchao.dtypes import SemiSparseLayout
         m = quantize_(m, int8_dynamic_activation_int8_weight(layout=SemiSparseLayout), filter_fn)
     """
-    _replace_with_custom_fn_if_matches_filter(
-        model,
-        apply_tensor_subclass,
-        _is_linear if filter_fn is None else filter_fn,
-    )
+    quantize_(model, apply_tensor_subclass, _is_linear if filter_fn is None else filter_fn)
