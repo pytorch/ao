@@ -1,3 +1,16 @@
+# Note: The quantizer classes and functions in this file are intended to be deprecated
+# and eventually removed. Please use the new `quantize_` API from `torchao.quantization` instead.
+# For example:
+#
+# from torchao.quantization import quantize_, int4_weight_only, int8_dynamic_activation_int4_weight
+#
+# # Apply int4 weight-only quantization
+# quantize_(model, int4_weight_only())
+#
+# # Apply int8 dynamic activation with int4 weight quantization
+# quantize_(model, int8_dynamic_activation_int4_weight())
+
+
 import torch
 import torch.nn as nn
 import logging
