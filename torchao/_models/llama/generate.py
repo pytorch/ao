@@ -8,6 +8,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Optional, Tuple
+from contextlib import contextmanager
 from datetime import datetime
 import torch
 import torchao
@@ -15,6 +16,47 @@ import torch._dynamo.config
 import torch._inductor.config
 from torchao.utils import get_model_size_in_bytes
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+
+TORCH_INIT_FUNCTIONS = {
+    "uniform_": torch.nn.init.uniform_,
+    "normal_": torch.nn.init.normal_,
+    "trunc_normal_": torch.nn.init.trunc_normal_,
+    "constant_": torch.nn.init.constant_,
+    "xavier_uniform_": torch.nn.init.xavier_uniform_,
+    "xavier_normal_": torch.nn.init.xavier_normal_,
+    "kaiming_uniform_": torch.nn.init.kaiming_uniform_,
+    "kaiming_normal_": torch.nn.init.kaiming_normal_,
+    "uniform": torch.nn.init.uniform,
+    "normal": torch.nn.init.normal,
+    "xavier_uniform": torch.nn.init.xavier_uniform,
+    "xavier_normal": torch.nn.init.xavier_normal,
+    "kaiming_uniform": torch.nn.init.kaiming_uniform,
+    "kaiming_normal": torch.nn.init.kaiming_normal,
+}
+
+# Adapted from https://github.com/huggingface/transformers/blob/816f4424964c1a1631e303b663fc3d68f731e923/src/transformers/modeling_utils.py#L188-L213
+
+@contextmanager
+def no_init_weights():
+    """Context manager to globally disable weight initialization to speed up loading large models.
+    
+    Example:
+        with no_init_weights():
+            model = Transformer.from_name(...)
+        model.load_state_dict(...)    
+    """
+    def _skip_init(*args, **kwargs):
+        pass
+
+    # Patch the initialization functions to do nothing
+    for name, init_func in TORCH_INIT_FUNCTIONS.items():
+        setattr(torch.nn.init, name, _skip_init)
+    try:
+        yield
+    finally:
+        # Restore the original initialization functions
+        for name, init_func in TORCH_INIT_FUNCTIONS.items():
+            setattr(torch.nn.init, name, init_func)
 
 def device_sync(device):
     if "cuda" in device:
@@ -143,8 +185,8 @@ def _load_model(checkpoint_path, device, precision):
     checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
     if "model" in checkpoint and "stories" in str(checkpoint_path):
         checkpoint = checkpoint["model"]
-
-    model = Transformer.from_name(checkpoint_path.parent.name)
+    with no_init_weights():
+        model = Transformer.from_name(checkpoint_path.parent.name)
     model.load_state_dict(checkpoint, assign=True)
     model = model.to(device=device, dtype=precision)
 
