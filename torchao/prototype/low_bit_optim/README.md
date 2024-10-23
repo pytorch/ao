@@ -5,6 +5,7 @@ This folder implements:
 - 8-bit optimizers as outlined in https://arxiv.org/abs/2110.02861
 - 4-bit optimizers as outlined in https://arxiv.org/abs/2309.01507
 - FP8 optimizers using the native `torch.float8_e4m3fn` dtype (experimental)
+- Stochastic rounding for BF16 weight (https://arxiv.org/abs/2010.06192, experimental)
 
 The implementation is fully done in Python (with tensor subclass) and relies on `torch.compile()` to generate efficient fused kernel. Thus, your platform must support `torch.compile()` to use these optimizers. We only test on CPU and CUDA, so there might be bugs or errors on other platforms.
 
@@ -55,6 +56,27 @@ ao 8-bit         | 39.1                       | 2900   | 41.50
 ao 4-bit         | 33.2                       | 2900   | 42.27
 
 NOTE: lpmm's 4-bit AdamW does not support BF16 weights.
+
+## Stochastic rounding for BF16 weight
+
+BF16 only has around 3 decimal precision. This means that if weight update is smaller than 1e-3 of the weight magnitude, there will be no change to the weight (using nearest rounding). This is highly problematic for full BF16 training, where we don't keep an FP32 copy of model weights.
+
+Note that our optimizer step calculations are always done in FP32 to ensure accurate results. The "underflow" only happens when we copy the new weight value (in FP32) to the existing BF16 weight. To combat this problem, one way is to perform **stochastic rounding** when casting FP32->BF16.
+- In stochastic rounding, we will round up with the probability of `(x - round_down(x)) / (round_up(x) - round_down(x))`, and round down otherwise.
+- It follows that successive weight update with stochastic rounding will correctly approximate high-precision weight update.
+- Since BF16 is simply a truncation of FP32, there is an efficient implementation for FP32->BF16 stochastic rounding (the same is not true for FP32->FP16).
+- More detailed discussion can be found at https://arxiv.org/abs/2010.06192. [llm.c](https://github.com/karpathy/llm.c/blob/7ecd8906afe6ed7a2b2cdb731c042f26d525b820/llmc/adamw.cuh#L43) also implements this approach.
+
+```python
+# a clone of torch.optim.AdamW with extra features
+from torchao.prototype.low_bit_optim import _AdamW
+
+model = ...
+model_bf16 = model.bfloat16()
+optim = _AdamW(model_bf16.parameters(), bf16_stochastic_round=True)
+```
+
+All of our low-bit optimizers mentioned above also support `bf16_stochastic_round` flag. Note that this flag only applies to BF16 weight.
 
 ## Optimizer CPU offload
 
