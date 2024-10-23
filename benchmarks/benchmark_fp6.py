@@ -54,7 +54,7 @@ if __name__ == "__main__":
 
     results = []
 
-    for m in tqdm([1 << i for i in range(5)]):  # TODO: reset to 10
+    for m in tqdm([1 << i for i in range(10)]):
         for n, k in zip(n_vals, k_vals):
             results.append(benchmark(m, k, n))
 

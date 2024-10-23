@@ -67,14 +67,11 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const InputDataType* Scal
   const uint4* Weight_2bit = Weight_1bit + (USE_SEG_1BIT ? M_Global*K_Global*BIT_WIDTH_1/128 : 0);
   const uint4* Weight_4bit = Weight_2bit + (USE_SEG_2BIT ? M_Global*K_Global*BIT_WIDTH_2/128 : 0);
   // Dynamic shared memory for FP16 A tiles， 128 Bytes aligned
-  // extern __shared__ __align__(128) InputDataType smem[];   
-  // TODO: this is a weird hack (defining smem as 'half' type and then casting
-  // it to the template type), but for some reason the compiler complains about
-  // redeclaration of smem if I don't do this. It seems to have something to do
-  // with calling `cudaFuncSetAttribute(QUANT_GEMM_Kernel<TilingConfig, InputDataType, OutputDataType, EXPONENT, MANTISSA>, cudaFuncAttributeMaxDynamicSharedMemorySize, SHMEM_SZ);` 
-  // in `Kernel_Ex`
-  extern __shared__ __align__(128) half smem1[];   
-  InputDataType* smem = reinterpret_cast<InputDataType*>(smem1);
+  extern __shared__ __align__(128) half smem_[];   
+  // Defining smem like this is necessary for templated kernels (defining it as
+  // a fixed type and then casting it to the template type). See 
+  // https://leimao.github.io/blog/CUDA-Shared-Memory-Templated-Kernel/ for details.
+  InputDataType* smem = reinterpret_cast<InputDataType*>(smem_);
   InputDataType (*smem_array)[WARP_K+PADDING_SHARED_MEM_FOR_B_8] = reinterpret_cast<InputDataType (*)[WARP_K+PADDING_SHARED_MEM_FOR_B_8]> ( smem + SMEM_SIZE_PER_TB_A_TILE/2 ); // Dynamic shared memory for FP16 B tiles
   __shared__ InputDataType QuantScales[64*TilingConfig::BLOCK_WARPS];  // static shared memory for quantization scales, 64 row per warp * 4 warps = 512 Bytes
   // Thread Block Mapping, considering SplitK
