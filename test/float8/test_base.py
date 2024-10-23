@@ -24,8 +24,8 @@ if not TORCH_VERSION_AT_LEAST_2_5:
 
 
 from torchao.float8.config import (
-    CastConfig, 
-    Float8LinearConfig, 
+    CastConfig,
+    Float8LinearConfig,
     ScalingGranularity,
     ScalingType,
     Float8LinearRecipeName,
@@ -109,15 +109,15 @@ class TestFloat8Tensor:
 
     def test_index_put(self):
         a = torch.rand(16, dtype=torch.bfloat16)
-        scale_a = tensor_to_scale(a, torch.float8_e4m3fn)
-        fp8_a = hp_tensor_and_scale_to_float8(a, scale_a, torch.float8_e4m3fn)
+        scale_a = tensor_to_scale(a, e4m3_dtype)
+        fp8_a = hp_tensor_and_scale_to_float8(a, scale_a, e4m3_dtype)
 
         index = torch.randint(0, 15, (16,), dtype=torch.long)
 
         b = torch.rand(16, 16, dtype=torch.bfloat16)
-        scale_b = tensor_to_scale(b, torch.float8_e4m3fn)
-        fp8_b = hp_tensor_and_scale_to_float8(b, scale_a, torch.float8_e4m3fn)
-        fp8_b_bad = hp_tensor_and_scale_to_float8(b, scale_b, torch.float8_e4m3fn)
+        scale_b = tensor_to_scale(b, e4m3_dtype)
+        fp8_b = hp_tensor_and_scale_to_float8(b, scale_a, e4m3_dtype)
+        fp8_b_bad = hp_tensor_and_scale_to_float8(b, scale_b, e4m3_dtype)
 
         with pytest.raises(AssertionError):
             b[index] = fp8_a
@@ -127,8 +127,8 @@ class TestFloat8Tensor:
 
     def test_copy_(self):
         a = torch.rand(16, dtype=torch.bfloat16)
-        scale_a = tensor_to_scale(a, torch.float8_e4m3fn)
-        fp8_a = hp_tensor_and_scale_to_float8(a, scale_a, torch.float8_e4m3fn)
+        scale_a = tensor_to_scale(a, e4m3_dtype)
+        fp8_a = hp_tensor_and_scale_to_float8(a, scale_a, e4m3_dtype)
 
         b = torch.empty(16, dtype=torch.bfloat16)
         b.copy_(fp8_a)  # Should work
@@ -137,7 +137,7 @@ class TestFloat8Tensor:
             fp8_a.copy_(b)  # Should fail
 
         fp8_b = Float8Tensor(
-            torch.empty(16, dtype=torch.float8_e4m3fn),
+            torch.empty(16, dtype=e4m3_dtype),
             scale_a,
             torch.bfloat16,
             fp8_a._linear_mm_config,
@@ -332,11 +332,11 @@ class TestFloat8Linear:
     @pytest.mark.parametrize("emulate", [True, False] if is_cuda_8_9 else [True])
     @pytest.mark.parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
     @pytest.mark.parametrize(
-        "scaling_type_input", 
+        "scaling_type_input",
         [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
     )
     @pytest.mark.parametrize(
-        "scaling_type_weight", 
+        "scaling_type_weight",
         [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
     )
     @pytest.mark.parametrize(
@@ -377,7 +377,7 @@ class TestFloat8Linear:
     # to combine with the main testing function.
     # TODO(future PR): make this cleaner.
     @pytest.mark.parametrize(
-        "recipe_name", 
+        "recipe_name",
         [Float8LinearRecipeName.ALL_AXISWISE, Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP],
     )
     @pytest.mark.parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
@@ -610,7 +610,7 @@ class TestScaledMM:
     @pytest.mark.parametrize("use_fast_accum", [True, False])
     def test_pad_inner_dim(self, base_dtype, use_fast_accum):
         torch.manual_seed(42)
-        input_dtype = torch.float8_e4m3fn
+        input_dtype = e4m3_dtype
         compare_type = torch.float32
 
         a = torch.randn(16, 41, device="cuda", dtype=base_dtype)

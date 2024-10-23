@@ -110,3 +110,28 @@ def dequant_with_qmap(codes: Tensor, qmap: Tensor, scale: Tensor):
     # torch.compile() cannot use uint8 as index
     out = qmap[codes.int()].view(scale.shape[0], -1) * scale.view(-1, 1)
     return out.view(codes.shape)
+
+
+def _fp32_to_bf16_sr(x_f32: Tensor) -> Tensor:
+    # For an FP32 number      [a31, ..., a16, a15, ..., a0] to be converted to BF16
+    # - Round towards zero:   [a31, ..., a16,   0, ...,  0]
+    # - Round away from zero: [a31, ..., a16+1, 0, ...,  0]
+    # (since the value can be negative, we use round towards/away from zero instead of round up/down)
+    #
+    # For stochastic rounding, we round away from zero with the probability of
+    # [a15, ..., a0] / 2^16, where the bit pattern [a15, ..., a0] is interpreted as uint16
+    #
+    # we have to use int32 since most arithmetic ops are not implemented for uint32/int16/uint16
+    rand_16bit = torch.randint(0, 1 << 16, x_f32.shape, device=x_f32.device, dtype=torch.int32)
+    x_f32_bits = x_f32.view(torch.int32)
+    x_fraction = x_f32_bits & 0xFFFF                # lower 16 bits
+    x_bf16_towards_zero = x_f32_bits & 0xFFFF0000   # upper 16 bits
+
+    x_f32_bits = torch.where(
+        rand_16bit < x_fraction,        # this is True with the probability of p_fraction
+        x_bf16_towards_zero + 0x10000,  # this might overflow, which will result in UB due to signed integer
+        x_bf16_towards_zero,
+    )
+    # alternative, slightly faster
+    # x_f32_bits = (x_f32_bits + rand_16bit) & 0xFFFF0000
+    return x_f32_bits.view(torch.float32).bfloat16()

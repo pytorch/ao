@@ -8,10 +8,13 @@ from torch.distributed._tensor import DTensor
 from .subclass_8bit import OptimState8bit
 from .subclass_4bit import OptimState4bit
 from .subclass_fp8 import OptimStateFp8
+from .quant_utils import _fp32_to_bf16_sr
 
 
 class _AdamBase(Optimizer):
-    def __init__(self, params, lr, betas, eps, weight_decay, amsgrad, *, block_size, is_adamw) -> None:
+    def __init__(
+        self, params, lr, betas, eps, weight_decay, amsgrad, *, block_size, bf16_stochastic_round, is_adamw
+    ) -> None:
         if not 0.0 <= lr:
             raise ValueError("Invalid learning rate: {}".format(lr))
         if not 0.0 <= eps:
@@ -23,6 +26,7 @@ class _AdamBase(Optimizer):
         defaults = dict(lr=torch.tensor(lr), betas=betas, eps=eps, weight_decay=weight_decay, amsgrad=amsgrad)
         super().__init__(params, defaults)
         self.block_size = block_size
+        self.bf16_stochastic_round = bf16_stochastic_round
         self.is_adamw = is_adamw
 
     def __setstate__(self, state):
@@ -102,6 +106,7 @@ class _AdamBase(Optimizer):
                         group["weight_decay"],
                         group["eps"],
                         self.is_adamw,
+                        self.bf16_stochastic_round and p.dtype is torch.bfloat16,
                     )
 
         return loss
@@ -121,14 +126,17 @@ def single_param_adam(
     beta2: float,
     weight_decay: float,
     eps: float,
-    is_adamw: bool,
+    IS_ADAMW: bool,
+    BF16_STOCHASTIC_ROUND: bool,
 ):
     # compute in FP32 for accurate calculations
     p_f32 = p.float()
     grad_f32 = grad.float()
 
-    if not is_adamw:
-        grad_f32 = grad_f32.add(p_f32, alpha=weight_decay)
+    if IS_ADAMW:
+        p_f32 = p_f32 - lr * weight_decay * p_f32
+    else:
+        grad_f32 = grad_f32 + weight_decay * p_f32
 
     bias_correction1 = 1 - beta1**step
     bias_correction2 = 1 - beta2**step
@@ -143,16 +151,16 @@ def single_param_adam(
     if max_exp_avg_sq is not None:
         max_exp_avg_sq_f32 = torch.maximum(max_exp_avg_sq.float(), exp_avg_sq_f32)
         max_exp_avg_sq.copy_(max_exp_avg_sq_f32)
-        denom = (max_exp_avg_sq_f32.sqrt() / bias_correction2.sqrt()).add_(eps)
+        denom = (max_exp_avg_sq_f32.sqrt() / bias_correction2.sqrt()) + eps
     else:
-        denom = (exp_avg_sq_f32.sqrt() / bias_correction2.sqrt()).add_(eps)
+        denom = (exp_avg_sq_f32.sqrt() / bias_correction2.sqrt()) + eps
 
-    step_size = lr / bias_correction1
-    if is_adamw:
-        # merge weight decay and param update in a single .add_() to make this work with quantized param
-        p.add_(-lr * weight_decay * p_f32 - step_size * exp_avg_f32 / denom)
+    p_f32 = p_f32 - lr * (exp_avg_f32 / bias_correction1) / denom
+
+    if BF16_STOCHASTIC_ROUND:
+        p.copy_(_fp32_to_bf16_sr(p_f32))
     else:
-        p.addcdiv_(exp_avg_f32, denom, value=-step_size)
+        p.copy_(p_f32)
 
 
 class Adam8bit(_AdamBase):
@@ -166,8 +174,19 @@ class Adam8bit(_AdamBase):
         amsgrad=False,
         *,
         block_size=256,
+        bf16_stochastic_round=False,
     ) -> None:
-        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size, is_adamw=False)
+        super().__init__(
+            params,
+            lr,
+            betas,
+            eps,
+            weight_decay,
+            amsgrad,
+            block_size=block_size,
+            bf16_stochastic_round=bf16_stochastic_round,
+            is_adamw=False,
+        )
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
@@ -185,8 +204,19 @@ class Adam4bit(_AdamBase):
         amsgrad=False,
         *,
         block_size=128,
+        bf16_stochastic_round=False,
     ) -> None:
-        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size, is_adamw=False)
+        super().__init__(
+            params,
+            lr,
+            betas,
+            eps,
+            weight_decay,
+            amsgrad,
+            block_size=block_size,
+            bf16_stochastic_round=bf16_stochastic_round,
+            is_adamw=False,
+        )
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
@@ -204,8 +234,19 @@ class AdamFp8(_AdamBase):
         amsgrad=False,
         *,
         block_size=256,
+        bf16_stochastic_round=False,
     ) -> None:
-        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size, is_adamw=False)
+        super().__init__(
+            params,
+            lr,
+            betas,
+            eps,
+            weight_decay,
+            amsgrad,
+            block_size=block_size,
+            bf16_stochastic_round=bf16_stochastic_round,
+            is_adamw=False,
+        )
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
@@ -223,8 +264,19 @@ class AdamW8bit(_AdamBase):
         amsgrad=False,
         *,
         block_size=256,
+        bf16_stochastic_round=False,
     ) -> None:
-        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size, is_adamw=True)
+        super().__init__(
+            params,
+            lr,
+            betas,
+            eps,
+            weight_decay,
+            amsgrad,
+            block_size=block_size,
+            bf16_stochastic_round=bf16_stochastic_round,
+            is_adamw=True,
+        )
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
@@ -242,8 +294,19 @@ class AdamW4bit(_AdamBase):
         amsgrad=False,
         *,
         block_size=128,
+        bf16_stochastic_round=False,
     ) -> None:
-        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size, is_adamw=True)
+        super().__init__(
+            params,
+            lr,
+            betas,
+            eps,
+            weight_decay,
+            amsgrad,
+            block_size=block_size,
+            bf16_stochastic_round=bf16_stochastic_round,
+            is_adamw=True,
+        )
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
@@ -261,8 +324,19 @@ class AdamWFp8(_AdamBase):
         amsgrad=False,
         *,
         block_size=256,
+        bf16_stochastic_round=False,
     ) -> None:
-        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=block_size, is_adamw=True)
+        super().__init__(
+            params,
+            lr,
+            betas,
+            eps,
+            weight_decay,
+            amsgrad,
+            block_size=block_size,
+            bf16_stochastic_round=bf16_stochastic_round,
+            is_adamw=True,
+        )
 
     @staticmethod
     def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
@@ -278,7 +352,19 @@ class _AdamW(_AdamBase):
         eps=1e-8,
         weight_decay=1e-2,
         amsgrad=False,
+        *,
+        bf16_stochastic_round=False,
     ) -> None:
         """AdamW optimizer that supports quantized training (parameter is quantized). This optimizer should
         only be used with torchao's quantized training."""
-        super().__init__(params, lr, betas, eps, weight_decay, amsgrad, block_size=float("inf"), is_adamw=True)
+        super().__init__(
+            params,
+            lr,
+            betas,
+            eps,
+            weight_decay,
+            amsgrad,
+            block_size=float("inf"),
+            bf16_stochastic_round=bf16_stochastic_round,
+            is_adamw=True,
+        )

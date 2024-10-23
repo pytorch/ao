@@ -103,7 +103,7 @@ def apply_spinquant_r4(model, device):
     _add_activation_wrappers_r4(model)
 
 
-@torch.inference_mode()
+@torch.no_grad()
 def _fuse_layernorm_into_linear(layernorm: RMSNorm, linear_layers: typing.Iterable[torch.nn.Linear]):
     """Fuse the linear operations in Layernorm into the adjacent linear blocks."""
     for linear in linear_layers:
@@ -127,7 +127,7 @@ def _fuse_layernorm_into_linear(layernorm: RMSNorm, linear_layers: typing.Iterab
     layernorm.weight.data = torch.ones_like(layernorm.weight.data)
 
 
-@torch.inference_mode()
+@torch.no_grad()
 def _rotate_model_r1(model, R1):
     _rotate_embeddings(model, R1)
     _rotate_head(model, R1)
@@ -139,7 +139,7 @@ def _rotate_model_r1(model, R1):
         _rotate_mlp_output(layer, R1)
 
 
-@torch.inference_mode()
+@torch.no_grad()
 def _rotate_model_r2(model, R2s):
     """Rotate the W_v and W_o weights of the multi-head self-attention modules."""
 
@@ -168,7 +168,7 @@ def _rotate_model_r2(model, R2s):
         attn.wqkv.weight.data = torch.cat([wq, wk, wv_mod.weight.data], dim=0)
 
 
-@torch.inference_mode()
+@torch.no_grad()
 def _rotate_model_r4(model):
     """Rotate the MLP output weights."""
 
@@ -193,7 +193,7 @@ def _add_activation_wrappers_r4(model):
         )
 
 
-@torch.inference_mode()
+@torch.no_grad()
 def fuse_layernorm_into_linear(model):
     """
     Fuse RMSNorm weights into the subsequent linear layers. 

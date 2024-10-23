@@ -90,6 +90,7 @@ def get_parser():
     parser.add_argument("--optim", default="AdamW", choices=OPTIM_MAP.keys())
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight_decay", type=float, default=0)
+    parser.add_argument("--optim_kwargs", type=json.loads, default=dict())
     parser.add_argument("--cosine_lr_scheduler", action="store_true")
     parser.add_argument("--optim_cpu_offload", choices=["ao", "ao_offload_grads", "deepspeed"])
 
@@ -206,7 +207,12 @@ if __name__ == "__main__":
                 train_batch_size=args.batch_size,
                 optimizer=dict(
                     type="Adam",
-                    params=dict(lr=args.lr, weight_decay=args.weight_decay, fp32_optimizer_states=False),
+                    params=dict(
+                        lr=args.lr,
+                        weight_decay=args.weight_decay,
+                        fp32_optimizer_states=False,
+                        **args.optim_kwargs,
+                    ),
                 ),
                 bf16=dict(enabled=args.full_bf16),
                 zero_optimization=dict(
@@ -225,7 +231,12 @@ if __name__ == "__main__":
         elif args.optim_cpu_offload == "ao_offload_grads":
             optim_cls = partial(low_bit_optim.CPUOffloadOptimizer, optimizer_class=optim_cls, offload_gradients=True)
 
-        optim = optim_cls(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+        optim = optim_cls(
+            model.parameters(),
+            lr=args.lr,
+            weight_decay=args.weight_decay,
+            **args.optim_kwargs,
+        )
 
     lr_schedule = CosineSchedule(args.lr, len(dloader) * args.n_epochs)
     grad_scaler = torch.amp.GradScaler("cuda", enabled=args.amp == "fp16")

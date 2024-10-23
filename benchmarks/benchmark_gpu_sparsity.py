@@ -9,8 +9,10 @@ from torch import nn
 from torch.sparse import SparseSemiStructuredTensor, to_sparse_semi_structured
 
 from torch.sparse._triton_ops_meta import optimize_bsr_dense_addmm
-from torchao.utils import benchmark_model
+from torchao.utils import benchmark_model, profiler_runner
 from torchao.sparsity.utils import create_semi_structured_tensor, create_block_sparse_tensor
+
+from tqdm import tqdm
 
 torch.set_printoptions(
     precision=2,
@@ -21,60 +23,84 @@ torch.set_printoptions(
     sci_mode=False,
 )
 
+def benchmark_model_with_warmup(func, x, N_WARMUP=3):
+    benchmark_model(func, N_WARMUP, device_type="cuda")
+    return benchmark_model(func, 10, device_type="cuda")
+    
 
 def run_gpu_sparse_benchmark(m, k, n, args):
-    dtype = getattr(torch, args.dtype)
+    with torch.no_grad():
+        dtype = getattr(torch, args.dtype)
 
-    x = torch.randn(n, k).to(dtype).cuda()
-    b = torch.randn(m, dtype=dtype).cuda()
+        x = torch.randn(n, k).to(dtype).cuda()
 
-    # handle sparsity types
-    if args.sparsity == "semi-structured":
-        SparseSemiStructuredTensor._FORCE_CUTLASS = args.backend == "cutlass"
-        A = create_semi_structured_tensor(m, k, dtype)
-        A_sparse = to_sparse_semi_structured(A)
-    elif args.sparsity == "block-sparse":
-        A = create_block_sparse_tensor(m, k, args.block_size, args.sparsity_level, dtype)
-        A_sparse = A.to_sparse_bsr(blocksize=args.block_size)
-        # BSR kernel tuning
-        if args.bsr_autotune:
-            print("Tuning kernel params")
-            optimize_bsr_dense_addmm(m, k, n, args.block_size, args.block_size,
-                                     dtype=dtype, sparsity=args.sparsity_level, verbose=True)
-    else:
-        raise ValueError(f"Unknown sparsity: {args.sparsity}")
+        # handle sparsity types
+        if args.sparsity == "semi-structured":
+            SparseSemiStructuredTensor._FORCE_CUTLASS = args.backend == "cutlass"
+            A = create_semi_structured_tensor(m, k, dtype)
+            A_sparse = to_sparse_semi_structured(A)
+        elif args.sparsity == "block-sparse":
+            A = create_block_sparse_tensor(m, k, args.block_size, args.sparsity_level, dtype)
+            A_sparse = A.to_sparse_bsr(blocksize=args.block_size)
+            # BSR kernel tuning
+            if args.bsr_autotune:
+                print("Tuning kernel params")
+                optimize_bsr_dense_addmm(m, k, n, args.block_size, args.block_size,
+                                        dtype=dtype, sparsity=args.sparsity_level, verbose=True)
+        else:
+            raise ValueError(f"Unknown sparsity: {args.sparsity}")
 
-    if args.eval_fn == "linear":
-        dense_output = F.linear(x, A, b)
-        sparse_output = F.linear(x, A_sparse, b)
-        # warmup
-        benchmark_model(F.linear, 10, args=(x, A, b), device_type="cuda")
-        dense_time = benchmark_model(F.linear, 100, args=(x, A, b), device_type="cuda")
+        if args.eval_fn == "linear":
+            b = torch.randn(m, dtype=dtype).cuda()
+            # can't use lambda
+            def dense_func():
+                return F.linear(x, A, b)
+            def sparse_func():
+                return F.linear(x, A_sparse, b)
 
-        benchmark_model(F.linear, 10, args=(x, A_sparse, b), device_type="cuda")
-        sparse_time = benchmark_model(F.linear, 100, args=(x, A_sparse, b), device_type="cuda")
-    elif args.eval_fn == "mm":
-        dense_output = torch.mm(A, x.t())
-        sparse_output = torch.mm(A_sparse, x.t())
-        # dense_time = benchmark_in_us(torch.mm, A, x.t())
-        # sparse_time = benchmark_in_us(torch.mm, A_sparse, x.t())
-        # TODO(future PR) fixme
-        dense_time, sparse_time = 1.0, 1.0
-    else:
-        raise ValueError(f"Unknown eval_fn: {args.eval_fn}")
+        elif args.eval_fn == "mm":
+            if dtype == torch.float8_e4m3fn:
+                x = x.t()
 
+                scale_a = torch.tensor([1.0], device="cuda")
+                scale_b = torch.tensor([1.0], device="cuda")
 
-    return {
-        "test_function": args.eval_fn,
-        "m": m,
-        "k": k,
-        "n": n,
-        "dtype": args.dtype,
-        "sparse_latency (ms)": sparse_time,
-        "dense_latency (ms)": dense_time,
-        "speedup (d/s)": dense_time / sparse_time,
-        "contiguous": sparse_output.is_contiguous(),
-    }
+                def dense_func():
+                    return torch._scaled_mm(A, x, scale_a=scale_a, scale_b=scale_b, out_dtype=torch.bfloat16)
+                def sparse_func():
+                    return torch._scaled_mm(A_sparse, x, scale_a=scale_a, scale_b=scale_b, out_dtype=torch.bfloat16)
+            else:
+                x = x.t()
+                def dense_func():
+                    return torch.mm(A, x)
+                def sparse_func():
+                    return torch.mm(A_sparse, x)
+        else:
+            raise ValueError(f"Unknown eval_fn: {args.eval_fn}")
+
+        dense_time = benchmark_model_with_warmup(dense_func, 'dense.json.gz')
+        sparse_time = benchmark_model_with_warmup(sparse_func, 'sparse.json.gz')
+
+        dense_func_c = torch.compile(dense_func, mode="max-autotune")
+        dense_time_c = benchmark_model_with_warmup(dense_func_c, 'dense_compile.json.gz')
+
+        sparse_func_c = torch.compile(sparse_func, mode="max-autotune")
+        sparse_time_c = benchmark_model_with_warmup(sparse_func_c, 'sparse_compile.json.gz')
+
+        torch._dynamo.reset()
+
+        return {
+            "test_function": args.eval_fn,
+            "m": m,
+            "k": k,
+            "n": n,
+            "dtype": args.dtype,
+            "sparse": sparse_time,
+            "dense": dense_time,
+            "dense_c": dense_time_c,
+            "sparse_c": sparse_time_c,
+            "speedup (d/s)": min(dense_time, dense_time_c) / min(sparse_time, sparse_time_c), 
+        }
 
 
 if __name__ == "__main__":
@@ -83,8 +109,9 @@ if __name__ == "__main__":
         "--mode",
         type=str,
         choices=[
-            "bert-large",
-            "vit-mlp-shapes",
+            "llama3-8b-a",
+            "llama3-8b-w",
+            "vit-mlp",
             "nvidia-fixed-k",
             "nvidia-fixed-mn",
         ],
@@ -118,6 +145,7 @@ if __name__ == "__main__":
             "float16",
             "bfloat16",
             "float32",
+            "float8_e4m3fn"
         ],
         default="bfloat16",
     )
@@ -132,27 +160,47 @@ if __name__ == "__main__":
 
     print(f"Started benchmark: {args}")
 
-    if args.mode == "bert-large-shapes":
-        bert_shapes = [
-            (3072, 1024, 16384),
-            (4096, 1024, 16384),
-            (1024, 1024, 16384),
-            (1024, 4096, 16384),
+    if args.mode == "llama3-8b-a":
+        mm_shapes = [
+            (4096, 13312, 16384),
+            (4096, 16384, 6560),
+            (4096, 22528, 32768),
+            (4096, 32768, 11264),
+            (4096, 5632, 16384),
+            (4096, 16384, 2816),
         ]
         results = (
             run_gpu_sparse_benchmark(m, k, n, args)
-            for (m, k, n) in bert_shapes
+            for (m, n, k) in tqdm(mm_shapes)
         )
-    elif args.mode == "vit-mlp-shapes":
+    elif args.mode == "llama3-8b-w":
+        mm_shapes = [
+            (16, 4096, 11008),
+            (16, 4096, 4096),
+            (16, 11008, 4096),
+            (4096, 4096, 11008),
+            (4096, 4096, 4096),
+            (4096, 11008, 4096),
+            (8192, 4096, 11008),
+            (8192, 4096, 4096),
+            (8192, 11008, 4096),
+        ]
+        results = (
+            run_gpu_sparse_benchmark(m, k, n, args)
+            for (m, k, n) in tqdm(mm_shapes)
+        )
+    elif args.mode == "vit-mlp":
         vit_shapes= [
+            # vit-base
             (768, 3072, 50432),
-            (3072, 768, 50432),
+            (3072, 3072, 50432),
+            # vit-huge
             (1280, 5120, 65792),
             (5120, 1280, 65792),
         ]
         results = (
             run_gpu_sparse_benchmark(m, k, n, args)
-            for (m, k, n) in vit_shapes
+            for (m, k, n) in tqdm(vit_shapes)
         )
     elif args.mode == "nvidia-fixed-k":
         mn_vals = [
@@ -177,7 +225,7 @@ if __name__ == "__main__":
         ]
         results = (
             run_gpu_sparse_benchmark(mn, 10240, mn, args)
-            for mn in mn_vals
+            for mn in tqdm(mn_vals)
         )
     elif args.mode == "nvidia-fixed-mn":
         k_vals = [
@@ -199,7 +247,7 @@ if __name__ == "__main__":
         ]
         results = (
             run_gpu_sparse_benchmark(10240, k, 10240, args)
-            for k in k_vals
+            for k in tqdm(k_vals)
         )
 
     else:

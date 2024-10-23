@@ -198,7 +198,7 @@ class _Int8DynActIntxWeightQuantizedLinearFallback(nn.Module):
 
 def _maybe_get_quantized_linear_native(nbit, has_weight_zeros):
     try:
-        if nbit in [1, 2, 3, 4, 5, 6]:
+        if nbit in [1, 2, 3, 4, 5, 6, 7]:
             wzp_suffix = "" if has_weight_zeros else "0zp"
             return _Int8DynActIntxWeightQuantizedLinearNative(
                 pack_weight_op=getattr(
@@ -262,7 +262,7 @@ def _replace_linear_with_quantized_linear(module: nn.Module, kwargs={}):
                 )
 
 
-class Int8DynActIntxWeightQuantizer:
+class Int8DynActIntxWeightLinearQuantizer:
     def __init__(
         self,
         device,
@@ -274,14 +274,14 @@ class Int8DynActIntxWeightQuantizer:
     ):
         if device != "cpu":
             raise NotImplementedError(
-                "Only device=cpu is currently supported in Int8DynActLowbitWeightQuantizer"
+                "Only device=cpu is currently supported in Int8DynActIntxWeightLinearQuantizer"
             )
         else:
             self.device = device
 
         if precision != torch.float32:
             raise NotImplementedError(
-                "Only precision=torch.float32 is currently supported in Int8DynActLowbitWeightQuantizer"
+                "Only precision=torch.float32 is currently supported in Int8DynActIntxWeightLinearQuantizer"
             )
         else:
             self.precision = precision
@@ -314,6 +314,152 @@ class Int8DynActIntxWeightQuantizer:
                 "group_size": self.groupsize,
                 "nbit": self.bitwidth,
                 "has_weight_zeros": self.has_weight_zeros,
+            },
+        )
+        return model
+
+
+class _IntxWeightQuantizedEmbedding(nn.Module):
+    def __init__(
+        self,
+        nbit,
+        pack_weights_op,
+        embedding_op,
+    ):
+        super().__init__()
+        self.nbit = nbit
+        self._pack_weights_op = pack_weights_op
+        self._embedding_op = embedding_op
+
+    def quantize_and_pack_weights(self, weights, group_size):
+        self.group_size = group_size
+        num_embeddings, embedding_dim = weights.shape
+
+        weight_qvals, weight_scales, weight_zeros = _quantize(
+            weights, self.group_size, self.nbit, has_weight_zeros=True
+        )
+        self.packed_weight_qvals = self._pack_weights_op(weight_qvals.to(torch.int8))
+        self.num_embeddings = torch.empty(0, num_embeddings, dtype=torch.int8)
+        self.embedding_dim = torch.empty(0, embedding_dim, dtype=torch.int8)
+        self.weight_scales = weight_scales
+        self.weight_zeros = weight_zeros.to(torch.int8)
+
+    def forward(self, x):
+        shape = x.shape
+        return self._embedding_op(
+            self.packed_weight_qvals, self.num_embeddings, self.embedding_dim, self.weight_scales, self.weight_zeros, x.reshape(-1)
+        ).reshape(*shape, -1)
+
+
+class _IntxWeightQuantizedEmbeddingFallback(nn.Module):
+    def __init__(
+        self,
+        nbit,
+    ):
+        super().__init__()
+        self.nbit = nbit
+
+    def quantize_and_pack_weights(self, weights, group_size):
+        self.group_size = group_size
+        num_embeddings, embedding_dim = weights.shape
+
+        weight_qvals, weight_scales, weight_zeros = _quantize(
+            weights, self.group_size, self.nbit, has_weight_zeros=True
+        )
+        self.weight_qvals = weight_qvals.to(torch.int8)
+        self.weight_scales = weight_scales
+        self.weight_zeros = weight_zeros.to(torch.int8)
+
+    def forward(self, x):
+        shape = x.shape
+        res = []
+        for i in x:
+            res.append(
+                dequantize_per_channel_group(
+                    w_int8=self.weight_qvals[i, :].reshape(1, -1),
+                    scales=self.weight_scales[i, :].reshape(1, -1),
+                    zero_points=self.weight_zeros[i,:].reshape(1, -1),
+                    quant_min=None,  # TODO: why is this an arg for this function
+                    quant_max=None,  # TODO: why is this an arg for this function
+                    dtype=None,  # TODO: why is this an arg for this function
+                    group_size=self.group_size,
+                    output_dtype=torch.float32,
+                ).reshape(-1)
+            )
+        return torch.stack(res).reshape(*shape, -1)
+
+
+def _replace_embedding_with_quantized_embedding(module: nn.Module, kwargs={}):
+    group_size = kwargs["group_size"]
+    nbit = kwargs["nbit"]
+
+    assert not isinstance(module, nn.Embedding)
+    assert nbit >= 1 and nbit <= 7
+
+    for name, child in module.named_children():
+        if not isinstance(child, nn.Embedding):
+            _replace_embedding_with_quantized_embedding(child, kwargs)
+        else:
+            try:
+                qembedding = _IntxWeightQuantizedEmbedding(
+                    nbit,
+                    getattr(torch.ops.torchao, f"_pack_embedding_{nbit}bit"),
+                    getattr(torch.ops.torchao, f"_embedding_{nbit}bit"),
+                )
+                setattr(module, name, qembedding)
+                getattr(module, name).quantize_and_pack_weights(child.weight, group_size)
+            except Exception as e:
+                logger.warning(
+                    f"_IntxWeightQuantizedEmbedding raised an exception during quantize_and_pack_weights: {e}\n"
+                    + "Falling back to **slow** implementation _IntxWeightQuantizedEmbeddingFallback."
+                )
+                qembedding = _IntxWeightQuantizedEmbeddingFallback(nbit)
+                setattr(module, name, qembedding)
+                getattr(module, name).quantize_and_pack_weights(child.weight, group_size)
+
+
+class IntxWeightEmbeddingQuantizer:
+    def __init__(
+        self,
+        device,
+        precision,
+        *,
+        bitwidth: Optional[int] = None,
+        groupsize: Optional[int] = None,
+    ):
+        if device != "cpu":
+            raise NotImplementedError(
+                "Only device=cpu is currently supported in IntxWeightEmbeddingQuantizer"
+            )
+        else:
+            self.device = device
+
+        if precision != torch.float32:
+            raise NotImplementedError(
+                "Only precision=torch.float32 is currently supported in IntxWeightEmbeddingQuantizer"
+            )
+        else:
+            self.precision = precision
+
+        if bitwidth is None:
+            self.bitwidth = 4
+            logger.warning(f"bitwidth not specified, defaulting to {self.bitwidth}.")
+        else:
+            self.bitwidth = bitwidth
+
+        if groupsize is None:
+            self.groupsize = 128
+            logger.warning(f"groupsize not specified, defaulting to {self.groupsize}.")
+        else:
+            self.groupsize = groupsize
+
+    def quantize(self, model: nn.Module) -> nn.Module:
+        model = model.to(self.device).to(self.precision)
+        _replace_embedding_with_quantized_embedding(
+            model,
+            kwargs={
+                "group_size": self.groupsize,
+                "nbit": self.bitwidth,
             },
         )
         return model

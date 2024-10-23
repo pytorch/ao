@@ -30,10 +30,10 @@ UKernelConfig get_ukernel_config() {
   config.prepare_activation_data_fn =
       &ukernel::prepare_activation_data<has_weight_zeros>;
   config.weight_data_size_fn =
-      &ukernel::weight_data_size<weight_nbit, has_weight_zeros>;
+      &ukernel::weight_data_size<weight_nbit, has_weight_zeros, has_bias>;
   config.preferred_weight_data_alignment = 16; // size of neon register
   config.prepare_weight_data_fn =
-      &ukernel::prepare_weight_data<weight_nbit, has_weight_zeros>;
+      &ukernel::prepare_weight_data<weight_nbit, has_weight_zeros, has_bias>;
   config.kernel_fn =
       &ukernel::kernel<weight_nbit, has_weight_zeros, has_bias, has_clamp>;
 
@@ -84,7 +84,8 @@ void test_linear_8bit_act_xbit_weight(int m, int n, int k, int group_size) {
           group_size,
           test_case.weight_qvals.data(),
           test_case.weight_scales.data(),
-          test_case.weight_zeros.data());
+          test_case.weight_zeros.data(),
+          test_case.bias.data());
 
       // Allocate activation buffer
       auto linear_tiling_params =
@@ -115,7 +116,6 @@ void test_linear_8bit_act_xbit_weight(int m, int n, int k, int group_size) {
           group_size,
           packed_weight_data.get(),
           test_case.activations.data(),
-          test_case.bias.data(),
           test_case.clamp_min,
           test_case.clamp_max);
 
@@ -195,7 +195,8 @@ TEST(test_linear_8bit_act_xbit_weight, KNotDivisibleByGroupSize) {
             group_size,
             /*weight_qvals=*/nullptr,
             /*weight_scales=*/nullptr,
-            /*weight_zeros=*/nullptr);
+            /*weight_zeros=*/nullptr,
+            /*bias=*/nullptr);
       },
       std::runtime_error);
 }
@@ -224,7 +225,8 @@ TEST(test_linear_8bit_act_xbit_weight, GroupSizeNotDivisibleBy16) {
             group_size,
             /*weight_qvals=*/nullptr,
             /*weight_scales=*/nullptr,
-            /*weight_zeros=*/nullptr);
+            /*weight_zeros=*/nullptr,
+            /*bias=*/nullptr);
       },
       std::runtime_error);
 }

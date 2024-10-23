@@ -3,13 +3,22 @@ from typing import Union, Tuple
 from dataclasses import dataclass
 
 """
-Base class for different Layout, should not be instantiated directly
-used to allow users to pass around configurations for the tensor impl, e.g. inner_k_tiles
-for int4 tensor core tiled tensor impl
+Base class for different layout, following the same design of PyTorch layout
+https://pytorch.org/docs/stable/tensor_attributes.html#torch-layout, used to represent different
+data layout of a Tensor, it's used in conjunction with TensorImpl to represent custom data layout.
 
-Note: TensorImpl is an abstraction not only for custom data representation, it is also used for how the
-tensorImpl interacts with different operators, e.g. the same data representation can have different
-behaviors when running the same operator, e.g. transpose, quantized_linear.
+As a native PyTorch example, Sparse Coordinate format Tensor (https://pytorch.org/docs/stable/generated/torch.sparse_coo_tensor.html#torch-sparse-coo-tensor) has `torch.sparse_coo` layout, which is backed up by
+`SparseImpl`: https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/SparseTensorImpl.h which stores two Tensors (indices_ and values_)
+
+We extended the layout in torchao with Layout class (instead of torch.layout objects), also we use tensor subclass to implement TensorImpl classes.
+
+Layout also allows users to pass around configurations for the TensorImpl,
+e.g. inner_k_tiles for int4 tensor core tiled TensorImpl
+
+Note: Layout is an abstraction not only for custom data representation, it is also used for how the
+Tensor interacts with different operators, e.g. the same data representation can have different
+behaviors when running the same operator, e.g. transpose, quantized_linear. This is the same as layout
+in PyTorch native Tensor
 """
 @dataclass(frozen=True)
 class Layout:

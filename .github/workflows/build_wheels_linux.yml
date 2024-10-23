@@ -29,6 +29,7 @@ jobs:
       with-cpu: enable
       with-cuda: enable
       with-rocm: enable
+      with-xpu: enable
 
   build:
     needs: generate-matrix

@@ -14,8 +14,12 @@ from torch.testing._internal.common_utils import (
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
 from torchao.prototype import low_bit_optim
-from torchao.prototype.low_bit_optim.quant_utils import quantize_8bit_with_qmap, quantize_4bit_with_qmap
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_5
+from torchao.prototype.low_bit_optim.quant_utils import (
+    quantize_8bit_with_qmap,
+    quantize_4bit_with_qmap,
+    _fp32_to_bf16_sr,
+)
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_6
 
 try:
     import bitsandbytes as bnb
@@ -73,6 +77,22 @@ class TestQuantize(TestCase):
         expected = quantize_4bit_with_qmap(x, qmap)
 
         torch.testing.assert_close(actual, expected)
+
+    @parametrize("device", _DEVICES)
+    @parametrize("compile", [False, True])
+    def test_bf16_stochastic_round(self, device, compile):
+        x = torch.rand(32, device=device) * 100
+        x_rep = x.view(-1, 1).repeat(1, 100_000)
+
+        if compile:
+            x_rep_bf16 = torch.compile(_fp32_to_bf16_sr, fullgraph=True, dynamic=False)(x_rep)
+        else:
+            x_rep_bf16 = _fp32_to_bf16_sr(x_rep)
+
+        assert x_rep_bf16.dtype is torch.bfloat16
+
+        # must cast BF16 tensor back to FP32 so that .mean() is accurate
+        torch.testing.assert_close(x_rep_bf16.float().mean(1), x, atol=3e-5, rtol=3e-5)
 
 
 class TestOptim(TestCase):
@@ -249,13 +269,44 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model1.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)
 
+    def test_optim_bf16_stochastic_round_correctness(self):
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        torch.manual_seed(2024)
+        model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
+        model2 = copy.deepcopy(model1).bfloat16()
+
+        # small LR so that weight update is small
+        # when bf16_stochastic_round=False, the test will fail after 1 iteration
+        optim1 = torch.optim.AdamW(model1.parameters(), lr=1e-5)
+        optim2 = low_bit_optim._AdamW(model2.parameters(), lr=1e-5, bf16_stochastic_round=True)
+
+        # overfit on this sample
+        x = torch.randn(4, 32, device=device)
+
+        for idx in range(5):
+            # mixed-precision training
+            with torch.autocast(device, dtype=torch.bfloat16):
+                loss1 = model1(x)
+            loss1 = loss1.sum()  # under autocast context, bf16.sum() will return fp32
+            loss1.backward()
+            optim1.step()
+            optim1.zero_grad()
+
+            # full BF16 training with stochastic round weight update
+            loss2 = model2(x.bfloat16()).sum()
+            loss2.backward()
+            optim2.step()
+            optim2.zero_grad()
+
+            torch.testing.assert_close(loss1, loss2, msg=lambda msg: f"Iteration {idx}. {msg}")
+
 
 class TestFSDP2(FSDPTest):
     @property
     def world_size(self) -> int:
         return 2
 
-    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="OptimState8bit dispatch: attempting to run unimplemented operator/function: aten.as_strided.default")
+    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_6, reason="PyTorch>=2.6 is required.")
     @skip_if_lt_x_gpu(2)
     def test_fsdp2(self):
         optim_classes = [low_bit_optim.AdamW8bit, low_bit_optim.AdamW4bit]
