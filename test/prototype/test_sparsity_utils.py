@@ -2,11 +2,6 @@ import logging
 import unittest
 
 import torch
-from torchao.sparsity.prototype.sparsifier.utils import (
-    fqn_to_module,
-    get_arg_info_from_tensor_fqn,
-    module_to_fqn,
-)
 
 from torch.testing._internal.common_quantization import (
     ConvBnReLUModel,
@@ -18,6 +13,11 @@ from torch.testing._internal.common_quantization import (
     TwoLayerLinearModel,
 )
 from torch.testing._internal.common_utils import TestCase
+from torchao.prototype.sparsity.sparsifier.utils import (
+    fqn_to_module,
+    get_arg_info_from_tensor_fqn,
+    module_to_fqn,
+)
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO

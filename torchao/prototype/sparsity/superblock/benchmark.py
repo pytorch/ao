@@ -7,7 +7,7 @@ from torch.sparse._triton_ops_meta import (
     dump as store_tuned_kernel_params,
     optimize_bsr_dense_addmm,
 )
-from torchao.sparsity.prototype.superblock.utils import (
+from torchao.prototype.sparsity.superblock.utils import (
     accelerate_with_sparsity,
     get_args_parser,
     simulate_sparsity,

@@ -1,11 +1,12 @@
 import logging
-import torch
 import unittest
+
+import torch
 from torch import nn
 from torch.nn.utils import parametrize
 from torch.testing._internal.common_utils import TestCase
 
-from torchao.sparsity.prototype.sparsifier import utils
+from torchao.prototype.sparsity.sparsifier import utils
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -167,6 +168,7 @@ class TestFakeSparsity(TestCase):
         y = model(x)
         y_hat = model_trace(x)
         self.assertEqual(y_hat, y)
+
 
 if __name__ == "__main__":
     unittest.main()

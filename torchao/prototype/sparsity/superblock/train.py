@@ -14,7 +14,7 @@ import utils
 from torch import nn
 from torch.utils.data.dataloader import default_collate
 
-from torchao.sparsity.prototype.superblock.utils import simulate_sparsity
+from torchao.prototype.sparsity.superblock.utils import simulate_sparsity
 from torchvision.transforms.functional import InterpolationMode
 from utils import RASampler
 
@@ -149,7 +149,11 @@ def evaluate(
         f"{header} Acc@1 {metric_logger.acc1.global_avg:.3f} Acc@5 {metric_logger.acc5.global_avg:.3f}"
     )
     total_time = encoder_time / 1000.0
-    return metric_logger.acc1.global_avg, num_processed_samples.item() / total_time, max_mem
+    return (
+        metric_logger.acc1.global_avg,
+        num_processed_samples.item() / total_time,
+        max_mem,
+    )
 
 
 def _get_cache_path(filepath):

@@ -1,10 +1,11 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 import os
+
 import torch
 import torchvision
 
-from torchao.sparsity.prototype.superblock.train import evaluate, load_data
-from torchao.sparsity.prototype.superblock.utils import (
+from torchao.prototype.sparsity.superblock.train import evaluate, load_data
+from torchao.prototype.sparsity.superblock.utils import (
     accelerate_with_sparsity,
     apply_sparsity,
     get_args_parser,
@@ -62,7 +63,9 @@ def main(args):
     model = torch.compile(model, mode="max-autotune", fullgraph=True)
 
     criterion = torch.nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
-    return evaluate(model, criterion, data_loader_test, device=device, dtype=torch.bfloat16)
+    return evaluate(
+        model, criterion, data_loader_test, device=device, dtype=torch.bfloat16
+    )
 
 
 if __name__ == "__main__":
@@ -92,7 +95,7 @@ if __name__ == "__main__":
             args.quantization,
             accuracy,
             throughput,
-            max_mem
+            max_mem,
         ]
     )
     with open("evaluation_results.txt", "a") as f:
