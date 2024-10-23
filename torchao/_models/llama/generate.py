@@ -16,6 +16,8 @@ import torch._inductor.config
 from torchao.utils import get_model_size_in_bytes
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
+torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
+
 def device_sync(device):
     if "cuda" in device:
         torch.cuda.synchronize(device)
@@ -153,6 +155,7 @@ def _load_model(checkpoint_path, device, precision):
 B_INST, E_INST = "[INST]", "[/INST]"
 
 def main(
+    prefill_size: int = 0,
     prompt: str = "Hello, my name is",
     interactive: bool = False,
     num_samples: int = 5,
@@ -161,6 +164,7 @@ def main(
     temperature: float = 0.8,
     checkpoint_path: Path = Path("checkpoints/meta-Transformer/Transformer-2-7b-chat-hf/model.pth"),
     quantization: Optional[str] = None,
+    sparsity: Optional[str] = None,
     calibration_limit: int = 10,
     calibration_seq_length: int = 256,
     kv_cache_quantization: bool = False,
@@ -177,6 +181,12 @@ def main(
 ) -> None:
     """Generates text samples based on a pre-trained Transformer model and tokenizer.
     """
+
+    if prefill_size > 0:
+        print("Running TTFT benchmark!")
+        assert max_new_tokens == 1, "prefill_size only supports max_new_tokens=1"
+        # create prompt of prefill size ttft
+        prompt = "prompt " * (int(prefill_size)-3)
 
     torchao.quantization.utils.recommended_inductor_config_setter()
 
@@ -202,6 +212,11 @@ def main(
 
     torch.manual_seed(1234)
 
+    def ffn_only(mod, fqn):
+        return isinstance(mod, torch.nn.Linear) and "feed_forward" in fqn and "w1" in fqn
+
+    def not_ffn_only(mod, fqn):
+        return isinstance(mod, torch.nn.Linear) and not ffn_only(mod, fqn)
 
     if quantization:
         from torchao.quantization.quant_api import (
@@ -217,13 +232,18 @@ def main(
             float8_dynamic_activation_float8_weight,
         )
         from torchao.quantization.granularity import PerTensor, PerRow
+        from torchao.dtypes import MarlinSparseLayout, SemiSparseLayout
         if "spinquant" in quantization:
             from torchao.prototype.spinquant import apply_spinquant
             apply_spinquant(model)
         if "int8wo" in quantization:
             quantize_(model, int8_weight_only())
         if "int8dq" in quantization:
-            quantize_(model, int8_dynamic_activation_int8_weight())
+            if sparsity and "semi" in sparsity:
+                quantize_(model, int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()), filter_fn=ffn_only)
+                quantize_(model, int8_dynamic_activation_int8_weight(), filter_fn=not_ffn_only)
+            else:
+                quantize_(model, int8_dynamic_activation_int8_weight())
         if "int4wo" in quantization:
             if "hqq" in quantization:
                 use_hqq=True
@@ -231,10 +251,10 @@ def main(
                 use_hqq=False
             groupsize=int(quantization.split("-")[1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
-            quantize_(model, int4_weight_only(group_size=groupsize))
-        if "marlin" in quantization:
-            from torchao.dtypes import MarlinSparseLayout
-            quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
+            if sparsity and "semi" in sparsity:
+                quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
+            else:
+                quantize_(model, int4_weight_only(group_size=groupsize))
         if "fp6" in quantization:
             quantize_(model, fpx_weight_only(3, 2))
         if quantization.startswith("awq"):
@@ -312,6 +332,13 @@ def main(
             if not TORCH_VERSION_AT_LEAST_2_5:
                 unwrap_tensor_subclass(model)
 
+    # standalone sparsity
+    elif sparsity:
+        from torchao.sparsity import semi_sparse_weight, sparsify_
+        if "semi" in sparsity:
+            #TODO there is a bug here, need to fix
+            sparsify_(model.to(device), semi_sparse_weight(), filter_fn=ffn_only)
+
     model_size = get_model_size_in_bytes(model, ignore_embeddings=True) / 1e9
 
     if save:
@@ -325,12 +352,13 @@ def main(
         decode_one_token = torch.compile(decode_one_token, mode="reduce-overhead", fullgraph=True)
 
         if compile_prefill:
-            prefill = torch.compile(prefill, fullgraph=True, dynamic=True)
+            prefill = torch.compile(prefill, mode="max-autotune", fullgraph=True, dynamic=True)
 
     if memory_profile:
         torch.cuda.memory._record_memory_history(True,trace_alloc_max_entries=250000, trace_alloc_record_context=True)
     aggregate_metrics = {
         'tokens_per_sec': [],
+        'time': [],
     }
     start = -1 if compile else 0
 
@@ -389,7 +417,7 @@ def main(
         device_sync(device=device) # MKG
         t = time.perf_counter() - t0
 
-        if not interactive:
+        if not interactive and prefill_size == 0:
                 tok_list = y.tolist()
                 # truncate text after end of string token
                 tokens = tok_list if not tokenizer.eos_id() in y else tok_list[:tok_list.index(tokenizer.eos_id())]
@@ -399,7 +427,8 @@ def main(
         tokens_generated = y.size(0) - prompt_length
         tokens_sec = tokens_generated / t
         aggregate_metrics['tokens_per_sec'].append(tokens_sec)
-        print(f"Time for inference {i + 1}: {t:.02f} sec total, {tokens_sec:.02f} tokens/sec")
+        aggregate_metrics['time'].append(t)
+        print(f"Time for inference {i + 1}: {t:.04f} sec total, {tokens_sec:.02f} tokens/sec")
         print(f"Bandwidth achieved: {model_size * tokens_sec:.02f} GB/s")
 
         if memory_profile and i==0:
@@ -415,23 +444,28 @@ def main(
 
     print("==========")
 
+    #ignore first sample for warmup
+    avg_time = torch.mean(torch.tensor(aggregate_metrics['time'][1:])).item()
     tokpersec = torch.mean(torch.tensor(aggregate_metrics['tokens_per_sec'])).item()
     bandwidth = model_size * tokpersec
     mem = torch.cuda.max_memory_reserved() /1e9
     print(f"Average tokens/sec: {tokpersec:.2f}")
     print(f"Average Bandwidth: {bandwidth:.02f} GB/s")
+    print(f"Average time: {avg_time:.04f} s")
     print(f"Peak Memory Usage: {mem:.02f} GB")
     print(f"Model Size: {model_size:.02f} GB")
     if write_result:
-        result_txt = f"\n{datetime.today().strftime('%Y%m%d%H%M%S')}, tok/s={tokpersec:6.2f}, mem/s={bandwidth:7.2f} GB/s, peak_mem={mem:5.2f} GB, model_size={model_size:5.2f} GB "
-        result_txt += f"quant: {quantization}, mod: {checkpoint_path.parent.name}, kv_quant: {kv_cache_quantization}, compile: {compile}, compile_prefill: {compile_prefill}, dtype: {precision}, device: {device} "
+        result_txt = f"\n{datetime.today().strftime('%Y%m%d%H%M%S')}, tok/s={tokpersec:6.2f}, mem/s={bandwidth:7.2f} GB/s, time={t:5.4f} sec, peak_mem={mem:5.2f} GB, model_size={model_size:5.2f} GB "
+        result_txt += f"quant: {quantization}, sparse: {sparsity}, mod: {checkpoint_path.parent.name}, kv_quant: {kv_cache_quantization}, compile: {compile}, compile_prefill: {compile_prefill}, dtype: {precision}, device: {device} "
         result_txt += f"repro: python generate.py "
         result_txt += f"--quantization {quantization} " if quantization else ""
+        result_txt += f"--sparsity {sparsity} " if sparsity else ""
         result_txt += f"--checkpoint_path {checkpoint_path} "
         result_txt += f"--device {device} "
         result_txt += f"--precision {precision} "
         result_txt += f"--compile " if compile else ""
         result_txt += f"--compile_prefill " if compile_prefill else ""
+        result_txt += f"--prefill_size {prefill_size}" if prefill_size else ""
         result_txt += f"--profile {profile} " if profile else ""
         result_txt += f"--profile {memory_profile} " if memory_profile else ""
         result_txt += f"--interactive " if interactive else ""
@@ -452,7 +486,7 @@ def main(
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Your CLI description.')
-
+    parser.add_argument('--prefill_size', type=int, default=0, help='Whether to run in ttft mode')
     parser.add_argument('--prompt', type=str, default="Hello, my name is", help='Input prompt.')
     parser.add_argument('--interactive', action='store_true', help='Whether to launch in interactive mode')
     parser.add_argument('--num_samples', type=int, default=5, help='Number of samples.')
@@ -464,6 +498,11 @@ if __name__ == '__main__':
         help=(
             'Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, '
             +'autoquant-int4, autoquant-float8, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, spinquant'
+        )
+    )
+    parser.add_argument('-s', '--sparsity', type=str, 
+        help=(
+            'Which sparsity techniques to apply: semi-structured'
         )
     )
     parser.add_argument("--calibration_limit", type=int, default=10, help="Number of calibration examples")
@@ -482,6 +521,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     main(
-        args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.top_k,
-        args.temperature, args.checkpoint_path, args.quantization, args.calibration_limit, args.calibration_seq_length, args.kv_cache_quantization, args.cache_size, args.linear_causal_mask, args.save, args.compile, args.compile_prefill, args.profile, args.memory_profile, args.device, args.precision, args.write_result
+        args.prefill_size, args.prompt, args.interactive, args.num_samples, args.max_new_tokens, args.top_k,
+        args.temperature, args.checkpoint_path, args.quantization, args.sparsity, args.calibration_limit, args.calibration_seq_length, args.kv_cache_quantization, args.cache_size, args.linear_causal_mask, args.save, args.compile, args.compile_prefill, args.profile, args.memory_profile, args.device, args.precision, args.write_result
     )

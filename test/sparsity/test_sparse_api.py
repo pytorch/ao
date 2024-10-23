@@ -9,12 +9,14 @@ from torchao.dtypes import MarlinSparseLayout, SemiSparseLayout
 from torchao.quantization.quant_api import (
     int4_weight_only,
     int8_dynamic_activation_int8_weight,
+    float8_dynamic_activation_float8_weight,
     quantize_,
 )
 
 from torchao.sparsity import apply_fake_sparsity, semi_sparse_weight, sparsify_
 from torchao.utils import TORCH_VERSION_AFTER_2_5, TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_4
 
+from torch.sparse import SparseSemiStructuredTensor
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -25,7 +27,9 @@ class TestSemiStructuredSparse(common_utils.TestCase):
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, "pytorch 2.3+ feature")
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
-    def test_sparse(self):
+    @common_utils.parametrize("compile", [True, False])
+    def test_sparse(self, compile):
+        SparseSemiStructuredTensor._FORCE_CUTLASS = False
         input = torch.rand((128, 128)).half().cuda()
         model = (
             nn.Sequential(
@@ -43,6 +47,9 @@ class TestSemiStructuredSparse(common_utils.TestCase):
         sparsify_(model, semi_sparse_weight())
         sparse_result = model(input)
 
+        if compile:
+            model = torch.compile(model)
+
         torch.testing.assert_close(dense_result, sparse_result, rtol=1e-3, atol=1e-3)
 
 
@@ -57,7 +64,7 @@ class TestQuantSemiSparse(common_utils.TestCase):
 
         torch.sparse.SparseSemiStructuredTensor._FORCE_CUTLASS = False
 
-        input = torch.rand((128, 128)).half().cuda()
+        input = torch.rand((1, 128)).half().cuda()
         model = (
             nn.Sequential(
                 nn.Linear(128, 256),
@@ -112,7 +119,6 @@ class TestQuantSemiSparse(common_utils.TestCase):
         if compile:
             model = torch.compile(model)
         sparse_result = model(input)
-
         torch.testing.assert_close(dense_result, sparse_result, atol=3e-1, rtol=3e-1)
 
 
