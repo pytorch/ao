@@ -198,7 +198,7 @@ class _Int8DynActIntxWeightQuantizedLinearFallback(nn.Module):
 
 def _maybe_get_quantized_linear_native(nbit, has_weight_zeros):
     try:
-        if nbit in [1, 2, 3, 4, 5, 6]:
+        if nbit in [1, 2, 3, 4, 5, 6, 7]:
             wzp_suffix = "" if has_weight_zeros else "0zp"
             return _Int8DynActIntxWeightQuantizedLinearNative(
                 pack_weight_op=getattr(

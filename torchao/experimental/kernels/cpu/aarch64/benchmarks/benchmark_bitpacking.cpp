@@ -16,6 +16,7 @@
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint4.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint5.h>
 #include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint6.h>
+#include <torchao/experimental/kernels/cpu/aarch64/bitpacking/uint7.h>
 #include <torchao/experimental/kernels/cpu/aarch64/tests/test_utils.h>
 #include <cassert>
 
@@ -601,6 +602,49 @@ void unpack_uint_values<6>(
   }
 }
 
+// Benchmark utility to compare variants of uint7 packing.
+template <>
+void pack_uint_values<7>(
+    uint8_t* packed,
+    uint8_t* unpacked,
+    int packed_size,
+    int unpacked_size,
+    int variant) {
+  constexpr int nbit = 7;
+  pack_uint_odd_bit_values(
+      torchao::bitpacking::internal::pack_8_uint7_values,
+      torchao::bitpacking::internal::vec_pack_64_uint7_values,
+      torchao::bitpacking::internal::vec_pack_128_uint7_values,
+      nbit,
+      packed,
+      unpacked,
+      packed_size,
+      unpacked_size,
+      variant);
+}
+
+// Benchmark utility to compare variants of uint7 unpacking.
+template <>
+void unpack_uint_values<7>(
+    uint8_t* unpacked,
+    uint8_t* packed,
+    int unpacked_size,
+    int packed_size,
+    int variant) {
+  constexpr int nbit = 7;
+  unpack_uint_odd_bit_values(
+      torchao::bitpacking::internal::unpack_8_uint7_values,
+      torchao::bitpacking::internal::vec_unpack_64_uint7_values,
+      torchao::bitpacking::internal::vec_unpack_128_uint7_values,
+      nbit,
+      unpacked,
+      packed,
+      unpacked_size,
+      packed_size,
+      variant);
+}
+
+
 } // namespace
 
 template <int nbit>
@@ -653,6 +697,8 @@ BENCHMARK(benchmark_pack_uint_values<5>)->ArgsProduct({{128}, {8, 64, 128}});
 BENCHMARK(benchmark_unpack_uint_values<5>)->ArgsProduct({{128}, {8, 64, 128}});
 BENCHMARK(benchmark_pack_uint_values<6>)->ArgsProduct({{128}, {8, 64, 128}});
 BENCHMARK(benchmark_unpack_uint_values<6>)->ArgsProduct({{128}, {4, 32, 64}});
+BENCHMARK(benchmark_pack_uint_values<7>)->ArgsProduct({{128}, {8, 64, 128}});
+BENCHMARK(benchmark_unpack_uint_values<7>)->ArgsProduct({{128}, {8, 64, 128}});
 
 // Run the benchmark
 BENCHMARK_MAIN();
