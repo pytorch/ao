@@ -1,3 +1,4 @@
+# add imports to keep legacy code working
 from torchao.quantization._quantized_linear import (
     Int4WeightOnlyQuantizer,
     Int8DynActInt4WeightLinear,
