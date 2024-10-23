@@ -88,9 +88,6 @@ class TestQuantSemiSparse(common_utils.TestCase):
             model = torch.compile(model)
         sparse_result = model(input)
 
-        print(sparse_result)
-        print(dense_result)
-
         torch.testing.assert_close(dense_result, sparse_result, rtol=1e-2, atol=1e-2)
 
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "pytorch 2.5+ feature")
@@ -100,7 +97,7 @@ class TestQuantSemiSparse(common_utils.TestCase):
         if not torch.backends.cusparselt.is_available():
             self.skipTest("Need cuSPARSELt")
             
-        input = torch.rand((256, 256)).half().cuda().contiguous()
+        input = torch.rand((256, 256)).half().cuda()
         model = (
             nn.Sequential(
                 nn.Linear(256, 1024),
@@ -110,7 +107,8 @@ class TestQuantSemiSparse(common_utils.TestCase):
             .cuda()
             .eval()
         )
-        torch.compiler.disable(apply_fake_sparsity(model))
+
+        apply_fake_sparsity(model)
         model_copy = copy.deepcopy(model)
 
         # Quantized
