@@ -69,15 +69,16 @@ __device__ __forceinline__ uint32_t MultScale(uint32_t PackedBF16Pair, __nv_bflo
     __nv_bfloat16* BF16_2 = BF16_1 + 1;
     uint32_t output;
     __nv_bfloat16* output_bf16_ptr = reinterpret_cast<__nv_bfloat16*>(&output);
-    if constexpr (false) {
-        // Exponent bias is 124, which would lead to multiplication with 2^124,
-        // which would lead to overflow when stored in a 32 or 64-bit type.
-        // Instead, we decompose the exponent into smaller values and multiply
-        // several times.
+    // Multiply with exponent bias here. The exponent bias is 124, which would
+    // lead to multiplication with 2^124, which would lead to overflow when
+    // stored in a 32 or 64-bit type. There are two options: (1) decompose the
+    // exponent bias into smaller values, or (2) type punning (current choice).
+    if constexpr (false) { // option 1 (decomposition)
+        // Decompose the exponent bias into smaller values and multiply several times.
         __nv_bfloat16 tmp1 = *BF16_1;
         __nv_bfloat16 tmp2 = *BF16_2;
-        // FIXME: only works for exponent=3 right now.
         // Note that for exponent=3, BIAS_OFFSET = 2^7 - 2^2 = 124 = 4*31 
+        // NOTE: only works for exponent=3 right now.
         const __nv_bfloat16 BIAS = __float2bfloat16(1.0f * (uint32_t(1) << BIAS_OFFSET / 4));
         #pragma unroll
         for (int i = 0; i < 4; i++) {
@@ -86,11 +87,8 @@ __device__ __forceinline__ uint32_t MultScale(uint32_t PackedBF16Pair, __nv_bflo
         }
         output_bf16_ptr[0] = __hmul( tmp1, Scale);
         output_bf16_ptr[1] = __hmul( tmp2, Scale);
-    } else {
-        // Exponent bias is 124, which would lead to multiplication with 2^124,
-        // which would lead to overflow when stored in a 32 or 64-bit type.
-        // Instead, we use type punning to directly construct a float with a
-        // large exponent.
+    } else {  // option 2 (type punning)
+        // Use type punning to directly construct a float with a large exponent.
         union {
             uint32_t u32;
             float f;
