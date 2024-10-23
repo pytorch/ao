@@ -147,18 +147,14 @@ __device__ __forceinline__ void Dequant_32FP6_4Way(uint32_t (* __restrict__ Reg)
             if(i%2==1)  Frag_PTR_4bit++;
             else        (*Frag_PTR_4bit) = (*Frag_PTR_4bit) << 4;
         }
-        // Packed_FP6 now contains 4x 1234 5600
-        //
         uint32_t out1, out2;
         FPx_FP16_Cast_4Way<EXPONENT, MANTISSA, USE_BF16>(&Packed_FP6, &out1, &out2);
-        // out1 now contains 2 FP16 values, as shown by R1 in figure 6
-        // out2 now contains 2 FP16 values, as shown by R2 in figure 6
         //
-        *OutputRegs = MultScale<EXPONENT, MANTISSA>(out1, Scale_RPTR[0]);       // Muliply FP16 scales
+        *OutputRegs = MultScale<EXPONENT, MANTISSA>(out1, Scale_RPTR[0]);       // Muliply FP16/BF16 scales
         OutputRegs += 1;
-        *OutputRegs = MultScale<EXPONENT, MANTISSA>(out2, Scale_RPTR[1]);       // Muliply FP16 scales
+        *OutputRegs = MultScale<EXPONENT, MANTISSA>(out2, Scale_RPTR[1]);       // Muliply FP16/BF16 scales
         OutputRegs += 1;
-        // Updating offset for FP16 scales for every two iterations
+        // Updating offset for FP16/BF16 scales for every two iterations
         if(i%2==1)  Scale_RPTR += 2;
     }
     
