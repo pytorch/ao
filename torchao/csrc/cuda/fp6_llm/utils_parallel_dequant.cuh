@@ -163,8 +163,7 @@ __device__ __forceinline__ void Dequant_32FP6_4Way(uint32_t (* __restrict__ Reg)
 /*
  * 
  */
-template <typename T>
-__device__ __forceinline__ void ExtractFromSharedToReg_Scales(uint32_t* Scales, T* WARP_SPTR_Scales) {
+__device__ __forceinline__ void ExtractFromSharedToReg_Scales(uint32_t* Scales, half* WARP_SPTR_Scales) {
     int lane_id = threadIdx.x % WARP_SIZE;
     uint32_t* SPTR_uint = reinterpret_cast<uint32_t*>(WARP_SPTR_Scales);
     uint32_t tmpReg = SPTR_uint[lane_id];

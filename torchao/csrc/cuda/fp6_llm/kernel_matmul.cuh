@@ -69,7 +69,7 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
   // Dynamic shared memory for FP16 A tiles， 128 Bytes aligned
   extern __shared__ __align__(128) half smem[];   
   half (*smem_array)[WARP_K+PADDING_SHARED_MEM_FOR_B_8] = reinterpret_cast<half (*)[WARP_K+PADDING_SHARED_MEM_FOR_B_8]> ( smem + SMEM_SIZE_PER_TB_A_TILE/2 ); // Dynamic shared memory for FP16 B tiles
-  __shared__ InputDataType QuantScales[64*TilingConfig::BLOCK_WARPS];  // static shared memory for quantization scales, 64 row per warp * 4 warps = 512 Bytes
+  __shared__ half QuantScales[64*TilingConfig::BLOCK_WARPS];  // static shared memory for quantization scales, 64 row per warp * 4 warps = 512 Bytes
   // Thread Block Mapping, considering SplitK
   const size_t BatchID = blockIdx.y / (M_Global/TilingConfig::TILE_M);
   const size_t x = blockIdx.x;                                     // Output Block ID: (BlockID_Row = y; BlockID_Col = x )
@@ -127,7 +127,7 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
   // Global Memory Address for Matrix A (QuantScale) /////////////////////////////////////////////////////////////////////
   const InputDataType* TB_StartGPTR_A_Scale    = reinterpret_cast<const InputDataType*>(Scales) + (y*TilingConfig::BLOCK_ROW_WARPS) * 64;
   const InputDataType* WARP_StartGPTR_A_Scales = TB_StartGPTR_A_Scale + WARP_i * 64;
-  CopyFromGlobalToShared_Scales<InputDataType>(QuantScales+WARP_i*64, WARP_StartGPTR_A_Scales);
+  CopyFromGlobalToShared_Scales<InputDataType>(reinterpret_cast<InputDataType*>(QuantScales+WARP_i*64), WARP_StartGPTR_A_Scales);
   // Copying B tile from Global to Shared, considering SplitK /////////////////////////////////////////////////////////////
   const InputDataType *BTile_GPTR = reinterpret_cast<const InputDataType*>(B) + Tile_Start_N * K_Global + StartBlockID_K * TilingConfig::TILE_K;
   for(int i=0; i<PIPELINE_LEVEL_GMEM-1; i++) {
@@ -151,7 +151,7 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
 
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   uint32_t Scales_RPTR[4]; // 4 Registers per thread for Quantization Scales
-  ExtractFromSharedToReg_Scales<InputDataType>(Scales_RPTR, QuantScales + WARP_i*64);
+  ExtractFromSharedToReg_Scales(Scales_RPTR, QuantScales + WARP_i*64);
   // Initializing the Software Pipeline: writing registers. ////////////////////////////////////////////////////////////////////////////////////////////////
   constexpr bool USE_BF16 = std::is_same<InputDataType, __nv_bfloat16>::value;
   initialize_mma_slice<TilingConfig, EXPONENT, MANTISSA, USE_BF16>(a, b, AFrag_1BIT_SPTR, AFrag_2BIT_SPTR, AFrag_4BIT_SPTR, smem_array, Scales_RPTR);

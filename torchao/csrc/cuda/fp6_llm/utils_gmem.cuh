@@ -37,23 +37,23 @@ __device__ __forceinline__ void CopyFromGlobalToShared_A(uint32_t* SPTR,
         static_assert(SMEM_SIZE_IN_BYTES_PER_WARP/WARP_SIZE % 16 == 0);
     #endif
     int lane_id      = threadIdx.x % WARP_SIZE;
-    half* SPTR_T = reinterpret_cast<half*>(SPTR);
-    const half* GPTR_T = reinterpret_cast<const half*>(GPTR);
-    SPTR_T += lane_id*8;
-    GPTR_T += lane_id*8;
+    half* SPTR_HALF = reinterpret_cast<half*>(SPTR);
+    const half* GPTR_HALF = reinterpret_cast<const half*>(GPTR);
+    SPTR_HALF += lane_id*8;
+    GPTR_HALF += lane_id*8;
     #pragma unroll
     for(int i=0; i<SMEM_SIZE_IN_BYTES_PER_WARP/WARP_SIZE/16; i++) {
         #if __CUDA_ARCH__ == 750
         if (pred_guard) {
-            float4* SPTR_VEC = reinterpret_cast<float4*>(SPTR_T);
-            const float4* GPTR_VEC = reinterpret_cast<const float4*>(GPTR_T);
+            float4* SPTR_VEC = reinterpret_cast<float4*>(SPTR_HALF);
+            const float4* GPTR_VEC = reinterpret_cast<const float4*>(GPTR_HALF);
             SPTR_VEC[0] = GPTR_VEC[0];
         }
         #else
-        cp_async<16>( SPTR_T, GPTR_T, pred_guard);
+        cp_async<16>( SPTR_HALF, GPTR_HALF, pred_guard);
         #endif
-        SPTR_T += 256;   // Forward 512 Bytes
-        GPTR_T += 256;   // Forward 512 Bytes
+        SPTR_HALF += 256;   // Forward 512 Bytes
+        GPTR_HALF += 256;   // Forward 512 Bytes
     }
 
 }
