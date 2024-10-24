@@ -6,6 +6,7 @@ if not TORCH_VERSION_AT_LEAST_2_4:
     pytest.skip("Requires torch>=2.4", allow_module_level=True)
 
 import copy
+from functools import partial
 
 import torch
 import torch.distributed as dist
@@ -159,8 +160,9 @@ class TestQuantizedTraining(TestCase):
             Int8MixedPrecisionTrainingConfig(grad_weight=False),
         ],
     )
+    @parametrize("module_swap", [False, True])
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-    def test_int8_mixed_precision_training(self, compile, config):
+    def test_int8_mixed_precision_training(self, compile, config, module_swap):
         _reset()
         bsize = 64
         embed_dim = 64
@@ -168,7 +170,8 @@ class TestQuantizedTraining(TestCase):
 
         linear = nn.Linear(embed_dim, embed_dim, device=device)
         linear_int8mp = copy.deepcopy(linear)
-        quantize_(linear_int8mp, int8_mixed_precision_training(config), set_inductor_config=False)
+        apply_func = int8_mixed_precision_training(config, module_swap=module_swap)
+        quantize_(linear_int8mp, apply_func, set_inductor_config=False)
 
         if compile:
             linear.compile()
@@ -271,6 +274,7 @@ class TestFSDP2(FSDPTest):
             # high tolerance due to stochastic rounding
             (int8_weight_only_quantized_training, mp_policy, 0.05),
             (int8_mixed_precision_training, mp_policy, 1e-6),
+            (partial(int8_mixed_precision_training, module_swap=True), mp_policy, 1e-6),
             (bitnet_training, mp_policy, 1e-5),
         ]
 

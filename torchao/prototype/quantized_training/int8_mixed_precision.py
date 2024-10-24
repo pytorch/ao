@@ -2,7 +2,7 @@ from typing import Any, NamedTuple, Optional, Tuple
 
 import torch
 import torch.utils._pytree as pytree
-from torch import Tensor
+from torch import Tensor, nn
 from torch.utils._triton import has_triton
 
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
@@ -75,7 +75,7 @@ class Int8MixedPrecisionTrainingLinearWeight(TorchAOBaseTensor):
     def __torch_dispatch__(cls, func, types, args, kwargs):
         config = None
 
-        def unwrap(x: cls):
+        def unwrap(x):
             nonlocal config
             if config is None:
                 config = x.config
@@ -151,7 +151,16 @@ def _(func, types, args, kwargs):
     if torch.is_autocast_enabled("cuda"):
         dtype = torch.get_autocast_gpu_dtype()
         args = tuple(x.to(dtype) if x is not None else x for x in args)
-    return _Int8MixedPrecisionTrainingLinear.apply(*args, **kwargs)
+    return _Int8MixedPrecisionTrainingLinearFunction.apply(*args, **kwargs)
+
+
+class Int8MixedPrecisionTrainingLinear(nn.Linear):
+    def __init__(self, *args, config: Int8MixedPrecisionTrainingConfig, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.config = config
+
+    def forward(self, input: Tensor) -> Tensor:
+        return _Int8MixedPrecisionTrainingLinearFunction.apply(input, self.weight, self.bias, self.config)
 
 
 def _dynamic_int8_mm(A: Tensor, B: Tensor) -> Tensor:
@@ -184,21 +193,32 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor) -> Tensor:
     return out.view(*A.shape[:-1], out.shape[-1])
 
 
-class _Int8MixedPrecisionTrainingLinear(torch.autograd.Function):
+class _Int8MixedPrecisionTrainingLinearFunction(torch.autograd.Function):
     @staticmethod
-    def forward(input: Tensor, weight: Int8MixedPrecisionTrainingLinearWeight, bias: Optional[Tensor]):
-        if weight.config.output:
-            out = _dynamic_int8_mm(input, weight._data.T)
+    def forward(
+        input: Tensor,
+        weight: Int8MixedPrecisionTrainingLinearWeight,
+        bias: Optional[Tensor],
+        config: Optional[Int8MixedPrecisionTrainingConfig] = None,
+    ):
+        if isinstance(weight, Int8MixedPrecisionTrainingLinearWeight):
+            config = weight.config
+            weight = weight._data
+        if config.output:
+            out = _dynamic_int8_mm(input, weight.T)
         else:
-            out = input @ weight._data.T
+            out = input @ weight.T
         out = out + bias if bias is not None else out
         return out
 
     @staticmethod
     def setup_context(ctx, inputs, output):
-        input, weight, bias = inputs
-        ctx.config = weight.config
-        ctx.save_for_backward(input, weight._data)
+        input, weight, bias, config = inputs
+        if isinstance(weight, Int8MixedPrecisionTrainingLinearWeight):
+            config = weight.config
+            weight = weight._data
+        ctx.config = config
+        ctx.save_for_backward(input, weight)
         ctx.bias = bias is not None
 
     @staticmethod
@@ -224,12 +244,26 @@ class _Int8MixedPrecisionTrainingLinear(torch.autograd.Function):
         if ctx.needs_input_grad[2] and ctx.bias:
             grad_bias = grad_output.sum(0)
 
-        return grad_input, grad_weight, grad_bias
+        return grad_input, grad_weight, grad_bias, None
 
 
-def int8_mixed_precision_training(config: Int8MixedPrecisionTrainingConfig = _DEFAULT_CONFIG):
-    return _get_linear_subclass_inserter(
-        Int8MixedPrecisionTrainingLinearWeight,
-        config=config,
-        allow_requires_grad=True,
-    )
+def int8_mixed_precision_training(
+    config: Int8MixedPrecisionTrainingConfig = _DEFAULT_CONFIG,
+    *,
+    module_swap: bool = False,
+):
+    if module_swap:
+
+        def convert_linear(linear: nn.Linear):
+            linear.__class__ = Int8MixedPrecisionTrainingLinear
+            linear.config = config
+            return linear
+
+        return convert_linear
+
+    else:
+        return _get_linear_subclass_inserter(
+            Int8MixedPrecisionTrainingLinearWeight,
+            config=config,
+            allow_requires_grad=True,
+        )
