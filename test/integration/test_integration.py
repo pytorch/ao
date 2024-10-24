@@ -84,6 +84,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
+    TORCH_VERSION_AT_LEAST_2_6,
     unwrap_tensor_subclass,
     is_fbcode,
     benchmark_model
@@ -104,7 +105,13 @@ is_H100 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8
 def _int8wo_api(mod):
     if TORCH_VERSION_AT_LEAST_2_4:
         quantize_(mod, int8_weight_only(), set_inductor_config=False)
-        if not TORCH_VERSION_AT_LEAST_2_5:
+        if (
+            not TORCH_VERSION_AT_LEAST_2_5
+            or (
+                not TORCH_VERSION_AT_LEAST_2_6
+                and torch._inductor.config.freezing
+            )
+        ):
             unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int8_woqtensors(mod)
@@ -843,6 +850,12 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_int8_weight_only_quant_subclass_api(self, device, dtype):
+        if (
+            not TORCH_VERSION_AT_LEAST_2_6
+            and dtype in (torch.float16, torch.bfloat16)
+            and device == "cpu"
+        ):
+            self.skipTest(f"Regression fixed after torch 2.6")
         undo_recommended_configs()
         self._test_lin_weight_subclass_api_impl(
             _int8wo_api, device, 40, test_dtype=dtype
@@ -1077,6 +1090,12 @@ class TestSaveLoadMeta(unittest.TestCase):
     @torch.no_grad()
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_save_load_int8woqtensors(self, device, dtype):
+        if (
+            not TORCH_VERSION_AT_LEAST_2_6
+            and dtype in (torch.float16, torch.bfloat16)
+            and device == "cpu"
+        ):
+            self.skipTest(f"Regression fixed after torch 2.6")
         undo_recommended_configs()
         self._test_handle_save_load_meta_impl(_int8wo_api, device, test_dtype=dtype)
 
