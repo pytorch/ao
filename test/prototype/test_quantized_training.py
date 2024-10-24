@@ -6,7 +6,6 @@ if not TORCH_VERSION_AT_LEAST_2_4:
     pytest.skip("Requires torch>=2.4", allow_module_level=True)
 
 import copy
-from functools import partial
 
 import torch
 import torch.distributed as dist
@@ -272,10 +271,10 @@ class TestFSDP2(FSDPTest):
         # quantize_fn, mp_policy, tolerance
         test_args = [
             # high tolerance due to stochastic rounding
-            (int8_weight_only_quantized_training, mp_policy, 0.05),
-            (int8_mixed_precision_training, mp_policy, 1e-6),
-            (partial(int8_mixed_precision_training, module_swap=True), mp_policy, 1e-6),
-            (bitnet_training, mp_policy, 1e-5),
+            (int8_weight_only_quantized_training(), mp_policy, 0.05),
+            (int8_mixed_precision_training(), mp_policy, 1e-6),
+            (int8_mixed_precision_training(module_swap=True), mp_policy, 1e-6),
+            (bitnet_training(), mp_policy, 1e-5),
         ]
 
         # FSDP2 mixed-precision requires https://github.com/pytorch/pytorch/pull/136129
@@ -288,9 +287,9 @@ class TestFSDP2(FSDPTest):
             bf16_mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16)
 
             extra_args = [
-                (int8_weight_only_quantized_training, bf16_mp_policy, 1e-2),
-                (int8_mixed_precision_training, bf16_mp_policy, 1e-2),
-                (bitnet_training, bf16_mp_policy, 1e-2),
+                (int8_weight_only_quantized_training(), bf16_mp_policy, 1e-2),
+                (int8_mixed_precision_training(), bf16_mp_policy, 1e-2),
+                (bitnet_training(), bf16_mp_policy, 1e-2),
             ]
             test_args.extend(extra_args)
 
@@ -316,8 +315,8 @@ class TestFSDP2(FSDPTest):
         base_model = Transformer(model_args).cuda()
         fsdp_model = copy.deepcopy(base_model)
 
-        quantize_(base_model.layers, quantize_fn(), set_inductor_config=False)
-        quantize_(fsdp_model.layers, quantize_fn(), set_inductor_config=False)
+        quantize_(base_model.layers, quantize_fn, set_inductor_config=False)
+        quantize_(fsdp_model.layers, quantize_fn, set_inductor_config=False)
 
         for layer in fsdp_model.layers:
             fully_shard(layer, mp_policy=mp_policy)
