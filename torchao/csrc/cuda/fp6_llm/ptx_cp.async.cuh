@@ -38,8 +38,8 @@
 // #endif
 #include <cuda_runtime.h>
 
-template<typename T, int SizeInBytes>
-__device__ __forceinline__ void cp_async(T* smem_ptr, const T* global_ptr, bool pred_guard = true)
+template<int SizeInBytes>
+__device__ __forceinline__ void cp_async(half* smem_ptr, const half* global_ptr, bool pred_guard = true)
 {
     static_assert(SizeInBytes == 16, "Size is not supported");
     unsigned smem_int_ptr = __cvta_generic_to_shared(smem_ptr);

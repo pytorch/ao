@@ -29,7 +29,7 @@
  * Copying A1/A2 from global memory to shared memory.
  * Usually 1024 or 2048 Bytes
  */
-template<typename T, int SMEM_SIZE_IN_BYTES_PER_WARP>
+template<int SMEM_SIZE_IN_BYTES_PER_WARP>
 __device__ __forceinline__ void CopyFromGlobalToShared_A(uint32_t* SPTR, 
                                                         const uint4* GPTR,
                                                         bool pred_guard = true) {
@@ -37,8 +37,8 @@ __device__ __forceinline__ void CopyFromGlobalToShared_A(uint32_t* SPTR,
         static_assert(SMEM_SIZE_IN_BYTES_PER_WARP/WARP_SIZE % 16 == 0);
     #endif
     int lane_id      = threadIdx.x % WARP_SIZE;
-    T* SPTR_T = reinterpret_cast<T*>(SPTR);
-    const T* GPTR_T = reinterpret_cast<const T*>(GPTR);
+    half* SPTR_T = reinterpret_cast<half*>(SPTR);
+    const half* GPTR_T = reinterpret_cast<const half*>(GPTR);
     SPTR_T += lane_id*8;
     GPTR_T += lane_id*8;
     #pragma unroll
@@ -50,7 +50,7 @@ __device__ __forceinline__ void CopyFromGlobalToShared_A(uint32_t* SPTR,
             SPTR_VEC[0] = GPTR_VEC[0];
         }
         #else
-        cp_async<T, 16>( SPTR_T, GPTR_T, pred_guard);
+        cp_async<16>( SPTR_T, GPTR_T, pred_guard);
         #endif
         SPTR_T += 256;   // Forward 512 Bytes
         GPTR_T += 256;   // Forward 512 Bytes
@@ -76,9 +76,9 @@ __device__ __forceinline__ void CopyFromGlobalToShared_Scales(T* SPTR_QuantScale
  * (2) Copying 64 rows * X  columns of FP16 values, originally in column major
  * 16 Bytes per thread -> 512 Bytes per WARP = 4 line per WARP = 1 line per 8 Threads
  */
-template<typename T, int MaxNumOfLinesToCopy, int BLOCK_WARPS>
-__device__ __forceinline__ void CopyFromGlobalToShared(T (* __restrict__ SharedPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
-                                                       const T*             GlobalPTR,
+template<int MaxNumOfLinesToCopy, int BLOCK_WARPS>
+__device__ __forceinline__ void CopyFromGlobalToShared(half (* __restrict__ SharedPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
+                                                       const half*          GlobalPTR,
                                                        const int            GlobalStride,
                                                        const int            NumOfLinesLeft,        // To support arbitrary N dimensions.
                                                        bool                 Pred = true) {
@@ -102,7 +102,7 @@ __device__ __forceinline__ void CopyFromGlobalToShared(T (* __restrict__ SharedP
             SharedPtrVec[0] = GlobalPtrVec[0];
         }
         #else
-        cp_async<T, 16>( &(*SharedPTR)[line_offset], GlobalPTR, AsyncCopyPred);
+        cp_async<16>( &(*SharedPTR)[line_offset], GlobalPTR, AsyncCopyPred);
         #endif
         GlobalPTR += NumOfGroups * GlobalStride;
         SharedPTR += NumOfGroups;

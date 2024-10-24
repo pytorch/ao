@@ -71,7 +71,7 @@ static void Kernel_Ex(cudaStream_t        stream,
         printf("\n");
     #endif
     QUANT_GEMM_Kernel<TilingConfig, InputDataType, OutputDataType, EXPONENT, MANTISSA><<<GridDim, BlockDim, SHMEM_SZ, stream>>>
-                    (Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);
+                    (Weight, reinterpret_cast<const half*>(Scales), reinterpret_cast<const half*>(B), C, M_Global, N_Global, K_Global, Split_K);
 }
 
 template<typename InputDataType, int EXPONENT, int MANTISSA>

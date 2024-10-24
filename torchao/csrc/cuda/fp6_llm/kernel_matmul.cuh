@@ -47,8 +47,8 @@
  * C: col major, FP16
  */ 
  template<typename TilingConfig, typename InputDataType, typename OutputDataType, int EXPONENT, int MANTISSA>
-__global__ void QUANT_GEMM_Kernel(const uint4* Weight, const InputDataType* Scales,
-                                  const InputDataType *B,
+__global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
+                                  const half *B,
                                   OutputDataType* C,
                                   const size_t M_Global, const size_t N_Global, const size_t K_Global,
                                   int Split_K)
@@ -67,12 +67,8 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const InputDataType* Scal
   const uint4* Weight_2bit = Weight_1bit + (USE_SEG_1BIT ? M_Global*K_Global*BIT_WIDTH_1/128 : 0);
   const uint4* Weight_4bit = Weight_2bit + (USE_SEG_2BIT ? M_Global*K_Global*BIT_WIDTH_2/128 : 0);
   // Dynamic shared memory for FP16 A tiles， 128 Bytes aligned
-  extern __shared__ __align__(128) half smem_[];   
-  // Defining smem like this is necessary for templated kernels (defining it as
-  // a fixed type and then casting it to the template type). See 
-  // https://leimao.github.io/blog/CUDA-Shared-Memory-Templated-Kernel/ for details.
-  InputDataType* smem = reinterpret_cast<InputDataType*>(smem_);
-  InputDataType (*smem_array)[WARP_K+PADDING_SHARED_MEM_FOR_B_8] = reinterpret_cast<InputDataType (*)[WARP_K+PADDING_SHARED_MEM_FOR_B_8]> ( smem + SMEM_SIZE_PER_TB_A_TILE/2 ); // Dynamic shared memory for FP16 B tiles
+  extern __shared__ __align__(128) half smem[];   
+  half (*smem_array)[WARP_K+PADDING_SHARED_MEM_FOR_B_8] = reinterpret_cast<half (*)[WARP_K+PADDING_SHARED_MEM_FOR_B_8]> ( smem + SMEM_SIZE_PER_TB_A_TILE/2 ); // Dynamic shared memory for FP16 B tiles
   __shared__ InputDataType QuantScales[64*TilingConfig::BLOCK_WARPS];  // static shared memory for quantization scales, 64 row per warp * 4 warps = 512 Bytes
   // Thread Block Mapping, considering SplitK
   const size_t BatchID = blockIdx.y / (M_Global/TilingConfig::TILE_M);
@@ -121,21 +117,21 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const InputDataType* Scal
   AFrag_4BIT_SPTR += warpId * SMEM_SIZE_PER_WARP_4BIT/4;
   // Pre-fetch of A tile
   for(int i=0; i<PIPELINE_LEVEL_GMEM-1; i++) {
-    if(USE_SEG_1BIT) CopyFromGlobalToShared_A<InputDataType, SMEM_SIZE_PER_WARP_1BIT>(AFrag_1BIT_SPTR+i*SMEM_SIZE_PER_WARP_1BIT/4*4, WARP_StartGPTR_A_1BIT);
-    if(USE_SEG_2BIT) CopyFromGlobalToShared_A<InputDataType, SMEM_SIZE_PER_WARP_2BIT>(AFrag_2BIT_SPTR+i*SMEM_SIZE_PER_WARP_2BIT/4*4, WARP_StartGPTR_A_2BIT);
-    if(USE_SEG_4BIT) CopyFromGlobalToShared_A<InputDataType, SMEM_SIZE_PER_WARP_4BIT>(AFrag_4BIT_SPTR+i*SMEM_SIZE_PER_WARP_4BIT/4*4, WARP_StartGPTR_A_4BIT);
+    if(USE_SEG_1BIT) CopyFromGlobalToShared_A<SMEM_SIZE_PER_WARP_1BIT>(AFrag_1BIT_SPTR+i*SMEM_SIZE_PER_WARP_1BIT/4*4, WARP_StartGPTR_A_1BIT);
+    if(USE_SEG_2BIT) CopyFromGlobalToShared_A<SMEM_SIZE_PER_WARP_2BIT>(AFrag_2BIT_SPTR+i*SMEM_SIZE_PER_WARP_2BIT/4*4, WARP_StartGPTR_A_2BIT);
+    if(USE_SEG_4BIT) CopyFromGlobalToShared_A<SMEM_SIZE_PER_WARP_4BIT>(AFrag_4BIT_SPTR+i*SMEM_SIZE_PER_WARP_4BIT/4*4, WARP_StartGPTR_A_4BIT);
     WARP_StartGPTR_A_1BIT += SMEM_SIZE_PER_WARP_1BIT/16;
     WARP_StartGPTR_A_2BIT += SMEM_SIZE_PER_WARP_2BIT/16;
     WARP_StartGPTR_A_4BIT += SMEM_SIZE_PER_WARP_4BIT/16;
   }
   // Global Memory Address for Matrix A (QuantScale) /////////////////////////////////////////////////////////////////////
-  const InputDataType* TB_StartGPTR_A_Scale    = Scales + (y*TilingConfig::BLOCK_ROW_WARPS) * 64;
+  const InputDataType* TB_StartGPTR_A_Scale    = reinterpret_cast<const InputDataType*>(Scales) + (y*TilingConfig::BLOCK_ROW_WARPS) * 64;
   const InputDataType* WARP_StartGPTR_A_Scales = TB_StartGPTR_A_Scale + WARP_i * 64;
   CopyFromGlobalToShared_Scales<InputDataType>(QuantScales+WARP_i*64, WARP_StartGPTR_A_Scales);
   // Copying B tile from Global to Shared, considering SplitK /////////////////////////////////////////////////////////////
-  const InputDataType *BTile_GPTR = B + Tile_Start_N * K_Global + StartBlockID_K * TilingConfig::TILE_K;
+  const InputDataType *BTile_GPTR = reinterpret_cast<const InputDataType*>(B) + Tile_Start_N * K_Global + StartBlockID_K * TilingConfig::TILE_K;
   for(int i=0; i<PIPELINE_LEVEL_GMEM-1; i++) {
-    CopyFromGlobalToShared<InputDataType, TilingConfig::TILE_N, TilingConfig::BLOCK_WARPS> (smem_array+i*TilingConfig::TILE_N, BTile_GPTR, K_Global, NumColumnToCopy);
+    CopyFromGlobalToShared<TilingConfig::TILE_N, TilingConfig::BLOCK_WARPS> (smem_array+i*TilingConfig::TILE_N, reinterpret_cast<const half*>(BTile_GPTR), K_Global, NumColumnToCopy);
     BTile_GPTR += TilingConfig::TILE_K;    
   }
   // Register Allocation for A,B, and C, Initilazed to Zeros /////////////////////////////////////////////////////////////////////
@@ -158,7 +154,7 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const InputDataType* Scal
   ExtractFromSharedToReg_Scales<InputDataType>(Scales_RPTR, QuantScales + WARP_i*64);
   // Initializing the Software Pipeline: writing registers. ////////////////////////////////////////////////////////////////////////////////////////////////
   constexpr bool USE_BF16 = std::is_same<InputDataType, __nv_bfloat16>::value;
-  initialize_mma_slice<InputDataType, TilingConfig, EXPONENT, MANTISSA, USE_BF16>(a, b, AFrag_1BIT_SPTR, AFrag_2BIT_SPTR, AFrag_4BIT_SPTR, smem_array, Scales_RPTR);
+  initialize_mma_slice<TilingConfig, EXPONENT, MANTISSA, USE_BF16>(a, b, AFrag_1BIT_SPTR, AFrag_2BIT_SPTR, AFrag_4BIT_SPTR, smem_array, Scales_RPTR);
   // The outer loop. /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   #pragma unroll(1)
   for (size_t tile_id_k = 0; tile_id_k < NumIter; tile_id_k++)
@@ -175,29 +171,29 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const InputDataType* Scal
     uint32_t* __restrict__ write_SPTR_Frag_4bit = AFrag_4BIT_SPTR + ((tile_id_k+(PIPELINE_LEVEL_GMEM-1))  % PIPELINE_LEVEL_GMEM) * SMEM_SIZE_PER_WARP_4BIT/4*4; // 2048 (1)*4: 4 WARPs; (2)/4: int*+1 = char*+16
     // Trible-Buffer for B Tile
     // MODIFICATION NOTE: to support MSVC, half __restrict__ (*read_SPTR ) is changed to below. similarly for read2_SPTR and write_SPTR.
-    InputDataType (* __restrict__ read_SPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8] = smem_array + ((tile_id_k+0)  % PIPELINE_LEVEL_GMEM) * TilingConfig::TILE_N;
-    InputDataType (* __restrict__ read2_SPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8] = smem_array + ((tile_id_k+1) % PIPELINE_LEVEL_GMEM) * TilingConfig::TILE_N;
-    InputDataType (* __restrict__ write_SPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8] = smem_array + ((tile_id_k+(PIPELINE_LEVEL_GMEM-1))  % PIPELINE_LEVEL_GMEM) * TilingConfig::TILE_N;
+    half (* __restrict__ read_SPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8] = smem_array + ((tile_id_k+0)  % PIPELINE_LEVEL_GMEM) * TilingConfig::TILE_N;
+    half (* __restrict__ read2_SPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8] = smem_array + ((tile_id_k+1) % PIPELINE_LEVEL_GMEM) * TilingConfig::TILE_N;
+    half (* __restrict__ write_SPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8] = smem_array + ((tile_id_k+(PIPELINE_LEVEL_GMEM-1))  % PIPELINE_LEVEL_GMEM) * TilingConfig::TILE_N;
     //
     bool GlobalCopy = (tile_id_k+PIPELINE_LEVEL_GMEM-1) < NumIter;
     // Copying A tile from Global to Register, Bypassing L1, using double-buffer
-    if(USE_SEG_1BIT) CopyFromGlobalToShared_A<InputDataType, SMEM_SIZE_PER_WARP_1BIT>(write_SPTR_Frag_1bit, WARP_StartGPTR_A_1BIT, GlobalCopy);
-    if(USE_SEG_2BIT) CopyFromGlobalToShared_A<InputDataType, SMEM_SIZE_PER_WARP_2BIT>(write_SPTR_Frag_2bit, WARP_StartGPTR_A_2BIT, GlobalCopy);
-    if(USE_SEG_4BIT) CopyFromGlobalToShared_A<InputDataType, SMEM_SIZE_PER_WARP_4BIT>(write_SPTR_Frag_4bit, WARP_StartGPTR_A_4BIT, GlobalCopy);
+    if(USE_SEG_1BIT) CopyFromGlobalToShared_A<SMEM_SIZE_PER_WARP_1BIT>(write_SPTR_Frag_1bit, WARP_StartGPTR_A_1BIT, GlobalCopy);
+    if(USE_SEG_2BIT) CopyFromGlobalToShared_A<SMEM_SIZE_PER_WARP_2BIT>(write_SPTR_Frag_2bit, WARP_StartGPTR_A_2BIT, GlobalCopy);
+    if(USE_SEG_4BIT) CopyFromGlobalToShared_A<SMEM_SIZE_PER_WARP_4BIT>(write_SPTR_Frag_4bit, WARP_StartGPTR_A_4BIT, GlobalCopy);
     // copying B tile from GlobalMemory to SharedMemory
-    CopyFromGlobalToShared<InputDataType, TilingConfig::TILE_N, TilingConfig::BLOCK_WARPS> (write_SPTR, BTile_GPTR, K_Global, NumColumnToCopy, GlobalCopy);
+    CopyFromGlobalToShared<TilingConfig::TILE_N, TilingConfig::BLOCK_WARPS> (write_SPTR, reinterpret_cast<const half*>(BTile_GPTR), K_Global, NumColumnToCopy, GlobalCopy);
     #if __CUDA_ARCH__ >= 800
     cp_async_group_commit();
     #endif
-    core_mma_slice<InputDataType, TilingConfig, EXPONENT, MANTISSA, USE_BF16>(c, a, b, read_SPTR_Frag_1bit, read_SPTR_Frag_2bit, read_SPTR_Frag_4bit, read_SPTR, Scales_RPTR, 1); // read_SPTR_Frag_2bit, read_SPTR_Frag_4bit are different for each WARP; read_SPTR is shared among WARPs
-    core_mma_slice<InputDataType, TilingConfig, EXPONENT, MANTISSA, USE_BF16>(c, a, b, read_SPTR_Frag_1bit, read_SPTR_Frag_2bit, read_SPTR_Frag_4bit, read_SPTR, Scales_RPTR, 2);
-    core_mma_slice<InputDataType, TilingConfig, EXPONENT, MANTISSA, USE_BF16>(c, a, b, read_SPTR_Frag_1bit, read_SPTR_Frag_2bit, read_SPTR_Frag_4bit, read_SPTR, Scales_RPTR, 3);
+    core_mma_slice<TilingConfig, EXPONENT, MANTISSA, USE_BF16>(c, a, b, read_SPTR_Frag_1bit, read_SPTR_Frag_2bit, read_SPTR_Frag_4bit, read_SPTR, Scales_RPTR, 1); // read_SPTR_Frag_2bit, read_SPTR_Frag_4bit are different for each WARP; read_SPTR is shared among WARPs
+    core_mma_slice<TilingConfig, EXPONENT, MANTISSA, USE_BF16>(c, a, b, read_SPTR_Frag_1bit, read_SPTR_Frag_2bit, read_SPTR_Frag_4bit, read_SPTR, Scales_RPTR, 2);
+    core_mma_slice<TilingConfig, EXPONENT, MANTISSA, USE_BF16>(c, a, b, read_SPTR_Frag_1bit, read_SPTR_Frag_2bit, read_SPTR_Frag_4bit, read_SPTR, Scales_RPTR, 3);
     // Barriers and Synchronizations
     #if __CUDA_ARCH__ >= 800
     cp_async_wait_group<PIPELINE_LEVEL_GMEM-2>();
     #endif
     __syncthreads();
-    core_mma_slice<InputDataType, TilingConfig, EXPONENT, MANTISSA, USE_BF16>(c, a, b, read2_SPTR_Frag_1bit, read2_SPTR_Frag_2bit, read2_SPTR_Frag_4bit, read2_SPTR, Scales_RPTR, 0);
+    core_mma_slice<TilingConfig, EXPONENT, MANTISSA, USE_BF16>(c, a, b, read2_SPTR_Frag_1bit, read2_SPTR_Frag_2bit, read2_SPTR_Frag_4bit, read2_SPTR, Scales_RPTR, 0);
     // Updating global PTRs
     WARP_StartGPTR_A_1BIT += SMEM_SIZE_PER_WARP_1BIT/16;  // 2KB/16=128 (1)/16: int4*+1 = char*+16
     WARP_StartGPTR_A_2BIT += SMEM_SIZE_PER_WARP_2BIT/16;  // 4KB/16=256 (1)/16: int4*+1 = char*+16

@@ -46,9 +46,9 @@
 // MODIFICATION NOTE: to support MSVC
 // - uint32_t __restrict__ Reg[][4] is changed to uint32_t (* __restrict__ Reg)[4]
 // - half __restrict__ (*read_SPTR) is changed to half (* __restrict__ read_SPTR)
-template <typename T, typename TilingConfig>
+template <typename TilingConfig>
 __device__ __forceinline__ void B_FromSharedToReg(uint32_t (* __restrict__ Reg)[4],
-                                                  T        (* __restrict__ read_SPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
+                                                  half     (* __restrict__ read_SPTR)[WARP_K+PADDING_SHARED_MEM_FOR_B_8],
                                                   int                      slice_id) {
     #ifdef DEBUG_MODE
         static_assert( (TilingConfig::WARP_COL_MMA_TENSORS==1) || (TilingConfig::WARP_COL_MMA_TENSORS%2==0) );
@@ -85,7 +85,7 @@ __device__ __forceinline__ void B_FromSharedToReg(uint32_t (* __restrict__ Reg)[
             asm volatile("ldmatrix.sync.aligned.x4.m8n8.shared.b16 {%0, %1, %2, %3}, [%4];\n"
                          : "=r"(Reg[i][0]), "=r"(Reg[i][1]), "=r"(Reg[i][2]), "=r"(Reg[i][3])
                          : "r"(smem_local_ptr));
-            smem_local_ptr += 16 * (WARP_K+PADDING_SHARED_MEM_FOR_B_8) * sizeof(T);
+            smem_local_ptr += 16 * (WARP_K+PADDING_SHARED_MEM_FOR_B_8) * sizeof(half);
         }
     }
 }
