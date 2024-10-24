@@ -36,9 +36,9 @@
 
 #include <cuda.h>
 #include <cuda_fp16.h>
-// #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800
 #include <cuda_bf16.h>
-// #endif
+#endif
 #include <cuda_runtime.h>
 
 #define REDUCTION_ELEMENT_PER_THREADBLOCK   256
@@ -62,6 +62,10 @@ __global__ void SplitK_Reduction(T* C, float* Reduction_Workspace, size_t M_Glob
         THREAD_GPTR_R += M_Global * N_Global;
     }
     // Writing to global memory
+    #if __CUDA_ARCH__ < 800
+    #pragma unroll
+    for (int i = 0; i < HALF_PER_128BIT; i++)       THREAD_GPTR_C[i] = __float2half_rn(Results[i]);
+    #else
     if constexpr (std::is_same<T, half>::value) {
         #pragma unroll
         for (int i = 0; i < HALF_PER_128BIT; i++)       THREAD_GPTR_C[i] = __float2half_rn(Results[i]);
@@ -69,4 +73,5 @@ __global__ void SplitK_Reduction(T* C, float* Reduction_Workspace, size_t M_Glob
         #pragma unroll
         for (int i = 0; i < HALF_PER_128BIT; i++)       THREAD_GPTR_C[i] = __float2bfloat16_rn(Results[i]);
     }
+    #endif
 }

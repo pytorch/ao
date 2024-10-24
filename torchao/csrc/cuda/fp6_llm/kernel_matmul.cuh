@@ -153,7 +153,11 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
   uint32_t Scales_RPTR[4]; // 4 Registers per thread for Quantization Scales
   ExtractFromSharedToReg_Scales(Scales_RPTR, QuantScales + WARP_i*64);
   // Initializing the Software Pipeline: writing registers. ////////////////////////////////////////////////////////////////////////////////////////////////
+  #if __CUDA_ARCH__ >= 800
   constexpr bool USE_BF16 = std::is_same<InputDataType, __nv_bfloat16>::value;
+  #else
+  constexpr bool USE_BF16 = false;
+  #endif
   initialize_mma_slice<TilingConfig, EXPONENT, MANTISSA, USE_BF16>(a, b, AFrag_1BIT_SPTR, AFrag_2BIT_SPTR, AFrag_4BIT_SPTR, smem_array, Scales_RPTR);
   // The outer loop. /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   #pragma unroll(1)
@@ -215,8 +219,10 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
     {
       if constexpr (std::is_same<OutputDataType, half>::value)
         BlockGlobalPTR[j+i*M_Global] = __float2half_rn(smem_CFrag[i][j]);
+      #if __CUDA_ARCH__ >= 800
       else if constexpr (std::is_same<OutputDataType, __nv_bfloat16>::value)
         BlockGlobalPTR[j+i*M_Global] = __float2bfloat16_rn(smem_CFrag[i][j]);
+      #endif
       else
         BlockGlobalPTR[j+i*M_Global] = smem_CFrag[i][j];
     }

@@ -49,8 +49,8 @@ static void Kernel_Ex(cudaStream_t    stream,
                       OutputDataType  *C,
                       const size_t    M_Global,
                       const size_t    N_Global,
-                      const size_t    K_Global,
-                      int             Split_K)
+                      const size_t    K_Global, 
+                      int             Split_K) 
 {
     #ifdef DEBUG_MODE
         printf("\n");
@@ -86,7 +86,9 @@ cudaError_t fpx_linear_kernel(cudaStream_t    stream,
                               float           *Reduction_Workspace,  // Reduction_Workspace_Size = Split_K * M_Global * N_Global * sizeof(fp32)
                               int             Split_K)
 {
+    #if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800
     static_assert(std::is_same<InputDataType, half>::value || std::is_same<InputDataType, __nv_bfloat16>::value, "Type must be float or __nv_bfloat16");
+    #endif
     assert(M_Global % 256 == 0);
     assert(K_Global % 64 == 0);
     assert(N_Global>0);
@@ -155,7 +157,19 @@ cudaError_t fpx_linear_kernel(cudaStream_t    stream,
 #include <torch/library.h>
 
 // https://github.com/NVIDIA/apex/blob/master/csrc/type_shim.h
-// #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+#if __CUDA_ARCH__ == 750
+#define DISPATCH_HALF_AND_BF16(TYPE, NAME, ...)                                \
+  switch (TYPE) {                                                              \
+  case at::ScalarType::Half: {                                                 \
+    using torch_t = at::Half;                                                  \
+    using nv_t = half;                                                         \
+    __VA_ARGS__();                                                             \
+    break;                                                                     \
+  }                                                                            \
+  default:                                                                     \
+    AT_ERROR(#NAME, " not implemented for '", toString(TYPE), "'");            \
+  }
+#else
 #define DISPATCH_HALF_AND_BF16(TYPE, NAME, ...)                                \
   switch (TYPE) {                                                              \
   case at::ScalarType::Half: {                                                 \
@@ -173,6 +187,7 @@ cudaError_t fpx_linear_kernel(cudaStream_t    stream,
   default:                                                                     \
     AT_ERROR(#NAME, " not implemented for '", toString(TYPE), "'");            \
   }
+#endif
 
 namespace torchao {
 // MODIFICATION NOTE: dtype of _weights is changed to uint8

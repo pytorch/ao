@@ -20,10 +20,9 @@
 
 #include <cuda.h>
 #include <cuda_fp16.h>
-// TODO: can cuda_bf16 be imported for SM75? How to guard against this? The guard below does not work outside of device code
-// #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800
 #include <cuda_bf16.h>
-// #endif
+#endif
 #include <cuda_runtime.h>
 
 /*
@@ -62,6 +61,7 @@ __device__ __forceinline__ uint32_t MultScale(uint32_t PackedFP16Pair, half Scal
     return output;
 }
 
+#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800
 template<int EXPONENT, int MANTISSA>
 __device__ __forceinline__ uint32_t MultScale(uint32_t PackedBF16Pair, __nv_bfloat16 Scale) {
     constexpr int BIAS_OFFSET = (int(1) << (8-1)) - (int(1) << (EXPONENT-1));
@@ -76,6 +76,7 @@ __device__ __forceinline__ uint32_t MultScale(uint32_t PackedBF16Pair, __nv_bflo
     output_bf16_ptr[1] = __hmul( __hmul(*BF16_2,__float2bfloat16(bias)), Scale);
     return output;
 }
+#endif
 
 // MODIFICATION NOTE: to support MSVC
 // - u_int32_t __restrict__ Reg[][4] is changed to below.
@@ -96,7 +97,11 @@ __device__ __forceinline__ void Dequant_32FP6_4Way(uint32_t (* __restrict__ Reg)
     uint32_t *Frag_PTR_1bit = read_RPTR_1bit;
     uint32_t *Frag_PTR_2bit = read_RPTR_2bit;
     uint32_t *Frag_PTR_4bit = read_RPTR_4bit;
+    #if __CUDA_ARCH__ >= 800
     using scalar_t = typename std::conditional<USE_BF16, __nv_bfloat16, half>::type;
+    #else
+    using scalar_t = half;
+    #endif
     scalar_t *Scale_RPTR = reinterpret_cast<scalar_t*>(Scales);
     // Dequantizing 32 FP6, each Loop dequantizing 4 FP6
     #pragma unroll(8)
