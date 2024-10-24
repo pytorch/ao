@@ -48,10 +48,10 @@ template <typename T>
 __global__ void SplitK_Reduction(T* C, float* Reduction_Workspace, size_t M_Global, size_t N_Global, int Split_K)
 {
     static_assert(std::is_same<T, half>::value || std::is_same<T, __nv_bfloat16>::value, "Type must be float or __nv_bfloat16");
-    T*  WARP_GPTR_C      = C                    + REDUCTION_ELEMENT_PER_THREADBLOCK * blockIdx.x;
-    float* WARP_GPTR_R   = Reduction_Workspace  + REDUCTION_ELEMENT_PER_THREADBLOCK * blockIdx.x;
-    T*  THREAD_GPTR_C    = WARP_GPTR_C          + threadIdx.x * HALF_PER_128BIT;    
-    float* THREAD_GPTR_R = WARP_GPTR_R          + threadIdx.x * HALF_PER_128BIT;
+    T*  WARP_GPTR_C         = C                    + REDUCTION_ELEMENT_PER_THREADBLOCK * blockIdx.x;
+    float* WARP_GPTR_R      = Reduction_Workspace  + REDUCTION_ELEMENT_PER_THREADBLOCK * blockIdx.x;
+    T*  THREAD_GPTR_C       = WARP_GPTR_C          + threadIdx.x * HALF_PER_128BIT;
+    float* THREAD_GPTR_R    = WARP_GPTR_R          + threadIdx.x * HALF_PER_128BIT;
     // Initializing Thread-Local Results
     float Results[HALF_PER_128BIT];
     #pragma unroll
@@ -69,5 +69,5 @@ __global__ void SplitK_Reduction(T* C, float* Reduction_Workspace, size_t M_Glob
     } else {  // __nv_bfloat16>
         #pragma unroll
         for (int i = 0; i < HALF_PER_128BIT; i++)       THREAD_GPTR_C[i] = __float2bfloat16_rn(Results[i]);
-    } 
+    }
 }
