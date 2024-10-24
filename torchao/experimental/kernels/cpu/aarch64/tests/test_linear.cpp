@@ -399,7 +399,8 @@ void test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod(
       group_size,
       test_case.weight_qvals.data(),
       test_case.weight_scales.data(),
-      /*weight_zeros=*/test_case.weight_zeros.data());
+      /*weight_zeros=*/test_case.weight_zeros.data(),
+      /*bias=*/test_case.bias.data());
 
   std::vector<float> output(m * n);
   kernel(
@@ -411,7 +412,6 @@ void test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod(
       group_size,
       weight_data.data(),
       activation_data.data(),
-      /*bias=*/test_case.bias.data(),
       /*clamp_min=*/test_case.clamp_min,
       /*clamp_max=*/test_case.clamp_max);
 
@@ -513,7 +513,8 @@ void test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod(
       group_size,
       test_case.weight_qvals.data(),
       test_case.weight_scales.data(),
-      /*weight_zeros=*/test_case.weight_zeros.data());
+      /*weight_zeros=*/test_case.weight_zeros.data(),
+      /*bias=*/test_case.bias.data());
 
   std::vector<float> output(m * n);
   kernel(
@@ -525,7 +526,6 @@ void test_kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod(
       group_size,
       weight_data.data(),
       activation_data.data(),
-      /*bias=*/test_case.bias.data(),
       /*clamp_min=*/test_case.clamp_min,
       /*clamp_max=*/test_case.clamp_max);
 
