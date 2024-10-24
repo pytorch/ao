@@ -61,9 +61,8 @@ __device__ __forceinline__ void CopyFromGlobalToShared_A(uint32_t* SPTR,
 /* 
  * Copying 64 Quant Scales (FP16) from global memory to shared memory.
  */
-template <typename T>
-__device__ __forceinline__ void CopyFromGlobalToShared_Scales(T* SPTR_QuantScales,
-                                                              const T* GPTR_A_Scales) {
+__device__ __forceinline__ void CopyFromGlobalToShared_Scales(half* SPTR_QuantScales,
+                                                              const half* GPTR_A_Scales) {
     int lane_id         = threadIdx.x % WARP_SIZE;
     int Offset_Shared   = lane_id*2; 
     int Offset_Global   = lane_id/4 + (lane_id%4)*16;

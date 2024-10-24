@@ -125,13 +125,13 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
     WARP_StartGPTR_A_4BIT += SMEM_SIZE_PER_WARP_4BIT/16;
   }
   // Global Memory Address for Matrix A (QuantScale) /////////////////////////////////////////////////////////////////////
-  const InputDataType* TB_StartGPTR_A_Scale    = reinterpret_cast<const InputDataType*>(Scales) + (y*TilingConfig::BLOCK_ROW_WARPS) * 64;
-  const InputDataType* WARP_StartGPTR_A_Scales = TB_StartGPTR_A_Scale + WARP_i * 64;
-  CopyFromGlobalToShared_Scales<InputDataType>(reinterpret_cast<InputDataType*>(QuantScales+WARP_i*64), WARP_StartGPTR_A_Scales);
+  const half* TB_StartGPTR_A_Scale    = Scales + (y*TilingConfig::BLOCK_ROW_WARPS) * 64;
+  const half* WARP_StartGPTR_A_Scales = TB_StartGPTR_A_Scale + WARP_i * 64;
+  CopyFromGlobalToShared_Scales(QuantScales+WARP_i*64, WARP_StartGPTR_A_Scales);
   // Copying B tile from Global to Shared, considering SplitK /////////////////////////////////////////////////////////////
-  const InputDataType *BTile_GPTR = reinterpret_cast<const InputDataType*>(B) + Tile_Start_N * K_Global + StartBlockID_K * TilingConfig::TILE_K;
+  const half *BTile_GPTR = B + Tile_Start_N * K_Global + StartBlockID_K * TilingConfig::TILE_K;
   for(int i=0; i<PIPELINE_LEVEL_GMEM-1; i++) {
-    CopyFromGlobalToShared<TilingConfig::TILE_N, TilingConfig::BLOCK_WARPS> (smem_array+i*TilingConfig::TILE_N, reinterpret_cast<const half*>(BTile_GPTR), K_Global, NumColumnToCopy);
+    CopyFromGlobalToShared<TilingConfig::TILE_N, TilingConfig::BLOCK_WARPS> (smem_array+i*TilingConfig::TILE_N, BTile_GPTR, K_Global, NumColumnToCopy);
     BTile_GPTR += TilingConfig::TILE_K;    
   }
   // Register Allocation for A,B, and C, Initilazed to Zeros /////////////////////////////////////////////////////////////////////
@@ -181,7 +181,7 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
     if(USE_SEG_2BIT) CopyFromGlobalToShared_A<SMEM_SIZE_PER_WARP_2BIT>(write_SPTR_Frag_2bit, WARP_StartGPTR_A_2BIT, GlobalCopy);
     if(USE_SEG_4BIT) CopyFromGlobalToShared_A<SMEM_SIZE_PER_WARP_4BIT>(write_SPTR_Frag_4bit, WARP_StartGPTR_A_4BIT, GlobalCopy);
     // copying B tile from GlobalMemory to SharedMemory
-    CopyFromGlobalToShared<TilingConfig::TILE_N, TilingConfig::BLOCK_WARPS> (write_SPTR, reinterpret_cast<const half*>(BTile_GPTR), K_Global, NumColumnToCopy, GlobalCopy);
+    CopyFromGlobalToShared<TilingConfig::TILE_N, TilingConfig::BLOCK_WARPS> (write_SPTR, BTile_GPTR, K_Global, NumColumnToCopy, GlobalCopy);
     #if __CUDA_ARCH__ >= 800
     cp_async_group_commit();
     #endif

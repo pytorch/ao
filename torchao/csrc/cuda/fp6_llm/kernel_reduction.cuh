@@ -47,7 +47,6 @@
 template <typename T>
 __global__ void SplitK_Reduction(T* C, float* Reduction_Workspace, size_t M_Global, size_t N_Global, int Split_K)
 {
-    static_assert(std::is_same<T, half>::value || std::is_same<T, __nv_bfloat16>::value, "Type must be float or __nv_bfloat16");
     T*  WARP_GPTR_C         = C                    + REDUCTION_ELEMENT_PER_THREADBLOCK * blockIdx.x;
     float* WARP_GPTR_R      = Reduction_Workspace  + REDUCTION_ELEMENT_PER_THREADBLOCK * blockIdx.x;
     T*  THREAD_GPTR_C       = WARP_GPTR_C          + threadIdx.x * HALF_PER_128BIT;

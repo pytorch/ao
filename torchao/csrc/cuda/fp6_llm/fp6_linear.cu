@@ -42,15 +42,15 @@ inline bool isSM75GPU() {
 }
 
 template<typename TilingConfig, typename InputDataType, typename OutputDataType, int EXPONENT, int MANTISSA>
-static void Kernel_Ex(cudaStream_t        stream,
-                      const uint4         *Weight,
-                      const InputDataType *Scales,
-                      const InputDataType *B,
-                      OutputDataType      *C,
-                      const size_t        M_Global,
-                      const size_t        N_Global,
-                      const size_t        K_Global, 
-                      int                 Split_K) 
+static void Kernel_Ex(cudaStream_t    stream,
+                      const uint4     *Weight,
+                      const half      *Scales,
+                      const half      *B,
+                      OutputDataType  *C,
+                      const size_t    M_Global,
+                      const size_t    N_Global,
+                      const size_t    K_Global,
+                      int             Split_K)
 {
     #ifdef DEBUG_MODE
         printf("\n");
@@ -71,20 +71,20 @@ static void Kernel_Ex(cudaStream_t        stream,
         printf("\n");
     #endif
     QUANT_GEMM_Kernel<TilingConfig, InputDataType, OutputDataType, EXPONENT, MANTISSA><<<GridDim, BlockDim, SHMEM_SZ, stream>>>
-                    (Weight, reinterpret_cast<const half*>(Scales), reinterpret_cast<const half*>(B), C, M_Global, N_Global, K_Global, Split_K);
+                    (Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);
 }
 
 template<typename InputDataType, int EXPONENT, int MANTISSA>
-cudaError_t fpx_linear_kernel(cudaStream_t        stream,
-                              const uint4         *Weight,
-                              const InputDataType *Scales,
-                              const InputDataType *B,
-                              InputDataType       *C,
-                              const size_t        M_Global,
-                              const size_t        N_Global,
-                              const size_t        K_Global, 
-                              float               *Reduction_Workspace,  // Reduction_Workspace_Size = Split_K * M_Global * N_Global * sizeof(fp32)
-                              int                 Split_K)
+cudaError_t fpx_linear_kernel(cudaStream_t    stream,
+                              const uint4     *Weight,
+                              const half      *Scales,
+                              const half      *B,
+                              InputDataType   *C,
+                              const size_t    M_Global,
+                              const size_t    N_Global,
+                              const size_t    K_Global, 
+                              float           *Reduction_Workspace,  // Reduction_Workspace_Size = Split_K * M_Global * N_Global * sizeof(fp32)
+                              int             Split_K)
 {
     static_assert(std::is_same<InputDataType, half>::value || std::is_same<InputDataType, __nv_bfloat16>::value, "Type must be float or __nv_bfloat16");
     assert(M_Global % 256 == 0);
@@ -205,7 +205,6 @@ torch::Tensor fp_eXmY_linear_forward_cuda(
     int num_out_channels  = _weights.size(0);
     TORCH_CHECK(num_in_channels % 64 == 0, "Expected in_features to be a multiple of 64, but received ", num_in_channels);
     TORCH_CHECK((num_in_channels / 8 * NBITS) == _weights.size(1));    // Making sure the K dimension is matched.
-    TORCH_CHECK(_in_feats.dtype() == _scales.dtype());
     //
     int M = num_out_channels;
     int K = num_in_channels;
@@ -224,8 +223,8 @@ torch::Tensor fp_eXmY_linear_forward_cuda(
 
     DISPATCH_HALF_AND_BF16(_in_feats.scalar_type(), "fpx_linear_kernel", [&] {
         auto weight = reinterpret_cast<const uint4*>(_weights.data_ptr<uint8_t>());  // weights is [OC, IC] but in FP6.
-        auto in_feats = reinterpret_cast<const nv_t*>(_in_feats.data_ptr<torch_t>());
-        auto scales = reinterpret_cast<const nv_t*>(_scales.data_ptr<torch_t>());
+        auto in_feats = reinterpret_cast<const half*>(_in_feats.data_ptr<torch_t>());
+        auto scales = reinterpret_cast<const half*>(_scales.data_ptr<torch_t>());
         auto out_feats = reinterpret_cast<nv_t*>(_out_feats.data_ptr<torch_t>());
 
         // officially supported in Quant-LLM

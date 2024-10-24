@@ -36,7 +36,7 @@ __device__ __forceinline__ void FPx_FP16_Cast_4Way(uint32_t *In, uint32_t *Out1,
     //
     constexpr int RIGHT_SHIFT = USE_BF16 ? 8 - EXPONENT : 5 - EXPONENT;
     constexpr int MASK1 = 0x80000000;
-    constexpr int MASK2 = MASK1 >> EXPONENT + MANTISSA;  // NB: arithmetic shift, not logical
+    constexpr int MASK2 = MASK1 >> EXPONENT + MANTISSA;
     constexpr int MASK3 = MASK2 & 0x7fffffff;
     constexpr int MASK  = MASK3 | MASK3 >> 16;
     //
@@ -77,7 +77,7 @@ __device__ __forceinline__ uint32_t MultScale(uint32_t PackedBF16Pair, __nv_bflo
         // Decompose the exponent bias into smaller values and multiply several times.
         __nv_bfloat16 tmp1 = *BF16_1;
         __nv_bfloat16 tmp2 = *BF16_2;
-        // Note that for exponent=3, BIAS_OFFSET = 2^7 - 2^2 = 124 = 4*31 
+        // Note that for exponent=3, BIAS_OFFSET = 2^7 - 2^2 = 124 = 4*31
         // NOTE: only works for exponent=3 right now.
         const __nv_bfloat16 BIAS = __float2bfloat16(1.0f * (uint32_t(1) << BIAS_OFFSET / 4));
         #pragma unroll
@@ -150,7 +150,7 @@ __device__ __forceinline__ void Dequant_32FP6_4Way(uint32_t (* __restrict__ Reg)
         uint32_t out1, out2;
         FPx_FP16_Cast_4Way<EXPONENT, MANTISSA, USE_BF16>(&Packed_FP6, &out1, &out2);
         //
-        *OutputRegs = MultScale<EXPONENT, MANTISSA>(out1, Scale_RPTR[0]);       // Muliply FP16/BF16 scales
+        *OutputRegs = MultScale<EXPONENT, MANTISSA>(out1, Scale_RPTR[0]  );       // Muliply FP16/BF16 scales
         OutputRegs += 1;
         *OutputRegs = MultScale<EXPONENT, MANTISSA>(out2, Scale_RPTR[1]);       // Muliply FP16/BF16 scales
         OutputRegs += 1;
