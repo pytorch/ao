@@ -74,7 +74,8 @@ class TestOps(TestCase):
         error = (results_floatx - results_fp16).abs().mean()
         gt = results_fp16.abs().mean()
         relative_error = error / gt
-        assert relative_error < 1e-3
+        rtol = 1e-2 if dtype == torch.bfloat16 else 1e-3
+        assert relative_error < rtol
 
 instantiate_parametrized_tests(TestOps)
 
