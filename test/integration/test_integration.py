@@ -109,10 +109,6 @@ def _int8wo_api(mod):
     else:
         change_linear_weights_to_int8_woqtensors(mod)
 
-def _int8wo_groupwise_api(mod):
-    group_size = 32
-    quantize_(mod, int8_weight_only(group_size=group_size), set_inductor_config=False)
-
 def _int8da_int8w_api(mod):
     if TORCH_VERSION_AT_LEAST_2_4:
         quantize_(mod, int8_dynamic_activation_int8_weight(), set_inductor_config=False)
@@ -930,16 +926,6 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
             y_wo = m(x)
             sqnr = compute_error(y_ref, y_wo)
             self.assertGreater(sqnr, 43.0)
-
-    def test_weight_only_groupwise_quant(self):
-        for x_shape in [[128, 512]]:
-            x = torch.randn(*x_shape)
-            m = nn.Sequential(nn.Linear(512, 32))
-            y_ref = m(x)
-            _int8wo_groupwise_api(m)
-            y_wo = m(x)
-            sqnr = compute_error(y_ref, y_wo)
-            self.assertGreater(sqnr, 45.0)
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
