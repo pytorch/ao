@@ -6,18 +6,20 @@
 
 #pragma once
 #include <stdint.h>
+#include <stddef.h>
+#include <torchao/experimental/ops/packed_weights_header.h>
 
 namespace torchao::ops::linear_8bit_act_xbit_weight {
 
 struct UKernelConfig {
-  using activation_data_size_fn_type = int (*)(int m, int k, int group_size);
+  using activation_data_size_fn_type = size_t (*)(int m, int k, int group_size);
   using prepare_activation_data_fn_type = void (*)(
       void* activation_data,
       int m,
       int k,
       int group_size,
       const float* activations);
-  using weight_data_size_fn_type = int (*)(int n, int k, int group_size);
+  using weight_data_size_fn_type = size_t (*)(int n, int k, int group_size);
   using prepare_weight_data_fn_type = void (*)(
       void* weight_data,
       int n,
@@ -25,7 +27,8 @@ struct UKernelConfig {
       int group_size,
       const int8_t* weight_qvals,
       const float* weight_scales,
-      const int8_t* weight_zeros);
+      const int8_t* weight_zeros,
+      const float* bias);
   using kernel_fn_type = void (*)(
       float* output,
       int output_m_stride,
@@ -35,16 +38,15 @@ struct UKernelConfig {
       int group_size,
       const void* weight_data,
       const void* activation_data,
-      const float* bias,
       float clamp_min,
       float clamp_max);
 
   activation_data_size_fn_type activation_data_size_fn{nullptr};
-  // activation_data_alignment is only a preferred alignment for
+  // preferred_activation_data_alignment is only a preferred alignment for
   // performance reasons.  Integration surfaces are not required to
   // respect this alignment, and the ukernel must behave correctly no matter
   // how the prepared_activation_data byte-array is aligned
-  int activation_data_alignment{0};
+  size_t preferred_activation_data_alignment{0};
   prepare_activation_data_fn_type prepare_activation_data_fn{nullptr};
 
   weight_data_size_fn_type weight_data_size_fn{nullptr};
@@ -52,12 +54,14 @@ struct UKernelConfig {
   // performance reasons.  Integration surfaces are not required to
   // respect this alignment, and the ukernel must behave correctly no matter
   // how the prepared_weight_data byte-array is aligned
-  int weight_data_alignment{0};
+  size_t preferred_weight_data_alignment{0};
   prepare_weight_data_fn_type prepare_weight_data_fn{nullptr};
 
   kernel_fn_type kernel_fn{nullptr};
   int mr{0};
   int nr{0};
+
+  torchao::ops::PackedWeightsHeader packed_weights_header;
 };
 
 // Pack weight functions
@@ -70,7 +74,7 @@ PackWeightDataTilingParams get_default_pack_weight_data_tiling_params(
     int n,
     int target_panels_per_thread = 1);
 
-inline int get_packed_weight_data_size(
+inline size_t get_packed_weight_data_size(
     const UKernelConfig& ukernel_config,
     int n,
     int k,
@@ -78,9 +82,9 @@ inline int get_packed_weight_data_size(
   return ukernel_config.weight_data_size_fn(n, k, group_size);
 }
 
-inline int get_packed_weight_data_alignment(
+inline size_t get_preferred_packed_weight_data_alignment(
     const UKernelConfig& ukernel_config) {
-  return ukernel_config.weight_data_alignment;
+  return ukernel_config.preferred_weight_data_alignment;
 }
 
 void pack_weight_data_operator(
@@ -94,7 +98,8 @@ void pack_weight_data_operator(
     int group_size,
     const int8_t* weight_qvals,
     const float* weight_scales,
-    const int8_t* weight_zeros);
+    const int8_t* weight_zeros,
+    const float* bias);
 
 // Linear functions
 struct LinearTilingParams {
@@ -113,7 +118,7 @@ enum class LinearTileSchedulingPolicy {
   parallel_mc_parallel_nc
 };
 
-int get_activation_data_buffer_size(
+size_t get_activation_data_buffer_size(
     const UKernelConfig& ukernel_config,
     const LinearTilingParams& tiling_params,
     LinearTileSchedulingPolicy scheduling_policy,
@@ -121,9 +126,9 @@ int get_activation_data_buffer_size(
     int k,
     int group_size);
 
-inline int get_activation_data_buffer_alignment(
+inline size_t get_preferred_activation_data_buffer_alignment(
     const UKernelConfig& ukernel_config) {
-  return ukernel_config.activation_data_alignment;
+  return ukernel_config.preferred_activation_data_alignment;
 }
 
 void linear_operator(
@@ -140,7 +145,6 @@ void linear_operator(
     int group_size,
     const void* weight_data,
     const float* activations,
-    const float* bias,
     float clamp_min,
     float clamp_max);
 

@@ -26,14 +26,14 @@ UKernelConfig get_ukernel_config() {
   config.nr = 8;
   config.activation_data_size_fn =
       &ukernel::activation_data_size<has_weight_zeros>;
-  config.activation_data_alignment = 16; // size of neon register
+  config.preferred_activation_data_alignment = 16; // size of neon register
   config.prepare_activation_data_fn =
       &ukernel::prepare_activation_data<has_weight_zeros>;
   config.weight_data_size_fn =
-      &ukernel::weight_data_size<weight_nbit, has_weight_zeros>;
-  config.weight_data_alignment = 16; // size of neon register
+      &ukernel::weight_data_size<weight_nbit, has_weight_zeros, has_bias>;
+  config.preferred_weight_data_alignment = 16; // size of neon register
   config.prepare_weight_data_fn =
-      &ukernel::prepare_weight_data<weight_nbit, has_weight_zeros>;
+      &ukernel::prepare_weight_data<weight_nbit, has_weight_zeros, has_bias>;
   config.kernel_fn =
       &ukernel::kernel<weight_nbit, has_weight_zeros, has_bias, has_clamp>;
 
@@ -70,10 +70,10 @@ void test_linear_8bit_act_xbit_weight(int m, int n, int k, int group_size) {
           get_default_pack_weight_data_tiling_params(ukernel_config, n);
       auto packed_weight_data_size =
           get_packed_weight_data_size(ukernel_config, n, k, group_size);
-      auto packed_weight_data_alignment =
-          get_packed_weight_data_alignment(ukernel_config);
+      auto preferred_packed_weight_data_alignment =
+          get_preferred_packed_weight_data_alignment(ukernel_config);
       auto packed_weight_data = torchao::make_aligned_byte_ptr(
-          packed_weight_data_alignment, packed_weight_data_size);
+          preferred_packed_weight_data_alignment, packed_weight_data_size);
 
       pack_weight_data_operator(
           ukernel_config,
@@ -84,7 +84,8 @@ void test_linear_8bit_act_xbit_weight(int m, int n, int k, int group_size) {
           group_size,
           test_case.weight_qvals.data(),
           test_case.weight_scales.data(),
-          test_case.weight_zeros.data());
+          test_case.weight_zeros.data(),
+          test_case.bias.data());
 
       // Allocate activation buffer
       auto linear_tiling_params =
@@ -98,7 +99,7 @@ void test_linear_8bit_act_xbit_weight(int m, int n, int k, int group_size) {
           k,
           group_size);
       auto activation_data_buffer_alignment =
-          get_activation_data_buffer_alignment(ukernel_config);
+          get_preferred_activation_data_buffer_alignment(ukernel_config);
       auto activation_data_buffer = torchao::make_aligned_byte_ptr(
           activation_data_buffer_alignment, activation_data_buffer_size);
 
@@ -115,7 +116,6 @@ void test_linear_8bit_act_xbit_weight(int m, int n, int k, int group_size) {
           group_size,
           packed_weight_data.get(),
           test_case.activations.data(),
-          test_case.bias.data(),
           test_case.clamp_min,
           test_case.clamp_max);
 
@@ -195,7 +195,8 @@ TEST(test_linear_8bit_act_xbit_weight, KNotDivisibleByGroupSize) {
             group_size,
             /*weight_qvals=*/nullptr,
             /*weight_scales=*/nullptr,
-            /*weight_zeros=*/nullptr);
+            /*weight_zeros=*/nullptr,
+            /*bias=*/nullptr);
       },
       std::runtime_error);
 }
@@ -224,7 +225,8 @@ TEST(test_linear_8bit_act_xbit_weight, GroupSizeNotDivisibleBy16) {
             group_size,
             /*weight_qvals=*/nullptr,
             /*weight_scales=*/nullptr,
-            /*weight_zeros=*/nullptr);
+            /*weight_zeros=*/nullptr,
+            /*bias=*/nullptr);
       },
       std::runtime_error);
 }

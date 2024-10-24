@@ -59,7 +59,7 @@ In practice these features alongside int4 weight only quantization allow us to *
 Post-training quantization can result in a fast and compact model, but may also lead to accuracy degradation. We recommend exploring Quantization Aware Training (QAT) to overcome this limitation. In collaboration with Torchtune, we've developed a QAT recipe that demonstrates significant accuracy improvements over traditional PTQ, recovering **96% of the accuracy degradation on hellaswag and 68% of the perplexity degradation on wikitext** for Llama3 compared to post-training quantization (PTQ). And we've provided a full recipe [here](https://pytorch.org/blog/quantization-aware-training/)
 
 ```python
-from torchao.quantization.prototype.qat import Int8DynActInt4WeightQATQuantizer
+from torchao.quantization.qat import Int8DynActInt4WeightQATQuantizer
 
 qat_quantizer = Int8DynActInt4WeightQATQuantizer()
 

@@ -8,6 +8,7 @@ import copy
 
 import glob
 import os
+import subprocess
 
 import sys
 import tempfile
@@ -15,20 +16,47 @@ import unittest
 
 import torch
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from quant_api import (
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
+from torchao.experimental.quant_api import (
     _Int8DynActIntxWeightQuantizedLinearFallback,
-    Int8DynActIntxWeightQuantizer,
+    Int8DynActIntxWeightLinearQuantizer,
 )
 
-libs = glob.glob("/tmp/cmake-out/torchao/lib/libtorchao_ops_aten.*")
-libs = list(filter(lambda l: (l.endswith("so") or l.endswith("dylib")), libs))
-if len(libs) == 0:
-    print(
-        "Could not find library libtorchao_ops_aten; please run `sh build_torchao_ops.sh aten` in torchao/experimental to build the op library.  A slow fallback kernel will be used instaed."
+
+def cmake_build_torchao_ops(temp_build_dir):
+    from distutils.sysconfig import get_python_lib
+
+    print("Building torchao ops for ATen target")
+    cmake_prefix_path = get_python_lib()
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    subprocess.run(
+        [
+            "cmake",
+            "-DCMAKE_PREFIX_PATH=" + cmake_prefix_path,
+            "-DCMAKE_INSTALL_PREFIX=" + temp_build_dir.name,
+            "-S " + dir_path + "/../",
+            "-B " + temp_build_dir.name,
+        ]
     )
-else:
-    torch.ops.load_library(libs[0])
+    subprocess.run(
+        [
+            "cmake",
+            "--build",
+            temp_build_dir.name,
+            "-j 16",
+            "--target install",
+            "--config Release",
+        ]
+    )
+
+
+temp_build_dir = tempfile.TemporaryDirectory()
+cmake_build_torchao_ops(temp_build_dir)
+libs = glob.glob(f"{temp_build_dir.name}/lib/libtorchao_ops_aten.*")
+libs = list(filter(lambda l: (l.endswith("so") or l.endswith("dylib")), libs))
+assert len(libs) == 1
+torch.ops.load_library(libs[0])
+
 
 class TestInt8DynActIntxWeightQuantizer(unittest.TestCase):
     def test_accuracy(self):
@@ -36,14 +64,14 @@ class TestInt8DynActIntxWeightQuantizer(unittest.TestCase):
         m = 1
         n = 1071
         k = 4096
-        activations = torch.randn(m, k, dtype=torch.float32)
+        activations = torch.randn(2, 3, m, k, dtype=torch.float32)
         model = torch.nn.Sequential(*[torch.nn.Linear(k, n, bias=False)])
 
         for nbit in [1, 2, 3, 4, 5, 6, 7]:
             for has_weight_zeros in [True, False]:
                 print(f"Testing nbit={nbit}, has_weight_zeros={has_weight_zeros}")
                 quantized_model = copy.deepcopy(model)
-                quantizer = Int8DynActIntxWeightQuantizer(
+                quantizer = Int8DynActIntxWeightLinearQuantizer(
                     device="cpu",
                     precision=torch.float32,
                     bitwidth=nbit,
@@ -81,13 +109,17 @@ class TestInt8DynActIntxWeightQuantizer(unittest.TestCase):
         k3 = 1024
         nbit = 4
         has_weight_zeros = False
-        layers = [torch.nn.Linear(k0, k1, bias=False), torch.nn.Linear(k1, k2, bias=False), torch.nn.Linear(k2, k3, bias=False)]
+        layers = [
+            torch.nn.Linear(k0, k1, bias=False),
+            torch.nn.Linear(k1, k2, bias=False),
+            torch.nn.Linear(k2, k3, bias=False),
+        ]
         model = torch.nn.Sequential(*layers)
 
-        activations = torch.randn(2, 1, m, k0, dtype=torch.float32)
+        activations = torch.randn(m, k0, dtype=torch.float32)
 
         print("Quantizing model")
-        quantizer = Int8DynActIntxWeightQuantizer(
+        quantizer = Int8DynActIntxWeightLinearQuantizer(
             device="cpu",
             precision=torch.float32,
             bitwidth=nbit,

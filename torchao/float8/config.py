@@ -96,6 +96,29 @@ class DelayedScalingConfig:
         ), f"{self.scale_fn_name} is not implemented yet. Only max is supported for now."
 
 
+@dataclass
+class Float8TypeConfig:
+    """
+    Configuration for selecting the preferred float8 type pair, either e4m3fn/e5m2 or e4m3fnuz/e5m2fnuz.
+
+    Currently, ROCm only supports fnuz variants.
+    """
+
+    # The preferred e4m3 type.
+    e4m3_dtype = torch.float8_e4m3fn
+
+    # The preferred e5m2 type.
+    e5m2_dtype = torch.float8_e5m2
+
+    def __post_init__(self):
+        if torch.version.hip and torch.cuda.is_available():
+            prop = torch.cuda.get_device_properties(0)
+            MI300_ARCH = ("gfx940", "gfx941", "gfx942")
+            if prop.gcnArchName.split(":")[0] in MI300_ARCH:
+                self.e4m3_dtype = torch.float8_e4m3fnuz
+                self.e5m2_dtype = torch.float8_e5m2fnuz
+
+
 @dataclass(frozen=True)
 class Float8GemmConfig:
     """
@@ -118,11 +141,11 @@ class Float8LinearConfig:
     # Per-tensor configuration for casting of `input`, `weight`, `grad_output`
     # for the operands of gemms calculating `output`, `grad_weight`, and `grad_input`.
     #
-    # Note: 
-    # 1. if `cast_config_input_for_grad_weight` is None, then 
+    # Note:
+    # 1. if `cast_config_input_for_grad_weight` is None, then
     #    `cast_config_input` is used for scaling `input` for both gemms that
-    #    use `input.  
-    # 2. if `cast_config_input_for_grad_weight` is specified, then 
+    #    use `input.
+    # 2. if `cast_config_input_for_grad_weight` is specified, then
     #    a. `cast_config_input` is used for scaling `input` for the gemm that calculates
     #       `output`
     #    b. `cast_config_input_for_grad_weight` is used for scaling `input` for
@@ -240,12 +263,6 @@ class Float8LinearConfig:
                 f"incompatible operand precision for {gemm_name}"
 
 
-# If True, use 'fnuz' float8 types for calculations.
-# Currently, ROCm only supports fnuz variants.
-# TODO(future PR): move this to Float8LinearConfig
-use_fnuz_dtype = False
-
-
 # Pre-made recipes for common configurations
 # TODO(future PR): go through a round of design on this, and eventually expose
 # as a top level public API.
@@ -272,7 +289,7 @@ def recipe_name_to_linear_config(
         cc_i = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
         cc_w = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
         cc_go = CastConfig(scaling_granularity=ScalingGranularity.AXISWISE)
-        
+
         # The current rowwise CUTLASS kernels in `torch._scaled_mm` are only
         # fast with `use_fast_accum=True`. Note that rowwise scaling is more
         # accurate than tensorwise scaling, so the overall impact on accuracy
@@ -300,8 +317,8 @@ def recipe_name_to_linear_config(
         #
         # key characteristics:
         #   * increased accuracy for grad_weight
-        #   * `input`, `weight` and `grad_output` now only need to be scaled 
-        #     axiswise across a single dim compared to vanilla all-axiswise, 
+        #   * `input`, `weight` and `grad_output` now only need to be scaled
+        #     axiswise across a single dim compared to vanilla all-axiswise,
         #     which is more amenable to fast kernels
 
         # output_hp = input_fp8_axiswise_dim0 @ weight_t_axiswise_dim1

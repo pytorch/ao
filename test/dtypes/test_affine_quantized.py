@@ -10,7 +10,8 @@ from torchao.quantization import (
     int8_dynamic_activation_int8_semi_sparse_weight,
     float8_weight_only,
 )
-from torchao.dtypes import SemiSparseLayoutType
+from torchao.quantization.quant_primitives import MappingType
+from torchao.dtypes import SemiSparseLayout
 from torch.testing._internal import common_utils
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
@@ -26,12 +27,13 @@ def get_quantization_functions(do_sparse: bool, do_int4: bool):
         int8_weight_only(),
         int8_dynamic_activation_int4_weight(),
         int8_dynamic_activation_int8_weight(),
+        int8_dynamic_activation_int8_weight(act_mapping_type=MappingType.ASYMMETRIC),
     ]
     if do_int4:
         base_functions.append(int4_weight_only(group_size=32))
 
     if do_sparse:
-        base_functions.append(int8_dynamic_activation_int8_weight(layout_type=SemiSparseLayoutType()))
+        base_functions.append(int8_dynamic_activation_int8_weight(layout=SemiSparseLayout()))
 
     if is_cuda_8_9:
         base_functions.append(float8_weight_only())

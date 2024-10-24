@@ -8,7 +8,7 @@
 
 #if defined(__aarch64__) || defined(__ARM_NEON)
 #include <arm_neon.h>
-#include <torchao/experimental/kernels/cpu/aarch64/bitpacking/macro.h>
+#include <torchao/experimental/kernels/cpu/aarch64/macro.h>
 
 // This file contains bitpacking and unpacking methods for uint1.
 // These are not inteded to be used outside of bitpacking directory.

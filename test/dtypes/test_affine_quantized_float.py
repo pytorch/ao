@@ -26,11 +26,17 @@ from torchao.quantization import (
     float8_weight_only,
     quantize_,
 )
-from torchao.quantization.observer import PerRow, PerTensor
+from torchao.quantization.granularity import (
+    PerRow,
+    PerTensor,
+)
 from torchao.quantization.quant_api import (
     float8_static_activation_float8_weight,
 )
-from torchao.quantization.quant_primitives import MappingType, choose_qparams_affine
+from torchao.quantization.quant_primitives import (
+    MappingType,
+    choose_qparams_affine,
+)
 
 random.seed(0)
 torch.manual_seed(0)
@@ -190,10 +196,6 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
 
         # Load the state dict from the buffer
         weights_only_load = True
-        if mode == "dynamic":
-            # TODO will fix in followup
-            weights_only_load = False
-
         loaded_state_dict = torch.load(buffer, weights_only=weights_only_load)
 
         # Create a new model and load the state dict

@@ -10,7 +10,7 @@ from torch.testing._internal.common_utils import (
 )
 from torchao.dtypes.floatx import (
     FloatxTensorCoreAQTTensorImpl,
-    FloatxTensorCoreLayoutType,
+    FloatxTensorCoreLayout,
     to_scaled_tc_floatx,
     from_scaled_tc_floatx,
 )
@@ -21,7 +21,7 @@ from torchao.quantization import (
     fpx_weight_only,
 )
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, is_fbcode
 
 
 _DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
@@ -81,8 +81,8 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
         x = torch.randn(256, 64)
         scale = choose_qparams_affine_floatx(x, ebits, mbits)
         x = quantize_affine_floatx(x, scale, ebits, mbits)
-        layout_type = FloatxTensorCoreLayoutType(ebits, mbits)
-        floatx_tensor_impl = FloatxTensorCoreAQTTensorImpl.from_plain(x, scale, None, layout_type).cuda()
+        _layout = FloatxTensorCoreLayout(ebits, mbits)
+        floatx_tensor_impl = FloatxTensorCoreAQTTensorImpl.from_plain(x, scale, None, _layout).cuda()
         assert floatx_tensor_impl.device.type == "cuda"
         floatx_tensor_impl = floatx_tensor_impl.cpu()
         assert floatx_tensor_impl.device.type == "cpu"
@@ -91,6 +91,7 @@ class TestFloatxTensorCoreAQTTensorImpl(TestCase):
     @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5, reason="quantization only works with torch.compile for 2.5+")
     @parametrize("ebits,mbits", _Floatx_DTYPES)
     @parametrize("bias", [False, True])
+    @pytest.mark.skipif(is_fbcode(), reason="broken in fbcode")
     def test_fpx_weight_only(self, ebits, mbits, bias):
         N, OC, IC = 4, 256, 64
         device = "cuda"

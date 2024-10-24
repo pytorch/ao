@@ -136,8 +136,7 @@ change_linear_weights_to_int8_dqtensors(model)
 
 ```python
 # for torch 2.4+
-from torchao.quantization import quantize_, float8_dynamic_activation_float8_weight
-from torchao.quantization.observer import PerTensor
+from torchao.quantization import quantize_, float8_dynamic_activation_float8_weight, PerTensor
 quantize_(model, float8_dynamic_activation_float8_weight(granularity=PerTensor()))
 ```
 
@@ -321,7 +320,7 @@ This API works today but has not been extensively tested and benchmarked yet. Ha
 
 ```python
 # for torch 2.5+
-from torchao.quantization.quant_api import quantize_, PerRow, float8_dynamic_activation_float8_weight
+from torchao.quantization import quantize_, PerRow, float8_dynamic_activation_float8_weight
 quantize_(model, float8_dynamic_activation_float8_weight(granularity=PerRow()))
 ```
 

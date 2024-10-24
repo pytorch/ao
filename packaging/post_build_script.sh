@@ -11,7 +11,11 @@ WHEEL_NAME=$(ls dist/)
 
 pushd dist
 # Prepare manywheel
-auditwheel repair --plat manylinux2014_x86_64 -w . \
+manylinux_plat=manylinux2014_x86_64
+if [[ "$CU_VERSION" == "xpu" ]]; then
+    manylinux_plat=manylinux_2_28_x86_64
+fi
+auditwheel repair --plat "$manylinux_plat" -w . \
     --exclude libtorch.so \
     --exclude libtorch_python.so \
     --exclude libtorch_cuda.so \

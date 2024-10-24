@@ -14,7 +14,7 @@ import torch
 
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torchao.quantization.quant_primitives import choose_qparams_affine, MappingType
-from torchao.dtypes.utils import LayoutType, PlainLayoutType
+from torchao.dtypes.utils import Layout, PlainLayout
 from my_dtype_tensor_subclass import MyDTypeLayout, MyDTypeTensor
 
 aten = torch.ops.aten
@@ -33,7 +33,7 @@ class MyTrainableDTypeTensor(MyDTypeTensor):
     def _quantize(
         cls,
         input_float: torch.Tensor,
-        layout_type: LayoutType,
+        _layout: Layout,
     ) -> MyDTypeLayout:
         """
         Convert from a floating point tensor (fp32/fp16/bf16) to the desired dtype.
@@ -43,14 +43,14 @@ class MyTrainableDTypeTensor(MyDTypeTensor):
         dtype = torch.int16
         scale, _ = choose_qparams_affine(input_float, mapping_type, block_size, dtype)
         int_data = (input_float / scale).to(torch.int8)
-        tensor_impl_ctr = cls.get_tensor_impl_constructor(type(layout_type))
-        return tensor_impl_ctr(int_data, scale, layout_type)
+        tensor_impl_ctr = cls.get_tensor_impl_constructor(type(_layout))
+        return tensor_impl_ctr(int_data, scale, _layout)
 
     @classmethod
     def from_float(
         cls,
         input_float: torch.Tensor,
-        layout_type: LayoutType = PlainLayoutType(),
+        _layout: Layout = PlainLayout(),
     ) -> "MyTrainableDTypeTensor":
         """
         Main entry point for creating a `MyTrainableDTypeTensor`.
@@ -58,7 +58,7 @@ class MyTrainableDTypeTensor(MyDTypeTensor):
         This instantiates the tensor subclass in a differentiable constructor
         to ensure gradients are passed to the tensor subclass properly during training.
         """
-        return _ToMyTrainableDTypeTensor.apply(input_float, layout_type)
+        return _ToMyTrainableDTypeTensor.apply(input_float, _layout)
 
 class _ToMyTrainableDTypeTensor(torch.autograd.Function):
     """
@@ -69,9 +69,9 @@ class _ToMyTrainableDTypeTensor(torch.autograd.Function):
     def forward(
         ctx: torch.autograd.function.FunctionCtx,
         input_float: torch.Tensor,
-        layout_type: LayoutType,
+        _layout: Layout,
     ) -> "MyTrainableDTypeTensor":
-        tensor_impl = MyTrainableDTypeTensor._quantize(input_float, layout_type)
+        tensor_impl = MyTrainableDTypeTensor._quantize(input_float, _layout)
         return MyTrainableDTypeTensor(
             tensor_impl,
             input_float.shape,
@@ -143,7 +143,7 @@ def _(func, types, args, kwargs):
     new_value = torch.add(float0, float1, **kwargs)
     new_tensor_impl = MyTrainableDTypeTensor._quantize(
         new_value,
-        args[0].tensor_impl.get_layout_type(),
+        args[0].tensor_impl.get_layout(),
     )
     args[0].tensor_impl = new_tensor_impl
     return return_and_correct_aliasing(func, args, kwargs, args[0])
