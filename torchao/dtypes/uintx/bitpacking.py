@@ -205,7 +205,7 @@ def pack(data: torch.Tensor,
     '''
     Pads input to multiple of 8 if necessary, then uses original packing method
     '''
-    torch._assert(data.dtype == torch.uint8, "data must be uint8")
+    torch._assert(data.dtype == torch.uint8, f"data must be uint8 not {data.dtype}")
     container_size = 8
 
     original_size = data.shape[dim]

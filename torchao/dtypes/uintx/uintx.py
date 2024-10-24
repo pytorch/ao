@@ -116,7 +116,7 @@ class UintxTensor(TorchAOBaseTensor):
     # temporary until kernels on packed tensors are created
     def apply_fn_to_shards(self, fn):
         new_shards = [fn(shard) for shard in self.get_shards()]
-        return self.__class__(new_shards, self.packed_shape, self.bit_width, self.pack_dim)
+        return self.__class__(new_shards, self.original_size, self.packed_shape, self.bit_width, self.pack_dim)
 
     @classmethod
     def from_uint8(cls, int_data: torch.Tensor, dtype: torch.dtype, pack_dim: int = -1):
