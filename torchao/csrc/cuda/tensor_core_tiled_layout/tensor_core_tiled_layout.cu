@@ -164,16 +164,20 @@ __global__ void _dequantize_int4_kernel(
       // All b values within a 16x16 tile should fall within the same q group
       // Hence we load 1 scale and zero per loop
       int qgroup = ks[0] /  groupSize;
-      if (scales_and_zeros.has_value()) {
-        const __nv_bfloat16 *pSZ = reinterpret_cast<const __nv_bfloat16*>(&scales_and_zeros.value()[qgroup][n0][0]);
+      __nv_bfloat162 scale2, zero2;
+      if (scales_and_zeros) {
+        const auto& sz = *scales_and_zeros;
+        const __nv_bfloat16 *pSZ = reinterpret_cast<const __nv_bfloat16*>(&sz[qgroup][n0][0]);
 
         // Vectorize scales and zeros
         __nv_bfloat162 scale2 = __bfloat162bfloat162(pSZ[0]);
         __nv_bfloat162 zero2 = __bfloat162bfloat162(pSZ[1]);
       }
       else {
-        __nv_bfloat162 scale2 = {1.0f, 1.0f};
-        __nv_bfloat162 zero2 = {0.0f, 0.0f};
+        //scale2 = {1.0f, 1.0f};
+        //zero2 = {0.0f, 0.0f};
+        scale2.x = 1.0f; scale2.y = 1.0f;
+        zero2.x = 1.0f; zero2.y = 1.0f;
       }
 
   #pragma unroll
@@ -237,6 +241,7 @@ at::Tensor _dequantize_tensor_core_tiled_layout(
       group_size == 256);
   TORCH_CHECK(numQGroups == K / group_size);
   TORCH_CHECK(scales_and_zeros.dim() == 3);
+  std::cout << "CHAI: " << scales_and_zeros.size(1) << "," << scales_and_zeros.size(2) << "," << N << std::endl;
   TORCH_CHECK(scales_and_zeros.size(1) == N);
   TORCH_CHECK(scales_and_zeros.size(2) == 2);
 
