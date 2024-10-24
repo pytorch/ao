@@ -1,4 +1,4 @@
-#if (defined(USE_ROCM) && ROCM_VERSION >= 50700) || !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800  // at least Ampere and ROCm > 5.7
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800  // at least Ampere and ROCm > 5.7
 
 #include <ATen/ATen.h>
 #include <ATen/core/Tensor.h>
@@ -166,7 +166,7 @@ __global__ void _dequantize_int4_kernel(
       int qgroup = ks[0] /  groupSize;
       __nv_bfloat162 scale2, zero2;
       if (scales_and_zeros) {
-        const auto& sz = *scales_and_zeros;
+        const auto&sz = *scales_and_zeros;
         const __nv_bfloat16 *pSZ = reinterpret_cast<const __nv_bfloat16*>(&sz[qgroup][n0][0]);
 
         // Vectorize scales and zeros
