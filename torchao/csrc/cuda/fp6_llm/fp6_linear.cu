@@ -209,7 +209,6 @@ torch::Tensor fp_eXmY_linear_forward_cuda(
     int M = num_out_channels;
     int K = num_in_channels;
     int N = num_in_feats;
-
     auto options = torch::TensorOptions().dtype(_in_feats.dtype()).device(_in_feats.device());
     at::Tensor _out_feats = torch::empty({num_in_feats, num_out_channels}, options);
 
