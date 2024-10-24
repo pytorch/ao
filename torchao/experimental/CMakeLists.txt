@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 cmake_minimum_required(VERSION 3.19)
+include(CMakeDependentOption)
 
 project(torchao)
 
@@ -21,6 +22,12 @@ if(NOT TORCHAO_INCLUDE_DIRS)
   set(TORCHAO_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 endif()
 
+cmake_dependent_option(TORCHAO_BUILD_KLEIDIAI "Download, build, and link against Arm KleidiAI library" ON
+    "CMAKE_SYSTEM_PROCESSOR STREQUAL arm64" OFF)
+if(TORCHAO_BUILD_KLEIDIAI)
+    message(STATUS "Building with Arm KleidiAI library")
+    add_compile_definitions(TORCHAO_ENABLE_KLEIDI=1)
+endif()
 include(CMakePrintHelpers)
 
 add_compile_options("-Wall" "-Werror" "-Wno-deprecated")
