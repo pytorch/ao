@@ -506,6 +506,12 @@ class Float8Linear(torch.nn.Linear):
         )
         return weight_fp8.t()
 
+    def cast_weight_to_original_t(self, weight: torch.Tensor):
+        if isinstance(weight, Float8Tensor):
+            return weight.to_original_precision().t()
+        else:
+            return weight.t()
+
     def cast_output_to_float8_in_bw(self, output: torch.Tensor) -> torch.Tensor:
         if self.scaling_type_grad_output is ScalingType.DELAYED:
             scale_fn_name = self.config.delayed_scaling_config.scale_fn_name
@@ -550,10 +556,7 @@ class Float8Linear(torch.nn.Linear):
         self.is_amax_initialized = True
         self.amax_and_scale_synced = False
 
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        if self.has_any_delayed_scaling:
-            self.float8_pre_forward(input)
-
+    def forward_fp8_matmul(self, input: torch.Tensor) -> torch.Tensor:
         has_any_axiswise_scaling = (
             self.config.cast_config_input.scaling_granularity is ScalingGranularity.AXISWISE or
             self.config.cast_config_weight.scaling_granularity is ScalingGranularity.AXISWISE or
@@ -595,6 +598,25 @@ class Float8Linear(torch.nn.Linear):
                 self.linear_mm_config,
                 self.config,
             )
+        return output
+    
+    def forward_original_precision_matmul(self, input: torch.Tensor) -> torch.Tensor:
+        if self.config.force_recompute_fp8_weight_in_bwd:
+            orig_weight_t = checkpoint.checkpoint(self.cast_weight_to_original_t, self.weight)
+        else:
+            orig_weight_t = self.cast_weight_to_original_t(self.weight)
+
+        output = torch.matmul(input, orig_weight_t)
+        return output
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        if self.has_any_delayed_scaling:
+            self.float8_pre_forward(input)
+
+        if self.config.use_fp8_all_gather_only:
+            output = self.forward_original_precision_matmul(input)
+        else:
+            output = self.forward_fp8_matmul(input)
 
         if self.bias is not None:
             output = output + self.bias.to(output.dtype)

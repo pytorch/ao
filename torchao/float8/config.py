@@ -5,11 +5,13 @@
 # LICENSE file in the root directory of this source tree.
 
 import enum
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
 import torch
 
+logger: logging.Logger = logging.getLogger()
 
 class ScalingType(enum.Enum):
     DELAYED = "delayed"
@@ -220,8 +222,13 @@ class Float8LinearConfig:
     # For now, we use the checkpointing api to force the recomputation of fp8 weight in backward.
     # TODO(future PR): either enable by default or have a warning and set up the
     # tests so that the warning does not spam the CI stdout.
-
     force_recompute_fp8_weight_in_bwd: bool = False
+
+    # If True, we only use fp8-all-gather to reduce the communication cost.
+    # The gemm computation is still done in the original precision.
+    # `cast_config_weight` is used to decide how to cast the weight to fp8, 
+    # other casting configs will be ignored.
+    use_fp8_all_gather_only: bool = False
 
     def __post_init__(self):
         # Populate the additional cast overrides, if the user did not specify them
@@ -261,6 +268,19 @@ class Float8LinearConfig:
             is_disabled_2 = cc1.scaling_type is ScalingType.DISABLED
             assert is_disabled_1 == is_disabled_2, \
                 f"incompatible operand precision for {gemm_name}"
+        
+        if self.use_fp8_all_gather_only:
+            assert self.enable_fsdp_float8_all_gather, "use_fp8_all_gather_only requires enable_fsdp_float8_all_gather to be True"
+            
+        # See the comments around `force_recompute_fp8_weight_in_bwd` for more details of this warning.
+        if (
+            self.enable_fsdp_float8_all_gather
+            and not self.force_recompute_fp8_weight_in_bwd
+        ):
+            logger.warning(
+                "When using FSDP, it's recommended to enable config.force_recompute_fp8_weight_in_bwd."
+            )
+               
 
 
 # Pre-made recipes for common configurations
