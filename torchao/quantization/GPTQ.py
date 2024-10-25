@@ -583,12 +583,12 @@ class WeightOnlyInt4Linear(torch.nn.Module):
         assert in_features % (inner_k_tiles * 16) == 0, "require in_features % (innerKTiles * 16) == 0"
         self.register_buffer(
             "weight",
-            torch.empty((out_features // 8, in_features // (inner_k_tiles * 16), 32, inner_k_tiles // 2), dtype=torch.int32, device=device)
+            torch.zeros((out_features // 8, in_features // (inner_k_tiles * 16), 32, inner_k_tiles // 2), dtype=torch.int32, device=device)
         )
         self.dtype = dtype
         self.register_buffer(
             "scales_and_zeros",
-            torch.empty((in_features // groupsize, out_features, 2), dtype=self.scales_precision, device=device)
+            torch.zeros((in_features // groupsize, out_features, 2), dtype=self.scales_precision, device=device)
         )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
@@ -935,18 +935,18 @@ class Int8DynActInt4WeightLinear(torch.nn.Module):
         # currently storing unpacked int8 weights
         self.register_buffer(
             "weight",
-            torch.empty((out_features, in_features), dtype=torch.int8),
+            torch.zeros((out_features, in_features), dtype=torch.int8),
         )
         self.register_buffer(
             "scales",
-            torch.empty(
+            torch.zeros(
                 (out_features, in_features // groupsize),
                 dtype=scales_precision,
             ),
         )
         self.register_buffer(
             "zeros",
-            torch.empty(
+            torch.zeros(
                 (out_features, in_features // groupsize),
                 dtype=scales_precision,
             ),
