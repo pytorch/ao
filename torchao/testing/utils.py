@@ -10,7 +10,7 @@ from torchao.dtypes import AffineQuantizedTensor
 from torchao.dtypes import to_affine_quantized_intx
 from torchao.quantization.quant_primitives import MappingType
 from torchao.quantization import quantize_, int8_weight_only
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
 """
 How to use:
@@ -322,8 +322,8 @@ class TorchAOTensorParallelTestCase(DTensorTestBase):
 
         y_d = dn_dist(up_dist(input_dtensor))
 
-        if not TORCH_VERSION_AT_LEAST_2_5:
-            # Need torch 2.5 to support compiled tensor parallelism
+        if not TORCH_VERSION_AT_LEAST_2_6:
+            # Need torch 2.6 to support compiled tensor parallelism
             return
 
         up_compiled = torch.compile(up_dist)

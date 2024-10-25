@@ -18,7 +18,7 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
 )
 from torchao.quantization.quant_api import quantize_
 from torchao.dtypes import AffineQuantizedTensor
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_6
 
 class TestAffineQuantizedTensorParallel(DTensorTestBase):
     """Basic test case for tensor subclasses
@@ -111,8 +111,8 @@ class TestAffineQuantizedTensorParallel(DTensorTestBase):
 
         y_d = dn_dist(up_dist(input_dtensor))
 
-        if not TORCH_VERSION_AT_LEAST_2_5:
-            # Need torch 2.5 to support compiled tensor parallelism
+        if not TORCH_VERSION_AT_LEAST_2_6:
+            # Need torch 2.6 to support compiled tensor parallelism
             return
 
         up_compiled = torch.compile(up_dist)
