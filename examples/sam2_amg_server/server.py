@@ -48,13 +48,10 @@ def show_anns(anns):
     ax.imshow(img)
     return torch.stack(ms)
 
-class GenerateRequest(BaseModel):
-    prompt: str
-    num_steps: Optional[int] = 30
-    seed: Optional[int] = 42
 
-def main(checkpoint_path, fast=False, furious=False):
-    logging.basicConfig(level=logging.INFO)
+def main(checkpoint_path, fast=False, furious=False, benchmark=False, verbose=False):
+    if verbose:
+        logging.basicConfig(level=logging.INFO)
     logging.info(f"Running with fast set to {fast} and furious set to {furious}")
 
     if fast:
@@ -106,15 +103,16 @@ def main(checkpoint_path, fast=False, furious=False):
     example_image = cv2.cvtColor(example_image, cv2.COLOR_BGR2RGB)
     with torch.backends.cuda.sdp_kernel(enable_cudnn=True):
         t = time.time()
-        logging.info(f"Running first iteration.")
+        logging.info(f"Running one iteration to compile.")
         masks = mask_generator.generate(example_image)
         logging.info(f"First iteration took {time.time() - t}s.")
-        t = time.time()
-        logging.info(f"Running 3 warmup iterations.")
-        masks = mask_generator.generate(example_image)
-        masks = mask_generator.generate(example_image)
-        masks = mask_generator.generate(example_image)
-        logging.info(f"Warmup took {(time.time() - t)/3.0}s per iteration.")
+        if benchmark:
+            t = time.time()
+            logging.info(f"Running 10 benchmark iterations, then exit.")
+            for _ in range(10):
+                masks = mask_generator.generate(example_image)
+            print(f"Benchmark took {(time.time() - t)/10.0}s per iteration.")
+            return
 
     app = FastAPI()
 
