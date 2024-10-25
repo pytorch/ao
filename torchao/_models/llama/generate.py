@@ -143,8 +143,8 @@ def _load_model(checkpoint_path, device, precision):
     checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
     if "model" in checkpoint and "stories" in str(checkpoint_path):
         checkpoint = checkpoint["model"]
-
-    model = Transformer.from_name(checkpoint_path.parent.name)
+    with torch.device("meta"):
+        model = Transformer.from_name(checkpoint_path.parent.name)
     model.load_state_dict(checkpoint, assign=True)
     model = model.to(device=device, dtype=precision)
 
