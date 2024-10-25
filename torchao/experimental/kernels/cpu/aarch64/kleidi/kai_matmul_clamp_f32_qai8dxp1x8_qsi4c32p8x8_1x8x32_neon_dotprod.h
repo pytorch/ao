@@ -70,7 +70,8 @@ void prepare_weight_data(
     int group_size,
     const int8_t* weight_qvals,
     const float* weight_scales,
-    const int8_t* weight_zeros) {
+    const int8_t* weight_zeros,
+    const float* bias) {
   kai_matmul_clamp_f32_qai8dxp_qsi4c32p::prepare_weight_data(
       get_ukernel(),
       weight_data,
@@ -79,7 +80,8 @@ void prepare_weight_data(
       group_size,
       weight_qvals,
       weight_scales,
-      weight_zeros);
+      weight_zeros,
+      bias);
 }
 
 void kernel(
@@ -91,10 +93,8 @@ void kernel(
     int group_size,
     const void* weight_data,
     const void* activation_data,
-    const float* bias,
     float clamp_min,
     float clamp_max) {
-    (void) bias; // TODO(T203756650) - unused - needs API fixing
     assert(output_m_stride == n);
     if (clamp_min == 0 && clamp_max == 0) {
       clamp_min = std::numeric_limits<float>::lowest();
