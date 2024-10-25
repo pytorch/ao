@@ -128,11 +128,12 @@ def to_scaled_tc_floatx(tensor: Tensor, ebits: int, mbits: int) -> Tuple[Tensor,
     exp_bias = _ONES_TABLE[ebits - 1]
     max_normal = 2 ** (_ONES_TABLE[ebits] - exp_bias) * (_ONES_TABLE[mbits + 1] / (2 ** mbits))
 
+    dtype = tensor.dtype
     tensor = tensor.float()
     scale = tensor.abs().amax(1).clamp(min=1e-12) / max_normal
     tensor_floatx = _f32_to_floatx_unpacked(tensor / scale.view(-1, 1), ebits, mbits)
     tensor_tc_floatx = pack_tc_floatx(tensor_floatx, 1 + ebits + mbits)
-    return tensor_tc_floatx, scale.half()
+    return tensor_tc_floatx, scale.to(dtype)
 
 
 # inverse of _pack_tc_floatx()
