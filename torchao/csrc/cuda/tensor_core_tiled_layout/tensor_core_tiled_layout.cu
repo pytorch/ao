@@ -73,7 +73,7 @@ template <typename Out_t, int InnerKTiles, int groupSize, bool kDequant = true>
 __global__ void _dequantize_int4_kernel(
     const at::PackedTensorAccessor32<int32_t, 4, at::RestrictPtrTraits> in,
     at::PackedTensorAccessor32<Out_t, 2, at::RestrictPtrTraits> out,
-    at::optional<const at::PackedTensorAccessor32<c10::BFloat16, 3, at::RestrictPtrTraits>> scales_and_zeros = std::nullopt)
+    std::optional<const at::PackedTensorAccessor32<c10::BFloat16, 3, at::RestrictPtrTraits>> scales_and_zeros = std::nullopt)
 {
 
   constexpr int32_t kNTileSize = 8;
