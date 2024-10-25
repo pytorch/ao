@@ -77,7 +77,7 @@ class SAM2Transforms(nn.Module):
         """
         Perform PostProcessing on output masks.
         """
-        from sam2.utils.misc import get_connected_components
+        from torchao._models.sam2.utils.misc import get_connected_components
 
         masks = masks.float()
         input_masks = masks
