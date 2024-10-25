@@ -943,6 +943,20 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
             sqnr = compute_error(y_ref, y_wo)
             self.assertGreater(sqnr, 45.0)
 
+    def test_weight_only_groupwise_embedding_quant(self):
+        group_size = 64
+        m = nn.Embedding(4096, 128)
+        input = torch.randint(0, 4096, (1, 6))
+        
+        quantize_(m, int8_weight_only(group_size=group_size), filter_fn=lambda x, *args: isinstance(x, nn.Embedding))
+        y_q = m(input)
+        y_ref = m.weight.dequantize()[input]
+        
+        sqnr = compute_error(y_ref, y_q)
+
+        self.assertGreater(sqnr, 45.0)
+
+
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
     @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
