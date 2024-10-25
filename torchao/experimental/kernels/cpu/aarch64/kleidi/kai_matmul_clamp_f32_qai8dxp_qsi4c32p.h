@@ -89,7 +89,8 @@ void prepare_weight_data(
     int group_size,
     const int8_t* weight_qvals,
     const float* weight_scales,
-    const int8_t* weight_zeros) {
+    const int8_t* weight_zeros,
+    const float* bias) {
   // TODO(T204312268) - remove this constraint and pad when possible
   assert(n % 2 == 0);
 
@@ -139,7 +140,7 @@ void prepare_weight_data(
       group_size,
       /*rhs=*/reinterpret_cast<const uint8_t*>(packed_weight_qvals.data()),
       /*rhs_stride=*/roundup(k, 2) / 2,
-      /*bias=*/nullptr, // TODO(T203756650) fix APIs to move bias here
+      /*bias=*/bias,
       /*scale=*/reinterpret_cast<const uint16_t*>(weight_scales_bf16.data()),
       /*scale_stride=*/sizeof(uint16_t) * (roundup(k, group_size) / group_size),
       /*rhs_packed=*/weight_data,

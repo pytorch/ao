@@ -9,7 +9,18 @@ set -eu
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 export TORCHAO_LIBRARIES=${SCRIPT_DIR}/../../../../../..
 export CMAKE_OUT=/tmp/cmake-out/torch_ao/tests
-cmake -DCMAKE_BUILD_TYPE=Debug -DTORCHAO_LIBRARIES=${TORCHAO_LIBRARIES} -S ${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64/tests -B ${CMAKE_OUT}
+
+IS_ARM64=0
+hash arch; retval=$?
+if [[ ${retval} -eq 0 && $(arch) == "arm64" ]]; then
+    IS_ARM64=1
+fi
+
+cmake -DCMAKE_BUILD_TYPE=Debug \
+    -DTORCHAO_LIBRARIES=${TORCHAO_LIBRARIES} \
+    -DTORCHAO_BUILD_KLEIDIAI=${IS_ARM64} \
+    -S ${TORCHAO_LIBRARIES}/torchao/experimental/kernels/cpu/aarch64/tests \
+    -B ${CMAKE_OUT}
 
 cmake --build ${CMAKE_OUT}
 
