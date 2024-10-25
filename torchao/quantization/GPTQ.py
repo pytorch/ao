@@ -9,7 +9,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-from typing import Optional, Callable, List, Type
+from typing import Optional, Callable, List, Type, Tuple
 
 import torch
 
@@ -1191,3 +1191,229 @@ class Int8DynActInt4WeightGPTQQuantizer(GPTQQuantizer):
         model = self._convert_for_runtime(model)
         model.load_state_dict(state_dict, strict=False)
         return model
+
+
+class SparseMarlinLinear(torch.nn.Module):
+    __constants__ = ['in_features', 'out_features']
+    in_features: int
+    out_features: int
+    weight: torch.Tensor
+
+    def __init__(
+        self, 
+        in_features: int, 
+        out_features: int,
+        bias: bool = False, 
+        device: torch.device = None, 
+        group_size: int = 128,
+        precision: torch.dtype = torch.float16, 
+    ) -> None:
+        from torchao.sparsity.marlin import const
+        super().__init__()
+
+        self.in_features = in_features
+        self.out_features = out_features
+        assert not bias, "require bias=False"
+
+        self.device = device
+        self.group_size = group_size
+        self.precision = precision
+
+        self.register_buffer(
+            "weight",
+            torch.empty((self.in_features // const.TILE, self.out_features * const.TILE // 8), dtype=torch.int32, device=device)
+        )
+        self.register_buffer(
+            "scale",
+            torch.empty((self.in_features // group_size, self.out_features), dtype=self.precision, device=device)
+        )
+        self.register_buffer(
+            "meta",
+            torch.empty((self.in_features // 8 // 2 // 2, self.out_features * 2), dtype=torch.int16, device=device)
+        )
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        from torchao.sparsity.marlin import marlin_24_workspace
+        from torchao.ops import marlin_24_gemm
+
+        sparse_w_int4 = self.weight
+        scale = self.scale
+        meta = self.meta
+        num_bits = 4
+
+        # Folds batch dimension into the first dimension
+        input_2d = inputs.view(-1, inputs.shape[-1])
+
+        size_m = input_2d.shape[0]
+        size_n = scale.shape[1]
+        size_k = input_2d.shape[1]
+        workspace_24 = marlin_24_workspace(self.out_features)
+
+        out = marlin_24_gemm(
+            input_2d, sparse_w_int4, meta, scale,
+            workspace_24, num_bits, size_m, size_n, size_k
+        )
+
+        # Unfold the batch dimension
+        out = out.reshape(inputs.shape[:-1] + (scale.shape[1],))
+        return out
+    
+
+def _replace_sparse_marlin_linear(
+    module: torch.nn.Module,
+    group_size: int,
+    skip_layer_func: Optional[Callable] = None,
+    precision: torch.dtype = torch.float16,
+    scales_precision: torch.dtype = torch.float16,
+    linear_class: Type[torch.nn.Module] = SparseMarlinLinear,
+    copy_weights: bool = False,
+):
+    from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_filter  # avoid circular dependency
+
+    def filter_fn(child: torch.nn.Module, cur_fqn: str) -> bool:
+        return (
+            isinstance(child, nn.Linear)
+            and child.bias is None  # TODO: support linear bias
+            and child.in_features % 128 == 0 
+            and child.out_features % 256 == 0
+            and (
+                skip_layer_func is None
+                or not skip_layer_func(child.weight)
+            )
+        )
+
+    def replacement_fn(child: torch.nn.Module) -> torch.nn.Module:
+        new_linear = linear_class(
+                    child.in_features,
+                    child.out_features,
+                    bias=False,
+                    device=child.weight.device,
+                    group_size=group_size,
+                    precision=precision,
+                    scales_precision=scales_precision,
+                )
+        
+        # In distributed training, the model may be instantiated
+        # on the meta device, in which case there is no need to
+        # copy the weights, and doing so will result in an error
+        if copy_weights and child.weight.device != torch.device("meta"):
+            new_linear.weight = child.weight
+        return new_linear
+
+    _replace_with_custom_fn_if_matches_filter(module, replacement_fn, filter_fn)
+
+
+def replace_sparse_marlin_linear(module: nn.Module, group_size: int, skip_layer_func: Optional[Callable] = None) -> None:
+    _replace_sparse_marlin_linear(
+        module,
+        group_size,
+        skip_layer_func,
+        linear_class=SparseMarlinLinear,
+    )
+
+
+class SparseMarlinGPTQQuantizer(GPTQQuantizer):
+        def __init__(
+            self,
+            block_size: int = 128,  # Number of columns to consider during the GPTQ process
+            percdamp: float = 0.01,  # Small regularization to the matrix diagonal to ensure numerical stability during inversion
+            group_size: int = 64,   # Number of values to consider when computing the qparams
+            device: torch.device = torch.device("cuda"),
+        ):
+            from torchao.sparsity.marlin import const
+
+            if not torch.cuda.get_device_capability()[0] >= 8:
+                raise ValueError(
+                    f'Can not use GPTQ Sparse Marlin 2:4 with a device of compute capability {torch.cuda.get_device_capability()}, the minimum compute capability is 8.0 for Marlin kernel.'
+                )
+
+            # We raise an error here because no layers would be quantized and the user should be aware of this
+            if block_size not in const.SUPPORTED_GROUP_SIZES:
+                raise ValueError(
+                    f"Only {const.SUPPORTED_GROUP_SIZES} group sizes are supported, got {block_size}."
+                )
+
+            self.blocksize = block_size
+            self.percdamp = percdamp
+            self.groupsize = group_size
+            self.device = device
+
+            self.act_fake_quant_func = None  # We do not quantize activations as this kernel is for weights only
+            super().__init__()
+
+        def get_qparams_func(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
+            from torchao.sparsity.marlin import inject_24
+
+            # We have to remove the 0's in the sparse matrix so they don't affect the 
+            # calculation of the quantization parameters
+            x_24, mask = inject_24(x, *x.shape)
+            x_pruned = x_24[x_24 != 0]
+
+            scale, zero_point = get_groupwise_affine_qparams(x_pruned, 4, self.groupsize)
+
+            # Since we are applying the quantization to a sparse matrix, we need to keep track of which column we're on
+            # so we use a qparam that will be continuously updated and don't have to edit the algorithm itself
+            curr_col_in_group = 0
+            return (scale, zero_point, mask, curr_col_in_group)
+
+        def quantize_func(self, x: torch.Tensor, qparams: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]) -> torch.Tensor:
+            scale, zp, sparse_mask, curr_col_in_group = qparams
+            x_q = groupwise_affine_quantize_tensor_from_qparams(x, scale, zp, 4, self.groupsize)
+            x_q_24 = x_q * sparse_mask[:, curr_col_in_group]
+            return x_q_24
+
+        def dequantize_func(self, x_q_24: torch.Tensor, qparams: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]) -> torch.Tensor:
+            scales, zero_point = qparams[:2]
+            x_24 = groupwise_affine_dequantize_tensor_from_qparams(
+                x_q_24,
+                scales,
+                zero_point,
+                4,
+                self.groupsize,
+            )
+            # NOTE(diogo): Might not need this?
+            # x_dq_s = x_dq * sparse_mask[:, curr_col_in_group] # we need to sparsify the final result so it is correct
+            curr_col_in_group += 1
+            return x_24
+
+        def skip_layer_func(self, linear_weight: torch.Tensor) -> bool:
+            return not _check_linear_int4_k(linear_weight.shape[-1], self.groupsize)
+
+        def combine_qparams_list_func(self, qparams_list: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
+            scales_and_zero_points = [qparams[:2] for qparams in qparams_list]
+            return [
+                torch.cat(x, dim=1) for x in zip(*scales_and_zero_points)
+            ]
+
+        def make_names_and_values_dict_func(self, q_24: torch.Tensor, qparams: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]) -> Dict[str, torch.Tensor]:
+            from torchao.sparsity.marlin import pack_to_marlin_24
+
+            scale, zero_point = qparams[:2]
+            # NOTE(diogo): Might need to transpose stuff here
+            marlin_24_q_w_comp, marlin_24_s, meta = pack_to_marlin_24(q_24, scale, 4, self.groupsize)
+            return {
+                "weight": marlin_24_q_w_comp, 
+                "scale": marlin_24_s, 
+                "zero_point": zero_point,
+                "meta": meta
+            }
+
+        def _convert_for_runtime(self, model: nn.Module) -> nn.Module:
+            replace_sparse_marlin_linear(
+                model,
+                self.groupsize,
+                skip_layer_func=self.skip_layer_func,
+            )
+            return model
+
+        def quantize(self, model: torch.nn.Module, inputs: List[_MultiInput], **kwargs: Any) -> torch.nn.Module:
+            state_dict = self._create_quantized_state_dict(
+                model,
+                inputs,
+                self.blocksize,
+                self.percdamp,
+                self.groupsize,
+            )
+            model = self._convert_for_runtime(model)
+            model.load_state_dict(state_dict, strict=False)
+            return model
