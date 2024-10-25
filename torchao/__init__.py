@@ -28,19 +28,19 @@ if not _IS_FBCODE:
         _C = None
         logging.info("Skipping import of cpp extensions")
 
-from torchao.quantization import (
-    autoquant,
-    quantize_,
-)
-from . import dtypes
-from . import testing
-
-__all__ = [
-    "dtypes",
-    "autoquant",
-    "quantize_",
-    "testing",
-]
-
-# test-pytorchbot
-# test-codev
+# from torchao.quantization import (
+#     autoquant,
+#     quantize_,
+# )
+# from . import dtypes
+# from . import testing
+# 
+# __all__ = [
+#     "dtypes",
+#     "autoquant",
+#     "quantize_",
+#     "testing",
+# ]
+# 
+# # test-pytorchbot
+# # test-codev

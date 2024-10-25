@@ -23,10 +23,10 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 
-from torch._inductor import config as inductorconfig
-inductorconfig.triton.unique_kernel_names = True
-inductorconfig.coordinate_descent_tuning = True
-inductorconfig.coordinate_descent_check_all_directions = True
+# from torch._inductor import config as inductorconfig
+# inductorconfig.triton.unique_kernel_names = True
+# inductorconfig.coordinate_descent_tuning = True
+# inductorconfig.coordinate_descent_check_all_directions = True
 
 # torch.set_float32_matmul_precision('high')
 
@@ -53,48 +53,68 @@ class GenerateRequest(BaseModel):
     num_steps: Optional[int] = 30
     seed: Optional[int] = 42
 
-def main(checkpoint_path):
+def main(checkpoint_path, fast=False, furious=False):
+    logging.basicConfig(level=logging.INFO)
+    logging.info(f"Running with fast set to {fast} and furious set to {furious}")
 
-    from sam2.build_sam import build_sam2
-    from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+    if fast:
+        from torchao._models.sam2.build_sam import build_sam2
+        from torchao._models.sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+    else:
+        from sam2.build_sam import build_sam2
+        from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
     
     device = "cuda"
     from pathlib import Path
     sam2_checkpoint = Path(checkpoint_path) / Path("sam2.1_hiera_large.pt")
     model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
-    logging.basicConfig(level=logging.INFO)
     
     logging.info(f"Loading model {sam2_checkpoint} with config {model_cfg}")
     sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
 
     mask_generator = SAM2AutomaticMaskGenerator(sam2) #, points_per_batch=None)
 
-    ## TODO: Using CUDA graphs can cause numerical differences?
-    # mask_generator.predictor.model.image_encoder = torch.compile(
-    #     mask_generator.predictor.model.image_encoder,
-    #     # mode="max-autotune-no-cudagraphs",
-    #     mode="max-autotune",
-    #     fullgraph=True,
-    #     dynamic=False,
-    # )
-    
-    # torch._dynamo.config.capture_dynamic_output_shape_ops = True
-    # mask_generator._process_batch = torch.compile(
-    #     mask_generator._process_batch,
-    #     mode="max-autotune-no-cudagraphs",
-    #     fullgraph=True,
-    #     dynamic=True,
-    # )
+    if furious:
+        torch.set_float32_matmul_precision('high')
+        torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
+
+    if fast:
+        # TODO: Using CUDA graphs can cause numerical differences?
+        mask_generator.predictor.model.image_encoder = torch.compile(
+            mask_generator.predictor.model.image_encoder,
+            # mode="max-autotune-no-cudagraphs",
+            mode="max-autotune",
+            fullgraph=True,
+            dynamic=False,
+        )
+
+        # torch._dynamo.config.capture_dynamic_output_shape_ops = True
+        # mask_generator._process_batch = torch.compile(
+        #     mask_generator._process_batch,
+        #     # mode="max-autotune-no-cudagraphs",
+        #     # fullgraph=True,
+        #     dynamic=True,
+        # )
+        mask_generator.predictor._predict = torch.compile(
+            mask_generator.predictor._predict,
+            # mode="max-autotune-no-cudagraphs",
+            fullgraph=True,
+            dynamic=True,
+        )
 
     example_image = cv2.imread('dog.jpg')
     example_image = cv2.cvtColor(example_image, cv2.COLOR_BGR2RGB)
-    t = time.time()
     with torch.backends.cuda.sdp_kernel(enable_cudnn=True):
-        logging.info(f"Running warmup.")
+        t = time.time()
+        logging.info(f"Running first iteration.")
+        masks = mask_generator.generate(example_image)
+        logging.info(f"First iteration took {time.time() - t}s.")
+        t = time.time()
+        logging.info(f"Running 3 warmup iterations.")
         masks = mask_generator.generate(example_image)
         masks = mask_generator.generate(example_image)
         masks = mask_generator.generate(example_image)
-        logging.info(f"Warmup took {time.time() - t}s.")
+        logging.info(f"Warmup took {(time.time() - t)/3.0}s per iteration.")
 
     app = FastAPI()
 
