@@ -132,13 +132,35 @@ from torchao.quantization.quant_api import change_linear_weights_to_int8_dqtenso
 change_linear_weights_to_int8_dqtensors(model)
 ```
 
-#### A8W8 Float8 Dynamic Quantization
+### A16W8 Float8 WeightOnly Quantization
+
+```python
+# for torch 2.5+
+from torchao.quantization import quantize_, float8_weight_only
+quantize_(model, float8_weight_only())
+```
+
+This API is only tested on H100. Hardware with CUDA compute capability 8.9 or greater is required.
+
+#### A8W8 Float8 Dynamic Quantization with Tensorwise Scaling
 
 ```python
 # for torch 2.4+
 from torchao.quantization import quantize_, float8_dynamic_activation_float8_weight, PerTensor
 quantize_(model, float8_dynamic_activation_float8_weight(granularity=PerTensor()))
 ```
+
+This API is only tested on H100. Hardware with CUDA compute capability 8.9 or greater is required.
+
+### A8W8 Float8 Dynamic Quantization with Rowwise Scaling
+
+```python
+# for torch 2.5+
+from torchao.quantization import quantize_, PerRow, float8_dynamic_activation_float8_weight
+quantize_(model, float8_dynamic_activation_float8_weight(granularity=PerRow()))
+```
+
+This API is only tested on H100. Hardware with CUDA compute capability 8.9 or greater is required.
 
 #### A16W6 Floating Point WeightOnly Quantization
 
@@ -305,26 +327,6 @@ You try can out these apis with the `quantize_` api as above alongside the const
 
 ### Automatic Inductor Configuration
 The `quantize_` and `autoquant` apis now automatically use our recommended inductor configuration setings. You can mimic the same configuration settings for your own experiments by using the `torchao.quantization.utils.recommended_inductor_config_setter` to replicate our recommended configuration settings. Alternatively if you wish to disable these recommended settings, you can use the key word argument `set_inductor_config` and set it to false in the `quantize_` or `autoquant` apis to prevent assignment of those configuration settings. You can also overwrite these configuration settings after they are assigned if you so desire, as long as they are overwritten before passing any inputs to the torch.compiled model. This means that previous flows which referenced a variety of inductor configurations that needed to be set are now outdated, though continuing to manually set those same inductor configurations is unlikely to cause any issues.
-
-### (prototype) A16W8 Float8 WeightOnly Quantization
-
-```python
-# for torch 2.5+
-from torchao.quantization import quantize_, float8_weight_only
-quantize_(model, float8_weight_only())
-```
-
-This API works today but has not been extensively tested and benchmarked yet. Hardware with CUDA compute capability 8.9 or greater is required.
-
-### (prototype) A16W8 Float8 Dynamic Quantization with Rowwise Scaling
-
-```python
-# for torch 2.5+
-from torchao.quantization import quantize_, PerRow, float8_dynamic_activation_float8_weight
-quantize_(model, float8_dynamic_activation_float8_weight(granularity=PerRow()))
-```
-
-This API works today but has not been extensively tested and benchmarked yet. Hardware with CUDA compute capability 8.9 or greater is required.
 
 ## (To be moved to prototype) A16W4 WeightOnly Quantization with GPTQ
 
