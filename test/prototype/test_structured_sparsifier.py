@@ -6,13 +6,6 @@ import unittest
 
 import torch
 from torch import nn
-from torchao.sparsity.prototype.pruner import (
-    BaseStructuredSparsifier,
-    FakeStructuredSparsity,
-    FPGMPruner,
-    LSTMSaliencyPruner,
-    SaliencyPruner,
-)
 from torch.nn.utils import parametrize
 from torch.testing._internal.common_pruning import (
     Conv2dActivation,
@@ -32,6 +25,13 @@ from torch.testing._internal.common_pruning import (
 )
 
 from torch.testing._internal.common_utils import skipIfTorchDynamo, TestCase
+from torchao.prototype.sparsity.pruner import (
+    BaseStructuredSparsifier,
+    FakeStructuredSparsity,
+    FPGMPruner,
+    LSTMSaliencyPruner,
+    SaliencyPruner,
+)
 
 
 logging.basicConfig(
@@ -1092,6 +1092,7 @@ class TestFPGMPruner(TestCase):
             self._test_update_mask_on_multiple_layer(
                 expected_conv1, expected_conv2, device
             )
+
 
 if __name__ == "__main__":
     unittest.main()

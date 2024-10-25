@@ -221,7 +221,7 @@ def _replace_with_custom_fn_if_matches_filter(
 
 def _is_linear(mod, *args):
     # avoid circular dependencies
-    from torchao.quantization.prototype.qat.affine_fake_quantized_tensor import (
+    from torchao.quantization.qat.affine_fake_quantized_tensor import (
         AffineFakeQuantizedTensor,
     )
 
@@ -578,8 +578,7 @@ def int8_weight_only(group_size=None):
         zero_point_dtype = torch.int64
         if group_size is None:
             group_size = weight.shape[1]
-
-        block_size = (1, weight.shape[1])
+        block_size = (1, group_size)
         return to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype)
 
     return _get_linear_subclass_inserter(apply_int8wo_quant, group_size=group_size)

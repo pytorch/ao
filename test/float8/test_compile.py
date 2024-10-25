@@ -20,9 +20,9 @@ if not TORCH_VERSION_AT_LEAST_2_5:
 import torch
 import torch.nn as nn
 from torchao.float8.config import (
-    CastConfig, 
-    Float8LinearConfig, 
-    ScalingType, 
+    CastConfig,
+    Float8LinearConfig,
+    ScalingType,
     Float8LinearRecipeName,
     recipe_name_to_linear_config,
 )
@@ -77,7 +77,7 @@ def _test_compile_base(
     y_fp8.sum().backward()
     y_ref = m_ref(x_ref)
     y_ref.sum().backward()
-    # TODO(future PR): can also test fp8 eager vs compile here with a tigher 
+    # TODO(future PR): can also test fp8 eager vs compile here with a tigher
     # tolerance
     torch.testing.assert_close(y_fp8, y_ref, atol=9.5e-2, rtol=9.5e-2)
     torch.testing.assert_close(
@@ -199,7 +199,7 @@ def test_inductor_from_config_params(
 # to combine with the main testing function.
 # TODO(future PR): make this cleaner.
 @pytest.mark.parametrize(
-    "recipe_name", 
+    "recipe_name",
     [Float8LinearRecipeName.ALL_AXISWISE, Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP],
 )
 @unittest.skipIf(not is_H100, "CUDA with capability 9.0 or greater not available")
@@ -412,14 +412,14 @@ def test_dynamic_scale_numeric_parity(dtype: torch.dtype):
     )
     float8_eager = hp_tensor_to_float8_dynamic(
         hp_tensor1,
-        torch.float8_e4m3fn,
+        e4m3_dtype,
         linear_mm_config,
         gemm_input_role=GemmInputRole.WEIGHT,
     )
     torch._dynamo.reset()
     float8_compile = torch.compile(hp_tensor_to_float8_dynamic)(
         hp_tensor2,
-        torch.float8_e4m3fn,
+        e4m3_dtype,
         linear_mm_config,
         gemm_input_role=GemmInputRole.WEIGHT,
     )

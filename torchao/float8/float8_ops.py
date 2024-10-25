@@ -6,12 +6,13 @@
 from typing import Any, Dict, Tuple
 
 import torch
+from torch.library import Library
+
+from torch.utils._pytree import tree_map
 
 from torchao.float8.float8_python_api import addmm_float8_unwrapped
 from torchao.float8.float8_tensor import choose_scaled_mm_config, Float8Tensor
 from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
-
-from torch.utils._pytree import tree_map
 
 aten = torch.ops.aten
 c10d_functional = torch.ops.c10d_functional
@@ -155,6 +156,7 @@ def float8_view(aten_op, args, kwargs=None):
 def float8_split(aten_op, args, kwargs=None):
     new_data_tensors = aten_op(args[0]._data, *args[1:], **kwargs)
     _assert_tensorwise_scale(aten_op, args[0]._scale)
+
     def make_float8(data):
         return Float8Tensor(
             data,
@@ -287,8 +289,8 @@ def float8_mm(aten_op, args, kwargs=None):
         b._linear_mm_config,
     )
     if scaled_mm_config.emulate:
-        return torch.ops.aten.mm_float8_emulated(
-            a._data, a._scale, b._data, b._scale, output_dtype
+        return torch.mm(a._data.float() / a._scale, b._data.float() / b._scale).to(
+            output_dtype
         )
     tensor_out = addmm_float8_unwrapped(
         a_data,
@@ -323,8 +325,8 @@ def float8_addmm(aten_op, args, kwargs=None):
         b._linear_mm_config,
     )
     if scaled_mm_config.emulate:
-        out = torch.ops.aten.mm_float8_emulated(
-            a._data, a._scale, b._data, b._scale, output_dtype
+        out = torch.mm(a._data.float() / a._scale, b._data.float() / b._scale).to(
+            output_dtype
         )
         return out + bias
     tensor_out = addmm_float8_unwrapped(

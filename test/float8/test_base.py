@@ -8,9 +8,9 @@ import io
 import itertools
 import random
 import re
-from typing import List, Tuple
 import unittest
 import warnings
+from typing import List, Tuple
 
 import pytest
 
@@ -24,12 +24,12 @@ if not TORCH_VERSION_AT_LEAST_2_5:
 
 
 from torchao.float8.config import (
-    CastConfig, 
-    Float8LinearConfig, 
-    ScalingGranularity,
-    ScalingType,
+    CastConfig,
+    Float8LinearConfig,
     Float8LinearRecipeName,
     recipe_name_to_linear_config,
+    ScalingGranularity,
+    ScalingType,
 )
 from torchao.float8.float8_linear import Float8Linear
 from torchao.float8.float8_linear_utils import (
@@ -39,8 +39,8 @@ from torchao.float8.float8_linear_utils import (
 )
 from torchao.float8.float8_python_api import addmm_float8_unwrapped
 from torchao.float8.float8_scaling_utils import (
-    hp_tensor_to_float8_dynamic,
     get_maybe_axiswise_dim,
+    hp_tensor_to_float8_dynamic,
 )
 from torchao.float8.float8_tensor import (
     Float8Tensor,
@@ -65,7 +65,6 @@ torch.manual_seed(0)
 
 is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
 is_cuda_9_0 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (9, 0)
-
 
 
 def bitwise_identical(a: Float8Tensor, b: Float8Tensor) -> bool:
@@ -109,15 +108,15 @@ class TestFloat8Tensor:
 
     def test_index_put(self):
         a = torch.rand(16, dtype=torch.bfloat16)
-        scale_a = tensor_to_scale(a, torch.float8_e4m3fn)
-        fp8_a = hp_tensor_and_scale_to_float8(a, scale_a, torch.float8_e4m3fn)
+        scale_a = tensor_to_scale(a, e4m3_dtype)
+        fp8_a = hp_tensor_and_scale_to_float8(a, scale_a, e4m3_dtype)
 
         index = torch.randint(0, 15, (16,), dtype=torch.long)
 
         b = torch.rand(16, 16, dtype=torch.bfloat16)
-        scale_b = tensor_to_scale(b, torch.float8_e4m3fn)
-        fp8_b = hp_tensor_and_scale_to_float8(b, scale_a, torch.float8_e4m3fn)
-        fp8_b_bad = hp_tensor_and_scale_to_float8(b, scale_b, torch.float8_e4m3fn)
+        scale_b = tensor_to_scale(b, e4m3_dtype)
+        fp8_b = hp_tensor_and_scale_to_float8(b, scale_a, e4m3_dtype)
+        fp8_b_bad = hp_tensor_and_scale_to_float8(b, scale_b, e4m3_dtype)
 
         with pytest.raises(AssertionError):
             b[index] = fp8_a
@@ -127,8 +126,8 @@ class TestFloat8Tensor:
 
     def test_copy_(self):
         a = torch.rand(16, dtype=torch.bfloat16)
-        scale_a = tensor_to_scale(a, torch.float8_e4m3fn)
-        fp8_a = hp_tensor_and_scale_to_float8(a, scale_a, torch.float8_e4m3fn)
+        scale_a = tensor_to_scale(a, e4m3_dtype)
+        fp8_a = hp_tensor_and_scale_to_float8(a, scale_a, e4m3_dtype)
 
         b = torch.empty(16, dtype=torch.bfloat16)
         b.copy_(fp8_a)  # Should work
@@ -137,7 +136,7 @@ class TestFloat8Tensor:
             fp8_a.copy_(b)  # Should fail
 
         fp8_b = Float8Tensor(
-            torch.empty(16, dtype=torch.float8_e4m3fn),
+            torch.empty(16, dtype=e4m3_dtype),
             scale_a,
             torch.bfloat16,
             fp8_a._linear_mm_config,
@@ -220,7 +219,7 @@ class TestFloat8Tensor:
             (ScalingGranularity.AXISWISE, ScalingGranularity.AXISWISE),
             (ScalingGranularity.AXISWISE, ScalingGranularity.TENSORWISE),
             (ScalingGranularity.TENSORWISE, ScalingGranularity.AXISWISE),
-        ]
+        ],
     )
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     @unittest.skipIf(not is_cuda_9_0, "Requires CUDA capability >= 9.0")
@@ -332,12 +331,12 @@ class TestFloat8Linear:
     @pytest.mark.parametrize("emulate", [True, False] if is_cuda_8_9 else [True])
     @pytest.mark.parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
     @pytest.mark.parametrize(
-        "scaling_type_input", 
-        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
+        "scaling_type_input",
+        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
     )
     @pytest.mark.parametrize(
-        "scaling_type_weight", 
-        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
+        "scaling_type_weight",
+        [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
     )
     @pytest.mark.parametrize(
         "scaling_type_grad_output",
@@ -377,8 +376,11 @@ class TestFloat8Linear:
     # to combine with the main testing function.
     # TODO(future PR): make this cleaner.
     @pytest.mark.parametrize(
-        "recipe_name", 
-        [Float8LinearRecipeName.ALL_AXISWISE, Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP],
+        "recipe_name",
+        [
+            Float8LinearRecipeName.ALL_AXISWISE,
+            Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP,
+        ],
     )
     @pytest.mark.parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
     @pytest.mark.parametrize("linear_bias", [True, False])
@@ -512,7 +514,7 @@ class TestFloat8Linear:
 
     @unittest.skipIf(not is_cuda_8_9, "CUDA 8.9 not available")
     def test_inference_mode(self):
-        x = torch.randn(32, 32, device='cuda')
+        x = torch.randn(32, 32, device="cuda")
         m = nn.Sequential(nn.Linear(32, 32)).cuda()
         m = convert_to_float8_training(m)
         with torch.inference_mode(mode=True):
@@ -551,9 +553,10 @@ class TestScaledMM:
             output_dtype=output_dtype,
             use_fast_accum=use_fast_accum,
         )
-        out_emulated = torch.ops.aten.mm_float8_emulated(
-            a_fp8._data, a_fp8._scale, b_fp8._data, b_fp8._scale, output_dtype
-        )
+        out_emulated = torch.mm(
+            a_fp8._data.float() / a_fp8._scale,
+            b_fp8._data.float() / b_fp8._scale,
+        ).to(output_dtype)
 
         if output_dtype != base_dtype:
             out_scaled_mm = out_scaled_mm.to(compare_type)
@@ -610,7 +613,7 @@ class TestScaledMM:
     @pytest.mark.parametrize("use_fast_accum", [True, False])
     def test_pad_inner_dim(self, base_dtype, use_fast_accum):
         torch.manual_seed(42)
-        input_dtype = torch.float8_e4m3fn
+        input_dtype = e4m3_dtype
         compare_type = torch.float32
 
         a = torch.randn(16, 41, device="cuda", dtype=base_dtype)

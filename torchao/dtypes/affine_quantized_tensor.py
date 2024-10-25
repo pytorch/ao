@@ -1419,7 +1419,6 @@ def _linear_int8_act_int8_weight_check(input_tensor, weight_tensor, bias):
         isinstance(input_tensor, AffineQuantizedTensor) and
         _aqt_is_int8_reduced_range(input_tensor) and
         isinstance(weight_tensor, AffineQuantizedTensor) and
-        weight_tensor.is_cuda and
         input_tensor.dtype == weight_tensor.dtype and
         isinstance(input_tensor._layout, PlainLayout) and
         isinstance(weight_tensor._layout, PlainLayout)
@@ -1442,7 +1441,11 @@ def _linear_int8_act_int8_weight_impl(input_tensor, weight_tensor, bias):
     w_vals_int8_t = weight_tensor.tensor_impl.int_data.contiguous().t()
     w_scales = weight_tensor.tensor_impl.scale
     tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
-    y_dot_scaled = int_scaled_matmul(tmp, w_vals_int8_t, x_scales.reshape(-1, 1))
+    x_scales_dtype = x_scales.dtype
+    # Cast fp16 scale to float to avoid overflow in int_scaled_matmul
+    intermediate_dtype = torch.float if x_scales_dtype == torch.half else x_scales_dtype
+    y_dot_scaled = int_scaled_matmul(tmp, w_vals_int8_t, x_scales.reshape(-1, 1).to(intermediate_dtype))
+    y_dot_scaled = y_dot_scaled.to(x_scales_dtype)
 
     y = (y_dot_scaled * w_scales).reshape(
         *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]

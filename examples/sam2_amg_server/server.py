@@ -53,19 +53,19 @@ class GenerateRequest(BaseModel):
     num_steps: Optional[int] = 30
     seed: Optional[int] = 42
 
-def main():
+def main(checkpoint_path):
 
     from sam2.build_sam import build_sam2
     from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
     
     device = "cuda"
-    sam2_checkpoint = "checkpoints/sam2_hiera_large.pt"
-    model_cfg = "sam2_hiera_l.yaml"
+    from pathlib import Path
+    sam2_checkpoint = Path(checkpoint_path) / Path("sam2.1_hiera_large.pt")
+    model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
     logging.basicConfig(level=logging.INFO)
     
-    logging.info(f"Loading model: {sam2_checkpoint}")
+    logging.info(f"Loading model {sam2_checkpoint} with config {model_cfg}")
     sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
-    sam2.to(device=device)
 
     mask_generator = SAM2AutomaticMaskGenerator(sam2) #, points_per_batch=None)
 
