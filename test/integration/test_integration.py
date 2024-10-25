@@ -1329,6 +1329,34 @@ class TestAutoQuant(unittest.TestCase):
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant requires 2.5+.")
+    def test_autoquant_mha(self, device, dtype):
+        if device != "cuda" or not torch.cuda.is_available():
+            self.skipTest(f"autoquant currently does not support {device}")
+        class MHAModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.mha = torch.nn.MultiheadAttention(4096, 32)
+                self.lin = torch.nn.Linear(4096, 4096)
+
+            def forward(self, x):
+                y = self.mha(x, x, x)[0]
+                return self.lin(y)
+
+        mod = MHAModel().to(device).to(dtype)
+        input = torch.randn(1,1,4096).to(device).to(dtype)
+        out=mod(*input)
+
+        torchao.autoquant(mod, set_inductor_config=False)
+        assert not isinstance(mod.mha.out_proj.weight, AutoQuantizableLinearWeight)
+        assert isinstance(mod.lin.weight, AutoQuantizableLinearWeight)
+        mod(*input)
+        from torchao.quantization.autoquant import AUTOQUANT_CACHE
+        assert len(AUTOQUANT_CACHE)>0
+
+
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant requires 2.5+.")
     def test_autoquant_manual(self, device, dtype):
         undo_recommended_configs()
         if device != "cuda" or not torch.cuda.is_available():

@@ -235,6 +235,7 @@ def _is_linear(mod, *args):
         and not isinstance(mod.weight, AffineQuantizedTensor)
         and not isinstance(mod.weight, LinearActivationQuantizedTensor)
         and not isinstance(mod.weight, AffineFakeQuantizedTensor)
+        and not isinstance(mod, nn.modules.linear.NonDynamicallyQuantizableLinear)
     )
 
 import torch.nn.utils.parametrize as parametrize
