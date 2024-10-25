@@ -49,7 +49,7 @@ def show_anns(anns):
     return torch.stack(ms)
 
 
-def main(checkpoint_path, fast=False, furious=False, benchmark=False, verbose=False):
+def main(checkpoint_path, fast=False, furious=False, benchmark=False, verbose=False, points_per_batch=64):
     if verbose:
         logging.basicConfig(level=logging.INFO)
     logging.info(f"Running with fast set to {fast} and furious set to {furious}")
@@ -69,7 +69,8 @@ def main(checkpoint_path, fast=False, furious=False, benchmark=False, verbose=Fa
     logging.info(f"Loading model {sam2_checkpoint} with config {model_cfg}")
     sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
 
-    mask_generator = SAM2AutomaticMaskGenerator(sam2) #, points_per_batch=None)
+    logging.info(f"Using {points_per_batch} points_per_batch")
+    mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=points_per_batch)
 
     if furious:
         torch.set_float32_matmul_precision('high')
@@ -107,11 +108,19 @@ def main(checkpoint_path, fast=False, furious=False, benchmark=False, verbose=Fa
         masks = mask_generator.generate(example_image)
         logging.info(f"First iteration took {time.time() - t}s.")
         if benchmark:
-            t = time.time()
+            logging.info(f"Running 3 warumup iterations.")
+            for _ in range(3):
+                masks = mask_generator.generate(example_image)
             logging.info(f"Running 10 benchmark iterations, then exit.")
+            t = time.time()
             for _ in range(10):
                 masks = mask_generator.generate(example_image)
             print(f"Benchmark took {(time.time() - t)/10.0}s per iteration.")
+            max_memory_allocated_bytes = torch.cuda.max_memory_allocated()
+            _, total_memory = torch.cuda.mem_get_info()
+            max_memory_allocated_percentage = int(100 * (max_memory_allocated_bytes / total_memory))
+            max_memory_allocated_bytes = max_memory_allocated_bytes >> 20
+            print(f"max_memory_allocated_bytes: {max_memory_allocated_bytes}MiB or {max_memory_allocated_percentage}%")
             return
 
     app = FastAPI()
