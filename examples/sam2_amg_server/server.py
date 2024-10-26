@@ -23,10 +23,10 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 
-from torch._inductor import config as inductorconfig
-inductorconfig.triton.unique_kernel_names = True
-inductorconfig.coordinate_descent_tuning = True
-inductorconfig.coordinate_descent_check_all_directions = True
+# from torch._inductor import config as inductorconfig
+# inductorconfig.triton.unique_kernel_names = True
+# inductorconfig.coordinate_descent_tuning = True
+# inductorconfig.coordinate_descent_check_all_directions = True
 
 # torch.set_float32_matmul_precision('high')
 
@@ -48,53 +48,80 @@ def show_anns(anns):
     ax.imshow(img)
     return torch.stack(ms)
 
-class GenerateRequest(BaseModel):
-    prompt: str
-    num_steps: Optional[int] = 30
-    seed: Optional[int] = 42
 
-def main():
+def main(checkpoint_path, fast=False, furious=False, benchmark=False, verbose=False, points_per_batch=64):
+    if verbose:
+        logging.basicConfig(level=logging.INFO)
+    logging.info(f"Running with fast set to {fast} and furious set to {furious}")
 
-    from sam2.build_sam import build_sam2
-    from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+    if fast:
+        from torchao._models.sam2.build_sam import build_sam2
+        from torchao._models.sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+    else:
+        from sam2.build_sam import build_sam2
+        from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
     
     device = "cuda"
-    sam2_checkpoint = "checkpoints/sam2_hiera_large.pt"
-    model_cfg = "sam2_hiera_l.yaml"
-    logging.basicConfig(level=logging.INFO)
+    from pathlib import Path
+    sam2_checkpoint = Path(checkpoint_path) / Path("sam2.1_hiera_large.pt")
+    model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
     
-    logging.info(f"Loading model: {sam2_checkpoint}")
+    logging.info(f"Loading model {sam2_checkpoint} with config {model_cfg}")
     sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
-    sam2.to(device=device)
 
-    mask_generator = SAM2AutomaticMaskGenerator(sam2) #, points_per_batch=None)
+    logging.info(f"Using {points_per_batch} points_per_batch")
+    mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=points_per_batch)
 
-    ## TODO: Using CUDA graphs can cause numerical differences?
-    # mask_generator.predictor.model.image_encoder = torch.compile(
-    #     mask_generator.predictor.model.image_encoder,
-    #     # mode="max-autotune-no-cudagraphs",
-    #     mode="max-autotune",
-    #     fullgraph=True,
-    #     dynamic=False,
-    # )
-    
-    # torch._dynamo.config.capture_dynamic_output_shape_ops = True
-    # mask_generator._process_batch = torch.compile(
-    #     mask_generator._process_batch,
-    #     mode="max-autotune-no-cudagraphs",
-    #     fullgraph=True,
-    #     dynamic=True,
-    # )
+    if furious:
+        torch.set_float32_matmul_precision('high')
+        torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
+
+    if fast:
+        # TODO: Using CUDA graphs can cause numerical differences?
+        mask_generator.predictor.model.image_encoder = torch.compile(
+            mask_generator.predictor.model.image_encoder,
+            # mode="max-autotune-no-cudagraphs",
+            mode="max-autotune",
+            fullgraph=True,
+            dynamic=False,
+        )
+
+        # torch._dynamo.config.capture_dynamic_output_shape_ops = True
+        # mask_generator._process_batch = torch.compile(
+        #     mask_generator._process_batch,
+        #     # mode="max-autotune-no-cudagraphs",
+        #     # fullgraph=True,
+        #     dynamic=True,
+        # )
+        mask_generator.predictor._predict = torch.compile(
+            mask_generator.predictor._predict,
+            # mode="max-autotune-no-cudagraphs",
+            fullgraph=True,
+            dynamic=True,
+        )
 
     example_image = cv2.imread('dog.jpg')
     example_image = cv2.cvtColor(example_image, cv2.COLOR_BGR2RGB)
-    t = time.time()
     with torch.backends.cuda.sdp_kernel(enable_cudnn=True):
-        logging.info(f"Running warmup.")
+        t = time.time()
+        logging.info(f"Running one iteration to compile.")
         masks = mask_generator.generate(example_image)
-        masks = mask_generator.generate(example_image)
-        masks = mask_generator.generate(example_image)
-        logging.info(f"Warmup took {time.time() - t}s.")
+        logging.info(f"First iteration took {time.time() - t}s.")
+        if benchmark:
+            logging.info(f"Running 3 warumup iterations.")
+            for _ in range(3):
+                masks = mask_generator.generate(example_image)
+            logging.info(f"Running 10 benchmark iterations, then exit.")
+            t = time.time()
+            for _ in range(10):
+                masks = mask_generator.generate(example_image)
+            print(f"Benchmark took {(time.time() - t)/10.0}s per iteration.")
+            max_memory_allocated_bytes = torch.cuda.max_memory_allocated()
+            _, total_memory = torch.cuda.mem_get_info()
+            max_memory_allocated_percentage = int(100 * (max_memory_allocated_bytes / total_memory))
+            max_memory_allocated_bytes = max_memory_allocated_bytes >> 20
+            print(f"max_memory_allocated_bytes: {max_memory_allocated_bytes}MiB or {max_memory_allocated_percentage}%")
+            return
 
     app = FastAPI()
 

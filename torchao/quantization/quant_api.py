@@ -235,6 +235,7 @@ def _is_linear(mod, *args):
         and not isinstance(mod.weight, AffineQuantizedTensor)
         and not isinstance(mod.weight, LinearActivationQuantizedTensor)
         and not isinstance(mod.weight, AffineFakeQuantizedTensor)
+        and not isinstance(mod, nn.modules.linear.NonDynamicallyQuantizableLinear)
     )
 
 import torch.nn.utils.parametrize as parametrize
@@ -578,8 +579,7 @@ def int8_weight_only(group_size=None):
         zero_point_dtype = torch.int64
         if group_size is None:
             group_size = weight.shape[1]
-
-        block_size = (1, weight.shape[1])
+        block_size = (1, group_size)
         return to_affine_quantized_intx(weight, mapping_type, block_size, target_dtype, eps=eps, zero_point_dtype=zero_point_dtype)
 
     return _get_linear_subclass_inserter(apply_int8wo_quant, group_size=group_size)

@@ -1840,6 +1840,32 @@ def _(func, types, args, kwargs):
             weight_tensor = weight_tensor.dequantize()
         return torch.nn.functional.linear(input_tensor, weight_tensor, bias)
 
+@implements(torch.nn.functional.embedding)
+def _(func, types, args, kwargs):
+    # new_arg1 = args[1].dequantize()
+    # return torch.nn.embedding(args[0], new_arg1, *args[2:], **kwargs)
+    assert isinstance(args[1].tensor_impl, PlainAQTTensorImpl), f"embedding only works with PlainAQTTensorImpl but got {type(args[1].tensor_impl)}" 
+    assert kwargs["padding_idx"] is None and kwargs["max_norm"] is None and not kwargs["scale_grad_by_freq"] and not kwargs["sparse"] and kwargs["norm_type"]==2.0
+    idx = args[0]
+    int_data, scale, zero_point = args[1].tensor_impl.get_plain()
+    
+    sliced_data, sliced_scale, sliced_zero_point = int_data[idx], scale[idx], zero_point[idx]
+    # Block size is expecting 2 dimensions [1, group size] but
+    # batchsize or other dims gets added to sliced_data, sliced_scale and sliced_zero_point so 
+    # we need to increase block size to correct dim
+    new_blocks = idx.dim()-1
+    return dequantize_affine(
+        sliced_data,
+        new_blocks*[1]+list(args[1].block_size),
+        sliced_scale,
+        sliced_zero_point,
+        sliced_data.dtype,
+        args[1].quant_min,
+        args[1].quant_max,
+        args[1].zero_point_domain,
+        output_dtype=sliced_scale.dtype,
+    )
+
 @implements(aten.addmm.default)
 def _(func, types, args, kwargs):
     input_tensor, weight_tensor, bias = (

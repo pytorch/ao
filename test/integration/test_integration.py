@@ -84,6 +84,7 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_3,
     TORCH_VERSION_AT_LEAST_2_4,
     TORCH_VERSION_AT_LEAST_2_5,
+    TORCH_VERSION_AT_LEAST_2_6,
     unwrap_tensor_subclass,
     is_fbcode,
     benchmark_model
@@ -104,7 +105,13 @@ is_H100 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8
 def _int8wo_api(mod):
     if TORCH_VERSION_AT_LEAST_2_4:
         quantize_(mod, int8_weight_only(), set_inductor_config=False)
-        if not TORCH_VERSION_AT_LEAST_2_5:
+        if (
+            not TORCH_VERSION_AT_LEAST_2_5
+            or (
+                not TORCH_VERSION_AT_LEAST_2_6
+                and torch._inductor.config.freezing
+            )
+        ):
             unwrap_tensor_subclass(mod)
     else:
         change_linear_weights_to_int8_woqtensors(mod)
@@ -843,6 +850,12 @@ class TestSubclass(unittest.TestCase):
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_int8_weight_only_quant_subclass_api(self, device, dtype):
+        if (
+            not TORCH_VERSION_AT_LEAST_2_6
+            and dtype in (torch.float16, torch.bfloat16)
+            and device == "cpu"
+        ):
+            self.skipTest(f"Regression fixed after torch 2.6")
         undo_recommended_configs()
         self._test_lin_weight_subclass_api_impl(
             _int8wo_api, device, 40, test_dtype=dtype
@@ -937,9 +950,25 @@ class TestWeightOnlyInt8Quant(unittest.TestCase):
             m = nn.Sequential(nn.Linear(512, 32))
             y_ref = m(x)
             _int8wo_groupwise_api(m)
+            self.assertEqual(m[0].weight.tensor_impl.int_data.shape, torch.Size([32, 512]))
+            self.assertEqual(m[0].weight.tensor_impl.scale.shape, torch.Size([32, 16]))
             y_wo = m(x)
             sqnr = compute_error(y_ref, y_wo)
             self.assertGreater(sqnr, 45.0)
+
+    def test_weight_only_groupwise_embedding_quant(self):
+        group_size = 64
+        m = nn.Embedding(4096, 128)
+        input = torch.randint(0, 4096, (1, 6))
+        
+        quantize_(m, int8_weight_only(group_size=group_size), filter_fn=lambda x, *args: isinstance(x, nn.Embedding))
+        y_q = m(input)
+        y_ref = m.weight.dequantize()[input]
+        
+        sqnr = compute_error(y_ref, y_q)
+
+        self.assertGreater(sqnr, 45.0)
+
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @torch.no_grad()
@@ -1077,6 +1106,12 @@ class TestSaveLoadMeta(unittest.TestCase):
     @torch.no_grad()
     @unittest.skipIf(is_fbcode(), "broken in fbcode")
     def test_save_load_int8woqtensors(self, device, dtype):
+        if (
+            not TORCH_VERSION_AT_LEAST_2_6
+            and dtype in (torch.float16, torch.bfloat16)
+            and device == "cpu"
+        ):
+            self.skipTest(f"Regression fixed after torch 2.6")
         undo_recommended_configs()
         self._test_handle_save_load_meta_impl(_int8wo_api, device, test_dtype=dtype)
 
@@ -1291,6 +1326,34 @@ class TestAutoQuant(unittest.TestCase):
         out2 = mod(example_input)
         sqnr = SQNR(out, out2)
         self.assertTrue(sqnr >= 30)
+
+    @parameterized.expand(COMMON_DEVICE_DTYPE)
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant requires 2.5+.")
+    def test_autoquant_mha(self, device, dtype):
+        if device != "cuda" or not torch.cuda.is_available():
+            self.skipTest(f"autoquant currently does not support {device}")
+        class MHAModel(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.mha = torch.nn.MultiheadAttention(4096, 32)
+                self.lin = torch.nn.Linear(4096, 4096)
+
+            def forward(self, x):
+                y = self.mha(x, x, x)[0]
+                return self.lin(y)
+
+        mod = MHAModel().to(device).to(dtype)
+        input = torch.randn(1,1,4096).to(device).to(dtype)
+        out=mod(*input)
+
+        torchao.autoquant(mod, set_inductor_config=False)
+        assert not isinstance(mod.mha.out_proj.weight, AutoQuantizableLinearWeight)
+        assert isinstance(mod.lin.weight, AutoQuantizableLinearWeight)
+        mod(*input)
+        from torchao.quantization.autoquant import AUTOQUANT_CACHE
+        assert len(AUTOQUANT_CACHE)>0
+
+
 
     @parameterized.expand(COMMON_DEVICE_DTYPE)
     @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "autoquant requires 2.5+.")
