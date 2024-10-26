@@ -9,7 +9,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-from typing import Optional, Callable, List, Type, Tuple
+from typing import Optional, Callable, List, Type
 
 import torch
 
