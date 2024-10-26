@@ -232,39 +232,9 @@ def main(
             groupsize=int(quantization.split("-")[1])
             assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
             quantize_(model, int4_weight_only(group_size=groupsize))
-        if "sparse-marlin" in quantization:
+        if "marlin" in quantization:
             from torchao.dtypes import MarlinSparseLayout
             quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
-        if "gptq-marlin" in quantization:
-            # avoid circular imports
-            from torchao._models._eval import InputRecorder
-            from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
-
-            group_size = 128
-            pad_calibration_inputs = True
-            calibration_tasks = ["wikitext"]
-            calibration_limit = 1
-
-            assert precision == torch.float16, f"{quantization} requires precision or float16 but got {precision}"
-            assert "cuda" in device, "gptq sparse marlin quantization only works on cuda"
-            assert torch.cuda.get_device_capability()[0] >= 8, "gptq sparse marlin quantization only works on cuda with compute capability >= 8"
-
-            inputs = InputRecorder(
-                tokenizer,
-                calibration_seq_length,
-                prepare_inputs_for_model,
-                pad_calibration_inputs,
-                model.config.vocab_size,
-                device="cpu"
-            ).record_inputs(
-                calibration_tasks,
-                calibration_limit,
-            ).get_inputs()
-
-            # NOTE(diogo): This is just trying to test if the int4 gptq quantizer works
-            quantizer = Int4WeightOnlyGPTQQuantizer(groupsize=group_size, device=device)
-            model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
-            model = quantizer.quantize(model, inputs).to(device) 
         if "fp6" in quantization:
             quantize_(model, fpx_weight_only(3, 2))
         if "embed-int8wo" in quantization:

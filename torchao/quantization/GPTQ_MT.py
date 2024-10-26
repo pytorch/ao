@@ -12,7 +12,8 @@ from torchao.quantization.utils import compute_error as SQNR
 
 from torchao.dtypes import (
     to_affine_quantized_intx_static,
-    TensorCoreTiledLayout
+    TensorCoreTiledLayout,
+    MarlinSparseLayout
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
@@ -736,23 +737,20 @@ class SparseMarlinGPTQQuantizer(GPTQQuantizer):
             torch.cat(x, dim=1) for x in zip(*scales_and_zero_points)
         ]
 
-    def make_qtensor(self, q, qparams):
+    def make_qtensor(self, q: torch.Tensor, qparams: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]) -> torch.Tensor:
         # this should be setup to just use the quantized tensor and qparams directly to make
         # the aqt int4 tensor but i don't think we have that functionality atm so just dequant
         # then requant
         weight = self.dequantize_func(q, qparams)
-        scale = qparams[0]
-        zero_point = qparams[1]
+        scale, zero_point = qparams[:2]
 
-        # copied from quant_api apply_int4_weight_only_quant (this should probably be made into a utility fn at some point)
-        # mapping_type = MappingType.ASYMMETRIC
+        # NOTE: This was copied from `int4_weight_only`. We should probably make this a utility function at some point
         block_size = (1, self.group_size)
         target_dtype = torch.int32
         quant_min = 0
         quant_max = 15
-        zero_point_domain = ZeroPointDomain.FLOAT
-        _layout = TensorCoreTiledLayout(inner_k_tiles=8)
-        # at least the big up to here should be a util
+        zero_point_domain = ZeroPointDomain.INT
+        _layout = MarlinSparseLayout()
 
         quantized_tensor = to_affine_quantized_intx_static(
             weight,
