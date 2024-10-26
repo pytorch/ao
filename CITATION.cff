@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+title: "torchao: PyTorch native quantization and sparsity for training and inference"
+message: "If you use this software, please cite it as below."
+type: software
+authors:
+  - given-names: "torchao maintainers and contributors"
+url: "https//github.com/pytorch/torchao"
+license: "BSD-3-Clause"
+date-released: "2024-10-25"
