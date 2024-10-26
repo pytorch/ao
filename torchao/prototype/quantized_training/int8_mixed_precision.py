@@ -1,4 +1,4 @@
-from typing import Any, NamedTuple, Optional, Tuple
+from typing import Any, NamedTuple, Optional, Tuple, Union
 
 import torch
 import torch.utils._pytree as pytree
@@ -160,6 +160,7 @@ class Int8MixedPrecisionTrainingLinear(nn.Linear):
         self.config = config
 
     def forward(self, input: Tensor) -> Tensor:
+        # TODO: check if this works with quantized weight e.g. NF4
         return _Int8MixedPrecisionTrainingLinearFunction.apply(input, self.weight, self.bias, self.config)
 
 
@@ -197,12 +198,12 @@ class _Int8MixedPrecisionTrainingLinearFunction(torch.autograd.Function):
     @staticmethod
     def forward(
         input: Tensor,
-        weight: Int8MixedPrecisionTrainingLinearWeight,
+        weight: Union[Int8MixedPrecisionTrainingLinearWeight, Tensor],
         bias: Optional[Tensor],
         config: Optional[Int8MixedPrecisionTrainingConfig] = None,
     ):
         if isinstance(weight, Int8MixedPrecisionTrainingLinearWeight):
-            config = weight.config
+            config = weight.config  # `config` input argument will be ignored
             weight = weight._data
         if config.output:
             out = _dynamic_int8_mm(input, weight.T)
@@ -253,7 +254,7 @@ def int8_mixed_precision_training(
     module_swap: bool = False,
 ):
     if module_swap:
-
+        # module swap implementation
         def convert_linear(linear: nn.Linear):
             linear.__class__ = Int8MixedPrecisionTrainingLinear
             linear.config = config
@@ -262,6 +263,7 @@ def int8_mixed_precision_training(
         return convert_linear
 
     else:
+        # tensor subclass implementation
         return _get_linear_subclass_inserter(
             Int8MixedPrecisionTrainingLinearWeight,
             config=config,
