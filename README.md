@@ -2,7 +2,7 @@
 
 [![](https://dcbadge.vercel.app/api/server/gpumode?style=flat)](https://discord.gg/gpumode)
 
-[Introduction](#introduction) | [Inference](#inference) | [Training](#training)  | [Composability](#composability) | [Custom Kernels](#custom-kernels) | [Alpha Features](#alpha-features) | [Installation](#installation) | [Integrations](#integrations) | [Videos](#videos) | [License](#license)
+[Introduction](#introduction) | [Inference](#inference) | [Training](#training)  | [Composability](#composability) | [Custom Kernels](#custom-kernels) | [Alpha Features](#alpha-features) | [Installation](#installation) | [Integrations](#integrations) | [Videos](#videos) | [License](#license) | [Citation](#citation)
 
 ## Introduction
 
@@ -192,3 +192,17 @@ We're also fortunate to be integrated into some of the leading open-source libra
 ## License
 
 `torchao` is released under the [BSD 3](https://github.com/pytorch-labs/ao/blob/main/LICENSE) license.
+
+# Citation
+
+If you find the torchao library useful, please cite it in your work as below.
+
+```bibtex
+@software{torchao,
+  title = {torchao: PyTorch native quantization and sparsity for training and inference},
+  author = {torchao maintainers and contributors},
+  url = {https//github.com/pytorch/torchao},
+  license = {BSD-3-Clause},
+  month = oct,
+  year = {2024}
+```
