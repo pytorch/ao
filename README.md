@@ -199,7 +199,7 @@ If you find the torchao library useful, please cite it in your work as below.
 
 ```bibtex
 @software{torchao,
-  title = {torchao: PyTorch native quantization and sparsity},
+  title = {torchao: PyTorch native quantization and sparsity for training and inference},
   author = {torchao maintainers and contributors},
   url = {https//github.com/pytorch/torchao},
   license = {BSD-3-Clause},
