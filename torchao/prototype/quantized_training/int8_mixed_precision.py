@@ -193,34 +193,43 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor) -> Tensor:
     )
     return out.view(*A.shape[:-1], out.shape[-1])
 
+from torchao.dtypes.nf4tensor import NF4Tensor
 
 class _Int8MixedPrecisionTrainingLinearFunction(torch.autograd.Function):
     @staticmethod
     def forward(
+        ctx,
         input: Tensor,
         weight: Union[Int8MixedPrecisionTrainingLinearWeight, Tensor],
         bias: Optional[Tensor],
         config: Optional[Int8MixedPrecisionTrainingConfig] = None,
     ):
+        # unpack tensor subclass and dequant if necessary.
+        # NOTE: we have to do this inside autograd.Function so that autograd works correctly
         if isinstance(weight, Int8MixedPrecisionTrainingLinearWeight):
-            config = weight.config  # `config` input argument will be ignored
+            config = weight.config  # override `config` input argument
             weight = weight._data
+
+        # FIXME: during torch.compile, weight is FakeTensor, thus this check will fail
+        elif hasattr(weight, "get_original_weight"):
+        # elif isinstance(weight, NF4Tensor):
+            # TODO: we might want a standardized method for dequant tensor subclass in ao.
+            # for plain tensors, .dequantize() will always return FP32, which is not suitable
+            # for BF16/FP16 plain tensors (this dtype casting won't go away even with torch.compile).
+            # currently NF4.dequantize() also behaves differently - it is an internal staticmethod
+            # for table lookup instead of getting the dequant tensor.
+            weight = weight.get_original_weight()  # NF4
+
+        ctx.config = config
+        ctx.save_for_backward(input, weight)
+        ctx.bias = bias is not None
+
         if config.output:
             out = _dynamic_int8_mm(input, weight.T)
         else:
             out = input @ weight.T
         out = out + bias if bias is not None else out
         return out
-
-    @staticmethod
-    def setup_context(ctx, inputs, output):
-        input, weight, bias, config = inputs
-        if isinstance(weight, Int8MixedPrecisionTrainingLinearWeight):
-            config = weight.config
-            weight = weight._data
-        ctx.config = config
-        ctx.save_for_backward(input, weight)
-        ctx.bias = bias is not None
 
     @staticmethod
     def backward(ctx, grad_output):
