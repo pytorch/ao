@@ -665,8 +665,21 @@ class SparseMarlinGPTQQuantizer(GPTQQuantizer):
         group_size: int = 64,  # Number of values to consider when computing the qparams
         padding_allowed: bool = True,
         device: torch.device = torch.device("cuda"),
-    ):
+    ):  
+        from torchao.sparsity.marlin import const
         super().__init__()
+
+        if not torch.cuda.get_device_capability()[0] >= 8:
+            raise ValueError(
+                f'Can not use GPTQ Sparse Marlin 2:4 with a device of compute capability {torch.cuda.get_device_capability()}, the minimum compute capability is 8.0 for Marlin kernel.'
+            )
+
+        # We raise an error here because no layers would be quantized and the user should be aware of this
+        if group_size not in const.SUPPORTED_GROUP_SIZES:
+            raise ValueError(
+                f"Only {const.SUPPORTED_GROUP_SIZES} group sizes are supported, got {group_size}."
+            )
+
         self.blocksize = blocksize
         self.percdamp = percdamp
         self.group_size = group_size
@@ -711,7 +724,11 @@ class SparseMarlinGPTQQuantizer(GPTQQuantizer):
         return x_24
 
     def skip_layer_func(self, linear_weight: torch.Tensor) -> bool:
-        return not _check_linear_int4_k(linear_weight.shape[-1], self.group_size)
+        return not (
+            _check_linear_int4_k(linear_weight.shape[-1], self.group_size)
+            # and linear_weight[0] % 128 == 0  # NOTE(diogo): Check if I need this
+            # and linear_weight[1] % 256 == 0
+        )
 
     def combine_qparams_list_func(self, qparams_list: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
         scales_and_zero_points = [qparams[:2] for qparams in qparams_list]
