@@ -2,7 +2,7 @@ import itertools
 import os
 import torch
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_2
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_2, TORCH_VERSION_AT_LEAST_2_6
 
 try:
     # Only works for torch2.2 or newer.
@@ -112,6 +112,8 @@ def int_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return safe_int_mm(a, b)
 
 
+# If users install cpu-only pytorch, triton won't be available by default
+# This pass adds definition of int_scaled_matmul for this case
 if intmm_triton:
     lib = intmm_triton.lib
 else:
@@ -119,13 +121,20 @@ else:
     lib.define("int_scaled_matmul(Tensor a, Tensor b, Tensor scales1) -> Tensor")
 
 
+@torch.library.impl(lib, "int_scaled_matmul", "Meta")
+def int_scaled_matmul_meta(a, b, scales1):
+    M, K = a.shape
+    K, N = b.shape
+    return torch.empty((M, N), device=a.device, dtype=scales1.dtype)
+
+
 @torch.library.impl(lib, "int_scaled_matmul", "CPU")
 def int_scaled_matmul_cpu(a, b, scales1):
-    try:
+    if TORCH_VERSION_AT_LEAST_2_6:
         c = torch._int_mm(a, b)
-    except NotImplementedError:
-        c = torch.matmul(a.to(scales1.dtype), b.to(scales1.dtype))
-    return c.to(scales1.dtype) * scales1
+        return c.to(scales1.dtype) * scales1
+    else:
+        return safe_int_mm(a, b) * scales1
 
 
 def int_scaled_matmul(a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor) -> torch.Tensor:
@@ -150,8 +159,10 @@ def int_scaled_matmul(a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor) -
     assert scales1.is_contiguous()
     scales1 = scales1.expand((M, N))
     assert scales1.dim() == 2
-    if (intmm_triton is not None and AUTOTUNER_ENABLE) or \
-            (a.device.type == 'cpu' and b.device.type == 'cpu'):
+    if (
+            (intmm_triton is not None and AUTOTUNER_ENABLE)
+            or scales1.device.type == "cpu"
+       ):
         return torch.ops.torchao.int_scaled_matmul(a, b, scales1)
 
     c = safe_int_mm(a, b)
