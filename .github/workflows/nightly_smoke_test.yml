@@ -1,0 +1,39 @@
+name: PyTorch CUDA Nightly Smoke Test
+
+on:
+  schedule:
+    # 6 am PST every day
+    - cron: "0 14 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: regression_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  HF_TOKEN: ${{ secrets.HF_TOKEN }} 
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: CUDA Nightly
+            runs-on: linux.g5.12xlarge.nvidia.gpu
+            torch-spec: '--pre torch --index-url https://download.pytorch.org/whl/nightly/cu121'
+            gpu-arch-type: "cuda"
+            gpu-arch-version: "12.1"
+
+
+    uses: pytorch/test-infra/.github/workflows/linux_job.yml@main
+    with:
+      runner: ${{ matrix.runs-on }}
+      gpu-arch-type: ${{ matrix.gpu-arch-type }}
+      gpu-arch-version: ${{ matrix.gpu-arch-version }}
+      script: |
+        python -m pip install --upgrade pip
+        pip install ${{ matrix.torch-spec }}
+        pip install -r dev-requirements.txt
+        python setup.py install
+        pytest test --verbose -s

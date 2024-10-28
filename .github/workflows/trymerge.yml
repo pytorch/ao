@@ -1,0 +1,90 @@
+name: Validate and merge PR
+
+on:
+  repository_dispatch:
+    types: [try-merge]
+
+jobs:
+  do_merge:
+    name: try_merge_pr_${{ github.event.client_payload.pr_num }}
+    runs-on: ubuntu-latest
+    environment: pytorchbot-env
+    permissions:
+      id-token: write
+    env:
+      GH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Checkout repo
+        id: checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PYTORCH_MERGEBOT_TOKEN }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.8'
+          check-latest: false
+          cache: pip
+          architecture: x64
+      # TODO (huydhn): get rid of Rockset
+      - run: pip install pyyaml==6.0 rockset==1.0.3
+
+      - name: Setup committer id
+        run: |
+          git config --global user.email "pytorchmergebot@users.noreply.github.com"
+          git config --global user.name "PyTorch MergeBot"
+      - name: Merge PR
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.PYTORCH_MERGEBOT_TOKEN }}
+          PR_NUM: ${{ github.event.client_payload.pr_num }}
+          FORCE: ${{ github.event.client_payload.force}}
+          COMMENT_ID: ${{ github.event.client_payload.comment_id }}
+          GIT_REMOTE_URL: https://github.com/pytorch/ao
+          REBASE: ${{ github.event.client_payload.rebase }}
+          IGNORE_CURRENT: ${{ github.event.client_payload.ignore_current }}
+          ROCKSET_API_KEY: ${{ secrets.ROCKSET_API_KEY }}
+          DRCI_BOT_KEY: ${{ secrets.DRCI_BOT_KEY }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -x
+          if [ -n "${FORCE}" ]; then
+            if [ -n "${COMMENT_ID}" ]; then
+              python3 .github/scripts/trymerge.py --force --comment-id "${COMMENT_ID}" "${PR_NUM}"
+            else
+              python3 .github/scripts/trymerge.py --force "${PR_NUM}"
+            fi
+          elif [ -n "${IGNORE_CURRENT}" ]; then
+            if [ -n "${COMMENT_ID}" ]; then
+              python3 .github/scripts/trymerge.py --ignore-current --comment-id "${COMMENT_ID}" "${PR_NUM}"
+            else
+              python3 .github/scripts/trymerge.py --ignore-current "${PR_NUM}"
+            fi
+          elif [ -n "${COMMENT_ID}" ]; then
+            python3 .github/scripts/trymerge.py --comment-id "${COMMENT_ID}" "${PR_NUM}"
+          else
+            python3 .github/scripts/trymerge.py "${PR_NUM}"
+          fi
+
+      - name: configure aws credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        continue-on-error: true
+        with:
+          role-to-assume: arn:aws:iam::308535385114:role/upload_to_ossci_raw_job_status
+          aws-region: us-east-1
+
+      - name: Upload merge record to s3
+        if: always()
+        continue-on-error: true
+        uses: seemethere/upload-artifact-s3@v5
+        with:
+          s3-bucket: ossci-raw-job-status
+          s3-prefix: merges/${{ github.repository }}/${{ github.event.client_payload.pr_num }}/${{ github.event.client_payload.comment_id }}/${{ github.run_id }}
+          path: merge_record.json
+
+# We want newer merge commands to supercede old ones
+concurrency:
+  group: try-merge-${{ github.event.client_payload.pr_num }}
+  cancel-in-progress: true

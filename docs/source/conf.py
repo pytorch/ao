@@ -58,6 +58,12 @@ sphinx_gallery_conf = {
     "remove_config_comments": True,
 }
 
+### TODO: Delete this when we have content
+suppress_warnings = [
+    'toc.unlisted',
+]
+###
+
 napoleon_use_ivar = True
 napoleon_numpy_docstring = False
 napoleon_google_docstring = True
@@ -65,6 +71,7 @@ project = "torchao"
 
 # Get TORCHAO_VERSION_DOCS during the build.
 torchao_version_docs = os.environ.get("TORCHAO_VERSION_DOCS", None)
+print(f"torchao_version_docs: {torchao_version_docs}")
 
 # The code below will cut version displayed in the dropdown like this:
 # by default "main" is set.
@@ -76,6 +83,8 @@ if torchao_version_docs:
         version = ".".join(
             torchao_version_docs.split("/")[-1].split("-")[0].lstrip("v").split(".")[:2]
         )
+    elif torchao_version_docs.startswith("refs/heads/release/"):
+        version = torchao_version_docs.split("/")[-1]
 print(f"Version: {version}")
 html_title = " ".join((project, version, "documentation"))
 

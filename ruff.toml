@@ -1,0 +1,16 @@
+# Currently, we ignore all files in the project by default.
+# We plan to add files in chunks using the 'include' list below.
+# To add a new path: Simply add it to the 'include' list.
+# Example: To lint all files in every subfolder of 'test', add "test/**/*"
+include = [
+    "torchao/float8/inference.py",
+    "torchao/float8/float8_utils.py",
+    "torchao/dtypes/nf4tensor.py",
+    "test/dtypes/test_nf4.py",
+    "torchao/float8/float8_tensor.py",
+    "torchao/quantization/linear_activation_weight_observer.py",
+    "test/quantization/test_observer.py",
+    "test/dtypes/test_affine_quantized_float.py",
+    "torchao/quantization/weight_tensor_linear_activation_quantization.py"
+
+]

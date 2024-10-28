@@ -1,22 +1,21 @@
-
 try:
-    import triton
     import hqq
+    import triton
+
     if int(triton.__version__.split(".")[0]) < 3:
         raise "triton >= 3.0.0 is required to run this test"
 except ImportError:
     raise "triton and hqq required to run this benchmark"
 
-import torch
 from io import StringIO
 
 import pandas as pd
-from hqq.core.quantize import HQQLinear, BaseQuantizeConfig
-from torchao.prototype.hqq.hqq_tinygemm_linear import HQQLinearTorchWeightOnlyInt4
-from torchao.prototype.hqq import triton_mixed_mm, pack_2xint4
-
+import torch
+from hqq.core.quantize import BaseQuantizeConfig, HQQLinear
 from triton.testing import do_bench
 
+from torchao.prototype.hqq import pack_2xint4, triton_mixed_mm
+from torchao.prototype.hqq.hqq_tinygemm_linear import HQQLinearTorchWeightOnlyInt4
 
 BASE_QUANT_CONFIG = {
     "optimize": True,
@@ -27,7 +26,16 @@ BASE_QUANT_CONFIG = {
 }
 
 
-def bench_custom_kernel(x, W_q, scales, zeros, group_size, kernel_type="max_autotune", fp8_fast_accum=False):
+def bench_custom_kernel(
+    x,
+    W_q,
+    scales,
+    zeros,
+    group_size,
+    transposed=False,
+    kernel_type="max_autotune",
+    fp8_fast_accum=False,
+):
     packed_w = pack_2xint4(W_q.T)
 
     def fn():
@@ -36,6 +44,7 @@ def bench_custom_kernel(x, W_q, scales, zeros, group_size, kernel_type="max_auto
             packed_w,
             scales.T,
             zeros.T,
+            transposed=transposed,
             group_size=group_size,
             fp8_fast_accum=fp8_fast_accum,
             kernel_type=kernel_type,
@@ -45,22 +54,30 @@ def bench_custom_kernel(x, W_q, scales, zeros, group_size, kernel_type="max_auto
     return t
 
 
-def bench_hqq(x, hqq_linear: HQQLinear):
-    def fn():
-        _ = hqq_linear.forward(x)
+def bench_hqq(x, hqq_linear: HQQLinear | HQQLinearTorchWeightOnlyInt4, transposed=False, tinygemm=False):
+    def reference_fn():
+        W_dq = hqq_linear.dequantize()
+        _ = x @ W_dq.T if not transposed else x @ W_dq
+    fn = reference_fn if not tinygemm else lambda: hqq_linear(x)
 
     t = do_bench(fn)
     return t
 
 
-def run_benchmark(shape, group_size, dtype, axis=1, quant_dtype=torch.uint8):
+def run_benchmark(
+    shape, group_size, dtype, axis=1, transposed=False, quant_dtype=torch.uint8
+):
     qcfg = {
         **BASE_QUANT_CONFIG,
         **dict(group_size=group_size, axis=axis),
     }
     M, N, K = shape
 
-    x = torch.randn(M, K, dtype=dtype, device="cuda")
+    x = (
+        torch.randn(M, K, dtype=dtype, device="cuda")
+        if not transposed
+        else torch.randn(M, N, dtype=dtype, device="cuda")
+    )
     linear = torch.nn.Linear(K, N, bias=False, dtype=dtype, device="cuda")
 
     quant_config = BaseQuantizeConfig(
@@ -71,7 +88,7 @@ def run_benchmark(shape, group_size, dtype, axis=1, quant_dtype=torch.uint8):
     hqq_linear = HQQLinear(linear, quant_config, compute_dtype=dtype, del_orig=False)
 
     # Reference
-    ref_time = bench_hqq(x, hqq_linear)
+    ref_time = bench_hqq(x, hqq_linear, transposed=transposed)
 
     # Custom kernel
     W_q, meta = hqq_linear.W_q, hqq_linear.meta
@@ -85,26 +102,31 @@ def run_benchmark(shape, group_size, dtype, axis=1, quant_dtype=torch.uint8):
     W_q = W_q.to(dtype=quant_dtype)
     scales = scales.reshape(N, -1)
     zeros = zeros.reshape(N, -1)
-    tt_time = bench_custom_kernel(x, W_q, scales, zeros, group_size)
+    tt_time = bench_custom_kernel(
+        x, W_q, scales, zeros, group_size, transposed=transposed
+    )
 
-    if dtype == torch.bfloat16:
+    should_run_tinygemm = dtype == torch.bfloat16 and not transposed
+    if should_run_tinygemm:
         _ = quant_config["weight_quant_params"].pop("bitpack")
         hqq_int4mm = HQQLinearTorchWeightOnlyInt4(
             linear, quant_config, compute_dtype=dtype, del_orig=False
         )
-        int4_time = bench_hqq(x, hqq_int4mm)
+        int4_time = bench_hqq(x, hqq_int4mm, transposed=transposed, tinygemm=True)
 
-    print(f"{shape=} {group_size=} {dtype=}:")
+    print(f"{shape=}, {group_size=}, {dtype=}, {transposed=}:")
 
     print(
-        f"Ref: {ref_time:.4f}",
-        f"Triton: {tt_time:.4f}",
-        f"Torch int4mm: {int4_time:.4f}"
-        if dtype == torch.bfloat16
-        else "",
+        f"Ref: {ref_time:.4f}ms",
+        f"Triton: {tt_time:.4f}ms",
+        f"Torch int4mm: {int4_time:.4f}ms" if should_run_tinygemm else "",
     )
     print()
-    return ref_time, tt_time, int4_time if dtype == torch.bfloat16 else None
+    return (
+        ref_time,
+        tt_time,
+        int4_time if should_run_tinygemm else -1,
+    )
 
 
 SHAPES = [
@@ -116,9 +138,9 @@ SHAPES = [
     [1024, 4096, 4096],
 ]
 
-DTYPES = [torch.bfloat16]  # , torch.float16]
+DTYPES = [torch.bfloat16] #[torch.float16, torch.bfloat16]
 GROUP_SIZES = [128]
-
+TRANSPOSED = [True] #[False, True]
 
 HEADERS = [
     "M",
@@ -126,6 +148,7 @@ HEADERS = [
     "K",
     "group_size",
     "dtype",
+    "transposed",
     "ref",
     "triton",
     "tinygemm",
@@ -138,10 +161,14 @@ if __name__ == "__main__":
     for shape in SHAPES:
         for group_size in GROUP_SIZES:
             for dtype in DTYPES:
-                timings = run_benchmark(shape, group_size, dtype)
-                data.append((*shape, group_size, dtype, *timings))
+                for transposed in TRANSPOSED:
+                    timings = run_benchmark(
+                        shape, group_size, dtype, transposed=transposed
+                    )
+                    data.append((*shape, group_size, dtype, transposed, *timings))
 
     output = StringIO()
     df = pd.DataFrame(data, columns=HEADERS)
     df.to_csv(output, index=False)
     print(output.getvalue())
+    # df.to_csv("benchmark_hqq_tinygemm.csv", index=False)

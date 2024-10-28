@@ -4,55 +4,128 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from enum import Enum
-from typing import List, Optional, Tuple
-import torch
-from torch._dynamo import is_compiling as dynamo_is_compiling
-from torch._higher_order_ops.out_dtype import out_dtype
-from torch.ao.quantization.fx._decomposed import quantized_decomposed_lib
-from torch.library import impl
+from enum import Enum, auto
+from typing import List, Optional, Tuple, Dict, Callable, Union
+import torch, math
 
 from torchao.kernel.intmm import int_scaled_matmul
 from torchao.kernel.intmm import safe_int_mm
-from .utils import TORCH_VERSION_AFTER_2_3
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_3,
+    TORCH_VERSION_AT_LEAST_2_5,
+)
+from torchao.utils import _register_custom_op, _is_float8_type
+from torchao.prototype.custom_fp_utils import _f32_to_floatx_unpacked, _floatx_unpacked_to_f32, _n_ones
 
-
-_AFTER_TORCH_2_3_ONLY = [
-    "per_token_dynamic_quant",
-    "get_group_qparams_symmetric",
-]
 
 __all__ = [
     "safe_int_mm",
-    "dynamically_quantize_per_tensor",
-    "quantize_activation_per_token_absmax",
-    "dynamically_quantize_per_channel",
-    "dequantize_per_tensor",
-    "dequantize_per_channel",
-    "quant_int8_dynamic_linear",
-    "quant_int8_matmul",
-    "quant_int8_dynamic_per_token_linear",
-    "quant_int8_per_token_matmul",
-    "get_groupwise_affine_qparams",
-    "pack_tinygemm_scales_and_zeros",
-    "unpack_tinygemm_scales_and_zeros",
-    "groupwise_affine_quantize_tensor_from_qparams",
-    "groupwise_affine_dequantize_tensor_from_qparams",
-    "groupwise_affine_quantize_tensor",
-    "groupwise_affine_dequantize_tensor",
-    # TODO: need to clean up above functions
-] + (_AFTER_TORCH_2_3_ONLY if TORCH_VERSION_AFTER_2_3 else [])
+    "int_scaled_matmul",
+    "choose_qparams_affine",
+    "choose_qparams_affine_with_min_max",
+    "choose_qparams_affine_floatx",
+    "quantize_affine",
+    "dequantize_affine",
+    "quantize_affine_floatx",
+    "dequantize_affine_floatx",
+    "fake_quantize_affine",
+    "fake_quantize_affine_cachemask",
+    "choose_qparams_and_quantize_affine_hqq",
+]
 
+class MappingType(Enum):
+    """How floating point number is mapped to integer number
 
-_DTYPE_TO_QVALUE_BOUNDS = {
+    symmetric mapping means floating point range is symmetrically mapped to integer range
+    let's say we have floating point range (-3.5, 10.2) and integer range (-8, 7) (int4)
+    we'll use (-10.2, 10.2) as the range for floating point and map that to (-8, 7)
+    e.g. scale = (10.2 - (-10.2)) / (7 - (-8))
+
+    SYMMETRIC_NO_CLIPPING_ERR is a variant of symmetric mapping, where the scale is the max of smin
+    and smax, where smin = min_val_neg / quant_min, and smax = max_val_pos / quant_max. By calculating
+    smin and smax individually, there can be less round error on negative values, and no out-of-range
+    of all floating point values.
+
+    asymmetric mapping means we just directly map the floating point range to integer range,
+    for the above example, we will map (-3.5, 10.2) to (-8, 7) and calculate quantization parameter
+    based on this mapping
+    e.g. scale = (10.2 - (-3.5)) / (7 - (-8))
+    """
+    SYMMETRIC = auto()
+    SYMMETRIC_NO_CLIPPING_ERR = auto()
+    ASYMMETRIC = auto()
+
+class ZeroPointDomain(Enum):
+    """Enum that indicate whether zero_point is in integer domain or floating point domain
+
+    integer domain: quantized_val = (float_val / scale) (integer) + zero_point (integer)
+    float domain: quantized_val = (float_val - (zero_point (float) - scale * mid_point)) / scale
+    """
+    INT = auto()
+    FLOAT = auto()
+
+class TorchAODType(Enum):
+    """
+    Placeholder for dtypes that do not exist in PyTorch core yet.
+    """
+    # torch.int1 to torch.int7 will be added to PyTorch 2.6
+    # These will remain here for BC with older PyTorch versions
+    INT1 = auto()
+    INT2 = auto()
+    INT3 = auto()
+    INT4 = auto()
+    INT5 = auto()
+    INT6 = auto()
+    INT7 = auto()
+
+if TORCH_VERSION_AT_LEAST_2_5:
+    torch.serialization.add_safe_globals([MappingType, ZeroPointDomain])
+
+FP8_TYPES = {
+    torch.float8_e4m3fn,
+    torch.float8_e5m2,
+    torch.float8_e4m3fnuz,
+    torch.float8_e5m2fnuz,
+}
+
+"""
+Map from dtype to the bound value of integers
+TODO: maybe can replace this with call to torch.iinfo
+"""
+_DTYPE_TO_QVALUE_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {
     torch.uint8: (0, 255),
     torch.int8: (-128, 127),
     torch.int16: (-(2**15), 2**15 - 1),
     torch.int32: (-(2**31), 2**31 - 1),
 }
+_DTYPE_TO_BIT_WIDTH: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {
+    TorchAODType.INT1: 1,
+    TorchAODType.INT2: 2,
+    TorchAODType.INT3: 3,
+    TorchAODType.INT4: 4,
+    TorchAODType.INT5: 5,
+    TorchAODType.INT6: 6,
+    TorchAODType.INT7: 7,
+    torch.uint8: 8,
+    torch.int8: 8,
+    torch.int16: 16,
+    torch.int32: 32,
+}
 
-if TORCH_VERSION_AFTER_2_3:
-    _DTYPE_TO_QVALUE_BOUNDS.update({
+_SUB_BYTE_UINT_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {}
+_SUB_BYTE_INT_BOUNDS: Dict[Union[torch.dtype, TorchAODType], Tuple[int, int]] = {
+    TorchAODType.INT1: (-(2**0), 2**0 - 1),
+    TorchAODType.INT2: (-(2**1), 2**1 - 1),
+    TorchAODType.INT3: (-(2**2), 2**2 - 1),
+    TorchAODType.INT4: (-(2**3), 2**3 - 1),
+    TorchAODType.INT5: (-(2**4), 2**4 - 1),
+    TorchAODType.INT6: (-(2**5), 2**5 - 1),
+    TorchAODType.INT7: (-(2**6), 2**6 - 1),
+}
+
+# torch.uintX available only in PyTorch 2.3+
+if TORCH_VERSION_AT_LEAST_2_3:
+    _SUB_BYTE_UINT_BOUNDS = {
         torch.uint1: (0, 2**1-1),
         torch.uint2: (0, 2**2-1),
         torch.uint3: (0, 2**3-1),
@@ -60,7 +133,26 @@ if TORCH_VERSION_AFTER_2_3:
         torch.uint5: (0, 2**5-1),
         torch.uint6: (0, 2**6-1),
         torch.uint7: (0, 2**7-1),
+    }
+    _DTYPE_TO_BIT_WIDTH.update({
+        torch.uint1: 1,
+        torch.uint2: 2,
+        torch.uint3: 3,
+        torch.uint4: 4,
+        torch.uint5: 5,
+        torch.uint6: 6,
+        torch.uint7: 7,
     })
+
+_DTYPE_TO_QVALUE_BOUNDS.update(_SUB_BYTE_UINT_BOUNDS)
+_DTYPE_TO_QVALUE_BOUNDS.update(_SUB_BYTE_INT_BOUNDS)
+assert _DTYPE_TO_BIT_WIDTH.keys() == _DTYPE_TO_QVALUE_BOUNDS.keys()
+
+_ONES_TABLE = [_n_ones(i) for i in range(8)]
+
+quant_lib = torch.library.Library("quant", "FRAGMENT")
+
+register_custom_op = _register_custom_op(quant_lib)
 
 # TODO: decide on if we want to allow custom quant_min/quant_max here
 def _get_and_check_qmin_qmax(dtype, quant_min, quant_max):
@@ -68,9 +160,12 @@ def _get_and_check_qmin_qmax(dtype, quant_min, quant_max):
     verify that they are within the range of possible quant_min/quant_max
     for dtype
     """
-    if dtype not in _DTYPE_TO_QVALUE_BOUNDS:
+    if dtype in FP8_TYPES:
+        quant_min_lower_bound, quant_max_upper_bound = torch.finfo(dtype).min, torch.finfo(dtype).max
+    elif dtype not in _DTYPE_TO_QVALUE_BOUNDS:
         raise ValueError(f"Unsupported dtype: {dtype}")
-    quant_min_lower_bound, quant_max_upper_bound = _DTYPE_TO_QVALUE_BOUNDS[dtype]
+    else:
+        quant_min_lower_bound, quant_max_upper_bound = _DTYPE_TO_QVALUE_BOUNDS[dtype]
     if quant_min is None:
         quant_min = quant_min_lower_bound
     if quant_max is None:
@@ -123,26 +218,33 @@ def _get_reduction_params(block_size, input_size):
             cur_dim += 1
     return shape_for_reduction, reduction_dims
 
-
+@torch.no_grad()
 def quantize_affine(
     input: torch.Tensor,
-    block_size: List[int],
+    block_size: Tuple[int, ...],
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     output_dtype: torch.dtype,
-    quant_min: Optional[int] = None,
-    quant_max: Optional[int] = None
-):
+    quant_min: Optional[Union[int, float]] = None,
+    quant_max: Optional[Union[int, float]] = None,
+    zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
+) -> torch.Tensor:
     """
     Args:
-      input (torch.Tensor): original float32 or bfloat16 Tensor
-      block_size: (List[int]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
-                           e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
+      input (torch.Tensor): original float32, float16 or bfloat16 Tensor
+      block_size: (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
+           e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
       scale (float): quantization parameter for affine quantization
       zero_point (int): quantization parameter for affine quantization
       output_dtype (torch.dtype): requested dtype (e.g. torch.uint8) for output Tensor
       quant_min (Optional[int]): minimum quantized value for output Tensor, if not specified, it will be derived from dtype
       quant_max (Optional[int]): maximum quantized value for output Tensor, if not specified, it will be derived from dtype
+      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be either integer or float
+        if zero_point is in integer domain, zero point is added to the quantized integer value during
+        quantization
+        if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
+        value during quantization
+        default is ZeroPointDomain.INT
 
     Note:
       How can block_size represent different granularities?
@@ -160,8 +262,74 @@ def quantize_affine(
     Output:
       quantized tensor with requested dtype
     """
-    # TODO: validations
+    return _quantize_affine(
+        input,
+        block_size,
+        scale,
+        zero_point,
+        output_dtype,
+        quant_min,
+        quant_max,
+        zero_point_domain.name if zero_point_domain is not None else None,
+    )
+
+
+@register_custom_op
+def _quantize_affine(
+    input: torch.Tensor,
+    block_size: List[int],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    output_dtype: torch.dtype,
+    quant_min: Optional[Union[int, float, bool]] = None,
+    quant_max: Optional[Union[int, float, bool]] = None,
+    zero_point_domain: Optional[str] = ZeroPointDomain.INT.name,
+) -> torch.Tensor:
+    """op definition that has compatible signatures with custom op library
+
+    Note:
+        zero_point_domain is optional specifies how we quantize the floating point to quantized data:
+        INT: quantized_val = (float_val / scale) (integer) + zero_point (integer)
+        FLOAT: quantized_val = (float_val - (zero_point (float) - scale * mid_point)) / scale
+        None: quantized_val = (float_val / scale) | this is primarily used for floatx quantization
+            Where we do not want to round values to nearest integer and instead scale and cast.
+    """
     quant_min, quant_max = _get_and_check_qmin_qmax(output_dtype, quant_min, quant_max)
+    # workaround for uintx dtypes, since we don't have native Uintx dtype connected with
+    # torch.uintx dtypes yet
+    if output_dtype in _SUB_BYTE_UINT_BOUNDS:
+        output_dtype = torch.uint8
+    return _quantize_affine_no_dtype_cast(
+        input,
+        block_size,
+        scale,
+        zero_point,
+        quant_min,
+        quant_max,
+        zero_point_domain,
+    ).to(output_dtype)
+
+
+def _quantize_affine_no_dtype_cast(
+    input: torch.Tensor,
+    block_size: List[int],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    quant_min: Union[int, float],
+    quant_max: Union[int, float],
+    zero_point_domain: Optional[str] = ZeroPointDomain.INT.name,
+) -> torch.Tensor:
+    """
+    The op does the following:
+    1. figure out the dimension for reduction based on block_size, also reshape the input to align with
+       the shape after reduction
+    2. quantize the input based on the quantization parameters scale and zero_point and args like zero_point_domain
+    3. reshape the quantized result to origianl shape
+    """
+    # TODO: validations
+    # TODO: validate scale/zero_point dimensions are compatible with block_size
+    assert input.dtype in [torch.float32, torch.float16, torch.bfloat16], f"Unsupported input dtype: {input.dtype}"
+    assert len(block_size) == input.dim(), f"Got input dim:{input.dim()}, block_size: {block_size}"
     shape_for_reduction, reduction_dims = _get_reduction_params(block_size, input.size())
     original_shape = input.shape
     input = input.view(shape_for_reduction)
@@ -172,24 +340,40 @@ def quantize_affine(
     if zero_point is not None:
         zero_point = zero_point.view(shape_after_reduction)
 
-    quant = torch.clamp(
-        torch.round(input / scale) + zero_point, quant_min, quant_max
-    ).to(output_dtype)
+    if zero_point_domain == ZeroPointDomain.INT.name:
+        quant = torch.clamp(
+            torch.round(input * (1.0 / scale)) + zero_point, quant_min, quant_max
+        )
+    elif zero_point_domain is None:
+        # This case handles quantization for float8 we expect no zero point and no zero point domain
+        assert zero_point is None, "zero_point should be None when zero_point_domain is None"
+        quant = torch.clamp(input * scale.reciprocal(), quant_min, quant_max)
+    else:
+        assert zero_point_domain == ZeroPointDomain.FLOAT.name
+        mid_point = (quant_max + quant_min + 1) / 2
+        min_val = zero_point - scale * mid_point
+        quant = (
+            torch.clamp(
+                torch.round((input - min_val) / scale),
+                quant_min, quant_max)
+        )
     quant = quant.view(original_shape)
 
     return quant
 
+
 def dequantize_affine(
     input: torch.Tensor,
-    block_size: List[int],
+    block_size: Tuple[int, ...],
     scale: torch.Tensor,
     zero_point: Optional[torch.Tensor],
     input_dtype: torch.dtype,
-    quant_min: Optional[int] = None,
-    quant_max: Optional[int] = None,
+    quant_min: Optional[Union[int, float]] = None,
+    quant_max: Optional[Union[int, float]] = None,
+    zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
     *,
-    output_dtype: Optional[torch.dtype] = None,
-):
+    output_dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
     """
     Args:
       input (torch.Tensor): quantized tensor, should match the dtype `dtype` argument
@@ -197,18 +381,83 @@ def dequantize_affine(
                                e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
       scale (Tensor): quantization parameter for affine quantization
       zero_point (Tensor): quantization parameter for affine quantization
-      dtype (torch.dtype): requested dtype (e.g. torch.uint8) for output Tensor
+      input_dtype (torch.dtype): requested dtype (e.g. torch.uint8) for output Tensor
       quant_min (Optional[int]): minimum quantized value for input Tensor
       quant_max (Optional[int]): maximum quantized value for input Tensor
-      output_dtype (torch.dtype?): optional dtype for output Tensor, default is fp32
+      output_dtype (torch.dtype): dtype for output Tensor, default is fp32
+      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be either integer or float
+        if zero_point is in integer domain, zero point is added to the quantized integer value during
+        quantization
+        if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
+        value during quantization
+        default is ZeroPointDomain.INT
 
     Output:
       dequantized Tensor, with requested dtype or fp32
     """
-    # TODO: validations
-    assert input.dtype == input_dtype
-    quant_min, quant_max = _get_and_check_qmin_qmax(input_dtype, quant_min, quant_max)
+    return _dequantize_affine(
+        input,
+        block_size,
+        scale,
+        zero_point,
+        input_dtype,
+        quant_min,
+        quant_max,
+        zero_point_domain.name if zero_point_domain is not None else None,
+        output_dtype=output_dtype,
+    )
 
+
+@register_custom_op
+def _dequantize_affine(
+    input: torch.Tensor,
+    block_size: List[int],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    input_dtype: torch.dtype,
+    quant_min: Optional[Union[int, float, bool]] = None,
+    quant_max: Optional[Union[int, float, bool]] = None,
+    zero_point_domain: Optional[str] = ZeroPointDomain.INT.name,
+    output_dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    """op definition that has compatible signatures with custom op library
+    """
+    # TODO: validate scale/zero_point dimensions are compatible with block_size
+    if input_dtype not in _SUB_BYTE_UINT_BOUNDS:
+        assert input.dtype == input_dtype, f"Expected: {input_dtype}, got: {input.dtype}"
+    assert output_dtype in [torch.float32, torch.float16, torch.bfloat16], f"Unsupported output dtype: {output_dtype}"
+    quant_min, quant_max = _get_and_check_qmin_qmax(input_dtype, quant_min, quant_max)
+    return _dequantize_affine_no_dtype_check(
+        input,
+        block_size,
+        scale,
+        zero_point,
+        quant_min,
+        quant_max,
+        zero_point_domain,
+        output_dtype,
+    )
+
+
+def _dequantize_affine_no_dtype_check(
+    input: torch.Tensor,
+    block_size: List[int],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    quant_min: Union[int, float],
+    quant_max: Union[int, float],
+    zero_point_domain: Optional[str] = ZeroPointDomain.INT.name,
+    output_dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    """ This function converts AQT tensors to their high precision floating point representation
+
+    The op does the following:
+    1. figure out the dimension for reduction based on block_size, also reshape the input to align with
+       the shape after reduction
+    2. dequantize the input based on the quantization parameters scale and zero_point and args like zero_point_domain
+    3. reshape the quantized result to origianl shape and change dtype to the output_dtype
+    """
+    assert len(block_size) == input.dim(), f"Got input dim:{input.dim()}, block_size: {block_size}"
     shape_for_reduction, reduction_dims = _get_reduction_params(block_size, input.size())
     original_shape = input.shape
     input = input.view(shape_for_reduction)
@@ -216,612 +465,558 @@ def dequantize_affine(
     for i in reduction_dims:
         shape_after_reduction[i] = 1
     scale = scale.view(shape_after_reduction)
+
     if zero_point is not None:
         zero_point = zero_point.view(shape_after_reduction)
 
-    dequant = input.to(torch.float32)
-    scale = scale.to(torch.float32)
-    if zero_point is not None:
-        zero_point = zero_point.to(torch.float32)
-        dequant -= zero_point
-    dequant *= scale
-    dequant = dequant.view(original_shape)
-    return dequant.to(output_dtype)
+    if zero_point_domain == ZeroPointDomain.INT.name:
+        # Force a copy to avoid input modification due
+        # to upcoming in-place operations.
+        dequant = input.to(torch.int32, copy=True)
+        if zero_point is not None:
+            dequant = dequant - zero_point.to(torch.int32)
+        dequant = dequant.to(output_dtype)
+        dequant = dequant * scale
+    elif zero_point_domain is None:
+        # This case handles dequantization for float8 we expect no zero point and no zero point domain
+        assert zero_point is None, "zero_point should be None when zero_point_domain is None"
+        assert _is_float8_type(input.dtype), f"dequantiztion with no zero point domain is only supported with FP8 types, got {input.dtype}"
+        dequant = input.to(output_dtype)
+        dequant = dequant * scale
+    else:
+        assert zero_point_domain == ZeroPointDomain.FLOAT.name, f"Unexpected zero point domain: {zero_point_domain}"
+        # TODO: this seems to be a detail for tinygemm (converting from uint to int, probably need to refactor this)
+        mid_point = (quant_max + quant_min + 1) / 2
+        # This should allocate new memory and avoid input modification
+        dequant = input - mid_point
+        dequant = dequant.to(output_dtype)
+        dequant *= scale
+        if zero_point is not None:
+            dequant += zero_point
+
+    return dequant.view(original_shape).to(output_dtype)
 
 
-class MappingType(Enum):
-    SYMMETRIC = 0
-    ASYMMETRIC = 1
+def fake_quantize_affine(
+    input: torch.Tensor,
+    block_size: Tuple[int, ...],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    quant_dtype: torch.dtype,
+    quant_min: Optional[Union[int, float]] = None,
+    quant_max: Optional[Union[int, float]] = None,
+    zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+) -> torch.Tensor:
+    """
+    General fake quantize op for quantization-aware training (QAT).
+    This is equivalent to calling `quantize_affine` + `dequantize_affine`
+    but without the dtype casts.
 
+    Args:
+      input (torch.Tensor): original float32, float16 or bfloat16 Tensor
+      block_size: (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
+           e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
+      scale (float): quantization parameter for affine quantization
+      zero_point (int): quantization parameter for affine quantization
+      quant_dtype (torch.dtype): desired quantized dtype for determining and validating quant_min and quant_max values.
+      quant_min (Optional[int]): minimum quantized value for output Tensor, if not specified, it will be derived from dtype
+      quant_max (Optional[int]): maximum quantized value for output Tensor, if not specified, it will be derived from dtype
+      zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be either integer or float
+        if zero_point is in integer domain, zero point is added to the quantized integer value during
+        quantization
+        if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
+        value during quantization
+        default is ZeroPointDomain.INT
+    """
+    (_, fq) = _do_fake_quantize_affine(
+        input,
+        block_size,
+        scale,
+        zero_point,
+        quant_dtype,
+        quant_min,
+        quant_max,
+        zero_point_domain,
+    )
+    return fq
+
+
+def fake_quantize_affine_cachemask(
+    input: torch.Tensor,
+    block_size: Tuple[int, ...],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    quant_dtype: torch.dtype,
+    quant_min: Optional[Union[int, float]] = None,
+    quant_max: Optional[Union[int, float]] = None,
+    zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    General fake quantize op for quantization-aware training (QAT).
+    This is equivalent to calling `quantize_affine` + `dequantize_affine`
+    but without the dtype casts.
+
+    Note: Compared to :func:`~torchao.quantization.quant_primitives.fake_quantize_affine`,
+    this consumes more memory and returns an additional outlier mask for
+    intermediate quantized values.
+
+    Args:
+      Same as :func:`~torchao.quantization.quant_primitives.fake_quantize_affine`.
+
+    Returns:
+      A 2-tuple of (
+          final fake quantized values,
+          outlier mask for intermediate quantized values
+      )
+
+    """
+    (q, dq) = _do_fake_quantize_affine(
+        input,
+        block_size,
+        scale,
+        zero_point,
+        quant_dtype,
+        quant_min,
+        quant_max,
+        zero_point_domain,
+    )
+    mask = torch.logical_and((q >= quant_min), (q <= quant_max))
+    return (dq, mask)
+
+
+def _do_fake_quantize_affine(
+    input: torch.Tensor,
+    block_size: Tuple[int, ...],
+    scale: torch.Tensor,
+    zero_point: Optional[torch.Tensor],
+    quant_dtype: torch.dtype,
+    quant_min: Optional[Union[int, float]] = None,
+    quant_max: Optional[Union[int, float]] = None,
+    zero_point_domain: ZeroPointDomain = ZeroPointDomain.INT,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Helper function for `fake_quantize_affine` that returns both the
+    intermediate quantized values and the final dequantized values.
+    """
+    input_dtype = input.dtype
+    quant_min, quant_max = _get_and_check_qmin_qmax(quant_dtype, quant_min, quant_max)
+    q = _quantize_affine_no_dtype_cast(
+        input,
+        block_size,
+        scale,
+        zero_point,
+        quant_min,
+        quant_max,
+        zero_point_domain.name,
+    )
+    dq = _dequantize_affine_no_dtype_check(
+        q,
+        block_size,
+        scale,
+        zero_point,
+        quant_min,
+        quant_max,
+        zero_point_domain.name,
+        output_dtype=input_dtype,
+    )
+    return (q, dq)
+
+@torch.no_grad()
 def choose_qparams_affine(
    input: torch.Tensor,
    mapping_type: MappingType,
-   block_size: List[int],
+   block_size: Tuple[int, ...],
+   target_dtype: torch.dtype,
+   quant_min: Optional[Union[int, float]] = None,
+   quant_max: Optional[Union[int, float]] = None,
+   eps: Optional[float] = None,
+   scale_dtype: Optional[torch.dtype] = None,
+   zero_point_dtype: Optional[torch.dtype] = None,
+   preserve_zero: bool = True,
+   zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Args:
+        input (torch.Tensor): fp32, bf16, fp16 input Tensor
+        mapping_type (MappingType): determines how the qparams are calculated, symmetric or asymmetric
+        block_size: (Tuple[int, ...]): granularity of quantization, this means the size of the tensor elements that's sharing the same qparam
+          e.g. when size is the same as the input tensor dimension, we are using per tensor quantization
+        target_dtype (torch.dtype): dtype for target quantized Tensor
+        quant_min (Optional[int]): minimum quantized value for target quantized Tensor
+        quant_max (Optioanl[int]): maximum quantized value for target quantized Tensor
+        eps (Optional[float]): minimum scale, if not provided, default to eps of input.dtype
+        scale_dtype (torch.dtype): dtype for scale Tensor
+        zero_point_dtype (torch.dtype): dtype for zero_point Tensor
+        preserve_zero (bool): a flag to indicate whether we need zero to be exactly
+          representable or not, this is typically required for ops that needs zero padding, like convolution
+          it's less important for ops that doesn't have zero padding in the op itself, like linear.
+
+          For example, given a floating point Tensor [1.2, 0.1, 3.0, 4.0, 0.4, 0], if `preserve_zero` is True,
+          we'll make sure there is a integer value corresponding to the floating point 0, e.g. [-3, -8, 3, 7, -7, -8], 0 will be mapped to `-8` without loss. But if `preserve_zero` is not True, there won't be such
+          gurantee.
+
+          If we don't need zero to be exactly representable, we won't do rounding and clamping for zero_point
+
+        zero_point_domain (ZeroPointDomain): the domain that zero_point is in, should be either integer or float
+            if zero_point is in integer domain, zero point is added to the quantized integer value during
+            quantization
+            if zero_point is in floating point domain, zero point is subtracted from the floating point (unquantized)
+            value during quantization
+            default is ZeroPointDomain.INT
+
+    Output:
+        Tuple of scales and zero_points Tensor with requested dtype
+    """
+    return _choose_qparams_affine(
+        input,
+        mapping_type.name,
+        block_size,
+        target_dtype,
+        quant_min,
+        quant_max,
+        eps,
+        scale_dtype,
+        zero_point_dtype,
+        preserve_zero,
+        zero_point_domain.name if zero_point_domain is not None else None,
+    )
+
+
+def choose_qparams_affine_with_min_max(
+   min_val: torch.Tensor,
+   max_val: torch.Tensor,
+   mapping_type: MappingType,
+   block_size: Tuple[int, ...],
    target_dtype: torch.dtype,
    quant_min: Optional[int] = None,
    quant_max: Optional[int] = None,
    eps: Optional[float] = None,
    scale_dtype: Optional[torch.dtype] = None,
    zero_point_dtype: Optional[torch.dtype] = None,
+   preserve_zero: bool = True,
+   zero_point_domain: Optional[ZeroPointDomain] = ZeroPointDomain.INT,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Args:
-        input (torch.Tensor): fp32, bf16, fp16 input Tensor
-        mapping_type (MappingType): determines how the qparams are calculated, symmetric or asymmetric
-        target_dtype (torch.dtype): dtype for target quantized Tensor
-        quant_min (Optional[int]): minimum quantized value for target quantized Tensor
-        quant_max (Optioanl[int]): maximum quantized value for target quantized Tensor
-        eps (Optional[float]: minimum scale
-        scale_dtype (torch.dtype): dtype for scales
-        zero_point_dtype (torch.dtype): dtype for zero_points
+    """A variant of :func:`~torchao.quantization.quant_primitives.choose_qparams_affine`
+    operator that pass in min_val and max_val directly instead of deriving these from a single input.
+    This is used for observers in static quantization where min_val and max_val may be obtained through
+    tracking all the data in calibration data set.
 
-    Output:
-        Tuple of scales and zero_points Tensor with requested dtype
+    Args:
+      Mostly same as :func:`~torchao.quantization.quant_primitives.choose_qparams_affine`. with one
+      difference: instead of passing in `input` Tensor and use that to calculate min_val/max_val
+      and then scale/zero_point, we pass in min_val/max_val directly
+    """
+    return _choose_qparams_affine(
+        None,
+        mapping_type.name,
+        block_size,
+        target_dtype,
+        quant_min,
+        quant_max,
+        eps,
+        scale_dtype,
+        zero_point_dtype,
+        preserve_zero,
+        zero_point_domain.name if zero_point_domain is not None else None,
+        min_val,
+        max_val,
+    )
+
+
+@register_custom_op
+def _choose_qparams_affine(
+   input: Optional[torch.Tensor],
+   mapping_type: str,
+   block_size: List[int],
+   target_dtype: torch.dtype,
+   quant_min: Optional[Union[int, float, bool]] = None,
+   quant_max: Optional[Union[int, float, bool]] = None,
+   eps: Optional[float] = None,
+   scale_dtype: Optional[torch.dtype] = None,
+   zero_point_dtype: Optional[torch.dtype] = None,
+   preserve_zero: bool = True,
+   zero_point_domain: Optional[str] = "INT",
+   min_val: Optional[torch.Tensor] = None,
+   max_val: Optional[torch.Tensor] = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """op definition that has compatible signatures with custom op library
+
+    The op does the following:
+    1. figure out the dimension for reduction based on block_size
+    2. find min_val/max_val based on the dimension for reduction
+    3. calculate quantization parameters based on min_val/max_val based on args like `preserve_zero`
+       and `zero_point_domain`
     """
     quant_min, quant_max = _get_and_check_qmin_qmax(target_dtype, quant_min, quant_max)
-    if scale_dtype is None:
-        scale_dtype = torch.float32
-    if zero_point_dtype is None:
-        zero_point_dtype = torch.float32
+    assert mapping_type in [MappingType.SYMMETRIC.name, MappingType.SYMMETRIC_NO_CLIPPING_ERR.name, MappingType.ASYMMETRIC.name], f"Unsupported mapping type: {mapping_type}"
+    if target_dtype in FP8_TYPES:
+        assert mapping_type == MappingType.SYMMETRIC.name, f"Only symmetric quantization is supported for FP8 types, got {mapping_type}"
 
-    assert len(block_size) == input.dim()
-    shape_for_reduction, reduction_dims = _get_reduction_params(block_size, input.size())
-    input = input.view(shape_for_reduction)
+    if input is not None:
+        if scale_dtype is None:
+            scale_dtype = input.dtype
+        if zero_point_dtype is None:
+            zero_point_dtype = input.dtype
+        if eps is None:
+            eps = torch.finfo(input.dtype).eps
 
-    if mapping_type == MappingType.SYMMETRIC:
-        amax = torch.amax(torch.abs(input), dim=reduction_dims, keepdim=False)
-        scale = amax / (float(quant_max - quant_min) / 2)
-        zero_point = torch.ones_like(scale)
-        zero_point *= int((quant_min + quant_max + 1) / 2)
-    elif mapping_type == MappingType.ASYMMETRIC:
+        assert len(block_size) == input.dim(), f"Got input dim:{input.dim()}, block_size: {block_size}"
+        shape_for_reduction, reduction_dims = _get_reduction_params(block_size, input.size())
+        input = input.view(shape_for_reduction)
+
         min_val = torch.amin(input, dim=reduction_dims, keepdim=False)
         max_val = torch.amax(input, dim=reduction_dims, keepdim=False)
+    else:
+        assert min_val is not None and max_val is not None, "Need to provide `min_val` and `max_val` when `input` is None, got: {min_val, max_val}"
+        assert min_val.dtype == max_val.dtype, "Expecting `min_val` and `max_val` to have the same dtype, got: {min_val.dtype, max_val.dtype}"
 
+        if scale_dtype is None:
+            scale_dtype = min_val.dtype
+        if zero_point_dtype is None:
+            zero_point_dtype = min_val.dtype
+        if eps is None:
+            eps = torch.finfo(min_val.dtype).eps
+
+    if preserve_zero:
         min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
         max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
-
-        scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
-        zero_point = quant_min - torch.round(min_val_neg / scale)
-        zero_point = torch.clamp(zero_point, quant_min, quant_max)
     else:
-        raise RuntimeError(f"Unsupported mapping type: {mapping_type}")
+        min_val_neg = min_val
+        max_val_pos = max_val
 
-    if eps is not None:
+    if mapping_type == MappingType.SYMMETRIC.name or mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR.name:
+        # scales
+        if mapping_type == MappingType.SYMMETRIC.name:
+            max_val_pos = torch.max(-min_val_neg, max_val_pos)
+            scale = max_val_pos / (float(quant_max - quant_min) / 2)
+        else:
+            assert mapping_type == MappingType.SYMMETRIC_NO_CLIPPING_ERR.name
+            # calculate smin and smax individually and choose the larger one. For example, if quant_min = -8 and
+            # quant_max = 7.
+            # - If smin is bigger: There would be coverage on negative values down to -8, and less rounding
+            # error than the existing SYMMETRIC case.
+            # - If smax is bigger: it covers the positive values up to 7. The round
+            # error may be bigger than the existing SYMMETRIC case. Either way, there's no out-of-range fp values after
+            # quantization.
+            smin = min_val_neg / float(quant_min)
+            smax = max_val_pos / float(quant_max)
+            mask = smin > smax
+            scale = torch.where(mask, smin, smax)
+        # zeros
+        if not preserve_zero:
+            raise ValueError("preserve_zero == False is not supported for symmetric quantization")
+        if zero_point_domain is not None and zero_point_domain != ZeroPointDomain.INT.name:
+            raise ValueError("zero_point_domain != ZeroPointDomain.INT is not supported for symmetric quantization")
         scale = torch.clamp(scale, min=eps)
+        zero_point = torch.full_like(scale, int((quant_max + quant_min + 1) / 2))
+    else:
+        assert mapping_type == MappingType.ASYMMETRIC.name
+        scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
+        scale = torch.clamp(scale, min=eps)
+        if preserve_zero:
+            zero_point = quant_min - torch.round(min_val_neg / scale)
+            zero_point = torch.clamp(zero_point, quant_min, quant_max)
+        else:
+            assert zero_point_domain == ZeroPointDomain.FLOAT.name, "if not preserve_zero, zero_point must be in FLOAT domain"
+            mid_point = (quant_max + quant_min + 1) / 2
+            zero_point = min_val_neg + scale * mid_point
 
     return scale.to(dtype=scale_dtype), zero_point.to(dtype=zero_point_dtype)
 
 
-# copy-pasta of https://www.internalfb.com/intern/anp/view/?id=3350736
-
-def dynamically_quantize_per_tensor(
-    x,
-    quant_min,
-    quant_max,
-    target_dtype,
-    qscheme=torch.per_tensor_affine,  # for now, reuse existing qscheme enum
-):
-    # assumes affine quantization
-
-    # default setup for affine quantization of activations
-    eps = torch.finfo(torch.float32).eps
-
-    if qscheme == torch.per_tensor_affine:
-        # get min and max
-        # TODO(future): make torch.aminmax work on cpu-half
-        # min_val, max_val = torch.aminmax(x)
-        min_val = torch.min(x)
-        max_val = torch.max(x)
-
-        # calculate scale and zero point based on min and max
-        # reference: https://fburl.com/code/srbiybme
-        min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
-        max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
-
-        scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
-        # TODO(future): make torch.clamp with scalar work on cpu-half
-        scale = torch.clamp(scale, min=eps).reshape(1)
-        zero_point = quant_min - torch.round(min_val_neg / scale).to(torch.int)
-        zero_point = torch.clamp(zero_point, quant_min, quant_max)
-
-        # quantize based on qmin/qmax/scale/zp
-        # reference: torch/ao/quantization/fx/_decomposed.py?lines=63
-        quant = torch.clamp(
-            torch.round(x / scale) + zero_point, quant_min, quant_max
-        ).to(target_dtype)
-
+# HQQ
+############################################################################
+# Shrinking operator (proximal operator for the lp norm)
+def _shrink_lp_op(x: torch.Tensor, beta: float, lp_norm: float) -> torch.Tensor:
+    if lp_norm == 1:
+        return torch.sign(x) * torch.nn.functional.relu(torch.abs(x) - 1.0 / beta)
     else:
-        assert qscheme == torch.per_tensor_symmetric, f"unsupported qscheme {qscheme}"
-        # assert quant_min == -1 * quant_max, "unsupported quant_min/quant_max"
-        amax = torch.max(torch.abs(x))
-        scale = amax / (float(quant_max - quant_min) / 2)
-        scale = torch.clamp(scale, min=eps).reshape(1)
-        quant = torch.clamp(torch.round(x / scale), quant_min, quant_max).to(
-            target_dtype
-        )
-        # do not create a tensor for zero_point as this is expensive
-        zero_point = None
-
-    return quant, scale, zero_point
-
-
-# taken from
-# https://github.com/mit-han-lab/smoothquant/blob/2f87951dacfb9238d8d657f52ae83a82a3c9ba0c/smoothquant/fake_quant.py#L26
-# and slightly modified
-
-
-def quantize_activation_per_token_absmax(t):
-    n_bits = 8
-    # if the shape of t is [B, N, K], the shape of scales will be [B, N, 1]
-
-    scales = t.abs().amax(dim=-1, keepdim=True)
-    if scales.dtype == torch.float16:
-        scales = (
-            scales.float()
-        )  # want float scales to avoid overflows for fp16, (bf16 has wide enough range)
-    q_max = 2 ** (n_bits - 1) - 1
-    scales = scales.clamp(min=1e-5).div(q_max)
-    # Note: the original smoothquant does not clamp to qmin/qmax here,
-    # but some of the tests with bfloat16 ended up with a flipped sign
-    # if we don't clamp.  TODO(future) look into this further.
-    t = torch.round(t / scales).clamp(-127, 127).to(torch.int8)
-    return t, scales
-
-
-def dynamically_quantize_per_channel(x, quant_min, quant_max, target_dtype):
-    # assumes symmetric quantization
-    # assumes axis == 0
-    # assumes dense memory format
-    # TODO(future): relax ^ as needed
-
-    # default setup for affine quantization of activations
-    eps = torch.finfo(torch.float32).eps
-
-    # get min and max
-    min_val, max_val = torch.aminmax(x, dim=1)
-
-    # calculate scale and zero point based on min and max
-    # reference: https://fburl.com/code/srbiybme
-    min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
-    max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
-    device = min_val_neg.device
-
-    # reference: https://fburl.com/code/4wll53rk
-    max_val_pos = torch.max(-min_val_neg, max_val_pos)
-    scale = max_val_pos / (float(quant_max - quant_min) / 2)
-    # ensure scale is the same dtype as the original tensor
-    scale = torch.clamp(scale, min=eps).to(x.dtype)
-    zero_point = torch.zeros(min_val_neg.size(), dtype=torch.int64, device=device)
-
-    # quantize based on qmin/qmax/scale/zp
-    # reference: torch/ao/quantization/fx/_decomposed.py?lines=63
-    x_div = x.transpose(0, 1) / scale
-    x_round = torch.round(x_div)
-    x_zp = x_round + zero_point
-    x_zp = x_zp.transpose(0, 1)
-    quant = torch.clamp(x_zp, quant_min, quant_max).to(target_dtype)
-
-    return quant, scale, zero_point
-
-
-# reference: https://fburl.com/code/vfsygwd0
-
-
-def dequantize_per_tensor(int_repr, scale, zero_point, out_dtype=torch.float32):
-    y = int_repr.to(out_dtype)
-    if zero_point is not None:
-        y -= zero_point
-    return y * scale
-
-
-# reference: https://fburl.com/code/org0fmi3
-
-
-def dequantize_per_channel(int_repr, scales, zero_points, out_dtype=torch.float32):
-    # assumes axis is 0
-    y = int_repr.transpose(0, 1)
-    y = y.to(out_dtype)
-    y = y - zero_points
-    y = y * scales
-    y = y.transpose(0, 1)
-    return y
-
-
-def quant_int8_dynamic_linear(
-    x,
-    x_quant_min,
-    x_quant_max,
-    x_q_dtype,
-    w_vals_int8_t,
-    w_scales,
-    w_vals_int8_t_sums_int64,
-    bias,
-    out_dtype=torch.float32,
-):
-    # like F.linear, but with int8 dynamic quantization of activation,
-    # and a quantized weight
-    x_vals_int8, x_scale, x_zp = dynamically_quantize_per_tensor(
-        x, x_quant_min, x_quant_max, x_q_dtype
-    )
-    # w_vals_int8_t_sums_int64 = w_vals_int8_t.sum(dim=0)
-    mm_out = quant_int8_matmul(
-        x_vals_int8,
-        x_scale,
-        x_zp,
-        w_vals_int8_t,
-        w_vals_int8_t_sums_int64,
-        w_scales,
-        out_dtype,
-    )
-    if bias is not None:
-        mm_out += bias
-    return mm_out
-
-
-def quant_int8_matmul(
-    x_vals_int8,
-    x_scale,
-    x_zp,
-    w_vals_int8_t,
-    w_vals_int8_t_sums_int64,
-    w_scales,
-    out_dtype=torch.float32,
-):
-    # Quantized matmul of int8 operands that accumulates to int32 and returns
-    # out_dtype. For now, this is written for approximate numerical
-    # correctness, and things like aligning accumulation behaviors and
-    # performance optimizations are left for a future PR.
-    # Assumes that weight quantization is symmetric, i.e. w_zp is 0.
-    # Assumes that weight quantization is per-channel.
-
-    # see
-    # https://github.com/google/gemmlowp/blob/master/doc/quantization.md
-    # for an overview of quantized matmul compute
-
-    # in scalar form, assuming out_dtype is fp32 and zw == 0:
-    #
-    #   Y_i_j_fp32 = sx * sw (dot(X_i, W_j) - zx * sum(W_j))
-    #
-
-    assert x_vals_int8.dtype in (
-        torch.uint8,
-        torch.int8,
-    ), f"x dtype {x_vals_int8.dtype} not yet supported"
-    assert (
-        w_vals_int8_t.dtype == torch.int8
-    ), f"w dtype {w_vals_int8_t.dtype} not yet supported"
-    assert w_scales.dtype == out_dtype, f"{w_scales.dtype} does not match {out_dtype}"
-
-    #
-    # 1. do the matrix form of dot(X_i, W_j)
-    #
-
-    # TODO(before land): add test case for input with bsz
-    tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
-    y_dot_int32 = safe_int_mm(tmp, w_vals_int8_t)
-    y_dot_int32 = y_dot_int32.reshape(*x_vals_int8.shape[:-1], -1)
-
-    # TODO(future): consider using integer arithmetic throughout, although
-    # TBD if that is actually faster on GPUs
-    # need to use 32 bits here to prevent overflow for large shapes,
-    # 16 bits is not enough
-    y_dot_float32 = y_dot_int32.to(torch.float32)
-
-    #
-    # 2. connect it all together
-    #
-
-    # mm_unscaled has to stay in float32 for the next two lines to prevent overflow
-    mm_unscaled_float32 = y_dot_float32 - (x_zp * w_vals_int8_t_sums_int64)
-    y = x_scale * w_scales * mm_unscaled_float32
-    # can downcast only at the very end
-    y = y.to(out_dtype)
-    return y
-
-
-def quant_int8_dynamic_per_token_linear(
-    x,
-    w_vals_int8_t,
-    w_scales,
-    bias,
-    out_dtype,
-):
-    # like F.linear, but with int8 dynamic quantization of activation,
-    # and a quantized weight
-    x_vals_int8, x_scales = quantize_activation_per_token_absmax(x)
-    mm_out = quant_int8_per_token_matmul(
-        x_vals_int8, x_scales, w_vals_int8_t, w_scales, out_dtype
-    )
-    if bias is not None:
-        mm_out += bias
-    return mm_out
-
-
-def quant_int8_per_token_matmul(
-    x_vals_int8,
-    x_scales,
-    w_vals_int8_t,
-    w_scales,
-    output_dtype=torch.float32,
-):
-    # Quantized matmul of int8 operands that accumulates to int32 and returns
-    # output_dtype. For now, this is written for approximate numerical
-    # Assumes that activation and weight quantization are symmetric,
-    # i.e. act_zp and w_zp is 0.
-    # Assumes that weight quantization is per-channel.
-
-    # see
-    # https://github.com/google/gemmlowp/blob/master/doc/quantization.md
-    # for an overview of quantized matmul compute
-
-    # in scalar form, assuming output_dtype is fp32 and zw == 0:
-    #
-    #   Y_i_j_fp32 = sx * sw dot(X_i, W_j)
-    #
-
-    assert (
-        x_vals_int8.dtype == torch.int8
-    ), f"x dtype {x_vals_int8.dtype} not yet supported"
-    assert (
-        w_vals_int8_t.dtype == torch.int8
-    ), f"w dtype {w_vals_int8_t.dtype} not yet supported"
-
-    assert x_scales.dtype in [
-        torch.float,
-        torch.bfloat16,
-    ], f"x_scales needs to be a torch.float32 or torch.bfloat16 but got {x_scales.dtype}"
-
-    #
-    # 1. do the matrix form of dot(X_i, W_j)
-    #
-    #
-    # 2. rescale the output
-    #
-    # in cases with large matrices, y_dot_int32 can grow sufficiently
-    # large that y_dot_int32 * a float16 scale is greater than the maximum
-    # value of a float 16, (which results in a value of inf even if multiplying
-    # by the other scale would bring it within the expected range)
-
-    tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
-    y_dot_scaled = int_scaled_matmul(tmp, w_vals_int8_t, x_scales.reshape(-1, 1))
-
-    y = (y_dot_scaled * w_scales).reshape(
-        *x_vals_int8.shape[:-1], y_dot_scaled.shape[-1]
-    )
-
-    # can downcast only at the very end
-    y = y.to(output_dtype)
-    return y
-
-
-def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128):
-    """ """
-    if groupsize > w.shape[-1]:
-        groupsize = w.shape[-1]
-    assert groupsize > 1
-    assert w.shape[-1] % groupsize == 0
-    assert w.dim() == 2
-
-    to_quant = w.reshape(-1, groupsize)
-    # assert torch.isnan(to_quant).sum() == 0
-
-    max_val = to_quant.amax(dim=1, keepdim=True)
-    min_val = to_quant.amin(dim=1, keepdim=True)
-    max_int = 2**n_bit - 1
-    scales = (max_val - min_val).clamp(min=1e-6) / max_int
-    zeros = min_val + scales * (2 ** (n_bit - 1))
-    return scales.to(torch.bfloat16).reshape(w.shape[0], -1), zeros.to(
-        torch.bfloat16
-    ).reshape(w.shape[0], -1)
-
-
-def pack_tinygemm_scales_and_zeros(scales, zeros):
-    assert scales.shape == zeros.shape
-    assert scales.dtype == torch.bfloat16
-    assert zeros.dtype == torch.bfloat16
-    return (
-        torch.cat(
-            [
-                scales.reshape(scales.size(0), scales.size(1), 1),
-                zeros.reshape(zeros.size(0), zeros.size(1), 1),
-            ],
-            2,
-        )
-        .transpose(0, 1)
-        .contiguous()
-    )
-
-
-def unpack_tinygemm_scales_and_zeros(scales_and_zeros):
-    assert len(scales_and_zeros.shape) == 3 and scales_and_zeros.shape[2] == 2
-    return torch.split(scales_and_zeros.transpose(0, 1), 1, 2)
-
-
-def groupwise_affine_quantize_tensor_from_qparams(
-    w,
-    scales,
-    zeros,
-    n_bit=4,
-    groupsize=128,
-):
-    assert groupsize > 1
-    # needed for GPTQ single column quantize
-    if groupsize > w.shape[-1] and scales.shape[-1] == 1:
-        groupsize = w.shape[-1]
-
-    assert w.shape[-1] % groupsize == 0
-    assert w.dim() == 2
-
-    to_quant = w.reshape(-1, groupsize)
-    # assert torch.isnan(to_quant).sum() == 0
-
-    scales = scales.reshape(-1, 1)
-    zeros = zeros.reshape(-1, 1)
-    min_val = zeros - scales * (2 ** (n_bit - 1))
-    max_int = 2**n_bit - 1
-    min_int = 0
-    w_int4x8 = (
-        to_quant.sub(min_val)
-        .div(scales)
-        .round()
-        .clamp_(min_int, max_int)
-        .to(torch.int32)
-        .reshape_as(w)
-    )
-
-    return w_int4x8
-
-
-def groupwise_affine_dequantize_tensor_from_qparams(
-    w_int4x8,
-    scales,
-    zeros,
-    n_bit=4,
-    groupsize=128,
-):
-    assert groupsize > 1
-    # needed for GPTQ single column dequantize
-    if groupsize > w_int4x8.shape[-1] and scales.shape[-1] == 1:
-        groupsize = w_int4x8.shape[-1]
-    assert w_int4x8.shape[-1] % groupsize == 0
-    assert w_int4x8.dim() == 2
-
-    w_int4x8_grouped = w_int4x8.reshape(-1, groupsize)
-    scales = scales.reshape(-1, 1)
-    zeros = zeros.reshape(-1, 1)
-
-    w_dq = (
-        w_int4x8_grouped.sub(2 ** (n_bit - 1))
-        .mul(scales)
-        .add(zeros)
-        .reshape_as(w_int4x8)
-    )
-    return w_dq
-
-
-def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128):
-    scales, zeros = get_groupwise_affine_qparams(w, n_bit, groupsize)
-    w_int4x8 = groupwise_affine_quantize_tensor_from_qparams(
-        w, scales, zeros, n_bit, groupsize
-    )
-    scales_and_zeros = pack_tinygemm_scales_and_zeros(scales, zeros)
-    return w_int4x8, scales_and_zeros
-
-
-def groupwise_affine_dequantize_tensor(
-    w_int4x8,
-    scales_and_zeros,
-    n_bit=4,
-    groupsize=128,
-):
-    scales, zeros = unpack_tinygemm_scales_and_zeros(scales_and_zeros)
-    return groupwise_affine_dequantize_tensor_from_qparams(
-        w_int4x8, scales, zeros, n_bit, groupsize
-    )
-
-
-# TODO: replace this with torch.ao.quantization.PerChannelMinMaxObserver
-def get_group_qparams_symmetric(w, n_bit=4, groupsize=128, precision=torch.float32):
-    # needed for GPTQ with padding
-    if groupsize > w.shape[-1]:
-        groupsize = w.shape[-1]
-    assert groupsize > 1
-    assert w.shape[-1] % groupsize == 0
-    assert w.dim() == 2
-
-    to_quant = w.reshape(-1, groupsize)
-    assert torch.isnan(to_quant).sum() == 0
-
-    max_val = to_quant.amax(dim=1, keepdim=True)
-    min_val = to_quant.amin(dim=1, keepdim=True)
-    min_val_neg = torch.min(min_val, torch.zeros_like(min_val))
-    max_val_pos = torch.max(max_val, torch.zeros_like(max_val))
-
-    max_val_abs = torch.max(-min_val_neg, max_val_pos)
-    max_int = 2 ** (n_bit - 1) - 1
-    min_int = -(2 ** (n_bit - 1))
-
-    scales = max_val_abs / (float(max_int - min_int) / 2)
-    scales = torch.max(scales, torch.full_like(scales, torch.finfo(torch.float32).eps))
-    # TODO: make sure abs(scales) is not too small?
-    zeros = torch.full_like(scales, 0)
-    return scales.to(precision).reshape(w.shape[0], -1), zeros.to(precision).reshape(
-        w.shape[0], -1
-    )
-
-
-if TORCH_VERSION_AFTER_2_3:
-    def group_quantize_tensor_symmetric(
-        w,
-        n_bit=4,
-        group_size=128,
-        precision=torch.float32,
-    ):
-        scales, zeros = get_group_qparams_symmetric(w, n_bit, group_size, precision)
-        n_bit = 4
-        max_int = 2 ** (n_bit - 1) - 1
-        min_int = -(2 ** (n_bit - 1))
-        # TODO: currently we don't know how to express torch.int4, we'll
-        # add torch.int4 to core later
-        w_int8 = torch.ops.quantized_decomposed.quantize_per_channel_group(
-            w, scales, zeros, min_int, max_int, torch.int8, group_size
+        return torch.sign(x) * torch.nn.functional.relu(
+            torch.abs(x) - (1.0 / beta) * torch.pow(torch.abs(x), lp_norm - 1)
         )
 
-        return w_int8, scales, zeros
+# Proximal solver || W - dequantize(quantize(W))||_p^p
+@torch.inference_mode()
+def optimize_weights_proximal_legacy(
+    tensor: torch.Tensor,
+    scale: torch.Tensor,
+    zero: torch.Tensor,
+    min_max: list,
+    axis: int = 0,
+    dtype: Union[torch.dtype, None] = None,
+    device: Union[str, None] = None,
+    verbose: bool = False,
+    opt_params: dict = {
+        "lp_norm": 0.7,
+        "beta": 1e1,
+        "kappa": 1.01,
+        "iters": 20,
+        "early_stop": True,
+    },
+) -> tuple:
+    lp_norm, beta, kappa, iters, early_stop = (
+        opt_params["lp_norm"],
+        opt_params["beta"],
+        opt_params["kappa"],
+        opt_params["iters"],
+        opt_params["early_stop"],
+    )
 
+    device = tensor.device if (device is None) else torch.device(device)
 
-    def down_size(size):
-        assert size[-1] % 2 == 0, f"{size} last dim not divisible by two"
-        return (*size[:-1], size[-1] // 2)
+    if dtype is None:
+        dtype = torch.float16 if (device.type == "cuda") else torch.float32
 
+    W_f = tensor.to(dtype=dtype, device=device)
+    scale = scale.to(dtype=dtype, device=device)
+    zero = zero.to(dtype=dtype, device=device)
 
-    def up_size(size):
-        return (*size[:-1], size[-1] * 2)
+    best_error = 1e4
+    for i in range(iters):
+        W_q = torch.round(W_f * scale + zero).clamp(min_max[0], min_max[1])
+        W_r = (W_q - zero) / scale
+        W_e = _shrink_lp_op(W_f - W_r, beta, lp_norm)
+        zero = torch.mean(W_q - (W_f - W_e) * scale, axis=axis, keepdim=True)
+        beta *= kappa
 
+        current_error = float(torch.abs(W_f - W_r).mean())
+        if verbose:
+            print("Iter " + str(i + 1), " | Error: " + str(current_error))
+        if early_stop:
+            if current_error < best_error:
+                best_error = current_error
+            else:
+                break
 
-    quantized_decomposed_lib.define("pack_int4_from_int8(Tensor int8_data) -> Tensor")
+    scale = scale.to(tensor.device)
+    zero = zero.to(tensor.device)
+    del W_f, W_q, W_r, W_e
+    torch.cuda.empty_cache()
 
+    W_q = torch.round(tensor * scale + zero).clamp(min_max[0], min_max[1])
+    return W_q, scale, zero
 
-    @impl(quantized_decomposed_lib, "pack_int4_from_int8", "CompositeExplicitAutograd")
-    def pack_int4_from_int8(int8_data: torch.Tensor) -> torch.Tensor:
-        # converting to uint8 for operations
-        shape = int8_data.shape
-        assert shape[-1] % 2 == 0
-        int8_data = int8_data.contiguous().view(-1)
-        return (int8_data[::2] << 4 | int8_data[1::2]).view(down_size(shape))
+# Mainly used to check if the group-size is divisible by numel()
+def _is_divisible(val1: int, val2: int) -> bool:
+    return int(val2 * math.ceil(val1 / val2)) == val1
 
+# Converts hqq format W_dequant = (W_q - zero)*scale into affinequantized format: (W_q - mid_point)*scale_ao + zero_ao
+def _convert_to_affinequantized_format(W_q: torch.Tensor, scale: torch.Tensor, zero: torch.Tensor, nbits: int, shape: Union[List, Tuple, torch.Size]) -> Tuple:
+    quant_min = 0
+    quant_max = 2**nbits - 1
+    mid_point = (quant_max + quant_min + 1) / 2
+    zero_ao = ((mid_point - zero.float()) * scale.float()).to(zero.dtype)
+    scale_ao = scale
+    W_q_ao = W_q.view(shape)
+    return W_q_ao, scale_ao, zero_ao
 
-    quantized_decomposed_lib.define("unpack_int4_to_int8(Tensor int8_data) -> Tensor")
-
-
-    @impl(quantized_decomposed_lib, "unpack_int4_to_int8", "CompositeExplicitAutograd")
-    def unpack_int4_to_int8(int8_data: torch.Tensor) -> torch.Tensor:
-        """Get the original weight from the normalized float weight format"""
-        # since we are using int8 we will decode 2 entries per byte
-        # Shift elements down 4 and select out the bottom 4 bits
-        shape = int8_data.shape
-        first_elements = (int8_data >> 4).to(torch.int8)
-        second_elements = (int8_data & 0b1111).to(torch.int8)
-        return torch.stack([first_elements, second_elements], dim=-1).view(up_size(shape))
-
-
-    def per_token_dynamic_quant(input: torch.Tensor) -> torch.Tensor:
-        orig_dtype = input.dtype
-        # TODO: we may need to make the choose_qparams op configurable
-        (
-            scales,
-            zero_points,
-        ) = torch.ops.quantized_decomposed.choose_qparams_per_token_asymmetric(
-            input, torch.int8
+# Main hqq quantizer function
+def choose_qparams_and_quantize_affine_hqq(
+    tensor: torch.Tensor,
+    nbits: float = 4,
+    group_size: int = 64,
+    optimize: bool = True,
+    axis: int = 1,
+    compute_dtype: torch.dtype = torch.float16,
+    device: str = "cuda",
+    verbose: bool = False,  # to check the optimizer error
+    raw_output: bool = False,  # If True, it will return the quant params in hqq lib format
+    optimize_weights: Callable = optimize_weights_proximal_legacy #weights proximal optimizer function
+) -> tuple:
+    assert axis in [0, 1], "axis should be either 0 or 1"
+    if group_size is not None:
+        assert _is_divisible(tensor.numel(), group_size), (
+            "group_size should be divisble by the total tensor dimensions. shape: "
+            + str(tensor.shape)
+            + ", group_size: "
+            + str(group_size)
         )
 
-        # TODO: get these from torch.int8
-        quant_min = -128
-        quant_max = 127
-        input = torch.ops.quantized_decomposed.quantize_per_token(
-            input, scales, zero_points, quant_min, quant_max, torch.int8
+    #It's better to work with float32 here
+    W = tensor.to(device=device, dtype=torch.float32)
+    shape = W.shape
+
+    # Reshape for grouping
+    if group_size is not None:
+        W = (
+            W.reshape([-1, group_size])
+            if (axis == 1)
+            else W.reshape([group_size, -1])
         )
-        input = torch.ops.quantized_decomposed.dequantize_per_token(
-            input, scales, zero_points, quant_min, quant_max, torch.int8, orig_dtype
+
+    # Get min/max values
+    _min = W.min(axis=axis, keepdim=True)[0]
+    _max = W.max(axis=axis, keepdim=True)[0]
+
+    max_v = round(2**nbits - 1)
+    min_v = 0
+    min_max = [min_v, max_v]
+
+    # Clamp to avoid fp16 issues
+    scale = (max_v / (_max - _min)).clamp(max=2e4)
+    zero = -_min * scale
+
+    # Round zero as in: https://github.com/casper-hansen/AutoAWQ/blob/main/awq/quantize/quantizer.py#L42C9-L42C14
+    if nbits in [4]:
+        zero = torch.round(zero)
+
+    # Fine-tune weights
+    if optimize:
+        W_q, scale, zero = optimize_weights(
+            tensor=W,
+            scale=scale,
+            zero=zero,
+            min_max=min_max,
+            axis=axis,
+            device=device,
+            verbose=verbose,
         )
-        return input.to(orig_dtype)
+    else:
+        W_q = torch.round(W * scale + zero).clamp(min_max[0], min_max[1])
+
+    # Store meta-data (we invert the scale for dequantization)
+    scale = 1.0 / scale
+
+    # Convert to affienquantized format
+    if raw_output is False:
+        W_q, scale, zero = _convert_to_affinequantized_format(W_q, scale, zero, nbits, shape)
+
+    # Make sure all the weights are in the right compute_dtype/device
+    W_q = W_q.to(dtype=torch.uint8, device=device)
+    scale = scale.to(dtype=compute_dtype, device=device)
+    zero = zero.to(dtype=compute_dtype, device=device)
+
+    # cleanup
+    del W, _min, _max
+    torch.cuda.empty_cache()
+
+    return W_q, scale, zero, shape
+
+
+def choose_qparams_affine_floatx(tensor: torch.Tensor, ebits: int, mbits: int) -> torch.Tensor:
+    # _n_ones() is not compatible with torch.compile() due to << operator
+    # https://github.com/pytorch/pytorch/issues/119152
+    # exp_bias = _n_ones(ebits - 1)
+    # max_normal = 2 ** (_n_ones(ebits) - exp_bias) * (_n_ones(mbits + 1) / (2 ** mbits))
+
+    # workaround: global lookup table
+    exp_bias = _ONES_TABLE[ebits - 1]
+    max_normal = 2 ** (_ONES_TABLE[ebits] - exp_bias) * (_ONES_TABLE[mbits + 1] / (2 ** mbits))
+
+    tensor = tensor.float()
+    scale = tensor.abs().amax(1).clamp(min=1e-12) / max_normal
+    return scale.half()
+
+def quantize_affine_floatx(tensor: torch.Tensor, scale: torch.Tensor, ebits: int, mbits: int) -> torch.Tensor:
+    """Quantizes the float32 high precision floating point tensor to low precision floating point number and
+    converts the result to unpacked floating point format with the format of 00SEEEMM (for fp6_e3m2) where S means sign bit, e means exponent bit and m means mantissa bit
+    """
+    tensor = tensor.float()
+    tensor_floatx = _f32_to_floatx_unpacked(tensor / scale.view(-1, 1), ebits, mbits)
+    return tensor_floatx
+
+def dequantize_affine_floatx(tensor: torch.Tensor, scale: torch.Tensor, ebits: int, mbits: int, output_dtype: torch.dtype = torch.float32) -> torch.Tensor:
+    tensor = _floatx_unpacked_to_f32(tensor, ebits, mbits)
+    tensor = tensor * scale.float().view(-1, 1)
+    tensor = tensor.to(dtype=output_dtype)
+    return tensor

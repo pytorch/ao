@@ -10,13 +10,20 @@ import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from .quant_primitives import (
+    MappingType,
+)
+
+from .utils import (
+    find_multiple,
     dequantize_per_channel,
     dynamically_quantize_per_channel,
     groupwise_affine_quantize_tensor,
     quant_int8_dynamic_per_token_linear,
     unpack_tinygemm_scales_and_zeros,
+    groupwise_affine_quantize_tensor_from_qparams,
 )
-from .utils import find_multiple
+from torchao.utils import find_multiple
+from typing import Tuple, Optional, Callable, Dict, Any
 
 
 __all__ = [
@@ -27,7 +34,6 @@ __all__ = [
 
 
 aten = torch.ops.aten
-
 
 class QuantizedLinearWeightBase(torch.Tensor):
     """
@@ -190,6 +196,29 @@ class QuantizedLinearWeightBase(torch.Tensor):
                 args[0].to(*args[1:], **kwargs)._apply_fn_to_data(torch.clone),
             )
 
+class ConstructTensorSubclass(torch.nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.args = args
+        self.kwargs = kwargs
+
+    def forward(self, x):
+        pass
+
+    def right_inverse(self, tensor_subclass_instance):
+        fields, _ = tensor_subclass_instance.__tensor_flatten__()
+        return [getattr(tensor_subclass_instance, field) for field in fields]
+
+
+@torch._dynamo.allow_in_graph
+def from_qtensor_components_int8dyn(*args, **kwargs):
+    return Int8DynamicallyQuantizedLinearWeight(*args, **kwargs)
+
+
+class ConstructTensorSubclassInt8Dyn(ConstructTensorSubclass):
+    def forward(self, int_data, q_scales):
+        return from_qtensor_components_int8dyn(int_data, q_scales, *self.args, **self.kwargs)
+
 
 class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
     """
@@ -197,14 +226,16 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
     linear op to a dynamically quantized linear op with symmetric per-token and per-channel
     quantization on the activation and weight respectively.
     """
+    subclass_constructor = ConstructTensorSubclassInt8Dyn
 
     @staticmethod
-    def __new__(cls, int_data, q_scales, transposed, shape, **kwargs):
-        kwargs["dtype"] = kwargs.get("dtype", q_scales.dtype)
+    def __new__(cls, int_data, q_scales, transposed, shape, dtype=None, **kwargs):
+        if dtype is None:
+            dtype = q_scales.dtype
+        kwargs["dtype"] = dtype
         return super().__new__(cls, int_data, transposed, shape, **kwargs)  # type: ignore[attr-defined]
 
-    def __init__(self, int_data, q_scales, transposed, shape, **kwargs):
-
+    def __init__(self, int_data, q_scales, transposed, shape, dtype=None, **kwargs):
         self.q_scales = q_scales
         super().__init__(int_data, transposed)
 
@@ -218,8 +249,11 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
         """
         Obtain the dequantized version of the quantized tensor subclass
         """
+        zero_points = torch.zeros(self.q_scales.shape, device=self.q_scales.device, dtype=self.q_scales.dtype)
+        # zero_points = 0
+        # TODO: fix dtype here? `to(self.dtype)` is not overwritten by `dtype` arg?
         dq_t = dequantize_per_channel(
-            self.int_data.t(), self.q_scales, 0, self.dtype if dtype is None else dtype
+            self.int_data.t(), self.q_scales, zero_points, self.dtype if dtype is None else dtype
         ).to(self.dtype)
         # data was transposed to dequantize so make sure shape is correct
         return dq_t if not self.transposed else dq_t.t()
@@ -263,14 +297,15 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
         )
 
     def __tensor_flatten__(self):
-        return ["int_data", "q_scales"], [self.transposed, self.dtype, self.shape]
+        # note: the order of args must match the order of args in __init__
+        return ["int_data", "q_scales"], [self.transposed, self.shape, self.dtype]
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None
     ):
         int_data, q_scales = tensor_data_dict["int_data"], tensor_data_dict["q_scales"]
-        transposed, dtype, shape = tensor_attributes
+        transposed, shape, dtype = tensor_attributes
         return cls(
             int_data,
             q_scales,
@@ -281,7 +316,7 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
         )
 
     @classmethod
-    def from_float(cls, input_float, qmin=-128, qmax=127):
+    def from_float(cls, input_float, qmin=-128, qmax=127, dtype=None):
         """
         Method used to convert a linear weight tensor to an instance of the
         Int8DynamicallyQuantizedLinearWeight subclass.
@@ -292,6 +327,10 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
                 Int8DynamicallyQuantizedLinearWeight.from_float(model.lin_mod.weight)
             )
         """
+        if dtype is None:
+            dtype = input_float.dtype
+
+        # because we call transpose in dequantization
         w_int_repr, w_scales, _ = dynamically_quantize_per_channel(
             input_float, qmin, qmax, torch.int8
         )
@@ -304,8 +343,18 @@ class Int8DynamicallyQuantizedLinearWeight(QuantizedLinearWeightBase):
         if not issubclass(cls, Int8DynamicallyQuantizedLinearWeight):
             int_data = int_data.contiguous()
         return cls(
-            int_data, w_scales, False, input_float.shape, dtype=input_float.dtype
+            int_data, w_scales, False, input_float.shape, dtype=dtype,
         )
+
+
+@torch._dynamo.allow_in_graph
+def from_qtensor_components_int8wo(*args, **kwargs):
+    return Int8WeightOnlyQuantizedLinearWeight(*args, **kwargs)
+
+
+class ConstructTensorSubclassInt8wo(ConstructTensorSubclass):
+    def forward(self, int_data, q_scales):
+        return from_qtensor_components_int8wo(int_data, q_scales, *self.args, **self.kwargs)
 
 
 class Int8WeightOnlyQuantizedLinearWeight(Int8DynamicallyQuantizedLinearWeight):
@@ -314,6 +363,7 @@ class Int8WeightOnlyQuantizedLinearWeight(Int8DynamicallyQuantizedLinearWeight):
     changes the linear op to a weight-only quantized linear op with symmetric
     per-channel quantization on the weight.
     """
+    subclass_constructor = ConstructTensorSubclassInt8wo
 
     @staticmethod
     def _quantized_op(act_mat, w_qtensor, bias):
@@ -331,12 +381,21 @@ class Int8WeightOnlyQuantizedLinearWeight(Int8DynamicallyQuantizedLinearWeight):
         return y.to(orig_dtype)
 
 
+@torch._dynamo.allow_in_graph
+def from_qtensor_components_int4wo(*args, **kwargs):
+    return Int4WeightOnlyQuantizedLinearWeight(*args, **kwargs)
+
+class ConstructTensorSubclassInt4wo(ConstructTensorSubclass):
+    def forward(self, int_data, scales_and_zeros):
+        return from_qtensor_components_int4wo(int_data, scales_and_zeros, *self.args, **self.kwargs)
+
 class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
     """
     A Tensor subclass that when applied to a weight used in a linear op/module,
     changes that linear op to a weight-only int4 quantized linear op with groupwise
     affine quantization on the weight.
     """
+    subclass_constructor = ConstructTensorSubclassInt4wo
 
     @staticmethod
     def __new__(
@@ -347,9 +406,12 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         shape,
         groupsize=128,
         inner_k_tiles=8,
+        dtype=None,
         **kwargs,
     ):
-        kwargs["dtype"] = kwargs.get("dtype", scales_and_zeros.dtype)
+        if dtype is None:
+            dtype = scales_and_zeros.dtype
+        kwargs["dtype"] = dtype
         return super().__new__(cls, int_data, transposed, shape, **kwargs)  # type: ignore[attr-defined]
 
     def __init__(
@@ -360,6 +422,7 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         shape,
         groupsize,
         inner_k_tiles,
+        dtype,
         **kwargs,
     ):
         # the transposed flag tracks whether the tensor subclass has been transposed relative
@@ -368,9 +431,7 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         # square matrices can cause issues otherwise
 
         self.scales_and_zeros = scales_and_zeros
-
         self.groupsize = groupsize
-
         self.inner_k_tiles = inner_k_tiles
         super().__init__(int_data, transposed)
 
@@ -461,10 +522,10 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
     def __tensor_flatten__(self):
         return ["int_data", "scales_and_zeros"], (
             self.transposed,
+            self.shape,
             self.groupsize,
             self.inner_k_tiles,
             self.dtype,
-            self.shape,
         )
 
     @classmethod
@@ -478,7 +539,7 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
             tensor_data_dict["int_data"],
             tensor_data_dict["scales_and_zeros"],
         )
-        transposed, groupsize, inner_k_tiles, dtype, shape = attributes
+        transposed, shape, groupsize, inner_k_tiles, dtype = attributes
         return cls(
             int_data,
             scales_and_zeros,
@@ -491,7 +552,7 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
         )
 
     @classmethod
-    def from_float(cls, input_float, groupsize=128, inner_k_tiles=8):
+    def from_float(cls, input_float, groupsize=128, inner_k_tiles=8, dtype=None):
         """
         Method used to convert a linear weight tensor to an instance of the
         Int4WeightOnlyQuantizedLinearWeight subclass.
@@ -502,9 +563,24 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
                 Int4WeightOnlyQuantizedLinearWeight.from_float(model.lin_mod.weight)
             )
         """
+        if dtype is None:
+            dtype = input_float.dtype
+
+        int_data, scales_and_zeros, transposed, groupsize, inner_k_tils = cls.to_qtensor_components(input_float, groupsize, inner_k_tiles)
+        return cls(
+            int_data,
+            scales_and_zeros,
+            transposed,
+            input_float.shape,
+            groupsize,
+            inner_k_tiles,
+            dtype=dtype,
+        )
+
+    @classmethod
+    def to_qtensor_components(cls, input_float, groupsize=128, inner_k_tiles=8):
         assert groupsize in [256, 128, 64, 32]
         assert inner_k_tiles in [8, 4, 2]
-        orig_shape = input_float.shape
         orig_out_features, orig_in_features = input_float.shape
 
         # padding
@@ -517,16 +593,7 @@ class Int4WeightOnlyQuantizedLinearWeight(QuantizedLinearWeightBase):
 
         # quantization and packing
         input_int4x8, scales_and_zeros = groupwise_affine_quantize_tensor(
-            input_float, 4, groupsize
+            input_float, 4, groupsize, dtype=input_float.dtype
         )
         int_data = aten._convert_weight_to_int4pack(input_int4x8, inner_k_tiles)
-
-        return cls(
-            int_data,
-            scales_and_zeros,
-            False,
-            orig_shape,
-            groupsize,
-            inner_k_tiles,
-            dtype=input_float.dtype,
-        )
+        return int_data, scales_and_zeros, False, groupsize, inner_k_tiles

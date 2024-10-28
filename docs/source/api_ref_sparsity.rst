@@ -3,7 +3,7 @@
 ================
 torchao.sparsity
 ================
-
+.. automodule:: torchao.sparsity
 .. currentmodule:: torchao.sparsity
 
 .. autosummary::
@@ -12,3 +12,7 @@ torchao.sparsity
 
     WandaSparsifier
     PerChannelNormObserver
+    apply_sparse_semi_structured
+    apply_fake_sparsity
+
+

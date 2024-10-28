@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - release/*
+      - 'gh/**'
     tags:
       - v[0-9]+.[0-9]+.[0-9]
       - v[0-9]+.[0-9]+.[0-9]+-rc[0-9]+
@@ -41,18 +42,11 @@ jobs:
         run: |
           python -m pip install torch
           python -m pip install -e .
-          cd docs
-          python -m pip install -r requirements.txt
-      - name: Get the torchtune version
-        run: |
-          # Get the github.ref_name and save into the
-          # REF_NAME variable. This will be passed in
-          # conf.py to display the version in the
-          # site dropdown
-          GITHUB_REF=${{ github.ref }}
-          TORCHAO_VERSION_DOCS="${GITHUB_REF}"
-          echo "$TORCHAO_VERSION_DOCS"
+          pip install -r dev-requirements.txt
+          python -m pip install -r docs/requirements.txt
       - name: Build docs
+        env:
+          TORCHAO_VERSION_DOCS: ${{ github.ref }}
         run: |
           cd docs
           make html

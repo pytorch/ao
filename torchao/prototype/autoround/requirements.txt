@@ -1,0 +1,4 @@
+auto_round @ git+https://github.com/intel/auto-round.git@patch-for-ao-2
+numpy < 2.0 # dataset requires numpy < 2.0, can be removed after dataset is updated
+datasets # for loading the calibration dataset
+transformers  # for loading the model

@@ -1,0 +1,20 @@
+{
+  "parameters": [
+    {
+      "name": "bitwidth",
+      "name_format": "bitwidth.{i}.",
+      "layers": [
+        {"range": [0, 4], "type": "fixed", "value": 5},
+        {"range": [4, 32], "type": "choice", "values": [2, 3, 4, 5, 6, 8]}
+      ]
+    },
+    {
+      "name": "groupsize",
+      "name_format": "groupsize.{i}.",
+      "layers": [
+        {"range": [0, 4], "type": "fixed", "value": 32},
+        {"range": [4, 32], "type": "choice", "values": [32, 64, 128, 256]}
+      ]
+    }
+  ]
+}

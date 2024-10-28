@@ -4,18 +4,12 @@ from torchao.dtypes.uint4 import (
     PerChannelSymmetricWeightUInt4Tensor,
 )
 import unittest
-from unittest import TestCase, main
 from torch.ao.quantization.quantize_pt2e import prepare_pt2e, convert_pt2e
 from torch.ao.quantization.quantizer import QuantizationSpec, Quantizer
 
-from torch._export import capture_pre_autograd_graph
-from torch._export import dynamic_dim
 from torch.testing._internal.common_quantization import (
     NodeSpec as ns,
     QuantizationTestCase,
-)
-from torchao.quantization.utils import (
-    compute_error,
 )
 from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
@@ -30,7 +24,7 @@ from torch.ao.quantization.quantizer import (
     QuantizationAnnotation,
 )
 import copy
-from packaging import version
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 
 def _apply_weight_only_uint4_quant(model):
@@ -209,10 +203,16 @@ class TestUInt4(QuantizationTestCase):
 
         # program capture
         m = copy.deepcopy(m_eager)
-        m = capture_pre_autograd_graph(
-            m,
-            example_inputs,
-        )
+        if TORCH_VERSION_AT_LEAST_2_5:
+            m = torch.export.texport_for_training(
+                m,
+                example_inputs,
+            ).module()
+        else:
+            m = torch._export.capture_pre_autograd_graph(
+                    m,
+                    example_inputs,
+                ).module()
 
         m = prepare_pt2e(m, quantizer)
         # Calibrate
@@ -229,4 +229,4 @@ class TestUInt4(QuantizationTestCase):
         )
 
 if __name__ == "__main__":
-    main()
+    unittest.main()
