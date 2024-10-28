@@ -9,7 +9,6 @@ from torchao.dtypes import MarlinSparseLayout, SemiSparseLayout
 from torchao.quantization.quant_api import (
     int4_weight_only,
     int8_dynamic_activation_int8_weight,
-    float8_dynamic_activation_float8_weight,
     quantize_,
 )
 
@@ -119,6 +118,7 @@ class TestQuantSemiSparse(common_utils.TestCase):
         if compile:
             model = torch.compile(model)
         sparse_result = model(input)
+
         torch.testing.assert_close(dense_result, sparse_result, atol=3e-1, rtol=3e-1)
 
 
