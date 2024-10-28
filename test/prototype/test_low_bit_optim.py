@@ -42,7 +42,12 @@ except ImportError:
     lpmm = None
 
 
-_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+if torch.cuda.is_available():
+    _DEVICES = ["cpu", "cuda"]
+elif torch.xpu.is_available():
+    _DEVICES = ["cpu", "xpu"]
+else:
+    _DEVICES = ["cpu"]
 
 
 class TestQuantize(TestCase):
@@ -244,11 +249,12 @@ class TestOptim(TestCase):
             torch.testing.assert_close(p2, p1, rtol=1e-5, atol=1e-5)
 
     @pytest.mark.skipif(
-        not torch.cuda.is_available(), reason="optim CPU offload requires CUDA"
+        not torch.cuda.is_available() and not torch.xpu.is_available(),
+        reason="optim CPU offload requires CUDA or XPU"
     )
     @parametrize("offload_grad,grad_accum", [(False, 1), (False, 2), (True, 1)])
     def test_optim_cpu_offload_correctness(self, offload_grad, grad_accum):
-        device = "cuda"
+        device = _DEVICES[-1]
         model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128))
         model1.to(device)
 
@@ -261,6 +267,7 @@ class TestOptim(TestCase):
             model2.parameters(),
             torch.optim.AdamW,
             offload_gradients=offload_grad,
+            device=device,
         )
 
         for _ in range(2):
@@ -279,10 +286,11 @@ class TestOptim(TestCase):
             torch.testing.assert_close(p2, p1)
 
     @pytest.mark.skipif(
-        not torch.cuda.is_available(), reason="optim CPU offload requires CUDA"
+        not torch.cuda.is_available() and not torch.xpu.is_available(),
+        reason="optim CPU offload requires CUDA or XPU"
     )
     def test_optim_cpu_offload_save_load(self):
-        device = "cuda"
+        device = _DEVICES[-1]
         model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128))
         model1.to(device)
         optim1 = low_bit_optim.CPUOffloadOptimizer(model1.parameters(), torch.optim.AdamW)
