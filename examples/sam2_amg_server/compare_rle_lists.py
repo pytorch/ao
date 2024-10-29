@@ -8,6 +8,7 @@ Script to calculate mIoU given two lists of rles from upload_rle endpoint
 of server.
 """
 
+
 def iou(mask1, mask2):
     assert mask1.dim() == 2
     assert mask2.dim() == 2
@@ -25,7 +26,6 @@ def main(path0, path1):
             masks0 = json.loads(line0)
             masks1 = json.loads(line1)
             if masks0.keys() != masks1.keys():
-                print(f"len(masks0.keys()): {len(masks0.keys())}, len(masks1.keys()): {len(masks1.keys())}")
                 fail_count += 1
                 continue
             for mask0, mask1 in zip(masks0.values(), masks1.values()):
