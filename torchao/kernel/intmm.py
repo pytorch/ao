@@ -2,7 +2,7 @@ import itertools
 import os
 import torch
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_2
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_2, TORCH_VERSION_AT_LEAST_2_6
 
 try:
     # Only works for torch2.2 or newer.
@@ -134,6 +134,13 @@ def int_scaled_matmul(a: torch.Tensor, b: torch.Tensor, scales1: torch.Tensor) -
     assert scales1.is_contiguous()
     scales1 = scales1.expand((M, N))
     assert scales1.dim() == 2
+
+    if scales1.device.type == "cpu" and TORCH_VERSION_AT_LEAST_2_6:
+        # CPU prefers decomposed version of int_scaled_matmul
+        # to leverage the fusion capability of Inductor
+        c = torch._int_mm(a, b)
+        return c.to(scales1.dtype) * scales1
+
     if intmm_triton is not None and AUTOTUNER_ENABLE:
         return torch.ops.torchao.int_scaled_matmul(a, b, scales1)
 
