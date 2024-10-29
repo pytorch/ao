@@ -16,3 +16,77 @@ Collect the rles
 ```
 xargs -I {} curl -s -w "\n" -X POST http://<your_hostname>:<your_port>/upload_rle -F 'image=@{}' < image_paths > rle_masks
 ```
+
+## mIoU scores on random subset of sav validation dataset
+
+Experiments run on A100
+
+
+### 1. Create a random subset of 1000 images
+```
+find sav_val -type f > sav_val_image_paths
+shuf -n 1000 sav_val_image_paths > sav_val_image_paths_shuf_1000
+```
+
+### 2. Use the baseline (https://github.com/facebookresearch/sam2) to generate rles
+
+Make sure you've installed https://github.com/facebookresearch/sam2
+
+Start server
+```
+python server.py ~/checkpoints/sam2 --port <your_port> --host <your_hostname> --baseline
+```
+
+Generate and save rles (one line per json via `-w "\n"`)
+```
+$ time xargs -I {} curl -s -w "\n" -X POST http://<your_hostname>:<your_port>/upload_rle -F 'image=@{}' < sav_val_image_paths_shuf_1000 > results/sav_val_masks_baseline_shuf_1000
+
+real    13m6.374s
+user    0m3.349s
+sys     0m4.137s
+```
+
+### 3. Start server with torchao variant of SAM2
+Start server
+```
+python server.py ~/checkpoints/sam2 --port <your_port> --host <your_hostname>
+```
+
+Generate and save rles (one line per json via `-w "\n"`)
+```
+$ time xargs -I {} curl -s -w "\n" -X POST http://<your_hostname>:<your_port>/upload_rle -F 'image=@{}' < sav_val_image_paths_shuf_1000 > results/sav_val_masks_shuf_1000
+
+real    12m18.916s
+user    0m3.506s
+sys     0m4.350s
+```
+
+### 4. Start server with torchao variant of SAM2 and `--fast` optimizations
+Start server
+```
+python server.py ~/checkpoints/sam2 --port <your_port> --host <your_hostname> --fast
+```
+
+Generate and save rles (one line per json via `-w "\n"`)
+```
+$ time xargs -I {} curl -s -w "\n" -X POST http://<your_hostname>:<your_port>/upload_rle -F 'image=@{}' < sav_val_image_paths_shuf_1000 > results/sav_val_masks_fast_shuf_1000
+
+real    9m23.912s
+user    0m3.271s
+sys     0m4.138s
+```
+
+### 5. Start server with torchao variant of SAM2 and `--fast` and `--furious` optimizations
+Start server
+```
+python server.py ~/checkpoints/sam2 --port <your_port> --host <your_hostname> --fast --furious
+```
+
+Generate and save rles (one line per json via `-w "\n"`)
+```
+$ time xargs -I {} curl -s -w "\n" -X POST http://<your_hostname>:<your_port>/upload_rle -F 'image=@{}' < sav_val_image_paths_shuf_1000 > results/sav_val_masks_fast_furious_shuf_1000
+
+real    3m24.383s
+user    0m3.583s
+sys     0m4.519s
+```
