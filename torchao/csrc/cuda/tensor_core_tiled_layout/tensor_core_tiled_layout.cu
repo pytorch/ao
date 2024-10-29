@@ -1,4 +1,4 @@
-#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800  // at least Ampere and ROCm > 5.7
+#if (defined(USE_ROCM) && ROCM_VERSION >= 60200) || !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 800
 
 #include <ATen/ATen.h>
 #include <ATen/core/Tensor.h>
@@ -174,8 +174,6 @@ __global__ void _dequantize_int4_kernel(
         __nv_bfloat162 zero2 = __bfloat162bfloat162(pSZ[1]);
       }
       else {
-        //scale2 = {1.0f, 1.0f};
-        //zero2 = {0.0f, 0.0f};
         scale2.x = 1.0f; scale2.y = 1.0f;
         zero2.x = 1.0f; zero2.y = 1.0f;
       }
@@ -241,7 +239,6 @@ at::Tensor _dequantize_tensor_core_tiled_layout(
       group_size == 256);
   TORCH_CHECK(numQGroups == K / group_size);
   TORCH_CHECK(scales_and_zeros.dim() == 3);
-  std::cout << "CHAI: " << scales_and_zeros.size(1) << "," << scales_and_zeros.size(2) << "," << N << std::endl;
   TORCH_CHECK(scales_and_zeros.size(1) == N);
   TORCH_CHECK(scales_and_zeros.size(2) == 2);
 
