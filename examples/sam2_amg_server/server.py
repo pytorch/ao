@@ -58,9 +58,11 @@ def main(checkpoint_path, baseline=False, fast=False, furious=False, benchmark=F
     if baseline:
         from sam2.build_sam import build_sam2
         from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+        from sam2.utils.amg import rle_to_mask
     else:
         from torchao._models.sam2.build_sam import build_sam2
         from torchao._models.sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+        from torchao._models.sam2.utils.amg import rle_to_mask
     
     device = "cuda"
     from pathlib import Path
@@ -71,7 +73,7 @@ def main(checkpoint_path, baseline=False, fast=False, furious=False, benchmark=F
     sam2 = build_sam2(model_cfg, sam2_checkpoint, device=device, apply_postprocessing=False)
 
     logging.info(f"Using {points_per_batch} points_per_batch")
-    mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=points_per_batch)
+    mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=points_per_batch, output_mode="uncompressed_rle")
 
     if furious:
         torch.set_float32_matmul_precision('high')
@@ -134,6 +136,24 @@ def main(checkpoint_path, baseline=False, fast=False, furious=False, benchmark=F
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.post("/upload_rle")
+    async def upload_image(image: UploadFile = File(...)):
+        # Save the uploaded image to a temporary location
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{image.filename}")
+        with open(temp_file.name, "wb") as b:
+            shutil.copyfileobj(image.file, b)
+
+        # Read the image back into memory to send as response
+        example_image = cv2.imread(temp_file.name)
+        t = time.time()
+        with torch.backends.cuda.sdp_kernel(enable_cudnn=True):
+            masks = mask_generator.generate(example_image)
+        print(f"Took {time.time() - t} to generate a mask for input image.")
+        ret_data = {}
+        for mask_id in range(len(masks)):
+            ret_data[f"mask_{mask_id}"] = masks[mask_id]["segmentation"]
+        return ret_data
     
     @app.post("/upload")
     async def upload_image(image: UploadFile = File(...)):
@@ -151,6 +171,8 @@ def main(checkpoint_path, baseline=False, fast=False, furious=False, benchmark=F
         # Save an example
         plt.figure(figsize=(example_image.shape[1]/100., example_image.shape[0]/100.), dpi=100)
         plt.imshow(example_image)
+        for i in range(len(masks)):
+            masks[i]["segmentation"] = rle_to_mask(masks[i]["segmentation"])
         show_anns(masks)
         plt.axis('off')
         plt.tight_layout()
