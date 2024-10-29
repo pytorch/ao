@@ -1,3 +1,4 @@
+from typing import Callable
 import torch
 import torchao
 from torchao.quantization.quant_primitives import (
@@ -500,7 +501,7 @@ class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(AQMixin, LinearActiv
     """
     AutoQuantizable version of Float8DynamicallyQuantizedLinearWeight using per row scaling
     """
-    activation_granularity: str = PerRow()
+    activation_granularity = PerRow()
     @classmethod
     def from_float(cls, weight):
 
@@ -537,6 +538,42 @@ class AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight(AQMixin, LinearActiv
         weight = super(AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight, cls).from_float(weight, input_quant_func)
         return weight
 
+class AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight(AQMixin, LinearActivationQuantizedTensor):
+    """
+    AutoQuantizable version of Float8DynamicallyQuantizedLinearWeight using per tensor scaling
+    """
+    activation_granularity = PerTensor()
+    @classmethod
+    def from_float(cls, weight):
+
+        # avoid circular dep
+        from torchao.dtypes import to_affine_quantized_floatx
+        from torchao.quantization.quant_api import _input_activation_quant_func_fp8
+        # weight settings
+        def get_weight_block_size(x):
+            assert x.ndim == 2, "Only works for 2D tensors"
+            return x.shape
+        target_dtype = torch.float8_e4m3fn
+
+        input_target_dtype = torch.float8_e4m3fn
+        _layout = Float8Layout(mm_config=Float8MMConfig(use_fast_accum=True))
+        input_quant_func = lambda x: _input_activation_quant_func_fp8(
+            x=x,
+            activation_granularity=cls.activation_granularity,
+            activation_dtype=input_target_dtype,
+        )
+        block_size = get_weight_block_size(weight)
+        weight = to_affine_quantized_floatx(
+                    input_float=weight,
+                    block_size=block_size,
+                    target_dtype=target_dtype,
+                    _layout=_layout,
+                    scale_dtype=torch.float32,
+        )
+        from torchao.float8.inference import _is_rowwise_scaled
+        weight = super(AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight, cls).from_float(weight, input_quant_func)
+        return weight
+
 
 # here we don't include int4 quantization in since int8 tends to be a better apples to apples comparison
 DEFAULT_AUTOQUANT_CLASS_LIST = [
@@ -557,6 +594,7 @@ DEFAULT_INT4_AUTOQUANT_CLASS_LIST = [
 OTHER_AUTOQUANT_CLASS_LIST = [
     AQFloat8WeightOnlyQuantizedLinearWeight,
     AQFloat8PerRowScalingDynamicallyQuantizedLinearWeight,
+    AQFloat8PerTensorScalingDynamicallyQuantizedLinearWeight,
 ]
 
 
