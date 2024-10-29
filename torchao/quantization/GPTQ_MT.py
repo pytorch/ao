@@ -269,7 +269,7 @@ class MultiTensor(torch.Tensor):
                         #if detected_difference and not isinstance(NON_IN_PLACE_OPS[func], bool):
                             #print("THIS OP IS IN PLACE", func)
                             #NON_IN_PLACE_OPS[func] = False
-                        if detected_difference:
+                        if detected_difference and not NON_IN_PLACE_OPS[func]:
                             NON_IN_PLACE_OPS[func]['is_in_place'] = True
                             print(f"Function {func} is in-place")
 
@@ -297,7 +297,6 @@ class MultiTensor(torch.Tensor):
                 
                 # Run the function again with updated weights and skip_gptq=True
                 out = cls.__torch_function__(func, types, (args[0], DQ.cpu(), *args[2:]), kwargs, skip_gptq=True)
-                print(args[0].debug)
                 if args[0].debug:
                     act = args[0].values[0].to("cuda")
                     bias = args[2].values[0].to("cuda") if args[2] is not None else args[2]

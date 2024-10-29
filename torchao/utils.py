@@ -389,7 +389,7 @@ def _dispatch__torch_dispatch__(cls, func, types, args, kwargs):
         return cls._ATEN_OP_OR_TORCH_FN_TABLE[func](func, types, args, kwargs)
 
     arg_types = tuple(type(arg) for arg in args)
-    kwarg_types = {k: type(arg) for k, arg in kwargs}
+    kwarg_types = {k: type(arg) for k, arg in kwargs.items()}
     raise NotImplementedError(f"{cls.__name__} dispatch: attempting to run unimplemented operator/function: {func=}, {types=}, {arg_types=}, {kwarg_types=}")
 
 def _register_layout(tensor_class: Callable, layout_class: Callable):

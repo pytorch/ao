@@ -733,6 +733,32 @@ def _input_activation_quant_func_fp8(
     return activation
 
 
+def _fp8_mm_compat(weight: torch.Tensor) -> bool:
+    """
+    Check if a weight tensor meets float8 quantization requirements.
+
+    Args:
+        weight (torch.Tensor): The weight tensor to check
+
+    Returns:
+        bool: True if the tensor can be quantized to float8, False otherwise
+    """
+    assert (
+        weight.dim() == 2
+    ), f"float8 quantization only works for 2-D tensors, got {weight.dim()}D tensor"
+
+    out_dim, in_dim = weight.shape
+    is_compatible = (in_dim % 16 == 0) and (out_dim % 16 == 0)
+
+    if not is_compatible:
+        logger.info(
+            f"Skipping float8 quantization: weight shape {weight.shape} is not compatible with _scaled_mm. "
+            f"Both input dimension ({in_dim}) and output dimension ({out_dim}) must be multiples of 16. "
+        )
+
+    return is_compatible
+
+
 def float8_dynamic_activation_float8_weight(
     activation_dtype: torch.dtype = torch.float8_e4m3fn,
     weight_dtype: torch.dtype = torch.float8_e4m3fn,
@@ -761,6 +787,8 @@ def float8_dynamic_activation_float8_weight(
     activation_granularity, weight_granularity = _normalize_granularity(granularity)
 
     def apply_float8_dynamic_activation_quant(weight: torch.Tensor):
+        if not _fp8_mm_compat(weight):
+            return weight
         if isinstance(weight_granularity, PerRow):
             assert (
                 weight.dtype == torch.bfloat16
@@ -818,6 +846,8 @@ def float8_static_activation_float8_weight(
     ), "Static quantization only supports PerTensor granularity"
 
     def apply_float8_static_activation_quant(weight: torch.Tensor):
+        if not _fp8_mm_compat(weight):
+            return weight
         block_size = get_block_size(weight.shape, weight_granularity)
         quantized_weight = to_affine_quantized_floatx(
             input_float=weight,
