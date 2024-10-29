@@ -463,3 +463,56 @@ class IntxWeightEmbeddingQuantizer:
             },
         )
         return model
+
+
+from torchao.experimental._linear_8bit_act_xbit_weight_layout import Linear8BitActXBitWeightLayout
+from torchao.quantization.quant_api import (
+    _get_linear_subclass_inserter,
+    MappingType,
+    to_affine_quantized_intx,
+    ZeroPointDomain,
+)
+
+
+def int8_dynamic_activation_intx_weight(
+    group_size: int = 128,
+    nbit: int = 4,
+    has_weight_zeros: bool = False,
+    target: str = "native",
+):
+
+    def apply(weight):
+        assert weight.shape[-1] % group_size == 0
+        assert weight.device == torch.device("cpu"), "Only CPU is supported"
+        use_hqq = False
+        layout = Linear8BitActXBitWeightLayout(
+            nbit=nbit, group_size=group_size, target=target
+        )
+        mapping_type = MappingType.ASYMMETRIC
+        eps = torch.finfo(torch.float32).eps
+        block_size = (1, group_size)
+        target_dtype = torch.int32
+        quant_min = -(1 << (nbit - 1))
+        quant_max = (1 << (nbit - 1)) - 1
+        zero_point_dtype = torch.int8
+        preserve_zero = has_weight_zeros
+        zero_point_domain = ZeroPointDomain.INT if has_weight_zeros else ZeroPointDomain.NONE
+        # Note: this works differently than other quantizers because the dynamic
+        # activation quantization is fused with the kernel/op (and static activation quantization 
+        # is not supported).  
+        return to_affine_quantized_intx(
+            weight,
+            mapping_type,
+            block_size,
+            target_dtype,
+            quant_min,
+            quant_max,
+            eps,
+            zero_point_dtype=zero_point_dtype,
+            preserve_zero=preserve_zero,
+            zero_point_domain=zero_point_domain,
+            _layout=layout,
+            use_hqq=use_hqq,
+        )
+
+    return _get_linear_subclass_inserter(apply)
