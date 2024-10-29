@@ -108,7 +108,7 @@ def get_extensions():
     extensions_cuda_dir = os.path.join(extensions_dir, "cuda")
     cuda_sources = list(glob.glob(os.path.join(extensions_cuda_dir, "**/*.cu"), recursive=True))
 
-    extensions_hip_dir = os.path.join(extensions_dir, "cuda", "fp6_llm")
+    extensions_hip_dir = os.path.join(extensions_dir, "cuda", "tensor_core_tiled_layout")
     hip_sources = list(glob.glob(os.path.join(extensions_hip_dir, "*.cu"), recursive=True))
 
     if not IS_ROCM and use_cuda:
@@ -119,24 +119,14 @@ def get_extensions():
         sources += hip_sources
 
     ## TODO: remove this condition and use what we have in CUDA once we fix the individual builds.
-    if not IS_ROCM:
-        ext_modules = [
-            extension(
-                "torchao._C",
-                sources,
-                extra_compile_args=extra_compile_args,
-                extra_link_args=extra_link_args,
-            )
-        ]
-    else:
-        ext_modules = [
-            extension(
-                "torchao._C",
-                sources,
-                extra_compile_args=extra_compile_args,
-                extra_link_args=extra_link_args,
-            )
-        ]
+    ext_modules = [
+        extension(
+            "torchao._C",
+            sources,
+            extra_compile_args=extra_compile_args,
+            extra_link_args=extra_link_args,
+        )
+    ]
 
     return ext_modules
 
