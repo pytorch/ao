@@ -686,84 +686,110 @@ class SparseMarlinGPTQQuantizer(GPTQQuantizer):
         self.group_size = group_size
         self.padding_allowed = padding_allowed
         self.device = device
+
+        def get_qparams_func(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
+            from torchao.sparsity.marlin import inject_24
+
+            # Injects 0's into the matrix to make it sparse
+            x_24, mask = inject_24(x, *x.shape)
+
+            # We have to remove the 0's in the sparse matrix so they don't affect the 
+            # calculation of the quantization parameters
+            x_pruned = torch.stack([x_24[:, col_i][x_24[:, col_i] != 0] for col_i in range(0, x_24.shape[1])]).t()
+            scale, zero_point = get_groupwise_affine_qparams(x_pruned, 4, self.group_size)
+
+            # Since we are applying the quantization to a sparse matrix, we need to keep track of which column we're on
+            # so we use a qparam that will be continuously updated and don't have to edit the algorithm itself
+            curr_col_in_group = 0
+            return (scale, zero_point, mask, curr_col_in_group)
+
+        def quantize_func(x: torch.Tensor, qparams: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]) -> torch.Tensor:
+            # NOTE(diogo): Something weird is happening here. The `curr_col_in_group` is always 0, which means that
+            # the `curr_col_in_group` is not being updated correctly
+            scale, zp, sparse_mask, curr_col_in_group = qparams
+
+            # The input matrix has size (N, M). Since we calculated the qparams for the pruned matrix of
+            # size (N / 2, M), we need to expand their size to match the original matrix by adding 0's
+            # in the correct positions before quantizing 
+            sparse_scale = torch.zeros_like(x, dtype=torch.bfloat16)
+            sparse_zp = torch.zeros_like(x, dtype=torch.bfloat16)
+            sparse_scale[sparse_mask[:, curr_col_in_group]] = scale
+            sparse_zp[sparse_mask[:, curr_col_in_group]] = zp
+
+            x_q_24 = groupwise_affine_quantize_tensor_from_qparams(x, sparse_scale, sparse_zp, 4, self.group_size)
+            return x_q_24
+
+        def dequantize_func(x_q_24: torch.Tensor, qparams: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]) -> torch.Tensor:
+            scale, zp, sparse_mask, curr_col_in_group = qparams
+
+            # NOTE(diogo): Maybe don't do this here? I should instead do this in 
+            # `get_qparams_func` and return the sparse values. Then, during concatenation,
+            # I just need to remove the parameters that I don't need
+            sparse_scale = torch.zeros_like(x_q_24, dtype=torch.bfloat16)
+            sparse_zp = torch.zeros_like(x_q_24, dtype=torch.bfloat16)
+            sparse_scale[sparse_mask[:, curr_col_in_group]] = scale
+            sparse_zp[sparse_mask[:, curr_col_in_group]] = zp
+
+            x_24 = groupwise_affine_dequantize_tensor_from_qparams(
+                x_q_24,
+                sparse_scale,
+                sparse_zp,
+                4,
+                self.group_size,
+            )
+            # NOTE(diogo): Might not need this?
+            # x_dq_s = x_dq * sparse_mask[:, curr_col_in_group] # we need to sparsify the final result so it is correct
+            curr_col_in_group += 1
+            return x_24
+
+        def skip_layer_func(linear_weight: torch.Tensor) -> bool:
+            return not (
+                _check_linear_int4_k(linear_weight.shape[-1], self.group_size)
+                # and linear_weight[0] % 128 == 0  # NOTE(diogo): Check if I need this
+                # and linear_weight[1] % 256 == 0
+            )
+
+        def combine_qparams_list_func(qparams_list: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
+            scales_and_zero_points = [qparams[:2] for qparams in qparams_list]
+            return [torch.cat(x, dim=1) for x in zip(*scales_and_zero_points)]
+            # return [torch.cat(x, dim=1) for x in zip(*qparams_list)]
+
+        def make_qtensor(q: torch.Tensor, qparams: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]) -> torch.Tensor:
+            # this should be setup to just use the quantized tensor and qparams directly to make
+            # the aqt int4 tensor but i don't think we have that functionality atm so just dequant
+            # then requant
+            weight = dequantize_func(q, qparams)
+            scale, zero_point = qparams[:2]
+
+            # NOTE: This was copied from `int4_weight_only`. We should probably make this a utility function at some point
+            block_size = (1, self.group_size)
+            target_dtype = torch.int32
+            quant_min = 0
+            quant_max = 15
+            zero_point_domain = ZeroPointDomain.INT
+            _layout = MarlinSparseLayout()
+
+            quantized_tensor = to_affine_quantized_intx_static(
+                weight,
+                scale=scale,
+                zero_point=zero_point,
+                block_size=block_size, 
+                target_dtype=target_dtype, 
+                quant_min=quant_min, 
+                quant_max=quant_max, 
+                zero_point_domain=zero_point_domain, 
+                _layout=_layout, 
+            )
+            return quantized_tensor
+
         self.act_fake_quant_func = None
+        self.get_qparams_func = get_qparams_func
+        self.quantize_func = quantize_func
+        self.dequantize_func = dequantize_func
+        self.combine_qparams_list_func = combine_qparams_list_func
+        self.skip_layer_func = skip_layer_func
+        self.make_qtensor = make_qtensor
         self._check_functions()
-
-    def get_qparams_func(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
-        from torchao.sparsity.marlin import inject_24
-
-        # We have to remove the 0's in the sparse matrix so they don't affect the 
-        # calculation of the quantization parameters
-        x_24, mask = inject_24(x, *x.shape)
-        x_pruned = x_24[x_24 != 0]
-
-        scale, zero_point = get_groupwise_affine_qparams(x_pruned, 4, self.group_size)
-
-        # Since we are applying the quantization to a sparse matrix, we need to keep track of which column we're on
-        # so we use a qparam that will be continuously updated and don't have to edit the algorithm itself
-        curr_col_in_group = 0
-        return (scale, zero_point, mask, curr_col_in_group)
-
-    def quantize_func(self, x: torch.Tensor, qparams: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]) -> torch.Tensor:
-        scale, zp, sparse_mask, curr_col_in_group = qparams
-        x_q = groupwise_affine_quantize_tensor_from_qparams(x, scale, zp, 4, self.group_size)
-        x_q_24 = x_q * sparse_mask[:, curr_col_in_group]
-        return x_q_24
-
-    def dequantize_func(self, x_q_24: torch.Tensor, qparams: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]) -> torch.Tensor:
-        scales, zero_point = qparams[:2]
-        x_24 = groupwise_affine_dequantize_tensor_from_qparams(
-            x_q_24,
-            scales,
-            zero_point,
-            4,
-            self.group_size,
-        )
-        # NOTE(diogo): Might not need this?
-        # x_dq_s = x_dq * sparse_mask[:, curr_col_in_group] # we need to sparsify the final result so it is correct
-        curr_col_in_group += 1
-        return x_24
-
-    def skip_layer_func(self, linear_weight: torch.Tensor) -> bool:
-        return not (
-            _check_linear_int4_k(linear_weight.shape[-1], self.group_size)
-            # and linear_weight[0] % 128 == 0  # NOTE(diogo): Check if I need this
-            # and linear_weight[1] % 256 == 0
-        )
-
-    def combine_qparams_list_func(self, qparams_list: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
-        scales_and_zero_points = [qparams[:2] for qparams in qparams_list]
-        return [
-            torch.cat(x, dim=1) for x in zip(*scales_and_zero_points)
-        ]
-
-    def make_qtensor(self, q: torch.Tensor, qparams: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]) -> torch.Tensor:
-        # this should be setup to just use the quantized tensor and qparams directly to make
-        # the aqt int4 tensor but i don't think we have that functionality atm so just dequant
-        # then requant
-        weight = self.dequantize_func(q, qparams)
-        scale, zero_point = qparams[:2]
-
-        # NOTE: This was copied from `int4_weight_only`. We should probably make this a utility function at some point
-        block_size = (1, self.group_size)
-        target_dtype = torch.int32
-        quant_min = 0
-        quant_max = 15
-        zero_point_domain = ZeroPointDomain.INT
-        _layout = MarlinSparseLayout()
-
-        quantized_tensor = to_affine_quantized_intx_static(
-            weight,
-            scale=scale,
-            zero_point=zero_point,
-            block_size=block_size, 
-            target_dtype=target_dtype, 
-            quant_min=quant_min, 
-            quant_max=quant_max, 
-            zero_point_domain=zero_point_domain, 
-            _layout=_layout, 
-        )
-        return quantized_tensor
 
     def quantize(self, model: torch.nn.Module, inputs: List[MultiTensor], **kwargs: Any) -> torch.nn.Module:
         state_dict = self._create_quantized_state_dict(
