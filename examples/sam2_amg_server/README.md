@@ -28,6 +28,9 @@ ao | 1.0 | 0 | 738
 fast | 0.95 | 190 | 563
 furious | 0 | 1000 | 204
 
+mask count mismatch counts the number of requests where the number of masks differ from the baseline.
+For example, the baseline may have chosen to segment an image into 18 masks, but the fast variant produces 17 or 19.
+We exclude these examples from the mIoU calculation.
 
 ### 1. Create a random subset of 1000 images
 ```
