@@ -30,6 +30,15 @@ import numpy as np
 
 # torch.set_float32_matmul_precision('high')
 
+
+def iou(mask1, mask2):
+    assert mask1.dim() == 2
+    assert mask2.dim() == 2
+    intersection = torch.logical_and(mask1, mask2)
+    union = torch.logical_or(mask1, mask2)
+    return (intersection.sum(dim=(-1, -2)) / union.sum(dim=(-1, -2)))
+
+
 def show_anns(anns):
     if len(anns) == 0:
         return
@@ -49,7 +58,7 @@ def show_anns(anns):
     return torch.stack(ms)
 
 
-def main(checkpoint_path, baseline=False, fast=False, furious=False, benchmark=False, verbose=False, points_per_batch=64, port=5000, host="127.0.0.1"):
+def main(checkpoint_path, baseline=False, fast=False, furious=False, unittest=False, benchmark=False, verbose=False, points_per_batch=64, port=5000, host="127.0.0.1"):
     if verbose:
         logging.basicConfig(level=logging.INFO,
                             format='%(asctime)s - %(levelname)s - %(message)s',
@@ -113,6 +122,37 @@ def main(checkpoint_path, baseline=False, fast=False, furious=False, benchmark=F
         logging.info(f"Running one iteration to compile.")
         masks = mask_generator.generate(example_image)
         logging.info(f"First iteration took {time.time() - t}s.")
+        if unittest:
+            logging.info(f"Running strict comparison to reference mask")
+            import json
+            ref_masks = json.loads(open("dog_rle.json").read())
+            ret_data = {}
+            for mask_id in range(len(masks)):
+                ret_data[f"mask_{mask_id}"] = masks[mask_id]["segmentation"]
+            v0_areas = []
+            v1_areas = []
+            miou_sum = 0.0
+            miou_count = 0
+            for k0 in ref_masks:
+                assert k0 in ret_data, f"Expected {k0} to be in return data"
+                from torchao._models.sam2.utils.amg import area_from_rle
+                v0_area = area_from_rle(ref_masks[k0])
+                v1_area = area_from_rle(ret_data[k0])
+                v0_areas.append(v0_area)
+                v1_areas.append(v1_area)
+                if v0_area != v1_area:
+                    print(f"v0 area {v0_area} doesn't match v1 area {v1_area}")
+                v0_mask = torch.from_numpy(rle_to_mask(ref_masks[k0]))
+                v1_mask = torch.from_numpy(rle_to_mask(ret_data[k0]))
+                if not torch.allclose(v0_mask, v1_mask):
+                    miou_sum += iou(v0_mask, v1_mask)
+                    miou_count += 1
+                    print(f"Masks don't match for key {k0}. IoU is {iou(v0_mask, v1_mask)}")
+            if miou_count == 0:
+                print("Masks exactly match reference.")
+            else:
+                print(f"mIoU is {miou_sum / miou_count}")
+
         if benchmark:
             logging.info(f"Running 3 warumup iterations.")
             for _ in range(3):
@@ -149,6 +189,7 @@ def main(checkpoint_path, baseline=False, fast=False, furious=False, benchmark=F
 
         # Read the image back into memory to send as response
         example_image = cv2.imread(temp_file.name)
+        example_image = cv2.cvtColor(example_image, cv2.COLOR_BGR2RGB)
         t = time.time()
         with torch.backends.cuda.sdp_kernel(enable_cudnn=True):
             masks = mask_generator.generate(example_image)
@@ -167,6 +208,7 @@ def main(checkpoint_path, baseline=False, fast=False, furious=False, benchmark=F
     
         # Read the image back into memory to send as response
         example_image = cv2.imread(temp_file.name)
+        example_image = cv2.cvtColor(example_image, cv2.COLOR_BGR2RGB)
         t = time.time()
         with torch.backends.cuda.sdp_kernel(enable_cudnn=True):
             masks = mask_generator.generate(example_image)
