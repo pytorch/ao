@@ -19,7 +19,7 @@ xargs -I {} curl -s -w "\n" -X POST http://<your_hostname>:<your_port>/upload_rl
 
 ## mIoU scores on random subset of sav validation dataset
 
-Experiments run on A100 and with batch size 1
+Experiments run on H100 and with batch size 1
 
 | mode | mIoU | mask count mismatch | avg. ms per request |
 | ---  |---   | ------------------ | ----------------- |
