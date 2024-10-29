@@ -51,11 +51,14 @@ def show_anns(anns):
 
 def main(checkpoint_path, baseline=False, fast=False, furious=False, benchmark=False, verbose=False, points_per_batch=64, port=5000, host="127.0.0.1"):
     if verbose:
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(level=logging.INFO,
+                            format='%(asctime)s - %(levelname)s - %(message)s',
+                            datefmt='%Y-%m-%d %H:%M:%S')
     logging.info(f"Running with fast set to {fast} and furious set to {furious}")
     logging.info(f"Running with port {port} and host {host}")
 
     if baseline:
+        logging.info(f"Importing sam2 from outside of torchao. If this errors, install https://github.com/facebookresearch/sam2")
         from sam2.build_sam import build_sam2
         from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
         from sam2.utils.amg import rle_to_mask
@@ -77,7 +80,7 @@ def main(checkpoint_path, baseline=False, fast=False, furious=False, benchmark=F
 
     if furious:
         torch.set_float32_matmul_precision('high')
-        torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
+        # torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
 
     if fast:
         # TODO: Using CUDA graphs can cause numerical differences?
