@@ -58,7 +58,28 @@ def show_anns(anns):
     return torch.stack(ms)
 
 
-def main(checkpoint_path, baseline=False, fast=False, furious=False, unittest=False, benchmark=False, verbose=False, points_per_batch=64, port=5000, host="127.0.0.1"):
+def profiler_runner(path, fn, *args, **kwargs):
+    with torch.profiler.profile(
+            activities=[torch.profiler.ProfilerActivity.CPU,
+                        torch.profiler.ProfilerActivity.CUDA],
+            record_shapes=True) as prof:
+        result = fn(*args, **kwargs)
+    prof.export_chrome_trace(path)
+    return result
+
+
+def main(checkpoint_path,
+         baseline=False,
+         fast=False,
+         furious=False,
+         unittest=False,
+         benchmark=False,
+         profile=None,
+         verbose=False,
+         points_per_batch=64,
+         port=5000,
+         host="127.0.0.1",
+         dry=False):
     if verbose:
         logging.basicConfig(level=logging.INFO,
                             format='%(asctime)s - %(levelname)s - %(message)s',
@@ -89,7 +110,7 @@ def main(checkpoint_path, baseline=False, fast=False, furious=False, unittest=Fa
 
     if furious:
         torch.set_float32_matmul_precision('high')
-        # torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
+        torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
 
     if fast:
         # TODO: Using CUDA graphs can cause numerical differences?
@@ -167,7 +188,13 @@ def main(checkpoint_path, baseline=False, fast=False, furious=False, unittest=Fa
             max_memory_allocated_percentage = int(100 * (max_memory_allocated_bytes / total_memory))
             max_memory_allocated_bytes = max_memory_allocated_bytes >> 20
             print(f"max_memory_allocated_bytes: {max_memory_allocated_bytes}MiB or {max_memory_allocated_percentage}%")
-            return
+
+        if profile is not None:
+            print("Saving profile under {profile}")
+            profiler_runner(profile, mask_generator.generate, example_image)
+
+    if dry:
+        return
 
     app = FastAPI()
 
@@ -181,7 +208,7 @@ def main(checkpoint_path, baseline=False, fast=False, furious=False, unittest=Fa
     )
 
     @app.post("/upload_rle")
-    async def upload_image(image: UploadFile = File(...)):
+    async def upload_rle(image: UploadFile = File(...)):
         # Save the uploaded image to a temporary location
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{image.filename}")
         with open(temp_file.name, "wb") as b:
