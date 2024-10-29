@@ -190,7 +190,7 @@ def main(checkpoint_path,
             print(f"max_memory_allocated_bytes: {max_memory_allocated_bytes}MiB or {max_memory_allocated_percentage}%")
 
         if profile is not None:
-            print("Saving profile under {profile}")
+            print(f"Saving profile under {profile}")
             profiler_runner(profile, mask_generator.generate, example_image)
 
     if dry:
