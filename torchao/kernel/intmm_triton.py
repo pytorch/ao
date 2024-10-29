@@ -334,6 +334,13 @@ def int_matmul_cuda(a, b):
     return int_matmul_kernel(a, b, c, best_config)
 
 
+@torch.library.impl(lib, "int_scaled_matmul", "Meta")
+def int_scaled_matmul_meta(a, b, scales1):
+    M, K = a.shape
+    K, N = b.shape
+    return torch.empty((M, N), device=a.device, dtype=scales1.dtype)
+
+
 @torch.library.impl(lib, "int_scaled_matmul", "CUDA")
 def int_scaled_matmul_cuda(a, b, scales1):
     # Check constraints.
