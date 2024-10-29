@@ -21,12 +21,12 @@ xargs -I {} curl -s -w "\n" -X POST http://<your_hostname>:<your_port>/upload_rl
 
 Experiments run on A100 and with batch size 1
 
-mode | mIoU | mask count mismatch | avg. ms per request
------------------------
-baseline | 1.0 | 0 | 786
-ao | 1.0 | 0 | 738
-fast | 0.95 | 190 | 563
-furious | 0 | 1000 | 204
+| mode | mIoU | mask count mismatch | avg. ms per request |
+| ---  |---   | ------------------ | ----------------- |
+| baseline | 1.0 | 0 | 786 |
+| ao | 1.0 | 0 | 738 |
+| fast | 0.95 | 190 | 563 |
+| furious | 0 | 1000 | 204 |
 
 mask count mismatch counts the number of requests where the number of masks differ from the baseline.
 For example, the baseline may have chosen to segment an image into 18 masks, but the fast variant produces 17 or 19.
