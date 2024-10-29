@@ -49,17 +49,18 @@ def show_anns(anns):
     return torch.stack(ms)
 
 
-def main(checkpoint_path, fast=False, furious=False, benchmark=False, verbose=False, points_per_batch=64):
+def main(checkpoint_path, baseline=False, fast=False, furious=False, benchmark=False, verbose=False, points_per_batch=64, port=5000, host="127.0.0.1"):
     if verbose:
         logging.basicConfig(level=logging.INFO)
     logging.info(f"Running with fast set to {fast} and furious set to {furious}")
+    logging.info(f"Running with port {port} and host {host}")
 
-    if fast:
-        from torchao._models.sam2.build_sam import build_sam2
-        from torchao._models.sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
-    else:
+    if baseline:
         from sam2.build_sam import build_sam2
         from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+    else:
+        from torchao._models.sam2.build_sam import build_sam2
+        from torchao._models.sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
     
     device = "cuda"
     from pathlib import Path
@@ -163,7 +164,7 @@ def main(checkpoint_path, fast=False, furious=False, benchmark=False, verbose=Fa
         return StreamingResponse(BytesIO(image_data), media_type="image/png")
     
 
-    uvicorn.run(app, host="127.0.0.1", port=5000, log_level="info")
+    uvicorn.run(app, host=host, port=port, log_level="info")
 
 if __name__ == "__main__":
     fire.Fire(main)
