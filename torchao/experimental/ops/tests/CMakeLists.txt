@@ -21,6 +21,9 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(googletest)
 enable_testing()
+if(TORCHAO_BUILD_KLEIDIAI)
+    add_compile_definitions(TORCHAO_ENABLE_KLEIDI=1)
+endif()
 
 include_directories(${TORCHAO_INCLUDE_DIRS})
 
