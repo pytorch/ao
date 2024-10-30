@@ -23,6 +23,9 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 
+import asyncio
+from contextlib import asynccontextmanager
+
 # from torch._inductor import config as inductorconfig
 # inductorconfig.triton.unique_kernel_names = True
 # inductorconfig.coordinate_descent_tuning = True
@@ -75,7 +78,6 @@ def image_tensor_to_masks(example_image, mask_generator):
     t = time.time()
     with torch.backends.cuda.sdp_kernel(enable_cudnn=True):
         masks = mask_generator.generate(example_image)
-    print(f"Took {time.time() - t} to generate a mask for input image.")
     return masks
 
 
@@ -92,6 +94,43 @@ def masks_to_rle_dict(masks):
         ret_data[f"mask_{mask_id}"] = masks[mask_id]["segmentation"]
     return ret_data
 
+
+# Queue to hold incoming requests
+request_queue = asyncio.Queue()
+batch_size = 5  # Number of requests to process in a batch
+batch_interval = 1  # Time interval to wait before processing a batch
+
+
+async def process_batch(batch, mask_generator):
+    print(f"Processing batch of len {len(batch)}")
+    results = []
+    for (image_tensor, _) in batch:
+        results.append(image_tensor_to_masks(image_tensor, mask_generator))
+    return results
+
+
+async def batch_worker(mask_generator):
+    while True:
+        batch = []
+        while len(batch) < batch_size and not request_queue.empty():
+            batch.append(await request_queue.get())
+
+        if batch:
+            results = await process_batch(batch, mask_generator)
+            for i, (_, response_future) in enumerate(batch):
+                response_future.set_result(results[i])
+
+        await asyncio.sleep(batch_interval)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup logic
+    mask_generator = app.state.mask_generator
+    task = asyncio.create_task(batch_worker(mask_generator))
+    yield
+    # Shutdown logic (if needed)
+    task.cancel()
 
 def main(checkpoint_path,
          baseline=False,
@@ -223,7 +262,8 @@ def main(checkpoint_path,
     if dry:
         return
 
-    app = FastAPI()
+    app = FastAPI(lifespan=lifespan)
+    app.state.mask_generator = mask_generator
 
     # Allow all origins (you can restrict it in production)
     app.add_middleware(
@@ -237,13 +277,17 @@ def main(checkpoint_path,
     @app.post("/upload_rle")
     async def upload_rle(image: UploadFile = File(...)):
         image_tensor = file_bytes_to_image_tensor(bytearray(await image.read()))
-        masks = image_tensor_to_masks(image_tensor, mask_generator)
+        response_future = asyncio.Future()
+        await request_queue.put((image_tensor, response_future))
+        masks = await response_future
         return masks_to_rle_dict(masks)
     
     @app.post("/upload")
     async def upload_image(image: UploadFile = File(...)):
         image_tensor = file_bytes_to_image_tensor(bytearray(await image.read()))
-        masks = image_tensor_to_masks(image_tensor, mask_generator)
+        response_future = asyncio.Future()
+        await request_queue.put((image_tensor, response_future))
+        masks = await response_future
 
         # Save an example
         plt.figure(figsize=(example_image.shape[1]/100., example_image.shape[0]/100.), dpi=100)
