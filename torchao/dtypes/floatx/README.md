@@ -13,7 +13,7 @@ from torchao.quantization import (
 )
 
 model = ...
-model.half()  # not necessary, but recommended to maintain accuracy (bfloat16 cast is also possible)
+# model can have dtype float16 or bfloat16
 
 # for generic Floatx EyMz where x = 1 + y + z
 # fp6 with ebits = 3 and mbits = 2
@@ -45,7 +45,7 @@ outputs = quant_llm_linear(ebits, mbits, fp16_act, fp6_weight, scales)  # shape 
 - The kernel works for both FP16 and BF16 input activations
 - Only FP6 E3M2 and FP5 E2M2 are tested and enabled in the official repo. We additionally enable support for FP6 E2M3 and FP5 E3M1.
 - On most hardware, this kernel is faster than FP16 linear for batch size from 1 to 128, and slower for batch size larger than or equal to 256. See https://github.com/usyd-fsalab/fp6_llm/issues/8 for a detailed discussion. See https://github.com/pytorch/ao/pull/223 and https://github.com/pytorch/ao/pull/1147 for some microbenchmark results.
-- FP6 is supported for >=SM80 (Ampere generation) as well as SM75 (Turing generation) GPUs. However, SM75 support requires manual compilation of the C++/CUDA extensions (see the installation instructions in the [README](https://github.com/pytorch/ao/blob/main/README.md#installation) for details).
+- The kernel is supported for >=SM80 (Ampere generation) as well as SM75 (Turing generation) GPUs. However, SM75 support requires manual compilation of the C++/CUDA extensions (see the installation instructions in the [README](https://github.com/pytorch/ao/blob/main/README.md#installation) for details).
 
 ## End-to-End benchmarks
 
