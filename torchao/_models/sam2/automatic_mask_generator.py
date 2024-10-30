@@ -196,6 +196,9 @@ class SAM2AutomaticMaskGenerator:
         # Generate masks
         mask_data = self._generate_masks(image)
 
+        return self._encode_masks(mask_data)
+
+    def _encode_masks(self, mask_data):
         # Encode masks
         if self.output_mode == "coco_rle":
             mask_data["segmentations"] = [
