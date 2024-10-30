@@ -18,6 +18,8 @@
 // - Modified the TilingConfig parameters for SM75 to deal with smaller shared memory
 //
 
+#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 750  // at least Turing
+
 #include "kernel_matmul.cuh"
 #include "kernel_reduction.cuh"
 
@@ -153,6 +155,19 @@ cudaError_t fpx_linear_kernel(cudaStream_t    stream,
 #include <torch/library.h>
 
 // https://github.com/NVIDIA/apex/blob/master/csrc/type_shim.h
+#if __CUDA_ARCH__ == 750
+#define DISPATCH_HALF_AND_BF16(TYPE, NAME, ...)                                \
+  switch (TYPE) {                                                              \
+  case at::ScalarType::Half: {                                                 \
+    using torch_t = at::Half;                                                  \
+    using nv_t = half;                                                         \
+    __VA_ARGS__();                                                             \
+    break;                                                                     \
+  }                                                                            \
+  default:                                                                     \
+    AT_ERROR(#NAME, " not implemented for '", toString(TYPE), "'");            \
+  }
+#else
 #define DISPATCH_HALF_AND_BF16(TYPE, NAME, ...)                                \
   switch (TYPE) {                                                              \
   case at::ScalarType::Half: {                                                 \
@@ -170,6 +185,7 @@ cudaError_t fpx_linear_kernel(cudaStream_t    stream,
   default:                                                                     \
     AT_ERROR(#NAME, " not implemented for '", toString(TYPE), "'");            \
   }
+#endif
 
 namespace torchao {
 // MODIFICATION NOTE: dtype of _weights is changed to uint8
@@ -253,3 +269,5 @@ TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
 }
 
 } // namespace torchao
+
+#endif
