@@ -161,62 +161,64 @@ def main(checkpoint_path,
             dynamic=True,
         )
 
-    example_image = cv2.imread('dog.jpg')
-    example_image = cv2.cvtColor(example_image, cv2.COLOR_BGR2RGB)
-    with torch.backends.cuda.sdp_kernel(enable_cudnn=True):
+    with open('dog.jpg', 'rb') as f:
+        image_tensor = file_bytes_to_image_tensor(bytearray(f.read()))
+
+    t = time.time()
+    logging.info("Running three iterations to compile and warmup.")
+    image_tensor_to_masks(image_tensor, mask_generator)
+    image_tensor_to_masks(image_tensor, mask_generator)
+    image_tensor_to_masks(image_tensor, mask_generator)
+    logging.info(f"Three iterations took {time.time() - t}s.")
+
+    if unittest:
+        masks = image_tensor_to_masks(image_tensor, mask_generator)
+        ret_data = masks_to_rle_dict(masks)
+        import json
+        ref_masks = json.loads(open("dog_rle.json").read())
+        v0_areas = []
+        v1_areas = []
+        miou_sum = 0.0
+        miou_count = 0
+        for k0 in ref_masks:
+            assert k0 in ret_data, f"Expected {k0} to be in return data"
+            from torchao._models.sam2.utils.amg import area_from_rle
+            v0_area = area_from_rle(ref_masks[k0])
+            v1_area = area_from_rle(ret_data[k0])
+            v0_areas.append(v0_area)
+            v1_areas.append(v1_area)
+            if v0_area != v1_area:
+                print(f"v0 area {v0_area} doesn't match v1 area {v1_area}")
+            v0_mask = torch.from_numpy(rle_to_mask(ref_masks[k0]))
+            v1_mask = torch.from_numpy(rle_to_mask(ret_data[k0]))
+            if not torch.allclose(v0_mask, v1_mask):
+                miou_sum += iou(v0_mask, v1_mask)
+                miou_count += 1
+                print(f"Masks don't match for key {k0}. IoU is {iou(v0_mask, v1_mask)}")
+        if miou_count == 0:
+            print("Masks exactly match reference.")
+        else:
+            print(f"mIoU is {miou_sum / miou_count}")
+
+    if benchmark:
+        torch.cuda.reset_peak_memory_stats()
+        logging.info("Running 3 warumup iterations.")
+        for _ in range(3):
+            image_tensor_to_masks(image_tensor, mask_generator)
+        logging.info("Running 10 benchmark iterations.")
         t = time.time()
-        logging.info(f"Running one iteration to compile.")
-        masks = mask_generator.generate(example_image)
-        logging.info(f"First iteration took {time.time() - t}s.")
-        if unittest:
-            logging.info(f"Running strict comparison to reference mask")
-            import json
-            ref_masks = json.loads(open("dog_rle.json").read())
-            ret_data = {}
-            for mask_id in range(len(masks)):
-                ret_data[f"mask_{mask_id}"] = masks[mask_id]["segmentation"]
-            v0_areas = []
-            v1_areas = []
-            miou_sum = 0.0
-            miou_count = 0
-            for k0 in ref_masks:
-                assert k0 in ret_data, f"Expected {k0} to be in return data"
-                from torchao._models.sam2.utils.amg import area_from_rle
-                v0_area = area_from_rle(ref_masks[k0])
-                v1_area = area_from_rle(ret_data[k0])
-                v0_areas.append(v0_area)
-                v1_areas.append(v1_area)
-                if v0_area != v1_area:
-                    print(f"v0 area {v0_area} doesn't match v1 area {v1_area}")
-                v0_mask = torch.from_numpy(rle_to_mask(ref_masks[k0]))
-                v1_mask = torch.from_numpy(rle_to_mask(ret_data[k0]))
-                if not torch.allclose(v0_mask, v1_mask):
-                    miou_sum += iou(v0_mask, v1_mask)
-                    miou_count += 1
-                    print(f"Masks don't match for key {k0}. IoU is {iou(v0_mask, v1_mask)}")
-            if miou_count == 0:
-                print("Masks exactly match reference.")
-            else:
-                print(f"mIoU is {miou_sum / miou_count}")
+        for _ in range(10):
+            image_tensor_to_masks(image_tensor, mask_generator)
+        print(f"Benchmark took {(time.time() - t)/10.0}s per iteration.")
+        max_memory_allocated_bytes = torch.cuda.max_memory_allocated()
+        _, total_memory = torch.cuda.mem_get_info()
+        max_memory_allocated_percentage = int(100 * (max_memory_allocated_bytes / total_memory))
+        max_memory_allocated_bytes = max_memory_allocated_bytes >> 20
+        print(f"max_memory_allocated_bytes: {max_memory_allocated_bytes}MiB or {max_memory_allocated_percentage}%")
 
-        if benchmark:
-            logging.info(f"Running 3 warumup iterations.")
-            for _ in range(3):
-                masks = mask_generator.generate(example_image)
-            logging.info(f"Running 10 benchmark iterations, then exit.")
-            t = time.time()
-            for _ in range(10):
-                masks = mask_generator.generate(example_image)
-            print(f"Benchmark took {(time.time() - t)/10.0}s per iteration.")
-            max_memory_allocated_bytes = torch.cuda.max_memory_allocated()
-            _, total_memory = torch.cuda.mem_get_info()
-            max_memory_allocated_percentage = int(100 * (max_memory_allocated_bytes / total_memory))
-            max_memory_allocated_bytes = max_memory_allocated_bytes >> 20
-            print(f"max_memory_allocated_bytes: {max_memory_allocated_bytes}MiB or {max_memory_allocated_percentage}%")
-
-        if profile is not None:
-            print(f"Saving profile under {profile}")
-            profiler_runner(profile, mask_generator.generate, example_image)
+    if profile is not None:
+        print(f"Saving profile under {profile}")
+        profiler_runner(profile, image_tensor_to_masks, image_tensor, mask_generator)
 
     if dry:
         return
