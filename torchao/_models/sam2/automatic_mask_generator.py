@@ -291,6 +291,10 @@ class SAM2AutomaticMaskGenerator:
         with torch.autograd.profiler.record_function("set_image"):
             self.predictor.set_image(cropped_im)
 
+        return self._process_crop_points(cropped_im_size, crop_layer_idx, crop_box, orig_size)
+
+    def _process_crop_points(self, cropped_im_size, crop_layer_idx, crop_box, orig_size):
+
         # Get points for this crop
         points_scale = np.array(cropped_im_size)[None, ::-1]
         points_for_image = self.point_grids[crop_layer_idx] * points_scale
@@ -340,15 +344,54 @@ class SAM2AutomaticMaskGenerator:
         images: List[np.ndarray],
         all_crop_boxes: List[List[int]],
         all_layer_idxs: List[int],
-        all_orig_size: List[Tuple[int, ...]],
+        all_orig_size_compact: List[Tuple[int, ...]],
     ) -> List[MaskData]:
-        all_data = []
-        for (image, orig_size, crop_boxes, layer_idxs) in zip(images, all_orig_size, all_crop_boxes, all_layer_idxs):
+        all_image = []
+        all_crop_box = []
+        all_layer_idx = []
+        all_orig_size = []
+        for (image, orig_size, crop_boxes, layer_idxs) in zip(images, all_orig_size_compact, all_crop_boxes, all_layer_idxs):
             # Iterate over image crops
-            data = MaskData()
             for crop_box, layer_idx in zip(crop_boxes, layer_idxs):
-                crop_data = self._process_crop(image, crop_box, layer_idx, orig_size)
-                data.cat(crop_data)
+                all_image.append(image)
+                all_crop_box.append(crop_box)
+                all_layer_idx.append(layer_idx)
+                all_orig_size.append(orig_size)
+
+        # # TODO: NOTE: Calling process_crop in a loop like this might be an issue, because the predictor is stateful
+
+        all_cropped_im = []
+        for (image, crop_box) in zip(all_image, all_crop_box):
+            x0, y0, x1, y1 = crop_box
+            assert isinstance(image, np.ndarray)
+            cropped_im = image[y0:y1, x0:x1, :]
+            all_cropped_im.append(cropped_im)
+
+        with torch.autograd.profiler.record_function("set_batch_image"):
+            self.predictor.set_image_batch(all_cropped_im)
+
+        i = 0
+        batch_features = self.predictor._features
+        all_crop_data = []
+        for (cropped_im, crop_box, layer_idx, orig_size) in zip(all_cropped_im, all_crop_box, all_layer_idx, all_orig_size):
+            cropped_im_size = cropped_im.shape[:2]
+            self.predictor.reset_predictor()
+            self.predictor._orig_hw = [cropped_im.shape[:2]]
+            self.predictor._features = {"image_embed": batch_features["image_embed"][i].unsqueeze(0),
+                                        "high_res_feats": [b[i].unsqueeze(0) for b in batch_features["high_res_feats"]]}
+            i += 1
+            self.predictor._is_image_set = True
+
+            all_crop_data.append(self._process_crop_points(cropped_im_size, layer_idx, crop_box, orig_size))
+
+
+        i = 0
+        all_data = []
+        for (_, _, crop_boxes, layer_idxs) in zip(images, all_orig_size, all_crop_boxes, all_layer_idxs):
+            data = MaskData()
+            for _, _ in zip(crop_boxes, layer_idxs):
+                data.cat(all_crop_data[i])
+                i += 1
             all_data.append(data)
         return all_data
 

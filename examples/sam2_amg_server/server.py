@@ -75,10 +75,13 @@ def profiler_runner(path, fn, *args, **kwargs):
 
 
 def image_tensor_to_masks(example_image, mask_generator):
-    t = time.time()
     with torch.backends.cuda.sdp_kernel(enable_cudnn=True):
         masks = mask_generator.generate(example_image)
     return masks
+
+
+def image_tensors_to_masks(example_images, mask_generator):
+    return mask_generator.generate_batch(example_images)
 
 
 def file_bytes_to_image_tensor(file_bytes):
@@ -97,17 +100,19 @@ def masks_to_rle_dict(masks):
 
 # Queue to hold incoming requests
 request_queue = asyncio.Queue()
-batch_size = 5  # Number of requests to process in a batch
 batch_interval = 1  # Time interval to wait before processing a batch
 
 
 def process_batch(batch, mask_generator):
     print(f"Processing batch of len {len(batch)}")
+    t = time.time()
     image_tensors = [image_tensor for (image_tensor, _) in batch]
-    return mask_generator.generate_batch(image_tensors)
+    masks = mask_generator.generate_batch(image_tensors)
+    print(f"Took avg. {(time.time() - t) / len(batch)}s per batch entry")
+    return masks
 
 
-async def batch_worker(mask_generator):
+async def batch_worker(mask_generator, batch_size):
     while True:
         batch = []
         while len(batch) < batch_size and not request_queue.empty():
@@ -125,10 +130,12 @@ async def batch_worker(mask_generator):
 async def lifespan(app: FastAPI):
     # Startup logic
     mask_generator = app.state.mask_generator
-    task = asyncio.create_task(batch_worker(mask_generator))
+    batch_size = app.state.batch_size
+    task = asyncio.create_task(batch_worker(mask_generator, batch_size))
     yield
     # Shutdown logic (if needed)
     task.cancel()
+
 
 def main(checkpoint_path,
          baseline=False,
@@ -141,13 +148,15 @@ def main(checkpoint_path,
          points_per_batch=64,
          port=5000,
          host="127.0.0.1",
-         dry=False):
+         dry=False,
+         batch_size=1):
     if verbose:
         logging.basicConfig(level=logging.INFO,
                             format='%(asctime)s - %(levelname)s - %(message)s',
                             datefmt='%Y-%m-%d %H:%M:%S')
     logging.info(f"Running with fast set to {fast} and furious set to {furious}")
     logging.info(f"Running with port {port} and host {host}")
+    logging.info(f"Running with batch size {batch_size}")
 
     if baseline:
         logging.info(f"Importing sam2 from outside of torchao. If this errors, install https://github.com/facebookresearch/sam2")
@@ -210,6 +219,8 @@ def main(checkpoint_path,
 
     if unittest:
         masks = image_tensor_to_masks(image_tensor, mask_generator)
+        # Smoke test only for now. Need more images for batch.
+        _ = image_tensors_to_masks([image_tensor, image_tensor, image_tensor], mask_generator)
         ret_data = masks_to_rle_dict(masks)
         import json
         ref_masks = json.loads(open("dog_rle.json").read())
@@ -262,6 +273,7 @@ def main(checkpoint_path,
 
     app = FastAPI(lifespan=lifespan)
     app.state.mask_generator = mask_generator
+    app.state.batch_size = batch_size
 
     # Allow all origins (you can restrict it in production)
     app.add_middleware(
