@@ -227,10 +227,8 @@ class SAM2AutomaticMaskGenerator:
 
     @torch.no_grad()
     def generate_batch(self, images: List[np.ndarray]) -> List[List[Dict[str, Any]]]:
-        results = []
-        for image in images:
-            results.append(self.generate(image))
-        return results
+        data = self._generate_masks_batch(images)
+        return [self._encode_masks(d) for d in data]
 
     def _generate_masks(self, image: np.ndarray) -> MaskData:
         orig_size = image.shape[:2]
@@ -244,6 +242,9 @@ class SAM2AutomaticMaskGenerator:
             crop_data = self._process_crop(image, crop_box, layer_idx, orig_size)
             data.cat(crop_data)
 
+        return self._deduplicate_masks(crop_boxes, data)
+
+    def _deduplicate_masks(self, crop_boxes, data):
         # Remove duplicate masks between crops
         if len(crop_boxes) > 1:
             # Prefer masks from smaller crops
@@ -258,6 +259,23 @@ class SAM2AutomaticMaskGenerator:
             data.filter(keep_by_nms)
         data.to_numpy()
         return data
+
+    def _generate_masks_batch(self, images: List[np.ndarray]) -> List[MaskData]:
+        all_orig_size = []
+        all_crop_boxes = []
+        all_layer_idxs = []
+        for image in images:
+            orig_size = image.shape[:2]
+            all_orig_size.append(orig_size)
+            crop_boxes, layer_idxs = generate_crop_boxes(
+                orig_size, self.crop_n_layers, self.crop_overlap_ratio
+            )
+            all_crop_boxes.append(crop_boxes)
+            all_layer_idxs.append(layer_idxs)
+
+        all_data = self._process_crop_batch(images, all_crop_boxes, all_layer_idxs, all_orig_size)
+
+        return [self._deduplicate_masks(crop_boxes, data) for (crop_boxes, data) in zip(all_crop_boxes, all_data)]
 
     def _process_crop(
         self,
@@ -316,6 +334,23 @@ class SAM2AutomaticMaskGenerator:
             data["crop_boxes"] = torch.tensor([crop_box for _ in range(len(data["rles"]))])
 
         return data
+
+    def _process_crop_batch(
+        self,
+        images: List[np.ndarray],
+        all_crop_boxes: List[List[int]],
+        all_layer_idxs: List[int],
+        all_orig_size: List[Tuple[int, ...]],
+    ) -> List[MaskData]:
+        all_data = []
+        for (image, orig_size, crop_boxes, layer_idxs) in zip(images, all_orig_size, all_crop_boxes, all_layer_idxs):
+            # Iterate over image crops
+            data = MaskData()
+            for crop_box, layer_idx in zip(crop_boxes, layer_idxs):
+                crop_data = self._process_crop(image, crop_box, layer_idx, orig_size)
+                data.cat(crop_data)
+            all_data.append(data)
+        return all_data
 
     def _process_batch(
         self,
