@@ -193,7 +193,6 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor) -> Tensor:
     )
     return out.view(*A.shape[:-1], out.shape[-1])
 
-from torchao.dtypes.nf4tensor import NF4Tensor
 
 class _Int8MixedPrecisionTrainingLinearFunction(torch.autograd.Function):
     @staticmethod
@@ -204,25 +203,23 @@ class _Int8MixedPrecisionTrainingLinearFunction(torch.autograd.Function):
         bias: Optional[Tensor],
         config: Optional[Int8MixedPrecisionTrainingConfig] = None,
     ):
+        ctx.config = config
+        ctx.save_for_backward(input, weight)
+        ctx.bias = bias is not None
+
         # unpack tensor subclass and dequant if necessary.
         # NOTE: we have to do this inside autograd.Function so that autograd works correctly
         if isinstance(weight, Int8MixedPrecisionTrainingLinearWeight):
             config = weight.config  # override `config` input argument
             weight = weight._data
 
-        # FIXME: during torch.compile, weight is FakeTensor, thus this check will fail
-        elif hasattr(weight, "get_original_weight"):
-        # elif isinstance(weight, NF4Tensor):
+        elif hasattr(weight, "get_original_weight"):  # NF4
             # TODO: we might want a standardized method for dequant tensor subclass in ao.
             # for plain tensors, .dequantize() will always return FP32, which is not suitable
             # for BF16/FP16 plain tensors (this dtype casting won't go away even with torch.compile).
             # currently NF4.dequantize() also behaves differently - it is an internal staticmethod
             # for table lookup instead of getting the dequant tensor.
-            weight = weight.get_original_weight()  # NF4
-
-        ctx.config = config
-        ctx.save_for_backward(input, weight)
-        ctx.bias = bias is not None
+            weight = weight.get_original_weight()  # dequant NF4
 
         if config.output:
             out = _dynamic_int8_mm(input, weight.T)
@@ -234,6 +231,11 @@ class _Int8MixedPrecisionTrainingLinearFunction(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         input, weight = ctx.saved_tensors
+        if isinstance(weight, Int8MixedPrecisionTrainingLinearWeight):
+            weight = weight._data
+        elif hasattr(weight, "get_original_weight"):
+            weight = weight.get_original_weight()  # dequant NF4
+
         grad_input = grad_weight = grad_bias = None
 
         if ctx.needs_input_grad[0]:
