@@ -60,9 +60,11 @@ class ZeroPointDomain(Enum):
 
     integer domain: quantized_val = (float_val / scale) (integer) + zero_point (integer)
     float domain: quantized_val = (float_val - (zero_point (float) - scale * mid_point)) / scale
+    none domain: quantized_val = (float_val / scale)
     """
     INT = auto()
     FLOAT = auto()
+    NONE = auto()
 
 class TorchAODType(Enum):
     """
@@ -344,6 +346,9 @@ def _quantize_affine_no_dtype_cast(
         quant = torch.clamp(
             torch.round(input * (1.0 / scale)) + zero_point, quant_min, quant_max
         )
+    elif zero_point_domain == ZeroPointDomain.NONE.name:
+        assert zero_point is None, "zero_point should be None when zero_point_domain is NONE"
+        quant = torch.clamp(torch.round(input * (1.0 / scale)), quant_min, quant_max)
     elif zero_point_domain is None:
         # This case handles quantization for float8 we expect no zero point and no zero point domain
         assert zero_point is None, "zero_point should be None when zero_point_domain is None"
@@ -476,6 +481,10 @@ def _dequantize_affine_no_dtype_check(
         if zero_point is not None:
             dequant = dequant - zero_point.to(torch.int32)
         dequant = dequant.to(output_dtype)
+        dequant = dequant * scale
+    elif zero_point_domain == ZeroPointDomain.NONE.name:
+        assert zero_point is None, "zero_point should be None when zero_point_domain is NONE"
+        dequant = input.to(output_dtype)
         dequant = dequant * scale
     elif zero_point_domain is None:
         # This case handles dequantization for float8 we expect no zero point and no zero point domain
@@ -813,15 +822,20 @@ def _choose_qparams_affine(
         assert mapping_type == MappingType.ASYMMETRIC.name
         scale = (max_val_pos - min_val_neg) / float(quant_max - quant_min)
         scale = torch.clamp(scale, min=eps)
-        if preserve_zero:
-            zero_point = quant_min - torch.round(min_val_neg / scale)
-            zero_point = torch.clamp(zero_point, quant_min, quant_max)
+        if zero_point_domain == ZeroPointDomain.NONE.name:
+            zero_point = None
         else:
-            assert zero_point_domain == ZeroPointDomain.FLOAT.name, "if not preserve_zero, zero_point must be in FLOAT domain"
-            mid_point = (quant_max + quant_min + 1) / 2
-            zero_point = min_val_neg + scale * mid_point
-
-    return scale.to(dtype=scale_dtype), zero_point.to(dtype=zero_point_dtype)
+            if preserve_zero:
+                zero_point = quant_min - torch.round(min_val_neg / scale)
+                zero_point = torch.clamp(zero_point, quant_min, quant_max)
+            else:
+                assert zero_point_domain == ZeroPointDomain.FLOAT.name, "if not preserve_zero, zero_point must be in FLOAT domain"
+                mid_point = (quant_max + quant_min + 1) / 2
+                zero_point = min_val_neg + scale * mid_point
+    
+    if zero_point is not None:
+        zero_point = zero_point.to(dtype=zero_point_dtype)
+    return scale.to(dtype=scale_dtype), zero_point
 
 
 # HQQ

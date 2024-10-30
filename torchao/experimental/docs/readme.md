@@ -45,6 +45,31 @@ quantized_model = linear_quantizer.quantize(quantized_model)
 
 If you get stuck on the above steps, working examples for both linear and embedding are in torchao/experimental/tests/test_linear_8bit_act_xbit_weight_quantizer.py and torchao/experimental/tests/test_embedding_xbit_quantizer.py.  For example, running `python tests/test_linear_8bit_act_xbit_weight_quantizer.py` loads the ops, creates a toy model, quantizes the model, and runs it in eager, compile, AOTI, and exports the model.
 
+### Subclass API
+
+For linear, you can also use the new subclass API in torchao.
+
+```python
+import torch
+torch.ops.load_library("cmake-out/lib/libtorchao_ops_aten.dylib") # make sure this path is correct on your machine
+
+my_model = Model()
+
+from torchao.experimental.quant_api import int8_dynamic_activation_intx_weight
+from torchao.quantization.quant_api import quantize_
+quantize_(
+    my_model,
+    int8_dynamic_activation_intx_weight(
+        group_size=256,
+        nbit=4,
+        has_weight_zeros=False,
+    ),
+)
+```
+
+If you get stuck, consult
+`tests/test_linear_int8_dynamic_activation_intx_weight_subclass.py`.
+
 ## Available in torchchat
 
 TorchAO experimental kernels are [available in torchchat](https://github.com/pytorch/torchchat/blob/main/docs/quantization.md#experimental-torchao-lowbit-kernels), PyTorch's solution for running LLMs locally.  Torchchat integration uses similar steps to above.
