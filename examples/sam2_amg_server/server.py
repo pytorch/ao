@@ -39,12 +39,15 @@ def iou(mask1, mask2):
     return (intersection.sum(dim=(-1, -2)) / union.sum(dim=(-1, -2)))
 
 
-def show_anns(anns):
+def show_anns(anns, rle_to_mask):
     if len(anns) == 0:
         return
     sorted_anns = sorted(anns, key=(lambda x: x['area']), reverse=True)
     ax = plt.gca()
     ax.set_autoscale_on(False)
+
+    for ann in sorted_anns:
+        ann['segmentation'] = rle_to_mask(ann['segmentation'])
 
     img = np.ones((sorted_anns[0]['segmentation'].shape[0], sorted_anns[0]['segmentation'].shape[1], 4))
     img[:,:,3] = 0
@@ -66,6 +69,28 @@ def profiler_runner(path, fn, *args, **kwargs):
         result = fn(*args, **kwargs)
     prof.export_chrome_trace(path)
     return result
+
+
+def image_tensor_to_masks(example_image, mask_generator):
+    t = time.time()
+    with torch.backends.cuda.sdp_kernel(enable_cudnn=True):
+        masks = mask_generator.generate(example_image)
+    print(f"Took {time.time() - t} to generate a mask for input image.")
+    return masks
+
+
+def file_bytes_to_image_tensor(file_bytes):
+    image_array = np.asarray(file_bytes, dtype=np.uint8)
+    example_image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+    example_image = cv2.cvtColor(example_image, cv2.COLOR_BGR2RGB)
+    return example_image
+
+
+def masks_to_rle_dict(masks):
+    ret_data = {}
+    for mask_id in range(len(masks)):
+        ret_data[f"mask_{mask_id}"] = masks[mask_id]["segmentation"]
+    return ret_data
 
 
 def main(checkpoint_path,
@@ -209,53 +234,25 @@ def main(checkpoint_path,
 
     @app.post("/upload_rle")
     async def upload_rle(image: UploadFile = File(...)):
-        # Save the uploaded image to a temporary location
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{image.filename}")
-        with open(temp_file.name, "wb") as b:
-            shutil.copyfileobj(image.file, b)
-
-        # Read the image back into memory to send as response
-        example_image = cv2.imread(temp_file.name)
-        example_image = cv2.cvtColor(example_image, cv2.COLOR_BGR2RGB)
-        t = time.time()
-        with torch.backends.cuda.sdp_kernel(enable_cudnn=True):
-            masks = mask_generator.generate(example_image)
-        print(f"Took {time.time() - t} to generate a mask for input image.")
-        ret_data = {}
-        for mask_id in range(len(masks)):
-            ret_data[f"mask_{mask_id}"] = masks[mask_id]["segmentation"]
-        return ret_data
+        image_tensor = file_bytes_to_image_tensor(bytearray(await image.read()))
+        masks = image_tensor_to_masks(image_tensor, mask_generator)
+        return masks_to_rle_dict(masks)
     
     @app.post("/upload")
     async def upload_image(image: UploadFile = File(...)):
-        # Save the uploaded image to a temporary location
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{image.filename}")
-        with open(temp_file.name, "wb") as b:
-            shutil.copyfileobj(image.file, b)
-    
-        # Read the image back into memory to send as response
-        example_image = cv2.imread(temp_file.name)
-        example_image = cv2.cvtColor(example_image, cv2.COLOR_BGR2RGB)
-        t = time.time()
-        with torch.backends.cuda.sdp_kernel(enable_cudnn=True):
-            masks = mask_generator.generate(example_image)
-        print(f"Took {time.time() - t} to generate a mask for input image.")
+        image_tensor = file_bytes_to_image_tensor(bytearray(await image.read()))
+        masks = image_tensor_to_masks(image_tensor, mask_generator)
+
         # Save an example
         plt.figure(figsize=(example_image.shape[1]/100., example_image.shape[0]/100.), dpi=100)
-        plt.imshow(example_image)
-        for i in range(len(masks)):
-            masks[i]["segmentation"] = rle_to_mask(masks[i]["segmentation"])
-        show_anns(masks)
+        plt.imshow(image_tensor)
+        show_anns(masks, rle_to_mask)
         plt.axis('off')
         plt.tight_layout()
-        plt.savefig(temp_file.name, format='png')
-
-        # Read the image back into memory to send as response
-        with open(temp_file.name, "rb") as f:
-            image_data = f.read()
-    
-        # Return the image as a StreamingResponse
-        return StreamingResponse(BytesIO(image_data), media_type="image/png")
+        buf = BytesIO()
+        plt.savefig(buf, format='png')
+        buf.seek(0)
+        return StreamingResponse(buf, media_type="image/png")
     
 
     uvicorn.run(app, host=host, port=port, log_level="info")
