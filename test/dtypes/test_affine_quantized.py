@@ -133,7 +133,30 @@ class TestAffineQuantized(TestCase):
         assert "AffineQuantizedTensor" in str(ql)
 
 
+class TestAffineQuantizedBasic(TestCase):
+    COMMON_DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+    COMMON_DTYPES = [torch.bfloat16]
+
+    @common_utils.parametrize("apply_quant", get_quantization_functions(False, True))
+    @common_utils.parametrize("device", COMMON_DEVICES)
+    @common_utils.parametrize("dtype", COMMON_DTYPES)
+    def test_flatten_unflatten(self, apply_quant, device, dtype):
+        l = torch.nn.Linear(128, 256, dtype=dtype, device=device)
+        ql = apply_quant(l)
+        lp_tensor = ql.weight
+        tensor_data_name_dict, tensor_attributes = lp_tensor.__tensor_flatten__()
+        tensor_data_dict = {name: getattr(lp_tensor, name) for name in tensor_data_name_dict}
+        outer_size = lp_tensor.size()
+        outer_stride = lp_tensor.stride()
+        reconstructed = type(lp_tensor).__tensor_unflatten__(tensor_data_dict, tensor_attributes, outer_size, outer_stride)
+        example_inputs = (torch.randn(32, 128, dtype=dtype, device=device),)
+        ref = ql(*example_inputs)
+        ql.weight = torch.nn.Parameter(reconstructed, requires_grad=False)
+        reconstruct_res = ql(*example_inputs)
+        self.assertEqual(reconstruct_res, ref)
+
 common_utils.instantiate_parametrized_tests(TestAffineQuantized)
+common_utils.instantiate_parametrized_tests(TestAffineQuantizedBasic)
 
 
 if __name__ == "__main__":
