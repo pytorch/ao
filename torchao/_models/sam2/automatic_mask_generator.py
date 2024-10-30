@@ -222,6 +222,13 @@ class SAM2AutomaticMaskGenerator:
 
         return curr_anns
 
+    @torch.no_grad()
+    def generate_batch(self, images: List[np.ndarray]) -> List[List[Dict[str, Any]]]:
+        results = []
+        for image in images:
+            results.append(self.generate(image))
+        return results
+
     def _generate_masks(self, image: np.ndarray) -> MaskData:
         orig_size = image.shape[:2]
         crop_boxes, layer_idxs = generate_crop_boxes(

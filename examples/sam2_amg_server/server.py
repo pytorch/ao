@@ -101,12 +101,10 @@ batch_size = 5  # Number of requests to process in a batch
 batch_interval = 1  # Time interval to wait before processing a batch
 
 
-async def process_batch(batch, mask_generator):
+def process_batch(batch, mask_generator):
     print(f"Processing batch of len {len(batch)}")
-    results = []
-    for (image_tensor, _) in batch:
-        results.append(image_tensor_to_masks(image_tensor, mask_generator))
-    return results
+    image_tensors = [image_tensor for (image_tensor, _) in batch]
+    return mask_generator.generate_batch(image_tensors)
 
 
 async def batch_worker(mask_generator):
@@ -116,7 +114,7 @@ async def batch_worker(mask_generator):
             batch.append(await request_queue.get())
 
         if batch:
-            results = await process_batch(batch, mask_generator)
+            results = process_batch(batch, mask_generator)
             for i, (_, response_future) in enumerate(batch):
                 response_future.set_result(results[i])
 
