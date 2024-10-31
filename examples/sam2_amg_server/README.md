@@ -36,6 +36,14 @@ mask count mismatch counts the number of requests where the number of masks diff
 For example, the baseline may have chosen to segment an image into 18 masks, but the fast variant produces 17 or 19.
 We exclude these examples from the mIoU calculation.
 
+### 0. Download checkpoints and install requirements
+
+```
+pip install -r requirements.txt
+```
+
+Download `sam2.1_hiera_large.pt` from https://github.com/facebookresearch/sam2?tab=readme-ov-file#download-checkpoints and put it into `~/checkpoints/sam2`
+
 ### 1. Create a random subset of 1000 images
 ```
 find sav_val -type f > sav_val_image_paths
