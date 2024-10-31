@@ -203,7 +203,7 @@ def main(checkpoint_path,
 
     if furious:
         torch.set_float32_matmul_precision('high')
-        # torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
+        torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
 
     if fast:
         # TODO: Using CUDA graphs can cause numerical differences?
