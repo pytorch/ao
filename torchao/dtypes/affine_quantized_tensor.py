@@ -238,10 +238,13 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 self.zero_point_domain,
                 output_dtype=output_dtype,
             )
-            # need to return to original shape if tensor was padded
-            # in preprocessing
-            for dim, dim_size in enumerate(self.shape):
-                dq = dq.narrow(dim, 0, dim_size)
+            if isinstance(self._layout, TensorCoreTiledLayout):
+                # need to return to original shape if tensor was padded
+                # in preprocessing
+                # TODO: we could add an API for this if there are more use cases
+                # (e.g. dequant_post_process) in TensorImpl or Layout
+                for dim, dim_size in enumerate(self.shape):
+                    dq = dq.narrow(dim, 0, dim_size)
             return dq
 
     @staticmethod
