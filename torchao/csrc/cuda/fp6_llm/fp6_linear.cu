@@ -18,13 +18,18 @@
 // - Modified the TilingConfig parameters for SM75 to deal with smaller shared memory
 //
 
-#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 750  // at least Turing
 
 #include "kernel_matmul.cuh"
 #include "kernel_reduction.cuh"
 
 #include <stdio.h>
 #include <assert.h>
+
+#include <torch/extension.h>
+#include <ATen/ATen.h>
+#include <ATen/cuda/CUDAContext.h>
+#include <torch/library.h>
+
 
 inline bool isSM75GPU() {
     int device;
@@ -72,6 +77,7 @@ static void Kernel_Ex(cudaStream_t    stream,
     #endif
     QUANT_GEMM_Kernel<TilingConfig, InputDataType, OutputDataType, EXPONENT, MANTISSA><<<GridDim, BlockDim, SHMEM_SZ, stream>>>
                     (Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 template<typename InputDataType, int EXPONENT, int MANTISSA>
@@ -148,11 +154,6 @@ cudaError_t fpx_linear_kernel(cudaStream_t    stream,
     return cudaGetLastError();
 }
 
-
-#include <torch/extension.h>
-#include <ATen/ATen.h>
-#include <ATen/cuda/CUDAContext.h>
-#include <torch/library.h>
 
 // https://github.com/NVIDIA/apex/blob/master/csrc/type_shim.h
 #if __CUDA_ARCH__ == 750
@@ -269,5 +270,3 @@ TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
 }
 
 } // namespace torchao
-
-#endif
