@@ -17,7 +17,7 @@ from torch.testing._internal.common_fsdp import FSDPTest
 from torch.testing._internal.common_utils import TestCase, instantiate_parametrized_tests, parametrize, run_tests
 from torch.testing._internal.distributed._tensor.common_dtensor import ModelArgs, Transformer
 
-from torchao.prototype.low_bit_optim import _AdamW
+from torchao.optim import _AdamW
 from torchao.prototype.quantized_training import (
     Int8MixedPrecisionTrainingConfig,
     bitnet_training,
