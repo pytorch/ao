@@ -25,6 +25,7 @@ import numpy as np
 
 import asyncio
 from contextlib import asynccontextmanager
+import contextlib
 
 # from torch._inductor import config as inductorconfig
 # inductorconfig.triton.unique_kernel_names = True
@@ -112,7 +113,9 @@ def process_batch(batch, mask_generator):
     return masks
 
 
-async def batch_worker(mask_generator, batch_size, pad_batch=True):
+async def batch_worker(mask_generator, batch_size, *, pad_batch=True, furious=False):
+    cm = torch.autocast("cuda", dtype=torch.bfloat16) if furious else contextlib.nullcontext()
+    cm.__enter__()
     while True:
         batch = []
         while len(batch) < batch_size and not request_queue.empty():
@@ -136,7 +139,8 @@ async def lifespan(app: FastAPI):
     # Startup logic
     mask_generator = app.state.mask_generator
     batch_size = app.state.batch_size
-    task = asyncio.create_task(batch_worker(mask_generator, batch_size))
+    furious = app.state.furious
+    task = asyncio.create_task(batch_worker(mask_generator, batch_size, furious=furious))
     yield
     # Shutdown logic (if needed)
     task.cancel()
@@ -287,6 +291,7 @@ def main(checkpoint_path,
     app = FastAPI(lifespan=lifespan)
     app.state.mask_generator = mask_generator
     app.state.batch_size = batch_size
+    app.state.furious = furious
 
     # Allow all origins (you can restrict it in production)
     app.add_middleware(
