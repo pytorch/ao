@@ -162,8 +162,8 @@ class TestFloat8MultiProcess(FSDPTest, TestFloat8Common):
             module,
             optim,
             local_inp,
-            precompute,
             config=float8_linear_config2,
+            precompute=precompute,
             compile_transformer_block=compile_transformer_block,
         )
 
