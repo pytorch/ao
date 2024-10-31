@@ -76,8 +76,7 @@ def profiler_runner(path, fn, *args, **kwargs):
 
 
 def image_tensor_to_masks(example_image, mask_generator):
-    with torch.backends.cuda.sdp_kernel(enable_cudnn=True):
-        masks = mask_generator.generate(example_image)
+    masks = mask_generator.generate(example_image)
     return masks
 
 
@@ -318,7 +317,7 @@ def main(checkpoint_path,
         masks = await response_future
 
         # Save an example
-        plt.figure(figsize=(example_image.shape[1]/100., example_image.shape[0]/100.), dpi=100)
+        plt.figure(figsize=(image_tensor.shape[1]/100., image_tensor.shape[0]/100.), dpi=100)
         plt.imshow(image_tensor)
         show_anns(masks, rle_to_mask)
         plt.axis('off')
