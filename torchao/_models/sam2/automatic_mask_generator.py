@@ -384,7 +384,6 @@ class SAM2AutomaticMaskGenerator:
 
             all_crop_data.append(self._process_crop_points(cropped_im_size, layer_idx, crop_box, orig_size))
 
-
         i = 0
         all_data = []
         for (_, _, crop_boxes, layer_idxs) in zip(images, all_orig_size, all_crop_boxes, all_layer_idxs):
@@ -492,7 +491,12 @@ class SAM2AutomaticMaskGenerator:
         with torch.autograd.profiler.record_function("uncrop_masks"):
             # Compress to RLE
             data["masks"] = uncrop_masks(data["masks"], crop_box, orig_h, orig_w)
-            data["rles"] = mask_to_rle_pytorch_2(data["masks"])
+            # Need to do chunking because of https://github.com/pytorch/pytorch/issues/51871
+            # Chunk sizes depend on the size of image and int32 max
+            rles = []
+            for mask_chunk in data["masks"].chunk(4):
+                rles.extend(mask_to_rle_pytorch_2(mask_chunk))
+            data["rles"] = rles
             del data["masks"]
 
         return data

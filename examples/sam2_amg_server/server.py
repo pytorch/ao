@@ -112,14 +112,19 @@ def process_batch(batch, mask_generator):
     return masks
 
 
-async def batch_worker(mask_generator, batch_size):
+async def batch_worker(mask_generator, batch_size, pad_batch=True):
     while True:
         batch = []
         while len(batch) < batch_size and not request_queue.empty():
             batch.append(await request_queue.get())
 
         if batch:
-            results = process_batch(batch, mask_generator)
+
+            padded_batch = batch
+            if pad_batch:
+                padded_batch = batch + ([batch[-1]] * (batch_size - len(batch)))
+            print(f"len(padded_batch): {len(padded_batch)}")
+            results = process_batch(padded_batch, mask_generator)
             for i, (_, response_future) in enumerate(batch):
                 response_future.set_result(results[i])
 
@@ -135,6 +140,23 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown logic (if needed)
     task.cancel()
+
+
+def benchmark_fn(func, inp, mask_generator):
+    torch.cuda.reset_peak_memory_stats()
+    logging.info("Running 3 warumup iterations.")
+    for _ in range(3):
+        func(inp, mask_generator)
+    logging.info("Running 10 benchmark iterations.")
+    t = time.time()
+    for _ in range(10):
+        func(inp, mask_generator)
+    print(f"Benchmark took {(time.time() - t)/10.0}s per iteration.")
+    max_memory_allocated_bytes = torch.cuda.max_memory_allocated()
+    _, total_memory = torch.cuda.mem_get_info()
+    max_memory_allocated_percentage = int(100 * (max_memory_allocated_bytes / total_memory))
+    max_memory_allocated_bytes = max_memory_allocated_bytes >> 20
+    print(f"max_memory_allocated_bytes: {max_memory_allocated_bytes}MiB or {max_memory_allocated_percentage}%")
 
 
 def main(checkpoint_path,
@@ -181,7 +203,7 @@ def main(checkpoint_path,
 
     if furious:
         torch.set_float32_matmul_precision('high')
-        torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
+        # torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
 
     if fast:
         # TODO: Using CUDA graphs can cause numerical differences?
@@ -220,7 +242,8 @@ def main(checkpoint_path,
     if unittest:
         masks = image_tensor_to_masks(image_tensor, mask_generator)
         # Smoke test only for now. Need more images for batch.
-        _ = image_tensors_to_masks([image_tensor, image_tensor, image_tensor], mask_generator)
+        logging.info(f"batched smoke test")
+        _ = image_tensors_to_masks([image_tensor] * batch_size, mask_generator)
         ret_data = masks_to_rle_dict(masks)
         import json
         ref_masks = json.loads(open("dog_rle.json").read())
@@ -249,24 +272,14 @@ def main(checkpoint_path,
             print(f"mIoU is {miou_sum / miou_count}")
 
     if benchmark:
-        torch.cuda.reset_peak_memory_stats()
-        logging.info("Running 3 warumup iterations.")
-        for _ in range(3):
-            image_tensor_to_masks(image_tensor, mask_generator)
-        logging.info("Running 10 benchmark iterations.")
-        t = time.time()
-        for _ in range(10):
-            image_tensor_to_masks(image_tensor, mask_generator)
-        print(f"Benchmark took {(time.time() - t)/10.0}s per iteration.")
-        max_memory_allocated_bytes = torch.cuda.max_memory_allocated()
-        _, total_memory = torch.cuda.mem_get_info()
-        max_memory_allocated_percentage = int(100 * (max_memory_allocated_bytes / total_memory))
-        max_memory_allocated_bytes = max_memory_allocated_bytes >> 20
-        print(f"max_memory_allocated_bytes: {max_memory_allocated_bytes}MiB or {max_memory_allocated_percentage}%")
+        print("batch size 1 test")
+        benchmark_fn(image_tensor_to_masks, image_tensor, mask_generator)
+        print(f"batch size {batch_size} test")
+        benchmark_fn(image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
 
     if profile is not None:
         print(f"Saving profile under {profile}")
-        profiler_runner(profile, image_tensor_to_masks, image_tensor, mask_generator)
+        profiler_runner(profile, image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
 
     if dry:
         return
