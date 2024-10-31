@@ -18,6 +18,7 @@ from torchao.dtypes import (
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
+    choose_qparams_affine,
 )
 
 def _check_linear_int4_k(k, group_size = 1, inner_k_tiles = None):
@@ -658,7 +659,142 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
         return model
 
 
+# NOTE(diogo): This is only temporary just to get the GPTQQuantizer linked with Sparse Marlin before trying out
+# the trick with the col number
 class SparseMarlinGPTQQuantizer(GPTQQuantizer):
+    def __init__(
+        self,
+        blocksize: int = 128,  # Number of columns to consider during the GPTQ process
+        percdamp: float = 0.01, # Small regularization to the matrix diagonal to ensure numerical stability during inversion
+        group_size: int = 64,  # Number of values to consider when computing the qparams
+        padding_allowed: bool = True,
+        device: torch.device = torch.device("cuda"),
+    ):  
+        from torchao.sparsity.marlin import const
+        super().__init__()
+
+        if not torch.cuda.get_device_capability()[0] >= 8:
+            raise ValueError(
+                f'Can not use GPTQ Sparse Marlin 2:4 with a device of compute capability {torch.cuda.get_device_capability()}, the minimum compute capability is 8.0 for Marlin kernel.'
+            )
+
+        # We raise an error here because no layers would be quantized and the user should be aware of this
+        if group_size not in const.SUPPORTED_GROUP_SIZES:
+            raise ValueError(
+                f"Only {const.SUPPORTED_GROUP_SIZES} group sizes are supported, got {group_size}."
+            )
+
+        self.blocksize = blocksize
+        self.percdamp = percdamp
+        self.group_size = group_size
+        self.padding_allowed = padding_allowed
+        self.device = device
+
+        def get_q_params_func(w: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+            mapping_type = MappingType.SYMMETRIC
+            block_size = (1, group_size)
+            target_dtype = torch.int32
+            quant_min = 0
+            quant_max = 15
+            eps = 1e-6
+            preserve_zero = True
+            scale_dtype = torch.bfloat16
+            zero_point_dtype = torch.bfloat16
+            zero_point_domain = ZeroPointDomain.INT
+
+            scale, zero_point = choose_qparams_affine(w, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain)
+            qparams = scale.to(dtype=scale_dtype).reshape(w.shape[0], -1), zero_point.to(dtype=zero_point_dtype).reshape(w.shape[0], -1)
+            return qparams
+
+        def quantize_func(w, qparams):
+            scale, zero_point = qparams
+            q = groupwise_affine_quantize_tensor_from_qparams(
+                w, scale, zero_point, 4, self.group_size, ZeroPointDomain.INT
+            )
+            return q
+
+        def dequantize_func(q, qparams):
+            scale, zero_point = qparams
+            dq = groupwise_affine_dequantize_tensor_from_qparams(q, scale, zero_point, 4, self.group_size, ZeroPointDomain.INT)
+            return dq
+
+        def combine_qparams_list_func(qparams_list):
+            return [
+                torch.cat(x, dim=1) for x in zip(*qparams_list)
+            ]
+        
+        def skip_layer_func(linear_weight):
+            return not (
+                _check_linear_int4_k(linear_weight.shape[-1], group_size) or padding_allowed
+            )
+
+        def make_qtensor(q: torch.Tensor, qparams: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]) -> torch.Tensor:
+            # this should be setup to just use the quantized tensor and qparams directly to make
+            # the aqt int4 tensor but i don't think we have that functionality atm so just dequant
+            # then requant
+            weight = dequantize_func(q, qparams)
+            scale, zero_point = qparams
+
+            import pdb; pdb.set_trace()
+
+            # NOTE: This was copied from `int4_weight_only`. We should probably make this a utility function at some point
+            block_size = (1, self.group_size)
+            target_dtype = torch.int32
+            quant_min = 0
+            quant_max = 15
+            zero_point_domain = ZeroPointDomain.INT
+            _layout = MarlinSparseLayout()
+
+            quantized_tensor = to_affine_quantized_intx_static(
+                weight,
+                scale=scale,
+                zero_point=zero_point,
+                block_size=block_size, 
+                target_dtype=target_dtype, 
+                quant_min=quant_min, 
+                quant_max=quant_max, 
+                zero_point_domain=zero_point_domain, 
+                _layout=_layout, 
+            )
+            return quantized_tensor
+
+        self.act_fake_quant_func = None
+        self.get_qparams_func = get_q_params_func
+        self.quantize_func = quantize_func
+        self.dequantize_func = dequantize_func
+        self.combine_qparams_list_func = combine_qparams_list_func
+        self.skip_layer_func = skip_layer_func
+        self.make_qtensor = make_qtensor
+        self._check_functions()
+
+    def quantize(self, model: torch.nn.Module, inputs: List[MultiTensor], **kwargs: Any) -> torch.nn.Module:
+        state_dict = self._create_quantized_state_dict(
+            model,
+            inputs,
+            self.blocksize,
+            self.percdamp,
+            self.group_size,
+        )
+
+        # this is hacky and potentially wrong, better to just make the flow return a state dict and let user
+        # do with it what they will
+        model = _replace_with_custom_fn_if_matches_filter(
+            model=model,
+            replacement_fn=remove_multitensors_from_buffers_and_params,
+            filter_fn=lambda x, y: True
+        )
+        remove = [k for k in state_dict if "kv_cache" in k]
+        for k in remove:
+            del state_dict[k]
+
+        model.load_state_dict(state_dict, assign=True, strict=False)
+        return model
+
+
+# NOTE(diogo): First, lets get a simple Int4 quantization scheme working that then goes to Sparse Marlin.
+# Afterwards, I will come back to this one and get the `curr_col_in_group` trick to work. I believe this 
+# one will result in a lower perplexity value than the one above it.
+class SparseMarlinGPTQQuantizer_correct(GPTQQuantizer):
     def __init__(
         self,
         blocksize: int = 128,  # Number of columns to consider during the GPTQ process
