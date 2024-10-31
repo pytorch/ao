@@ -370,6 +370,8 @@ class SAM2AutomaticMaskGenerator:
         with torch.autograd.profiler.record_function("set_batch_image"):
             self.predictor.set_image_batch(all_cropped_im)
 
+        # TODO: Duple no_batch mode via self.predictor.reset_predictor and set features to MapTensor features
+        # Then pass MapTensors into _process_crop_points
         i = 0
         batch_features = self.predictor._features
         all_crop_data = []
