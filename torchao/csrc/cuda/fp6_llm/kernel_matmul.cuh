@@ -53,9 +53,11 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
                                   const size_t M_Global, const size_t N_Global, const size_t K_Global,
                                   int Split_K)
 {
-  #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 750
-  #error GPU not supported, at least Turing generation (sm75) is required
-  #else
+  #if __CUDA_ARCH__ < 750
+    static_assert(false, "FP6: At least Turing generation (sm75) is required");
+    // __trap();  // fails at runtime instead of compile time
+  #endif
+
   #ifdef DEBUG_MODE
     assert(K_Global%TilingConfig::TILE_K==0);
     assert(M_Global%TilingConfig::TILE_M==0);
@@ -229,5 +231,4 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
       else
         BlockGlobalPTR[j+i*M_Global] = smem_CFrag[i][j];
     }
-  #endif
 }
