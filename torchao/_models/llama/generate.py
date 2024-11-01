@@ -20,6 +20,8 @@ from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 def device_sync(device):
     if "cuda" in device:
         torch.cuda.synchronize(device)
+    elif "xpu" in device:
+        torch.xpu.synchronize(device)
     elif ("cpu" in device) or ("mps" in device):
         pass
     else:
@@ -428,6 +430,8 @@ def main(
         if i==0:
             if device == "cuda":
                 torch.cuda.reset_peak_memory_stats() # MKG
+            elif device == "xpu":
+                torch.xpu.reset_peak_memory_stats() # MKG
         device_sync(device=device) # MKG
         if i >= 0 and interactive:
             prompt = input("What is your prompt? ")
