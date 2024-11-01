@@ -53,11 +53,10 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
                                   const size_t M_Global, const size_t N_Global, const size_t K_Global,
                                   int Split_K)
 {
-  #if __CUDA_ARCH__ < 750
-    static_assert(false, "FP6: At least Turing generation (sm75) is required");
+  #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 750
+    static_assert(false, "Quant-LLM kernel: At least Turing generation (sm75) is required.");
     // __trap();  // fails at runtime instead of compile time
   #endif
-
   #ifdef DEBUG_MODE
     assert(K_Global%TilingConfig::TILE_K==0);
     assert(M_Global%TilingConfig::TILE_M==0);
@@ -158,11 +157,7 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
   uint32_t Scales_RPTR[4]; // 4 Registers per thread for Quantization Scales
   ExtractFromSharedToReg_Scales(Scales_RPTR, QuantScales + WARP_i*64);
   // Initializing the Software Pipeline: writing registers. ////////////////////////////////////////////////////////////////////////////////////////////////
-  #if __CUDA_ARCH__ >= 800
   constexpr bool USE_BF16 = std::is_same<InputDataType, __nv_bfloat16>::value;
-  #else
-  constexpr bool USE_BF16 = false;
-  #endif
   initialize_mma_slice<TilingConfig, EXPONENT, MANTISSA, USE_BF16>(a, b, AFrag_1BIT_SPTR, AFrag_2BIT_SPTR, AFrag_4BIT_SPTR, smem_array, Scales_RPTR);
   // The outer loop. /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   #pragma unroll(1)
@@ -222,13 +217,14 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
     #pragma unroll
     for(size_t j=threadIdx.x%WARP_SIZE; j<TilingConfig::TILE_M; j+=WARP_SIZE) // j-th row
     {
-      if constexpr (std::is_same<OutputDataType, half>::value)
+      if constexpr (std::is_same<OutputDataType, half>::value) {
         BlockGlobalPTR[j+i*M_Global] = __float2half_rn(smem_CFrag[i][j]);
-      #if __CUDA_ARCH__ >= 800
-      else if constexpr (std::is_same<OutputDataType, __nv_bfloat16>::value)
+      } else if constexpr (std::is_same<OutputDataType, __nv_bfloat16>::value) {
+        #if __CUDA_ARCH__ >= 800
         BlockGlobalPTR[j+i*M_Global] = __float2bfloat16_rn(smem_CFrag[i][j]);
-      #endif
-      else
+        #endif
+      } else {
         BlockGlobalPTR[j+i*M_Global] = smem_CFrag[i][j];
+      }
     }
 }

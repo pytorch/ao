@@ -31,21 +31,6 @@
 #include <torch/library.h>
 
 
-inline bool isSM75GPU() {
-    int device;
-    cudaError_t err = cudaGetDevice(&device);
-    if (err != cudaSuccess) return false;
-
-    int major, minor;
-    err = cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, device);
-    if (err != cudaSuccess) return false;
-
-    err = cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, device);
-    if (err != cudaSuccess) return false;
-
-    return (major == 7) && (minor == 5);
-}
-
 template<typename TilingConfig, typename InputDataType, typename OutputDataType, int EXPONENT, int MANTISSA>
 static void Kernel_Ex(cudaStream_t    stream,
                       const uint4     *Weight,
@@ -106,7 +91,23 @@ cudaError_t fpx_linear_kernel(cudaStream_t    stream,
     if(N_Global>64 && N_Global<=128)    N_PowerOf2 = 128;
     if(N_Global>128)                    N_PowerOf2 = ((N_Global-1)/128+1) * 128;
 
-    if (isSM75GPU() && (N_PowerOf2 == 64 || N_PowerOf2 == 128 || N_PowerOf2 % 128 == 0)) {
+    // Check GPU Compute Capability
+    int device, major, minor;
+    cudaError_t err = cudaGetDevice(&device);
+    if (err != cudaSuccess) return err;
+    err = cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, device);
+    if (err != cudaSuccess) return err;
+    err = cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, device);
+    if (err != cudaSuccess) return err;
+
+    if ((major < 7) || (major == 7 && minor < 5)) {
+        printf("FP6LLM_API Error: FP6LLM requires GPU with SM75 or higher!\n");
+        return cudaErrorUnknown;
+    }
+
+    const bool is_sm75_gpu = (major == 7) && (minor == 5);
+
+    if (is_sm75_gpu && (N_PowerOf2 == 64 || N_PowerOf2 == 128 || N_PowerOf2 % 128 == 0)) {
         // For SM75 and N >= 64, we use a different TilingConfig to deal with smaller shared memory.
         if (Split_K == 1) {
             Kernel_Ex<TilingConfig<4, 1, 4>, InputDataType, InputDataType, EXPONENT, MANTISSA>(stream, Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);
@@ -156,19 +157,6 @@ cudaError_t fpx_linear_kernel(cudaStream_t    stream,
 
 
 // https://github.com/NVIDIA/apex/blob/master/csrc/type_shim.h
-#if __CUDA_ARCH__ == 750
-#define DISPATCH_HALF_AND_BF16(TYPE, NAME, ...)                                \
-  switch (TYPE) {                                                              \
-  case at::ScalarType::Half: {                                                 \
-    using torch_t = at::Half;                                                  \
-    using nv_t = half;                                                         \
-    __VA_ARGS__();                                                             \
-    break;                                                                     \
-  }                                                                            \
-  default:                                                                     \
-    AT_ERROR(#NAME, " not implemented for '", toString(TYPE), "'");            \
-  }
-#else
 #define DISPATCH_HALF_AND_BF16(TYPE, NAME, ...)                                \
   switch (TYPE) {                                                              \
   case at::ScalarType::Half: {                                                 \
@@ -186,7 +174,6 @@ cudaError_t fpx_linear_kernel(cudaStream_t    stream,
   default:                                                                     \
     AT_ERROR(#NAME, " not implemented for '", toString(TYPE), "'");            \
   }
-#endif
 
 namespace torchao {
 // MODIFICATION NOTE: dtype of _weights is changed to uint8

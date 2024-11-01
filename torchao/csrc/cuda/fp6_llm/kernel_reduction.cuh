@@ -62,16 +62,13 @@ __global__ void SplitK_Reduction(T* C, float* Reduction_Workspace, size_t M_Glob
         THREAD_GPTR_R += M_Global * N_Global;
     }
     // Writing to global memory
-    #if __CUDA_ARCH__ == 750
-    #pragma unroll
-    for (int i = 0; i < HALF_PER_128BIT; i++)       THREAD_GPTR_C[i] = __float2half_rn(Results[i]);
-    #else
     if constexpr (std::is_same<T, half>::value) {
         #pragma unroll
         for (int i = 0; i < HALF_PER_128BIT; i++)       THREAD_GPTR_C[i] = __float2half_rn(Results[i]);
     } else {  // __nv_bfloat16>
+    #if __CUDA_ARCH__ >= 800
         #pragma unroll
         for (int i = 0; i < HALF_PER_128BIT; i++)       THREAD_GPTR_C[i] = __float2bfloat16_rn(Results[i]);
-    }
     #endif
+    }
 }
