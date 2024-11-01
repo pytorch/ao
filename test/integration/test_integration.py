@@ -1493,14 +1493,13 @@ class TestAutoQuant(unittest.TestCase):
 
 
 
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "requires 2.4+.")
+@unittest.skipIf(not torch.cuda.is_available(), "requires cuda")
 class TestAOTI(unittest.TestCase):
     @parameterized.expand(
         list(itertools.product(TENSOR_SUBCLASS_APIS, COMMON_DEVICES, COMMON_DTYPES)),
     )
     def test_aoti(self, api, test_device, test_dtype):
-        if not TORCH_VERSION_AT_LEAST_2_4:
-            self.skipTest("aoti compatibility requires 2.4+.")
-
         if api is change_linear_weights_to_int8_dqtensors and test_device == "cuda":
             self.skipTest(f"{api} in {test_device} is not support for aoti compilation yet")
 
@@ -1544,14 +1543,13 @@ class TestAOTI(unittest.TestCase):
         torch._inductor.aoti_compile_and_package(torch.export.export(model, example_inputs), example_inputs)
 
 
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "requires 2.4+.")
+@unittest.skipIf(not torch.cuda.is_available(), "requires cuda")
 class TestExport(unittest.TestCase):
     @parameterized.expand(
         list(itertools.product(TENSOR_SUBCLASS_APIS + [_int8da_int4w_api], COMMON_DEVICES, COMMON_DTYPES)),
     )
     def test_export(self, api, test_device, test_dtype):
-        if not TORCH_VERSION_AT_LEAST_2_4:
-            self.skipTest("export compatibility requires 2.4+.")
-
         if test_device == "cuda" and torch.cuda.is_available() and test_dtype == torch.bfloat16 and torch.cuda.get_device_capability() < (8, 0):
             self.skipTest("Need CUDA and SM80+ available.")
 
