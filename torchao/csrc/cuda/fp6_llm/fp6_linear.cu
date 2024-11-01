@@ -31,6 +31,19 @@
 #include <torch/library.h>
 
 
+// https://github.com/Dao-AILab/flash-attention/blob/478ee666cccbd1b8f63648633003059a8dc6827d/hopper/utils.h#L25
+#define CHECK_CUDA(call)                                                                                  \
+    do {                                                                                                  \
+        cudaError_t status_ = call;                                                                       \
+        if (status_ != cudaSuccess) {                                                                     \
+            fprintf(stderr, "CUDA error (%s:%d): %s\n", __FILE__, __LINE__, cudaGetErrorString(status_)); \
+            exit(1);                                                                                      \
+        }                                                                                                 \
+    } while(0)
+
+#define CHECK_CUDA_KERNEL_LAUNCH() CHECK_CUDA(cudaGetLastError())
+
+
 template<typename TilingConfig, typename InputDataType, typename OutputDataType, int EXPONENT, int MANTISSA>
 static void Kernel_Ex(cudaStream_t    stream,
                       const uint4     *Weight,
@@ -62,11 +75,11 @@ static void Kernel_Ex(cudaStream_t    stream,
     #endif
     QUANT_GEMM_Kernel<TilingConfig, InputDataType, OutputDataType, EXPONENT, MANTISSA><<<GridDim, BlockDim, SHMEM_SZ, stream>>>
                     (Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);
-    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    CHECK_CUDA_KERNEL_LAUNCH();
 }
 
 template<typename InputDataType, int EXPONENT, int MANTISSA>
-cudaError_t fpx_linear_kernel(cudaStream_t    stream,
+void        fpx_linear_kernel(cudaStream_t    stream,
                               const uint4     *Weight,
                               const half      *Scales,
                               const half      *B,
@@ -93,16 +106,12 @@ cudaError_t fpx_linear_kernel(cudaStream_t    stream,
 
     // Check GPU Compute Capability
     int device, major, minor;
-    cudaError_t err = cudaGetDevice(&device);
-    if (err != cudaSuccess) return err;
-    err = cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, device);
-    if (err != cudaSuccess) return err;
-    err = cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, device);
-    if (err != cudaSuccess) return err;
+    CHECK_CUDA(cudaGetDevice(&device));
+    CHECK_CUDA(cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, device));
+    CHECK_CUDA(cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, device));
 
     if ((major < 7) || (major == 7 && minor < 5)) {
-        printf("FP6LLM_API Error: FP6LLM requires GPU with SM75 or higher!\n");
-        return cudaErrorUnknown;
+        TORCH_CHECK(false, "FP6LLM_API Error: FP6LLM requires GPU with SM75 or higher!\n");
     }
 
     const bool is_sm75_gpu = (major == 7) && (minor == 5);
@@ -123,8 +132,7 @@ cudaError_t fpx_linear_kernel(cudaStream_t    stream,
                 case 64:    Kernel_Ex<TilingConfig<4, 1, 8>, InputDataType, InputDataType, EXPONENT, MANTISSA>(stream, Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);  break;
                 case 128:   Kernel_Ex<TilingConfig<4, 1, 8>, InputDataType, InputDataType, EXPONENT, MANTISSA>(stream, Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);  break;
                 default:    if (N_PowerOf2 % 128 != 0) {
-                                printf("FP6LLM_API Error: Unsupported N dimension %d!\n", N_PowerOf2);
-                                return cudaErrorUnknown;
+                                TORCH_CHECK(false, "FP6LLM_API Error: Unsupported N dimension ", N_PowerOf2);
                             }
                             Kernel_Ex<TilingConfig<4, 1, 8>, InputDataType, InputDataType, EXPONENT, MANTISSA>(stream, Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);  break;
             }
@@ -137,8 +145,7 @@ cudaError_t fpx_linear_kernel(cudaStream_t    stream,
                 case 64:    Kernel_Ex<TilingConfig<4, 1, 8>, InputDataType, float, EXPONENT, MANTISSA>(stream, Weight, Scales, B, Reduction_Workspace, M_Global, N_Global, K_Global, Split_K);  break;
                 case 128:   Kernel_Ex<TilingConfig<4, 1, 8>, InputDataType, float, EXPONENT, MANTISSA>(stream, Weight, Scales, B, Reduction_Workspace, M_Global, N_Global, K_Global, Split_K);  break;
                 default:    if (N_PowerOf2 % 128 != 0) {
-                                printf("FP6LLM_API Error: Unsupported N dimension %d!\n", N_PowerOf2);
-                                return cudaErrorUnknown;
+                                TORCH_CHECK(false, "FP6LLM_API Error: Unsupported N dimension ", N_PowerOf2);
                             }
                             Kernel_Ex<TilingConfig<4, 1, 8>, InputDataType, float, EXPONENT, MANTISSA>(stream, Weight, Scales, B, Reduction_Workspace, M_Global, N_Global, K_Global, Split_K);  break;
             }
@@ -150,9 +157,8 @@ cudaError_t fpx_linear_kernel(cudaStream_t    stream,
         dim3 GridDim((M_Global * N_Global) / REDUCTION_ELEMENT_PER_THREADBLOCK, 1, 1);
         dim3 BlockDim(WARP_SIZE, 1, 1);
         SplitK_Reduction<InputDataType><<<GridDim, BlockDim, 0, stream>>>(C, Reduction_Workspace, M_Global, N_Global, Split_K);
+        CHECK_CUDA_KERNEL_LAUNCH();
     }
-
-    return cudaGetLastError();
 }
 
 
