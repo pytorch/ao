@@ -162,6 +162,33 @@ def benchmark_fn(func, inp, mask_generator):
     print(f"max_memory_allocated_bytes: {max_memory_allocated_bytes}MiB or {max_memory_allocated_percentage}%")
 
 
+def unittest_fn(masks, ref_masks):
+    from torchao._models.sam2.utils.amg import rle_to_mask
+    v0_areas = []
+    v1_areas = []
+    miou_sum = 0.0
+    miou_count = 0
+    for k0 in ref_masks:
+        assert k0 in masks, f"Expected {k0} to be in return data"
+        from torchao._models.sam2.utils.amg import area_from_rle
+        v0_area = area_from_rle(ref_masks[k0])
+        v1_area = area_from_rle(masks[k0])
+        v0_areas.append(v0_area)
+        v1_areas.append(v1_area)
+        if v0_area != v1_area:
+            print(f"v0 area {v0_area} doesn't match v1 area {v1_area}")
+        v0_mask = torch.from_numpy(rle_to_mask(ref_masks[k0]))
+        v1_mask = torch.from_numpy(rle_to_mask(masks[k0]))
+        if not torch.allclose(v0_mask, v1_mask):
+            miou_sum += iou(v0_mask, v1_mask)
+            miou_count += 1
+            print(f"Masks don't match for key {k0}. IoU is {iou(v0_mask, v1_mask)}")
+    if miou_count == 0:
+        print("Masks exactly match reference.")
+    else:
+        print(f"mIoU is {miou_sum / miou_count}")
+
+
 def main(checkpoint_path,
          baseline=False,
          fast=False,
@@ -243,36 +270,18 @@ def main(checkpoint_path,
     logging.info(f"Three iterations took {time.time() - t}s.")
 
     if unittest:
+        logging.info("batch size 1 unittest")
         masks = image_tensor_to_masks(image_tensor, mask_generator)
-        # Smoke test only for now. Need more images for batch.
-        logging.info(f"batched smoke test")
-        _ = image_tensors_to_masks([image_tensor] * batch_size, mask_generator)
-        ret_data = masks_to_rle_dict(masks)
+        masks = masks_to_rle_dict(masks)
         import json
         ref_masks = json.loads(open("dog_rle.json").read())
-        v0_areas = []
-        v1_areas = []
-        miou_sum = 0.0
-        miou_count = 0
-        for k0 in ref_masks:
-            assert k0 in ret_data, f"Expected {k0} to be in return data"
-            from torchao._models.sam2.utils.amg import area_from_rle
-            v0_area = area_from_rle(ref_masks[k0])
-            v1_area = area_from_rle(ret_data[k0])
-            v0_areas.append(v0_area)
-            v1_areas.append(v1_area)
-            if v0_area != v1_area:
-                print(f"v0 area {v0_area} doesn't match v1 area {v1_area}")
-            v0_mask = torch.from_numpy(rle_to_mask(ref_masks[k0]))
-            v1_mask = torch.from_numpy(rle_to_mask(ret_data[k0]))
-            if not torch.allclose(v0_mask, v1_mask):
-                miou_sum += iou(v0_mask, v1_mask)
-                miou_count += 1
-                print(f"Masks don't match for key {k0}. IoU is {iou(v0_mask, v1_mask)}")
-        if miou_count == 0:
-            print("Masks exactly match reference.")
-        else:
-            print(f"mIoU is {miou_sum / miou_count}")
+        unittest_fn(masks, ref_masks)
+
+        logging.info(f"batch size {batch_size} unittest")
+        all_masks = image_tensors_to_masks([image_tensor] * batch_size, mask_generator)
+        all_masks = [masks_to_rle_dict(masks) for masks in all_masks]
+        for masks in all_masks:
+            unittest_fn(masks, ref_masks)
 
     if benchmark:
         print("batch size 1 test")

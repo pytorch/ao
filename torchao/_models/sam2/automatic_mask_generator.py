@@ -291,14 +291,13 @@ class SAM2AutomaticMaskGenerator:
         with torch.autograd.profiler.record_function("set_image"):
             self.predictor.set_image(cropped_im)
 
-        return self._process_crop_points(cropped_im_size, crop_layer_idx, crop_box, orig_size)
-
-    def _process_crop_points(self, cropped_im_size, crop_layer_idx, crop_box, orig_size):
-
         # Get points for this crop
         points_scale = np.array(cropped_im_size)[None, ::-1]
         points_for_image = self.point_grids[crop_layer_idx] * points_scale
 
+        return self._process_crop_points(cropped_im_size, crop_box, orig_size, points_for_image)
+
+    def _process_crop_points(self, cropped_im_size, crop_box, orig_size, points_for_image):
         # Generate masks for this crop in batches
         # data = MaskData()
         data = None
@@ -370,6 +369,12 @@ class SAM2AutomaticMaskGenerator:
         with torch.autograd.profiler.record_function("set_batch_image"):
             self.predictor.set_image_batch(all_cropped_im)
 
+        # image_embed = self.predictor._features["image_embed"]
+        # high_res_feats = self.predictor._features["high_res_feats"]
+        # self.predictor.reset_predictor()
+        # self.predictor._orig_hw = None
+        # import pdb; pdb.set_trace()
+
         # TODO: Duple no_batch mode via self.predictor.reset_predictor and set features to MapTensor features
         # Then pass MapTensors into _process_crop_points
         i = 0
@@ -384,7 +389,11 @@ class SAM2AutomaticMaskGenerator:
             i += 1
             self.predictor._is_image_set = True
 
-            all_crop_data.append(self._process_crop_points(cropped_im_size, layer_idx, crop_box, orig_size))
+            # Get points for this crop
+            points_scale = np.array(cropped_im_size)[None, ::-1]
+            points_for_image = self.point_grids[layer_idx] * points_scale
+
+            all_crop_data.append(self._process_crop_points(cropped_im_size, crop_box, orig_size, points_for_image))
 
         i = 0
         all_data = []
