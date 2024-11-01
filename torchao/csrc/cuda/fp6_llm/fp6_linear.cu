@@ -109,12 +109,11 @@ void        fpx_linear_kernel(cudaStream_t    stream,
     CHECK_CUDA(cudaGetDevice(&device));
     CHECK_CUDA(cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, device));
     CHECK_CUDA(cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, device));
-
-    if ((major < 7) || (major == 7 && minor < 5)) {
-        TORCH_CHECK(false, "FP6LLM_API Error: FP6LLM requires GPU with SM75 or higher!\n");
-    }
-
     const bool is_sm75_gpu = (major == 7) && (minor == 5);
+    if (is_sm75_gpu && std::is_same<InputDataType, __nv_bfloat16>::value)
+        TORCH_CHECK(false, "Bfloat16 inputs are not supported for SM75");
+    if ((major < 7) || (major == 7 && minor < 5))
+        TORCH_CHECK(false, "FP6LLM_API Error: FP6LLM requires GPU with SM75 or higher!\n");
 
     if (is_sm75_gpu && (N_PowerOf2 == 64 || N_PowerOf2 == 128 || N_PowerOf2 % 128 == 0)) {
         // For SM75 and N >= 64, we use a different TilingConfig to deal with smaller shared memory.
