@@ -128,6 +128,9 @@ _ops_to_preserve_subclass = {
 #      |   TP compute with torch.mm(input, weight)
 
 class WeightWithDynamicFloat8CastTensor(torch.Tensor):
+
+    __slots__ = "_tensor", "_precomputed_scale", "_linear_mm_config"
+
     @staticmethod
     def __new__(
         cls,
@@ -258,6 +261,16 @@ class WeightWithDynamicFloat8CastTensor(torch.Tensor):
 
 
 class WeightWithDelayedFloat8CastTensor(torch.Tensor):
+
+    __slots__ = [
+        "_tensor",
+        "_amax_buffer",
+        "_amax_history_buffer",
+        "_scale_buffer",
+        "_linear_mm_config",
+        "is_amax_initialized"
+    ]
+
     @staticmethod
     def __new__(
         cls,
@@ -439,6 +452,9 @@ class WeightWithDelayedFloat8CastTensor(torch.Tensor):
 
 
 class WeightWithStaticFloat8CastTensor(torch.Tensor):
+
+    __slots__ = "_tensor", "_static_scale", "_linear_mm_config"
+
     @staticmethod
     def __new__(
         cls,
