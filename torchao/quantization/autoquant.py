@@ -410,9 +410,6 @@ class AQInt8WeightOnlyQuantizedLinearWeight2(AQInt8WeightOnlyQuantizedLinearWeig
 
     @classmethod
     def _autoquant_test(cls, act_mat, *args):
-        # if act_mat has batchsize>2 don't use this kernel
-        if act_mat.reshape(-1, act_mat.shape[-1]).shape[0]>32:
-            return torch.inf
         return super()._autoquant_test(act_mat, *args)
 
 class AQInt8WeightOnlyQuantizedLinearWeight3(AQInt8WeightOnlyQuantizedLinearWeight, AQMixin):
