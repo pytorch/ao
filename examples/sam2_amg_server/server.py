@@ -245,19 +245,13 @@ def main(checkpoint_path,
             dynamic=False,
         )
 
-        # torch._dynamo.config.capture_dynamic_output_shape_ops = True
-        # mask_generator._process_batch = torch.compile(
-        #     mask_generator._process_batch,
-        #     # mode="max-autotune-no-cudagraphs",
-        #     # fullgraph=True,
-        #     dynamic=True,
-        # )
-        mask_generator.predictor._predict = torch.compile(
-            mask_generator.predictor._predict,
-            # mode="max-autotune-no-cudagraphs",
-            fullgraph=True,
-            dynamic=True,
-        )
+        if batch_size == 1:
+            mask_generator.predictor._predict = torch.compile(
+                mask_generator.predictor._predict,
+                # mode="max-autotune-no-cudagraphs",
+                fullgraph=True,
+                dynamic=True,
+            )
 
     with open('dog.jpg', 'rb') as f:
         image_tensor = file_bytes_to_image_tensor(bytearray(f.read()))

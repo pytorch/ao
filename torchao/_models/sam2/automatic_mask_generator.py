@@ -229,7 +229,10 @@ class SAM2AutomaticMaskGenerator:
 
     @torch.no_grad()
     def generate_batch(self, images: List[np.ndarray]) -> List[List[Dict[str, Any]]]:
-        data = self._generate_masks_batch(images)
+        if len(images) == 1:
+            data = [self._generate_masks(images[0])]
+        else:
+            data = self._generate_masks_batch(images)
         return [self._encode_masks(d) for d in data]
 
     def _generate_masks(self, image: np.ndarray) -> MaskData:
