@@ -340,7 +340,7 @@ class SAM2AutomaticMaskGenerator:
                 if data is None:
                     data = batch_data
                 else:
-                    data = [d.cat(b) for (d, b) in zip(data, batch_data)]
+                    [d.cat(b) for (d, b) in zip(data, batch_data)]
                     del batch_data
             else:
                 orig_h, orig_w = orig_size

@@ -463,7 +463,7 @@ def ops_impl(cls, func, types, args, kwargs=None):
 class MapTensor(torch.Tensor):
     @staticmethod
     def __new__(cls, elems):
-        print("elems.layout: ", elems.layout)
+        # print("elems.layout: ", elems.layout)
         if elems.is_nested:
             new_shape = (2,) * (elems.dim() - 1)
         else:
@@ -482,7 +482,7 @@ class MapTensor(torch.Tensor):
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs=None):
-        print("func: ", func)
+        # print("func: ", func)
         # print("func: ", func, "args: ", [type(a.elems) if isinstance(a, MapTensor) else None for a in args])
         # if func == torch.ops.aten.gt.Scalar:
         #     import pdb; pdb.set_trace()
@@ -513,7 +513,7 @@ class MapTensor(torch.Tensor):
     def __torch_function__(cls, func, types, args=(), kwargs=None):
         if kwargs is None:
             kwargs = {}
-        print("TF func: ", func)
+        # print("TF func: ", func)
         if torch._C.TensorBase.flatten == func:
             # import pdb; pdb.set_trace()
             pass
