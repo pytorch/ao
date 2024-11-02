@@ -66,6 +66,9 @@ class CPUOffloadOptimizer:
             params = param_group.pop("params")
 
             for p_cuda in params:
+                if not p_cuda.requires_grad:
+                    continue
+
                 # pre-allocate CPU params and grads
                 p_cpu = torch.empty_like(p_cuda, device="cpu", pin_memory=True)
                 p_cpu.grad = torch.empty_like(p_cpu, pin_memory=True)
