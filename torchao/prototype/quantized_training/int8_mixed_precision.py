@@ -203,23 +203,25 @@ class _Int8MixedPrecisionTrainingLinearFunction(torch.autograd.Function):
         bias: Optional[Tensor],
         config: Optional[Int8MixedPrecisionTrainingConfig] = None,
     ):
-        ctx.config = config
-        ctx.save_for_backward(input, weight)
-        ctx.bias = bias is not None
-
         # unpack tensor subclass and dequant if necessary.
-        # NOTE: we have to do this inside autograd.Function so that autograd works correctly
+        # NOTE: we have to do this inside autograd.Function so that autograd works correctly.
         if isinstance(weight, Int8MixedPrecisionTrainingLinearWeight):
             config = weight.config  # override `config` input argument
             weight = weight._data
 
-        elif hasattr(weight, "get_original_weight"):  # NF4
+        ctx.config = config
+        ctx.save_for_backward(input, weight)
+        ctx.bias = bias is not None
+
+        # dequantize NF4. this must be done inside autograd.Function so that autograd works correctly.
+        # we save quantized NF4 weight for backward.
+        if hasattr(weight, "get_original_weight"):
             # TODO: we might want a standardized method for dequant tensor subclass in ao.
             # for plain tensors, .dequantize() will always return FP32, which is not suitable
             # for BF16/FP16 plain tensors (this dtype casting won't go away even with torch.compile).
             # currently NF4.dequantize() also behaves differently - it is an internal staticmethod
-            # for table lookup instead of getting the dequant tensor.
-            weight = weight.get_original_weight()  # dequant NF4
+            # for table lookup (no scaling) instead of getting the dequant tensor.
+            weight = weight.get_original_weight()
 
         if config.output:
             out = _dynamic_int8_mm(input, weight.T)
