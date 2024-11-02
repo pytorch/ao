@@ -380,8 +380,6 @@ class SAM2ImagePredictor:
             of masks and H=W=256. These low res logits can be passed to
             a subsequent iteration as mask input.
         """
-        print("point_coords.size(): ", point_coords.size(), " type(point_coords): ", type(point_coords))
-        print("point_labels.size(): ", point_labels.size(), " type(point_labels): ", type(point_labels))
         if not self._is_image_set:
             raise RuntimeError(
                 "An image must be set with .set_image(...) before mask prediction."
@@ -422,7 +420,6 @@ class SAM2ImagePredictor:
             for feat_level in self._features["high_res_feats"]
         ]
         with torch.autograd.profiler.record_function("self.model.sam_mask_decoder"):
-            print('self._features["image_embed"].size(): ', self._features["image_embed"].size())
             low_res_masks, iou_predictions, _, _ = self.model.sam_mask_decoder(
                 image_embeddings=self._features["image_embed"][img_idx].unsqueeze(0),
                 image_pe=self.model.sam_prompt_encoder.get_dense_pe(),

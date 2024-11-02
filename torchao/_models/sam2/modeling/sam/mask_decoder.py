@@ -202,8 +202,6 @@ class MaskDecoder(nn.Module):
         else:
             assert image_embeddings.shape[0] == tokens.shape[0]
             src = image_embeddings
-        print("src.size(): ", src.size())
-        print("dense_prompt_embeddings.size(): ", dense_prompt_embeddings.size())
         src = src + dense_prompt_embeddings
         assert (
             image_pe.size(0) == 1
