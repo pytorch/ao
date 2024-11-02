@@ -231,10 +231,7 @@ class _Int8MixedPrecisionTrainingLinearFunction(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         input, weight = ctx.saved_tensors
-        if isinstance(weight, Int8MixedPrecisionTrainingLinearWeight):
-            weight = weight._data
-        elif hasattr(weight, "get_original_weight"):
-            weight = weight.get_original_weight()  # dequant NF4
+        weight = weight.to(input.dtype)  # dequant NF4
 
         grad_input = grad_weight = grad_bias = None
 
