@@ -194,6 +194,7 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor) -> Tensor:
     return out.view(*A.shape[:-1], out.shape[-1])
 
 
+@torch.compiler.allow_in_graph  # this is required for module-swap, but not for tensor subclass
 class _Int8MixedPrecisionTrainingLinearFunction(torch.autograd.Function):
     @staticmethod
     def forward(
@@ -215,6 +216,7 @@ class _Int8MixedPrecisionTrainingLinearFunction(torch.autograd.Function):
 
         # dequantize NF4. this must be done inside autograd.Function so that autograd works correctly.
         # we save quantized NF4 weight for backward.
+        # NOTE: if weight is a FakeTensor, .get_original_weight() will never be called.
         if hasattr(weight, "get_original_weight"):
             # TODO: we might want a standardized method for dequant tensor subclass in ao.
             # for plain tensors, .dequantize() will always return FP32, which is not suitable
@@ -266,6 +268,7 @@ def int8_mixed_precision_training(
     *,
     module_swap: bool = False,
 ):
+    # TODO: skip small layers that don't have perf gain.
     if module_swap:
         # module swap implementation
         def convert_linear(linear: nn.Linear):
