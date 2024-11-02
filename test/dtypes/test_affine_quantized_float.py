@@ -236,6 +236,39 @@ class TestAffineQuantizedFloat8Compile(InductorTestCase):
                     original_layer.weight.scale, new_layer.weight.scale
                 ), f"Scales do not match for {layer_name}"
 
+    @unittest.skipIf(not torch.cuda.is_available(), "Need CUDA available")
+    @unittest.skipIf(not is_cuda_8_9, "Requires GPU with compute capability >= 8.9")
+    def test_fp8_weight_dimension_warning(self):
+        # Create model with incompatible dimensions (not multiples of 16)
+        model = ToyLinearModel(10, 25).cuda()  # 10x25 and 25x10 weights
+
+        # Set up logging capture
+        with self.assertLogs(
+            "torchao.quantization.quant_api", level="INFO"
+        ) as log_context:
+            quantize_(
+                model, float8_dynamic_activation_float8_weight(granularity=PerTensor())
+            )
+            print(model)
+
+        # Verify warning messages for both layers
+        expected_messages = [
+            "Skipping float8 quantization: weight shape torch.Size([25, 10])",
+            "Skipping float8 quantization: weight shape torch.Size([10, 25])",
+        ]
+        # Check that we got warnings for both incompatible layers
+        warning_count = sum(
+            1 for msg in log_context.output if "Skipping float8 quantization" in msg
+        )
+        self.assertEqual(warning_count, 2, "Expected warnings for both linear layers")
+
+        # Check warning message content
+        for expected in expected_messages:
+            self.assertTrue(
+                any(expected in msg for msg in log_context.output),
+                f"Expected warning message containing: {expected}",
+            )
+
 
 common_utils.instantiate_parametrized_tests(TestAffineQuantizedFloat8Compile)
 

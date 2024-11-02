@@ -196,6 +196,9 @@ class SAM2AutomaticMaskGenerator:
         # Generate masks
         mask_data = self._generate_masks(image)
 
+        return self._encode_masks(mask_data)
+
+    def _encode_masks(self, mask_data):
         # Encode masks
         if self.output_mode == "coco_rle":
             mask_data["segmentations"] = [
@@ -222,6 +225,11 @@ class SAM2AutomaticMaskGenerator:
 
         return curr_anns
 
+    @torch.no_grad()
+    def generate_batch(self, images: List[np.ndarray]) -> List[List[Dict[str, Any]]]:
+        data = self._generate_masks_batch(images)
+        return [self._encode_masks(d) for d in data]
+
     def _generate_masks(self, image: np.ndarray) -> MaskData:
         orig_size = image.shape[:2]
         crop_boxes, layer_idxs = generate_crop_boxes(
@@ -234,6 +242,9 @@ class SAM2AutomaticMaskGenerator:
             crop_data = self._process_crop(image, crop_box, layer_idx, orig_size)
             data.cat(crop_data)
 
+        return self._deduplicate_masks(crop_boxes, data)
+
+    def _deduplicate_masks(self, crop_boxes, data):
         # Remove duplicate masks between crops
         if len(crop_boxes) > 1:
             # Prefer masks from smaller crops
@@ -249,6 +260,23 @@ class SAM2AutomaticMaskGenerator:
         data.to_numpy()
         return data
 
+    def _generate_masks_batch(self, images: List[np.ndarray]) -> List[MaskData]:
+        all_orig_size = []
+        all_crop_boxes = []
+        all_layer_idxs = []
+        for image in images:
+            orig_size = image.shape[:2]
+            all_orig_size.append(orig_size)
+            crop_boxes, layer_idxs = generate_crop_boxes(
+                orig_size, self.crop_n_layers, self.crop_overlap_ratio
+            )
+            all_crop_boxes.append(crop_boxes)
+            all_layer_idxs.append(layer_idxs)
+
+        all_data = self._process_crop_batch(images, all_crop_boxes, all_layer_idxs, all_orig_size)
+
+        return [self._deduplicate_masks(crop_boxes, data) for (crop_boxes, data) in zip(all_crop_boxes, all_data)]
+
     def _process_crop(
         self,
         image: np.ndarray,
@@ -260,14 +288,20 @@ class SAM2AutomaticMaskGenerator:
         x0, y0, x1, y1 = crop_box
         cropped_im = image[y0:y1, x0:x1, :]
         cropped_im_size = cropped_im.shape[:2]
-        self.predictor.set_image(cropped_im)
+        with torch.autograd.profiler.record_function("set_image"):
+            self.predictor.set_image(cropped_im)
+
+        return self._process_crop_points(cropped_im_size, crop_layer_idx, crop_box, orig_size)
+
+    def _process_crop_points(self, cropped_im_size, crop_layer_idx, crop_box, orig_size):
 
         # Get points for this crop
         points_scale = np.array(cropped_im_size)[None, ::-1]
         points_for_image = self.point_grids[crop_layer_idx] * points_scale
 
         # Generate masks for this crop in batches
-        data = MaskData()
+        # data = MaskData()
+        data = None
         points_per_batch = self.points_per_batch
         if self.points_per_batch is None:
             points_per_batch = len(points_for_image)
@@ -275,25 +309,90 @@ class SAM2AutomaticMaskGenerator:
             batch_data = self._process_batch(
                 points, cropped_im_size, crop_box, orig_size, normalize=True
             )
-            data.cat(batch_data)
-            del batch_data
+            with torch.autograd.profiler.record_function("data.cat"):
+                if data is None:
+                    data = batch_data
+                else:
+                    data.cat(batch_data)
+                    del batch_data
         self.predictor.reset_predictor()
 
-        # Remove duplicates within this crop.
-        keep_by_nms = batched_nms(
-            data["boxes"].float(),
-            data["iou_preds"],
-            torch.zeros_like(data["boxes"][:, 0]),  # categories
-            iou_threshold=self.box_nms_thresh,
-        )
-        data.filter(keep_by_nms)
+        with torch.autograd.profiler.record_function("batched_nms"):
+            # Remove duplicates within this crop.
+            keep_by_nms = batched_nms(
+                data["boxes"].float(),
+                data["iou_preds"],
+                torch.zeros_like(data["boxes"][:, 0]),  # categories
+                iou_threshold=self.box_nms_thresh,
+            )
 
-        # Return to the original image frame
-        data["boxes"] = uncrop_boxes_xyxy(data["boxes"], crop_box)
-        data["points"] = uncrop_points(data["points"], crop_box)
-        data["crop_boxes"] = torch.tensor([crop_box for _ in range(len(data["rles"]))])
+        with torch.autograd.profiler.record_function("filter"):
+            data.filter(keep_by_nms)
+
+        with torch.autograd.profiler.record_function("uncrop_boxes_xyxy"):
+            # Return to the original image frame
+            data["boxes"] = uncrop_boxes_xyxy(data["boxes"], crop_box)
+        with torch.autograd.profiler.record_function("uncrop_points"):
+            data["points"] = uncrop_points(data["points"], crop_box)
+        with torch.autograd.profiler.record_function("crop_boxes"):
+            data["crop_boxes"] = torch.tensor([crop_box for _ in range(len(data["rles"]))])
 
         return data
+
+    def _process_crop_batch(
+        self,
+        images: List[np.ndarray],
+        all_crop_boxes: List[List[int]],
+        all_layer_idxs: List[int],
+        all_orig_size_compact: List[Tuple[int, ...]],
+    ) -> List[MaskData]:
+        all_image = []
+        all_crop_box = []
+        all_layer_idx = []
+        all_orig_size = []
+        for (image, orig_size, crop_boxes, layer_idxs) in zip(images, all_orig_size_compact, all_crop_boxes, all_layer_idxs):
+            # Iterate over image crops
+            for crop_box, layer_idx in zip(crop_boxes, layer_idxs):
+                all_image.append(image)
+                all_crop_box.append(crop_box)
+                all_layer_idx.append(layer_idx)
+                all_orig_size.append(orig_size)
+
+        # # TODO: NOTE: Calling process_crop in a loop like this might be an issue, because the predictor is stateful
+
+        all_cropped_im = []
+        for (image, crop_box) in zip(all_image, all_crop_box):
+            x0, y0, x1, y1 = crop_box
+            assert isinstance(image, np.ndarray)
+            cropped_im = image[y0:y1, x0:x1, :]
+            all_cropped_im.append(cropped_im)
+
+        with torch.autograd.profiler.record_function("set_batch_image"):
+            self.predictor.set_image_batch(all_cropped_im)
+
+        i = 0
+        batch_features = self.predictor._features
+        all_crop_data = []
+        for (cropped_im, crop_box, layer_idx, orig_size) in zip(all_cropped_im, all_crop_box, all_layer_idx, all_orig_size):
+            cropped_im_size = cropped_im.shape[:2]
+            self.predictor.reset_predictor()
+            self.predictor._orig_hw = [cropped_im.shape[:2]]
+            self.predictor._features = {"image_embed": batch_features["image_embed"][i].unsqueeze(0),
+                                        "high_res_feats": [b[i].unsqueeze(0) for b in batch_features["high_res_feats"]]}
+            i += 1
+            self.predictor._is_image_set = True
+
+            all_crop_data.append(self._process_crop_points(cropped_im_size, layer_idx, crop_box, orig_size))
+
+        i = 0
+        all_data = []
+        for (_, _, crop_boxes, layer_idxs) in zip(images, all_orig_size, all_crop_boxes, all_layer_idxs):
+            data = MaskData()
+            for _, _ in zip(crop_boxes, layer_idxs):
+                data.cat(all_crop_data[i])
+                i += 1
+            all_data.append(data)
+        return all_data
 
     def _process_batch(
         self,
@@ -315,35 +414,40 @@ class SAM2AutomaticMaskGenerator:
         in_labels = torch.ones(
             in_points.shape[0], dtype=torch.int, device=in_points.device
         )
-        masks, iou_preds, low_res_masks = self.predictor._predict(
-            in_points[:, None, :],
-            in_labels[:, None],
-            multimask_output=self.multimask_output,
-            return_logits=True,
-        )
+        with torch.autograd.profiler.record_function("_predict"):
+            masks, iou_preds, low_res_masks = self.predictor._predict(
+                in_points[:, None, :],
+                in_labels[:, None],
+                multimask_output=self.multimask_output,
+                return_logits=True,
+            )
 
         # Serialize predictions and store in MaskData
-        data = MaskData(
-            masks=masks.flatten(0, 1),
-            iou_preds=iou_preds.flatten(0, 1),
-            points=points.repeat_interleave(masks.shape[1], dim=0),
-            low_res_masks=low_res_masks.flatten(0, 1),
-        )
+        with torch.autograd.profiler.record_function("MaskData"):
+            data = MaskData(
+                masks=masks.flatten(0, 1),
+                iou_preds=iou_preds.flatten(0, 1),
+                points=points.repeat_interleave(masks.shape[1], dim=0),
+                low_res_masks=low_res_masks.flatten(0, 1),
+            )
         del masks
 
         if not self.use_m2m:
-            # Filter by predicted IoU
-            if self.pred_iou_thresh > 0.0:
-                keep_mask = data["iou_preds"] > self.pred_iou_thresh
-                data.filter(keep_mask)
+            with torch.autograd.profiler.record_function("thresh and filter"):
+                # Filter by predicted IoU
+                if self.pred_iou_thresh > 0.0:
+                    keep_mask = data["iou_preds"] > self.pred_iou_thresh
+                    data.filter(keep_mask)
 
-            # Calculate and filter by stability score
-            data["stability_score"] = calculate_stability_score(
-                data["masks"], self.mask_threshold, self.stability_score_offset
-            )
-            if self.stability_score_thresh > 0.0:
-                keep_mask = data["stability_score"] >= self.stability_score_thresh
-                data.filter(keep_mask)
+            with torch.autograd.profiler.record_function("calculate_stability_score"):
+                # Calculate and filter by stability score
+                data["stability_score"] = calculate_stability_score(
+                    data["masks"], self.mask_threshold, self.stability_score_offset
+                )
+            with torch.autograd.profiler.record_function("stability_score_thresh"):
+                if self.stability_score_thresh > 0.0:
+                    keep_mask = data["stability_score"] >= self.stability_score_thresh
+                    data.filter(keep_mask)
         else:
             # One step refinement using previous mask predictions
             in_points = self.predictor._transforms.transform_coords(
@@ -369,21 +473,31 @@ class SAM2AutomaticMaskGenerator:
                 keep_mask = data["stability_score"] >= self.stability_score_thresh
                 data.filter(keep_mask)
 
-        # Threshold masks and calculate boxes
-        data["masks"] = data["masks"] > self.mask_threshold
-        data["boxes"] = batched_mask_to_box(data["masks"])
+        with torch.autograd.profiler.record_function("Threshold masks and calculate boxes"):
+            # Threshold masks and calculate boxes
+            data["masks"] = data["masks"] > self.mask_threshold
+            data["boxes"] = batched_mask_to_box(data["masks"])
 
-        # Filter boxes that touch crop boundaries
-        keep_mask = ~is_box_near_crop_edge(
-            data["boxes"], crop_box, [0, 0, orig_w, orig_h]
-        )
-        # if not torch.all(keep_mask):
-        data.filter(keep_mask)
+        with torch.autograd.profiler.record_function("is_box_near_crop_edge"):
+            # Filter boxes that touch crop boundaries
+            keep_mask = ~is_box_near_crop_edge(
+                data["boxes"], crop_box, [0, 0, orig_w, orig_h]
+            )
 
-        # Compress to RLE
-        data["masks"] = uncrop_masks(data["masks"], crop_box, orig_h, orig_w)
-        data["rles"] = mask_to_rle_pytorch_2(data["masks"])
-        del data["masks"]
+        with torch.autograd.profiler.record_function("filter(keep_mask)"):
+            # if not torch.all(keep_mask):
+            data.filter(keep_mask)
+
+        with torch.autograd.profiler.record_function("uncrop_masks"):
+            # Compress to RLE
+            data["masks"] = uncrop_masks(data["masks"], crop_box, orig_h, orig_w)
+            # Need to do chunking because of https://github.com/pytorch/pytorch/issues/51871
+            # Chunk sizes depend on the size of image and int32 max
+            rles = []
+            for mask_chunk in data["masks"].chunk(4):
+                rles.extend(mask_to_rle_pytorch_2(mask_chunk))
+            data["rles"] = rles
+            del data["masks"]
 
         return data
 

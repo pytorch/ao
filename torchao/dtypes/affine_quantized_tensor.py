@@ -1268,8 +1268,11 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
     def to(self, *args, **kwargs):
         kwargs = self._get_to_kwargs(*args, **kwargs)
         device = kwargs["device"]
-        if not is_device("cuda", device):
-            raise ValueError(f"TensorCoreTiledAQTTensorImpl is only available for cuda device, can't convert to {device}")
+        # tensor core tiled layout supports both cpu and cuda but does not support the conversion
+        # between these two devices, in the future we should not use the same layout for
+        # cpu and cuda device: https://github.com/pytorch/ao/issues/1117
+        if not is_device(torch.device(self.device).type, device):
+            raise ValueError(f"TensorCoreTiledAQTTensorImpl does not support conversion from {self.device} to {device}")
         return self.__class__(
             self.packed_weight.to(device),
             self.scale_and_zero.to(device),

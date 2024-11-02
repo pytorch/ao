@@ -95,7 +95,6 @@ void kernel(
     const void* activation_data,
     float clamp_min,
     float clamp_max) {
-    assert(output_m_stride == n);
     if (clamp_min == 0 && clamp_max == 0) {
       clamp_min = std::numeric_limits<float>::lowest();
       clamp_max = std::numeric_limits<float>::max();
