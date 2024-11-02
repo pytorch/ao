@@ -338,6 +338,8 @@ class SAM2AutomaticMaskGenerator:
                 for (mi, ii, li, pi, ci, oi) in zip(masks.elems, iou_preds.elems, low_res_masks.elems, points.elems, crop_box, orig_size):
                     orig_h, orig_w = oi
                     all_data.append(self._process_batch_post_predict(mi, ii, li, pi, ci, orig_h, orig_w, normalize=True))
+                import pdb; pdb.set_trace()
+                batch_data = all_data
                 # TODO: Use NT + MapTensor to turn all_data into a single MapTensor to make all_data into batch_data
             else:
                 orig_h, orig_w = orig_size
@@ -345,7 +347,6 @@ class SAM2AutomaticMaskGenerator:
             # batch_data = self._process_batch(
             #     points, cropped_im_size, crop_box, orig_size, normalize=True
             # )
-            batch_data = all_data
             with torch.autograd.profiler.record_function("data.cat"):
                 if data is None:
                     data = batch_data

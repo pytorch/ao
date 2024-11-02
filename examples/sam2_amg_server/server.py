@@ -277,6 +277,7 @@ def main(checkpoint_path,
         ref_masks = json.loads(open("dog_rle.json").read())
         unittest_fn(masks, ref_masks)
 
+        # TODO: Transpose dog image to create diversity in input image shape
         logging.info(f"batch size {batch_size} unittest")
         all_masks = image_tensors_to_masks([image_tensor] * batch_size, mask_generator)
         all_masks = [masks_to_rle_dict(masks) for masks in all_masks]
