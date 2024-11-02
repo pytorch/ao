@@ -160,7 +160,6 @@ class Int8MixedPrecisionTrainingLinear(nn.Linear):
         self.config = config
 
     def forward(self, input: Tensor) -> Tensor:
-        # TODO: check if this works with quantized weight e.g. NF4
         return _Int8MixedPrecisionTrainingLinearFunction.apply(input, self.weight, self.bias, self.config)
 
 
@@ -214,16 +213,13 @@ class _Int8MixedPrecisionTrainingLinearFunction(torch.autograd.Function):
         ctx.save_for_backward(input, weight)
         ctx.bias = bias is not None
 
-        # dequantize NF4. this must be done inside autograd.Function so that autograd works correctly.
-        # we save quantized NF4 weight for backward.
-        # NOTE: if weight is a FakeTensor, .get_original_weight() will never be called.
-        if hasattr(weight, "get_original_weight"):
-            # TODO: we might want a standardized method for dequant tensor subclass in ao.
-            # for plain tensors, .dequantize() will always return FP32, which is not suitable
-            # for BF16/FP16 plain tensors (this dtype casting won't go away even with torch.compile).
-            # currently NF4.dequantize() also behaves differently - it is an internal staticmethod
-            # for table lookup (no scaling) instead of getting the dequant tensor.
-            weight = weight.get_original_weight()
+        # for NF4Tensor, this will dequantize the tensor.
+        # NOTE: not all quantized tensor subclasses implement .to() this way.
+        # e.g. AffineQuantizedTensor.to(dtype=dtype) returns the same AQT tensor.
+        # casting weight dtype may also introduce unintended behavior.
+        # e.g. FP32 activations and BF16 weight (both plain tensors), which should raise an error,
+        # but now we cast BF16 weight to FP32 instead (and return results in FP32).
+        weight = weight.to(input.dtype)
 
         if config.output:
             out = _dynamic_int8_mm(input, weight.T)
