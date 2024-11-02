@@ -56,6 +56,14 @@ def ops_impl(cls, func, types, args, kwargs=None):
         assert len(norm_res) == 3
         return tuple(wrap(a) for a in norm_res)
 
+    if func == torch.ops.aten.div.Tensor:
+        assert len(unwrapped_kwargs) == 0
+        assert len(unwrapped_args) == 2, f"args: {unwrapped_args}"
+        if isinstance(args[0], MapTensor) and isinstance(args[1], MapTensor):
+            if args[0].dim() == 1 and args[1].dim() == 0:
+                res = func(unwrapped_args[0], unwrapped_args[1].unsqueeze(-1).expand_as(unwrapped_args[0]))
+                return wrap(res)
+
     # TODO: I guess if being added against something higher dim
     # we should increase dim overall?
     if func == torch.ops.aten.add.Tensor:
@@ -73,6 +81,12 @@ def ops_impl(cls, func, types, args, kwargs=None):
             # print("type(args[1]): ", type(args[1]))
             # TODO: THIS GETS CALLED???
             return NotImplemented
+        if isinstance(args[0], MapTensor) and isinstance(args[1], torch.Tensor):
+            if args[0].dim() == 3 and args[1].dim() == 4:
+                return wrap(func(args[0].elems.unsqueeze(1), args[1]))
+        if isinstance(args[0], MapTensor) and isinstance(args[1], MapTensor):
+            if args[0].dim() == 4 and args[1].dim() == 3:
+                return wrap(func(unwrapped_args[0], unwrapped_args[1].unsqueeze(1)))
         pass
 
     if func in [torch.ops.aten.cat.default, torch.ops.aten.stack.default]:
@@ -402,6 +416,7 @@ def ops_impl(cls, func, types, args, kwargs=None):
         assert len(kwargs) == 0
         return func(args[0].elems)
 
+
     forwardables = [
                        torch.ops.aten.add.Tensor,
                        torch.ops.aten.clamp.default,
@@ -498,6 +513,14 @@ class MapTensor(torch.Tensor):
         if torch._C.TensorBase.flatten == func:
             # import pdb; pdb.set_trace()
             pass
+        if 'interpolate' in str(func):
+            ret = []
+            for i, _ in enumerate(kwargs['size']):
+                new_kwargs = dict(kwargs)
+                new_kwargs['size'] = new_kwargs['size'][i]
+                ret.append(func(args[0].elems[i], **new_kwargs))
+            # Requires jagged 2d because images
+            return wrap(torch.nested.nested_tensor(ret))
         with torch._C.DisableTorchFunctionSubclass():
             return func(*args, **kwargs)
 
