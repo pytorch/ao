@@ -464,8 +464,12 @@ class MapTensor(torch.Tensor):
     @staticmethod
     def __new__(cls, elems):
         print("elems.layout: ", elems.layout)
+        if elems.is_nested:
+            new_shape = (2,) * (elems.dim() - 1)
+        else:
+            new_shape = elems.shape[1:]
         return torch.Tensor._make_wrapper_subclass(cls,
-                                                   elems.shape[1:],
+                                                   new_shape,
                                                    dtype=elems.dtype,
                                                    device=elems.device,
                                                    layout=elems.layout,

@@ -328,27 +328,24 @@ class SAM2AutomaticMaskGenerator:
                     return_logits=True,
                 )
             if isinstance(orig_size, list):
-                assert isinstance(cropped_im_size, list)
+                # assert isinstance(cropped_im_size, list)
                 assert isinstance(crop_box, list)
                 assert isinstance(masks, MapTensor)
                 assert isinstance(iou_preds, MapTensor)
                 assert isinstance(low_res_masks, MapTensor)
                 assert isinstance(points, MapTensor)
                 all_data = []
-                for (mi, ii, li, pi, ci, oi) in zip(masks.elems, low_res_masks.elems, low_res_masks.elems, points.elems, crop_box, orig_size):
+                for (mi, ii, li, pi, ci, oi) in zip(masks.elems, iou_preds.elems, low_res_masks.elems, points.elems, crop_box, orig_size):
                     orig_h, orig_w = oi
                     all_data.append(self._process_batch_post_predict(mi, ii, li, pi, ci, orig_h, orig_w, normalize=True))
+                # TODO: Use NT + MapTensor to turn all_data into a single MapTensor to make all_data into batch_data
             else:
                 orig_h, orig_w = orig_size
-                all_data = [self._process_batch_post_predict(masks, iou_preds, low_res_masks, points, crop_box, orig_h, orig_w, normalize=True)]
+                batch_data = self._process_batch_post_predict(masks, iou_preds, low_res_masks, points, crop_box, orig_h, orig_w, normalize=True)
             # batch_data = self._process_batch(
             #     points, cropped_im_size, crop_box, orig_size, normalize=True
             # )
-            batch_data = None
-            if len(all_data) == 1:
-                batch_data = all_data[0]
-            else:
-                import pdb; pdb.set_trace()
+            batch_data = all_data
             with torch.autograd.profiler.record_function("data.cat"):
                 if data is None:
                     data = batch_data
