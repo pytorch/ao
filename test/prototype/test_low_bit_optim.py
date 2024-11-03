@@ -381,9 +381,40 @@ class TestFSDP2(FSDPTest):
 
         self.assertEqual(base_exp_avg.dequantize(), full_fsdp_exp_avg.dequantize())
 
+        from torchao.prototype.low_bit_optim.subclass_4bit import OptimState4bit
+        from torchao.prototype.low_bit_optim.subclass_8bit import OptimState8bit
+        from torchao.prototype.low_bit_optim.subclass_fp8 import OptimStateFp8
+
+        subclasses = (OptimState4bit, OptimState8bit, OptimStateFp8)
+
         with tempfile.TemporaryDirectory() as folder:
-            rank = dist.get_rank()
-            dcp.save(fsdp_optim.state_dict(), checkpoint_id=f"{folder}/{rank}.pt")
+            checkpoint_id = f"{folder}/checkpoint.pt"
+            dcp.save(fsdp_optim.state_dict(), checkpoint_id=checkpoint_id)
+
+            # dcp.load() does not support lazily init states, such as optim states pytorch/pytorch#126881
+            # thus, we have to manually init those states.
+            resumed_fsdp_optim = optim_cls(fsdp_model.parameters(), lr=1e-2)
+            for p in fsdp_model.parameters():
+                p.grad = torch.zeros_like(p)
+            resumed_fsdp_optim.step()
+
+            # NOTE: should dcp.load() has a flag for weights_only=False?
+            with torch.serialization.safe_globals(subclasses):
+                dcp.load(resumed_fsdp_optim.state_dict(), checkpoint_id=checkpoint_id)
+
+        import torch.utils._pytree as pytree
+        from torch.distributed.tensor import DTensor
+
+        for v1, v2 in zip(pytree.tree_iter(resumed_fsdp_optim.state_dict()), pytree.tree_iter(fsdp_optim.state_dict())):
+            assert v1.__class__ == v2.__class__
+            if isinstance(v1, DTensor):
+                v1 = v1.to_local()
+                v2 = v2.to_local()
+                assert v1.__class__ == v2.__class__
+            if isinstance(v1, subclasses):
+                v1 = v1.dequantize()
+                v2 = v2.dequantize()
+            self.assertEqual(v1, v2)
 
 
 instantiate_parametrized_tests(TestQuantize)
