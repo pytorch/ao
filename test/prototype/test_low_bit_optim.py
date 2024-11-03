@@ -3,6 +3,8 @@ import tempfile
 
 import pytest
 import torch
+import torch.distributed as dist
+import torch.distributed.checkpoint as dcp
 from packaging.version import Version
 from torch import nn
 from torch.testing._internal.common_utils import (
@@ -302,13 +304,16 @@ class TestOptim(TestCase):
             torch.testing.assert_close(loss1, loss2, msg=lambda msg: f"Iteration {idx}. {msg}")
 
 
+_FSDP_WORLD_SIZE = 2
+
+
 class TestFSDP2(FSDPTest):
     @property
     def world_size(self) -> int:
-        return 2
+        return _FSDP_WORLD_SIZE
 
     @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_6, reason="PyTorch>=2.6 is required.")
-    @skip_if_lt_x_gpu(2)
+    @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
     def test_fsdp2(self):
         optim_classes = [low_bit_optim.AdamW8bit, low_bit_optim.AdamW4bit]
         if torch.cuda.get_device_capability() >= (8, 9):
@@ -363,7 +368,7 @@ class TestFSDP2(FSDPTest):
             base_loss.backward()
             for param in base_model.parameters():
                 if param.grad is not None:
-                    torch.distributed.all_reduce(param.grad, op=torch.distributed.ReduceOp.AVG)
+                    dist.all_reduce(param.grad, op=dist.ReduceOp.AVG)
             base_optim.step()
             self.assertEqual(fsdp_loss, base_loss)
 
@@ -375,6 +380,10 @@ class TestFSDP2(FSDPTest):
         full_fsdp_exp_avg = fsdp_exp_avg.full_tensor()
 
         self.assertEqual(base_exp_avg.dequantize(), full_fsdp_exp_avg.dequantize())
+
+        with tempfile.TemporaryDirectory() as folder:
+            rank = dist.get_rank()
+            dcp.save(fsdp_optim.state_dict(), checkpoint_id=f"{folder}/{rank}.pt")
 
 
 instantiate_parametrized_tests(TestQuantize)

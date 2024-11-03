@@ -135,12 +135,14 @@ def _(func, types, args, kwargs):
     return OptimState8bit(x.codes.view(shape), x.scale, x.qmap, x.signed)
 
 
-# this is needed for DTensor.full_tensor()
 @OptimState8bit.implements([
+    # required by DTensor.full_tensor()
     c10d_functional.all_gather_into_tensor.default,
     _c10d_functional.all_gather_into_tensor.default,
     c10d_functional.wait_tensor.default,
     _c10d_functional.wait_tensor.default,
+    # required by torch.distributed.checkpoint.save
+    aten.detach.default,
 ])
 def _(func, types, args, kwargs):
     x = args[0]
@@ -154,3 +156,11 @@ def _(func, types, args, kwargs):
         x.qmap.clone(),
         x.signed,
     )
+
+
+# required by torch.distributed.checkpoint.save
+# note that we don't actually implement pin memory for this tensor subclass
+# (pin_memory argument is ignored in aten._to_copy)
+@OptimState8bit.implements(aten.is_pinned.default)
+def _(func, types, args, kwargs):
+    return args[0].codes.is_pinned() and args[0].scale.is_pinned() and args[0].qmap.is_pinned()
