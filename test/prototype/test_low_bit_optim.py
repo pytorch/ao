@@ -1,25 +1,21 @@
 import copy
+import shutil
 import tempfile
+from pathlib import Path
 
 import pytest
 import torch
-import torch.distributed as dist
-import torch.distributed.checkpoint as dcp
-from packaging.version import Version
 from torch import nn
-from torch.testing._internal.common_utils import (
-    TestCase,
-    instantiate_parametrized_tests,
-    parametrize,
-    run_tests,
-)
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
+from torch.testing._internal.common_utils import TestCase, instantiate_parametrized_tests, parametrize, run_tests
+
+from packaging.version import Version
 from torchao.prototype import low_bit_optim
 from torchao.prototype.low_bit_optim.quant_utils import (
-    quantize_8bit_with_qmap,
-    quantize_4bit_with_qmap,
     _fp32_to_bf16_sr,
+    quantize_4bit_with_qmap,
+    quantize_8bit_with_qmap,
 )
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_6
 
@@ -218,7 +214,9 @@ class TestOptim(TestCase):
 
         optim1 = torch.optim.AdamW(model1.parameters())
         optim2 = low_bit_optim.CPUOffloadOptimizer(
-            model2.parameters(), torch.optim.AdamW, offload_gradients=offload_grad,
+            model2.parameters(),
+            torch.optim.AdamW,
+            offload_gradients=offload_grad,
         )
 
         for _ in range(2):
@@ -325,12 +323,16 @@ class TestFSDP2(FSDPTest):
         )
 
     def _test_fsdp2(self, optim_cls):
+        import torch.distributed as dist
+        import torch.distributed.checkpoint as dcp
+        import torch.utils._pytree as pytree
         from torch.distributed._composable.fsdp import fully_shard
-        from torch.testing._internal.distributed._tensor.common_dtensor import (
-            ModelArgs,
-            Transformer,
-            TransformerBlock,
-        )
+        from torch.distributed.tensor import DTensor
+        from torch.testing._internal.distributed._tensor.common_dtensor import ModelArgs, Transformer, TransformerBlock
+
+        from torchao.prototype.low_bit_optim.subclass_4bit import OptimState4bit
+        from torchao.prototype.low_bit_optim.subclass_8bit import OptimState8bit
+        from torchao.prototype.low_bit_optim.subclass_fp8 import OptimStateFp8
 
         batch_size = 3
         vocab_size = 1024
@@ -381,36 +383,34 @@ class TestFSDP2(FSDPTest):
 
         self.assertEqual(base_exp_avg.dequantize(), full_fsdp_exp_avg.dequantize())
 
-        from torchao.prototype.low_bit_optim.subclass_4bit import OptimState4bit
-        from torchao.prototype.low_bit_optim.subclass_8bit import OptimState8bit
-        from torchao.prototype.low_bit_optim.subclass_fp8 import OptimStateFp8
+        # test for compatibility with dcp.save() and .load()
+        checkpoint_id = f"_fsdp_low_bit_optim_{optim_cls.__name__}"
+        if Path(checkpoint_id).exists():
+            shutil.rmtree(checkpoint_id)
+        dcp.save(fsdp_optim.state_dict(), checkpoint_id=checkpoint_id)
 
+        # normally we would want to use dcp.state_dict.get_optimizer_state_dict() to initialize optim states.
+        # however, currently it does not respect tensor-ness of LR pytorch/pytorch#139575.
+        # therefore, we have to manually initialize optim state here.
+        resumed_fsdp_optim = optim_cls(fsdp_model.parameters(), lr=1e-2)
+        for p in fsdp_model.parameters():
+            p.grad = torch.zeros_like(p)
+
+        # this will change model weights due to weight decay, but since we don't use the model anymore, it's fine.
+        resumed_fsdp_optim.step()
+
+        # NOTE: should dcp.load() has a flag for weights_only=False?
         subclasses = (OptimState4bit, OptimState8bit, OptimStateFp8)
-
-        with tempfile.TemporaryDirectory() as folder:
-            checkpoint_id = f"{folder}/checkpoint.pt"
-            dcp.save(fsdp_optim.state_dict(), checkpoint_id=checkpoint_id)
-
-            # dcp.load() does not support lazily init states, such as optim states pytorch/pytorch#126881
-            # thus, we have to manually init those states.
-            resumed_fsdp_optim = optim_cls(fsdp_model.parameters(), lr=1e-2)
-            for p in fsdp_model.parameters():
-                p.grad = torch.zeros_like(p)
-            resumed_fsdp_optim.step()
-
-            # NOTE: should dcp.load() has a flag for weights_only=False?
-            with torch.serialization.safe_globals(subclasses):
-                dcp.load(resumed_fsdp_optim.state_dict(), checkpoint_id=checkpoint_id)
-
-        import torch.utils._pytree as pytree
-        from torch.distributed.tensor import DTensor
+        with torch.serialization.safe_globals(subclasses):
+            dcp.load(resumed_fsdp_optim.state_dict(), checkpoint_id=checkpoint_id)
+        shutil.rmtree(checkpoint_id)
 
         for v1, v2 in zip(pytree.tree_iter(resumed_fsdp_optim.state_dict()), pytree.tree_iter(fsdp_optim.state_dict())):
-            assert v1.__class__ == v2.__class__
+            assert v1.__class__ == v2.__class__, (v1.__class__, v2.__class__)
             if isinstance(v1, DTensor):
                 v1 = v1.to_local()
                 v2 = v2.to_local()
-                assert v1.__class__ == v2.__class__
+                assert v1.__class__ == v2.__class__, (v1.__class__, v2.__class__)
             if isinstance(v1, subclasses):
                 v1 = v1.dequantize()
                 v2 = v2.dequantize()
