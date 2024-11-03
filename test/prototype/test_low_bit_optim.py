@@ -399,7 +399,7 @@ class TestFSDP2(FSDPTest):
         # this will change model weights due to weight decay, but since we don't use the model anymore, it's fine.
         resumed_fsdp_optim.step()
 
-        # NOTE: should dcp.load() has a flag for weights_only=False?
+        # NOTE: should dcp.load() have a flag for weights_only=False?
         subclasses = (OptimState4bit, OptimState8bit, OptimStateFp8)
         with torch.serialization.safe_globals(subclasses):
             dcp.load(resumed_fsdp_optim.state_dict(), checkpoint_id=checkpoint_id)
