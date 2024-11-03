@@ -108,10 +108,11 @@ def run_evaluation(
 
             # NOTE(diogo): This code is basically repeated with the code below.
             # Before merging, refactor this to avoid code duplication.
+            # Just has a different precision and quantizer
 
             groupsize = int(quantization.split("-")[-1])
-            assert groupsize in [32, 64, 128, 256], f"int4wo groupsize needs to be one of [32, 64, 128, 256] but got {groupsize}"
-            assert precision == torch.bfloat16, f"{quantization} requires precision or float16 but got {precision}"
+            assert groupsize in [32, 64, 128, 256], f"Sparse Marlin GPTQ groupsize needs to be one of [32, 64, 128, 256] but got {groupsize}"
+            assert precision == torch.float16, f"{quantization} requires float16 precision but got {precision}"
             assert "cuda" in device, "gptq sparse marlin quantization only works on cuda"
 
             inputs = MultiTensorInputRecorder(

@@ -275,7 +275,15 @@ def dequantize_per_channel(int_repr, scales, zero_points, out_dtype=torch.float3
     dequantized = dequantized.t()
     return dequantized
 
-def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16):
+def get_groupwise_affine_qparams(
+        w, 
+        n_bit=4, 
+        groupsize=128, 
+        dtype=torch.bfloat16,
+        mapping_type=MappingType.ASYMMETRIC,
+        preserve_zero=False,
+        zero_point_domain=ZeroPointDomain.FLOAT
+    ):
     if groupsize > w.shape[-1]:
         groupsize = w.shape[-1]
     assert groupsize > 1
@@ -283,7 +291,6 @@ def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16
     assert w.dim() == 2
     assert n_bit <= 8, f"only n_bit smaller than 8 is supported, got: {n_bit}"
 
-    mapping_type = MappingType.ASYMMETRIC
     target_dtype = torch.int32
     block_size = (1, groupsize)
     quant_min = 0
@@ -302,8 +309,8 @@ def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16
         eps,
         scale_dtype=scale_dtype,
         zero_point_dtype=zero_point_dtype,
-        preserve_zero=False,
-        zero_point_domain=ZeroPointDomain.FLOAT
+        preserve_zero=preserve_zero,
+        zero_point_domain=zero_point_domain
     )
 
     return scale.to(dtype=dtype).reshape(w.shape[0], -1), zero_point.to(

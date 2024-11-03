@@ -689,33 +689,29 @@ class SparseMarlinGPTQQuantizer(GPTQQuantizer):
         self.group_size = group_size
         self.padding_allowed = padding_allowed
         self.device = device
+        self.precision = torch.float16  # Sparse Marlin requires float16
+        n_bits = 4
 
-        def get_q_params_func(w: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-            mapping_type = MappingType.SYMMETRIC
-            block_size = (1, group_size)
-            target_dtype = torch.int32
-            quant_min = 0
-            quant_max = 15
-            eps = 1e-6
-            preserve_zero = True
-            scale_dtype = torch.bfloat16
-            zero_point_dtype = torch.bfloat16
-            zero_point_domain = ZeroPointDomain.INT
-
-            scale, zero_point = choose_qparams_affine(w, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain)
-            qparams = scale.to(dtype=scale_dtype).reshape(w.shape[0], -1), zero_point.to(dtype=zero_point_dtype).reshape(w.shape[0], -1)
+        def get_qparams_func(w: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+            qparams = get_groupwise_affine_qparams(
+                w, n_bits, group_size, 
+                dtype=self.precision, mapping_type=MappingType.SYMMETRIC, 
+                preserve_zero=True, zero_point_domain=ZeroPointDomain.INT
+            )
             return qparams
 
         def quantize_func(w, qparams):
             scale, zero_point = qparams
             q = groupwise_affine_quantize_tensor_from_qparams(
-                w, scale, zero_point, 4, self.group_size, ZeroPointDomain.INT
+                w, scale, zero_point, n_bits, self.group_size, ZeroPointDomain.INT
             )
             return q
 
         def dequantize_func(q, qparams):
             scale, zero_point = qparams
-            dq = groupwise_affine_dequantize_tensor_from_qparams(q, scale, zero_point, 4, self.group_size, ZeroPointDomain.INT)
+            dq = groupwise_affine_dequantize_tensor_from_qparams(
+                q, scale, zero_point, n_bits, self.group_size, ZeroPointDomain.INT
+            )
             return dq
 
         def combine_qparams_list_func(qparams_list):
@@ -728,14 +724,12 @@ class SparseMarlinGPTQQuantizer(GPTQQuantizer):
                 _check_linear_int4_k(linear_weight.shape[-1], group_size) or padding_allowed
             )
 
-        def make_qtensor(q: torch.Tensor, qparams: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]) -> torch.Tensor:
+        def make_qtensor(q: torch.Tensor, qparams: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
             # this should be setup to just use the quantized tensor and qparams directly to make
             # the aqt int4 tensor but i don't think we have that functionality atm so just dequant
             # then requant
             weight = dequantize_func(q, qparams)
             scale, zero_point = qparams
-
-            import pdb; pdb.set_trace()
 
             # NOTE: This was copied from `int4_weight_only`. We should probably make this a utility function at some point
             block_size = (1, self.group_size)
@@ -759,7 +753,7 @@ class SparseMarlinGPTQQuantizer(GPTQQuantizer):
             return quantized_tensor
 
         self.act_fake_quant_func = None
-        self.get_qparams_func = get_q_params_func
+        self.get_qparams_func = get_qparams_func
         self.quantize_func = quantize_func
         self.dequantize_func = dequantize_func
         self.combine_qparams_list_func = combine_qparams_list_func
