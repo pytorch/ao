@@ -455,6 +455,17 @@ def get_block_absmax(input_tensor: torch.Tensor, block_size: int) -> torch.Tenso
 class NF4Tensor(torch.Tensor):
     """NF4Tensor class for converting a weight to the QLoRA NF4 format"""
 
+    __slots__ = [
+        "quantized_data",
+        "scaler_mean",
+        "quantization_factor",
+        "quantized_scalers",
+        "nf4",
+        "block_size",
+        "n_blocks",
+        "scaler_block_size",
+    ]
+
     @torch._dynamo.disable
     def __new__(
         cls,
