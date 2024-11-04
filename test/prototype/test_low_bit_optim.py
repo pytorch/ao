@@ -17,6 +17,9 @@ from torchao.prototype.low_bit_optim.quant_utils import (
     quantize_4bit_with_qmap,
     quantize_8bit_with_qmap,
 )
+from torchao.prototype.low_bit_optim.subclass_4bit import OptimState4bit
+from torchao.prototype.low_bit_optim.subclass_8bit import OptimState8bit
+from torchao.prototype.low_bit_optim.subclass_fp8 import OptimStateFp8
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_6
 
 try:
@@ -137,6 +140,21 @@ class TestOptim(TestCase):
 
         for p1, p2 in zip(model.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)
+
+    # aten.slice is required for dcp.load() when world size changes i.e. re-sharding
+    # however, it's cumbersome to test it directly, since we would need to run distributed
+    # test 2 times with different world size, and persist checkpoint across the 2 runs.
+    # thus, we only test for the required op. note that future implementations of dcp.load()
+    # may use other ops.
+    @parametrize("subclass", [OptimState4bit, OptimState8bit, OptimStateFp8])
+    @parametrize("shape", [(4096,), (256, 256)])
+    @parametrize("device", _DEVICES)
+    def test_subclass_slice(self, subclass, shape, device):
+        tensor = subclass.zeros(shape, device=device)
+        offset = shape[0] // 2
+
+        torch.testing.assert_close(tensor.dequantize()[:offset], tensor[:offset].dequantize())
+        torch.testing.assert_close(tensor.dequantize()[offset:offset*2], tensor[offset:offset*2].dequantize())
 
     @pytest.mark.skipif(bnb is None, reason="bitsandbytes is not available")
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="bitsandbytes 8-bit Adam only works for CUDA")
@@ -330,10 +348,6 @@ class TestFSDP2(FSDPTest):
         from torch.distributed.tensor import DTensor
         from torch.testing._internal.distributed._tensor.common_dtensor import ModelArgs, Transformer, TransformerBlock
 
-        from torchao.prototype.low_bit_optim.subclass_4bit import OptimState4bit
-        from torchao.prototype.low_bit_optim.subclass_8bit import OptimState8bit
-        from torchao.prototype.low_bit_optim.subclass_fp8 import OptimStateFp8
-
         batch_size = 3
         vocab_size = 1024
         seq_len = 64
@@ -403,7 +417,8 @@ class TestFSDP2(FSDPTest):
         subclasses = (OptimState4bit, OptimState8bit, OptimStateFp8)
         with torch.serialization.safe_globals(subclasses):
             dcp.load(resumed_fsdp_optim.state_dict(), checkpoint_id=checkpoint_id)
-        shutil.rmtree(checkpoint_id)
+        if dist.get_rank() == 0:
+            shutil.rmtree(checkpoint_id)
 
         for v1, v2 in zip(pytree.tree_iter(resumed_fsdp_optim.state_dict()), pytree.tree_iter(fsdp_optim.state_dict())):
             assert v1.__class__ == v2.__class__, (v1.__class__, v2.__class__)

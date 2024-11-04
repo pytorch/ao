@@ -3,10 +3,10 @@ import math
 import torch
 from torch import Tensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from torchao.utils import TorchAOBaseTensor, TORCH_VERSION_AT_LEAST_2_4
 
-from .quant_utils import create_dynamic_map, scale_tensor, quantize_4bit_with_qmap, dequant_with_qmap
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TorchAOBaseTensor
 
+from .quant_utils import create_dynamic_map, dequant_with_qmap, quantize_4bit_with_qmap, scale_tensor
 
 aten = torch.ops.aten
 c10d_functional = torch.ops.c10d_functional
@@ -85,6 +85,7 @@ class OptimState4bit(TorchAOBaseTensor):
 # in pre-2.4, calling .to(device, dtype) will not dispatch aten._to_copy.default when
 # dtype is the same but device is different. thus, we must override .to() method instead.
 if not TORCH_VERSION_AT_LEAST_2_4:
+
     def _to(self, *args, **kwargs):
         # ignore other args/kwargs
         device = kwargs.pop("device", None)
@@ -106,11 +107,7 @@ def _(func, types, args, kwargs):
     src = args[1]
 
     if isinstance(dst, OptimState4bit) and isinstance(src, OptimState4bit):
-        assert (
-            dst.signed == src.signed
-            and dst.block_size == src.block_size
-            and dst._shape == src._shape
-        )
+        assert dst.signed == src.signed and dst.block_size == src.block_size and dst._shape == src._shape
         dst.codes.copy_(src.codes)
         dst.scale.copy_(src.scale)
         # qmap should be the same, don't need to copy
@@ -161,15 +158,17 @@ def _(func, types, args, kwargs):
     raise ValueError(f"{x.__class__.__name__} only supports .view() with same shape or shape=[-1]")
 
 
-@OptimState4bit.implements([
-    # required by DTensor.full_tensor()
-    c10d_functional.all_gather_into_tensor.default,
-    _c10d_functional.all_gather_into_tensor.default,
-    c10d_functional.wait_tensor.default,
-    _c10d_functional.wait_tensor.default,
-    # required by torch.distributed.checkpoint.save
-    aten.detach.default,
-])
+@OptimState4bit.implements(
+    [
+        # required by DTensor.full_tensor()
+        c10d_functional.all_gather_into_tensor.default,
+        _c10d_functional.all_gather_into_tensor.default,
+        c10d_functional.wait_tensor.default,
+        _c10d_functional.wait_tensor.default,
+        # required by torch.distributed.checkpoint.save
+        aten.detach.default,
+    ]
+)
 def _(func, types, args, kwargs):
     x = args[0]
     if not isinstance(x, OptimState4bit):
@@ -191,3 +190,38 @@ def _(func, types, args, kwargs):
 @OptimState4bit.implements(aten.is_pinned.default)
 def _(func, types, args, kwargs):
     return args[0].codes.is_pinned() and args[0].scale.is_pinned() and args[0].qmap.is_pinned()
+
+
+# required by torch.distributed.checkpoint.load when world size changes i.e. re-sharding
+@OptimState4bit.implements(aten.slice.Tensor)
+def _(func, types, args, kwargs):
+    x, dim, start, end = args[:4]
+    step = args[4] if len(args) > 4 else 1
+
+    # input validation
+    if dim != 0:
+        raise ValueError(f"Only support aten.slice along the first dim")
+    if step != 1:
+        raise ValueError(f"Only support aten.slice with step=1")
+
+    block_size = x.block_size
+    stride = math.prod(x.shape[1:])
+
+    # for 1 increment in x along the first dim,
+    # (flattened) scale will increment by stride / block_size
+    if (start * stride) % block_size != 0 or (end * stride) % block_size != 0:
+        raise ValueError(
+            f"Invalid start or end for shape={x.shape} and block_size={block_size}. "
+            f"Make sure start and end align with block boundary. "
+            f"Received start={start}, end={end}."
+        )
+
+    # note that for 4-bit, we store .codes as flattened buffer
+    # divide by 2 since we store 2x 4-bit in 1x uint8
+    codes = x.codes[start * stride // 2 : end * stride // 2]
+    scale = x.scale[start * stride // block_size : end * stride // block_size]
+
+    # adjust the first dim
+    shape = (x.shape[0] * codes.numel() // x.codes.numel(),) + x.shape[1:]
+
+    return OptimState4bit(codes, scale, x.qmap.clone(), x.signed, shape)

@@ -1,6 +1,9 @@
+import math
+
 import torch
 from torch import Tensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
+
 from torchao.utils import TorchAOBaseTensor
 
 
@@ -120,15 +123,17 @@ def _(func, types, args, kwargs):
     return OptimStateFp8(x.codes.view(shape), x.scale)
 
 
-@OptimStateFp8.implements([
-    # required by DTensor.full_tensor()
-    c10d_functional.all_gather_into_tensor.default,
-    _c10d_functional.all_gather_into_tensor.default,
-    c10d_functional.wait_tensor.default,
-    _c10d_functional.wait_tensor.default,
-    # required by torch.distributed.checkpoint.save
-    aten.detach.default,
-])
+@OptimStateFp8.implements(
+    [
+        # required by DTensor.full_tensor()
+        c10d_functional.all_gather_into_tensor.default,
+        _c10d_functional.all_gather_into_tensor.default,
+        c10d_functional.wait_tensor.default,
+        _c10d_functional.wait_tensor.default,
+        # required by torch.distributed.checkpoint.save
+        aten.detach.default,
+    ]
+)
 def _(func, types, args, kwargs):
     x = args[0]
     if not isinstance(x, OptimStateFp8):
@@ -147,3 +152,33 @@ def _(func, types, args, kwargs):
 @OptimStateFp8.implements(aten.is_pinned.default)
 def _(func, types, args, kwargs):
     return args[0].codes.is_pinned() and args[0].scale.is_pinned()
+
+
+# required by torch.distributed.checkpoint.load when world size changes i.e. re-sharding
+@OptimStateFp8.implements(aten.slice.Tensor)
+def _(func, types, args, kwargs):
+    x, dim, start, end = args[:4]
+    step = args[4] if len(args) > 4 else 1
+
+    # input validation
+    if dim != 0:
+        raise ValueError(f"Only support aten.slice along the first dim")
+    if step != 1:
+        raise ValueError(f"Only support aten.slice with step=1")
+
+    block_size = x.block_size
+    stride = math.prod(x.shape[1:])
+
+    # for 1 increment in x along the first dim,
+    # (flattened) scale will increment by stride / block_size
+    if (start * stride) % block_size != 0 or (end * stride) % block_size != 0:
+        raise ValueError(
+            f"Invalid start or end for shape={x.shape} and block_size={block_size}. "
+            f"Make sure start and end align with block boundary. "
+            f"Received start={start}, end={end}."
+        )
+
+    return OptimStateFp8(
+        x.codes[start:end],
+        x.scale[start * stride // block_size : end * stride // block_size],
+    )
