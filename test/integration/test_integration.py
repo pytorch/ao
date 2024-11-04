@@ -1493,9 +1493,8 @@ class TestAutoQuant(unittest.TestCase):
 
 
 
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "requires 2.4+.")
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "requires 2.5+.")
 @unittest.skipIf(not torch.cuda.is_available(), "requires cuda")
-@unittest.skip("AOTI tests failing right now")
 class TestAOTI(unittest.TestCase):
     @parameterized.expand(
         list(itertools.product(TENSOR_SUBCLASS_APIS, COMMON_DEVICES, COMMON_DTYPES)),
@@ -1544,7 +1543,7 @@ class TestAOTI(unittest.TestCase):
         torch._inductor.aoti_compile_and_package(torch.export.export(model, example_inputs), example_inputs)
 
 
-@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, "requires 2.4+.")
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "requires 2.5+.")
 @unittest.skipIf(not torch.cuda.is_available(), "requires cuda")
 class TestExport(unittest.TestCase):
     @parameterized.expand(
