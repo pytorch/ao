@@ -1,5 +1,10 @@
 """
 This tutorial shows how to preserve higher level operators in the model in order to be used in executorch
+
+Specifically we define and preserved `torch.ops.quant.embedding_byte` op that works with quantized weights
+through `torch.export.export`, we can follow Executorch tutorials: https://pytorch.org/executorch/stable/tutorials/export-to-executorch-tutorial.html#lowering-to-edge-dialect to lower the model to executorch
+
+This can also support exporting the model to other platforms like ONNX as well.
 """
 import torch
 import torchao
@@ -72,6 +77,7 @@ def main():
 
     assert torch.equal(y_ref, y_q_exported)
     ops = [n.target for n in m_exported.graph.nodes]
+    print(m_exported)
     assert torch.ops.quant.embedding_byte.default in ops
 
 if __name__ == "__main__":
