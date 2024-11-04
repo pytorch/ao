@@ -214,6 +214,8 @@ def main(
             fpx_weight_only,
             uintx_weight_only,
             autoquant,
+            autoquant_v2,
+            unwrap_tensor_subclass,
             float8_weight_only,
             float8_dynamic_activation_float8_weight,
         )
@@ -246,7 +248,7 @@ def main(
                         layout=MarlinQQQLayout(),
                     ),
                 )
-            else:  
+            else:
                 from torchao.dtypes import MarlinSparseLayout
                 quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
         if "fp6" in quantization:
@@ -274,7 +276,7 @@ def main(
                 input_prep_func=prepare_inputs_for_model,
                 device=device,
             ).run_eval(
-                tasks=['wikitext'], 
+                tasks=['wikitext'],
                 limit=1,
             )
             is_observed_linear = lambda m, fqn: isinstance(m, AWQObservedLinear)
@@ -305,13 +307,33 @@ def main(
             else:
                 granularity = PerTensor()
             quantize_(model, float8_dynamic_activation_float8_weight(granularity=granularity))
-        if "autoquant" in quantization:
-            if "autoquant-int4" == quantization:
-                model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST)
-            elif "autoquant-float8" == quantization:
-                model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.OTHER_AUTOQUANT_CLASS_LIST)
+        if "autoquant_v2" in quantization:
+            from torchao._models._eval import InputRecorder
+            from torchao._models.llama.model import prepare_inputs_for_model
+
+            inputs = InputRecorder(
+                tokenizer,
+                calibration_seq_length,
+                prepare_inputs_for_model,
+                False,  # pad_calibration_inputs
+                model.config.vocab_size,
+                device="cuda"
+            ).record_inputs(
+                ["wikitext"],
+                1,
+            ).get_inputs()[0].values[0]
+            inputs = prepare_inputs_for_model(inputs)
+            with torch.device("cuda"):
+                model.setup_caches(
+                    max_batch_size=1, max_seq_length=calibration_seq_length
+                )
+
+            if "autoquant_v2-int4" == quantization:
+                model = autoquant_v2(model, manual=True, qtensor_class_list = torchao.quantization.V2_DEFAULT_INT4_AUTOQUANT_CLASS_LIST, example_input=inputs)
+            elif "autoquant_v2-float8" == quantization:
+                model = autoquant_v2(model, manual=True, qtensor_class_list = torchao.quantization.V2_OTHER_AUTOQUANT_CLASS_LIST, example_input=inputs)
             else:
-                model = autoquant(model, manual=True)
+                model = autoquant_v2(model, manual=True, example_input=inputs)
 
             generate(
                 model,
@@ -325,6 +347,47 @@ def main(
 
             # do autoquantization
             model.finalize_autoquant()
+        if "autoquant" in quantization:
+            from torchao._models._eval import InputRecorder
+            from torchao._models.llama.model import prepare_inputs_for_model
+
+            inputs = InputRecorder(
+                tokenizer,
+                calibration_seq_length,
+                prepare_inputs_for_model,
+                False,  # pad_calibration_inputs
+                model.config.vocab_size,
+                device="cuda"
+            ).record_inputs(
+                ["wikitext"],
+                1,
+            ).get_inputs()[0].values[0]
+            inputs = prepare_inputs_for_model(inputs)
+            with torch.device("cuda"):
+                model.setup_caches(
+                    max_batch_size=1, max_seq_length=calibration_seq_length
+                )
+
+            if "autoquant-int4" == quantization:
+                model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.DEFAULT_INT4_AUTOQUANT_CLASS_LIST, example_input=inputs)
+            elif "autoquant-float8" == quantization:
+                model = autoquant(model, manual=True, qtensor_class_list = torchao.quantization.OTHER_AUTOQUANT_CLASS_LIST, example_input=inputs)
+            else:
+                model = autoquant(model, manual=True, example_input=inputs)
+
+            generate(
+                model,
+                encode_tokens(tokenizer, prompt, bos=True, device=device),
+                max_new_tokens,
+                batch_size,
+                interactive=False,
+                temperature=temperature,
+                top_k=top_k,
+            )
+
+            # do autoquantization
+            model.finalize_autoquant()
+
         else:
             if not TORCH_VERSION_AT_LEAST_2_5:
                 unwrap_tensor_subclass(model)
@@ -489,7 +552,7 @@ if __name__ == '__main__':
     parser.add_argument('--top_k', type=int, default=200, help='Top-k for sampling.')
     parser.add_argument('--temperature', type=float, default=0.8, help='Temperature for sampling.')
     parser.add_argument('--checkpoint_path', type=Path, default=Path("../../../checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"), help='Model checkpoint path.')
-    parser.add_argument('-q', '--quantization', type=str, 
+    parser.add_argument('-q', '--quantization', type=str,
         help=(
             'Which quantization techniques to apply: int8dq, int8wo, fp6, int4wo-<groupsize>, int4wo-<groupsize>-hqq, autoquant, '
             +'autoquant-int4, autoquant-float8, uintx-<nbits>-<groupsize>, uintx-<nbits>-<groupsize>-hqq, sparse-marlin, spinquant, '

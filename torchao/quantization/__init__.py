@@ -15,6 +15,12 @@ from .autoquant import (
     OTHER_AUTOQUANT_CLASS_LIST,
     autoquant,
 )
+from .autoquant_v2 import (
+    autoquant_v2,
+    DEFAULT_AUTOQUANT_CLASS_LIST as V2_DEFAULT_AUTOQUANT_CLASS_LIST,
+    DEFAULT_INT4_AUTOQUANT_CLASS_LIST as V2_DEFAULT_INT4_AUTOQUANT_CLASS_LIST,
+    OTHER_AUTOQUANT_CLASS_LIST as V2_OTHER_AUTOQUANT_CLASS_LIST,
+)
 from .GPTQ import (
     Int4WeightOnlyGPTQQuantizer,
     Int4WeightOnlyQuantizer,
@@ -90,6 +96,11 @@ __all__ = [
     "DEFAULT_AUTOQUANT_CLASS_LIST",
     "DEFAULT_INT4_AUTOQUANT_CLASS_LIST",
     "OTHER_AUTOQUANT_CLASS_LIST",
+    # experimental api
+    "autoquant_v2",
+    "V2_DEFAULT_AUTOQUANT_CLASS_LIST",
+    "V2_DEFAULT_INT4_AUTOQUANT_CLASS_LIST",
+    "V2_OTHER_AUTOQUANT_CLASS_LIST",
     # top level API - manual
     "quantize_",
     "int8_dynamic_activation_int4_weight",

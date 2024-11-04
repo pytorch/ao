@@ -80,6 +80,7 @@ from .subclass import (
 )
 from .unified import Quantizer, TwoStepQuantizer
 from .utils import _get_per_token_block_size
+from .autoquant_v2 import autoquant_v2
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,7 @@ __all__ = [
     "Int4WeightOnlyGPTQQuantizer",
     "Int4WeightOnlyQuantizer",
     "autoquant",
+    "autoquant_v2",
     "_get_subclass_inserter",
     "quantize_",
     "int8_dynamic_activation_int4_weight",
