@@ -150,11 +150,11 @@ class TestOptim(TestCase):
     @parametrize("device", _DEVICES)
     def test_subclass_slice(self, subclass, shape, device):
         if subclass == OptimStateFp8:
-            if len(shape) > 1 and device == "cpu" and not TORCH_VERSION_AT_LEAST_2_5:
+            if device == "cpu" and len(shape) > 1 and not TORCH_VERSION_AT_LEAST_2_5:
                 pytest.skip("fill_cpu not implemented for Float8_e4m3fn for torch<2.5")
-            if not TORCH_VERSION_AT_LEAST_2_4:
+            if device == "cuda" and not TORCH_VERSION_AT_LEAST_2_4:
                 pytest.skip("FP8 CUDA requires PyTorch >= 2.4")
-            if torch.cuda.get_device_capability() < (8, 9):
+            if device == "cuda" and torch.cuda.get_device_capability() < (8, 9):
                 pytest.skip("FP8 CUDA requires compute capability >= 8.9")
 
         tensor = subclass.zeros(shape, device=device)
