@@ -1334,6 +1334,15 @@
     <span class="k">return</span> <span class="n">NF4Tensor</span><span class="o">.</span><span class="n">from_tensor</span><span class="p">(</span><span class="n">tensor</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">scaler_block_size</span><span class="p">)</span></div>
 
 
+<span class="k">def</span> <span class="nf">nf4_weight_only</span><span class="p">(</span><span class="n">block_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">64</span><span class="p">,</span> <span class="n">scaler_block_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">256</span><span class="p">):</span>
+    <span class="kn">from</span> <span class="nn">torchao.quantization.quant_api</span> <span class="kn">import</span> <span class="n">_get_linear_subclass_inserter</span>
+
+    <span class="k">def</span> <span class="nf">_to_nf4</span><span class="p">(</span><span class="n">tensor</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">NF4Tensor</span><span class="o">.</span><span class="n">from_tensor</span><span class="p">(</span><span class="n">tensor</span><span class="p">,</span> <span class="n">block_size</span><span class="p">,</span> <span class="n">scaler_block_size</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">_get_linear_subclass_inserter</span><span class="p">(</span><span class="n">_to_nf4</span><span class="p">)</span>
+
+
 <span class="n">NF4_TORCH_FUNCTIONS</span> <span class="o">=</span> <span class="p">{}</span>
 
 
@@ -1378,6 +1387,17 @@
     <span class="n">updated_attrs</span> <span class="o">=</span> <span class="n">call_from_inner_tensors</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="s2">&quot;cpu&quot;</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">kwargs</span><span class="p">)</span>
     <span class="n">updated_attrs</span><span class="p">[</span><span class="s2">&quot;device&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;cpu&quot;</span>
     <span class="k">return</span> <span class="n">NF4Tensor</span><span class="p">(</span><span class="o">*</span><span class="n">construct_nf4_args</span><span class="p">(</span><span class="n">nf4tensor</span><span class="p">,</span> <span class="n">updated_attrs</span><span class="p">))</span>
+
+
+<span class="nd">@implements_torch_function</span><span class="p">(</span><span class="n">F</span><span class="o">.</span><span class="n">linear</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">_</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="nb">input</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">weight</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">bias</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">2</span> <span class="k">else</span> <span class="kc">None</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">LinearNF4</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">weight</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">bias</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">out</span> <span class="o">+</span> <span class="n">bias</span>
+    <span class="k">return</span> <span class="n">out</span>
 
 
 <span class="nd">@torch</span><span class="o">.</span><span class="n">_dynamo</span><span class="o">.</span><span class="n">allow_in_graph</span>
