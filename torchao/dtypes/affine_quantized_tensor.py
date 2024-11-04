@@ -1618,13 +1618,13 @@ def _linear_fp_act_int8_weight_impl(input_tensor, weight_tensor, bias):
         y += bias.to(m.dtype)
     return y
 
-def _linear_f16_act_floatx_weight_check(input_tensor, weight_tensor, bias):
+def _linear_f16_bf16_act_floatx_weight_check(input_tensor, weight_tensor, bias):
     from torchao.dtypes.floatx import FloatxTensorCoreLayout
     return (
         # input is native float32 tensor
         not is_traceable_wrapper_subclass(input_tensor) and
         input_tensor.is_floating_point() and
-        input_tensor.dtype == torch.float16 and
+        input_tensor.dtype in (torch.float16, torch.bfloat16) and
         # weight is floatx Tensor
         isinstance(weight_tensor, AffineQuantizedTensor) and
         isinstance(weight_tensor._layout, FloatxTensorCoreLayout) and
@@ -1642,7 +1642,7 @@ def _linear_f16_act_floatx_weight_check(input_tensor, weight_tensor, bias):
         )
     )
 
-def _linear_f16_act_floatx_weight_impl(input_tensor, weight_tensor, bias):
+def _linear_f16_bf16_act_floatx_weight_impl(input_tensor, weight_tensor, bias):
     from torchao.dtypes.floatx import _SPLIT_K_MAP
     from torchao.ops import quant_llm_linear
 
@@ -1650,7 +1650,7 @@ def _linear_f16_act_floatx_weight_impl(input_tensor, weight_tensor, bias):
     weight = weight_tensor
 
     out_dim, in_dim = weight.shape
-    act_reshaped = act.view(-1, in_dim).half()
+    act_reshaped = act.view(-1, in_dim)
 
     # https://github.com/microsoft/DeepSpeed/blob/3a3a6db3332e339cc9fd94efd4982f6d60635a3d/deepspeed/inference/v2/kernels/core_ops/cuda_linear/cuda_linear.py
     bsize = act_reshaped.shape[0]
@@ -1810,7 +1810,7 @@ def _register_aqt_quantized_linear_dispatches():
         (_linear_fp_act_fp8_weight_check, _linear_fp_act_fp8_weight_impl),
         (_linear_bf16_act_uint4_weight_check, _linear_bf16_act_uint4_weight_impl),
         (_linear_fp_act_int8_weight_check, _linear_fp_act_int8_weight_impl),
-        (_linear_f16_act_floatx_weight_check, _linear_f16_act_floatx_weight_impl),
+        (_linear_f16_bf16_act_floatx_weight_check, _linear_f16_bf16_act_floatx_weight_impl),
         (_linear_fp_act_int4_weight_sparse_marlin_check, _linear_fp_act_int4_weight_sparse_marlin_impl),
     ]:
         register_aqt_quantized_linear_dispatch(dispatch_condition, impl)

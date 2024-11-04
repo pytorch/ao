@@ -1017,9 +1017,10 @@ def choose_qparams_affine_floatx(tensor: torch.Tensor, ebits: int, mbits: int) -
     exp_bias = _ONES_TABLE[ebits - 1]
     max_normal = 2 ** (_ONES_TABLE[ebits] - exp_bias) * (_ONES_TABLE[mbits + 1] / (2 ** mbits))
 
+    dtype = tensor.dtype
     tensor = tensor.float()
     scale = tensor.abs().amax(1).clamp(min=1e-12) / max_normal
-    return scale.half()
+    return scale.to(dtype)
 
 def quantize_affine_floatx(tensor: torch.Tensor, scale: torch.Tensor, ebits: int, mbits: int) -> torch.Tensor:
     """Quantizes the float32 high precision floating point tensor to low precision floating point number and
