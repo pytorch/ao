@@ -965,6 +965,15 @@ def to_nf4(tensor, block_size: int = 64, scaler_block_size: int = 256):
     return NF4Tensor.from_tensor(tensor, block_size, scaler_block_size)
 
 
+def nf4_weight_only(block_size: int = 64, scaler_block_size: int = 256):
+    from torchao.quantization.quant_api import _get_linear_subclass_inserter
+
+    def _to_nf4(tensor: torch.Tensor):
+        return NF4Tensor.from_tensor(tensor, block_size, scaler_block_size)
+
+    return _get_linear_subclass_inserter(_to_nf4)
+
+
 NF4_TORCH_FUNCTIONS = {}
 
 
@@ -1009,6 +1018,17 @@ def function_cpu(*args, **kwargs):
     updated_attrs = call_from_inner_tensors(nf4tensor, "cpu", args[1:], kwargs)
     updated_attrs["device"] = "cpu"
     return NF4Tensor(*construct_nf4_args(nf4tensor, updated_attrs))
+
+
+@implements_torch_function(F.linear)
+def _(*args, **kwargs):
+    input = args[0]
+    weight = args[1]
+    bias = args[2] if len(args) > 2 else None
+    out = LinearNF4.apply(input, weight)
+    if bias is not None:
+        out = out + bias
+    return out
 
 
 @torch._dynamo.allow_in_graph

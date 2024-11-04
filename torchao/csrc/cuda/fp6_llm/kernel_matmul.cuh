@@ -46,13 +46,17 @@
  * B: col major, FP16
  * C: col major, FP16
  */ 
- template<typename TilingConfig, typename OutputDataType, int EXPONENT, int MANTISSA>
+ template<typename TilingConfig, typename InputDataType, typename OutputDataType, int EXPONENT, int MANTISSA>
 __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
                                   const half *B,
                                   OutputDataType* C,
                                   const size_t M_Global, const size_t N_Global, const size_t K_Global,
                                   int Split_K)
 {
+  #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 750
+    static_assert(false, "Quant-LLM kernel: At least Turing generation (sm75) is required.");
+    // __trap();  // fails at runtime instead of compile time
+  #endif
   #ifdef DEBUG_MODE
     assert(K_Global%TilingConfig::TILE_K==0);
     assert(M_Global%TilingConfig::TILE_M==0);
@@ -153,7 +157,8 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
   uint32_t Scales_RPTR[4]; // 4 Registers per thread for Quantization Scales
   ExtractFromSharedToReg_Scales(Scales_RPTR, QuantScales + WARP_i*64);
   // Initializing the Software Pipeline: writing registers. ////////////////////////////////////////////////////////////////////////////////////////////////
-  initialize_mma_slice<TilingConfig, EXPONENT, MANTISSA>(a, b, AFrag_1BIT_SPTR, AFrag_2BIT_SPTR, AFrag_4BIT_SPTR, smem_array, Scales_RPTR);
+  constexpr bool USE_BF16 = std::is_same<InputDataType, __nv_bfloat16>::value;
+  initialize_mma_slice<TilingConfig, EXPONENT, MANTISSA, USE_BF16>(a, b, AFrag_1BIT_SPTR, AFrag_2BIT_SPTR, AFrag_4BIT_SPTR, smem_array, Scales_RPTR);
   // The outer loop. /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   #pragma unroll(1)
   for (size_t tile_id_k = 0; tile_id_k < NumIter; tile_id_k++)
@@ -184,15 +189,15 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
     #if __CUDA_ARCH__ >= 800
     cp_async_group_commit();
     #endif
-    core_mma_slice<TilingConfig, EXPONENT, MANTISSA>(c, a, b, read_SPTR_Frag_1bit, read_SPTR_Frag_2bit, read_SPTR_Frag_4bit, read_SPTR, Scales_RPTR, 1); // read_SPTR_Frag_2bit, read_SPTR_Frag_4bit are different for each WARP; read_SPTR is shared among WARPs
-    core_mma_slice<TilingConfig, EXPONENT, MANTISSA>(c, a, b, read_SPTR_Frag_1bit, read_SPTR_Frag_2bit, read_SPTR_Frag_4bit, read_SPTR, Scales_RPTR, 2);
-    core_mma_slice<TilingConfig, EXPONENT, MANTISSA>(c, a, b, read_SPTR_Frag_1bit, read_SPTR_Frag_2bit, read_SPTR_Frag_4bit, read_SPTR, Scales_RPTR, 3);
+    core_mma_slice<TilingConfig, EXPONENT, MANTISSA, USE_BF16>(c, a, b, read_SPTR_Frag_1bit, read_SPTR_Frag_2bit, read_SPTR_Frag_4bit, read_SPTR, Scales_RPTR, 1); // read_SPTR_Frag_2bit, read_SPTR_Frag_4bit are different for each WARP; read_SPTR is shared among WARPs
+    core_mma_slice<TilingConfig, EXPONENT, MANTISSA, USE_BF16>(c, a, b, read_SPTR_Frag_1bit, read_SPTR_Frag_2bit, read_SPTR_Frag_4bit, read_SPTR, Scales_RPTR, 2);
+    core_mma_slice<TilingConfig, EXPONENT, MANTISSA, USE_BF16>(c, a, b, read_SPTR_Frag_1bit, read_SPTR_Frag_2bit, read_SPTR_Frag_4bit, read_SPTR, Scales_RPTR, 3);
     // Barriers and Synchronizations
     #if __CUDA_ARCH__ >= 800
     cp_async_wait_group<PIPELINE_LEVEL_GMEM-2>();
     #endif
     __syncthreads();
-    core_mma_slice<TilingConfig, EXPONENT, MANTISSA>(c, a, b, read2_SPTR_Frag_1bit, read2_SPTR_Frag_2bit, read2_SPTR_Frag_4bit, read2_SPTR, Scales_RPTR, 0);
+    core_mma_slice<TilingConfig, EXPONENT, MANTISSA, USE_BF16>(c, a, b, read2_SPTR_Frag_1bit, read2_SPTR_Frag_2bit, read2_SPTR_Frag_4bit, read2_SPTR, Scales_RPTR, 0);
     // Updating global PTRs
     WARP_StartGPTR_A_1BIT += SMEM_SIZE_PER_WARP_1BIT/16;  // 2KB/16=128 (1)/16: int4*+1 = char*+16
     WARP_StartGPTR_A_2BIT += SMEM_SIZE_PER_WARP_2BIT/16;  // 4KB/16=256 (1)/16: int4*+1 = char*+16
@@ -212,7 +217,14 @@ __global__ void QUANT_GEMM_Kernel(const uint4* Weight, const half* Scales,
     #pragma unroll
     for(size_t j=threadIdx.x%WARP_SIZE; j<TilingConfig::TILE_M; j+=WARP_SIZE) // j-th row
     {
-      if constexpr (std::is_same<OutputDataType, half>::value)   BlockGlobalPTR[j+i*M_Global] = __float2half_rn(smem_CFrag[i][j]);
-      else                                            BlockGlobalPTR[j+i*M_Global] = smem_CFrag[i][j];
+      if constexpr (std::is_same<OutputDataType, half>::value) {
+        BlockGlobalPTR[j+i*M_Global] = __float2half_rn(smem_CFrag[i][j]);
+      } else if constexpr (std::is_same<OutputDataType, __nv_bfloat16>::value) {
+        #if __CUDA_ARCH__ >= 800
+        BlockGlobalPTR[j+i*M_Global] = __float2bfloat16_rn(smem_CFrag[i][j]);
+        #endif
+      } else {
+        BlockGlobalPTR[j+i*M_Global] = smem_CFrag[i][j];
+      }
     }
 }

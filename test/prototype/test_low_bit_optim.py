@@ -211,6 +211,7 @@ class TestOptim(TestCase):
     def test_optim_cpu_offload_correctness(self, offload_grad, grad_accum):
         device = "cuda"
         model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
+        model1[0].requires_grad_(False)  # make sure it can work in the presence of non-trainable params
         model2 = copy.deepcopy(model1)
 
         optim1 = torch.optim.AdamW(model1.parameters())
