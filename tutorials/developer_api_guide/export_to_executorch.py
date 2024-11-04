@@ -3,6 +3,7 @@ This tutorial shows how to preserve higher level operators in the model in order
 
 Specifically we define and preserved `torch.ops.quant.embedding_byte` op that works with quantized weights
 through `torch.export.export`, we can follow Executorch tutorials: https://pytorch.org/executorch/stable/tutorials/export-to-executorch-tutorial.html#lowering-to-edge-dialect to lower the model to executorch
+or rely on https://github.com/pytorch/executorch/tree/main/examples/models/llama and https://github.com/pytorch/torchchat libraries to export to target device.
 
 This can also support exporting the model to other platforms like ONNX as well.
 """
