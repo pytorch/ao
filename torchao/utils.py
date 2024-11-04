@@ -276,7 +276,7 @@ def unwrap_tensor_subclass(model, filter_fn=None):
     for name, child in model.named_children():
         # make sure child.weight is a tensor subclass
         if (
-            isinstance(child, torch.nn.Linear) and
+            (isinstance(child, torch.nn.Linear) or isinstance(child, torch.nn.Embedding)) and
             hasattr(child, "weight") and
             type(child.weight) is not torch.Tensor and
             type(child.weight) is not torch.nn.Parameter and
