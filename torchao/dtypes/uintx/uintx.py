@@ -10,6 +10,7 @@ from torchao.dtypes.utils import (
 from torchao.utils import TorchAOBaseTensor
 from torchao.dtypes.affine_quantized_tensor import PlainAQTTensorImpl, register_layout
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
+from torchao.utils import fill_defaults
 
 aten = torch.ops.aten
 
@@ -55,6 +56,7 @@ class UintxTensor(TorchAOBaseTensor):
     def __new__(
         cls,
         shards: List[torch.Tensor],
+        original_size: int,
         packed_shape: List[int],
         bit_width: int,
         pack_dim: int = -1,
@@ -69,6 +71,7 @@ class UintxTensor(TorchAOBaseTensor):
     def __init__(
         self,
         shards: List[torch.Tensor],
+        original_size: int,
         packed_shape: List[int],
         bit_width: int,
         pack_dim: int = -1,
@@ -79,12 +82,13 @@ class UintxTensor(TorchAOBaseTensor):
         self.packed_shape = packed_shape
         self.bit_width = bit_width
         self.pack_dim = pack_dim
+        self.original_size = original_size
 
     def get_shards(self):
         return [getattr(self,i) for i in self.__class__.bits_to_shard[self.bit_width]]
 
     def __repr__(self):
-        return f"Int{self.bit_width}Tensor(shape = {self.packed_shape}, data = {unpack(self.get_shards(), self.bit_width, dim = self.pack_dim)})"
+        return f"Int{self.bit_width}Tensor(shape = {self.packed_shape}, data = {unpack(self.get_shards(), self.bit_width, self.original_size, dim = self.pack_dim)})"
 
     def __tensor_flatten__(self):
         return self.__class__.bits_to_shard[self.bit_width], [self.packed_shape, self.bit_width, self.pack_dim]
@@ -98,28 +102,30 @@ class UintxTensor(TorchAOBaseTensor):
         return cls(shards, packed_shape, bit_width, pack_dim)
 
     def get_plain(self):
-        return unpack(self.get_shards(), self.bit_width, dim = self.pack_dim)
+        return unpack(self.get_shards(), original_size=self.original_size, elem_size=self.bit_width, dim = self.pack_dim)
 
     # temporary until kernels on packed tensors are created
     def apply_transformation(self, fn):
         og = self.get_plain()
         new = fn(og)
+        if new.dim() == 0:
+            new = new.unsqueeze(0)
         dtype = _BIT_WIDTH_TO_DTYPE[self.bit_width]
         return self.from_uint8(new, dtype, self.pack_dim)
 
     # temporary until kernels on packed tensors are created
     def apply_fn_to_shards(self, fn):
         new_shards = [fn(shard) for shard in self.get_shards()]
-        return self.__class__(new_shards, self.packed_shape, self.bit_width, self.pack_dim)
+        return self.__class__(new_shards, self.original_size, self.packed_shape, self.bit_width, self.pack_dim)
 
     @classmethod
     def from_uint8(cls, int_data: torch.Tensor, dtype: torch.dtype, pack_dim: int = -1):
         assert dtype in _DTYPE_TO_BIT_WIDTH.keys(), "Expected dtype to be one of {_DTYPE_TO_BIT_WIDTH.keys()}"
         bit_width = _DTYPE_TO_BIT_WIDTH[dtype]
-        shards = pack(int_data, bit_width, dim=pack_dim)
+        shards, original_size = pack(int_data, bit_width, dim=pack_dim)
         shape = list(int_data.shape)
         shape[pack_dim] = shape[pack_dim] * bit_width // 8
-        return cls(shards, int_data.shape, bit_width, pack_dim)
+        return cls(shards, original_size, int_data.shape, bit_width, pack_dim)
 
 
     def _get_to_kwargs(self, *args, **kwargs):
@@ -148,8 +154,33 @@ class UintxTensor(TorchAOBaseTensor):
                 self.pack_dim,
             )
         return super().to(*args, **kwargs)
+    
+    def __setitem__(self, index, value):
+        if isinstance(value, UintxTensor):
+            value = value.get_plain()
+        elif isinstance(value, torch.Tensor):
+            if value.dtype != torch.uint8:
+                raise ValueError(f"Expected uint8 tensor, got {value.dtype}")
+        else:
+            value = torch.tensor(value, dtype=torch.uint8, device=self.device)
 
+        plain_data = self.get_plain()
+        plain_data[index] = value
+        new_packed = self.from_uint8(plain_data, _BIT_WIDTH_TO_DTYPE[self.bit_width], self.pack_dim)
 
+        # Update the shards
+        for shard_name in self.bits_to_shard[self.bit_width]:
+            setattr(self, shard_name, getattr(new_packed, shard_name))
+
+    @classmethod
+    def __torch_function__(cls, func, types, args=(), kwargs=None):
+        if kwargs is None:
+            kwargs = {}
+        if func is torch.Tensor.__setitem__:
+            self, index, value = args
+            self.__setitem__(index, value)
+            return None
+        return super().__torch_function__(func, types, args, kwargs)
 
 implements = UintxTensor.implements
 
@@ -171,6 +202,12 @@ def _(func, types, args, kwargs):
         func, args, kwargs, args[0]
     )
 
+@implements(aten.copy_.default)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func, args, kwargs, args[0]
+    )
+
 @implements(aten.sub.Tensor)
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
@@ -181,6 +218,40 @@ def _(func, types, args, kwargs):
 def _(func, types, args, kwargs):
     return return_and_correct_aliasing(
         func, args, kwargs, args[0].apply_transformation(lambda x: (x * args[1]).to(torch.uint8))
+    )
+
+@implements(aten.slice.Tensor)
+def _(func, types, args, kwargs):
+    self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
+    # assert step == 1
+    if end >= self.shape[dim]:
+        end = self.shape[dim]
+    shape = list(self.shape)
+    shape[dim] = end - start
+    
+    def slice_fn(x):
+        return torch.ops.aten.slice.Tensor(x, dim, start, end, step)
+
+    return return_and_correct_aliasing(
+        func, args, kwargs, self.apply_transformation(slice_fn)
+    )
+
+@implements(aten.select.int)
+def _(func, types, args, kwargs):
+    self, dim, index = args
+    
+    def select_fn(x):
+        selected = x.select(dim, index)
+        return selected.unsqueeze(dim)
+    
+    return return_and_correct_aliasing(
+        func, args, kwargs, self.apply_transformation(select_fn)
+    )
+
+@implements(aten.set_)
+def _(func, types, args, kwargs):
+    return return_and_correct_aliasing(
+        func, args, kwargs, args[0].apply_transformation(lambda x: x.set_(args[1]))
     )
 
 # quantization api integrations
