@@ -2,6 +2,8 @@
 
 This is a FP16 x Floatx mixed matmul kernel optimized for io bound workloads per [FP6-LLM](https://arxiv.org/abs/2401.14112). The actual CUDA kernel is located under [csrc/cuda/fp6_llm/](../../csrc/cuda/fp6_llm/). This module provides helper functions to quantize FP32/FP16/BF16 weights to Floatx and integration with torchao API.
 
+This kernel was originally designed for FP16, but was extended to work for BF16 by @tobiasvanderwerff.
+
 ## Usage
 
 ```python
@@ -11,7 +13,7 @@ from torchao.quantization import (
 )
 
 model = ...
-model.half()  # not necessary, but recommeneded to maintain accuracy
+# model can have dtype float16 or bfloat16
 
 # for generic Floatx EyMz where x = 1 + y + z
 # fp6 with ebits = 3 and mbits = 2
@@ -40,10 +42,10 @@ outputs = quant_llm_linear(ebits, mbits, fp16_act, fp6_weight, scales)  # shape 
 ```
 
 **NOTE**:
-- Since this kernel's computation dtype is FP16, it is recommended to convert the model to FP16 (instead of BF16) before applying quantization and use FP16 for activations.
+- The kernel works for both FP16 and BF16 input activations
 - Only FP6 E3M2 and FP5 E2M2 are tested and enabled in the official repo. We additionally enable support for FP6 E2M3 and FP5 E3M1.
-- On most hardware, this kernel is faster than FP16 linear for batch size from 1 to 128, and slower for batch size larger than or equal to 256. See https://github.com/usyd-fsalab/fp6_llm/issues/8 for a detailed discussion. See https://github.com/pytorch/ao/pull/223 for some microbenchmark results.
-- FP6 is supported for >=SM80 (Ampere generation) as well as SM75 (Turing generation) GPUs. However, SM75 support requires manual compilation of the C++/CUDA extensions (see the installation instructions in the [README](https://github.com/pytorch/ao/blob/main/README.md#installation) for details).
+- On most hardware, this kernel is faster than FP16 linear for batch size from 1 to 128, and slower for batch size larger than or equal to 256. See https://github.com/usyd-fsalab/fp6_llm/issues/8 for a detailed discussion. See https://github.com/pytorch/ao/pull/223 and https://github.com/pytorch/ao/pull/1147 for some microbenchmark results.
+- The kernel is supported for >=SM80 (Ampere generation) as well as SM75 (Turing generation) GPUs. However, SM75 support requires manual compilation of the C++/CUDA extensions (see the installation instructions in the [README](https://github.com/pytorch/ao/blob/main/README.md#installation) for details).
 
 ## End-to-End benchmarks
 
