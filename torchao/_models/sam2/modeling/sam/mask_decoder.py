@@ -211,9 +211,9 @@ class MaskDecoder(nn.Module):
 
         with torch.autograd.profiler.record_function("self.transformer"):
             # # Run the transformer
-            # src = src.to(torch.bfloat16)
-            # pos_src = pos_src.to(torch.bfloat16)
-            # tokens = tokens.to(torch.bfloat16)
+            src = src.to(torch.float16)
+            pos_src = pos_src.to(torch.float16)
+            tokens = tokens.to(torch.float16)
             hs, src = self.transformer(src, pos_src, tokens)
         iou_token_out = hs[:, s, :]
         mask_tokens_out = hs[:, s + 1 : (s + 1 + self.num_mask_tokens), :]

@@ -472,10 +472,10 @@ class SAM2Base(torch.nn.Module):
             # precompute projected level 0 and level 1 features in SAM decoder
             # to avoid running it again on every SAM click
             backbone_out["backbone_fpn"][0] = self.sam_mask_decoder.conv_s0(
-                backbone_out["backbone_fpn"][0].to(torch.float32)
+                backbone_out["backbone_fpn"][0]
             )
             backbone_out["backbone_fpn"][1] = self.sam_mask_decoder.conv_s1(
-                backbone_out["backbone_fpn"][1].to(torch.float32)
+                backbone_out["backbone_fpn"][1]
             )
         return backbone_out
 
