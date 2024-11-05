@@ -34,7 +34,6 @@ import contextlib
 
 # torch.set_float32_matmul_precision('high')
 
-
 def iou(mask1, mask2):
     assert mask1.dim() == 2
     assert mask2.dim() == 2
@@ -211,6 +210,7 @@ def main(checkpoint_path,
     logging.info(f"Running with batch size {batch_size}")
 
     if baseline:
+        assert batch_size == 1, "baseline only supports batch size 1."
         logging.info(f"Importing sam2 from outside of torchao. If this errors, install https://github.com/facebookresearch/sam2")
         from sam2.build_sam import build_sam2
         from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
@@ -231,9 +231,9 @@ def main(checkpoint_path,
     logging.info(f"Using {points_per_batch} points_per_batch")
     mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=points_per_batch, output_mode="uncompressed_rle")
 
-    if furious:
-        torch.set_float32_matmul_precision('high')
-        torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
+    # if furious:
+    #     torch.set_float32_matmul_precision('high')
+    #     torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
 
     if fast:
         # TODO: Using CUDA graphs can cause numerical differences?
@@ -253,6 +253,11 @@ def main(checkpoint_path,
                 dynamic=True,
             )
 
+    if furious:
+        from torchao.quantization import autoquant
+        mask_generator.predictor.model.image_encoder = autoquant(mask_generator.predictor.model.image_encoder)
+
+
     with open('dog.jpg', 'rb') as f:
         image_tensor = file_bytes_to_image_tensor(bytearray(f.read()))
 
@@ -271,18 +276,20 @@ def main(checkpoint_path,
         ref_masks = json.loads(open("dog_rle.json").read())
         unittest_fn(masks, ref_masks)
 
-        # TODO: Transpose dog image to create diversity in input image shape
-        logging.info(f"batch size {batch_size} unittest")
-        all_masks = image_tensors_to_masks([image_tensor] * batch_size, mask_generator)
-        all_masks = [masks_to_rle_dict(masks) for masks in all_masks]
-        for masks in all_masks:
-            unittest_fn(masks, ref_masks)
+        if batch_size > 1:
+            # TODO: Transpose dog image to create diversity in input image shape
+            logging.info(f"batch size {batch_size} unittest")
+            all_masks = image_tensors_to_masks([image_tensor] * batch_size, mask_generator)
+            all_masks = [masks_to_rle_dict(masks) for masks in all_masks]
+            for masks in all_masks:
+                unittest_fn(masks, ref_masks)
 
     if benchmark:
         print("batch size 1 test")
         benchmark_fn(image_tensor_to_masks, image_tensor, mask_generator)
-        print(f"batch size {batch_size} test")
-        benchmark_fn(image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
+        if batch_size > 1:
+            print(f"batch size {batch_size} test")
+            benchmark_fn(image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
 
     if profile is not None:
         print(f"Saving profile under {profile}")

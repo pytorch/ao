@@ -32,8 +32,6 @@ from torchao._models.sam2.utils.amg import (
     uncrop_masks,
     uncrop_points,
 )
-from torchao._models.sam2.map_tensor import to_map_tensor
-from torchao._models.sam2.map_tensor import MapTensor
 
 
 class SAM2AutomaticMaskGenerator:
@@ -229,10 +227,7 @@ class SAM2AutomaticMaskGenerator:
 
     @torch.no_grad()
     def generate_batch(self, images: List[np.ndarray]) -> List[List[Dict[str, Any]]]:
-        if len(images) == 1:
-            data = [self._generate_masks(images[0])]
-        else:
-            data = self._generate_masks_batch(images)
+        data = self._generate_masks_batch(images)
         return [self._encode_masks(d) for d in data]
 
     def _generate_masks(self, image: np.ndarray) -> MaskData:
@@ -296,16 +291,14 @@ class SAM2AutomaticMaskGenerator:
         with torch.autograd.profiler.record_function("set_image"):
             self.predictor.set_image(cropped_im)
 
+        return self._process_crop_points(cropped_im_size, crop_layer_idx, crop_box, orig_size)
+
+    def _process_crop_points(self, cropped_im_size, crop_layer_idx, crop_box, orig_size):
+
         # Get points for this crop
         points_scale = np.array(cropped_im_size)[None, ::-1]
         points_for_image = self.point_grids[crop_layer_idx] * points_scale
-        points_for_image = torch.as_tensor(
-            points_for_image, dtype=torch.float32, device=self.predictor.device
-        )
 
-        return self._process_crop_points(cropped_im_size, crop_box, orig_size, points_for_image)
-
-    def _process_crop_points(self, cropped_im_size, crop_box, orig_size, points_for_image):
         # Generate masks for this crop in batches
         # data = MaskData()
         data = None
@@ -313,58 +306,16 @@ class SAM2AutomaticMaskGenerator:
         if self.points_per_batch is None:
             points_per_batch = len(points_for_image)
         for (points,) in batch_iterator(points_per_batch, points_for_image):
-            # batch_data = self._process_batch(
-            #     points, cropped_im_size, crop_box, orig_size, normalize=True
-            # )
-            in_points = self.predictor._transforms.transform_coords(
-                points, normalize=True, orig_hw=cropped_im_size
+            batch_data = self._process_batch(
+                points, cropped_im_size, crop_box, orig_size, normalize=True
             )
-            in_labels = torch.ones(
-                in_points.shape[0], dtype=torch.int, device=in_points.device
-            )
-            with torch.autograd.profiler.record_function("_predict"):
-                masks, iou_preds, low_res_masks = self.predictor._predict(
-                    in_points[:, None, :],
-                    in_labels[:, None],
-                    multimask_output=self.multimask_output,
-                    return_logits=True,
-                )
-            if isinstance(orig_size, list):
-                # assert isinstance(cropped_im_size, list)
-                assert isinstance(crop_box, list)
-                assert isinstance(masks, MapTensor)
-                assert isinstance(iou_preds, MapTensor)
-                assert isinstance(low_res_masks, MapTensor)
-                assert isinstance(points, MapTensor)
-                batch_data = []
-                for (mi, ii, li, pi, ci, oi) in zip(masks.elems, iou_preds.elems, low_res_masks.elems, points.elems, crop_box, orig_size):
-                    orig_h, orig_w = oi
-                    batch_data.append(self._process_batch_post_predict(mi, ii, li, pi, ci, orig_h, orig_w, normalize=True))
-                if data is None:
-                    data = batch_data
-                else:
-                    [d.cat(b) for (d, b) in zip(data, batch_data)]
-                    del batch_data
-            else:
-                orig_h, orig_w = orig_size
-                batch_data = self._process_batch_post_predict(masks, iou_preds, low_res_masks, points, crop_box, orig_h, orig_w, normalize=True)
+            with torch.autograd.profiler.record_function("data.cat"):
                 if data is None:
                     data = batch_data
                 else:
                     data.cat(batch_data)
                     del batch_data
-
         self.predictor.reset_predictor()
-
-        if isinstance(data, MaskData):
-            return self._process_crop_points_dedup(data, crop_box)
-        if isinstance(data, list):
-            return [self._process_crop_points_dedup(d, c) for (d, c) in zip(data, crop_box)]
-
-        raise ValueError(f"Expected the type of data to be MaskData or list[MaskData], but got {type(data)}")
-
-    def _process_crop_points_dedup(self, data, crop_box):
-        assert isinstance(data, MaskData)
 
         with torch.autograd.profiler.record_function("batched_nms"):
             # Remove duplicates within this crop.
@@ -419,50 +370,19 @@ class SAM2AutomaticMaskGenerator:
         with torch.autograd.profiler.record_function("set_batch_image"):
             self.predictor.set_image_batch(all_cropped_im)
 
-        image_embed = self.predictor._features["image_embed"]
-        high_res_feats = self.predictor._features["high_res_feats"]
-        self.predictor.reset_predictor()
-        self.predictor._orig_hw = None
-        self.predictor._features = {"image_embed": to_map_tensor(image_embed.unsqueeze(1)),
-                                    "high_res_feats": list(map(to_map_tensor, high_res_feats))}
-        self.predictor._is_image_set = True
-        # import pdb; pdb.set_trace()
-
-        # TODO: Duple no_batch mode via self.predictor.reset_predictor and set features to MapTensor features
-        # Then pass MapTensors into _process_crop_points
-        # i = 0
-        # batch_features = self.predictor._features
-        all_cropped_im_size = []
-        all_points_for_image = []
-        all__orig_hw = []
+        i = 0
+        batch_features = self.predictor._features
+        all_crop_data = []
         for (cropped_im, crop_box, layer_idx, orig_size) in zip(all_cropped_im, all_crop_box, all_layer_idx, all_orig_size):
             cropped_im_size = cropped_im.shape[:2]
-            # self.predictor.reset_predictor()
-            # NOTE: The original is wrapped in a list!
-            all__orig_hw.append(cropped_im.shape[:2])
-            # self.predictor._orig_hw = [cropped_im.shape[:2]]
-            # self.predictor._features = {"image_embed": batch_features["image_embed"][i].unsqueeze(0),
-            #                             "high_res_feats": [b[i].unsqueeze(0) for b in batch_features["high_res_feats"]]}
-            # i += 1
-            # self.predictor._is_image_set = True
+            self.predictor.reset_predictor()
+            self.predictor._orig_hw = [cropped_im.shape[:2]]
+            self.predictor._features = {"image_embed": batch_features["image_embed"][i].unsqueeze(0),
+                                        "high_res_feats": [b[i].unsqueeze(0) for b in batch_features["high_res_feats"]]}
+            i += 1
+            self.predictor._is_image_set = True
 
-            # Get points for this crop
-            points_scale = np.array(cropped_im_size)[None, ::-1]
-            points_for_image = self.point_grids[layer_idx] * points_scale
-            points_for_image = torch.as_tensor(
-                points_for_image, dtype=torch.float32, device=self.predictor.device
-            )
-            # all_crop_data = self._process_crop_points(cropped_im_size, crop_box, orig_size, points_for_image))
-            all_points_for_image.append(points_for_image)
-            all_cropped_im_size.append(cropped_im_size)
-
-        self.predictor._orig_hw = [all__orig_hw]
-
-        all_cropped_im_size_0 = to_map_tensor(torch.tensor([c[0] for c in all_cropped_im_size], device=self.predictor.device))
-        all_cropped_im_size_1 = to_map_tensor(torch.tensor([c[1] for c in all_cropped_im_size], device=self.predictor.device))
-        all_cropped_im_size = (all_cropped_im_size_0, all_cropped_im_size_1)
-        all_points_for_image = to_map_tensor(torch.stack(all_points_for_image))
-        all_crop_data = self._process_crop_points(all_cropped_im_size, all_crop_box, all_orig_size, all_points_for_image)
+            all_crop_data.append(self._process_crop_points(cropped_im_size, layer_idx, crop_box, orig_size))
 
         i = 0
         all_data = []
@@ -502,9 +422,6 @@ class SAM2AutomaticMaskGenerator:
                 return_logits=True,
             )
 
-        return self._process_batch_post_predict(masks, iou_preds, low_res_masks, points, crop_box, orig_h, orig_w, normalize=normalize)
-
-    def _process_batch_post_predict(self, masks, iou_preds, low_res_masks, points, crop_box, orig_h, orig_w, *, normalize):
         # Serialize predictions and store in MaskData
         with torch.autograd.profiler.record_function("MaskData"):
             data = MaskData(
