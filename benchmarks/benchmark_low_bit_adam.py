@@ -4,7 +4,7 @@
 # - lpmm (4-bit optim): pip install yacs git+https://github.com/thu-ml/low-bit-optimizers.git
 # - DeepSpeed (ZeRO-Offload):
 #     sudo apt install libopenmpi-dev
-#     LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu pip install mpi4p
+#     LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu pip install mpi4py
 #     DS_BUILD_CPU_ADAM=1 pip install deepspeed --no-cache-dir
 #
 # To fine-tune a pre-trained ViT-Base on resisc45 dataset with BF16 AMP, using default AdamW optimizer from PyTorch core
@@ -98,6 +98,7 @@ def get_parser():
     parser.add_argument("--run_name", default="debug")
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--seed", type=int)
+    parser.add_argument("--device", type=str, choices=["cuda", "xpu"], default="cuda")
     return parser
 
 
@@ -128,9 +129,9 @@ def get_dloader(args, training: bool):
     )
 
 
-def get_amp_ctx(amp):
+def get_amp_ctx(amp, device):
     dtype = dict(bf16=torch.bfloat16, fp16=torch.float16, none=None)[amp]
-    return torch.autocast("cuda", dtype=dtype, enabled=amp != "none")
+    return torch.autocast(device, dtype=dtype, enabled=amp != "none")
 
 
 @torch.no_grad()
@@ -148,8 +149,8 @@ def evaluate_model(model, args):
         if args.channels_last:
             batch["image"] = batch["image"].to(memory_format=torch.channels_last)
 
-        with get_amp_ctx(args.amp):
-            all_preds.append(model(batch["image"].cuda()).argmax(1).cpu())
+        with get_amp_ctx(args.amp, args.device):
+            all_preds.append(model(batch["image"].to(args.device)).argmax(1).cpu())
 
     all_labels = torch.cat(all_labels, dim=0)
     all_preds = torch.cat(all_preds, dim=0)
@@ -192,7 +193,7 @@ if __name__ == "__main__":
         model.bfloat16()
     if args.channels_last:
         model.to(memory_format=torch.channels_last)
-    model.cuda()  # move model to CUDA after optionally convert it to BF16
+    model.to(args.device)  # move model to DEVICE after optionally convert it to BF16
     if args.compile:
         model.compile(fullgraph=True)
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
@@ -227,9 +228,9 @@ if __name__ == "__main__":
         optim_cls = OPTIM_MAP[args.optim]
 
         if args.optim_cpu_offload == "ao":
-            optim_cls = partial(low_bit_optim.CPUOffloadOptimizer, optimizer_class=optim_cls)
+            optim_cls = partial(low_bit_optim.CPUOffloadOptimizer, optimizer_class=optim_cls, device=args.device)
         elif args.optim_cpu_offload == "ao_offload_grads":
-            optim_cls = partial(low_bit_optim.CPUOffloadOptimizer, optimizer_class=optim_cls, offload_gradients=True)
+            optim_cls = partial(low_bit_optim.CPUOffloadOptimizer, optimizer_class=optim_cls, offload_gradients=True, device=args.device)
 
         optim = optim_cls(
             model.parameters(),
@@ -239,7 +240,7 @@ if __name__ == "__main__":
         )
 
     lr_schedule = CosineSchedule(args.lr, len(dloader) * args.n_epochs)
-    grad_scaler = torch.amp.GradScaler("cuda", enabled=args.amp == "fp16")
+    grad_scaler = torch.amp.GradScaler(args.device, enabled=args.amp == "fp16")
     log_interval = 10
     t0 = time.perf_counter()
 
@@ -248,15 +249,26 @@ if __name__ == "__main__":
         model.train()
         pbar = tqdm(dloader, dynamic_ncols=True, desc=f"Epoch {epoch_idx + 1}/{args.n_epochs}")
 
-        with torch.profiler.profile() if args.profile else nullcontext() as prof:
+        if args.profile:
+            activities = [torch.profiler.ProfilerActivity.CPU]
+            if args.device == "cuda":
+                activities.append(torch.profiler.ProfilerActivity.CUDA)
+            elif args.device == "xpu":
+                activities.append(torch.profiler.ProfilerActivity.XPU)
+
+            prof = torch.profiler.profile(activities=activities)
+        else:
+            prof = nullcontext()
+
+        with prof:
             for batch in pbar:
                 if args.full_bf16:
                     batch["image"] = batch["image"].bfloat16()
                 if args.channels_last:
                     batch["image"] = batch["image"].to(memory_format=torch.channels_last)
 
-                with get_amp_ctx(args.amp):
-                    loss = F.cross_entropy(model(batch["image"].cuda()), batch["label"].cuda())
+                with get_amp_ctx(args.amp, args.device):
+                    loss = F.cross_entropy(model(batch["image"].to(args.device)), batch["label"].to(args.device))
 
                 if args.optim_cpu_offload == "deepspeed":
                     model.backward(loss)
@@ -299,6 +311,9 @@ if __name__ == "__main__":
             print(f"Epoch {epoch_idx + 1}/{args.n_epochs}: val_acc={val_acc.item() * 100:.2f}")
             logger.log(dict(val_acc=val_acc), step=step)
 
-    peak_mem = torch.cuda.max_memory_allocated() / 1e9
+    if args.device == "cuda":
+        peak_mem = torch.cuda.max_memory_allocated() / 1e9
+    elif args.device == "xpu":
+        peak_mem = torch.xpu.max_memory_allocated() / 1e9
     print(f"Max memory used: {peak_mem:.02f} GB")
     logger.log(dict(max_memory_allocated=peak_mem))
