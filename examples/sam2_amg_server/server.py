@@ -27,10 +27,10 @@ import asyncio
 from contextlib import asynccontextmanager
 import contextlib
 
-# from torch._inductor import config as inductorconfig
-# inductorconfig.triton.unique_kernel_names = True
-# inductorconfig.coordinate_descent_tuning = True
-# inductorconfig.coordinate_descent_check_all_directions = True
+from torch._inductor import config as inductorconfig
+inductorconfig.triton.unique_kernel_names = True
+inductorconfig.coordinate_descent_tuning = True
+inductorconfig.coordinate_descent_check_all_directions = True
 
 # torch.set_float32_matmul_precision('high')
 

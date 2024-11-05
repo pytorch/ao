@@ -157,6 +157,7 @@ class SAM2ImagePredictor:
         # Transform the image to the form expected by the model
         img_batch = self._transforms.forward_batch(image_list)
         img_batch = img_batch.to(self.device)
+        img_batch = img_batch.to(torch.float16)
         batch_size = img_batch.shape[0]
         assert (
             len(img_batch.shape) == 4 and img_batch.shape[1] == 3
