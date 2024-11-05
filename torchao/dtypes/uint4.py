@@ -1,7 +1,7 @@
 import torch
 import torch._prims_common as utils
 import torch.utils._pytree as pytree
-from torch.library import impl, Library
+from torch.library import Library, impl
 
 
 def down_size(size):
@@ -105,7 +105,6 @@ class UInt4Tensor(torch.Tensor):
         )
 
     def __init__(self, elem, **kwargs):
-
         self.elem = elem
 
     @classmethod

@@ -1,6 +1,7 @@
-import torch
-from typing import Union, Tuple
 from dataclasses import dataclass
+from typing import Tuple, Union
+
+import torch
 
 """
 Base class for different layout, following the same design of PyTorch layout
@@ -20,6 +21,8 @@ Tensor interacts with different operators, e.g. the same data representation can
 behaviors when running the same operator, e.g. transpose, quantized_linear. This is the same as layout
 in PyTorch native Tensor
 """
+
+
 @dataclass(frozen=True)
 class Layout:
     def pre_process(self, input: torch.Tensor) -> torch.Tensor:
@@ -28,7 +31,13 @@ class Layout:
     def post_process(self, input: torch.Tensor) -> torch.Tensor:
         return input
 
-    def pre_process_static(self, input: torch.Tensor, scale: torch.Tensor, zero_point: torch.Tensor, block_size: Tuple[int, ...]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def pre_process_static(
+        self,
+        input: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        block_size: Tuple[int, ...],
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         return self.pre_process(input), scale, zero_point
 
     def __repr__(self):
@@ -37,15 +46,20 @@ class Layout:
     def extra_repr(self) -> str:
         return ""
 
+
 """
 Plain Layout, the most basic Layout, also has no extra metadata, will typically be the default
 """
+
+
 @dataclass(frozen=True)
 class PlainLayout(Layout):
     pass
 
+
 def is_device(target_device_str: str, device: Union[str, torch.device]):
     return torch.device(device).type == target_device_str
+
 
 def get_out_shape(input_shape: Tuple[int], weight_shape: Tuple[int]) -> Tuple[int, int]:
     """Returns the unflattened shape of the input tensor.
