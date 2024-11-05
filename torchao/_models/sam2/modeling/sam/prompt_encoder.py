@@ -13,6 +13,7 @@ from torchao._models.sam2.modeling.position_encoding import PositionEmbeddingRan
 
 from torchao._models.sam2.modeling.sam2_utils import LayerNorm2d
 
+
 class PromptEncoder(nn.Module):
     def __init__(
         self,
