@@ -112,8 +112,8 @@ def process_batch(batch, mask_generator):
 
 
 async def batch_worker(mask_generator, batch_size, *, pad_batch=True, furious=False):
-    cm = torch.autocast("cuda", dtype=torch.bfloat16) if furious else contextlib.nullcontext()
-    cm.__enter__()
+    # cm = torch.autocast("cuda", dtype=torch.bfloat16) if furious else contextlib.nullcontext()
+    # cm.__enter__()
     while True:
         batch = []
         while len(batch) < batch_size and not request_queue.empty():
@@ -161,12 +161,12 @@ def benchmark_fn(func, inp, mask_generator):
     print(f"max_memory_allocated_bytes: {max_memory_allocated_bytes}MiB or {max_memory_allocated_percentage}%")
 
 
-def unittest_fn(masks, ref_masks):
+def unittest_fn(masks, ref_masks, order_by_area=False):
     from torchao._models.sam2.utils.amg import rle_to_mask
     v0_areas = []
     v1_areas = []
-    miou_sum = 0.0
-    miou_count = 0
+    v0_masks = []
+    v1_masks = []
     for k0 in ref_masks:
         assert k0 in masks, f"Expected {k0} to be in return data"
         from torchao._models.sam2.utils.amg import area_from_rle
@@ -178,6 +178,14 @@ def unittest_fn(masks, ref_masks):
             print(f"v0 area {v0_area} doesn't match v1 area {v1_area}")
         v0_mask = torch.from_numpy(rle_to_mask(ref_masks[k0]))
         v1_mask = torch.from_numpy(rle_to_mask(masks[k0]))
+        v0_masks.append((v0_mask, v0_area))
+        v1_masks.append((v1_mask, v1_area))
+
+    v0_masks = sorted(v0_masks, key=(lambda x: x[1]), reverse=True)
+    v1_masks = sorted(v1_masks, key=(lambda x: x[1]), reverse=True)
+    miou_sum = 0.0
+    miou_count = 0
+    for ((v0_mask, v0_area), (v1_mask, v1_area)) in zip(v0_masks, v1_masks):
         if not torch.allclose(v0_mask, v1_mask):
             miou_sum += iou(v0_mask, v1_mask)
             miou_count += 1
@@ -236,6 +244,7 @@ def main(checkpoint_path,
     #     torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
 
     if fast:
+        assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
         # TODO: Using CUDA graphs can cause numerical differences?
         mask_generator.predictor.model.image_encoder = torch.compile(
             mask_generator.predictor.model.image_encoder,
@@ -253,9 +262,13 @@ def main(checkpoint_path,
                 dynamic=True,
             )
 
+    # if furious:
+    #     from torchao.quantization import autoquant
+    #     mask_generator.predictor.model.image_encoder = autoquant(mask_generator.predictor.model.image_encoder)
+
     if furious:
-        from torchao.quantization import autoquant
-        mask_generator.predictor.model.image_encoder = autoquant(mask_generator.predictor.model.image_encoder)
+        mask_generator.predictor.model.image_encoder = mask_generator.predictor.model.image_encoder.to(torch.float16)
+        # mask_generator.predictor.model.sam_mask_decoder = mask_generator.predictor.model.sam_mask_decoder.to(torch.bfloat16)
 
 
     with open('dog.jpg', 'rb') as f:

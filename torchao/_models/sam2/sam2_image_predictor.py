@@ -109,6 +109,10 @@ class SAM2ImagePredictor:
 
         input_image = self._transforms(image)
         input_image = input_image[None, ...].to(self.device)
+        # from torchao._models.sam2.tracing import TracerTensor
+        # input_image = TracerTensor(input_image)
+        # input_image = input_image.to(torch.bfloat16)
+        input_image = input_image.to(torch.float16)
 
         assert (
             len(input_image.shape) == 4 and input_image.shape[1] == 3
