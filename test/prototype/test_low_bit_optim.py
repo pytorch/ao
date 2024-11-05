@@ -375,6 +375,70 @@ class TestOptim(TestCase):
 
 _FSDP_WORLD_SIZE = 2
 
+    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_3, reason="requires PyTorch >= 2.3")
+    @parametrize("optim_name", ["Adam8bit", "AdamW8bit", "Adam4bit", "AdamW4bit", "AdamFp8", "AdamWFp8"])
+    @parametrize("dtype", [torch.float32, torch.bfloat16])
+    @parametrize("device", _DEVICES)
+    def test_optim_exclude_low_bit_params(self, optim_name, dtype, device):
+        # Skip FP8 tests on devices that don't support it
+        if optim_name.endswith("Fp8") and device == "cuda":
+            if not TORCH_VERSION_AT_LEAST_2_4:
+                pytest.skip("FP8 CUDA requires PyTorch >= 2.4")
+            if torch.cuda.get_device_capability() < (8, 9):
+                pytest.skip("FP8 CUDA requires compute capability >= 8.9")
+                
+        model = nn.Sequential(
+            nn.Linear(32, 256),
+            nn.ReLU(),
+            nn.Linear(256, 32)
+        )
+        model.to(device=device, dtype=dtype)
+
+        params_to_exclude = [model[0].weight]
+
+        optim = getattr(low_bit_optim, optim_name)(
+            model.parameters(),
+            exclude_low_bit_optim_params=params_to_exclude
+        )
+
+        x = torch.randn(4, 32, device=device, dtype=dtype)
+        loss = model(x).sum()
+        loss.backward()
+        optim.step()
+        optim.zero_grad()
+        state = optim.state
+        excluded_param = params_to_exclude[0]
+        excluded_state = state[excluded_param]
+        exp_avg = excluded_state['exp_avg']
+        exp_avg_sq = excluded_state['exp_avg_sq']
+
+        if optim_name.endswith("8bit"):
+            quantized_state_types = (low_bit_optim.OptimState8bit,)
+        elif optim_name.endswith("4bit"):
+            quantized_state_types = (low_bit_optim.OptimState4bit,)
+        elif optim_name.endswith("Fp8"):
+            quantized_state_types = (low_bit_optim.OptimStateFp8,)
+        else:
+            quantized_state_types = ()
+
+        # Assert that the state tensors for the excluded parameter are not quantized
+        self.assertNotIsInstance(exp_avg, quantized_state_types)
+        self.assertNotIsInstance(exp_avg_sq, quantized_state_types)
+
+        for param in model.parameters():
+            if param is not excluded_param:
+                param_state = state[param]
+                exp_avg = param_state['exp_avg']
+                exp_avg_sq = param_state['exp_avg_sq']
+                self.assertIsInstance(exp_avg, quantized_state_types)
+                self.assertIsInstance(exp_avg_sq, quantized_state_types)
+
+        # Since the excluded parameter is not quantized, its data type should remain the same
+        self.assertEqual(excluded_param.dtype, dtype)
+
+        # Ensure that other parameters are still being updated correctly
+        for param in model.parameters():
+            self.assertIsNotNone(param.grad)
 
 class TestFSDP2(FSDPTest):
     @property
