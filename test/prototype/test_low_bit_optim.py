@@ -33,6 +33,8 @@ from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_6,
 )
 
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_3, TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_6
+
 try:
     import bitsandbytes as bnb
 except ImportError:
@@ -422,8 +424,6 @@ _FSDP_WORLD_SIZE = 2
                 self.assertTrue(exp_avg_sq.__class__ != torch.Tensor)
 
 _FSDP_WORLD_SIZE = 2
-
-
 class TestFSDP2(FSDPTest):
     @property
     def world_size(self) -> int:
