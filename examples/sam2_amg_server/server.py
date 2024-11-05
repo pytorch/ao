@@ -254,13 +254,12 @@ def main(checkpoint_path,
             dynamic=False,
         )
 
-        if batch_size == 1:
-            mask_generator.predictor._predict = torch.compile(
-                mask_generator.predictor._predict,
-                # mode="max-autotune-no-cudagraphs",
-                fullgraph=True,
-                dynamic=True,
-            )
+        mask_generator.predictor._predict = torch.compile(
+            mask_generator.predictor._predict,
+            # mode="max-autotune-no-cudagraphs",
+            fullgraph=True,
+            dynamic=True,
+        )
 
     # if furious:
     #     from torchao.quantization import autoquant
