@@ -31,6 +31,7 @@ from torch._inductor import config as inductorconfig
 inductorconfig.triton.unique_kernel_names = True
 inductorconfig.coordinate_descent_tuning = True
 inductorconfig.coordinate_descent_check_all_directions = True
+inductorconfig.allow_buffer_reuse = False
 
 # torch.set_float32_matmul_precision('high')
 
@@ -248,18 +249,20 @@ def main(checkpoint_path,
         # TODO: Using CUDA graphs can cause numerical differences?
         mask_generator.predictor.model.image_encoder = torch.compile(
             mask_generator.predictor.model.image_encoder,
-            # mode="max-autotune-no-cudagraphs",
-            mode="max-autotune",
+            mode="max-autotune-no-cudagraphs",
+            # mode="max-autotune",
             fullgraph=True,
             dynamic=False,
         )
 
-        mask_generator.predictor._predict = torch.compile(
-            mask_generator.predictor._predict,
-            # mode="max-autotune-no-cudagraphs",
-            fullgraph=True,
-            dynamic=True,
-        )
+        # TODO: This causes numerical issues for large batches and furious (low precision)
+        if not furious:
+            mask_generator.predictor._predict = torch.compile(
+                mask_generator.predictor._predict,
+                # mode="max-autotune-no-cudagraphs",
+                fullgraph=True,
+                dynamic=True,
+            )
 
     # if furious:
     #     from torchao.quantization import autoquant
