@@ -162,35 +162,9 @@ def benchmark_fn(func, inp, mask_generator):
     print(f"max_memory_allocated_bytes: {max_memory_allocated_bytes}MiB or {max_memory_allocated_percentage}%")
 
 
-def unittest_fn(masks, ref_masks, order_by_area=False):
-    from torchao._models.sam2.utils.amg import rle_to_mask
-    v0_areas = []
-    v1_areas = []
-    v0_masks = []
-    v1_masks = []
-    for k0 in ref_masks:
-        assert k0 in masks, f"Expected {k0} to be in return data"
-        from torchao._models.sam2.utils.amg import area_from_rle
-        v0_area = area_from_rle(ref_masks[k0])
-        v1_area = area_from_rle(masks[k0])
-        v0_areas.append(v0_area)
-        v1_areas.append(v1_area)
-        if v0_area != v1_area:
-            print(f"v0 area {v0_area} doesn't match v1 area {v1_area}")
-        v0_mask = torch.from_numpy(rle_to_mask(ref_masks[k0]))
-        v1_mask = torch.from_numpy(rle_to_mask(masks[k0]))
-        v0_masks.append((v0_mask, v0_area))
-        v1_masks.append((v1_mask, v1_area))
-
-    v0_masks = sorted(v0_masks, key=(lambda x: x[1]), reverse=True)
-    v1_masks = sorted(v1_masks, key=(lambda x: x[1]), reverse=True)
-    miou_sum = 0.0
-    miou_count = 0
-    for ((v0_mask, v0_area), (v1_mask, v1_area)) in zip(v0_masks, v1_masks):
-        if not torch.allclose(v0_mask, v1_mask):
-            miou_sum += iou(v0_mask, v1_mask)
-            miou_count += 1
-            print(f"Masks don't match for key {k0}. IoU is {iou(v0_mask, v1_mask)}")
+def unittest_fn(masks, ref_masks, order_by_area=False, verbose=False):
+    from compare_rle_lists import compare_masks
+    miou_sum, miou_count = compare_masks(masks, ref_masks, order_by_area=order_by_area, verbose=verbose)
     if miou_count == 0:
         print("Masks exactly match reference.")
     else:
@@ -290,7 +264,7 @@ def main(checkpoint_path,
         masks = masks_to_rle_dict(masks)
         import json
         ref_masks = json.loads(open("dog_rle.json").read())
-        unittest_fn(masks, ref_masks)
+        unittest_fn(masks, ref_masks, order_by_area=True, verbose=verbose)
 
         if batch_size > 1:
             # TODO: Transpose dog image to create diversity in input image shape
@@ -298,7 +272,7 @@ def main(checkpoint_path,
             all_masks = image_tensors_to_masks([image_tensor] * batch_size, mask_generator)
             all_masks = [masks_to_rle_dict(masks) for masks in all_masks]
             for masks in all_masks:
-                unittest_fn(masks, ref_masks)
+                unittest_fn(masks, ref_masks, order_by_area=True, verbose=verbose)
 
     if benchmark:
         print("batch size 1 test")
