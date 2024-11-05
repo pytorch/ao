@@ -99,9 +99,37 @@ def run_evaluation(
             dtype = _NBITS_TO_DTYPE[nbits]
             group_size = int(_quant_args[2])
             quantize_(model, uintx_weight_only(dtype, group_size, use_hqq=use_hqq))
-        if "marlin" in quantization:
+        if "sparse-marlin" in quantization:
             from torchao.dtypes import MarlinSparseLayout
             quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
+        if "gptq-marlin" in quantization:
+            from torchao._models._eval import MultiTensorInputRecorder
+            from torchao.quantization.GPTQ_MT import SparseMarlinGPTQQuantizer
+
+            # NOTE(diogo): This code is basically repeated with the code below.
+            # Before merging, refactor this to avoid code duplication.
+            # Just has a different precision and quantizer
+
+            groupsize = int(quantization.split("-")[-1])
+            assert groupsize in [32, 64, 128, 256], f"Sparse Marlin GPTQ groupsize needs to be one of [32, 64, 128, 256] but got {groupsize}"
+            assert precision == torch.float16, f"{quantization} requires float16 precision but got {precision}"
+            assert "cuda" in device, "gptq sparse marlin quantization only works on cuda"
+
+            inputs = MultiTensorInputRecorder(
+                tokenizer,
+                calibration_seq_length,
+                prepare_inputs_for_model,
+                pad_calibration_inputs,
+                model.config.vocab_size,
+                device="cpu"
+            ).record_inputs(
+                calibration_tasks,
+                calibration_limit,
+            ).get_inputs()
+
+            quantizer = SparseMarlinGPTQQuantizer(group_size=groupsize, device=device)
+            model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
+            model = quantizer.quantize(model, inputs).to(device)
         if "int4wo" in quantization and "gptq" in quantization:
             # avoid circular imports
             from torchao._models._eval import MultiTensorInputRecorder

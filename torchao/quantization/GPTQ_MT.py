@@ -12,11 +12,13 @@ from torchao.quantization.utils import compute_error as SQNR
 
 from torchao.dtypes import (
     to_affine_quantized_intx_static,
-    TensorCoreTiledLayout
+    TensorCoreTiledLayout,
+    MarlinSparseLayout
 )
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
+    choose_qparams_affine,
 )
 
 def _check_linear_int4_k(k, group_size = 1, inner_k_tiles = None):
@@ -655,6 +657,293 @@ class Int4WeightOnlyGPTQQuantizer(GPTQQuantizer):
         model.load_state_dict(state_dict, assign=True, strict=False)
 
         return model
+
+
+# NOTE(diogo): This is only temporary just to get the GPTQQuantizer linked with Sparse Marlin before trying out
+# the trick with the col number
+class SparseMarlinGPTQQuantizer(GPTQQuantizer):
+    def __init__(
+        self,
+        blocksize: int = 128,  # Number of columns to consider during the GPTQ process
+        percdamp: float = 0.01, # Small regularization to the matrix diagonal to ensure numerical stability during inversion
+        group_size: int = 64,  # Number of values to consider when computing the qparams
+        padding_allowed: bool = True,
+        device: torch.device = torch.device("cuda"),
+    ):  
+        from torchao.sparsity.marlin import const
+        super().__init__()
+
+        if not torch.cuda.get_device_capability()[0] >= 8:
+            raise ValueError(
+                f'Can not use GPTQ Sparse Marlin 2:4 with a device of compute capability {torch.cuda.get_device_capability()}, the minimum compute capability is 8.0 for Marlin kernel.'
+            )
+
+        # We raise an error here because no layers would be quantized and the user should be aware of this
+        if group_size not in const.SUPPORTED_GROUP_SIZES:
+            raise ValueError(
+                f"Only {const.SUPPORTED_GROUP_SIZES} group sizes are supported, got {group_size}."
+            )
+
+        self.blocksize = blocksize
+        self.percdamp = percdamp
+        self.group_size = group_size
+        self.padding_allowed = padding_allowed
+        self.device = device
+        self.precision = torch.float16  # Sparse Marlin requires float16
+        n_bits = 4
+
+        def get_qparams_func(w: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+            qparams = get_groupwise_affine_qparams(
+                w, n_bits, group_size, 
+                dtype=self.precision, mapping_type=MappingType.SYMMETRIC, 
+                preserve_zero=True, zero_point_domain=ZeroPointDomain.INT
+            )
+            return qparams
+
+        def quantize_func(w, qparams):
+            scale, zero_point = qparams
+            q = groupwise_affine_quantize_tensor_from_qparams(
+                w, scale, zero_point, n_bits, self.group_size, ZeroPointDomain.INT
+            )
+            return q
+
+        def dequantize_func(q, qparams):
+            scale, zero_point = qparams
+            dq = groupwise_affine_dequantize_tensor_from_qparams(
+                q, scale, zero_point, n_bits, self.group_size, ZeroPointDomain.INT
+            )
+            return dq
+
+        def combine_qparams_list_func(qparams_list):
+            return [
+                torch.cat(x, dim=1) for x in zip(*qparams_list)
+            ]
+        
+        def skip_layer_func(linear_weight):
+            return not (
+                _check_linear_int4_k(linear_weight.shape[-1], group_size) or padding_allowed
+            )
+
+        def make_qtensor(q: torch.Tensor, qparams: Tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
+            # this should be setup to just use the quantized tensor and qparams directly to make
+            # the aqt int4 tensor but i don't think we have that functionality atm so just dequant
+            # then requant
+            weight = dequantize_func(q, qparams)
+            scale, zero_point = qparams
+
+            # NOTE: This was copied from `int4_weight_only`. We should probably make this a utility function at some point
+            block_size = (1, self.group_size)
+            target_dtype = torch.int32
+            quant_min = 0
+            quant_max = 15
+            zero_point_domain = ZeroPointDomain.INT
+            _layout = MarlinSparseLayout()
+
+            quantized_tensor = to_affine_quantized_intx_static(
+                weight,
+                scale=scale,
+                zero_point=zero_point,
+                block_size=block_size, 
+                target_dtype=target_dtype, 
+                quant_min=quant_min, 
+                quant_max=quant_max, 
+                zero_point_domain=zero_point_domain, 
+                _layout=_layout, 
+            )
+            return quantized_tensor
+
+        self.act_fake_quant_func = None
+        self.get_qparams_func = get_qparams_func
+        self.quantize_func = quantize_func
+        self.dequantize_func = dequantize_func
+        self.combine_qparams_list_func = combine_qparams_list_func
+        self.skip_layer_func = skip_layer_func
+        self.make_qtensor = make_qtensor
+        self._check_functions()
+
+    def quantize(self, model: torch.nn.Module, inputs: List[MultiTensor], **kwargs: Any) -> torch.nn.Module:
+        state_dict = self._create_quantized_state_dict(
+            model,
+            inputs,
+            self.blocksize,
+            self.percdamp,
+            self.group_size,
+        )
+
+        # this is hacky and potentially wrong, better to just make the flow return a state dict and let user
+        # do with it what they will
+        model = _replace_with_custom_fn_if_matches_filter(
+            model=model,
+            replacement_fn=remove_multitensors_from_buffers_and_params,
+            filter_fn=lambda x, y: True
+        )
+        remove = [k for k in state_dict if "kv_cache" in k]
+        for k in remove:
+            del state_dict[k]
+
+        model.load_state_dict(state_dict, assign=True, strict=False)
+        return model
+
+
+# NOTE(diogo): First, lets get a simple Int4 quantization scheme working that then goes to Sparse Marlin.
+# Afterwards, I will come back to this one and get the `curr_col_in_group` trick to work. I believe this 
+# one will result in a lower perplexity value than the one above it.
+class SparseMarlinGPTQQuantizer_correct(GPTQQuantizer):
+    def __init__(
+        self,
+        blocksize: int = 128,  # Number of columns to consider during the GPTQ process
+        percdamp: float = 0.01, # Small regularization to the matrix diagonal to ensure numerical stability during inversion
+        group_size: int = 64,  # Number of values to consider when computing the qparams
+        padding_allowed: bool = True,
+        device: torch.device = torch.device("cuda"),
+    ):  
+        from torchao.sparsity.marlin import const
+        super().__init__()
+
+        if not torch.cuda.get_device_capability()[0] >= 8:
+            raise ValueError(
+                f'Can not use GPTQ Sparse Marlin 2:4 with a device of compute capability {torch.cuda.get_device_capability()}, the minimum compute capability is 8.0 for Marlin kernel.'
+            )
+
+        # We raise an error here because no layers would be quantized and the user should be aware of this
+        if group_size not in const.SUPPORTED_GROUP_SIZES:
+            raise ValueError(
+                f"Only {const.SUPPORTED_GROUP_SIZES} group sizes are supported, got {group_size}."
+            )
+
+        self.blocksize = blocksize
+        self.percdamp = percdamp
+        self.group_size = group_size
+        self.padding_allowed = padding_allowed
+        self.device = device
+
+        def get_qparams_func(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
+            from torchao.sparsity.marlin import inject_24
+
+            # Injects 0's into the matrix to make it sparse
+            x_24, mask = inject_24(x, *x.shape)
+
+            # We have to remove the 0's in the sparse matrix so they don't affect the 
+            # calculation of the quantization parameters
+            x_pruned = torch.stack([x_24[:, col_i][x_24[:, col_i] != 0] for col_i in range(0, x_24.shape[1])]).t()
+            scale, zero_point = get_groupwise_affine_qparams(x_pruned, 4, self.group_size)
+
+            # Since we are applying the quantization to a sparse matrix, we need to keep track of which column we're on
+            # so we use a qparam that will be continuously updated and don't have to edit the algorithm itself
+            curr_col_in_group = 0
+            return (scale, zero_point, mask, curr_col_in_group)
+
+        def quantize_func(x: torch.Tensor, qparams: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]) -> torch.Tensor:
+            # NOTE(diogo): Something weird is happening here. The `curr_col_in_group` is always 0, which means that
+            # the `curr_col_in_group` is not being updated correctly
+            scale, zp, sparse_mask, curr_col_in_group = qparams
+
+            # The input matrix has size (N, M). Since we calculated the qparams for the pruned matrix of
+            # size (N / 2, M), we need to expand their size to match the original matrix by adding 0's
+            # in the correct positions before quantizing 
+            sparse_scale = torch.zeros_like(x, dtype=torch.bfloat16)
+            sparse_zp = torch.zeros_like(x, dtype=torch.bfloat16)
+            sparse_scale[sparse_mask[:, curr_col_in_group]] = scale
+            sparse_zp[sparse_mask[:, curr_col_in_group]] = zp
+
+            x_q_24 = groupwise_affine_quantize_tensor_from_qparams(x, sparse_scale, sparse_zp, 4, self.group_size)
+            return x_q_24
+
+        def dequantize_func(x_q_24: torch.Tensor, qparams: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]) -> torch.Tensor:
+            scale, zp, sparse_mask, curr_col_in_group = qparams
+
+            # NOTE(diogo): Maybe don't do this here? I should instead do this in 
+            # `get_qparams_func` and return the sparse values. Then, during concatenation,
+            # I just need to remove the parameters that I don't need
+            sparse_scale = torch.zeros_like(x_q_24, dtype=torch.bfloat16)
+            sparse_zp = torch.zeros_like(x_q_24, dtype=torch.bfloat16)
+            sparse_scale[sparse_mask[:, curr_col_in_group]] = scale
+            sparse_zp[sparse_mask[:, curr_col_in_group]] = zp
+
+            x_24 = groupwise_affine_dequantize_tensor_from_qparams(
+                x_q_24,
+                sparse_scale,
+                sparse_zp,
+                4,
+                self.group_size,
+            )
+            # NOTE(diogo): Might not need this?
+            # x_dq_s = x_dq * sparse_mask[:, curr_col_in_group] # we need to sparsify the final result so it is correct
+            curr_col_in_group += 1
+            return x_24
+
+        def skip_layer_func(linear_weight: torch.Tensor) -> bool:
+            return not (
+                _check_linear_int4_k(linear_weight.shape[-1], self.group_size)
+                # and linear_weight[0] % 128 == 0  # NOTE(diogo): Check if I need this
+                # and linear_weight[1] % 256 == 0
+            )
+
+        def combine_qparams_list_func(qparams_list: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]:
+            scales_and_zero_points = [qparams[:2] for qparams in qparams_list]
+            return [torch.cat(x, dim=1) for x in zip(*scales_and_zero_points)]
+            # return [torch.cat(x, dim=1) for x in zip(*qparams_list)]
+
+        def make_qtensor(q: torch.Tensor, qparams: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, int]) -> torch.Tensor:
+            # this should be setup to just use the quantized tensor and qparams directly to make
+            # the aqt int4 tensor but i don't think we have that functionality atm so just dequant
+            # then requant
+            weight = dequantize_func(q, qparams)
+            scale, zero_point = qparams[:2]
+
+            # NOTE: This was copied from `int4_weight_only`. We should probably make this a utility function at some point
+            block_size = (1, self.group_size)
+            target_dtype = torch.int32
+            quant_min = 0
+            quant_max = 15
+            zero_point_domain = ZeroPointDomain.INT
+            _layout = MarlinSparseLayout()
+
+            quantized_tensor = to_affine_quantized_intx_static(
+                weight,
+                scale=scale,
+                zero_point=zero_point,
+                block_size=block_size, 
+                target_dtype=target_dtype, 
+                quant_min=quant_min, 
+                quant_max=quant_max, 
+                zero_point_domain=zero_point_domain, 
+                _layout=_layout, 
+            )
+            return quantized_tensor
+
+        self.act_fake_quant_func = None
+        self.get_qparams_func = get_qparams_func
+        self.quantize_func = quantize_func
+        self.dequantize_func = dequantize_func
+        self.combine_qparams_list_func = combine_qparams_list_func
+        self.skip_layer_func = skip_layer_func
+        self.make_qtensor = make_qtensor
+        self._check_functions()
+
+    def quantize(self, model: torch.nn.Module, inputs: List[MultiTensor], **kwargs: Any) -> torch.nn.Module:
+        state_dict = self._create_quantized_state_dict(
+            model,
+            inputs,
+            self.blocksize,
+            self.percdamp,
+            self.group_size,
+        )
+
+        # this is hacky and potentially wrong, better to just make the flow return a state dict and let user
+        # do with it what they will
+        model = _replace_with_custom_fn_if_matches_filter(
+            model=model,
+            replacement_fn=remove_multitensors_from_buffers_and_params,
+            filter_fn=lambda x, y: True
+        )
+        remove = [k for k in state_dict if "kv_cache" in k]
+        for k in remove:
+            del state_dict[k]
+
+        model.load_state_dict(state_dict, assign=True, strict=False)
+        return model
+
 
 # this should probably be a multitensor method that can be applied and we just traverse
 # and look for multitensors and unpack them

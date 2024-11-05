@@ -881,6 +881,7 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         original_shape (torch.Size): the original shape of the tensor. used to unpack the tensor to the original shape
         group_size (int): the group size used to pack the tensor
         num_bits (int): the number of bits used to quantize the tensor
+        transposed (bool): the status of the tensor, if it is transposed or not
     """
     @staticmethod
     def __new__(
@@ -893,6 +894,7 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         original_shape: torch.Size,
         group_size: int,
         num_bits: int,
+        transposed: bool,
     ):
         kwargs = {}
         kwargs["device"] = int_data.device
@@ -914,6 +916,7 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         original_shape: torch.Size,
         group_size: int,
         num_bits: int,
+        transposed: bool,
     ):
         self.int_data = int_data
         self.scale = scale
@@ -923,6 +926,7 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         self.original_shape = original_shape
         self.group_size = group_size
         self.num_bits = num_bits
+        self.transposed = transposed
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
@@ -932,13 +936,23 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
             return return_and_correct_aliasing(
                 func, args, kwargs, args[0]._apply_fn_to_data(torch.detach)
             )
+        elif func is aten.clone.default:
+            return return_and_correct_aliasing(
+                func, args, kwargs, args[0]._apply_fn_to_data(torch.clone)
+            )
+        elif func is aten.t.default:
+            """we don't need to repack the weight and just rely on external
+            shape being changed and record the status of transpose/no-transpose
+            """
+            args[0].transposed = not args[0].transposed
+            return return_and_correct_aliasing(func, args, kwargs, args[0])
 
         raise NotImplementedError(
             f"MarlinSparseAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
         )
 
     def __tensor_flatten__(self):
-        return ["int_data", "scale", "zero_point", "meta"], [self._layout, self.original_shape, self.group_size, self.num_bits]
+        return ["int_data", "scale", "zero_point", "meta"], [self._layout, self.original_shape, self.group_size, self.num_bits, self.transposed]
 
     @classmethod
     def __tensor_unflatten__(
@@ -948,8 +962,8 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         scale = tensor_data_dict["scale"]
         zero_point = tensor_data_dict["zero_point"]
         meta = tensor_data_dict["meta"]
-        _layout, original_shape, group_size, num_bits = tensor_attributes
-        return cls(int_data, scale, zero_point, meta, _layout, original_shape, group_size, num_bits)
+        _layout, original_shape, group_size, num_bits, transposed = tensor_attributes
+        return cls(int_data, scale, zero_point, meta, _layout, original_shape, group_size, num_bits, transposed)
 
     def get_plain(self):
         from torchao.sparsity.marlin import unpack_from_marlin_24  # avoid circular import
@@ -1020,7 +1034,7 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         return cls(
             marlin_24_q_w_comp, marlin_24_s, zero_point,
             meta, _layout, q_w_24.shape,
-            group_size, num_bits
+            group_size, num_bits, False
         )
 
     def get_layout(self) -> Layout:
@@ -1779,6 +1793,9 @@ def _linear_fp_act_int4_weight_sparse_marlin_impl(input_tensor, weight_tensor, b
     meta = weight_tensor.tensor_impl.meta
     original_shape = weight_tensor.tensor_impl.original_shape
     num_bits = weight_tensor.tensor_impl.num_bits
+
+    transposed = weight_tensor.tensor_impl.transposed
+    assert not transposed, "Weight tensor must be contiguous"
 
     # Folds batch dimension into the first dimension
     input_2d = input_tensor.view(-1, input_tensor.shape[-1])

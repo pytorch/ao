@@ -275,7 +275,15 @@ def dequantize_per_channel(int_repr, scales, zero_points, out_dtype=torch.float3
     dequantized = dequantized.t()
     return dequantized
 
-def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16):
+def get_groupwise_affine_qparams(
+        w, 
+        n_bit=4, 
+        groupsize=128, 
+        dtype=torch.bfloat16,
+        mapping_type=MappingType.ASYMMETRIC,
+        preserve_zero=False,
+        zero_point_domain=ZeroPointDomain.FLOAT
+    ):
     if groupsize > w.shape[-1]:
         groupsize = w.shape[-1]
     assert groupsize > 1
@@ -283,7 +291,6 @@ def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16
     assert w.dim() == 2
     assert n_bit <= 8, f"only n_bit smaller than 8 is supported, got: {n_bit}"
 
-    mapping_type = MappingType.ASYMMETRIC
     target_dtype = torch.int32
     block_size = (1, groupsize)
     quant_min = 0
@@ -302,8 +309,8 @@ def get_groupwise_affine_qparams(w, n_bit=4, groupsize=128, dtype=torch.bfloat16
         eps,
         scale_dtype=scale_dtype,
         zero_point_dtype=zero_point_dtype,
-        preserve_zero=False,
-        zero_point_domain=ZeroPointDomain.FLOAT
+        preserve_zero=preserve_zero,
+        zero_point_domain=zero_point_domain
     )
 
     return scale.to(dtype=dtype).reshape(w.shape[0], -1), zero_point.to(
@@ -338,6 +345,7 @@ def groupwise_affine_quantize_tensor_from_qparams(
     zeros,
     n_bit=4,
     groupsize=128,
+    zero_point_domain=ZeroPointDomain.FLOAT,
 ):
     assert groupsize > 1
     # needed for GPTQ single column quantize
@@ -352,7 +360,7 @@ def groupwise_affine_quantize_tensor_from_qparams(
     quant_min = 0
     quant_max = 2 ** n_bit - 1
 
-    int_data = quantize_affine(w, block_size, scales, zeros, output_dtype, quant_min, quant_max, zero_point_domain = ZeroPointDomain.FLOAT)
+    int_data = quantize_affine(w, block_size, scales, zeros, output_dtype, quant_min, quant_max, zero_point_domain=zero_point_domain)
     if TORCH_VERSION_AT_LEAST_2_5 and w.shape[-1] > 1:
         int_data_device_type = int_data.device.type
         # Move to cpu, until issue with MPS memory management of temporary tensors is resolved
@@ -369,6 +377,7 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     zeros,
     n_bit=4,
     groupsize=128,
+    zero_point_domain=ZeroPointDomain.FLOAT,
 ):
     assert groupsize > 1
     assert w_int4x8.dim() == 2
@@ -391,7 +400,7 @@ def groupwise_affine_dequantize_tensor_from_qparams(
     input_dtype = torch.int32
     quant_min = 0
     quant_max = 2**n_bit - 1
-    return dequantize_affine(w_int32, block_size, scales, zeros, input_dtype, quant_min, quant_max, zero_point_domain=ZeroPointDomain.FLOAT, output_dtype=scales.dtype)
+    return dequantize_affine(w_int32, block_size, scales, zeros, input_dtype, quant_min, quant_max, zero_point_domain=zero_point_domain, output_dtype=scales.dtype)
 
 def groupwise_affine_quantize_tensor(w, n_bit=4, groupsize=128, dtype=torch.bfloat16):
     scales, zeros = get_groupwise_affine_qparams(w, n_bit, groupsize, dtype)
