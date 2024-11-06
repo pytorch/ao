@@ -165,9 +165,9 @@ def _(func, types, args, kwargs):
 
     # input validation
     if dim != 0:
-        raise ValueError(f"Only support aten.slice along the first dim")
+        raise ValueError("Only support aten.slice along the first dim")
     if step != 1:
-        raise ValueError(f"Only support aten.slice with step=1")
+        raise ValueError("Only support aten.slice with step=1")
 
     block_size = x.block_size
     stride = math.prod(x.shape[1:])

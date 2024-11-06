@@ -120,7 +120,11 @@ def _(func, types, args, kwargs):
     src = args[1]
 
     if isinstance(dst, OptimState4bit) and isinstance(src, OptimState4bit):
-        assert dst.signed == src.signed and dst.block_size == src.block_size and dst._shape == src._shape
+        assert (
+            dst.signed == src.signed
+            and dst.block_size == src.block_size
+            and dst._shape == src._shape
+        )
         dst.codes.copy_(src.codes)
         dst.scale.copy_(src.scale)
         # qmap should be the same, don't need to copy
@@ -204,7 +208,11 @@ def _(func, types, args, kwargs):
 # (pin_memory argument is ignored in aten._to_copy)
 @OptimState4bit.implements(aten.is_pinned.default)
 def _(func, types, args, kwargs):
-    return args[0].codes.is_pinned() and args[0].scale.is_pinned() and args[0].qmap.is_pinned()
+    return (
+        args[0].codes.is_pinned()
+        and args[0].scale.is_pinned()
+        and args[0].qmap.is_pinned()
+    )
 
 
 # required by torch.distributed.checkpoint.load when world size changes i.e. re-sharding
@@ -215,9 +223,9 @@ def _(func, types, args, kwargs):
 
     # input validation
     if dim != 0:
-        raise ValueError(f"Only support aten.slice along the first dim")
+        raise ValueError("Only support aten.slice along the first dim")
     if step != 1:
-        raise ValueError(f"Only support aten.slice with step=1")
+        raise ValueError("Only support aten.slice with step=1")
 
     block_size = x.block_size
     stride = math.prod(x.shape[1:])
