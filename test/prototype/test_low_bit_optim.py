@@ -368,8 +368,9 @@ class TestOptim(TestCase):
             optim2.step()
             optim2.zero_grad()
 
-            torch.testing.assert_close(loss1, loss2, msg=lambda msg: f"Iteration {idx}. {msg}")
-            
+            torch.testing.assert_close(
+                loss1, loss2, msg=lambda msg: f"Iteration {idx}. {msg}"
+            )
 
 
 _FSDP_WORLD_SIZE = 2

@@ -13,12 +13,12 @@ from .subclass_fp8 import OptimStateFp8
 
 class _AdamBase(Optimizer):
     def __init__(
-        self,
-        params,
-        lr,
-        betas,
-        eps,
-        weight_decay,
+        self, 
+        params, 
+        lr, 
+        betas, 
+        eps, 
+        weight_decay, 
         amsgrad,
         *,
         block_size,
