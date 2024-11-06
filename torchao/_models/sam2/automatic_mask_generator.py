@@ -394,7 +394,7 @@ class SAM2AutomaticMaskGenerator:
             all_data.append(data)
         return all_data
 
-    def _process_batch(
+    def _process_batch_fullgraph(
         self,
         points: np.ndarray,
         im_size: Tuple[int, ...],
@@ -488,14 +488,30 @@ class SAM2AutomaticMaskGenerator:
             # if not torch.all(keep_mask):
             data.filter(keep_mask)
 
+        return data
+
+    def _process_batch(
+        self,
+        points: np.ndarray,
+        im_size: Tuple[int, ...],
+        crop_box: List[int],
+        orig_size: Tuple[int, ...],
+        normalize=False,
+    ) -> MaskData:
+        orig_h, orig_w = orig_size
+
+        data = self._process_batch_fullgraph(points, im_size, crop_box, orig_size, normalize)
+
         with torch.autograd.profiler.record_function("uncrop_masks"):
             # Compress to RLE
             data["masks"] = uncrop_masks(data["masks"], crop_box, orig_h, orig_w)
-            # Need to do chunking because of https://github.com/pytorch/pytorch/issues/51871
-            # Chunk sizes depend on the size of image and int32 max
-            rles = []
-            for mask_chunk in data["masks"].chunk(4):
-                rles.extend(mask_to_rle_pytorch_2(mask_chunk))
+            # # Need to do chunking because of https://github.com/pytorch/pytorch/issues/51871
+            # # Chunk sizes depend on the size of image and int32 max
+            # # Unfortunately it doesn't compile
+            # rles = []
+            # for mask_chunk in data["masks"].chunk(4):
+            #     rles.extend(mask_to_rle_pytorch_2(mask_chunk))
+            rles = mask_to_rle_pytorch_2(data["masks"])
             data["rles"] = rles
             del data["masks"]
 

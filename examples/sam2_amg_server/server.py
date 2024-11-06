@@ -33,6 +33,8 @@ inductorconfig.coordinate_descent_tuning = True
 inductorconfig.coordinate_descent_check_all_directions = True
 inductorconfig.allow_buffer_reuse = False
 
+torch._dynamo.config.capture_dynamic_output_shape_ops = True
+
 # torch.set_float32_matmul_precision('high')
 
 def iou(mask1, mask2):
@@ -241,8 +243,8 @@ def main(checkpoint_path,
         #     fullgraph=True,
         #     dynamic=True,
         # )
-        mask_generator.predictor._predict = torch.compile(
-            mask_generator.predictor._predict,
+        mask_generator._process_batch_fullgraph = torch.compile(
+            mask_generator._process_batch_fullgraph,
             # mode="max-autotune-no-cudagraphs",
             fullgraph=True,
             dynamic=True,
