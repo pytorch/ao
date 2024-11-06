@@ -10,9 +10,9 @@ on:
       - main
       - 'gh/**'
 
-concurrency:
-  group: float8_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
-  cancel-in-progress: true
+# concurrency:
+#   group: float8_test-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_number || github.ref }}
+#   cancel-in-progress: true
 
 env:
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -35,6 +35,7 @@ jobs:
       runner: ${{ matrix.runs-on }}
       gpu-arch-type: ${{ matrix.gpu-arch-type }}
       gpu-arch-version: ${{ matrix.gpu-arch-version }}
+      test-infra-ref: jeanschmidt/linux_job_containers
       script: |
         conda create -n venv python=3.9 -y
         conda activate venv
