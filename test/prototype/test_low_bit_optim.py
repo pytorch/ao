@@ -446,12 +446,11 @@ class TestFSDP2(FSDPTest):
         # this will change model weights due to weight decay, but since we don't use the model anymore, it's fine.
         resumed_fsdp_optim.step()
 
-        # NOTE: should dcp.load() have a flag for weights_only=False?
-        subclasses = (OptimState4bit, OptimState8bit, OptimStateFp8)
-        with torch.serialization.safe_globals(subclasses):
-            dcp.load(resumed_fsdp_optim.state_dict(), checkpoint_id=checkpoint_id)
+        dcp.load(resumed_fsdp_optim.state_dict(), checkpoint_id=checkpoint_id)
         if dist.get_rank() == 0:
             shutil.rmtree(checkpoint_id)
+
+        subclasses = (OptimState4bit, OptimState8bit, OptimStateFp8)
 
         for v1, v2 in zip(pytree.tree_iter(resumed_fsdp_optim.state_dict()), pytree.tree_iter(fsdp_optim.state_dict())):
             assert v1.__class__ == v2.__class__, (v1.__class__, v2.__class__)
