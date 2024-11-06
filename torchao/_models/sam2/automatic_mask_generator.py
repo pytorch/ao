@@ -383,6 +383,8 @@ class SAM2AutomaticMaskGenerator:
             i += 1
             self.predictor._is_image_set = True
 
+            # TODO: Batch mask_to_rle_pytorch_2 calls
+            # TODO: Specialize for rle-only return (specify which keys you want in data)
             all_crop_data.append(self._process_crop_points(cropped_im_size, layer_idx, crop_box, orig_size))
 
         i = 0
