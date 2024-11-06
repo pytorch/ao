@@ -135,7 +135,7 @@ async def batch_worker(mask_generator, batch_size, *, pad_batch=True, furious=Fa
             padded_batch = batch
             if pad_batch:
                 padded_batch = batch + ([batch[-1]] * (batch_size - len(batch)))
-            print(f"len(padded_batch): {len(padded_batch)}")
+            print(f"len(padded_batch): {len(padded_batch)} with len(batch): {len(batch)}")
             results = process_batch(padded_batch, mask_generator)
             for i, (_, response_future) in enumerate(batch):
                 response_future.set_result(results[i])
