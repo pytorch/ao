@@ -23,6 +23,7 @@ from torchao._models.sam2.utils.amg import (
     coco_encode_rle,
     generate_crop_boxes,
     is_box_near_crop_edge,
+    is_box_near_crop_edge_torch,
     mask_to_rle_pytorch,
     mask_to_rle_pytorch_2,
     MaskData,
@@ -399,8 +400,10 @@ class SAM2AutomaticMaskGenerator:
         points: np.ndarray,
         im_size: Tuple[int, ...],
         crop_box: List[int],
+        crop_box_torch: torch.Tensor,
         orig_size: Tuple[int, ...],
-        normalize=False,
+        normalize: bool,
+        orig_box_torch: torch.Tensor,
     ) -> MaskData:
         orig_h, orig_w = orig_size
 
@@ -480,8 +483,8 @@ class SAM2AutomaticMaskGenerator:
 
         with torch.autograd.profiler.record_function("is_box_near_crop_edge"):
             # Filter boxes that touch crop boundaries
-            keep_mask = ~is_box_near_crop_edge(
-                data["boxes"], crop_box, [0, 0, orig_w, orig_h]
+            keep_mask = ~is_box_near_crop_edge_torch(
+                data["boxes"], crop_box, crop_box_torch, orig_box_torch,
             )
 
         with torch.autograd.profiler.record_function("filter(keep_mask)"):
@@ -500,7 +503,10 @@ class SAM2AutomaticMaskGenerator:
     ) -> MaskData:
         orig_h, orig_w = orig_size
 
-        data = self._process_batch_fullgraph(points, im_size, crop_box, orig_size, normalize)
+        orig_box = [0, 0, orig_w, orig_h]
+        orig_box_torch = torch.as_tensor(orig_box, dtype=torch.float, device=self.predictor.device)
+        crop_box_torch = torch.as_tensor(crop_box, dtype=torch.float, device=self.predictor.device)
+        data = self._process_batch_fullgraph(points, im_size, crop_box, crop_box_torch, orig_size, normalize, orig_box_torch)
 
         with torch.autograd.profiler.record_function("uncrop_masks"):
             # Compress to RLE

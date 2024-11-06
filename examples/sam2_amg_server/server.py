@@ -106,12 +106,20 @@ batch_interval = 1  # Time interval to wait before processing a batch
 
 
 def process_batch(batch, mask_generator):
-    print(f"Processing batch of len {len(batch)}")
-    t = time.time()
-    image_tensors = [image_tensor for (image_tensor, _) in batch]
-    masks = mask_generator.generate_batch(image_tensors)
-    print(f"Took avg. {(time.time() - t) / len(batch)}s per batch entry")
-    return masks
+    if len(batch) == 1:
+        print(f"Processing batch of len {len(batch)} - generate")
+        t = time.time()
+        image_tensors = [image_tensor for (image_tensor, _) in batch]
+        masks = mask_generator.generate(image_tensors[0])
+        print(f"Took avg. {(time.time() - t)}s")
+        return [masks]
+    else:
+        print(f"Processing batch of len {len(batch)} - generate_batch")
+        t = time.time()
+        image_tensors = [image_tensor for (image_tensor, _) in batch]
+        masks = mask_generator.generate_batch(image_tensors)
+        print(f"Took avg. {(time.time() - t) / len(batch)}s per batch entry")
+        return masks
 
 
 async def batch_worker(mask_generator, batch_size, *, pad_batch=True, furious=False):
@@ -289,6 +297,8 @@ def main(checkpoint_path,
     if benchmark:
         print("batch size 1 test")
         benchmark_fn(image_tensor_to_masks, image_tensor, mask_generator)
+        print("image_tensor.shape: ", image_tensor.shape)
+        benchmark_fn(image_tensor_to_masks, torch.tensor(image_tensor).transpose(0, 1).numpy(), mask_generator)
         if batch_size > 1:
             print(f"batch size {batch_size} test")
             benchmark_fn(image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
