@@ -511,13 +511,7 @@ class SAM2AutomaticMaskGenerator:
         with torch.autograd.profiler.record_function("uncrop_masks"):
             # Compress to RLE
             data["masks"] = uncrop_masks(data["masks"], crop_box, orig_h, orig_w)
-            # # Need to do chunking because of https://github.com/pytorch/pytorch/issues/51871
-            # # Chunk sizes depend on the size of image and int32 max
-            # # Unfortunately it doesn't compile
-            rles = []
-            for mask_chunk in data["masks"].chunk(4):
-                rles.extend(mask_to_rle_pytorch_2(mask_chunk))
-            data["rles"] = rles
+            data["rles"] = mask_to_rle_pytorch_2(data["masks"])
             del data["masks"]
 
         return data

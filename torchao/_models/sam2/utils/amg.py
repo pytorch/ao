@@ -162,7 +162,7 @@ def rle_to_mask(rle: Dict[str, Any]) -> np.ndarray:
     return mask.transpose()  # Put in C order
 
 
-def mask_to_rle_pytorch_2(tensor: torch.Tensor) -> List[Dict[str, Any]]:
+def _mask_to_rle_pytorch_2_chunk(tensor: torch.Tensor) -> List[Dict[str, Any]]:
     """
     Encodes masks to an uncompressed RLE, in the format expected by
     pycoco tools.
@@ -202,6 +202,17 @@ def mask_to_rle_pytorch_2(tensor: torch.Tensor) -> List[Dict[str, Any]]:
             out.append({"size": [h, w], "counts": counts})
 
     return out
+
+
+def mask_to_rle_pytorch_2(tensor: torch.Tensor) -> List[Dict[str, Any]]:
+    # Need to do chunking because of https://github.com/pytorch/pytorch/issues/51871
+    # Chunk sizes depend on the size of image and int32 max
+    # Unfortunately this also doesn't compile for data dependent shapes
+    # and masks vary in size.
+    rles = []
+    for mask_chunk in tensor.chunk(4):
+        rles.extend(_mask_to_rle_pytorch_2_chunk(mask_chunk))
+    return rles
 
 
 def area_from_rle(rle: Dict[str, Any]) -> int:
