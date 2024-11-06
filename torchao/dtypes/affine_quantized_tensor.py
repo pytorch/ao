@@ -116,9 +116,16 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             output_dtype = self.dtype
 
         from torchao.dtypes.floatx import FloatxTensorCoreLayout
+
         if isinstance(self._layout, FloatxTensorCoreLayout):
             int_data, scale = self.tensor_impl.get_plain()
-            return dequantize_affine_floatx(int_data, scale, self._layout.ebits, self._layout.mbits, output_dtype=output_dtype)
+            return dequantize_affine_floatx(
+                int_data,
+                scale,
+                self._layout.ebits,
+                self._layout.mbits,
+                output_dtype=output_dtype,
+            )
         else:
             data, scale, zero_point = self.tensor_impl.get_plain()
             dq = dequantize_affine(
@@ -139,14 +146,23 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             return dq
 
     def __tensor_flatten__(self):
-        return ["tensor_impl"], [self.block_size, self.shape, self.quant_min, self.quant_max, self.zero_point_domain, self.dtype]
+        return ["tensor_impl"], [
+            self.block_size,
+            self.shape,
+            self.quant_min,
+            self.quant_max,
+            self.zero_point_domain,
+            self.dtype,
+        ]
 
     @classmethod
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
         tensor_impl = tensor_data_dict["tensor_impl"]
-        block_size, shape, quant_min, quant_max, zero_point_domain, dtype = tensor_attributes
+        block_size, shape, quant_min, quant_max, zero_point_domain, dtype = (
+            tensor_attributes
+        )
         return cls(
             tensor_impl,
             block_size,
@@ -179,20 +195,58 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         input_float = _layout.pre_process(input_float)
 
         if use_hqq:
-            assert zero_point_domain == ZeroPointDomain.FLOAT and mapping_type == MappingType.ASYMMETRIC and quant_min==0, "Invalid input parameters for HQQ quantization."
+            assert (
+                zero_point_domain == ZeroPointDomain.FLOAT
+                and mapping_type == MappingType.ASYMMETRIC
+                and quant_min == 0
+            ), "Invalid input parameters for HQQ quantization."
             nbits = int(math.log2(quant_max + 1))
-            axis  = 1 if (block_size[0]==1) else 0
+            axis = 1 if (block_size[0] == 1) else 0
             group_size = max(block_size)
-            compute_dtype = zero_point_dtype if (zero_point_dtype is not None) else input_float.dtype
+            compute_dtype = (
+                zero_point_dtype
+                if (zero_point_dtype is not None)
+                else input_float.dtype
+            )
             device = input_float.device
-            data, scale, zero_point, _ = choose_qparams_and_quantize_affine_hqq(input_float, nbits=nbits, group_size=group_size, axis=axis, compute_dtype=compute_dtype, device=device, verbose=False, raw_output=False)
+            data, scale, zero_point, _ = choose_qparams_and_quantize_affine_hqq(
+                input_float,
+                nbits=nbits,
+                group_size=group_size,
+                axis=axis,
+                compute_dtype=compute_dtype,
+                device=device,
+                verbose=False,
+                raw_output=False,
+            )
             data = data.to(target_dtype)
         else:
-            scale, zero_point = choose_qparams_affine(input_float, mapping_type, block_size, target_dtype, quant_min, quant_max, eps, scale_dtype, zero_point_dtype, preserve_zero, zero_point_domain)
+            scale, zero_point = choose_qparams_affine(
+                input_float,
+                mapping_type,
+                block_size,
+                target_dtype,
+                quant_min,
+                quant_max,
+                eps,
+                scale_dtype,
+                zero_point_dtype,
+                preserve_zero,
+                zero_point_domain,
+            )
             # choose_qparams_affine is a custom op that does support returning optional Tensors. We thus set the zero_point to None if its domain is None
             if zero_point_domain is None:
                 zero_point = None
-            data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
+            data = quantize_affine(
+                input_float,
+                block_size,
+                scale,
+                zero_point,
+                target_dtype,
+                quant_min,
+                quant_max,
+                zero_point_domain,
+            )
             # Note: output will be uint8 tensor for sub byte tensors for now
 
         data = _layout.post_process(data)
@@ -205,7 +259,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
             quant_min,
             quant_max,
             zero_point_domain,
-            dtype=input_float.dtype
+            dtype=input_float.dtype,
         )
 
     @classmethod
@@ -222,12 +276,27 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         _layout: Layout = PlainLayout(),
     ):
         if target_dtype not in FP8_TYPES:
-            assert zero_point_domain is not None, "zero_point_domain must be specified for non-fp8 types"
-            assert zero_point is not None, "zero_point must be specified for non-fp8 types"
+            assert (
+                zero_point_domain is not None
+            ), "zero_point_domain must be specified for non-fp8 types"
+            assert (
+                zero_point is not None
+            ), "zero_point must be specified for non-fp8 types"
         original_shape = input_float.shape
-        input_float, scale, zero_point = _layout.pre_process_static(input_float, scale, zero_point, block_size)
+        input_float, scale, zero_point = _layout.pre_process_static(
+            input_float, scale, zero_point, block_size
+        )
 
-        int_data = quantize_affine(input_float, block_size, scale, zero_point, target_dtype, quant_min, quant_max, zero_point_domain)
+        int_data = quantize_affine(
+            input_float,
+            block_size,
+            scale,
+            zero_point,
+            target_dtype,
+            quant_min,
+            quant_max,
+            zero_point_domain,
+        )
 
         int_data = _layout.post_process(int_data)
 
@@ -252,7 +321,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         _layout: Layout,
         scale_dtype: Optional[torch.dtype] = None,
     ):
-
         if target_dtype in FP8_TYPES:
             return cls.from_hp_to_intx(
                 input_float=input_float,
@@ -270,7 +338,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 use_hqq=False,
             )
         else:
-            raise NotImplementedError(f"Unsupported dtype {target_dtype} for from_hp_to_floatx")
+            raise NotImplementedError(
+                f"Unsupported dtype {target_dtype} for from_hp_to_floatx"
+            )
 
     @classmethod
     def from_hp_to_floatx_static(
@@ -281,7 +351,6 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         target_dtype: torch.dtype,
         _layout: Layout,
     ):
-
         if target_dtype in FP8_TYPES:
             return cls.from_hp_to_intx_static(
                 input_float=input_float,
@@ -295,7 +364,9 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
                 _layout=_layout,
             )
         else:
-            raise NotImplementedError(f"Unsupported dtype {target_dtype} for from_hp_to_floatx_static")
+            raise NotImplementedError(
+                f"Unsupported dtype {target_dtype} for from_hp_to_floatx_static"
+            )
 
     @classmethod
     def from_hp_to_fpx(
@@ -304,7 +375,10 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
         _layout: Layout,
     ):
         from torchao.dtypes.floatx import FloatxTensorCoreLayout
-        assert isinstance(_layout, FloatxTensorCoreLayout), f"Only FloatxTensorCoreLayout is supported for floatx, got {_layout}"
+
+        assert isinstance(
+            _layout, FloatxTensorCoreLayout
+        ), f"Only FloatxTensorCoreLayout is supported for floatx, got {_layout}"
         original_shape = input_float.shape
         input_float = _layout.pre_process(input_float)
         # per axis quantization, where axis = 1
@@ -319,12 +393,7 @@ class AffineQuantizedTensor(TorchAOBaseTensor):
 
         tensor_impl_ctr = get_tensor_impl_constructor(type(_layout))
         tensor_impl = tensor_impl_ctr(floatx_packed, scale, None, _layout)
-        return cls(
-            tensor_impl,
-            block_size,
-            original_shape,
-            dtype=input_float.dtype
-        )
+        return cls(tensor_impl, block_size, original_shape, dtype=input_float.dtype)
 
     @property
     def _layout(self) -> Layout:
@@ -388,6 +457,7 @@ class PlainAQTTensorImpl(AQTTensorImpl):
       scale (torch.Tensor): the scale Tensor used to map between floating point tensor to quantized tensor
       zero_point (torch.Tensor): the zero_point Tensor used to map between floating point tensor to quantized tensor
     """
+
     def __new__(
         cls,
         int_data: torch.Tensor,
@@ -424,8 +494,12 @@ class PlainAQTTensorImpl(AQTTensorImpl):
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
-        int_data, scale, zero_point = tensor_data_dict["int_data"], tensor_data_dict["scale"], tensor_data_dict["zero_point"]
-        _layout, = tensor_attributes
+        int_data, scale, zero_point = (
+            tensor_data_dict["int_data"],
+            tensor_data_dict["scale"],
+            tensor_data_dict["zero_point"],
+        )
+        (_layout,) = tensor_attributes
         return cls(int_data, scale, zero_point, _layout)
 
     def to(self, *args, **kwargs):
@@ -470,13 +544,27 @@ class PlainAQTTensorImpl(AQTTensorImpl):
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
             if dim == 0:
                 return return_and_correct_aliasing(
-                    func, args, kwargs, args[0]._apply_fn_to_data(lambda x: aten.slice.Tensor(x, dim, start, end, step))
+                    func,
+                    args,
+                    kwargs,
+                    args[0]._apply_fn_to_data(
+                        lambda x: aten.slice.Tensor(x, dim, start, end, step)
+                    ),
                 )
             elif dim == 1:
-                assert len(self.scale.shape) == 1, f"slice dim==1 only works when len(scale.shape) == 1 currently, got: {self.scale.shape}"
-                return PlainAQTTensorImpl(aten.slice.Tensor(self.int_data, dim, start, end, step), self.scale.view(-1), self.zero_point.view(-1), self._layout)
+                assert (
+                    len(self.scale.shape) == 1
+                ), f"slice dim==1 only works when len(scale.shape) == 1 currently, got: {self.scale.shape}"
+                return PlainAQTTensorImpl(
+                    aten.slice.Tensor(self.int_data, dim, start, end, step),
+                    self.scale.view(-1),
+                    self.zero_point.view(-1),
+                    self._layout,
+                )
             else:
-                raise NotImplementedError(f"PlainAQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported")
+                raise NotImplementedError(
+                    f"PlainAQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported"
+                )
 
         raise NotImplementedError(
             f"PlainAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
