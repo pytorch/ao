@@ -122,14 +122,17 @@ def _fp32_to_bf16_sr(x_f32: Tensor) -> Tensor:
     # [a15, ..., a0] / 2^16, where the bit pattern [a15, ..., a0] is interpreted as uint16
     #
     # we have to use int32 since most arithmetic ops are not implemented for uint32/int16/uint16
-    rand_16bit = torch.randint(0, 1 << 16, x_f32.shape, device=x_f32.device, dtype=torch.int32)
+    rand_16bit = torch.randint(
+        0, 1 << 16, x_f32.shape, device=x_f32.device, dtype=torch.int32
+    )
     x_f32_bits = x_f32.view(torch.int32)
-    x_fraction = x_f32_bits & 0xFFFF                # lower 16 bits
-    x_bf16_towards_zero = x_f32_bits & 0xFFFF0000   # upper 16 bits
+    x_fraction = x_f32_bits & 0xFFFF  # lower 16 bits
+    x_bf16_towards_zero = x_f32_bits & 0xFFFF0000  # upper 16 bits
 
     x_f32_bits = torch.where(
-        rand_16bit < x_fraction,        # this is True with the probability of p_fraction
-        x_bf16_towards_zero + 0x10000,  # this might overflow, which will result in UB due to signed integer
+        rand_16bit < x_fraction,  # this is True with the probability of p_fraction
+        x_bf16_towards_zero
+        + 0x10000,  # this might overflow, which will result in UB due to signed integer
         x_bf16_towards_zero,
     )
     # alternative, slightly faster
