@@ -223,20 +223,24 @@ def main(checkpoint_path,
         # TODO: Using CUDA graphs can cause numerical differences?
         mask_generator.predictor.model.image_encoder = torch.compile(
             mask_generator.predictor.model.image_encoder,
-            mode="max-autotune-no-cudagraphs",
-            # mode="max-autotune",
+            # mode="max-autotune-no-cudagraphs",
+            mode="max-autotune",
             fullgraph=True,
             dynamic=False,
         )
 
+        # Should be able to compile this
+        # mask_generator.predictor._predict = torch.compile(
+            # mask_generator.predictor._predict,
+
         # TODO: This causes numerical issues for large batches and furious (low precision)
-        if not furious:
-            mask_generator.predictor._predict = torch.compile(
-                mask_generator.predictor._predict,
-                # mode="max-autotune-no-cudagraphs",
-                fullgraph=True,
-                dynamic=True,
-            )
+        # if not furious:
+        mask_generator.predictor.model.sam_mask_decoder.transformer = torch.compile(
+            mask_generator.predictor.model.sam_mask_decoder.transformer,
+            # mode="max-autotune-no-cudagraphs",
+            fullgraph=True,
+            dynamic=True,
+        )
 
     # if furious:
     #     from torchao.quantization import autoquant

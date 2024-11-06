@@ -1,7 +1,7 @@
 import fire
 import torch
 import json
-from sam2.utils.amg import rle_to_mask
+from torchao._models.sam2.utils.amg import rle_to_mask
 
 """
 Script to calculate mIoU given two lists of rles from upload_rle endpoint

@@ -11,6 +11,36 @@ from torch import nn
 
 from torchao._models.sam2.modeling.sam2_utils import LayerNorm2d, MLP
 
+from torch.utils._python_dispatch import TorchDispatchMode
+from torch.utils._pytree import tree_flatten
+
+class NanDetect(TorchDispatchMode):
+    def __torch_dispatch__(self, func, types, args, kwargs=None):
+        kwargs = kwargs or {}
+        res = func(*args, **kwargs)
+        return res
+
+        flat_res, _ = tree_flatten(res)
+
+        for t in flat_res:
+            if not torch.is_tensor(t):
+                continue
+            try:
+                if (t != t).any():
+                    raise RuntimeError(
+                        f"Function {func}(*{args}, **{kwargs}) " "returned a NaN"
+                    )
+            except NotImplementedError:
+                pass
+        return res
+
+# a = torch.tensor([0.,])
+# print(a.div(a))
+# 
+# # This will raise
+# # RuntimeError: Function aten.div.Tensor(*(tensor([0.]), tensor([0.])), **{}) returned a NaN
+# with NanDetect():
+#     print(a.div(a))
 
 class MaskDecoder(nn.Module):
     def __init__(
@@ -214,12 +244,31 @@ class MaskDecoder(nn.Module):
             src = src.to(torch.float16)
             pos_src = pos_src.to(torch.float16)
             tokens = tokens.to(torch.float16)
-            hs, src = self.transformer(src, pos_src, tokens)
+            # with NanDetect():
+            hs, new_src = self.transformer(src, pos_src, tokens)
+            # print("hs.isnan().any(): ", hs.isnan().any().item())
+
+        # import sys; sys.exit(1)
+
+
+        # def test_fn():
+        #     torch._dynamo.reset()
+        #     hs, new_src = torch.compile(self.transformer, fullgraph=True, dynamic=True)(src, pos_src, tokens)
+        #     return not hs.isnan().any().item()
+
+        # # from torch._inductor.compiler_bisector import CompilerBisector
+        # # cb = CompilerBisector.do_bisect(test_fn)
+        # from torch._inductor.bisect_helper import BisectionManager
+        # cb = BisectionManager.do_bisect(test_fn)
+        # print(cb)
+        # import pdb; pdb.set_trace()
+        # import sys; sys.exit(1)
+
         iou_token_out = hs[:, s, :]
         mask_tokens_out = hs[:, s + 1 : (s + 1 + self.num_mask_tokens), :]
 
         # Upscale mask embeddings and predict masks using the mask tokens
-        src = src.transpose(1, 2).view(b, c, h, w)
+        src = new_src.transpose(1, 2).view(b, c, h, w)
         if not self.use_high_res_features:
             upscaled_embedding = self.output_upscaling(src)
         else:
