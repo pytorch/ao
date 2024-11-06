@@ -171,6 +171,8 @@ def mask_to_rle_pytorch_2(tensor: torch.Tensor) -> List[Dict[str, Any]]:
     diff = torch.cat([a, diff, a], dim=1)
     change_indices = diff.nonzero()
 
+    # TODO: tolist causes compile issues because of data dependent shapes
+    # alt_lens = diff.sum(dim=1).tolist()
     alt_lens = diff.sum(dim=1).tolist()
 
     all_cur_idx = change_indices[:, 1]
