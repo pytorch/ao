@@ -20,7 +20,7 @@ def quantize_fp8(input: Tensor, block_size: int):
     return codes.view(shape), scale
 
 
-def dynamic_range_expansion(input: Tensor, block_size: int):
+def apply_dynamic_range_expansion(input: Tensor, block_size: int):
 
     shape = input.shape
     input = input.view(-1, block_size)
