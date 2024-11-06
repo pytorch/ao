@@ -29,7 +29,7 @@ jobs:
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.1"
 
-    uses: pytorch/test-infra/.github/workflows/linux_job.yml@main
+    uses: pytorch/test-infra/.github/workflows/linux_job.yml@jeanschmidt/linux_job_containers
     with:
       timeout: 60
       runner: ${{ matrix.runs-on }}
