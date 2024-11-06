@@ -1,6 +1,6 @@
 from .nf4tensor import NF4Tensor, to_nf4
 # from ..prototype.dtypes.uint2 import UInt2Tensor, BitnetTensor
-from .uint4 import UInt4Tensor
+from .uintx import UInt4Tensor
 from .affine_quantized_tensor import (
     AffineQuantizedTensor,
     to_affine_quantized_intx,
@@ -9,15 +9,22 @@ from .affine_quantized_tensor import (
     to_affine_quantized_fpx,
     to_affine_quantized_floatx,
     to_affine_quantized_floatx_static,
+    PlainAQTTensorImpl,
+)
+from .affine_quantized_tensor_ops import *
+from .utils import (
     Layout,
     PlainLayout,
-    SemiSparseLayout,
-    TensorCoreTiledLayout,
+)
+from .floatx import (
     Float8Layout,
     Float8AQTTensorImpl,
+)
+from .uintx import (
+    SemiSparseLayout,
+    TensorCoreTiledLayout,
     MarlinSparseLayout,
 )
-
 __all__ = [
     "NF4Tensor",
     "to_nf4",

@@ -3,14 +3,20 @@ from typing import Tuple, Optional
 
 import torch
 from torch import Tensor
-from torch.utils._python_dispatch import return_and_correct_aliasing
+from torch.utils._python_dispatch import (
+    return_and_correct_aliasing,
+    is_traceable_wrapper_subclass,
+)
 from torchao.prototype.custom_fp_utils import _f32_to_floatx_unpacked, _floatx_unpacked_to_f32, _n_ones
 from torchao.dtypes.utils import (
     Layout,
+    AQTTensorImpl,
 )
-from torchao.quantization.quant_api import _get_linear_subclass_inserter
+from torchao.dtypes.affine_quantized_tensor import (
+    AffineQuantizedTensor,
+    register_layout,
+)
 from dataclasses import dataclass
-from torchao.dtypes.affine_quantized_tensor import AQTTensorImpl, register_layout
 
 
 aten = torch.ops.aten
@@ -360,6 +366,7 @@ class FloatxTensorCoreLayout(Layout):
     ebits: int
     mbits: int
 
+
 @register_layout(FloatxTensorCoreLayout)
 class FloatxTensorCoreAQTTensorImpl(AQTTensorImpl):
     """FloatxTensorCoreAQTTensorImpl represents a Tensor with dtype floatx(ebits=a, mbits=b),
@@ -491,3 +498,56 @@ class FloatxTensorCoreAQTTensorImpl(AQTTensorImpl):
 
     def get_layout(self) -> Layout:
         return self._layout
+
+
+def _linear_f16_bf16_act_floatx_weight_check(input_tensor, weight_tensor, bias):
+    from torchao.dtypes.floatx import FloatxTensorCoreLayout
+    return (
+        # input is native float32 tensor
+        not is_traceable_wrapper_subclass(input_tensor) and
+        input_tensor.is_floating_point() and
+        input_tensor.dtype in (torch.float16, torch.bfloat16) and
+        # weight is floatx Tensor
+        isinstance(weight_tensor, AffineQuantizedTensor) and
+        isinstance(weight_tensor._layout, FloatxTensorCoreLayout) and
+        (
+            # weight is using fp6 quantization
+            (weight_tensor._layout.ebits == 3 and
+             weight_tensor._layout.mbits == 2) or
+            (weight_tensor._layout.ebits == 2 and
+             weight_tensor._layout.mbits == 3) or
+            # weight is using fp5 quantization
+            (weight_tensor._layout.ebits == 2 and
+             weight_tensor._layout.mbits == 2) or
+            (weight_tensor._layout.ebits == 3 and
+             weight_tensor._layout.mbits == 1)
+        )
+    )
+
+def _linear_f16_bf16_act_floatx_weight_impl(input_tensor, weight_tensor, bias):
+    from torchao.dtypes.floatx import _SPLIT_K_MAP
+    from torchao.ops import quant_llm_linear
+
+    act = input_tensor
+    weight = weight_tensor
+
+    out_dim, in_dim = weight.shape
+    act_reshaped = act.view(-1, in_dim)
+
+    # https://github.com/microsoft/DeepSpeed/blob/3a3a6db3332e339cc9fd94efd4982f6d60635a3d/deepspeed/inference/v2/kernels/core_ops/cuda_linear/cuda_linear.py
+    bsize = act_reshaped.shape[0]
+    splitK = _SPLIT_K_MAP[(bsize - 1) // 64].get(out_dim, 1) if bsize <= 768 else 1
+
+    out = quant_llm_linear(
+        weight._layout.ebits,
+        weight._layout.mbits,
+        act_reshaped,
+        weight.tensor_impl.packed_floatx_data,
+        weight.tensor_impl.scale,
+        splitK=splitK,
+    )
+
+    if bias is not None:
+        out += bias
+
+    return out.view(*act.shape[:-1], out_dim).to(act.dtype)

@@ -1,6 +1,7 @@
 import torch
 from typing import Union, Tuple
 from dataclasses import dataclass
+from torchao.utils import TorchAOBaseTensor
 
 """
 Base class for different layout, following the same design of PyTorch layout
@@ -58,3 +59,42 @@ def get_out_shape(input_shape: Tuple[int], weight_shape: Tuple[int]) -> Tuple[in
     out_dim = weight_shape[0]
     inpt_dims = input_shape[:-1]
     return (*inpt_dims, out_dim)
+
+
+###############################
+# Base Tensor Impl Subclass #
+###############################
+class AQTTensorImpl(TorchAOBaseTensor):
+    """
+    Base class for the tensor impl for `AffineQuantizedTensor`
+
+    Note: This is not a user facing API, it's used by AffineQuantizedTensor to construct
+    the underlying implementation of a AQT based on layout
+    """
+    def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Get the plain (unpacked) Tensor for the tensor impl
+
+        Returns data, scale and zero_point
+        Can be overwritten if other types of AQTTensorImpl has different numbers of plain tensors
+        """
+        pass
+
+    def get_layout(self) -> Layout:
+        pass
+
+    @classmethod
+    def from_plain(
+        cls,
+        data: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        _layout: Layout,
+    ):
+        """ Construct a TensorImpl from data, scale, zero_point and the _layout"""
+        pass
+
+    def __repr__(self):
+        data, scale, zero_point = self.get_plain()
+        _layout = self.get_layout()
+        return f"{self.__class__.__name__}(data={str(data)}... , scale={str(scale)}... , zero_point={str(zero_point)}... , _layout={_layout})"
+

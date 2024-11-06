@@ -120,3 +120,4 @@ def mask_creator(
     mask = w_b.scatter_(dim=1, index=index, value=0).reshape(tensor.shape)
 
     return mask
+
