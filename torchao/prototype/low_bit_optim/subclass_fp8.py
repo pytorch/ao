@@ -160,6 +160,23 @@ def _(func, types, args, kwargs):
     )
 
 
+class OptimStateFp8WithDynamicRangeExpansion(OptimStateFp8):
+    def __init__(self, codes, scale):
+        super().__init__(codes, scale)
+    
+    def dequantize(self, output_dtype=None):
+
+        codes = super().dequantize(output_dtype)
+
+        float_data = codes.view(-1, self.block_size)
+        float_data =  float_data ** (1 / self.k.view(-1, 1))
+
+        if output_dtype is not None:
+            float_data = float_data.to(output_dtype)
+
+        return float_data.view(self.codes.shape)
+
+
 if TORCH_VERSION_AT_LEAST_2_5:
     from torch.serialization import add_safe_globals
 
