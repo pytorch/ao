@@ -3,10 +3,19 @@ import math
 import torch
 from torch import Tensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
-from torchao.utils import TorchAOBaseTensor, TORCH_VERSION_AT_LEAST_2_4
 
-from .quant_utils import create_dynamic_map, scale_tensor, quantize_4bit_with_qmap, dequant_with_qmap
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_4,
+    TORCH_VERSION_AT_LEAST_2_5,
+    TorchAOBaseTensor,
+)
 
+from .quant_utils import (
+    create_dynamic_map,
+    dequant_with_qmap,
+    quantize_4bit_with_qmap,
+    scale_tensor,
+)
 
 aten = torch.ops.aten
 c10d_functional = torch.ops.c10d_functional
@@ -55,8 +64,12 @@ class OptimState4bit(TorchAOBaseTensor):
         return self.tensor_attrs, [self.signed, self._shape]
 
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
-        return cls(*[tensor_data_dict[name] for name in cls.tensor_attrs], *tensor_attributes)
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None
+    ):
+        return cls(
+            *[tensor_data_dict[name] for name in cls.tensor_attrs], *tensor_attributes
+        )
 
     def dequantize(self, output_dtype=None):
         codes = torch.stack([self.codes >> 4, self.codes & 0b1111], dim=-1)  # unpack
@@ -85,6 +98,7 @@ class OptimState4bit(TorchAOBaseTensor):
 # in pre-2.4, calling .to(device, dtype) will not dispatch aten._to_copy.default when
 # dtype is the same but device is different. thus, we must override .to() method instead.
 if not TORCH_VERSION_AT_LEAST_2_4:
+
     def _to(self, *args, **kwargs):
         # ignore other args/kwargs
         device = kwargs.pop("device", None)
@@ -158,16 +172,20 @@ def _(func, types, args, kwargs):
     if len(shape) == 1 and shape[0] == -1:
         return OptimState4bit(x.codes, x.scale, x.qmap, x.signed, (x.numel(),))
 
-    raise ValueError(f"{x.__class__.__name__} only supports .view() with same shape or shape=[-1]")
+    raise ValueError(
+        f"{x.__class__.__name__} only supports .view() with same shape or shape=[-1]"
+    )
 
 
 # this is needed for DTensor.full_tensor()
-@OptimState4bit.implements([
-    c10d_functional.all_gather_into_tensor.default,
-    _c10d_functional.all_gather_into_tensor.default,
-    c10d_functional.wait_tensor.default,
-    _c10d_functional.wait_tensor.default,
-])
+@OptimState4bit.implements(
+    [
+        c10d_functional.all_gather_into_tensor.default,
+        _c10d_functional.all_gather_into_tensor.default,
+        c10d_functional.wait_tensor.default,
+        _c10d_functional.wait_tensor.default,
+    ]
+)
 def _(func, types, args, kwargs):
     x = args[0]
     if not isinstance(x, OptimState4bit):
@@ -181,3 +199,9 @@ def _(func, types, args, kwargs):
 
     # assume tensors from all ranks have the same signedness
     return OptimState4bit(codes, scale, x.qmap.clone(), x.signed, shape)
+
+
+if TORCH_VERSION_AT_LEAST_2_5:
+    from torch.serialization import add_safe_globals
+
+    add_safe_globals([OptimState4bit])
