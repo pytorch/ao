@@ -11,6 +11,9 @@ include = [
     "torchao/quantization/linear_activation_weight_observer.py",
     "test/quantization/test_observer.py",
     "test/dtypes/test_affine_quantized_float.py",
-    "torchao/quantization/weight_tensor_linear_activation_quantization.py"
+    "torchao/quantization/weight_tensor_linear_activation_quantization.py",
+    "torchao/dtypes/**/*.py",
+    "torchao/prototype/low_bit_optim/**.py",
+    "test/prototype/low_bit_optim/**.py",
 
 ]

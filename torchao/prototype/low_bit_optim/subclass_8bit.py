@@ -4,9 +4,18 @@ import torch
 from torch import Tensor
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TorchAOBaseTensor
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_4,
+    TORCH_VERSION_AT_LEAST_2_5,
+    TorchAOBaseTensor,
+)
 
-from .quant_utils import create_dynamic_map, dequant_with_qmap, quantize_8bit_with_qmap, scale_tensor
+from .quant_utils import (
+    create_dynamic_map,
+    dequant_with_qmap,
+    quantize_8bit_with_qmap,
+    scale_tensor,
+)
 
 aten = torch.ops.aten
 c10d_functional = torch.ops.c10d_functional
@@ -48,8 +57,12 @@ class OptimState8bit(TorchAOBaseTensor):
         return self.tensor_attrs, [self.signed]
 
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None):
-        return cls(*[tensor_data_dict[name] for name in cls.tensor_attrs], *tensor_attributes)
+    def __tensor_unflatten__(
+        cls, tensor_data_dict, tensor_attributes, outer_size=None, outer_stride=None
+    ):
+        return cls(
+            *[tensor_data_dict[name] for name in cls.tensor_attrs], *tensor_attributes
+        )
 
     def dequantize(self, output_dtype=None):
         float_data = dequant_with_qmap(self.codes, self.qmap, self.scale)
@@ -201,3 +214,9 @@ def _(func, types, args, kwargs):
         x.qmap.clone(),
         x.signed,
     )
+
+
+if TORCH_VERSION_AT_LEAST_2_5:
+    from torch.serialization import add_safe_globals
+
+    add_safe_globals([OptimState8bit])

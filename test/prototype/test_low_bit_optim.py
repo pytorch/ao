@@ -20,7 +20,11 @@ from torchao.prototype.low_bit_optim.quant_utils import (
 from torchao.prototype.low_bit_optim.subclass_4bit import OptimState4bit
 from torchao.prototype.low_bit_optim.subclass_8bit import OptimState8bit
 from torchao.prototype.low_bit_optim.subclass_fp8 import OptimStateFp8
-from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_5, TORCH_VERSION_AT_LEAST_2_6
+from torchao.utils import (
+    TORCH_VERSION_AT_LEAST_2_4,
+    TORCH_VERSION_AT_LEAST_2_5,
+    TORCH_VERSION_AT_LEAST_2_6,
+)
 
 try:
     import bitsandbytes as bnb
@@ -86,7 +90,9 @@ class TestQuantize(TestCase):
         x_rep = x.view(-1, 1).repeat(1, 100_000)
 
         if compile:
-            x_rep_bf16 = torch.compile(_fp32_to_bf16_sr, fullgraph=True, dynamic=False)(x_rep)
+            x_rep_bf16 = torch.compile(_fp32_to_bf16_sr, fullgraph=True, dynamic=False)(
+                x_rep
+            )
         else:
             x_rep_bf16 = _fp32_to_bf16_sr(x_rep)
 
@@ -97,7 +103,10 @@ class TestQuantize(TestCase):
 
 
 class TestOptim(TestCase):
-    @parametrize("optim_name", ["Adam8bit", "AdamW8bit", "Adam4bit", "AdamW4bit", "AdamFp8", "AdamWFp8"])
+    @parametrize(
+        "optim_name",
+        ["Adam8bit", "AdamW8bit", "Adam4bit", "AdamW4bit", "AdamFp8", "AdamWFp8"],
+    )
     @parametrize("dtype", [torch.float32, torch.bfloat16])
     @parametrize("device", _DEVICES)
     def test_optim_smoke(self, optim_name, dtype, device):
@@ -164,18 +173,25 @@ class TestOptim(TestCase):
         torch.testing.assert_close(tensor.dequantize()[offset:offset*2], tensor[offset:offset*2].dequantize())
 
     @pytest.mark.skipif(bnb is None, reason="bitsandbytes is not available")
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="bitsandbytes 8-bit Adam only works for CUDA")
+    @pytest.mark.skipif(
+        not torch.cuda.is_available(),
+        reason="bitsandbytes 8-bit Adam only works for CUDA",
+    )
     @parametrize("optim_name", ["Adam8bit", "AdamW8bit"])
     def test_optim_8bit_correctness(self, optim_name):
         device = "cuda"
-        model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
+        model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(
+            device
+        )
         model2 = copy.deepcopy(model1)
 
         # https://github.com/bitsandbytes-foundation/bitsandbytes/releases/tag/v0.44.0
         block_size = 256 if Version(bnb.__version__) >= Version("0.44.0") else 2048
 
         optim1 = getattr(bnb.optim, optim_name)(model1.parameters())
-        optim2 = getattr(low_bit_optim, optim_name)(model2.parameters(), block_size=block_size)
+        optim2 = getattr(low_bit_optim, optim_name)(
+            model2.parameters(), block_size=block_size
+        )
 
         for _ in range(2):
             x = torch.randn(4, 32, device=device)
@@ -195,11 +211,15 @@ class TestOptim(TestCase):
 
     # this will not run in CI because we can't install lpmm
     @pytest.mark.skipif(lpmm is None, reason="lpmm is not available")
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="lpmm 4-bit Adam only works for CUDA")
+    @pytest.mark.skipif(
+        not torch.cuda.is_available(), reason="lpmm 4-bit Adam only works for CUDA"
+    )
     @parametrize("optim_name", ["Adam4bit", "AdamW4bit"])
     def test_optim_4bit_correctness(self, optim_name):
         device = "cuda"
-        model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
+        model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(
+            device
+        )
         model2 = copy.deepcopy(model1)
 
         # lpmm doesn't have Adam. use AdamW with no weight decay instead.
@@ -227,12 +247,18 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model1.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1, rtol=1e-5, atol=1e-5)
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="optim CPU offload requires CUDA")
+    @pytest.mark.skipif(
+        not torch.cuda.is_available(), reason="optim CPU offload requires CUDA"
+    )
     @parametrize("offload_grad,grad_accum", [(False, 1), (False, 2), (True, 1)])
     def test_optim_cpu_offload_correctness(self, offload_grad, grad_accum):
         device = "cuda"
-        model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
-        model1[0].requires_grad_(False)  # make sure it can work in the presence of non-trainable params
+        model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(
+            device
+        )
+        model1[0].requires_grad_(
+            False
+        )  # make sure it can work in the presence of non-trainable params
         model2 = copy.deepcopy(model1)
 
         optim1 = torch.optim.AdamW(model1.parameters())
@@ -257,11 +283,17 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model1.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="optim CPU offload requires CUDA")
+    @pytest.mark.skipif(
+        not torch.cuda.is_available(), reason="optim CPU offload requires CUDA"
+    )
     def test_optim_cpu_offload_save_load(self):
         device = "cuda"
-        model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
-        optim1 = low_bit_optim.CPUOffloadOptimizer(model1.parameters(), torch.optim.AdamW)
+        model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(
+            device
+        )
+        optim1 = low_bit_optim.CPUOffloadOptimizer(
+            model1.parameters(), torch.optim.AdamW
+        )
 
         for _ in range(2):
             x = torch.randn(4, 32, device=device)
@@ -276,7 +308,9 @@ class TestOptim(TestCase):
 
         # resume training
         model2 = copy.deepcopy(model1)
-        optim2 = low_bit_optim.CPUOffloadOptimizer(model2.parameters(), torch.optim.AdamW)
+        optim2 = low_bit_optim.CPUOffloadOptimizer(
+            model2.parameters(), torch.optim.AdamW
+        )
         optim2.load_state_dict(state_dict)
 
         for _ in range(2):
@@ -296,13 +330,17 @@ class TestOptim(TestCase):
     def test_optim_bf16_stochastic_round_correctness(self):
         device = "cuda" if torch.cuda.is_available() else "cpu"
         torch.manual_seed(2024)
-        model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(device)
+        model1 = nn.Sequential(nn.Linear(32, 1024), nn.ReLU(), nn.Linear(1024, 128)).to(
+            device
+        )
         model2 = copy.deepcopy(model1).bfloat16()
 
         # small LR so that weight update is small
         # when bf16_stochastic_round=False, the test will fail after 1 iteration
         optim1 = torch.optim.AdamW(model1.parameters(), lr=1e-5)
-        optim2 = low_bit_optim._AdamW(model2.parameters(), lr=1e-5, bf16_stochastic_round=True)
+        optim2 = low_bit_optim._AdamW(
+            model2.parameters(), lr=1e-5, bf16_stochastic_round=True
+        )
 
         # overfit on this sample
         x = torch.randn(4, 32, device=device)
@@ -322,7 +360,9 @@ class TestOptim(TestCase):
             optim2.step()
             optim2.zero_grad()
 
-            torch.testing.assert_close(loss1, loss2, msg=lambda msg: f"Iteration {idx}. {msg}")
+            torch.testing.assert_close(
+                loss1, loss2, msg=lambda msg: f"Iteration {idx}. {msg}"
+            )
 
 
 _FSDP_WORLD_SIZE = 2
@@ -333,8 +373,10 @@ class TestFSDP2(FSDPTest):
     def world_size(self) -> int:
         return _FSDP_WORLD_SIZE
 
-    @pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_6, reason="PyTorch>=2.6 is required.")
-    @skip_if_lt_x_gpu(_FSDP_WORLD_SIZE)
+    @pytest.mark.skipif(
+        not TORCH_VERSION_AT_LEAST_2_6, reason="PyTorch>=2.6 is required."
+    )
+    @skip_if_lt_x_gpu(2)
     def test_fsdp2(self):
         optim_classes = [low_bit_optim.AdamW8bit, low_bit_optim.AdamW4bit]
         if torch.cuda.get_device_capability() >= (8, 9):

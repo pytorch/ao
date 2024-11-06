@@ -1,22 +1,23 @@
-import torch
-from typing import Optional, List
 from functools import reduce
+from typing import List, Optional
+
+import torch
 
 # for selecting the shards from 8 bits
 maskbits = {
     1: (0x01,),
     2: (0x03,),
     3: (0x03, 0x04),
-    4: (0x0f,),
-    5: (0x0f, 0x10),
-    6: (0x0f, 0x30),
-    7: (0x0f, 0x30, 0x40),
+    4: (0x0F,),
+    5: (0x0F, 0x10),
+    6: (0x0F, 0x30),
+    7: (0x0F, 0x30, 0x40),
 }
 
 unpack_mask = {
-    1: (0x01,0x02,0x04,0x08, 0x10,0x20,0x40,0x80),
-    2: (0x03,0x0c,0x30,0xc0),
-    4: (0x0f,0xf0),
+    1: (0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80),
+    2: (0x03, 0x0C, 0x30, 0xC0),
+    4: (0x0F, 0xF0),
 }
 
 # size of each shard
@@ -41,6 +42,7 @@ shifts = {
     7: (0, 4, 6),
 }
 
+
 # for shifting groups left but right if shift is negative
 def abs_lsh(data, shift):
     if shift == 0:
@@ -61,9 +63,9 @@ def abs_rsh(data, shift):
         return data >> shift
 
 
-def pack_cpu(data: torch.Tensor,
-         elem_size: int,
-         dim: Optional[int] = -1) -> List[torch.Tensor]:
+def pack_cpu(
+    data: torch.Tensor, elem_size: int, dim: Optional[int] = -1
+) -> List[torch.Tensor]:
     """
     Inputs:
     data: a tensor of sub byte elements in uint8
@@ -111,7 +113,10 @@ def pack_cpu(data: torch.Tensor,
     After pack, data went from 8 elements to 6: [[0, 105, 151, 37], [39, 146]]
     In general this means pack reduces input tensor size from n * 8 to n * elem_size
     """
-    torch._assert(data.shape[dim] % 8 == 0, f"pack dimension size ({data.shape[dim]}) is not divisble by scale")
+    torch._assert(
+        data.shape[dim] % 8 == 0,
+        f"pack dimension size ({data.shape[dim]}) is not divisble by scale",
+    )
     torch._assert(data.dtype == torch.uint8, "data must be uint8")
     output_shape = list(data.shape)
 
@@ -131,9 +136,9 @@ def pack_cpu(data: torch.Tensor,
     return output
 
 
-def unpack_cpu(data: List[torch.Tensor],
-           elem_size: int,
-           dim: Optional[int] = -1) -> torch.Tensor:
+def unpack_cpu(
+    data: List[torch.Tensor], elem_size: int, dim: Optional[int] = -1
+) -> torch.Tensor:
     """
     Unpacks small dtype elements from a larger dtype.
 
@@ -159,31 +164,37 @@ def unpack_cpu(data: List[torch.Tensor],
         for j in range(scale):
             output_narrow = output.narrow(dim, j * group_size, group_size)
             group = data[i] & unpack_mask[bit_size][j]
-            shift_amt = j * bit_size - rel_pos
-            output_narrow.copy_(torch.bitwise_or(output_narrow, abs_rsh(group, j * bit_size - rel_pos)))
+            output_narrow.copy_(
+                torch.bitwise_or(output_narrow, abs_rsh(group, j * bit_size - rel_pos))
+            )
     return output
+
 
 # these are faster on the GPU
 
+
 def _pack(data, elem_size, scale, dim):
-    '''
+    """
     Inner for loop from above pack function
-    '''
+    """
     packed_shape = list(data.shape)
     packed_shape[dim] = packed_shape[dim] // scale
 
     packed = torch.zeros(packed_shape, dtype=data.dtype, device=data.device)
 
     for i in range(scale):
-        narrow_slice = data.narrow(dim, data.shape[dim]*i//scale, data.shape[dim] // scale)
+        narrow_slice = data.narrow(
+            dim, data.shape[dim] * i // scale, data.shape[dim] // scale
+        )
         packed |= narrow_slice << (elem_size * i)
 
     return packed
 
+
 def _unpack(data, element_size, scale, dim):
-    '''
+    """
     Inner for loop from above unpack function
-    '''
+    """
     unpacked_shape = list(data.shape)
     unpacked_shape[dim] *= scale
 
@@ -193,30 +204,57 @@ def _unpack(data, element_size, scale, dim):
 
     for i in range(scale):
         shift_amt = element_size * i
-        chunk = unpacked_data.narrow(dim, unpacked_data.shape[dim]*i//scale, unpacked_data.shape[dim] // scale).copy_((data >> shift_amt) & nbits)
+        unpacked_data.narrow(
+            dim,
+            unpacked_data.shape[dim] * i // scale,
+            unpacked_data.shape[dim] // scale,
+        ).copy_((data >> shift_amt) & nbits)
 
     return unpacked_data
 
 
-def pack(data: torch.Tensor,
-         elem_size: int,
-         dim: Optional[int] = -1) -> List[torch.Tensor]:
-    '''
+def pack(
+    data: torch.Tensor, elem_size: int, dim: Optional[int] = -1
+) -> List[torch.Tensor]:
+    """
     a less branching but more compute version so better for gpu
-    '''
-    torch._assert(data.shape[dim] % 8 == 0, f"pack dimension size ({data.shape[dim]}) is not divisble by scale")
+    """
+    torch._assert(
+        data.shape[dim] % 8 == 0,
+        f"pack dimension size ({data.shape[dim]}) is not divisble by scale",
+    )
     torch._assert(data.dtype == torch.uint8, "data must be uint8")
     container_size = 8
-    shards = [(data & maskbits[elem_size][i]) >> shifts[elem_size][i] for i in range(len(maskbits[elem_size]))]
-    return tuple([_pack(shards[i], numbits[elem_size][i], container_size//numbits[elem_size][i], dim) for i in range(len(maskbits[elem_size]))])
+    shards = [
+        (data & maskbits[elem_size][i]) >> shifts[elem_size][i]
+        for i in range(len(maskbits[elem_size]))
+    ]
+    return tuple(
+        [
+            _pack(
+                shards[i],
+                numbits[elem_size][i],
+                container_size // numbits[elem_size][i],
+                dim,
+            )
+            for i in range(len(maskbits[elem_size]))
+        ]
+    )
 
-def unpack(data: List[torch.Tensor],
-                  elem_size: int,
-                  dim: Optional[int] = 0) -> torch.Tensor:
-    '''
+
+def unpack(
+    data: List[torch.Tensor], elem_size: int, dim: Optional[int] = 0
+) -> torch.Tensor:
+    """
     a less branching but more compute version so better for gpu
-    '''
+    """
     container_size = 8
     # unpack each 4,2,1 bit shard and unshift them back to the correct position
-    data = [_unpack(data[i], numbits[elem_size][i], container_size // numbits[elem_size][i], dim) << shifts[elem_size][i] for i in range(len(data))]
+    data = [
+        _unpack(
+            data[i], numbits[elem_size][i], container_size // numbits[elem_size][i], dim
+        )
+        << shifts[elem_size][i]
+        for i in range(len(data))
+    ]
     return reduce(torch.bitwise_or, data)

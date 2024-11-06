@@ -18,7 +18,6 @@
 // - Modified the TilingConfig parameters for SM75 to deal with smaller shared memory
 //
 
-#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 750  // at least Turing
 
 #include "kernel_matmul.cuh"
 #include "kernel_reduction.cuh"
@@ -26,22 +25,26 @@
 #include <stdio.h>
 #include <assert.h>
 
-inline bool isSM75GPU() {
-    int device;
-    cudaError_t err = cudaGetDevice(&device);
-    if (err != cudaSuccess) return false;
+#include <torch/extension.h>
+#include <ATen/ATen.h>
+#include <ATen/cuda/CUDAContext.h>
+#include <torch/library.h>
 
-    int major, minor;
-    err = cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, device);
-    if (err != cudaSuccess) return false;
 
-    err = cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, device);
-    if (err != cudaSuccess) return false;
+// https://github.com/Dao-AILab/flash-attention/blob/478ee666cccbd1b8f63648633003059a8dc6827d/hopper/utils.h#L25
+#define CHECK_CUDA(call)                                                                                  \
+    do {                                                                                                  \
+        cudaError_t status_ = call;                                                                       \
+        if (status_ != cudaSuccess) {                                                                     \
+            fprintf(stderr, "CUDA error (%s:%d): %s\n", __FILE__, __LINE__, cudaGetErrorString(status_)); \
+            exit(1);                                                                                      \
+        }                                                                                                 \
+    } while(0)
 
-    return (major == 7) && (minor == 5);
-}
+#define CHECK_CUDA_KERNEL_LAUNCH() CHECK_CUDA(cudaGetLastError())
 
-template<typename TilingConfig, typename OutputDataType, int EXPONENT, int MANTISSA>
+
+template<typename TilingConfig, typename InputDataType, typename OutputDataType, int EXPONENT, int MANTISSA>
 static void Kernel_Ex(cudaStream_t    stream,
                       const uint4     *Weight,
                       const half      *Scales,
@@ -59,7 +62,7 @@ static void Kernel_Ex(cudaStream_t    stream,
         printf("TILE_M: %d, TILE_K: %d, TILE_N: %d\n", TilingConfig::TILE_M, TilingConfig::TILE_K, TilingConfig::TILE_N);
     #endif
     static size_t SHMEM_SZ = max(TilingConfig::SMEM_SIZE_B_TILE+SMEM_SIZE_PER_TB_A_TILE, TilingConfig::SMEM_SIZE_C_TILE);
-    cudaFuncSetAttribute(QUANT_GEMM_Kernel<TilingConfig, OutputDataType, EXPONENT, MANTISSA>, cudaFuncAttributeMaxDynamicSharedMemorySize, SHMEM_SZ);
+    cudaFuncSetAttribute(QUANT_GEMM_Kernel<TilingConfig, InputDataType, OutputDataType, EXPONENT, MANTISSA>, cudaFuncAttributeMaxDynamicSharedMemorySize, SHMEM_SZ);
     size_t  dimN = (N_Global-1) / TilingConfig::TILE_N + 1;
     size_t  dimM = M_Global * Split_K / TilingConfig::TILE_M;
     dim3    GridDim(dimN, dimM, 1);
@@ -70,22 +73,24 @@ static void Kernel_Ex(cudaStream_t    stream,
                 GridDim.x, GridDim.y, GridDim.z, BlockDim.x, BlockDim.y, BlockDim.z, SHMEM_SZ);
         printf("\n");
     #endif
-    QUANT_GEMM_Kernel<TilingConfig, OutputDataType, EXPONENT, MANTISSA><<<GridDim, BlockDim, SHMEM_SZ, stream>>>
+    QUANT_GEMM_Kernel<TilingConfig, InputDataType, OutputDataType, EXPONENT, MANTISSA><<<GridDim, BlockDim, SHMEM_SZ, stream>>>
                     (Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);
+    CHECK_CUDA_KERNEL_LAUNCH();
 }
 
-template<int EXPONENT, int MANTISSA>
-cudaError_t fpx_linear_kernel(cudaStream_t    stream,
+template<typename InputDataType, int EXPONENT, int MANTISSA>
+void        fpx_linear_kernel(cudaStream_t    stream,
                               const uint4     *Weight,
                               const half      *Scales,
                               const half      *B,
-                              half            *C,
+                              InputDataType   *C,
                               const size_t    M_Global,
                               const size_t    N_Global,
                               const size_t    K_Global, 
                               float           *Reduction_Workspace,  // Reduction_Workspace_Size = Split_K * M_Global * N_Global * sizeof(fp32)
                               int             Split_K)
 {
+    static_assert(std::is_same<InputDataType, half>::value || std::is_same<InputDataType, __nv_bfloat16>::value, "Type must be 'half' or '__nv_bfloat16'");
     assert(M_Global % 256 == 0);
     assert(K_Global % 64 == 0);
     assert(N_Global>0);
@@ -99,40 +104,49 @@ cudaError_t fpx_linear_kernel(cudaStream_t    stream,
     if(N_Global>64 && N_Global<=128)    N_PowerOf2 = 128;
     if(N_Global>128)                    N_PowerOf2 = ((N_Global-1)/128+1) * 128;
 
-    if (isSM75GPU() && (N_PowerOf2 == 64 || N_PowerOf2 == 128 || N_PowerOf2 % 128 == 0)) {
+    // Check GPU Compute Capability
+    int device, major, minor;
+    CHECK_CUDA(cudaGetDevice(&device));
+    CHECK_CUDA(cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, device));
+    CHECK_CUDA(cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, device));
+    const bool is_sm75_gpu = (major == 7) && (minor == 5);
+    if (is_sm75_gpu && std::is_same<InputDataType, __nv_bfloat16>::value)
+        TORCH_CHECK(false, "Bfloat16 inputs are not supported for SM75");
+    if ((major < 7) || (major == 7 && minor < 5))
+        TORCH_CHECK(false, "FP6LLM_API Error: FP6LLM requires GPU with SM75 or higher!\n");
+
+    if (is_sm75_gpu && (N_PowerOf2 == 64 || N_PowerOf2 == 128 || N_PowerOf2 % 128 == 0)) {
         // For SM75 and N >= 64, we use a different TilingConfig to deal with smaller shared memory.
         if (Split_K == 1) {
-            Kernel_Ex<TilingConfig<4, 1, 4>, half, EXPONENT, MANTISSA>(stream, Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);
+            Kernel_Ex<TilingConfig<4, 1, 4>, InputDataType, InputDataType, EXPONENT, MANTISSA>(stream, Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);
         } else {
-            Kernel_Ex<TilingConfig<4, 1, 4>, float, EXPONENT, MANTISSA>(stream, Weight, Scales, B, Reduction_Workspace, M_Global, N_Global, K_Global, Split_K);
+            Kernel_Ex<TilingConfig<4, 1, 4>, InputDataType, float, EXPONENT, MANTISSA>(stream, Weight, Scales, B, Reduction_Workspace, M_Global, N_Global, K_Global, Split_K);
         }
     } else {
         if (Split_K == 1) {
             switch (N_PowerOf2) {
-                case 8:     Kernel_Ex<TilingConfig<4, 1, 1>, half, EXPONENT, MANTISSA>(stream, Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);  break;
-                case 16:    Kernel_Ex<TilingConfig<4, 1, 2>, half, EXPONENT, MANTISSA>(stream, Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);  break;
-                case 32:    Kernel_Ex<TilingConfig<4, 1, 4>, half, EXPONENT, MANTISSA>(stream, Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);  break;
-                case 64:    Kernel_Ex<TilingConfig<4, 1, 8>, half, EXPONENT, MANTISSA>(stream, Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);  break;
-                case 128:   Kernel_Ex<TilingConfig<4, 1, 8>, half, EXPONENT, MANTISSA>(stream, Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);  break;
+                case 8:     Kernel_Ex<TilingConfig<4, 1, 1>, InputDataType, InputDataType, EXPONENT, MANTISSA>(stream, Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);  break;
+                case 16:    Kernel_Ex<TilingConfig<4, 1, 2>, InputDataType, InputDataType, EXPONENT, MANTISSA>(stream, Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);  break;
+                case 32:    Kernel_Ex<TilingConfig<4, 1, 4>, InputDataType, InputDataType, EXPONENT, MANTISSA>(stream, Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);  break;
+                case 64:    Kernel_Ex<TilingConfig<4, 1, 8>, InputDataType, InputDataType, EXPONENT, MANTISSA>(stream, Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);  break;
+                case 128:   Kernel_Ex<TilingConfig<4, 1, 8>, InputDataType, InputDataType, EXPONENT, MANTISSA>(stream, Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);  break;
                 default:    if (N_PowerOf2 % 128 != 0) {
-                                printf("FP6LLM_API Error: Unsupported N dimension %d!\n", N_PowerOf2);
-                                return cudaErrorUnknown;
+                                TORCH_CHECK(false, "FP6LLM_API Error: Unsupported N dimension ", N_PowerOf2);
                             }
-                            Kernel_Ex<TilingConfig<4, 1, 8>, half, EXPONENT, MANTISSA>(stream, Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);  break;
+                            Kernel_Ex<TilingConfig<4, 1, 8>, InputDataType, InputDataType, EXPONENT, MANTISSA>(stream, Weight, Scales, B, C, M_Global, N_Global, K_Global, Split_K);  break;
             }
         }
         else {
             switch (N_PowerOf2) {
-                case 8:     Kernel_Ex<TilingConfig<4, 1, 1>, float, EXPONENT, MANTISSA>(stream, Weight, Scales, B, Reduction_Workspace, M_Global, N_Global, K_Global, Split_K);  break;
-                case 16:    Kernel_Ex<TilingConfig<4, 1, 2>, float, EXPONENT, MANTISSA>(stream, Weight, Scales, B, Reduction_Workspace, M_Global, N_Global, K_Global, Split_K);  break;
-                case 32:    Kernel_Ex<TilingConfig<4, 1, 4>, float, EXPONENT, MANTISSA>(stream, Weight, Scales, B, Reduction_Workspace, M_Global, N_Global, K_Global, Split_K);  break;
-                case 64:    Kernel_Ex<TilingConfig<4, 1, 8>, float, EXPONENT, MANTISSA>(stream, Weight, Scales, B, Reduction_Workspace, M_Global, N_Global, K_Global, Split_K);  break;
-                case 128:   Kernel_Ex<TilingConfig<4, 1, 8>, float, EXPONENT, MANTISSA>(stream, Weight, Scales, B, Reduction_Workspace, M_Global, N_Global, K_Global, Split_K);  break;
+                case 8:     Kernel_Ex<TilingConfig<4, 1, 1>, InputDataType, float, EXPONENT, MANTISSA>(stream, Weight, Scales, B, Reduction_Workspace, M_Global, N_Global, K_Global, Split_K);  break;
+                case 16:    Kernel_Ex<TilingConfig<4, 1, 2>, InputDataType, float, EXPONENT, MANTISSA>(stream, Weight, Scales, B, Reduction_Workspace, M_Global, N_Global, K_Global, Split_K);  break;
+                case 32:    Kernel_Ex<TilingConfig<4, 1, 4>, InputDataType, float, EXPONENT, MANTISSA>(stream, Weight, Scales, B, Reduction_Workspace, M_Global, N_Global, K_Global, Split_K);  break;
+                case 64:    Kernel_Ex<TilingConfig<4, 1, 8>, InputDataType, float, EXPONENT, MANTISSA>(stream, Weight, Scales, B, Reduction_Workspace, M_Global, N_Global, K_Global, Split_K);  break;
+                case 128:   Kernel_Ex<TilingConfig<4, 1, 8>, InputDataType, float, EXPONENT, MANTISSA>(stream, Weight, Scales, B, Reduction_Workspace, M_Global, N_Global, K_Global, Split_K);  break;
                 default:    if (N_PowerOf2 % 128 != 0) {
-                                printf("FP6LLM_API Error: Unsupported N dimension %d!\n", N_PowerOf2);
-                                return cudaErrorUnknown;
+                                TORCH_CHECK(false, "FP6LLM_API Error: Unsupported N dimension ", N_PowerOf2);
                             }
-                            Kernel_Ex<TilingConfig<4, 1, 8>, float, EXPONENT, MANTISSA>(stream, Weight, Scales, B, Reduction_Workspace, M_Global, N_Global, K_Global, Split_K);  break;
+                            Kernel_Ex<TilingConfig<4, 1, 8>, InputDataType, float, EXPONENT, MANTISSA>(stream, Weight, Scales, B, Reduction_Workspace, M_Global, N_Global, K_Global, Split_K);  break;
             }
         }
     }
@@ -141,17 +155,30 @@ cudaError_t fpx_linear_kernel(cudaStream_t    stream,
         // Reduction for SplitK
         dim3 GridDim((M_Global * N_Global) / REDUCTION_ELEMENT_PER_THREADBLOCK, 1, 1);
         dim3 BlockDim(WARP_SIZE, 1, 1);
-        SplitK_Reduction<<<GridDim, BlockDim, 0, stream>>>(C, Reduction_Workspace, M_Global, N_Global, Split_K);
+        SplitK_Reduction<InputDataType><<<GridDim, BlockDim, 0, stream>>>(C, Reduction_Workspace, M_Global, N_Global, Split_K);
+        CHECK_CUDA_KERNEL_LAUNCH();
     }
-
-    return cudaGetLastError();
 }
 
 
-#include <torch/extension.h>
-#include <ATen/ATen.h>
-#include <ATen/cuda/CUDAContext.h>
-#include <torch/library.h>
+// https://github.com/NVIDIA/apex/blob/master/csrc/type_shim.h
+#define DISPATCH_HALF_AND_BF16(TYPE, NAME, ...)                                \
+  switch (TYPE) {                                                              \
+  case at::ScalarType::Half: {                                                 \
+    using torch_t = at::Half;                                                  \
+    using nv_t = half;                                                         \
+    __VA_ARGS__();                                                             \
+    break;                                                                     \
+  }                                                                            \
+  case at::ScalarType::BFloat16: {                                             \
+    using torch_t = at::BFloat16;                                              \
+    using nv_t = __nv_bfloat16;                                                \
+    __VA_ARGS__();                                                             \
+    break;                                                                     \
+  }                                                                            \
+  default:                                                                     \
+    AT_ERROR(#NAME, " not implemented for '", toString(TYPE), "'");            \
+  }
 
 namespace torchao {
 // MODIFICATION NOTE: dtype of _weights is changed to uint8
@@ -163,12 +190,12 @@ Standard definition of linear layer:    Out = In * trans(W), where In, Out, and 
 After Equivalent transformation    :    trans(Out) = W * trans(In). Note that we do not perform "transpose" during runtime, we instead interpret the In/Out as column-major matrices when calling our CUDA kernel.
 
 [Inputs]
-  _in_feats:  tensor of shape [B, IC];                  // half 
+  _in_feats:  tensor of shape [B, IC];                  // half or bf16
   _weights:   int tensor of shape [OC, IC // 8 * x];    // x UINT8 words contains 8 FPx weights.
-  _scales:    tensor of shape [OC];                     // half
+  _scales:    tensor of shape [OC];                     // half or bf16
   splitK:     spliting the MatMul problem along K dimension for higher GPU utilization, default 1.
 [Outputs]
-  _out_feats: tensor of shape [B, OC];                  // half
+  _out_feats: tensor of shape [B, OC];                  // half or bf16
 */
 torch::Tensor fp_eXmY_linear_forward_cuda(
     int64_t         EXPONENT,
@@ -188,14 +215,8 @@ torch::Tensor fp_eXmY_linear_forward_cuda(
     int M = num_out_channels;
     int K = num_in_channels;
     int N = num_in_feats;
-    // Input Tensors
-    auto weight = reinterpret_cast<const uint4*>(_weights.data_ptr<uint8_t>());  // weights is [OC, IC] but in FP6.
-    auto in_feats = reinterpret_cast<const half*>(_in_feats.data_ptr<at::Half>());
-    auto scales   = reinterpret_cast<const half*>(_scales.data_ptr<at::Half>());
-    // Output Tensors
     auto options = torch::TensorOptions().dtype(_in_feats.dtype()).device(_in_feats.device());
     at::Tensor _out_feats = torch::empty({num_in_feats, num_out_channels}, options);
-    auto out_feats = reinterpret_cast<half*>(_out_feats.data_ptr<at::Half>());
 
     options = torch::TensorOptions().dtype(torch::kFloat32).device(_in_feats.device());
     at::Tensor _workspace = torch::empty({splitK, num_in_feats, num_out_channels}, options);
@@ -205,26 +226,33 @@ torch::Tensor fp_eXmY_linear_forward_cuda(
     // this fixes problem with CUDA graphs when used with torch.compile()
     auto stream = at::cuda::getCurrentCUDAStream();
 
-    // officially supported in Quant-LLM
-    if (EXPONENT == 3 && MANTISSA == 2)
-        fpx_linear_kernel<3, 2>(stream, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
-    else if (EXPONENT == 2 && MANTISSA == 2)
-        fpx_linear_kernel<2, 2>(stream, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
+    DISPATCH_HALF_AND_BF16(_in_feats.scalar_type(), "fpx_linear_kernel", [&] {
+        auto weight = reinterpret_cast<const uint4*>(_weights.data_ptr<uint8_t>());  // weights is [OC, IC] but in FP6.
+        auto in_feats = reinterpret_cast<const half*>(_in_feats.data_ptr<torch_t>());
+        auto scales = reinterpret_cast<const half*>(_scales.data_ptr<torch_t>());
+        auto out_feats = reinterpret_cast<nv_t*>(_out_feats.data_ptr<torch_t>());
 
-    // experimental
-    else if (EXPONENT == 2 && MANTISSA == 3)
-        fpx_linear_kernel<2, 3>(stream, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
-    else if (EXPONENT == 3 && MANTISSA == 1)
-        fpx_linear_kernel<3, 1>(stream, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
-    // else if (EXPONENT == 2 && MANTISSA == 1)
-    //     fpx_linear_kernel<2, 1>(stream, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
-    // else if (EXPONENT == 3 && MANTISSA == 0)
-    //     fpx_linear_kernel<3, 0>(stream, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
-    // else if (EXPONENT == 2 && MANTISSA == 0)
-    //     fpx_linear_kernel<2, 0>(stream, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
+        // officially supported in Quant-LLM
+        if (EXPONENT == 3 && MANTISSA == 2)
+            fpx_linear_kernel<nv_t, 3, 2>(stream, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
+        else if (EXPONENT == 2 && MANTISSA == 2)
+            fpx_linear_kernel<nv_t, 2, 2>(stream, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
 
-    else
-        TORCH_CHECK(false, "FP", NBITS, " E", EXPONENT, "M", MANTISSA, " is not supported.");
+        // experimental
+        else if (EXPONENT == 2 && MANTISSA == 3)
+            fpx_linear_kernel<nv_t, 2, 3>(stream, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
+        else if (EXPONENT == 3 && MANTISSA == 1)
+            fpx_linear_kernel<nv_t, 3, 1>(stream, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
+        // else if (EXPONENT == 2 && MANTISSA == 1)
+        //     fpx_linear_kernel<nv_t, 2, 1>(stream, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
+        // else if (EXPONENT == 3 && MANTISSA == 0)
+        //     fpx_linear_kernel<nv_t, 3, 0>(stream, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
+        // else if (EXPONENT == 2 && MANTISSA == 0)
+        //     fpx_linear_kernel<nv_t, 2, 0>(stream, weight, scales, in_feats, out_feats, M, N, K, Reduction_Workspace, splitK);
+
+        else
+            TORCH_CHECK(false, "FP", NBITS, " E", EXPONENT, "M", MANTISSA, " is not supported.");
+    });
 
     return _out_feats;
 }
@@ -234,5 +262,3 @@ TORCH_LIBRARY_IMPL(torchao, CUDA, m) {
 }
 
 } // namespace torchao
-
-#endif

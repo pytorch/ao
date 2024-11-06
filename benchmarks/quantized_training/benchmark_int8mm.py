@@ -6,7 +6,7 @@ from torchao.prototype.quantized_training.int8_mm import int8_mm_dequant
 
 
 def bench_f(f, *args):
-    return do_bench(lambda: f(*args), fast_flush=False, return_mode="median")
+    return do_bench(lambda: f(*args), return_mode="median")
 
 
 shapes = [(sz, sz, sz) for sz in [1024, 2048, 4096]]
