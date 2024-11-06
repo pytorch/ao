@@ -235,8 +235,14 @@ def main(checkpoint_path,
 
         # TODO: This causes numerical issues for large batches and furious (low precision)
         # if not furious:
-        mask_generator.predictor.model.sam_mask_decoder.transformer = torch.compile(
-            mask_generator.predictor.model.sam_mask_decoder.transformer,
+        # mask_generator.predictor.model.sam_mask_decoder.transformer = torch.compile(
+        #     mask_generator.predictor.model.sam_mask_decoder.transformer,
+        #     # mode="max-autotune-no-cudagraphs",
+        #     fullgraph=True,
+        #     dynamic=True,
+        # )
+        mask_generator.predictor._predict = torch.compile(
+            mask_generator.predictor._predict,
             # mode="max-autotune-no-cudagraphs",
             fullgraph=True,
             dynamic=True,
