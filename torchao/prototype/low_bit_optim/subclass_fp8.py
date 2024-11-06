@@ -177,6 +177,31 @@ class OptimStateFp8WithDynamicRangeExpansion(OptimStateFp8):
         return float_data.view(self.codes.shape)
 
 
+@OptimStateFp8WithDynamicRangeExpansion.implements(aten.copy_.default)
+def _(func, types, args, kwargs):
+    dst = args[0]
+    src = args[1]
+
+    if isinstance(dst, OptimStateFp8WithDynamicRangeExpansion) and isinstance(src, OptimStateFp8WithDynamicRangeExpansion):
+        assert dst.block_size == src.block_size
+        dst.codes.copy_(src.codes)
+        dst.scale.copy_(src.scale)
+        dst.k.copy_(src.k)
+
+    elif isinstance(dst, OptimStateFp8WithDynamicRangeExpansion):
+        codes, k = dynamic_range_expansion(src, dst.block_size)
+
+        codes, scale = quantize_fp8(codes, dst.block_size)
+        dst.codes.copy_(codes)
+        dst.scale.copy_(scale)
+        dst.k = k
+    else:
+        dst.copy_(src.dequantize())
+
+    return dst
+
+
+
 if TORCH_VERSION_AT_LEAST_2_5:
     from torch.serialization import add_safe_globals
 
