@@ -388,9 +388,12 @@ class SAM2AutomaticMaskGenerator:
         i = 0
         all_data = []
         for (_, _, crop_boxes, layer_idxs) in zip(images, all_orig_size, all_crop_boxes, all_layer_idxs):
-            data = MaskData()
+            data = None
             for _, _ in zip(crop_boxes, layer_idxs):
-                data.cat(all_crop_data[i])
+                if data is None:
+                    data = all_crop_data[i]
+                else:
+                    data.cat(all_crop_data[i])
                 i += 1
             all_data.append(data)
         return all_data
