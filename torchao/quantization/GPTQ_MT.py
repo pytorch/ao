@@ -18,7 +18,6 @@ from torchao.dtypes import (
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
-    choose_qparams_affine,
 )
 
 def _check_linear_int4_k(k, group_size = 1, inner_k_tiles = None):

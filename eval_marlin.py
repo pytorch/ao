@@ -1,288 +1,205 @@
 import torch
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from datasets import load_dataset
+from tqdm import tqdm
+from safetensors.torch import load_file  # Import safetensors loader
+
+from torchao._models.llama.model import prepare_inputs_for_model
 from torchao.quantization import int4_weight_only, quantize_
 from torchao.dtypes import MarlinSparseLayout
 from torchao.sparsity.sparse_api import apply_fake_sparsity
-from pathlib import Path
-from torchao._models.llama.tokenizer import get_tokenizer
-from torchao._models.llama.model import Transformer, prepare_inputs_for_model
 from torchao.quantization.GPTQ_MT import Int4WeightOnlyGPTQQuantizer, MultiTensor
-from safetensors.torch import load_file  # Import safetensors loader
 
-from torchao.quantization.utils import _lm_eval_available
-if _lm_eval_available:
-    
-    import lm_eval
-    try:  # lm_eval version 0.4
-        from lm_eval.evaluator import evaluate
-        from lm_eval.models.huggingface import HFLM as eval_wrapper
-        from lm_eval.tasks import get_task_dict
-    except:  # lm_eval version 0.3
-        from lm_eval import base, evaluator, tasks
+import lm_eval
+from lm_eval.evaluator import evaluate
+from lm_eval.models.huggingface import HFLM as eval_wrapper
+from lm_eval.tasks import get_task_dict
 
-        eval_wrapper = base.BaseLM
-        get_task_dict = tasks.get_task_dict
-        evaluate = evaluator.evaluate
 
-    class InputRecorder(eval_wrapper):
-        def __init__(
-            self,
-            tokenizer,
-            calibration_seq_length,
-            input_prep_func=None,
-            pad_calibration_inputs=False,
-            vocab_size=32000,
-            pad_token=0,
-            device="cpu",
-        ):
+# ENVS
+model_name = 'meta-llama/Meta-Llama-3-8B'
+model_name = 'TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T'
+device = "cuda"
+calibration_limit = 4
+
+class InputRecorder(eval_wrapper):
+    def __init__(
+        self,
+        tokenizer,
+        calibration_seq_length,
+        input_prep_func=None,
+        pad_calibration_inputs=False,
+        vocab_size=32000,
+        pad_token=0,
+        device="cpu",
+    ):
+        try:
+            super().__init__()
+        except TypeError:
+            # lm_eval 0.4.2 removed the default init
+            super().__init__("gpt2", device="cpu")
+
+        self.tokenizer = tokenizer
+        self._device = torch.device(device)
+        self.vocab_size = vocab_size
+        self._max_seq_length = calibration_seq_length
+        self.calibration_seq_length = calibration_seq_length
+
+        self.input_prep_func = (
+            input_prep_func if input_prep_func is not None
+            else lambda x: (x,)
+        )
+
+        self.pad_calibration_inputs = pad_calibration_inputs
+        self.pad_token = pad_token
+
+        self.inputs = []
+
+    @property
+    def eot_token_id(self):
+        try:
+            return self.tokenizer.eos_id()
+        except:
+            return self.tokenizer.eos_id
+
+    @property
+    def max_length(self):
+        return self._max_seq_length
+
+    @property
+    def max_gen_toks(self):
+        return 50
+
+    @property
+    def batch_size(self):
+        return 1
+
+    @property
+    def device(self):
+        return self._device
+
+    def tok_encode(self, string: str, **kwargs):
+        tokens = self.tokenizer.encode(string)
+        if hasattr(self.tokenizer, "bos_id"):
             try:
-                super().__init__()
-            except TypeError:
-                # lm_eval 0.4.2 removed the default init
-                super().__init__("gpt2", device="cpu")
-
-            self.tokenizer = tokenizer
-            self._device = torch.device(device)
-            self.vocab_size = vocab_size
-            self._max_seq_length = calibration_seq_length
-            self.calibration_seq_length = calibration_seq_length
-
-            self.input_prep_func = (
-                input_prep_func if input_prep_func is not None
-                else lambda x: (x,)
-            )
-
-            self.pad_calibration_inputs = pad_calibration_inputs
-            self.pad_token = pad_token
-
-            self.inputs = []
-
-        @property
-        def eot_token_id(self):
-            try:
-                return self.tokenizer.eos_id()
+                tokens = [self.tokenizer.bos_id()] + tokens
             except:
-                return self.tokenizer.eos_id
+                tokens = [self.tokenizer.bos_id] + tokens
+        return tokens
 
-        @property
-        def max_length(self):
-            return self._max_seq_length
+    def tok_decode(self, tokens):
+        decoded = self.tokenizer.decode(tokens)
+        return decoded
 
-        @property
-        def max_gen_toks(self):
-            return 50
+    def add_input(self, args):
+        self.inputs.append(args)
 
-        @property
-        def batch_size(self):
-            return 1
+    def record_inputs(
+        self,
+        calibration_tasks,
+        calibration_limit,
+    ):
+        try:
+            lm_eval.tasks.initialize_tasks()
+        except:
+            pass
 
-        @property
-        def device(self):
-            return self._device
+        task_dict = get_task_dict(calibration_tasks)
+        print("Obtaining GPTQ calibration inputs on: ", calibration_tasks)
 
-        def tok_encode(self, string: str, **kwargs):
-            tokens = self.tokenizer.encode(string)
-            if hasattr(self.tokenizer, "bos_id"):
-                try:
-                    tokens = [self.tokenizer.bos_id()] + tokens
-                except:
-                    tokens = [self.tokenizer.bos_id] + tokens
-            return tokens
-
-        def tok_decode(self, tokens):
-            decoded = self.tokenizer.decode(tokens)
-            return decoded
-
-        def add_input(self, args):
-            self.inputs.append(args)
-
-        def record_inputs(
+        evaluate(
             self,
-            calibration_tasks,
-            calibration_limit,
+            task_dict,
+            limit=calibration_limit,
+        )
+        return self
+
+    def get_inputs(self):
+        return self.inputs
+
+    def _model_call(self, inps):
+        inps = inps.squeeze(0)
+        T = len(inps)
+        if (
+            # can't use inputs that are too short when padding disabled
+            (T < self.calibration_seq_length and not self.pad_calibration_inputs)
+            or
+            # can't use inputs that actually use token we use for padding
+            (self.pad_calibration_inputs and self.pad_token in inps)
         ):
-            try:
-                lm_eval.tasks.initialize_tasks()
-            except:
-                pass
-
-            task_dict = get_task_dict(calibration_tasks)
-            print("Obtaining GPTQ calibration inputs on: ", calibration_tasks)
-
-            evaluate(
-                self,
-                task_dict,
-                limit=calibration_limit,
-            )
-            return self
-
-        def get_inputs(self):
-            return self.inputs
-
-        def _model_call(self, inps):
-            inps = inps.squeeze(0)
-            T = len(inps)
-            if (
-                # can't use inputs that are too short when padding disabled
-                (T < self.calibration_seq_length and not self.pad_calibration_inputs)
-                or
-                # can't use inputs that actually use token we use for padding
-                (self.pad_calibration_inputs and self.pad_token in inps)
-            ):
-                # give random output
-                return torch.randn(
-                    (1, T, self.vocab_size), dtype=torch.bfloat16, device=self._device
-                )
-
-            # pad or truncate to the right size
-            if T >= self.calibration_seq_length:
-                inps = inps[: self.calibration_seq_length]
-            else:
-                inps = F.pad(inps, (self.pad_token, self.calibration_seq_length - T))
-
-            inps = inps.unsqueeze(0)
-            model_in = self.input_prep_func(inps)
-
-            self.add_input(model_in)
-
-            # output `something` with correct shape to keep eval going
+            # give random output
             return torch.randn(
                 (1, T, self.vocab_size), dtype=torch.bfloat16, device=self._device
             )
 
-        def _model_generate(self, context, max_length, eos_token_id):
-            raise Exception("unimplemented")
+        # pad or truncate to the right size
+        if T >= self.calibration_seq_length:
+            inps = inps[: self.calibration_seq_length]
+        else:
+            inps = F.pad(inps, (self.pad_token, self.calibration_seq_length - T))
 
-    import logging
-    import time
+        inps = inps.unsqueeze(0)
+        model_in = self.input_prep_func(inps)
 
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
+        self.add_input(model_in)
 
-    class TransformerEvalWrapper(InputRecorder):
-        """
-        A wrapper class for GPTFast, providing integration with the lm-evaluation-harness library.
-        """
-        def __init__(
-            self,
-            model,
-            tokenizer,
-            max_seq_length,
-            input_prep_func=None,
-            device="cuda"
-        ):
-            super().__init__(tokenizer, None)
-            self._model = model
-            # self.tokenizer = tokenizer
-            self._device = torch.device(device)
-            self._max_seq_length = max_seq_length
+        # output `something` with correct shape to keep eval going
+        return torch.randn(
+            (1, T, self.vocab_size), dtype=torch.bfloat16, device=self._device
+        )
 
-            # need to take inps and convert to corrent input
-            # for model
-            self.input_prep_func = (
-                input_prep_func if input_prep_func is not None
-                else lambda x: (x,)
-            )
-
-        def _model_call(self, inps):
-            # print("Entering _model_call")
-            # print(f"Input shape: {inps.shape}")
-            
-            input = self.input_prep_func(inps)
-            # print(f"Processed input shapes: {[x.shape for x in input]}")
-            
-            input = [x.to(self._device) for x in input]
-            # print(f"Inputs moved to device: {self._device}")
-            
-            max_seq_length = min(max(inps.size()), self.max_length)
-            # print(f"Max sequence length: {max_seq_length}")
-            
-            # print("Setting up caches")
-            with torch.device(self._device):
-                # print(f"Device: {self._device}")
-                # print(f"Batch size: {self.batch_size}")
-                # print(f"Max sequence length: {max_seq_length}")
-                self._model.setup_caches(self.batch_size, max_seq_length)
-            # print("Caches set up")
-            
-            # print("Running model")
-            # torch.save(input, "input.pt")
-            logits = self._model(*input)
-            # print(f"Model run complete. Logits shape: {logits.shape}")
-            return logits
-    
+    def _model_generate(self, context, max_length, eos_token_id):
+        raise Exception("unimplemented")
 
 
-        def _model_generate(self, context, max_length, eos_token_id):
-            raise Exception('unimplemented')
-
-        def run_eval(self, tasks, limit):
-            logger.info(f"Starting evaluation on tasks: {tasks}")
-            logger.info(f"Evaluation limit: {limit}")
-
-            try:
-                logger.info("Initializing lm_eval tasks")
-                lm_eval.tasks.initialize_tasks()
-            except Exception as e:
-                logger.warning(f"Failed to initialize tasks: {e}")
-                logger.info("Continuing without initialization")
-
-            try:
-                logger.info("Getting task dictionary")
-                task_dict = get_task_dict(tasks)
-                logger.info(f"Task dictionary: {task_dict}")
-            except Exception as e:
-                logger.error(f"Failed to get task dictionary: {e}")
-                raise
-
-            logger.info("Starting evaluation")
-            start_time = time.time()
-            
-            try:
-                with torch.no_grad():
-                    result = evaluate(
-                        self,
-                        task_dict,
-                        limit=limit,
-                        verbosity= "DEBUG"
-                    )
-            except Exception as e:
-                logger.error(f"Evaluation failed: {e}")
-                raise
-            
-            end_time = time.time()
-            logger.info(f"Evaluation completed in {end_time - start_time:.2f} seconds")
-
-            logger.info("Evaluation results:")
-            for task, res in result["results"].items():
-                print(f"{task}: {res}")
-            
-            return result
-
-
-# ENVS
-device = torch.device("cuda")
-checkpoint_path = Path("checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth")
-
-
-def get_model_and_tokenizer():
-    precision = torch.bfloat16
-    print("Loading model")
-    model = Transformer.from_name(checkpoint_path.parent.name)
-    checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
-    model.load_state_dict(checkpoint, assign=True)
+def get_model_and_tokenizer(precision: torch.dtype = torch.bfloat16):
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name)
     model = model.to(dtype=precision, device=device)
-    model.eval()
-    print("Model loaded")
-    tokenizer_path = checkpoint_path.parent / "tokenizer.model"
-    assert tokenizer_path.is_file(), tokenizer_path
-    tokenizer = get_tokenizer(  # pyre-ignore[28]
-        tokenizer_path,
-        "Llama-2-7b-chat-hf",
-    )
-    print("Tokenizer loaded")
     return model, tokenizer
+
+
+def get_data(tokenizer: AutoTokenizer):
+    dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="test")
+    data = tokenizer("\n\n".join(dataset["text"]), return_tensors="pt")
+    return data
+
+
+def eval(model, tokenizer):
+    data = get_data(tokenizer)
+
+    max_length = model.config.max_length
+    stride = 512
+    seq_len = data.input_ids.size(1)
+
+    # Iterate over the sequence with a sliding window
+    nlls = []
+    prev_end_loc = 0
+    for begin_loc in tqdm(range(0, seq_len, stride)):
+        end_loc = min(begin_loc + max_length, seq_len)
+        trg_len = end_loc - prev_end_loc  # may be different from stride on last loop
+        input_ids = data.input_ids[:, begin_loc:end_loc].to(device)
+        target_ids = input_ids.clone()
+        target_ids[:, :-trg_len] = -100
+
+        with torch.no_grad():
+            outputs = model(input_ids, labels=target_ids)
+            neg_log_likelihood = outputs.loss
+
+        nlls.append(neg_log_likelihood)
+
+        prev_end_loc = end_loc
+        if end_loc == seq_len:
+            break
+
+    ppl = torch.exp(torch.stack(nlls).mean())
+    return ppl.item()
+
+
+def baseline(model, tokenizer):
+    return model
 
 
 def int4wo_gptq(model, tokenizer):
@@ -290,7 +207,6 @@ def int4wo_gptq(model, tokenizer):
     percdamp = 0.01
     groupsize = 64
     calibration_tasks = ["wikitext"]
-    calibration_limit = None
     calibration_seq_length = 100
     input_prep_func = prepare_inputs_for_model
     pad_calibration_inputs = False
@@ -313,8 +229,7 @@ def int4wo_gptq(model, tokenizer):
             groupsize,
         )
     
-    model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
-    multi = [MultiTensor([ inp for inp, _ in inputs]),MultiTensor([ inds for _, inds in inputs])]
+    multi = [MultiTensor([ inp for inp, _ in inputs]), MultiTensor([ inds for _, inds in inputs])]
     print("Quantizing model")
     model = quantizer.quantize(model, multi).cuda()
     print("Model quantized")
@@ -344,48 +259,10 @@ def int4wo_sparse_marlin(model, tokenizer):
     return model
 
 
-def eval(model, tokenizer, limit=5):
-    result = TransformerEvalWrapper(
-            model.to(device), # quantized model needs to run on cuda
-            tokenizer,
-            model.config.block_size,
-            prepare_inputs_for_model,
-        ).run_eval(
-            ["wikitext"],
-            limit,
-        )
-    return result
-
-
-def run_eval(fn: str):
-    model, tokenizer = get_model_and_tokenizer()
-    model = fn(model, tokenizer)
-    result = eval(model, tokenizer)
-    return result
-
-
-method_fn_map = {
-    "int4wo": int4wo,
-    "int4wo_gptq": int4wo_gptq,
-    "int4wo_sparse": int4wo_sparse,
-    "int4wo_sparse_marlin": int4wo_sparse_marlin,
-}
-
-# Put this in args
-selected_methods = ["int4wo", "int4wo_sparse", "int4wo_sparse_marlin"]
-
-
-if __name__ == "__main__":
-    total_results = {}
-    for method in selected_methods:
-        print(f"\n Running method: {method}\n")
-        result = run_eval(method_fn_map[method])
-        total_results[method] = result
-
-    # Creates an histogram of the results
+def build_plot(results):
     fig, ax = plt.subplots()
-    for method, result in total_results.items():
-        ax.bar(method, result["results"]["wikitext"]["word_perplexity,none"], label=method, color='firebrick', edgecolor='black') 
+    for method, ppl in results.items():
+        ax.bar(method, ppl, label=method, color='firebrick', edgecolor='black') 
 
     # Sets background as gray
     ax.set_facecolor('lightgrey')
@@ -396,3 +273,34 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.savefig("fig1.png")
     plt.close('all')
+
+
+def run_eval(fn: str):
+    model, tokenizer = get_model_and_tokenizer()
+    model = fn(model, tokenizer)
+    result = eval(model, tokenizer)
+    return result
+
+
+method_fn_map = {
+    "baseline": baseline,
+    "int4wo": int4wo,
+    "int4wo_gptq": int4wo_gptq,
+    "int4wo_sparse": int4wo_sparse,
+    "int4wo_sparse_marlin": int4wo_sparse_marlin,
+}
+
+# Put this in args
+selected_methods = ["int4wo_gptq"]  # ["baseline", "int4wo", "int4wo_sparse", "int4wo_sparse_marlin"]
+
+
+if __name__ == "__main__":
+    total_results = {}
+
+    for method in selected_methods:
+        print(f"\n Running method: {method}\n")
+        result = run_eval(method_fn_map[method])
+        total_results[method] = result
+
+    build_plot(total_results)
+    
