@@ -4,6 +4,8 @@ import torchao
 from torchao.utils import benchmark_model, profiler_runner
 from torchvision import models
 
+torch._dynamo.reset()
+
 torch.set_float32_matmul_precision("high")
 # Load Vision Transformer model
 model = models.vit_b_16(weights=models.ViT_B_16_Weights.IMAGENET1K_V1)
@@ -20,8 +22,9 @@ inputs = (torch.randn(1, 3, 224, 224, dtype=torch.bfloat16, device='cuda'),)
 
 # for torch 2.4+
 from torchao.quantization.quant_api import quantize_
-from torchao.quantization.quant_api import int8_dynamic_activation_int8_weight
-quantize_(model, int8_dynamic_activation_int8_weight())
+# from torchao.quantization.quant_api import int8_dynamic_activation_int8_weight
+# quantize_(model, int8_dynamic_activation_int8_weight())
+torchao.quantization.autoquant(model, example_input=inputs, manual=True)
 ## Quantization code - end
 
 ## compilation configs
@@ -37,15 +40,27 @@ if not TORCH_VERSION_AT_LEAST_2_5:
     unwrap_tensor_subclass(model)
 
 # temporary workaround to recover the perf with quantized model under torch.compile
-torch.backends.mha.set_fastpath_enabled(False)
+# torch.backends.mha.set_fastpath_enabled(False)
 
-model = torch.compile(model, mode='max-autotune')
+# model = torch.compile(model, mode='max-autotune')
+model(*inputs)
+model.finalize_autoquant()
+
+for n, m in model.named_modules():
+    if isinstance(m, torch.nn.Linear):
+        print(f"name {n}, weight type:, {type(m.weight.data)}")
+
+model = torch.compile(model, mode="max-autotune")
+
+from torchao.quantization.autoquant import AUTOQUANT_CACHE2
+print("cache:", AUTOQUANT_CACHE2)
+torch._dynamo.reset()
 
 # Must run with no_grad when optimizing for inference
 with torch.no_grad():
     # warmup
-    benchmark_model(model, 20, inputs)
+    benchmark_model(model, 5, inputs)
     # benchmark
-    print("elapsed_time: ", benchmark_model(model, 1000, inputs), " milliseconds")
+    print("elapsed_time: ", benchmark_model(model, 100, inputs), " milliseconds")
     # Create a trace
     profiler_runner("quant.json.gz", benchmark_model, model, 5, inputs)
