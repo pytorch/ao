@@ -173,25 +173,25 @@ def masks_to_rle_dict(masks):
 
 # Queue to hold incoming requests
 request_queue = asyncio.Queue()
-batch_interval = 0.1  # Time interval to wait before processing a batch
+batch_interval = 1.0  # Time interval to wait before processing a batch
 
 
 def process_batch(batch, mask_generator):
-    # if len(batch) == 1:
-    #     print(f"Processing batch of len {len(batch)} - generate")
-    #     t = time.time()
-    #     image_tensors = [image_tensor for (image_tensor, _) in batch]
-    #     masks = mask_generator.generate(image_tensors[0])
-    #     print(f"Took avg. {(time.time() - t)}s")
-    #     return [masks]
-    # else:
-    print(f"Processing batch of len {len(batch)} - generate_batch")
-    t = time.time()
-    image_tensors = [image_tensor for (image_tensor, _) in batch]
-    # print("\n".join(map(str, [i.shape for i in image_tensors])))
-    masks = mask_generator.generate_batch(image_tensors)
-    print(f"Took avg. {(time.time() - t) / len(batch)}s per batch entry")
-    return masks
+    if len(batch) == 1:
+        print(f"Processing batch of len {len(batch)} - generate")
+        t = time.time()
+        image_tensors = [image_tensor for (image_tensor, _) in batch]
+        masks = mask_generator.generate(image_tensors[0])
+        print(f"Took avg. {(time.time() - t)}s")
+        return [masks]
+    else:
+        print(f"Processing batch of len {len(batch)} - generate_batch")
+        t = time.time()
+        image_tensors = [image_tensor for (image_tensor, _) in batch]
+        # print("\n".join(map(str, [i.shape for i in image_tensors])))
+        masks = mask_generator.generate_batch(image_tensors)
+        print(f"Took avg. {(time.time() - t) / len(batch)}s per batch entry")
+        return masks
 
 
 async def batch_worker(mask_generator, batch_size, *, pad_batch=True, furious=False):
@@ -229,6 +229,7 @@ async def lifespan(app: FastAPI):
 
 
 def benchmark_fn(func, inp, mask_generator):
+    torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats()
     logging.info("Running 3 warumup iterations.")
     for _ in range(3):
