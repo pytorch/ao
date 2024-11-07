@@ -72,6 +72,40 @@ def example_shapes():
             (864, 480, 3)]
 
 
+def example_shapes_2():
+    return [(1080, 1920, 3),
+            (1920, 1080, 3),
+            (1920, 1080, 3),
+            (1080, 1920, 3),
+            (848, 480, 3),
+            (864, 480, 3),
+            (720, 1280, 3),
+            (864, 480, 3),
+            (848, 480, 3),
+            (848, 480, 3),
+            (848, 480, 3),
+            (848, 480, 3),
+            (720, 1280, 3),
+            (864, 480, 3),
+            (480, 848, 3),
+            (1280, 720, 3),
+            (720, 1280, 3),
+            (1080, 1920, 3),
+            (1080, 1920, 3),
+            (1280, 720, 3),
+            (1080, 1920, 3),
+            (1080, 1920, 3),
+            (720, 1280, 3),
+            (720, 1280, 3),
+            (1280, 720, 3),
+            (360, 640, 3),
+            (864, 480, 3),
+            (1920, 1080, 3),
+            (1080, 1920, 3),
+            (1920, 1080, 3),
+            (1920, 1080, 3),
+            (1080, 1920, 3)]
+
 # torch.set_float32_matmul_precision('high')
 
 def iou(mask1, mask2):
@@ -139,7 +173,7 @@ def masks_to_rle_dict(masks):
 
 # Queue to hold incoming requests
 request_queue = asyncio.Queue()
-batch_interval = 10  # Time interval to wait before processing a batch
+batch_interval = 0.1  # Time interval to wait before processing a batch
 
 
 def process_batch(batch, mask_generator):
@@ -154,7 +188,7 @@ def process_batch(batch, mask_generator):
     print(f"Processing batch of len {len(batch)} - generate_batch")
     t = time.time()
     image_tensors = [image_tensor for (image_tensor, _) in batch]
-    print("\n".join(map(str, [i.shape for i in image_tensors])))
+    # print("\n".join(map(str, [i.shape for i in image_tensors])))
     masks = mask_generator.generate_batch(image_tensors)
     print(f"Took avg. {(time.time() - t) / len(batch)}s per batch entry")
     return masks
@@ -335,6 +369,11 @@ def main(checkpoint_path,
             # benchmark_fn(image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
             print(f"batch size {batch_size} example shapes test")
             random_images = [np.random.randint(0, 256, size=size, dtype=np.uint8) for size in example_shapes()]
+            random_images = random_images[:batch_size]
+            benchmark_fn(image_tensors_to_masks, random_images, mask_generator)
+
+            print(f"batch size {batch_size} example shapes 2 test")
+            random_images = [np.random.randint(0, 256, size=size, dtype=np.uint8) for size in example_shapes_2()]
             random_images = random_images[:batch_size]
             benchmark_fn(image_tensors_to_masks, random_images, mask_generator)
 
