@@ -15,6 +15,7 @@ from .affine_quantized_tensor import (
 from . import affine_quantized_tensor_ops
 from .utils import (
     Layout,
+    MarlinSparseLayout,
     PlainLayout,
 )
 from .floatx import (
@@ -35,6 +36,10 @@ from .uintx import (
     PlainAQTTensorImpl,
     BlockSparseLayout,
 )
+from .nf4tensor import NF4Tensor, to_nf4
+
+# from ..prototype.dtypes.uint2 import UInt2Tensor, BitnetTensor
+from .uint4 import UInt4Tensor
 
 __all__ = [
     "NF4Tensor",
