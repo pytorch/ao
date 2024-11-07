@@ -429,6 +429,9 @@ class SAM2AutomaticMaskGenerator:
                 for data in all_batch_iterator_data:
                     # Compress to RLE
                     data["masks"] = uncrop_masks(data["masks"], crop_box, orig_h, orig_w)
+                    # TODO: Capture all these masks in a single NT for mask_to_rle_pytorch_2
+                    # or at a minimum create a mask_to_rle_pytorch_2_list and use loops
+                    # to cause a single DtoH sync
                     data["rles"] = mask_to_rle_pytorch_2(data["masks"])
                     del data["masks"]
 

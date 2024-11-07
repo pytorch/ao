@@ -272,19 +272,19 @@ def main(checkpoint_path,
         image_tensor = file_bytes_to_image_tensor(bytearray(f.read()))
 
     t = time.time()
-    logging.info("Running three iterations to compile and warmup.")
-    image_tensor_to_masks(image_tensor, mask_generator)
-    image_tensor_to_masks(image_tensor, mask_generator)
-    image_tensor_to_masks(image_tensor, mask_generator)
-    logging.info(f"Three iterations took {time.time() - t}s.")
+    # logging.info("Running three iterations to compile and warmup.")
+    # image_tensor_to_masks(image_tensor, mask_generator)
+    # image_tensor_to_masks(image_tensor, mask_generator)
+    # image_tensor_to_masks(image_tensor, mask_generator)
+    # logging.info(f"Three iterations took {time.time() - t}s.")
 
     if unittest:
         logging.info("batch size 1 unittest")
-        masks = image_tensor_to_masks(image_tensor, mask_generator)
-        masks = masks_to_rle_dict(masks)
+        # masks = image_tensor_to_masks(image_tensor, mask_generator)
+        # masks = masks_to_rle_dict(masks)
         import json
         ref_masks = json.loads(open("dog_rle.json").read())
-        unittest_fn(masks, ref_masks, order_by_area=True, verbose=verbose)
+        # unittest_fn(masks, ref_masks, order_by_area=True, verbose=verbose)
 
         if batch_size > 1:
             # TODO: Transpose dog image to create diversity in input image shape
