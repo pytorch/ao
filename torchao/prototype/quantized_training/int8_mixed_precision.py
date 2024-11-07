@@ -1,8 +1,8 @@
-from typing import Any, NamedTuple, Optional, Tuple
+from typing import Any, NamedTuple, Optional, Tuple, Union
 
 import torch
 import torch.utils._pytree as pytree
-from torch import Tensor
+from torch import Tensor, nn
 from torch.utils._triton import has_triton
 
 from torchao.quantization.quant_api import _get_linear_subclass_inserter
@@ -75,7 +75,7 @@ class Int8MixedPrecisionTrainingLinearWeight(TorchAOBaseTensor):
     def __torch_dispatch__(cls, func, types, args, kwargs):
         config = None
 
-        def unwrap(x: cls):
+        def unwrap(x):
             nonlocal config
             if config is None:
                 config = x.config
@@ -151,7 +151,16 @@ def _(func, types, args, kwargs):
     if torch.is_autocast_enabled("cuda"):
         dtype = torch.get_autocast_gpu_dtype()
         args = tuple(x.to(dtype) if x is not None else x for x in args)
-    return _Int8MixedPrecisionTrainingLinear.apply(*args, **kwargs)
+    return _Int8MixedPrecisionTrainingLinearFunction.apply(*args, **kwargs)
+
+
+class Int8MixedPrecisionTrainingLinear(nn.Linear):
+    def __init__(self, *args, config: Int8MixedPrecisionTrainingConfig, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.config = config
+
+    def forward(self, input: Tensor) -> Tensor:
+        return _Int8MixedPrecisionTrainingLinearFunction.apply(input, self.weight, self.bias, self.config)
 
 
 def _dynamic_int8_mm(A: Tensor, B: Tensor) -> Tensor:
@@ -184,26 +193,46 @@ def _dynamic_int8_mm(A: Tensor, B: Tensor) -> Tensor:
     return out.view(*A.shape[:-1], out.shape[-1])
 
 
-class _Int8MixedPrecisionTrainingLinear(torch.autograd.Function):
+@torch.compiler.allow_in_graph  # this is required for module-swap, but not for tensor subclass
+class _Int8MixedPrecisionTrainingLinearFunction(torch.autograd.Function):
     @staticmethod
-    def forward(input: Tensor, weight: Int8MixedPrecisionTrainingLinearWeight, bias: Optional[Tensor]):
-        if weight.config.output:
-            out = _dynamic_int8_mm(input, weight._data.T)
+    def forward(
+        ctx,
+        input: Tensor,
+        weight: Union[Int8MixedPrecisionTrainingLinearWeight, Tensor],
+        bias: Optional[Tensor],
+        config: Optional[Int8MixedPrecisionTrainingConfig] = None,
+    ):
+        # unpack tensor subclass and dequant if necessary.
+        # NOTE: we have to do this inside autograd.Function so that autograd works correctly.
+        if isinstance(weight, Int8MixedPrecisionTrainingLinearWeight):
+            config = weight.config  # override `config` input argument
+            weight = weight._data
+
+        ctx.config = config
+        ctx.save_for_backward(input, weight)
+        ctx.bias = bias is not None
+
+        # for NF4Tensor, this will dequantize the tensor.
+        # NOTE: not all quantized tensor subclasses implement .to() this way.
+        # e.g. AffineQuantizedTensor.to(dtype=dtype) returns the same AQT tensor.
+        # casting weight dtype may also introduce unintended behavior.
+        # e.g. FP32 activations and BF16 weight (both plain tensors), which should raise an error,
+        # but now we cast BF16 weight to FP32 instead (and return results in FP32).
+        weight = weight.to(input.dtype)
+
+        if config.output:
+            out = _dynamic_int8_mm(input, weight.T)
         else:
-            out = input @ weight._data.T
+            out = input @ weight.T
         out = out + bias if bias is not None else out
         return out
 
     @staticmethod
-    def setup_context(ctx, inputs, output):
-        input, weight, bias = inputs
-        ctx.config = weight.config
-        ctx.save_for_backward(input, weight._data)
-        ctx.bias = bias is not None
-
-    @staticmethod
     def backward(ctx, grad_output):
         input, weight = ctx.saved_tensors
+        weight = weight.to(input.dtype)  # dequant NF4
+
         grad_input = grad_weight = grad_bias = None
 
         if ctx.needs_input_grad[0]:
@@ -224,12 +253,28 @@ class _Int8MixedPrecisionTrainingLinear(torch.autograd.Function):
         if ctx.needs_input_grad[2] and ctx.bias:
             grad_bias = grad_output.sum(0)
 
-        return grad_input, grad_weight, grad_bias
+        return grad_input, grad_weight, grad_bias, None
 
 
-def int8_mixed_precision_training(config: Int8MixedPrecisionTrainingConfig = _DEFAULT_CONFIG):
-    return _get_linear_subclass_inserter(
-        Int8MixedPrecisionTrainingLinearWeight,
-        config=config,
-        allow_requires_grad=True,
-    )
+def int8_mixed_precision_training(
+    config: Int8MixedPrecisionTrainingConfig = _DEFAULT_CONFIG,
+    *,
+    module_swap: bool = False,
+):
+    # TODO: skip small layers that don't have perf gain.
+    if module_swap:
+        # module swap implementation
+        def convert_linear(linear: nn.Linear):
+            linear.__class__ = Int8MixedPrecisionTrainingLinear
+            linear.config = config
+            return linear
+
+        return convert_linear
+
+    else:
+        # tensor subclass implementation
+        return _get_linear_subclass_inserter(
+            Int8MixedPrecisionTrainingLinearWeight,
+            config=config,
+            allow_requires_grad=True,
+        )
