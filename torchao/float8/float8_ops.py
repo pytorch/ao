@@ -6,7 +6,6 @@
 from typing import Any, Dict, Tuple
 
 import torch
-from torch.library import Library
 
 from torch.utils._pytree import tree_map
 
@@ -24,8 +23,7 @@ def _assert_tensorwise_scale(aten_op, scale):
     assert (
         # TODO(future PR): figure out why tensorwise scaling can have
         # both rank 0 and rank 1
-        len(scale.shape)
-        in (0, 1)
+        len(scale.shape) in (0, 1)
     ), f"{aten_op} with axiswise scaling is not supported yet"
 
 
@@ -121,7 +119,6 @@ def float8_view(aten_op, args, kwargs=None):
     # for now, only support reshaping to [-1, dim] or [dim, -1]
     axiswise_dim = t._axiswise_dim
     if len(new_shape) == 2:
-
         if axiswise_dim == 0:
             new_data = aten_op(t._data, new_shape, **kwargs)
             new_scale_shape = [1, new_shape[-1]]
