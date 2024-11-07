@@ -10,37 +10,32 @@ A simple module swap UX for a float8 version of `torch.nn.Linear`.
 from typing import Optional
 
 import torch
-
 import torch.utils.checkpoint as checkpoint
 
-from torchao.float8.config import Float8LinearConfig, ScalingType, ScalingGranularity
-
+from torchao.float8.config import Float8LinearConfig, ScalingGranularity, ScalingType
 from torchao.float8.float8_scaling_utils import (
-    _maybe_initialize_amaxes_scales_for_float8_cast,
-    hp_tensor_to_float8_delayed,
-    hp_tensor_to_float8_dynamic,
-    hp_tensor_to_float8_static,
-    get_maybe_axiswise_dim,
     NoopFwToFloat8E5M2BwDelayed,
     NoopFwToFloat8E5M2BwDynamic,
     NoopFwToFloat8E5M2BwStatic,
+    _maybe_initialize_amaxes_scales_for_float8_cast,
+    get_maybe_axiswise_dim,
+    hp_tensor_to_float8_delayed,
+    hp_tensor_to_float8_dynamic,
+    hp_tensor_to_float8_static,
 )
-
 from torchao.float8.float8_tensor import (
     Float8Tensor,
     GemmInputRole,
-    hp_tensor_and_scale_to_float8,
     LinearMMConfig,
     ScaledMMConfig,
+    hp_tensor_and_scale_to_float8,
 )
-
 from torchao.float8.float8_utils import (
     e4m3_dtype,
     e5m2_dtype,
     tensor_to_amax,
     tensor_to_scale,
 )
-
 from torchao.float8.fsdp_utils import (
     WeightWithDelayedFloat8CastTensor,
     WeightWithDynamicFloat8CastTensor,

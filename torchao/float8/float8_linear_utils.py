@@ -9,15 +9,15 @@ from typing import Callable, Optional
 import torch
 import torch.distributed as dist
 import torch.nn as nn
+from torch.distributed._functional_collectives import AsyncCollectiveTensor, all_reduce
+
 from torchao.float8.config import Float8LinearConfig, ScalingType
 from torchao.float8.float8_linear import Float8Linear
-
 from torchao.float8.float8_utils import (
     amax_history_to_scale_stack,
     e4m3_dtype,
     e5m2_dtype,
 )
-from torch.distributed._functional_collectives import all_reduce, AsyncCollectiveTensor
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())

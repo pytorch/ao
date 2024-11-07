@@ -6,11 +6,10 @@
 from typing import Any, Dict, Tuple
 
 import torch
-
 from torch.utils._pytree import tree_map
 
 from torchao.float8.float8_python_api import addmm_float8_unwrapped
-from torchao.float8.float8_tensor import choose_scaled_mm_config, Float8Tensor
+from torchao.float8.float8_tensor import Float8Tensor, choose_scaled_mm_config
 from torchao.float8.float8_utils import is_row_major, pad_tensor_for_matmul
 
 aten = torch.ops.aten

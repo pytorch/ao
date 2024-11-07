@@ -10,20 +10,19 @@ from typing import Any, List, Optional, Tuple
 import torch
 import torch.nn as nn
 import torch.utils._pytree as pytree
+from torch._prims_common import suggest_memory_format
+
 from torchao.float8.float8_scaling_utils import (
     hp_tensor_to_float8_delayed,
     hp_tensor_to_float8_dynamic,
 )
-
 from torchao.float8.float8_tensor import (
     Float8Tensor,
     GemmInputRole,
-    hp_tensor_and_scale_to_float8,
     LinearMMConfig,
+    hp_tensor_and_scale_to_float8,
 )
-
-from torchao.float8.float8_utils import e4m3_dtype, EPS
-from torch._prims_common import suggest_memory_format
+from torchao.float8.float8_utils import EPS, e4m3_dtype
 
 
 @torch.no_grad()
@@ -37,9 +36,10 @@ def precompute_float8_dynamic_scale_for_fsdp(module: nn.Module) -> None:
         optim.step()
         precompute_float8_dynamic_scale_for_fsdp(model)
     """
+    from torch.distributed._tensor import DTensor
+
     from torchao.float8.config import ScalingType
     from torchao.float8.float8_linear import Float8Linear
-    from torch.distributed._tensor import DTensor
 
     if any(
         isinstance(m, Float8Linear) and m.scaling_type_weight is ScalingType.DELAYED
