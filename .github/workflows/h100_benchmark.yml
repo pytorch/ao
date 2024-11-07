@@ -1,8 +1,8 @@
 name: Run H100 Benchmarks
 
 on:
-  # schedule:
-  #   - cron: '0 0 * * *'  # Runs at midnight UTC every day
+  schedule:
+    - cron: '0 0 * * *'  # Runs at midnight UTC every day
   # or on label h100 
   workflow_dispatch:
 
