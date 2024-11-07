@@ -1,45 +1,51 @@
 import torch
-from torchao.utils import find_multiple, TORCH_VERSION_AT_LEAST_2_5
-from torchao.dtypes.utils import Layout, AQTTensorImpl
-from torchao.dtypes.affine_quantized_tensor import AffineQuantizedTensor, register_layout
+from torchao.utils import find_multiple, TORCH_VERSION_AT_LEAST_2_5, fill_defaults
+from torchao.dtypes.utils import Layout, AQTTensorImpl, is_device
+from torchao.dtypes.affine_quantized_tensor import (
+    AffineQuantizedTensor,
+    register_layout,
+)
 from dataclasses import dataclass
 from typing import Optional, Tuple
 from torch.utils._python_dispatch import (
     return_and_correct_aliasing,
     is_traceable_wrapper_subclass,
 )
-from torchao.quantization.quant_primitives import (
-    ZeroPointDomain
-)
+from torchao.quantization.quant_primitives import ZeroPointDomain, _get_reduction_params
 
 aten = torch.ops.aten
+
 
 def _aqt_is_tensor_core_tile_uint4(aqt):
     """Check if an AffineQuantizedTensor is uint4 quantized Tensor"""
     # TODO: use torch.uint4
     return (
-        aqt.tensor_impl.dtype == torch.int32 and
-        aqt.quant_min == 0 and
-        aqt.quant_max == 15
+        aqt.tensor_impl.dtype == torch.int32
+        and aqt.quant_min == 0
+        and aqt.quant_max == 15
     )
+
 
 def _linear_bf16_act_uint4_weight_check(input_tensor, weight_tensor, bias):
     return (
         # input is native bfloat16 tensor
-        not is_traceable_wrapper_subclass(input_tensor) and
-        input_tensor.dtype == torch.bfloat16 and
+        not is_traceable_wrapper_subclass(input_tensor)
+        and input_tensor.dtype == torch.bfloat16
+        and
         # weight is uint4, group quantized tensor_core_tiled tensor impl affine quantized tensor
-        isinstance(weight_tensor, AffineQuantizedTensor) and
-        _aqt_is_tensor_core_tile_uint4(weight_tensor) and
-        weight_tensor.dtype == torch.bfloat16 and
-        len(weight_tensor.shape) == 2 and
-        weight_tensor.zero_point_domain == ZeroPointDomain.FLOAT and
-        isinstance(weight_tensor._layout, TensorCoreTiledLayout)
+        isinstance(weight_tensor, AffineQuantizedTensor)
+        and _aqt_is_tensor_core_tile_uint4(weight_tensor)
+        and weight_tensor.dtype == torch.bfloat16
+        and len(weight_tensor.shape) == 2
+        and weight_tensor.zero_point_domain == ZeroPointDomain.FLOAT
+        and isinstance(weight_tensor._layout, TensorCoreTiledLayout)
     )
 
 
 def _linear_bf16_act_uint4_weight_impl(input_tensor, weight_tensor, bias):
-    assert weight_tensor.block_size[0] == 1, f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
+    assert (
+        weight_tensor.block_size[0] == 1
+    ), f"Requires groupwise quantization, got block_size: {weight_tensor.block_size}"
     assert input_tensor.shape[-1] == weight_tensor.shape[1], (
         f"need input_tensor shape: {input_tensor.shape} final"
         f"dim to match weight_tensor shape: {weight_tensor.shape} second dim "
@@ -63,17 +69,19 @@ def _linear_bf16_act_uint4_weight_impl(input_tensor, weight_tensor, bias):
 
     # groupwise int4 quantization
     groupsize = weight_tensor.block_size[1]
-    y = torch.ops.aten._weight_int4pack_mm(act_mat.contiguous(), packed_weight, groupsize, scale_and_zero)
+    y = torch.ops.aten._weight_int4pack_mm(
+        act_mat.contiguous(), packed_weight, groupsize, scale_and_zero
+    )
 
     # remove out_feature padding
     orig_out_features = weight_tensor.shape[-2]
     y = y[:, :orig_out_features]
     y = y.reshape(*orig_act_size[:-1], orig_out_features)
 
-
     if bias is not None:
         y += bias
     return y.to(orig_dtype)
+
 
 @dataclass(frozen=True)
 class TensorCoreTiledLayout(Layout):
@@ -81,6 +89,7 @@ class TensorCoreTiledLayout(Layout):
     inner_k_tiles is an internal argument for packing function of tensor core tiled layout
     that can affect the performance of the matmul kernel
     """
+
     inner_k_tiles: int = 8
 
     def pre_process(self, input: torch.Tensor) -> torch.Tensor:
@@ -93,14 +102,25 @@ class TensorCoreTiledLayout(Layout):
         )
         return input
 
-    def pre_process_static(self, input: torch.Tensor, scale: torch.Tensor, zero_point: torch.Tensor, block_size: Tuple[int, ...]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def pre_process_static(
+        self,
+        input: torch.Tensor,
+        scale: torch.Tensor,
+        zero_point: torch.Tensor,
+        block_size: Tuple[int, ...],
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         input = self.pre_process(input)
         orig_qparam_shape = scale.shape
-        new_qparam_shape, reduction_dims = _get_reduction_params(block_size, input.size())
+        new_qparam_shape, reduction_dims = _get_reduction_params(
+            block_size, input.size()
+        )
         for dim in reduction_dims:
             new_qparam_shape.pop(dim)
-        change_in_qparam_shape = [new_dim_size-orig_dim_size for new_dim_size, orig_dim_size in zip(new_qparam_shape, orig_qparam_shape)]
-        padding_changes=[]
+        change_in_qparam_shape = [
+            new_dim_size - orig_dim_size
+            for new_dim_size, orig_dim_size in zip(new_qparam_shape, orig_qparam_shape)
+        ]
+        padding_changes = []
         for dim_change in change_in_qparam_shape:
             padding_changes = [0, dim_change] + padding_changes
         scale = torch.nn.functional.pad(scale, padding_changes)
@@ -155,7 +175,9 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         kwargs = {}
         kwargs["device"] = packed_weight.device
         kwargs["layout"] = (
-            kwargs.get("layout") if kwargs.get("layout", False) else packed_weight.layout
+            kwargs.get("layout")
+            if kwargs.get("layout", False)
+            else packed_weight.layout
         )
         kwargs["dtype"] = packed_weight.dtype
         kwargs["requires_grad"] = False
@@ -181,8 +203,14 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
     def __tensor_unflatten__(
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
-        packed_weight, scale_and_zero = tensor_data_dict["packed_weight"], tensor_data_dict["scale_and_zero"]
-        transposed, _layout, = tensor_attributes
+        packed_weight, scale_and_zero = (
+            tensor_data_dict["packed_weight"],
+            tensor_data_dict["scale_and_zero"],
+        )
+        (
+            transposed,
+            _layout,
+        ) = tensor_attributes
         return cls(packed_weight, scale_and_zero, transposed, _layout)
 
     @classmethod
@@ -191,20 +219,26 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         int_data: torch.Tensor,
         scale: torch.Tensor,
         zero_point: Optional[torch.Tensor],
-        _layout: Layout
+        _layout: Layout,
     ):
-
         assert isinstance(_layout, TensorCoreTiledLayout)
 
         if TORCH_VERSION_AT_LEAST_2_5:
             int_data = (int_data[::, ::2] << 4 | int_data[::, 1::2]).to(torch.uint8)
-            assert int_data.dtype == torch.uint8, "torch.ops.aten._convert_weight_to_int4pack in torch 2.5 expects `uint8` dtype"
+            assert (
+                int_data.dtype == torch.uint8
+            ), "torch.ops.aten._convert_weight_to_int4pack in torch 2.5 expects `uint8` dtype"
         else:
-            assert int_data.dtype == torch.int32, "torch.ops.aten._convert_weight_to_int4pack in torch 2.4 expects `int32` dtype"
-        packed_weight = torch.ops.aten._convert_weight_to_int4pack(int_data, _layout.inner_k_tiles)
+            assert (
+                int_data.dtype == torch.int32
+            ), "torch.ops.aten._convert_weight_to_int4pack in torch 2.4 expects `int32` dtype"
+        packed_weight = torch.ops.aten._convert_weight_to_int4pack(
+            int_data, _layout.inner_k_tiles
+        )
         scale = scale.reshape(int_data.shape[0], -1)
         zero_point = zero_point.reshape(int_data.shape[0], -1)
         from torchao.quantization.utils import pack_tinygemm_scales_and_zeros
+
         scale_and_zero = pack_tinygemm_scales_and_zeros(scale, zero_point)
         return cls(packed_weight, scale_and_zero, False, _layout)
 
@@ -215,7 +249,9 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         # between these two devices, in the future we should not use the same layout for
         # cpu and cuda device: https://github.com/pytorch/ao/issues/1117
         if not is_device(torch.device(self.device).type, device):
-            raise ValueError(f"TensorCoreTiledAQTTensorImpl does not support conversion from {self.device} to {device}")
+            raise ValueError(
+                f"TensorCoreTiledAQTTensorImpl does not support conversion from {self.device} to {device}"
+            )
         return self.__class__(
             self.packed_weight.to(device),
             self.scale_and_zero.to(device),
@@ -252,7 +288,12 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
             """we don't need to repack the weight and just rely on external
             shape being changed and record the status of transpose/no-transpose
             """
-            transposed = TensorCoreTiledAQTTensorImpl(args[0].packed_weight, args[0].scale_and_zero, not args[0].transposed, args[0]._layout)
+            transposed = TensorCoreTiledAQTTensorImpl(
+                args[0].packed_weight,
+                args[0].scale_and_zero,
+                not args[0].transposed,
+                args[0]._layout,
+            )
             return return_and_correct_aliasing(func, args, kwargs, transposed)
 
         if func is aten.slice.Tensor:
@@ -277,11 +318,15 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
                 # this is to handle padding
                 int_data = self._layout.post_process(int_data)
                 scale = aten.slice.Tensor(scale, dim, start_scale, end_scale, step)
-                zero_point = aten.slice.Tensor(zero_point, dim, start_scale, end_scale, step)
+                zero_point = aten.slice.Tensor(
+                    zero_point, dim, start_scale, end_scale, step
+                )
                 sliced = self.from_plain(int_data, scale, zero_point, self._layout)
                 return sliced
             else:
-                raise NotImplementedError(f"TensorCoreTiledAQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported")
+                raise NotImplementedError(
+                    f"TensorCoreTiledAQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported"
+                )
 
         raise NotImplementedError(
             f"TensorCoreTiledAQTTensorImpl dispatch: attempting to run {func}, this is not supported"
@@ -295,6 +340,7 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
             quantize_affine,
         )
         from torchao.quantization.utils import unpack_tinygemm_scales_and_zeros
+
         scale, zero = unpack_tinygemm_scales_and_zeros(self.scale_and_zero)
 
         cur_shape = self.shape
@@ -311,12 +357,26 @@ class TensorCoreTiledAQTTensorImpl(AQTTensorImpl):
         quant_max = 15
         zero_point_domain = ZeroPointDomain.FLOAT
         assert len(block_size) == 2 and block_size[0] == 1
-        dequantized = torch.ops.aten._weight_int4pack_mm(torch.eye(eye_shape, device=device, dtype=original_dtype), self.packed_weight, groupsize, self.scale_and_zero)
+        dequantized = torch.ops.aten._weight_int4pack_mm(
+            torch.eye(eye_shape, device=device, dtype=original_dtype),
+            self.packed_weight,
+            groupsize,
+            self.scale_and_zero,
+        )
         dequantized = dequantized.t().contiguous()
         # TODO: move this to `unpack_tinygemm_scales_and_zeros`?
         scale = scale.reshape(scale.shape[:-1]).contiguous()
         zero = zero.reshape(zero.shape[:-1]).contiguous()
-        int_data = quantize_affine(dequantized, block_size, scale, zero, target_dtype, quant_min, quant_max, zero_point_domain)
+        int_data = quantize_affine(
+            dequantized,
+            block_size,
+            scale,
+            zero,
+            target_dtype,
+            quant_min,
+            quant_max,
+            zero_point_domain,
+        )
         return int_data, scale, zero
 
     def get_layout(self) -> Layout:

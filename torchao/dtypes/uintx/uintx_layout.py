@@ -3,16 +3,13 @@ from typing import List, Tuple
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
-
-from torchao.dtypes.affine_quantized_tensor import PlainAQTTensorImpl, register_layout
+from .bitpacking import pack, unpack
+from torchao.dtypes.affine_quantized_tensor import register_layout
+from torchao.dtypes.uintx.plain_layout import PlainAQTTensorImpl
 from torchao.dtypes.utils import (
     Layout,
 )
 from torchao.utils import TorchAOBaseTensor
-from torchao.dtypes.affine_quantized_tensor import (
-    register_layout,
-    PlainAQTTensorImpl
-)
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_3
 
 aten = torch.ops.aten

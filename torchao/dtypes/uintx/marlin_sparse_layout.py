@@ -2,24 +2,33 @@ from dataclasses import dataclass
 from torchao.dtypes.utils import Layout, AQTTensorImpl
 from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
-    register_layout
+    register_layout,
 )
 import torch
 from torchao.dtypes.uintx.tensor_core_tiled_layout import _aqt_is_tensor_core_tile_uint4
+from torch.utils._python_dispatch import (
+    return_and_correct_aliasing,
+)
+from torchao.quantization.quant_primitives import (
+    ZeroPointDomain,
+)
+
+aten = torch.ops.aten
 
 
 def _linear_fp_act_int4_weight_sparse_marlin_check(input_tensor, weight_tensor, bias):
     return (
-        isinstance(weight_tensor, AffineQuantizedTensor) and
-        _aqt_is_tensor_core_tile_uint4(weight_tensor) and
-        input_tensor.dtype == torch.float16 and
-        len(weight_tensor.shape) == 2 and
-        weight_tensor.zero_point_domain == ZeroPointDomain.INT and
-        isinstance(weight_tensor._layout, MarlinSparseLayout)
+        isinstance(weight_tensor, AffineQuantizedTensor)
+        and _aqt_is_tensor_core_tile_uint4(weight_tensor)
+        and input_tensor.dtype == torch.float16
+        and len(weight_tensor.shape) == 2
+        and weight_tensor.zero_point_domain == ZeroPointDomain.INT
+        and isinstance(weight_tensor._layout, MarlinSparseLayout)
     )
 
+
 def _linear_fp_act_int4_weight_sparse_marlin_impl(input_tensor, weight_tensor, bias):
-    from torchao.sparsity.marlin import marlin_24_workspace, const
+    from torchao.sparsity.marlin import marlin_24_workspace
     from torchao.ops import marlin_24_gemm
 
     assert isinstance(weight_tensor, AffineQuantizedTensor)
@@ -39,8 +48,15 @@ def _linear_fp_act_int4_weight_sparse_marlin_impl(input_tensor, weight_tensor, b
     workspace_24 = marlin_24_workspace(original_shape[1])
 
     out = marlin_24_gemm(
-        input_2d, sparse_w_int4, meta, scale,
-        workspace_24, num_bits, size_m, size_n, size_k
+        input_2d,
+        sparse_w_int4,
+        meta,
+        scale,
+        workspace_24,
+        num_bits,
+        size_m,
+        size_n,
+        size_k,
     )
 
     # Unfold the batch dimension
@@ -50,9 +66,9 @@ def _linear_fp_act_int4_weight_sparse_marlin_impl(input_tensor, weight_tensor, b
         out += bias.to(out.dtype)
     return out
 
+
 @dataclass(frozen=True)
 class MarlinSparseLayout(Layout):
-
     def pre_process(self, input: torch.Tensor) -> torch.Tensor:
         """Preprocess the input tensor to be in the correct format for the Marlin sparse kernel.
             - 1º: the input tensor is transposed since the linear layer keeps the weights in a transposed format
@@ -66,9 +82,11 @@ class MarlinSparseLayout(Layout):
             torch.Tensor: the preprocessed tensor
         """
         from torchao.sparsity.marlin import inject_24  # avoid circular import
+
         input_t = input.t()
         w_24, _ = inject_24(input_t, *input_t.shape)
         return w_24.t()
+
 
 @register_layout(MarlinSparseLayout)
 class MarlinSparseAQTTensorImpl(AQTTensorImpl):
@@ -88,6 +106,7 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         group_size (int): the group size used to pack the tensor
         num_bits (int): the number of bits used to quantize the tensor
     """
+
     @staticmethod
     def __new__(
         cls,
@@ -144,7 +163,12 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         )
 
     def __tensor_flatten__(self):
-        return ["int_data", "scale", "zero_point", "meta"], [self._layout, self.original_shape, self.group_size, self.num_bits]
+        return ["int_data", "scale", "zero_point", "meta"], [
+            self._layout,
+            self.original_shape,
+            self.group_size,
+            self.num_bits,
+        ]
 
     @classmethod
     def __tensor_unflatten__(
@@ -155,10 +179,22 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         zero_point = tensor_data_dict["zero_point"]
         meta = tensor_data_dict["meta"]
         _layout, original_shape, group_size, num_bits = tensor_attributes
-        return cls(int_data, scale, zero_point, meta, _layout, original_shape, group_size, num_bits)
+        return cls(
+            int_data,
+            scale,
+            zero_point,
+            meta,
+            _layout,
+            original_shape,
+            group_size,
+            num_bits,
+        )
 
     def get_plain(self):
-        from torchao.sparsity.marlin import unpack_from_marlin_24  # avoid circular import
+        from torchao.sparsity.marlin import (
+            unpack_from_marlin_24,
+        )  # avoid circular import
+
         int_data_expanded, scales_expanded = unpack_from_marlin_24(
             self.int_data,
             self.scale,
@@ -179,7 +215,11 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         zero_point: torch.Tensor,
         _layout: Layout,
     ):
-        from torchao.sparsity.marlin import pack_to_marlin_24, const  # avoid circular import
+        from torchao.sparsity.marlin import (
+            pack_to_marlin_24,
+            const,
+        )  # avoid circular import
+
         assert isinstance(_layout, MarlinSparseLayout)
 
         # Linear layers are (in_features, out_features) but the int_data that is reaching this point
@@ -189,7 +229,7 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
 
         if not torch.cuda.get_device_capability()[0] >= 8:
             raise ValueError(
-                f'Can not use Sparse Marlin 2:4 int4*fp16 kernel with a device of compute capability {torch.cuda.get_device_capability()}, the minimum compute capability is 8.0 for Marlin kernel.'
+                f"Can not use Sparse Marlin 2:4 int4*fp16 kernel with a device of compute capability {torch.cuda.get_device_capability()}, the minimum compute capability is 8.0 for Marlin kernel."
             )
 
         if q_w_24.dtype != torch.int32:
@@ -206,14 +246,14 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         # Check the link for a reference: https://github.com/neuralmagic/nm-vllm/tree/main
         num_bits = 4 if torch.max(q_w_24) < 16 else -1
         if num_bits not in [4]:
-            raise ValueError(
-                f"Only {[4]} bits are supported, got {num_bits}."
-            )
+            raise ValueError(f"Only {[4]} bits are supported, got {num_bits}.")
 
         group_size = in_features // scale_t.shape[0]
         if group_size == 0:
             group_size = in_features
-        assert group_size <= in_features, "Group size must be less than or equal to in_features."
+        assert (
+            group_size <= in_features
+        ), "Group size must be less than or equal to in_features."
 
         if group_size not in const.SUPPORTED_GROUP_SIZES:
             raise ValueError(
@@ -221,12 +261,19 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
             )
 
         # Compress quantized weight to marlin 2:4 format
-        marlin_24_q_w_comp, marlin_24_s, meta = pack_to_marlin_24(q_w_24, scale_t, num_bits, group_size)
+        marlin_24_q_w_comp, marlin_24_s, meta = pack_to_marlin_24(
+            q_w_24, scale_t, num_bits, group_size
+        )
 
         return cls(
-            marlin_24_q_w_comp, marlin_24_s, zero_point,
-            meta, _layout, q_w_24.shape,
-            group_size, num_bits
+            marlin_24_q_w_comp,
+            marlin_24_s,
+            zero_point,
+            meta,
+            _layout,
+            q_w_24.shape,
+            group_size,
+            num_bits,
         )
 
     def get_layout(self) -> Layout:

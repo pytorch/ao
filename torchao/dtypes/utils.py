@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 from torchao.utils import TorchAOBaseTensor
+import torch
+from typing import Tuple, Union
 
 """
 Base class for different layout, following the same design of PyTorch layout
@@ -82,6 +84,7 @@ class AQTTensorImpl(TorchAOBaseTensor):
     Note: This is not a user facing API, it's used by AffineQuantizedTensor to construct
     the underlying implementation of a AQT based on layout
     """
+
     def get_plain(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Get the plain (unpacked) Tensor for the tensor impl
 
@@ -101,7 +104,7 @@ class AQTTensorImpl(TorchAOBaseTensor):
         zero_point: torch.Tensor,
         _layout: Layout,
     ):
-        """ Construct a TensorImpl from data, scale, zero_point and the _layout"""
+        """Construct a TensorImpl from data, scale, zero_point and the _layout"""
         pass
 
     def __repr__(self):

@@ -23,7 +23,7 @@ import torch.nn.functional as F
 from typing import Any, Callable, Union, Dict, Optional, Literal, Tuple
 import types
 
-from torchao.dtypes.uintx.uintx import UintxLayout
+from torchao.dtypes.uintx.uintx_layout import UintxLayout
 from torchao.dtypes import (
     to_affine_quantized_intx,
     to_affine_quantized_floatx,

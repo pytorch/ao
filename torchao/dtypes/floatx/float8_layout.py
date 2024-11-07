@@ -1,9 +1,9 @@
 import torch
-from torchao.utils import _is_float8_type
-from torchao.dtypes.utils import Layout, AQTTensorImpl
+from torchao.utils import _is_float8_type, fill_defaults
+from torchao.dtypes.utils import Layout, AQTTensorImpl, get_out_shape
 from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
-    register_layout
+    register_layout,
 )
 from dataclasses import dataclass
 from typing import Optional, Tuple, Union
@@ -11,18 +11,20 @@ from torchao.float8.inference import (
     preprocess_data,
     Float8MMConfig,
     addmm_float8_unwrapped_inference,
-    _is_rowwise_scaled
+    _is_rowwise_scaled,
 )
 from torch.utils._python_dispatch import (
     return_and_correct_aliasing,
     is_traceable_wrapper_subclass,
 )
+
 aten = torch.ops.aten
 
 
 @dataclass(frozen=True)
 class Float8Layout(Layout):
     mm_config: Optional[Float8MMConfig] = None
+
 
 @register_layout(Float8Layout)
 class Float8AQTTensorImpl(AQTTensorImpl):
@@ -32,6 +34,7 @@ class Float8AQTTensorImpl(AQTTensorImpl):
     Note: technically we should not create a new layout for float8 we should merge this into
     plain layout
     """
+
     float8_data: torch.Tensor
     scale: torch.Tensor
     transposed: bool
@@ -66,7 +69,7 @@ class Float8AQTTensorImpl(AQTTensorImpl):
         self._layout = _layout
 
     def _apply_fn_to_data(self, fn):
-        """ Applys a fn to all tensor components stored on this class"""
+        """Applys a fn to all tensor components stored on this class"""
         return self.__class__(
             fn(self.float8_data),
             fn(self.scale),
@@ -91,7 +94,10 @@ class Float8AQTTensorImpl(AQTTensorImpl):
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
         float8_data, scale = tensor_data_dict["float8_data"], tensor_data_dict["scale"]
-        transposed, _layout, = tensor_attributes
+        (
+            transposed,
+            _layout,
+        ) = tensor_attributes
         return cls(float8_data, scale, transposed, _layout)
 
     @classmethod
@@ -115,23 +121,50 @@ class Float8AQTTensorImpl(AQTTensorImpl):
         elif func is aten.slice.Tensor:
             self, dim, start, end, step = fill_defaults(args, 5, [0, None, None, 1])
             if dim == 0:
-                #TODO: scale replecation should be dependent on block size
+                # TODO: scale replecation should be dependent on block size
                 if self.scale.ndim == 1:
                     return return_and_correct_aliasing(
-                        func, args, kwargs, args[0]._apply_fn_to_data(lambda x: aten.slice.Tensor(x, dim, start, end, step))
+                        func,
+                        args,
+                        kwargs,
+                        args[0]._apply_fn_to_data(
+                            lambda x: aten.slice.Tensor(x, dim, start, end, step)
+                        ),
                     )
                 elif self.scale.ndim == 0:
                     return return_and_correct_aliasing(
-                        func, args, kwargs, Float8AQTTensorImpl(aten.slice.Tensor(self.float8_data, dim, start, end, step), self.scale, None, self._layout)
+                        func,
+                        args,
+                        kwargs,
+                        Float8AQTTensorImpl(
+                            aten.slice.Tensor(self.float8_data, dim, start, end, step),
+                            self.scale,
+                            None,
+                            self._layout,
+                        ),
                     )
                 else:
-                    raise NotImplementedError(f"Float8AQTTensorImpl dispatch: attempting to run {func}, with scale ndim={dim}, that is not supported")
+                    raise NotImplementedError(
+                        f"Float8AQTTensorImpl dispatch: attempting to run {func}, with scale ndim={dim}, that is not supported"
+                    )
             elif dim == 1:
                 return return_and_correct_aliasing(
-                        func, args, kwargs, Float8AQTTensorImpl(aten.slice.Tensor(self.float8_data, dim, start, end, step).contiguous(), self.scale, None, self._layout)
+                    func,
+                    args,
+                    kwargs,
+                    Float8AQTTensorImpl(
+                        aten.slice.Tensor(
+                            self.float8_data, dim, start, end, step
+                        ).contiguous(),
+                        self.scale,
+                        None,
+                        self._layout,
+                    ),
                 )
             else:
-                raise NotImplementedError(f"Float8AQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported")
+                raise NotImplementedError(
+                    f"Float8AQTTensorImpl dispatch: attempting to run {func}, with dim={dim}, that is not supported"
+                )
         else:
             raise NotImplementedError(
                 f"Float8AQTTensorImpl dispatch: attempting to run {func}, this is not supported"
@@ -153,42 +186,50 @@ class Float8AQTTensorImpl(AQTTensorImpl):
         zero_point: Optional[torch.Tensor],
         _layout: Layout,
     ):
-        """ Main entrypoint for constructing Float8TensorImpl"""
-        assert _is_float8_type(data.dtype), f"Float8 TensorImpl must be constructed from float8 dtype but got {data.dtype}"
-        assert isinstance(_layout, Float8Layout), f"Float8 TensorImpl must be constructed from Float8Layout but got {_layout}"
+        """Main entrypoint for constructing Float8TensorImpl"""
+        assert _is_float8_type(
+            data.dtype
+        ), f"Float8 TensorImpl must be constructed from float8 dtype but got {data.dtype}"
+        assert isinstance(
+            _layout, Float8Layout
+        ), f"Float8 TensorImpl must be constructed from Float8Layout but got {_layout}"
         return cls(data, scale, False, _layout)
 
     def __repr__(self):
         float8_data, scale, _ = self.get_plain()
         _layout = self.get_layout()
-        return (f"{self.__class__.__name__}(\n"
-                f"float8_data={float8_data},\n"
-                f"scale={scale},\n"
-                f"transposed={self.transposed}, "
-                f"_layout={_layout})")
+        return (
+            f"{self.__class__.__name__}(\n"
+            f"float8_data={float8_data},\n"
+            f"scale={scale},\n"
+            f"transposed={self.transposed}, "
+            f"_layout={_layout})"
+        )
 
 
 ##########################
 # Float8 Dispatch Kernels
 ##########################
 
+
 def _linear_fp8_act_fp8_weight_check(
-    input_tensor: Union[torch.Tensor, 'AffineQuantizedTensor'],
-    weight_tensor: Union[torch.Tensor, 'AffineQuantizedTensor'],
+    input_tensor: Union[torch.Tensor, "AffineQuantizedTensor"],
+    weight_tensor: Union[torch.Tensor, "AffineQuantizedTensor"],
     bias: Optional[torch.Tensor],
 ) -> bool:
     def check_aqt(aqt: Union[torch.Tensor, AffineQuantizedTensor]) -> bool:
         return (
-            isinstance(aqt, AffineQuantizedTensor) and
-            isinstance(aqt._layout, Float8Layout)
+            isinstance(aqt, AffineQuantizedTensor)
+            and isinstance(aqt._layout, Float8Layout)
             and aqt.tensor_impl.dtype in [torch.float8_e4m3fn, torch.float8_e5m2]
             and (aqt.shape == aqt.block_size or _is_rowwise_scaled(aqt))
         )
+
     return check_aqt(input_tensor) and check_aqt(weight_tensor)
 
 
 def preprocess_scale(input_scale: torch.Tensor, input_shape: Tuple[int]):
-    """ Ensures input tensor is correctly formated for _scaled_mm """
+    """Ensures input tensor is correctly formated for _scaled_mm"""
     input_scale = input_scale.unsqueeze(-1)
 
     if input_scale.dim() > 2:
@@ -196,9 +237,10 @@ def preprocess_scale(input_scale: torch.Tensor, input_shape: Tuple[int]):
 
     return input_scale
 
+
 def _linear_fp8_act_fp8_weight_impl(
-    input_tensor: 'AffineQuantizedTensor',
-    weight_tensor: 'AffineQuantizedTensor',
+    input_tensor: "AffineQuantizedTensor",
+    weight_tensor: "AffineQuantizedTensor",
     bias: Optional[torch.Tensor],
 ):
     """Implements matmul between FP8 input and FP8 weight with compute using _scaled_mm"""
@@ -219,7 +261,9 @@ def _linear_fp8_act_fp8_weight_impl(
 
     # Handle rowwise case
     if _is_rowwise_scaled(weight_tensor):
-        assert _is_rowwise_scaled(input_tensor), "Input tensor must be rowwise block size"
+        assert _is_rowwise_scaled(
+            input_tensor
+        ), "Input tensor must be rowwise block size"
         w_scale = w_scale.unsqueeze(-1).T
         input_scale = preprocess_scale(input_scale, input_tensor.shape)
 
@@ -237,25 +281,31 @@ def _linear_fp8_act_fp8_weight_impl(
         use_fast_accum=scaled_mm_config.use_fast_accum,
     ).reshape(out_shape)
 
+
 def _linear_fp_act_fp8_weight_check(
-    input_tensor: Union[torch.Tensor, 'AffineQuantizedTensor'],
-    weight_tensor: Union[torch.Tensor, 'AffineQuantizedTensor'],
+    input_tensor: Union[torch.Tensor, "AffineQuantizedTensor"],
+    weight_tensor: Union[torch.Tensor, "AffineQuantizedTensor"],
     bias: Optional[torch.Tensor],
 ) -> bool:
     return (
         # input is native float tensor
-        not is_traceable_wrapper_subclass(input_tensor) and
-        input_tensor.is_floating_point() and
+        not is_traceable_wrapper_subclass(input_tensor)
+        and input_tensor.is_floating_point()
+        and
         # weight is float8 quantized affine quantized tensor
-        isinstance(weight_tensor, AffineQuantizedTensor) and
-        isinstance(weight_tensor._layout, Float8Layout)
+        isinstance(weight_tensor, AffineQuantizedTensor)
+        and isinstance(weight_tensor._layout, Float8Layout)
         and weight_tensor.tensor_impl.dtype in [torch.float8_e4m3fn, torch.float8_e5m2]
-        and (weight_tensor.shape == weight_tensor.block_size or _is_rowwise_scaled(weight_tensor))
+        and (
+            weight_tensor.shape == weight_tensor.block_size
+            or _is_rowwise_scaled(weight_tensor)
+        )
     )
+
 
 def _linear_fp_act_fp8_weight_impl(
     input_tensor: torch.Tensor,
-    weight_tensor: 'AffineQuantizedTensor',
+    weight_tensor: "AffineQuantizedTensor",
     bias: Optional[torch.Tensor],
 ):
     return torch.nn.functional.linear(input_tensor, weight_tensor.dequantize(), bias)

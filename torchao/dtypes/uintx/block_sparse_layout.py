@@ -13,17 +13,19 @@ from torchao.dtypes.utils import (
 from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
     register_layout,
-    PlainAQTTensorImpl
 )
-from torchao.dtypes.uintx.uint8 import _aqt_is_int8_reduced_range
+from torchao.dtypes.uintx.plain_layout import PlainAQTTensorImpl
+from torchao.dtypes.uintx.plain_layout import _aqt_is_int8_reduced_range
 
 logger = logging.getLogger(__name__)
 
 aten = torch.ops.aten
 
+
 @dataclass(frozen=True)
 class BlockSparseLayout(Layout):
     blocksize: int = 64
+
 
 @register_layout(BlockSparseLayout)
 class BlockSparseAQTTensorImpl(PlainAQTTensorImpl):
@@ -33,7 +35,13 @@ class BlockSparseAQTTensorImpl(PlainAQTTensorImpl):
     scale: Optional[torch.Tensor]
     zero_point: Optional[torch.Tensor]
 
-    __slots__ = ["bsr_crow_indices", "bsr_col_indices", "bsr_values", "scale", "zero_point"]
+    __slots__ = [
+        "bsr_crow_indices",
+        "bsr_col_indices",
+        "bsr_values",
+        "scale",
+        "zero_point",
+    ]
 
     @staticmethod
     def __new__(  # noqa: PYI034
@@ -115,17 +123,23 @@ class BlockSparseAQTTensorImpl(PlainAQTTensorImpl):
             bsr_values=bsr_tensor.values(),
             scale=scale,
             zero_point=zero_point,
-            _layout = _layout,
+            _layout=_layout,
             requires_grad=False,
         )
 
     def get_plain(self):
-        int_data_expanded = torch.ops.blocksparse.bsr_to_dense(self.crow_indices(), self.col_indices(), self.values(), self.shape[0], self.shape[1])
+        int_data_expanded = torch.ops.blocksparse.bsr_to_dense(
+            self.crow_indices(),
+            self.col_indices(),
+            self.values(),
+            self.shape[0],
+            self.shape[1],
+        )
         return int_data_expanded, self.scale, self.zero_point
 
     def _apply_fn_to_data(self, func):
         return self.__class__(
-            shape = self.shape,
+            shape=self.shape,
             bsr_crow_indices=func(self.bsr_crow_indices),
             bsr_col_indices=func(self.bsr_col_indices),
             bsr_values=func(self.bsr_values),
@@ -166,16 +180,15 @@ class BlockSparseAQTTensorImpl(PlainAQTTensorImpl):
         )
 
 
-
 def _linear_int8_act_int8_weight_block_sparse_check(input_tensor, weight_tensor, bias):
     return (
-        isinstance(input_tensor, AffineQuantizedTensor) and
-        _aqt_is_int8_reduced_range(input_tensor) and
-        isinstance(weight_tensor, AffineQuantizedTensor) and
-        weight_tensor.is_cuda and
-        input_tensor.dtype == weight_tensor.dtype and
-        isinstance(input_tensor._layout, PlainLayout) and
-        isinstance(weight_tensor._layout, BlockSparseLayout)
+        isinstance(input_tensor, AffineQuantizedTensor)
+        and _aqt_is_int8_reduced_range(input_tensor)
+        and isinstance(weight_tensor, AffineQuantizedTensor)
+        and weight_tensor.is_cuda
+        and input_tensor.dtype == weight_tensor.dtype
+        and isinstance(input_tensor._layout, PlainLayout)
+        and isinstance(weight_tensor._layout, BlockSparseLayout)
     )
 
 
@@ -187,12 +200,14 @@ def _linear_int8_act_int8_weight_block_sparse_impl(input_tensor, weight_tensor, 
     tmp = x_vals_int8.reshape(-1, x_vals_int8.shape[-1])
     tmp_t = tmp.t()
 
-    y = torch.ops.blocksparse.int_addmm(w_vals.crow_indices(),
-                                        w_vals.col_indices(),
-                                        w_vals.values(),
-                                        tmp_t,
-                                        w_scales,
-                                        x_scales.reshape(-1))
+    y = torch.ops.blocksparse.int_addmm(
+        w_vals.crow_indices(),
+        w_vals.col_indices(),
+        w_vals.values(),
+        tmp_t,
+        w_scales,
+        x_scales.reshape(-1),
+    )
     y_shape = (*x_vals_int8.shape[:-1], w_scales.shape[-1])
     y = y.reshape(*y_shape)
 
