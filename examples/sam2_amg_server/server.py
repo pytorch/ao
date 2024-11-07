@@ -5,6 +5,7 @@ import tempfile
 import logging
 import sys
 import time
+import json
 from pathlib import Path
 from typing import List, Optional
 
@@ -34,6 +35,42 @@ inductorconfig.coordinate_descent_check_all_directions = True
 inductorconfig.allow_buffer_reuse = False
 
 torch._dynamo.config.capture_dynamic_output_shape_ops = True
+
+
+def example_shapes():
+    return [(848, 480, 3),
+            (720, 1280, 3),
+            (848, 480, 3),
+            (1280, 720, 3),
+            (480, 848, 3),
+            (1080, 1920, 3),
+            (1280, 720, 3),
+            (1280, 720, 3),
+            (720, 1280, 3),
+            (848, 480, 3),
+            (480, 848, 3),
+            (864, 480, 3),
+            (1920, 1080, 3),
+            (1920, 1080, 3),
+            (1280, 720, 3),
+            (1232, 672, 3),
+            (848, 480, 3),
+            (848, 480, 3),
+            (1920, 1080, 3),
+            (1080, 1920, 3),
+            (480, 848, 3),
+            (848, 480, 3),
+            (480, 848, 3),
+            (480, 848, 3),
+            (720, 1280, 3),
+            (720, 1280, 3),
+            (900, 720, 3),
+            (848, 480, 3),
+            (864, 480, 3),
+            (360, 640, 3),
+            (360, 640, 3),
+            (864, 480, 3)]
+
 
 # torch.set_float32_matmul_precision('high')
 
@@ -102,24 +139,25 @@ def masks_to_rle_dict(masks):
 
 # Queue to hold incoming requests
 request_queue = asyncio.Queue()
-batch_interval = 1  # Time interval to wait before processing a batch
+batch_interval = 10  # Time interval to wait before processing a batch
 
 
 def process_batch(batch, mask_generator):
-    if len(batch) == 1:
-        print(f"Processing batch of len {len(batch)} - generate")
-        t = time.time()
-        image_tensors = [image_tensor for (image_tensor, _) in batch]
-        masks = mask_generator.generate(image_tensors[0])
-        print(f"Took avg. {(time.time() - t)}s")
-        return [masks]
-    else:
-        print(f"Processing batch of len {len(batch)} - generate_batch")
-        t = time.time()
-        image_tensors = [image_tensor for (image_tensor, _) in batch]
-        masks = mask_generator.generate_batch(image_tensors)
-        print(f"Took avg. {(time.time() - t) / len(batch)}s per batch entry")
-        return masks
+    # if len(batch) == 1:
+    #     print(f"Processing batch of len {len(batch)} - generate")
+    #     t = time.time()
+    #     image_tensors = [image_tensor for (image_tensor, _) in batch]
+    #     masks = mask_generator.generate(image_tensors[0])
+    #     print(f"Took avg. {(time.time() - t)}s")
+    #     return [masks]
+    # else:
+    print(f"Processing batch of len {len(batch)} - generate_batch")
+    t = time.time()
+    image_tensors = [image_tensor for (image_tensor, _) in batch]
+    print("\n".join(map(str, [i.shape for i in image_tensors])))
+    masks = mask_generator.generate_batch(image_tensors)
+    print(f"Took avg. {(time.time() - t) / len(batch)}s per batch entry")
+    return masks
 
 
 async def batch_worker(mask_generator, batch_size, *, pad_batch=True, furious=False):
@@ -140,6 +178,7 @@ async def batch_worker(mask_generator, batch_size, *, pad_batch=True, furious=Fa
             for i, (_, response_future) in enumerate(batch):
                 response_future.set_result(results[i])
 
+        print("Polling len(batch): ", len(batch))
         await asyncio.sleep(batch_interval)
 
 
@@ -267,41 +306,37 @@ def main(checkpoint_path,
         torch.set_float32_matmul_precision('high')
         mask_generator.predictor.model.sam_mask_decoder = mask_generator.predictor.model.sam_mask_decoder.to(torch.float16)
 
-
     with open('dog.jpg', 'rb') as f:
         image_tensor = file_bytes_to_image_tensor(bytearray(f.read()))
 
-    t = time.time()
-    logging.info("Running three iterations to compile and warmup.")
-    image_tensor_to_masks(image_tensor, mask_generator)
-    image_tensor_to_masks(image_tensor, mask_generator)
-    image_tensor_to_masks(image_tensor, mask_generator)
-    logging.info(f"Three iterations took {time.time() - t}s.")
-
     if unittest:
-        logging.info("batch size 1 unittest")
-        masks = image_tensor_to_masks(image_tensor, mask_generator)
-        masks = masks_to_rle_dict(masks)
-        import json
-        ref_masks = json.loads(open("dog_rle.json").read())
-        unittest_fn(masks, ref_masks, order_by_area=True, verbose=verbose)
-
-        if batch_size > 1:
+        if batch_size == 1:
+            logging.info("batch size 1 unittest")
+            masks = image_tensor_to_masks(image_tensor, mask_generator)
+            masks = masks_to_rle_dict(masks)
+            ref_masks = json.loads(open("dog_rle.json").read())
+            unittest_fn(masks, ref_masks, order_by_area=True, verbose=verbose)
+        else:
             # TODO: Transpose dog image to create diversity in input image shape
             logging.info(f"batch size {batch_size} unittest")
             all_masks = image_tensors_to_masks([image_tensor] * batch_size, mask_generator)
             all_masks = [masks_to_rle_dict(masks) for masks in all_masks]
+            ref_masks = json.loads(open("dog_rle.json").read())
             for masks in all_masks:
                 unittest_fn(masks, ref_masks, order_by_area=True, verbose=verbose)
 
     if benchmark:
-        print("batch size 1 test")
-        benchmark_fn(image_tensor_to_masks, image_tensor, mask_generator)
-        print("image_tensor.shape: ", image_tensor.shape)
-        benchmark_fn(image_tensor_to_masks, torch.tensor(image_tensor).transpose(0, 1).numpy(), mask_generator)
-        if batch_size > 1:
-            print(f"batch size {batch_size} test")
-            benchmark_fn(image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
+        if batch_size == 1:
+            print("batch size 1 test")
+            benchmark_fn(image_tensor_to_masks, image_tensor, mask_generator)
+            benchmark_fn(image_tensor_to_masks, torch.tensor(image_tensor).transpose(0, 1).numpy(), mask_generator)
+        else:
+            # print(f"batch size {batch_size} test")
+            # benchmark_fn(image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
+            print(f"batch size {batch_size} example shapes test")
+            random_images = [np.random.randint(0, 256, size=size, dtype=np.uint8) for size in example_shapes()]
+            random_images = random_images[:batch_size]
+            benchmark_fn(image_tensors_to_masks, random_images, mask_generator)
 
     if profile is not None:
         print(f"Saving profile under {profile}")
