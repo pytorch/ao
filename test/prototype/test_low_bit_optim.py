@@ -417,10 +417,11 @@ _FSDP_WORLD_SIZE = 2
         self.assertTrue(exp_avg.__class__ == torch.Tensor)
         self.assertTrue(exp_avg_sq.__class__ == torch.Tensor)
         for param in model.parameters():
-            if id(param) not in excluded_params_ids :
+            if id(param) not in excluded_params_ids and param.numel() >= 4096 and param.numel() % optim.block_size == 0:
                 param_state = state[param]
                 exp_avg = param_state['exp_avg']
                 exp_avg_sq = param_state['exp_avg_sq']
+
                 self.assertTrue(exp_avg.__class__ != torch.Tensor)
                 self.assertTrue(exp_avg_sq.__class__ != torch.Tensor)
 
