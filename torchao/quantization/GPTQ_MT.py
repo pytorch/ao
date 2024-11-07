@@ -14,21 +14,96 @@ from torchao.dtypes import (
     to_affine_quantized_intx_static,
     TensorCoreTiledLayout
 )
+from torchao.quantization._quantized_linear import (
+    _check_linear_int4_k,
+)
 from torchao.quantization.quant_primitives import (
     MappingType,
     ZeroPointDomain,
 )
 
-def _check_linear_int4_k(k, group_size = 1, inner_k_tiles = None):
-    k_divisible_by_group_size = k % group_size == 0
-    if inner_k_tiles is not None:
-        k_divisible_by_16_times_inner_k_tiles = k % (inner_k_tiles * 16) == 0
-        return k_divisible_by_group_size and k_divisible_by_16_times_inner_k_tiles
-    return k_divisible_by_group_size
 
 NON_IN_PLACE_OPS = {}
 
 class MultiTensor(torch.Tensor):
+    """
+        A subclass of PyTorch's Tensor that supports multiple tensors for parallel operations.
+        It allows operations to be performed on a list of tensors in a grouped fashion, simplifying handling
+        of computations involving multiple tensor inputs and outputs.
+
+        Attributes:
+        ----------
+        get_qparams_func : Callable
+            Function to get quantization parameters for tensors.
+        quantize_func : Callable
+            Function to quantize tensors.
+        dequantize_func : Callable
+            Function to dequantize tensors.
+        combine_qparams_list_func : Callable
+            Function to combine quantization parameters.
+        make_qtensor : Callable
+            Function to create a quantized tensor.
+        skip_layer_func : Callable
+            Function to determine if a specific layer should be skipped during quantization.
+        act_fake_quant_func : Callable
+            Function for activation fake quantization (default is identity function).
+        percdamp : float
+            The percentage for damping used during quantization (default 0.01).
+        blocksize : int
+            The block size used for Hessian computation during quantization (default 128).
+        group_size : int
+            The group size for grouped quantization (default -1 indicates no grouping).
+        in_place_threshold : int
+            Threshold for determining if a function is in-place after seeing it multiple times (default 5).
+        values : List[torch.Tensor]
+            List of individual tensors held by this MultiTensor instance.
+        count : int
+            Number of tensors in the MultiTensor instance.
+        debug : bool
+            Whether to enable debug information (default True).
+        gptq_done : bool
+            Indicates whether GPTQ quantization has been completed (default False).
+
+        Methods:
+        -------
+        __new__(cls, input: Union[torch.Tensor, Sequence[torch.Tensor]], **kwargs: Any) -> "MultiTensor":
+            Creates a new MultiTensor instance wrapping the provided input tensor or sequence of tensors.
+        
+        __init__(self, input: Union[torch.Tensor, Sequence[torch.Tensor]], **kwargs: Any) -> None:
+            Initializes the MultiTensor instance, setting up internal state and adding input tensors.
+        
+        __repr__(self) -> str:
+            Returns a string representation of the MultiTensor instance showing the contained tensors.
+        
+        add_tensors(self, input: Union[torch.Tensor, Sequence[torch.Tensor]]) -> "MultiTensor":
+            Adds one or more tensors to the MultiTensor, increasing the count of internal tensors.
+        
+        pad_to_length(self, length: int, pad_in_place: bool = True) -> "MultiTensor":
+            Pads the MultiTensor to the specified length by adding new tensor instances as needed.
+            Can pad in-place or with copies of existing tensors depending on the value of `pad_in_place`.
+        
+        unpad(self, count: int = 1, force: bool = False) -> "MultiTensor":
+            Reduces the number of tensors in the MultiTensor to the specified count, optionally forcing removal
+            if certain conditions are met.
+        
+        configure_quantization_mode(
+            cls, get_qparams_func, quantize_func, dequantize_func, combine_qparams_list_func,
+            make_qtensor, skip_layer_func, act_fake_quant_func = None, percdamp = 0.01, blocksize = 128, group_size = -1
+        ) -> None:
+            Configures the quantization behavior for all instances of the MultiTensor class by setting the
+            appropriate functions and parameters.
+        
+        __torch_function__(cls, func: Callable, types: Tuple[type, ...], args: Tuple[Any, ...] = (), kwargs: Optional[Dict[str, Any]] = None, skip_gptq: bool = False) -> Any:
+            Custom implementation to handle how operations on MultiTensors are dispatched.
+            Handles function calls with tensor-like inputs, allowing processing of individual tensors or grouped results.
+        
+        faster_quant(cls, H, W):
+            Performs faster quantization of the weight tensor `W` using a precomputed Hessian `H`.
+            Applies block-wise quantization to improve memory efficiency during linear layer operations.
+        
+        is_linear_layer(cls, func: Callable) -> bool:
+            Determines whether a given function corresponds to a linear layer operation.
+    """
     get_qparams_func = None
     quantize_func = None
     dequantize_func = None
@@ -486,6 +561,51 @@ class StateDictManager:
         return self.state_dict
 
 class GPTQQuantizer(Quantizer):
+    """
+    A quantizer class for implementing Gradient Post-Training Quantization (GPTQ).
+    This class manages the quantization process for PyTorch models, including setting quantization functions,
+    replacing model parameters with MultiTensor instances, and creating quantized state dictionaries.
+
+    Attributes:
+    ----------
+    state_dict_manager : StateDictManager
+        Manages the state dictionary of the model, providing functionalities to update and retrieve parameter states.
+    get_qparams_func : Callable
+        Function to get quantization parameters for tensors (default is None).
+    quantize_func : Callable
+        Function to quantize tensors (default is None).
+    dequantize_func : Callable
+        Function to dequantize tensors (default is None).
+    combine_qparams_list_func : Callable
+        Function to combine quantization parameters from multiple sources (default is None).
+    make_qtensor : Callable
+        Function to create a quantized tensor (default is None).
+    skip_layer_func : Callable
+        Function to determine whether a specific layer should be skipped during quantization (default is None).
+    act_fake_quant_func : Callable
+        Function for activation fake quantization (default is None).
+
+    Methods:
+    -------
+    __init__(self) -> None:
+        Initializes the GPTQQuantizer instance, setting up quantization functions and state management.
+    
+    _check_functions(self) -> None:
+        Ensures that all required quantization functions are set before proceeding with quantization.
+    
+    _replace_parameters_with_multitensor(self, model) -> None:
+        Replaces the model's parameters with MultiTensor instances (currently does not work as expected).
+    
+    covert_multi_tensors_to_tensors(self, state_dict: Dict[str, Any]) -> Dict[str, Any]:
+        Converts any MultiTensor instances in the provided state dictionary to single tensor instances.
+    
+    _create_quantized_state_dict(
+        self, model, inputs, blocksize: int = 128, percdamp: float = 0.01, group_size: int = 64
+    ) -> Dict[str, Any]:
+        Creates a quantized state dictionary for the given model using the specified quantization settings.
+        Configures the MultiTensor class for quantization, replaces model parameters, and runs the model
+        to generate the quantized state dictionary.
+    """
     def __init__(self):
         super().__init__()
         self.state_dict_manager = StateDictManager.get_instance()

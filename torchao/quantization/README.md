@@ -328,55 +328,26 @@ You try can out these apis with the `quantize_` api as above alongside the const
 ### Automatic Inductor Configuration
 The `quantize_` and `autoquant` apis now automatically use our recommended inductor configuration setings. You can mimic the same configuration settings for your own experiments by using the `torchao.quantization.utils.recommended_inductor_config_setter` to replicate our recommended configuration settings. Alternatively if you wish to disable these recommended settings, you can use the key word argument `set_inductor_config` and set it to false in the `quantize_` or `autoquant` apis to prevent assignment of those configuration settings. You can also overwrite these configuration settings after they are assigned if you so desire, as long as they are overwritten before passing any inputs to the torch.compiled model. This means that previous flows which referenced a variety of inductor configurations that needed to be set are now outdated, though continuing to manually set those same inductor configurations is unlikely to cause any issues.
 
-## (To be moved to prototype) A16W4 WeightOnly Quantization with GPTQ
+### (prototype) A16W8 Float8 WeightOnly Quantization
 
 ```python
-from torchao._models._eval import InputRecorder, TransformerEvalWrapper
-from torchao.quantization.GPTQ import Int4WeightOnlyGPTQQuantizer
-precision = torch.bfloat16
-device = "cuda"
-checkpoint_file_name = "../gpt-fast/checkpoints/meta-llama/Llama-2-7b-chat-hf/model.pth"
-checkpoint_path = Path(checkpoint_file_name)
-model = Transformer.from_name(checkpoint_path.parent.name)
-checkpoint = torch.load(str(checkpoint_path), mmap=True, weights_only=True)
-model.load_state_dict(checkpoint, assign=True)
-model = model.to(dtype=precision, device="cpu")
-model.eval()
-tokenizer_path = checkpoint_path.parent / "tokenizer.model"
-assert tokenizer_path.is_file(), tokenizer_path
-tokenizer = SentencePieceProcessor(  # pyre-ignore[28]
-    model_file=str(tokenizer_path)
-)
-blocksize = 128
-percdamp = 0.01
-groupsize = 128
-calibration_tasks = ["wikitext"]
-calibration_limit = 1
-calibration_seq_length = 100
-input_prep_func = prepare_inputs_for_model
-pad_calibration_inputs = False
-
-inputs = InputRecorder(
-    tokenizer,
-    calibration_seq_length,
-    input_prep_func,
-    pad_calibration_inputs,
-    model.config.vocab_size,
-    device="cpu",
-).record_inputs(
-    calibration_tasks,
-    calibration_limit,
-).get_inputs()
-
-quantizer = Int4WeightOnlyGPTQQuantizer(
-    blocksize,
-    percdamp,
-    groupsize,
-)
-model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
-model = quantizer.quantize(model, inputs).cuda()
-
+# for torch 2.5+
+from torchao.quantization import quantize_, float8_weight_only
+quantize_(model, float8_weight_only())
 ```
+
+This API works today but has not been extensively tested and benchmarked yet. Hardware with CUDA compute capability 8.9 or greater is required.
+
+### (prototype) A16W8 Float8 Dynamic Quantization with Rowwise Scaling
+
+```python
+# for torch 2.5+
+from torchao.quantization import quantize_, PerRow, float8_dynamic_activation_float8_weight
+quantize_(model, float8_dynamic_activation_float8_weight(granularity=PerRow()))
+```
+
+This API works today but has not been extensively tested and benchmarked yet. Hardware with CUDA compute capability 8.9 or greater is required.
+
 
 ## (To be deprecated) A8W8 Dynamic Quantization
 

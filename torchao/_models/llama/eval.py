@@ -102,32 +102,7 @@ def run_evaluation(
         if "marlin" in quantization:
             from torchao.dtypes import MarlinSparseLayout
             quantize_(model, int4_weight_only(layout=MarlinSparseLayout()))
-        if "int4wo" in quantization and "gptq" in quantization:
-            # avoid circular imports
-            from torchao._models._eval import MultiTensorInputRecorder
-            from torchao.quantization.GPTQ_MT import Int4WeightOnlyGPTQQuantizer
-            groupsize=int(quantization.split("-")[-2])
-            assert groupsize in [32,64,128,256], f"int4wo groupsize needs to be one of [32,64,128,256] but got {groupsize}"
-            assert precision==torch.bfloat16, f"{quantization} requires precision or bfloat16 but got {precision}"
-            assert "cuda" in device, "int4 gptq quantization only works on cuda"
-            inputs = MultiTensorInputRecorder(
-                tokenizer,
-                calibration_seq_length,
-                prepare_inputs_for_model,
-                pad_calibration_inputs,
-                model.config.vocab_size,
-                device="cpu"
-            ).record_inputs(
-                calibration_tasks,
-                calibration_limit,
-            ).get_inputs()
-
-            quantizer = Int4WeightOnlyGPTQQuantizer(group_size=groupsize, device=device)
-            model.setup_caches(max_batch_size=1, max_seq_length=calibration_seq_length)
-            model = quantizer.quantize(model, inputs).to(device)
-        else:
-            if not TORCH_VERSION_AT_LEAST_2_5:
-                unwrap_tensor_subclass(model)
+        
         if "float8wo" in quantization:
             quantize_(model, float8_weight_only())
         if "float8dq" in quantization:
