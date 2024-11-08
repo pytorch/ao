@@ -5,7 +5,7 @@ import unittest
 from torch.testing._internal.common_utils import parametrize
 
 if sys.version_info < (3, 11):
-    pytest.skip("requires Python >= 3.11", allow_module_level=True)
+    unittest.skip("requires Python >= 3.11", allow_module_level=True)
 
 triton = pytest.importorskip("triton", reason="requires triton")
 
@@ -74,7 +74,7 @@ def test_dora_column_norm(
     shape, store_acc, epilogue_norm, add_source, magnitude_vector, dtype
 ):
     if not (store_acc or epilogue_norm):
-        pytest.skip("Either store_acc or epilogue_norm must be True")
+        unittest.skip("Either store_acc or epilogue_norm must be True")
 
     M, N, K = shape
     A = torch.randn(M, K, device="cuda", dtype=dtype)

@@ -1,11 +1,12 @@
 import pytest
+import unittest
 
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
 )
 
 if not TORCH_VERSION_AT_LEAST_2_5:
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+    unittest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 import copy
 import io
@@ -15,7 +16,6 @@ from contextlib import nullcontext
 from functools import partial
 from typing import Tuple
 
-import pytest
 import torch
 from torch._inductor.test_case import TestCase as InductorTestCase
 from torch.testing._internal import common_utils

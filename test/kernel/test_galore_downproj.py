@@ -6,7 +6,7 @@ from torch.testing._internal.common_utils import parametrize
 try:
     import triton
 except ImportError:
-    pytest.skip("triton is not installed", allow_module_level=True)
+    unittest.skip("triton is not installed", allow_module_level=True)
 
 import torch
 from galore_test_utils import make_data

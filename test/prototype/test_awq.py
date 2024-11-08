@@ -44,7 +44,7 @@ def run_before_and_after_tests():
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5,reason="requires nightly pytorch")
 def test_awq_loading(device, qdtype):
     if qdtype == torch.uint4 and device == "cpu":
-        pytest.skip("uint4 not supported on cpu")
+        unittest.skip("uint4 not supported on cpu")
         
     dataset_size = 100
     l1,l2,l3 = 512,256,128

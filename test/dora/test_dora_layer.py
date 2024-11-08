@@ -1,10 +1,11 @@
 import sys
 
 import pytest
+import unittest
 from torch.testing._internal.common_utils import parametrize
 
 if sys.version_info < (3, 11):
-    pytest.skip("requires Python >= 3.11", allow_module_level=True)
+    unittest.skip("requires Python >= 3.11", allow_module_level=True)
 
 bnbnn = pytest.importorskip("bitsandbytes.nn", reason="requires bitsandbytes")
 hqq_core = pytest.importorskip("hqq.core.quantize", reason="requires hqq")
