@@ -15,5 +15,6 @@ include = [
     "torchao/dtypes/**/*.py",
     "torchao/prototype/low_bit_optim/**.py",
     "test/prototype/low_bit_optim/**.py",
+    "torchao/utils.py"
 
 ]

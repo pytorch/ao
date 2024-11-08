@@ -10,6 +10,8 @@ import torch.nn.functional as F
 from torch._prims_common import make_contiguous_strides_for
 from torch.distributed.device_mesh import DeviceMesh
 
+from torchao.utils import add_to_globals
+
 aten = torch.ops.aten
 
 c10d_functional = torch.ops.c10d_functional
@@ -1043,3 +1045,7 @@ def nf4_constructor(
         quantized_data,
         nf4,
     )
+
+
+# Enable weights_only loads for NF4Tensor
+add_to_globals(NF4Tensor)
