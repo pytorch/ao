@@ -6,6 +6,7 @@
 
 import pytest
 import unittest
+from torch.testing._internal.common_utils import parametrize
 
 import torch
 
@@ -51,7 +52,7 @@ from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
 torch.manual_seed(0)
 
 
-@pytest.mark.skip(
+@unittest.skipIf(
     reason="TODO debug CI failure, low pri since this is not used in the MX code"  # noqa: E501
 )
 def test_fp32():
@@ -61,7 +62,7 @@ def test_fp32():
         _assert_equals(fp_ref, s_enc_ref, e_enc_ref, m_enc_ref, dtype)
 
 
-@pytest.mark.skip(
+@unittest.skipIf(
     reason="TODO debug CI failure, low pri since this is not used in the MX code"  # noqa: E501
 )
 def test_bf16():
@@ -344,7 +345,7 @@ def test_fp4_triton_scaled_cast():
     assert torch.all(torch.eq(f32_ref, f32_triton))
 
 
-@pytest.mark.parametrize("dtype_name", (DTYPE_FP6_E2M3, DTYPE_FP6_E3M2))
+@parametrize("dtype_name", (DTYPE_FP6_E2M3, DTYPE_FP6_E3M2))
 def test_fp6_values(dtype_name):
     """
     The fp6 dtypes have 2**6 = 64 unique values each. The test
@@ -389,14 +390,14 @@ def test_fp6_values(dtype_name):
         torch.testing.assert_close(f32, f32_ref, rtol=0, atol=0)
 
 
-@pytest.mark.parametrize(
+@parametrize(
     "device",
     [
         "cpu",
         pytest.param("cuda", marks=unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")),
     ]
 )
-@pytest.mark.parametrize(
+@parametrize(
     "f32_val,f6_e3m2_enc",
     [
         (29.0,   0b011111),  # normal round down

@@ -1,4 +1,5 @@
 import pytest
+import unittest
 from torchao.prototype.autoround.utils import is_auto_round_available
 
 if not is_auto_round_available():
@@ -86,7 +87,7 @@ def _check_params_and_buffers_type(module, check_fun):
 
 class TestAutoRound(TestCase):
 
-    @pytest.mark.skip(not TORCH_VERSION_AT_LEAST_2_5, "Requires torch 2.5 or later")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "Requires torch 2.5 or later")
     @parametrize("device", _AVAILABLE_DEVICES)
     @torch.no_grad()
     def test_auto_round(self, device: str):
@@ -127,7 +128,7 @@ class TestAutoRound(TestCase):
         after_quant = m(*example_inputs)
         assert after_quant is not None, "Quantized model forward pass failed"
 
-    @pytest.mark.skip(not TORCH_VERSION_AT_LEAST_2_5, "Requires torch 2.5 or later")
+    @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, "Requires torch 2.5 or later")
     @parametrize("device", _AVAILABLE_DEVICES)
     @torch.no_grad()
     def test_wrap_model_with_multi_tensor(self, device: str):

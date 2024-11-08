@@ -2,6 +2,7 @@ import sys
 
 import pytest
 import unittest
+from torch.testing._internal.common_utils import parametrize
 
 if sys.version_info < (3, 11):
     pytest.skip("requires Python >= 3.11", allow_module_level=True)
@@ -64,7 +65,7 @@ def check(expected, actual, dtype):
 
 
 @unittest.skipIf(not torch.cuda.is_available(), reason="requires GPU")
-@pytest.mark.parametrize(
+@parametrize(
     "shape, store_acc, epilogue_norm, add_source, magnitude_vector, dtype",
     FUSED_DORA_TEST_CONFIGS,
     ids=_arg_to_id,
@@ -142,7 +143,7 @@ FUSED_MATMUL_TEST_CONFIGS = list(
 
 
 @unittest.skipIf(not torch.cuda.is_available(), reason="requires GPU")
-@pytest.mark.parametrize(
+@parametrize(
     "shape, dtype, epilogue_add, epilogue_scale",
     FUSED_MATMUL_TEST_CONFIGS,
     ids=_arg_to_id,
@@ -167,8 +168,8 @@ def test_dora_matmul(shape, dtype, epilogue_add, epilogue_scale):
 MODES = ["default"]
 
 
-@pytest.mark.skip("TODO: torch.compile does not work with custom kernel")
-@pytest.mark.parametrize(
+@unittest.skip("TODO: torch.compile does not work with custom kernel")
+@parametrize(
     "shape, dtype, epilogue_add, epilogue_scale, mode",
     [[*cfg, mode] for cfg in FUSED_MATMUL_TEST_CONFIGS for mode in MODES][:1],
     ids=_arg_to_id,

@@ -13,6 +13,7 @@ import warnings
 from typing import List, Tuple
 
 import pytest
+from torch.testing._internal.common_utils import parametrize
 
 import torch
 import torch.nn as nn
@@ -144,8 +145,8 @@ class TestFloat8Tensor:
         fp8_b.copy_(fp8_a)
         torch.testing.assert_close(fp8_a._data, fp8_b._data)
 
-    @pytest.mark.parametrize("shape", [(8, 16), (4, 8, 16), (2, 4, 8, 16)])
-    @pytest.mark.parametrize("axiswise_dim", [0, -1])
+    @parametrize("shape", [(8, 16), (4, 8, 16), (2, 4, 8, 16)])
+    @parametrize("axiswise_dim", [0, -1])
     def test_axiswise_dynamic_cast(self, shape, axiswise_dim):
         a = torch.randn(*shape, dtype=torch.bfloat16)
         linear_mm_config = LinearMMConfig()
@@ -212,8 +213,8 @@ class TestFloat8Tensor:
         with pytest.raises(RuntimeError):
             a_fp8_d2_r2 = a_fp8_d2.reshape(3, -1)
 
-    @pytest.mark.parametrize("a_shape", [(16, 32), (2, 16, 32), (1, 2, 16, 32)])
-    @pytest.mark.parametrize(
+    @parametrize("a_shape", [(16, 32), (2, 16, 32), (1, 2, 16, 32)])
+    @parametrize(
         "a_granularity,b_granularity",
         [
             (ScalingGranularity.AXISWISE, ScalingGranularity.AXISWISE),
@@ -328,22 +329,22 @@ class TestFloat8Linear:
             # verify initialization flags got updated
             assert m_fp8.is_amax_initialized, "Amax was not properly initialized"
 
-    @pytest.mark.parametrize("emulate", [True, False] if is_cuda_8_9 else [True])
-    @pytest.mark.parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
-    @pytest.mark.parametrize(
+    @parametrize("emulate", [True, False] if is_cuda_8_9 else [True])
+    @parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
+    @parametrize(
         "scaling_type_input",
         [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
     )
-    @pytest.mark.parametrize(
+    @parametrize(
         "scaling_type_weight",
         [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
     )
-    @pytest.mark.parametrize(
+    @parametrize(
         "scaling_type_grad_output",
         [ScalingType.DELAYED, ScalingType.DYNAMIC],
     )
-    @pytest.mark.parametrize("linear_dtype", [torch.bfloat16, torch.float32])
-    @pytest.mark.parametrize("linear_bias", [False, True])
+    @parametrize("linear_dtype", [torch.bfloat16, torch.float32])
+    @parametrize("linear_bias", [False, True])
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_linear_from_config_params(
         self,
@@ -375,15 +376,15 @@ class TestFloat8Linear:
     # them, so this function factors out some of the recipes which are annoying
     # to combine with the main testing function.
     # TODO(future PR): make this cleaner.
-    @pytest.mark.parametrize(
+    @parametrize(
         "recipe_name",
         [
             Float8LinearRecipeName.ALL_AXISWISE,
             Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP,
         ],
     )
-    @pytest.mark.parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
-    @pytest.mark.parametrize("linear_bias", [True, False])
+    @parametrize("x_shape", [(16, 16), (2, 16, 16), (3, 2, 16, 16)])
+    @parametrize("linear_bias", [True, False])
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_linear_from_recipe(
         self,
@@ -407,8 +408,8 @@ class TestFloat8Linear:
             config,
         )
 
-    @pytest.mark.parametrize("emulate", [True, False] if is_cuda_8_9 else [True])
-    @pytest.mark.parametrize(
+    @parametrize("emulate", [True, False] if is_cuda_8_9 else [True])
+    @parametrize(
         "linear_dtype", [torch.float16, torch.bfloat16, torch.float32]
     )
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
@@ -448,10 +449,10 @@ class TestFloat8Linear:
             y.dtype == torch.bfloat16
         ), f"y.dtype is {y.dtype}, expected {torch.bfloat16}"
 
-    @pytest.mark.parametrize(
+    @parametrize(
         "linear_dtype", [torch.float16, torch.bfloat16, torch.float32]
     )
-    @pytest.mark.parametrize("emulate", [True, False] if is_cuda_8_9 else [True])
+    @parametrize("emulate", [True, False] if is_cuda_8_9 else [True])
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_type_cast(self, linear_dtype: torch.dtype, emulate: bool):
         m = nn.Linear(32, 16, device="cuda", dtype=linear_dtype)
@@ -526,10 +527,10 @@ class TestScaledMM:
         not is_cuda_8_9,
         "CUDA not available",
     )
-    @pytest.mark.parametrize(
+    @parametrize(
         "base_dtype", [torch.float16, torch.bfloat16, torch.float32]
     )
-    @pytest.mark.parametrize("use_fast_accum", [True, False])
+    @parametrize("use_fast_accum", [True, False])
     def test_scaled_mm_vs_emulated(self, base_dtype, use_fast_accum):
         torch.manual_seed(42)
         input_dtype = e4m3_dtype
@@ -607,10 +608,10 @@ class TestScaledMM:
         not is_cuda_8_9,
         "CUDA not available",
     )
-    @pytest.mark.parametrize(
+    @parametrize(
         "base_dtype", [torch.float16, torch.bfloat16, torch.float32]
     )
-    @pytest.mark.parametrize("use_fast_accum", [True, False])
+    @parametrize("use_fast_accum", [True, False])
     def test_pad_inner_dim(self, base_dtype, use_fast_accum):
         torch.manual_seed(42)
         input_dtype = e4m3_dtype
@@ -690,7 +691,7 @@ class TestScaledMM:
 
 
 class TestNumerics:
-    @pytest.mark.parametrize(
+    @parametrize(
         "float8_dtype",
         [
             torch.float8_e4m3fn,

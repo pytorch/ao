@@ -87,18 +87,18 @@ def _test_compile_base(
     torch.testing.assert_close(x.grad, x_ref.grad, atol=8e-2, rtol=8e-2)
 
 
-@pytest.mark.parametrize("fullgraph", [True])
-@pytest.mark.parametrize(
+@parametrize("fullgraph", [True])
+@parametrize(
     "scaling_type_input", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
-@pytest.mark.parametrize(
+@parametrize(
     "scaling_type_weight", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
-@pytest.mark.parametrize(
+@parametrize(
     "scaling_type_grad_output", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
-@pytest.mark.parametrize("emulate", [False, True] if is_cuda_8_9 else [True])
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+@parametrize("emulate", [False, True] if is_cuda_8_9 else [True])
+@parametrize("dtype", [torch.bfloat16, torch.float32])
 @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
 def test_eager_only(
     fullgraph,
@@ -123,18 +123,18 @@ def test_eager_only(
     )
 
 
-@pytest.mark.parametrize("fullgraph", [True])
-@pytest.mark.parametrize("emulate", [False, True] if is_cuda_8_9 else [True])
-@pytest.mark.parametrize(
+@parametrize("fullgraph", [True])
+@parametrize("emulate", [False, True] if is_cuda_8_9 else [True])
+@parametrize(
     "scaling_type_input", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
-@pytest.mark.parametrize(
+@parametrize(
     "scaling_type_weight", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
-@pytest.mark.parametrize(
+@parametrize(
     "scaling_type_grad_output", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+@parametrize("dtype", [torch.bfloat16, torch.float32])
 @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
 def test_aot_eager(
     fullgraph,
@@ -159,19 +159,19 @@ def test_aot_eager(
     )
 
 
-@pytest.mark.parametrize("fullgraph", [True])
-@pytest.mark.parametrize("emulate", [False])
-@pytest.mark.parametrize(
+@parametrize("fullgraph", [True])
+@parametrize("emulate", [False])
+@parametrize(
     "scaling_type_input", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
-@pytest.mark.parametrize(
+@parametrize(
     "scaling_type_weight", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
-@pytest.mark.parametrize(
+@parametrize(
     "scaling_type_grad_output", [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC]
 )
 @unittest.skipIf(not torch.cuda.is_available() or not is_cuda_8_9, "CUDA with float8 support not available")
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+@parametrize("dtype", [torch.bfloat16, torch.float32])
 def test_inductor_from_config_params(
     fullgraph,
     emulate: bool,
@@ -198,7 +198,7 @@ def test_inductor_from_config_params(
 # them, so this function factors out some of the recipes which are annoying
 # to combine with the main testing function.
 # TODO(future PR): make this cleaner.
-@pytest.mark.parametrize(
+@parametrize(
     "recipe_name",
     [Float8LinearRecipeName.ALL_AXISWISE, Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP],
 )
@@ -371,7 +371,7 @@ def test_sync_amax_func_cuda_graph_success():
         not is_cuda_8_9,
         "CUDA not available",
     )
-@pytest.mark.parametrize(
+@parametrize(
     "dtype",
     [
         torch.float32,

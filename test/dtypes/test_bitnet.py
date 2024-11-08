@@ -1,5 +1,6 @@
 import pytest
 import unittest
+from torch.testing._internal.common_utils import parametrize
 import torch
 import torch.nn as nn
 from torchao.prototype.dtypes import BitnetTensor
@@ -42,7 +43,7 @@ def test_multiply(bitnet_tensor):
     w = BitnetTensor.from_unpacked(w_t)
     y = torch.addmm(torch.Tensor([1]), bitnet_tensor, w)
 
-@pytest.mark.parametrize("dtype", [torch.float, torch.float16, torch.bfloat16, torch.int16, torch.int32, torch.int64])
+@parametrize("dtype", [torch.float, torch.float16, torch.bfloat16, torch.int16, torch.int32, torch.int64])
 def test_conversion(bitnet_tensor, dtype):
     converted_tensor = bitnet_tensor.to(dtype)
     expected_tensor = unpack_uint2(bitnet_tensor.elem).to(dtype)
@@ -60,7 +61,7 @@ def _apply_weight_only_uint2_quant(model):
     )
 
 @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, reason="Regression introdued in nightlies")
-@pytest.mark.parametrize("input_shape", [[2, 4], [5, 5, 5, 4], [1, 4, 4]])
+@parametrize("input_shape", [[2, 4], [5, 5, 5, 4], [1, 4, 4]])
 def test_uint2_quant(input_shape):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     x = torch.randn(*input_shape).to(device)

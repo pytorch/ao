@@ -167,15 +167,15 @@ class TestFloat8NumericsIntegrationTest:
             sqnr = compute_error(ref_grad, cur_grad)
             assert sqnr > grad_sqnr_threshold
 
-    @pytest.mark.parametrize(
+    @parametrize(
         "scaling_type_input", 
         [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
     )
-    @pytest.mark.parametrize(
+    @parametrize(
         "scaling_type_weight", 
         [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
     )
-    @pytest.mark.parametrize(
+    @parametrize(
         "scaling_type_grad_output",
         [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
     )
@@ -195,7 +195,7 @@ class TestFloat8NumericsIntegrationTest:
         )
         self._test_impl(config)
 
-    @pytest.mark.parametrize(
+    @parametrize(
         "recipe_name",
         [Float8LinearRecipeName.ALL_AXISWISE, Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP],
     )

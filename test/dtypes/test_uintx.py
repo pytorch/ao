@@ -2,6 +2,7 @@ from math import log
 from copy import deepcopy
 import pytest
 import unittest
+from torch.testing._internal.common_utils import parametrize
 
 import torch
 
@@ -45,8 +46,8 @@ class Linear16(torch.nn.Module):
     def forward(self, x):
         return self.net(x)
 
-@pytest.mark.parametrize("dtype", dtypes)
-@pytest.mark.parametrize("group_size", group_sizes)
+@parametrize("dtype", dtypes)
+@parametrize("group_size", group_sizes)
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, reason="only works with fix in the nightly build")
 def test_uintx_quant_on_cpu_then_move_to_cuda(dtype, group_size):
@@ -60,9 +61,9 @@ def test_uintx_quant_on_cpu_then_move_to_cuda(dtype, group_size):
     output_on_cuda = fp16_mod_on_cuda(test_input_on_cuda)
     assert torch.allclose(output_on_cpu, output_on_cuda.cpu(), atol=1.0e-3), "The output of the model on CPU and CUDA should be close"
 
-@pytest.mark.parametrize("dtype", dtypes)
-@pytest.mark.parametrize("group_size", group_sizes)
-@pytest.mark.parametrize("device", devices)
+@parametrize("dtype", dtypes)
+@parametrize("group_size", group_sizes)
+@parametrize("device", devices)
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, reason="only works with fix in the nightly build")
 def test_uintx_weight_only_model_quant(dtype, group_size, device):
@@ -74,9 +75,9 @@ def test_uintx_weight_only_model_quant(dtype, group_size, device):
     output = uintx.forward(test_input)
     assert output != None, "model quantization failed"
 
-@pytest.mark.parametrize("dtype", dtypes)
-@pytest.mark.parametrize("group_size", group_sizes)
-@pytest.mark.parametrize("device", devices)
+@parametrize("dtype", dtypes)
+@parametrize("group_size", group_sizes)
+@parametrize("device", devices)
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, reason="only works with fix in the nightly build")
 def test_uintx_weight_only_quant(dtype, group_size, device):
@@ -110,7 +111,7 @@ def test_uintx_weight_only_quant(dtype, group_size, device):
     assert deqaunt != None, "deqauntization failed"
 
 
-@pytest.mark.parametrize("dtype", dtypes)
+@parametrize("dtype", dtypes)
 @unittest.skipIf(not torch.cuda.is_available(), reason="Need CUDA available")
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, reason="sub byte dtype requires torch 2.3+")
 def test_uintx_target_dtype(dtype):
@@ -120,7 +121,7 @@ def test_uintx_target_dtype(dtype):
     uintx_weight_only(dtype)(l)
     l(torch.randn(1, 128, dtype=torch.bfloat16, device="cuda"))
 
-@pytest.mark.parametrize("dtype", dtypes)
+@parametrize("dtype", dtypes)
 @unittest.skipIf(not torch.cuda.is_available(), reason="Need CUDA available")
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5, reason="torch.compile without unwrap_tensor_subclass requires torch 2.5+")
 def test_uintx_target_dtype_compile(dtype):
@@ -132,7 +133,7 @@ def test_uintx_target_dtype_compile(dtype):
     l(torch.randn(1, 128, dtype=torch.bfloat16, device="cuda"))
 
 
-@pytest.mark.parametrize("dtype", dtypes)
+@parametrize("dtype", dtypes)
 @unittest.skipIf(not torch.cuda.is_available(), reason="Need CUDA available")
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_3, reason="sub byte dtype requires torch 2.3+")
 def test_uintx_model_size(dtype):

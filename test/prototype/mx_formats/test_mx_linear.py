@@ -8,6 +8,7 @@ import copy
 
 import pytest
 import unittest
+from torch.testing._internal.common_utils import parametrize
 
 import torch
 import torch.nn as nn
@@ -34,9 +35,9 @@ if not TORCH_VERSION_AT_LEAST_2_4:
 
 
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
-@pytest.mark.parametrize("bias", [True, False])
-@pytest.mark.parametrize("input_shape", [(2, 4), (1, 2, 4), (1, 1, 2, 4)])
+@parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@parametrize("bias", [True, False])
+@parametrize("input_shape", [(2, 4), (1, 2, 4), (1, 1, 2, 4)])
 def test_linear_eager(elem_dtype, bias, input_shape):
     """
     Smoke test for training linear module with mx weight
@@ -96,8 +97,8 @@ def test_activation_checkpointing():
 
 
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
-@pytest.mark.parametrize("bias", [False, True])
+@parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@parametrize("bias", [False, True])
 def test_linear_compile(elem_dtype, bias):
     """
     Verify that compile does not change numerics of MX linear fw + bw
@@ -144,9 +145,9 @@ def test_linear_compile(elem_dtype, bias):
 
 
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
-@pytest.mark.parametrize("bias", [True, False])
-@pytest.mark.parametrize("input_shape", [(2, 4), (1, 2, 4), (1, 1, 2, 4)])
+@parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@parametrize("bias", [True, False])
+@parametrize("input_shape", [(2, 4), (1, 2, 4), (1, 1, 2, 4)])
 def test_inference_linear(elem_dtype, bias, input_shape):
     """
     Smoke test for inference linear module with mx weight
@@ -168,7 +169,7 @@ def test_inference_linear(elem_dtype, bias, input_shape):
 
 
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_inference_compile_simple(elem_dtype):
     """
     Smoke test for inference compile

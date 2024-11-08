@@ -1,6 +1,7 @@
 import sys
 
 import pytest
+from torch.testing._internal.common_utils import parametrize
 
 if sys.version_info < (3, 11):
     pytest.skip("requires Python >= 3.11", allow_module_level=True)
@@ -61,7 +62,7 @@ TEST_CONFIGS = list(
 )
 
 
-@pytest.mark.parametrize(
+@parametrize(
     "bs, seqlen, in_features, out_features, lora_rank, dtype, model_type",
     TEST_CONFIGS,
     ids=_arg_to_id,

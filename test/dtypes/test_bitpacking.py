@@ -2,6 +2,7 @@ import torch
 from torchao.dtypes.uintx.bitpacking import pack, unpack, pack_cpu, unpack_cpu
 import pytest
 import unittest
+from torch.testing._internal.common_utils import parametrize
 from torch.utils._triton import has_triton
 
 bit_widths = (1,2,3,4,5,6,7)
@@ -12,8 +13,8 @@ def run_before_and_after_tests():
     yield
     torch._dynamo.reset() # reset cache between tests
 
-@pytest.mark.parametrize("bit_width", bit_widths)
-@pytest.mark.parametrize("dim", dimensions)
+@parametrize("bit_width", bit_widths)
+@parametrize("dim", dimensions)
 def test_CPU(bit_width, dim):
     test_tensor = torch.randint(0, 2**bit_width, (32,32,32), dtype=torch.uint8, device='cpu')
     packed = pack_cpu(test_tensor, bit_width, dim = dim)
@@ -22,8 +23,8 @@ def test_CPU(bit_width, dim):
 
 
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("bit_width", bit_widths)
-@pytest.mark.parametrize("dim", dimensions)
+@parametrize("bit_width", bit_widths)
+@parametrize("dim", dimensions)
 def test_GPU(bit_width, dim):
     test_tensor = torch.randint(0, 2**bit_width, (32,32,32), dtype=torch.uint8).cuda()
     packed = pack(test_tensor, bit_width, dim = dim)
@@ -33,8 +34,8 @@ def test_GPU(bit_width, dim):
 
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 @unittest.skipIf(not has_triton(), reason="unsupported without triton")
-@pytest.mark.parametrize("bit_width", bit_widths)
-@pytest.mark.parametrize("dim", dimensions)
+@parametrize("bit_width", bit_widths)
+@parametrize("dim", dimensions)
 def test_compile(bit_width, dim):
     torch._dynamo.config.specialize_int = True
     pack_compile = torch.compile(pack, fullgraph=True)

@@ -6,6 +6,7 @@
 
 import pytest
 import unittest
+from torch.testing._internal.common_utils import parametrize
 
 import torch
 from torchao.prototype.mx_formats import config
@@ -71,7 +72,7 @@ def _test_mx(data_hp, elem_dtype, block_size):
 
 
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_hello_world(elem_dtype):
     data = torch.randn(4, 4, device="cuda", dtype=torch.bfloat16)
     block_size = 2
@@ -79,7 +80,7 @@ def test_hello_world(elem_dtype):
 
 
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_all_zeros(elem_dtype):
     data = torch.zeros(4, 4, device="cuda", dtype=torch.bfloat16)
     block_size = 2
@@ -87,7 +88,7 @@ def test_all_zeros(elem_dtype):
 
 
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_some_zeros(elem_dtype):
     data = torch.randn(4, 4, device="cuda", dtype=torch.bfloat16)
     data[0, :] = 0.0
@@ -97,7 +98,7 @@ def test_some_zeros(elem_dtype):
 
 
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_exponent_nan_in(elem_dtype):
     """
     If high precision block values has a NaN, the exponent block
@@ -113,7 +114,7 @@ def test_exponent_nan_in(elem_dtype):
 
 
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_exponent_nan_out(elem_dtype):
     """
     If block exponent value is NaN, the MX tensor block value is NaN
@@ -146,7 +147,7 @@ def test_exponent_nan_out(elem_dtype):
 
 
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_ranks(elem_dtype):
     """
     The reshaping logic works for various ranks
@@ -159,7 +160,7 @@ def test_ranks(elem_dtype):
 
 
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_block_sizes(elem_dtype):
     """
     Smoke test for various block sizes
@@ -172,8 +173,8 @@ def test_block_sizes(elem_dtype):
 
 
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
-@pytest.mark.parametrize("fp4_triton", [False, True])
+@parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@parametrize("fp4_triton", [False, True])
 def test_transpose(elem_dtype, fp4_triton):
     """
     Verify that transposing an MX tensor works
@@ -198,7 +199,7 @@ def test_transpose(elem_dtype, fp4_triton):
 
 
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_cast_autograd(elem_dtype):
     x = torch.arange(8, device="cuda").bfloat16().requires_grad_()
     grad = torch.arange(8, device="cuda").bfloat16() * 0.5
@@ -209,7 +210,7 @@ def test_cast_autograd(elem_dtype):
     torch.testing.assert_close(grad, x.grad, atol=0, rtol=0)
 
 
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_view(elem_dtype):
     x = torch.randn(1, 2, 4)
     block_size = 2
@@ -218,9 +219,9 @@ def test_view(elem_dtype):
 
 
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
-@pytest.mark.parametrize("hp_dtype", [torch.float32, torch.bfloat16])
-@pytest.mark.parametrize("all_zeros", [False, True])
+@parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
+@parametrize("hp_dtype", [torch.float32, torch.bfloat16])
+@parametrize("all_zeros", [False, True])
 def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
     """
     Verifies that compile does not change numerics of MX casts

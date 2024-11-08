@@ -1,4 +1,5 @@
 import pytest
+from torch.testing._internal.common_utils import parametrize
 import torch
 
 from torchao.prototype.dtypes.uintgen import (
@@ -6,7 +7,7 @@ from torchao.prototype.dtypes.uintgen import (
     pack_uint5, unpack_uint5, pack_uint6, unpack_uint6, pack_uint7, unpack_uint7
 )
 
-@pytest.mark.parametrize("pack_fn, unpack_fn, bit_count", [
+@parametrize("pack_fn, unpack_fn, bit_count", [
     (pack_uint2, unpack_uint2, 2),
     (pack_uint3, unpack_uint3, 3),
     (pack_uint4, unpack_uint4, 4),

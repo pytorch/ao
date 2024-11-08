@@ -1,4 +1,5 @@
 import pytest
+from torch.testing._internal.common_utils import parametrize
 
 triton = pytest.importorskip(
     "triton", minversion="3.0.0", reason="Triton > 3.0.0 required to run this test"
@@ -102,7 +103,7 @@ def ref_proj(x, packed_w, scale, zero, group_size, kernel_type, transposed=False
     )
 
 
-@pytest.mark.parametrize(
+@parametrize(
     "q_shape, kv_shape, group_size, axis, dtype, transposed, kernel_type",
     TEST_CONFIGS,
     ids=_arg_to_id,

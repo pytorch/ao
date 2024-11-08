@@ -1,4 +1,5 @@
 import pytest
+from torch.testing._internal.common_utils import parametrize
 import torch
 import torch.nn as nn
 from torchao.prototype.dtypes import UInt2Tensor
@@ -22,7 +23,7 @@ def test_transpose(uint2_tensor):
     expected_tensor = unpack_uint2(uint2_tensor.elem).t()
     assert torch.equal(unpack_uint2(transposed_tensor.elem), expected_tensor)
 
-@pytest.mark.parametrize("dtype", [torch.float, torch.float16, torch.bfloat16, torch.int16, torch.int32, torch.int64])
+@parametrize("dtype", [torch.float, torch.float16, torch.bfloat16, torch.int16, torch.int32, torch.int64])
 def test_conversion(uint2_tensor, dtype):
     converted_tensor = uint2_tensor.to(dtype)
     expected_tensor = unpack_uint2(uint2_tensor.elem).to(dtype)

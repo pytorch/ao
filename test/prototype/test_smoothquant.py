@@ -1,5 +1,6 @@
 from copy import deepcopy
 import pytest
+from torch.testing._internal.common_utils import parametrize
 import torch
 import tempfile
 from torchao.quantization import quantize_
@@ -49,11 +50,11 @@ if TORCH_VERSION_AT_LEAST_2_5:
     # This test case will trigger recompilation many times, so set a large cache_size_limit here
     torch._dynamo.config.cache_size_limit = 128
 
-@pytest.mark.parametrize("bias", bias_list)
-@pytest.mark.parametrize("alpha", alpha_list)
-@pytest.mark.parametrize("quant_mode", quant_mode_list)
-@pytest.mark.parametrize("device", devices)
-@pytest.mark.parametrize("idtype", idtypes)
+@parametrize("bias", bias_list)
+@parametrize("alpha", alpha_list)
+@parametrize("quant_mode", quant_mode_list)
+@parametrize("device", devices)
+@parametrize("idtype", idtypes)
 def test_compute(bias, alpha, quant_mode, device, idtype):
     class Linear(torch.nn.Module):
         def __init__(self, bias: bool):
@@ -118,10 +119,10 @@ def test_compute(bias, alpha, quant_mode, device, idtype):
         assert torch.allclose(out, out_ref.to(idtype), atol=atol)
 
 
-@pytest.mark.parametrize("alpha", alpha_list)
-@pytest.mark.parametrize("quant_mode", quant_mode_list)
-@pytest.mark.parametrize("device", devices)
-@pytest.mark.parametrize("idtype", idtypes)
+@parametrize("alpha", alpha_list)
+@parametrize("quant_mode", quant_mode_list)
+@parametrize("device", devices)
+@parametrize("idtype", idtypes)
 def test_save_load_recipe(alpha, quant_mode, device, idtype):
     dataset_size = 20
     l1, l2, l3 = 512, 256, 128

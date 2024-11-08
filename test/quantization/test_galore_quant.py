@@ -1,6 +1,8 @@
 import itertools
 
 import pytest
+import unittest
+from torch.testing._internal.common_utils import parametrize
 
 # Skip entire test if triton is not available, otherwise CI failure
 try:
@@ -28,8 +30,8 @@ BLOCKSIZE = [2048]
 TEST_CONFIGS = list(itertools.product(DIM1, DIM2, DTYPES, SIGNS, BLOCKSIZE))
 
 
-@pytest.mark.skip("skipping for now, see comments below")
-@pytest.mark.parametrize(
+@unittest.skipIf("skipping for now, see comments below")
+@parametrize(
     "dim1,dim2,dtype,signed,blocksize",
     TEST_CONFIGS,
 )
@@ -75,7 +77,7 @@ def test_galore_quantize_blockwise(dim1, dim2, dtype, signed, blocksize):
     assert tt_check or (not tt_check and dist_sum < 1e-4)
 
 
-@pytest.mark.parametrize(
+@parametrize(
     "dim1,dim2,dtype,signed,blocksize",
     TEST_CONFIGS,
 )

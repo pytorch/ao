@@ -1,4 +1,5 @@
 import pytest
+from torch.testing._internal.common_utils import parametrize
 
 cuda_driver = pytest.importorskip(
     "triton.runtime.driver", reason="requires triton cuda driver module"
@@ -21,7 +22,7 @@ USE_TENSORCORES = [True, False]
 DEVICE_CONFIGS = itertools.product(DEVICE_NAMES, DTYPES, USE_TENSORCORES)
 
 
-@pytest.mark.parametrize(
+@parametrize(
     "device_name, dtype, use_tensorcores", DEVICE_CONFIGS, ids=lambda x: str(x)
 )
 def test_device_spec(device_name, dtype, use_tensorcores):

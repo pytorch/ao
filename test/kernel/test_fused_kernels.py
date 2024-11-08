@@ -2,6 +2,7 @@ import itertools
 
 import pytest
 import unittest
+from torch.testing._internal.common_utils import parametrize
 
 # Skip entire test if triton is not available, otherwise CI failure
 try:
@@ -104,7 +105,7 @@ TEST_CONFIGS = list(
 
 
 @unittest.skipIf(not torch.cuda.is_available(), reason="requires GPU")
-@pytest.mark.parametrize("kernel, dtype, M, N, rank, allow_tf32", TEST_CONFIGS)
+@parametrize("kernel, dtype, M, N, rank, allow_tf32", TEST_CONFIGS)
 def test_galore_fused_kernels(kernel, dtype, M, N, rank, allow_tf32):
     torch.backends.cuda.matmul.allow_tf32 = allow_tf32
 

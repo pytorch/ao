@@ -2,6 +2,7 @@ from copy import deepcopy
 import os
 import pytest
 import unittest
+from torch.testing._internal.common_utils import parametrize
 import torch
 from torchao.quantization import quantize_
 
@@ -37,8 +38,8 @@ def run_before_and_after_tests():
     yield
     torch._dynamo.reset() # reset cache between tests
     
-@pytest.mark.parametrize("device", devices)   
-@pytest.mark.parametrize("qdtype", qdtypes)
+@parametrize("device", devices)   
+@parametrize("qdtype", qdtypes)
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 @unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5,reason="requires nightly pytorch")
 def test_awq_loading(device, qdtype):

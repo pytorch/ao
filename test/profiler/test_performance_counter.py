@@ -1,4 +1,5 @@
 import pytest
+from torch.testing._internal.common_utils import parametrize
 
 # Skip if transformers is not installed
 transformers = pytest.importorskip("transformers")
@@ -226,7 +227,7 @@ PERFSTATS_TEST_CONFIGS = [
 ]
 
 
-@pytest.mark.parametrize("cfg", PERFSTATS_TEST_CONFIGS, ids=lambda cfg: cfg.label)
+@parametrize("cfg", PERFSTATS_TEST_CONFIGS, ids=lambda cfg: cfg.label)
 def test_performance_stats(cfg: PerfStatsTestConfig):
     stats = PerformanceStats(**asdict(cfg))
     num_tokens = cfg.num_tokens

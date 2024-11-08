@@ -71,7 +71,7 @@ def _arg_to_id(arg):
     return str(arg)
 
 
-@pytest.mark.parametrize(
+@parametrize(
     "shape, group_size, axis, dtype, transposed, kernel_type",
     TEST_CONFIGS,
     ids=_arg_to_id,
