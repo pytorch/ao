@@ -4,18 +4,17 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Callable, List, Optional, Tuple
+from typing import List, Tuple
 
 import torch
 
 from torchao.quantization.quant_primitives import (
-    fake_quantize_affine_cachemask,
     ZeroPointDomain,
+    fake_quantize_affine_cachemask,
 )
 from torchao.quantization.utils import (
     _get_per_token_block_size,
 )
-
 
 # Attribute name representing the forward prehook wrapping the
 # linear input in an `AffineFakeQuantizedTensor` on a linear module.
@@ -91,12 +90,13 @@ class _UnwrapAffineFakeQuantizedTensor(torch.autograd.Function):
         from torchao.quantization.qat.affine_fake_quantized_tensor import (
             AffineFakeQuantizedTensor,
         )
+
         assert isinstance(input, AffineFakeQuantizedTensor)
         return input.original_tensor
 
     @staticmethod
     def backward(ctx, gy):
-        return gy,
+        return (gy,)
 
 
 def _fake_quantize_per_channel_group(
@@ -113,8 +113,15 @@ def _fake_quantize_per_channel_group(
     assert input.dim() == 2
     block_size = (1, group_size)
     return _GenericFakeQuantize.apply(
-        input, block_size, scales, zero_points, quant_min, quant_max, zero_point_domain,
+        input,
+        block_size,
+        scales,
+        zero_points,
+        quant_min,
+        quant_max,
+        zero_point_domain,
     )
+
 
 def _fake_quantize_per_token(
     input: torch.Tensor,
@@ -129,9 +136,15 @@ def _fake_quantize_per_token(
     block_size = _get_per_token_block_size(input)
     fq_input = input.to(torch.float32)
     fq = _GenericFakeQuantize.apply(
-        fq_input, block_size, scales, zero_points, quant_min, quant_max,
+        fq_input,
+        block_size,
+        scales,
+        zero_points,
+        quant_min,
+        quant_max,
     )
     return fq.reshape_as(input).to(input.dtype)
+
 
 # TODO: This is copied from torch/ao/quantization/fx/_decomposed.py.
 # The version in pytorch does not have backward support yet so we add
@@ -181,11 +194,12 @@ def _choose_qparams_per_token_asymmetric(
 
     return scale.to(scales_precision), zero_point.to(zero_points_precision)
 
-def _get_qmin_qmax(n_bit: int, symmetric: bool=True):
+
+def _get_qmin_qmax(n_bit: int, symmetric: bool = True):
     if symmetric:
         qmin = -(2 ** (n_bit - 1))
         qmax = 2 ** (n_bit - 1) - 1
     else:
         qmin = 0
-        qmax = 2 ** n_bit - 1
+        qmax = 2**n_bit - 1
     return (qmin, qmax)

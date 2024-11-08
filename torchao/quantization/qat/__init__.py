@@ -1,17 +1,17 @@
 from .api import (
     ComposableQATQuantizer,
 )
+from .embedding import (
+    Int4WeightOnlyEmbeddingQATQuantizer,
+)
 from .linear import (
     Int4WeightOnlyQATQuantizer,
     Int8DynActInt4WeightQATQuantizer,
-)
-from .embedding import (
-    Int4WeightOnlyEmbeddingQATQuantizer,
 )
 
 __all__ = [
     "ComposableQATQuantizer",
     "Int4WeightOnlyQATQuantizer",
-    "Int4WeightOnlyEmbeddingQATQuantizer"
+    "Int4WeightOnlyEmbeddingQATQuantizer",
     "Int8DynActInt4WeightQATQuantizer",
 ]
