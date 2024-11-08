@@ -31,9 +31,11 @@ from torchao.quantization.quant_primitives import (
     choose_qparams_and_quantize_affine_hqq,
     dequantize_affine,
     dequantize_affine_floatx,
-    int_scaled_matmul,
     quantize_affine,
     quantize_affine_floatx,
+)
+from torchao.kernel import (
+    int_scaled_matmul,
 )
 from torchao.quantization.utils import (
     pack_tinygemm_scales_and_zeros,

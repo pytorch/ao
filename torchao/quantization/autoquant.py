@@ -24,12 +24,13 @@ from .granularity import (
     PerRow,
     PerTensor,
 )
-from .quant_primitives import safe_int_mm
+from torchao.kernel import safe_int_mm
 from .subclass import (  # noqa
     Int8DynamicallyQuantizedLinearWeight,
     Int8WeightOnlyQuantizedLinearWeight,
     QuantizedLinearWeightBase,
 )
+
 
 __all__ = [
     "AutoQuantizableLinearWeight",

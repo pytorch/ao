@@ -24,8 +24,6 @@ from torchao.utils import (
 )
 
 __all__ = [
-    "safe_int_mm",
-    "int_scaled_matmul",
     "choose_qparams_affine",
     "choose_qparams_affine_with_min_max",
     "choose_qparams_affine_floatx",
@@ -36,6 +34,9 @@ __all__ = [
     "fake_quantize_affine",
     "fake_quantize_affine_cachemask",
     "choose_qparams_and_quantize_affine_hqq",
+    "MappingType",
+    "ZeroPointDomain",
+    "TorchAODType",
 ]
 
 

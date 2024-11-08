@@ -24,6 +24,10 @@ from .granularity import (
     PerTensor,
     PerToken,
 )
+from torchao.kernel import (
+    safe_int_mm,
+    int_scaled_matmul,
+)
 from .linear_activation_quantized_tensor import (
     LinearActivationQuantizedTensor,
     to_linear_activation_quantized,
@@ -70,13 +74,32 @@ from .utils import (
     compute_error,
 )
 from .weight_only import WeightOnlyInt8QuantLinear
+from .linear_activation_weight_observed_tensor import (
+    to_linear_activation_weight_observed,
+)
 
 __all__ = [
-    "swap_conv2d_1x1_to_linear",
+    # top level API - auto
     "autoquant",
     "DEFAULT_AUTOQUANT_CLASS_LIST",
     "DEFAULT_INT4_AUTOQUANT_CLASS_LIST",
     "OTHER_AUTOQUANT_CLASS_LIST",
+
+    # top level API - manual
+    "quantize_",
+    "int8_dynamic_activation_int4_weight",
+    "int8_dynamic_activation_int8_weight",
+    "int8_dynamic_activation_int8_semi_sparse_weight",
+    "int4_weight_only",
+    "int8_weight_only",
+    "float8_weight_only",
+    "float8_dynamic_activation_float8_weight",
+    "float8_static_activation_float8_weight"
+    "uintx_weight_only",
+    "fpx_weight_only",
+
+    # smooth quant - subject to change
+    "swap_conv2d_1x1_to_linear"
     "get_scale",
     "SmoothFakeDynQuantMixin",
     "SmoothFakeDynamicallyQuantizedLinear",
@@ -84,38 +107,46 @@ __all__ = [
     "smooth_fq_linear_to_inference",
     "set_smooth_fq_attribute",
     "compute_error",
-    "Int4WeightOnlyGPTQQuantizer",
-    "Int4WeightOnlyQuantizer",
-    "quantize_affine",
-    "dequantize_affine",
-    "choose_qparams_affine",
-    "quantize_",
-    "int8_dynamic_activation_int4_weight",
-    "int8_dynamic_activation_int8_weight",
-    "int8_dynamic_activation_int8_semi_sparse_weight",
-    "int4_weight_only",
-    "int8_weight_only",
-    "uintx_weight_only",
-    "fpx_weight_only",
-    "LinearActivationQuantizedTensor",
+
+    # building blocks
     "to_linear_activation_quantized",
     "to_weight_tensor_with_linear_activation_scale_metadata",
-    "float8_weight_only",
-    "float8_dynamic_activation_float8_weight",
-    "float8_static_activation_float8_weight",
+    "AffineQuantizedMinMaxObserver",
+    "AffineQuantizedObserverBase",
+
+    # quant primitive ops
+    "choose_qprams_affine",
+    "choose_qparams_affine_with_min_max",
+    "choose_qparams_affine_floatx",
+    "quantize_affine",
+    "quantize_affine_floatx",
+    "dequantize_affine",
+    "dequantize_affine_floatx",
+    "choose_qparams_and_quantize_affine_hqq",
+    "fake_quantize_affine",
+    "fake_quantize_affine_cachemask",
+
+    # operators/kernels
+    "safe_int_mm",
+    "int_scaled_matmul",
+
+    # dataclasses and types
+    "MappingType",
+    "ZeroPointDomain",
+    "TorchAODType",
+    "PerTensor",
+    "PerAxis",
+    "PerGroup",
+    "PerRow",
+    "PerToken",
+
+    "LinearActivationQuantizedTensor",
+    "Int4WeightOnlyGPTQQuantizer",
+    "Int4WeightOnlyQuantizer",
     "Int8DynActInt4WeightGPTQQuantizer",
     "Int8DynActInt4WeightQuantizer",
     "Int8DynActInt4WeightLinear",
     "WeightOnlyInt8QuantLinear",
     "TwoStepQuantizer",
     "Quantizer",
-    "ZeroPointDomain",
-    "MappingType",
-    "AffineQuantizedMinMaxObserver",
-    "AffineQuantizedObserverBase",
-    "PerTensor",
-    "PerAxis",
-    "PerGroup",
-    "PerRow",
-    "PerToken",
 ]
