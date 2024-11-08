@@ -195,8 +195,6 @@ def process_batch(batch, mask_generator):
 
 
 async def batch_worker(mask_generator, batch_size, *, pad_batch=True, furious=False):
-    # cm = torch.autocast("cuda", dtype=torch.bfloat16) if furious else contextlib.nullcontext()
-    # cm.__enter__()
     while True:
         batch = []
         while len(batch) < batch_size and not request_queue.empty():
@@ -207,12 +205,10 @@ async def batch_worker(mask_generator, batch_size, *, pad_batch=True, furious=Fa
             padded_batch = batch
             if pad_batch:
                 padded_batch = batch + ([batch[-1]] * (batch_size - len(batch)))
-            print(f"len(padded_batch): {len(padded_batch)} with len(batch): {len(batch)}")
             results = process_batch(padded_batch, mask_generator)
             for i, (_, response_future) in enumerate(batch):
                 response_future.set_result(results[i])
 
-        print("Polling len(batch): ", len(batch))
         await asyncio.sleep(batch_interval)
 
 
@@ -298,10 +294,6 @@ def main(checkpoint_path,
     logging.info(f"Using {points_per_batch} points_per_batch")
     mask_generator = SAM2AutomaticMaskGenerator(sam2, points_per_batch=points_per_batch, output_mode="uncompressed_rle")
 
-    # if furious:
-    #     torch.set_float32_matmul_precision('high')
-    #     torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
-
     if fast:
         assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
         # TODO: Using CUDA graphs can cause numerical differences?
@@ -313,28 +305,11 @@ def main(checkpoint_path,
             dynamic=False,
         )
 
-        # Should be able to compile this
-        # mask_generator.predictor._predict = torch.compile(
-            # mask_generator.predictor._predict,
-
-        # TODO: This causes numerical issues for large batches and furious (low precision)
-        # if not furious:
-        # mask_generator.predictor.model.sam_mask_decoder.transformer = torch.compile(
-        #     mask_generator.predictor.model.sam_mask_decoder.transformer,
-        #     # mode="max-autotune-no-cudagraphs",
-        #     fullgraph=True,
-        #     dynamic=True,
-        # )
         mask_generator._process_batch_fullgraph = torch.compile(
             mask_generator._process_batch_fullgraph,
-            # mode="max-autotune-no-cudagraphs",
             fullgraph=True,
             dynamic=True,
         )
-
-    # if furious:
-    #     from torchao.quantization import autoquant
-    #     mask_generator.predictor.model.image_encoder = autoquant(mask_generator.predictor.model.image_encoder)
 
     if furious:
         mask_generator.predictor.model.image_encoder = mask_generator.predictor.model.image_encoder.to(torch.float16)
@@ -370,8 +345,9 @@ def main(checkpoint_path,
             benchmark_fn(image_tensor_to_masks, image_tensor, mask_generator)
             benchmark_fn(image_tensor_to_masks, torch.tensor(image_tensor).transpose(0, 1).numpy(), mask_generator)
         else:
-            # print(f"batch size {batch_size} test")
-            # benchmark_fn(image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
+            print(f"batch size {batch_size} test")
+            benchmark_fn(image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
+
             print(f"batch size {batch_size} example shapes test")
             random_images = [np.random.randint(0, 256, size=size, dtype=np.uint8) for size in example_shapes()]
             random_images = random_images[:batch_size]

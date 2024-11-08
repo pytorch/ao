@@ -11,36 +11,6 @@ from torch import nn
 
 from torchao._models.sam2.modeling.sam2_utils import LayerNorm2d, MLP
 
-from torch.utils._python_dispatch import TorchDispatchMode
-from torch.utils._pytree import tree_flatten
-
-class NanDetect(TorchDispatchMode):
-    def __torch_dispatch__(self, func, types, args, kwargs=None):
-        kwargs = kwargs or {}
-        res = func(*args, **kwargs)
-        return res
-
-        flat_res, _ = tree_flatten(res)
-
-        for t in flat_res:
-            if not torch.is_tensor(t):
-                continue
-            try:
-                if (t != t).any():
-                    raise RuntimeError(
-                        f"Function {func}(*{args}, **{kwargs}) " "returned a NaN"
-                    )
-            except NotImplementedError:
-                pass
-        return res
-
-# a = torch.tensor([0.,])
-# print(a.div(a))
-# 
-# # This will raise
-# # RuntimeError: Function aten.div.Tensor(*(tensor([0.]), tensor([0.])), **{}) returned a NaN
-# with NanDetect():
-#     print(a.div(a))
 
 class MaskDecoder(nn.Module):
     def __init__(
@@ -245,7 +215,6 @@ class MaskDecoder(nn.Module):
             src = src.to(self._src_dtype)
             pos_src = pos_src.to(self._src_dtype)
             tokens = tokens.to(self._src_dtype)
-            # with NanDetect():
             hs, new_src = self.transformer(src, pos_src, tokens)
             # TODO: Not specifying scale kwarg in SDPA will cause NaN here
             # print("hs.isnan().any(): ", hs.isnan().any().item())
