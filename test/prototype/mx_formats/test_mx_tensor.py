@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import pytest
+import unittest
 
 import torch
 from torchao.prototype.mx_formats import config
@@ -69,7 +70,7 @@ def _test_mx(data_hp, elem_dtype, block_size):
         assert_sqnr_gt_threshold(data_hp, data_mx_dq, 14.0)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_hello_world(elem_dtype):
     data = torch.randn(4, 4, device="cuda", dtype=torch.bfloat16)
@@ -77,7 +78,7 @@ def test_hello_world(elem_dtype):
     _test_mx(data, elem_dtype, block_size)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_all_zeros(elem_dtype):
     data = torch.zeros(4, 4, device="cuda", dtype=torch.bfloat16)
@@ -85,7 +86,7 @@ def test_all_zeros(elem_dtype):
     _test_mx(data, elem_dtype, block_size)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_some_zeros(elem_dtype):
     data = torch.randn(4, 4, device="cuda", dtype=torch.bfloat16)
@@ -95,7 +96,7 @@ def test_some_zeros(elem_dtype):
     _test_mx(data, elem_dtype, block_size)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_exponent_nan_in(elem_dtype):
     """
@@ -111,7 +112,7 @@ def test_exponent_nan_in(elem_dtype):
     assert not torch.any(tensor_mx._scale_e8m0[1:] == E8M0_EXPONENT_NAN_VAL)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_exponent_nan_out(elem_dtype):
     """
@@ -144,7 +145,7 @@ def test_exponent_nan_out(elem_dtype):
     assert not torch.any(torch.isnan(tensor_hp[2:]))
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_ranks(elem_dtype):
     """
@@ -157,7 +158,7 @@ def test_ranks(elem_dtype):
         _test_mx(tensor_hp, elem_dtype, B)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_block_sizes(elem_dtype):
     """
@@ -170,7 +171,7 @@ def test_block_sizes(elem_dtype):
         _test_mx(tensor_hp, elem_dtype, B)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 @pytest.mark.parametrize("fp4_triton", [False, True])
 def test_transpose(elem_dtype, fp4_triton):
@@ -196,7 +197,7 @@ def test_transpose(elem_dtype, fp4_triton):
     torch.testing.assert_close(tensor_mx_dq_t, tensor_mx_t_dq, atol=0, rtol=0)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_cast_autograd(elem_dtype):
     x = torch.arange(8, device="cuda").bfloat16().requires_grad_()
@@ -216,7 +217,7 @@ def test_view(elem_dtype):
     x_mx_2 = x_mx.view(2, 4)  # noqa: F841
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 @pytest.mark.parametrize("hp_dtype", [torch.float32, torch.bfloat16])
 @pytest.mark.parametrize("all_zeros", [False, True])

@@ -10,6 +10,7 @@ import copy
 from typing import Optional
 
 import pytest
+import unittest
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
@@ -178,8 +179,8 @@ class TestFloat8NumericsIntegrationTest:
         "scaling_type_grad_output",
         [ScalingType.DELAYED, ScalingType.DYNAMIC, ScalingType.STATIC],
     )
-    @pytest.mark.skipif(not is_cuda_8_9, reason="requires SM89 compatible machine")
-    @pytest.mark.skipif(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
+    @unittest.skipIf(not is_cuda_8_9, reason="requires SM89 compatible machine")
+    @unittest.skipIf(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
     def test_encoder_fw_bw_from_config_params(
         self,
         scaling_type_input: ScalingType,
@@ -198,8 +199,8 @@ class TestFloat8NumericsIntegrationTest:
         "recipe_name",
         [Float8LinearRecipeName.ALL_AXISWISE, Float8LinearRecipeName.LW_AXISWISE_WITH_GW_HP],
     )
-    @pytest.mark.skipif(not is_cuda_9_0, reason="requires SM90 compatible machine")
-    @pytest.mark.skipif(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
+    @unittest.skipIf(not is_cuda_9_0, reason="requires SM90 compatible machine")
+    @unittest.skipIf(IS_ROCM, reason="test doesn't currently work on the ROCm stack")
     def test_encoder_fw_bw_from_recipe(
         self,
         recipe_name: str,

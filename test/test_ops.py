@@ -14,6 +14,7 @@ from torchao.utils import is_fbcode, TORCH_VERSION_AT_LEAST_2_5, compute_max_dif
 from torchao.dtypes.floatx import from_scaled_tc_floatx
 from torchao.sparsity.marlin import marlin_24_workspace, pack_to_marlin_24, inject_24
 import pytest
+import unittest
 
 if is_fbcode():
     pytest.skip("Skipping the test in fbcode since we don't have TARGET file for kernels")
@@ -41,7 +42,7 @@ class TestOps(TestCase):
         fp16_act = torch.rand(BS, IC).to(dtype) + 0.5
         return floatx_weight.to(device), scale.to(device), fp16_act.to(device)
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
     @parametrize("ebits,mbits", [(3, 2), (2, 2)])
     @parametrize("dtype", [torch.half, torch.bfloat16])
     def test_quant_llm_linear(self, ebits, mbits, dtype):
@@ -58,7 +59,7 @@ class TestOps(TestCase):
         test_utils = ["test_schema", "test_autograd_registration", "test_faketensor", "test_aot_dispatch_dynamic"]
         opcheck(torch.ops.torchao.quant_llm_linear, (ebits, mbits, fp16_act, floatx_weight, scale, splitK), test_utils=test_utils)
 
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
     @parametrize("BS,OC,IC,splitK", [(1, 2048, 4096, 5), (2, 8192, 8192, 6)])
     @parametrize("ebits,mbits", [(3, 2), (2, 2)])
     @parametrize("dtype", [torch.half, torch.bfloat16])
@@ -98,8 +99,8 @@ QGROUP_SIZES = [32, 64, 128, 256]
 TEST_CONFIGS_UNPACK = list(itertools.product(SHAPES, INNERKTILES))
 TEST_CONFIGS_DEQUANT = list(itertools.product(SHAPES, INNERKTILES, QGROUP_SIZES))
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-# @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
+# @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles", TEST_CONFIGS_UNPACK, ids=str)
 def test_unpack_tensor_core_tiled_layout_correctness(shape, inner_k_tiles):
     N, K = shape
@@ -115,8 +116,8 @@ def test_unpack_tensor_core_tiled_layout_correctness(shape, inner_k_tiles):
     assert torch.equal(t, unpacked)
 
 # TODO: Fix "test_aot_dispatch_dynamic" test failure
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-# @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
+# @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles", TEST_CONFIGS_UNPACK , ids=str)
 def test_unpack_tensor_core_tiled_layout_op(shape, inner_k_tiles):
     test_utils = [
@@ -160,8 +161,8 @@ def dequant_ref(q, scales, zeros, group_size, nbits=4, dtype=torch.bfloat16):
     return dq.reshape(n, k)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-# @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
+# @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
 def test_dequantize_tensor_core_tiled_layout_correctness_quant_dequant(shape, inner_k_tiles, group_size):
     n, k = shape
@@ -219,8 +220,8 @@ def test_dequantize_tensor_core_tiled_layout_correctness_quant_dequant(shape, in
     assert diff_op_ao < 1e-1
 
 # This test differs from one above in that it uses `unpack_tensor_core_tiled_layout` to unpack then dequantize
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-# @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
+# @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
 def test_dequantize_tensor_core_tiled_layout_correctness_unpack_and_dequant(shape, inner_k_tiles, group_size):
     n, k = shape
@@ -276,8 +277,8 @@ def test_dequantize_tensor_core_tiled_layout_correctness_unpack_and_dequant(shap
 
     assert diff_op_ao < 1e-1
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-# @pytest.mark.skipif(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
+# @unittest.skipIf(TORCH_VERSION_AT_LEAST_2_5, reason="weight packing is updated in 2.5+")
 @pytest.mark.parametrize("shape, inner_k_tiles, group_size", TEST_CONFIGS_DEQUANT, ids=str)
 def test_dequantize_tensor_core_tiled_layout_op(shape, inner_k_tiles, group_size):
     n, k = shape
@@ -377,7 +378,7 @@ def _symmetric_quantize_with_ref(w: torch.Tensor, num_bits: int, group_size: int
         s.to(device=orig_device),
     )
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("batch_size, k_chunk, n_chunk, num_bits, group_size, mnk_factors", MARLIN_TEST_PARAMS, ids=str)
 def test_marlin_24(batch_size, k_chunk, n_chunk, num_bits, group_size, mnk_factors):
     m_factor, n_factor, k_factor = mnk_factors

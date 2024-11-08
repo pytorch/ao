@@ -1,6 +1,7 @@
 import sys
 
 import pytest
+import unittest
 
 if sys.version_info < (3, 11):
     pytest.skip("requires Python >= 3.11", allow_module_level=True)
@@ -62,7 +63,7 @@ def check(expected, actual, dtype):
     return diff
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires GPU")
+@unittest.skipIf(not torch.cuda.is_available(), reason="requires GPU")
 @pytest.mark.parametrize(
     "shape, store_acc, epilogue_norm, add_source, magnitude_vector, dtype",
     FUSED_DORA_TEST_CONFIGS,
@@ -140,7 +141,7 @@ FUSED_MATMUL_TEST_CONFIGS = list(
 )
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires GPU")
+@unittest.skipIf(not torch.cuda.is_available(), reason="requires GPU")
 @pytest.mark.parametrize(
     "shape, dtype, epilogue_add, epilogue_scale",
     FUSED_MATMUL_TEST_CONFIGS,

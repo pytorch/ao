@@ -2,6 +2,7 @@ import copy
 import tempfile
 
 import pytest
+import unittest
 import torch
 from packaging.version import Version
 from torch import nn
@@ -102,7 +103,7 @@ class TestQuantize(TestCase):
 
 
 class TestOptim(TestCase):
-    @pytest.mark.skipif(
+    @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_3, reason="requires PyTorch >= 2.3"
     )
     @parametrize(
@@ -151,12 +152,12 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)
 
-    @pytest.mark.skipif(bnb is None, reason="bitsandbytes is not available")
-    @pytest.mark.skipif(
+    @unittest.skipIf(bnb is None, reason="bitsandbytes is not available")
+    @unittest.skipIf(
         not torch.cuda.is_available(),
         reason="bitsandbytes 8-bit Adam only works for CUDA",
     )
-    @pytest.mark.skipif(
+    @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_3, reason="requires PyTorch >= 2.3"
     )
     @parametrize("optim_name", ["Adam8bit", "AdamW8bit"])
@@ -192,11 +193,11 @@ class TestOptim(TestCase):
             torch.testing.assert_close(p2, p1, rtol=1e-5, atol=1e-5)
 
     # this will not run in CI because we can't install lpmm
-    @pytest.mark.skipif(lpmm is None, reason="lpmm is not available")
-    @pytest.mark.skipif(
+    @unittest.skipIf(lpmm is None, reason="lpmm is not available")
+    @unittest.skipIf(
         not torch.cuda.is_available(), reason="lpmm 4-bit Adam only works for CUDA"
     )
-    @pytest.mark.skipif(
+    @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_3, reason="requires PyTorch >= 2.3"
     )
     @parametrize("optim_name", ["Adam4bit", "AdamW4bit"])
@@ -232,7 +233,7 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model1.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1, rtol=1e-5, atol=1e-5)
 
-    @pytest.mark.skipif(
+    @unittest.skipIf(
         not torch.cuda.is_available(), reason="optim CPU offload requires CUDA"
     )
     @parametrize("offload_grad,grad_accum", [(False, 1), (False, 2), (True, 1)])
@@ -268,7 +269,7 @@ class TestOptim(TestCase):
         for p1, p2 in zip(model1.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)
 
-    @pytest.mark.skipif(
+    @unittest.skipIf(
         not torch.cuda.is_available(), reason="optim CPU offload requires CUDA"
     )
     def test_optim_cpu_offload_save_load(self):
@@ -355,7 +356,7 @@ class TestFSDP2(FSDPTest):
     def world_size(self) -> int:
         return 2
 
-    @pytest.mark.skipif(
+    @unittest.skipIf(
         not TORCH_VERSION_AT_LEAST_2_6, reason="PyTorch>=2.6 is required."
     )
     @skip_if_lt_x_gpu(2)

@@ -1,6 +1,7 @@
 from copy import deepcopy
 import os
 import pytest
+import unittest
 import torch
 from torchao.quantization import quantize_
 
@@ -38,8 +39,8 @@ def run_before_and_after_tests():
     
 @pytest.mark.parametrize("device", devices)   
 @pytest.mark.parametrize("qdtype", qdtypes)
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5,reason="requires nightly pytorch")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5,reason="requires nightly pytorch")
 def test_awq_loading(device, qdtype):
     if qdtype == torch.uint4 and device == "cpu":
         pytest.skip("uint4 not supported on cpu")
@@ -84,8 +85,8 @@ def test_awq_loading(device, qdtype):
     assert awq_save_load_out is not None
     assert torch.allclose(awq_out, awq_save_load_out, atol = 1e-2)
 
-@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_5,reason="requires nightly pytorch")
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_5,reason="requires nightly pytorch")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 def test_save_weights_only():
     dataset_size = 100
     l1,l2,l3 = 512,256,128

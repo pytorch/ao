@@ -7,6 +7,7 @@
 import copy
 
 import pytest
+import unittest
 
 import torch
 import torch.nn as nn
@@ -32,7 +33,7 @@ if not TORCH_VERSION_AT_LEAST_2_4:
     pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("input_shape", [(2, 4), (1, 2, 4), (1, 1, 2, 4)])
@@ -75,7 +76,7 @@ def test_linear_eager(elem_dtype, bias, input_shape):
 
 
 # TODO(future): enable compile support
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 def test_activation_checkpointing():
     input_shape = (2, 4)
     grad_shape = (2, 6)
@@ -94,7 +95,7 @@ def test_activation_checkpointing():
     y.backward(g)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 @pytest.mark.parametrize("bias", [False, True])
 def test_linear_compile(elem_dtype, bias):
@@ -142,7 +143,7 @@ def test_linear_compile(elem_dtype, bias):
     torch.testing.assert_close(x_g_ref, x_g, atol=0.02, rtol=0.02)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("input_shape", [(2, 4), (1, 2, 4), (1, 1, 2, 4)])
@@ -166,7 +167,7 @@ def test_inference_linear(elem_dtype, bias, input_shape):
         assert sqnr >= 11.0
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
 @pytest.mark.parametrize("elem_dtype", SUPPORTED_ELEM_DTYPES)
 def test_inference_compile_simple(elem_dtype):
     """
