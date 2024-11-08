@@ -30,21 +30,6 @@ def quantize_fp8(input: Tensor, block_size: int, apply_range_expansion: bool):
     return codes.view(shape), scale, k
 
 
-def apply_dynamic_range_expansion(input: Tensor, block_size: int):
-
-    shape = input.shape
-    input = input.view(-1, block_size)
-    Rdtype = torch.finfo(DTYPE).max / torch.finfo(DTYPE).min
-
-    min_vals = input.abs().amax(-1).clip(1e-12)
-    max_vals = input.abs().amin(-1).clip(1e-12)
-    Rx = max_vals / min_vals 
-    k = torch.log(Rdtype) / torch.log(Rx)
-    
-    expanded_input = input.sign() * (input.abs() ** k.view(-1, 1))
-    return expanded_input.view(shape), k
-
-
 # NOTE: FP8 sign bit is redundant for unsigned optim state.
 # we may investigate how to use it to increase range/precision for unsigned optim state.
 # https://arxiv.org/abs/2409.12517 uses FP8 E5M2 for 2nd Adam buffer
