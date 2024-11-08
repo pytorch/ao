@@ -106,6 +106,7 @@ class MaskDecoder(nn.Module):
         self.dynamic_multimask_via_stability = dynamic_multimask_via_stability
         self.dynamic_multimask_stability_delta = dynamic_multimask_stability_delta
         self.dynamic_multimask_stability_thresh = dynamic_multimask_stability_thresh
+        self._src_dtype = torch.float32
 
     def forward(
         self,
@@ -210,20 +211,28 @@ class MaskDecoder(nn.Module):
         b, c, h, w = src.shape
 
         with torch.autograd.profiler.record_function("self.transformer"):
-            # Run the transformer
-            hs, src = self.transformer(src, pos_src, tokens)
+            # # Run the transformer
+            src = src.to(self._src_dtype)
+            pos_src = pos_src.to(self._src_dtype)
+            tokens = tokens.to(self._src_dtype)
+            hs, new_src = self.transformer(src, pos_src, tokens)
+            # TODO: Not specifying scale kwarg in SDPA will cause NaN here
+            # print("hs.isnan().any(): ", hs.isnan().any().item())
+
         iou_token_out = hs[:, s, :]
-        mask_tokens_out = hs[:, s + 1 : (s + 1 + self.num_mask_tokens), :]
+        mask_tokens_out = hs[:, s + 1: (s + 1 + self.num_mask_tokens), :]
 
         # Upscale mask embeddings and predict masks using the mask tokens
-        src = src.transpose(1, 2).view(b, c, h, w)
+        src = new_src.transpose(1, 2).view(b, c, h, w)
         if not self.use_high_res_features:
             upscaled_embedding = self.output_upscaling(src)
         else:
-            dc1, ln1, act1, dc2, act2 = self.output_upscaling
-            feat_s0, feat_s1 = high_res_features
-            upscaled_embedding = act1(ln1(dc1(src) + feat_s1))
-            upscaled_embedding = act2(dc2(upscaled_embedding) + feat_s0)
+            with torch.autograd.profiler.record_function("upscale mask embeddings"):
+                dc1, ln1, act1, dc2, act2 = self.output_upscaling
+                feat_s0, feat_s1 = high_res_features
+                upscaled_embedding = act1(ln1(dc1(src) + feat_s1))
+                upscaled_embedding = act2(dc2(upscaled_embedding) + feat_s0)
+                # upscaled_embedding = act2(torch.cat([dc2(upscaled_embedding[:512]), dc2(upscaled_embedding[-512:])]) + feat_s0)
 
         hyper_in_list: List[torch.Tensor] = []
         for i in range(self.num_mask_tokens):
