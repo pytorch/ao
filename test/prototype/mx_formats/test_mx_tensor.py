@@ -34,7 +34,7 @@ IS_CUDA_GE_89 = __has_cuda and torch.cuda.get_device_capability() >= (8, 9)
 torch.manual_seed(2)
 
 if not TORCH_VERSION_AT_LEAST_2_4:
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+    unittest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
 @pytest.fixture(autouse=True)
@@ -166,7 +166,7 @@ def test_block_sizes(elem_dtype):
     """
     for B in (1, 2, 32):
         if B == 1 and elem_dtype == DTYPE_FP4:
-            pytest.skip("unsupported configuration")
+            unittest.skip("unsupported configuration")
         tensor_hp = torch.randn(B, device="cuda", dtype=torch.bfloat16)
         _test_mx(tensor_hp, elem_dtype, B)
 
@@ -179,7 +179,7 @@ def test_transpose(elem_dtype, fp4_triton):
     Verify that transposing an MX tensor works
     """
     if elem_dtype != DTYPE_FP4 and fp4_triton:
-        pytest.skip("unsupported configuration")
+        unittest.skip("unsupported configuration")
 
     tensor_hp = torch.randn(128, 256, device="cuda", dtype=torch.bfloat16)
     block_size = 32
@@ -228,7 +228,7 @@ def test_to_mx_from_mx_compile_numerics(elem_dtype, hp_dtype, all_zeros):
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
         if not IS_CUDA_GE_89:
             # separate ifs because flake8 is outsmarting me
-            pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
+            unittest.skip("CUDA capability >= 8.9 required for float8 in triton")
 
     shape = 4, 8
     if not all_zeros:

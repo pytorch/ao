@@ -6,7 +6,7 @@ import pytest
 try:
     import triton
 except ImportError:
-    pytest.skip("triton is not installed", allow_module_level=True)
+    unittest.skip("triton is not installed", allow_module_level=True)
 
 import bitsandbytes.functional as F
 import torch

@@ -2,7 +2,7 @@ import pytest
 from torchao.prototype.autoround.utils import is_auto_round_available
 
 if not is_auto_round_available():
-    pytest.skip("AutoRound is not available", allow_module_level=True)
+    unittest.skip("AutoRound is not available", allow_module_level=True)
 
 import torch
 from torch.testing._internal.common_utils import (

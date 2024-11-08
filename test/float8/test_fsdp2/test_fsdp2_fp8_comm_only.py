@@ -5,7 +5,7 @@ from typing import Optional
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 if not TORCH_VERSION_AT_LEAST_2_5:
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+    unittest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 import torch
 import torch._dynamo.testing
@@ -39,7 +39,7 @@ from torchao.testing.float8.fsdp2_utils import check_parity_fp8_comm_only
 
 is_cuda_8_9 = torch.cuda.is_available() and torch.cuda.get_device_capability() >= (8, 9)
 if not is_cuda_8_9:
-    pytest.skip("Unsupported CUDA device capability version", allow_module_level=True)
+    unittest.skip("Unsupported CUDA device capability version", allow_module_level=True)
 
 
 class Float8CommTestLinear(torch.nn.Linear):

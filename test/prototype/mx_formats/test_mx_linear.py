@@ -30,7 +30,7 @@ IS_CUDA_GE_89 = __has_cuda and torch.cuda.get_device_capability() >= (8, 9)
 torch.manual_seed(2)
 
 if not TORCH_VERSION_AT_LEAST_2_4:
-    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
+    unittest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 
 @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
@@ -104,7 +104,7 @@ def test_linear_compile(elem_dtype, bias):
     """
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
         if not IS_CUDA_GE_89:
-            pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
+            unittest.skip("CUDA capability >= 8.9 required for float8 in triton")
     input_shape = (2, 4)
     grad_shape = (2, 6)
     m_mx = nn.Sequential(
@@ -175,7 +175,7 @@ def test_inference_compile_simple(elem_dtype):
     """
     if elem_dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
         if not IS_CUDA_GE_89:
-            pytest.skip("CUDA capability >= 8.9 required for float8 in triton")
+            unittest.skip("CUDA capability >= 8.9 required for float8 in triton")
     m = nn.Sequential(nn.Linear(4, 6, bias=False, dtype=torch.bfloat16))
     m = m.cuda()
     m_mx = copy.deepcopy(m)
