@@ -1,6 +1,7 @@
 import itertools
 
 import pytest
+import unittest
 
 # Skip entire test if triton is not available, otherwise CI failure
 try:

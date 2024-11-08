@@ -14,6 +14,7 @@ Test numerics of bf16 versus float8 with FSDP on. At a high level:
 import copy
 import os
 import pytest
+import unittest
 import warnings
 
 import fire

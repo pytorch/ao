@@ -1,4 +1,4 @@
-import unittest
+import pytest
 import torch
 from torchao._models.llama.model import Transformer
 
@@ -11,9 +11,9 @@ def init_model(name="stories15M", device="cpu", precision=torch.bfloat16):
     return model.eval()
 
 
-@unittest.parametrize("device", _AVAILABLE_DEVICES)
-@unittest.parametrize("batch_size", [1, 4])
-@unittest.parametrize("is_training", [True, False])
+@pytest.mark.parametrize("device", _AVAILABLE_DEVICES)
+@pytest.mark.parametrize("batch_size", [1, 4])
+@pytest.mark.parametrize("is_training", [True, False])
 def test_ao_llama_model_inference_mode(device, batch_size, is_training):
     random_model = init_model(device=device)
     seq_len = 16
