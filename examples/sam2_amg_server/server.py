@@ -173,25 +173,21 @@ def masks_to_rle_dict(masks):
 
 # Queue to hold incoming requests
 request_queue = asyncio.Queue()
-batch_interval = 1.0  # Time interval to wait before processing a batch
+batch_interval = 0.1  # Time interval to wait before processing a batch
 
 
 def process_batch(batch, mask_generator):
+    t = time.time()
+    image_tensors = [image_tensor for (image_tensor, _) in batch]
     if len(batch) == 1:
-        print(f"Processing batch of len {len(batch)} - generate")
-        t = time.time()
-        image_tensors = [image_tensor for (image_tensor, _) in batch]
-        masks = mask_generator.generate(image_tensors[0])
-        print(f"Took avg. {(time.time() - t)}s")
-        return [masks]
+        print(f"Processing batch of len {len(batch)} using generate")
+        masks = [mask_generator.generate(image_tensors[0])]
     else:
-        print(f"Processing batch of len {len(batch)} - generate_batch")
-        t = time.time()
-        image_tensors = [image_tensor for (image_tensor, _) in batch]
-        # print("\n".join(map(str, [i.shape for i in image_tensors])))
+        print(f"Processing batch of len {len(batch)} using generate_batch")
         masks = mask_generator.generate_batch(image_tensors)
-        print(f"Took avg. {(time.time() - t) / len(batch)}s per batch entry")
-        return masks
+    print(f"Took avg. {(time.time() - t) / len(batch)}s per batch entry")
+    max_memory_allocated()
+    return masks
 
 
 async def batch_worker(mask_generator, batch_size, *, pad_batch=True, furious=False):
@@ -235,6 +231,10 @@ def benchmark_fn(func, inp, mask_generator):
     for _ in range(10):
         func(inp, mask_generator)
     print(f"Benchmark took {(time.time() - t)/10.0}s per iteration.")
+    max_memory_allocated()
+
+
+def max_memory_allocated():
     max_memory_allocated_bytes = torch.cuda.max_memory_allocated()
     _, total_memory = torch.cuda.mem_get_info()
     max_memory_allocated_percentage = int(100 * (max_memory_allocated_bytes / total_memory))
