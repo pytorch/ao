@@ -18,12 +18,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import pytest
-import unittest
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 if not TORCH_VERSION_AT_LEAST_2_5:
-   pytest.skip("Unsupported PyTorch version")
+    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 from torchao.float8 import Float8LinearConfig
 from torchao.float8.float8_linear_utils import convert_to_float8_training
