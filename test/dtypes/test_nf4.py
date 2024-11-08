@@ -6,7 +6,6 @@ import unittest
 from collections import OrderedDict
 from typing import Tuple, Union
 
-import pytest
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -574,7 +573,7 @@ class TestQLoRA(FSDPTest):
     def world_size(self) -> int:
         return 2
 
-    @pytest.mark.skipif(
+    @unittest.skipIf(
         version.parse(torch.__version__).base_version < "2.4.0",
         reason="torch >= 2.4 required",
     )

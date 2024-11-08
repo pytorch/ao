@@ -1,4 +1,5 @@
 import pytest
+import unittest
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_6
 
@@ -160,7 +161,7 @@ class TestQuantizedTraining(TestCase):
         ],
     )
     @parametrize("module_swap", [False, True])
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
     def test_int8_mixed_precision_training(self, compile, config, module_swap):
         _reset()
         bsize = 64
@@ -192,7 +193,7 @@ class TestQuantizedTraining(TestCase):
 
     @pytest.mark.skip('Flaky on CI')
     @parametrize("compile", [False, True])
-    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+    @unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
     def test_bitnet_training(self, compile):
         # reference implementation
         # https://github.com/microsoft/unilm/blob/master/bitnet/The-Era-of-1-bit-LLMs__Training_Tips_Code_FAQ.pdf

@@ -1,4 +1,5 @@
 import pytest
+import unittest
 
 # Skip entire test if triton is not available, otherwise CI failure
 try:
@@ -28,7 +29,7 @@ TEST_CONFIGS = [
 ]
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires GPU")
+@unittest.skipIf(not torch.cuda.is_available(), reason="requires GPU")
 @pytest.mark.parametrize("M, N, rank, allow_tf32, fp8_fast_accum, dtype", TEST_CONFIGS)
 def test_galore_downproj(M, N, rank, allow_tf32, fp8_fast_accum, dtype):
     torch.backends.cuda.matmul.allow_tf32 = allow_tf32

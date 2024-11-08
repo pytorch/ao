@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import pytest
+import unittest
 
 import torch
 
@@ -318,9 +319,9 @@ def test_fp4_pack_unpack():
     assert torch.all(orig_vals_dq == orig_vals)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_4, reason="requires PyTorch >= 2.4")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
+@unittest.skipIf(not has_triton(), reason="unsupported without triton")
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, reason="requires PyTorch >= 2.4")
 def test_fp4_triton_unscaled_cast():
     packed_vals = torch.arange(0, 255, dtype=torch.uint8, device="cuda")
     f32_ref = f4_unpacked_to_f32(unpack_uint4(packed_vals))
@@ -328,9 +329,9 @@ def test_fp4_triton_unscaled_cast():
     assert torch.all(torch.eq(f32_ref, f32_triton))
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
-@pytest.mark.skipif(not has_triton(), reason="unsupported without triton")
-@pytest.mark.skipif(not TORCH_VERSION_AT_LEAST_2_4, reason="requires PyTorch >= 2.4")
+@unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")
+@unittest.skipIf(not has_triton(), reason="unsupported without triton")
+@unittest.skipIf(not TORCH_VERSION_AT_LEAST_2_4, reason="requires PyTorch >= 2.4")
 def test_fp4_triton_scaled_cast():
     size = (256,)
     orig_vals = torch.randn(size, dtype=torch.float, device="cuda") * 100
@@ -392,7 +393,7 @@ def test_fp6_values(dtype_name):
     "device",
     [
         "cpu",
-        pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")),
+        pytest.param("cuda", marks=unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")),
     ]
 )
 @pytest.mark.parametrize(
