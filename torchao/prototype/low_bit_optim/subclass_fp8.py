@@ -1,5 +1,6 @@
 import torch
 from torch import Tensor
+from typing import Optional
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, TorchAOBaseTensor
@@ -40,7 +41,7 @@ class OptimStateFp8(TorchAOBaseTensor):
     def __new__(cls, codes: Tensor, scale: Tensor):
         return Tensor._make_wrapper_subclass(cls, codes.shape, device=codes.device)
 
-    def __init__(self, codes: Tensor, scale: Tensor, dynamic_range_expansion: bool =False):
+    def __init__(self, codes: Tensor, scale: Tensor, k: Optional[Tensor] =None):
         """Create quantized FP8 optimizer state.
 
         Args
@@ -55,9 +56,8 @@ class OptimStateFp8(TorchAOBaseTensor):
         assert scale.ndim == 1
         self.codes = codes
         self.scale = scale
+        self.k = k
         self.block_size = codes.numel() // scale.numel()
-        self.dynamic_range_expansion = dynamic_range_expansion
-        self.k = None
 
     def __tensor_flatten__(self):
         return self.tensor_attrs, []
