@@ -34,7 +34,7 @@ IS_CUDA_GE_89 = __has_cuda and torch.cuda.get_device_capability() >= (8, 9)
 torch.manual_seed(2)
 
 if not TORCH_VERSION_AT_LEAST_2_4:
-    unittest.skip("Unsupported PyTorch version", allow_module_level=True)
+    unittest.skip("Unsupported PyTorch version")
 
 
 @pytest.fixture(autouse=True)

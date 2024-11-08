@@ -4,7 +4,7 @@ import unittest
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_6
 
 if not TORCH_VERSION_AT_LEAST_2_4:
-    unittest.skip("Requires torch>=2.4", allow_module_level=True)
+    unittest.skip("Requires torch>=2.4")
 
 import copy
 

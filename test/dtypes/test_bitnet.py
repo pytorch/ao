@@ -8,7 +8,7 @@ from torchao.quantization.quant_api import _replace_with_custom_fn_if_matches_fi
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_4, TORCH_VERSION_AT_LEAST_2_5
 
 if not TORCH_VERSION_AT_LEAST_2_4:
-    unittest.skip("Unsupported PyTorch version", allow_module_level=True)
+    unittest.skip("Unsupported PyTorch version")
 
 @pytest.fixture(autouse=True)
 def run_before_and_after_tests():

@@ -7,7 +7,7 @@ from torchao.prototype.dtypes.uint2 import unpack_uint2
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_4
 
 if not TORCH_VERSION_AT_LEAST_2_4:
-    unittest.skip("Unsupported PyTorch version", allow_module_level=True)
+    unittest.skip("Unsupported PyTorch version")
 
 @pytest.fixture
 def uint2_tensor():

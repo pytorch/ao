@@ -4,7 +4,7 @@ import pytest
 import unittest
 
 if sys.version_info < (3, 11):
-    unittest.skip("requires Python >= 3.11", allow_module_level=True)
+    unittest.skip("requires Python >= 3.11")
 
 triton = pytest.importorskip("triton", reason="requires triton")
 

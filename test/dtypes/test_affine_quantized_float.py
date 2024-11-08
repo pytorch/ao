@@ -7,7 +7,7 @@ from torchao.utils import (
 )
 
 if not TORCH_VERSION_AT_LEAST_2_5:
-    unittest.skip("Unsupported PyTorch version", allow_module_level=True)
+    unittest.skip("Unsupported PyTorch version")
 
 import copy
 import io
