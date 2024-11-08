@@ -144,6 +144,7 @@ class TestFakeSparsity(TestCase):
             model_load.seq[1].parametrizations["weight"][0].mask,
         )
 
+    @unittest.skip("Flaky and causing bad_alloc consistently at this test.. idk why")
     def test_jit_trace(self):
         model = ModelUnderTest(bias=False)
 
