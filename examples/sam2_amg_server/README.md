@@ -25,9 +25,9 @@ Experiments run on H100 and with batch size 1
 | -------  | -----------------  | ------------------- | ------------------- | --------------------- | ---------- | ---------------- |
 | baseline | 1.0                |    0                | 786                 |                       |  1         |   64             |
 |       ao |                    |                     |                     |                       |  1         |   64             |
-|     fast |                    |                     |                     |                       |  1         |   64             |
+|     fast | 0.9797055721282959 | 191                 | 661                 |  3916MiB (4%)         |  1         |   64             |
 |     fast | 0.979585111141204  | 192                 | 388                 | 50787MiB (52%)        | 16         | 1024             |
-|  furious |                    |                     |                     |                       |  1         |   64             |
+|  furious | 0.974319338798523  | 209                 | 461                 |  3453MiB (3%)         |  1         |   64             |
 |  furious | 0.9702069759368896 | 196                 | 195                 | 48298MiB (49%)        | 16         | 1024             |
 
 mask count mismatch counts the number of requests where the number of masks differ from the baseline.
