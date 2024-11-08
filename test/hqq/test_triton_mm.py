@@ -1,5 +1,6 @@
 # Skip entire test if following module not available, otherwise CI failure
 import pytest
+from torch.testing._internal.common_utils import parametrize
 
 triton = pytest.importorskip(
     "triton", minversion="3.0.0", reason="Triton > 3.0.0 required to run this test"
