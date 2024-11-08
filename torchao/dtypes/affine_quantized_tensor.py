@@ -21,6 +21,9 @@ from torchao.float8.inference import (
     addmm_float8_unwrapped_inference,
     preprocess_data,
 )
+from torchao.kernel import (
+    int_scaled_matmul,
+)
 from torchao.quantization.quant_primitives import (
     FP8_TYPES,
     MappingType,
@@ -33,9 +36,6 @@ from torchao.quantization.quant_primitives import (
     dequantize_affine_floatx,
     quantize_affine,
     quantize_affine_floatx,
-)
-from torchao.kernel import (
-    int_scaled_matmul,
 )
 from torchao.quantization.utils import (
     pack_tinygemm_scales_and_zeros,
