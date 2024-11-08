@@ -5,12 +5,17 @@ from pathlib import Path
 
 import pytest
 import torch
+from packaging.version import Version
 from torch import nn
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import FSDPTest
-from torch.testing._internal.common_utils import TestCase, instantiate_parametrized_tests, parametrize, run_tests
+from torch.testing._internal.common_utils import (
+    TestCase,
+    instantiate_parametrized_tests,
+    parametrize,
+    run_tests,
+)
 
-from packaging.version import Version
 from torchao.prototype import low_bit_optim
 from torchao.prototype.low_bit_optim.quant_utils import (
     _fp32_to_bf16_sr,
