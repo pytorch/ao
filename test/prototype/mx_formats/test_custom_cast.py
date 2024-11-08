@@ -393,7 +393,7 @@ def test_fp6_values(dtype_name):
     "device",
     [
         "cpu",
-        pytest.param("cuda", marks=unittest.skipIf(not torch.cuda.is_available(), reason="CUDA not available")),
+        pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")),
     ]
 )
 @pytest.mark.parametrize(
