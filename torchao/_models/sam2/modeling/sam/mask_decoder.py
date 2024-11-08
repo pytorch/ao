@@ -136,6 +136,7 @@ class MaskDecoder(nn.Module):
         self.dynamic_multimask_via_stability = dynamic_multimask_via_stability
         self.dynamic_multimask_stability_delta = dynamic_multimask_stability_delta
         self.dynamic_multimask_stability_thresh = dynamic_multimask_stability_thresh
+        self._src_dtype = torch.float32
 
     def forward(
         self,
@@ -241,9 +242,9 @@ class MaskDecoder(nn.Module):
 
         with torch.autograd.profiler.record_function("self.transformer"):
             # # Run the transformer
-            src = src.to(torch.float16)
-            pos_src = pos_src.to(torch.float16)
-            tokens = tokens.to(torch.float16)
+            src = src.to(self._src_dtype)
+            pos_src = pos_src.to(self._src_dtype)
+            tokens = tokens.to(self._src_dtype)
             # with NanDetect():
             hs, new_src = self.transformer(src, pos_src, tokens)
             # print("hs.isnan().any(): ", hs.isnan().any().item())
