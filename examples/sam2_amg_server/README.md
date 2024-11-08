@@ -24,9 +24,7 @@ Experiments run on H100 and with batch size 1
 | mode     | mIoU               | mask count mismatch | avg. ms per request | max. memory (MiB (%)) | batch size | points per batch |
 | -------  | -----------------  | ------------------- | ------------------- | --------------------- | ---------- | ---------------- |
 | baseline | 1.0                |    0                | 786                 |                       |  1         |   64             |
-| baseline | N/A                |  N/A                | N/A                 |                       | 16         | 1024             |
 |       ao |                    |                     |                     |                       |  1         |   64             |
-|       ao |                    |                     |                     |                       | 16         | 1024             |
 |     fast |                    |                     |                     |                       |  1         |   64             |
 |     fast | 0.979585111141204  | 192                 | 388                 | 50787MiB (52%)        | 16         | 1024             |
 |  furious |                    |                     |                     |                       |  1         |   64             |
