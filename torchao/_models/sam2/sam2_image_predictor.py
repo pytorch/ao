@@ -65,6 +65,8 @@ class SAM2ImagePredictor:
             (64, 64),
         ]
 
+        self._image_dtype = torch.float32
+
     @classmethod
     def from_pretrained(cls, model_id: str, **kwargs) -> "SAM2ImagePredictor":
         """
@@ -109,6 +111,7 @@ class SAM2ImagePredictor:
 
         input_image = self._transforms(image)
         input_image = input_image[None, ...].to(self.device)
+        input_image = input_image.to(self._image_dtype)
 
         assert (
             len(input_image.shape) == 4 and input_image.shape[1] == 3
@@ -150,9 +153,11 @@ class SAM2ImagePredictor:
                 image, np.ndarray
             ), "Images are expected to be an np.ndarray in RGB format, and of shape  HWC"
             self._orig_hw.append(image.shape[:2])
-        # Transform the image to the form expected by the model
-        img_batch = self._transforms.forward_batch(image_list)
-        img_batch = img_batch.to(self.device)
+        with torch.autograd.profiler.record_function("forward_batch"):
+            # Transform the image to the form expected by the model
+            img_batch = self._transforms.forward_batch(image_list)
+            img_batch = img_batch.to(self.device)
+            img_batch = img_batch.to(self._image_dtype)
         batch_size = img_batch.shape[0]
         assert (
             len(img_batch.shape) == 4 and img_batch.shape[1] == 3

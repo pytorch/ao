@@ -78,17 +78,27 @@ class MaskData:
                 self._stats[k] = v.float().detach().cpu().numpy()
 
 
-def is_box_near_crop_edge(
-    boxes: torch.Tensor, crop_box: List[int], orig_box: List[int], atol: float = 20.0
+def is_box_near_crop_edge_torch(
+    boxes: torch.Tensor,
+    crop_box: List[int],
+    crop_box_torch: torch.Tensor,
+    orig_box_torch: torch.Tensor,
+    atol: float = 20.0,
 ) -> torch.Tensor:
     """Filter masks at the edge of a crop, but not at the edge of the original image."""
-    crop_box_torch = torch.as_tensor(crop_box, dtype=torch.float, device=boxes.device)
-    orig_box_torch = torch.as_tensor(orig_box, dtype=torch.float, device=boxes.device)
     boxes = uncrop_boxes_xyxy(boxes, crop_box).float()
     near_crop_edge = torch.isclose(boxes, crop_box_torch[None, :], atol=atol, rtol=0)
     near_image_edge = torch.isclose(boxes, orig_box_torch[None, :], atol=atol, rtol=0)
     near_crop_edge = torch.logical_and(near_crop_edge, ~near_image_edge)
     return torch.any(near_crop_edge, dim=1)
+
+
+def is_box_near_crop_edge(
+    boxes: torch.Tensor, crop_box: List[int], orig_box: List[int], atol: float = 20.0
+) -> torch.Tensor:
+    crop_box_torch = torch.as_tensor(crop_box, dtype=torch.float, device=boxes.device)
+    orig_box_torch = torch.as_tensor(orig_box, dtype=torch.float, device=boxes.device)
+    return is_box_near_crop_edge_torch(boxes, crop_box, crop_box_torch, orig_box_torch, atol)
 
 
 def box_xyxy_to_xywh(box_xyxy: torch.Tensor) -> torch.Tensor:
@@ -152,7 +162,7 @@ def rle_to_mask(rle: Dict[str, Any]) -> np.ndarray:
     return mask.transpose()  # Put in C order
 
 
-def mask_to_rle_pytorch_2(tensor: torch.Tensor) -> List[Dict[str, Any]]:
+def _mask_to_rle_pytorch_2_chunk(tensor: torch.Tensor) -> List[Dict[str, Any]]:
     """
     Encodes masks to an uncompressed RLE, in the format expected by
     pycoco tools.
@@ -161,34 +171,48 @@ def mask_to_rle_pytorch_2(tensor: torch.Tensor) -> List[Dict[str, Any]]:
     b, h, w = tensor.shape
     tensor = tensor.permute(0, 2, 1).flatten(1)
 
-    # Compute change indices
-    diff = tensor[:, 1:] ^ tensor[:, :-1]
-    a = torch.tensor([[True]])
-    if diff.is_cuda:
-        a = a.pin_memory().cuda()
-        # a = a.to(diff.device)
-    a = a.expand_as(diff.narrow(1, 0, 1))
-    diff = torch.cat([a, diff, a], dim=1)
-    change_indices = diff.nonzero()
+    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: change indices"):
+        # Compute change indices
+        diff = tensor[:, 1:] ^ tensor[:, :-1]
+        a = torch.tensor([[True]])
+        if diff.is_cuda:
+            a = a.pin_memory().cuda()
+            # a = a.to(diff.device)
+        a = a.expand_as(diff.narrow(1, 0, 1))
+        diff = torch.cat([a, diff, a], dim=1)
+        change_indices = diff.nonzero()
 
-    alt_lens = diff.sum(dim=1).tolist()
+    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: all_btw_idx"):
+        alt_lens = diff.sum(dim=1).tolist()
 
-    all_cur_idx = change_indices[:, 1]
-    all_btw_idx = torch.cat([all_cur_idx[1:], all_cur_idx[:1]]) - all_cur_idx
-    all_btw_idx = all_btw_idx.detach().cpu().tolist()
+        all_cur_idx = change_indices[:, 1]
+        all_btw_idx = torch.cat([all_cur_idx[1:], all_cur_idx[:1]]) - all_cur_idx
+        all_btw_idx = all_btw_idx.tolist()
 
-    # Encode run length
-    out = []
-    counts_init = (tensor[:, 0] == 0).tolist()
-    offset = 0
-    for i, ci in zip(range(b), counts_init):
-        btw_idxs = all_btw_idx[offset:offset + alt_lens[i]][:-1]
-        offset += alt_lens[i]
-        counts = [] if ci else [0]
-        counts.extend(btw_idxs)
-        out.append({"size": [h, w], "counts": counts})
+    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: Encode run length"):
+        # Encode run length
+        out = []
+        counts_init = (tensor[:, 0] == 0).tolist()
+        offset = 0
+        for i, ci in zip(range(b), counts_init):
+            btw_idxs = all_btw_idx[offset:offset + alt_lens[i]][:-1]
+            offset += alt_lens[i]
+            counts = [] if ci else [0]
+            counts.extend(btw_idxs)
+            out.append({"size": [h, w], "counts": counts})
 
     return out
+
+
+def mask_to_rle_pytorch_2(tensor: torch.Tensor) -> List[Dict[str, Any]]:
+    # Need to do chunking because of https://github.com/pytorch/pytorch/issues/51871
+    # Chunk sizes depend on the size of image and int32 max
+    # Unfortunately this also doesn't compile for data dependent shapes
+    # and masks vary in size.
+    rles = []
+    for mask_chunk in tensor.chunk(4):
+        rles.extend(_mask_to_rle_pytorch_2_chunk(mask_chunk))
+    return rles
 
 
 def area_from_rle(rle: Dict[str, Any]) -> int:
