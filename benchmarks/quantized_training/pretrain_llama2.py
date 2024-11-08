@@ -160,6 +160,9 @@ if __name__ == "__main__":
     elif args.quantize == "int8_mixed_precision":
         quantize_(model.layers, int8_mixed_precision_training(), set_inductor_config=False)
 
+    elif args.quantize == "int8_mixed_precision_module_swap":
+        quantize_(model.layers, int8_mixed_precision_training(module_swap=True), set_inductor_config=False)
+
     elif args.quantize == "bitnet":
         quantize_(model.layers, bitnet_training(), set_inductor_config=False)
 
