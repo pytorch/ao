@@ -247,26 +247,11 @@ class MaskDecoder(nn.Module):
             tokens = tokens.to(self._src_dtype)
             # with NanDetect():
             hs, new_src = self.transformer(src, pos_src, tokens)
+            # TODO: Not specifying scale kwarg in SDPA will cause NaN here
             # print("hs.isnan().any(): ", hs.isnan().any().item())
 
-        # import sys; sys.exit(1)
-
-
-        # def test_fn():
-        #     torch._dynamo.reset()
-        #     hs, new_src = torch.compile(self.transformer, fullgraph=True, dynamic=True)(src, pos_src, tokens)
-        #     return not hs.isnan().any().item()
-
-        # # from torch._inductor.compiler_bisector import CompilerBisector
-        # # cb = CompilerBisector.do_bisect(test_fn)
-        # from torch._inductor.bisect_helper import BisectionManager
-        # cb = BisectionManager.do_bisect(test_fn)
-        # print(cb)
-        # import pdb; pdb.set_trace()
-        # import sys; sys.exit(1)
-
         iou_token_out = hs[:, s, :]
-        mask_tokens_out = hs[:, s + 1 : (s + 1 + self.num_mask_tokens), :]
+        mask_tokens_out = hs[:, s + 1: (s + 1 + self.num_mask_tokens), :]
 
         # Upscale mask embeddings and predict masks using the mask tokens
         src = new_src.transpose(1, 2).view(b, c, h, w)
