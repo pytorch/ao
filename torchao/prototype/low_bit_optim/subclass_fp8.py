@@ -123,10 +123,8 @@ def _(func, types, args, kwargs):
         dst.k.copy_(src.k)
 
     elif isinstance(dst, OptimStateFp8):
-        if src.dynamic_range_expansion:
-            codes, k = apply_dynamic_range_expansion(src, dst.block_size)
 
-        codes, scale = quantize_fp8(codes, dst.block_size)
+        codes, scale, k = quantize_fp8(codes, dst.block_size, False)
         
         dst.codes.copy_(codes)
         dst.scale.copy_(scale)
