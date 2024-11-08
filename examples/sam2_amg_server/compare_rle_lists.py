@@ -41,12 +41,11 @@ def compare_masks(masks, ref_masks, order_by_area=False, verbose=False):
         v1_masks = sorted(v1_masks, key=(lambda x: x[1]), reverse=True)
     miou_sum = 0.0
     miou_count = 0
-    for ((v0_mask, v0_area), (v1_mask, v1_area)) in zip(v0_masks, v1_masks):
-        if not torch.allclose(v0_mask, v1_mask):
-            miou_sum += iou(v0_mask, v1_mask)
-            miou_count += 1
-            if verbose:
-                print(f"Masks don't match for key {k0}. IoU is {iou(v0_mask, v1_mask)}")
+    for ((v0_mask, _), (v1_mask, _)) in zip(v0_masks, v1_masks):
+        miou_sum += iou(v0_mask, v1_mask)
+        miou_count += 1
+        if verbose:
+            print(f"Masks don't match for key {k0}. IoU is {iou(v0_mask, v1_mask)}")
 
     return miou_sum, miou_count
 
