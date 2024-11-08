@@ -13,7 +13,7 @@ import warnings
 from typing import List, Tuple
 
 import pytest
-from torch.testing._internal.common_utils import parametrize
+from torch.testing._internal.common_utils import parametrize, run_tests
 
 import torch
 import torch.nn as nn
@@ -852,4 +852,4 @@ class TestFloat8LinearUtils(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    pytest.main([__file__])
+    run_tests()
