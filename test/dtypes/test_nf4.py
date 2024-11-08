@@ -6,7 +6,6 @@ import unittest
 from collections import OrderedDict
 from typing import Tuple, Union
 
-import pytest
 import torch
 import torch.nn.functional as F
 from torch import nn
