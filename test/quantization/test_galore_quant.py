@@ -1,13 +1,12 @@
 import itertools
 
 import pytest
-import unittest
 
 # Skip entire test if triton is not available, otherwise CI failure
 try:
     import triton
 except ImportError:
-    unittest.skip("triton is not installed")
+    pytest.skip("triton is not installed", allow_module_level=True)
 
 import bitsandbytes.functional as F
 import torch

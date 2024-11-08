@@ -14,12 +14,11 @@ import warnings
 import fire
 
 import pytest
-import unittest
 
 from torchao.utils import TORCH_VERSION_AT_LEAST_2_5
 
 if not TORCH_VERSION_AT_LEAST_2_5:
-    unittest.skip("Unsupported PyTorch version")
+    pytest.skip("Unsupported PyTorch version", allow_module_level=True)
 
 import torch
 import torch.distributed as dist

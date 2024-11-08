@@ -17,12 +17,12 @@ import pytest
 import unittest
 
 if is_fbcode():
-    unittest.skip("Skipping the test in fbcode since we don't have TARGET file for kernels")
+    pytest.skip("Skipping the test in fbcode since we don't have TARGET file for kernels")
 
 try:
     import torchao.ops
 except RuntimeError:
-    unittest.skip("torchao.ops not available")
+    pytest.skip("torchao.ops not available")
 
 from torchao.quantization.utils import (
     get_groupwise_affine_qparams,
