@@ -674,15 +674,7 @@ template <int nbit>
 void test_bitpacking_32_lowbit_values() {
   int unpacked_bytes = 32;
   int packed_bytes = unpacked_bytes * nbit / 8;
-  auto input_shifted = torchao::get_random_lowbit_vector(unpacked_bytes, nbit);
-  std::vector<int8_t> input(unpacked_bytes, 0);
-  int8_t low = -(1 << (nbit - 1));
-  int8_t high = (1 << (nbit - 1));
-  for (int i = 0; i < unpacked_bytes; ++i) {
-    input[i] = (int8_t)(input_shifted[i]) + low;
-    assert(input[i] >= low);
-    assert(input[i] <= high);
-  }
+  auto input = torchao::get_random_signed_lowbit_vector(unpacked_bytes, nbit);
   std::vector<uint8_t> packed(packed_bytes, 0);
 
   int8x16_t input0;
@@ -706,15 +698,7 @@ template <int nbit>
 void test_bitpacking_64_lowbit_values() {
   int unpacked_bytes = 64;
   int packed_bytes = unpacked_bytes * nbit / 8;
-  auto input_shifted = torchao::get_random_lowbit_vector(unpacked_bytes, nbit);
-  std::vector<int8_t> input(unpacked_bytes, 0);
-  int8_t low = -(1 << (nbit - 1));
-  int8_t high = (1 << (nbit - 1));
-  for (int i = 0; i < unpacked_bytes; ++i) {
-    input[i] = (int8_t)(input_shifted[i]) + low;
-    assert(input[i] >= low);
-    assert(input[i] <= high);
-  }
+  auto input = torchao::get_random_signed_lowbit_vector(unpacked_bytes, nbit);
   std::vector<uint8_t> packed(packed_bytes, 0);
 
   int8x16_t input0;
@@ -746,15 +730,7 @@ template <int nbit>
 void test_bitpacking_128_lowbit_values() {
   int unpacked_bytes = 128;
   int packed_bytes = unpacked_bytes * nbit / 8;
-  auto input_shifted = torchao::get_random_lowbit_vector(unpacked_bytes, nbit);
-  std::vector<int8_t> input(unpacked_bytes, 0);
-  int8_t low = -(1 << (nbit - 1));
-  int8_t high = (1 << (nbit - 1));
-  for (int i = 0; i < unpacked_bytes; ++i) {
-    input[i] = (int8_t)(input_shifted[i]) + low;
-    assert(input[i] >= low);
-    assert(input[i] <= high);
-  }
+  auto input = torchao::get_random_signed_lowbit_vector(unpacked_bytes, nbit);
   std::vector<uint8_t> packed(packed_bytes, 0);
 
   int8x16_t input0;
@@ -836,6 +812,7 @@ TEST_BITPACKING_32_LOWBIT_VALUES(4);
 TEST_BITPACKING_32_LOWBIT_VALUES(5);
 TEST_BITPACKING_32_LOWBIT_VALUES(6);
 TEST_BITPACKING_32_LOWBIT_VALUES(7);
+TEST_BITPACKING_32_LOWBIT_VALUES(8);
 
 TEST_BITPACKING_64_LOWBIT_VALUES(1);
 TEST_BITPACKING_64_LOWBIT_VALUES(2);
@@ -844,6 +821,7 @@ TEST_BITPACKING_64_LOWBIT_VALUES(4);
 TEST_BITPACKING_64_LOWBIT_VALUES(5);
 TEST_BITPACKING_64_LOWBIT_VALUES(6);
 TEST_BITPACKING_64_LOWBIT_VALUES(7);
+TEST_BITPACKING_64_LOWBIT_VALUES(8);
 
 TEST_BITPACKING_128_LOWBIT_VALUES(1);
 TEST_BITPACKING_128_LOWBIT_VALUES(2);
@@ -852,5 +830,6 @@ TEST_BITPACKING_128_LOWBIT_VALUES(4);
 TEST_BITPACKING_128_LOWBIT_VALUES(5);
 TEST_BITPACKING_128_LOWBIT_VALUES(6);
 TEST_BITPACKING_128_LOWBIT_VALUES(7);
+TEST_BITPACKING_128_LOWBIT_VALUES(8);
 
 #endif // defined(__aarch64__) || defined(__ARM_NEON)
