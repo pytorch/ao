@@ -1,0 +1,30 @@
+name: PR Label Check
+on:
+  pull_request:
+    types: [opened, labeled, unlabeled, synchronize]
+
+jobs:
+  check-labels:
+    name: Check PR Labels
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for Topic label
+        run: |
+          # Get the labels using GitHub API
+          LABELS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
+          | jq -r '.labels[].name')
+
+          # Check if there are any labels
+          if [ -z "$LABELS" ]; then
+            echo "::error::This PR requires at least one topic label. Please add a topic from: https://github.com/pytorch/ao/labels?q=topic"
+            exit 1
+          fi
+
+          # Check for Topic label
+          if ! echo "$LABELS" | grep -i "topic:" > /dev/null; then
+            echo "::error::This PR requires at least one label starting with 'topic:'. Available topics can be found at: https://github.com/pytorch/ao/labels?q=topic"
+            exit 1
+          fi
+
+          echo "PR has required topic label"
