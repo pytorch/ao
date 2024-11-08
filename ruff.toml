@@ -4,12 +4,13 @@
 # Example: To lint all files in every subfolder of 'test', add "test/**/*"
 include = [
     "torchao/float8/**/*.py",
-    "test/dtypes/test_nf4.py",
     "torchao/quantization/**/*.py",
+    "torchao/dtypes/**/*.py",
+    "torchao/sparsity/**/*.py",
+    "torchao/prototype/low_bit_optim/**.py",
     "test/quantization/test_observer.py",
     "test/dtypes/test_affine_quantized_float.py",
-    "torchao/dtypes/**/*.py",
-    "torchao/prototype/low_bit_optim/**.py",
+    "test/dtypes/test_nf4.py",
     "test/prototype/low_bit_optim/**.py",
 ]
 
