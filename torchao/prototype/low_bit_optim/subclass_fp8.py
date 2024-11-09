@@ -168,3 +168,9 @@ def _(func, types, args, kwargs):
         func(x.codes, *args[1:], **kwargs),
         func(x.scale, *args[1:], **kwargs),
     )
+
+
+if TORCH_VERSION_AT_LEAST_2_5:
+    from torch.serialization import add_safe_globals
+
+    add_safe_globals([OptimStateFp8])
