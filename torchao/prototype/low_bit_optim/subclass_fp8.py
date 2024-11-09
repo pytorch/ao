@@ -119,7 +119,9 @@ def _(func, types, args, kwargs):
         
         dst.codes.copy_(codes)
         dst.scale.copy_(scale)
-        dst.k.copy_(k)
+        
+        if dst.k is not None:
+            dst.k.copy_(k)
     else:
         dst.copy_(src.dequantize())
 
