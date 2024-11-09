@@ -12,13 +12,13 @@ _c10d_functional = torch.ops._c10d_functional
 DTYPE = torch.float8_e4m3fn
 
 
-def quantize_fp8(input: Tensor, block_size: int, apply_range_expansion: bool):
+def quantize_fp8(input: Tensor, block_size: int, dynamic_range_expansion: bool):
 
     shape = input.shape
     input = input.view(-1, block_size)
-    k =  aten.ones(input.shape[0], dtype=DTYPE, device=input.device)
+    k =  aten.ones(input.shape[0], dtype=DTYPE, device=input.device) if dynamic_range_expansion else None
 
-    if apply_range_expansion:
+    if dynamic_range_expansion:
         Rdtype = torch.finfo(DTYPE).max / torch.finfo(DTYPE).min # calculate the range of the dtype
         Rx = input.abs().amax(-1).clip(1e-12) / input.abs().amin(-1).clip(1e-12) # range of input max and min
         k = torch.log(Rdtype) / torch.log(Rx) # k calcuated
