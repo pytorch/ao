@@ -16,12 +16,13 @@ def quantize_fp8(input: Tensor, block_size: int, dynamic_range_expansion: bool):
 
     shape = input.shape
     input = input.view(-1, block_size)
-    k =  aten.ones(input.shape[0], dtype=DTYPE, device=input.device) if dynamic_range_expansion else None
+    k = None
 
     if dynamic_range_expansion:
         # NOTE: the calculation is from the paper https://arxiv.org/abs/2410.19313
         # The idea is to align optimizer state distributions more closely 
         # with the FP8 representation range, reducing the quantization error.
+        k = aten.ones(input.shape[0], dtype=DTYPE, device=input.device)
         Rdtype = torch.finfo(DTYPE).max / torch.finfo(DTYPE).min # calculate the range of the dtype
         Rx = input.abs().amax(-1).clip(1e-12) / input.abs().amin(-1).clip(1e-12) # range of input max and min
         k = torch.log(Rdtype) / torch.log(Rx)# calculating optimal value k dynamically
