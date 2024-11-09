@@ -23,7 +23,6 @@ torchao.quantization
     fpx_weight_only
 
     to_linear_activation_quantized
-    to_linear_activation_weight_observed
 
     swap_linear_with_smooth_fq_linear
     smooth_fq_linear_to_inference

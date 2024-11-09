@@ -385,7 +385,7 @@ def insert_observers_(
     def convert_to_linear_observer(linear_module: nn.Linear):
         # Wrap the weight with LinearActivationWeightObservedTensor and then with nn.Parameter
         linear_module.weight = nn.Parameter(
-            to_linear_activation_weight_observed(
+            LinearActivationWeightObservedTensor.from_float(
                 linear_module.weight,
                 input_observer=input_observer,
                 weight_observer=weight_observer,
