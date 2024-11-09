@@ -114,7 +114,7 @@ def _(func, types, args, kwargs):
 
     elif isinstance(dst, OptimStateFp8):
 
-        codes, scale, k = quantize_fp8(codes, dst.block_size, dst.dynamic_range_expansion)
+        codes, scale, k = quantize_fp8(src, dst.block_size, True if dst.k is not None else False)
         
         dst.codes.copy_(codes)
         dst.scale.copy_(scale)
