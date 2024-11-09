@@ -78,7 +78,7 @@ class OptimStateFp8(TorchAOBaseTensor):
         float_data = self.codes.float()
         float_data = float_data.view(-1, self.block_size) * self.scale.view(-1, 1)
 
-        if self.k:
+        if self.k is not None:
             float_data = float_data.view(-1, self.block_size)
             float_data =  float_data ** (1 / self.k.view(-1, 1))
         
