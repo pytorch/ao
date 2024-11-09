@@ -33,9 +33,9 @@ jobs:
             torch-spec: 'torch==2.4.0'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.1"
-          - name: CUDA 2.5
+          - name: CUDA 2.5.1
             runs-on: linux.g5.12xlarge.nvidia.gpu
-            torch-spec: 'torch==2.5.0 --index-url https://download.pytorch.org/whl/cu121'
+            torch-spec: 'torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121'
             gpu-arch-type: "cuda"
             gpu-arch-version: "12.1"
           - name: CUDA Nightly
@@ -54,9 +54,9 @@ jobs:
             torch-spec: 'torch==2.4.0 --index-url https://download.pytorch.org/whl/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
-          - name: CPU 2.5
+          - name: CPU 2.5.1
             runs-on: linux.4xlarge
-            torch-spec: 'torch==2.5.0 --index-url https://download.pytorch.org/whl/cpu'
+            torch-spec: 'torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu'
             gpu-arch-type: "cpu"
             gpu-arch-version: ""
           - name: CPU Nightly
