@@ -197,9 +197,7 @@ class TestOptim(TestCase):
         block_size = 256 if Version(bnb.__version__) >= Version("0.44.0") else 2048
 
         optim1 = getattr(bnb.optim, optim_name)(model1.parameters())
-        optim2 = getattr(low_bit_optim, optim_name)(
-            model2.parameters(), block_size=block_size
-        )
+        optim2 = getattr(low_bit_optim, optim_name)(model2.parameters(), block_size=block_size)
 
         for _ in range(2):
             x = torch.randn(4, 32, device=device)
@@ -315,9 +313,7 @@ class TestOptim(TestCase):
 
         # resume training
         model2 = copy.deepcopy(model1)
-        optim2 = low_bit_optim.CPUOffloadOptimizer(
-            model2.parameters(), torch.optim.AdamW
-        )
+        optim2 = low_bit_optim.CPUOffloadOptimizer(model2.parameters(), torch.optim.AdamW)
         optim2.load_state_dict(state_dict)
 
         for _ in range(2):
@@ -424,6 +420,9 @@ _FSDP_WORLD_SIZE = 2
 
                 self.assertTrue(exp_avg.__class__ != torch.Tensor)
                 self.assertTrue(exp_avg_sq.__class__ != torch.Tensor)
+
+_FSDP_WORLD_SIZE = 2
+
 
 class TestFSDP2(FSDPTest):
     @property
