@@ -87,10 +87,12 @@ class OptimStateFp8(TorchAOBaseTensor):
         return float_data.view(self.codes.shape)
 
     @classmethod
-    def zeros(cls, shape, block_size: int = 256, device=None):
+    def zeros(cls, shape, block_size: int = 256, device=None, dynamic_range_expansion: bool = False):
+        
         codes = torch.zeros(shape, dtype=DTYPE, device=device)
         scale = torch.zeros(codes.numel() // block_size, device=device)
-        return cls(codes, scale)
+        k = torch.ones(codes.numel() // block_size, device=device) if dynamic_range_expansion else None
+        return cls(codes, scale, k)
 
     def __repr__(self):
         return (
