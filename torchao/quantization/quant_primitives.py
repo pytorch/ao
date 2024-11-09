@@ -10,7 +10,6 @@ from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 
-from torchao.kernel.intmm import int_scaled_matmul, safe_int_mm
 from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
     _floatx_unpacked_to_f32,

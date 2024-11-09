@@ -56,9 +56,17 @@ from .quant_api import (
 from .quant_primitives import (
     MappingType,
     ZeroPointDomain,
+    TorchAODType,
     choose_qparams_affine,
-    dequantize_affine,
     quantize_affine,
+    dequantize_affine,
+    choose_qparams_affine_floatx,
+    choose_qparams_affine_with_min_max,
+    quantize_affine_floatx,
+    dequantize_affine_floatx,
+    fake_quantize_affine,
+    fake_quantize_affine_cachemask,
+    choose_qparams_and_quantize_affine_hqq,
 )
 from .smoothquant import (
     SmoothFakeDynamicallyQuantizedLinear,
@@ -74,9 +82,6 @@ from .utils import (
     compute_error,
 )
 from .weight_only import WeightOnlyInt8QuantLinear
-from .linear_activation_weight_observed_tensor import (
-    to_linear_activation_weight_observed,
-)
 
 __all__ = [
     # top level API - auto
@@ -94,12 +99,12 @@ __all__ = [
     "int8_weight_only",
     "float8_weight_only",
     "float8_dynamic_activation_float8_weight",
-    "float8_static_activation_float8_weight"
+    "float8_static_activation_float8_weight",
     "uintx_weight_only",
     "fpx_weight_only",
 
     # smooth quant - subject to change
-    "swap_conv2d_1x1_to_linear"
+    "swap_conv2d_1x1_to_linear",
     "get_scale",
     "SmoothFakeDynQuantMixin",
     "SmoothFakeDynamicallyQuantizedLinear",
@@ -115,7 +120,7 @@ __all__ = [
     "AffineQuantizedObserverBase",
 
     # quant primitive ops
-    "choose_qprams_affine",
+    "choose_qparams_affine",
     "choose_qparams_affine_with_min_max",
     "choose_qparams_affine_floatx",
     "quantize_affine",
