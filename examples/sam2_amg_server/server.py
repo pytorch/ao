@@ -173,7 +173,7 @@ def masks_to_rle_dict(masks):
 
 # Queue to hold incoming requests
 request_queue = asyncio.Queue()
-batch_interval = 0.1  # Time interval to wait before processing a batch
+batch_interval = 0.01  # Time interval to wait before processing a batch
 
 
 def process_batch(batch, mask_generator):
@@ -186,7 +186,7 @@ def process_batch(batch, mask_generator):
         print(f"Processing batch of len {len(batch)} using generate_batch")
         masks = mask_generator.generate_batch(image_tensors)
     print(f"Took avg. {(time.time() - t) / len(batch)}s per batch entry")
-    max_memory_allocated()
+    # max_memory_allocated()
     return masks
 
 
@@ -409,7 +409,8 @@ def main(checkpoint_path,
         return StreamingResponse(buf, media_type="image/png")
     
 
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    # uvicorn.run(app, host=host, port=port, log_level="info")
+    uvicorn.run(app, host=host, port=port)
 
 if __name__ == "__main__":
     fire.Fire(main)

@@ -188,10 +188,12 @@ def _mask_to_rle_pytorch_2_chunk_values_lengths(tensor: torch.Tensor) -> List[Di
     with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: change indices"):
         # Compute change indices
         diff = tensor[:, 1:] ^ tensor[:, :-1]
-        a = torch.tensor([[True]])
-        if diff.is_cuda:
-            a = a.pin_memory().cuda()
-            # a = a.to(diff.device)
+        # a = torch.tensor([[True]], device=diff.device)
+        a = torch.ones((1, 1), dtype=torch.bool, device=diff.device)
+        # import pdb; pdb.set_trace()
+        # if diff.is_cuda:
+        #     a = a.pin_memory().cuda()
+        #     # a = a.to(diff.device)
         a = a.expand_as(diff.narrow(1, 0, 1))
         diff = torch.cat([a, diff, a], dim=1)
         change_indices = diff.nonzero()
