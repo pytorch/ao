@@ -201,38 +201,42 @@ class SAM2AutomaticMaskGenerator:
         return self._encode_masks(mask_data)
 
     def _encode_masks(self, mask_data):
-        # Encode masks
-        if self.output_mode == "coco_rle":
-            mask_data["segmentations"] = [
-                coco_encode_rle(rle) for rle in mask_data["rles"]
-            ]
-        elif self.output_mode == "binary_mask":
-            mask_data["segmentations"] = [rle_to_mask(rle) for rle in mask_data["rles"]]
-        else:
-            # import pdb; pdb.set_trace()
-            rles = []
-            for (mask_i, d) in zip(mask_data["rles_nt"].unbind(), mask_data["rles_sizes"]):
-                h, w = d["size"]
-                if mask_i.size() == 0:
-                    rles.append({"size": [h, w], "counts": []})
-                else:
-                    rles.append({"size": [h, w], "counts": [0] + (mask_i.tolist()[:-1])})
-            mask_data["rles"] = rles
-            mask_data["segmentations"] = mask_data["rles"]
+        with torch.autograd.profiler.record_function("_encode_masks"):
+            # Encode masks
+            if self.output_mode == "coco_rle":
+                mask_data["segmentations"] = [
+                    coco_encode_rle(rle) for rle in mask_data["rles"]
+                ]
+            elif self.output_mode == "binary_mask":
+                mask_data["segmentations"] = [rle_to_mask(rle) for rle in mask_data["rles"]]
+            else:
+                # import pdb; pdb.set_trace()
+                rles = []
+                # TODO: Using .cpu() directly plus unbind seems to cause weakref error.
+                rles_nt_cpu = torch.nested.nested_tensor_from_jagged(mask_data["rles_nt"].values().cpu(), mask_data["rles_nt"].offsets().cpu())
+                for (mask_i, d) in zip(rles_nt_cpu.unbind(), mask_data["rles_sizes"]):
+                    h, w = d["size"]
+                    if mask_i.size() == 0:
+                        rles.append({"size": [h, w], "counts": []})
+                    else:
+                        rles.append({"size": [h, w], "counts": [0] + (mask_i.tolist()[:-1])})
+                mask_data["rles"] = rles
+                mask_data["segmentations"] = mask_data["rles"]
 
-        # Write mask records
-        curr_anns = []
-        for idx in range(len(mask_data["segmentations"])):
-            ann = {
-                "segmentation": mask_data["segmentations"][idx],
-                "area": area_from_rle(mask_data["rles"][idx]),
-                "bbox": box_xyxy_to_xywh(mask_data["boxes"][idx]).tolist(),
-                "predicted_iou": mask_data["iou_preds"][idx].item(),
-                "point_coords": [mask_data["points"][idx].tolist()],
-                "stability_score": mask_data["stability_score"][idx].item(),
-                "crop_box": box_xyxy_to_xywh(mask_data["crop_boxes"][idx]).tolist(),
-            }
-            curr_anns.append(ann)
+        with torch.autograd.profiler.record_function("_encode_masks: Write mask records"):
+            # Write mask records
+            curr_anns = []
+            for idx in range(len(mask_data["segmentations"])):
+                ann = {
+                    "segmentation": mask_data["segmentations"][idx],
+                    # "area": area_from_rle(mask_data["rles"][idx]),
+                    # "bbox": box_xyxy_to_xywh(mask_data["boxes"][idx]).tolist(),
+                    # "predicted_iou": mask_data["iou_preds"][idx].item(),
+                    # "point_coords": [mask_data["points"][idx].tolist()],
+                    # "stability_score": mask_data["stability_score"][idx].item(),
+                    # "crop_box": box_xyxy_to_xywh(mask_data["crop_boxes"][idx]).tolist(),
+                }
+                curr_anns.append(ann)
 
         return curr_anns
 
