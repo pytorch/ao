@@ -360,7 +360,10 @@ def main(checkpoint_path,
 
     if profile is not None:
         print(f"Saving profile under {profile}")
-        profiler_runner(profile, image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
+        if batch_size == 1:
+            profiler_runner(profile, image_tensor_to_masks, image_tensor, mask_generator)
+        else:
+            profiler_runner(profile, image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
 
     if dry:
         return

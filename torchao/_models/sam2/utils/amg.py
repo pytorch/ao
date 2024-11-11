@@ -14,6 +14,17 @@ import torch
 
 # Very lightly adapted from https://github.com/facebookresearch/segment-anything/blob/main/segment_anything/utils/amg.py
 
+def nt_index_select_dim_0(nt, index):
+    values = nt.values()
+    offsets = nt.offsets()
+    lengths = offsets.diff()
+    offsets_index = offsets[index].cpu()
+    lengths_index = lengths[index].cpu()
+    indices = [o + torch.arange(l) for (o, l) in zip(offsets_index, lengths_index)]
+    indices = torch.cat(indices).to(values.device)
+    values_index = torch.index_select(values, 0, indices)
+    lengths_index = lengths_index.to(values.device)
+    return torch.nested.nested_tensor_from_jagged(values_index, lengths=lengths_index)
 
 class MaskData:
     """
@@ -49,7 +60,10 @@ class MaskData:
                 self._stats[k] = None
             elif isinstance(v, torch.Tensor):
                 # self._stats[k] = v[torch.as_tensor(keep, device=v.device)]
-                self._stats[k] = v[keep]
+                if v.is_nested:
+                    self._stats[k] = nt_index_select_dim_0(v, keep)
+                else:
+                    self._stats[k] = v[keep]
             elif isinstance(v, np.ndarray):
                 self._stats[k] = v[keep.detach().cpu().numpy()]
             elif isinstance(v, list) and keep.dtype == torch.bool:
@@ -162,7 +176,7 @@ def rle_to_mask(rle: Dict[str, Any]) -> np.ndarray:
     return mask.transpose()  # Put in C order
 
 
-def _mask_to_rle_pytorch_2_chunk(tensor: torch.Tensor) -> List[Dict[str, Any]]:
+def _mask_to_rle_pytorch_2_chunk_values_lengths(tensor: torch.Tensor) -> List[Dict[str, Any]]:
     """
     Encodes masks to an uncompressed RLE, in the format expected by
     pycoco tools.
@@ -183,10 +197,17 @@ def _mask_to_rle_pytorch_2_chunk(tensor: torch.Tensor) -> List[Dict[str, Any]]:
         change_indices = diff.nonzero()
 
     with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: all_btw_idx"):
-        alt_lens = diff.sum(dim=1).tolist()
+        alt_lens = diff.sum(dim=1)
 
         all_cur_idx = change_indices[:, 1]
         all_btw_idx = torch.cat([all_cur_idx[1:], all_cur_idx[:1]]) - all_cur_idx
+
+    return alt_lens, all_btw_idx
+
+def _mask_to_rle_pytorch_2_chunk_to_dict(alt_lens: torch.Tensor, all_btw_idx: torch.Tensor):
+
+    with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: tolist"):
+        alt_lens = alt_lens.tolist()
         all_btw_idx = all_btw_idx.tolist()
 
     with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: Encode run length"):
@@ -211,8 +232,23 @@ def mask_to_rle_pytorch_2(tensor: torch.Tensor) -> List[Dict[str, Any]]:
     # and masks vary in size.
     rles = []
     for mask_chunk in tensor.chunk(4):
-        rles.extend(_mask_to_rle_pytorch_2_chunk(mask_chunk))
+        alt_lens, all_btw_idx = _mask_to_rle_pytorch_2_chunk_values_lengths(mask_chunk)
+        rles.extend(_mask_to_rle_pytorch_2_chunk_to_dict(alt_lens, all_btw_idx))
     return rles
+
+
+def mask_to_rle_pytorch_2_nt(tensor: torch.Tensor) -> (torch.Tensor, torch.Tensor):
+    # Need to do chunking because of https://github.com/pytorch/pytorch/issues/51871
+    # Chunk sizes depend on the size of image and int32 max
+    # Unfortunately this also doesn't compile for data dependent shapes
+    # and masks vary in size.
+    rles = []
+    for mask_chunk in tensor.chunk(4):
+        alt_lens, all_btw_idx = _mask_to_rle_pytorch_2_chunk_values_lengths(mask_chunk)
+        rles.append((alt_lens, all_btw_idx))
+    all_btw_idx = torch.cat([r[1] for r in rles])
+    alt_lens = torch.cat([r[0] for r in rles])
+    return torch.nested.nested_tensor_from_jagged(all_btw_idx, lengths=alt_lens)
 
 
 def area_from_rle(rle: Dict[str, Any]) -> int:
