@@ -213,12 +213,12 @@ class SAM2AutomaticMaskGenerator:
                 rles = []
                 # TODO: Using .cpu() directly plus unbind seems to cause weakref error.
                 rles_nt_cpu = torch.nested.nested_tensor_from_jagged(mask_data["rles_nt"].values().cpu(), mask_data["rles_nt"].offsets().cpu())
-                for (mask_i, d) in zip(rles_nt_cpu.unbind(), mask_data["rles_sizes"]):
+                counts_init = mask_data["rles_nt_counts_init"]
+                for (mask_i, d, ci) in zip(rles_nt_cpu.unbind(), mask_data["rles_sizes"], counts_init):
                     h, w = d["size"]
-                    if mask_i.size() == 0:
-                        rles.append({"size": [h, w], "counts": []})
-                    else:
-                        rles.append({"size": [h, w], "counts": [0] + (mask_i.tolist()[:-1])})
+                    counts = [] if ci else [0]
+                    counts.extend(mask_i.tolist()[:-1])
+                    rles.append({"size": [h, w], "counts": counts})
                 mask_data["rles"] = rles
                 mask_data["segmentations"] = mask_data["rles"]
 
@@ -448,7 +448,9 @@ class SAM2AutomaticMaskGenerator:
                     # or at a minimum create a mask_to_rle_pytorch_2_list and use loops
                     # to cause a single DtoH sync
                     # data["rles"] = mask_to_rle_pytorch_2(data["masks"])
-                    data["rles_nt"] = mask_to_rle_pytorch_2_nt(data["masks"])
+                    rles_nt, rles_nt_counts_init = mask_to_rle_pytorch_2_nt(data["masks"])
+                    data["rles_nt"] = rles_nt
+                    data["rles_nt_counts_init"] = rles_nt_counts_init
                     del data["masks"]
 
                     batch_data = data
@@ -603,8 +605,9 @@ class SAM2AutomaticMaskGenerator:
         with torch.autograd.profiler.record_function("uncrop_masks"):
             # Compress to RLE
             data["masks"] = uncrop_masks(data["masks"], crop_box, orig_h, orig_w)
-            # data["rles"] = mask_to_rle_pytorch_2(data["masks"])
-            data["rles_nt"] = mask_to_rle_pytorch_2_nt(data["masks"])
+            rles_nt, rles_nt_counts_init = mask_to_rle_pytorch_2_nt(data["masks"])
+            data["rles_nt"] = rles_nt
+            data["rles_nt_counts_init"] = rles_nt_counts_init
             b, h, w = data["masks"].size()
             data["rles_sizes"] = [{"size": [h, w]}] * b
             del data["masks"]

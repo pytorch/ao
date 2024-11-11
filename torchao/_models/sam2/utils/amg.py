@@ -253,7 +253,12 @@ def mask_to_rle_pytorch_2_nt(tensor: torch.Tensor) -> (torch.Tensor, torch.Tenso
         rles.append((alt_lens, all_btw_idx))
     all_btw_idx = torch.cat([r[1] for r in rles])
     alt_lens = torch.cat([r[0] for r in rles])
-    return torch.nested.nested_tensor_from_jagged(all_btw_idx, lengths=alt_lens)
+    ret_nt = torch.nested.nested_tensor_from_jagged(all_btw_idx, lengths=alt_lens)
+
+    b, h, w = tensor.shape
+    tensor = tensor.permute(0, 2, 1).flatten(1)
+    counts_init = (tensor[:, 0] == 0).tolist()
+    return ret_nt, counts_init
 
 
 def area_from_rle(rle: Dict[str, Any]) -> int:
