@@ -17,24 +17,14 @@ using namespace at::native::mps;
 
 // LowBit Quantized Linear on MPS Backend
 template <int nbit>
-Tensor linear_mps_kernel(
+void check_linear_mps_args(
     const Tensor& A,
     const Tensor& B,
     int64_t group_size,
     const Tensor& S,
     const Tensor& Z) {
-  auto M = A.size(0);
   auto N = B.size(0);
   auto K = A.size(1);
-
-  TORCH_CHECK(
-      A.is_mps(), __func__, "A is on ", A.device(), " but expected on mps");
-  TORCH_CHECK(
-      B.is_mps(), __func__, "B is on ", B.device(), " but expected on mps");
-  TORCH_CHECK(
-      S.is_mps(), __func__, "S is on ", S.device(), " but expected on mps");
-  TORCH_CHECK(
-      Z.is_mps(), __func__, "Z is on ", Z.device(), " but expected on mps");
 
   TORCH_CHECK(
       A.dtype() == at::kBFloat16 || A.dtype() == at::kHalf ||
@@ -75,6 +65,29 @@ Tensor linear_mps_kernel(
       ": expect Z to be 2d tensor with shape [:, ",
       N,
       "]");
+}
+
+template <int nbit>
+Tensor linear_mps_kernel(
+    const Tensor& A,
+    const Tensor& B,
+    int64_t group_size,
+    const Tensor& S,
+    const Tensor& Z) {
+  TORCH_CHECK(
+      A.is_mps(), __func__, ": A is on ", A.device(), " but expected on mps");
+  TORCH_CHECK(
+      B.is_mps(), __func__, ": B is on ", B.device(), " but expected on mps");
+  TORCH_CHECK(
+      S.is_mps(), __func__, ": S is on ", S.device(), " but expected on mps");
+  TORCH_CHECK(
+      Z.is_mps(), __func__, ": Z is on ", Z.device(), " but expected on mps");
+
+  check_linear_mps_args<nbit>(A, B, group_size, S, Z);
+
+  auto M = A.size(0);
+  auto N = B.size(0);
+  auto K = A.size(1);
 
   auto C = at::empty({M, N}, A.options());
 
@@ -91,6 +104,30 @@ Tensor linear_mps_kernel(
       scalarToMetalTypeString(A));
 
   return C;
+}
+
+template <int nbit>
+Tensor linear_mps_kernel_meta(
+    const Tensor& A,
+    const Tensor& B,
+    int64_t group_size,
+    const Tensor& S,
+    const Tensor& Z) {
+  TORCH_CHECK(
+      A.is_meta(), __func__, ": A is on ", A.device(), " but expected on meta");
+  TORCH_CHECK(
+      B.is_meta(), __func__, ": B is on ", B.device(), " but expected on meta");
+  TORCH_CHECK(
+      S.is_meta(), __func__, ": S is on ", S.device(), " but expected on meta");
+  TORCH_CHECK(
+      Z.is_meta(), __func__, ": Z is on ", Z.device(), " but expected on meta");
+
+  check_linear_mps_args<nbit>(A, B, group_size, S, Z);
+
+  auto M = A.size(0);
+  auto N = B.size(0);
+
+  return at::empty({M, N}, A.options()).to("meta");
 }
 
 // LowBit Packing on CPU Backend
@@ -153,6 +190,16 @@ TORCH_LIBRARY_IMPL(torchao, MPS, m) {
   m.impl("_linear_fp_act_5bit_weight", &linear_mps_kernel<5>);
   m.impl("_linear_fp_act_6bit_weight", &linear_mps_kernel<6>);
   m.impl("_linear_fp_act_7bit_weight", &linear_mps_kernel<7>);
+}
+
+TORCH_LIBRARY_IMPL(torchao, Meta, m) {
+  m.impl("_linear_fp_act_1bit_weight", &linear_mps_kernel_meta<1>);
+  m.impl("_linear_fp_act_2bit_weight", &linear_mps_kernel_meta<2>);
+  m.impl("_linear_fp_act_3bit_weight", &linear_mps_kernel_meta<3>);
+  m.impl("_linear_fp_act_4bit_weight", &linear_mps_kernel_meta<4>);
+  m.impl("_linear_fp_act_5bit_weight", &linear_mps_kernel_meta<5>);
+  m.impl("_linear_fp_act_6bit_weight", &linear_mps_kernel_meta<6>);
+  m.impl("_linear_fp_act_7bit_weight", &linear_mps_kernel_meta<7>);
 }
 
 } // namespace torchao::kernels::mps::lowbit::aten
