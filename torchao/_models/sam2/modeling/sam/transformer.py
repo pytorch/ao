@@ -115,14 +115,15 @@ class TwoWayTransformer(nn.Module):
         queries = point_embedding
         keys = image_embedding
 
-        # Apply transformer blocks and final layernorm
-        for layer in self.layers:
-            queries, keys = layer(
-                queries=queries,
-                keys=keys,
-                query_pe=point_embedding,
-                key_pe=image_pe,
-            )
+        with torch.autograd.profiler.record_function("TwoWayTransformer: layers"):
+            # Apply transformer blocks and final layernorm
+            for layer in self.layers:
+                queries, keys = layer(
+                    queries=queries,
+                    keys=keys,
+                    query_pe=point_embedding,
+                    key_pe=image_pe,
+                )
 
         # Apply the final attention layer from the points to the image
         q = queries + point_embedding

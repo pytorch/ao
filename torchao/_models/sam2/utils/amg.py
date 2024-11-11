@@ -206,6 +206,7 @@ def _mask_to_rle_pytorch_2_chunk_values_lengths(tensor: torch.Tensor) -> List[Di
 
     return alt_lens, all_btw_idx
 
+
 def _mask_to_rle_pytorch_2_chunk_to_dict(tensor: torch.Tensor, alt_lens: torch.Tensor, all_btw_idx: torch.Tensor):
     b, h, w = tensor.shape
     tensor = tensor.permute(0, 2, 1).flatten(1)
