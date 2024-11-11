@@ -224,11 +224,11 @@ def benchmark_fn(func, inp, mask_generator):
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats()
     logging.info("Running 30 warumup iterations.")
-    for _ in range(30):
+    for _ in range(3):
         func(inp, mask_generator)
     logging.info("Running 100 benchmark iterations.")
     t = time.time()
-    for _ in range(100):
+    for _ in range(10):
         func(inp, mask_generator)
     print(f"Benchmark took {(time.time() - t)/100.0}s per iteration.")
     max_memory_allocated()
@@ -346,23 +346,21 @@ def main(checkpoint_path,
                 unittest_fn(masks, ref_masks, order_by_area=True, verbose=verbose)
 
     if benchmark:
+        print(f"batch size {batch_size} dog benchmark")
         if batch_size == 1:
-            print("batch size 1 test")
             benchmark_fn(image_tensor_to_masks, image_tensor, mask_generator)
-            benchmark_fn(image_tensor_to_masks, torch.tensor(image_tensor).transpose(0, 1).numpy(), mask_generator)
         else:
-            print(f"batch size {batch_size} test")
             benchmark_fn(image_tensors_to_masks, [image_tensor] * batch_size, mask_generator)
 
-            print(f"batch size {batch_size} example shapes test")
-            random_images = [np.random.randint(0, 256, size=size, dtype=np.uint8) for size in example_shapes()]
-            random_images = random_images[:batch_size]
-            benchmark_fn(image_tensors_to_masks, random_images, mask_generator)
+        for i, shapes in enumerate([example_shapes(), example_shapes_2()]):
+            print(f"batch size {batch_size} example shapes {i} benchmark")
+            random_images = [np.random.randint(0, 256, size=size, dtype=np.uint8) for size in shapes]
 
-            print(f"batch size {batch_size} example shapes 2 test")
-            random_images = [np.random.randint(0, 256, size=size, dtype=np.uint8) for size in example_shapes_2()]
-            random_images = random_images[:batch_size]
-            benchmark_fn(image_tensors_to_masks, random_images, mask_generator)
+            if batch_size == 1:
+                [benchmark_fn(image_tensor_to_masks, r, mask_generator) for r in random_images]
+            else:
+                random_images = random_images[:batch_size]
+                benchmark_fn(image_tensors_to_masks, random_images, mask_generator)
 
     if profile is not None:
         print(f"Saving profile under {profile}")
