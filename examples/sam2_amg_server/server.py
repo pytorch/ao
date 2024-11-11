@@ -297,8 +297,8 @@ def main(checkpoint_path,
     if fast:
         assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
         # TODO: Using CUDA graphs can cause numerical differences?
-        mask_generator.predictor.model.image_encoder = torch.compile(
-            mask_generator.predictor.model.image_encoder,
+        mask_generator.predictor.model.forward_image = torch.compile(
+            mask_generator.predictor.model.forward_image,
             # mode="max-autotune-no-cudagraphs",
             mode="max-autotune",
             fullgraph=True,

@@ -110,8 +110,7 @@ class SAM2ImagePredictor:
             raise NotImplementedError("Image format not supported")
 
         input_image = self._transforms(image)
-        input_image = input_image[None, ...].to(self.device)
-        input_image = input_image.to(self._image_dtype)
+        input_image = input_image[None, ...].to(device=self.device, dtype=self._image_dtype)
 
         assert (
             len(input_image.shape) == 4 and input_image.shape[1] == 3
