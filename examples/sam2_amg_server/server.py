@@ -223,14 +223,14 @@ async def lifespan(app: FastAPI):
 def benchmark_fn(func, inp, mask_generator):
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats()
-    logging.info("Running 3 warumup iterations.")
-    for _ in range(3):
+    logging.info("Running 30 warumup iterations.")
+    for _ in range(30):
         func(inp, mask_generator)
-    logging.info("Running 10 benchmark iterations.")
+    logging.info("Running 100 benchmark iterations.")
     t = time.time()
-    for _ in range(10):
+    for _ in range(100):
         func(inp, mask_generator)
-    print(f"Benchmark took {(time.time() - t)/10.0}s per iteration.")
+    print(f"Benchmark took {(time.time() - t)/100.0}s per iteration.")
     max_memory_allocated()
 
 
