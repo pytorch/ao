@@ -206,7 +206,9 @@ def _mask_to_rle_pytorch_2_chunk_values_lengths(tensor: torch.Tensor) -> List[Di
 
     return alt_lens, all_btw_idx
 
-def _mask_to_rle_pytorch_2_chunk_to_dict(alt_lens: torch.Tensor, all_btw_idx: torch.Tensor):
+def _mask_to_rle_pytorch_2_chunk_to_dict(tensor: torch.Tensor, alt_lens: torch.Tensor, all_btw_idx: torch.Tensor):
+    b, h, w = tensor.shape
+    tensor = tensor.permute(0, 2, 1).flatten(1)
 
     with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: tolist"):
         alt_lens = alt_lens.tolist()
@@ -235,7 +237,7 @@ def mask_to_rle_pytorch_2(tensor: torch.Tensor) -> List[Dict[str, Any]]:
     rles = []
     for mask_chunk in tensor.chunk(4):
         alt_lens, all_btw_idx = _mask_to_rle_pytorch_2_chunk_values_lengths(mask_chunk)
-        rles.extend(_mask_to_rle_pytorch_2_chunk_to_dict(alt_lens, all_btw_idx))
+        rles.extend(_mask_to_rle_pytorch_2_chunk_to_dict(mask_chunk, alt_lens, all_btw_idx))
     return rles
 
 
