@@ -318,12 +318,12 @@ def main(checkpoint_path,
         #     dynamic=False,
         # )
 
-        # mask_generator.predictor.model.sam_mask_decoder = torch.compile(
-        #     mask_generator.predictor.model.sam_mask_decoder,
-        #     mode="max-autotune-no-cudagraphs",
-        #     fullgraph=True,
-        #     dynamic=False,
-        # )
+        mask_generator.predictor.model.sam_mask_decoder = torch.compile(
+            mask_generator.predictor.model.sam_mask_decoder,
+            mode="max-autotune",
+            fullgraph=True,
+            dynamic=False,
+        )
 
         mask_generator.predictor._transforms.postprocess_masks = torch.compile(
             mask_generator.predictor._transforms.postprocess_masks,
