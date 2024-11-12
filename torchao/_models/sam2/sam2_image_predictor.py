@@ -449,6 +449,7 @@ class SAM2ImagePredictor:
         return low_res_masks, iou_predictions
 
     def _predict_masks_postprocess(self, low_res_masks, img_idx, iou_predictions, return_logits):
+        # TODO: Might want to defer this until after data["iou_preds"] > self.pred_iou_thresh
         with torch.autograd.profiler.record_function("self._transforms.postprocess_masks"):
             # Upscale the masks to the original image resolution
             masks = self._transforms.postprocess_masks(
