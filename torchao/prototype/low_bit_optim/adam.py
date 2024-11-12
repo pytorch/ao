@@ -338,6 +338,7 @@ class AdamWFp8(_AdamBase):
         *,
         block_size=256,
         bf16_stochastic_round=False,
+        dynamic_range_expansion=False,
     ) -> None:
         super().__init__(
             params,
@@ -350,9 +351,10 @@ class AdamWFp8(_AdamBase):
             bf16_stochastic_round=bf16_stochastic_round,
             is_adamw=True,
         )
-
+        self.dynamic_range_expansion = dynamic_range_expansion
+        
     def _subclass_zeros(self, p: Tensor, signed: bool):
-        return OptimStateFp8.zeros(p.shape, self.block_size, p.device)
+        return OptimStateFp8.zeros(p.shape, self.block_size, p.device, self.dynamic_range_expansion)
 
 
 class _AdamW(_AdamBase):
