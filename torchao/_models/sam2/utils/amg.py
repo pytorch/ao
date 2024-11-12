@@ -55,6 +55,7 @@ class MaskData:
         return self._stats.items()
 
     def filter(self, keep: torch.Tensor) -> None:
+        keep_list = keep.tolist()
         for k, v in self._stats.items():
             if v is None:
                 self._stats[k] = None
@@ -67,7 +68,7 @@ class MaskData:
             elif isinstance(v, np.ndarray):
                 self._stats[k] = v[keep.detach().cpu().numpy()]
             elif isinstance(v, list) and keep.dtype == torch.bool:
-                self._stats[k] = [a for i, a in enumerate(v) if keep[i]]
+                self._stats[k] = [a for i, a in enumerate(v) if keep_list[i]]
             elif isinstance(v, list):
                 self._stats[k] = [v[i] for i in keep]
             else:
@@ -196,7 +197,11 @@ def _mask_to_rle_pytorch_2_chunk_values_lengths(tensor: torch.Tensor) -> List[Di
         #     # a = a.to(diff.device)
         a = a.expand_as(diff.narrow(1, 0, 1))
         diff = torch.cat([a, diff, a], dim=1)
-        change_indices = diff.nonzero()
+        # Need to do chunking because of https://github.com/pytorch/pytorch/issues/51871
+        if diff.numel() >= 2147483647:
+            change_indices = torch.cat([d.nonzero() for d in diff.chunk(2)])
+        else:
+            change_indices = diff.nonzero()
 
     with torch.autograd.profiler.record_function("mask_to_rle_pytorch_2: all_btw_idx"):
         alt_lens = diff.sum(dim=1)
@@ -236,7 +241,7 @@ def mask_to_rle_pytorch_2(tensor: torch.Tensor) -> List[Dict[str, Any]]:
     # Unfortunately this also doesn't compile for data dependent shapes
     # and masks vary in size.
     rles = []
-    for mask_chunk in tensor.chunk(4):
+    for mask_chunk in tensor.chunk(1):
         alt_lens, all_btw_idx = _mask_to_rle_pytorch_2_chunk_values_lengths(mask_chunk)
         rles.extend(_mask_to_rle_pytorch_2_chunk_to_dict(mask_chunk, alt_lens, all_btw_idx))
     return rles
@@ -248,7 +253,7 @@ def mask_to_rle_pytorch_2_nt(tensor: torch.Tensor) -> (torch.Tensor, torch.Tenso
     # Unfortunately this also doesn't compile for data dependent shapes
     # and masks vary in size.
     rles = []
-    for mask_chunk in tensor.chunk(4):
+    for mask_chunk in tensor.chunk(1):
         alt_lens, all_btw_idx = _mask_to_rle_pytorch_2_chunk_values_lengths(mask_chunk)
         rles.append((alt_lens, all_btw_idx))
     all_btw_idx = torch.cat([r[1] for r in rles])
