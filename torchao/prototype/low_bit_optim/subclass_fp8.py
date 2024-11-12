@@ -136,6 +136,7 @@ def _(func, types, args, kwargs):
     out = OptimStateFp8(
         args[0].codes.to(device=device),
         args[0].scale.to(device=device),
+        args[0].k.to(device=device) if args[0].k is not None else None
     )
     return return_and_correct_aliasing(func, args, kwargs, out)
 
@@ -150,7 +151,7 @@ def _(func, types, args, kwargs):
 @OptimStateFp8.implements(aten.view.default)
 def _(func, types, args, kwargs):
     x, shape = args
-    return OptimStateFp8(x.codes.view(shape), x.scale)
+    return OptimStateFp8(x.codes.view(shape), x.scale, x.k)
 
 
 # this is needed for DTensor.full_tensor()
@@ -171,6 +172,7 @@ def _(func, types, args, kwargs):
     return OptimStateFp8(
         func(x.codes, *args[1:], **kwargs),
         func(x.scale, *args[1:], **kwargs),
+        func(x.k, *args[1:], **kwargs) if x.k else None
     )
 
 
