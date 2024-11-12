@@ -370,7 +370,7 @@ def main(checkpoint_path,
             random_images = [np.random.randint(0, 256, size=size, dtype=np.uint8) for size in shapes]
 
             if batch_size == 1:
-                [benchmark_fn(image_tensor_to_masks, r, mask_generator, warmup=1, runs=1) for r in random_images]
+                [benchmark_fn(image_tensor_to_masks, r, mask_generator) for r in random_images]
             else:
                 random_images = random_images[:batch_size]
                 benchmark_fn(image_tensors_to_masks, random_images, mask_generator)

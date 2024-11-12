@@ -389,8 +389,10 @@ class SAM2ImagePredictor:
                 "An image must be set with .set_image(...) before mask prediction."
             )
 
-        low_res_masks, iou_predictions = self._predict_masks(point_coords, point_labels, boxes, mask_input, multimask_output, return_logits, img_idx)
-        return self._predict_masks_postprocess(low_res_masks, img_idx, iou_predictions, return_logits)
+        with torch.autograd.profiler.record_function("_predict_masks"):
+            low_res_masks, iou_predictions = self._predict_masks(point_coords, point_labels, boxes, mask_input, multimask_output, return_logits, img_idx)
+        with torch.autograd.profiler.record_function("_predict_masks_postprocess"):
+            return self._predict_masks_postprocess(low_res_masks, img_idx, iou_predictions, return_logits)
 
     def _predict_masks(self, point_coords, point_labels, boxes, mask_input, multimask_output, return_logits, img_idx):
         if point_coords is not None:
