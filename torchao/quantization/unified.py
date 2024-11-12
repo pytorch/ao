@@ -1,6 +1,7 @@
-import torch
-from typing import Any, List
 from abc import ABC, abstractmethod
+from typing import Any
+
+import torch
 
 """
 The vast majority of quantization algorithms follow one of two patterns
