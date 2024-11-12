@@ -36,7 +36,7 @@ from torchao.dtypes import (
     to_affine_quantized_floatx_static,
     to_affine_quantized_intx,
 )
-from torchao.dtypes.uintx.uintx import UintxLayout
+from torchao.dtypes.uintx.uintx_layout import UintxLayout
 from torchao.float8.inference import Float8MMConfig
 from torchao.quantization.linear_activation_weight_observer import (
     LinearActivationWeightObservedTensor,

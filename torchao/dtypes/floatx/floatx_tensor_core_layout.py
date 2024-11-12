@@ -5,24 +5,23 @@ from typing import Optional, Tuple
 import torch
 from torch import Tensor
 from torch.utils._python_dispatch import (
-    return_and_correct_aliasing,
     is_traceable_wrapper_subclass,
+    return_and_correct_aliasing,
+)
+
+from torchao.dtypes.affine_quantized_tensor import (
+    AffineQuantizedTensor,
+    register_layout,
+)
+from torchao.dtypes.utils import (
+    AQTTensorImpl,
+    Layout,
 )
 from torchao.prototype.custom_fp_utils import (
     _f32_to_floatx_unpacked,
     _floatx_unpacked_to_f32,
     _n_ones,
 )
-from torchao.dtypes.utils import (
-    Layout,
-    AQTTensorImpl,
-)
-from torchao.dtypes.affine_quantized_tensor import (
-    AffineQuantizedTensor,
-    register_layout,
-)
-from dataclasses import dataclass
-
 
 aten = torch.ops.aten
 _ONES_TABLE = [_n_ones(i) for i in range(8)]
@@ -449,8 +448,6 @@ _SPLIT_K_MAP = [
 
 
 # quantization api integrations
-
-
 @dataclass(frozen=True)
 class FloatxTensorCoreLayout(Layout):
     """Layout type for FloatxTensorCoreAQTTensorImpl"""
@@ -635,7 +632,6 @@ def _linear_f16_bf16_act_floatx_weight_check(input_tensor, weight_tensor, bias):
 
 
 def _linear_f16_bf16_act_floatx_weight_impl(input_tensor, weight_tensor, bias):
-    from torchao.dtypes.floatx import _SPLIT_K_MAP
     from torchao.ops import quant_llm_linear
 
     act = input_tensor

@@ -1,19 +1,21 @@
+from typing import Optional, Tuple
+
 import torch
-from torchao.dtypes.utils import PlainLayout, AQTTensorImpl, Layout
-from torchao.dtypes.affine_quantized_tensor import (
-    AffineQuantizedTensor,
-    register_layout,
-)
-from torchao.utils import fill_defaults
 from torch.utils._python_dispatch import (
     is_traceable_wrapper_subclass,
     return_and_correct_aliasing,
 )
-from torchao.quantization.quant_primitives import (
-    int_scaled_matmul,
-    ZeroPointDomain,
+
+from torchao.dtypes.affine_quantized_tensor import (
+    AffineQuantizedTensor,
+    register_layout,
 )
-from typing import Optional, Tuple
+from torchao.dtypes.utils import AQTTensorImpl, Layout, PlainLayout
+from torchao.quantization.quant_primitives import (
+    ZeroPointDomain,
+    int_scaled_matmul,
+)
+from torchao.utils import fill_defaults
 
 aten = torch.ops.aten
 

@@ -1,17 +1,19 @@
+from dataclasses import dataclass
+from typing import Optional, Tuple
+
 import torch
-from torchao.utils import find_multiple, TORCH_VERSION_AT_LEAST_2_5, fill_defaults
-from torchao.dtypes.utils import Layout, AQTTensorImpl, is_device
+from torch.utils._python_dispatch import (
+    is_traceable_wrapper_subclass,
+    return_and_correct_aliasing,
+)
+
 from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
     register_layout,
 )
-from dataclasses import dataclass
-from typing import Optional, Tuple
-from torch.utils._python_dispatch import (
-    return_and_correct_aliasing,
-    is_traceable_wrapper_subclass,
-)
+from torchao.dtypes.utils import AQTTensorImpl, Layout, is_device
 from torchao.quantization.quant_primitives import ZeroPointDomain, _get_reduction_params
+from torchao.utils import TORCH_VERSION_AT_LEAST_2_5, fill_defaults, find_multiple
 
 aten = torch.ops.aten
 

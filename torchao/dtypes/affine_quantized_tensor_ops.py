@@ -2,11 +2,12 @@ import logging
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
+
 from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
     dequantize_affine,
 )
-from torchao.dtypes.uintx.plain_layout import PlainAQTTensorImpl
+
 # from torchao.dtypes.affine_quantized_tensor import AffineQuantizedTensor
 from torchao.dtypes.floatx.float8_layout import (
     _linear_fp8_act_fp8_weight_check,
@@ -26,6 +27,13 @@ from torchao.dtypes.uintx.marlin_sparse_layout import (
     _linear_fp_act_int4_weight_sparse_marlin_check,
     _linear_fp_act_int4_weight_sparse_marlin_impl,
 )
+from torchao.dtypes.uintx.plain_layout import (
+    PlainAQTTensorImpl,
+    _linear_fp_act_int8_weight_check,
+    _linear_fp_act_int8_weight_impl,
+    _linear_int8_act_int8_weight_check,
+    _linear_int8_act_int8_weight_impl,
+)
 from torchao.dtypes.uintx.semi_sparse_layout import (
     _linear_int8_act_int8_weight_semi_structured_sparse_check,
     _linear_int8_act_int8_weight_semi_structured_sparse_impl,
@@ -33,12 +41,6 @@ from torchao.dtypes.uintx.semi_sparse_layout import (
 from torchao.dtypes.uintx.tensor_core_tiled_layout import (
     _linear_bf16_act_uint4_weight_check,
     _linear_bf16_act_uint4_weight_impl,
-)
-from torchao.dtypes.uintx.plain_layout import (
-    _linear_int8_act_int8_weight_check,
-    _linear_int8_act_int8_weight_impl,
-    _linear_fp_act_int8_weight_check,
-    _linear_fp_act_int8_weight_impl,
 )
 from torchao.utils import (
     fill_defaults,

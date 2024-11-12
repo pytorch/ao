@@ -1,22 +1,24 @@
+from dataclasses import dataclass
+from typing import Optional, Tuple, Union
+
 import torch
-from torchao.utils import _is_float8_type, fill_defaults
-from torchao.dtypes.utils import Layout, AQTTensorImpl, get_out_shape
+from torch.utils._python_dispatch import (
+    is_traceable_wrapper_subclass,
+    return_and_correct_aliasing,
+)
+
 from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
     register_layout,
 )
-from dataclasses import dataclass
-from typing import Optional, Tuple, Union
+from torchao.dtypes.utils import AQTTensorImpl, Layout, get_out_shape
 from torchao.float8.inference import (
-    preprocess_data,
     Float8MMConfig,
-    addmm_float8_unwrapped_inference,
     _is_rowwise_scaled,
+    addmm_float8_unwrapped_inference,
+    preprocess_data,
 )
-from torch.utils._python_dispatch import (
-    return_and_correct_aliasing,
-    is_traceable_wrapper_subclass,
-)
+from torchao.utils import _is_float8_type, fill_defaults
 
 aten = torch.ops.aten
 

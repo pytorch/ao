@@ -1,5 +1,5 @@
 import torch
-from torchao.dtypes.uint4 import (
+from torchao.dtypes.uintx.uint4_layout import (
     UInt4Tensor,
     PerChannelSymmetricWeightUInt4Tensor,
 )

@@ -3,7 +3,12 @@ import math
 from typing import Optional, Tuple, Union
 
 import torch
-from torchao.dtypes.utils import Layout, PlainLayout
+
+from torchao.dtypes.utils import (
+    AQTTensorImpl,
+    Layout,
+    PlainLayout,
+)
 from torchao.quantization.quant_primitives import (
     FP8_TYPES,
     MappingType,
@@ -19,9 +24,6 @@ from torchao.quantization.quant_primitives import (
 from torchao.utils import (
     TORCH_VERSION_AT_LEAST_2_5,
     TorchAOBaseTensor,
-)
-from torchao.dtypes.utils import (
-    AQTTensorImpl,
 )
 
 logger = logging.getLogger(__name__)

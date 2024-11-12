@@ -1,14 +1,16 @@
 from dataclasses import dataclass
-from torchao.dtypes.utils import Layout, AQTTensorImpl
+
+import torch
+from torch.utils._python_dispatch import (
+    return_and_correct_aliasing,
+)
+
 from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
     register_layout,
 )
-import torch
 from torchao.dtypes.uintx.tensor_core_tiled_layout import _aqt_is_tensor_core_tile_uint4
-from torch.utils._python_dispatch import (
-    return_and_correct_aliasing,
-)
+from torchao.dtypes.utils import AQTTensorImpl, Layout
 from torchao.quantization.quant_primitives import (
     ZeroPointDomain,
 )
@@ -28,8 +30,8 @@ def _linear_fp_act_int4_weight_sparse_marlin_check(input_tensor, weight_tensor, 
 
 
 def _linear_fp_act_int4_weight_sparse_marlin_impl(input_tensor, weight_tensor, bias):
-    from torchao.sparsity.marlin import marlin_24_workspace
     from torchao.ops import marlin_24_gemm
+    from torchao.sparsity.marlin import marlin_24_workspace
 
     assert isinstance(weight_tensor, AffineQuantizedTensor)
 
@@ -216,8 +218,8 @@ class MarlinSparseAQTTensorImpl(AQTTensorImpl):
         _layout: Layout,
     ):
         from torchao.sparsity.marlin import (
-            pack_to_marlin_24,
             const,
+            pack_to_marlin_24,
         )  # avoid circular import
 
         assert isinstance(_layout, MarlinSparseLayout)

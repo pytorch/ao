@@ -15,7 +15,7 @@ from torchao.dtypes.floatx import (
     to_scaled_tc_floatx,
     from_scaled_tc_floatx,
 )
-from torchao.dtypes.floatx.floatx import _pack_tc_floatx, _pack_tc_fp6
+from torchao.dtypes.floatx.floatx_tensor_core_layout import _pack_tc_floatx, _pack_tc_fp6
 from torchao.prototype.custom_fp_utils import _f32_to_floatx_unpacked, _floatx_unpacked_to_f32
 from torchao.quantization import (
     quantize_,

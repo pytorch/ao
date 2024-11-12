@@ -1,16 +1,20 @@
 from dataclasses import dataclass
-from torchao.dtypes.utils import Layout, PlainLayout
+from typing import Optional
+
+import torch
+from torch.utils._python_dispatch import (
+    return_and_correct_aliasing,
+)
+
 from torchao.dtypes.affine_quantized_tensor import (
     AffineQuantizedTensor,
     register_layout,
 )
-import torch
-from typing import Optional
-from torchao.dtypes.uintx.plain_layout import _aqt_is_int8_reduced_range
-from torch.utils._python_dispatch import (
-    return_and_correct_aliasing,
+from torchao.dtypes.uintx.plain_layout import (
+    PlainAQTTensorImpl,
+    _aqt_is_int8_reduced_range,
 )
-from torchao.dtypes.uintx.plain_layout import PlainAQTTensorImpl
+from torchao.dtypes.utils import Layout, PlainLayout
 
 aten = torch.ops.aten
 

@@ -1,7 +1,9 @@
 from dataclasses import dataclass
-from torchao.utils import TorchAOBaseTensor
-import torch
 from typing import Tuple, Union
+
+import torch
+
+from torchao.utils import TorchAOBaseTensor
 
 """
 Base class for different layout, following the same design of PyTorch layout
