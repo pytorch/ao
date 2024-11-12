@@ -451,6 +451,8 @@ class SAM2AutomaticMaskGenerator:
                     rles_nt, rles_nt_counts_init = mask_to_rle_pytorch_2_nt(data["masks"])
                     data["rles_nt"] = rles_nt
                     data["rles_nt_counts_init"] = rles_nt_counts_init
+                    b, h, w = data["masks"].size()
+                    data["rles_sizes"] = [{"size": [h, w]}] * b
                     del data["masks"]
 
                     batch_data = data

@@ -220,17 +220,17 @@ async def lifespan(app: FastAPI):
     task.cancel()
 
 
-def benchmark_fn(func, inp, mask_generator):
+def benchmark_fn(func, inp, mask_generator, warmup=3, runs=10):
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats()
-    logging.info("Running 30 warumup iterations.")
-    for _ in range(3):
+    logging.info("Running {warmup} warmup iterations.")
+    for _ in range(warmup):
         func(inp, mask_generator)
-    logging.info("Running 100 benchmark iterations.")
+    logging.info("Running {runs} benchmark iterations.")
     t = time.time()
-    for _ in range(10):
+    for _ in range(runs):
         func(inp, mask_generator)
-    print(f"Benchmark took {(time.time() - t)/100.0}s per iteration.")
+    print(f"Benchmark took {(time.time() - t)/runs}s per iteration.")
     max_memory_allocated()
 
 
@@ -357,7 +357,7 @@ def main(checkpoint_path,
             random_images = [np.random.randint(0, 256, size=size, dtype=np.uint8) for size in shapes]
 
             if batch_size == 1:
-                [benchmark_fn(image_tensor_to_masks, r, mask_generator) for r in random_images]
+                [benchmark_fn(image_tensor_to_masks, r, mask_generator, warmup=1, runs=1) for r in random_images]
             else:
                 random_images = random_images[:batch_size]
                 benchmark_fn(image_tensors_to_masks, random_images, mask_generator)
