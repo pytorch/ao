@@ -51,8 +51,7 @@ class _AdamBase(Optimizer):
             group.setdefault("amsgrad", False)
 
     # bring your own function to create zero-filled subclass
-    @staticmethod
-    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
+    def _subclass_zeros(self, p: Tensor, signed: bool):
         raise NotImplementedError
 
     # follow bitsandbytes, only quantize tensors >= 4096 values
@@ -62,14 +61,14 @@ class _AdamBase(Optimizer):
             if isinstance(p, DTensor):
                 out = DTensor.from_local(
                     local_tensor=self._subclass_zeros(
-                        p.to_local(), signed, self.block_size
+                        p.to_local(), signed
                     ),
                     device_mesh=p.device_mesh,
                     placements=p.placements,
                     run_check=False,
                 )
             else:
-                out = self._subclass_zeros(p, signed, self.block_size)
+                out = self._subclass_zeros(p, signed)
         else:
             out = torch.zeros_like(p)
         return out
@@ -206,9 +205,8 @@ class Adam8bit(_AdamBase):
             is_adamw=False,
         )
 
-    @staticmethod
-    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
-        return OptimState8bit.zeros(p.shape, signed, block_size, p.device)
+    def _subclass_zeros(self, p: Tensor, signed: bool):
+        return OptimState8bit.zeros(p.shape, signed, self.block_size, p.device)
 
 
 class Adam4bit(_AdamBase):
@@ -236,9 +234,8 @@ class Adam4bit(_AdamBase):
             is_adamw=False,
         )
 
-    @staticmethod
-    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
-        return OptimState4bit.zeros(p.shape, signed, block_size, p.device)
+    def _subclass_zeros(self, p: Tensor, signed: bool):
+        return OptimState8bit.zeros(p.shape, signed, self.block_size, p.device)
 
 
 class AdamFp8(_AdamBase):
@@ -268,26 +265,8 @@ class AdamFp8(_AdamBase):
         )
         self.dynamic_range_expansion = dynamic_range_expansion
 
-    @staticmethod
-    def _subclass_zeros(p: Tensor, signed: bool, block_size: int, dynamic_range_expansion: bool):
-        return OptimStateFp8.zeros(p.shape, block_size, p.device, dynamic_range_expansion)
-
-    def _new_buffer(self, p: Tensor, signed: bool):
-        if p.numel() >= 4096 and p.numel() % self.block_size == 0:
-            if isinstance(p, DTensor):
-                out = DTensor.from_local(
-                    local_tensor=self._subclass_zeros(
-                        p.to_local(), signed, self.block_size, self.dynamic_range_expansion
-                    ),
-                    device_mesh=p.device_mesh,
-                    placements=p.placements,
-                    run_check=False,
-                )
-            else:
-                out = self._subclass_zeros(p, signed, self.block_size, self.dynamic_range_expansion)
-        else:
-            out = torch.zeros_like(p)
-        return out
+    def _subclass_zeros(self, p: Tensor, signed: bool):
+        return OptimStateFp8.zeros(p.shape, self.block_size, p.device, self.dynamic_range_expansion)
 
 class AdamW8bit(_AdamBase):
     def __init__(
@@ -314,9 +293,8 @@ class AdamW8bit(_AdamBase):
             is_adamw=True,
         )
 
-    @staticmethod
-    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
-        return OptimState8bit.zeros(p.shape, signed, block_size, p.device)
+    def _subclass_zeros(self, p: Tensor, signed: bool):
+        return OptimState8bit.zeros(p.shape, signed, self.block_size, p.device)
 
 
 class AdamW4bit(_AdamBase):
@@ -344,9 +322,8 @@ class AdamW4bit(_AdamBase):
             is_adamw=True,
         )
 
-    @staticmethod
-    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
-        return OptimState4bit.zeros(p.shape, signed, block_size, p.device)
+    def _subclass_zeros(self, p: Tensor, signed: bool):
+        return OptimState4bit.zeros(p.shape, signed, self.block_size, p.device)
 
 
 class AdamWFp8(_AdamBase):
@@ -374,9 +351,8 @@ class AdamWFp8(_AdamBase):
             is_adamw=True,
         )
 
-    @staticmethod
-    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
-        return OptimStateFp8.zeros(p.shape, block_size, p.device)
+    def _subclass_zeros(self, p: Tensor, signed: bool):
+        return OptimStateFp8.zeros(p.shape, self.block_size, p.device)
 
 
 class _AdamW(_AdamBase):
