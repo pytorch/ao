@@ -50,7 +50,10 @@ inline __device__ bf16x2x4 convert_i4x8_to_bf16x2x4(uint32_t source) {
   // We don't have enough mantissa to remove as much shift overhead as FP16, so
   // we must loop. No shift needed for first item.
   uint32_t i4s = source_i4s;
-
+// AMD MI300X ISA that performs two bitwise operations in a single instruction:
+// v_and_or_b32 performs H[0] = (i4s & MASK) | I4s_TO_BF16s_MAGIC_NUM
+//   - First ANDs `i4s` with `MASK` (0x000f000f) to extract 4-bit values
+//   - Then ORs the result with `I4s_TO_BF16s_MAGIC_NUM` (0x43004300) to convert them to bfloat16
 #if defined(USE_ROCM)
   asm volatile("v_and_or_b32 %0, %1, %2, %3"
                : "=v"(h[0])
