@@ -511,9 +511,11 @@ class SAM2AutomaticMaskGenerator:
                 return_logits=True,
             )
 
-        return self._process_batch_fullgraph_masks(masks, iou_preds, low_res_masks, points, normalize, im_size, crop_box, crop_box_torch, orig_box_torch)
+        x0, y0, _, _ = crop_box
+        is_box_near_crop_edge_torch_offset = torch.tensor([[x0, y0, x0, y0]]).pin_memory().to(device=in_points.device, non_blocking=True)
+        return self._process_batch_fullgraph_masks(masks, iou_preds, low_res_masks, points, normalize, im_size, crop_box, crop_box_torch, orig_box_torch, is_box_near_crop_edge_torch_offset)
 
-    def _process_batch_fullgraph_masks(self, masks, iou_preds, low_res_masks, points, normalize, im_size, crop_box, crop_box_torch, orig_box_torch):
+    def _process_batch_fullgraph_masks(self, masks, iou_preds, low_res_masks, points, normalize, im_size, crop_box, crop_box_torch, orig_box_torch, is_box_near_crop_edge_torch_offset):
         # Serialize predictions and store in MaskData
         with torch.autograd.profiler.record_function("MaskData"):
             data = MaskData(
@@ -580,7 +582,7 @@ class SAM2AutomaticMaskGenerator:
         with torch.autograd.profiler.record_function("is_box_near_crop_edge"):
             # Filter boxes that touch crop boundaries
             keep_mask_crop = ~is_box_near_crop_edge_torch(
-                data["boxes"], crop_box, crop_box_torch, orig_box_torch,
+                data["boxes"], crop_box, crop_box_torch, orig_box_torch, is_box_near_crop_edge_torch_offset,
             )
             if keep_mask is None:
                 keep_mask = keep_mask_crop
@@ -609,7 +611,8 @@ class SAM2AutomaticMaskGenerator:
         with torch.autograd.profiler.record_function("_process_batch: _process_batch_fullgraph"):
             data, keep_mask = self._process_batch_fullgraph(points, im_size, crop_box, crop_box_torch, orig_size, normalize, orig_box_torch)
         with torch.autograd.profiler.record_function("_process_batch: filter"):
-            data.filter(keep_mask)
+            keep_index = keep_mask.nonzero(as_tuple=True)[0]
+            data.filter_by_index(keep_index)
 
         with torch.autograd.profiler.record_function("uncrop_masks"):
             # Compress to RLE

@@ -74,6 +74,26 @@ class MaskData:
             else:
                 raise TypeError(f"MaskData key {k} has an unsupported type {type(v)}.")
 
+    def filter_by_index(self, keep: torch.Tensor) -> None:
+        keep_list = keep.tolist()
+        for k, v in self._stats.items():
+            if v is None:
+                self._stats[k] = None
+            elif isinstance(v, torch.Tensor):
+                # self._stats[k] = v[torch.as_tensor(keep, device=v.device)]
+                if v.is_nested:
+                    self._stats[k] = nt_index_select_dim_0(v, keep)
+                else:
+                    self._stats[k] = v[keep]
+            elif isinstance(v, np.ndarray):
+                self._stats[k] = v[keep.detach().cpu().numpy()]
+            elif isinstance(v, list) and keep.dtype == torch.bool:
+                self._stats[k] = [a for i, a in enumerate(v) if keep_list[i]]
+            elif isinstance(v, list):
+                self._stats[k] = [v[i] for i in keep]
+            else:
+                raise TypeError(f"MaskData key {k} has an unsupported type {type(v)}.")
+
     def cat(self, new_stats: "MaskData") -> None:
         for k, v in new_stats.items():
             if k not in self._stats or self._stats[k] is None:
@@ -98,10 +118,11 @@ def is_box_near_crop_edge_torch(
     crop_box: List[int],
     crop_box_torch: torch.Tensor,
     orig_box_torch: torch.Tensor,
+    is_box_near_crop_edge_torch_offset: torch.Tensor,
     atol: float = 20.0,
 ) -> torch.Tensor:
     """Filter masks at the edge of a crop, but not at the edge of the original image."""
-    boxes = uncrop_boxes_xyxy(boxes, crop_box).float()
+    boxes = uncrop_boxes_xyxy_torch(boxes, crop_box, is_box_near_crop_edge_torch_offset).float()
     near_crop_edge = torch.isclose(boxes, crop_box_torch[None, :], atol=atol, rtol=0)
     near_image_edge = torch.isclose(boxes, orig_box_torch[None, :], atol=atol, rtol=0)
     near_crop_edge = torch.logical_and(near_crop_edge, ~near_image_edge)
@@ -354,6 +375,15 @@ def generate_crop_boxes(
 def uncrop_boxes_xyxy(boxes: torch.Tensor, crop_box: List[int]) -> torch.Tensor:
     x0, y0, _, _ = crop_box
     offset = torch.tensor([[x0, y0, x0, y0]], device=boxes.device)
+    # Check if boxes has a channel dimension
+    if len(boxes.shape) == 3:
+        offset = offset.unsqueeze(1)
+    return boxes + offset
+
+def uncrop_boxes_xyxy_torch(boxes: torch.Tensor, crop_box: List[int], offset) -> torch.Tensor:
+    x0, y0, _, _ = crop_box
+    # Had to move construction of offset with pin_memory outside this function because of compile
+    # offset = torch.tensor([[x0, y0, x0, y0]]).pin_memory().to(device=boxes.device, non_blocking=True)
     # Check if boxes has a channel dimension
     if len(boxes.shape) == 3:
         offset = offset.unsqueeze(1)
