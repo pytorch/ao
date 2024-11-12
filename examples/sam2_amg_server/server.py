@@ -306,27 +306,27 @@ def main(checkpoint_path,
 
         mask_generator.predictor.model.sam_prompt_encoder = torch.compile(
             mask_generator.predictor.model.sam_prompt_encoder,
-            mode="max-autotune-no-cudagraphs",
-            fullgraph=True,
-            dynamic=False,
-        )
-
-        mask_generator.predictor.model.sam_prompt_encoder.get_dense_pe = torch.compile(
-            mask_generator.predictor.model.sam_prompt_encoder.get_dense_pe,
             mode="max-autotune",
             fullgraph=True,
             dynamic=False,
         )
 
-        mask_generator.predictor.model.sam_mask_decoder = torch.compile(
-            mask_generator.predictor.model.sam_mask_decoder,
-            mode="max-autotune-no-cudagraphs",
-            fullgraph=True,
-            dynamic=False,
-        )
+        # mask_generator.predictor.model.sam_prompt_encoder.get_dense_pe = torch.compile(
+        #     mask_generator.predictor.model.sam_prompt_encoder.get_dense_pe,
+        #     mode="max-autotune",
+        #     fullgraph=True,
+        #     dynamic=False,
+        # )
+
+        # mask_generator.predictor.model.sam_mask_decoder = torch.compile(
+        #     mask_generator.predictor.model.sam_mask_decoder,
+        #     mode="max-autotune-no-cudagraphs",
+        #     fullgraph=True,
+        #     dynamic=False,
+        # )
 
         mask_generator.predictor._transforms.postprocess_masks = torch.compile(
-            mask_generator._process_batch_fullgraph_masks,
+            mask_generator.predictor._transforms.postprocess_masks,
             fullgraph=True,
             dynamic=True,
         )
