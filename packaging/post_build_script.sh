@@ -13,7 +13,6 @@ if [[ "$CU_VERSION" == cu* ]]; then
     WHEEL_NAME=$(ls dist/)
 
     pushd dist
-
     manylinux_plat=manylinux2014_x86_64
     auditwheel repair --plat "$manylinux_plat" -w . \
     --exclude libtorch.so \
@@ -24,7 +23,7 @@ if [[ "$CU_VERSION" == cu* ]]; then
     --exclude libc10_cuda.so \
     --exclude libcudart.so.12 \
     --exclude libcudart.so.11.0 \
-    "${WHEEL_NAME}" 
+    "${WHEEL_NAME}"
 
     ls -lah .
     # Clean up the linux_x86_64 wheel
@@ -33,7 +32,6 @@ if [[ "$CU_VERSION" == cu* ]]; then
 fi
 
 MANYWHEEL_NAME=$(ls dist/)
-
 # Try to install the new wheel
 pip install "dist/${MANYWHEEL_NAME}"
 python -c "import torchao"
