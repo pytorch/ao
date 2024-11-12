@@ -49,7 +49,6 @@ def get_scale(X_absmax, W_absmax, alpha=0.5):
 
 
 class SmoothFakeDynQuantMixin(torch.nn.Module):
-
     def init_smoothquant_variables(self, alpha):
         self.calibrating = True
         self.x_running_abs_max = None
@@ -98,7 +97,6 @@ class SmoothFakeDynQuantMixin(torch.nn.Module):
         # fake quantize input and weight, and then do matmul in fp32/fp16
         # in the future, this should be replaced with quantized kernels which
         # work on NVIDIA GPUs (such as protoquant's implementation)
-        W_dq_dtype = W.dtype
         W_int_repr, W_scales, W_zps = dynamically_quantize_per_channel(
             W, -128, 127, torch.int8
         )

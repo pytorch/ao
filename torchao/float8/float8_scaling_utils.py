@@ -13,19 +13,15 @@ from typing import Optional
 import torch
 
 from torchao.float8.config import ScalingGranularity
-
 from torchao.float8.float8_tensor import (
     Float8Tensor,
     GemmInputRole,
-    hp_tensor_and_scale_to_float8,
     LinearMMConfig,
-    ScaledMMConfig,
+    hp_tensor_and_scale_to_float8,
     tensor_already_casted_to_fp8,
 )
-
 from torchao.float8.float8_utils import (
     amax_history_to_scale,
-    e4m3_dtype,
     e5m2_dtype,
     tensor_to_amax,
     tensor_to_scale,
@@ -38,7 +34,7 @@ def hp_tensor_to_float8_dynamic(
     linear_mm_config: LinearMMConfig,
     reduce_amax: bool = False,
     gemm_input_role: GemmInputRole = GemmInputRole.INPUT,
-    device_mesh = None,
+    device_mesh=None,
     scaling_granularity: ScalingGranularity = ScalingGranularity.TENSORWISE,
     axiswise_dim: Optional[int] = None,
 ) -> Float8Tensor:
@@ -60,11 +56,11 @@ def hp_tensor_to_float8_dynamic(
     if tensor_already_casted_to_fp8(hp_tensor):
         return hp_tensor
     scale = tensor_to_scale(
-        hp_tensor, 
-        float8_dtype, 
-        reduce_amax, 
+        hp_tensor,
+        float8_dtype,
+        reduce_amax,
         device_mesh,
-        scaling_granularity, 
+        scaling_granularity,
         axiswise_dim,
     )
     return hp_tensor_and_scale_to_float8(
@@ -300,7 +296,7 @@ class NoopFwToFloat8E5M2BwStatic(torch.autograd.Function):
     def backward(ctx, gradY):
         if tensor_already_casted_to_fp8(gradY):
             return gradY, None
-        gradY_scale, = ctx.saved_tensors
+        (gradY_scale,) = ctx.saved_tensors
         fp8_tensor = hp_tensor_and_scale_to_float8(
             gradY,
             gradY_scale,

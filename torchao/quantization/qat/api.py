@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import Any, List, Optional, Union
 
 import torch
@@ -16,7 +15,6 @@ from torchao.quantization.granularity import (
     PerGroup,
     PerToken,
 )
-from torchao.quantization.unified import TwoStepQuantizer
 from torchao.quantization.quant_primitives import (
     _SUB_BYTE_INT_BOUNDS,
     _SUB_BYTE_UINT_BOUNDS,
@@ -24,6 +22,7 @@ from torchao.quantization.quant_primitives import (
     TorchAODType,
     ZeroPointDomain,
 )
+from torchao.quantization.unified import TwoStepQuantizer
 
 
 @dataclass
@@ -73,6 +72,7 @@ class FakeQuantizeConfig:
         FakeQuantizeConfig(torch.int4, "per_group", group_size=32, is_symmetric=True)
         FakeQuantizeConfig(torch.int4, PerGroup(32), MappingType.SYMMETRIC)
     """
+
     dtype: Union[torch.dtype, TorchAODType]
     granularity: Granularity
     mapping_type: MappingType
@@ -110,7 +110,9 @@ class FakeQuantizeConfig:
         all_dtypes.extend(list(_SUB_BYTE_INT_BOUNDS.keys()))
         all_dtypes.extend(list(_SUB_BYTE_UINT_BOUNDS.keys()))
         if dtype not in all_dtypes:
-            raise ValueError("Unsupported dtype '%s', choose from %s" % (dtype, all_dtypes))
+            raise ValueError(
+                "Unsupported dtype '%s', choose from %s" % (dtype, all_dtypes)
+            )
 
     def _get_granularity(
         self,
@@ -126,8 +128,14 @@ class FakeQuantizeConfig:
             3) None: `group_size` must be set instead, represents per group granularity
         """
         # If group_size is set, then granularity must be either "per_group" or None
-        if group_size is not None and granularity != "per_group" and granularity is not None:
-            raise ValueError("`group_size` conflicts with granularity '%s'" % granularity)
+        if (
+            group_size is not None
+            and granularity != "per_group"
+            and granularity is not None
+        ):
+            raise ValueError(
+                "`group_size` conflicts with granularity '%s'" % granularity
+            )
 
         # Case 1: Granularity object
         if isinstance(granularity, Granularity):
@@ -144,21 +152,26 @@ class FakeQuantizeConfig:
             return PerAxis(axis=0)
         elif granularity == "per_group":
             if group_size is None:
-                raise ValueError("Granularity was 'per_group' but no `group_size` was set")
+                raise ValueError(
+                    "Granularity was 'per_group' but no `group_size` was set"
+                )
             return PerGroup(group_size)
         elif isinstance(granularity, str):
             raise ValueError(
-                "Unexpected granularity: '%s', must be one of %s" %
-               (granularity, ["per_token", "per_channel", "per_group"])
+                "Unexpected granularity: '%s', must be one of %s"
+                % (granularity, ["per_token", "per_channel", "per_group"])
             )
 
         # Case 3: None granularity + group_size was specified
         if granularity is not None:
             raise ValueError(
-                "Granularity '%s' has unexpected type %s" % (granularity, type(granularity))
+                "Granularity '%s' has unexpected type %s"
+                % (granularity, type(granularity))
             )
         if group_size is None:
-            raise ValueError("At least one of `granularity` or `group_size` must be set")
+            raise ValueError(
+                "At least one of `granularity` or `group_size` must be set"
+            )
         return PerGroup(group_size)
 
     def _get_mapping_type(
@@ -202,7 +215,9 @@ class FakeQuantizeConfig:
         if isinstance(self.granularity, PerGroup):
             return self.granularity.group_size
         else:
-            raise ValueError("`group_size` is undefined for %s granularity" % self.granularity)
+            raise ValueError(
+                "`group_size` is undefined for %s granularity" % self.granularity
+            )
 
     @property
     def is_symmetric(self) -> bool:

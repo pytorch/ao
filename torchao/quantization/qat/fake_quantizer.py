@@ -4,7 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 
@@ -21,6 +21,7 @@ from torchao.quantization.utils import (
     get_group_qparams_symmetric,
     get_groupwise_affine_qparams,
 )
+
 from .api import (
     FakeQuantizeConfig,
 )
@@ -28,7 +29,6 @@ from .utils import (
     _choose_qparams_per_token_asymmetric,
     _fake_quantize_per_channel_group,
     _fake_quantize_per_token,
-    _get_qmin_qmax,
 )
 
 
@@ -36,6 +36,7 @@ class FakeQuantizer(torch.nn.Module):
     """
     Generic module for applying fake quantization to a tensor, as specified in the config.
     """
+
     def __init__(self, config: FakeQuantizeConfig):
         super().__init__()
         self.config = config
@@ -70,7 +71,9 @@ class FakeQuantizer(torch.nn.Module):
             raise NotImplementedError("Symmetric per token is not supported yet")
         if self._should_compute_qparams():
             (self.scale, self.zero_point) = _choose_qparams_per_token_asymmetric(
-                x, self.config.scale_precision, self.config.zero_point_precision,
+                x,
+                self.config.scale_precision,
+                self.config.zero_point_precision,
             )
         qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype]
         return _fake_quantize_per_token(x, self.scale, self.zero_point, qmin, qmax)
@@ -90,7 +93,7 @@ class FakeQuantizer(torch.nn.Module):
         # get group size
         if isinstance(granularity, PerAxis):
             assert granularity.axis == 0
-            group_size =  x.size()[-1]
+            group_size = x.size()[-1]
         elif isinstance(granularity, PerGroup):
             group_size = granularity.group_size
         else:
@@ -101,17 +104,29 @@ class FakeQuantizer(torch.nn.Module):
             bit_width = _DTYPE_TO_BIT_WIDTH[self.config.dtype]
             if is_symmetric:
                 (self.scale, self.zero_point) = get_group_qparams_symmetric(
-                    x, bit_width, group_size, scale_precision,
+                    x,
+                    bit_width,
+                    group_size,
+                    scale_precision,
                 )
             else:
                 (self.scale, self.zero_point) = get_groupwise_affine_qparams(
-                    x, bit_width, group_size, scale_precision,
+                    x,
+                    bit_width,
+                    group_size,
+                    scale_precision,
                 )
             self.zero_point = self.zero_point.to(zero_point_precision)
 
         qmin, qmax = _DTYPE_TO_QVALUE_BOUNDS[self.config.dtype]
         return _fake_quantize_per_channel_group(
-            x, self.scale, self.zero_point, qmin, qmax, group_size, zero_point_domain,
+            x,
+            self.scale,
+            self.zero_point,
+            qmin,
+            qmax,
+            group_size,
+            zero_point_domain,
         )
 
     def _should_compute_qparams(self) -> bool:
