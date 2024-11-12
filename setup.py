@@ -137,4 +137,7 @@ setup(
     long_description_content_type="text/markdown",
     url="https://github.com/pytorch-labs/ao",
     cmdclass={"build_ext": BuildExtension},
+    options={"bdist_wheel": {
+        "py_limited_api": "cp38"
+    }},
 )
