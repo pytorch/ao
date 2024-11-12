@@ -253,6 +253,7 @@ class AdamFp8(_AdamBase):
         *,
         block_size=256,
         bf16_stochastic_round=False,
+        dynamic_range_expansion=False,
     ) -> None:
         super().__init__(
             params,
@@ -265,11 +266,28 @@ class AdamFp8(_AdamBase):
             bf16_stochastic_round=bf16_stochastic_round,
             is_adamw=False,
         )
+        self.dynamic_range_expansion = dynamic_range_expansion
 
     @staticmethod
-    def _subclass_zeros(p: Tensor, signed: bool, block_size: int):
-        return OptimStateFp8.zeros(p.shape, block_size, p.device)
+    def _subclass_zeros(p: Tensor, signed: bool, block_size: int, dynamic_range_expansion: bool):
+        return OptimStateFp8.zeros(p.shape, block_size, p.device, dynamic_range_expansion)
 
+    def _new_buffer(self, p: Tensor, signed: bool):
+        if p.numel() >= 4096 and p.numel() % self.block_size == 0:
+            if isinstance(p, DTensor):
+                out = DTensor.from_local(
+                    local_tensor=self._subclass_zeros(
+                        p.to_local(), signed, self.block_size, self.dynamic_range_expansion
+                    ),
+                    device_mesh=p.device_mesh,
+                    placements=p.placements,
+                    run_check=False,
+                )
+            else:
+                out = self._subclass_zeros(p, signed, self.block_size, self.dynamic_range_expansion)
+        else:
+            out = torch.zeros_like(p)
+        return out
 
 class AdamW8bit(_AdamBase):
     def __init__(
