@@ -309,9 +309,12 @@ class SAM2AutomaticMaskGenerator:
 
     def _process_crop_points(self, cropped_im_size, crop_layer_idx, crop_box, orig_size):
 
-        # Get points for this crop
-        points_scale = np.array(cropped_im_size)[None, ::-1]
-        points_for_image = self.point_grids[crop_layer_idx] * points_scale
+        with torch.autograd.profiler.record_function("_process_crop_points: np.array"):
+            # Get points for this crop
+            points_scale = np.array(cropped_im_size)[None, ::-1]
+
+        with torch.autograd.profiler.record_function("_process_crop_points: points_scale"):
+            points_for_image = self.point_grids[crop_layer_idx] * points_scale
 
         # Generate masks for this crop in batches
         # data = MaskData()
@@ -492,9 +495,8 @@ class SAM2AutomaticMaskGenerator:
         orig_h, orig_w = orig_size
 
         # Run model on this batch
-        points = torch.as_tensor(
-            points, dtype=torch.float32, device=self.predictor.device
-        )
+        points = torch.as_tensor(points, dtype=torch.float32).pin_memory()
+        points = points.to(device=self.predictor.device, non_blocking=True)
         in_points = self.predictor._transforms.transform_coords(
             points, normalize=normalize, orig_hw=im_size
         )
@@ -602,10 +604,12 @@ class SAM2AutomaticMaskGenerator:
         orig_h, orig_w = orig_size
 
         orig_box = [0, 0, orig_w, orig_h]
-        orig_box_torch = torch.as_tensor(orig_box, dtype=torch.float, device=self.predictor.device)
-        crop_box_torch = torch.as_tensor(crop_box, dtype=torch.float, device=self.predictor.device)
-        data, keep_mask = self._process_batch_fullgraph(points, im_size, crop_box, crop_box_torch, orig_size, normalize, orig_box_torch)
-        data.filter(keep_mask)
+        orig_box_torch = torch.as_tensor(orig_box, dtype=torch.float).pin_memory().to(device=self.predictor.device, non_blocking=True)
+        crop_box_torch = torch.as_tensor(crop_box, dtype=torch.float).pin_memory().to(device=self.predictor.device, non_blocking=True)
+        with torch.autograd.profiler.record_function("_process_batch: _process_batch_fullgraph"):
+            data, keep_mask = self._process_batch_fullgraph(points, im_size, crop_box, crop_box_torch, orig_size, normalize, orig_box_torch)
+        with torch.autograd.profiler.record_function("_process_batch: filter"):
+            data.filter(keep_mask)
 
         with torch.autograd.profiler.record_function("uncrop_masks"):
             # Compress to RLE
