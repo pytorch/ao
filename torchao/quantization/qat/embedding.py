@@ -9,16 +9,16 @@ from typing import Any, Optional
 import torch
 import torch.nn.functional as F
 
-from torchao.quantization.unified import TwoStepQuantizer
-from torchao.quantization.utils import get_group_qparams_symmetric
 from torchao.quantization.quant_api import (
     _replace_with_custom_fn_if_matches_filter,
 )
 from torchao.quantization.quant_primitives import TorchAODType
+from torchao.quantization.unified import TwoStepQuantizer
+from torchao.quantization.utils import get_group_qparams_symmetric
+
 from .api import FakeQuantizeConfig
 from .fake_quantizer import FakeQuantizer
 from .utils import (
-    _fake_quantize_per_channel_group,
     _get_qmin_qmax,
 )
 
@@ -76,14 +76,20 @@ class FakeQuantizedEmbedding(torch.nn.Embedding):
         else:
             w = self.weight
         return F.embedding(
-            x, w, self.padding_idx, self.max_norm,
-            self.norm_type, self.scale_grad_by_freq, self.sparse,
+            x,
+            w,
+            self.padding_idx,
+            self.max_norm,
+            self.norm_type,
+            self.scale_grad_by_freq,
+            self.sparse,
         )
 
 
 # ======================================
 # |   Embedding int4 weight-only QAT   |
 # ======================================
+
 
 class Int4WeightOnlyEmbeddingQATQuantizer(TwoStepQuantizer):
     """
@@ -104,15 +110,13 @@ class Int4WeightOnlyEmbeddingQATQuantizer(TwoStepQuantizer):
         self.zero_point_precision: torch.dtype = zero_point_precision
 
     def prepare(
-        self,
-        model: torch.nn.Module,
-        *args: Any,
-        **kwargs: Any
+        self, model: torch.nn.Module, *args: Any, **kwargs: Any
     ) -> torch.nn.Module:
         """
         Swap `nn.Embedding` modules with `Int4WeightOnlyQATEmbedding`.
         """
-        def filter_fn(child: torch.nn.Module, cur_fqn:str) -> bool:
+
+        def filter_fn(child: torch.nn.Module, cur_fqn: str) -> bool:
             return isinstance(child, torch.nn.Embedding)
 
         def replacement_fn(child: torch.nn.Module) -> torch.nn.Module:
@@ -142,10 +146,7 @@ class Int4WeightOnlyEmbeddingQATQuantizer(TwoStepQuantizer):
         return model
 
     def convert(
-        self,
-        model: torch.nn.Module,
-        *args: Any,
-        **kwargs: Any
+        self, model: torch.nn.Module, *args: Any, **kwargs: Any
     ) -> torch.nn.Module:
         """
         Swap all `Int4WeightOnlyQATEmbedding` modules with `Int4WeightOnlyEmbedding`.
@@ -158,12 +159,17 @@ class Int4WeightOnlyEmbeddingQATQuantizer(TwoStepQuantizer):
         Helper function to recursively swap `Int4WeightOnlyQATEmbedding`
         modules with `Int4WeightOnlyEmbedding`
         """
-        from torchao._executorch_ops import _quantized_decomposed_quantize_per_channel_group_wrapper
+        from torchao._executorch_ops import (
+            _quantized_decomposed_quantize_per_channel_group_wrapper,
+        )
+
         for name, child in module.named_children():
             if isinstance(child, Int4WeightOnlyQATEmbedding):
                 group_size = child.weight_fake_quantizer.config.group_size
                 scale_precision = child.weight_fake_quantizer.config.scale_precision
-                zero_point_precision = child.weight_fake_quantizer.config.zero_point_precision
+                zero_point_precision = (
+                    child.weight_fake_quantizer.config.zero_point_precision
+                )
                 quantized_embedding = Int4WeightOnlyEmbedding(
                     # nn.Embedding args
                     num_embeddings=child.num_embeddings,
@@ -183,9 +189,17 @@ class Int4WeightOnlyEmbeddingQATQuantizer(TwoStepQuantizer):
 
                 # Load weights and qparams into quantized embedding
                 (qmin, qmax) = _get_qmin_qmax(self.bit_width)
-                (s, zp) = get_group_qparams_symmetric(child.weight, self.bit_width, group_size)
+                (s, zp) = get_group_qparams_symmetric(
+                    child.weight, self.bit_width, group_size
+                )
                 q_weight = _quantized_decomposed_quantize_per_channel_group_wrapper(
-                    child.weight, s, zp, qmin, qmax, torch.int8, group_size,
+                    child.weight,
+                    s,
+                    zp,
+                    qmin,
+                    qmax,
+                    torch.int8,
+                    group_size,
                 )
                 quantized_embedding.weight = q_weight
                 quantized_embedding.scales = s
@@ -206,7 +220,7 @@ class Int4WeightOnlyQATEmbedding(FakeQuantizedEmbedding):
     """
 
     def __init__(
-        self, 
+        self,
         num_embeddings: int,
         embedding_dim: int,
         padding_idx: Optional[int] = None,
@@ -214,10 +228,10 @@ class Int4WeightOnlyQATEmbedding(FakeQuantizedEmbedding):
         norm_type: float = 2.0,
         scale_grad_by_freq: bool = False,
         sparse: bool = False,
-        group_size: int = 32, 
+        group_size: int = 32,
         scale_precision: torch.dtype = torch.float32,
         zero_point_precision: torch.dtype = torch.int32,
-        *args, 
+        *args,
         **kwargs,
     ):
         weight_config = FakeQuantizeConfig(
@@ -253,6 +267,7 @@ class Int4WeightOnlyEmbedding(torch.nn.Module):
     This module implements a embedding layer with int4 quantized
     grouped per channel weights.
     """
+
     def __init__(
         self,
         num_embeddings: int,
@@ -287,7 +302,9 @@ class Int4WeightOnlyEmbedding(torch.nn.Module):
         # currently storing unpacked int8 weights
         self.register_buffer(
             "weight",
-            torch.empty((num_embeddings, embedding_dim), dtype=torch.int8, device=device),
+            torch.empty(
+                (num_embeddings, embedding_dim), dtype=torch.int8, device=device
+            ),
         )
         self.register_buffer(
             "scale",
@@ -307,7 +324,10 @@ class Int4WeightOnlyEmbedding(torch.nn.Module):
         )
 
     def forward(self, x):
-        from torchao._executorch_ops import _quantized_decomposed_dequantize_per_channel_group_wrapper
+        from torchao._executorch_ops import (
+            _quantized_decomposed_dequantize_per_channel_group_wrapper,
+        )
+
         qmin, qmax = _get_qmin_qmax(self.bit_width)
         w_dq = _quantized_decomposed_dequantize_per_channel_group_wrapper(
             self.weight,
@@ -320,6 +340,11 @@ class Int4WeightOnlyEmbedding(torch.nn.Module):
             x.dtype,
         )
         return F.embedding(
-            x, w_dq, self.padding_idx, self.max_norm,
-            self.norm_type, self.scale_grad_by_freq, self.sparse,
+            x,
+            w_dq,
+            self.padding_idx,
+            self.max_norm,
+            self.norm_type,
+            self.scale_grad_by_freq,
+            self.sparse,
         )
