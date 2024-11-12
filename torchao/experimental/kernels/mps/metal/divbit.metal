@@ -6,7 +6,8 @@ using namespace metal;
  *
  * @param[A] M x K unquantized input tensor of floating point dtype (Float, Half, BFloat16)
  * @param[B] Packed & quantized weight tensor of uint8 dtype. Expected shape is N x (nbit * K / 8)
- * @param[scalesAndZeros] 3D tensor containg the scales and zero point for each group. Expected shape is #groups x N x 2
+ * @param[scales] 2D tensor containg the scales for each group. Expected shape is #groups x N
+ * @param[zeros] 2D tensor containg the zero points for each group. Expected shape is #groups x N
  * @param[outputData] M x N output tensor of floating point dtype (same as input)
  * @param[sizes] The sizes involved in the order: M, K, N
  *
@@ -16,9 +17,10 @@ template<typename T, unsigned nbit, unsigned groupSize>
 kernel void divbit_mm(
     constant T                 * A              [[buffer(0)]],
     constant uchar             * B              [[buffer(1)]],
-    constant T                 * scalesAndZeros [[buffer(2)]],
-    device   T                 * outputData     [[buffer(3)]],
-    constant uint3             & sizes          [[buffer(4)]], // M, K, N
+    constant T                 * scales         [[buffer(2)]],
+    constant T                 * zeros          [[buffer(3)]],
+    device   T                 * outputData     [[buffer(4)]],
+    constant uint3             & sizes          [[buffer(5)]], // M, K, N
     uint2                        thread_index   [[thread_position_in_grid]]) {
     const uint K = sizes.y;
     const uint N = sizes.z;
@@ -35,29 +37,30 @@ kernel void divbit_mm(
     float rc = 0.0;
     uint k = 0;
     for (uint32_t kb = 0; kb < k_block ; kb ++) {
-      const T scale = scalesAndZeros[(kb * N + n) * 2 + 0];
-      const T zero = scalesAndZeros[(kb * N + n) * 2 + 1] - scale * T(zero_shift);
+      const float scale = float(scales[kb * N + n]);
+      const float zero = float(zeros[kb * N + n]);
       for(uint idx = 0; idx < groupSize && k < K; idx++, k++) {
         const auto a_val = float(A_ptr[k]);
         uint8_t b_val = B_ptr[(n * K + k) / values_per_byte];
         uint8_t shift = nbit * (k % values_per_byte);
         uint8_t mask = minimask << shift;
         b_val = (b_val & mask) >> shift;
-        rc += a_val * float(scale * T(b_val) + zero);
+        rc += a_val * (scale * float(b_val) + zero);
       }
     }
     outputData[m * N + n] = T(rc);
 }
 
-#define INSTANTIATE_DIVBIT_MM(NBIT, DTYPE, GSIZE)                           \
+#define INSTANTIATE_DIVBIT_MM(NBIT, DTYPE, GSIZE)                        \
 template                                                                 \
 [[host_name("int" #NBIT "pack_mm_" #GSIZE "_" #DTYPE)]]                  \
 kernel void divbit_mm<DTYPE, NBIT, GSIZE>(                               \
     constant DTYPE             * A              [[buffer(0)]],           \
     constant uchar             * B              [[buffer(1)]],           \
-    constant DTYPE             * scalesAndZeros [[buffer(2)]],           \
-    device   DTYPE             * outputData     [[buffer(3)]],           \
-    constant uint3             & sizes          [[buffer(4)]],           \
+    constant DTYPE             * scales         [[buffer(2)]],           \
+    constant DTYPE             * zeros          [[buffer(3)]],           \
+    device   DTYPE             * outputData     [[buffer(4)]],           \
+    constant uint3             & sizes          [[buffer(5)]],           \
     uint2                        thread_index [[thread_position_in_grid]])
 
 INSTANTIATE_DIVBIT_MM(1, float, 32);
