@@ -297,22 +297,42 @@ def main(checkpoint_path,
     if fast:
         assert not baseline, "--fast cannot be combined with baseline. code to be torch.compile(fullgraph=True) compatible."
         # TODO: Using CUDA graphs can cause numerical differences?
-        mask_generator.predictor.model.forward_image = torch.compile(
-            mask_generator.predictor.model.forward_image,
-            # mode="max-autotune-no-cudagraphs",
+        mask_generator.predictor.model.image_encoder = torch.compile(
+            mask_generator.predictor.model.image_encoder,
             mode="max-autotune",
             fullgraph=True,
             dynamic=False,
         )
 
-        # mask_generator.predictor.model.sam_mask_decoder = torch.compile(
-        #     mask_generator.predictor.model.sam_mask_decoder,
-        #     fullgraph=True,
-        #     dynamic=True,
-        # )
+        mask_generator.predictor.model.sam_prompt_encoder = torch.compile(
+            mask_generator.predictor.model.sam_prompt_encoder,
+            mode="max-autotune-no-cudagraphs",
+            fullgraph=True,
+            dynamic=False,
+        )
 
-        mask_generator._process_batch_fullgraph = torch.compile(
-            mask_generator._process_batch_fullgraph,
+        mask_generator.predictor.model.sam_prompt_encoder.get_dense_pe = torch.compile(
+            mask_generator.predictor.model.sam_prompt_encoder.get_dense_pe,
+            mode="max-autotune",
+            fullgraph=True,
+            dynamic=False,
+        )
+
+        mask_generator.predictor.model.sam_mask_decoder = torch.compile(
+            mask_generator.predictor.model.sam_mask_decoder,
+            mode="max-autotune-no-cudagraphs",
+            fullgraph=True,
+            dynamic=False,
+        )
+
+        mask_generator.predictor._transforms.postprocess_masks = torch.compile(
+            mask_generator._process_batch_fullgraph_masks,
+            fullgraph=True,
+            dynamic=True,
+        )
+
+        mask_generator._process_batch_fullgraph_masks = torch.compile(
+            mask_generator._process_batch_fullgraph_masks,
             fullgraph=True,
             dynamic=True,
         )

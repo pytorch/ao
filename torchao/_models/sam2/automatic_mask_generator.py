@@ -509,6 +509,9 @@ class SAM2AutomaticMaskGenerator:
                 return_logits=True,
             )
 
+        return self._process_batch_fullgraph_masks(masks, iou_preds, low_res_masks, points, normalize, im_size, crop_box, crop_box_torch, orig_box_torch)
+
+    def _process_batch_fullgraph_masks(self, masks, iou_preds, low_res_masks, points, normalize, im_size, crop_box, crop_box_torch, orig_box_torch):
         # Serialize predictions and store in MaskData
         with torch.autograd.profiler.record_function("MaskData"):
             data = MaskData(
