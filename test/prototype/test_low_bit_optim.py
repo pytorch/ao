@@ -150,6 +150,57 @@ class TestOptim(TestCase):
 
         for p1, p2 in zip(model.parameters(), model2.parameters()):
             torch.testing.assert_close(p2, p1)
+    
+    @pytest.mark.skipif(
+        not TORCH_VERSION_AT_LEAST_2_4, reason="FP8 CUDA requires PyTorch >= 2.4"
+    )
+    @pytest.mark.skipif(
+        torch.cuda.get_device_capability() < (8, 9), reason="FP8 CUDA requires compute capability >= 8.9"
+    )
+    @parametrize(
+        "optim_name",
+        ["AdamFp8", "AdamWFp8"],
+    )
+    @parametrize("dtype", [torch.float32, torch.bfloat16])
+    @parametrize("device", _DEVICES)
+    @parametrize("optim_addon",["dynamic_range_expansion"])
+    def test_optim_addons(self, optim_name, dtype, device, optim_addon):
+        
+        model = nn.Sequential(nn.Linear(32, 256), nn.ReLU(), nn.Linear(256, 32))
+        model.to(device=device, dtype=dtype)
+
+        optim_params = {optim_addon: True}
+        optim = getattr(low_bit_optim, optim_name)(model.parameters(), **optim_params)
+
+        x = torch.randn(4, 32, device=device, dtype=dtype)
+        loss = model(x).sum()
+        loss.backward()
+        optim.step()
+        optim.zero_grad()
+
+        # test serialization. also test the case CUDA optim loads CPU state dict
+        with tempfile.NamedTemporaryFile() as f:
+            torch.save(optim.state_dict(), f.name)
+            state_dict = torch.load(f.name, map_location="cpu")
+
+        model2 = copy.deepcopy(model)
+        optim2 = getattr(low_bit_optim, optim_name)(model2.parameters())
+        optim2.load_state_dict(state_dict)
+
+        for _ in range(2):
+            x = torch.randn(4, 32, device=device, dtype=dtype)
+
+            model(x).sum().backward()
+            optim.step()
+            optim.zero_grad()
+
+            model2(x).sum().backward()
+            optim2.step()
+            optim2.zero_grad()
+
+        for p1, p2 in zip(model.parameters(), model2.parameters()):
+            torch.testing.assert_close(p2, p1)
+
 
     @pytest.mark.skipif(bnb is None, reason="bitsandbytes is not available")
     @pytest.mark.skipif(
