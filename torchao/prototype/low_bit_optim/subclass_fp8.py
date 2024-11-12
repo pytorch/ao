@@ -42,7 +42,7 @@ class OptimStateFp8(TorchAOBaseTensor):
     tensor_attrs = ["codes", "scale"]
 
     @staticmethod
-    def __new__(cls, codes: Tensor, scale: Tensor):
+    def __new__(cls, codes: Tensor, scale: Tensor, k: Optional[Tensor] =None):
         return Tensor._make_wrapper_subclass(cls, codes.shape, device=codes.device)
 
     def __init__(self, codes: Tensor, scale: Tensor, k: Optional[Tensor] =None):
